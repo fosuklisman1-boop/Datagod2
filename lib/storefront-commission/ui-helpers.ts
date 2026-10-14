@@ -1,5 +1,6 @@
 import type { CashbackConfig } from "@/lib/cashback/config"
 import { quoteStorefront } from "@/lib/cashback/quote"
+import { isValidAmountInput } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 
 /** Per-network storefront airtime terms from /api/shop/airtime/public-constraints (`cashback.<network>`). */
@@ -120,3 +121,124 @@ export function orderView(status: string | undefined, paymentStatus: string | un
 }
 
 export const isFinalView = (v: OrderView): boolean => v === "delivered" || v === "failed"
+
+// ───────────────────────── bills ─────────────────────────
+
+export interface BillerTermsView { applied: boolean; rate: number; share: number; feeRate: number }
+export interface StorefrontBiller {
+  key: string
+  label: string
+  logo: string
+  inputHint: string
+  page: "bills" | "broadband"
+  min: number
+  max: number
+  terms: BillerTermsView
+}
+
+/** Defensive parse of availability.bills.billers; malformed entries are dropped. */
+export function parseStorefrontBillers(json: unknown): StorefrontBiller[] {
+  if (!Array.isArray(json)) return []
+  const out: StorefrontBiller[] = []
+  for (const b of json) {
+    if (!b || typeof b.key !== "string" || typeof b.label !== "string" || !finite(b.min) || !finite(b.max)) continue
+    const t = b.terms ?? {}
+    out.push({
+      key: b.key,
+      label: b.label,
+      logo: typeof b.logo === "string" ? b.logo : `/billers/${b.key}.png`,
+      inputHint: typeof b.inputHint === "string" ? b.inputHint : "Account number",
+      page: b.page === "broadband" ? "broadband" : "bills",
+      min: b.min,
+      max: b.max,
+      terms: {
+        applied: t.applied === true && finite(t.rate) && finite(t.share),
+        rate: finite(t.rate) ? t.rate : 0,
+        share: finite(t.share) ? t.share : 0,
+        feeRate: finite(t.feeRate) ? t.feeRate : 0,
+      },
+    })
+  }
+  return out
+}
+
+export interface BillStorefrontPrice { pay: number; customerCashback: number; paymentFee: number }
+
+/** Same maths as the server (quoteStorefront on a minimal config): face - customer cashback + payment fee. */
+export function billStorefrontPrice(face: number, billerKey: string, terms: BillerTermsView): BillStorefrontPrice {
+  const none: BillStorefrontPrice = { pay: face, customerCashback: 0, paymentFee: 0 }
+  if (!Number.isFinite(face) || face <= 0) return none
+  const serviceKey = `bill_${billerKey}`
+  const s = terms.applied ? terms.share : 0
+  const cfg: CashbackConfig = {
+    enabled: true,
+    surfaces: { dashboard: true, bots: true, storefront: true, api: true },
+    rates: { [`${serviceKey}:hubtel`]: terms.applied ? terms.rate : 0 },
+    shares: {
+      airtime: { customer: 0, dealer: 0, storefrontCustomer: 0, storefrontShop: 0 },
+      bundles: { customer: 0, dealer: 0, storefrontCustomer: 0, storefrontShop: 0 },
+      bills: { customer: s, dealer: s, storefrontCustomer: s, storefrontShop: 0 },
+      overrides: {},
+    },
+    paymentFee: { airtime: 0, bundles: 0, bills: terms.feeRate },
+    storefrontGroups: { airtime: false, bundles: false, bills: true },
+  }
+  const q = quoteStorefront({ serviceKey, provider: "hubtel", faceAmount: face, buyer: "customer" }, cfg)
+  return { pay: q.payAmount, customerCashback: q.customerCashback, paymentFee: q.paymentFee }
+}
+
+/** Amount field check: up to 2 decimals and within the biller's limits. Returns the number or null. */
+export function parseBillAmount(input: string, min: number, max: number): number | null {
+  if (!isValidAmountInput(input.trim())) return null
+  const n = Number(input)
+  return Number.isFinite(n) && n >= min && n <= max ? n : null
+}
+
+/** "20.00" for the amount field, or "" when there is nothing due. */
+export function suggestedAmountText(suggested: unknown): string {
+  return finite(suggested) && suggested > 0 ? suggested.toFixed(2) : ""
+}
+
+export interface StorefrontMeter { meter: string; name: string | null; outstanding: number | null; token: string }
+
+/** Defensive parse of /api/shop/bills/verify (names arrive masked). */
+export function parseBillVerify(json: unknown):
+  | { ok: true; token: string | null; name: string | null; due: number | null; suggested: number; meters: StorefrontMeter[] }
+  | { ok: false; error: string } {
+  const j = json as Record<string, any> | null
+  if (!j || j.success !== true) return { ok: false, error: typeof j?.error === "string" && j.error ? j.error : "Could not verify. Please try again." }
+  const meters: StorefrontMeter[] = []
+  if (Array.isArray(j.meters)) {
+    for (const m of j.meters) {
+      if (typeof m?.meter !== "string" || typeof m?.token !== "string") continue
+      meters.push({ meter: m.meter, name: typeof m.name === "string" ? m.name : null, outstanding: finite(m.outstanding) ? m.outstanding : null, token: m.token })
+    }
+  }
+  return {
+    ok: true,
+    token: typeof j.token === "string" ? j.token : null,
+    name: typeof j.customerName === "string" ? j.customerName : null,
+    due: finite(j.amountDue) ? j.amountDue : null,
+    suggested: finite(j.suggestedAmount) ? j.suggestedAmount : 0,
+    meters,
+  }
+}
+
+// ───────────────────────── payer-phone OTP ─────────────────────────
+
+/** True when an initialize response says the payer's phone must be OTP-verified first. */
+export function isOtpRequiredResponse(status: number, json: unknown): boolean {
+  return status === 403 && (json as { code?: unknown } | null)?.code === "OTP_REQUIRED"
+}
+
+/** A phone the OTP routes will accept (0XXXXXXXXX / XXXXXXXXX / 233...). */
+export function isOtpPhone(phone: string): boolean {
+  return normalizeGhanaPhone(phone.trim()) !== null
+}
+
+/** Bill initialize answers that mean the single-use verification is spent or invalid: the customer must verify again. */
+export function billNeedsReverify(status: number, json: unknown): boolean {
+  const j = json as { error?: unknown; quote?: unknown } | null
+  if (status === 409) return !j?.quote
+  return status === 400 && typeof j?.error === "string" && /verify/i.test(j.error)
+}

@@ -55,6 +55,8 @@ import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerSt
 import { ResultsCheckServiceForm } from "@/components/shop/ResultsCheckServiceForm"
 import { VoucherLookup } from "@/components/shop/VoucherLookup"
 import { BundlesTab } from "@/components/storefront-commission/BundlesTab"
+import { BillsTab } from "@/components/storefront-commission/BillsTab"
+import { parseStorefrontBillers, type StorefrontBiller } from "@/lib/storefront-commission/ui-helpers"
 import { SubAgentRequestForm } from "@/components/shop/SubAgentRequestForm"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
@@ -154,7 +156,8 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
   // Which service's content shows below the persistent "Choose a Service"
   // picker -- picking a service no longer navigates away from it (previously
   // it did, via a separate activeTab value, which made the picker disappear).
-  const [selectedService, setSelectedService] = useState<"data" | "airtime" | "vouchers" | "bundles">(allowedServices[0])
+  const [selectedService, setSelectedService] = useState<"data" | "airtime" | "vouchers" | "bundles" | "bills">(allowedServices[0])
+  const [storefrontBillers, setStorefrontBillers] = useState<StorefrontBiller[]>([])
   // Commission-funded Bundles tab: shown only while this storefront may sell them (fails closed on any error).
   const [bundleNetworks, setBundleNetworks] = useState<{ network: string; label: string }[]>([])
   const [rcTab, setRcTab] = useState<"buy" | "retrieve" | "check">("buy")
@@ -338,8 +341,11 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
       .catch(() => {})
     fetch(`/api/shop/commission/availability?shop=${encodeURIComponent(shopSlug)}`)
       .then(r => r.ok ? r.json() : null)
-      .then(d => setBundleNetworks(d?.bundles?.enabled && Array.isArray(d.bundles.networks) ? d.bundles.networks : []))
-      .catch(() => setBundleNetworks([]))
+      .then(d => {
+        setBundleNetworks(d?.bundles?.enabled && Array.isArray(d.bundles.networks) ? d.bundles.networks : [])
+        setStorefrontBillers(d?.bills?.enabled ? parseStorefrontBillers(d.bills.billers) : [])
+      })
+      .catch(() => { setBundleNetworks([]); setStorefrontBillers([]) })
   }, [shopSlug])
 
   useEffect(() => {
@@ -1039,6 +1045,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
     ...(allowedServices.includes("data") ? [{ label: "Data Packages", icon: <ShoppingCart className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("data"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "data" }] : []),
     ...(allowedServices.includes("airtime") ? [{ label: "Airtime Recharge", icon: <Zap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("airtime"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "airtime" }] : []),
     ...(allowedServices.includes("data") && bundleNetworks.length > 0 ? [{ label: "Bundles", icon: <ShoppingCart className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("bundles"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "bundles" }] : []),
+    ...(allowedServices.includes("data") && storefrontBillers.length > 0 ? [{ label: "Bills", icon: <Zap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("bills"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "bills" }] : []),
     ...(allowedServices.includes("vouchers") ? [{ label: "Results Checker", icon: <GraduationCap className="w-4 h-4" />, onClick: () => { setActiveTab("home"); setSelectedService("vouchers"); setRcTab("buy"); setSidebarOpen(false) }, isActive: activeTab === "home" && selectedService === "vouchers" && rcTab === "buy" }] : []),
     ...(shop?.afa_price != null ? [{
       label: "AFA Registration", icon: <IdCard className="w-4 h-4" />,
@@ -1593,6 +1600,10 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                 ) : selectedService === "bundles" ? (
                   <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <BundlesTab shopSlug={shopSlug} networks={bundleNetworks} />
+                  </div>
+                ) : selectedService === "bills" ? (
+                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <BillsTab shopSlug={shopSlug} billers={storefrontBillers} />
                   </div>
                 ) : (
                   /* Results Checker Vouchers Section */

@@ -75,3 +75,72 @@ describe("orderView", () => {
     expect(isFinalView("processing")).toBe(false)
   })
 })
+
+import {
+  billStorefrontPrice, isOtpPhone, isOtpRequiredResponse, parseBillAmount, parseBillVerify, parseStorefrontBillers, suggestedAmountText,
+} from "./ui-helpers"
+
+describe("bills helpers", () => {
+  const biller = { key: "ecg", label: "ECG", logo: "/billers/ecg.png", inputHint: "Meter number", page: "bills", min: 1, max: 5000, terms: { applied: true, rate: 2, share: 50, feeRate: 1.5 } }
+
+  it("parseStorefrontBillers keeps good entries and defaults terms", () => {
+    const out = parseStorefrontBillers([biller, { key: "x" }, null, { ...biller, key: "dstv", terms: undefined }])
+    expect(out.map(b => b.key)).toEqual(["ecg", "dstv"])
+    expect(out[1].terms).toEqual({ applied: false, rate: 0, share: 0, feeRate: 0 })
+    expect(parseStorefrontBillers("nope")).toEqual([])
+  })
+
+  it("billStorefrontPrice: cashback then fee on the discounted base", () => {
+    const p = billStorefrontPrice(100, "ecg", biller.terms)
+    expect(p.customerCashback).toBe(1)
+    expect(p.paymentFee).toBe(1.49)
+    expect(p.pay).toBe(100.49)
+  })
+  it("billStorefrontPrice: fee only when cashback not applied; face when nothing applies", () => {
+    expect(billStorefrontPrice(100, "ecg", { applied: false, rate: 0, share: 0, feeRate: 1 })).toEqual({ pay: 101, customerCashback: 0, paymentFee: 1 })
+    expect(billStorefrontPrice(100, "ecg", { applied: false, rate: 0, share: 0, feeRate: 0 })).toEqual({ pay: 100, customerCashback: 0, paymentFee: 0 })
+    expect(billStorefrontPrice(0, "ecg", biller.terms).pay).toBe(0)
+  })
+
+  it("parseBillAmount enforces 2 decimals and limits", () => {
+    expect(parseBillAmount("20.5", 1, 100)).toBe(20.5)
+    expect(parseBillAmount("20.555", 1, 100)).toBeNull()
+    expect(parseBillAmount("0.5", 1, 100)).toBeNull()
+    expect(parseBillAmount("101", 1, 100)).toBeNull()
+    expect(parseBillAmount("", 1, 100)).toBeNull()
+  })
+  it("suggestedAmountText", () => {
+    expect(suggestedAmountText(12.5)).toBe("12.50")
+    expect(suggestedAmountText(0)).toBe("")
+    expect(suggestedAmountText(undefined)).toBe("")
+  })
+
+  it("parseBillVerify reads a single account and a meter list, and errors", () => {
+    const one = parseBillVerify({ success: true, customerName: "KOF***", amountDue: 40, suggestedAmount: 40, token: "t" })
+    expect(one).toMatchObject({ ok: true, token: "t", name: "KOF***", due: 40, suggested: 40, meters: [] })
+    const many = parseBillVerify({ success: true, meters: [{ meter: "123", name: "A***", outstanding: null, token: "m" }, { meter: 5 }] })
+    expect(many).toMatchObject({ ok: true, token: null })
+    expect(many.ok && many.meters).toEqual([{ meter: "123", name: "A***", outstanding: null, token: "m" }])
+    expect(parseBillVerify({ error: "Not available" })).toEqual({ ok: false, error: "Not available" })
+    expect(parseBillVerify(null)).toMatchObject({ ok: false })
+  })
+
+  it("OTP helpers", () => {
+    expect(isOtpRequiredResponse(403, { code: "OTP_REQUIRED" })).toBe(true)
+    expect(isOtpRequiredResponse(400, { code: "OTP_REQUIRED" })).toBe(false)
+    expect(isOtpRequiredResponse(403, { error: "x" })).toBe(false)
+    expect(isOtpPhone("0241234567")).toBe(true)
+    expect(isOtpPhone("123")).toBe(false)
+  })
+})
+
+import { billNeedsReverify } from "./ui-helpers"
+describe("billNeedsReverify", () => {
+  it("409 without a quote and 400 'verify again' drop the token; price changes and other errors keep it", () => {
+    expect(billNeedsReverify(409, { error: "This verification was already used, please verify again" })).toBe(true)
+    expect(billNeedsReverify(409, { error: "Price updated", quote: { payAmount: 1 } })).toBe(false)
+    expect(billNeedsReverify(400, { error: "Please verify the account again" })).toBe(true)
+    expect(billNeedsReverify(400, { error: "Enter a valid email address" })).toBe(false)
+    expect(billNeedsReverify(500, null)).toBe(false)
+  })
+})

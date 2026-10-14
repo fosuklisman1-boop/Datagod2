@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
+import { PayerOtpStep, usePayerOtp } from "@/components/storefront-commission/PayerOtp"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
 import { bundleReceiveLabel, parsePriceChange } from "@/lib/cashback/display"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
@@ -16,7 +17,7 @@ import {
 } from "@/lib/standard-bundles/ui-helpers"
 import { newUuid } from "@/lib/standard-bundles/uuid"
 import {
-  bundlePriceParts, parseStorefrontCatalog, validateBuyer, type StorefrontBundle, type StorefrontCategory,
+  bundlePriceParts, isOtpRequiredResponse, parseStorefrontCatalog, validateBuyer, type StorefrontBundle, type StorefrontCategory,
 } from "@/lib/storefront-commission/ui-helpers"
 
 interface Props {
@@ -49,6 +50,7 @@ export function BundlesTab({ shopSlug, networks }: Props) {
   const [turnstileToken, setTurnstileToken] = useState("")
   const [turnstileNonce, setTurnstileNonce] = useState(0)
   const [honeypot, setHoneypot] = useState("")
+  const otp = usePayerOtp(buyerPhone)
   const [prefixRules, setPrefixRules] = useState<PrefixRules | null>(null)
 
   useEffect(() => {
@@ -127,6 +129,7 @@ export function BundlesTab({ shopSlug, networks }: Props) {
     if (recipientError) { setFormError(recipientError); return }
     const buyerError = validateBuyer({ email: buyerEmail, phone: buyerPhone })
     if (buyerError) { setFormError(buyerError); return }
+    if (otp.blocking) { setFormError("Please verify your phone number first."); return }
     if (turnstileEnabled && !turnstileToken) { setFormError("Please complete the security check."); return }
 
     setFormError(null)
@@ -176,6 +179,14 @@ export function BundlesTab({ shopSlug, networks }: Props) {
         if (!payJson?.authorizationUrl) throw new Error("No payment URL received")
         window.location.href = payJson.authorizationUrl
         return // keep the button busy while the browser navigates
+      }
+
+      if (httpStatus !== null && isOtpRequiredResponse(httpStatus, json)) {
+        // Nothing was created: verify the payer phone, then submit again (the same key resumes).
+        otp.require()
+        setFormError("Please verify your phone number to continue.")
+        setSubmitting(false)
+        return
       }
 
       const change = httpStatus === null ? null : parsePriceChange(httpStatus, json)
@@ -318,6 +329,8 @@ export function BundlesTab({ shopSlug, networks }: Props) {
                 <PriceSummary pay={pay} receive={bundleReceiveLabel(selected.category, selected.display)} balance={null} />
               </div>
 
+              <PayerOtpStep otp={otp} />
+
               <HoneypotField value={honeypot} onChange={setHoneypot} />
 
               {turnstileEnabled && (
@@ -330,7 +343,7 @@ export function BundlesTab({ shopSlug, networks }: Props) {
 
               <Button
                 type="submit"
-                disabled={submitting || (turnstileEnabled && !turnstileToken)}
+                disabled={submitting || otp.blocking || (turnstileEnabled && !turnstileToken)}
                 className="w-full rounded-2xl bg-[var(--shop-accent)] py-4 text-base font-bold text-white hover:bg-[var(--shop-accent)]/90"
               >
                 {submitting ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</>) : `Pay GHS ${pay.toFixed(2)}`}

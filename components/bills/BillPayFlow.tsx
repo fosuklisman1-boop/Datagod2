@@ -431,7 +431,7 @@ function PaySheet({
 }
 
 /** ECG meter entry: Prepaid takes the meter number, Postpaid the account number (Hubtel sends either as the bundle). */
-function EcgMeterInput({ type, onType, value, onChange }: {
+export function EcgMeterInput({ type, onType, value, onChange }: {
   type: "prepaid" | "postpaid"; onType: (t: "prepaid" | "postpaid") => void; value: string; onChange: (v: string) => void
 }) {
   return (
