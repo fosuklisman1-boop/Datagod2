@@ -9,7 +9,7 @@ import { Phone, CheckCircle2, Circle, RefreshCw, ArrowRight, Clock, History as H
 import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/PurchaseSheet"
 import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
-import { airtimeReceiveLabel, airtimeServiceKey, parsePriceChange, quoteForDisplay, type RatesResponse } from "@/lib/cashback/display"
+import { airtimePagePrice, airtimeReceiveLabel, airtimeServiceKey, parsePriceChange, type RatesResponse } from "@/lib/cashback/display"
 import { airtimeEnabledKey, airtimeFeeKey, legacyAirtimePrice } from "@/lib/airtime-fee"
 
 const NETWORKS = ["MTN", "Telecel", "AT"]
@@ -103,10 +103,12 @@ export default function AirtimePage() {
     recipient?: number; fee?: number; feeRate?: number
   } | null>(null)
   const [priceNotice, setPriceNotice] = useState("")
-  const quote = quoteForDisplay(numAmount, rates.services[airtimeServiceKey(network)])
   const forced = serverPrice && serverPrice.key === priceKey && serverPrice.rates === rates ? serverPrice : null
-  const cashbackOn = forced ? forced.cashback > 0 : quote.applied
-  const payShown = forced ? forced.pay : quote.applied ? quote.pay : totalPaid
+  // Cashback pricing is a property of the network (no fee, no "pay separately"), not of the typed amount.
+  // After a 409 the server's breakdown decides (feeRate 0 = cashback pricing).
+  const pagePrice = airtimePagePrice(numAmount, rates.services[airtimeServiceKey(network)], totalPaid)
+  const cashbackOn = forced ? forced.feeRate === 0 || forced.cashback > 0 : pagePrice.cashbackOn
+  const payShown = forced ? forced.pay : pagePrice.pay
   // Legacy breakdown lines: the server's when it sent one with its 409, so they add up to "You pay".
   const airtimeToRecipient = forced?.recipient ?? legacy.toRecipient
   const feeAmount = forced?.fee ?? legacy.fee
@@ -205,8 +207,7 @@ export default function AirtimePage() {
     setPriceNotice("")
     // Re-fetch old rates before charging; if the price moved, show it and require another tap.
     const fresh = await ensureFresh()
-    const freshQuote = quoteForDisplay(numAmount, fresh.services[airtimeServiceKey(network)])
-    const freshPay = forced ? forced.pay : freshQuote.applied ? freshQuote.pay : totalPaid
+    const freshPay = forced ? forced.pay : airtimePagePrice(numAmount, fresh.services[airtimeServiceKey(network)], totalPaid).pay
     if (Math.round(freshPay * 100) !== Math.round(payShown * 100)) {
       setPriceNotice("The price has changed. Please review the new price and tap again.")
       setSubmitting(false)

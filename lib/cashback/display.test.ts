@@ -1,7 +1,26 @@
 import { describe, expect, it } from "vitest"
 import { resolveCashbackConfig } from "./config"
 import { quoteCashback } from "./quote"
-import { priceLabel, quoteForDisplay, shortfall } from "./display"
+import { airtimePagePrice, priceLabel, quoteForDisplay, shortfall } from "./display"
+
+describe("airtimePagePrice", () => {
+  const mtn = { provider: "hubtel", rate: 3.96, share: 25, maxFace: 100 }
+  it("no rate entry: legacy fee total, toggle shown", () => {
+    expect(airtimePagePrice(10, undefined, 10.7)).toEqual({ cashbackOn: false, pay: 10.7 })
+  })
+  it("entry + typed amount: cashback price", () => {
+    expect(airtimePagePrice(10, mtn, 10.7)).toEqual({ cashbackOn: true, pay: 9.91 })
+  })
+  it("entry, nothing typed yet: cashback mode (toggle hidden)", () => {
+    expect(airtimePagePrice(0, mtn, 0)).toEqual({ cashbackOn: true, pay: 0 })
+  })
+  it("entry, GHS 1 (cashback rounds to 0): cashback mode, pay face (no fee)", () => {
+    expect(airtimePagePrice(1, mtn, 1.07)).toEqual({ cashbackOn: true, pay: 1 })
+  })
+  it("above Hubtel cap: legacy fee path like the server", () => {
+    expect(airtimePagePrice(101, mtn, 108.07)).toEqual({ cashbackOn: false, pay: 108.07 })
+  })
+})
 
 describe("display helpers", () => {
   const entry = { provider: "hubtel", rate: 3.96, share: 25 }

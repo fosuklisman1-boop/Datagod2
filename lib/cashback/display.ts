@@ -38,6 +38,19 @@ export function quoteForDisplay(face: number, entry: RateEntry | undefined): Dis
   return q.applied ? { pay: q.payAmount, cashback: q.customerCashback, applied: true } : none
 }
 
+/**
+ * Airtime page pricing mode. Cashback pricing (no fee, no "pay separately") is a property of the network:
+ * on whenever the network has a rate entry and the amount is within Hubtel's cap — even before an amount
+ * is typed or when a small amount's cashback rounds to 0 (the server then charges face, not the fee).
+ * Otherwise the legacy fee total applies. Mirrors purchaseAirtime's server-side choice.
+ */
+export function airtimePagePrice(face: number, entry: RateEntry | undefined, legacyTotal: number): { cashbackOn: boolean; pay: number } {
+  const eligible = !!entry && (entry.maxFace === undefined || face <= entry.maxFace)
+  if (!eligible) return { cashbackOn: false, pay: legacyTotal }
+  const q = quoteForDisplay(face, entry)
+  return { cashbackOn: true, pay: q.applied ? q.pay : face }
+}
+
 const ghs = (n: number): string => `GHS ${n.toFixed(2)}`
 
 /** "GHS 2.90 (was GHS 3.00)" when cashback applies, else "GHS 3.00". */

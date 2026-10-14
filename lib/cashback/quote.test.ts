@@ -60,8 +60,14 @@ describe("quoteCashback", () => {
     notApplied(quoteCashback(inp({ serviceKey: "airtime_mtn" }), cfg((c) => { c.shares.airtime.customer = 0 })))
     notApplied(quoteCashback(inp({ buyer: "dealer" }), cfg((c) => { c.shares.airtime.dealer = 0 })))
   })
-  it("face 0.01 with high rate floors to 0 and is not applied", () => {
-    notApplied(quoteCashback(inp({ faceAmount: 0.01 }), cfg((c) => { c.rates["airtime_mtn:hubtel"] = 20; c.shares.airtime.customer = 100 })), 0.01)
+  it("eligible but cashback floors to 0 (GHS 1 at 3.96% x 25%) is still applied: pay face, no fee", () => {
+    const q = quoteCashback(inp({ faceAmount: 1 }), cfg())
+    expect(q).toMatchObject({ applied: true, customerCashback: 0, shopShare: 0, payAmount: 1, share: 25, rate: 3.96 })
+    expect(q.datagodKeeps).toBe(0.0396)
+  })
+  it("face 0.01 with high rate floors to 0: applied at face", () => {
+    const q = quoteCashback(inp({ faceAmount: 0.01 }), cfg((c) => { c.rates["airtime_mtn:hubtel"] = 20; c.shares.airtime.customer = 100 }))
+    expect(q).toMatchObject({ applied: true, customerCashback: 0, payAmount: 0.01 })
   })
   it("floating edge: face 1.15, rate 3.96, share 50 -> 2 pesewas", () => {
     const q = quoteCashback(inp({ faceAmount: 1.15, buyer: "dealer" }), cfg())

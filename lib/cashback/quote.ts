@@ -53,7 +53,8 @@ export function quoteCashback(i: QuoteInput, cfg: CashbackConfig): CashbackQuote
   const facePesewas = toPesewas(i.faceAmount)
   const customerP = floorShare(facePesewas, rate, share)
   const shopP = storefront ? floorShare(facePesewas, rate, shares.storefrontShop) : 0
-  if (customerP + shopP <= 0) return notApplied(i)
+  // Eligible but the floor gives 0 pesewas (small amounts): still a cashback-priced sale — the old fee is gone
+  // wherever cashback is on, so the buyer pays face (applied, cashback 0) instead of falling back to the fee.
   // Guarantee: never give away more than the provider commission, and never charge below 1 pesewa.
   if (customerP + shopP > (facePesewas * rate) / 100 + 1e-9) return notApplied(i)
   if (facePesewas - customerP < 1) return notApplied(i)
