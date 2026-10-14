@@ -4,9 +4,12 @@ import { isServiceKey } from "../hubtel-cs/services"
 export const CASHBACK_CONFIG_KEY = "commission_cashback_config"
 
 export const CASHBACK_CHANNELS = ["dashboard", "bots", "storefront", "api"] as const
-/** Surfaces that may be switched on. bots stays off until a later part wires its pricing. */
-export const SUPPORTED_SURFACES = ["dashboard", "storefront", "api"] as const
+/** Surfaces that may be switched on. */
+export const SUPPORTED_SURFACES = ["dashboard", "bots", "storefront", "api"] as const
 export const CASHBACK_GROUPS = ["airtime", "bundles", "bills"] as const
+/** Payment rails a bot order can be paid through (each has its own fee set). */
+export const BOT_RAILS = ["paystack", "hubtel"] as const
+export type BotRail = (typeof BOT_RAILS)[number]
 export const CASHBACK_PROVIDERS = ["hubtel", "digiwapy"] as const
 export const SHARE_FIELDS = ["customer", "dealer", "storefrontCustomer", "storefrontShop"] as const
 
@@ -29,6 +32,10 @@ export interface CashbackConfig {
   paymentFee: Record<CashbackGroup, number>
   /** Per-group storefront switch. */
   storefrontGroups: Record<CashbackGroup, boolean>
+  /** Per-group bots switch. */
+  botGroups: Record<CashbackGroup, boolean>
+  /** Bot payment-fee percentage per rail per group (0-10, 2 dp). */
+  botFees: Record<BotRail, Record<CashbackGroup, number>>
 }
 /** Patch shape: top-level keys replace; surfaces / rates / shares merge one level (as the 0119 RPC does). */
 export interface CashbackPatch {
@@ -38,6 +45,8 @@ export interface CashbackPatch {
   shares?: Partial<Record<CashbackGroup, GroupShares>> & { overrides?: Record<string, Partial<GroupShares>> }
   paymentFee?: Partial<Record<CashbackGroup, number>>
   storefrontGroups?: Partial<Record<CashbackGroup, boolean>>
+  botGroups?: Partial<Record<CashbackGroup, boolean>>
+  botFees?: Partial<Record<BotRail, Partial<Record<CashbackGroup, number>>>>
 }
 
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v)
@@ -104,11 +113,20 @@ export function resolveCashbackConfig(raw: unknown): CashbackConfig {
   shares.overrides = overrides
   const paymentFee = {} as Record<CashbackGroup, number>
   const storefrontGroups = {} as Record<CashbackGroup, boolean>
+  const botGroups = {} as Record<CashbackGroup, boolean>
   for (const g of CASHBACK_GROUPS) {
     paymentFee[g] = isObj(r.paymentFee) && validFee(r.paymentFee[g]) ? r.paymentFee[g] : 0
     storefrontGroups[g] = isObj(r.storefrontGroups) && r.storefrontGroups[g] === true
+    botGroups[g] = isObj(r.botGroups) && r.botGroups[g] === true
   }
-  return { enabled: r.enabled === true, surfaces, rates, shares, paymentFee, storefrontGroups }
+  const botFees = {} as Record<BotRail, Record<CashbackGroup, number>>
+  for (const rail of BOT_RAILS) {
+    const src = isObj(r.botFees) && isObj(r.botFees[rail]) ? r.botFees[rail] : {}
+    const out = {} as Record<CashbackGroup, number>
+    for (const g of CASHBACK_GROUPS) out[g] = validFee(src[g]) ? src[g] : 0
+    botFees[rail] = out
+  }
+  return { enabled: r.enabled === true, surfaces, rates, shares, paymentFee, storefrontGroups, botGroups, botFees }
 }
 
 export function effectiveShares(cfg: CashbackConfig, serviceKey: string): GroupShares {
@@ -131,6 +149,11 @@ export function mergeCashbackPatch(current: CashbackConfig, patch: CashbackPatch
     shares: { ...current.shares, ...patchGroups, overrides } as CashbackConfig["shares"],
     paymentFee: { ...current.paymentFee, ...(patch.paymentFee ?? {}) },
     storefrontGroups: { ...current.storefrontGroups, ...(patch.storefrontGroups ?? {}) },
+    botGroups: { ...current.botGroups, ...(patch.botGroups ?? {}) },
+    botFees: {
+      paystack: { ...current.botFees.paystack, ...(patch.botFees?.paystack ?? {}) },
+      hubtel: { ...current.botFees.hubtel, ...(patch.botFees?.hubtel ?? {}) },
+    },
   }
 }
 
@@ -160,7 +183,7 @@ export function validateCashbackPatch(
   current: CashbackConfig,
 ): { ok: true; patch: CashbackPatch } | { ok: false; error: string } {
   if (!isObj(body)) return { ok: false, error: "Body must be an object" }
-  const allowed = new Set(["enabled", "surfaces", "rates", "shares", "paymentFee", "storefrontGroups"])
+  const allowed = new Set(["enabled", "surfaces", "rates", "shares", "paymentFee", "storefrontGroups", "botGroups", "botFees"])
   for (const k of Object.keys(body)) if (!allowed.has(k)) return { ok: false, error: `Unknown field ${k}` }
   const patch: CashbackPatch = {}
 
@@ -175,7 +198,7 @@ export function validateCashbackPatch(
       if (!(CASHBACK_CHANNELS as readonly string[]).includes(k)) return { ok: false, error: `Unknown surface ${k}` }
       if (typeof v !== "boolean") return { ok: false, error: `surfaces.${k} must be true or false` }
       if (v && !(SUPPORTED_SURFACES as readonly string[]).includes(k)) {
-        return { ok: false, error: `surfaces.${k} cannot be enabled yet: only the dashboard, storefront and api surfaces are supported` }
+        return { ok: false, error: `surfaces.${k} cannot be enabled yet: only the dashboard, bots, storefront and api surfaces are supported` }
       }
       out[k as CashbackChannel] = v
     }
@@ -210,6 +233,32 @@ export function validateCashbackPatch(
       out[k as CashbackGroup] = v
     }
     patch.storefrontGroups = out
+  }
+  if ("botGroups" in body) {
+    if (!isObj(body.botGroups)) return { ok: false, error: "botGroups must be an object" }
+    const out: Partial<Record<CashbackGroup, boolean>> = {}
+    for (const [k, v] of Object.entries(body.botGroups)) {
+      if (!(CASHBACK_GROUPS as readonly string[]).includes(k)) return { ok: false, error: `Unknown botGroups group ${k}` }
+      if (typeof v !== "boolean") return { ok: false, error: `botGroups.${k} must be true or false` }
+      out[k as CashbackGroup] = v
+    }
+    patch.botGroups = out
+  }
+  if ("botFees" in body) {
+    if (!isObj(body.botFees)) return { ok: false, error: "botFees must be an object" }
+    const out: NonNullable<CashbackPatch["botFees"]> = {}
+    for (const [rail, fees] of Object.entries(body.botFees)) {
+      if (!(BOT_RAILS as readonly string[]).includes(rail)) return { ok: false, error: `Unknown botFees rail ${rail}` }
+      if (!isObj(fees)) return { ok: false, error: `botFees.${rail} must be an object` }
+      const railOut: Partial<Record<CashbackGroup, number>> = {}
+      for (const [k, v] of Object.entries(fees)) {
+        if (!(CASHBACK_GROUPS as readonly string[]).includes(k)) return { ok: false, error: `Unknown botFees.${rail} group ${k}` }
+        if (!validFee(v)) return { ok: false, error: `botFees.${rail}.${k} must be a number from 0 to ${MAX_PAYMENT_FEE} with at most 2 decimals` }
+        railOut[k as CashbackGroup] = v
+      }
+      out[rail as BotRail] = railOut
+    }
+    patch.botFees = out
   }
   if ("shares" in body) {
     if (!isObj(body.shares)) return { ok: false, error: "shares must be an object" }
@@ -273,6 +322,9 @@ export async function setCashbackConfig(db: SupabaseClient, patch: CashbackPatch
   if (patch.shares) toSend.shares = merged.shares
   if (patch.paymentFee) toSend.paymentFee = merged.paymentFee
   if (patch.storefrontGroups) toSend.storefrontGroups = merged.storefrontGroups
+  if (patch.botGroups) toSend.botGroups = merged.botGroups
+  // botFees is a top-level key the RPC replaces wholesale: always send both rails, every group.
+  if (patch.botFees) toSend.botFees = merged.botFees
   const { data, error } = await db.rpc("commission_cashback_config_patch", { p_patch: toSend })
   if (error) throw error
   return resolveCashbackConfig(data)

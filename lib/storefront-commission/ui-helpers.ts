@@ -48,6 +48,8 @@ export function airtimeStorefrontPrice(face: number, terms: AirtimeTerms | null)
     },
     paymentFee: { airtime: terms.feeRate, bundles: 0, bills: 0 },
     storefrontGroups: { airtime: true, bundles: false, bills: false },
+    botGroups: { airtime: false, bundles: false, bills: false },
+    botFees: { paystack: { airtime: 0, bundles: 0, bills: 0 }, hubtel: { airtime: 0, bundles: 0, bills: 0 } },
   }
   const q = quoteStorefront({ serviceKey: KEY, provider: "hubtel", faceAmount: face, buyer: "customer" }, cfg)
   if (!q.applied) return none
@@ -187,6 +189,8 @@ export function billStorefrontPrice(face: number, billerKey: string, terms: Bill
     },
     paymentFee: { airtime: 0, bundles: 0, bills: terms.feeRate },
     storefrontGroups: { airtime: false, bundles: false, bills: true },
+    botGroups: { airtime: false, bundles: false, bills: false },
+    botFees: { paystack: { airtime: 0, bundles: 0, bills: 0 }, hubtel: { airtime: 0, bundles: 0, bills: 0 } },
   }
   const q = quoteStorefront({ serviceKey, provider: "hubtel", faceAmount: face, buyer: "customer" }, cfg)
   return { pay: q.payAmount, customerCashback: q.customerCashback, paymentFee: q.paymentFee }

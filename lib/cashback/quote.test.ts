@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { resolveCashbackConfig, type CashbackConfig } from "./config"
-import { quoteCashback, quoteStorefront, samePrice, toPesewas, type QuoteInput } from "./quote"
+import { quoteBots, quoteCashback, quoteStorefront, samePrice, toPesewas, type QuoteInput } from "./quote"
 
 const cfg = (mut: (c: CashbackConfig) => void = () => {}): CashbackConfig => {
   const c = resolveCashbackConfig({
@@ -118,5 +118,42 @@ describe("quoteStorefront", () => {
   it("surface off: not applied, no fee", () => {
     const q = quoteStorefront(base, cfg(c => { Object.assign(c, sf(1.95)); c.surfaces.storefront = false }))
     expect(q).toMatchObject({ applied: false, paymentFee: 0, payAmount: 10 })
+  })
+})
+
+describe("quoteBots", () => {
+  const bc = (mut: (c: CashbackConfig) => void = () => {}) => cfg(c => {
+    c.botGroups = { airtime: true, bundles: false, bills: true }
+    c.botFees = { paystack: { airtime: 1.95, bundles: 0, bills: 1.95 }, hubtel: { airtime: 1, bundles: 0, bills: 1 } }
+    mut(c)
+  })
+  const bi = { serviceKey: "airtime_mtn", provider: "hubtel" as const, faceAmount: 10 }
+  it("main bot, paystack 1.95: customer 25% -> cashback 0.09, base 9.91, fee 0.20 (ceil 19.32p), pay 10.11, shop 0", () => {
+    const q = quoteBots({ ...bi, rail: "paystack", shop: false }, bc())
+    expect(q).toMatchObject({
+      applied: true, share: 25, customerCashback: 0.09, shopShare: 0, base: 9.91, paymentFee: 0.2, feeRate: 1.95, payAmount: 10.11, faceAmount: 10,
+    })
+  })
+  it("shop bot, hubtel 1: 20/40 -> cashback 0.07, base 9.93, fee 0.10 (ceil 9.93p), pay 10.03, shop 0.15", () => {
+    const q = quoteBots({ ...bi, rail: "hubtel", shop: true }, bc())
+    expect(q).toMatchObject({
+      applied: true, share: 20, customerCashback: 0.07, shopShare: 0.15, base: 9.93, paymentFee: 0.1, feeRate: 1, payAmount: 10.03,
+    })
+  })
+  it("fee 0 on a rail pays the base", () => {
+    const q = quoteBots({ ...bi, rail: "hubtel", shop: false }, bc(c => { c.botFees.hubtel.airtime = 0 }))
+    expect(q).toMatchObject({ applied: true, base: 9.91, paymentFee: 0, payAmount: 9.91 })
+  })
+  const off = (q: ReturnType<typeof quoteBots>) =>
+    expect(q).toMatchObject({ applied: false, customerCashback: 0, shopShare: 0, base: 10, paymentFee: 0, feeRate: 0, payAmount: 10 })
+  it("gate off: master, bots surface, group switch -> not applied, no fee", () => {
+    off(quoteBots({ ...bi, rail: "paystack", shop: false }, bc(c => { c.enabled = false })))
+    off(quoteBots({ ...bi, rail: "paystack", shop: true }, bc(c => { c.surfaces.bots = false })))
+    off(quoteBots({ ...bi, rail: "hubtel", shop: false }, bc(c => { c.botGroups.airtime = false })))
+    off(quoteBots({ ...bi, serviceKey: "other_x", rail: "hubtel", shop: false }, bc()))
+  })
+  it("independent of the storefront gate", () => {
+    const q = quoteBots({ ...bi, rail: "paystack", shop: true }, bc(c => { c.surfaces.storefront = false; c.storefrontGroups.airtime = false }))
+    expect(q.applied).toBe(true)
   })
 })

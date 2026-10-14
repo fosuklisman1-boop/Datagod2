@@ -75,9 +75,9 @@ describe("validateCashbackPatch", () => {
   it("rejects non-object, unknown field, bad types", () => {
     bad(null); bad([]); bad({ foo: 1 }); bad({ enabled: "yes" }); bad({ surfaces: { nope: true } }); bad({ surfaces: { api: 1 } })
   })
-  it("rejects enabling bots; allows storefront and api; turning them off is fine", () => {
-    expect(bad({ surfaces: { bots: true } })).toMatch(/surfaces\.bots cannot be enabled yet/)
-    expect(bad({ surfaces: { dashboard: true, bots: true } })).toMatch(/dashboard, storefront and api/)
+  it("allows bots, storefront and api; turning them off is fine", () => {
+    expect(validateCashbackPatch({ surfaces: { bots: true } }, cur)).toEqual({ ok: true, patch: { surfaces: { bots: true } } })
+    expect(validateCashbackPatch({ surfaces: { dashboard: true, bots: true } }, cur).ok).toBe(true)
     expect(validateCashbackPatch({ surfaces: { dashboard: true, storefront: true } }, cur).ok).toBe(true)
     expect(validateCashbackPatch({ surfaces: { api: true } }, cur)).toEqual({ ok: true, patch: { surfaces: { api: true } } })
     expect(validateCashbackPatch({ surfaces: { dashboard: true, storefront: true, api: true } }, cur).ok).toBe(true)
@@ -101,6 +101,44 @@ describe("validateCashbackPatch", () => {
     await setCashbackConfig({ rpc } as any, { paymentFee: { bills: 2 }, storefrontGroups: { bills: true } }, current)
     expect(rpc).toHaveBeenCalledWith("commission_cashback_config_patch", {
       p_patch: { paymentFee: { airtime: 1, bundles: 0, bills: 2 }, storefrontGroups: { airtime: true, bundles: false, bills: true } },
+    })
+  })
+  it("resolves botGroups / botFees safe defaults when absent or invalid", () => {
+    const c = base()
+    expect(c.botGroups).toEqual({ airtime: false, bundles: false, bills: false })
+    expect(c.botFees).toEqual({ paystack: { airtime: 0, bundles: 0, bills: 0 }, hubtel: { airtime: 0, bundles: 0, bills: 0 } })
+    expect(resolveCashbackConfig({ botGroups: { bills: true, airtime: 1 }, botFees: { paystack: { bills: 1.95, airtime: 11 }, hubtel: "x" } }))
+      .toMatchObject({
+        botGroups: { airtime: false, bundles: false, bills: true },
+        botFees: { paystack: { airtime: 0, bundles: 0, bills: 1.95 }, hubtel: { airtime: 0, bundles: 0, bills: 0 } },
+      })
+    expect(resolveCashbackConfig({ botFees: [] }).botFees.paystack).toEqual({ airtime: 0, bundles: 0, bills: 0 })
+  })
+  it("validates botGroups / botFees patches", () => {
+    bad({ botGroups: [] }); bad({ botGroups: { bills: 1 } }); bad({ botGroups: { nope: true } })
+    bad({ botFees: [] }); bad({ botFees: { stripe: { bills: 1 } } }); bad({ botFees: { paystack: 1 } })
+    bad({ botFees: { paystack: { nope: 1 } } })
+    expect(bad({ botFees: { paystack: { bills: 10.01 } } })).toMatch(/botFees\.paystack\.bills/)
+    expect(bad({ botFees: { hubtel: { bills: 1.955 } } })).toMatch(/at most 2 decimals/)
+    bad({ botFees: { hubtel: { bills: -0.01 } } }); bad({ botFees: { hubtel: { bills: "1" } } })
+    const body = { botGroups: { bills: true }, botFees: { paystack: { bills: 10, airtime: 0 }, hubtel: { bundles: 1.95 } } }
+    expect(validateCashbackPatch(body, cur)).toEqual({ ok: true, patch: body })
+  })
+  it("setCashbackConfig sends fully merged botGroups / botFees (other rails' fees never wiped)", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: {}, error: null })
+    const current = resolveCashbackConfig({
+      botGroups: { airtime: true },
+      botFees: { paystack: { airtime: 1.95, bills: 1 }, hubtel: { bundles: 2 } },
+    })
+    await setCashbackConfig({ rpc } as any, { botGroups: { bills: true }, botFees: { hubtel: { bills: 0.5 } } }, current)
+    expect(rpc).toHaveBeenCalledWith("commission_cashback_config_patch", {
+      p_patch: {
+        botGroups: { airtime: true, bundles: false, bills: true },
+        botFees: {
+          paystack: { airtime: 1.95, bundles: 0, bills: 1 },
+          hubtel: { airtime: 0, bundles: 2, bills: 0.5 },
+        },
+      },
     })
   })
   it("rejects share 101 and bad share decimals", () => {

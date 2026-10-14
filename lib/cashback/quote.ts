@@ -1,4 +1,6 @@
-import { effectiveShares, groupOf, type CashbackChannel, type CashbackConfig, type CashbackProvider } from "./config"
+import { effectiveShares, groupOf, type BotRail, type CashbackChannel, type CashbackConfig, type CashbackProvider } from "./config"
+
+export type { BotRail } from "./config"
 
 export interface QuoteInput {
   serviceKey: string
@@ -44,19 +46,43 @@ export interface StorefrontQuote extends CashbackQuote {
   feeRate: number
 }
 
-/** Storefront quote: cashback split plus the payment fee on the base, rounded UP to the pesewa. */
-export function quoteStorefront(i: Omit<QuoteInput, "channel" | "shop">, cfg: CashbackConfig): StorefrontQuote {
-  const q = quoteCashback({ ...i, channel: "storefront", shop: true }, cfg)
-  const group = groupOf(i.serviceKey)
-  const on = !!group && cfg.enabled && cfg.surfaces.storefront && cfg.storefrontGroups[group]
-  if (!on) {
-    const n = notApplied({ ...i, channel: "storefront", shop: true })
+/**
+ * Shared fee step: quote the cashback split, then add the payment fee on the base, rounded UP to the pesewa.
+ * `feeRate` is null when the surface/group gate is off (not applied, no fee).
+ */
+function quoteWithFee(qi: QuoteInput, feeRate: number | null, cfg: CashbackConfig): StorefrontQuote {
+  if (feeRate === null) {
+    const n = notApplied(qi)
     return { ...n, base: n.payAmount, paymentFee: 0, feeRate: 0 }
   }
-  const feeRate = cfg.paymentFee[group] ?? 0
+  const q = quoteCashback(qi, cfg)
   const basePesewas = toPesewas(q.payAmount)
   const feePesewas = feeRate > 0 ? Math.ceil((basePesewas * feeRate) / 100 - 1e-9) : 0
   return { ...q, base: q.payAmount, paymentFee: fromPesewas(feePesewas), feeRate, payAmount: fromPesewas(basePesewas + feePesewas) }
+}
+
+/** Storefront quote: cashback split plus the payment fee on the base, rounded UP to the pesewa. */
+export function quoteStorefront(i: Omit<QuoteInput, "channel" | "shop">, cfg: CashbackConfig): StorefrontQuote {
+  const group = groupOf(i.serviceKey)
+  const on = !!group && cfg.enabled && cfg.surfaces.storefront && cfg.storefrontGroups[group]
+  return quoteWithFee({ ...i, channel: "storefront", shop: true }, on ? cfg.paymentFee[group] ?? 0 : null, cfg)
+}
+
+export interface BotQuoteInput {
+  serviceKey: string
+  provider: CashbackProvider | "manual"
+  faceAmount: number
+  rail: BotRail
+  /** Shop bot (storefront split: buyer storefrontCustomer + shop storefrontShop); main bot uses the customer share. */
+  shop: boolean
+}
+
+/** Bot quote: same shape as quoteStorefront; fee rate comes from cfg.botFees[rail][group]. */
+export function quoteBots(i: BotQuoteInput, cfg: CashbackConfig): StorefrontQuote {
+  const group = groupOf(i.serviceKey)
+  const on = !!group && cfg.enabled && cfg.surfaces.bots && cfg.botGroups[group]
+  const qi: QuoteInput = { serviceKey: i.serviceKey, provider: i.provider, faceAmount: i.faceAmount, buyer: "customer", channel: "bots", shop: i.shop }
+  return quoteWithFee(qi, on ? cfg.botFees[i.rail]?.[group] ?? 0 : null, cfg)
 }
 
 export function quoteCashback(i: QuoteInput, cfg: CashbackConfig): CashbackQuote {

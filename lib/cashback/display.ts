@@ -35,6 +35,8 @@ export function quoteForDisplay(face: number, entry: RateEntry | undefined): Dis
     },
     paymentFee: { airtime: 0, bundles: 0, bills: 0 },
     storefrontGroups: { airtime: false, bundles: false, bills: false },
+    botGroups: { airtime: false, bundles: false, bills: false },
+    botFees: { paystack: { airtime: 0, bundles: 0, bills: 0 }, hubtel: { airtime: 0, bundles: 0, bills: 0 } },
   }
   const q = quoteCashback({ serviceKey: KEY, provider: entry.provider, faceAmount: face, buyer: "customer", channel: "dashboard" }, cfg)
   return q.applied ? { pay: q.payAmount, cashback: q.customerCashback, applied: true } : none
