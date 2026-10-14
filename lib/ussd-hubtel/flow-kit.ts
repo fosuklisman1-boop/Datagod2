@@ -153,9 +153,14 @@ export async function submitOrder(ctx: FlowCtx, args: SubmitNewOrder | SubmitCre
   const spec = ORDER_TABLES[args.table]
   const created = typeof args.orderId === "string"
 
-  /** Mark the order failed (fail patch; plus the table's guards so only a still-open row is touched). */
+  /**
+   * Mark the order failed (fail patch; plus the table's guards so only a still-open row is touched). An
+   * engine-created order is not ours (the engine may hand back an existing row), so it is also guarded on a
+   * payable payment_status, as guardedFailUpdate in order-handlers.ts: a paid order is never failed.
+   */
   const rollback = async (id: string) => {
     let q = deps.supabase.from(args.table).update(spec.failPatch()).eq("id", id)
+    if (created) q = q.in("payment_status", [...spec.payableStatuses])
     for (const [column, values] of Object.entries(spec.failGuards ?? {})) q = q.in(column, [...values])
     const { error: rollbackError } = await q
     if (rollbackError) console.error(`[${args.logTag}] Failed to mark order failed after tx insert error:`, id, safeDbError(rollbackError))
@@ -196,6 +201,11 @@ export async function submitOrder(ctx: FlowCtx, args: SubmitNewOrder | SubmitCre
       // customer pays for the order that is actually tracked.
       const replay = await replaySubmittedOrder(deps, sid, platform)
       if (replay) return replay
+      if (created) {
+        // No winner to replay: the engine order has no checkout row, so the expiry sweep would never see it.
+        console.error(`[${args.logTag}] 23505 with no replayable tx row; failing engine order:`, order.id, "session:", sid)
+        await rollback(order.id)
+      }
     }
     return finish(ctx, "Error creating order. Please try again.")
   }

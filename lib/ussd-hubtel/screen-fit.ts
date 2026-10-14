@@ -4,15 +4,20 @@
 // product words ("data", "bundle") off the screen.
 import { USSD_SCREEN_LIMIT } from "./protocol"
 
-/** Hubtel/telco wording rewritten for the menus: "data" => "Internet", "bundle(s)" dropped. */
+/**
+ * Hubtel/telco wording rewritten for the menus: "bundle(s)" dropped (first, so "Databundle" => "Data"), then
+ * the whole word "data" => "Internet" ("metadata" is left alone). Nothing left => "Plan".
+ */
 export function noProductWords(text: string): string {
-  return text
+  const out = text
     .replace(/bundles?/gi, "")
-    .replace(/data/gi, "Internet")
+    // Whole word, with letters (not \w) as the boundary so "Data_1" / "Data1" are still rewritten.
+    .replace(/(?<![a-z])data(?![a-z])/gi, "Internet")
     .replace(/\(\s+/g, "(")
     .replace(/\s+\)/g, ")")
     .replace(/[ \t]+/g, " ")
     .trim()
+  return out === "" ? "Plan" : out
 }
 
 export interface PageSlice<T> { items: T[]; page: number; hasNext: boolean; hasPrev: boolean }

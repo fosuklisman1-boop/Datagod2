@@ -218,6 +218,14 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
     if (r.status === 403) return finish(ctx, NP_TEXT.notAvailable)
     return finish(ctx, NP_TEXT.unavailable)
   }
+  // The engine may hand back an existing order for this key: only a still-open one (pending + unpaid) is carted.
+  const { data: row, error } = await deps.supabase
+    .from("hubtel_data_orders").select("status, payment_status").eq("id", r.order.id).maybeSingle()
+  const open = row as { status?: string; payment_status?: string } | null
+  if (error || open?.status !== "pending" || open?.payment_status !== "unpaid") {
+    console.error("[HUBTEL-NP] Engine order is not open; refusing to cart:", r.order.id, open?.status ?? null, open?.payment_status ?? null, "session:", req.SessionId)
+    return finish(ctx, NP_TEXT.unavailable)
+  }
   return submitOrder(ctx, { table: "hubtel_data_orders", orderId: r.order.id, price: r.order.payAmount, logTag: "HUBTEL-NP" })
 }
 

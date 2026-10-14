@@ -10,12 +10,13 @@ import type { FlowCtx } from "../flow-kit"
 const SID = "3c796dac28174f739de4262d08409c51"
 const ME = "+233244123456" // MTN
 const SHOP_UUID = "11111111-2222-4333-8444-555555555555"
+const OPEN_ROW = { id: BOT_ORDER_ID, status: "pending", payment_status: "unpaid" }
 
 type Setup = ReturnType<typeof makeDeps> & { np: ReturnType<typeof fakeNetworkPlans> }
 
 function setup(opts: { np?: Parameters<typeof fakeNetworkPlans>[0]; sup?: ReturnType<typeof fakeSupabase>; session?: Partial<HubtelSession>; shop?: boolean } = {}): Setup {
   const np = fakeNetworkPlans(opts.np)
-  const sup = opts.sup ?? fakeSupabase({ rows: { hubtel_data_orders: { id: BOT_ORDER_ID } } })
+  const sup = opts.sup ?? fakeSupabase({ rows: { hubtel_data_orders: OPEN_ROW } })
   const made = makeDeps({ networkPlans: np, ...(opts.shop ? { getConfig: SHOP_CONFIG, shop: fakeShop() } : {}) }, sup)
   made.store.set(SID, { mode: "main", step: "NP_NETWORK", dialingPhone: ME, platform: "USSD", ...opts.session })
   return { ...made, np }
@@ -180,7 +181,7 @@ describe("network plans: confirm", () => {
   })
   it("concurrent confirm lost the tx insert (23505): the shared order is not failed, the winner's cart replays", async () => {
     const sup = fakeSupabase({
-      rows: { hubtel_data_orders: { id: BOT_ORDER_ID } },
+      rows: { hubtel_data_orders: OPEN_ROW },
       txConflictRow: { order_table: "hubtel_data_orders", order_id: BOT_ORDER_ID, expected_amount: 9.5, state: "awaiting_payment" },
     })
     const s = setup({ sup })
@@ -192,7 +193,7 @@ describe("network plans: confirm", () => {
     expect(r.Item).toEqual({ ItemName: "CH order 22222222", Qty: 1, Price: 9.5 })
   })
   it("tx insert failure: the engine order gets the bot fail patch", async () => {
-    const sup = fakeSupabase({ txError: true })
+    const sup = fakeSupabase({ txError: true, rows: { hubtel_data_orders: OPEN_ROW } })
     const s = setup({ sup })
     await toConfirm(s)
     vi.spyOn(console, "error").mockImplementation(() => {})
@@ -216,6 +217,31 @@ describe("network plans: confirm", () => {
     expect(r.Message).toBe(literal)
     expect(s.sup.inserts.hubtel_transactions).toBeUndefined()
     expect(s.store.has(SID)).toBe(false)
+  })
+  it.each([
+    ["failed", "unpaid"],
+    ["pending", "paid"],
+    ["completed", "paid"],
+  ])("an engine-returned order that is %s/%s is never carted", async (status, payment_status) => {
+    const sup = fakeSupabase({ rows: { hubtel_data_orders: { id: BOT_ORDER_ID, status, payment_status } } })
+    const s = setup({ sup })
+    await toConfirm(s)
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await send(s, "1")
+    vi.restoreAllMocks()
+    expect(r.Type).toBe("release")
+    expect(r.Message).toBe("Service unavailable. Please try again later.")
+    expect(sup.inserts.hubtel_transactions).toBeUndefined()
+    expect(sup.updates).toEqual([])
+  })
+  it("an engine order that cannot be read back is never carted", async () => {
+    const s = setup({ sup: fakeSupabase() })
+    await toConfirm(s)
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await send(s, "1")
+    vi.restoreAllMocks()
+    expect(r.Message).toBe(NP_TEXT.unavailable)
+    expect(s.sup.inserts.hubtel_transactions).toBeUndefined()
   })
   it("2 cancels without an order", async () => {
     const s = setup()

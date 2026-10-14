@@ -11,9 +11,17 @@ describe("noProductWords", () => {
     expect(noProductWords("Video 1.33GB")).toBe("Video 1.33GB")
   })
   it("never leaves a product word", () => {
-    for (const s of ["data", "Databundle", "MTN Data Bundle", "bundles", "metadata"]) {
+    for (const s of ["data", "Databundle", "MTN Data Bundle", "bundles", "DATA_x", "1GB data"]) {
       expect(noProductWords(s)).not.toMatch(/data|bundle/i)
     }
+  })
+  it("leaves words that merely contain 'data' alone", () => {
+    expect(noProductWords("metadata")).toBe("metadata")
+  })
+  it("falls back to 'Plan' when nothing is left", () => {
+    expect(noProductWords("Bundle")).toBe("Plan")
+    expect(noProductWords("  bundles  ")).toBe("Plan")
+    expect(noProductWords("")).toBe("Plan")
   })
 })
 

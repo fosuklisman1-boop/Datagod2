@@ -77,7 +77,19 @@ describe("submitOrder with an engine-created order (orderId)", () => {
     expect(reply.Type).toBe("release")
     expect(rec.updates).toHaveLength(1)
     expect(rec.updates[0].patch).toMatchObject({ status: "failed", failure_reason: "payment not completed" })
-    expect(rec.updates[0].filters).toEqual(["id=bot-1", "channel in bots", "status in pending"])
+    // payment_status guard: a paid engine order (status still pending until dispatch) is never failed.
+    expect(rec.updates[0].filters).toEqual(["id=bot-1", "payment_status in unpaid", "channel in bots", "status in pending"])
+  })
+
+  it("unique violation with no replayable winner: the engine order is failed (guarded) and its id logged", async () => {
+    const rec = recordingClient({ txError: { code: "23505", message: "dup" } })
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const reply = await submitOrder(ctxWith(rec.client), { table: "hubtel_data_orders", orderId: "bot-1", price: 9.5, logTag: "T" })
+    const logged = JSON.stringify(err.mock.calls)
+    vi.restoreAllMocks()
+    expect(reply.Type).toBe("release")
+    expect(rec.updates.map(u => u.filters)).toEqual([["id=bot-1", "payment_status in unpaid", "channel in bots", "status in pending"]])
+    expect(logged).toContain("bot-1")
   })
 
   it("unique violation (a concurrent CONFIRM won with the same order): never fails the shared order, replays", async () => {
@@ -100,7 +112,7 @@ describe("submitOrder with an engine-created order (orderId)", () => {
     vi.restoreAllMocks()
     expect(reply.Type).toBe("release")
     expect(rec.inserts.hubtel_transactions).toBeUndefined()
-    expect(rec.updates[0].filters[0]).toBe("id=bot-1")
+    expect(rec.updates[0].filters).toEqual(["id=bot-1", "payment_status in unpaid", "channel in bots", "status in pending"])
   })
 })
 
