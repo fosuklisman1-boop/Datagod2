@@ -1,7 +1,7 @@
 import { HUBTEL_CS_SERVICES } from "../hubtel-cs/services"
 import { airtimeNetId, providerEarnsCommission, type AirtimeNetId, type AirtimeProvider } from "../airtime-provider"
-import type { CashbackConfig } from "./config"
-import { quoteStorefront, type StorefrontQuote } from "./quote"
+import type { BotRail, CashbackConfig } from "./config"
+import { quoteBots, quoteStorefront, type StorefrontQuote } from "./quote"
 
 export interface AirtimeProviderDeps {
   /** Provider an order for `network` routes to (getAirtimeProvider bound to a client + legacy toggle). */
@@ -63,6 +63,41 @@ export async function quoteStorefrontAirtime(
     return q.applied ? q : null
   } catch (e: any) {
     console.warn("[SHOP-AIRTIME] cashback quote unavailable, using standard pricing:", e?.message ?? e)
+    return null
+  }
+}
+
+/** Bots airtime cashback gate: master switch AND bots surface AND the airtime bots group. */
+export const botsAirtimeOn = (cfg: CashbackConfig): boolean =>
+  cfg.enabled === true && cfg.surfaces?.bots === true && cfg.botGroups?.airtime === true
+
+export interface BotAirtimeDeps extends AirtimeProviderDeps {
+  getConfig: () => Promise<CashbackConfig>
+}
+
+/**
+ * Instant-cashback quote for a bot airtime order on `rail`, or null when cashback does not apply
+ * (bots airtime gate off, no commission-earning provider, above Hubtel's per-request cap, or the
+ * quote itself not applied). `shop` = the order goes through a shop bot (storefront split).
+ * Any failure means "not applied" — the bot's legacy airtime pricing runs.
+ */
+export async function quoteBotAirtime(
+  network: string,
+  faceAmount: number,
+  opts: { rail: BotRail; shop: boolean },
+  deps: BotAirtimeDeps,
+): Promise<StorefrontQuote | null> {
+  try {
+    if (!airtimeNetId(network)) return null
+    if (!Number.isFinite(faceAmount) || faceAmount <= 0) return null
+    const cfg = await deps.getConfig()
+    if (!botsAirtimeOn(cfg)) return null
+    const t = await airtimeCashbackTarget(network, faceAmount, deps)
+    if (!t) return null
+    const q = quoteBots({ serviceKey: t.serviceKey, provider: t.provider, faceAmount, rail: opts.rail, shop: opts.shop }, cfg)
+    return q.applied ? q : null
+  } catch (e: any) {
+    console.warn("[BOT-AIRTIME] cashback quote unavailable, using standard pricing:", e?.message ?? e)
     return null
   }
 }
