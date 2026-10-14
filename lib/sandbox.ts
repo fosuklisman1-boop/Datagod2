@@ -19,7 +19,7 @@ export const SANDBOX_STARTING_BALANCE = 100
 // `resolves_at` on both the placement response and the status-check route.
 const SANDBOX_RESOLVE_DELAY_MS = 20_000
 
-export type SandboxAction = "data_order" | "airtime" | "afa" | "results_checker" | "utility_bill"
+export type SandboxAction = "data_order" | "airtime" | "afa" | "results_checker" | "standard_bundle" | "utility_bill"
 
 export async function getSandboxBalance(userId: string): Promise<number> {
   const { data } = await supabase
