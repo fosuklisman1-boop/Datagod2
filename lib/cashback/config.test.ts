@@ -75,13 +75,33 @@ describe("validateCashbackPatch", () => {
   it("rejects non-object, unknown field, bad types", () => {
     bad(null); bad([]); bad({ foo: 1 }); bad({ enabled: "yes" }); bad({ surfaces: { nope: true } }); bad({ surfaces: { api: 1 } })
   })
-  it("rejects enabling bots/storefront/api (Part 1 supports dashboard only); turning them off is fine", () => {
-    for (const s of ["bots", "storefront", "api"]) {
+  it("rejects enabling bots/api; allows storefront; turning them off is fine", () => {
+    for (const s of ["bots", "api"]) {
       expect(bad({ surfaces: { [s]: true } })).toMatch(new RegExp(`surfaces\\.${s} cannot be enabled yet`))
-      expect(bad({ surfaces: { dashboard: true, [s]: true } })).toMatch(/only supports the dashboard/)
+      expect(bad({ surfaces: { dashboard: true, [s]: true } })).toMatch(/dashboard and storefront/)
     }
+    expect(validateCashbackPatch({ surfaces: { dashboard: true, storefront: true } }, cur).ok).toBe(true)
     const r = validateCashbackPatch({ surfaces: { dashboard: true, bots: false, storefront: false, api: false } }, cur)
     expect(r.ok).toBe(true)
+  })
+  it("resolves paymentFee / storefrontGroups defaults and validates patches", () => {
+    const c = base()
+    expect(c.paymentFee).toEqual({ airtime: 0, bundles: 0, bills: 0 })
+    expect(c.storefrontGroups).toEqual({ airtime: false, bundles: false, bills: false })
+    expect(resolveCashbackConfig({ paymentFee: { bills: 1.95, airtime: 11 }, storefrontGroups: { bills: true, airtime: "x" } }))
+      .toMatchObject({ paymentFee: { airtime: 0, bills: 1.95 }, storefrontGroups: { bills: true, airtime: false } })
+    bad({ paymentFee: { bills: 10.5 } }); bad({ paymentFee: { bills: 1.955 } }); bad({ paymentFee: { nope: 1 } })
+    bad({ paymentFee: { bills: -1 } }); bad({ storefrontGroups: { bills: 1 } }); bad({ storefrontGroups: { nope: true } })
+    const ok = validateCashbackPatch({ paymentFee: { bills: 10, airtime: 1.95 }, storefrontGroups: { bills: true } }, cur)
+    expect(ok.ok).toBe(true)
+  })
+  it("setCashbackConfig sends fully merged paymentFee / storefrontGroups", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: {}, error: null })
+    const current = resolveCashbackConfig({ paymentFee: { airtime: 1 }, storefrontGroups: { airtime: true } })
+    await setCashbackConfig({ rpc } as any, { paymentFee: { bills: 2 }, storefrontGroups: { bills: true } }, current)
+    expect(rpc).toHaveBeenCalledWith("commission_cashback_config_patch", {
+      p_patch: { paymentFee: { airtime: 1, bundles: 0, bills: 2 }, storefrontGroups: { airtime: true, bundles: false, bills: true } },
+    })
   })
   it("rejects share 101 and bad share decimals", () => {
     bad({ shares: { airtime: gs({ customer: 101 }) } })

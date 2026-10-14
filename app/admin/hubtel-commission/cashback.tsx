@@ -144,6 +144,8 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
         ...Object.fromEntries(CASHBACK_GROUPS.map(g => [g, Object.fromEntries(SHARE_FIELDS.map(f => [f, num(shares[g][f]) ?? 0]))])),
         overrides: cfg.shares.overrides,
       } as CashbackConfig["shares"],
+      paymentFee: cfg.paymentFee,
+      storefrontGroups: cfg.storefrontGroups,
     }
     return Object.fromEntries(CASHBACK_GROUPS.map(g => {
       const serviceKey = EXAMPLE_SERVICE[g]
