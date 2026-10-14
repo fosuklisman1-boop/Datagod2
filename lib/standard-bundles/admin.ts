@@ -110,7 +110,14 @@ export async function releaseStuckClaimRow(db: SupabaseClient, orderId: string, 
 // Never-sent refund flow (all IO injected)
 // ---------------------------------------------------------------------------------------------
 
-export interface RefundOrder extends RefundFacts { id: string; reference_code: string; user_id: string; amount: number; paid_amount?: number | null; network: string; bundle_display: string; beneficiary_phone: string }
+export interface RefundOrder extends RefundFacts {
+  id: string; reference_code: string; user_id: string; amount: number; paid_amount?: number | null; network: string; bundle_display: string; beneficiary_phone: string
+  /** 'storefront' rows are refunded on /admin/refunds (the buyer has no wallet). Absent = not selected (legacy caller). */
+  channel?: string | null
+}
+
+export const STOREFRONT_BUNDLE_REFUND_MESSAGE =
+  "Storefront order: the buyer has no wallet. Refund it on /admin/refunds (Paystack reversal, MoMo payout, or Mark refunded manually)."
 
 /** The money to return to the customer: what they paid, falling back to the face amount on legacy rows. */
 export const refundAmountOf = (o: Pick<RefundOrder, "amount" | "paid_amount">) => Number(o.paid_amount ?? o.amount)
@@ -148,6 +155,8 @@ const safe = async (d: BundleRefundDeps, m: string, urgent = false) => { try { a
 export async function executeBundleRefund(d: BundleRefundDeps, orderId: string, note: string): Promise<BundleRefundResult> {
   const order = await d.getOrder(orderId)
   if (!order) return { ok: false, status: 404, message: "Order not found" }
+  // Checked before anything moves: never fence a storefront order to failed for a wallet refund that cannot happen.
+  if (order.channel === "storefront" || !order.user_id) return { ok: false, status: 409, message: STOREFRONT_BUNDLE_REFUND_MESSAGE }
   let rows: number
   try { rows = await d.ledgerCount(orderId) } catch { return { ok: false, status: 503, message: "Could not read the Hubtel ledger; try again" } }
   const decision = bundleRefundDecision(order, rows, d.now())

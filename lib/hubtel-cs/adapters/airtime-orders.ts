@@ -19,6 +19,10 @@ export interface AirtimeOrdersAdapterDeps {
   alert(message: string): Promise<void>
 }
 
+/**
+ * Deliberately no refundToWallet: the review queue cannot refund airtime (storefront airtime buyers have no wallet,
+ * user_id NULL). Storefront airtime is refunded on /admin/refunds.
+ */
 export function createAirtimeOrdersAdapter(deps: AirtimeOrdersAdapterDeps): OrderAdapter {
   const quietAlert = async (message: string) => {
     try { await deps.alert(message) } catch (e: any) { console.error("[hubtel-cs] airtime alert error:", e?.message ?? e) }
@@ -30,7 +34,8 @@ export function createAirtimeOrdersAdapter(deps: AirtimeOrdersAdapterDeps): Orde
         status: "completed",
         notes: `Delivered via Hubtel [hcsRef:${tx.client_reference}]${tx.hubtel_transaction_id ? ` [txn:${tx.hubtel_transaction_id}]` : ""}`,
       }, LIVE_STATUSES)
-      if (n === 0 && (await deps.getStatus(tx.order_id!)) === "failed") {
+      // 'refunding'/'refunded': a storefront order refunded through /admin/refunds.
+      if (n === 0 && ["failed", "refunding", "refunded"].includes((await deps.getStatus(tx.order_id!)) ?? "")) {
         await quietAlert(`Airtime ${tx.order_id} was delivered by Hubtel after being marked failed/refunded - check for double value (ref ${tx.client_reference})`)
       }
     },

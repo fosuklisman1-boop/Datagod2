@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -33,6 +34,8 @@ interface PendingRow {
   }
   eligibility: { eligible: true } | { eligible: false; code?: string; reason: string }
   defaultAmount: number
+  /** Storefront commission orders (airtime / bill / bundle) also offer "Mark refunded manually". */
+  manualRefund?: boolean
 }
 
 type RefundStatus = "reserved" | "processing" | "awaiting_otp" | "completed" | "failed"
@@ -45,7 +48,11 @@ interface HistoryRow {
 
 type StatusFilter = "all" | "attention" | "completed" | "failed"
 
-const TABLE_LABEL: Record<string, string> = { shop_orders: "Storefront", ussd_orders: "USSD", ussd_shop_orders: "USSD shop", orders: "Dashboard (bulk)", api_orders: "API" }
+const TABLE_LABEL: Record<string, string> = {
+  shop_orders: "Storefront", ussd_orders: "USSD", ussd_shop_orders: "USSD shop", orders: "Dashboard (bulk)", api_orders: "API",
+  airtime_orders: "Storefront airtime", hubtel_bill_orders: "Storefront bill", hubtel_data_orders: "Storefront bundle",
+}
+const MAX_NOTE = 500
 const PAGE_SIZE = 50
 
 async function getToken(): Promise<string> {
@@ -98,6 +105,9 @@ export default function AdminRefundsPage() {
   const loadSeq = useRef(0)
   const otpFromExecute = useRef(false)
   const [settleFailed, setSettleFailed] = useState<{ message: string; detail: SettleFailedDetail } | null>(null)
+  const [manualFor, setManualFor] = useState<{ table: string; id: string; label: string } | null>(null)
+  const [manualNote, setManualNote] = useState("")
+  const [manualBusy, setManualBusy] = useState(false)
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current
@@ -204,6 +214,36 @@ export default function AdminRefundsPage() {
     }
   }
 
+  // Records a refund the admin made outside our gateways; claws back the shop's share. Idempotent server-side.
+  const submitManual = async () => {
+    const o = manualFor
+    const note = manualNote.trim()
+    if (!o || manualBusy || !note || note.length > MAX_NOTE) return
+    setManualBusy(true)
+    try {
+      const res = await fetch("/api/admin/refunds/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await getToken()}` },
+        body: JSON.stringify({ table: o.table, orderId: o.id, note }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(res.status === 403 ? "Sign in as an admin" : json.error || "Could not mark the order refunded")
+        if (res.status >= 500) { setManualFor(null); void load() }
+        return
+      }
+      if (json.alreadyRefunded) toast.info(json.message || "Already refunded; nothing changed")
+      else toast.success(json.message || "Marked refunded")
+      setManualFor(null)
+      setManualNote("")
+      void load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Request failed")
+    } finally {
+      setManualBusy(false)
+    }
+  }
+
   if (adminLoading || !isAdmin) return null
 
   const applySearch = () => { setPendingPage(1); setAppliedQ(q.trim()) }
@@ -238,7 +278,7 @@ export default function AdminRefundsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pending.map(({ order, eligibility }) => (
+                  {pending.map(({ order, eligibility, manualRefund }) => (
                     <TableRow key={`${order.table}:${order.id}`} className={eligibility.eligible ? "" : "opacity-60"}>
                       <TableCell>{TABLE_LABEL[order.table] ?? order.table}</TableCell>
                       <TableCell>{order.shopName ?? "-"}</TableCell>
@@ -250,7 +290,12 @@ export default function AdminRefundsPage() {
                       <TableCell>{new Date(order.createdAt).toLocaleString()}</TableCell>
                       <TableCell className="text-right">
                         {eligibility.eligible ? (
-                          <Button size="sm" onClick={() => setTarget({ table: order.table, id: order.id })}>Refund</Button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button size="sm" onClick={() => setTarget({ table: order.table, id: order.id })}>Refund</Button>
+                            {manualRefund && (
+                              <Button size="sm" variant="outline" onClick={() => { setManualNote(""); setManualFor({ table: order.table, id: order.id, label: `${order.packageLabel} ${order.network} — paid GHS ${order.paid.toFixed(2)}` }) }}>Mark refunded manually</Button>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-xs text-muted-foreground" title={eligibility.reason}>{eligibility.reason}</span>
                         )}
@@ -337,8 +382,11 @@ export default function AdminRefundsPage() {
                                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => setCancelFor(r.id)}>Cancel refund</Button>
                               </>
                             )}
-                            {r.status === "failed" && (
+                            {r.status === "failed" && r.gateway !== "manual" && (
                               <Button size="sm" variant="outline" disabled={busy} onClick={() => setRetryFor(r)}>Retry</Button>
+                            )}
+                            {r.gateway === "manual" && r.status === "reserved" && (
+                              <Button size="sm" variant="outline" disabled={busy} onClick={() => { setManualNote(""); setManualFor({ table: r.order_table, id: r.order_id, label: `Unfinished manual refund of GHS ${Number(r.amount).toFixed(2)}` }) }}>Finish manual refund</Button>
                             )}
                           </div>
                         </TableCell>
@@ -393,6 +441,38 @@ export default function AdminRefundsPage() {
               }}
             >
               {busyId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Retry refund
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!manualFor} onOpenChange={(o) => !o && !manualBusy && setManualFor(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark refunded manually?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {manualFor ? `${manualFor.label}. ` : ""}Use this only after you have refunded the customer yourself (outside Datagod). No money moves here: the order is marked refunded and the shop&apos;s share is clawed back.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <label htmlFor="manual-refund-note" className="text-sm font-medium">Note (required)</label>
+            <Textarea
+              id="manual-refund-note"
+              value={manualNote}
+              maxLength={MAX_NOTE}
+              disabled={manualBusy}
+              placeholder="How and when the customer was refunded"
+              onChange={(e) => setManualNote(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">{manualNote.trim().length}/{MAX_NOTE}</p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={manualBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={manualBusy || !manualNote.trim() || manualNote.trim().length > MAX_NOTE}
+              onClick={(e) => { e.preventDefault(); void submitManual() }}
+            >
+              {manualBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Mark refunded
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

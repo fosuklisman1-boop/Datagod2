@@ -11,7 +11,7 @@ function fakeDb(rows: Rows, calls: unknown[][] = [], errors: Record<string, stri
     const q: any = {
       // errors may be keyed "table" or "table:<select string>" to fail one specific query
       select: (...a: unknown[]) => { calls.push([table, "select", ...a]); if (errors[`${table}:${a[0]}`]) key = `${table}:${a[0]}`; return q }, eq: rec("eq"), in: rec("in"), is: rec("is"), neq: rec("neq"), gte: rec("gte"), lte: rec("lte"),
-      order: rec("order"), range: rec("range"), limit: rec("limit"), ilike: rec("ilike"), or: rec("or"),
+      order: rec("order"), range: rec("range"), limit: rec("limit"), ilike: rec("ilike"), or: rec("or"), not: rec("not"),
       maybeSingle: async () => ({ data: (rows[table] ?? [])[0] ?? null, error: errors[key] ? { message: errors[key] } : null }),
       then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: errors[key] ? { message: errors[key] } : null }).then(res),
     }
@@ -219,8 +219,11 @@ describe("listPendingOrderRefs", () => {
     const calls: unknown[][] = []
     const db = fakeDb({ shop_orders: [], ussd_orders: [], ussd_shop_orders: [] }, calls)
     await listPendingOrderRefs(db, { pageSize: 10, page: 1, q: "024),id.eq.x(%" })
-    const ors = calls.filter((c) => c[1] === "or")
-    expect(ors.map((c) => c[0])).toEqual(["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders"])
+    // bills/bundles carry a second or(): their status filter (pending/failed + stuck claim), ANDed with the search
+    const ors = calls.filter((c) => c[1] === "or" && !String(c[2]).startsWith("status."))
+    expect(ors.map((c) => c[0])).toEqual(["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders", "airtime_orders", "hubtel_bill_orders", "hubtel_data_orders"])
+    expect(ors[5][2]).toBe("beneficiary_phone.ilike.%024ideqx%,reference_code.ilike.%024ideqx%")
+    expect(ors[6][2]).toBe("buyer_phone.ilike.%024ideqx%,account_number.ilike.%024ideqx%,reference_code.ilike.%024ideqx%")
     expect(ors[3][2]).toBe("phone_number.ilike.%024ideqx%")
     expect(ors[4][2]).toBe("recipient_phone.ilike.%024ideqx%")
     // only [0-9a-zA-Z-] survive: no commas/parens/dots/percent from user input can alter the filter structure

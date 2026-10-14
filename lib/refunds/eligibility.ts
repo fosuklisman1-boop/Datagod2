@@ -1,4 +1,5 @@
-import type { DispatchOutcome, OrderTable } from "./types"
+import { refundDecision, UNSENT_GRACE_MS } from "@/lib/bills/admin"
+import { isCommissionTable, type CommissionEvidence, type CommissionTable, type DispatchOutcome, type OrderTable, type RefundableOrder } from "./types"
 
 export interface EligibilityInput {
   /** Omitted = one of the original tables (pending only). */
@@ -9,25 +10,85 @@ export interface EligibilityInput {
   dispatchOutcome: DispatchOutcome | null
   trackingStatuses: string[]
   externalOrderId: string | null
+  /** Commission tables only: the raw order facts + Hubtel ledger rows. */
+  commission?: CommissionEvidence
+  /** Clock (ms epoch) for the never-sent grace / stuck-claim ages. Defaults to Date.now(). */
+  now?: number
 }
 
 export type EligibilityCode =
   | "NOT_PENDING" | "ALREADY_REFUNDED" | "DISPATCH_IN_PROGRESS" | "DISPATCH_UNKNOWN"
-  | "PROVIDER_IN_PROGRESS" | "SENT_TO_PROVIDER"
+  | "PROVIDER_IN_PROGRESS" | "SENT_TO_PROVIDER" | "NOT_STOREFRONT" | "HUBTEL_BLOCKED"
 
-export type Eligibility = { eligible: true } | { eligible: false; code: EligibilityCode; reason: string }
+/** releaseStuck: a stuck Hubtel dispatch claim (processing, never reached Hubtel, >= 5 min) must be released first. */
+export type Eligibility = { eligible: true; releaseStuck?: boolean } | { eligible: false; code: EligibilityCode; reason: string }
+
+/** Eligibility of a loaded order (the one place the pending list, preview and execute agree on). */
+export function orderEligibility(o: RefundableOrder, now: number = Date.now()): Eligibility {
+  return evaluateEligibility({
+    table: o.table, orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
+    dispatchOutcome: o.evidence.dispatchOutcome, trackingStatuses: o.evidence.trackingStatuses,
+    externalOrderId: o.evidence.externalOrderId, commission: o.evidence.commission, now,
+  })
+}
+
+const LIVE_LEDGER = new Set(["created", "pending", "needs_review"])
+
+/**
+ * Storefront airtime. Airtime has its own provider lifecycle (a Hubtel failure returns the order to `pending` for manual
+ * fulfilment), so the bills decision (which wants `failed`) does not fit; the same ledger rules apply.
+ */
+function airtimeEligibility(c: CommissionEvidence, now: number): Eligibility {
+  if (c.paymentStatus !== "completed") return no("NOT_PENDING", "This order was never paid")
+  if (c.status === "completed") return no("SENT_TO_PROVIDER", "Delivered orders cannot be refunded")
+  if (c.ledger.some((l) => l.state === "fulfilled")) return no("SENT_TO_PROVIDER", "Hubtel delivered this airtime; it cannot be refunded")
+  const live = c.ledger.find((l) => LIVE_LEDGER.has(l.state))
+  if (live) return no("PROVIDER_IN_PROGRESS", `Hubtel transaction ${live.client_reference} is ${live.state.replace("_", " ")} and may still deliver. Resolve it in Hubtel Commission first.`)
+  if (c.status === "processing") return no("PROVIDER_IN_PROGRESS", "Being sent to a provider; wait for it to finish or fail")
+  if (c.status !== "pending" && c.status !== "failed") return no("NOT_PENDING", `Order is ${c.status}; it cannot be refunded`)
+  if (c.status === "pending" && !(now - Date.parse(c.updatedAt) >= UNSENT_GRACE_MS)) {
+    return no("DISPATCH_IN_PROGRESS", "This order was updated moments ago and may still be dispatching; try again in a minute")
+  }
+  return { eligible: true }
+}
+
+/**
+ * Storefront bills/bundles: the bills admin-refund decision (lib/bills/admin.ts refundDecision) — it is ledger-aware
+ * (failed ledger rows are refundable once the order is failed). The bundles decision instead sends every ledger row to
+ * the Hubtel review queue, whose wallet refund cannot pay an anonymous storefront buyer, so it is not used here.
+ */
+function billOrBundleEligibility(c: CommissionEvidence, now: number): Eligibility {
+  const d = refundDecision({
+    status: c.status, payment_status: c.paymentStatus, hubtel_client_reference: c.hubtelClientReference,
+    notes: c.notes, updated_at: c.updatedAt,
+  }, c.ledger, now)
+  if (d.action === "blocked") return no("HUBTEL_BLOCKED", d.reason)
+  if (d.action === "direct" && d.releaseStuck) return { eligible: true, releaseStuck: true }
+  return { eligible: true }
+}
+
+function commissionEligibility(table: CommissionTable, i: EligibilityInput): Eligibility {
+  const c = i.commission
+  if (!c) return no("NOT_PENDING", "Order details could not be loaded")
+  if (!c.storefront) return no("NOT_STOREFRONT", "Not a storefront order — refund it through its own refund path")
+  if (i.hasActiveRefund) return no("ALREADY_REFUNDED", "A refund already exists for this order")
+  const now = i.now ?? Date.now()
+  return table === "airtime_orders" ? airtimeEligibility(c, now) : billOrBundleEligibility(c, now)
+}
 
 const TERMINAL_FAILED = new Set(["failed", "error", "abandoned"])
 const IN_FLIGHT = new Set(["pending", "processing", "retrying"])
 
 /** Order statuses a refund may start from. api_orders may also be held by the MTN registration gate (paid, never sent). */
 export function refundableStatuses(table: OrderTable): readonly string[] {
+  if (isCommissionTable(table)) return ["pending", "failed"] // mirrors reserve_order_refund (0120)
   return table === "api_orders" ? ["pending", "held_registration"] : ["pending"]
 }
 
 const no = (code: EligibilityCode, reason: string): Eligibility => ({ eligible: false, code, reason })
 
 export function evaluateEligibility(i: EligibilityInput): Eligibility {
+  if (i.table && isCommissionTable(i.table)) return commissionEligibility(i.table, i)
   if (!refundableStatuses(i.table ?? "shop_orders").includes(i.orderStatus) || i.paymentStatus !== "completed") return no("NOT_PENDING", "Order is not a paid, pending order")
   if (i.hasActiveRefund) return no("ALREADY_REFUNDED", "A refund already exists for this order")
   if (i.dispatchOutcome === "claimed") return no("DISPATCH_IN_PROGRESS", "Being sent to a provider right now")

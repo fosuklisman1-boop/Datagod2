@@ -1,5 +1,39 @@
-export type OrderTable = "shop_orders" | "ussd_orders" | "ussd_shop_orders" | "orders" | "api_orders"
-export const ORDER_TABLES: OrderTable[] = ["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders"]
+/**
+ * Storefront commission orders (Hubtel Commission cashback): airtime, utility bills, standard bundles. Only rows a
+ * storefront customer paid through Paystack belong here (airtime: shop_id set, user_id NULL; bills/bundles:
+ * channel 'storefront'); the refund RPCs raise BAD_CHANNEL for any wallet-paid row.
+ */
+export type CommissionTable = "airtime_orders" | "hubtel_bill_orders" | "hubtel_data_orders"
+export const COMMISSION_TABLES: readonly CommissionTable[] = ["airtime_orders", "hubtel_bill_orders", "hubtel_data_orders"]
+export const isCommissionTable = (t: string): t is CommissionTable => (COMMISSION_TABLES as readonly string[]).includes(t)
+
+export type OrderTable = "shop_orders" | "ussd_orders" | "ussd_shop_orders" | "orders" | "api_orders" | CommissionTable
+export const ORDER_TABLES: OrderTable[] = ["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders", ...COMMISSION_TABLES]
+
+/** Shown for the wallet gateway on a storefront commission order (the buyer is anonymous: no wallet). */
+export const COMMISSION_NO_WALLET_REASON = "Storefront customer has no wallet — refund through Paystack or a MoMo payout"
+
+/** One hubtel_cs_transactions row as the refund eligibility check needs it. */
+export interface CommissionLedgerFact {
+  client_reference: string
+  state: "created" | "pending" | "fulfilled" | "failed" | "needs_review"
+  refund_claimed_at: string | null
+  resolved_by: string | null
+  created_at: string
+}
+
+/** Raw order facts for a commission order (status/payment_status exactly as stored). */
+export interface CommissionEvidence {
+  /** false => not a storefront row (wallet-paid or a USSD/WhatsApp order): never refundable here. */
+  storefront: boolean
+  status: string
+  /** Raw: airtime 'completed' when paid; bills/bundles 'paid'. */
+  paymentStatus: string
+  hubtelClientReference: string | null
+  notes: string | null
+  updatedAt: string
+  ledger: CommissionLedgerFact[]
+}
 
 /** Dashboard/bulk (`orders`) and API (`api_orders`) orders: paid from the buyer's wallet, no shop owners, wallet refund only. */
 export const WALLET_ONLY_TABLES: readonly OrderTable[] = ["orders", "api_orders"]
@@ -50,6 +84,8 @@ export interface RefundableOrder {
     dispatchAttempts: number | null
     trackingStatuses: string[]
     externalOrderId: string | null
+    /** Commission tables only. */
+    commission?: CommissionEvidence
   }
 }
 

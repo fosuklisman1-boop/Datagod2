@@ -14,7 +14,10 @@ const LIVE_STATUSES = ["pending", "processing"]
 export interface BillOrderRow {
   status: string
   payment_status: string
-  user_id: string
+  /** NULL on storefront rows (anonymous buyer). */
+  user_id: string | null
+  /** 'dashboard' | 'storefront' | 'api'; absent on rows read before 0120. */
+  channel?: string | null
   biller: string
   amount: number
   /** What the customer actually paid (cashback orders); null/absent on legacy rows. */
@@ -24,6 +27,10 @@ export interface BillOrderRow {
 
 /** The money to return to the customer: what they paid, falling back to the face amount on legacy rows. */
 const refundAmount = (o: BillOrderRow) => Number(o.paid_amount ?? o.amount)
+
+/** Shown when the review queue is asked to wallet-refund a storefront order (it has no wallet to credit). */
+export const STOREFRONT_REFUND_MESSAGE =
+  "Storefront order: the buyer has no wallet. Refund it on /admin/refunds (Paystack reversal, MoMo payout, or Mark refunded manually)."
 
 export interface BillOrdersAdapterDeps {
   /** Current order (null if missing). Throws on DB error (the sweep retries). */
@@ -47,7 +54,7 @@ export function createBillOrdersAdapter(deps: BillOrdersAdapterDeps): OrderAdapt
   const notifyCustomer = async (orderId: string, title: string, text: (o: BillOrderRow) => string) => {
     await quiet(`notify "${title}"`, async () => {
       const o = await deps.get(orderId)
-      if (o) await deps.notify(o.user_id, title, text(o), orderId)
+      if (o?.user_id) await deps.notify(o.user_id, title, text(o), orderId) // storefront buyers have no account to notify
     })
   }
 
@@ -85,6 +92,8 @@ export function createBillOrdersAdapter(deps: BillOrdersAdapterDeps): OrderAdapt
       const id = tx.order_id!
       const o = await deps.get(id)
       if (!o) return { refunded: false, message: "Order not found" }
+      // Never "refund" a storefront order to a NULL wallet; refunded:false releases the ledger claim.
+      if (o.channel === "storefront" || !o.user_id) return { refunded: false, message: STOREFRONT_REFUND_MESSAGE }
       // Already refunded by an earlier run: the credit exists, so the claim must NOT be released.
       if (o.status === "refunded" && o.payment_status === "refunded") {
         return { refunded: true, message: "Order was already refunded to the wallet" }
@@ -110,7 +119,7 @@ export function billOrdersAdapterFor(db: SupabaseClient): OrderAdapter {
   return createBillOrdersAdapter({
     async get(orderId) {
       const { data, error } = await db.from(BILL_ORDERS_TABLE)
-        .select("status, payment_status, user_id, biller, amount, paid_amount, account_number").eq("id", orderId).maybeSingle()
+        .select("status, payment_status, user_id, channel, biller, amount, paid_amount, account_number").eq("id", orderId).maybeSingle()
       if (error) throw error
       return data ? (data as unknown as BillOrderRow) : null
     },

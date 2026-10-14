@@ -264,4 +264,11 @@ describe("stuck release aborts", () => {
     const { deps } = fakeDeps({ order: stuckOrder() })
     expect(await executeBillRefund(deps, "o1", "n", false)).toMatchObject({ ok: true, released: true })
   })
+  it("refuses a storefront order before touching anything (no wallet; refunded on /admin/refunds)", async () => {
+    const { deps, calls } = fakeDeps({ order: order({ status: "pending", channel: "storefront" }) })
+    const r = await executeBillRefund(deps, "o1", "n", false)
+    expect(r).toMatchObject({ ok: false, status: 409 })
+    expect(r.message).toContain("/admin/refunds")
+    expect(calls).toEqual([])
+  })
 })

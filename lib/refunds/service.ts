@@ -1,16 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { planClawback, type ClawbackPlan } from "./clawback"
-import { evaluateEligibility, type Eligibility } from "./eligibility"
+import { orderEligibility, type Eligibility } from "./eligibility"
 import { defaultRefundAmount, validateRefundAmount } from "./amounts"
 import { loadRefundableOrders } from "./orders"
 import { getGateway, listGateways } from "./gateways"
 import { notifyRefund, type RefundNotification } from "./notify"
 import { FRESH_OTP_MS, isInFlight, isStale } from "./staleness"
-import type { GatewayOutcome, OrderTable, RefundContext, RefundGateway, RefundableOrder } from "./types"
+import { isCommissionTable, type CommissionTable, type GatewayOutcome, type OrderTable, type RefundContext, type RefundGateway, type RefundableOrder } from "./types"
 
 export const REFUND_ERROR_CODES = [
   "NOT_FOUND", "NOT_ELIGIBLE", "GATEWAY_UNSUPPORTED", "BAD_AMOUNT", "BAD_OTP", "SHORTFALL",
   "ALREADY_REFUNDED", "ORDER_NOT_PENDING", "DISPATCH_ACTIVE", "IN_FLIGHT", "RESERVE_FAILED", "SETTLE_FAILED",
+  "BAD_CHANNEL",
 ] as const
 export type RefundErrorCode = (typeof REFUND_ERROR_CODES)[number]
 
@@ -27,6 +28,9 @@ export function mapReserveError(message: string): RefundError {
   if (message.includes("ORDER_NOT_FOUND")) return new RefundError("NOT_FOUND", "Order not found")
   if (message.includes("BAD_AMOUNT")) return new RefundError("BAD_AMOUNT", "Refund amount was rejected")
   if (message.includes("BAD_TABLE")) return new RefundError("BAD_AMOUNT", "Unsupported order table")
+  if (message.includes("BAD_CHANNEL")) {
+    return new RefundError("BAD_CHANNEL", "Only storefront (Paystack-paid) orders can be refunded here; wallet-paid orders use their own refund path")
+  }
   if (message.includes("ALREADY_REFUNDED")) return new RefundError("ALREADY_REFUNDED", "This order already has a refund")
   if (message.includes("ORDER_NOT_PENDING")) return new RefundError("ORDER_NOT_PENDING", "Order is no longer a paid, pending order")
   if (message.includes("DISPATCH_ACTIVE")) return new RefundError("DISPATCH_ACTIVE", "Order is being sent to a provider right now")
@@ -40,6 +44,12 @@ export interface RefundDeps {
   notify(event: RefundNotification): Promise<void>
   /** Injectable clock (ms epoch) so age checks are deterministic in tests. */
   now?(): number
+  /** Commission bills/bundles: SQL-guarded release of a stuck Hubtel dispatch claim (processing -> pending). Rows changed. */
+  releaseStuckClaim?(table: CommissionTable, orderId: string, adminId: string | null): Promise<number>
+  /** The order's non-failed refund row, if any (manual refund resume / idempotency). */
+  findActiveRefund?(orderId: string): Promise<{ id: string; gateway: string; status: string } | null>
+  /** Bills/bundles: record how a refunded order was refunded (refund_method). Only touches a 'refunded' row. */
+  markRefundMethod?(table: CommissionTable, orderId: string, method: string): Promise<void>
 }
 
 const nowOf = (deps: RefundDeps): number => (deps.now ? deps.now() : Date.now())
@@ -50,15 +60,36 @@ export function defaultDeps(db: SupabaseClient): RefundDeps {
     loadOrder: async (table, id) => (await loadRefundableOrders(db, [{ table, id }]))[0] ?? null,
     getGateway,
     notify: (e) => notifyRefund(db, e),
+    async releaseStuckClaim(table, orderId, adminId) {
+      // The existing SQL-guarded releases (bills / standard bundles admin modules). Airtime has no Hubtel claim.
+      if (table === "hubtel_bill_orders") return (await import("@/lib/bills/admin")).releaseStuckClaimRow(db, orderId, adminId ?? "unknown")
+      if (table === "hubtel_data_orders") return (await import("@/lib/standard-bundles/admin")).releaseStuckClaimRow(db, orderId, adminId ?? "unknown")
+      return 0
+    },
+    async findActiveRefund(orderId) {
+      const { data, error } = await db.from("order_refunds").select("id, gateway, status").eq("order_id", orderId).neq("status", "failed").limit(1)
+      if (error) throw new Error(`[REFUND] active refund lookup failed: ${error.message}`)
+      const row = (data ?? [])[0] as { id: string; gateway: string; status: string } | undefined
+      return row ?? null
+    },
+    async markRefundMethod(table, orderId, method) {
+      if (table === "airtime_orders") return // no refund_method column; order_refunds.gateway records it
+      const { error } = await db.from(table).update({ refund_method: method, updated_at: new Date().toISOString() }).eq("id", orderId).eq("status", "refunded")
+      if (error) console.error("[REFUND] could not record refund_method (non-fatal):", error.message)
+    },
   }
 }
 
-const eligibilityOf = (o: RefundableOrder): Eligibility =>
-  evaluateEligibility({
-    table: o.table, orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
-    dispatchOutcome: o.evidence.dispatchOutcome, trackingStatuses: o.evidence.trackingStatuses,
-    externalOrderId: o.evidence.externalOrderId,
-  })
+/** Releases a stuck Hubtel dispatch claim before reserving; the reserve then sees `pending`. */
+async function releaseStuck(deps: RefundDeps, order: RefundableOrder, adminId: string | null): Promise<void> {
+  if (!isCommissionTable(order.table) || !deps.releaseStuckClaim) {
+    throw new RefundError("NOT_ELIGIBLE", "This order's dispatch claim cannot be released here")
+  }
+  const n = await deps.releaseStuckClaim(order.table, order.id, adminId)
+  if (n === 0) throw new RefundError("NOT_ELIGIBLE", "The dispatch claim is no longer stuck; reload and retry")
+}
+
+const eligibilityOf = (o: RefundableOrder, now: number): Eligibility => orderEligibility(o, now)
 
 export interface RefundPreview {
   order: RefundableOrder
@@ -73,7 +104,7 @@ export async function previewRefund(deps: RefundDeps, ref: { table: OrderTable; 
   if (!order) throw new RefundError("NOT_FOUND", "Order not found")
   return {
     order,
-    eligibility: eligibilityOf(order),
+    eligibility: eligibilityOf(order, nowOf(deps)),
     defaultAmount: defaultRefundAmount(order.paid, order.gatewayFee),
     gateways: listGateways().map((g) => {
       const s = g.supports(order)
@@ -201,7 +232,7 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
   const order = await deps.loadOrder(input.table, input.orderId)
   if (!order) throw new RefundError("NOT_FOUND", "Order not found")
 
-  const elig = eligibilityOf(order)
+  const elig = eligibilityOf(order, nowOf(deps))
   if (!elig.eligible) throw new RefundError("NOT_ELIGIBLE", elig.reason, { code: elig.code })
 
   const gateway = deps.getGateway(input.gateway)
@@ -211,6 +242,8 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
 
   const amountError = validateRefundAmount(input.amount, order.paid)
   if (amountError) throw new RefundError("BAD_AMOUNT", amountError)
+
+  if (elig.releaseStuck) await releaseStuck(deps, order, input.adminId)
 
   const destination = order.payment.payerPhone
   const { data, error } = await deps.rpc("reserve_order_refund", {
@@ -343,4 +376,94 @@ export async function cancelRefund(deps: RefundDeps, stored: StoredRefund): Prom
     return { status: "awaiting_otp", message: "Could not confirm the payout state with the gateway — not cancelled. Try again shortly." }
   }
   return settleStored(deps, stored, ctx, outcome)
+}
+
+export const MANUAL_GATEWAY = "manual"
+
+export interface ManualRefundInput {
+  table: OrderTable
+  orderId: string
+  /** Required admin note (validated by the route, <= 500 chars). */
+  note: string
+  adminId: string
+}
+
+export interface ManualRefundResult {
+  refundId: string | null
+  status: "completed"
+  /** true => nothing changed: the order was already refunded (second click). */
+  alreadyRefunded: boolean
+  message: string
+}
+
+const manualRef = (note: string) => `manual: ${note}`.slice(0, 200)
+
+async function completeManual(deps: RefundDeps, order: RefundableOrder, refundId: string, note: string): Promise<void> {
+  const { data, error } = await callRpc(deps, "complete_order_refund", { p_refund_id: refundId, p_gateway_ref: manualRef(note) })
+  if (error || data !== "completed") {
+    throw new RefundError(
+      "SETTLE_FAILED",
+      `The manual refund was reserved (owner's cut already removed) but could not be marked completed (${error?.message ?? `ledger says ${String(data)}`}). Click "Mark refunded manually" again to finish it.`,
+      { refundId, rpc: "complete_order_refund", ledgerStatus: data ?? null },
+    )
+  }
+  if (deps.markRefundMethod && isCommissionTable(order.table)) {
+    try { await deps.markRefundMethod(order.table, order.id, MANUAL_GATEWAY) } catch (e) { console.error("[REFUND] refund_method write failed (non-fatal):", e) }
+  }
+}
+
+/**
+ * "Mark refunded manually" for a storefront commission order: the admin refunded the customer outside our gateways.
+ * No money moves here. Same eligibility as a gateway refund (never while Hubtel may still deliver); then the refund
+ * ledger records it exactly like a gateway refund — reserve_order_refund (guarded status flip under the order lock +
+ * the shop-share clawback), then complete_order_refund (order -> refunded; bills/bundles payment_status refunded) —
+ * with gateway 'manual'. Idempotent: an already-refunded order is a no-op, a reserved-but-unfinished manual refund is
+ * completed, and the RPC's one-active-refund guard stops a concurrent double click from clawing back twice.
+ */
+export async function executeManualRefund(deps: RefundDeps, input: ManualRefundInput): Promise<ManualRefundResult> {
+  if (!isCommissionTable(input.table)) {
+    throw new RefundError("GATEWAY_UNSUPPORTED", "Manual refunds are only for storefront airtime, bill and bundle orders")
+  }
+  const order = await deps.loadOrder(input.table, input.orderId)
+  if (!order) throw new RefundError("NOT_FOUND", "Order not found")
+  if (!order.evidence.commission?.storefront) {
+    throw new RefundError("NOT_ELIGIBLE", "Not a storefront order — refund it through its own refund path", { code: "NOT_STOREFRONT" })
+  }
+  const already = (): ManualRefundResult => ({ refundId: null, status: "completed", alreadyRefunded: true, message: "This order is already refunded; nothing changed" })
+  if (order.orderStatus === "refunded") return already()
+
+  if (order.evidence.hasActiveRefund) {
+    const active = deps.findActiveRefund ? await deps.findActiveRefund(order.id) : null
+    if (active && active.gateway === MANUAL_GATEWAY && active.status === "reserved") {
+      await completeManual(deps, order, active.id, input.note)
+      return { refundId: active.id, status: "completed", alreadyRefunded: false, message: "Manual refund completed" }
+    }
+    throw new RefundError("ALREADY_REFUNDED", "A refund is already in progress for this order — see History")
+  }
+
+  const elig = eligibilityOf(order, nowOf(deps))
+  if (!elig.eligible) throw new RefundError("NOT_ELIGIBLE", elig.reason, { code: elig.code })
+  if (elig.releaseStuck) await releaseStuck(deps, order, input.adminId)
+
+  const { data, error } = await deps.rpc("reserve_order_refund", {
+    p_order_table: input.table, p_order_id: input.orderId, p_gateway: MANUAL_GATEWAY,
+    // Exactly what the customer paid (total_paid / paid_amount): the RPC does not cross-check it.
+    p_paid: order.paid, p_fee: 0, p_amount: order.paid,
+    p_destination: null, p_wallet_user: null, p_admin: input.adminId,
+    p_expected_attempts: order.evidence.dispatchAttempts ?? 0,
+  })
+  if (error) {
+    const mapped = mapReserveError(error.message)
+    if (mapped.code === "ALREADY_REFUNDED" || mapped.code === "ORDER_NOT_PENDING") {
+      // A concurrent click won the race: if it finished, this click is a no-op.
+      const fresh = await deps.loadOrder(input.table, input.orderId)
+      if (fresh?.orderStatus === "refunded") return already()
+    }
+    throw mapped
+  }
+  if (!data || typeof data.refund_id !== "string") throw new RefundError("RESERVE_FAILED", "Reserve returned no refund id", { data })
+  const refundId = data.refund_id as string
+  await completeManual(deps, order, refundId, input.note)
+  await notifySafely(deps, { refundId, order, amount: order.paid, gateway: MANUAL_GATEWAY, clawbacks: Array.isArray(data.clawbacks) ? data.clawbacks : [] })
+  return { refundId, status: "completed", alreadyRefunded: false, message: "Marked refunded; the shop's share was clawed back" }
 }

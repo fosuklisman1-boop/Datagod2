@@ -91,6 +91,13 @@ function deps(over: Partial<BundleRefundDeps> & { order?: RefundOrder; ledger?: 
 }
 
 describe("executeBundleRefund", () => {
+  it("refuses a storefront order before touching anything (no wallet; refunded on /admin/refunds)", async () => {
+    const d = deps({ order: facts({ channel: "storefront", user_id: null as unknown as string }) })
+    const r = await executeBundleRefund(d, "o1", "n")
+    expect(r).toMatchObject({ ok: false, status: 409 })
+    expect(r.message).toContain("/admin/refunds")
+    expect(d.log).toEqual([])
+  })
   it("claims, rechecks the ledger, credits, then marks refunded", async () => {
     const d = deps()
     const r = await executeBundleRefund(d, "o1", "n")

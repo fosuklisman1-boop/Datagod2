@@ -2,20 +2,31 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { refundableStatuses } from "./eligibility"
 import { loadPayerPhones } from "./payer-phone"
 import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
-import { isWalletOnlyTable, type DispatchOutcome, type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder } from "./types"
+import { BILLERS, isBillerKey } from "@/lib/bills/billers"
+import { normalizeGhanaPhone } from "@/lib/phone-format"
+import {
+  isCommissionTable, isWalletOnlyTable, type CommissionLedgerFact, type CommissionTable, type DispatchOutcome,
+  type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder,
+} from "./types"
+
+type ClassicTable = Exclude<OrderTable, CommissionTable>
 
 const CHUNK = 100
 // orders / api_orders have no shop_profits FK columns (no owners, no clawback).
+// Commission tables: the shop's cashback share (airtime: merchant_commission row) is linked by these columns.
 const PROFIT_FK: Record<OrderTable, string | null> = {
   shop_orders: "shop_order_id",
   ussd_orders: "ussd_order_id",
   ussd_shop_orders: "ussd_shop_order_id",
   orders: null,
   api_orders: null,
+  airtime_orders: "airtime_order_id",
+  hubtel_bill_orders: "bill_order_id",
+  hubtel_data_orders: "data_order_id",
 }
 // Debit sources that prove a wallet payment of ONE specific order (a 'bulk_order' batch debit does not reference order ids; it is matched separately by batch reconstruction).
 const WALLET_DEBIT_SOURCES = ["data_purchase", "api_order"]
-const TRACKING_COL: Record<OrderTable, string> = {
+const TRACKING_COL: Record<ClassicTable, string> = {
   shop_orders: "shop_order_id",
   ussd_orders: "order_id",
   ussd_shop_orders: "order_id",
@@ -29,6 +40,9 @@ const SEARCH_COLS: Record<OrderTable, string[]> = {
   ussd_shop_orders: ["dialing_phone", "recipient_phone"],
   orders: ["phone_number"],
   api_orders: ["recipient_phone"],
+  airtime_orders: ["beneficiary_phone", "reference_code"],
+  hubtel_bill_orders: ["buyer_phone", "account_number", "reference_code"],
+  hubtel_data_orders: ["buyer_phone", "beneficiary_phone", "reference_code"],
 }
 
 /** orders.created_at is timestamp WITHOUT time zone, stored in UTC: PostgREST returns it with no offset, so mark it UTC. */
@@ -53,7 +67,26 @@ const SELECT: Record<OrderTable, string> = {
   // orders.external_order_id: added by migrations/fix_external_order_id_types.sql. api_orders has no such column in the repo (provider_reference only), so it is NOT selected.
   orders: "id, user_id, network, size, price, status, phone_number, external_order_id, created_at",
   api_orders: "id, user_id, network, volume_gb, price, status, recipient_phone, created_at",
+  // Commission tables (storefront rows only; see isStorefrontRow). Paid = total_paid / paid_amount (what the customer paid).
+  airtime_orders:
+    "id, shop_id, user_id, channel, dialing_phone, network, beneficiary_phone, airtime_amount, total_paid, status, payment_status, notes, created_at, updated_at",
+  hubtel_bill_orders:
+    "id, shop_id, user_id, channel, biller, account_number, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
+  hubtel_data_orders:
+    "id, shop_id, user_id, channel, network, bundle_display, beneficiary_phone, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
 }
+
+/**
+ * Storefront commission rows: the only ones the refund RPCs accept (BAD_CHANNEL otherwise). Airtime storefront rows are
+ * the web storefront's (shop_id, no account, no channel tag, no dialing phone); USSD/WhatsApp shop airtime carries a
+ * channel and/or dialing phone and keeps its own path.
+ */
+export function isStorefrontRow(table: CommissionTable, r: { shop_id?: unknown; user_id?: unknown; channel?: unknown; dialing_phone?: unknown }): boolean {
+  if (table === "airtime_orders") return !!r.shop_id && !r.user_id && r.channel == null && !r.dialing_phone
+  return r.channel === "storefront"
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 const chunk = <T,>(arr: T[], n = CHUNK): T[][] => {
   const out: T[][] = []
@@ -108,9 +141,136 @@ export async function loadRefundableOrders(
     const ids = refs.filter((r) => r.table === table).map((r) => r.id)
     if (ids.length === 0) continue
     const rows = await inRows<any>(db, table, SELECT[table], "id", ids)
-    out.push(...(await enrich(db, table, rows)))
+    out.push(...(isCommissionTable(table) ? await enrichCommission(db, table, rows) : await enrich(db, table, rows)))
   }
   return out
+}
+
+/** Per-shop credited/pending profit for one order, with each owner's balances (pesewa-exact sums). */
+function ownersOf(
+  orderProfits: any[], shopById: Map<string, any>, balanceByShop: Map<string, number>, walletByUser: Map<string, number>,
+): OwnerCut[] {
+  const byShop = new Map<string, { credited: number; pending: number }>()
+  for (const p of orderProfits) {
+    const cur = byShop.get(p.shop_id) ?? { credited: 0, pending: 0 } // integer pesewas
+    const pesewas = Math.round(Number(p.profit_amount) * 100)
+    if (p.status === "credited") cur.credited += pesewas
+    else if (p.status === "pending") cur.pending += pesewas
+    byShop.set(p.shop_id, cur)
+  }
+  return [...byShop.entries()]
+    .filter(([, v]) => v.credited !== 0 || v.pending !== 0)
+    .map(([shopId, v]) => {
+      const ownerUserId = (shopById.get(shopId)?.user_id as string | undefined) ?? null
+      return {
+        shopId, ownerUserId, credited: v.credited / 100, pending: v.pending / 100,
+        availableBalance: balanceByShop.get(shopId) ?? 0,
+        walletBalance: ownerUserId ? walletByUser.get(ownerUserId) ?? 0 : 0,
+      }
+    })
+}
+
+const billLabel = (biller: unknown) => (isBillerKey(biller) ? BILLERS[biller].label : String(biller ?? "Bill"))
+
+/**
+ * Storefront commission orders (airtime / bills / bundles). Paid by an anonymous storefront buyer through Paystack:
+ * - paid = total_paid (airtime) / paid_amount (bills, bundles; face amount on legacy rows) — exactly what the RPC gets;
+ * - Paystack reference = the row's payment_reference (bills/bundles, set at the guarded paid flip) or the completed
+ *   wallet_payments row for the order (airtime);
+ * - payer number = the recorded direct-charge payer (payment_attempts.payer_phone), else the buyer's phone
+ *   (bills/bundles buyer_phone). Airtime has no buyer phone column; its beneficiary is a recipient, never the payer;
+ * - no wallet (walletUserId null): the buyer has no account;
+ * - Hubtel ledger rows feed eligibility (never refund while Hubtel may still deliver).
+ */
+async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows: any[]): Promise<RefundableOrder[]> {
+  if (rows.length === 0) return []
+  const ids = rows.map((r) => r.id as string)
+  const fk = PROFIT_FK[table]!
+
+  const [profits, refunds, walletPayments, ledgerRows] = await Promise.all([
+    inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${fk}`, fk, ids, (q) => q.is("refund_id", null)),
+    inRows<any>(db, "order_refunds", "order_id, status", "order_id", ids, (q) => q.neq("status", "failed")),
+    inRows<any>(db, "wallet_payments", "order_id, reference, amount, fee, status", "order_id", ids),
+    inRows<any>(db, "hubtel_cs_transactions", "order_id, client_reference, state, refund_claimed_at, resolved_by, created_at", "order_id", ids,
+      (q) => q.eq("order_table", table)),
+  ])
+
+  const shopIds = [...new Set([
+    ...profits.map((p) => p.shop_id as string),
+    ...rows.map((r) => r.shop_id as string | undefined).filter(Boolean) as string[],
+  ])]
+  const [shops, balances] = await Promise.all([
+    shopIds.length ? inRows<any>(db, "user_shops", "id, shop_name, user_id", "id", shopIds) : Promise.resolve([] as any[]),
+    shopIds.length ? inRows<any>(db, "shop_available_balance", "shop_id, available_balance", "shop_id", shopIds) : Promise.resolve([] as any[]),
+  ])
+  const ownerIds = [...new Set(shops.map((s) => s.user_id as string).filter(Boolean))]
+  const wallets = ownerIds.length ? await inRows<any>(db, "wallets", "user_id, balance", "user_id", ownerIds) : []
+  const shopById = new Map(shops.map((s) => [s.id as string, s]))
+  const balanceByShop = new Map(balances.map((b) => [b.shop_id as string, Number(b.available_balance)]))
+  const walletByUser = new Map(wallets.map((w) => [w.user_id as string, Number(w.balance)]))
+
+  const referenceOf = (r: any): string | null => {
+    if (table !== "airtime_orders" && r.payment_reference) return String(r.payment_reference)
+    const wp = walletPayments.find((w) => w.order_id === r.id && w.status === "completed")
+    return (wp?.reference as string | undefined) ?? null
+  }
+  const refs = rows.map(referenceOf).filter(Boolean) as string[]
+  const payerByRef = refs.length ? await loadPayerPhones(db, refs) : new Map<string, string>()
+
+  return rows.map((r) => {
+    const id = r.id as string
+    const reference = referenceOf(r)
+    const wp = reference ? walletPayments.find((w) => w.reference === reference) : undefined
+    const buyerPhone = table === "airtime_orders" || !r.buyer_phone ? null : normalizeGhanaPhone(String(r.buyer_phone))
+    const payment: PaymentSource = {
+      gateway: reference ? "paystack" : null,
+      reference,
+      payerPhone: (reference ? payerByRef.get(reference) : undefined) ?? buyerPhone ?? null,
+      walletUserId: null,
+    }
+    const paid = round2(Number(table === "airtime_orders" ? r.total_paid : (r.paid_amount ?? r.amount)))
+    const ledger: CommissionLedgerFact[] = ledgerRows
+      .filter((l) => l.order_id === id)
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+      .map((l) => ({ client_reference: l.client_reference, state: l.state, refund_claimed_at: l.refund_claimed_at ?? null, resolved_by: l.resolved_by ?? null, created_at: l.created_at }))
+    const label = table === "airtime_orders"
+      ? { packageLabel: `GHS ${Number(r.airtime_amount).toFixed(2)} airtime`, network: String(r.network ?? ""), recipient: r.beneficiary_phone ?? null }
+      : table === "hubtel_bill_orders"
+        ? { packageLabel: `${billLabel(r.biller)} bill`, network: `(${r.account_number})`, recipient: r.buyer_phone ?? null }
+        : { packageLabel: String(r.bundle_display ?? ""), network: String(r.network ?? ""), recipient: r.beneficiary_phone ?? null }
+    return {
+      table, id,
+      orderStatus: r.status as string,
+      // bills/bundles say 'paid'; the refund ledger (like reserve_order_refund) speaks 'completed'
+      paymentStatus: r.payment_status === "paid" ? "completed" : (r.payment_status as string),
+      shopId: (r.shop_id as string | undefined) ?? null,
+      shopName: r.shop_id ? (shopById.get(r.shop_id)?.shop_name as string | undefined) ?? null : null,
+      packageLabel: label.packageLabel,
+      network: label.network,
+      recipientPhone: label.recipient as string | null,
+      createdAt: toUtcIso(r.created_at, false),
+      paid,
+      gatewayFee: Number(wp?.fee ?? 0) || 0,
+      payment,
+      owners: ownersOf(profits.filter((p) => p[fk] === id), shopById, balanceByShop, walletByUser),
+      evidence: {
+        hasActiveRefund: refunds.some((x) => x.order_id === id),
+        dispatchOutcome: null,
+        dispatchAttempts: null,
+        trackingStatuses: [],
+        externalOrderId: null,
+        commission: {
+          storefront: isStorefrontRow(table, r),
+          status: r.status as string,
+          paymentStatus: r.payment_status as string,
+          hubtelClientReference: (r.hubtel_client_reference as string | null | undefined) ?? null,
+          notes: (r.notes as string | null | undefined) ?? null,
+          updatedAt: String(r.updated_at ?? r.created_at ?? ""),
+          ledger,
+        },
+      },
+    }
+  })
 }
 
 /**
@@ -151,7 +311,7 @@ async function loadBulkBatchProven(db: SupabaseClient, candidates: any[]): Promi
   return proven
 }
 
-async function enrich(db: SupabaseClient, table: OrderTable, rows: any[]): Promise<RefundableOrder[]> {
+async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Promise<RefundableOrder[]> {
   if (rows.length === 0) return []
   const ids = rows.map((r) => r.id as string)
   const walletOnly = isWalletOnlyTable(table)
@@ -331,6 +491,20 @@ export interface PendingQuery {
   page: number
 }
 
+/**
+ * Paid storefront commission orders that may need a refund: pending/failed, plus (bills/bundles) a possibly stuck
+ * Hubtel dispatch claim — the same set the bills admin "refund" view lists. Storefront rows only.
+ */
+function commissionPendingQuery(db: SupabaseClient, table: CommissionTable): any {
+  const q: any = db.from(table).select("id, created_at")
+  if (table === "airtime_orders") {
+    return q.not("shop_id", "is", null).is("user_id", null).is("channel", null).is("dialing_phone", null)
+      .eq("payment_status", "completed").in("status", ["pending", "failed"])
+  }
+  return q.eq("channel", "storefront").eq("payment_status", "paid")
+    .or("status.in.(failed,pending),and(status.eq.processing,notes.ilike.Dispatching%,hubtel_client_reference.is.null)")
+}
+
 /** Newest-first merged page of paid+pending orders. Each table's top (page*pageSize) rows contain the global top. */
 export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuery): Promise<{ table: OrderTable; id: string; createdAt: string }[]> {
   const tables = (opts.table ? [opts.table] : (Object.keys(SELECT) as OrderTable[])).filter((t) => !(opts.shopId && (t === "ussd_orders" || isWalletOnlyTable(t)))) // these have no shop_id: never return them unscoped
@@ -339,7 +513,9 @@ export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuer
   for (const table of tables) {
     let q: any = isWalletOnlyTable(table)
       ? db.from(table).select("id, created_at").in("status", [...refundableStatuses(table)])
-      : db.from(table).select("id, created_at").eq("order_status", "pending").eq("payment_status", "completed")
+      : isCommissionTable(table)
+        ? commissionPendingQuery(db, table)
+        : db.from(table).select("id, created_at").eq("order_status", "pending").eq("payment_status", "completed")
     if (opts.shopId) q = q.eq("shop_id", opts.shopId)
     if (opts.q) {
       const term = opts.q.replace(/[^0-9a-zA-Z-]/g, "")
