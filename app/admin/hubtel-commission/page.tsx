@@ -225,6 +225,11 @@ export default function HubtelCommissionPage() {
     finally { setLoading(false) }
   }, [loadConfig, loadList])
   // Config loads once; changing the filter/search only reloads the lists (never clobbers an unsaved threshold).
+  // Deep link: /admin/hubtel-commission?tab=cashback (used by the Utility Bills settings page).
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab")
+    if (t && ["settings", "transactions", "review", "bundles", "cashback"].includes(t)) setTab(t)
+  }, [])
   useEffect(() => { void loadConfig() }, [loadConfig])
   useEffect(() => { void reloadLists() }, [reloadLists])
   useEffect(() => {

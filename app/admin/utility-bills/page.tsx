@@ -65,6 +65,21 @@ const STATUS_STYLE: Record<string, string> = {
 const PAY_STYLE: Record<string, string> = { paid: "bg-emerald-100 text-emerald-700", unpaid: "bg-slate-100 text-slate-600", refunded: "bg-violet-100 text-violet-700" }
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
+function SurfaceRow({ title, detail, state, on, link }: {
+  title: string; detail: string; state: string; on: boolean; link?: { href: string; label: string }
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
+      <div>
+        <div className="font-medium">{title}</div>
+        <div className="text-xs text-muted-foreground">{detail}</div>
+        {link && <Link href={link.href} className="mt-1 inline-block text-xs font-semibold text-primary underline">{link.label}</Link>}
+      </div>
+      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${on ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>{state}</span>
+    </div>
+  )
+}
+
 function Stat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: string }) {
   return (
     <Card>
@@ -178,6 +193,11 @@ export default function UtilityBillsPage() {
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<BillsConfig | null>(null)
   const [configError, setConfigError] = useState<string | null>(null)
+  /** Live storefront/cashback state for bills, read from the Cashback settings (null = not loaded). */
+  const [surfaces, setSurfaces] = useState<{
+    storefront: boolean; feePct: number
+    shares: { customer: number; dealer: number; storefrontCustomer: number; storefrontShop: number } | null
+  } | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [details, setDetails] = useState<Order | null>(null)
@@ -211,6 +231,15 @@ export default function UtilityBillsPage() {
       const j = await authed("/api/admin/utility-bills/config")
       setConfig(j.config); setDraft(toDraft(j.config)); setConfigError(null)
     } catch (e) { setConfigError(errMsg(e)); toast.error(`Settings: ${errMsg(e)}`) }
+    // Best-effort: the Surfaces / cashback cards just show "—" if this fails.
+    try {
+      const c = (await authed("/api/admin/cashback/config")).config
+      setSurfaces({
+        storefront: !!(c?.enabled && c?.surfaces?.storefront && c?.storefrontGroups?.bills),
+        feePct: Number(c?.paymentFee?.bills ?? 0),
+        shares: c?.shares?.bills ?? null,
+      })
+    } catch { setSurfaces(null) }
   }, [])
 
   const loadOrders = useCallback(async (scope: "orders" | "queue" | "refunded", offset: number, withStats = false): Promise<void> => {
@@ -364,15 +393,13 @@ export default function UtilityBillsPage() {
             <TabsTrigger value="orders">Orders</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
             <TabsTrigger value="refunds">Refund Queue{queueCount ? ` (${queueCount})` : ""}</TabsTrigger>
-            <TabsTrigger value="wallets" disabled title="Coming soon">Commission Wallets · coming soon</TabsTrigger>
           </TabsList>
 
           <TabsContent value="orders" className="mt-4 space-y-4">
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
               <Stat label="Sales (face value)" value={stats ? money(stats.totalSales) : "—"} hint={stats ? `${stats.orders} orders in view` : undefined} tone="text-emerald-600" />
               <Stat label="Orders" value={stats ? String(stats.orders) : "—"} hint={stats ? `${stats.completed} completed · ${stats.inFlight} in flight` : undefined} />
               <Stat label="Hubtel commission earned" value={stats ? money(stats.commission, 4) : "—"} hint="Across filtered window" tone="text-emerald-600" />
-              <Stat label="Partner share paid" value="—" hint="3b" />
               <Stat label="Failed / Refunded" value={stats ? String(stats.failed + stats.refunded) : "—"} hint={stats ? `${stats.failed} failed · ${stats.refunded} refunded` : undefined} tone="text-red-500" />
             </div>
 
@@ -475,31 +502,36 @@ export default function UtilityBillsPage() {
                     <CardDescription>Where customers can pay a bill</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {[
-                      ["Storefront", "Allow shop storefronts to sell utility bills"],
-                      ["USSD", "Allow utility bill payment over USSD"],
-                      ["Hubtel Direct Pay", "Charge storefront utility bills via Hubtel instead of Paystack"],
-                    ].map(([t, d]) => (
-                      <div key={t} className="flex items-center justify-between gap-3 rounded-xl border p-3 opacity-60">
-                        <div>
-                          <div className="font-medium">{t}</div>
-                          <div className="text-xs text-muted-foreground">{d}</div>
-                          <div className="mt-1 text-xs font-medium text-amber-700">Coming in Phase 3b</div>
-                        </div>
-                        <Switch aria-label={`${t} (coming in Phase 3b)`} checked={false} disabled />
-                      </div>
-                    ))}
+                    <SurfaceRow title="Dashboard" detail="Logged-in customers pay from their wallet" state={config.enabled ? "On" : "Off"} on={config.enabled} />
+                    <SurfaceRow
+                      title="Shop storefronts"
+                      detail={surfaces
+                        ? `Paid with Paystack (MoMo prompt / card). Payment fee ${surfaces.feePct}% on top.`
+                        : "Paid with Paystack (MoMo prompt / card)."}
+                      state={surfaces === null ? "—" : surfaces.storefront ? "On" : "Off"}
+                      on={!!surfaces?.storefront}
+                      link={{ href: "/admin/hubtel-commission?tab=cashback", label: "Change in Cashback" }}
+                    />
+                    <SurfaceRow title="USSD / WhatsApp" detail="Bill payment from the bots" state="Not yet" on={false} />
                   </CardContent>
                 </Card>
 
                 <div className="space-y-4">
-                  <Card className="opacity-60">
+                  <Card>
                     <CardHeader>
-                      <CardTitle>Partner commission split</CardTitle>
-                      <CardDescription>Coming in Phase 3b</CardDescription>
+                      <CardTitle>Shop &amp; customer cashback</CardTitle>
+                      <CardDescription>Shares of Hubtel&apos;s bill commission given to buyers and shop owners</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-2"><Input value="30" disabled aria-label="Partner commission split (coming in Phase 3b)" /><span className="text-muted-foreground">%</span></div>
+                    <CardContent className="space-y-2 text-sm">
+                      {surfaces?.shares ? (
+                        <>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Dashboard customer / dealer</span><span>{surfaces.shares.customer}% / {surfaces.shares.dealer}%</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Storefront buyer / shop owner</span><span>{surfaces.shares.storefrontCustomer}% / {surfaces.shares.storefrontShop}%</span></div>
+                        </>
+                      ) : (
+                        <div className="text-muted-foreground">Set up in Cashback.</div>
+                      )}
+                      <Link href="/admin/hubtel-commission?tab=cashback" className="inline-block text-xs font-semibold text-primary underline">Manage rates &amp; shares in Cashback</Link>
                     </CardContent>
                   </Card>
                   <Card>
