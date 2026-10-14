@@ -45,7 +45,7 @@ describe("check results: entry gates", () => {
     for (const brandName of ["Ama Data", "B".repeat(15) + " " + "c".repeat(14)]) {
       const { deps } = makeDeps({
         getConfig: async () => ({
-          enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true },
+          enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true },
           brandName, welcome: `Welcome to ${brandName}`, welcomeCustom: false,
         }),
       })

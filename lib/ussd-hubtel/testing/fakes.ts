@@ -72,7 +72,7 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
   const store = new Map<string, HubtelSession>()
   const deps: RouterDeps = {
     supabase: sup.client,
-    getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }),
+    getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true } }),
     sessions: {
       get: async id => store.get(id) ?? null,
       set: async (id, s) => { store.set(id, s) },
@@ -129,7 +129,7 @@ export function fakeAfa(over: Partial<AfaServices> = {}): AfaServices {
 
 /** Shop mode, every service visible. */
 export const SHOP_CONFIG = async (): Promise<HubtelUssdConfig> => ({
-  enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true }, welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub",
+  enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true }, welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub",
 })
 
 /** An active shop code owned by a regular (non-sub-agent) shop. tokenBalance is unused since 2026-10-14. */

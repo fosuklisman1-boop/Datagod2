@@ -23,7 +23,13 @@ import type { HubtelTxRow } from "@/lib/ussd-hubtel/types"
 type EnvStatus = { webhookSecret: boolean; relayUrl: boolean; relaySecret: boolean; redis?: boolean }
 type Counts = { needs_review: number; callback_pending: number; callback_failed: number; awaiting_payment: number }
 
-const SERVICES: { key: keyof HubtelUssdConfig["visibility"]; label: string }[] = [
+/** Commission Cashback bot menus: shown only when this toggle AND the cashback bots switches are on. */
+const CASHBACK_SERVICES: { key: "networkPlans" | "payBills"; label: string }[] = [
+  { key: "networkPlans", label: "Network Plans" },
+  { key: "payBills", label: "Pay Bills" },
+]
+
+const SERVICES: { key: Exclude<keyof HubtelUssdConfig["visibility"], "networkPlans" | "payBills">; label: string }[] = [
   { key: "data", label: "Data Bundle" },
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
@@ -477,6 +483,18 @@ export default function AdminUssdHubtelPage() {
                       </div>
                     )
                   })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Cashback menus: shown only when Commission Cashback is on for bots (and the matching group) as well as here.
+                </p>
+                <div className="divide-y rounded-lg border">
+                  {CASHBACK_SERVICES.map(s => (
+                    <div key={s.key} className="flex items-center justify-between p-3">
+                      <span className="text-sm">{s.label}</span>
+                      <Switch checked={config.visibility[s.key] !== false} disabled={busy === s.key} aria-label={`Toggle ${s.label}`}
+                        onCheckedChange={v => save({ visibility: { [s.key]: v } }, s.key)} />
+                    </div>
+                  ))}
                 </div>
               </>
             )}

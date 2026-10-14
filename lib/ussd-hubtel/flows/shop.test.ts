@@ -25,7 +25,7 @@ describe("shop mode: initiation", () => {
   it("every shop service hidden for this caller: released before any code", async () => {
     const resolveCode = vi.fn(async () => ({ ...SHOP_CODE }))
     const { deps, store } = makeDeps({
-      getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: false, resultsChecker: false } }),
+      getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: false, resultsChecker: false, networkPlans: true, payBills: true } }),
       isDataBlocked: async () => true,
       shop: fakeShop({ resolveCode }),
     })
@@ -40,7 +40,7 @@ describe("shop mode: initiation", () => {
   })
   it("AFA alone visible does not count as a shop service (the shop menu has no AFA)", async () => {
     const { deps } = makeDeps({
-      getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: { data: false, afa: true, airtime: false, resultsChecker: false } }),
+      getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: { data: false, afa: true, airtime: false, resultsChecker: false, networkPlans: true, payBills: true } }),
     })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("release")
@@ -228,7 +228,7 @@ describe("shop mode: product menu", () => {
     expect(r.Message).toBe("Ama Data Hub\nWhat would you like to buy?\n1. Buy Airtime\n2. Results Checker\n0. Exit")
   })
   it("an admin-hidden service is not offered", async () => {
-    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: false, resultsChecker: true } }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: false, resultsChecker: true, networkPlans: true, payBills: true } }) })
     const r = await enterShop(deps)
     expect(r.Message).not.toContain("Buy Airtime")
     expect(r.Message).not.toContain("AFA")

@@ -7,7 +7,14 @@ export const HUBTEL_USSD_CONFIG_KEY = "hubtel_ussd_config"
 export interface HubtelUssdConfig {
   enabled: boolean
   mode: "main" | "shop"
-  visibility: { data: boolean; afa: boolean; airtime: boolean; resultsChecker: boolean }
+  /**
+   * Per-service menu visibility. `networkPlans` / `payBills` are the Commission Cashback bot menus: they show only
+   * when this flag AND the cashback bots switches (enabled, surfaces.bots, the group) are on.
+   */
+  visibility: {
+    data: boolean; afa: boolean; airtime: boolean; resultsChecker: boolean
+    networkPlans: boolean; payBills: boolean
+  }
   /** Brand shown on Hubtel screens: derived welcome line, exit message, Check Results account message. */
   brandName: string
   /**
@@ -42,7 +49,12 @@ export function derivedWelcome(brandName: string): string {
  */
 export const DEFAULT_WELCOME = derivedWelcome(DEFAULT_BRAND)
 
-const DEFAULT_VISIBILITY: HubtelUssdConfig["visibility"] = { data: true, afa: true, airtime: true, resultsChecker: true }
+export const DEFAULT_VISIBILITY: HubtelUssdConfig["visibility"] = {
+  data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true,
+}
+
+/** Keys the admin route accepts in a visibility patch. */
+export const VISIBILITY_KEYS = Object.keys(DEFAULT_VISIBILITY) as (keyof HubtelUssdConfig["visibility"])[]
 
 type Validation = { ok: true; value: string } | { ok: false; error: string }
 

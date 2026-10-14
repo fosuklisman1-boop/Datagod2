@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import {
   DEFAULT_BRAND, getHubtelUssdConfig, hubtelEnvReady, setHubtelUssdConfig, validateBrandName, validateWelcome,
+  VISIBILITY_KEYS,
 } from "@/lib/ussd-hubtel/config"
 
 const adminClient = () =>
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
   }
   const vis = body?.visibility
   if (vis !== undefined) {
-    const valid = ["data", "afa", "airtime", "resultsChecker"]
+    const valid: string[] = VISIBILITY_KEYS
     if (typeof vis !== "object" || vis === null || Object.entries(vis).some(([k, v]) => !valid.includes(k) || typeof v !== "boolean")) {
       return NextResponse.json({ error: "invalid visibility" }, { status: 400 })
     }

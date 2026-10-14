@@ -122,6 +122,21 @@ describe("(M3) shop mode no longer needs Redis (billing guard is in Postgres)", 
   })
 })
 
+describe("POST /api/admin/ussd-hubtel/config: cashback menu visibility", () => {
+  it("accepts networkPlans / payBills booleans and passes them through", async () => {
+    const res = await POST(post({ visibility: { networkPlans: false, payBills: true } }))
+    expect(res.status).toBe(200)
+    expect(h.set.mock.calls[0][1].visibility).toEqual({ networkPlans: false, payBills: true })
+  })
+  it("rejects a non-boolean networkPlans", async () => {
+    expect((await POST(post({ visibility: { networkPlans: "no" } }))).status).toBe(400)
+    expect(h.set).not.toHaveBeenCalled()
+  })
+  it("still rejects unknown visibility keys", async () => {
+    expect((await POST(post({ visibility: { bundles: true } }))).status).toBe(400)
+  })
+})
+
 describe("POST /api/admin/ussd-hubtel/config: welcome message", () => {
   const getReq = () => new NextRequest("http://localhost/api/admin/ussd-hubtel/config")
 

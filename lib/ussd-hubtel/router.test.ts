@@ -7,18 +7,18 @@ import { digitFor, fakeShop, fakeSupabase, makeDeps, req } from "./testing/fakes
 
 describe("hubtelRouter: entry guards", () => {
   it("releases when the channel is disabled", async () => {
-    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: false, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: false, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true } }) })
     const r = await hubtelRouter(req({ Type: "Initiation", Message: "*713#" }), deps)
     expect(r.Type).toBe("release")
   })
   it("shop mode answers Initiation with the shop-code prompt", async () => {
-    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
+    const { deps } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true } }) })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("response")
     expect(r.Message).toContain("Enter shop code:")
   })
   it("releases a shop-mode Initiation when the channel is disabled", async () => {
-    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: false, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } }) })
+    const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: false, mode: "shop", visibility: { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true } }) })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("release")
     expect(store.has("S1")).toBe(false)
@@ -44,7 +44,7 @@ describe("hubtelRouter: initiation and recovery", () => {
   it("releases politely when no service is available to this caller", async () => {
     const { deps } = makeDeps({
       isDataBlocked: async () => true,
-      getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: { data: true, afa: false, airtime: false, resultsChecker: false } }),
+      getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: { data: true, afa: false, airtime: false, resultsChecker: false, networkPlans: true, payBills: true } }),
     })
     const r = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(r.Type).toBe("release")
@@ -310,7 +310,7 @@ describe("hubtelRouter: flow registry", () => {
 })
 
 describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
-  const ALL_ON = { data: true, afa: true, airtime: true, resultsChecker: true }
+  const ALL_ON = { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true }
 
   it("Initiation in main mode pins mode=main", async () => {
     const { deps, store } = makeDeps()
@@ -414,7 +414,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
 })
 
 describe("hubtelRouter: configurable welcome message", () => {
-  const ALL_ON = { data: true, afa: true, airtime: true, resultsChecker: true }
+  const ALL_ON = { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true }
   const CUSTOM = "Akwaaba to Ama Data Hub"
   const cfg = (mode: "main" | "shop", welcome: string) => async () =>
     ({ enabled: true, mode, visibility: ALL_ON, welcome, welcomeCustom: true, brandName: "Clingshub" })

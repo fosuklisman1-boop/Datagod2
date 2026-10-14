@@ -35,7 +35,7 @@ describe("hubtel ussd config", () => {
     const { client } = fakeSupabase(undefined)
     expect(await getHubtelUssdConfig(client)).toEqual({
       enabled: false, mode: "main",
-      visibility: { data: true, afa: true, airtime: true, resultsChecker: true },
+      visibility: { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true },
       brandName: "Clingshub",
       welcome: "Welcome to Clingshub",
       welcomeCustom: false,
@@ -47,18 +47,28 @@ describe("hubtel ussd config", () => {
     const cfg = await getHubtelUssdConfig(client)
     expect(cfg.enabled).toBe(true)
     expect(cfg.mode).toBe("main")
-    expect(cfg.visibility).toEqual({ data: true, afa: false, airtime: true, resultsChecker: true })
+    expect(cfg.visibility).toEqual({ data: true, afa: false, airtime: true, resultsChecker: true, networkPlans: true, payBills: true })
+  })
+
+  it("networkPlans / payBills default to true on a row stored before they existed, and can be turned off", async () => {
+    const { client, read } = fakeSupabase({ enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } })
+    const before = await getHubtelUssdConfig(client)
+    expect(before.visibility.networkPlans).toBe(true)
+    expect(before.visibility.payBills).toBe(true)
+    const cfg = await setHubtelUssdConfig(client, { visibility: { payBills: false } })
+    expect(cfg.visibility).toMatchObject({ networkPlans: true, payBills: false, airtime: true })
+    expect((read() as any).visibility).toMatchObject({ networkPlans: true, payBills: false })
   })
 
   it("set merges a partial patch and persists", async () => {
     const { client, read } = fakeSupabase({ enabled: false, mode: "main", visibility: { data: true, afa: true, airtime: true, resultsChecker: true } })
     const cfg = await setHubtelUssdConfig(client, { enabled: true, visibility: { airtime: false } })
     expect(cfg).toEqual({
-      enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: false, resultsChecker: true },
+      enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: false, resultsChecker: true, networkPlans: true, payBills: true },
       brandName: "Clingshub", welcome: "Welcome to Clingshub", welcomeCustom: false,
     })
     // Only the custom welcome is stored; the derived text is not persisted.
-    expect(read()).toEqual({ enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: false, resultsChecker: true }, brandName: "Clingshub" })
+    expect(read()).toEqual({ enabled: true, mode: "main", visibility: { data: true, afa: true, airtime: false, resultsChecker: true, networkPlans: true, payBills: true }, brandName: "Clingshub" })
   })
 
   it("rejects an invalid mode", async () => {
@@ -89,11 +99,11 @@ describe("welcome message config", () => {
     const { client, read } = fakeSupabase({ enabled: true, mode: "shop", visibility: { afa: false } })
     const cfg = await setHubtelUssdConfig(client, { welcome: "  Welcome to Ama  " })
     expect(cfg).toEqual({
-      enabled: true, mode: "shop", visibility: { data: true, afa: false, airtime: true, resultsChecker: true },
+      enabled: true, mode: "shop", visibility: { data: true, afa: false, airtime: true, resultsChecker: true, networkPlans: true, payBills: true },
       brandName: "Clingshub", welcome: "Welcome to Ama", welcomeCustom: true,
     })
     expect(read()).toEqual({
-      enabled: true, mode: "shop", visibility: { data: true, afa: false, airtime: true, resultsChecker: true },
+      enabled: true, mode: "shop", visibility: { data: true, afa: false, airtime: true, resultsChecker: true, networkPlans: true, payBills: true },
       brandName: "Clingshub", welcome: "Welcome to Ama",
     })
   })
