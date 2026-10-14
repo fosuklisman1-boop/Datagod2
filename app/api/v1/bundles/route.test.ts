@@ -110,12 +110,12 @@ describe("GET /api/v1/bundles", () => {
     expect(res.status).toBe(403)
     expect((await res.json()).error).toBe("not_available")
   })
-  it("cashback config unreadable => 200 at standard (face) price instead of 500", async () => {
+  it("cashback config unreadable => fails closed: 403 not_available, catalog not read", async () => {
     h.cfgError = new Error("db down")
-    h.catalog.mockResolvedValue({ ok: true, categories: [{ name: "Data", bundles: [{ token: "tok", display: "1GB", amount: 10 }] }] })
     const res = await get()
-    expect(res.status).toBe(200)
-    expect((await res.json()).categories[0].bundles[0]).toMatchObject({ face_amount: 10, pay_amount: 10, customer_cashback: 0 })
+    expect(res.status).toBe(403)
+    expect(await res.json()).toMatchObject({ success: false, error: "not_available" })
+    expect(h.catalog).not.toHaveBeenCalled()
   })
   it("sandbox key gets the static catalog and never touches the live engine", async () => {
     h.user.environment = "test"
@@ -212,11 +212,11 @@ describe("POST /api/v1/bundles", () => {
     await get()
     expect(loggedStatuses()).toEqual([403, 403, 200])
   })
-  it("cashback config unreadable => no 500: buys at standard price via the engine", async () => {
+  it("cashback config unreadable => fails closed: 403 not_available, nothing bought", async () => {
     h.cfgError = new Error("db down")
     const res = await post(BODY)
-    expect(res.status).toBe(201)
-    expect(h.buy).toHaveBeenCalled()
+    expect(res.status).toBe(403)
+    expect(h.buy).not.toHaveBeenCalled()
   })
   it("sandbox rejects an unknown token", async () => {
     h.user.environment = "test"

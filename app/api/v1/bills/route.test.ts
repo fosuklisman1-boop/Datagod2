@@ -142,10 +142,10 @@ describe("API surface switch (live keys)", () => {
     expect((await verify({ biller: "dstv", account: "1234567890" })).status).toBe(200)
     expect(h.verify).not.toHaveBeenCalled()
   })
-  it("cashback config unreadable => carries on at standard price (no 500)", async () => {
+  it("cashback config unreadable => fails closed: 403 not_available on verify and pay", async () => {
     h.cfgError = new Error("db down")
-    expect((await verify({ biller: "dstv", account: "1234567890" })).status).toBe(200)
-    expect((await pay({ verify_token: "vt", amount: 50 })).status).toBe(201)
+    expect((await verify({ biller: "dstv", account: "1234567890" })).status).toBe(403)
+    expect((await pay({ verify_token: "vt", amount: 50 })).status).toBe(403)
   })
   it("phone not verified => 403, logged", async () => {
     h.guard.mockResolvedValue({ allowed: false, error: "Verify your phone" })

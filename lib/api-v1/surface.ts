@@ -12,8 +12,8 @@ export const apiSurfaceOn = (cfg: CashbackConfig): boolean => !!cfg.enabled && !
 /**
  * Reads the cashback config for the API gate.
  * - Config read: `open` is the API surface switch, `cfg` the config for pricing.
- * - Read failure: `open: true, cfg: null`. The request carries on at the standard (no-cashback) price, which is
- *   what the engines do when they cannot read the config, instead of failing the request with a 500.
+ * - Read failure: `open: false, cfg: null` — fail closed. The bundles/bills endpoints exist only while the admin's
+ *   API switch is on; if we can't read that switch we must not assume it is on.
  */
 export async function readApiSurface(
   getCashbackConfig: () => Promise<CashbackConfig>,
@@ -22,7 +22,7 @@ export async function readApiSurface(
     const cfg = await getCashbackConfig()
     return { open: apiSurfaceOn(cfg), cfg }
   } catch (e) {
-    console.warn("[V1] cashback config unavailable, using standard pricing:", e instanceof Error ? e.message : "error")
-    return { open: true, cfg: null }
+    console.warn("[V1] cashback config unavailable, API bundles/bills closed:", e instanceof Error ? e.message : "error")
+    return { open: false, cfg: null }
   }
 }
