@@ -122,6 +122,9 @@ function PaySheet({
   const [addingMeter, setAddingMeter] = useState(false)
   /** ECG start: look up meters by phone, or enter the meter number first (then the phone to link it to). */
   const [ecgMode, setEcgMode] = useState<"phone" | "meter">("phone")
+  /** Prepaid = meter number, Postpaid = account number. Both go to Hubtel as the bundle value. */
+  const [meterType, setMeterType] = useState<"prepaid" | "postpaid">("prepaid")
+  const meterNoun = meterType === "prepaid" ? "meter" : "postpaid account"
   const [meters, setMeters] = useState<Meter[]>([])
   const [picked, setPicked] = useState<Picked | null>(null)
   const [amount, setAmount] = useState("")
@@ -285,14 +288,11 @@ function PaySheet({
                     <PhoneField value={phone} onChange={setPhone} hint="We'll look up the meters linked to this phone. Meter not linked yet? You can enter its number on the next step." />
                   ) : (
                     <>
-                      <div>
-                        <label className={labelCls}>Meter number</label>
-                        <input className={inputCls} placeholder="Meter number (account number for postpaid)" value={account} onChange={e => { setAccount(e.target.value); setConsent(false) }} />
-                      </div>
+                      <EcgMeterInput type={meterType} onType={t => { setMeterType(t); setConsent(false) }} value={account} onChange={v => { setAccount(v); setConsent(false) }} />
                       <PhoneField value={phone} onChange={v => { setPhone(v); setConsent(false) }} hint="ECG top-ups go through a phone number. If this meter isn't linked to it yet, paying links it." />
                       <label className="flex items-start gap-2 text-xs text-muted-foreground">
                         <input type="checkbox" className="mt-0.5" checked={consent} onChange={e => setConsent(e.target.checked)} />
-                        <span>This links meter {account.trim() || "—"} to phone {phone.trim() || "—"} with ECG</span>
+                        <span>This links {meterNoun} {account.trim() || "—"} to phone {phone.trim() || "—"} with ECG</span>
                       </label>
                     </>
                   )}
@@ -362,11 +362,10 @@ function PaySheet({
                 </button>
               ) : (
                 <form onSubmit={e => { e.preventDefault(); if (account.trim().length >= 4 && consent && !busy) verify({ addMeter: true }) }} className="space-y-3 rounded-2xl border border-border p-4">
-                  <label className={labelCls}>Meter number</label>
-                  <input className={inputCls} placeholder="Meter number" value={account} onChange={e => { setAccount(e.target.value); setConsent(false) }} />
+                  <EcgMeterInput type={meterType} onType={t => { setMeterType(t); setConsent(false) }} value={account} onChange={v => { setAccount(v); setConsent(false) }} />
                   <label className="flex items-start gap-2 text-xs text-muted-foreground">
                     <input type="checkbox" className="mt-0.5" checked={consent} onChange={e => setConsent(e.target.checked)} />
-                    <span>This links meter {account.trim() || "—"} to phone {phone} with ECG</span>
+                    <span>This links {meterNoun} {account.trim() || "—"} to phone {phone} with ECG</span>
                   </label>
                   <button type="submit" disabled={account.trim().length < 4 || !consent || busy} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground disabled:opacity-50">
                     {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Verify meter <ArrowRight className="h-4 w-4" /></>}
@@ -428,6 +427,39 @@ function PaySheet({
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** ECG meter entry: Prepaid takes the meter number, Postpaid the account number (Hubtel sends either as the bundle). */
+function EcgMeterInput({ type, onType, value, onChange }: {
+  type: "prepaid" | "postpaid"; onType: (t: "prepaid" | "postpaid") => void; value: string; onChange: (v: string) => void
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-1 rounded-2xl bg-muted p-1" role="radiogroup" aria-label="Meter type">
+        {(["prepaid", "postpaid"] as const).map(t => (
+          <button
+            key={t}
+            type="button"
+            role="radio"
+            aria-checked={type === t}
+            onClick={() => onType(t)}
+            className={`rounded-xl py-2 text-xs font-bold transition ${type === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+          >
+            {t === "prepaid" ? "Prepaid" : "Postpaid"}
+          </button>
+        ))}
+      </div>
+      <div>
+        <label className={labelCls}>{type === "prepaid" ? "Meter number" : "Account number"}</label>
+        <input
+          className={inputCls}
+          placeholder={type === "prepaid" ? "Prepaid meter number" : "Postpaid account number"}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+        />
+      </div>
+    </div>
   )
 }
 
