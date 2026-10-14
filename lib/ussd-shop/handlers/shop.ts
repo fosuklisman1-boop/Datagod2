@@ -2,7 +2,6 @@ import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDShopSession } from "../types"
 import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu, sortNetworks, productMenu, resolveProductMenu, type ProductMenuKey, shopAirtimeRecipientPrompt, shopRcBoardMenu } from "../menus"
 import { setSession } from "../session"
-import { sendPushToUser } from "../../push-service"
 import { buildRcBoardOptions } from "../../ussd/handlers/results-checker"
 import { resolveShopCode } from "@/lib/shop-commerce/shop-code"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
@@ -30,45 +29,9 @@ export async function handleEnterShopCode(
     return cont(invalidCodeMenu('Invalid code. Try again.'))
   }
 
-  if (resolved.tokenBalance <= 0) {
-    await setSession(sessionId, { step: 'ENTER_SHOP_CODE', dialingPhone })
-    return cont(invalidCodeMenu('Shop has no sessions left.'))
-  }
-
-  // Atomically deduct one token
-  const { data: deducted, error: deductError } = await supabase.rpc(
-    'deduct_ussd_shop_token',
-    { p_shop_code_id: resolved.shopCodeId }
-  )
-
-  if (deductError || !deducted) {
-    console.error("[USSD-SHOP] Token deduction failed:", deductError)
-    await setSession(sessionId, { step: 'ENTER_SHOP_CODE', dialingPhone })
-    return cont(invalidCodeMenu('Shop unavailable. Try again.'))
-  }
-
+  // Entering a shop is free: session tokens were retired (spec 2026-10-14-ussd-shop-free-sessions-design).
   const shopName = resolved.shopName
   const parentShopId: string | null = resolved.parentShopId
-
-  // resolveShopCode() doesn't fetch user_shops.user_id (it only resolves
-  // shop_name/parent_shop_id) — fetch it separately so the low-session push
-  // alert below keeps working exactly as before.
-  const { data: shopOwnerRow } = await supabase
-    .from("user_shops")
-    .select("user_id")
-    .eq("id", resolved.shopId)
-    .single()
-  const shopOwnerId: string | null = (shopOwnerRow as any)?.user_id ?? null
-
-  // Alert shop owner when sessions drop to 10
-  const remainingTokens = resolved.tokenBalance - 1
-  if (remainingTokens === 10 && shopOwnerId) {
-    sendPushToUser(shopOwnerId, {
-      title: "Low Sessions Warning",
-      body: `Your USSD shop "${shopName}" has only 10 sessions remaining. Top up to avoid service interruption.`,
-      data: { url: `/dashboard/ussd-shop` },
-    }).catch(() => {})
-  }
 
   // Fetch distinct available networks — source depends on shop type
   let networks: string[] = []
