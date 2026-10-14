@@ -273,13 +273,14 @@ export async function POST(request: NextRequest) {
             } else if (shopTokenPurchase.is_activation) {
               await sendPushToUser(shopRow.user_id, {
                 title: "Shop Code Activated",
-                body: `Your USSD shop code is now active with ${shopTokenPurchase.tokens_purchased} session${shopTokenPurchase.tokens_purchased !== 1 ? 's' : ''}.`,
+                body: `Your USSD shop code is now active. Customers can use it right away.`,
                 data: { url: `/dashboard/ussd-shop` },
               })
             } else {
+              // Legacy session purchase settling late: sessions are free since 2026-10-14.
               await sendPushToUser(shopRow.user_id, {
-                title: "Sessions Purchased",
-                body: `${shopTokenPurchase.tokens_purchased} session${shopTokenPurchase.tokens_purchased !== 1 ? 's' : ''} added to your shop.`,
+                title: "Payment Received",
+                body: `We received your USSD session payment, but customer sessions are now free. Contact support for a refund.`,
                 data: { url: `/dashboard/ussd-shop` },
               })
             }
@@ -1056,13 +1057,14 @@ export async function POST(request: NextRequest) {
             } else if (isUssdShopActivation) {
               await sendPushToUser(shopRow.user_id, {
                 title: "Shop Code Activated",
-                body: `Your USSD shop code is now active with ${purchase.tokens_purchased} session${purchase.tokens_purchased !== 1 ? 's' : ''}.`,
+                body: `Your USSD shop code is now active. Customers can use it right away.`,
                 data: { url: `/dashboard/ussd-shop` },
               })
             } else {
+              // Legacy session purchase settling late: sessions are free since 2026-10-14.
               await sendPushToUser(shopRow.user_id, {
-                title: "Sessions Purchased",
-                body: `${purchase.tokens_purchased} session${purchase.tokens_purchased !== 1 ? 's' : ''} added to your shop.`,
+                title: "Payment Received",
+                body: `We received your USSD session payment, but customer sessions are now free. Contact support for a refund.`,
                 data: { url: `/dashboard/ussd-shop` },
               })
             }

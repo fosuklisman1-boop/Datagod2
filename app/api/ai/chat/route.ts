@@ -641,8 +641,8 @@ PACKAGES:
 USSD SHOP CODES:
 - Dealers activate a USSD shop code (4-digit) so customers can order by dialing ${ussdDialCode} and entering the code when prompted — NOT as a dial-string extension
 - Each dealer has a unique 4-digit code stored in the ussd_shop_codes table
-- Use manage_ussd_shop to list all codes, get a specific code (by UUID or 4-digit code), create a new code for a shop, activate a code (sends push + email to dealer), or add tokens to a code
-- Admin page: /admin/ussd-shops — view activation revenue, token balances, and manage all shop codes
+- Use manage_ussd_shop to list all codes, get a specific code (by UUID or 4-digit code), create a new code for a shop, or activate a code (sends push + email to dealer). Customer sessions are free; there are no tokens to add.
+- Admin page: /admin/ussd-shops — view activation revenue, set activation fees, and manage all shop codes
 
 BLACKLIST:
 - Add/remove single phone numbers or bulk-import a list

@@ -219,7 +219,8 @@ describe("shopWaRouter", () => {
     fakeDb.resultsCheckEnabled = true
     fakeDb.hasCompletedPurchase = true
     fakeDb.orderUpdates = []
-    fakeDb.rememberedShopCode = null
+    // The CONFIRM-time shop status re-check looks the code up by id; default to a row that exists.
+    fakeDb.rememberedShopCode = "CODE1"
   })
 
   afterEach(() => {
@@ -601,6 +602,59 @@ describe("shopWaRouter", () => {
   })
 
   // ── CONFIRM-time token recheck (anti-race, shop-revenue safety) ────────────
+  it("CONFIRM: a shop suspended while the chat sat idle is refused — no order, no charge (status re-check, not sessions)", async () => {
+    const phone = "233241000197"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc45", shopId: "s45", shopName: "Paused Later Shop", parentShopId: null,
+      status: "active", tokenBalance: 0, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p13", size: "1GB", price: 5 }])
+    vi.mocked(verifyBundlePrice).mockResolvedValue({ verifiedPrice: 5, profitAmount: 1, parentProfitAmount: 0 })
+
+    await shopWaRouter(phone, "CODE1", "k1")
+    await shopWaRouter(phone, "1", "k2")
+    await shopWaRouter(phone, "1", "k3")
+    await shopWaRouter(phone, "1", "k4")
+    await shopWaRouter(phone, "0244111222", "k5")
+    await shopWaRouter(phone, "0244333444", "k6")
+
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc45", shopId: "s45", shopName: "Paused Later Shop", parentShopId: null,
+      status: "suspended", tokenBalance: 0, whatsappActivated: true,
+    })
+    await shopWaRouter(phone, "1", "k7")
+
+    expect(createShopBundleOrder).not.toHaveBeenCalled()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("currently unavailable")
+  })
+
+  it("AIRTIME_CONFIRM: a shop whose WhatsApp access was revoked mid-chat is refused", async () => {
+    const phone = "233241000198"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc46", shopId: "s46", shopName: "Revoked Shop", parentShopId: null,
+      status: "active", tokenBalance: 0, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+
+    await shopWaRouter(phone, "CODE1", "m1")
+    await shopWaRouter(phone, "2", "m2")
+    await shopWaRouter(phone, "0244111222", "m3")
+    await shopWaRouter(phone, "20", "m4")
+    await shopWaRouter(phone, "0244000222", "m5")
+
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc46", shopId: "s46", shopName: "Revoked Shop", parentShopId: null,
+      status: "active", tokenBalance: 0, whatsappActivated: false,
+    })
+    await shopWaRouter(phone, "1", "m6")
+
+    expect(createShopAirtimeOrder).not.toHaveBeenCalled()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(lastReplyTo(phone)).toContain("currently unavailable")
+  })
+
   it("CONFIRM: a token balance of zero no longer blocks the charge (sessions retired)", async () => {
     const phone = "233241000060"
     vi.mocked(resolveShopCode).mockResolvedValue({
