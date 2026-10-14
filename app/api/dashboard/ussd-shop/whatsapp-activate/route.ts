@@ -39,13 +39,7 @@ export async function POST(request: NextRequest) {
     .from("app_settings").select("whatsapp_shop_activation_fee").is("key", null).single()
   const fee = Number(settings?.whatsapp_shop_activation_fee ?? 0)
 
-  // Unlike USSD activation (which allows a free activation when the admin fee is
-  // 0), WhatsApp activation requires the admin to have explicitly set a fee — a
-  // fee of 0 means the feature hasn't been priced/rolled out yet.
-  if (fee <= 0) {
-    return NextResponse.json({ error: "WhatsApp activation is not available yet" }, { status: 400 })
-  }
-
+  // Fee 0 = free self-activation (spec 2026-10-14-ussd-shop-free-sessions-design, D6).
   const result = await activateWhatsappShop({ shopCodeId: shopCode.id, shopId: shop.id, userId: user.id, fee })
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status })

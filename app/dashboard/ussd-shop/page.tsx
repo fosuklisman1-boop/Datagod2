@@ -476,24 +476,21 @@ export default function UssdShopPage() {
                     <div>
                       <p className="font-semibold">Activation required</p>
                       <p className="mt-0.5">
-                        One-time fee: <strong>GHS {whatsappFee.toFixed(2)}</strong>
-                        {walletBalance !== null && (
+                        {whatsappFee > 0 ? <>One-time fee: <strong>GHS {whatsappFee.toFixed(2)}</strong></> : <strong>Free</strong>}
+                        {whatsappFee > 0 && walletBalance !== null && (
                           <span className="ml-2 text-muted-foreground">· Wallet: GHS {walletBalance.toFixed(2)}</span>
                         )}
                       </p>
                     </div>
                   </div>
                   <Button
-                    disabled={whatsappActivating || whatsappFee <= 0 || (walletBalance !== null && walletBalance < whatsappFee)}
+                    disabled={whatsappActivating || (whatsappFee > 0 && walletBalance !== null && walletBalance < whatsappFee)}
                     onClick={handleActivateWhatsapp}
                     className="w-full bg-amber-500 hover:bg-amber-500/90 text-white"
                   >
                     {whatsappActivating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
                     Activate WhatsApp Shop
                   </Button>
-                  {whatsappFee <= 0 && (
-                    <p className="text-xs text-muted-foreground">WhatsApp shop activation isn't available yet — check back soon.</p>
-                  )}
                   {whatsappFee > 0 && walletBalance !== null && walletBalance < whatsappFee && (
                     <p className="text-xs text-destructive">Insufficient wallet balance. Top up your wallet first.</p>
                   )}

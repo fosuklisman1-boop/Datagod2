@@ -440,7 +440,7 @@ export default function AdminUssdShopsPage() {
                 </div>
               </div>
               <p className="text-xs text-primary/80">
-                0 = every shop is open. Raising it affects only shops created after you save. Customer sessions are always free.
+                0 = new shops open automatically and existing shops can activate for free. Raising it affects only shops not yet activated. Customer sessions are always free.
               </p>
               <Button
                 size="sm"
@@ -888,7 +888,7 @@ export default function AdminUssdShopsPage() {
             <DialogTitle>Activate — {activateTarget?.shop_name} ({activateTarget?.code})</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-2">
-            <p className="text-sm text-muted-foreground">Marks the activation fee as paid and opens the shop on every channel.</p>
+            <p className="text-sm text-muted-foreground">Marks the USSD activation fee as paid and opens the shop code. WhatsApp access is granted separately.</p>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowActivate(false)} className="flex-1">Cancel</Button>
               <Button onClick={handleActivate} disabled={activating}
