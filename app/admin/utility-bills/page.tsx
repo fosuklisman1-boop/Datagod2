@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,7 +24,7 @@ type Order = {
   broadband_account: string | null; customer_name: string | null; verified: boolean; amount: number; paid_amount?: number | null
   status: "pending" | "processing" | "completed" | "failed" | "refunded"; payment_status: "unpaid" | "paid" | "refunded"
   hubtel_client_reference: string | null; commission: number | null; failure_reason: string | null; notes: string | null
-  created_at: string; updated_at: string; purchaser: string; purchaser_email: string | null; source: string
+  created_at: string; updated_at: string; purchaser: string; purchaser_email: string | null; source: string; shop_name?: string | null; buyer_phone?: string | null
   can_dispatch: boolean; stuck_claim?: boolean; refund: Refund | null
 }
 type Stats = { totalSales: number; orders: number; completed: number; inFlight: number; commission: number; failed: number; refunded: number }
@@ -117,6 +118,8 @@ function OrderRow({ o, busy, onDetails, onSync, onDispatch, onRefund, queue }: {
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Purchaser</div>
         <div className="truncate text-sm font-semibold" title={o.purchaser_email ?? undefined}>{o.purchaser}</div>
         <span className={`${PILL} bg-sky-50 text-sky-700 text-[11px]`}>{cap(o.source)}</span>
+        {o.shop_name && <div className="truncate text-xs text-muted-foreground">Shop: {o.shop_name}</div>}
+        {o.source === "storefront" && o.buyer_phone && <div className="font-mono text-xs text-muted-foreground">{o.buyer_phone}</div>}
       </div>
       <div className="lg:w-44">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Status</div>
@@ -145,7 +148,14 @@ function OrderRow({ o, busy, onDetails, onSync, onDispatch, onRefund, queue }: {
           <Button size="sm" variant="outline" disabled={busy} onClick={() => onSync(o)}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Sync</Button>
         )}
         {o.can_dispatch && <Button size="sm" disabled={busy} onClick={() => onDispatch(o)}>Dispatch</Button>}
-        {queue && o.refund && (
+        {/* Storefront buyers have no wallet: their refunds go through /admin/refunds (the server refuses a wallet refund). */}
+        {queue && o.refund && o.source === "storefront" && (
+          <div className="flex flex-col items-end gap-1">
+            <Link href="/admin/refunds" className="text-xs font-medium text-primary underline-offset-2 hover:underline">Storefront order — refund from Refunds</Link>
+            {o.refund.action === "blocked" && <div className="max-w-64 text-right text-xs text-amber-700">{o.refund.reason}</div>}
+          </div>
+        )}
+        {queue && o.refund && o.source !== "storefront" && (
           <div className="flex flex-col items-end gap-1">
             <Button size="sm" disabled={busy || o.refund.action === "blocked"} onClick={() => onRefund(o)}>Refund to wallet</Button>
             {o.refund.action === "blocked" && <div className="max-w-64 text-right text-xs text-amber-700">{o.refund.reason}</div>}
@@ -181,6 +191,7 @@ export default function UtilityBillsPage() {
   const [status, setStatus] = useState("all")
   const [biller, setBiller] = useState("all")
   const [paidOnly, setPaidOnly] = useState("paid")
+  const [channel, setChannel] = useState("all")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
 
@@ -209,6 +220,7 @@ export default function UtilityBillsPage() {
       if (q) p.set("q", q)
       if (status !== "all") p.set("status", status)
       if (biller !== "all") p.set("biller", biller)
+      if (channel !== "all") p.set("channel", channel)
       if (paidOnly === "paid") p.set("paidOnly", "true")
       if (from) p.set("from", from)
       if (to) p.set("to", to)
@@ -225,7 +237,7 @@ export default function UtilityBillsPage() {
     } catch (e) {
       if (id === seq.current[scope]) toast.error(`${scope === "orders" ? "Orders" : "Refund queue"}: ${errMsg(e)}`)
     }
-  }, [q, status, biller, paidOnly, from, to])
+  }, [q, status, biller, channel, paidOnly, from, to])
 
   const reloadLists = useCallback(async () => {
     setLoading(true)
@@ -325,7 +337,7 @@ export default function UtilityBillsPage() {
 
   const anyBusy = busy !== null
   const rowBusy = anyBusy || loading
-  const openRefund = (o: Order) => { setNote(""); setAck(false); setRefunding(o) }
+  const openRefund = (o: Order) => { if (o.source === "storefront") return; setNote(""); setAck(false); setRefunding(o) }
   const rowProps = { busy: rowBusy, onDetails: setDetails, onSync: sync, onDispatch: dispatch, onRefund: openRefund }
   const queueCount = queue.total
 
@@ -383,6 +395,14 @@ export default function UtilityBillsPage() {
                     <SelectContent>
                       <SelectItem value="all">All billers</SelectItem>
                       {BILLER_KEYS.map(k => <SelectItem key={k} value={k}>{BILLERS[k].label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={channel} onValueChange={setChannel}>
+                    <SelectTrigger className="lg:w-36" aria-label="Channel"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All channels</SelectItem>
+                      <SelectItem value="dashboard">Dashboard</SelectItem>
+                      <SelectItem value="storefront">Storefront</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={paidOnly} onValueChange={setPaidOnly}>

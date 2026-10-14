@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { submitOtp } from "@/lib/paystack"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
+import { isStorefrontOrderType } from "@/lib/storefront-commission/payment"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -60,6 +61,14 @@ export async function POST(request: NextRequest) {
 
 async function markFailed(orderId: string | null, orderType: string, reference: string): Promise<void> {
   try {
+    if (isStorefrontOrderType(orderType)) {
+      // Storefront bill / bundle: never fail the order (it stays pending + unpaid and can be paid again); only this
+      // order's payment attempt is marked failed, which the momo-status poll reports.
+      let q = supabase.from("wallet_payments").update({ status: "failed" }).eq("reference", reference).eq("status", "pending")
+      if (orderId) q = q.eq("order_id", orderId)
+      await q
+      return
+    }
     if (orderId) {
       const table = orderType === "airtime" ? "airtime_orders"
         : orderType === "results_checker" ? "results_checker_orders"

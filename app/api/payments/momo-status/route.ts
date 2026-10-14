@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { isStorefrontOrderType, STOREFRONT_ORDER_TABLE, storefrontMomoStatus } from "@/lib/storefront-commission/payment"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,7 +9,7 @@ const supabase = createClient(
 )
 
 /**
- * GET /api/payments/momo-status?orderId=...&orderType=data|airtime|results_checker
+ * GET /api/payments/momo-status?orderId=...&orderType=data|airtime|results_checker|cs_bill|cs_bundle[&reference=...]
  *
  * Polled by the live "approve the prompt" modal during a direct MoMo charge.
  * Returns the order's current payment_status. The charge.success webhook flips
@@ -51,6 +52,32 @@ export async function GET(request: NextRequest) {
 
   if (!orderId) {
     return NextResponse.json({ error: "orderId or reference required" }, { status: 400 })
+  }
+
+  // Storefront bill / bundle orders (cs_bill / cs_bundle): paid flip on the order; a failed charge is recorded on the
+  // wallet_payments row of THIS order's reference only (the order itself stays payable).
+  if (isStorefrontOrderType(orderType)) {
+    try {
+      const { data: order } = await supabase
+        .from(STOREFRONT_ORDER_TABLE[orderType])
+        .select("payment_status")
+        .eq("id", orderId)
+        .maybeSingle()
+      let walletStatus: string | null = null
+      if (reference && (order as any)?.payment_status === "unpaid") {
+        const { data: wp } = await supabase
+          .from("wallet_payments")
+          .select("status")
+          .eq("reference", reference)
+          .eq("order_id", orderId)
+          .maybeSingle()
+        walletStatus = (wp as any)?.status ?? null
+      }
+      const status = storefrontMomoStatus((order as any)?.payment_status ?? null, walletStatus)
+      return NextResponse.json({ status }, { headers: { "Cache-Control": "no-store" } })
+    } catch {
+      return NextResponse.json({ status: "pending" })
+    }
   }
 
   const table = orderType === "airtime" ? "airtime_orders"

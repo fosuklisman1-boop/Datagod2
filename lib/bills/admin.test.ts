@@ -5,7 +5,7 @@ import { executeBillRefund, type BillRefundDeps, type RefundOrder } from "./admi
 const NOW = Date.parse("2026-10-13T12:00:00Z")
 const old = new Date(NOW - 10 * 60_000).toISOString()
 const order = (o: Partial<RefundOrder> = {}): RefundOrder => ({
-  id: "o1", reference_code: "BILL-1", status: "failed", payment_status: "paid", hubtel_client_reference: null, notes: null, updated_at: old, ...o,
+  id: "o1", reference_code: "BILL-1", user_id: "u1", status: "failed", payment_status: "paid", hubtel_client_reference: null, notes: null, updated_at: old, ...o,
 })
 const led = (o: Partial<LedgerFact> = {}): LedgerFact => ({
   client_reference: "ref1", state: "failed", refund_claimed_at: null, resolved_by: null, created_at: old, ...o,
@@ -263,5 +263,17 @@ describe("stuck release aborts", () => {
   it("a successful stuck refund reports released", async () => {
     const { deps } = fakeDeps({ order: stuckOrder() })
     expect(await executeBillRefund(deps, "o1", "n", false)).toMatchObject({ ok: true, released: true })
+  })
+  it("refuses a storefront order before touching anything (no wallet; refunded on /admin/refunds)", async () => {
+    const { deps, calls } = fakeDeps({ order: order({ status: "pending", channel: "storefront" }) })
+    const r = await executeBillRefund(deps, "o1", "n", false)
+    expect(r).toMatchObject({ ok: false, status: 409 })
+    expect(r.message).toContain("/admin/refunds")
+    expect(calls).toEqual([])
+  })
+  it("refuses any row without a user (no wallet to credit), e.g. an api row", async () => {
+    const { deps, calls } = fakeDeps({ order: order({ status: "pending", channel: "api", user_id: null }) })
+    expect(await executeBillRefund(deps, "o1", "n", false)).toMatchObject({ ok: false, status: 409 })
+    expect(calls).toEqual([])
   })
 })

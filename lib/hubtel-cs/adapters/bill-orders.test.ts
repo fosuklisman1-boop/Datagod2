@@ -34,6 +34,12 @@ describe("hubtel_bill_orders adapter", () => {
     expect(alertAdmin).toHaveBeenCalledWith(expect.stringMatching(/HCS-1.*double value/))
     expect(update).toHaveBeenCalledTimes(1)
   })
+  it("fulfilled while a storefront refund is in flight ('refunding') also alerts", async () => {
+    const alertAdmin = vi.fn(async () => {})
+    await createBillOrdersAdapter({ ...base(), update: async () => 0, alertAdmin, get: async () => order({ status: "refunding" }) })
+      .onFulfilled(makeTx({ order_id: "o1", client_reference: "HCS-9" }))
+    expect(alertAdmin).toHaveBeenCalledWith(expect.stringMatching(/HCS-9.*refunding.*double value/))
+  })
   it("fulfilled on failed order also alerts", async () => {
     const alertAdmin = vi.fn(async () => {})
     await createBillOrdersAdapter({ ...base(), update: async () => 0, alertAdmin, get: async () => order({ status: "failed" }) })

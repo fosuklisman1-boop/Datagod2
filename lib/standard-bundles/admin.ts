@@ -8,7 +8,7 @@ export const UNSENT_GRACE_MS = 60_000
 /** A dispatch claim older than this with no Hubtel ledger row never reached Hubtel (the ledger row is written before the POST). */
 export const STUCK_CLAIM_MS = 300_000
 
-export interface OrderFilters { q?: string; status?: string; network?: string; from?: string; to?: string }
+export interface OrderFilters { q?: string; status?: string; network?: string; from?: string; to?: string; channel?: "dashboard" | "storefront" }
 
 /** Validates every query-string value; unknown values are dropped rather than passed to the database. */
 export function parseOrderFilters(sp: URLSearchParams): OrderFilters {
@@ -23,6 +23,7 @@ export function parseOrderFilters(sp: URLSearchParams): OrderFilters {
     network: (BUNDLE_NETWORKS as readonly string[]).includes(network) ? network : undefined,
     from: dateOk(sp.get("from")),
     to: dateOk(sp.get("to")),
+    channel: sp.get("channel") === "dashboard" || sp.get("channel") === "storefront" ? (sp.get("channel") as "dashboard" | "storefront") : undefined,
   }
 }
 
@@ -30,6 +31,7 @@ export function applyOrderFilters<T>(query: T, f: OrderFilters, qAlt?: string): 
   let q: any = query
   if (f.status) q = q.eq("status", f.status)
   if (f.network) q = q.eq("network", f.network)
+  if (f.channel) q = q.eq("channel", f.channel)
   if (f.from) q = q.gte("created_at", `${f.from}T00:00:00.000Z`)
   if (f.to) q = q.lte("created_at", `${f.to}T23:59:59.999Z`)
   if (f.q) {
@@ -110,7 +112,14 @@ export async function releaseStuckClaimRow(db: SupabaseClient, orderId: string, 
 // Never-sent refund flow (all IO injected)
 // ---------------------------------------------------------------------------------------------
 
-export interface RefundOrder extends RefundFacts { id: string; reference_code: string; user_id: string; amount: number; paid_amount?: number | null; network: string; bundle_display: string; beneficiary_phone: string }
+export interface RefundOrder extends RefundFacts {
+  id: string; reference_code: string; user_id: string; amount: number; paid_amount?: number | null; network: string; bundle_display: string; beneficiary_phone: string
+  /** 'storefront' rows are refunded on /admin/refunds (the buyer has no wallet). Absent = not selected (legacy caller). */
+  channel?: string | null
+}
+
+export const STOREFRONT_BUNDLE_REFUND_MESSAGE =
+  "Storefront order: the buyer has no wallet. Refund it on /admin/refunds (Paystack reversal, MoMo payout, or Mark refunded manually)."
 
 /** The money to return to the customer: what they paid, falling back to the face amount on legacy rows. */
 export const refundAmountOf = (o: Pick<RefundOrder, "amount" | "paid_amount">) => Number(o.paid_amount ?? o.amount)
@@ -148,6 +157,8 @@ const safe = async (d: BundleRefundDeps, m: string, urgent = false) => { try { a
 export async function executeBundleRefund(d: BundleRefundDeps, orderId: string, note: string): Promise<BundleRefundResult> {
   const order = await d.getOrder(orderId)
   if (!order) return { ok: false, status: 404, message: "Order not found" }
+  // Checked before anything moves: never fence a storefront order to failed for a wallet refund that cannot happen.
+  if (order.channel === "storefront" || !order.user_id) return { ok: false, status: 409, message: STOREFRONT_BUNDLE_REFUND_MESSAGE }
   let rows: number
   try { rows = await d.ledgerCount(orderId) } catch { return { ok: false, status: 503, message: "Could not read the Hubtel ledger; try again" } }
   const decision = bundleRefundDecision(order, rows, d.now())

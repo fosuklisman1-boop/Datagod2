@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
+import { airtimeProviderDeps } from "@/lib/airtime-service"
+import { getCashbackConfig } from "@/lib/cashback/config"
+import { storefrontAirtimeOn, storefrontAirtimeTerms, type StorefrontAirtimeTerms } from "@/lib/cashback/storefront-airtime"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -74,6 +77,21 @@ export async function GET(request: NextRequest) {
       AT: atAvail?.enabled !== false
     }
 
+    // 6. Instant cashback terms per network — only when the storefront airtime gate is on. Shop-facing
+    // numbers only (never the shop's share or other config). Config read failure => omitted (legacy page).
+    let cashback: Record<keyof typeof allAvailability, StorefrontAirtimeTerms> | undefined
+    try {
+      const cfg = await getCashbackConfig(supabase)
+      if (storefrontAirtimeOn(cfg)) {
+        const [MTN, Telecel, AT] = await Promise.all(
+          (["MTN", "Telecel", "AT"] as const).map((n) => storefrontAirtimeTerms(n, cfg, airtimeProviderDeps))
+        )
+        cashback = { MTN, Telecel, AT }
+      }
+    } catch (e: any) {
+      console.warn("[PUBLIC-AIRTIME-CONSTRAINTS] cashback config unavailable:", e?.message ?? e)
+    }
+
     return NextResponse.json(
       {
         success: true,
@@ -82,6 +100,7 @@ export async function GET(request: NextRequest) {
         totalFeePercent: baseFeePercent + markupPercent,
         isAvailable: allAvailability[network as keyof typeof allAvailability],
         allAvailability,
+        ...(cashback ? { cashback } : {}),
       },
       { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30" } }
     )

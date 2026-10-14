@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyDigiWapyWebhookSignature } from "@/lib/digiwapy-provider"
+import { notifyAdmins } from "@/lib/sms-service"
+import { deliveredAfterRefund, doubleValueAlertMessage } from "@/lib/airtime-admin-status"
 
 // Digiwapy event → our airtime_orders.status
 // transaction.failed → "pending" so admin can retry via the Auto Fulfill button
@@ -38,6 +40,18 @@ export async function POST(request: NextRequest) {
   if (!newStatus || !data?.reference) {
     // wallet.credited / wallet.debited or unknown — ack and ignore
     return NextResponse.json({ received: true })
+  }
+
+  // A storefront order refunded on /admin/refunds keeps its status (the refund guard trigger blocks the write), so a
+  // delivery reported now is double value: alert, exactly like the Hubtel adapter does.
+  try {
+    const { data: current } = await supabase
+      .from("airtime_orders").select("id, status").eq("reference_code", data.reference).maybeSingle()
+    if (current && deliveredAfterRefund(newStatus === "completed", current.status)) {
+      await notifyAdmins(doubleValueAlertMessage("Digiwapy", String(data.reference), current.status), "airtime_double_value", current.id)
+    }
+  } catch (e) {
+    console.error("[DIGIWAPY-WEBHOOK] double-value check failed:", e)
   }
 
   const failureDetail = data.message ?? data.description

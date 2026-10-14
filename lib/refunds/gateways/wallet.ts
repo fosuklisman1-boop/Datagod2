@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
-import { isWalletOnlyTable, type RefundContext, type RefundGateway, type GatewayOutcome } from "../types"
+import { COMMISSION_NO_WALLET_REASON, isCommissionTable, isWalletOnlyTable, type RefundContext, type RefundGateway, type GatewayOutcome } from "../types"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,6 +25,8 @@ export const walletGateway: RefundGateway = {
   id: "wallet",
   label: "Customer wallet",
   supports(order) {
+    // Storefront commission buyers are anonymous (user_id NULL): there is no wallet to credit.
+    if (isCommissionTable(order.table)) return { ok: false, reason: COMMISSION_NO_WALLET_REASON }
     if (order.payment.walletUserId) return { ok: true }
     if (isWalletOnlyTable(order.table)) return { ok: false, reason: "Paid via bulk upload and the batch debit could not be matched to this order — cannot refund automatically" }
     return { ok: false, reason: "Payer has no Datagod account/wallet" }

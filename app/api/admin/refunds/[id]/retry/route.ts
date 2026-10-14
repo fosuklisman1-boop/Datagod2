@@ -30,12 +30,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (a === null) return badRequest("Invalid amount")
       amount = a
     }
+    if (body.confirmOverride !== undefined && typeof body.confirmOverride !== "boolean") return badRequest("confirmOverride must be a boolean")
+    const confirmOverride = body.confirmOverride === true
 
-    // A retry is a brand-new reserve: eligibility, balances and the gateway are all re-checked.
+    // A retry is a brand-new reserve: eligibility (incl. the override confirmation), balances and the gateway are all re-checked.
     const result = await executeRefund(defaultDeps(db), {
-      table: prev.order_table, orderId: prev.order_id, gateway, amount, adminId: userId!,
+      table: prev.order_table, orderId: prev.order_id, gateway, amount, adminId: userId!, confirmOverride,
     })
-    await auditRefund(db, userId, "order_refund_retry", { previousRefundId: id, table: prev.order_table, orderId: prev.order_id, gateway, amount, ...result })
+    await auditRefund(db, userId, "order_refund_retry", { previousRefundId: id, table: prev.order_table, orderId: prev.order_id, gateway, amount, confirmOverride, ...result })
     return NextResponse.json(result, { status: settledHttpStatus("retry", result.status) })
   } catch (err) {
     await auditRefundError(db, userId, "order_refund_retry", err, { refundId: idForAudit })

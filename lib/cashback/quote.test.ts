@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { resolveCashbackConfig, type CashbackConfig } from "./config"
-import { quoteCashback, samePrice, toPesewas, type QuoteInput } from "./quote"
+import { quoteCashback, quoteStorefront, samePrice, toPesewas, type QuoteInput } from "./quote"
 
 const cfg = (mut: (c: CashbackConfig) => void = () => {}): CashbackConfig => {
   const c = resolveCashbackConfig({
@@ -90,5 +90,33 @@ describe("pesewa helpers", () => {
     expect(samePrice(9.91, 9.91)).toBe(true)
     expect(samePrice(0.1 + 0.2, 0.3)).toBe(true)
     expect(samePrice(9.91, 9.92)).toBe(false)
+  })
+})
+
+describe("quoteStorefront", () => {
+  const sf = (fee: number, on = true) => cfg(c => {
+    c.paymentFee = { airtime: fee, bundles: 0, bills: fee }
+    c.storefrontGroups = { airtime: on, bundles: false, bills: on }
+    c.rates["bill_dstv:hubtel"] = 0.69
+  })
+  const { channel: _c, shop: _s, ...base } = inp()
+  it("airtime GHS 10 with fee 1.95: base 9.93, fee 0.20, pay 10.13", () => {
+    const q = quoteStorefront(base, sf(1.95))
+    expect(q).toMatchObject({ applied: true, base: 9.93, paymentFee: 0.2, feeRate: 1.95, payAmount: 10.13, shopShare: 0.15 })
+  })
+  it("fee 0 pays the base", () => {
+    expect(quoteStorefront(base, sf(0))).toMatchObject({ base: 9.93, paymentFee: 0, payAmount: 9.93 })
+  })
+  it("DSTV GHS 100: fee rounds up 194.75p to 195", () => {
+    const q = quoteStorefront({ ...base, serviceKey: "bill_dstv", faceAmount: 100 }, sf(1.95))
+    expect(q).toMatchObject({ customerCashback: 0.13, shopShare: 0.27, base: 99.87, paymentFee: 1.95, payAmount: 101.82 })
+  })
+  it("group switch off: not applied, no fee", () => {
+    const q = quoteStorefront(base, sf(1.95, false))
+    expect(q).toMatchObject({ applied: false, base: 10, paymentFee: 0, payAmount: 10 })
+  })
+  it("surface off: not applied, no fee", () => {
+    const q = quoteStorefront(base, cfg(c => { Object.assign(c, sf(1.95)); c.surfaces.storefront = false }))
+    expect(q).toMatchObject({ applied: false, paymentFee: 0, payAmount: 10 })
   })
 })

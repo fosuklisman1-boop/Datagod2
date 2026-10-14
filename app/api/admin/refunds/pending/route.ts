@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { badRequest, isUuid, parsePage, refundDb, refundErrorResponse } from "@/lib/refunds/http"
 import { listPendingOrderRefs, loadRefundableOrders } from "@/lib/refunds/orders"
-import { evaluateEligibility } from "@/lib/refunds/eligibility"
+import { orderEligibility } from "@/lib/refunds/eligibility"
 import { defaultRefundAmount } from "@/lib/refunds/amounts"
-import { ORDER_TABLES, type OrderTable } from "@/lib/refunds/types"
+import { isCommissionTable, ORDER_TABLES, type OrderTable } from "@/lib/refunds/types"
 
 const PAGE_SIZE = 50
 
@@ -37,11 +37,8 @@ export async function GET(request: NextRequest) {
 
     const rows = orders.map((o) => ({
       order: o,
-      eligibility: evaluateEligibility({
-        table: o.table, orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
-        dispatchOutcome: o.evidence.dispatchOutcome, trackingStatuses: o.evidence.trackingStatuses,
-        externalOrderId: o.evidence.externalOrderId,
-      }),
+      eligibility: orderEligibility(o),
+      manualRefund: isCommissionTable(o.table),
       defaultAmount: defaultRefundAmount(o.paid, o.gatewayFee),
     }))
     return NextResponse.json({ rows, page, pageSize: PAGE_SIZE })

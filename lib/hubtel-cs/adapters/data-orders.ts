@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { OrderAdapter } from "../adapters"
 import type { HubtelCsTx } from "../types"
+import { STOREFRONT_REFUND_MESSAGE } from "./bill-orders"
 
 export const DATA_ORDERS_TABLE = "hubtel_data_orders"
 
@@ -10,7 +11,10 @@ const LIVE_STATUSES = ["pending", "processing"]
 export interface DataOrderRow {
   status: string
   payment_status: string
-  user_id: string
+  /** NULL on storefront rows (anonymous buyer). */
+  user_id: string | null
+  /** 'dashboard' | 'storefront' | 'api'; absent on rows read before 0120. */
+  channel?: string | null
   network: string
   bundle_display: string
   beneficiary_phone: string
@@ -44,7 +48,7 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
   const notifyCustomer = async (orderId: string, title: string, text: (o: DataOrderRow) => string) => {
     await quiet(`notify "${title}"`, async () => {
       const o = await deps.get(orderId)
-      if (o) await deps.notify(o.user_id, title, text(o), orderId)
+      if (o?.user_id) await deps.notify(o.user_id, title, text(o), orderId) // storefront buyers have no account to notify
     })
   }
 
@@ -64,8 +68,9 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
       }
       await quiet("double-value check", async () => {
         const o = await deps.get(id)
-        if (o && (o.status === "failed" || o.status === "refunded")) {
-          await deps.alertAdmin(`Standard bundle ${tx.client_reference} was delivered by Hubtel after being marked failed/refunded - check for double value (order ${id})`)
+        // 'refunding': a storefront refund on /admin/refunds is mid-flight.
+        if (o && (o.status === "failed" || o.status === "refunding" || o.status === "refunded")) {
+          await deps.alertAdmin(`Standard bundle ${tx.client_reference} was delivered by Hubtel after being marked ${o.status} - check for double value (order ${id})`)
         }
       })
     },
@@ -82,6 +87,8 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
       const id = tx.order_id!
       const o = await deps.get(id)
       if (!o) return { refunded: false, message: "Order not found" }
+      // Never "refund" a storefront order to a NULL wallet; refunded:false releases the ledger claim.
+      if (o.channel === "storefront" || !o.user_id) return { refunded: false, message: STOREFRONT_REFUND_MESSAGE }
       // Already refunded by an earlier run: the credit exists, so the claim must NOT be released.
       if (o.status === "refunded" && o.payment_status === "refunded") {
         return { refunded: true, message: "Order was already refunded to the wallet" }
@@ -107,7 +114,7 @@ export function dataOrdersAdapterFor(db: SupabaseClient): OrderAdapter {
   return createDataOrdersAdapter({
     async get(orderId) {
       const { data, error } = await db.from(DATA_ORDERS_TABLE)
-        .select("status, payment_status, user_id, network, bundle_display, beneficiary_phone, amount, paid_amount").eq("id", orderId).maybeSingle()
+        .select("status, payment_status, user_id, channel, network, bundle_display, beneficiary_phone, amount, paid_amount").eq("id", orderId).maybeSingle()
       if (error) throw error
       return data ? (data as unknown as DataOrderRow) : null
     },

@@ -11,7 +11,7 @@ import {
   CASHBACK_GROUPS, SHARE_FIELDS, groupOf,
   type CashbackConfig, type CashbackGroup, type CashbackProvider, type GroupShares, type ShareField,
 } from "@/lib/cashback/config"
-import { quoteCashback } from "@/lib/cashback/quote"
+import { quoteCashback, quoteStorefront } from "@/lib/cashback/quote"
 
 export type Authed = (path: string, init?: RequestInit) => Promise<any>
 
@@ -73,6 +73,7 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
   const [cfg, setCfg] = useState<CashbackConfig | null>(null)
   const [shares, setShares] = useState<Record<CashbackGroup, Record<ShareField, string>> | null>(null)
   const [overrides, setOverrides] = useState<Record<string, Record<ShareField, string>>>({})
+  const [fees, setFees] = useState<Record<CashbackGroup, string>>({ airtime: "0", bundles: "0", bills: "0" })
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -81,6 +82,7 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
   const apply = useCallback((c: CashbackConfig) => {
     const s = toStrings(c)
     setCfg(c); setShares(s.shares); setOverrides(s.overrides); rateInputs.reset(s.rates)
+    setFees(Object.fromEntries(CASHBACK_GROUPS.map(g => [g, String(c.paymentFee[g])])) as Record<CashbackGroup, string>)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const load = useCallback(async () => {
@@ -118,6 +120,12 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
     void save({ shares: { [g]: out } }, `${GROUP_LABEL[g]} shares saved`)
   }
 
+  function saveFee(g: CashbackGroup) {
+    const n = num(fees[g])
+    if (n === null || n < 0 || n > 10 || Math.round(n * 100) / 100 !== n) { toast.error(`${GROUP_LABEL[g]}: payment fee must be 0 to 10 with at most 2 decimals`); return }
+    void save({ paymentFee: { [g]: n } }, `${GROUP_LABEL[g]} payment fee saved`)
+  }
+
   function saveOverride(key: string) {
     const o = overrides[key]
     if (!o) return
@@ -144,14 +152,20 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
         ...Object.fromEntries(CASHBACK_GROUPS.map(g => [g, Object.fromEntries(SHARE_FIELDS.map(f => [f, num(shares[g][f]) ?? 0]))])),
         overrides: cfg.shares.overrides,
       } as CashbackConfig["shares"],
+      paymentFee: Object.fromEntries(CASHBACK_GROUPS.map(g => [g, num(fees[g]) ?? 0])) as CashbackConfig["paymentFee"],
+      storefrontGroups: { airtime: true, bundles: true, bills: true },
     }
     return Object.fromEntries(CASHBACK_GROUPS.map(g => {
       const serviceKey = EXAMPLE_SERVICE[g]
       const q = (buyer: "customer" | "dealer", channel: "dashboard" | "storefront") =>
         quoteCashback({ serviceKey, provider: "hubtel", faceAmount: EXAMPLE_FACE, buyer, channel }, draft)
-      return [g, { serviceKey, customer: q("customer", "dashboard"), dealer: q("dealer", "dashboard"), storefront: q("customer", "storefront") }]
-    })) as Record<CashbackGroup, { serviceKey: string; customer: ReturnType<typeof quoteCashback>; dealer: ReturnType<typeof quoteCashback>; storefront: ReturnType<typeof quoteCashback> }>
-  }, [cfg, shares, rateInputs.values])
+      const sf = (face: number) => quoteStorefront({ serviceKey, provider: "hubtel", faceAmount: face, buyer: "customer" }, draft)
+      return [g, {
+        serviceKey, customer: q("customer", "dashboard"), dealer: q("dealer", "dashboard"),
+        storefront: [sf(EXAMPLE_FACE), ...(g === "bills" ? [sf(100)] : [])],
+      }]
+    })) as Record<CashbackGroup, { serviceKey: string; customer: ReturnType<typeof quoteCashback>; dealer: ReturnType<typeof quoteCashback>; storefront: ReturnType<typeof quoteStorefront>[] }>
+  }, [cfg, shares, rateInputs.values, fees])
 
   if (error && !cfg) {
     return (
@@ -165,9 +179,9 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
 
   const surfaces: { key: keyof CashbackConfig["surfaces"]; label: string; live: boolean; note?: string }[] = [
     { key: "dashboard", label: "Dashboard", live: true },
-    { key: "bots", label: "Bots", live: false, note: "Part 2/3 — not yet active" },
-    { key: "storefront", label: "Storefront", live: false, note: "Part 2/3 — not yet active" },
-    { key: "api", label: "API", live: false, note: "Part 2/3 — not yet active" },
+    { key: "bots", label: "Bots", live: false, note: "Coming later" },
+    { key: "storefront", label: "Storefront", live: true, note: "Also needs 'Sell on storefronts' per group below" },
+    { key: "api", label: "API", live: false, note: "Coming later" },
   ]
 
   return (
@@ -214,7 +228,13 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
                   <div className="font-medium">{GROUP_LABEL[g]} <span className="font-mono text-xs text-muted-foreground">{e.serviceKey}</span></div>
                   <div>{line("Customer", e.customer)}</div>
                   <div>{line("Dealer", e.dealer)}</div>
-                  <div>{line("Storefront customer", e.storefront, true)}</div>
+                  {e.storefront.map(sq => (
+                    <div key={sq.faceAmount} className="mt-1">
+                      Storefront GHS {sq.faceAmount}: customer pays {gh(sq.payAmount)}{sq.paymentFee > 0 ? ` (incl. ${gh(sq.paymentFee)} fee)` : ""}
+                      {sq.applied ? `, shop earns ${gh(sq.shopShare)}, Datagod keeps ${gh(sq.datagodKeeps, 4)}` : ", no cashback"}
+                      {sq.applied && <span className="text-xs text-muted-foreground"> (commission {gh(sq.commission, 4)} minus customer and shop; Paystack cost is covered by the fee)</span>}
+                    </div>
+                  ))}
                   {e.customer.applied && <div className="text-xs text-muted-foreground">Commission {gh(e.customer.commission, 4)}; Datagod keeps {gh(e.customer.datagodKeeps, 4)} on a customer order.</div>}
                 </div>
               )
@@ -269,6 +289,22 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
                 </div>
                 <Button size="sm" disabled={busy} onClick={() => saveGroup(g)}>Save {GROUP_LABEL[g].toLowerCase()} shares</Button>
                 <div className="space-y-2 border-t pt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">Sell on storefronts</span>
+                    <Switch aria-label={`${GROUP_LABEL[g]} sell on storefronts`} checked={cfg.storefrontGroups[g]} disabled={busy}
+                      onCheckedChange={v => save({ storefrontGroups: { [g]: v } }, `${GROUP_LABEL[g]} storefront ${v ? "on" : "off"}`)} />
+                  </div>
+                  <label className="space-y-1 text-xs text-muted-foreground">
+                    Payment fee %
+                    <div className="flex items-center gap-2">
+                      <Input aria-label={`${g} payment fee percent`} className="w-24" inputMode="decimal" value={fees[g]}
+                        onChange={e => setFees(s => ({ ...s, [g]: e.target.value }))} />
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => saveFee(g)}>Save fee</Button>
+                    </div>
+                    <span className="block">Added on top at storefront checkout to cover Paystack (0 to 10).</span>
+                  </label>
+                </div>
+                <div className="space-y-2 border-t pt-3">
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Per-service overrides</div>
                   {keys.map(k => {
                     const o = overrides[k] ?? Object.fromEntries(SHARE_FIELDS.map(f => [f, ""])) as Record<ShareField, string>
@@ -322,6 +358,7 @@ export function CashbackReportCard({ authed, currentRates, onUseActual }: {
 }) {
   const [from, setFrom] = useState(() => isoDay(new Date(Date.now() - 7 * 86400000)))
   const [to, setTo] = useState(() => isoDay(new Date()))
+  const [channel, setChannel] = useState<"all" | "dashboard" | "storefront">("all")
   const [rows, setRows] = useState<ReportRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -332,13 +369,14 @@ export function CashbackReportCard({ authed, currentRates, onUseActual }: {
     setLoading(true)
     try {
       const params = new URLSearchParams({ from: `${from}T00:00:00.000Z`, to: `${to}T23:59:59.999Z` })
+      if (channel !== "all") params.set("channel", channel)
       const j = await authed(`/api/admin/cashback/report?${params}`)
       if (id !== seq.current) return
       setRows(j.rows ?? []); setError(null)
     } catch (e) {
       if (id === seq.current) setError(errMsg(e))
     } finally { if (id === seq.current) setLoading(false) }
-  }, [authed, from, to])
+  }, [authed, from, to, channel])
   useEffect(() => { void load() }, [load])
 
   const sorted = useMemo(() => [...rows].sort((a, b) => a.service_key.localeCompare(b.service_key) || a.provider.localeCompare(b.provider)), [rows])
@@ -347,7 +385,7 @@ export function CashbackReportCard({ authed, currentRates, onUseActual }: {
     <Card>
       <CardHeader>
         <CardTitle>Margin report</CardTitle>
-        <CardDescription>Completed orders in the window. Actual rate = Hubtel commission recorded / face value. Digiwapy rows show the expected commission (not verified by the provider).</CardDescription>
+        <CardDescription>Completed orders in the window. Actual rate = Hubtel commission recorded / face value. Digiwapy rows show the expected commission (not verified by the provider). Choosing a channel also shows expected commission, since Hubtel's recorded commission is not split by channel.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap items-end gap-2">
@@ -356,6 +394,14 @@ export function CashbackReportCard({ authed, currentRates, onUseActual }: {
           </label>
           <label className="space-y-1 text-xs text-muted-foreground">To
             <Input type="date" aria-label="Report to" value={to} min={from} onChange={e => setTo(e.target.value)} />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">Channel
+            <select aria-label="Report channel" className="block h-9 rounded-md border bg-background px-2 text-sm text-foreground" value={channel}
+              onChange={e => setChannel(e.target.value as typeof channel)}>
+              <option value="all">All channels</option>
+              <option value="dashboard">Dashboard</option>
+              <option value="storefront">Storefront</option>
+            </select>
           </label>
           <Button variant="outline" disabled={loading} onClick={() => { void load() }}>{loading ? "Loading..." : "Refresh"}</Button>
         </div>
@@ -377,7 +423,8 @@ export function CashbackReportCard({ authed, currentRates, onUseActual }: {
                   const setRate = num(currentRates[rateKey] ?? "") ?? 0
                   const actual = actualRate(r)
                   const status = rateStatus(setRate, actual)
-                  const digi = r.provider === "digiwapy"
+                  // Hubtel's recorded commission has no channel, so a channel view falls back to the expected commission.
+                  const digi = r.provider === "digiwapy" || channel !== "all"
                   const commission = digi ? r.expected_commission : r.actual_commission
                   const kept = commission - r.cashback_total - r.shop_share_total
                   const svc = HUBTEL_CS_SERVICES[r.service_key as keyof typeof HUBTEL_CS_SERVICES]

@@ -5,7 +5,8 @@ import { ghanaSignificant, isValidGhanaMobile, validateNetworkPrefix, type Netwo
 import type { CatalogDeps } from "./catalog"
 import { NETWORK_SERVICE, type BundleNetwork } from "./categories"
 import type { BundlesConfig } from "./config"
-import { verifyBundleToken } from "./token"
+import { verifyBundleToken, type VerifiedBundle } from "./token"
+import type { HubtelCsServiceKey } from "@/lib/hubtel-cs/services"
 import type { CashbackConfig } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 
@@ -85,42 +86,9 @@ export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput)
   const v = verifyBundleToken(input.token, d.secret, d.now())
   if (!v) return fail(409, PRICES_REFRESHED)
 
-  const phone = typeof input.phone === "string" ? input.phone : ""
-  if (!isValidGhanaMobile(phone)) return fail(400, "Enter a valid Ghana mobile number")
-  let prefix: { enabled: boolean; map: NetworkPrefixMap } | null = null
-  try { prefix = await d.getPrefixConfig() } catch { prefix = null }
-  // A failed read validates with the defaults (the safe direction), matching getPrefixValidationConfig.
-  if (!prefix || prefix.enabled !== false) {
-    const check = validateNetworkPrefix(v.network, phone, prefix?.map)
-    if (!check.ok) return fail(400, check.message)
-  }
-  const phone233 = "233" + ghanaSignificant(phone)!
-
-  // Every pre-debit check happens before the first write.
-  let cfg: BundlesConfig
-  try { cfg = await d.getBundlesConfig() } catch { return fail(503, UNAVAILABLE) }
-  const net = cfg.networks?.[v.network]
-  if (!cfg.enabled || !net?.enabled) return fail(403, "Standard Bundles are not available")
-  if ((net.hiddenCategories ?? []).includes(v.category)) return fail(403, "This bundle is not available")
-  const serviceKey = NETWORK_SERVICE[v.network]
-  try {
-    const h = await d.getHubtelConfig()
-    if (!h.enabled || h.services?.[serviceKey] !== true || h.paused) return fail(503, UNAVAILABLE)
-  } catch {
-    return fail(503, UNAVAILABLE)
-  }
-
-  // Re-query for the buyer's own number: the exact (Value, Amount) must still be offered.
-  let res: Awaited<ReturnType<BundlesDeps["query"]>>
-  try { res = await d.query(serviceKey, phone233) } catch (e) {
-    console.error("[bundles] re-query threw:", msg(e))
-    return fail(503, UNAVAILABLE)
-  }
-  if (!res.ok) return fail(503, UNAVAILABLE)
-  const offered = (res.data ?? []).some(it => it?.Value === v.value && sameAmount(Number(it?.Amount), v.amount))
-  if (!offered) return fail(409, NOT_AVAILABLE_FOR_NUMBER)
-
-  const amount = Math.round(v.amount * 100) / 100
+  const prep = await prepareBundlePurchase(d, v, input.phone)
+  if (!prep.ok) return prep
+  const { phone233, serviceKey, amount } = prep
   // Face value (the Hubtel price) goes to Hubtel; the wallet is charged face − cashback when cashback applies.
   const q = await quoteBundle(d, userId, serviceKey, amount)
   if (input.expectedPay !== undefined && !samePrice(input.expectedPay, q.payAmount)) {
@@ -156,6 +124,55 @@ export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput)
   }
 
   return debitAndDispatch(d, userId, order)
+}
+
+export type PreparedBundle = { ok: true; phone233: string; serviceKey: HubtelCsServiceKey; amount: number }
+
+/**
+ * Every pre-write check for a signed catalog bundle and a recipient number: number + network prefix, bundles master /
+ * network / hidden category, Hubtel enabled + service on + not paused, and a live re-query for the recipient that must
+ * still offer the exact (Value, Amount). Shared by the dashboard buy and the storefront initialize.
+ */
+export async function prepareBundlePurchase(
+  d: Pick<BundlesDeps, "getPrefixConfig" | "getBundlesConfig" | "getHubtelConfig" | "query">,
+  v: VerifiedBundle,
+  phoneInput: unknown,
+): Promise<PreparedBundle | { ok: false; status: number; error: string }> {
+  const phone = typeof phoneInput === "string" ? phoneInput : ""
+  if (!isValidGhanaMobile(phone)) return fail(400, "Enter a valid Ghana mobile number")
+  let prefix: { enabled: boolean; map: NetworkPrefixMap } | null = null
+  try { prefix = await d.getPrefixConfig() } catch { prefix = null }
+  // A failed read validates with the defaults (the safe direction), matching getPrefixValidationConfig.
+  if (!prefix || prefix.enabled !== false) {
+    const check = validateNetworkPrefix(v.network, phone, prefix?.map)
+    if (!check.ok) return fail(400, check.message)
+  }
+  const phone233 = "233" + ghanaSignificant(phone)!
+
+  let cfg: BundlesConfig
+  try { cfg = await d.getBundlesConfig() } catch { return fail(503, UNAVAILABLE) }
+  const net = cfg.networks?.[v.network]
+  if (!cfg.enabled || !net?.enabled) return fail(403, "Standard Bundles are not available")
+  if ((net.hiddenCategories ?? []).includes(v.category)) return fail(403, "This bundle is not available")
+  const serviceKey = NETWORK_SERVICE[v.network]
+  try {
+    const h = await d.getHubtelConfig()
+    if (!h.enabled || h.services?.[serviceKey] !== true || h.paused) return fail(503, UNAVAILABLE)
+  } catch {
+    return fail(503, UNAVAILABLE)
+  }
+
+  // Re-query for the recipient's own number: the exact (Value, Amount) must still be offered.
+  let res: Awaited<ReturnType<BundlesDeps["query"]>>
+  try { res = await d.query(serviceKey, phone233) } catch (e) {
+    console.error("[bundles] re-query threw:", msg(e))
+    return fail(503, UNAVAILABLE)
+  }
+  if (!res.ok) return fail(503, UNAVAILABLE)
+  const offered = (res.data ?? []).some(it => it?.Value === v.value && sameAmount(Number(it?.Amount), v.amount))
+  if (!offered) return fail(409, NOT_AVAILABLE_FOR_NUMBER)
+
+  return { ok: true, phone233, serviceKey, amount: Math.round(v.amount * 100) / 100 }
 }
 
 /**
@@ -315,4 +332,9 @@ async function dispatchInternal(d: BundlesDeps, order: DataOrderRow): Promise<{ 
     await safeAlert(d, `Standard bundle order ${ref}: dispatch error ${msg(e)}${claimed ? " (order left processing; reconcile manually)" : ""}`)
     return { status: claimed ? "processing" : order.status, patch: {} }
   }
+}
+
+/** Claim and send a paid, pending order (the storefront payment confirmation uses this). Same path as a dashboard buy. */
+export async function dispatchBundleOrder(d: BundlesDeps, order: DataOrderRow): Promise<DataOrderRow["status"]> {
+  return (await dispatchInternal(d, order)).status
 }

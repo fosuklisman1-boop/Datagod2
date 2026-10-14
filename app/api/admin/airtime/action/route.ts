@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { AIRTIME_ADMIN_ACTIONABLE_STATUSES, airtimeNotActionableMessage, failedActionRefundsWallet, isAirtimeAdminActionable } from "@/lib/airtime-admin-status"
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,20 +30,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Order not found in database" }, { status: 404 })
     }
 
-    if (order.status === "completed" || order.status === "failed") {
-      return NextResponse.json({ error: `Order is already ${order.status}` }, { status: 409 })
+    // Only live orders: a refunding/refunded storefront order must never get a second clawback, a re-credit or SMS.
+    if (!isAirtimeAdminActionable(order.status)) {
+      return NextResponse.json({ error: airtimeNotActionableMessage(order.status) }, { status: 409 })
     }
 
-    // Update the order status
-    const { error: updateError } = await supabase
+    // Guarded update: the refund guard trigger silently keeps a refunding/refunded status, so only a changed row counts.
+    const { data: changed, error: updateError } = await supabase
       .from("airtime_orders")
       .update({ status: action, notes: notes || null })
       .eq("id", orderId)
+      .in("status", [...AIRTIME_ADMIN_ACTIONABLE_STATUSES])
+      .select("id")
 
     if (updateError) throw updateError
+    if (!changed || changed.length === 0) {
+      return NextResponse.json({ error: "The order changed while updating (it may have been refunded); reload and retry" }, { status: 409 })
+    }
 
-    // If FAILED → refund the wallet
-    if (action === "failed") {
+    // If FAILED → refund the wallet (wallet-less storefront orders: no credit and no "refunded" message; they are
+    // refunded on /admin/refunds). The shop commission reversal below still applies.
+    if (action === "failed" && failedActionRefundsWallet(order)) {
       // Re-credit wallet
       const { data: wallet } = await supabase
         .from("wallets")
@@ -106,7 +114,9 @@ export async function POST(request: NextRequest) {
           })
         }
       }).catch(e => console.warn("[AIRTIME-ACTION] Refund email error:", e))
+    }
 
+    if (action === "failed") {
       // 3. Reverse Merchant Commission (if any was disbursed at payment time)
       if (order.shop_id && order.merchant_commission > 0) {
         console.log(`[AIRTIME-ACTION] Order ${order.reference_code} failed. Reversing merchant commission...`)

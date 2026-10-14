@@ -20,9 +20,13 @@ export async function POST(request: NextRequest) {
     if (!gateway) return badRequest("Invalid gateway")
     const amount = parseAmount((body as any)?.amount)
     if (amount === null) return badRequest("Invalid amount")
+    const confirmOverride = (body as any)?.confirmOverride
+    if (confirmOverride !== undefined && typeof confirmOverride !== "boolean") return badRequest("confirmOverride must be a boolean")
 
-    const result = await executeRefund(defaultDeps(db), { table: table as OrderTable, orderId, gateway, amount, adminId: userId! })
-    await auditRefund(db, userId, "order_refund", { table, orderId, gateway, amount, ...result })
+    const result = await executeRefund(defaultDeps(db), {
+      table: table as OrderTable, orderId, gateway, amount, adminId: userId!, confirmOverride: confirmOverride === true,
+    })
+    await auditRefund(db, userId, "order_refund", { table, orderId, gateway, amount, confirmOverride: confirmOverride === true, ...result })
     return NextResponse.json(result, { status: settledHttpStatus("execute", result.status) })
   } catch (err) {
     await auditRefundError(db, userId, "order_refund", err, { table: (body as any)?.table, orderId: (body as any)?.orderId })

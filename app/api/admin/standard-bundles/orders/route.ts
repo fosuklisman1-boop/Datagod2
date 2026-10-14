@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 
 // Explicit columns; never select idempotency_key.
 const COLUMNS =
-  "id, reference_code, user_id, channel, network, service_key, beneficiary_phone, bundle_value, bundle_display, bundle_category, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at"
+  "id, reference_code, user_id, channel, network, service_key, beneficiary_phone, bundle_value, bundle_display, bundle_category, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at, shop_id, buyer_name, buyer_phone, buyer_email, payment_fee_amount"
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request)
@@ -52,6 +52,14 @@ export async function GET(request: NextRequest) {
       for (const u of data ?? []) users.set((u as any).id, u)
     }
 
+    const shopIds = [...new Set(orders.map(o => o.shop_id).filter(Boolean))]
+    const shops = new Map<string, string>()
+    if (shopIds.length) {
+      const { data, error } = await db.from("user_shops").select("id, shop_name").in("id", shopIds)
+      if (error) throw error
+      for (const s of data ?? []) shops.set((s as any).id, (s as any).shop_name)
+    }
+
     // Refund eligibility needs the ledger; fail closed (no refund offered) if it cannot be read.
     const candidates = orders.filter(o => o.payment_status === "paid" && ["pending", "failed", "processing"].includes(o.status))
     let ledger = new Set<string>()
@@ -67,7 +75,10 @@ export async function GET(request: NextRequest) {
       const u = users.get(o.user_id)
       return {
         ...o,
-        purchaser: [u?.first_name, u?.last_name].filter(Boolean).join(" ").trim() || u?.email || "Unknown",
+        purchaser: o.channel === "storefront"
+          ? (o.buyer_name || o.buyer_phone || "Storefront buyer")
+          : ([u?.first_name, u?.last_name].filter(Boolean).join(" ").trim() || u?.email || "Unknown"),
+        shop_name: o.shop_id ? (shops.get(o.shop_id) ?? "Unknown shop") : null,
         stuck_claim: ledgerOk && isCandidate && !ledger.has(o.id) && isStuckClaim(o, now),
         has_ledger: ledgerOk && isCandidate ? ledger.has(o.id) : null,
         refund: decision,

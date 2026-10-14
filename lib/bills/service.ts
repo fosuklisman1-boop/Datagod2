@@ -53,8 +53,11 @@ const fail = (status: number, error: string): { ok: false; status: number; error
 const safeAlert = async (d: BillsDeps, m: string, urgent = false) => { try { await d.alert(m, urgent) } catch { /* alerting must never break the flow */ } }
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-/** Reads both configs; null on any failure => callers fail closed. */
-async function gate(d: BillsDeps, biller: BillerKey): Promise<
+/** sha256 of a verify token: stored as `verify_token_hash` (UNIQUE) so a token pays at most one order. */
+export const billTokenHash = (token: string): string => createHash("sha256").update(token).digest("hex")
+
+/** Utility Bills master + per-biller switch. Any read failure => 503 (fail closed). */
+async function gate(d: Pick<BillsDeps, "getBillsConfig">, biller: BillerKey): Promise<
   { ok: true; bills: BillsConfig } | { ok: false; status: number; error: string }
 > {
   let bills: BillsConfig
@@ -63,7 +66,8 @@ async function gate(d: BillsDeps, biller: BillerKey): Promise<
   return { ok: true, bills }
 }
 
-async function hubtelGate(d: BillsDeps, biller: BillerKey, opts: { checkPause: boolean }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+/** Hubtel enabled + the biller's service on (+ not paused when `checkPause`). Any read failure => 503. */
+async function hubtelGate(d: Pick<BillsDeps, "getHubtelConfig">, biller: BillerKey, opts: { checkPause: boolean }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   try {
     const h = await d.getHubtelConfig()
     if (!h.enabled || h.services?.[BILLERS[biller].serviceKey] !== true || (opts.checkPause && h.paused)) {
@@ -74,6 +78,9 @@ async function hubtelGate(d: BillsDeps, biller: BillerKey, opts: { checkPause: b
     return fail(503, "Temporarily unavailable")
   }
 }
+
+/** Shared with the storefront bill endpoints (lib/storefront-commission/bills.ts). */
+export { gate as billsGate, hubtelGate as billsHubtelGate }
 
 export async function verifyBill(
   d: BillsDeps, userId: string, biller: string, inputs: BillInputs & { addMeter?: boolean; consent?: boolean },
@@ -190,7 +197,7 @@ export async function payBill(d: BillsDeps, userId: string, token: string, amoun
             cashback_share: q.share, cashback_provider: q.provider, expected_commission: q.commission,
           }
         : {}),
-      verify_token_hash: createHash("sha256").update(token).digest("hex"),
+      verify_token_hash: billTokenHash(token),
     })
   } catch (e: any) {
     if (e?.code === "23505") return fail(409, "This verification was already used — please verify again")

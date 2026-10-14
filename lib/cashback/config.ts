@@ -4,8 +4,8 @@ import { isServiceKey } from "../hubtel-cs/services"
 export const CASHBACK_CONFIG_KEY = "commission_cashback_config"
 
 export const CASHBACK_CHANNELS = ["dashboard", "bots", "storefront", "api"] as const
-/** Surfaces that may be switched on. bots/storefront/api stay off until Part 2/3 wires their pricing. */
-export const SUPPORTED_SURFACES = ["dashboard"] as const
+/** Surfaces that may be switched on. bots/api stay off until later parts wire their pricing. */
+export const SUPPORTED_SURFACES = ["dashboard", "storefront"] as const
 export const CASHBACK_GROUPS = ["airtime", "bundles", "bills"] as const
 export const CASHBACK_PROVIDERS = ["hubtel", "digiwapy"] as const
 export const SHARE_FIELDS = ["customer", "dealer", "storefrontCustomer", "storefrontShop"] as const
@@ -17,6 +17,7 @@ export type ShareField = (typeof SHARE_FIELDS)[number]
 
 export const MAX_RATE = 20
 export const MAX_SHARE = 100
+export const MAX_PAYMENT_FEE = 10
 
 export interface GroupShares { customer: number; dealer: number; storefrontCustomer: number; storefrontShop: number }
 export interface CashbackConfig {
@@ -24,6 +25,10 @@ export interface CashbackConfig {
   surfaces: Record<CashbackChannel, boolean>
   rates: Record<string, number> // "<serviceKey>:<provider>" -> %
   shares: Record<CashbackGroup, GroupShares> & { overrides: Record<string, Partial<GroupShares>> }
+  /** Storefront payment-fee percentage per group (0-10, 2 dp). */
+  paymentFee: Record<CashbackGroup, number>
+  /** Per-group storefront switch. */
+  storefrontGroups: Record<CashbackGroup, boolean>
 }
 /** Patch shape: top-level keys replace; surfaces / rates / shares merge one level (as the 0119 RPC does). */
 export interface CashbackPatch {
@@ -31,6 +36,8 @@ export interface CashbackPatch {
   surfaces?: Partial<Record<CashbackChannel, boolean>>
   rates?: Record<string, number>
   shares?: Partial<Record<CashbackGroup, GroupShares>> & { overrides?: Record<string, Partial<GroupShares>> }
+  paymentFee?: Partial<Record<CashbackGroup, number>>
+  storefrontGroups?: Partial<Record<CashbackGroup, boolean>>
 }
 
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v)
@@ -59,7 +66,10 @@ export function isValidRateKey(key: string): boolean {
   return isServiceKey(key.split(":")[0])
 }
 
-const zeroShares = (): GroupShares => ({ customer: 0, dealer: 0, storefrontCustomer: 0, storefrontShop: 0 })
+const validFee = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= MAX_PAYMENT_FEE && hasMaxDecimals(v, 2)
+
+const zeroShares =(): GroupShares => ({ customer: 0, dealer: 0, storefrontCustomer: 0, storefrontShop: 0 })
 
 export function resolveCashbackConfig(raw: unknown): CashbackConfig {
   const r = isObj(raw) ? raw : {}
@@ -92,7 +102,13 @@ export function resolveCashbackConfig(raw: unknown): CashbackConfig {
     }
   }
   shares.overrides = overrides
-  return { enabled: r.enabled === true, surfaces, rates, shares }
+  const paymentFee = {} as Record<CashbackGroup, number>
+  const storefrontGroups = {} as Record<CashbackGroup, boolean>
+  for (const g of CASHBACK_GROUPS) {
+    paymentFee[g] = isObj(r.paymentFee) && validFee(r.paymentFee[g]) ? r.paymentFee[g] : 0
+    storefrontGroups[g] = isObj(r.storefrontGroups) && r.storefrontGroups[g] === true
+  }
+  return { enabled: r.enabled === true, surfaces, rates, shares, paymentFee, storefrontGroups }
 }
 
 export function effectiveShares(cfg: CashbackConfig, serviceKey: string): GroupShares {
@@ -113,6 +129,8 @@ export function mergeCashbackPatch(current: CashbackConfig, patch: CashbackPatch
     surfaces: { ...current.surfaces, ...(patch.surfaces ?? {}) },
     rates: { ...current.rates, ...(patch.rates ?? {}) },
     shares: { ...current.shares, ...patchGroups, overrides } as CashbackConfig["shares"],
+    paymentFee: { ...current.paymentFee, ...(patch.paymentFee ?? {}) },
+    storefrontGroups: { ...current.storefrontGroups, ...(patch.storefrontGroups ?? {}) },
   }
 }
 
@@ -142,7 +160,7 @@ export function validateCashbackPatch(
   current: CashbackConfig,
 ): { ok: true; patch: CashbackPatch } | { ok: false; error: string } {
   if (!isObj(body)) return { ok: false, error: "Body must be an object" }
-  const allowed = new Set(["enabled", "surfaces", "rates", "shares"])
+  const allowed = new Set(["enabled", "surfaces", "rates", "shares", "paymentFee", "storefrontGroups"])
   for (const k of Object.keys(body)) if (!allowed.has(k)) return { ok: false, error: `Unknown field ${k}` }
   const patch: CashbackPatch = {}
 
@@ -157,7 +175,7 @@ export function validateCashbackPatch(
       if (!(CASHBACK_CHANNELS as readonly string[]).includes(k)) return { ok: false, error: `Unknown surface ${k}` }
       if (typeof v !== "boolean") return { ok: false, error: `surfaces.${k} must be true or false` }
       if (v && !(SUPPORTED_SURFACES as readonly string[]).includes(k)) {
-        return { ok: false, error: `surfaces.${k} cannot be enabled yet: Part 1 only supports the dashboard surface` }
+        return { ok: false, error: `surfaces.${k} cannot be enabled yet: only the dashboard and storefront surfaces are supported` }
       }
       out[k as CashbackChannel] = v
     }
@@ -172,6 +190,26 @@ export function validateCashbackPatch(
       out[k] = v
     }
     patch.rates = out
+  }
+  if ("paymentFee" in body) {
+    if (!isObj(body.paymentFee)) return { ok: false, error: "paymentFee must be an object" }
+    const out: Partial<Record<CashbackGroup, number>> = {}
+    for (const [k, v] of Object.entries(body.paymentFee)) {
+      if (!(CASHBACK_GROUPS as readonly string[]).includes(k)) return { ok: false, error: `Unknown paymentFee group ${k}` }
+      if (!validFee(v)) return { ok: false, error: `paymentFee.${k} must be a number from 0 to ${MAX_PAYMENT_FEE} with at most 2 decimals` }
+      out[k as CashbackGroup] = v
+    }
+    patch.paymentFee = out
+  }
+  if ("storefrontGroups" in body) {
+    if (!isObj(body.storefrontGroups)) return { ok: false, error: "storefrontGroups must be an object" }
+    const out: Partial<Record<CashbackGroup, boolean>> = {}
+    for (const [k, v] of Object.entries(body.storefrontGroups)) {
+      if (!(CASHBACK_GROUPS as readonly string[]).includes(k)) return { ok: false, error: `Unknown storefrontGroups group ${k}` }
+      if (typeof v !== "boolean") return { ok: false, error: `storefrontGroups.${k} must be true or false` }
+      out[k as CashbackGroup] = v
+    }
+    patch.storefrontGroups = out
   }
   if ("shares" in body) {
     if (!isObj(body.shares)) return { ok: false, error: "shares must be an object" }
@@ -230,7 +268,11 @@ export async function getCashbackConfig(db: SupabaseClient): Promise<CashbackCon
  * (current ⊕ patch, the same merge the validator checked) — a partial group or override can never wipe stored values.
  */
 export async function setCashbackConfig(db: SupabaseClient, patch: CashbackPatch, current: CashbackConfig): Promise<CashbackConfig> {
-  const toSend: CashbackPatch = patch.shares ? { ...patch, shares: mergeCashbackPatch(current, patch).shares } : patch
+  const merged = mergeCashbackPatch(current, patch)
+  const toSend: CashbackPatch = { ...patch }
+  if (patch.shares) toSend.shares = merged.shares
+  if (patch.paymentFee) toSend.paymentFee = merged.paymentFee
+  if (patch.storefrontGroups) toSend.storefrontGroups = merged.storefrontGroups
   const { data, error } = await db.rpc("commission_cashback_config_patch", { p_patch: toSend })
   if (error) throw error
   return resolveCashbackConfig(data)

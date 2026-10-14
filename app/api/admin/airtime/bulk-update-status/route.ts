@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { AIRTIME_ADMIN_ACTIONABLE_STATUSES, failedActionRefundsWallet, isAirtimeAdminActionable } from "@/lib/airtime-admin-status"
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,22 +38,30 @@ export async function POST(request: NextRequest) {
 
     // Process each order (simpler to do sequentially or in small parallel batches to avoid overloading)
     for (const order of orders) {
-      if (order.status === "completed" || order.status === "failed") {
+      // Only live orders: a refunding/refunded storefront order must never get a second clawback, a re-credit or SMS.
+      if (!isAirtimeAdminActionable(order.status)) {
         results.skipped++
         continue
       }
 
       try {
-        // 1. Update status
-        const { error: updateError } = await supabase
+        // 1. Guarded status update (the refund guard trigger silently keeps a refunding/refunded status)
+        const { data: changed, error: updateError } = await supabase
           .from("airtime_orders")
           .update({ status, notes: notes || `Bulk update to ${status}` })
           .eq("id", order.id)
+          .in("status", [...AIRTIME_ADMIN_ACTIONABLE_STATUSES])
+          .select("id")
 
         if (updateError) throw updateError
+        if (!changed || changed.length === 0) {
+          results.skipped++
+          continue
+        }
 
-        // 2. Handle failure (Refunding)
-        if (status === "failed") {
+        // 2. Handle failure (Refunding). Wallet-less storefront orders (user_id NULL) are refunded on
+        // /admin/refunds: no wallet credit and no "refunded" message here.
+        if (status === "failed" && failedActionRefundsWallet(order)) {
           const { data: wallet } = await supabase
             .from("wallets")
             .select("balance, total_spent")

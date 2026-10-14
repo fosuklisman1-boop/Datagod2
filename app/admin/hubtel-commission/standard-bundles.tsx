@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -146,6 +147,7 @@ type OrderRow = {
   id: string; reference_code: string; network: BundleNetwork; bundle_display: string; bundle_category: string; beneficiary_phone: string
   amount: number; paid_amount?: number | null; status: string; payment_status: string; hubtel_client_reference: string | null; commission: number | null
   failure_reason: string | null; notes: string | null; created_at: string; updated_at: string
+  channel?: string; shop_name?: string | null; buyer_phone?: string | null
   purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo
 }
 
@@ -159,6 +161,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
   const [q, setQ] = useState("")
   const [status, setStatus] = useState("all")
   const [network, setNetwork] = useState("all")
+  const [channel, setChannel] = useState("all")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [busy, setBusy] = useState<string | null>(null)
@@ -175,6 +178,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
     if (q.trim()) p.set("q", q.trim())
     if (status !== "all") p.set("status", status)
     if (network !== "all") p.set("network", network)
+    if (channel !== "all") p.set("channel", channel)
     if (from) p.set("from", from)
     if (to) p.set("to", to)
     try {
@@ -184,7 +188,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
     } catch (e) {
       if (id === seq.current) toast.error(`Standard Bundles: ${errMsg(e)}`)
     } finally { if (id === seq.current) setLoading(false) }
-  }, [authed, q, status, network, from, to])
+  }, [authed, q, status, network, channel, from, to])
   useEffect(() => { void load(0) }, [load])
 
   async function sync(r: OrderRow) {
@@ -233,7 +237,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
         </div>
       )}
       <Card>
-        <CardContent className="grid gap-3 p-4 lg:grid-cols-[1fr_auto_auto_auto_auto]">
+        <CardContent className="grid gap-3 p-4 lg:grid-cols-[1fr_auto_auto_auto_auto_auto]">
           <form className="flex gap-2" onSubmit={e => { e.preventDefault(); setQ(qInput) }}>
             <Input aria-label="Search by reference or phone" placeholder="Search reference, Hubtel ref or phone" value={qInput} maxLength={100} onChange={e => setQInput(e.target.value)} />
             <Button type="submit" variant="outline" aria-label="Search"><Search className="h-4 w-4" /></Button>
@@ -252,6 +256,14 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
               {BUNDLE_NETWORKS.map(n => <SelectItem key={n} value={n}>{NETWORK_LABEL[n]}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Select value={channel} onValueChange={setChannel}>
+            <SelectTrigger className="lg:w-36" aria-label="Filter by channel"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All channels</SelectItem>
+              <SelectItem value="dashboard">Dashboard</SelectItem>
+              <SelectItem value="storefront">Storefront</SelectItem>
+            </SelectContent>
+          </Select>
           <Input type="date" aria-label="From date" value={from} onChange={e => setFrom(e.target.value)} />
           <Input type="date" aria-label="To date" value={to} onChange={e => setTo(e.target.value)} />
         </CardContent>
@@ -267,13 +279,19 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
       {rows.length === 0 && !loading && <div className="rounded-xl border p-8 text-center text-muted-foreground">No Standard Bundle orders found.</div>}
       <div className="space-y-3">
         {rows.map(r => {
-          const canRefund = r.refund?.action === "direct"
-          const toReview = r.refund?.action === "blocked" && r.refund.reviewQueue
+          // Storefront buyers have no wallet: their refunds go through /admin/refunds (the server refuses a wallet refund).
+          const storefront = r.channel === "storefront"
+          const canRefund = !storefront && r.refund?.action === "direct"
+          const toReview = !storefront && r.refund?.action === "blocked" && r.refund.reviewQueue
+          const storefrontRefund = storefront && r.status !== "refunded" && (r.refund?.action === "direct" || (r.refund?.action === "blocked" && r.refund.reviewQueue))
           return (
             <div key={r.id} className="flex flex-col gap-3 rounded-xl border bg-card p-4 lg:flex-row lg:items-center lg:gap-6">
               <div className="lg:w-56">
                 <div className="font-medium">{NETWORK_LABEL[r.network]} {r.bundle_display}</div>
                 <div className="text-xs text-muted-foreground">{r.bundle_category} · {r.purchaser}</div>
+                <div className="text-xs text-muted-foreground">
+                  {r.channel === "storefront" ? `Storefront · ${r.shop_name ?? "Unknown shop"}${r.buyer_phone ? ` · ${r.buyer_phone}` : ""}` : "Dashboard"}
+                </div>
                 <div className="font-mono text-xs text-muted-foreground">{r.reference_code}</div>
               </div>
               <div className="min-w-0 flex-1">
@@ -298,7 +316,10 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
                 )}
                 {canRefund && <Button size="sm" disabled={anyBusy} onClick={() => { setNote(""); setRefunding(r) }}>Refund (never sent)</Button>}
                 {toReview && <Button size="sm" variant="outline" onClick={onReviewQueue}>Open Hubtel review queue</Button>}
-                {r.refund?.action === "blocked" && !toReview && r.status !== "refunded" && <div className="text-xs text-muted-foreground">{r.refund.reason}</div>}
+                {storefrontRefund && (
+                  <Link href="/admin/refunds" className="text-xs font-medium text-primary underline-offset-2 hover:underline">Storefront order — refund from Refunds</Link>
+                )}
+                {r.refund?.action === "blocked" && !r.refund.reviewQueue && r.status !== "refunded" && <div className="text-xs text-muted-foreground">{r.refund.reason}</div>}
               </div>
             </div>
           )

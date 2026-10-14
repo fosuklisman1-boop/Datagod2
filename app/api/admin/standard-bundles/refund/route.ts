@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const deps: BundleRefundDeps = {
       async getOrder(id) {
         const { data, error } = await db.from(DATA_ORDERS_TABLE)
-          .select("id, reference_code, user_id, amount, paid_amount, network, bundle_display, beneficiary_phone, status, payment_status, hubtel_client_reference, notes, updated_at").eq("id", id).maybeSingle()
+          .select("id, reference_code, channel, user_id, amount, paid_amount, network, bundle_display, beneficiary_phone, status, payment_status, hubtel_client_reference, notes, updated_at").eq("id", id).maybeSingle()
         if (error) throw error
         return (data as unknown as RefundOrder | null) ?? null
       },

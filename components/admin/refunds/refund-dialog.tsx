@@ -12,7 +12,8 @@ import { parseRefundAmount, treatAsAmbiguous, type RefundOutcome } from "@/lib/r
 
 export interface PreviewPayload {
   order: { table: string; id: string; paid: number; gatewayFee: number; packageLabel: string; network: string; payment: { payerPhone: string | null } }
-  eligibility: { eligible: true } | { eligible: false; code?: string; reason: string }
+  /** warning: refundable only after the admin confirms (admin-overridden Hubtel failure). */
+  eligibility: { eligible: true; warning?: string } | { eligible: false; code?: string; reason: string }
   defaultAmount: number
   gateways: { id: string; label: string; ok: boolean; reason?: string }[]
   clawback: { ok: boolean; lines: { shopId: string; credited: number; pending: number; fromProfit: number; fromWallet: number; shortfall: number }[] }
@@ -34,11 +35,16 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
   const [amount, setAmount] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
+  // Set from the preview, or from a CONFIRM_REQUIRED answer if the order changed after the preview loaded.
+  const [overrideWarning, setOverrideWarning] = useState<string | null>(null)
+  const [overrideConfirmed, setOverrideConfirmed] = useState(false)
 
   useEffect(() => {
     setPreview(null)
     setError(null)
     setConfirmed(false)
+    setOverrideWarning(null)
+    setOverrideConfirmed(false)
     if (!target) return
     let cancelled = false
     ;(async () => {
@@ -53,6 +59,8 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
         if (!res.ok) throw new Error(res.status === 403 ? "Sign in as an admin" : json.error || "Preview failed")
         if (cancelled) return
         setPreview(json)
+        const w = json?.eligibility?.eligible === true && typeof json.eligibility.warning === "string" ? json.eligibility.warning : null
+        setOverrideWarning(w)
         setAmount(Number(json.defaultAmount).toFixed(2))
         setGateway(json.gateways.find((g: PreviewPayload["gateways"][number]) => g.ok)?.id ?? "")
       } catch (e) {
@@ -79,13 +87,21 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
       : ""
 
   const submit = async () => {
-    if (!target || submitting || !confirmed || !amountOk) return
+    if (!target || submitting || !confirmed || !amountOk || (overrideWarning && !overrideConfirmed)) return
     setSubmitting(true)
     setError(null)
     try {
       const outcome = await postRefundAction(getToken, "/api/admin/refunds", "execute", {
         table: target.table, orderId: target.id, gateway, amount: amountNum,
+        ...(overrideWarning ? { confirmOverride: overrideConfirmed } : {}),
       })
+      if (outcome.kind === "error" && outcome.confirmWarning) {
+        // Nothing was reserved: show the warning and ask for the explicit confirmation.
+        setConfirmed(false)
+        setOverrideConfirmed(false)
+        setOverrideWarning(outcome.confirmWarning)
+        return
+      }
       if (outcome.kind === "error" || outcome.kind === "auth" || outcome.kind === "settle_failed") {
         setConfirmed(false)
         const t = treatAsAmbiguous(outcome)
@@ -112,6 +128,7 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
   }
 
   const blocked = !preview || !eligible || !preview.clawback.ok || !gateway || !amountOk || !confirmed || submitting
+    || (!!overrideWarning && !overrideConfirmed)
 
   return (
     <Dialog open={!!target} onOpenChange={(o) => !o && !submitting && onClose()}>
@@ -189,6 +206,13 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
                 ))
               )}
             </div>
+
+            {overrideWarning && eligible && (
+              <label className="flex items-start gap-2 rounded-md border border-destructive/50 p-3">
+                <input type="checkbox" className="mt-1" checked={overrideConfirmed} disabled={submitting} onChange={(e) => setOverrideConfirmed(e.target.checked)} />
+                <span><span className="font-medium text-destructive">{overrideWarning}</span> I confirmed it was not delivered.</span>
+              </label>
+            )}
 
             {summary && eligible && (
               <label className="flex items-start gap-2 rounded-md border border-primary/50 p-3">

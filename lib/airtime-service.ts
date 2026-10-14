@@ -2,9 +2,9 @@ import { createClient } from "@supabase/supabase-js"
 import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { type AirtimeOrderMinimal, fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
-import { getAirtimeProvider, airtimeNetId, providerEarnsCommission, type AirtimeProvider } from "@/lib/airtime-provider"
-import { airtimeEnabledKey, airtimeFeeKey, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
-import { HUBTEL_CS_SERVICES } from "@/lib/hubtel-cs/services"
+import { getAirtimeProvider, airtimeNetId, type AirtimeProvider } from "@/lib/airtime-provider"
+import { airtimeAmountGate, airtimeFeeKey, airtimeNetworkGate, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
+import { airtimeCashbackTarget, type AirtimeProviderDeps } from "@/lib/cashback/storefront-airtime"
 import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 import { secureReference } from "@/lib/secure-random"
@@ -157,7 +157,9 @@ export async function markAirtimeOrderPaid(
     return { success: true, alreadyProcessed: true }
   }
 
-  await supabase
+  // Guarded flip: only the call whose update actually changed a row may go on to
+  // profit / tracking / fulfilment, so a concurrent webhook + verify dispatches once.
+  const { data: flipped, error: flipErr } = await supabase
     .from("airtime_orders")
     .update({
       payment_status: "completed",
@@ -166,6 +168,23 @@ export async function markAirtimeOrderPaid(
       updated_at: new Date().toISOString(),
     })
     .eq("id", airtimeData.id)
+    .neq("payment_status", "completed")
+    .select("id")
+
+  if (flipErr) {
+    console.error(`[AIRTIME-SVC] Failed to mark airtime order ${airtimeData.id} paid:`, flipErr)
+    // The customer has paid but the order could not be marked paid, so it is not sent. Make sure a human sees it.
+    notifyAdmins(
+      `Airtime order ${airtimeData.reference_code} was PAID (txn ${transactionId ?? "?"}) but could not be marked paid - not sent. Check and fulfil or refund.`,
+      "airtime_manual_needed",
+      airtimeData.id,
+      true
+    ).catch(() => {})
+    return { success: false }
+  }
+  if (!flipped || flipped.length === 0) {
+    return { success: true, alreadyProcessed: true }
+  }
 
   if (airtimeData.merchant_commission > 0 && airtimeData.shop_id) {
     const { error: profitErr } = await supabase.from("shop_profits").insert([{
@@ -232,6 +251,12 @@ export interface PurchaseAirtimeParams {
   expectedPay?: number
 }
 
+/** Live provider routing for cashback quotes (dashboard here, storefront routes via quoteStorefrontAirtime). */
+export const airtimeProviderDeps: AirtimeProviderDeps = {
+  getProvider: (network) => getAirtimeProvider(supabase, network, isDigiWapyEnabledForNetwork),
+  digiwapyConfigured: () => isDigiWapyConfigured(),
+}
+
 /**
  * Instant-cashback quote for a non-shop purchase, or null when cashback is not applied.
  * Any failure (config read, provider read) means "not applied" — the legacy fee path runs.
@@ -243,20 +268,15 @@ async function quoteAirtimeCashback(
   channel: CashbackChannel,
 ): Promise<(CashbackQuote & { airtimeProvider: AirtimeProvider }) | null> {
   try {
-    const netId = airtimeNetId(network)
-    if (!netId) return null
+    if (!airtimeNetId(network)) return null
     const cfg = await getCashbackConfig(supabase)
     if (!cfg.enabled || !cfg.surfaces[channel]) return null
-    const serviceKey = `airtime_${netId}` as const
-    const provider = await getAirtimeProvider(supabase, network, isDigiWapyEnabledForNetwork)
-    // Digiwapy without its env goes to manual at fulfilment: no commission, so no cashback.
-    if (!providerEarnsCommission(provider, isDigiWapyConfigured())) return null
-    // Hubtel rejects face above its per-request cap after the debit: never give cashback on an order
-    // Hubtel cannot send (no commission would be earned). Legacy path, exactly as today.
-    const hubtelMax = HUBTEL_CS_SERVICES[serviceKey].maxAmount ?? Infinity
-    if (provider === "hubtel" && faceAmount > hubtelMax) return null
-    const q = quoteCashback({ serviceKey, provider, faceAmount, buyer, channel }, cfg)
-    return q.applied ? { ...q, airtimeProvider: provider } : null
+    // Digiwapy without its env goes to manual at fulfilment, and Hubtel rejects face above its per-request
+    // cap after the debit: no commission would be earned, so no cashback. Legacy path, exactly as today.
+    const target = await airtimeCashbackTarget(network, faceAmount, airtimeProviderDeps)
+    if (!target) return null
+    const q = quoteCashback({ serviceKey: target.serviceKey, provider: target.provider, faceAmount, buyer, channel }, cfg)
+    return q.applied ? { ...q, airtimeProvider: target.provider } : null
   } catch (e: any) {
     console.warn("[AIRTIME-SVC] cashback quote unavailable, using standard pricing:", e?.message ?? e)
     return null
@@ -290,10 +310,10 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
   const cleanPhone = beneficiaryPhone.replace(/\s/g, "")
   const networkKey = airtimeSettingsSuffix(network)
 
-  const enableSetting = await getAdminSetting(airtimeEnabledKey(network))
-  if (enableSetting?.enabled === false) {
-    const err: any = new Error(`Airtime for ${network} is currently unavailable`)
-    err.code = "NETWORK_DISABLED"
+  const networkRefusal = await airtimeNetworkGate(network, getAdminSetting)
+  if (networkRefusal) {
+    const err: any = new Error(networkRefusal.message)
+    err.code = networkRefusal.code
     throw err
   }
 
@@ -338,18 +358,10 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
 
   const totalFeeRate = merchantRoleFeeRate + customMarkupRate
 
-  const minSetting = await getAdminSetting("airtime_min_amount")
-  const maxSetting = await getAdminSetting("airtime_max_amount")
-  const minAmount = minSetting?.amount ?? 1
-  const maxAmount = maxSetting?.amount ?? 500
-  if (params.airtimeAmount < minAmount) {
-    const err: any = new Error(`Minimum airtime amount is GHS ${minAmount}`)
-    err.code = "INVALID_AMOUNT"
-    throw err
-  }
-  if (params.airtimeAmount > maxAmount) {
-    const err: any = new Error(`Maximum airtime amount is GHS ${maxAmount}`)
-    err.code = "INVALID_AMOUNT"
+  const amountRefusal = await airtimeAmountGate(params.airtimeAmount, getAdminSetting)
+  if (amountRefusal) {
+    const err: any = new Error(amountRefusal.message)
+    err.code = amountRefusal.code
     throw err
   }
 

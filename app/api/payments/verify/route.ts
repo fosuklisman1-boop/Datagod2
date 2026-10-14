@@ -41,6 +41,15 @@ export async function POST(request: NextRequest) {
 
     console.log("[PAYMENT-VERIFY] ✓ Record found - User:", paymentData.user_id)
 
+    // Storefront Utility Bill / Standard Bundle orders (cs_bill / cs_bundle): same shared, idempotent confirmation
+    // as the Paystack webhook. Every other order type continues below unchanged.
+    const { isStorefrontOrderType } = await import("@/lib/storefront-commission/payment")
+    if (isStorefrontOrderType(paymentData.order_type)) {
+      const { verifyStorefrontPaymentRoute } = await import("@/lib/storefront-commission/confirm-runtime")
+      const out = await verifyStorefrontPaymentRoute(paymentData.order_type, paymentData, reference)
+      return NextResponse.json(out.body, { status: out.httpStatus })
+    }
+
     // Safety check: if already completed, don't verify again
     // Exception: results_checker payments may have been marked complete in wallet_payments
     // but the order fulfillment could have failed — allow re-entry if order is still pending.

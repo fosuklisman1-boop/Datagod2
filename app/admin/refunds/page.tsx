@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -31,8 +32,10 @@ interface PendingRow {
     payment: { gateway: string | null; payerPhone: string | null }
     owners: { shopId: string; credited: number; pending: number }[]
   }
-  eligibility: { eligible: true } | { eligible: false; code?: string; reason: string }
+  eligibility: { eligible: true; warning?: string } | { eligible: false; code?: string; reason: string }
   defaultAmount: number
+  /** Storefront commission orders (airtime / bill / bundle) also offer "Mark refunded manually". */
+  manualRefund?: boolean
 }
 
 type RefundStatus = "reserved" | "processing" | "awaiting_otp" | "completed" | "failed"
@@ -45,7 +48,11 @@ interface HistoryRow {
 
 type StatusFilter = "all" | "attention" | "completed" | "failed"
 
-const TABLE_LABEL: Record<string, string> = { shop_orders: "Storefront", ussd_orders: "USSD", ussd_shop_orders: "USSD shop", orders: "Dashboard (bulk)", api_orders: "API" }
+const TABLE_LABEL: Record<string, string> = {
+  shop_orders: "Storefront", ussd_orders: "USSD", ussd_shop_orders: "USSD shop", orders: "Dashboard (bulk)", api_orders: "API",
+  airtime_orders: "Storefront airtime", hubtel_bill_orders: "Storefront bill", hubtel_data_orders: "Storefront bundle",
+}
+const MAX_NOTE = 500
 const PAGE_SIZE = 50
 
 async function getToken(): Promise<string> {
@@ -92,12 +99,19 @@ export default function AdminRefundsPage() {
   const [otpMessage, setOtpMessage] = useState<string | null>(null)
   const [cancelFor, setCancelFor] = useState<string | null>(null)
   const [retryFor, setRetryFor] = useState<HistoryRow | null>(null)
+  // Set when a retry answers CONFIRM_REQUIRED (admin-overridden Hubtel failure).
+  const [retryWarning, setRetryWarning] = useState<string | null>(null)
+  const [retryConfirm, setRetryConfirm] = useState(false)
   const [tab, setTab] = useState("pending")
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
   const [verified, setVerified] = useState<Record<string, { severity: VerificationSeverity; text: string }>>({})
   const loadSeq = useRef(0)
   const otpFromExecute = useRef(false)
   const [settleFailed, setSettleFailed] = useState<{ message: string; detail: SettleFailedDetail } | null>(null)
+  const [manualFor, setManualFor] = useState<{ table: string; id: string; label: string; warning?: string } | null>(null)
+  const [manualConfirm, setManualConfirm] = useState(false)
+  const [manualNote, setManualNote] = useState("")
+  const [manualBusy, setManualBusy] = useState(false)
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current
@@ -166,6 +180,12 @@ export default function AdminRefundsPage() {
     setBusyId(id)
     try {
       const o = await postRefundAction(getToken, `/api/admin/refunds/${id}/${action}`, action, body)
+      if (action === "retry" && o.kind === "error" && o.confirmWarning) {
+        // Nothing was reserved: keep the retry dialog open and ask for the explicit override confirmation.
+        setRetryWarning(o.confirmWarning)
+        setRetryConfirm(false)
+        return o
+      }
       if (action === "otp") {
         if (o.kind === "awaiting_otp" || o.kind === "error") {
           // Wrong code / BAD_OTP / 409: keep the OTP dialog open, show the message, clear the input.
@@ -178,12 +198,15 @@ export default function AdminRefundsPage() {
       }
       handleOutcome(o, action)
       await load()
+      return o
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Request failed")
     } finally {
       setBusyId(null)
     }
   }
+
+  const closeRetry = () => { setRetryFor(null); setRetryWarning(null); setRetryConfirm(false) }
 
   // Read-only: asks Paystack about this refund; settles nothing.
   const verify = async (r: HistoryRow) => {
@@ -201,6 +224,36 @@ export default function AdminRefundsPage() {
       toast.error(e instanceof Error ? e.message : "Verification failed")
     } finally {
       setVerifyingId(null)
+    }
+  }
+
+  // Records a refund the admin made outside our gateways; claws back the shop's share. Idempotent server-side.
+  const submitManual = async () => {
+    const o = manualFor
+    const note = manualNote.trim()
+    if (!o || manualBusy || !note || note.length > MAX_NOTE || (o.warning && !manualConfirm)) return
+    setManualBusy(true)
+    try {
+      const res = await fetch("/api/admin/refunds/manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await getToken()}` },
+        body: JSON.stringify({ table: o.table, orderId: o.id, note, ...(o.warning ? { confirmOverride: manualConfirm } : {}) }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(res.status === 403 ? "Sign in as an admin" : json.error || "Could not mark the order refunded")
+        if (res.status >= 500) { setManualFor(null); void load() }
+        return
+      }
+      if (json.alreadyRefunded) toast.info(json.message || "Already refunded; nothing changed")
+      else toast.success(json.message || "Marked refunded")
+      setManualFor(null)
+      setManualNote("")
+      void load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Request failed")
+    } finally {
+      setManualBusy(false)
     }
   }
 
@@ -238,7 +291,7 @@ export default function AdminRefundsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pending.map(({ order, eligibility }) => (
+                  {pending.map(({ order, eligibility, manualRefund }) => (
                     <TableRow key={`${order.table}:${order.id}`} className={eligibility.eligible ? "" : "opacity-60"}>
                       <TableCell>{TABLE_LABEL[order.table] ?? order.table}</TableCell>
                       <TableCell>{order.shopName ?? "-"}</TableCell>
@@ -250,7 +303,19 @@ export default function AdminRefundsPage() {
                       <TableCell>{new Date(order.createdAt).toLocaleString()}</TableCell>
                       <TableCell className="text-right">
                         {eligibility.eligible ? (
-                          <Button size="sm" onClick={() => setTarget({ table: order.table, id: order.id })}>Refund</Button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button size="sm" onClick={() => setTarget({ table: order.table, id: order.id })}>Refund</Button>
+                            {manualRefund && (
+                              <Button size="sm" variant="outline" onClick={() => {
+                                setManualNote("")
+                                setManualConfirm(false)
+                                setManualFor({
+                                  table: order.table, id: order.id, label: `${order.packageLabel} ${order.network} — paid GHS ${order.paid.toFixed(2)}`,
+                                  warning: eligibility.eligible ? eligibility.warning : undefined,
+                                })
+                              }}>Mark refunded manually</Button>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-xs text-muted-foreground" title={eligibility.reason}>{eligibility.reason}</span>
                         )}
@@ -337,8 +402,11 @@ export default function AdminRefundsPage() {
                                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => setCancelFor(r.id)}>Cancel refund</Button>
                               </>
                             )}
-                            {r.status === "failed" && (
+                            {r.status === "failed" && r.gateway !== "manual" && (
                               <Button size="sm" variant="outline" disabled={busy} onClick={() => setRetryFor(r)}>Retry</Button>
+                            )}
+                            {r.gateway === "manual" && r.status === "reserved" && (
+                              <Button size="sm" variant="outline" disabled={busy} onClick={() => { setManualNote(""); setManualFor({ table: r.order_table, id: r.order_id, label: `Unfinished manual refund of GHS ${Number(r.amount).toFixed(2)}` }) }}>Finish manual refund</Button>
                             )}
                           </div>
                         </TableCell>
@@ -372,7 +440,7 @@ export default function AdminRefundsPage() {
 
       <SettleFailedDialog info={settleFailed} onAcknowledge={() => setSettleFailed(null)} />
 
-      <AlertDialog open={!!retryFor} onOpenChange={(o) => !o && busyId === null && setRetryFor(null)}>
+      <AlertDialog open={!!retryFor} onOpenChange={(o) => !o && busyId === null && closeRetry()}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Retry this refund?</AlertDialogTitle>
@@ -382,17 +450,64 @@ export default function AdminRefundsPage() {
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {retryWarning && (
+            <label className="flex items-start gap-2 rounded-md border border-destructive/50 p-3 text-sm">
+              <input type="checkbox" className="mt-1" checked={retryConfirm} disabled={busyId !== null} onChange={(e) => setRetryConfirm(e.target.checked)} />
+              <span><span className="font-medium text-destructive">{retryWarning}</span> I confirmed it was not delivered.</span>
+            </label>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busyId !== null}>Do not retry</AlertDialogCancel>
             <AlertDialogAction
-              disabled={busyId !== null}
+              disabled={busyId !== null || (!!retryWarning && !retryConfirm)}
               onClick={(e) => {
                 e.preventDefault()
                 const row = retryFor
-                if (row) void act(row.id, "retry").then(() => setRetryFor(null))
+                if (!row) return
+                void act(row.id, "retry", retryWarning ? { confirmOverride: retryConfirm } : {}).then((o) => {
+                  if (!(o && o.kind === "error" && o.confirmWarning)) closeRetry()
+                })
               }}
             >
               {busyId !== null ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Retry refund
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!manualFor} onOpenChange={(o) => !o && !manualBusy && setManualFor(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark refunded manually?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {manualFor ? `${manualFor.label}. ` : ""}Use this only after you have refunded the customer yourself (outside Datagod). No money moves here: the order is marked refunded and the shop&apos;s share is clawed back.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <label htmlFor="manual-refund-note" className="text-sm font-medium">Note (required)</label>
+            <Textarea
+              id="manual-refund-note"
+              value={manualNote}
+              maxLength={MAX_NOTE}
+              disabled={manualBusy}
+              placeholder="How and when the customer was refunded"
+              onChange={(e) => setManualNote(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">{manualNote.trim().length}/{MAX_NOTE}</p>
+          </div>
+          {manualFor?.warning && (
+            <label className="flex items-start gap-2 rounded-md border border-destructive/50 p-3 text-sm">
+              <input type="checkbox" className="mt-1" checked={manualConfirm} disabled={manualBusy} onChange={(e) => setManualConfirm(e.target.checked)} />
+              <span><span className="font-medium text-destructive">{manualFor.warning}</span> I confirmed it was not delivered.</span>
+            </label>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={manualBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={manualBusy || !manualNote.trim() || manualNote.trim().length > MAX_NOTE || (!!manualFor?.warning && !manualConfirm)}
+              onClick={(e) => { e.preventDefault(); void submitManual() }}
+            >
+              {manualBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Mark refunded
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

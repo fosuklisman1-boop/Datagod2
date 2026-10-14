@@ -25,7 +25,8 @@ export type RefundOutcome =
   | { kind: "payout_failed"; message: string; refundId?: string }
   | { kind: "settle_failed"; message: string; detail: SettleFailedDetail }
   | { kind: "auth"; message: string }
-  | { kind: "error"; message: string; code?: string; status?: number }
+  /** confirmWarning: the refund needs an explicit override confirmation (admin-overridden Hubtel failure). */
+  | { kind: "error"; message: string; code?: string; status?: number; confirmWarning?: string }
 
 const str = (v: unknown): string | null => {
   if (typeof v === "string") return v ? v : null
@@ -45,7 +46,10 @@ export function interpretRefundResponse(action: RefundAction, httpStatus: number
   }
   if (httpStatus === 403 || b.code === "ADMIN_REQUIRED") return { kind: "auth", message: "Sign in as an admin" }
   if (typeof b.status !== "string") {
-    return { kind: "error", message: str(b.error) ?? str(b.message) ?? `Request failed (${httpStatus})`, code: str(b.code) ?? undefined, status: httpStatus }
+    const out: Extract<RefundOutcome, { kind: "error" }> = { kind: "error", message: str(b.error) ?? str(b.message) ?? `Request failed (${httpStatus})`, code: str(b.code) ?? undefined, status: httpStatus }
+    const d = b.detail && typeof b.detail === "object" ? b.detail : null
+    if (d?.code === "CONFIRM_REQUIRED") out.confirmWarning = str(d.warning) ?? out.message
+    return out
   }
   const refundId = str(b.refundId) ?? undefined
   const message = str(b.message)

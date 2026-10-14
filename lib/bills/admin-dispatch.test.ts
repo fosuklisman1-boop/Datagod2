@@ -80,6 +80,15 @@ describe("Ghana Water expiry", () => {
     expect((await executeBillDispatch(make({ order: water(5) }).d, "o1")).ok).toBe(true)
     expect((await executeBillDispatch(make({ order: ord({ biller: "dstv", created_at: new Date(NOW - 99 * 60_000).toISOString() }) }).d, "o1")).ok).toBe(true)
   })
+  it("measures from verified_at when set (storefront: verified long before the order was created)", async () => {
+    const verifiedAt = (min: number) => new Date(NOW - min * 60_000).toISOString()
+    const { d, calls } = make({ order: water(2, { verified_at: verifiedAt(11) }) })
+    expect(await executeBillDispatch(d, "o1")).toMatchObject({ ok: false, status: 409, message: "Ghana Water verification expired — refund instead" })
+    expect(calls).toEqual([])
+    expect((await executeBillDispatch(make({ order: water(2, { verified_at: verifiedAt(9) }) }).d, "o1")).ok).toBe(true)
+    // null verified_at falls back to created_at
+    expect((await executeBillDispatch(make({ order: water(11, { verified_at: null }) }).d, "o1")).status).toBe(409)
+  })
 })
 
 describe("urgent alerts", () => {

@@ -37,6 +37,28 @@ function notApplied(i: QuoteInput): CashbackQuote {
   }
 }
 
+export interface StorefrontQuote extends CashbackQuote {
+  /** Amount the customer pays before the payment fee (face minus customer cashback). */
+  base: number
+  paymentFee: number
+  feeRate: number
+}
+
+/** Storefront quote: cashback split plus the payment fee on the base, rounded UP to the pesewa. */
+export function quoteStorefront(i: Omit<QuoteInput, "channel" | "shop">, cfg: CashbackConfig): StorefrontQuote {
+  const q = quoteCashback({ ...i, channel: "storefront", shop: true }, cfg)
+  const group = groupOf(i.serviceKey)
+  const on = !!group && cfg.enabled && cfg.surfaces.storefront && cfg.storefrontGroups[group]
+  if (!on) {
+    const n = notApplied({ ...i, channel: "storefront", shop: true })
+    return { ...n, base: n.payAmount, paymentFee: 0, feeRate: 0 }
+  }
+  const feeRate = cfg.paymentFee[group] ?? 0
+  const basePesewas = toPesewas(q.payAmount)
+  const feePesewas = feeRate > 0 ? Math.ceil((basePesewas * feeRate) / 100 - 1e-9) : 0
+  return { ...q, base: q.payAmount, paymentFee: fromPesewas(feePesewas), feeRate, payAmount: fromPesewas(basePesewas + feePesewas) }
+}
+
 export function quoteCashback(i: QuoteInput, cfg: CashbackConfig): CashbackQuote {
   if (!cfg.enabled || !cfg.surfaces[i.channel] || i.provider === "manual" || groupOf(i.serviceKey) === null) return notApplied(i)
   if (!Number.isFinite(i.faceAmount) || i.faceAmount <= 0) return notApplied(i)
