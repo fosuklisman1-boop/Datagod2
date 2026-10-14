@@ -20,6 +20,7 @@ const h = vi.hoisted(() => {
     orderInserts: [] as any[],
     txInserts: [] as any[],
     deductCalls: [] as any[],
+    keysRead: [] as string[],
   }
 
   const fake = {
@@ -28,7 +29,7 @@ const h = vi.hoisted(() => {
         return {
           select: () => ({
             eq: (_col: string, key: string) => ({
-              single: () => Promise.resolve({ data: { value: state.settings[key] ?? null }, error: null }),
+              single: () => (state.keysRead.push(key), Promise.resolve({ data: { value: state.settings[key] ?? null }, error: null })),
               maybeSingle: () => {
                 if (key === "commission_cashback_config" && state.cashbackReadError) {
                   return Promise.resolve({ data: null, error: { message: "read failed" } })
@@ -148,7 +149,8 @@ vi.mock("@/lib/hubtel-cs/runtime", () => ({
 }))
 
 import { purchaseAirtime } from "./airtime-service"
-import { sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
+import { isDigiWapyConfigured, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
+import { airtimeEnabledKey, airtimeFeeKey, legacyAirtimePrice } from "@/lib/airtime-fee"
 import { fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
 
 const CASHBACK_CFG = {
@@ -190,6 +192,8 @@ beforeEach(() => {
   h.state.orderInserts = []
   h.state.txInserts = []
   h.state.deductCalls = []
+  h.state.keysRead = []
+  vi.mocked(isDigiWapyConfigured).mockReturnValue(true)
   h.state.settings = {
     airtime_enabled_mtn: { enabled: true },
     airtime_fee_mtn_customer: { rate: 5 },
@@ -266,6 +270,66 @@ describe("purchaseAirtime", () => {
       userId: "user-1", network: "MTN", beneficiaryPhone: "0201234567", airtimeAmount: 10, channel: "dashboard",
     })
     expect(result.order.id).toBe("order-1")
+  })
+})
+
+describe("purchaseAirtime — network settings keys", () => {
+  const settingKeys = () => h.state.keysRead.filter((k) => k.startsWith("airtime_enabled_") || k.startsWith("airtime_fee_"))
+
+  it("MTN reads exactly the keys it always has (customer + dealer)", async () => {
+    await buy()
+    expect(settingKeys()).toEqual(["airtime_enabled_mtn", "airtime_fee_mtn_customer"])
+    h.state.keysRead = []; h.state.userRole = "dealer"
+    await buy({ beneficiaryPhone: "0551234567" })
+    expect(settingKeys()).toEqual(["airtime_enabled_mtn", "airtime_fee_mtn_dealer"])
+    expect(h.state.orderInserts.map((o) => o.network)).toEqual(["MTN", "MTN"])
+  })
+
+  it("Telecel reads exactly the keys it always has and is stored as Telecel", async () => {
+    h.state.settings.network_prefix_validation_enabled = { enabled: false }
+    await buy({ network: "Telecel", beneficiaryPhone: "0201234567" })
+    expect(settingKeys()).toEqual(["airtime_enabled_telecel", "airtime_fee_telecel_customer"])
+    h.state.keysRead = []; h.state.userRole = "sub_agent"
+    await buy({ network: "Telecel", beneficiaryPhone: "0501234567" })
+    expect(settingKeys()).toEqual(["airtime_enabled_telecel", "airtime_fee_telecel_dealer"])
+    expect(h.state.orderInserts.map((o) => o.network)).toEqual(["Telecel", "Telecel"])
+  })
+
+  for (const spelling of ["AT", "AirtelTigo"]) {
+    it(`${spelling} reads the at keys, never airteltigo, and is stored as "AT"`, async () => {
+      h.state.settings.airtime_enabled_at = { enabled: true }
+      h.state.settings.airtime_fee_at_customer = { rate: 10 }
+      await buy({ network: spelling, beneficiaryPhone: "0271234567", paySeparately: true })
+      expect(settingKeys()).toEqual(["airtime_enabled_at", "airtime_fee_at_customer"])
+      expect(h.state.keysRead.some((k) => k.includes("airteltigo"))).toBe(false)
+      // 10% fee from airtime_fee_at_customer: 10 + 1.00
+      expect(h.state.orderInserts[0]).toMatchObject({ network: "AT", airtime_amount: 10, fee_amount: 1, total_paid: 11 })
+      expect(h.state.deductCalls[0].p_amount).toBe(11)
+    })
+
+    it(`${spelling} is blocked by airtime_enabled_at = false`, async () => {
+      h.state.settings.airtime_enabled_at = { enabled: false }
+      await expect(buy({ network: spelling, beneficiaryPhone: "0271234567" })).rejects.toMatchObject({ code: "NETWORK_DISABLED" })
+    })
+  }
+
+  it("AT: the dashboard page's fee key + maths match the server's charge (both fee modes, both tiers)", async () => {
+    h.state.settings.airtime_fee_at_customer = { rate: 7 }
+    h.state.settings.airtime_fee_at_dealer = { rate: 2.5 }
+    for (const role of ["user", "dealer"]) {
+      for (const paySeparately of [true, false]) {
+        h.state.userRole = role
+        h.state.orderInserts = []; h.state.deductCalls = []
+        // What app/dashboard/airtime/page.tsx computes: same key helper (with the "AT" it sends), same maths.
+        const pageKey = airtimeFeeKey("AT", role === "dealer" ? "dealer" : "customer")
+        const page = legacyAirtimePrice(13, h.state.settings[pageKey].rate, paySeparately)
+        // Sending the page's price as expectedPay must not 409.
+        await buy({ network: "AT", beneficiaryPhone: "0271234567", airtimeAmount: 13, paySeparately, expectedPay: page.total })
+        expect(h.state.deductCalls[0].p_amount).toBe(page.total)
+        expect(h.state.orderInserts[0]).toMatchObject({ airtime_amount: page.toRecipient, fee_amount: page.fee, total_paid: page.total })
+      }
+    }
+    expect(airtimeEnabledKey("AT")).toBe("airtime_enabled_at")
   })
 })
 
@@ -418,7 +482,24 @@ describe("purchaseAirtime — instant cashback", () => {
     }
     await buy({ network: "AirtelTigo", beneficiaryPhone: "0271234567" })
     expect(h.state.deductCalls[0].p_amount).toBe(9.91)
-    expect(h.state.orderInserts[0]).toMatchObject({ network: "AirtelTigo", airtime_amount: 10, cashback_provider: "digiwapy" })
+    expect(h.state.orderInserts[0]).toMatchObject({ network: "AT", airtime_amount: 10, cashback_provider: "digiwapy" })
+  })
+
+  it("digiwapy resolved but not configured (no env) ⇒ legacy path, no cashback", async () => {
+    h.state.settings.commission_cashback_config = CASHBACK_CFG
+    h.state.settings.airtime_provider_mtn = { provider: "digiwapy" }
+    vi.mocked(isDigiWapyConfigured).mockReturnValue(false)
+    await buy()
+    expect(h.state.orderInserts[0]).toEqual(LEGACY_ROW)
+    expect(h.state.deductCalls[0].p_amount).toBe(10)
+  })
+
+  it("PRICE_CHANGED quote carries the legacy breakdown (recipient + fee) behind payAmount", async () => {
+    // Client showed 10.40 (a stale 4% fee); the server's 5% gives 10.50.
+    await expect(buy({ expectedPay: 10.4, paySeparately: true })).rejects.toMatchObject({
+      code: "PRICE_CHANGED",
+      quote: { faceAmount: 10, payAmount: 10.5, customerCashback: 0, airtimeAmount: 10, feeAmount: 0.5, feeRate: 5 },
+    })
   })
 
   it("applied path INSUFFICIENT_BALANCE reports required = payAmount", async () => {

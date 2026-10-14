@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { airtimeSettingsSuffix } from "./airtime-fee"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,9 +19,9 @@ export function detectAirtimeNetwork(localPhone: string): AirtimeNetwork | null 
   return AIRTIME_PREFIX[localPhone.slice(0, 3)] ?? null
 }
 
-// 'MTN' → 'mtn', 'Telecel' → 'telecel', 'AT' → 'at' (admin_settings key suffix)
+// 'MTN' → 'mtn', 'Telecel' → 'telecel', 'AT' / 'AirtelTigo' → 'at' (admin_settings key suffix)
 export function airtimeNetworkKey(network: string): string {
-  return network.toLowerCase()
+  return airtimeSettingsSuffix(network)
 }
 
 async function getAdminSetting(key: string): Promise<any> {

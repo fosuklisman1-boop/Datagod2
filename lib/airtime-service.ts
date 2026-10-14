@@ -2,7 +2,8 @@ import { createClient } from "@supabase/supabase-js"
 import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { type AirtimeOrderMinimal, fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
-import { getAirtimeProvider, airtimeNetId, type AirtimeProvider } from "@/lib/airtime-provider"
+import { getAirtimeProvider, airtimeNetId, providerEarnsCommission, type AirtimeProvider } from "@/lib/airtime-provider"
+import { airtimeEnabledKey, airtimeFeeKey, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
 import { HUBTEL_CS_SERVICES } from "@/lib/hubtel-cs/services"
 import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
@@ -219,7 +220,8 @@ async function getAdminSetting(key: string): Promise<any> {
 
 export interface PurchaseAirtimeParams {
   userId: string
-  network: "MTN" | "AirtelTigo" | "Telecel"
+  /** "AT" and "AirtelTigo" are the same network (stored as "AT"). */
+  network: "MTN" | "AirtelTigo" | "AT" | "Telecel"
   beneficiaryPhone: string
   airtimeAmount: number
   paySeparately?: boolean
@@ -247,6 +249,8 @@ async function quoteAirtimeCashback(
     if (!cfg.enabled || !cfg.surfaces[channel]) return null
     const serviceKey = `airtime_${netId}` as const
     const provider = await getAirtimeProvider(supabase, network, isDigiWapyEnabledForNetwork)
+    // Digiwapy without its env goes to manual at fulfilment: no commission, so no cashback.
+    if (!providerEarnsCommission(provider, isDigiWapyConfigured())) return null
     // Hubtel rejects face above its per-request cap after the debit: never give cashback on an order
     // Hubtel cannot send (no commission would be earned). Legacy path, exactly as today.
     const hubtelMax = HUBTEL_CS_SERVICES[serviceKey].maxAmount ?? Infinity
@@ -275,18 +279,18 @@ export interface PurchaseAirtimeResult {
 
 /**
  * Buy airtime for a beneficiary phone, deducting the buyer's wallet.
- * Extracted from app/api/airtime/purchase/route.ts so the dashboard route and
- * the v1 API route share one implementation. Preserves that route's exact
- * network-key convention ("AirtelTigo" → admin_settings key suffix
- * "airteltigo") — do NOT swap in lib/airtime-pricing.ts's helpers here, they
- * use a different network vocabulary ("AT") that reads a different key.
+ * Shared by the dashboard route and the v1 API route. Settings keys use the short network id
+ * from airtimeNetId(): "MTN" -> mtn, "Telecel" -> telecel, "AT" and "AirtelTigo" -> at (the
+ * keys that exist in production, the same ones lib/airtime-pricing.ts and the dashboard page read).
+ * Both AT spellings are stored on the order as "AT".
  */
 export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<PurchaseAirtimeResult> {
-  const { userId, network, beneficiaryPhone, paySeparately = false, shopId, channel, expectedPay } = params
+  const { userId, beneficiaryPhone, paySeparately = false, shopId, channel, expectedPay } = params
+  const network = airtimeNetId(params.network) === "at" ? "AT" : params.network
   const cleanPhone = beneficiaryPhone.replace(/\s/g, "")
-  const networkKey = network.toLowerCase().replace(/\s/g, "_")
+  const networkKey = airtimeSettingsSuffix(network)
 
-  const enableSetting = await getAdminSetting(`airtime_enabled_${networkKey}`)
+  const enableSetting = await getAdminSetting(airtimeEnabledKey(network))
   if (enableSetting?.enabled === false) {
     const err: any = new Error(`Airtime for ${network} is currently unavailable`)
     err.code = "NETWORK_DISABLED"
@@ -321,16 +325,14 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
       }
       const { data: merchantProfile } = await supabase.from("users").select("role").eq("id", merchantUserId).single()
       const isMerchantDealer = merchantProfile?.role === "dealer"
-      const merchantFeeKey = isMerchantDealer ? `airtime_fee_${networkKey}_dealer` : `airtime_fee_${networkKey}_customer`
-      const merchantFeeSetting = await getAdminSetting(merchantFeeKey)
+      const merchantFeeSetting = await getAdminSetting(airtimeFeeKey(network, isMerchantDealer ? "dealer" : "customer"))
       merchantRoleFeeRate = merchantFeeSetting?.rate ?? 5
     }
   } else {
     const { data: userProfile } = await supabase.from("users").select("role").eq("id", userId).single()
     const isUserDealer = userProfile?.role === "dealer" || userProfile?.role === "sub_agent"
     isBuyerDealer = isUserDealer
-    const feeKey = isUserDealer ? `airtime_fee_${networkKey}_dealer` : `airtime_fee_${networkKey}_customer`
-    const feeSetting = await getAdminSetting(feeKey)
+    const feeSetting = await getAdminSetting(airtimeFeeKey(network, isUserDealer ? "dealer" : "customer"))
     merchantRoleFeeRate = feeSetting?.rate ?? 5
   }
 
@@ -366,16 +368,10 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     totalPaid = cashback.payAmount
     feeAmount = 0
   } else {
-    if (paySeparately) {
-      airtimeToRecipient = params.airtimeAmount
-      const totalFeeAmount = parseFloat((params.airtimeAmount * totalFeeRate / 100).toFixed(2))
-      totalPaid = parseFloat((params.airtimeAmount + totalFeeAmount).toFixed(2))
-    } else {
-      totalPaid = params.airtimeAmount
-      const totalFeeAmount = parseFloat((params.airtimeAmount * totalFeeRate / (100 + totalFeeRate)).toFixed(2))
-      airtimeToRecipient = parseFloat((totalPaid - totalFeeAmount).toFixed(2))
-    }
-    feeAmount = parseFloat((totalPaid - airtimeToRecipient).toFixed(2))
+    const legacy = legacyAirtimePrice(params.airtimeAmount, totalFeeRate, paySeparately)
+    airtimeToRecipient = legacy.toRecipient
+    totalPaid = legacy.total
+    feeAmount = legacy.fee
   }
 
   // Price the client showed vs. what we'd charge now — on BOTH paths (e.g. cashback switched off after the
@@ -387,6 +383,10 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
       faceAmount: params.airtimeAmount,
       payAmount: totalPaid,
       customerCashback: cashback ? cashback.customerCashback : 0,
+      // The breakdown behind payAmount, so the client's fee/recipient lines add up after a 409.
+      airtimeAmount: airtimeToRecipient,
+      feeAmount,
+      feeRate: cashback ? 0 : totalFeeRate,
     }
     throw err
   }

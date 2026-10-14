@@ -12,7 +12,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const ALLOWED_NETWORKS = ["MTN", "AirtelTigo", "Telecel"]
+// "AT" is accepted as an alias of "AirtelTigo"; purchaseAirtime stores both as "AT".
+const ALLOWED_NETWORKS = ["MTN", "AirtelTigo", "AT", "Telecel"]
 
 /**
  * GET /api/v1/airtime?reference=<ref>

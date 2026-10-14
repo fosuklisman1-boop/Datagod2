@@ -30,9 +30,10 @@ export async function POST(request: NextRequest) {
     if (!network || !beneficiaryPhone || !airtimeAmount) {
       return NextResponse.json({ error: "network, beneficiaryPhone, and airtimeAmount are required" }, { status: 400 })
     }
-    const ALLOWED_NETWORKS = ["MTN", "AirtelTigo", "Telecel"]
+    // The dashboard page sends "AT"; older clients send "AirtelTigo". Both are stored as "AT".
+    const ALLOWED_NETWORKS = ["MTN", "AT", "AirtelTigo", "Telecel"]
     if (!ALLOWED_NETWORKS.includes(network)) {
-      return NextResponse.json({ error: "Invalid network. Must be MTN, AirtelTigo, or Telecel" }, { status: 400 })
+      return NextResponse.json({ error: "Invalid network. Must be MTN, AT (AirtelTigo), or Telecel" }, { status: 400 })
     }
     const cleanPhone = String(beneficiaryPhone).replace(/\s/g, "")
     if (!/^\d{10}$/.test(cleanPhone)) {

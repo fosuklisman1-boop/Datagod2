@@ -8,9 +8,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Must match the network vocabulary POST /api/v1/airtime (and purchaseAirtime())
-// actually accept — "AirtelTigo", not "AT" — so an integrator who reads this
-// catalog and passes the network straight through doesn't get rejected.
+// Must match the network vocabulary POST /api/v1/airtime documents ("AirtelTigo";
+// "AT" is also accepted) so an integrator who passes the network straight through
+// isn't rejected. The airtime-pricing helpers map "AirtelTigo" to the real `at`
+// admin_settings keys, the same ones purchaseAirtime() reads.
 const AIRTIME_NETWORKS = ["MTN", "Telecel", "AirtelTigo"] as const
 const EXAM_BOARDS: ExamBoard[] = ["WASSCE", "BECE", "NOVDEC"]
 
