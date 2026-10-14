@@ -12,8 +12,19 @@ import { signBillToken, verifyBillToken, type VerifiedBill } from "./token"
 import type { CashbackConfig } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 
+/** Wallet-paid channels this engine records: the dashboard and the public API (user_id = the API key owner). */
+export type BillWalletChannel = "dashboard" | "api"
+
+/** undefined => "dashboard"; anything other than "dashboard" / "api" => null (rejected: never a storefront row here). */
+export function billWalletChannel(c: unknown): BillWalletChannel | null {
+  if (c === undefined) return "dashboard"
+  return c === "dashboard" || c === "api" ? c : null
+}
+
 export interface BillOrderRow {
   id: string; reference_code: string; user_id: string; biller: BillerKey; account_number: string; phone: string | null
+  /** DB default 'dashboard'; set explicitly by payBill. */
+  channel?: BillWalletChannel
   email: string | null; broadband_account: string | null; session_id: string | null; customer_name: string | null
   verified: boolean; amount: number; status: "pending" | "processing" | "completed" | "failed" | "refunded"
   payment_status: "unpaid" | "paid" | "refunded"; hubtel_client_reference: string | null; commission: number | null
@@ -143,26 +154,37 @@ export type PayResult =
 export const PRICE_UPDATED = "Price updated — please review"
 
 /**
- * Instant-cashback quote for a dashboard bill payment. Any config or tier read failure => not applied (standard price),
- * never a blocked payment.
+ * Instant-cashback quote for a wallet (dashboard / api) bill payment, gated on that channel's surface switch. Any config
+ * or tier read failure => not applied (standard price), never a blocked payment.
  */
-async function quoteBill(d: BillsDeps, userId: string, biller: BillerKey, face: number): Promise<CashbackQuote> {
+async function quoteBill(d: BillsDeps, userId: string, biller: BillerKey, face: number, channel: BillWalletChannel): Promise<CashbackQuote> {
   const none: CashbackQuote = {
     applied: false, faceAmount: face, rate: 0, share: 0, commission: 0, customerCashback: 0, shopShare: 0,
     payAmount: face, datagodKeeps: 0, provider: "hubtel",
   }
   try {
     const cfg = await d.getCashbackConfig()
-    if (!cfg.enabled || !cfg.surfaces.dashboard) return none
+    if (!cfg.enabled || !cfg.surfaces[channel]) return none
     const buyer = await d.getBuyerTier(userId)
-    return quoteCashback({ serviceKey: BILLERS[biller].serviceKey, provider: "hubtel", faceAmount: face, buyer, channel: "dashboard" }, cfg)
+    return quoteCashback({ serviceKey: BILLERS[biller].serviceKey, provider: "hubtel", faceAmount: face, buyer, channel }, cfg)
   } catch (e) {
     console.warn("[bills] cashback quote unavailable, using standard pricing:", msg(e))
     return none
   }
 }
 
-export async function payBill(d: BillsDeps, userId: string, token: string, amount: number, expectedPay?: number): Promise<PayResult> {
+/**
+ * `opts.channel`: "dashboard" (default) or "api"; picks the cashback surface for the quote and is stored on the order
+ * row. Both are wallet orders for `userId`.
+ */
+export async function payBill(
+  d: BillsDeps, userId: string, token: string, amount: number, expectedPay?: number,
+  opts: { channel?: BillWalletChannel } = {},
+): Promise<PayResult> {
+  const channel = billWalletChannel(opts?.channel)
+  if (!channel) return fail(400, "Invalid request")
+  // Wallet order: dashboard and api rows always belong to an account (the DB CHECK only enforces dashboard).
+  if (typeof userId !== "string" || !userId) return fail(401, "Unauthorized")
   if (!d.secret) return fail(503, "Temporarily unavailable")
   const v = verifyBillToken(token, d.secret, userId, d.now())
   if (!v) return fail(400, "Please verify the account again")
@@ -176,7 +198,7 @@ export async function payBill(d: BillsDeps, userId: string, token: string, amoun
   if (!hg.ok) return hg
 
   // Face value goes to Hubtel; the wallet is charged face − cashback when cashback applies.
-  const q = await quoteBill(d, userId, v.biller, pay)
+  const q = await quoteBill(d, userId, v.biller, pay, channel)
   if (expectedPay !== undefined && !samePrice(expectedPay, q.payAmount)) {
     return {
       ok: false, status: 409, error: PRICE_UPDATED,
@@ -187,7 +209,7 @@ export async function payBill(d: BillsDeps, userId: string, token: string, amoun
   let order: BillOrderRow
   try {
     order = await d.insertOrder({
-      reference_code: d.newReference(), user_id: userId, biller: v.biller, account_number: v.account, phone: v.phone,
+      reference_code: d.newReference(), user_id: userId, channel, biller: v.biller, account_number: v.account, phone: v.phone,
       email: v.email, broadband_account: v.broadbandAccount, session_id: v.sessionId, customer_name: v.customerName,
       verified: v.verified, amount: pay, status: "pending", payment_status: "unpaid",
       paid_amount: q.applied ? q.payAmount : null,

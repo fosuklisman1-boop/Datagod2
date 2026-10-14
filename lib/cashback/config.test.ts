@@ -75,12 +75,12 @@ describe("validateCashbackPatch", () => {
   it("rejects non-object, unknown field, bad types", () => {
     bad(null); bad([]); bad({ foo: 1 }); bad({ enabled: "yes" }); bad({ surfaces: { nope: true } }); bad({ surfaces: { api: 1 } })
   })
-  it("rejects enabling bots/api; allows storefront; turning them off is fine", () => {
-    for (const s of ["bots", "api"]) {
-      expect(bad({ surfaces: { [s]: true } })).toMatch(new RegExp(`surfaces\\.${s} cannot be enabled yet`))
-      expect(bad({ surfaces: { dashboard: true, [s]: true } })).toMatch(/dashboard and storefront/)
-    }
+  it("rejects enabling bots; allows storefront and api; turning them off is fine", () => {
+    expect(bad({ surfaces: { bots: true } })).toMatch(/surfaces\.bots cannot be enabled yet/)
+    expect(bad({ surfaces: { dashboard: true, bots: true } })).toMatch(/dashboard, storefront and api/)
     expect(validateCashbackPatch({ surfaces: { dashboard: true, storefront: true } }, cur).ok).toBe(true)
+    expect(validateCashbackPatch({ surfaces: { api: true } }, cur)).toEqual({ ok: true, patch: { surfaces: { api: true } } })
+    expect(validateCashbackPatch({ surfaces: { dashboard: true, storefront: true, api: true } }, cur).ok).toBe(true)
     const r = validateCashbackPatch({ surfaces: { dashboard: true, bots: false, storefront: false, api: false } }, cur)
     expect(r.ok).toBe(true)
   })

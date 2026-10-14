@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import {
   buyBundle, isValidIdempotencyKey, sameAmount, NOT_AVAILABLE_FOR_NUMBER, PRICES_REFRESHED,
-  type BundlesDeps, type DataOrderRow,
+  type BundlesDeps, type DataOrderRow, type BuyInput,
 } from "./service"
 import { signBundleToken, type VerifiedBundle } from "./token"
 import type { BundlesConfig } from "./config"
@@ -657,5 +657,62 @@ describe("buyBundle — instant cashback", () => {
     const r = await buy(m, "MTN", { expectedPay: 1 })
     expect(r.ok && r.order).toMatchObject({ id: "o1", paid_amount: 9.8, cashback_amount: 0.2 })
     expect(m.calls.debitAmounts).toEqual([9.8])
+  })
+})
+
+describe("buyBundle — api channel", () => {
+  const CB = (surfaces: Record<string, boolean>) => resolveCashbackConfig({
+    enabled: true, surfaces,
+    rates: { "data_mtn:hubtel": 4 },
+    shares: { bundles: { customer: 50, dealer: 75, storefrontCustomer: 0, storefrontShop: 0 } },
+  })
+  const apiBuy = (m: ReturnType<typeof make>, over: Partial<BuyInput> = {}, userId = "u1") =>
+    buyBundle(m.d, userId, { token: tok("MTN"), phone: PHONES.MTN, idempotencyKey: KEY, channel: "api", ...over })
+
+  it("default channel is dashboard", async () => {
+    const m = make()
+    expect((await buy(m)).ok).toBe(true)
+    expect(m.orders[0]).toMatchObject({ channel: "dashboard", user_id: "u1" })
+  })
+  it("api surface off (dashboard on) => api wallet order at face, row channel 'api'", async () => {
+    const m = make(); m.setCashback(CB({ dashboard: true, api: false }))
+    const r = await apiBuy(m)
+    expect(r.ok).toBe(true)
+    expect(m.orders[0]).toMatchObject({ channel: "api", user_id: "u1", amount: 10, paid_amount: null })
+    expect(m.orders[0]).not.toHaveProperty("cashback_amount")
+    expect(m.calls.debitAmounts).toEqual([10])
+  })
+  it("api surface on => cashback with the buyer's tier (dealer 75%), Hubtel receives face", async () => {
+    const m = make(); m.setCashback(CB({ api: true })); m.setTier("dealer")
+    const r = await apiBuy(m, { expectedPay: 9.7 })
+    expect(r.ok).toBe(true)
+    expect(m.orders[0]).toMatchObject({ channel: "api", amount: 10, paid_amount: 9.7, cashback_amount: 0.3, cashback_share: 75 })
+    expect(m.calls.debitAmounts).toEqual([9.7])
+    expect(m.calls.purchaseInputs[0]).toMatchObject({ amount: 10 })
+  })
+  it("api surface on does not turn on dashboard pricing", async () => {
+    const m = make(); m.setCashback(CB({ api: true }))
+    await buy(m)
+    expect(m.orders[0]).toMatchObject({ channel: "dashboard", paid_amount: null })
+  })
+  it("api expectedPay mismatch => 409 with the quote, nothing written", async () => {
+    const m = make(); m.setCashback(CB({ api: true }))
+    expect(await apiBuy(m, { expectedPay: 10 })).toEqual({
+      ok: false, status: 409, error: "Price updated — please review",
+      quote: { faceAmount: 10, payAmount: 9.8, customerCashback: 0.2 },
+    })
+    expect(m.writes()).toBe(0)
+  })
+  it("same idempotency key on api => one order, one debit", async () => {
+    const m = make(); m.setCashback(CB({ api: true }))
+    await apiBuy(m); const r = await apiBuy(m)
+    expect(r.ok && r.order).toMatchObject({ id: "o1", channel: "api" })
+    expect([m.calls.insert, m.calls.debitAmounts.length, m.calls.purchase]).toEqual([1, 1, 1])
+  })
+  it("rejects a storefront/unknown channel and a missing user before anything is written", async () => {
+    const m = make()
+    expect(await apiBuy(m, { channel: "storefront" as any })).toMatchObject({ ok: false, status: 400 })
+    expect(await apiBuy(m, {}, "")).toMatchObject({ ok: false, status: 401 })
+    expect(m.writes()).toBe(0)
   })
 })

@@ -10,8 +10,11 @@ import type { HubtelCsServiceKey } from "@/lib/hubtel-cs/services"
 import type { CashbackConfig } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 
+/** Wallet-paid channels this engine records: the dashboard and the public API (user_id = the API key owner). */
+export type WalletChannel = "dashboard" | "api"
+
 export interface DataOrderRow {
-  id: string; reference_code: string; user_id: string; channel: "dashboard"; network: BundleNetwork; service_key: string
+  id: string; reference_code: string; user_id: string; channel: WalletChannel; network: BundleNetwork; service_key: string
   beneficiary_phone: string; bundle_value: string; bundle_display: string; bundle_category: string; amount: number
   status: "pending" | "processing" | "completed" | "failed" | "refunded"
   payment_status: "unpaid" | "paid" | "refunded"; idempotency_key: string; hubtel_client_reference: string | null
@@ -43,8 +46,12 @@ export interface BundlesDeps extends CatalogDeps {
   newReference(): string
 }
 
-/** `expectedPay`: the price the client was shown; a mismatch with the live quote => 409 before any write. */
-export type BuyInput = { token: string; phone: string; idempotencyKey: string; expectedPay?: number }
+/**
+ * `expectedPay`: the price the client was shown; a mismatch with the live quote => 409 before any write.
+ * `channel`: "dashboard" (default) or "api"; picks the cashback surface for the quote and is stored on the order row.
+ * Both are wallet orders for `userId`.
+ */
+export type BuyInput = { token: string; phone: string; idempotencyKey: string; expectedPay?: number; channel?: WalletChannel }
 export type PriceQuote = { faceAmount: number; payAmount: number; customerCashback: number }
 export type BuyResult =
   | { ok: true; order: DataOrderRow }
@@ -67,12 +74,22 @@ export const PRICES_REFRESHED = "Prices refreshed — pick the bundle again"
 export const INSUFFICIENT = "Insufficient wallet balance"
 const UNAVAILABLE = "Bundles unavailable right now"
 
+/** undefined => "dashboard"; anything other than "dashboard" / "api" => null (rejected: never a storefront row here). */
+export function walletChannel(c: unknown): WalletChannel | null {
+  if (c === undefined) return "dashboard"
+  return c === "dashboard" || c === "api" ? c : null
+}
+
 const fail = (status: number, error: string): { ok: false; status: number; error: string } => ({ ok: false, status, error })
 const safeAlert = async (d: BundlesDeps, m: string, urgent = false) => { try { await d.alert(m, urgent) } catch { /* alerting must never break the flow */ } }
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput): Promise<BuyResult> {
   if (!isValidIdempotencyKey(input?.idempotencyKey)) return fail(400, "Invalid request, please try again")
+  const channel = walletChannel(input.channel)
+  if (!channel) return fail(400, "Invalid request, please try again")
+  // Wallet order: dashboard and api rows always belong to an account (the DB CHECK only enforces dashboard).
+  if (typeof userId !== "string" || !userId) return fail(401, "Unauthorized")
   // Repeat submit (double-click / network retry) with the same key: never a second order, never a second debit.
   let existing: DataOrderRow | null
   try {
@@ -90,7 +107,7 @@ export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput)
   if (!prep.ok) return prep
   const { phone233, serviceKey, amount } = prep
   // Face value (the Hubtel price) goes to Hubtel; the wallet is charged face − cashback when cashback applies.
-  const q = await quoteBundle(d, userId, serviceKey, amount)
+  const q = await quoteBundle(d, userId, serviceKey, amount, channel)
   if (input.expectedPay !== undefined && !samePrice(input.expectedPay, q.payAmount)) {
     return {
       ok: false, status: 409, error: PRICE_UPDATED,
@@ -100,7 +117,7 @@ export async function buyBundle(d: BundlesDeps, userId: string, input: BuyInput)
   let order: DataOrderRow
   try {
     order = await d.insertOrder({
-      reference_code: d.newReference(), user_id: userId, channel: "dashboard", network: v.network, service_key: serviceKey,
+      reference_code: d.newReference(), user_id: userId, channel, network: v.network, service_key: serviceKey,
       beneficiary_phone: phone233, bundle_value: v.value, bundle_display: v.display, bundle_category: v.category,
       amount, status: "pending", payment_status: "unpaid", idempotency_key: input.idempotencyKey,
       paid_amount: q.applied ? q.payAmount : null,
@@ -176,19 +193,19 @@ export async function prepareBundlePurchase(
 }
 
 /**
- * Instant-cashback quote for a dashboard bundle purchase. Any config or tier read failure => not applied (standard
- * price), never a blocked purchase.
+ * Instant-cashback quote for a wallet (dashboard / api) bundle purchase, gated on that channel's surface switch. Any
+ * config or tier read failure => not applied (standard price), never a blocked purchase.
  */
-async function quoteBundle(d: BundlesDeps, userId: string, serviceKey: string, face: number): Promise<CashbackQuote> {
+async function quoteBundle(d: BundlesDeps, userId: string, serviceKey: string, face: number, channel: WalletChannel): Promise<CashbackQuote> {
   const none: CashbackQuote = {
     applied: false, faceAmount: face, rate: 0, share: 0, commission: 0, customerCashback: 0, shopShare: 0,
     payAmount: face, datagodKeeps: 0, provider: "hubtel",
   }
   try {
     const cfg = await d.getCashbackConfig()
-    if (!cfg.enabled || !cfg.surfaces.dashboard) return none
+    if (!cfg.enabled || !cfg.surfaces[channel]) return none
     const buyer = await d.getBuyerTier(userId)
-    return quoteCashback({ serviceKey, provider: "hubtel", faceAmount: face, buyer, channel: "dashboard" }, cfg)
+    return quoteCashback({ serviceKey, provider: "hubtel", faceAmount: face, buyer, channel }, cfg)
   } catch (e) {
     console.warn("[bundles] cashback quote unavailable, using standard pricing:", msg(e))
     return none

@@ -456,3 +456,52 @@ describe("payBill — instant cashback", () => {
     expect(m.calls.debitAmounts).toEqual([100])
   })
 })
+
+describe("payBill — api channel", () => {
+  const CB = (surfaces: Record<string, boolean>) => resolveCashbackConfig({
+    enabled: true, surfaces,
+    rates: { "bill_dstv:hubtel": 2 },
+    shares: { bills: { customer: 50, dealer: 75, storefrontCustomer: 0, storefrontShop: 0 } },
+  })
+
+  it("default channel is dashboard and is stored on the row", async () => {
+    const m = make(); const t = await token(m)
+    expect((await payBill(m.d, "u1", t, 100)).ok).toBe(true)
+    expect(m.orders[0]).toMatchObject({ channel: "dashboard", user_id: "u1" })
+  })
+  it("api surface off (dashboard on) => api order at face, row channel 'api', wallet debited the face value", async () => {
+    const m = make(); m.setCashback(CB({ dashboard: true, api: false })); const t = await token(m)
+    const r = await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })
+    expect(r.ok).toBe(true)
+    expect(m.orders[0]).toMatchObject({ channel: "api", user_id: "u1", amount: 100, paid_amount: null })
+    expect(m.orders[0]).not.toHaveProperty("cashback_amount")
+    expect(m.calls.debitAmounts).toEqual([100])
+  })
+  it("api surface on => cashback with the buyer's tier (dealer 75%), Hubtel still receives face", async () => {
+    const m = make(); m.setCashback(CB({ api: true })); m.setTier("dealer"); const t = await token(m)
+    const r = await payBill(m.d, "u1", t, 100, 98.5, { channel: "api" })
+    expect(r.ok).toBe(true)
+    expect(m.orders[0]).toMatchObject({ channel: "api", amount: 100, paid_amount: 98.5, cashback_amount: 1.5, cashback_share: 75 })
+    expect(m.calls.debitAmounts).toEqual([98.5])
+    expect(m.calls.purchaseInputs[0]).toMatchObject({ amount: 100 })
+  })
+  it("api surface on does not turn on dashboard pricing (and vice versa)", async () => {
+    const m = make(); m.setCashback(CB({ api: true })); const t = await token(m)
+    await payBill(m.d, "u1", t, 100)
+    expect(m.orders[0]).toMatchObject({ channel: "dashboard", paid_amount: null })
+  })
+  it("api expectedPay mismatch => 409 with the quote, nothing written", async () => {
+    const m = make(); m.setCashback(CB({ api: true })); const t = await token(m)
+    expect(await payBill(m.d, "u1", t, 100, 100, { channel: "api" })).toEqual({
+      ok: false, status: 409, error: "Price updated — please review",
+      quote: { faceAmount: 100, payAmount: 99, customerCashback: 1 },
+    })
+    expect(m.calls.insert + m.calls.debit + m.calls.purchase).toBe(0)
+  })
+  it("rejects a storefront/unknown channel and a missing user before anything is written", async () => {
+    const m = make(); const t = await token(m)
+    expect(await payBill(m.d, "u1", t, 100, undefined, { channel: "storefront" as any })).toMatchObject({ ok: false, status: 400 })
+    expect(await payBill(m.d, "", t, 100, undefined, { channel: "api" })).toMatchObject({ ok: false, status: 401 })
+    expect(m.calls.insert + m.calls.debit + m.calls.purchase).toBe(0)
+  })
+})
