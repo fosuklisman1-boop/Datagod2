@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
-import { AIRTIME_ADMIN_ACTIONABLE_STATUSES, isAirtimeAdminActionable } from "@/lib/airtime-admin-status"
+import { AIRTIME_ADMIN_ACTIONABLE_STATUSES, failedActionRefundsWallet, isAirtimeAdminActionable } from "@/lib/airtime-admin-status"
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,8 +59,9 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // 2. Handle failure (Refunding)
-        if (status === "failed") {
+        // 2. Handle failure (Refunding). Wallet-less storefront orders (user_id NULL) are refunded on
+        // /admin/refunds: no wallet credit and no "refunded" message here.
+        if (status === "failed" && failedActionRefundsWallet(order)) {
           const { data: wallet } = await supabase
             .from("wallets")
             .select("balance, total_spent")

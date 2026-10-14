@@ -82,11 +82,23 @@ describe("POST /api/admin/airtime/action", () => {
     expect(sendSMS).not.toHaveBeenCalled()
   })
 
-  it("a live pending order still fails normally (commission reversed, SMS sent)", async () => {
+  it("a live pending STOREFRONT order fails: commission reversed, but no wallet credit, notification or 'refunded' SMS", async () => {
     orders = [storefrontOrder({ status: "pending" })]
     const res = await action(req({ orderId: "a1", action: "failed" }))
     expect(res.status).toBe(200)
     expect(touched("shop_profits", "update")).toBe(true)
+    expect(touched("wallets")).toBe(false)
+    expect(touched("transactions")).toBe(false)
+    expect(touched("notifications")).toBe(false)
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+
+  it("a live pending order with a buyer account still gets the wallet refund flow and SMS", async () => {
+    orders = [storefrontOrder({ status: "pending", user_id: "u1", shop_id: null })]
+    const res = await action(req({ orderId: "a1", action: "failed" }))
+    expect(res.status).toBe(200)
+    expect(touched("wallets")).toBe(true)
+    expect(touched("notifications", "insert")).toBe(true)
     expect(sendSMS).toHaveBeenCalledTimes(1)
   })
 })
@@ -102,6 +114,15 @@ describe("POST /api/admin/airtime/bulk-update-status", () => {
       expect(touched("shop_profits")).toBe(false)
       expect(touched("airtime_orders", "update")).toBe(false)
     }
+    expect(sendSMS).not.toHaveBeenCalled()
+  })
+
+  it("bulk Failed on a live storefront order: no wallet credit, notification or SMS", async () => {
+    orders = [storefrontOrder({ status: "pending" })]
+    const json = await (await bulk(req({ orderIds: ["a1"], status: "failed" }))).json()
+    expect(json).toMatchObject({ updated: 1 })
+    expect(touched("wallets")).toBe(false)
+    expect(touched("notifications")).toBe(false)
     expect(sendSMS).not.toHaveBeenCalled()
   })
 

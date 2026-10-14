@@ -74,8 +74,9 @@ export function createBillOrdersAdapter(deps: BillOrdersAdapterDeps): OrderAdapt
       }
       await quiet("double-value check", async () => {
         const o = await deps.get(id)
-        if (o && (o.status === "failed" || o.status === "refunded")) {
-          await deps.alertAdmin(`Bill ${tx.client_reference} was delivered by Hubtel after being marked failed/refunded - check for double value (order ${id})`)
+        // 'refunding': a storefront refund on /admin/refunds is mid-flight.
+        if (o && (o.status === "failed" || o.status === "refunding" || o.status === "refunded")) {
+          await deps.alertAdmin(`Bill ${tx.client_reference} was delivered by Hubtel after being marked ${o.status} - check for double value (order ${id})`)
         }
       })
     },

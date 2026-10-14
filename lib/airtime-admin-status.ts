@@ -15,6 +15,14 @@ export const airtimeNotActionableMessage = (status: unknown): string =>
     ? `Order is ${status} through /admin/refunds; it can no longer be marked completed or failed`
     : `Order is already ${String(status)}`
 
+/**
+ * Admin "Failed": only an order with a buyer account is refunded to a wallet (credit, in-app notification and the
+ * "refunded to your wallet" SMS). A wallet-less order (storefront airtime, user_id NULL) has no wallet: it is
+ * refunded on /admin/refunds, so nothing is credited and no refund message is sent.
+ */
+export const failedActionRefundsWallet = (order: { user_id?: string | null }): boolean =>
+  typeof order.user_id === "string" && order.user_id.length > 0
+
 const REFUND_STATES = new Set(["refunding", "refunded"])
 
 /** A provider reports delivery of an order that is already being / has been refunded: double value. */

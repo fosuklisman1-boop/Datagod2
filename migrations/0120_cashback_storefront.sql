@@ -408,6 +408,8 @@ NOTIFY pgrst, 'reload schema';
 -- hubtel_cs_transactions has no channel, so actual_commission is 0 when a channel is chosen and callers use
 -- expected_commission. Airtime: storefront = shop_id IS NOT NULL. The old 2-arg function is dropped so the
 -- RPC name stays unambiguous for PostgREST (the 3rd arg defaults to NULL, so 2-arg calls still work).
+-- One transaction: the report RPC is never missing between the DROP and the CREATE.
+BEGIN;
 DROP FUNCTION IF EXISTS public.cashback_margin_report(timestamptz, timestamptz);
 CREATE OR REPLACE FUNCTION public.cashback_margin_report(p_from timestamptz, p_to timestamptz, p_channel text DEFAULT NULL)
 RETURNS TABLE(service_key text, provider text, orders bigint, face_total numeric, actual_commission numeric,
@@ -471,4 +473,5 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.cashback_margin_report(timestamptz, timestamptz, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.cashback_margin_report(timestamptz, timestamptz, text) TO service_role;
+COMMIT;
 NOTIFY pgrst, 'reload schema';

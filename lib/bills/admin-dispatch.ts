@@ -1,9 +1,18 @@
 import { canDispatch, isStuckClaim, type LedgerFact, type RefundOrderFacts } from "./admin"
 
-export interface DispatchOrder extends RefundOrderFacts { id: string; reference_code: string; biller?: string; created_at?: string }
+export interface DispatchOrder extends RefundOrderFacts {
+  id: string; reference_code: string; biller?: string; created_at?: string
+  /** When the account was verified (storefront orders); the sessionId's age counts from here. */
+  verified_at?: string | null
+}
 
 /** The Hubtel Ghana Water sessionId is per-lookup; a paid order older than this cannot safely be sent late. */
 export const GHANA_WATER_MAX_AGE_MS = 10 * 60_000
+
+/** Start of the Ghana Water 10-minute window: COALESCE(verified_at, created_at). */
+export function ghanaWaterAgeFrom(order: Pick<DispatchOrder, "verified_at" | "created_at">): string | null {
+  return order.verified_at || order.created_at || null
+}
 
 export interface BillDispatchDeps {
   getOrder(id: string): Promise<DispatchOrder | null>
@@ -29,7 +38,8 @@ export async function executeBillDispatch(d: BillDispatchDeps, orderId: string):
   let ledger: LedgerFact[]
   try { ledger = await d.getLedger(orderId) } catch { return { ok: false, status: 503, message: "Could not read the Hubtel ledger; try again" } }
 
-  if (order.biller === "ghana_water" && order.created_at && d.now() - Date.parse(order.created_at) > GHANA_WATER_MAX_AGE_MS && (canDispatch(order) || isStuckClaim(order, ledger, d.now()))) {
+  const gwFrom = ghanaWaterAgeFrom(order)
+  if (order.biller === "ghana_water" && gwFrom && d.now() - Date.parse(gwFrom) > GHANA_WATER_MAX_AGE_MS &&(canDispatch(order) || isStuckClaim(order, ledger, d.now()))) {
     return { ok: false, status: 409, message: "Ghana Water verification expired — refund instead" }
   }
 
