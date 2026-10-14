@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
           ? (o.buyer_name || o.buyer_phone || "Storefront buyer")
           : purchaserLabel(users.get(o.user_id)),
         purchaser_email: o.channel === "storefront" ? (o.buyer_email ?? null) : (users.get(o.user_id)?.email ?? null),
-        source: o.channel === "storefront" ? "storefront" : "dashboard",
+        source: o.channel === "storefront" ? "storefront" : o.channel === "api" ? "api" : "dashboard",
         shop_name: o.shop_id ? (shops.get(o.shop_id) ?? "Unknown shop") : null,
         can_dispatch: canDispatch(o, stuck),
         stuck_claim: stuck,

@@ -262,6 +262,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
               <SelectItem value="all">All channels</SelectItem>
               <SelectItem value="dashboard">Dashboard</SelectItem>
               <SelectItem value="storefront">Storefront</SelectItem>
+              <SelectItem value="api">API</SelectItem>
             </SelectContent>
           </Select>
           <Input type="date" aria-label="From date" value={from} onChange={e => setFrom(e.target.value)} />
@@ -290,7 +291,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
                 <div className="font-medium">{NETWORK_LABEL[r.network]} {r.bundle_display}</div>
                 <div className="text-xs text-muted-foreground">{r.bundle_category} · {r.purchaser}</div>
                 <div className="text-xs text-muted-foreground">
-                  {r.channel === "storefront" ? `Storefront · ${r.shop_name ?? "Unknown shop"}${r.buyer_phone ? ` · ${r.buyer_phone}` : ""}` : "Dashboard"}
+                  {r.channel === "storefront" ? `Storefront · ${r.shop_name ?? "Unknown shop"}${r.buyer_phone ? ` · ${r.buyer_phone}` : ""}` : r.channel === "api" ? "API" : "Dashboard"}
                 </div>
                 <div className="font-mono text-xs text-muted-foreground">{r.reference_code}</div>
               </div>

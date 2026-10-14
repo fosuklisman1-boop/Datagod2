@@ -8,7 +8,7 @@ export const UNSENT_GRACE_MS = 60_000
 /** A dispatch claim older than this with no Hubtel ledger row never reached Hubtel (the ledger row is written before the POST). */
 export const STUCK_CLAIM_MS = 300_000
 
-export interface OrderFilters { q?: string; status?: string; network?: string; from?: string; to?: string; channel?: "dashboard" | "storefront" }
+export interface OrderFilters { q?: string; status?: string; network?: string; from?: string; to?: string; channel?: "dashboard" | "storefront" | "api" }
 
 /** Validates every query-string value; unknown values are dropped rather than passed to the database. */
 export function parseOrderFilters(sp: URLSearchParams): OrderFilters {
@@ -23,7 +23,7 @@ export function parseOrderFilters(sp: URLSearchParams): OrderFilters {
     network: (BUNDLE_NETWORKS as readonly string[]).includes(network) ? network : undefined,
     from: dateOk(sp.get("from")),
     to: dateOk(sp.get("to")),
-    channel: sp.get("channel") === "dashboard" || sp.get("channel") === "storefront" ? (sp.get("channel") as "dashboard" | "storefront") : undefined,
+    channel: sp.get("channel") === "dashboard" || sp.get("channel") === "storefront" || sp.get("channel") === "api" ? (sp.get("channel") as "dashboard" | "storefront" | "api") : undefined,
   }
 }
 

@@ -132,7 +132,7 @@ function OrderRow({ o, busy, onDetails, onSync, onDispatch, onRefund, queue }: {
       <div className="min-w-0 lg:w-44">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">Purchaser</div>
         <div className="truncate text-sm font-semibold" title={o.purchaser_email ?? undefined}>{o.purchaser}</div>
-        <span className={`${PILL} bg-sky-50 text-sky-700 text-[11px]`}>{cap(o.source)}</span>
+        <span className={`${PILL} bg-sky-50 text-sky-700 text-[11px]`}>{o.source === "api" ? "API" : cap(o.source)}</span>
         {o.shop_name && <div className="truncate text-xs text-muted-foreground">Shop: {o.shop_name}</div>}
         {o.source === "storefront" && o.buyer_phone && <div className="font-mono text-xs text-muted-foreground">{o.buyer_phone}</div>}
       </div>
@@ -430,6 +430,7 @@ export default function UtilityBillsPage() {
                       <SelectItem value="all">All channels</SelectItem>
                       <SelectItem value="dashboard">Dashboard</SelectItem>
                       <SelectItem value="storefront">Storefront</SelectItem>
+                      <SelectItem value="api">API</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={paidOnly} onValueChange={setPaidOnly}>

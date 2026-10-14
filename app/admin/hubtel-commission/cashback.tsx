@@ -181,7 +181,7 @@ export function CashbackSettingsCard({ authed, rateInputs }: {
     { key: "dashboard", label: "Dashboard", live: true },
     { key: "bots", label: "Bots", live: false, note: "Coming later" },
     { key: "storefront", label: "Storefront", live: true, note: "Also needs 'Sell on storefronts' per group below" },
-    { key: "api", label: "API", live: false, note: "Coming later" },
+    { key: "api", label: "API", live: true, note: "Airtime, Standard Bundles and Utility Bills over /api/v1" },
   ]
 
   return (
@@ -358,7 +358,7 @@ export function CashbackReportCard({ authed, currentRates, onUseActual }: {
 }) {
   const [from, setFrom] = useState(() => isoDay(new Date(Date.now() - 7 * 86400000)))
   const [to, setTo] = useState(() => isoDay(new Date()))
-  const [channel, setChannel] = useState<"all" | "dashboard" | "storefront">("all")
+  const [channel, setChannel] = useState<"all" | "dashboard" | "storefront" | "api">("all")
   const [rows, setRows] = useState<ReportRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -399,8 +399,9 @@ export function CashbackReportCard({ authed, currentRates, onUseActual }: {
             <select aria-label="Report channel" className="block h-9 rounded-md border bg-background px-2 text-sm text-foreground" value={channel}
               onChange={e => setChannel(e.target.value as typeof channel)}>
               <option value="all">All channels</option>
-              <option value="dashboard">Dashboard</option>
+              <option value="dashboard">Dashboard (airtime: dashboard + API combined)</option>
               <option value="storefront">Storefront</option>
+              <option value="api">API (bills and bundles only)</option>
             </select>
           </label>
           <Button variant="outline" disabled={loading} onClick={() => { void load() }}>{loading ? "Loading..." : "Refresh"}</Button>
