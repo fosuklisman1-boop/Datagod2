@@ -62,6 +62,20 @@ describe("debitOrder", () => {
   })
 })
 
+describe("findApiOrderByTokenHash", () => {
+  it("scopes to user, token hash and channel 'api'", async () => {
+    const { db, calls } = fakeDb({ data: { id: "o1", reference_code: "BILL-1" } })
+    expect(await deps(db).findApiOrderByTokenHash!("u1", "h1")).toMatchObject({ reference_code: "BILL-1" })
+    const eqs = calls.filter(c => c.fn === "eq").map(c => c.args)
+    expect(eqs).toEqual(expect.arrayContaining([["user_id", "u1"], ["verify_token_hash", "h1"], ["channel", "api"]]))
+    expect(calls[0].args).toEqual(["hubtel_bill_orders"])
+  })
+  it("null when none; throws on a read error", async () => {
+    expect(await deps(fakeDb({ data: null }).db).findApiOrderByTokenHash!("u1", "h1")).toBeNull()
+    await expect(deps(fakeDb({ error: { message: "x" } }).db).findApiOrderByTokenHash!("u1", "h1")).rejects.toBeTruthy()
+  })
+})
+
 describe("updateOrder / getOrder / insertOrder", () => {
   it("guards with .in(status) when given, sets updated_at, returns row count", async () => {
     const { db, calls } = fakeDb({ data: [{ id: "o1" }] })

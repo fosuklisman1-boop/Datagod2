@@ -43,6 +43,13 @@ export function buildBillsDeps(rt: RuntimeParts, secret: string, alert: (m: stri
       if (error) throw error
       return (data as BillOrderRow | null) ?? null
     },
+    async findApiOrderByTokenHash(userId, verifyTokenHash) {
+      const { data, error } = await db.from(TABLE).select("*")
+        .eq("user_id", userId).eq("verify_token_hash", verifyTokenHash).eq("channel", "api")
+        .maybeSingle()
+      if (error) throw error
+      return (data as BillOrderRow | null) ?? null
+    },
     async updateOrder(id, patch, onlyFromStatuses) {
       let q = db.from(TABLE).update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id)
       if (onlyFromStatuses) q = q.in("status", onlyFromStatuses)

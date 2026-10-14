@@ -11,7 +11,10 @@ const allOn = (): BillsConfig =>
 
 function make(over: Partial<BillsDeps> = {}) {
   const orders: BillOrderRow[] = []
-  const calls = { query: 0, purchase: 0, debit: 0, insert: 0, alerts: [] as string[], purchaseInputs: [] as any[], debitAmounts: [] as number[] }
+  const calls = { query: 0, purchase: 0, debit: 0, insert: 0, find: 0, alerts: [] as string[], purchaseInputs: [] as any[], debitAmounts: [] as number[] }
+  /** Per-call behaviour of findApiOrderByTokenHash, consumed in order; then "normal". */
+  const findModes: ("normal" | "miss" | "throw")[] = []
+  let clock = 1_000_000
   const cfg = allOn()
   let cashback: CashbackConfig = resolveCashbackConfig({}) // off by default: every legacy test runs unchanged
   let tier: "customer" | "dealer" = "customer"
@@ -43,6 +46,14 @@ function make(over: Partial<BillsDeps> = {}) {
       return 1
     },
     getOrder: async (id) => { const o = orders.find(x => x.id === id); return o ? { ...o } : null },
+    findApiOrderByTokenHash: async (userId, hash) => {
+      calls.find++
+      const mode = findModes.shift() ?? "normal"
+      if (mode === "throw") throw new Error("db down")
+      if (mode === "miss") return null
+      const o = orders.find(x => x.user_id === userId && (x as any).verify_token_hash === hash && x.channel === "api")
+      return o ? { ...o } : null
+    },
     debitOrder: async (id) => {
       calls.debit++
       const o = orders.find(x => x.id === id)!
@@ -54,11 +65,13 @@ function make(over: Partial<BillsDeps> = {}) {
     alert: async (m) => { calls.alerts.push(m) },
     newReference: () => "BILL-ABC",
     secret: "s".repeat(40),
-    now: () => 1_000_000,
+    now: () => clock,
     ...over,
   }
   return {
     d, orders, calls,
+    setFindModes: (...m: ("normal" | "miss" | "throw")[]) => { findModes.push(...m) },
+    advance: (ms: number) => { clock += ms },
     setCfg: (f: (c: BillsConfig) => void) => f(cfg),
     setHub: (f: (h: typeof hub) => void) => f(hub),
     setQuery: (q: any) => { queryResult = q },
@@ -503,5 +516,63 @@ describe("payBill — api channel", () => {
     expect(await payBill(m.d, "u1", t, 100, undefined, { channel: "storefront" as any })).toMatchObject({ ok: false, status: 400 })
     expect(await payBill(m.d, "", t, 100, undefined, { channel: "api" })).toMatchObject({ ok: false, status: 401 })
     expect(m.calls.insert + m.calls.debit + m.calls.purchase).toBe(0)
+  })
+})
+
+describe("payBill — api retry with a used verify_token", () => {
+  it("timeout-retry: the retry returns the SAME order, one insert, one debit, one Hubtel send", async () => {
+    const m = make(); const t = await token(m)
+    const first = await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })
+    expect(first.ok).toBe(true)
+    // The integrator never saw `first` (timed out) and retries the exact request.
+    const retry = await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })
+    expect(retry.ok).toBe(true)
+    if (!first.ok || !retry.ok) throw new Error("unreachable")
+    expect(retry.order.reference_code).toBe(first.order.reference_code)
+    expect(retry.order.id).toBe(first.order.id)
+    expect(m.calls.insert).toBe(1)
+    expect(m.calls.debit).toBe(1)
+    expect(m.calls.purchase).toBe(1)
+    expect(m.calls.debitAmounts).toEqual([100])
+  })
+  it("a retry after the token expired still recovers the order", async () => {
+    const m = make(); const t = await token(m)
+    const first = await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })
+    m.advance(60 * 60_000)
+    const retry = await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })
+    expect(retry).toMatchObject({ ok: true, order: { reference_code: (first as any).order.reference_code } })
+    expect(m.calls.debit).toBe(1)
+  })
+  it("concurrent retry (lookup misses, insert hits 23505) => the winner's order, no second debit", async () => {
+    const m = make(); const t = await token(m)
+    await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })
+    m.setFindModes("miss") // pre-insert lookup misses (the first request had not committed yet)
+    const retry = await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })
+    expect(retry).toMatchObject({ ok: true, order: { id: "o1" } })
+    expect(m.calls.insert).toBe(2) // the second insert was rejected by the unique index
+    expect(m.calls.debit).toBe(1)
+    expect(m.orders).toHaveLength(1)
+  })
+  it("lookup fails after 23505 => 500 with retry wording, never 'verify again', nothing debited", async () => {
+    const m = make(); const t = await token(m)
+    await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })
+    m.setFindModes("throw", "throw")
+    const r = await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })
+    expect(r).toMatchObject({ ok: false, status: 500 })
+    expect((r as any).error).not.toMatch(/verify again/)
+    expect(m.calls.debit).toBe(1)
+  })
+  it("a token used on the dashboard is not replayed for the api (channel-scoped) => 409", async () => {
+    const m = make(); const t = await token(m)
+    await payBill(m.d, "u1", t, 100)
+    expect(await payBill(m.d, "u1", t, 100, undefined, { channel: "api" })).toMatchObject({ ok: false, status: 409 })
+    expect(m.calls.debit).toBe(1)
+  })
+  it("dashboard behaviour unchanged: reuse => 409 'verify again', no lookup", async () => {
+    const m = make(); const t = await token(m)
+    await payBill(m.d, "u1", t, 100)
+    const r = await payBill(m.d, "u1", t, 100)
+    expect(r).toMatchObject({ ok: false, status: 409, error: "This verification was already used — please verify again" })
+    expect(m.calls.find).toBe(0)
   })
 })

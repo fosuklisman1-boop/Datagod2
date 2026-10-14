@@ -45,6 +45,11 @@ export interface BillsDeps {
   purchase(input: PurchaseInput): Promise<HubtelCsTx>
   insertOrder(row: Omit<BillOrderRow, "id" | "created_at" | "updated_at" | "hubtel_client_reference" | "commission" | "failure_reason" | "notes"> & { verify_token_hash: string }): Promise<BillOrderRow>
   getOrder(id: string): Promise<BillOrderRow | null>
+  /**
+   * API retries: this user's channel 'api' order created from the verify token with this hash, or null. Throws on a
+   * read error. Optional: without it an API retry of a used token gets the dashboard's 409.
+   */
+  findApiOrderByTokenHash?(userId: string, verifyTokenHash: string): Promise<BillOrderRow | null>
   updateOrder(id: string, patch: Partial<BillOrderRow>, onlyFromStatuses?: BillOrderRow["status"][]): Promise<number>
   /** Atomic: lock order, deduct wallet, mark paid, write history. Throws on RPC error (outcome unknown). */
   debitOrder(orderId: string): Promise<"ok" | "insufficient" | "not_found">
@@ -186,6 +191,17 @@ export async function payBill(
   // Wallet order: dashboard and api rows always belong to an account (the DB CHECK only enforces dashboard).
   if (typeof userId !== "string" || !userId) return fail(401, "Unauthorized")
   if (!d.secret) return fail(503, "Temporarily unavailable")
+  // API retry (e.g. the first request timed out after the debit): a verify token that already created an order hands
+  // that order back, with no second order and no second debit. This runs before the expiry check and the gates, so a
+  // retry can always recover its reference. A lookup error here is not fatal: the insert below still dedupes.
+  if (channel === "api" && d.findApiOrderByTokenHash && typeof token === "string" && token) {
+    try {
+      const prior = await d.findApiOrderByTokenHash(userId, billTokenHash(token))
+      if (prior) return { ok: true, order: prior }
+    } catch (e) {
+      console.warn("[bills] api replay lookup failed, continuing:", msg(e))
+    }
+  }
   const v = verifyBillToken(token, d.secret, userId, d.now())
   if (!v) return fail(400, "Please verify the account again")
   // Every pre-debit check happens before the first write.
@@ -222,8 +238,19 @@ export async function payBill(
       verify_token_hash: billTokenHash(token),
     })
   } catch (e: any) {
-    if (e?.code === "23505") return fail(409, "This verification was already used — please verify again")
-    return fail(500, "Could not create the order")
+    if (e?.code !== "23505") return fail(500, "Could not create the order")
+    // Unique violation. API: a concurrent request with the same token won the insert, so hand back its order (mirrors
+    // storefront bills initialize). Dashboard: unchanged.
+    if (channel === "api" && d.findApiOrderByTokenHash) {
+      try {
+        const prior = await d.findApiOrderByTokenHash(userId, billTokenHash(token))
+        if (prior) return { ok: true, order: prior }
+      } catch (le) {
+        console.error("[bills] api lookup after 23505 failed:", msg(le))
+        return fail(500, "We could not confirm this payment. Retry the same request to get the order.")
+      }
+    }
+    return fail(409, "This verification was already used — please verify again")
   }
 
   let debit: "ok" | "insufficient" | "not_found" | null = null
