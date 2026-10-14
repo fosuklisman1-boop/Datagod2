@@ -44,12 +44,13 @@ ALTER TABLE public.hubtel_data_orders DROP CONSTRAINT IF EXISTS hubtel_data_orde
 ALTER TABLE public.hubtel_data_orders ADD CONSTRAINT hubtel_data_orders_status_check
   CHECK (status IN ('pending','processing','completed','failed','refunding','refunded'));
 
--- NOTE: hubtel_bill_orders.customer_name already exists (0117: the biller-verified account name), so the
--- ADD COLUMN below is a no-op there; the storefront buyer's name shares that column on bill rows.
+-- Storefront buyer details use buyer_* columns: hubtel_bill_orders.customer_name (0117) is the
+-- biller-verified account name and must not be reused for the buyer.
 ALTER TABLE public.hubtel_bill_orders
   ADD COLUMN IF NOT EXISTS shop_id            uuid,
-  ADD COLUMN IF NOT EXISTS customer_email     text,
-  ADD COLUMN IF NOT EXISTS customer_name      text,
+  ADD COLUMN IF NOT EXISTS buyer_name         text,
+  ADD COLUMN IF NOT EXISTS buyer_email        text,
+  ADD COLUMN IF NOT EXISTS buyer_phone        text,
   ADD COLUMN IF NOT EXISTS payment_fee_amount numeric(12,2),
   ADD COLUMN IF NOT EXISTS payment_reference  text,
   ADD COLUMN IF NOT EXISTS refund_method      text,
@@ -57,8 +58,9 @@ ALTER TABLE public.hubtel_bill_orders
 
 ALTER TABLE public.hubtel_data_orders
   ADD COLUMN IF NOT EXISTS shop_id            uuid,
-  ADD COLUMN IF NOT EXISTS customer_email     text,
-  ADD COLUMN IF NOT EXISTS customer_name      text,
+  ADD COLUMN IF NOT EXISTS buyer_name         text,
+  ADD COLUMN IF NOT EXISTS buyer_email        text,
+  ADD COLUMN IF NOT EXISTS buyer_phone        text,
   ADD COLUMN IF NOT EXISTS payment_fee_amount numeric(12,2),
   ADD COLUMN IF NOT EXISTS payment_reference  text,
   ADD COLUMN IF NOT EXISTS refund_method      text,
