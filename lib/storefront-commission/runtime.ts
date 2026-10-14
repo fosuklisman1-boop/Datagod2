@@ -7,8 +7,12 @@ import { verifyShopSession } from "@/lib/shop-token"
 import { getBillsRuntime, getBillsAvailability } from "@/lib/bills/runtime"
 import { getBundlesRuntime, getBundlesAvailability } from "@/lib/standard-bundles/runtime"
 import type { AvailabilityDeps, CapDeps } from "./shop"
-import type { StorefrontBillsDeps } from "./bills"
+import type { StorefrontBillsDeps, StorefrontOrderRow } from "./bills"
 import type { StorefrontBundleRow, StorefrontBundlesDeps } from "./bundles"
+
+/** Columns an initialize response is built from (StorefrontOrderRow). */
+const ORDER_ROW = "id, reference_code, amount, paid_amount, payment_fee_amount, cashback_amount"
+const BUNDLE_ROW = ORDER_ROW
 
 /** Atomic limiter + DB backup counts for the pending-unpaid caps. DB errors count as 0 (fail open, like airtime). */
 export function capDeps(request: NextRequest, db: SupabaseClient): CapDeps {
@@ -40,16 +44,26 @@ export function getStorefrontBillsRuntime(request: NextRequest): { deps: Storefr
     deps: {
       ...deps,
       async insertStorefrontOrder(row) {
-        const { data, error } = await db.from("hubtel_bill_orders").insert(row).select("id, reference_code").single()
-        if (error) throw error // 23505 (verify_token_hash reuse) is mapped to 409 by the service
-        return data as { id: string; reference_code: string }
+        const { data, error } = await db.from("hubtel_bill_orders").insert(row).select(ORDER_ROW).single()
+        if (error) throw error // 23505 => the service returns the token's existing order or retries the reference
+        return data as StorefrontOrderRow
+      },
+      async findStorefrontOrderByHash(shopId, verifyTokenHash) {
+        const { data, error } = await db
+          .from("hubtel_bill_orders")
+          .select(ORDER_ROW)
+          .eq("channel", "storefront")
+          .eq("shop_id", shopId)
+          .eq("verify_token_hash", verifyTokenHash)
+          .maybeSingle()
+        if (error) throw error
+        return (data as StorefrontOrderRow | null) ?? null
       },
       caps: capDeps(request, db),
     },
   }
 }
 
-const BUNDLE_ROW = "id, reference_code, amount, paid_amount, payment_fee_amount, cashback_amount"
 
 export function getStorefrontBundlesRuntime(request: NextRequest): { deps: StorefrontBundlesDeps; db: SupabaseClient } {
   const { deps, db } = getBundlesRuntime()
@@ -101,7 +115,7 @@ export async function storefrontGuards(
   db: SupabaseClient,
   shopId: string,
   body: Record<string, unknown>,
-  opts: { tag: string; otpPhone?: unknown },
+  opts: { tag: string; otpPhone?: unknown; requireTurnstile?: boolean },
 ): Promise<{ status: number; error: string; code?: string } | null> {
   const honeypot = body.website
   if (typeof honeypot === "string" && honeypot.trim() !== "") {
@@ -109,7 +123,13 @@ export async function storefrontGuards(
     return { status: 400, error: "Invalid request" }
   }
 
-  if (!(await isTurnstileEnabled())) {
+  const turnstileOn = await isTurnstileEnabled()
+  if (opts.requireTurnstile && (!turnstileOn || !process.env.TURNSTILE_SECRET_KEY)) {
+    // Endpoints that reveal account data never run without the human check.
+    console.warn(`[${opts.tag}] Turnstile disabled or not configured — failing closed for shop ${shopId}`)
+    return { status: 503, error: "Verification unavailable" }
+  }
+  if (!turnstileOn) {
     console.warn(`[${opts.tag}] Turnstile DISABLED by admin toggle — skipping verification for shop ${shopId}`)
   } else {
     const t = await verifyTurnstileToken(typeof body.turnstileToken === "string" ? body.turnstileToken : undefined, getRequestIp(request.headers))

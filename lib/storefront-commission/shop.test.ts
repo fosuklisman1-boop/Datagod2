@@ -167,6 +167,8 @@ describe("db helpers", () => {
           const hit = (rows[table] ?? []).find(r => Object.entries(f).every(([k, v]) => r[k] === v))
           return { data: hit ?? null, error: null }
         },
+        then: (res: any, rej: any) =>
+          Promise.resolve({ data: (rows[table] ?? []).filter(r => Object.entries(f).every(([k, v]) => r[k] === v)), error: null }).then(res, rej),
       }
       return c
     },
@@ -180,6 +182,11 @@ describe("db helpers", () => {
     expect(await resolveShop(db, "")).toBeNull()
     expect(await resolveShop(db, 42)).toBeNull()
     expect(await resolveShop(fakeDb({ user_shops: [{ id: "s2", is_active: false }] }), "x")).toBeNull()
+  })
+
+  it("resolveShop: a handle matching two active shops is ambiguous => null", async () => {
+    const db = fakeDb({ user_shops: [{ id: "s1", is_active: true }, { id: "s3", is_active: true }] })
+    expect(await resolveShop(db, "clash")).toBeNull()
   })
 
   it("getStorefrontOrderStatus: this shop's storefront rows only, status fields only", async () => {

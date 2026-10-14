@@ -19,7 +19,10 @@ export const NOT_AVAILABLE = "Not available"
 export const UNAVAILABLE = "Temporarily unavailable"
 export const PRICE_UPDATED = "Price updated — please review"
 
-/** Active shop by its public handle (subdomain or legacy slug), or null. Never throws. */
+/**
+ * Active shop by its public handle (subdomain or legacy slug), or null. A handle matching more than one shop
+ * (one shop's subdomain = another's slug) is ambiguous => null, never a silent pick. Never throws.
+ */
 export async function resolveShop(db: SupabaseClient, handle: unknown): Promise<{ id: string } | null> {
   if (typeof handle !== "string" || !handle.trim()) return null
   try {
@@ -28,10 +31,9 @@ export async function resolveShop(db: SupabaseClient, handle: unknown): Promise<
       .select("id")
       .or(shopHandleOrFilter(handle.trim()))
       .eq("is_active", true)
-      .limit(1)
-      .maybeSingle()
-    if (error || !data) return null
-    return { id: (data as { id: string }).id }
+      .limit(2)
+    if (error || !Array.isArray(data) || data.length !== 1) return null
+    return { id: (data[0] as { id: string }).id }
   } catch {
     return null
   }

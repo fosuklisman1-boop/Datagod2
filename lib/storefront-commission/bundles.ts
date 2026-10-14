@@ -10,7 +10,7 @@ import {
   checkPendingCaps, fail, normaliseBuyer, parseExpectedPay, priceMatches,
   storefrontGroupOn, NOT_AVAILABLE, PRICE_UPDATED, UNAVAILABLE, type CapDeps, type Fail,
 } from "./shop"
-import type { InitResult, InitializeResult } from "./bills"
+import { toInitializeResult, type InitResult, type StorefrontOrderRow } from "./bills"
 
 /** Row written for a storefront bundle order (service role; user_id NULL, buyer in buyer_*). */
 export interface StorefrontBundleInsert {
@@ -27,10 +27,7 @@ export interface StorefrontBundleInsert {
 }
 
 /** The columns an initialize response is built from. */
-export interface StorefrontBundleRow {
-  id: string; reference_code: string; amount: number; paid_amount: number | null
-  payment_fee_amount: number | null; cashback_amount: number | null
-}
+export type StorefrontBundleRow = StorefrontOrderRow
 
 export interface StorefrontBundlesDeps extends BundlesDeps {
   findStorefrontOrder(shopId: string, idempotencyKey: string): Promise<StorefrontBundleRow | null>
@@ -74,11 +71,7 @@ export async function storefrontCatalog(d: BundlesDeps, network: BundleNetwork):
   }
 }
 
-const fromRow = (r: StorefrontBundleRow): InitializeResult => ({
-  orderId: r.id, reference: r.reference_code,
-  payAmount: Number(r.paid_amount ?? r.amount), faceAmount: Number(r.amount),
-  customerCashback: Number(r.cashback_amount ?? 0), paymentFee: Number(r.payment_fee_amount ?? 0),
-})
+const fromRow = toInitializeResult
 
 export interface BundleInitInput {
   token: unknown; phone: unknown; idempotencyKey: unknown; expectedPay: unknown

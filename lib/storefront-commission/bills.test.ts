@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest"
 import { resolveCashbackConfig } from "@/lib/cashback/config"
 import { resolveBillsConfig } from "@/lib/bills/config"
 import { billTokenHash } from "@/lib/bills/service"
-import { initializeStorefrontBill, shopBinding, verifyStorefrontBill, type StorefrontBillInsert, type StorefrontBillsDeps } from "./bills"
+import {
+  initializeStorefrontBill, shopBinding, verifyStorefrontBill,
+  type StorefrontBillInsert, type StorefrontBillsDeps, type StorefrontOrderRow,
+} from "./bills"
 
 const NOW = 1_700_000_000_000
 
@@ -20,7 +23,8 @@ function harness(over: Partial<StorefrontBillsDeps> & { cashback?: ReturnType<ty
   const inserts: StorefrontBillInsert[] = []
   const queries: any[] = []
   const limits: string[] = []
-  const hashes = new Set<string>()
+  const saved: (StorefrontOrderRow & { shop_id: string; verify_token_hash: string })[] = []
+  let refs = 0
   const d: StorefrontBillsDeps = {
     getCashbackConfig: async () => over.cashback ?? CASHBACK(),
     getBuyerTier: async () => "customer",
@@ -36,14 +40,24 @@ function harness(over: Partial<StorefrontBillsDeps> & { cashback?: ReturnType<ty
     updateOrder: async () => 0,
     debitOrder: async () => { throw new Error("never debits") },
     alert: async () => {},
-    newReference: () => "BILL-ABC123",
+    newReference: () => (refs++ === 0 ? "BILL-ABC123" : `BILL-ALT${refs}`),
     secret: "s3cret",
     now: () => NOW,
     async insertStorefrontOrder(row) {
-      if (hashes.has(row.verify_token_hash)) throw Object.assign(new Error("dup"), { code: "23505" })
-      hashes.add(row.verify_token_hash)
+      if (saved.some(s => s.verify_token_hash === row.verify_token_hash || s.reference_code === row.reference_code)) {
+        throw Object.assign(new Error("dup"), { code: "23505" })
+      }
       inserts.push(row)
-      return { id: `order-${inserts.length}`, reference_code: row.reference_code }
+      const s = {
+        id: `order-${inserts.length}`, reference_code: row.reference_code, amount: row.amount, paid_amount: row.paid_amount,
+        payment_fee_amount: row.payment_fee_amount, cashback_amount: row.cashback_amount,
+        shop_id: row.shop_id, verify_token_hash: row.verify_token_hash,
+      }
+      saved.push(s)
+      return s
+    },
+    async findStorefrontOrderByHash(shopId, hash) {
+      return saved.find(s => s.shop_id === shopId && s.verify_token_hash === hash) ?? null
     },
     caps: {
       limit: async name => (limits.push(name), true),
@@ -52,7 +66,7 @@ function harness(over: Partial<StorefrontBillsDeps> & { cashback?: ReturnType<ty
     },
     ...over,
   }
-  return { d, inserts, queries, limits }
+  return { d, inserts, queries, limits, saved }
 }
 
 async function tokenFor(d: StorefrontBillsDeps, shopId = "shop-A") {
@@ -67,10 +81,36 @@ describe("verifyStorefrontBill", () => {
   it("verifies through the engine with a shop-bound token", async () => {
     const { d, queries } = harness()
     const r = await verifyStorefrontBill(d, "shop-A", "dstv", { account: "1234567890" })
-    expect(r).toMatchObject({ ok: true, customerName: "JOHN DOE", amountDue: 80, suggestedAmount: 80 })
+    expect(r).toMatchObject({ ok: true, customerName: "JOH*** D***", amountDue: 80, suggestedAmount: 80 })
     expect(queries).toEqual([{ serviceKey: "bill_dstv", destination: "1234567890" }])
     const body = JSON.parse(Buffer.from((r as any).token.split(".")[0], "base64url").toString())
     expect(body.userId).toBe(shopBinding("shop-A"))
+    // the readable token body carries only the masked name
+    expect(body.customerName).toBe("JOH*** D***")
+    expect(JSON.stringify(r)).not.toContain("JOHN")
+  })
+
+  it("ECG meter names are masked, outstanding amounts stay, meter tokens masked", async () => {
+    const { d } = harness({
+      bills: { enabled: true, billers: { ecg: { enabled: true, min: 5, max: 1000 } } },
+      hubtel: { enabled: true, paused: false, services: { bill_ecg: true } },
+      query: async () => ({ ok: true, data: [{ Display: "KLINSMAN FOSU BOATENG (Prepaid)", Value: "P123456", Amount: 12.5 }] as any }),
+    })
+    const r: any = await verifyStorefrontBill(d, "shop-A", "ecg", { phone: "0241234567" })
+    expect(r.ok).toBe(true)
+    expect(r.meters).toEqual([{ meter: "P123456", name: "KLI*** FOS*** BOA***", outstanding: 12.5, token: expect.any(String) }])
+    const body = JSON.parse(Buffer.from(r.meters[0].token.split(".")[0], "base64url").toString())
+    expect(body.customerName).toBe("KLI*** FOS*** BOA***")
+    expect(JSON.stringify(r)).not.toContain("KLINSMAN")
+  })
+
+  it("lookup failures carry fixed text, never provider detail", async () => {
+    const rejected = harness({ query: async () => ({ ok: false, error: "Hubtel code 4075: Invalid smartcard" }) })
+    expect(await verifyStorefrontBill(rejected.d, "shop-A", "dstv", { account: "1234567890" }))
+      .toEqual({ ok: false, status: 422, error: "Couldn't verify this account" })
+    const threw = harness({ query: async () => { throw new Error("fetch failed ETIMEDOUT hubtel") } })
+    expect(await verifyStorefrontBill(threw.d, "shop-A", "dstv", { account: "1234567890" }))
+      .toEqual({ ok: false, status: 422, error: "Couldn't verify this account right now" })
   })
 
   it.each([
@@ -109,7 +149,7 @@ describe("initializeStorefrontBill", () => {
     expect(inserts[0]).toEqual({
       reference_code: "BILL-ABC123", user_id: null, channel: "storefront", shop_id: "shop-A",
       biller: "dstv", account_number: "1234567890", phone: null, email: null, broadband_account: null,
-      session_id: null, customer_name: "JOHN DOE", verified: true,
+      session_id: null, customer_name: "JOH*** D***", verified: true,
       amount: 100, paid_amount: 101.82, payment_fee_amount: 1.95,
       status: "pending", payment_status: "unpaid",
       buyer_name: "Ama", buyer_email: "ama@example.com", buyer_phone: "0241234567",
@@ -156,13 +196,34 @@ describe("initializeStorefrontBill", () => {
     expect(await initializeStorefrontBill(d, "shop-A", { token, amount: 100, expectedPay: undefined, ...BUYER })).toMatchObject({ status: 400 })
   })
 
-  it("the token is single-use (second initialize => verify again)", async () => {
+  it("the token makes one order: a double submit returns that same order", async () => {
     const { d, inserts } = harness()
     const token = await tokenFor(d)
-    expect((await initializeStorefrontBill(d, "shop-A", { token, amount: 100, expectedPay: 101.82, ...BUYER })).ok).toBe(true)
+    const first = await initializeStorefrontBill(d, "shop-A", { token, amount: 100, expectedPay: 101.82, ...BUYER })
+    expect(first.ok).toBe(true)
     const again = await initializeStorefrontBill(d, "shop-A", { token, amount: 100, expectedPay: 101.82, ...BUYER })
-    expect(again).toMatchObject({ ok: false, status: 409, error: expect.stringContaining("verify again") })
+    expect(again).toEqual(first)
     expect(inserts).toHaveLength(1)
+  })
+
+  it("a reference collision retries once with a fresh reference", async () => {
+    const { d, saved, inserts } = harness()
+    saved.push({ id: "old", reference_code: "BILL-ABC123", amount: 5, paid_amount: 5, payment_fee_amount: 0, cashback_amount: 0, shop_id: "other", verify_token_hash: "x" })
+    const token = await tokenFor(d)
+    const r = await initializeStorefrontBill(d, "shop-A", { token, amount: 100, expectedPay: 101.82, ...BUYER })
+    expect(r).toMatchObject({ ok: true, value: { orderId: "order-1", reference: "BILL-ALT2" } })
+    expect(inserts).toHaveLength(1)
+  })
+
+  it("a second collision or any other insert error => generic 500", async () => {
+    const dup = harness({ insertStorefrontOrder: async () => { throw Object.assign(new Error("dup"), { code: "23505" }) } })
+    const t1 = await tokenFor(dup.d)
+    expect(await initializeStorefrontBill(dup.d, "shop-A", { token: t1, amount: 100, expectedPay: 101.82, ...BUYER }))
+      .toEqual({ ok: false, status: 500, error: "Could not create the order" })
+    const boom = harness({ insertStorefrontOrder: async () => { throw Object.assign(new Error("relation secret"), { code: "42P01" }) } })
+    const t2 = await tokenFor(boom.d)
+    expect(await initializeStorefrontBill(boom.d, "shop-A", { token: t2, amount: 100, expectedPay: 101.82, ...BUYER }))
+      .toEqual({ ok: false, status: 500, error: "Could not create the order" })
   })
 
   it("biller limits apply to the face", async () => {
