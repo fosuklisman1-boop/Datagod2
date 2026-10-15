@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Loader2, RefreshCw } from "lucide-react"
+import { Check, ChevronsUpDown, Loader2, RefreshCw } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 
 /** GET with the signed-in user's bearer token (admin and shop-owner endpoints both use it). */
@@ -56,6 +57,12 @@ function outcomeVariant(o: string): "default" | "secondary" | "destructive" | "o
   return "outline"
 }
 
+function selectedLabel(shops: ShopOption[], shopId: string): string {
+  if (shopId === ALL) return "All sessions"
+  const s = shops.find(x => x.id === shopId)
+  return s ? `${s.name} (${s.code})` : "Selected shop"
+}
+
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
 const fmtDateTime = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
 const localPhone = (m: string | null) => (m ? m.replace(/^\+?233/, "0") : "-")
@@ -67,6 +74,7 @@ export function HubtelSessionsViewer({ fetcher, basePath, admin = false, title, 
   const [error, setError] = useState<string | null>(null)
   const [shops, setShops] = useState<ShopOption[]>([])
   const [shopId, setShopId] = useState<string>(ALL)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [open, setOpen] = useState<SessionRow | null>(null)
   const [transcript, setTranscript] = useState<TranscriptRow[] | null>(null)
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
@@ -119,13 +127,36 @@ export function HubtelSessionsViewer({ fetcher, basePath, admin = false, title, 
         </div>
         <div className="flex items-center gap-2">
           {admin && (
-            <Select value={shopId} onValueChange={setShopId}>
-              <SelectTrigger className="w-52" aria-label="Filter by shop"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All sessions</SelectItem>
-                {shops.map(s => <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" role="combobox" aria-expanded={pickerOpen} aria-label="Filter by shop" className="w-56 justify-between font-normal">
+                  <span className="truncate">{selectedLabel(shops, shopId)}</span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-0" align="end">
+                <Command>
+                  <CommandInput placeholder="Search shop name or code..." />
+                  {/* Scrolls on its own (wheel + touch): onWheel stops the page from swallowing the scroll. */}
+                  <CommandList className="max-h-72 overflow-y-auto" onWheel={e => e.stopPropagation()}>
+                    <CommandEmpty>No shop found.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem value="all sessions" onSelect={() => { setShopId(ALL); setPickerOpen(false) }}>
+                        <Check className={`mr-2 h-4 w-4 ${shopId === ALL ? "opacity-100" : "opacity-0"}`} />
+                        All sessions
+                      </CommandItem>
+                      {shops.map(s => (
+                        <CommandItem key={s.id} value={`${s.name} ${s.code} ${s.id}`} onSelect={() => { setShopId(s.id); setPickerOpen(false) }}>
+                          <Check className={`mr-2 h-4 w-4 ${shopId === s.id ? "opacity-100" : "opacity-0"}`} />
+                          <span className="truncate">{s.name}</span>
+                          <span className="ml-auto pl-2 text-xs text-muted-foreground font-mono">{s.code}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           )}
           <Button variant="outline" size="sm" onClick={() => load(null)} aria-label="Refresh" disabled={loading}>
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
