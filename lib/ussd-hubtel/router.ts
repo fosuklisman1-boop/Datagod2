@@ -2,8 +2,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { keyForDigit } from "@/lib/ussd/menu-items"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { getHubtelUssdConfig, type HubtelUssdConfig } from "./config"
-import { defaultAfaServices, defaultAirtimeServices, defaultNetworkPlansServices, defaultPayBillsServices, defaultRcServices, resolveDialer } from "./services"
+import { BOT_MENUS_HIDDEN, getHubtelUssdConfig, type BotMenuGate, type HubtelUssdConfig } from "./config"
+import {
+  defaultAfaServices, defaultAirtimeServices, defaultNetworkPlansServices, defaultPayBillsServices, defaultRcServices,
+  loadBotMenuGate, resolveDialer,
+} from "./services"
 import { dbSessionStore } from "./session"
 import { defaultShopServices } from "./shop-services"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
@@ -16,8 +19,8 @@ import {
 import { AFA_STEPS, startAfa } from "./flows/afa"
 import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
 import { DATA_STEPS, startData } from "./flows/data"
-import { NETWORK_PLANS_STEPS } from "./flows/network-plans"
-import { PAY_BILLS_STEPS } from "./flows/pay-bills"
+import { NETWORK_PLANS_STEPS, startNetworkPlans } from "./flows/network-plans"
+import { PAY_BILLS_STEPS, startPayBills } from "./flows/pay-bills"
 import { RC_BUY_STEPS, startRc } from "./flows/rc-buy"
 import { RC_CHECK_STEPS } from "./flows/rc-check"
 import { SHOP_AIRTIME_STEPS, startShopAirtime } from "./flows/shop-airtime"
@@ -45,6 +48,7 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     shop: defaultShopServices(supabase),
     networkPlans: defaultNetworkPlansServices(),
     payBills: defaultPayBillsServices(),
+    botMenus: () => loadBotMenuGate(supabase),
   }
 }
 
@@ -54,6 +58,8 @@ export const MAIN_MENU_ENTRIES: Partial<Record<MainMenuKey, StepHandler>> = {
   airtime: startAirtime,
   resultsChecker: startRc,
   afa: startAfa,
+  networkPlans: startNetworkPlans,
+  payBills: startPayBills,
 }
 
 const STEPS: StepTable = {
@@ -72,6 +78,8 @@ export const SHOP_PRODUCT_ENTRIES: Partial<Record<ShopMenuKey, StepHandler>> = {
   data: startShopData,
   airtime: startShopAirtime,
   resultsChecker: startShopRc,
+  networkPlans: startNetworkPlans, // the flows read session.mode for the shop split and the way back
+  payBills: startPayBills,
 }
 
 /** Steps of a session pinned to shop mode. Never mixed with STEPS: a session runs one table. */
@@ -81,11 +89,21 @@ const SHOP_STEPS: StepTable = {
   ...SHOP_DATA_STEPS,
   ...SHOP_AIRTIME_STEPS,
   ...SHOP_RC_STEPS,
-  ...NETWORK_PLANS_STEPS, // menu entry wired in Task 6; the flow reads session.mode for the shop split
+  ...NETWORK_PLANS_STEPS, // the flow reads session.mode for the shop split
   ...PAY_BILLS_STEPS, // same
 }
 
 const UNAVAILABLE = "Service unavailable. Please try again later."
+
+/** deps.botMenus with a belt-and-braces catch: a throw hides both bot menus (fail closed). */
+async function loadBotMenus(deps: RouterDeps): Promise<BotMenuGate> {
+  try {
+    return await deps.botMenus()
+  } catch (e) {
+    console.error("[HUBTEL] bot menu gate failed; hiding bot menus:", e instanceof Error ? e.message : "error")
+    return { ...BOT_MENUS_HIDDEN }
+  }
+}
 
 export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promise<HubtelReply> {
   const sid = req.SessionId
@@ -96,7 +114,10 @@ export async function hubtelRouter(req: HubtelRequest, deps: RouterDeps): Promis
     return release(sid, "Session ended.", { platform })
   }
 
-  const config = await deps.getConfig()
+  // The cashback bots gate is read with the channel config (in parallel) and attached for this request only, so
+  // every menu render and digit dispatch of this request sees the same Network Plans / Pay Bills visibility.
+  const [base, botMenus] = await Promise.all([deps.getConfig(), loadBotMenus(deps)])
+  const config: HubtelUssdConfig = { ...base, botMenus }
   // Kill switch: every request, including in-flight sessions of either mode (D2).
   if (!config.enabled) return release(sid, UNAVAILABLE, { platform })
 

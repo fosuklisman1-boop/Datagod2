@@ -24,7 +24,17 @@ export interface HubtelUssdConfig {
   welcome: string
   /** True when `welcome` is an admin override, false when it is derived from the brand. */
   welcomeCustom: boolean
+  /**
+   * RUNTIME ONLY (never stored, never read from admin_settings): the Commission Cashback bots gate for the
+   * Network Plans / Pay Bills menus, set per request by hubtelRouter from the cashback config. Absent (any
+   * path that did not load it, or a failed load) means hidden: fail closed.
+   */
+  botMenus?: BotMenuGate
 }
+
+/** Cashback bots gate per bot menu: `enabled && surfaces.bots && botGroups[group]` (bundles / bills). */
+export interface BotMenuGate { networkPlans: boolean; payBills: boolean }
+export const BOT_MENUS_HIDDEN: BotMenuGate = Object.freeze({ networkPlans: false, payBills: false })
 
 /** What is persisted: the brand and, only when customised, the welcome override. */
 interface StoredHubtelUssdConfig {

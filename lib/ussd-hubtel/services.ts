@@ -13,7 +13,8 @@ import { safeDbError } from "./log-safe"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
 import { getAirtimeProvider } from "@/lib/airtime-provider"
 import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork } from "@/lib/digiwapy-provider"
-import { getCashbackConfig } from "@/lib/cashback/config"
+import { getCashbackConfig, type CashbackConfig } from "@/lib/cashback/config"
+import { BOT_MENUS_HIDDEN, type BotMenuGate } from "./config"
 import type { StorefrontQuote } from "@/lib/cashback/quote"
 import { quoteBotAirtime } from "@/lib/cashback/storefront-airtime"
 import type { BotContext } from "@/lib/bot-commission/context"
@@ -25,6 +26,22 @@ import type { VerifyResult } from "@/lib/bills/service"
 
 export { resolveDialer }
 export type { DialerInfo }
+
+/** Cashback bots gate per bot menu: master switch AND bots surface AND the menu's group (bundles / bills). */
+export function botMenuGate(cfg: CashbackConfig): BotMenuGate {
+  const on = cfg.enabled === true && cfg.surfaces?.bots === true
+  return { networkPlans: on && cfg.botGroups?.bundles === true, payBills: on && cfg.botGroups?.bills === true }
+}
+
+/** The gate from the stored cashback config; any read error hides both menus (fail closed). Never throws. */
+export async function loadBotMenuGate(supabase: SupabaseClient): Promise<BotMenuGate> {
+  try {
+    return botMenuGate(await getCashbackConfig(supabase))
+  } catch (e) {
+    console.error("[HUBTEL] cashback config unavailable; hiding bot menus:", safeDbError(e))
+    return { ...BOT_MENUS_HIDDEN }
+  }
+}
 
 export interface AirtimeServices {
   isEnabled(network: string): Promise<boolean>

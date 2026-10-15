@@ -2,15 +2,20 @@
 // network names and normal wording (no Uzo nicknames / "Browse Services" rebrand).
 import { MenuItemDef, ResolvedMenuItem, renderMenuText, resolveMenuItems } from "@/lib/ussd/menu-items"
 import type { BundleOption } from "@/lib/ussd/types"
-import { DEFAULT_BRAND, DEFAULT_WELCOME } from "./config"
+import { BOT_MENUS_HIDDEN, DEFAULT_BRAND, DEFAULT_WELCOME, type BotMenuGate } from "./config"
 
-export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker"
+/** Commission Cashback bot menus: shown only when the admin visibility flag AND the cashback bots gate are on. */
+export type BotMenuKey = "networkPlans" | "payBills"
+export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker" | BotMenuKey
 
+// Bot menus are APPENDED: hidden, the menu (text + numbering) is byte-identical to the pre-cashback one.
 const MAIN_ITEMS: MenuItemDef<MainMenuKey>[] = [
   { key: "data", label: "Buy Data Bundle" },
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
+  { key: "networkPlans", label: "Network Plans" },
+  { key: "payBills", label: "Pay Bills" },
 ]
 
 /** Flip each to true as its flow ships (Plan 2). Admin visibility is ANDed with this. */
@@ -19,17 +24,29 @@ export const IMPLEMENTED_SERVICES: Record<MainMenuKey, boolean> = {
   afa: true,
   airtime: true,
   resultsChecker: true,
+  networkPlans: true,
+  payBills: true,
 }
 
+/** Admin visibility; the bot keys are optional (missing = hidden). */
+export type MenuVisibility = Record<Exclude<MainMenuKey, BotMenuKey>, boolean> & Partial<Record<BotMenuKey, boolean>>
+
+/** A bot menu shows only when built AND admin-visible AND the cashback bots gate is on (fail closed). */
+const botVisible = (key: BotMenuKey, visibility: MenuVisibility, bots: BotMenuGate): boolean =>
+  IMPLEMENTED_SERVICES[key] && visibility[key] === true && bots[key] === true
+
 export function resolveMainMenu(
-  visibility: Record<MainMenuKey, boolean>,
-  dataBlocked: boolean
+  visibility: MenuVisibility,
+  dataBlocked: boolean,
+  bots: BotMenuGate = BOT_MENUS_HIDDEN
 ): ResolvedMenuItem<MainMenuKey>[] {
   const visible: Record<MainMenuKey, boolean> = {
     data: visibility.data && IMPLEMENTED_SERVICES.data && !dataBlocked,
     afa: visibility.afa && IMPLEMENTED_SERVICES.afa,
     airtime: visibility.airtime && IMPLEMENTED_SERVICES.airtime,
     resultsChecker: visibility.resultsChecker && IMPLEMENTED_SERVICES.resultsChecker,
+    networkPlans: botVisible("networkPlans", visibility, bots),
+    payBills: botVisible("payBills", visibility, bots),
   }
   return resolveMenuItems(MAIN_ITEMS, visible)
 }
@@ -115,23 +132,29 @@ export function rcMenuText(): string {
 // -- Shop mode (Plan 3) -------------------------------------------------------
 // The shop product menu has no AFA (same as the Uzo shop code). Hubtel wording, not the Uzo
 // "Browse Services" rebrand.
-export type ShopMenuKey = "data" | "airtime" | "resultsChecker"
+export type ShopMenuKey = "data" | "airtime" | "resultsChecker" | BotMenuKey
 
+// Bot menus appended, as in the main menu.
 const SHOP_ITEMS: MenuItemDef<ShopMenuKey>[] = [
   { key: "data", label: "Buy Data Bundle" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
+  { key: "networkPlans", label: "Network Plans" },
+  { key: "payBills", label: "Pay Bills" },
 ]
 
-/** Hubtel admin visibility (afa ignored) AND built AND, for data, not whitelist-blocked. */
+/** Hubtel admin visibility (afa ignored) AND built AND, for data, not whitelist-blocked; bot menus also need the cashback gate. */
 export function resolveShopMenu(
-  visibility: Record<MainMenuKey, boolean>,
-  dataBlocked: boolean
+  visibility: MenuVisibility,
+  dataBlocked: boolean,
+  bots: BotMenuGate = BOT_MENUS_HIDDEN
 ): ResolvedMenuItem<ShopMenuKey>[] {
   return resolveMenuItems(SHOP_ITEMS, {
     data: visibility.data && IMPLEMENTED_SERVICES.data && !dataBlocked,
     airtime: visibility.airtime && IMPLEMENTED_SERVICES.airtime,
     resultsChecker: visibility.resultsChecker && IMPLEMENTED_SERVICES.resultsChecker,
+    networkPlans: botVisible("networkPlans", visibility, bots),
+    payBills: botVisible("payBills", visibility, bots),
   })
 }
 

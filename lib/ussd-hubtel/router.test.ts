@@ -277,7 +277,7 @@ describe("hubtelRouter: flow registry", () => {
     }
   })
   it("every shop product has an entry handler", () => {
-    for (const key of ["data", "airtime", "resultsChecker"] as const) {
+    for (const key of ["data", "airtime", "resultsChecker", "networkPlans", "payBills"] as const) {
       expect(SHOP_PRODUCT_ENTRIES[key], key).toBeTypeOf("function")
     }
   })

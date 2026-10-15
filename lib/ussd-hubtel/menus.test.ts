@@ -9,9 +9,21 @@ const allOn = { data: true, afa: true, airtime: true, resultsChecker: true }
 
 describe("main menu", () => {
   it("shows only implemented services and renumbers", () => {
-    const r = resolveMainMenu(allOn, false)
+    const r = resolveMainMenu({ ...allOn, networkPlans: true, payBills: true }, false, { networkPlans: true, payBills: true })
     expect(r.map(i => i.key)).toEqual(Object.entries(IMPLEMENTED_SERVICES).filter(([, v]) => v).map(([k]) => k))
     expect(mainMenuText(r, DEFAULT_WELCOME)).toContain("1. Buy Data Bundle")
+  })
+  it("bot menus need BOTH the admin flag and the cashback gate; no gate given = hidden", () => {
+    const vis = { ...allOn, networkPlans: true, payBills: true }
+    expect(resolveMainMenu(vis, false).map(i => i.key)).toEqual(["data", "afa", "airtime", "resultsChecker"])
+    expect(resolveMainMenu(allOn, false, { networkPlans: true, payBills: true }).map(i => i.key)).toEqual(["data", "afa", "airtime", "resultsChecker"])
+    expect(resolveMainMenu({ ...vis, payBills: false }, false, { networkPlans: true, payBills: true }).map(i => i.label))
+      .toEqual(["Buy Data Bundle", "AFA Registration", "Buy Airtime", "Results Checker", "Network Plans"])
+    expect(resolveMainMenu(vis, false, { networkPlans: false, payBills: true }).map(i => `${i.digit}. ${i.label}`))
+      .toEqual(["1. Buy Data Bundle", "2. AFA Registration", "3. Buy Airtime", "4. Results Checker", "5. Pay Bills"])
+    expect(resolveShopMenu(vis, false).map(i => i.key)).toEqual(["data", "airtime", "resultsChecker"])
+    expect(resolveShopMenu(vis, true, { networkPlans: true, payBills: true }).map(i => `${i.digit}. ${i.label}`))
+      .toEqual(["1. Buy Airtime", "2. Results Checker", "3. Network Plans", "4. Pay Bills"])
   })
   it("the header is the given welcome line", () => {
     const r = resolveMainMenu(allOn, false)

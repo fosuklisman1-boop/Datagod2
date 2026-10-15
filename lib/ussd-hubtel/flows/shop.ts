@@ -4,7 +4,7 @@
 // (docs/superpowers/specs/2026-10-14-ussd-shop-free-sessions-design.md), so an active code is all it takes.
 import type { HubtelUssdConfig } from "../config"
 import {
-  resolveShopMenu, shopCodePromptText, shopCodeRetryText, shopMenuText, sortShopNetworks, type MainMenuKey,
+  resolveShopMenu, shopCodePromptText, shopCodeRetryText, shopMenuText, sortShopNetworks,
 } from "../menus"
 import { release, respond, toE164 } from "../protocol"
 import { safeDbError } from "../log-safe"
@@ -22,7 +22,7 @@ const TOO_MANY = "Too many attempts. Please try again later."
 export const MAX_CODE_ATTEMPTS = 3
 
 export function shopMenuFor(config: HubtelUssdConfig, dataBlocked: boolean) {
-  return resolveShopMenu(config.visibility as Record<MainMenuKey, boolean>, dataBlocked)
+  return resolveShopMenu(config.visibility, dataBlocked, config.botMenus)
 }
 
 /** The product menu for the session's shop, without writing the session. */

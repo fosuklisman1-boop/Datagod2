@@ -95,6 +95,8 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
     shop: fakeShop(),
     networkPlans: fakeNetworkPlans(),
     payBills: fakePayBills(),
+    // Cashback bots gate closed by default: every pre-cashback menu stays byte-identical.
+    botMenus: async () => ({ networkPlans: false, payBills: false }),
     ...over,
   }
   return { deps, store, sup }

@@ -5,12 +5,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { BundleOption } from "@/lib/ussd/types"
 import type { PrefixValidationConfig } from "@/lib/network-prefix-config"
-import type { HubtelUssdConfig } from "./config"
+import type { BotMenuGate, HubtelUssdConfig } from "./config"
 import type { AfaServices, AirtimeServices, DialerInfo, NetworkPlansServices, PayBillsServices, RcServices } from "./services"
 import type { HubtelSessionStore } from "./session"
 import type { ShopServices } from "./shop-services"
 import type { CallerContext } from "./catalog"
-import { resolveMainMenu, mainMenuText, type MainMenuKey } from "./menus"
+import { resolveMainMenu, mainMenuText } from "./menus"
 import { ORDER_TABLES, cartItemNameFor, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { addToCart, release, respond } from "./protocol"
 import { safeDbError } from "./log-safe"
@@ -32,6 +32,11 @@ export interface RouterDeps {
   shop: ShopServices
   networkPlans: NetworkPlansServices
   payBills: PayBillsServices
+  /**
+   * Cashback bots gate for the Network Plans / Pay Bills menus, loaded per request by hubtelRouter. Must not
+   * throw (the default fails closed); the router also treats a throw as hidden.
+   */
+  botMenus(): Promise<BotMenuGate>
 }
 
 export interface FlowCtx {
@@ -77,8 +82,9 @@ export async function finish(ctx: FlowCtx, text: string): Promise<HubtelReply> {
   return release(ctx.req.SessionId, text, { platform: ctx.req.Platform })
 }
 
+/** The main menu for this request. Bot menus need config.botMenus (set by hubtelRouter); absent = hidden. */
 export function menuFor(config: HubtelUssdConfig, dataBlocked: boolean) {
-  return resolveMainMenu(config.visibility as Record<MainMenuKey, boolean>, dataBlocked)
+  return resolveMainMenu(config.visibility, dataBlocked, config.botMenus)
 }
 
 export function mainMenuReply(ctx: FlowCtx): HubtelReply {
