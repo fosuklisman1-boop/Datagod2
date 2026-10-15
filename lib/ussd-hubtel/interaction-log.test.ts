@@ -118,6 +118,10 @@ describe("redaction of personal data", () => {
     }
     expect(shapeInteractionRow(req({ Message: "1" }), reply(), null, new Date(), "MAIN").input).toBe("1")
   })
+  it("also hidden when the stored session is lost: the echoed ClientState names the step", () => {
+    const row = shapeInteractionRow(req({ Message: "GHA-123456789-0", ClientState: "AFA_ENTER_CARD" }), reply({ ClientState: "MAIN" }), null, new Date(), null)
+    expect(row.input).toBe("[hidden]")
+  })
   it("screens that echo it (confirmations, voucher details) are never stored", () => {
     const row = shapeInteractionRow(req({ Message: "Accra" }), reply({ ClientState: "AFA_CONFIRM", Message: "Kwame Mensah GHA-123456789-0" }), null, new Date(), "AFA_ENTER_LOCATION")
     expect(row.reply).toBe("[hidden]")

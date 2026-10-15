@@ -47,9 +47,12 @@ const SENSITIVE_REPLY_STEPS: ReadonlySet<string> = new Set<string>(["AFA_CONFIRM
 export function shapeInteractionRow(
   req: HubtelRequest, reply: HubtelReply | null, session: HubtelSession | null, at: Date, answeredStep?: HubtelStep | null
 ): InteractionRow {
-  const hideInput = !!answeredStep && SENSITIVE_INPUT_STEPS.has(answeredStep)
+  // The screen being answered, from BOTH sources: the stored session (may be missing: lost / expired)
+  // and the ClientState Hubtel echoes from our previous reply. Either one naming a sensitive step hides it.
+  const answered = [answeredStep ?? "", req.ClientState ?? ""].filter(Boolean)
+  const hideInput = answered.some(st => SENSITIVE_INPUT_STEPS.has(st as HubtelStep))
   const replyStep = reply?.ClientState || ""
-  const hideReply = SENSITIVE_REPLY_STEPS.has(replyStep) || (!!answeredStep && SENSITIVE_REPLY_STEPS.has(answeredStep) && !replyStep)
+  const hideReply = SENSITIVE_REPLY_STEPS.has(replyStep) || (!replyStep && answered.some(st => SENSITIVE_REPLY_STEPS.has(st)))
   return {
     created_at: at.toISOString(),
     session_id: req.SessionId,
