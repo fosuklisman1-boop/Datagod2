@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { getClientIp, isHubtelFulfillmentIp, secretsMatch } from "@/lib/ussd-hubtel/protocol"
 import { parseFulfillmentPayload, processFulfillment } from "@/lib/ussd-hubtel/payment"
 import { createSupabaseTxStore } from "@/lib/ussd-hubtel/tx-store"
-import { createOrderHandlers } from "@/lib/ussd-hubtel/order-handlers"
+import { createOrderHandlers, createPaidReviewHandlers } from "@/lib/ussd-hubtel/order-handlers"
 import { dispatchCallback } from "@/lib/ussd-hubtel/callbacks"
 import { sendFulfillmentCallback } from "@/lib/ussd-hubtel/relay"
 import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   const store = createSupabaseTxStore(supabase)
   let outcome: Awaited<ReturnType<typeof processFulfillment>>
   try {
-    outcome = await processFulfillment(store, createOrderHandlers(supabase), info)
+    outcome = await processFulfillment(store, createOrderHandlers(supabase), info, { paidReview: createPaidReviewHandlers(supabase) })
   } catch (e) {
     // Behaviour unchanged (the error propagates); only the log entry is added.
     logInbound({ outcome: "error", sessionId, hubtelOrderId, payload: body, error: e instanceof Error ? e.message : String(e) })

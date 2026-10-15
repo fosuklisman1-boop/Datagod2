@@ -5,6 +5,27 @@ import { safeDbError } from "./log-safe"
 export type OrderHandlers = Record<string, (orderId: string) => Promise<void>>
 export type FulfillmentOutcome = "unknown_session" | "duplicate" | "unsuccessful" | "needs_review" | "fulfilled"
 
+/** What a paid-review recorder is told about a successful Hubtel payment that is held for review. */
+export interface PaidReviewInfo {
+  /** The payment reference: Hubtel OrderId, else `hubtel-session:<sid>` (see hubtelPaymentRef). */
+  reference: string
+  /** Fixed text naming why the payment is held (ids and numbers only, no row data). */
+  reason: string
+}
+
+/**
+ * Per order table: record a SUCCESSFUL Hubtel payment on an order that processFulfillment holds for review WITHOUT
+ * running its handler (a late success after expiry / an indeterminate park, or an underpayment). Today only the bot
+ * commission tables have one (lib/ussd-hubtel/order-handlers.ts createPaidReviewHandlers): it marks the order paid
+ * (never dispatched, no shop share) so it can be refunded. Best effort: a throw is logged, never changes the outcome.
+ */
+export type PaidReviewHandlers = Record<string, (orderId: string, p: PaidReviewInfo) => Promise<void>>
+
+/** The payment reference a Hubtel checkout payment is recorded under (stable per tx row). */
+export function hubtelPaymentRef(hubtelOrderId: string | null | undefined, sessionId: string): string {
+  return hubtelOrderId ? hubtelOrderId : `hubtel-session:${sessionId}`
+}
+
 export function parseFulfillmentPayload(body: unknown): HubtelFulfillmentInfo | null {
   if (!body || typeof body !== "object") return null
   const b = body as any
@@ -48,11 +69,22 @@ export async function recordReviewReason(store: HubtelTxStore, sid: string, reas
 export async function processFulfillment(
   store: HubtelTxStore,
   handlers: OrderHandlers,
-  info: HubtelFulfillmentInfo
+  info: HubtelFulfillmentInfo,
+  opts: { paidReview?: PaidReviewHandlers } = {},
 ): Promise<FulfillmentOutcome> {
   const sid = info.sessionId
   let tx = await store.findBySession(sid)
   if (!tx) return "unknown_session"
+  /** Record the held successful payment on the order (bot commission tables only). Never throws. */
+  const recordPaidForReview = async (orderTable: string, orderId: string, reason: string) => {
+    const rec = opts.paidReview?.[orderTable]
+    if (!rec) return
+    try {
+      await rec(orderId, { reference: hubtelPaymentRef(info.hubtelOrderId, sid), reason })
+    } catch (e) {
+      console.error("[HUBTEL-PAYMENT] could not record the held payment on the order:", sid, orderTable, orderId, safeDbError(e))
+    }
+  }
   const base = {
     hubtel_order_id: info.hubtelOrderId,
     amount_paid: info.amountPaid,
@@ -104,7 +136,11 @@ export async function processFulfillment(
       // be re-won by a recoverer holding a stale read: guard on the still-parked shape as well.
       const guard = fresh?.state === "needs_review" ? { callback_status: "not_due" as const, paid_atIsNull: true } : undefined
       if (lateRecoverable && (await store.claim(sid, [fresh.state], guard))) {
-        return needsReview(fresh.state === "failed" ? "late success after expiry" : "late success after indeterminate park")
+        const late = fresh.state === "failed" ? "late success after expiry" : "late success after indeterminate park"
+        const out = await needsReview(late)
+        // Only the claim winner gets here, so the order is recorded once (and the recorder itself is guarded).
+        await recordPaidForReview(fresh.order_table, fresh.order_id, `Hubtel payment arrived late (${late})`)
+        return out
       }
       if (info.isSuccessful && (fresh?.state === "processing" || fresh?.state === "failed")) {
         // Not a normal already-processed row: this money may not be recorded anywhere else.
@@ -131,7 +167,10 @@ export async function processFulfillment(
   await store.update(sid, base)
 
   if (decision === "needs_review") {
-    return needsReview(`underpaid: after_charges ${info.amountAfterCharges} < expected ${Number(tx.expected_amount)}`)
+    const under = `underpaid: after_charges ${info.amountAfterCharges} < expected ${Number(tx.expected_amount)}`
+    const out = await needsReview(under)
+    await recordPaidForReview(tx.order_table, tx.order_id, `Hubtel payment short (${under})`)
+    return out
   }
   const handler = handlers[tx.order_table]
   if (!handler) {

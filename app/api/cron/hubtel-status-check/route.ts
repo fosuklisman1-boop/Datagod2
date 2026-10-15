@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { createSupabaseTxStore } from "@/lib/ussd-hubtel/tx-store"
-import { createOrderHandlers, createFailHandlers } from "@/lib/ussd-hubtel/order-handlers"
+import { createOrderHandlers, createFailHandlers, createPaidReviewHandlers } from "@/lib/ussd-hubtel/order-handlers"
 import { runStatusChecks } from "@/lib/ussd-hubtel/status-check"
 import { checkTransactionStatus } from "@/lib/ussd-hubtel/relay"
 import { withStatusCheckLogging } from "@/lib/ussd-hubtel/callback-log"
@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     store: createSupabaseTxStore(supabase),
     handlers: createOrderHandlers(supabase),
     failHandlers: createFailHandlers(supabase),
+    paidReviewHandlers: createPaidReviewHandlers(supabase),
     check,
     deadlineMs: Date.now() + TIME_BUDGET_MS,
   })

@@ -3,12 +3,24 @@
 // the payment handler (through the REAL shared confirmation, confirmBotOrder, on fake deps), processFulfillment end
 // to end (duplicate callbacks), and the expiry / "not paid" fail handlers.
 import { describe, it, expect, vi } from "vitest"
-import { createOrderHandlers, createFailHandlers, failOrderStrict, type ConfirmBotFn } from "./order-handlers"
+import {
+  BOT_NEEDS_REVIEW_PREFIX, createFailHandlers, createOrderHandlers, createPaidReviewHandlers, failOrderStrict, recordBotPaymentForReview,
+  type ConfirmBotFn,
+} from "./order-handlers"
 import { processFulfillment } from "./payment"
+import { runStatusChecks } from "./status-check"
+import { loadRefundableOrders } from "@/lib/refunds/orders"
+import { orderEligibility } from "@/lib/refunds/eligibility"
+import { moolreGateway } from "@/lib/refunds/gateways/moolre"
+import { paystackGateway } from "@/lib/refunds/gateways/paystack"
 import { BOT_UNPAID_FAILURE_REASON } from "./order-tables"
 import { confirmBotOrder, type ConfirmDeps } from "@/lib/storefront-commission/confirm"
 import type { StorefrontOrderTable } from "@/lib/storefront-commission/payment"
 import type { HubtelFulfillmentInfo, HubtelTxRow, HubtelTxStore } from "./types"
+
+// The refund gateways are only asked what they support; no network module may load for real.
+vi.mock("@/lib/paystack", () => ({ refundTransaction: vi.fn(), fetchRefund: vi.fn() }))
+vi.mock("@/lib/moolre-transfer", () => ({ initiateTransfer: vi.fn(), getTransferStatus: vi.fn() }))
 
 type Row = Record<string, any>
 const NOW = Date.parse("2026-10-14T12:00:00Z")
@@ -138,14 +150,23 @@ function txStore(tables: Record<string, Row[]>): HubtelTxStore {
     updateIf: async () => false,
     update: async (sid, patch) => { const r = get(sid); if (r) Object.assign(r, patch) },
     listPendingCallbacks: async () => [],
-    listAwaitingPayment: async () => [],
+    listAwaitingPayment: async () => (tables.hubtel_transactions ?? []).filter(r => r.state === "awaiting_payment").map(r => ({ ...r }) as HubtelTxRow),
     listStaleProcessing: async () => [],
-    listIndeterminate: async () => [],
+    listIndeterminate: async () => (tables.hubtel_transactions ?? [])
+      .filter(r => r.state === "needs_review" && r.callback_status === "not_due" && r.paid_at == null).map(r => ({ ...r }) as HubtelTxRow),
   }
 }
 
 const paidInfo = (o: Partial<HubtelFulfillmentInfo> = {}): HubtelFulfillmentInfo =>
   ({ sessionId: "S1", hubtelOrderId: "H1", amountPaid: 10.3, amountAfterCharges: 10.03, isSuccessful: true, ...o })
+
+/** A paid bot order held for a human: paid (with this payment's reference), failed, "needs review: …", never sent. */
+function expectHeldForReview(row: Row, reference: string, reason: RegExp) {
+  expect(row).toMatchObject({ payment_status: "paid", payment_reference: reference, status: "failed", hubtel_client_reference: null })
+  expect(row.paid_at).toBeTruthy()
+  expect(String(row.failure_reason)).toMatch(new RegExp(`^${BOT_NEEDS_REVIEW_PREFIX}`))
+  expect(String(row.failure_reason)).toMatch(reason)
+}
 
 describe("bot commission payment handler (Hubtel USSD)", () => {
   it("shop mode: one Hubtel payment => confirmed once, one shop share, one POST; reference = Hubtel OrderId", async () => {
@@ -171,7 +192,7 @@ describe("bot commission payment handler (Hubtel USSD)", () => {
   })
 
   it("a replayed handler run (same payment) is already_processed: no second flip, share or POST, and no needs_review", async () => {
-    const tables = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow({ hubtel_order_id: "H1", paid_at: "2026-10-14T12:00:00Z" })] }
+    const tables = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow({ hubtel_order_id: "H1", paid_at: "2026-10-14T12:00:00Z", amount_after_charges: 10.03 })] }
     const { client } = fakeDb(tables)
     const e = engine(tables)
     const h = createOrderHandlers(client, { confirmBot: e.confirmBot }).hubtel_data_orders
@@ -195,7 +216,7 @@ describe("bot commission payment handler (Hubtel USSD)", () => {
     expect(e.counts()).toEqual({ flips: 1, posts: 1 })
   })
 
-  it("bill order: confirmed through the same engine with paidAmount = paid_amount", async () => {
+  it("bill order: confirmed through the same engine with paidAmount = Hubtel's amount after charges", async () => {
     const tables = {
       hubtel_bill_orders: [botBill()],
       hubtel_transactions: [txRow({ order_table: "hubtel_bill_orders", order_id: "b1", expected_amount: 20.2 })],
@@ -210,36 +231,79 @@ describe("bot commission payment handler (Hubtel USSD)", () => {
     expect(e.profits).toEqual([])
   })
 
-  it("underpaid Hubtel amount never reaches the engine (decidePayment => needs_review)", async () => {
+  it("underpaid Hubtel amount never reaches the engine; the payment is recorded on the order for review", async () => {
     const tables = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow()] }
     const { client } = fakeDb(tables)
     const e = engine(tables)
-    const out = await processFulfillment(txStore(tables), createOrderHandlers(client, { confirmBot: e.confirmBot }), paidInfo({ amountAfterCharges: 9.5 }))
+    const out = await processFulfillment(txStore(tables), createOrderHandlers(client, { confirmBot: e.confirmBot }), paidInfo({ amountAfterCharges: 9.5 }),
+      { paidReview: createPaidReviewHandlers(client) })
     expect(out).toBe("needs_review")
     expect(e.confirmBot).not.toHaveBeenCalled()
-    expect(tables.hubtel_data_orders[0].payment_status).toBe("unpaid")
+    expectHeldForReview(tables.hubtel_data_orders[0], "H1", /short/)
+    expect(e.profits).toEqual([])
+    expect(e.counts()).toEqual({ flips: 0, posts: 0 })
   })
 
-  it("an order amount the engine rejects (amount_mismatch) => needs_review, order left unpaid", async () => {
-    // paid_amount changed after CONFIRM: the engine compares against the row and refuses.
+  it("F2: the engine checks Hubtel's own amount: an over-payment (decidePayment accepts it) => amount_mismatch, recorded for review", async () => {
     const tables = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow()] }
     const { client } = fakeDb(tables)
     const e = engine(tables)
-    const confirmBot: ConfirmBotFn = vi.fn(async (t, id, p) => e.confirmBot(t, id, { ...p, paidAmount: p.paidAmount + 1 }))
-    const out = await processFulfillment(txStore(tables), createOrderHandlers(client, { confirmBot }), paidInfo())
+    const out = await processFulfillment(txStore(tables), createOrderHandlers(client, { confirmBot: e.confirmBot }), paidInfo({ amountAfterCharges: 10.04 }))
     expect(out).toBe("needs_review")
+    expect(e.confirmBot).toHaveBeenCalledWith("hubtel_data_orders", "d1", { paidAmount: 10.04, reference: "H1" })
     expect(tables.hubtel_transactions[0].review_reason).toMatch(/amount_mismatch/)
-    expect(tables.hubtel_data_orders[0].payment_status).toBe("unpaid")
+    expectHeldForReview(tables.hubtel_data_orders[0], "H1", /amount_mismatch/)
+    expect(e.profits).toEqual([])
+    expect(e.counts()).toEqual({ flips: 0, posts: 0 })
   })
 
-  for (const outcome of ["refused", "error"] as const) {
-    it(`outcome '${outcome}' throws (=> needs_review)`, async () => {
-      const tables = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow({ hubtel_order_id: "H1", paid_at: "x" })] }
+  it("F2: one pesewa short passes decidePayment but not the engine's pesewa-exact check => recorded for review", async () => {
+    const tables = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow()] }
+    const { client } = fakeDb(tables)
+    const e = engine(tables)
+    const out = await processFulfillment(txStore(tables), createOrderHandlers(client, { confirmBot: e.confirmBot }), paidInfo({ amountAfterCharges: 10.02 }))
+    expect(out).toBe("needs_review")
+    expect(e.confirmBot).toHaveBeenCalledWith("hubtel_data_orders", "d1", { paidAmount: 10.02, reference: "H1" })
+    expectHeldForReview(tables.hubtel_data_orders[0], "H1", /amount_mismatch/)
+    expect(e.counts()).toEqual({ flips: 0, posts: 0 })
+  })
+
+  for (const outcome of ["refused", "error", "amount_mismatch"] as const) {
+    it(`outcome '${outcome}' records the payment on the order (paid + failed, needs review) and throws (=> needs_review)`, async () => {
+      const tables = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow({ hubtel_order_id: "H1", paid_at: "x", amount_after_charges: 10.03 })] }
       const { client } = fakeDb(tables)
       const h = createOrderHandlers(client, { confirmBot: async () => ({ outcome }) }).hubtel_data_orders
       await expect(h("d1")).rejects.toThrow(new RegExp(`'${outcome}'`))
+      expectHeldForReview(tables.hubtel_data_orders[0], "H1", new RegExp(`'${outcome}'`))
     })
   }
+
+  it("ordering: the engine already flipped the order paid, then reported 'error' => the review record is a no-op (no double credit)", async () => {
+    const tables = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow({ hubtel_order_id: "H1", paid_at: "x", amount_after_charges: 10.03 })] }
+    const { client, updates } = fakeDb(tables)
+    const e = engine(tables)
+    // The flip (and share + POST) committed, but the caller saw an error (e.g. a timeout after the write).
+    const confirmBot: ConfirmBotFn = async (t, id, p) => { await e.confirmBot(t, id, p); return { outcome: "error" } }
+    await expect(createOrderHandlers(client, { confirmBot }).hubtel_data_orders("d1")).rejects.toThrow(/'error'/)
+    expect(tables.hubtel_data_orders[0]).toMatchObject({ payment_status: "paid", payment_reference: "H1", status: "processing", failure_reason: null })
+    expect(updates.filter(u => u.table === "hubtel_data_orders").map(u => u.matched)).toEqual([0])
+    expect(e.profits).toHaveLength(1)
+    expect(e.counts()).toEqual({ flips: 1, posts: 1 })
+  })
+
+  it("orphan race (finding 3/4): a payment for an unpaid order that was already failed is recorded for review; the engine is not called", async () => {
+    const tables = {
+      hubtel_data_orders: [botBundle({ status: "failed", failure_reason: BOT_UNPAID_FAILURE_REASON })],
+      hubtel_transactions: [txRow()],
+    }
+    const { client } = fakeDb(tables)
+    const e = engine(tables)
+    expect(await processFulfillment(txStore(tables), createOrderHandlers(client, { confirmBot: e.confirmBot }), paidInfo())).toBe("needs_review")
+    expect(e.confirmBot).not.toHaveBeenCalled()
+    expectHeldForReview(tables.hubtel_data_orders[0], "H1", /after the order was failed/)
+    expect(e.profits).toEqual([])
+    expect(e.counts()).toEqual({ flips: 0, posts: 0 })
+  })
 
   it("refuses a non-bot row without calling the engine", async () => {
     const tables = { hubtel_data_orders: [botBundle({ channel: "storefront" })], hubtel_transactions: [txRow({ hubtel_order_id: "H1", paid_at: "x" })] }
@@ -249,12 +313,24 @@ describe("bot commission payment handler (Hubtel USSD)", () => {
     expect(confirmBot).not.toHaveBeenCalled()
   })
 
-  it("throws on a missing order or a missing paid_amount", async () => {
-    const tables = { hubtel_data_orders: [botBundle({ paid_amount: null })], hubtel_transactions: [txRow({ hubtel_order_id: "H1", paid_at: "x" })] }
+  it("throws on a missing order; a missing paid_amount is recorded for review and throws", async () => {
+    const tables = { hubtel_data_orders: [botBundle({ paid_amount: null })], hubtel_transactions: [txRow({ hubtel_order_id: "H1", paid_at: "x", amount_after_charges: 10.03 })] }
     const { client } = fakeDb(tables)
-    const h = createOrderHandlers(client, { confirmBot: vi.fn() }).hubtel_data_orders
+    const confirmBot = vi.fn()
+    const h = createOrderHandlers(client, { confirmBot }).hubtel_data_orders
     await expect(h("d1")).rejects.toThrow(/paid_amount/)
+    expectHeldForReview(tables.hubtel_data_orders[0], "H1", /paid_amount/)
     await expect(h("nope")).rejects.toThrow(/not found/)
+    expect(confirmBot).not.toHaveBeenCalled()
+  })
+
+  it("no Hubtel amount on the paid tx row => recorded for review, the engine is not called", async () => {
+    const tables = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow({ hubtel_order_id: "H1", paid_at: "x", amount_after_charges: null })] }
+    const { client } = fakeDb(tables)
+    const confirmBot = vi.fn()
+    await expect(createOrderHandlers(client, { confirmBot }).hubtel_data_orders("d1")).rejects.toThrow(/no Hubtel amount/)
+    expect(confirmBot).not.toHaveBeenCalled()
+    expectHeldForReview(tables.hubtel_data_orders[0], "H1", /no Hubtel amount/)
   })
 
   it("status-check payment without a Hubtel OrderId: reference falls back to the session id (stable on retry)", async () => {
@@ -270,8 +346,8 @@ describe("bot commission payment handler (Hubtel USSD)", () => {
       hubtel_data_orders: [botBundle()],
       hubtel_transactions: [
         txRow({ session_id: "S0", hubtel_order_id: null, paid_at: null }),
-        txRow({ session_id: "S1", hubtel_order_id: "H-old", paid_at: "2026-10-14T11:00:00Z" }),
-        txRow({ session_id: "S2", hubtel_order_id: "H-new", paid_at: "2026-10-14T11:30:00Z" }),
+        txRow({ session_id: "S1", hubtel_order_id: "H-old", paid_at: "2026-10-14T11:00:00Z", amount_after_charges: 9 }),
+        txRow({ session_id: "S2", hubtel_order_id: "H-new", paid_at: "2026-10-14T11:30:00Z", amount_after_charges: 10.03 }),
       ],
     }
     const { client } = fakeDb(tables)
@@ -319,4 +395,139 @@ describe("bot commission fail handlers (expiry / not paid)", () => {
       await expect(failOrderStrict(client, table, "o1")).rejects.toThrow(/not in an unpaid state/)
     })
   }
+})
+
+/** Refund loader fake: every query on a table returns that table's rows (filters ignored), as lib/refunds/bots.test.ts. */
+function refundsDb(rows: Record<string, unknown[]>) {
+  const make = (table: string) => {
+    const q: any = {}
+    for (const m of ["select", "eq", "in", "is", "neq", "not", "gte", "order", "range", "limit", "or"]) q[m] = () => q
+    q.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: null }).then(res, rej)
+    return q
+  }
+  return { from: (t: string) => make(t) } as any
+}
+
+/** The order as /admin/refunds loads and judges it (Hubtel rail: no wallet_payments row, no ledger row). */
+async function refundView(table: StorefrontOrderTable, row: Row) {
+  const db = refundsDb({ [table]: [{ ...row, updated_at: new Date(NOW - 10 * 60_000).toISOString() }] })
+  const [o] = await loadRefundableOrders(db, [{ table, id: row.id }])
+  return o
+}
+
+describe("F1: a paid bot order held for review is recorded paid, never sent, and refundable", () => {
+  it("recordBotPaymentForReview: guarded unpaid -> paid + failed; a second call (or an already-paid row) is a no-op", async () => {
+    for (const table of ["hubtel_bill_orders", "hubtel_data_orders"] as const) {
+      const mk = table === "hubtel_bill_orders" ? botBill : botBundle
+      const tables: Record<string, Row[]> = { [table]: [mk({ id: "o1" })] }
+      const { client } = fakeDb(tables)
+      expect(await recordBotPaymentForReview(client, table, "o1", { reference: "H1", reason: "x" })).toBe(1)
+      expectHeldForReview(tables[table][0], "H1", /x\. Not sent/)
+      expect(await recordBotPaymentForReview(client, table, "o1", { reference: "H2", reason: "y" })).toBe(0)
+      expect(tables[table][0].payment_reference).toBe("H1")
+      // a storefront row is never touched by the bot recorder
+      const sf: Record<string, Row[]> = { [table]: [mk({ id: "o1", channel: "storefront" })] }
+      expect(await recordBotPaymentForReview(fakeDb(sf).client, table, "o1", { reference: "H1", reason: "x" })).toBe(0)
+      expect(sf[table][0].payment_status).toBe("unpaid")
+    }
+  })
+
+  for (const table of ["hubtel_bill_orders", "hubtel_data_orders"] as const) {
+    it(`${table}: expiry (definite not paid) fails the order, then a late success is recorded paid, NOT dispatched, and refundable via Moolre / manual to buyer_phone`, async () => {
+      const mk = table === "hubtel_bill_orders" ? botBill : botBundle
+      const id = table === "hubtel_bill_orders" ? "b1" : "d1"
+      const expected = table === "hubtel_bill_orders" ? 20.2 : 10.03
+      const tables: Record<string, Row[]> = {
+        [table]: [mk()],
+        hubtel_transactions: [txRow({
+          order_table: table, order_id: id, expected_amount: expected, created_at: new Date(NOW - 2 * 60 * 60_000).toISOString(),
+        })],
+      }
+      const { client } = fakeDb(tables)
+      const e = engine(tables)
+      const store = txStore(tables)
+      const handlers = createOrderHandlers(client, { confirmBot: e.confirmBot })
+      const paidReviewHandlers = createPaidReviewHandlers(client)
+
+      // 1. The status-check cron expires the row: Hubtel says Unpaid, so the bot order is failed (still unpaid).
+      const run1 = await runStatusChecks({
+        store, handlers, failHandlers: createFailHandlers(client), paidReviewHandlers, now: NOW,
+        check: async () => ({ ok: true, status: "Unpaid" }),
+      })
+      expect(run1.expired).toBe(1)
+      expect(tables.hubtel_transactions[0].state).toBe("failed")
+      expect(tables[table][0]).toMatchObject({ status: "failed", payment_status: "unpaid", failure_reason: BOT_UNPAID_FAILURE_REASON })
+
+      // 2. Hubtel's success callback arrives late: needs_review, the handler / engine are NOT run, the payment is
+      //    recorded on the order.
+      const out = await processFulfillment(store, handlers, paidInfo({ hubtelOrderId: "HLATE", amountAfterCharges: expected }), { paidReview: paidReviewHandlers })
+      expect(out).toBe("needs_review")
+      expect(tables.hubtel_transactions[0]).toMatchObject({ state: "needs_review", callback_status: "pending", hubtel_order_id: "HLATE" })
+      expect(tables.hubtel_transactions[0].review_reason).toMatch(/late success after expiry/)
+      expect(e.confirmBot).not.toHaveBeenCalled()
+      expectHeldForReview(tables[table][0], "HLATE", /arrived late/)
+      expect(e.profits).toEqual([])
+      expect(e.counts()).toEqual({ flips: 0, posts: 0 })
+
+      // A duplicate of the late callback changes nothing.
+      expect(await processFulfillment(store, handlers, paidInfo({ hubtelOrderId: "HLATE" }), { paidReview: paidReviewHandlers })).toBe("duplicate")
+      expect(tables[table][0].payment_reference).toBe("HLATE")
+
+      // 3. /admin/refunds: listed shape (bots, failed, paid), eligible, Moolre payout (or manual) to buyer_phone only.
+      const o = await refundView(table, tables[table][0])
+      expect(o.orderStatus).toBe("failed")
+      expect(o.paymentStatus).toBe("completed")
+      expect(o.evidence.commission?.storefront).toBe(true)
+      expect(o.payment).toEqual({ gateway: null, reference: null, payerPhone: "0241234567", walletUserId: null })
+      expect(o.paid).toBe(expected)
+      expect(o.owners).toEqual([])
+      expect(orderEligibility(o, NOW)).toEqual({ eligible: true })
+      expect(moolreGateway.supports(o)).toEqual({ ok: true })
+      expect(paystackGateway.supports(o).ok).toBe(false)
+    })
+  }
+
+  it("indeterminate expiry, then the re-check finds it Paid => recorded paid + failed (needs review), not dispatched", async () => {
+    const tables: Record<string, Row[]> = {
+      hubtel_data_orders: [botBundle()],
+      hubtel_transactions: [txRow({ created_at: new Date(NOW - 2 * 60 * 60_000).toISOString() })],
+    }
+    const { client } = fakeDb(tables)
+    const e = engine(tables)
+    const store = txStore(tables)
+    const args = {
+      store, handlers: createOrderHandlers(client, { confirmBot: e.confirmBot }), failHandlers: createFailHandlers(client),
+      paidReviewHandlers: createPaidReviewHandlers(client), now: NOW,
+    }
+    // Relay down at expiry: parked, the order is NOT failed.
+    expect((await runStatusChecks({ ...args, check: async () => ({ ok: false, error: "relay down" }) })).held).toBe(1)
+    expect(tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    // Next run: Hubtel says Paid.
+    const run2 = await runStatusChecks({
+      ...args, now: NOW + 10 * 60_000,
+      check: async () => ({ ok: true, status: "Paid", data: { transactionId: "TX9", amount: 10.3, amountAfterCharges: 10.03 } }),
+    })
+    expect(run2.recovered).toBe(1)
+    expect(e.confirmBot).not.toHaveBeenCalled()
+    expectHeldForReview(tables.hubtel_data_orders[0], "TX9", /indeterminate park/)
+    expect(e.counts()).toEqual({ flips: 0, posts: 0 })
+    expect(e.profits).toEqual([])
+  })
+
+  it("without paid-review handlers (legacy callers) the late path leaves the order alone", async () => {
+    const tables: Record<string, Row[]> = {
+      hubtel_data_orders: [botBundle({ status: "failed", failure_reason: BOT_UNPAID_FAILURE_REASON })],
+      hubtel_transactions: [txRow({ state: "failed" })],
+    }
+    const { client } = fakeDb(tables)
+    expect(await processFulfillment(txStore(tables), createOrderHandlers(client, { confirmBot: vi.fn() }), paidInfo())).toBe("needs_review")
+    expect(tables.hubtel_data_orders[0]).toMatchObject({ status: "failed", payment_status: "unpaid" })
+  })
+
+  it("a throwing recorder never changes processFulfillment's outcome", async () => {
+    const tables: Record<string, Row[]> = { hubtel_data_orders: [botBundle()], hubtel_transactions: [txRow({ state: "failed" })] }
+    const { client } = fakeDb(tables)
+    const paidReview = { hubtel_data_orders: async () => { throw new Error("db down") } }
+    expect(await processFulfillment(txStore(tables), createOrderHandlers(client, { confirmBot: vi.fn() }), paidInfo(), { paidReview })).toBe("needs_review")
+  })
 })

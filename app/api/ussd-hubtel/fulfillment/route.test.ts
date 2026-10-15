@@ -37,7 +37,7 @@ vi.mock("@/lib/ussd-hubtel/payment", async importOriginal => ({
   processFulfillment: (...a: any[]) => h.process(...a),
 }))
 vi.mock("@/lib/ussd-hubtel/tx-store", () => ({ createSupabaseTxStore: () => ({ kind: "store" }) }))
-vi.mock("@/lib/ussd-hubtel/order-handlers", () => ({ createOrderHandlers: () => ({}) }))
+vi.mock("@/lib/ussd-hubtel/order-handlers", () => ({ createOrderHandlers: () => ({}), createPaidReviewHandlers: () => ({ kind: "paidReview" }) }))
 vi.mock("@/lib/ussd-hubtel/callbacks", () => ({ dispatchCallback: (...a: any[]) => h.dispatch(...a) }))
 vi.mock("@/lib/ussd-hubtel/relay", async importOriginal => ({
   ...(await importOriginal<typeof import("@/lib/ussd-hubtel/relay")>()),
@@ -77,6 +77,8 @@ describe("POST /api/ussd-hubtel/fulfillment: responses unchanged", () => {
     const res = await POST(post(JSON.stringify(PAYLOAD), { ip: "52.50.116.54" }))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ received: true, outcome: "fulfilled" })
+    // F1: the paid-review recorders are wired in (a held bot payment is recorded on its order).
+    expect(h.process.mock.calls[0][3]).toEqual({ paidReview: { kind: "paidReview" } })
     await runAfter()
     const inbound = logs().filter(r => r.direction === "inbound_fulfillment")
     expect(inbound).toHaveLength(1)

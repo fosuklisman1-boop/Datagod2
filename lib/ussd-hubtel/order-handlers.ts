@@ -1,8 +1,9 @@
 // lib/ussd-hubtel/order-handlers.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
-import type { OrderHandlers } from "./payment"
+import { hubtelPaymentRef, type OrderHandlers, type PaidReviewHandlers } from "./payment"
 import { ORDER_TABLES, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { isPaidOutcome, type ConfirmPayment, type ConfirmResult } from "@/lib/storefront-commission/confirm"
+import { markCommissionOrderPaid } from "@/lib/storefront-commission/mark-paid"
 import type { StorefrontOrderTable } from "@/lib/storefront-commission/payment"
 import { safeDbError } from "./log-safe"
 
@@ -527,35 +528,78 @@ const defaultConfirmBot: ConfirmBotFn = async (table, orderId, p) => {
 }
 
 /**
- * The payment reference for a bot order paid through the Hubtel checkout: the Hubtel OrderId that
- * processFulfillment saved on this order's hubtel_transactions row BEFORE running the handler. The row is the most
- * recently paid one for the order (paid_at is also saved first). A status-check payment may carry no OrderId: the
- * reference is then `hubtel-session:<session id>`, which is stable for that row (a retry confirms with the same
- * reference, so the engine's replay / resume logic still recognises its own payment).
+ * The payment facts for a bot order paid through the Hubtel checkout, from the hubtel_transactions row that
+ * processFulfillment saved BEFORE running the handler (the most recently paid row for the order; paid_at, the Hubtel
+ * OrderId and Hubtel's amounts are all saved first):
+ * - reference: the Hubtel OrderId; a status-check payment may carry none, and the reference is then
+ *   `hubtel-session:<session id>`, stable for that row (a retry confirms with the same reference, so the engine's
+ *   replay / resume logic still recognises its own payment);
+ * - amountAfterCharges: what Hubtel reports the merchant received for the cart (= the cart price; the customer pays
+ *   Hubtel's charge on top). This is the amount the engine checks, pesewa-exact, against the order's paid_amount.
  */
-async function hubtelPaymentReference(supabase: SupabaseClient, table: StorefrontOrderTable, orderId: string): Promise<string> {
+async function hubtelPaymentFacts(
+  supabase: SupabaseClient, table: StorefrontOrderTable, orderId: string,
+): Promise<{ reference: string; amountAfterCharges: number | null }> {
   const { data, error } = await supabase
     .from("hubtel_transactions")
-    .select("session_id, hubtel_order_id, paid_at")
+    .select("session_id, hubtel_order_id, amount_after_charges, paid_at")
     .eq("order_table", table)
     .eq("order_id", orderId)
     .not("paid_at", "is", null)
     .order("paid_at", { ascending: false })
     .limit(1)
   if (error) throw new Error(`${table} ${orderId}: hubtel_transactions read failed: ${safeDbError(error).message}`)
-  const tx = data?.[0] as { session_id: string; hubtel_order_id: string | null } | undefined
+  const tx = data?.[0] as { session_id: string; hubtel_order_id: string | null; amount_after_charges: number | string | null } | undefined
   if (!tx) throw new Error(`${table} ${orderId}: no paid hubtel_transactions row found`)
-  return tx.hubtel_order_id ? tx.hubtel_order_id : `hubtel-session:${tx.session_id}`
+  const amt = tx.amount_after_charges == null ? NaN : Number(tx.amount_after_charges)
+  return { reference: hubtelPaymentRef(tx.hubtel_order_id, tx.session_id), amountAfterCharges: Number.isFinite(amt) ? amt : null }
+}
+
+/** failure_reason prefix of a PAID bot order held for a human (refund it, or deliver it by hand). */
+export const BOT_NEEDS_REVIEW_PREFIX = "needs review:"
+
+/**
+ * Record a successful Hubtel payment on a bot commission order that will NOT be confirmed or dispatched (the payment
+ * is held for review): one guarded update (markCommissionOrderPaid, channel 'bots', `payment_status = 'unpaid'` only)
+ * sets payment_status 'paid', paid_at, payment_reference, status 'failed' and failure_reason "needs review: …".
+ * The order is then refundable through /admin/refunds (failed + paid, channel bots) and is never dispatched (dispatch
+ * needs a pending order). No shop share is credited. When the engine already flipped the order paid, this is a no-op
+ * (0 rows) and touches nothing, so it can never double-credit or un-dispatch anything. Returns rows changed.
+ */
+export async function recordBotPaymentForReview(
+  supabase: SupabaseClient,
+  table: StorefrontOrderTable,
+  orderId: string,
+  p: { reference: string; reason: string },
+): Promise<number> {
+  const now = new Date().toISOString()
+  const n = await markCommissionOrderPaid(supabase, table, orderId, { paid_at: now, payment_reference: p.reference }, {
+    channels: ["bots"],
+    extra: { status: "failed", failure_reason: `${BOT_NEEDS_REVIEW_PREFIX} ${p.reason}. Not sent: refund it or deliver it by hand.` },
+  })
+  if (n > 0) console.error("[HUBTEL-ORDER] paid bot order held for review (marked paid + failed, not sent):", table, orderId, p.reason)
+  return n
+}
+
+/** Recorders for processFulfillment's held-without-handler paths (late success, underpayment): bot tables only. */
+export function createPaidReviewHandlers(supabase: SupabaseClient): PaidReviewHandlers {
+  return {
+    hubtel_bill_orders: async (orderId, p) => { await recordBotPaymentForReview(supabase, "hubtel_bill_orders", orderId, p) },
+    hubtel_data_orders: async (orderId, p) => { await recordBotPaymentForReview(supabase, "hubtel_data_orders", orderId, p) },
+  }
 }
 
 /**
  * Commission Cashback bot order (Utility Bill / Network Plan) paid through the Hubtel USSD checkout. The order was
  * created by the engine (channel 'bots'); payment goes through the engine's shared confirmation: guarded unpaid ->
  * paid once, the shop share once (shop mode only; main-mode rows carry no shop), one Hubtel POST, resumable.
- * paidAmount = the order's paid_amount: processFulfillment's decidePayment already compared Hubtel's amount to
- * hubtel_transactions.expected_amount (= paid_amount at CONFIRM). Outcomes confirmed / resumed / already_processed
- * are fine for the callback; anything else (refused, amount_mismatch, error) THROWS so the tx row lands in
- * needs_review. A dispatch problem after the flip is alerted by the engine and is not a needs_review.
+ * paidAmount = Hubtel's amount_after_charges for this payment, so the engine's pesewa-exact check against the order's
+ * paid_amount is a real check (processFulfillment's decidePayment ran first, against expected_amount).
+ * Outcomes confirmed / resumed / already_processed are fine for the callback; anything else (refused,
+ * amount_mismatch, error) records the payment on the order for review (recordBotPaymentForReview: paid + failed
+ * "needs review: …", never sent, refundable) and THROWS so the tx row lands in needs_review. So does a payment for an
+ * unpaid order that is no longer pending (the orphan race, finding 3): the engine is not called for it. A dispatch
+ * problem after a normal flip is alerted by the engine and is not a needs_review.
  */
 async function botCommissionPostPayment(
   supabase: SupabaseClient,
@@ -565,22 +609,38 @@ async function botCommissionPostPayment(
 ): Promise<void> {
   const { data: order, error: lookupErr } = await supabase
     .from(table)
-    .select("id, channel, paid_amount")
+    .select("id, channel, status, payment_status, paid_amount")
     .eq("id", orderId)
     .maybeSingle()
   if (lookupErr) throw new Error(`${table} ${orderId} lookup failed: ${safeDbError(lookupErr).message}`)
   if (!order) throw new Error(`${table} ${orderId} not found`)
   if (order.channel !== "bots") throw new Error(`${table} ${orderId} has channel '${order.channel}', not a bot order`)
-  const paidAmount = Number(order.paid_amount)
-  if (order.paid_amount == null || !Number.isFinite(paidAmount) || paidAmount <= 0) {
-    throw new Error(`${table} ${orderId} has no valid paid_amount (${String(order.paid_amount)})`)
+
+  const { reference, amountAfterCharges } = await hubtelPaymentFacts(supabase, table, orderId)
+  /** Record the payment on the order (best effort), then throw => needs_review. */
+  const holdForReview = async (reason: string): Promise<never> => {
+    try {
+      await recordBotPaymentForReview(supabase, table, orderId, { reference, reason })
+    } catch (e) {
+      console.error("[HUBTEL-ORDER] could not record the held payment on the bot order:", table, orderId, safeDbError(e))
+    }
+    throw new Error(`${table} ${orderId}: ${reason}: needs manual review`)
   }
 
-  const reference = await hubtelPaymentReference(supabase, table, orderId)
-  const r = await confirmBot(table, orderId, { paidAmount, reference })
-  if (!isPaidOutcome(r.outcome)) {
-    throw new Error(`${table} ${orderId}: bot payment confirmation returned '${r.outcome}': needs manual review`)
+  const expected = Number(order.paid_amount)
+  if (order.paid_amount == null || !Number.isFinite(expected) || expected <= 0) {
+    return holdForReview(`order has no valid paid_amount (${String(order.paid_amount)})`)
   }
+  if (amountAfterCharges == null) return holdForReview("no Hubtel amount recorded for the payment")
+
+  // An unpaid order that is no longer pending (failed by the orphan fail racing this cart, or by hand) is never sent:
+  // record the payment for review instead of asking the engine to flip it.
+  if (order.payment_status === "unpaid" && order.status !== "pending") {
+    return holdForReview(`Hubtel payment arrived after the order was ${String(order.status)}`)
+  }
+
+  const r = await confirmBot(table, orderId, { paidAmount: amountAfterCharges, reference })
+  if (!isPaidOutcome(r.outcome)) return holdForReview(`bot payment confirmation returned '${r.outcome}'`)
 }
 
 export function createOrderHandlers(supabase: SupabaseClient, opts: { confirmBot?: ConfirmBotFn } = {}): OrderHandlers {

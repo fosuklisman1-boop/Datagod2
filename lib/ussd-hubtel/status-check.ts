@@ -1,5 +1,5 @@
 // lib/ussd-hubtel/status-check.ts
-import { processFulfillment, recordReviewReason, type OrderHandlers } from "./payment"
+import { processFulfillment, recordReviewReason, type OrderHandlers, type PaidReviewHandlers } from "./payment"
 import type { HubtelTxRow, HubtelTxStore } from "./types"
 import { safeDbError } from "./log-safe"
 
@@ -56,6 +56,8 @@ export async function runStatusChecks(args: {
   store: HubtelTxStore
   handlers: OrderHandlers
   failHandlers: OrderHandlers
+  /** Records a held successful payment on the order (late success / underpayment); see processFulfillment. */
+  paidReviewHandlers?: PaidReviewHandlers
   check: StatusChecker
   now?: number
   limit?: number
@@ -64,6 +66,7 @@ export async function runStatusChecks(args: {
 }): Promise<{ checked: number; paid: number; expired: number; swept: number; held: number; recovered: number }> {
   const now = args.now ?? Date.now()
   const out = { checked: 0, paid: 0, expired: 0, swept: 0, held: 0, recovered: 0 }
+  const pfOpts = { paidReview: args.paidReviewHandlers }
   const outOfTime = () => args.deadlineMs != null && Date.now() > args.deadlineMs
 
   // Sweep: a crash between claim and the final update would leave a paid order
@@ -115,7 +118,7 @@ export async function runStatusChecks(args: {
         amountPaid: Number(d.amount ?? 0),
         amountAfterCharges: Number(d.amountAfterCharges ?? 0),
         isSuccessful: true,
-      })
+      }, pfOpts)
       if (outcome === "needs_review") {
         console.warn("[HUBTEL-STATUS] indeterminate row now Paid; payment recorded, callback due:", row.session_id)
         out.recovered++
@@ -139,7 +142,7 @@ export async function runStatusChecks(args: {
       amountPaid: Number(d.amount ?? 0),
       amountAfterCharges: Number(d.amountAfterCharges ?? 0),
       isSuccessful: true,
-    })
+    }, pfOpts)
     if (outcome === "duplicate") {
       const cur = await args.store.findBySession(row.session_id).catch(() => null)
       console.warn("[HUBTEL-STATUS] Paid but duplicate (row already claimed):", row.session_id, "state:", cur?.state)
