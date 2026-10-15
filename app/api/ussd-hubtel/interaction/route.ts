@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { parseHubtelRequest, release, secretsMatch } from "@/lib/ussd-hubtel/protocol"
 import { hubtelRouter, defaultRouterDeps } from "@/lib/ussd-hubtel/router"
 import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
+import { logInteraction, shapeInteractionRow, trackSessionStore } from "@/lib/ussd-hubtel/interaction-log"
+import type { HubtelReply } from "@/lib/ussd-hubtel/types"
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -25,14 +27,30 @@ export async function POST(request: NextRequest) {
   if (!req) return NextResponse.json({ error: "Invalid request" }, { status: 400 })
 
   console.log("[HUBTEL] Incoming:", { sid: req.SessionId, type: req.Type, platform: req.Platform, seq: req.Sequence, inputLen: req.Message.length })
+  const receivedAt = new Date()
+  const deps = defaultRouterDeps(supabase)
+  const tracked = trackSessionStore(deps.sessions)
+  let reply: HubtelReply
   try {
-    const reply = await hubtelRouter(req, defaultRouterDeps(supabase))
-    // Never log reply text: screens echo names, Ghana Card, index numbers and phone numbers.
+    reply = await hubtelRouter(req, { ...deps, sessions: tracked.store })
+    // Never log reply text to the console: screens echo names, Ghana Card, index numbers and phone numbers.
     console.log("[HUBTEL] Reply:", { type: reply.Type, len: reply.Message.length })
-    return NextResponse.json(reply)
   } catch (e) {
     console.error("[HUBTEL] Router error:", safeDbError(e))
     // Always answer with a well-formed reply so the user sees our message, not Hubtel's UUE error.
-    return NextResponse.json(release(req.SessionId, "Service unavailable. Please try again.", { platform: req.Platform }))
+    reply = release(req.SessionId, "Service unavailable. Please try again.", { platform: req.Platform })
+  }
+  // Session transcript (admin + shop owner viewers): written after the reply is sent, never delays it.
+  const row = shapeInteractionRow(req, reply, tracked.latest(), receivedAt)
+  runAfterResponse(() => logInteraction(supabase, row))
+  return NextResponse.json(reply)
+}
+
+/** `after()` outside a request scope (unit tests) throws: fall back to a detached best-effort write. */
+function runAfterResponse(task: () => Promise<void>): void {
+  try {
+    after(task)
+  } catch {
+    void task()
   }
 }

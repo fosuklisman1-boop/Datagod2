@@ -58,10 +58,12 @@ describe("cron hubtel-callbacks: callback log", () => {
   })
   it("purges logs older than 30 days once per run", async () => {
     await GET(new NextRequest("http://localhost/api/cron/hubtel-callbacks"))
-    expect(h.deletes).toHaveLength(1)
-    expect(h.deletes[0]).toMatchObject({ table: "hubtel_callback_logs", column: "created_at" })
-    const cutoff = Date.parse(h.deletes[0].value)
-    expect(Math.abs(Date.now() - 30 * 86_400_000 - cutoff)).toBeLessThan(60_000)
+    // One purge per log table: callback log (0109) and USSD session transcripts (0126).
+    expect(h.deletes.map((d: any) => d.table)).toEqual(["hubtel_callback_logs", "hubtel_ussd_interactions"])
+    for (const d of h.deletes) {
+      expect(d).toMatchObject({ column: "created_at" })
+      expect(Math.abs(Date.now() - 30 * 86_400_000 - Date.parse(d.value))).toBeLessThan(60_000)
+    }
   })
   it("a hanging log insert never blocks a row's dispatch, and each flush is bounded (3s)", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
