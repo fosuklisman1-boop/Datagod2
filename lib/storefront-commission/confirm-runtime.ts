@@ -9,6 +9,7 @@ import {
   COMMISSION_CHANNELS, confirmBotOrder, settleStorefrontPayment, verifyStorefrontPayment,
   type ConfirmPayment, type ConfirmResult, type SettleDeps, type SettleInput, type StorefrontPaidOrder, type StorefrontPaymentRow, type VerifyDeps,
 } from "./confirm"
+import { markCommissionOrderPaid } from "./mark-paid"
 import { STOREFRONT_ORDER_TABLE, type StorefrontOrderTable, type StorefrontOrderType } from "./payment"
 
 const COLUMNS =
@@ -23,17 +24,7 @@ export function buildSettleDeps(db: SupabaseClient, bills: BillsDeps, bundles: B
       if (error) throw error
       return (data as unknown as StorefrontPaidOrder | null) ?? null
     },
-    async markPaid(table, id, patch) {
-      const { data, error } = await db
-        .from(table)
-        .update({ payment_status: "paid", paid_at: patch.paid_at, payment_reference: patch.payment_reference, updated_at: new Date().toISOString() })
-        .eq("id", id)
-        .in("channel", [...COMMISSION_CHANNELS])
-        .eq("payment_status", "unpaid")
-        .select("id")
-      if (error) throw error
-      return data?.length ?? 0
-    },
+    markPaid: (table, id, patch) => markCommissionOrderPaid(db, table, id, patch, { channels: COMMISSION_CHANNELS }),
     async insertShopProfit(row) {
       const { error } = await db.from("shop_profits").insert([row])
       if (error) throw error

@@ -207,6 +207,19 @@ describe("confirmCommissionOrder: bot orders", () => {
     expect(m.alerts[0].m).toContain("second payment")
   })
 
+  it("shop bot paid after it was failed => flipped paid, NOT sent, NO shop share, urgent refund alert", async () => {
+    const m = make({ bundles: [botBundle({ status: "failed" })] })
+    const r = await confirmBotOrder(m.d, "hubtel_data_orders", "d1", BUNDLE_PAY)
+    expect(r).toEqual({ outcome: "confirmed", status: "failed" })
+    expect(m.tables.hubtel_data_orders[0]).toMatchObject({ payment_status: "paid", status: "failed" })
+    expect(m.purchases).toHaveLength(0)
+    expect(m.profits).toEqual([])
+    expect(m.alerts.some(a => a.urgent && a.m.includes("refund"))).toBe(true)
+    // A replay of the same payment credits nothing either.
+    expect((await confirmBotOrder(m.d, "hubtel_data_orders", "d1", BUNDLE_PAY)).outcome).toBe("already_processed")
+    expect(m.profits).toEqual([])
+  })
+
   it("confirmBotOrder refuses storefront and dashboard rows; confirmCommissionOrder refuses dashboard", async () => {
     const sf = make({ bills: [botBill({ channel: "storefront", shop_id: "shop1" })] })
     expect((await confirmBotOrder(sf.d, "hubtel_bill_orders", "b1", BILL_PAY)).outcome).toBe("refused")

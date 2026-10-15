@@ -283,12 +283,16 @@ describe("confirmStorefrontOrder", () => {
     expect(m3.purchases).toHaveLength(1)
   })
 
-  it("paid while the order is no longer pending => not dispatched, urgent refund alert", async () => {
+  it("paid while the order is no longer pending => not dispatched, NO shop share, urgent refund alert", async () => {
     const m = make({ bills: [billRow({ status: "failed" })] })
     const r = await confirmStorefrontOrder(m.d, "hubtel_bill_orders", "b1", PAY)
     expect(r).toEqual({ outcome: "confirmed", status: "failed" })
     expect(m.purchases).toHaveLength(0)
+    expect(m.profits).toHaveLength(0)
     expect(m.alerts.some(a => a.urgent && a.m.includes("refund"))).toBe(true)
+    // A replay stays already_processed and still credits nothing.
+    expect((await confirmStorefrontOrder(m.d, "hubtel_bill_orders", "b1", PAY)).outcome).toBe("already_processed")
+    expect(m.profits).toHaveLength(0)
   })
 })
 

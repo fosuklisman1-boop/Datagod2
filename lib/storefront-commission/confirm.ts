@@ -102,7 +102,8 @@ async function alertIfDuplicatePayment(d: ConfirmDeps, order: StorefrontPaidOrde
  * 2. Pesewa-exact amount check against `paid_amount`; a mismatch leaves the order unpaid (admins alerted).
  * 3. Guarded `unpaid -> paid` (+ paid_at, payment_reference).
  * 4. Post-flip steps: credit the shop share (only with a shop and a share > 0; one row per order, 23505 ignored), then
- *    dispatch through the engine's claim. Errors never un-flip the order.
+ *    dispatch through the engine's claim. Errors never un-flip the order. An order that was no longer pending when
+ *    paid (failed / expired) gets neither: it is alerted for a refund.
  * 5. Recovery: when the order is already paid by THIS payment, still pending, never noted and has no Hubtel ledger row
  *    (the flipper died or its flip looked failed), the post-flip steps run again. The share's unique index and the
  *    engine's claim keep that to one share and one Hubtel POST even under concurrent retries.
@@ -155,9 +156,9 @@ export async function confirmCommissionOrder(
     return afterAlreadyPaid(d, table, cur, p)
   }
 
-  // This call flipped the order.
+  // This call flipped the order. A non-pending order (failed / expired, then paid) is never sent and is to be
+  // refunded, so no shop share is credited for it.
   if (order.status !== "pending") {
-    await creditShare(d, table, order)
     await safeAlert(d, `URGENT: ${kind(order)} order ${ref} was paid (ref ${p.reference}) while its status is ${order.status}. Not sent; refund it.`, true)
     return { outcome: "confirmed", status: order.status }
   }
