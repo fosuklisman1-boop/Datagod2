@@ -16,8 +16,10 @@ export const manualGateway: RefundGateway = {
     return settled(`manual: ${ctx.manualReference?.trim() || "no reference"}`.slice(0, 200))
   },
   // A manual refund stuck in processing (ledger settle failed after the admin confirmed): the money already left
-  // by hand, so a re-check completes it with the stored reference.
-  async checkStatus(_ctx, gatewayRef) {
+  // by hand, so a re-check completes it with the stored reference. Commission rows also use gateway 'manual'
+  // (their "Mark refunded manually" path) and must finish through that path, which keeps the note + refund method.
+  async checkStatus(ctx, gatewayRef) {
+    if (isCommissionTable(ctx.order.table)) return { kind: "unknown", error: "Finish this with \"Mark refunded manually\" on the order" }
     return settled(gatewayRef || "manual: no reference")
   },
 }

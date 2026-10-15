@@ -56,7 +56,7 @@ describe("registry", () => {
     expect(getGateway("manual")).toBe(manualGateway)
     expect(getGateway("nope")).toBeUndefined()
   })
-  it("lists manual LAST so it is never the dialog's default (first supported) choice", () => {
+  it("lists manual LAST (the dialog also skips it when choosing a default)", () => {
     expect(listGateways().at(-1)?.id).toBe("manual")
   })
 })
@@ -90,6 +90,11 @@ describe("manualGateway", () => {
   })
   it("a re-check of a stuck manual refund settles it as completed (money was sent by hand)", async () => {
     expect(await manualGateway.checkStatus!(ctx(), "manual: X")).toEqual({ kind: "completed", ref: "manual: X" })
+  })
+  it("never auto-completes a stuck COMMISSION 'Mark refunded manually' row (that path must keep its note + refund method)", async () => {
+    const r = await manualGateway.checkStatus!(ctx({ table: "hubtel_bill_orders" }), null)
+    expect(r.kind).toBe("unknown")
+    if (r.kind === "unknown") expect(r.error).toMatch(/Mark refunded manually/)
   })
 })
 

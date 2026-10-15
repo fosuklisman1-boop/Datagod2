@@ -38,6 +38,13 @@ describe("notifyRefund", () => {
     expect(msg).toContain("has been refunded to you")
     expect(msg).toContain("Please try again in a few hours or days.")
   })
+  it("MANUAL refund: SMS only the payer, never falls back to the (possibly third-party) data recipient", async () => {
+    const { db } = mkDb()
+    await notifyRefund(db, { ...ev(null, "0243334444"), gateway: "manual" })
+    expect(h.calls).toEqual([])
+    await notifyRefund(db, { ...ev("0241112222", "0243334444"), gateway: "manual" })
+    expect(h.calls).toEqual([expect.objectContaining({ phone: "0241112222" })])
+  })
   it("falls back to recipientPhone", async () => {
     const { db } = mkDb()
     await notifyRefund(db, ev(null))

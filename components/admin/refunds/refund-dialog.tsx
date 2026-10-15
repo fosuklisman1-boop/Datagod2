@@ -91,7 +91,8 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
         const w = json?.eligibility?.eligible === true && typeof json.eligibility.warning === "string" ? json.eligibility.warning : null
         setOverrideWarning(w)
         setAmount(Number(json.defaultAmount).toFixed(2))
-        setGateway(json.gateways.find((g: PreviewPayload["gateways"][number]) => g.ok)?.id ?? "")
+        // Never pre-select Manual: a hand payout must be a deliberate choice, even when it is the only option.
+        setGateway(json.gateways.find((g: PreviewPayload["gateways"][number]) => g.ok && g.id !== "manual")?.id ?? "")
       } catch (e) {
         if (cancelled) return
         toast.error(e instanceof Error ? e.message : "Preview failed")
@@ -139,6 +140,13 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
       }
       if (outcome.kind === "error" || outcome.kind === "auth" || outcome.kind === "settle_failed") {
         setConfirmed(false)
+        if (isManual && outcome.kind !== "settle_failed") {
+          // The admin has already paid the customer by hand: say loudly that nothing was recorded (no clawback,
+          // order not marked refunded) and keep the dialog open so the reference and reason stay visible.
+          setError(`Your hand payment was NOT recorded: ${outcome.message}. Do not send the money again. Check History; if the order is not refunded there, record it with support before doing anything else.`)
+          onReload()
+          return
+        }
         const t = treatAsAmbiguous(outcome)
         if (outcome.kind === "settle_failed") onOutcome(outcome)
         else if (t === "ambiguous") toast.error("Outcome unknown — check History before retrying")

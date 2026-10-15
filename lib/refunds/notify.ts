@@ -33,9 +33,10 @@ export async function notifyRefund(db: SupabaseClient, e: RefundNotification): P
   // orders/api_orders: the buyer is the ACCOUNT HOLDER; the data recipient is a third party and is never told.
   // Storefront commission orders: only the recorded payer / buyer number; the recipient (airtime/bundle beneficiary)
   // may be a third party, so no number => no SMS.
+  // Manual refunds were paid by hand to whoever the admin chose: only the recorded payer is safe to tell.
   const phone = walletOnly
     ? await accountPhone(db, e.order.buyerUserId)
-    : isCommissionTable(e.order.table)
+    : isCommissionTable(e.order.table) || e.gateway === "manual"
       ? e.order.payment.payerPhone
       : (e.order.payment.payerPhone ?? e.order.recipientPhone)
   if (phone) {

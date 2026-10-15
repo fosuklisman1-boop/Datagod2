@@ -24,6 +24,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (!g) return badRequest("Invalid gateway")
       gateway = g
     }
+    // A hand payout needs the customer card, the amount check and the reference: start it from the Refund dialog.
+    if (gateway === "manual") return badRequest("Manual refunds are started from the Refund dialog, not retried")
     let amount = Number(prev.amount)
     if (body.amount !== undefined) {
       const a = parseAmount(body.amount)
