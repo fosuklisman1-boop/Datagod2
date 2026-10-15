@@ -11,7 +11,9 @@ import { CATEGORY_ORDER, type BundleNetwork } from "@/lib/standard-bundles/categ
 import type { BotContext } from "@/lib/bot-commission/context"
 import type { BotCatalogResult } from "@/lib/bot-commission/catalog"
 import { toLocalPhone, USSD_SCREEN_LIMIT } from "../protocol"
-import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
+import {
+  backToMain, failOrphanEngineOrder, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable,
+} from "../flow-kit"
 import { clip, fitListScreen, noProductWords, pageSlice } from "../screen-fit"
 import { backToProduct } from "./shop"
 import type { HubtelReply, HubtelSession, NpPlan } from "../types"
@@ -203,13 +205,18 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const plan = session.npPlan
   if (!bc || !plan || !session.npRecipient) return finish(ctx, NP_TEXT.unavailable)
 
+  const key = npIdempotencyKey(req.SessionId)
   let r
   try {
-    r = await deps.networkPlans.createOrder(bc, {
-      token: plan.t, recipient: session.npRecipient, idempotencyKey: npIdempotencyKey(req.SessionId), expectedPay: plan.p,
-    })
+    r = await deps.networkPlans.createOrder(bc, { token: plan.t, recipient: session.npRecipient, idempotencyKey: key, expectedPay: plan.p })
   } catch (e) {
     console.error("[HUBTEL-NP] createOrder threw:", e instanceof Error ? e.message : "error", "session:", req.SessionId)
+    // It may have committed before throwing: an order under this key would sit pending + unpaid with no checkout.
+    const orphan = await deps.networkPlans.findOrderId(bc, key).catch((err: unknown) => {
+      console.error("[HUBTEL-NP] orphan lookup failed:", err instanceof Error ? err.message : "error", "session:", req.SessionId)
+      return null
+    })
+    if (orphan) await failOrphanEngineOrder(deps, "hubtel_data_orders", orphan, "HUBTEL-NP", req.SessionId)
     return finish(ctx, NP_TEXT.unavailable)
   }
   if (!r.ok) {
@@ -224,6 +231,9 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const open = row as { status?: string; payment_status?: string } | null
   if (error || open?.status !== "pending" || open?.payment_status !== "unpaid") {
     console.error("[HUBTEL-NP] Engine order is not open; refusing to cart:", r.order.id, open?.status ?? null, open?.payment_status ?? null, "session:", req.SessionId)
+    // Read error / no row: its state is unknown, so fail it (guarded: only a still pending + unpaid bots row is
+    // touched). A row read as not open is already paid or closed: the guarded patch could not touch it anyway.
+    if (error || !open) await failOrphanEngineOrder(deps, "hubtel_data_orders", r.order.id, "HUBTEL-NP", req.SessionId)
     return finish(ctx, NP_TEXT.unavailable)
   }
   return submitOrder(ctx, { table: "hubtel_data_orders", orderId: r.order.id, price: r.order.payAmount, logTag: "HUBTEL-NP" })

@@ -137,6 +137,45 @@ export async function replaySubmittedOrder(
   })
 }
 
+/**
+ * Mark an order failed with its table's fail patch plus the table's guards, so only a still-open row is touched.
+ * `engine` (an engine-created order: not ours, the engine may hand back an existing row) also guards on a payable
+ * payment_status, as guardedFailUpdate in order-handlers.ts: a paid order is never failed. Never throws.
+ */
+export async function failOrderGuarded(
+  supabase: SupabaseClient, table: HubtelOrderTable, id: string, engine: boolean, logTag: string,
+): Promise<void> {
+  const spec = ORDER_TABLES[table]
+  try {
+    let q = supabase.from(table).update(spec.failPatch()).eq("id", id)
+    if (engine) q = q.in("payment_status", [...spec.payableStatuses])
+    for (const [column, values] of Object.entries(spec.failGuards ?? {})) q = q.in(column, [...values])
+    const { error } = await q
+    if (error) console.error(`[${logTag}] Failed to mark order failed:`, id, safeDbError(error))
+  } catch (e) {
+    console.error(`[${logTag}] Failed to mark order failed:`, id, safeDbError(e))
+  }
+}
+
+/**
+ * An engine order that will NOT be carted this request (createOrder threw after committing, or its read-back
+ * errored / was not open): fail it with the guarded fail patch so it never sits pending + unpaid with no
+ * hubtel_transactions row (the expiry sweep only sees orders with one). Skipped when a tx row already tracks the
+ * order (a concurrent CONFIRM carted it; the customer may be paying), or when that check itself fails.
+ */
+export async function failOrphanEngineOrder(
+  deps: RouterDeps, table: HubtelOrderTable, id: string, logTag: string, sid: string,
+): Promise<void> {
+  const { data: tx, error } = await deps.supabase.from("hubtel_transactions").select("order_id").eq("order_table", table).eq("order_id", id).maybeSingle()
+  if (error) {
+    console.error(`[${logTag}] Orphan check failed; leaving engine order as is:`, id, "session:", sid, safeDbError(error))
+    return
+  }
+  if (tx) return
+  console.error(`[${logTag}] Failing uncarted engine order:`, id, "session:", sid)
+  await failOrderGuarded(deps.supabase, table, id, true, logTag)
+}
+
 /** The order is inserted here from `row` (every flow except the commission bots). */
 export interface SubmitNewOrder { table: HubtelOrderTable; row: Record<string, unknown>; price: number; logTag: string; orderId?: never }
 /**
@@ -157,21 +196,9 @@ export async function submitOrder(ctx: FlowCtx, args: SubmitNewOrder | SubmitCre
   const { deps, req, session } = ctx
   const sid = req.SessionId
   const platform = req.Platform
-  const spec = ORDER_TABLES[args.table]
   const created = typeof args.orderId === "string"
 
-  /**
-   * Mark the order failed (fail patch; plus the table's guards so only a still-open row is touched). An
-   * engine-created order is not ours (the engine may hand back an existing row), so it is also guarded on a
-   * payable payment_status, as guardedFailUpdate in order-handlers.ts: a paid order is never failed.
-   */
-  const rollback = async (id: string) => {
-    let q = deps.supabase.from(args.table).update(spec.failPatch()).eq("id", id)
-    if (created) q = q.in("payment_status", [...spec.payableStatuses])
-    for (const [column, values] of Object.entries(spec.failGuards ?? {})) q = q.in(column, [...values])
-    const { error: rollbackError } = await q
-    if (rollbackError) console.error(`[${args.logTag}] Failed to mark order failed after tx insert error:`, id, safeDbError(rollbackError))
-  }
+  const rollback = (id: string) => failOrderGuarded(deps.supabase, args.table, id, created, args.logTag)
 
   if (!(Number.isFinite(args.price) && args.price > 0)) {
     console.error(`[${args.logTag}] Refusing to AddToCart a non-positive price:`, args.price, "session:", sid)

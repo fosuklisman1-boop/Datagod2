@@ -28,6 +28,8 @@ export interface FakeSupabaseOpts {
   txConflictRow?: unknown
   /** Tables whose insert(...).select().single() fails. */
   failInsert?: string[]
+  /** Tables whose .single()/.maybeSingle() read returns an error. */
+  readError?: string[]
 }
 
 export function fakeSupabase(opts: FakeSupabaseOpts = {}) {
@@ -39,7 +41,9 @@ export function fakeSupabase(opts: FakeSupabaseOpts = {}) {
   const updates: Array<{ table: string; patch: any }> = []
   // Successful inserts become readable, so a replayed CONFIRM sees what the first one wrote.
   const stored: Record<string, unknown> = {}
-  const read = async (table: string) => ({ data: fixed[table] ?? stored[table] ?? null, error: null })
+  const read = async (table: string) => ((opts.readError ?? []).includes(table)
+    ? { data: null, error: { message: "read failed" } }
+    : { data: fixed[table] ?? stored[table] ?? null, error: null })
 
   const client: any = {
     from(table: string) {
@@ -64,7 +68,19 @@ export function fakeSupabase(opts: FakeSupabaseOpts = {}) {
           }
           return ib
         },
-        update(patch: any) { updates.push({ table, patch }); return b },
+        update(patch: any) {
+          // `filters` (the .eq/.in guards of this update) is non-enumerable: toEqual on `updates` ignores it.
+          const u: any = { table, patch }
+          const filters: any[] = []
+          Object.defineProperty(u, "filters", { value: filters, enumerable: false })
+          updates.push(u)
+          const ub: any = {
+            eq(c: string, v: unknown) { filters.push(["eq", c, v]); return ub },
+            in(c: string, v: unknown) { filters.push(["in", c, v]); return ub },
+            then: (res: any) => res({ error: null }),
+          }
+          return ub
+        },
         then: (res: any) => res({ error: null }),
       }
       return b
@@ -166,6 +182,10 @@ export function fakeNetworkPlans(over: Partial<NetworkPlansServices> & { createR
       byKey.set(key, r)
       return r
     },
+    findOrderId: async (_ctx, key) => {
+      const r = byKey.get(key)
+      return r?.ok ? r.order.id : null
+    },
     ...rest,
   }
   return svc
@@ -222,6 +242,10 @@ export function fakePayBills(over: Partial<PayBillsServices> & { createResult?: 
       }
       byToken.set(key, r)
       return r
+    },
+    findOrderId: async (_ctx, token) => {
+      const r = byToken.get(token)
+      return r?.ok ? r.order.id : null
     },
     ...rest,
   }

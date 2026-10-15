@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from "vitest"
 import { hubtelRouter } from "../router"
 import { BOT_ORDER_ID, fakePayBills, fakeShop, fakeSupabase, makeDeps, req, SHOP_CONFIG } from "../testing/fakes"
-import { consentScreen, payBillConfirmText, PB_TEXT, startPayBills } from "./pay-bills"
+import { amountScreen, consentScreen, payBillConfirmText, PB_TEXT, startPayBills } from "./pay-bills"
 import { USSD_SCREEN_LIMIT } from "../protocol"
 import type { HubtelReply, HubtelSession } from "../types"
 import type { FlowCtx } from "../flow-kit"
@@ -13,30 +13,35 @@ const SHOP_UUID = "11111111-2222-4333-8444-555555555555"
 const OPEN_ROW = { id: BOT_ORDER_ID, status: "pending", payment_status: "unpaid" }
 const MAIN_CTX = { botSurface: "hubtel_ussd", shopId: null, rail: "hubtel", buyerPhone: ME }
 
-type Setup = ReturnType<typeof makeDeps> & { pb: ReturnType<typeof fakePayBills> }
+/** `screens`: every reply this setup's `begin` / `send` produced (this flow's screens only). */
+type Setup = ReturnType<typeof makeDeps> & { pb: ReturnType<typeof fakePayBills>; screens: HubtelReply[] }
 
 function setup(opts: { pb?: Parameters<typeof fakePayBills>[0]; sup?: ReturnType<typeof fakeSupabase>; session?: Partial<HubtelSession>; shop?: boolean } = {}): Setup {
   const pb = fakePayBills(opts.pb)
   const sup = opts.sup ?? fakeSupabase({ rows: { hubtel_bill_orders: OPEN_ROW } })
   const made = makeDeps({ payBills: pb, ...(opts.shop ? { getConfig: SHOP_CONFIG, shop: fakeShop() } : {}) }, sup)
   made.store.set(SID, { mode: "main", step: "MAIN", dialingPhone: ME, platform: "USSD", ...opts.session })
-  return { ...made, pb }
+  return { ...made, pb, screens: [] }
 }
 
-const all: HubtelReply[] = []
 async function begin(s: Setup): Promise<HubtelReply> {
   const ctx: FlowCtx = { input: "", req: req({ SessionId: SID }), deps: s.deps, config: await s.deps.getConfig(), session: s.store.get(SID)! }
   const r = await startPayBills(ctx)
-  all.push(r)
+  s.screens.push(r)
   return r
 }
 async function send(s: Setup, ...inputs: string[]): Promise<HubtelReply> {
   let r!: HubtelReply
   for (const m of inputs) {
     r = await hubtelRouter(req({ SessionId: SID, Message: m }), s.deps)
-    all.push(r)
+    s.screens.push(r)
   }
   return r
+}
+/** A screen fitMessage did not have to cut: no "..." and its own footer intact. */
+const whole = (r: HubtelReply, footer: string) => {
+  expect(r.Message.endsWith("...")).toBe(false)
+  expect(r.Message.endsWith(footer)).toBe(true)
 }
 const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {})
 
@@ -55,13 +60,13 @@ describe("pay bills: biller list", () => {
   it("lists the USSD billers; Ghana Water is never offered", async () => {
     const s = setup()
     const r = await begin(s)
-    expect(r.Message).toBe("Pay Bills\n1. ECG\n2. DStv\n3. GOtv\n4. StarTimes\n5. Telecel Broadband\n0. Back")
+    expect(r.Message).toBe("Pay Bills\n1. ECG\n2. DStv\n3. GOtv\n4. StarTimes\n5. Telecel Broadband\n0 Back")
     expect(r.Message).not.toMatch(/water/i)
     expect(s.store.get(SID)?.pbBillers?.map(b => b.key)).toEqual(["ecg", "dstv", "gotv", "startimes", "telecel_broadband"])
   })
   it("only billers that are switched on are listed; none (or only Ghana Water) => not available", async () => {
     const some = setup({ pb: { billers: async () => [{ key: "gotv", min: 5, max: 500 }, { key: "ecg", min: 1, max: 1000 }] } })
-    expect((await begin(some)).Message).toBe("Pay Bills\n1. GOtv\n2. ECG\n0. Back")
+    expect((await begin(some)).Message).toBe("Pay Bills\n1. GOtv\n2. ECG\n0 Back")
     const water = setup({ pb: { billers: async () => [{ key: "ghana_water", min: 1, max: 1000 }] } })
     const r = await begin(water)
     expect(r.Type).toBe("release")
@@ -386,6 +391,74 @@ describe("pay bills: confirm", () => {
     expect(r.Message).toBe("Order cancelled.")
     expect(s.pb.calls.create).toHaveLength(0)
   })
+  it("concurrent confirm lost the tx insert (23505): the winner's cart replays, the shared order is not failed", async () => {
+    const sup = fakeSupabase({
+      rows: { hubtel_bill_orders: OPEN_ROW },
+      txConflictRow: { order_table: "hubtel_bill_orders", order_id: BOT_ORDER_ID, expected_amount: 49, state: "awaiting_payment" },
+    })
+    const s = setup({ sup })
+    await ecgToConfirm(s)
+    quiet()
+    const r = await send(s, "1")
+    vi.restoreAllMocks()
+    expect(s.pb.calls.create).toHaveLength(1)
+    expect(sup.updates).toEqual([]) // no rollback of the order the winner carted
+    expect(r.Type).toBe("AddToCart")
+    expect(r.Item).toEqual({ ItemName: "CH order 22222222", Qty: 1, Price: 49 })
+    expect(s.store.has(SID)).toBe(false)
+  })
+})
+
+describe("pay bills: orphan engine orders are failed (guarded)", () => {
+  /** The guarded bot fail patch on this order: pending + unpaid + channel bots only. */
+  const expectGuardedFail = (sup: ReturnType<typeof fakeSupabase>) => {
+    expect(sup.updates).toEqual([{ table: "hubtel_bill_orders", patch: expect.objectContaining({ status: "failed", failure_reason: "payment not completed" }) }])
+    expect((sup.updates[0] as any).filters).toEqual([
+      ["eq", "id", BOT_ORDER_ID], ["in", "payment_status", ["unpaid"]], ["in", "channel", ["bots"]], ["in", "status", ["pending"]],
+    ])
+    expect(sup.updates[0].patch).not.toHaveProperty("payment_status")
+  }
+  it.each([
+    ["the read-back returns no row", { rows: {} }],
+    ["the read-back errors", { rows: { hubtel_bill_orders: OPEN_ROW }, readError: ["hubtel_bill_orders"] }],
+  ])("%s: not carted, the order is failed and its id logged", async (_why, opts) => {
+    const sup = fakeSupabase(opts)
+    const s = setup({ sup })
+    await ecgToConfirm(s)
+    const err = quiet()
+    const r = await send(s, "1")
+    const logged = err.mock.calls.map(c => c.join(" "))
+    vi.restoreAllMocks()
+    expect(r).toMatchObject({ Type: "release", Message: PB_TEXT.unavailable })
+    expect(sup.inserts.hubtel_transactions).toBeUndefined()
+    expectGuardedFail(sup)
+    expect(logged.some(l => l.includes("Failing uncarted engine order") && l.includes(BOT_ORDER_ID))).toBe(true)
+  })
+  it("createOrder threw after committing: the order found by this verify token is failed", async () => {
+    const findOrderId = vi.fn(async () => BOT_ORDER_ID)
+    const sup = fakeSupabase({ rows: { hubtel_bill_orders: OPEN_ROW } })
+    const s = setup({ sup, pb: { createOrder: async () => { throw new Error("socket hang up") }, findOrderId } })
+    await ecgToConfirm(s)
+    quiet()
+    const r = await send(s, "1")
+    vi.restoreAllMocks()
+    expect(r.Message).toBe(PB_TEXT.unavailable)
+    expect(findOrderId).toHaveBeenCalledWith(MAIN_CTX, "tok-ecg-P1234567")
+    expect(sup.inserts.hubtel_transactions).toBeUndefined()
+    expectGuardedFail(sup)
+  })
+  it("createOrder threw before committing (nothing found) or the lookup failed: nothing to fail", async () => {
+    for (const findOrderId of [async () => null, async () => { throw new Error("db down") }]) {
+      const sup = fakeSupabase({ rows: { hubtel_bill_orders: OPEN_ROW } })
+      const s = setup({ sup, pb: { createOrder: async () => { throw new Error("boom") }, findOrderId } })
+      await ecgToConfirm(s)
+      quiet()
+      const r = await send(s, "1")
+      vi.restoreAllMocks()
+      expect(r.Message).toBe(PB_TEXT.unavailable)
+      expect(sup.updates).toEqual([])
+    }
+  })
 })
 
 describe("pay bills: shop vs main context", () => {
@@ -419,12 +492,21 @@ describe("pay bills: shop vs main context", () => {
 })
 
 describe("pay bills: screen limits", () => {
-  it("long names, accounts and amounts stay within 182 chars", async () => {
+  it("long names, accounts and amounts: the flow shortens them, fitMessage never cuts a footer", async () => {
     const long = "Z".repeat(200)
-    const s = setup({ pb: { verify: async () => ({ ok: true, customerName: long, amountDue: 99999.99, suggestedAmount: 0, token: "t" }) } })
+    const s = setup({ pb: {
+      billers: async () => [{ key: "dstv", min: 10000, max: 99999.99 }],
+      verify: async () => ({ ok: true, customerName: long, amountDue: 99999.99, suggestedAmount: 0, token: "t" }),
+    } })
     await begin(s)
-    const screens = [await send(s, "2", "A".repeat(30)), await send(s, "1000")]
-    for (const r of screens) expect(r.Message.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
+    const prompt = await send(s, "1", "A".repeat(30))
+    whole(prompt, "):\n0 Back")
+    expect(prompt.Message).toContain("Name: ZZZZ") // the name is shortened, not dropped, when it can be
+    // The re-prompt adds the range line: the name gives way first, the prompt and "0 Back" stay whole (review b).
+    const reprompt = await send(s, "5")
+    whole(reprompt, "Enter amount (GHS 10000.00 - 99999.99):\n0 Back")
+    expect(reprompt.Message.startsWith("Enter an amount from GHS 10000.00 to GHS 99999.99.\nDStv AAAA")).toBe(true)
+    whole(await send(s, "99999.99"), "\n1 Confirm 2 Cancel")
     const worst = payBillConfirmText({ pbBiller: "telecel_broadband", pbAccount: "X".repeat(300), pbMeterType: "postpaid", pbFace: 99999.99, pbPay: 99999.98 })
     expect(worst.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
     expect(worst.endsWith("\n1 Confirm 2 Cancel")).toBe(true)
@@ -435,16 +517,47 @@ describe("pay bills: screen limits", () => {
     const s = setup({ pb: { verify: async () => ({ ok: true, customerName: null, amountDue: null, suggestedAmount: 0, meters }) } })
     await begin(s)
     const r = await send(s, "1", "1")
-    expect(r.Message.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
-    expect(r.Message.endsWith("00 Back")).toBe(true)
+    whole(r, "\n00 Back")
+  })
+  it("amountScreen: name shortened first, then dropped, then the account; prompt + 0 Back always whole", () => {
+    const base = { pbBiller: "dstv", pbMin: 10000, pbMax: 99999.99, pbDue: 99999.99 } as const
+    const prefix = "Enter an amount from GHS 10000.00 to GHS 99999.99.\n"
+    for (const [name, account] of [["N".repeat(500), "A".repeat(30)], [null, "A".repeat(300)], ["N".repeat(500), "A".repeat(300)]] as const) {
+      const t = amountScreen({ ...base, pbName: name ?? undefined, pbAccount: account } as HubtelSession, prefix)
+      expect(t.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
+      expect(t.startsWith(prefix + "DStv A")).toBe(true)
+      expect(t.endsWith("Due: GHS 99999.99\nEnter amount (GHS 10000.00 - 99999.99):\n0 Back")).toBe(true)
+    }
+    // Room for the account but not for a 4+ char name: the name line is dropped, the account kept whole.
+    const tight = amountScreen({ ...base, pbName: "N".repeat(40), pbAccount: "A".repeat(30) } as HubtelSession, prefix + "X".repeat(25) + "\n")
+    expect(tight).not.toContain("Name:")
+    expect(tight).toContain("DStv " + "A".repeat(30))
+    // Short enough: unchanged.
+    expect(amountScreen({ ...base, pbName: "Ama", pbAccount: "123456" } as HubtelSession)).toBe(
+      "DStv 123456\nName: Ama\nDue: GHS 99999.99\nEnter amount (GHS 10000.00 - 99999.99):\n0 Back",
+    )
   })
 })
 
 describe("pay bills: wording", () => {
-  it("every screen in this file's runs is <= 182 chars and never says data or bundle", () => {
-    expect(all.length).toBeGreaterThan(50)
-    for (const r of all) {
+  it("every screen of a full run of every path fits uncut and never says data, bundle or water (self-contained)", async () => {
+    const screens: HubtelReply[] = []
+    const run = async (s: Setup, ...inputs: string[]) => { await begin(s); await send(s, ...inputs); screens.push(...s.screens) }
+    await run(setup(), "9", "1", "9", "1", "00", "1", "1", "abc", "50", "7", "1") // ECG this number => cart
+    await run(setup(), "1", "2", "12", "020 123 4567", "x", "P9999999", "2", "1", "20", "1") // other number + consent
+    await run(setup(), "1", "3", "P5555555", "1", "0", "1", "1", "10", "2") // meter number, consent, cancel
+    await run(setup({ session: { dialingPhone: "+233201234567" } }), "1", "1", "P5555555", "2", "2")
+    await run(setup(), "2", "12", "7012345678", "45.50", "1") // DStv
+    await run(setup(), "3", "7012345678", "0") // GOtv, back to billers
+    await run(setup(), "4", "1234567890", "100") // StarTimes
+    await run(setup(), "5", "302", "0302450262", "0", "0302450262", "P0444101", "30", "1") // Telecel Broadband
+    await run(setup({ pb: { verify: async () => ({ ok: false, status: 422, error: "PROVIDER" }) } }), "2", "7012345678")
+    await run(setup({ pb: { createResult: { ok: false, status: 409, error: "Price updated" } } }), "2", "7012345678", "45.50", "1")
+    await run(setup({ shop: true, session: { mode: "shop", shopId: SHOP_UUID, shopName: "Ama Data Hub" } }), "1", "1", "1", "50", "1")
+    expect(screens.length).toBeGreaterThan(50)
+    for (const r of screens) {
       expect(r.Message.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
+      expect(r.Message.endsWith("...")).toBe(false)
       expect(r.Message).not.toMatch(/data|bundle|water/i)
       if (r.Item) expect(r.Item.ItemName).not.toMatch(/data|bundle|bill|ecg|dstv/i)
     }

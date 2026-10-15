@@ -77,10 +77,24 @@ export function defaultAirtimeServices(supabase: SupabaseClient): AirtimeService
 export interface NetworkPlansServices {
   catalog(ctx: BotContext, network: BundleNetwork): Promise<BotCatalogResult>
   createOrder(ctx: BotContext, input: BotBundleOrderInput): Promise<BotOrderResult>
+  /**
+   * Id of the engine order this buyer already created under `idempotencyKey`, or null. Used after createOrder
+   * threw (it may have committed) so the orphan can be failed. Throws on read error.
+   */
+  findOrderId(ctx: BotContext, idempotencyKey: string): Promise<string | null>
 }
 
 export function defaultNetworkPlansServices(): NetworkPlansServices {
   return {
+    async findOrderId(ctx, idempotencyKey) {
+      const [{ getBotBundlesRuntime }, { resolveBotContext }] = await Promise.all([
+        import("@/lib/bot-commission/runtime"), import("@/lib/bot-commission/context"),
+      ])
+      const r = resolveBotContext(ctx)
+      if (!r.ok) return null
+      const row = await getBotBundlesRuntime().deps.findBotBundleOrder(r.ctx.botSurface, r.ctx.buyerPhone, idempotencyKey)
+      return row?.id ?? null
+    },
     async catalog(ctx, network) {
       const [{ getBotBundlesRuntime }, { botCatalog }] = await Promise.all([
         import("@/lib/bot-commission/runtime"), import("@/lib/bot-commission/catalog"),
@@ -112,6 +126,11 @@ export interface PayBillsServices {
   /** The price the engine will charge for `faceAmount` (quoteBots, same config source as botCreateBillOrder). Throws on read error. */
   quote(ctx: BotContext, biller: BillerKey, faceAmount: number): Promise<StorefrontQuote>
   createOrder(ctx: BotContext, input: BotBillOrderInput): Promise<BotOrderResult>
+  /**
+   * Id of the engine order this buyer already created from verify `token`, or null. Used after createOrder threw
+   * (it may have committed) so the orphan can be failed. Throws on read error.
+   */
+  findOrderId(ctx: BotContext, token: string): Promise<string | null>
 }
 
 export function defaultPayBillsServices(): PayBillsServices {
@@ -135,6 +154,15 @@ export function defaultPayBillsServices(): PayBillsServices {
     async createOrder(ctx, input) {
       const [{ deps }, { botCreateBillOrder }] = await Promise.all([runtime(), import("@/lib/bot-commission/orders")])
       return botCreateBillOrder(deps, ctx, input)
+    },
+    async findOrderId(ctx, token) {
+      const [{ deps }, { resolveBotContext }, { billTokenHash }] = await Promise.all([
+        runtime(), import("@/lib/bot-commission/context"), import("@/lib/bills/service"),
+      ])
+      const r = resolveBotContext(ctx)
+      if (!r.ok) return null
+      const row = await deps.findBotBillOrderByHash(r.ctx.botSurface, r.ctx.buyerPhone, billTokenHash(token))
+      return row?.id ?? null
     },
   }
 }

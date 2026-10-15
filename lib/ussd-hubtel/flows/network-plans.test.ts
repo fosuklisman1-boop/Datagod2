@@ -12,24 +12,29 @@ const ME = "+233244123456" // MTN
 const SHOP_UUID = "11111111-2222-4333-8444-555555555555"
 const OPEN_ROW = { id: BOT_ORDER_ID, status: "pending", payment_status: "unpaid" }
 
-type Setup = ReturnType<typeof makeDeps> & { np: ReturnType<typeof fakeNetworkPlans> }
+/** `screens`: every reply this setup's `send` produced (this flow's screens only). */
+type Setup = ReturnType<typeof makeDeps> & { np: ReturnType<typeof fakeNetworkPlans>; screens: HubtelReply[] }
 
 function setup(opts: { np?: Parameters<typeof fakeNetworkPlans>[0]; sup?: ReturnType<typeof fakeSupabase>; session?: Partial<HubtelSession>; shop?: boolean } = {}): Setup {
   const np = fakeNetworkPlans(opts.np)
   const sup = opts.sup ?? fakeSupabase({ rows: { hubtel_data_orders: OPEN_ROW } })
   const made = makeDeps({ networkPlans: np, ...(opts.shop ? { getConfig: SHOP_CONFIG, shop: fakeShop() } : {}) }, sup)
   made.store.set(SID, { mode: "main", step: "NP_NETWORK", dialingPhone: ME, platform: "USSD", ...opts.session })
-  return { ...made, np }
+  return { ...made, np, screens: [] }
 }
 
-const all: HubtelReply[] = []
 async function send(s: Setup, ...inputs: string[]): Promise<HubtelReply> {
   let r!: HubtelReply
   for (const m of inputs) {
     r = await hubtelRouter(req({ SessionId: SID, Message: m }), s.deps)
-    all.push(r)
+    s.screens.push(r)
   }
   return r
+}
+/** A screen fitMessage did not have to cut: no "..." and its own footer intact. */
+const whole = (r: HubtelReply, footer: string) => {
+  expect(r.Message.endsWith("...")).toBe(false)
+  expect(r.Message.endsWith(footer)).toBe(true)
 }
 const toConfirm = (s: Setup) => send(s, "1", "1", "1", "1") // MTN, Internet, first plan, my number
 
@@ -96,12 +101,12 @@ describe("network plans: paging (5 per screen, 0 Next / 00 Back)", () => {
     await send(s, "1", "1", "0", "2")
     expect(s.store.get(SID)).toMatchObject({ step: "NP_RECIPIENT", npPlan: { t: "tok-Data-6", d: "7GB", f: 16, p: 15.5 } })
   })
-  it("long plan names are shortened so every screen stays <= 182 chars", async () => {
+  it("long plan names are shortened by the flow (never cut by fitMessage): footers survive", async () => {
     const long = (i: number) => `MTN Data Bundle super saver plan with a very long description number ${i} valid 30 days`
     const s = setup({ np: { catalog: async () => ({ ok: true, categories: [{ name: "Data", bundles: fakePlans("Data", 7, long) }] }) } })
     const screens = [await send(s, "1"), await send(s, "1"), await send(s, "0"), await send(s, "1"), await send(s, "1")]
-    for (const r of screens) {
-      expect(r.Message.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
+    for (const [r, footer] of [[screens[0], "0. Back"], [screens[1], "0 Next\n00 Back"], [screens[2], "00 Back"], [screens[3], "0. Back"], [screens[4], "1 Confirm 2 Cancel"]] as const) {
+      whole(r, footer)
       expect(r.Message).not.toMatch(/data|bundle/i)
     }
     expect(screens[1].Message).toContain("GHS 13.50\n0 Next\n00 Back")
@@ -243,6 +248,58 @@ describe("network plans: confirm", () => {
     expect(r.Message).toBe(NP_TEXT.unavailable)
     expect(s.sup.inserts.hubtel_transactions).toBeUndefined()
   })
+})
+
+describe("network plans: orphan engine orders are failed (guarded)", () => {
+  /** The guarded bot fail patch on this order: pending + unpaid + channel bots only. */
+  const expectGuardedFail = (sup: ReturnType<typeof fakeSupabase>) => {
+    expect(sup.updates).toEqual([{ table: "hubtel_data_orders", patch: expect.objectContaining({ status: "failed", failure_reason: "payment not completed" }) }])
+    expect((sup.updates[0] as any).filters).toEqual([
+      ["eq", "id", BOT_ORDER_ID], ["in", "payment_status", ["unpaid"]], ["in", "channel", ["bots"]], ["in", "status", ["pending"]],
+    ])
+    expect(sup.updates[0].patch).not.toHaveProperty("payment_status")
+  }
+  it.each([
+    ["the read-back returns no row", { rows: {} }],
+    ["the read-back errors", { rows: { hubtel_data_orders: OPEN_ROW }, readError: ["hubtel_data_orders"] }],
+  ])("%s: not carted, the order is failed and its id logged", async (_why, opts) => {
+    const sup = fakeSupabase(opts)
+    const s = setup({ sup })
+    await toConfirm(s)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await send(s, "1")
+    const logged = err.mock.calls.map(c => c.join(" "))
+    vi.restoreAllMocks()
+    expect(r).toMatchObject({ Type: "release", Message: NP_TEXT.unavailable })
+    expect(sup.inserts.hubtel_transactions).toBeUndefined()
+    expectGuardedFail(sup)
+    expect(logged.some(l => l.includes("Failing uncarted engine order") && l.includes(BOT_ORDER_ID))).toBe(true)
+  })
+  it("createOrder threw after committing: the order found under this session's key is failed", async () => {
+    const findOrderId = vi.fn(async () => BOT_ORDER_ID)
+    const sup = fakeSupabase({ rows: { hubtel_data_orders: OPEN_ROW } })
+    const s = setup({ sup, np: { createOrder: async () => { throw new Error("socket hang up") }, findOrderId } })
+    await toConfirm(s)
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await send(s, "1")
+    vi.restoreAllMocks()
+    expect(r.Message).toBe(NP_TEXT.unavailable)
+    expect(findOrderId).toHaveBeenCalledWith({ botSurface: "hubtel_ussd", shopId: null, rail: "hubtel", buyerPhone: ME }, SID)
+    expect(sup.inserts.hubtel_transactions).toBeUndefined()
+    expectGuardedFail(sup)
+  })
+  it("createOrder threw before committing (nothing found) or the lookup failed: nothing to fail", async () => {
+    for (const findOrderId of [async () => null, async () => { throw new Error("db down") }]) {
+      const sup = fakeSupabase({ rows: { hubtel_data_orders: OPEN_ROW } })
+      const s = setup({ sup, np: { createOrder: async () => { throw new Error("boom") }, findOrderId } })
+      await toConfirm(s)
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      const r = await send(s, "1")
+      vi.restoreAllMocks()
+      expect(r.Message).toBe(NP_TEXT.unavailable)
+      expect(sup.updates).toEqual([])
+    }
+  })
   it("2 cancels without an order", async () => {
     const s = setup()
     await toConfirm(s)
@@ -284,9 +341,18 @@ describe("network plans: helpers", () => {
 })
 
 describe("network plans: wording", () => {
-  it("no screen in this file's runs said data or bundle", () => {
-    expect(all.length).toBeGreaterThan(20)
-    for (const r of all) {
+  it("no screen of a full run of every path says data or bundle (self-contained)", async () => {
+    const screens: HubtelReply[] = []
+    const run = async (s: Setup, ...inputs: string[]) => { await send(s, ...inputs); screens.push(...s.screens) }
+    // Every network's categories, paging both ways, both recipient choices (bad + good numbers), cancel, cart.
+    await run(setup(), "9", "1", "9", "1", "0", "0", "00", "00", "0", "2", "0", "3")
+    await run(setup(), "1", "1", "1", "2", "0201234567", "12", "0541234567", "9", "2")
+    await run(setup(), "1", "1", "1", "1", "1")
+    await run(setup({ np: { catalog: async () => ({ ok: false, status: 403, error: "Not available" }) } }), "2")
+    await run(setup({ np: { createResult: { ok: false, status: 409, error: "Price updated" } } }), "1", "1", "1", "1", "1")
+    await run(setup({ shop: true, session: { mode: "shop", shopId: SHOP_UUID, shopName: "Ama Data Hub" } }), "1", "2", "1", "1", "1")
+    expect(screens.length).toBeGreaterThan(25)
+    for (const r of screens) {
       expect(r.Message).not.toMatch(/data|bundle/i)
       if (r.Item) expect(r.Item.ItemName).not.toMatch(/data|bundle|mtn|gb/i)
     }

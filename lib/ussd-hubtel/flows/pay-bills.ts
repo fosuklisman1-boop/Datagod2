@@ -10,7 +10,9 @@ import type { VerifyResult } from "@/lib/bills/service"
 import type { BotContext } from "@/lib/bot-commission/context"
 import type { PayBillsVerifyInput } from "../services"
 import { toLocalPhone, USSD_SCREEN_LIMIT } from "../protocol"
-import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
+import {
+  backToMain, failOrphanEngineOrder, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable,
+} from "../flow-kit"
 import { clip, fitListScreen, pageSlice } from "../screen-fit"
 import { backToProduct } from "./shop"
 import type { HubtelReply, HubtelSession, PbAccountStage, PbMeter } from "../types"
@@ -46,7 +48,7 @@ const CONFIRM = { label: "Confirm payment" }
 const money = (n: number) => n.toFixed(2)
 
 const billerScreen = (billers: { key: string }[], prefix = "") =>
-  fitListScreen(`${prefix}Pay Bills`, billers.map(b => ({ label: labelOf(b.key) })), ["0. Back"])
+  fitListScreen(`${prefix}Pay Bills`, billers.map(b => ({ label: labelOf(b.key) })), ["0 Back"])
 
 const ecgModeScreen = (prefix = "") => `${prefix}ECG\n1 This number\n2 Other number\n3 Meter number\n0 Back`
 
@@ -74,15 +76,36 @@ const meterTypeScreen = (meter: string, prefix = "") => `${prefix}Meter ${meter}
 export const consentScreen = (meter: string, phone: string) =>
   `Meter ${meter} is not linked to ${phone}.\n1 Yes, link meter ${meter} to ${phone}\n2 Cancel\n0 Back`
 
-function amountScreen(s: HubtelSession, prefix = ""): string {
-  const lines = [
-    `${prefix}${labelOf(s.pbBiller)} ${s.pbAccount ?? ""}`.trimEnd(),
-    ...(s.pbName ? [`Name: ${clip(s.pbName, 40)}`] : []),
-    ...(s.pbDue !== null && s.pbDue !== undefined && s.pbDue > 0 ? [`Due: GHS ${money(s.pbDue)}`] : []),
+/** Shortest a customer name is shown before its line is dropped. */
+const MIN_NAME = 4
+
+/**
+ * Amount prompt, at most 182 chars with the prompt and "0 Back" always whole: when too long the name is shortened
+ * first (dropped below 4 chars), then the account. Never left to fitMessage, which would cut the footer.
+ */
+export function amountScreen(s: HubtelSession, prefix = ""): string {
+  let name = s.pbName ? clip(s.pbName, 40) : ""
+  let account = s.pbAccount ?? ""
+  const due = s.pbDue !== null && s.pbDue !== undefined && s.pbDue > 0 ? [`Due: GHS ${money(s.pbDue)}`] : []
+  const render = () => [
+    `${prefix}${labelOf(s.pbBiller)} ${account}`.trimEnd(),
+    ...(name ? [`Name: ${name}`] : []),
+    ...due,
     `Enter amount (GHS ${money(s.pbMin ?? 0)} - ${money(s.pbMax ?? 0)}):`,
     "0 Back",
-  ]
-  return lines.join("\n")
+  ].join("\n")
+  let text = render()
+  let over = text.length - USSD_SCREEN_LIMIT
+  if (over > 0 && name) {
+    name = name.length - over >= MIN_NAME ? clip(name, name.length - over) : ""
+    text = render()
+    over = text.length - USSD_SCREEN_LIMIT
+  }
+  if (over > 0 && account) {
+    account = clip(account, account.length - over)
+    text = render()
+  }
+  return text
 }
 
 /** Confirm screen (≤ 182 chars; the account part is shortened if needed). "(was …)" only when the price is below face. */
@@ -321,11 +344,18 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (!bc || !session.pbToken || !(session.pbFace! > 0) || !(session.pbPay! > 0)) return finish(ctx, PB_TEXT.unavailable)
 
   // The engine dedupes on the verify token: a retried CONFIRM with this session's token returns the same order.
+  const token = session.pbToken
   let r
   try {
-    r = await deps.payBills.createOrder(bc, { token: session.pbToken, amount: session.pbFace, expectedPay: session.pbPay })
+    r = await deps.payBills.createOrder(bc, { token, amount: session.pbFace, expectedPay: session.pbPay })
   } catch (e) {
     console.error("[HUBTEL-PB] createOrder threw:", e instanceof Error ? e.message : "error", "session:", req.SessionId)
+    // It may have committed before throwing: an order from this token would sit pending + unpaid with no checkout.
+    const orphan = await deps.payBills.findOrderId(bc, token).catch((err: unknown) => {
+      console.error("[HUBTEL-PB] orphan lookup failed:", err instanceof Error ? err.message : "error", "session:", req.SessionId)
+      return null
+    })
+    if (orphan) await failOrphanEngineOrder(deps, "hubtel_bill_orders", orphan, "HUBTEL-PB", req.SessionId)
     return finish(ctx, PB_TEXT.unavailable)
   }
   if (!r.ok) {
@@ -340,6 +370,9 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const open = row as { status?: string; payment_status?: string } | null
   if (error || open?.status !== "pending" || open?.payment_status !== "unpaid") {
     console.error("[HUBTEL-PB] Engine order is not open; refusing to cart:", r.order.id, open?.status ?? null, open?.payment_status ?? null, "session:", req.SessionId)
+    // Read error / no row: its state is unknown, so fail it (guarded: only a still pending + unpaid bots row is
+    // touched). A row read as not open is already paid or closed: the guarded patch could not touch it anyway.
+    if (error || !open) await failOrphanEngineOrder(deps, "hubtel_bill_orders", r.order.id, "HUBTEL-PB", req.SessionId)
     return finish(ctx, PB_TEXT.unavailable)
   }
   return submitOrder(ctx, { table: "hubtel_bill_orders", orderId: r.order.id, price: r.order.payAmount, logTag: "HUBTEL-PB" })

@@ -1,8 +1,8 @@
 // lib/ussd-hubtel/flow-kit.test.ts
 // I3: submitOrder must never log the raw PostgREST error (details carry the whole customer row).
 import { describe, it, expect, vi } from "vitest"
-import { submitOrder, type FlowCtx } from "./flow-kit"
-import { makeDeps, req } from "./testing/fakes"
+import { failOrderGuarded, failOrphanEngineOrder, submitOrder, type FlowCtx } from "./flow-kit"
+import { fakeSupabase, makeDeps, req } from "./testing/fakes"
 
 const PII_ERROR = {
   code: "23502",
@@ -174,5 +174,40 @@ describe("submitOrder error logging (I3)", () => {
     err.mockRestore()
     expect(n).toBeGreaterThanOrEqual(2)
     expect(logged).not.toMatch(/Kwame|GHA-|0244123456|Failing row|hint text/)
+  })
+})
+
+describe("failOrphanEngineOrder", () => {
+  const ID = "22222222-3333-4444-8555-666666666666"
+  it("no tx row tracks the order: guarded bot fail patch (pending + unpaid + bots only)", async () => {
+    const sup = fakeSupabase()
+    const { deps } = makeDeps({}, sup)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await failOrphanEngineOrder(deps, "hubtel_bill_orders", ID, "T", "S1")
+    err.mockRestore()
+    expect(sup.updates).toEqual([{ table: "hubtel_bill_orders", patch: expect.objectContaining({ status: "failed", failure_reason: "payment not completed" }) }])
+    expect((sup.updates[0] as any).filters).toEqual([
+      ["eq", "id", ID], ["in", "payment_status", ["unpaid"]], ["in", "channel", ["bots"]], ["in", "status", ["pending"]],
+    ])
+  })
+  it("a tx row already tracks it (a concurrent CONFIRM carted it): left alone", async () => {
+    const sup = fakeSupabase({ txRow: { order_id: ID } })
+    const { deps } = makeDeps({}, sup)
+    await failOrphanEngineOrder(deps, "hubtel_data_orders", ID, "T", "S1")
+    expect(sup.updates).toEqual([])
+  })
+  it("the tx check fails: left alone (never fail an order that may be in checkout)", async () => {
+    const sup = fakeSupabase({ readError: ["hubtel_transactions"] })
+    const { deps } = makeDeps({}, sup)
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await failOrphanEngineOrder(deps, "hubtel_data_orders", ID, "T", "S1")
+    err.mockRestore()
+    expect(sup.updates).toEqual([])
+  })
+  it("failOrderGuarded never throws", async () => {
+    const boom = { from: () => { throw new Error("client gone") } }
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    await expect(failOrderGuarded(boom as never, "hubtel_bill_orders", ID, true, "T")).resolves.toBeUndefined()
+    err.mockRestore()
   })
 })
