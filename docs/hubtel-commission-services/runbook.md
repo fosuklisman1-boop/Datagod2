@@ -253,15 +253,15 @@ Shared engine for all five bots (Hubtel USSD, main USSD, shop USSD, WhatsApp mai
 
 The live Hubtel USSD code ("Clingshub", currently in shop mode) gains two menus, **Network Plans** (Hubtel Standard Bundles) and **Pay Bills** (Utility Bills), plus cashback-priced **Buy Airtime**. All three are paid through Hubtel's AddToCart checkout and confirmed by the shared bot engine. Plan `docs/superpowers/plans/2026-10-14-cashback-bots-2-hubtel-ussd.md`. Ships DARK: the menus appear only when the cashback switches below are on.
 
-0. **Pre-deploy: confirm the Bots switches are OFF.** "Ships dark" only holds if they are off in prod right now. If the Bots surface and a group are already on, that menu (and cashback airtime) goes live at deploy, not at step 3, and without 0124 its CONFIRMs fail.
+0. **Pre-deploy: confirm the Bots switches are OFF.** "Ships dark" only holds if they are off in prod right now. If the Bots surface and a group are already on, that menu (and cashback airtime) goes live at deploy, not at step 3, and without 0125 its CONFIRMs fail.
    ```sql
    SELECT value->'enabled'          AS master,
           value->'surfaces'->'bots' AS bots_surface,
           value->'botGroups'        AS bot_groups
      FROM admin_settings WHERE key = 'commission_cashback_config';
    ```
-   Expect `bots_surface` = `false` or NULL, and every `bot_groups` value (`airtime`, `bundles`, `bills`) = `false` or absent (no row at all also means off). If anything is `true`, either turn it off in Admin > Hubtel Commission > Cashback before deploying, or go ahead knowingly, with 0124 already applied.
-1. **Apply `migrations/0124_hubtel_ussd_bot_orders.sql` BEFORE deploying.** Apply it after 0123, using Supabase Management API SQL. It widens the `hubtel_transactions.order_table` CHECK to add `hubtel_bill_orders` and `hubtel_data_orders`. Without it, every Network Plans / Pay Bills CONFIRM fails at the tx insert: the order is failed and the customer sees "Error creating order". Run it at a quiet time (it holds a table lock for one scan; `lock_timeout` 5 s makes it fail rather than hang, so just re-run).
+   Expect `bots_surface` = `false` or NULL, and every `bot_groups` value (`airtime`, `bundles`, `bills`) = `false` or absent (no row at all also means off). If anything is `true`, either turn it off in Admin > Hubtel Commission > Cashback before deploying, or go ahead knowingly, with 0125 already applied.
+1. **Apply `migrations/0125_hubtel_ussd_bot_orders.sql` BEFORE deploying.** Apply it after 0123, using Supabase Management API SQL. It widens the `hubtel_transactions.order_table` CHECK to add `hubtel_bill_orders` and `hubtel_data_orders`. Without it, every Network Plans / Pay Bills CONFIRM fails at the tx insert: the order is failed and the customer sees "Error creating order". Run it at a quiet time (it holds a table lock for one scan; `lock_timeout` 5 s makes it fail rather than hang, so just re-run).
    - **Pre-apply check (constraint name).** List EVERY CHECK on the table, not only the expected name:
      ```sql
      SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
@@ -321,7 +321,7 @@ The live Hubtel USSD code ("Clingshub", currently in shop mode) gains two menus,
    - Hide one menu: turn off its visibility toggle on `/admin/ussd-hubtel`, or turn off its "Sell on bots" group.
    - Hide all bot menus and cashback airtime: turn the **Bots** surface OFF. Airtime returns to today's fee pricing on the next screen. A customer already on a confirm screen gets "Airtime rates changed. Please restart your order." and is never re-priced silently.
    - Whole channel: the Hubtel USSD kill switch on `/admin/ussd-hubtel`.
-   - Code rollback: redeploy the previous build. 0124 is additive and can stay; do not drop the CHECK values while rows reference them.
+   - Code rollback: redeploy the previous build. 0125 is additive and can stay; do not drop the CHECK values while rows reference them.
    - Unpaid bot orders left behind are failed by the existing status-check expiry. An order the engine created but that never got a checkout (an engine error mid-CONFIRM) is failed right away, and the log shows "Failing uncarted engine order <id>".
 8. **Paid bot orders held for review ("needs review:").** Hubtel can report a successful payment for a Network Plans / Pay Bills order that is then not delivered. The cases are:
    - the payment arrived after the order expired, or after an indeterminate expiry park;
@@ -375,4 +375,4 @@ Follow-ups from the final review (2026-10-15), deliberately not fixed in Plan 2:
 - **Test gaps (findings 11, 12, 13).**
   - No test of the orphan race itself (tx inserted after the orphan check).
   - No `processFulfillment` → `airtimeOrderPostPayment` test showing a shop-mode cashback airtime share is credited exactly once and main mode credits nothing; coverage stops at the inserted row.
-  - The 0124 constraint name can only be checked against prod. Use the pre-apply check in step 1; the migration's assertion block now fails loudly on a mismatch.
+  - The 0125 constraint name can only be checked against prod. Use the pre-apply check in step 1; the migration's assertion block now fails loudly on a mismatch.

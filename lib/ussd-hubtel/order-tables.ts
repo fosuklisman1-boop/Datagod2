@@ -2,7 +2,7 @@
 // One entry per order table the Hubtel channel writes. Used by CONFIRM (rollback when the
 // hubtel_transactions insert fails) and expiry (fail an unpaid order). Every key must be allowed by
 // the order_table CHECK on hubtel_transactions: migrations/0106_hubtel_ussd.sql, widened by
-// migrations/0124_hubtel_ussd_bot_orders.sql (pinned by order-tables.test.ts).
+// migrations/0125_hubtel_ussd_bot_orders.sql (pinned by order-tables.test.ts).
 
 export type HubtelOrderTable =
   | "ussd_orders" | "ussd_shop_orders" | "airtime_orders" | "results_checker_orders" | "results_check_requests" | "ussd_afa_orders"

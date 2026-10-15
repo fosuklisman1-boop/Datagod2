@@ -1,4 +1,4 @@
--- 0124_hubtel_ussd_bot_orders.sql
+-- 0125_hubtel_ussd_bot_orders.sql
 -- Commission cashback Bots Plan 2 (Hubtel USSD): the Hubtel USSD checkout may now carry bot Utility Bill
 -- (hubtel_bill_orders) and Network Plan (hubtel_data_orders) orders. Widens the order_table CHECK on
 -- hubtel_transactions so their AddToCart rows can be recorded.
@@ -49,11 +49,11 @@ BEGIN
      AND contype = 'c'
      AND pg_get_constraintdef(oid) ILIKE '%order_table%';
   IF v_count <> 1 THEN
-    RAISE EXCEPTION '0124: expected exactly one order_table CHECK on hubtel_transactions, found %:%', v_count, E'\n' || COALESCE(v_names, '(none)');
+    RAISE EXCEPTION '0125: expected exactly one order_table CHECK on hubtel_transactions, found %:%', v_count, E'\n' || COALESCE(v_names, '(none)');
   END IF;
   IF v_names NOT LIKE 'hubtel_transactions_order_table_check:%'
      OR v_names NOT LIKE '%hubtel_bill_orders%' OR v_names NOT LIKE '%hubtel_data_orders%' THEN
-    RAISE EXCEPTION '0124: the order_table CHECK is not the widened one: %', v_names;
+    RAISE EXCEPTION '0125: the order_table CHECK is not the widened one: %', v_names;
   END IF;
 END $$;
 

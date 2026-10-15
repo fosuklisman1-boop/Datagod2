@@ -5,20 +5,20 @@ import { join } from "path"
 import { ORDER_TABLES, cartItemNameFor, isHubtelOrderTable, BOT_UNPAID_FAILURE_REASON } from "./order-tables"
 
 // Copied from the CHECK constraint in migrations/0106_hubtel_ussd.sql, as widened by
-// migrations/0124_hubtel_ussd_bot_orders.sql. A table the channel writes but the CHECK does not allow
+// migrations/0125_hubtel_ussd_bot_orders.sql. A table the channel writes but the CHECK does not allow
 // would make every CONFIRM fail at the hubtel_transactions insert.
 const ALLOWED_BY_0106 = [
   "ussd_orders", "ussd_shop_orders", "airtime_orders",
   "results_checker_orders", "results_check_requests", "ussd_afa_orders",
 ]
-const ADDED_BY_0124 = ["hubtel_bill_orders", "hubtel_data_orders"]
-const ALLOWED = [...ALLOWED_BY_0106, ...ADDED_BY_0124]
+const ADDED_BY_0125 = ["hubtel_bill_orders", "hubtel_data_orders"]
+const ALLOWED = [...ALLOWED_BY_0106, ...ADDED_BY_0125]
 
-/** The IN-list of the hubtel_transactions_order_table_check that migration 0124 creates. */
-function checkListIn0124(): string[] {
-  const sql = readFileSync(join(process.cwd(), "migrations", "0124_hubtel_ussd_bot_orders.sql"), "utf8")
+/** The IN-list of the hubtel_transactions_order_table_check that migration 0125 creates. */
+function checkListIn0125(): string[] {
+  const sql = readFileSync(join(process.cwd(), "migrations", "0125_hubtel_ussd_bot_orders.sql"), "utf8")
   const m = sql.match(/ADD CONSTRAINT hubtel_transactions_order_table_check\s+CHECK \(order_table IN \(([^)]*)\)\)/)
-  if (!m) throw new Error("0124: order_table CHECK not found")
+  if (!m) throw new Error("0125: order_table CHECK not found")
   return Array.from(m[1].matchAll(/'([a-z_]+)'/g), x => x[1])
 }
 
@@ -26,8 +26,8 @@ describe("ORDER_TABLES", () => {
   it("only registers tables the hubtel_transactions CHECK allows", () => {
     for (const t of Object.keys(ORDER_TABLES)) expect(ALLOWED, t).toContain(t)
   })
-  it("migration 0124's CHECK is exactly the 0106 list plus the two bot order tables", () => {
-    expect(checkListIn0124().sort()).toEqual([...ALLOWED].sort())
+  it("migration 0125's CHECK is exactly the 0106 list plus the two bot order tables", () => {
+    expect(checkListIn0125().sort()).toEqual([...ALLOWED].sort())
   })
   it("registers every table the widened CHECK allows", () => {
     expect(Object.keys(ORDER_TABLES).sort()).toEqual([...ALLOWED].sort())
