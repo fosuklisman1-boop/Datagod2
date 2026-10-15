@@ -54,7 +54,10 @@ export async function notifyRefund(db: SupabaseClient, e: RefundNotification): P
     const { error } = await db.from("notifications").insert({
       user_id: e.order.buyerUserId,
       title: "Order refunded",
-      message: `Your order of ${e.order.packageLabel} ${e.order.network} was refunded: GHS ${e.amount.toFixed(2)} credited to your wallet.`,
+      // A manual refund was sent by hand (MoMo / bank), not to the wallet.
+      message: e.gateway === "manual"
+        ? `Your order of ${e.order.packageLabel} ${e.order.network} was refunded: GHS ${e.amount.toFixed(2)} has been sent to you.`
+        : `Your order of ${e.order.packageLabel} ${e.order.network} was refunded: GHS ${e.amount.toFixed(2)} credited to your wallet.`,
       type: "balance_updated",
       read: false,
       reference_id: e.order.id,

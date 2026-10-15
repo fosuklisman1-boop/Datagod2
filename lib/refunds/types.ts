@@ -135,6 +135,22 @@ export interface RefundContext {
   order: RefundableOrder
   amount: number
   destinationPhone: string | null
+  /** Manual gateway only: the admin's MoMo / bank reference for money sent by hand (optional). */
+  manualReference?: string | null
+}
+
+/** Customer details shown to the admin for a manual refund (who to pay, how to reach them). */
+export interface RefundContact {
+  name: string | null
+  email: string | null
+  /** The customer's own phone: account phone (bulk/API) or the dialling number (USSD). */
+  phone: string | null
+  /** The number that paid (MoMo payer), when recorded. */
+  payerPhone: string | null
+  /** Who received the data; may be a third party, so it is never the suggested payout number. */
+  recipientPhone: string | null
+  /** Suggested number to send the refund to: payer, else the customer's own phone. null = ask the customer. */
+  payTo: string | null
 }
 
 export type GatewayOutcome =

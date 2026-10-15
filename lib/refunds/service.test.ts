@@ -239,6 +239,33 @@ describe("previewRefund", () => {
   })
 })
 
+describe("manual refund wiring", () => {
+  it("passes the admin's reference to the gateway context", async () => {
+    const { deps, gateway } = setup({ kind: "completed", ref: "manual: TX9" })
+    await executeRefund(deps, { ...input, manualReference: "TX9" })
+    expect(gateway.refund).toHaveBeenCalledWith(expect.objectContaining({ manualReference: "TX9", amount: 9.8 }))
+  })
+  it("no reference -> null in the context", async () => {
+    const { deps, gateway } = setup({ kind: "completed", ref: "manual: no reference" })
+    await executeRefund(deps, input)
+    expect(gateway.refund).toHaveBeenCalledWith(expect.objectContaining({ manualReference: null }))
+  })
+  it("preview carries the customer contact card when a loader is configured", async () => {
+    const { deps } = setup({ kind: "completed", ref: "x" })
+    const contact = { name: "Ama", email: null, phone: null, payerPhone: "0241112222", recipientPhone: "0243334444", payTo: "0241112222" }
+    const p = await previewRefund({ ...deps, loadContact: async () => contact }, { table: "ussd_shop_orders", id: "o1" })
+    expect(p.contact).toEqual(contact)
+  })
+  it("a failing contact loader never blocks the preview", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { deps } = setup({ kind: "completed", ref: "x" })
+    const p = await previewRefund({ ...deps, loadContact: async () => { throw new Error("db down") } }, { table: "ussd_shop_orders", id: "o1" })
+    expect(p.contact).toBeNull()
+    expect(p.eligibility.eligible).toBe(true)
+    err.mockRestore()
+  })
+})
+
 describe("preview with ineligible order", () => {
   it("does not throw; returns eligibility", async () => {
     const { deps } = setup({ kind: "completed", ref: "x" }, order({ orderStatus: "completed" }))
@@ -497,11 +524,11 @@ describe("wallet-only tables (orders / api_orders)", () => {
     await expect(executeRefund(deps, { table: "api_orders", orderId: "o1", gateway: "wallet", amount: 9.5, adminId: "a" })).rejects.toMatchObject({ code: "NOT_ELIGIBLE" })
     expect(calls).toEqual([])
   })
-  it("preview offers only the wallet gateway for these tables and shows no clawback", async () => {
+  it("preview offers the wallet gateway (first, so pre-selected) plus manual for these tables, and shows no clawback", async () => {
     const { deps } = setup({ kind: "completed", ref: "x" }, wOrder())
     const p = await previewRefund(deps, { table: "api_orders", id: "o1" })
     expect(p.eligibility).toEqual({ eligible: true })
-    expect(p.gateways.filter((g) => g.ok).map((g) => g.id)).toEqual(["wallet"])
+    expect(p.gateways.filter((g) => g.ok).map((g) => g.id)).toEqual(["wallet", "manual"])
     expect(p.clawback.lines).toEqual([])
   })
 })

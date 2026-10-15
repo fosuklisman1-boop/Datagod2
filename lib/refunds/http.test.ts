@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest"
 import { vi } from "vitest"
-import { REFUND_STATUS, parseAmount, parseGateway, parsePage, isUuid, refundErrorResponse, settledHttpStatus, requireAdminUser, auditRefundError, badRequest } from "./http"
+import { REFUND_STATUS, parseAmount, parseGateway, parseManualReference, parsePage, isUuid, refundErrorResponse, settledHttpStatus, requireAdminUser, auditRefundError, badRequest } from "./http"
+
+describe("parseManualReference", () => {
+  it("absent, null or blank -> no reference (it is optional)", () => {
+    expect(parseManualReference(undefined)).toEqual({ ok: true, value: null })
+    expect(parseManualReference(null)).toEqual({ ok: true, value: null })
+    expect(parseManualReference("   ")).toEqual({ ok: true, value: null })
+  })
+  it("trims and keeps a normal MoMo / bank reference", () => {
+    expect(parseManualReference("  MP2410.1234.A1 ")).toEqual({ ok: true, value: "MP2410.1234.A1" })
+  })
+  it("rejects non-strings, over-long values and control characters", () => {
+    expect(parseManualReference(123).ok).toBe(false)
+    expect(parseManualReference("x".repeat(101)).ok).toBe(false)
+    expect(parseManualReference("ref\nwith newline").ok).toBe(false)
+  })
+})
 import { REFUND_ERROR_CODES, RefundError } from "./service"
 
 describe("refundErrorResponse", () => {

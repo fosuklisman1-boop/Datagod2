@@ -97,6 +97,15 @@ describe("notifyRefund: orders / api_orders", () => {
       message: "Your order of 5 MTN was refunded: GHS 20.00 credited to your wallet.",
     }))
   })
+  it("a MANUAL refund on a wallet-paid order never claims the money went to the wallet", async () => {
+    const { db, insert } = mkDb2("0201112222")
+    await notifyRefund(db, { ...wev(), gateway: "manual" })
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({
+      message: "Your order of 5 MTN was refunded: GHS 20.00 has been sent to you.",
+    }))
+    expect(JSON.stringify(insert.mock.calls)).not.toContain("wallet")
+    expect(String(h.calls[0].message)).toContain("has been refunded to you")
+  })
   it("original tables get no buyer notice and no users lookup", async () => {
     const { db, insert, from } = mkDb2("0201112222")
     await notifyRefund(db, { ...wev("shop_orders"), order: { ...wev().order, table: "shop_orders", payment: { payerPhone: "0241112222" } } as any })

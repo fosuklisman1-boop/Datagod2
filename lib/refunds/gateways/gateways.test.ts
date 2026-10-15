@@ -32,6 +32,7 @@ import { paystackGateway, mapPaystackRefundStatus, describePaystackRefund } from
 import { paystackPayoutGateway } from "./paystack-payout"
 import { moolreGateway, momoNetworkForMoolre } from "./moolre"
 import { walletGateway } from "./wallet"
+import { manualGateway } from "./manual"
 import { getGateway, listGateways } from "./index"
 
 const order = (o: Partial<RefundableOrder> = {}): RefundableOrder => ({
@@ -50,9 +51,45 @@ beforeEach(() => vi.clearAllMocks())
 
 describe("registry", () => {
   it("lists every adapter and resolves by id", () => {
-    expect(listGateways().map((g) => g.id).sort()).toEqual(["moolre", "paystack", "paystack_payout", "wallet"])
+    expect(listGateways().map((g) => g.id).sort()).toEqual(["manual", "moolre", "paystack", "paystack_payout", "wallet"])
     expect(getGateway("moolre")).toBe(moolreGateway)
+    expect(getGateway("manual")).toBe(manualGateway)
     expect(getGateway("nope")).toBeUndefined()
+  })
+  it("lists manual LAST so it is never the dialog's default (first supported) choice", () => {
+    expect(listGateways().at(-1)?.id).toBe("manual")
+  })
+})
+
+describe("manualGateway", () => {
+  it("is offered for storefront, USSD, USSD-shop and wallet-paid (bulk/API) orders, even with no payer number", () => {
+    for (const table of ["shop_orders", "ussd_orders", "ussd_shop_orders", "orders", "api_orders"] as const) {
+      expect(manualGateway.supports(order({ table, payment: { gateway: null, reference: null, payerPhone: null, walletUserId: null } })), table).toEqual({ ok: true })
+    }
+  })
+  it("is NOT offered for commission orders, which keep their own 'Mark refunded manually' button", () => {
+    for (const table of ["airtime_orders", "hubtel_bill_orders", "hubtel_data_orders"] as const) {
+      const s = manualGateway.supports(order({ table }))
+      expect(s.ok, table).toBe(false)
+      if (!s.ok) expect(s.reason).toMatch(/Mark refunded manually/)
+    }
+  })
+  it("completes immediately (the admin already sent the money) and records the admin's reference", async () => {
+    expect(await manualGateway.refund({ ...ctx(), manualReference: "MP2410.1234.A" })).toEqual({ kind: "completed", ref: "manual: MP2410.1234.A" })
+  })
+  it("records 'no reference' when the admin left the optional reference empty", async () => {
+    expect(await manualGateway.refund({ ...ctx(), manualReference: null })).toEqual({ kind: "completed", ref: "manual: no reference" })
+    expect(await manualGateway.refund(ctx())).toEqual({ kind: "completed", ref: "manual: no reference" })
+  })
+  it("moves no money: calls no payment provider and no database function", async () => {
+    await manualGateway.refund({ ...ctx(), manualReference: "X" })
+    expect(refundTransaction).not.toHaveBeenCalled()
+    expect(moolreTransfer).not.toHaveBeenCalled()
+    expect(psTransfer).not.toHaveBeenCalled()
+    expect(rpc).not.toHaveBeenCalled()
+  })
+  it("a re-check of a stuck manual refund settles it as completed (money was sent by hand)", async () => {
+    expect(await manualGateway.checkStatus!(ctx(), "manual: X")).toEqual({ kind: "completed", ref: "manual: X" })
   })
 })
 

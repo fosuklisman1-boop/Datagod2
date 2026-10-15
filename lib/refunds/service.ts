@@ -5,8 +5,9 @@ import { defaultRefundAmount, validateRefundAmount } from "./amounts"
 import { loadRefundableOrders } from "./orders"
 import { getGateway, listGateways } from "./gateways"
 import { notifyRefund, type RefundNotification } from "./notify"
+import { loadRefundContact } from "./contact"
 import { FRESH_OTP_MS, isInFlight, isStale } from "./staleness"
-import { isCommissionTable, type CommissionTable, type GatewayOutcome, type OrderTable, type RefundContext, type RefundGateway, type RefundableOrder } from "./types"
+import { isCommissionTable, type CommissionTable, type GatewayOutcome, type OrderTable, type RefundContact, type RefundContext, type RefundGateway, type RefundableOrder } from "./types"
 
 export const REFUND_ERROR_CODES = [
   "NOT_FOUND", "NOT_ELIGIBLE", "GATEWAY_UNSUPPORTED", "BAD_AMOUNT", "BAD_OTP", "SHORTFALL",
@@ -52,6 +53,8 @@ export interface RefundDeps {
   markRefundMethod?(table: CommissionTable, orderId: string, method: string): Promise<void>
   /** Durably keep the full manual-refund note on the (refunded) order's notes. Throws on DB error. */
   recordManualNote?(table: CommissionTable, orderId: string, note: string, adminId: string): Promise<void>
+  /** Customer details for the manual gateway's contact card (preview only). */
+  loadContact?(order: RefundableOrder): Promise<RefundContact | null>
 }
 
 const nowOf = (deps: RefundDeps): number => (deps.now ? deps.now() : Date.now())
@@ -62,6 +65,7 @@ export function defaultDeps(db: SupabaseClient): RefundDeps {
     loadOrder: async (table, id) => (await loadRefundableOrders(db, [{ table, id }]))[0] ?? null,
     getGateway,
     notify: (e) => notifyRefund(db, e),
+    loadContact: (order) => loadRefundContact(db, order),
     async releaseStuckClaim(table, orderId, adminId) {
       // The existing SQL-guarded releases (bills / standard bundles admin modules). Airtime has no Hubtel claim.
       if (table === "hubtel_bill_orders") return (await import("@/lib/bills/admin")).releaseStuckClaimRow(db, orderId, adminId ?? "unknown")
@@ -124,12 +128,25 @@ export interface RefundPreview {
   defaultAmount: number
   gateways: { id: string; label: string; ok: boolean; reason?: string }[]
   clawback: ClawbackPlan
+  /** Who to pay for a manual refund; null when unknown, not applicable, or the lookup failed. */
+  contact: RefundContact | null
+}
+
+async function contactOf(deps: RefundDeps, order: RefundableOrder): Promise<RefundContact | null> {
+  if (!deps.loadContact) return null
+  try {
+    return await deps.loadContact(order)
+  } catch (err) {
+    console.error("[REFUND] contact lookup failed (preview continues):", err instanceof Error ? err.message : err)
+    return null
+  }
 }
 
 export async function previewRefund(deps: RefundDeps, ref: { table: OrderTable; id: string }): Promise<RefundPreview> {
   const order = await deps.loadOrder(ref.table, ref.id)
   if (!order) throw new RefundError("NOT_FOUND", "Order not found")
   return {
+    contact: await contactOf(deps, order),
     order,
     eligibility: eligibilityOf(order, nowOf(deps)),
     defaultAmount: defaultRefundAmount(order.paid, order.gatewayFee),
@@ -255,6 +272,8 @@ export interface ExecuteInput {
   adminId: string | null
   /** Required when eligibility carries a warning (admin-overridden Hubtel failure), as for the manual path. */
   confirmOverride?: boolean
+  /** Manual gateway: the admin's optional MoMo / bank reference for the money they sent. */
+  manualReference?: string | null
 }
 
 export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Promise<{ refundId: string } & Settled> {
@@ -292,7 +311,7 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
   }
   const refundId = data.refund_id as string
 
-  const ctx: RefundContext = { refundId, order, amount: input.amount, destinationPhone: destination }
+  const ctx: RefundContext = { refundId, order, amount: input.amount, destinationPhone: destination, manualReference: input.manualReference ?? null }
   let outcome: GatewayOutcome
   try {
     outcome = await gateway.refund(ctx)

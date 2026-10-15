@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { auditRefund, badRequest, isUuid, parseAmount, parseGateway, refundDb, refundErrorResponse, requireAdminUser, auditRefundError, settledHttpStatus } from "@/lib/refunds/http"
+import { auditRefund, badRequest, isUuid, parseAmount, parseGateway, parseManualReference, refundDb, refundErrorResponse, requireAdminUser, auditRefundError, settledHttpStatus } from "@/lib/refunds/http"
 import { defaultDeps, executeRefund } from "@/lib/refunds/service"
 import { ORDER_TABLES, type OrderTable } from "@/lib/refunds/types"
 
@@ -22,11 +22,15 @@ export async function POST(request: NextRequest) {
     if (amount === null) return badRequest("Invalid amount")
     const confirmOverride = (body as any)?.confirmOverride
     if (confirmOverride !== undefined && typeof confirmOverride !== "boolean") return badRequest("confirmOverride must be a boolean")
+    // Manual refunds only: the admin's optional MoMo / bank reference for the money they sent by hand.
+    const ref = parseManualReference((body as any)?.manualReference)
+    if (!ref.ok) return badRequest("Invalid reference (max 100 characters, one line)")
+    const manualReference = gateway === "manual" ? ref.value : null
 
     const result = await executeRefund(defaultDeps(db), {
-      table: table as OrderTable, orderId, gateway, amount, adminId: userId!, confirmOverride: confirmOverride === true,
+      table: table as OrderTable, orderId, gateway, amount, adminId: userId!, confirmOverride: confirmOverride === true, manualReference,
     })
-    await auditRefund(db, userId, "order_refund", { table, orderId, gateway, amount, confirmOverride: confirmOverride === true, ...result })
+    await auditRefund(db, userId, "order_refund", { table, orderId, gateway, amount, confirmOverride: confirmOverride === true, ...(gateway === "manual" ? { manualReference } : {}), ...result })
     return NextResponse.json(result, { status: settledHttpStatus("execute", result.status) })
   } catch (err) {
     await auditRefundError(db, userId, "order_refund", err, { table: (body as any)?.table, orderId: (body as any)?.orderId })

@@ -49,6 +49,16 @@ export function parseAmount(v: unknown): number | null {
   return null
 }
 
+/** Optional manual-refund reference (MoMo / bank transaction id): absent or blank -> null; <= 100 printable chars. */
+export function parseManualReference(v: unknown): { ok: true; value: string | null } | { ok: false } {
+  if (v === undefined || v === null) return { ok: true, value: null }
+  if (typeof v !== "string") return { ok: false }
+  const s = v.trim()
+  if (s === "") return { ok: true, value: null }
+  if (s.length > 100 || /[\u0000-\u001f\u007f]/.test(s)) return { ok: false }
+  return { ok: true, value: s }
+}
+
 export function parseGateway(v: unknown): string | null {
   if (typeof v !== "string") return null
   const g = v.trim()
