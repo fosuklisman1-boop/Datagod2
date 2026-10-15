@@ -248,3 +248,71 @@ Shared engine for all five bots (Hubtel USSD, main USSD, shop USSD, WhatsApp mai
    - Paystack-paid bot orders use `BOT_PAYMENT_EMAIL` (default `payments@datagod.store`) when the buyer has no email.
    - Refunds: `/admin/refunds` — Paystack reversal only for Paystack-paid rows, Moolre payout to `buyer_phone`, or manual; Hubtel-USSD-paid rows: Moolre payout or manual.
 4. Carried to Plans 2–4: bots must use the direct MoMo charge with the number they ask for (direct-charge ON strips MoMo from the hosted page); an in-process payment-init helper (payments/initialize is IP rate-limited); record the paying MoMo number and prefer it for refund payouts; airtime bot rows need a margin-report mapping.
+
+## Commission Cashback — Bots (Plan 2: Hubtel USSD)
+
+The live Hubtel USSD code ("Clingshub", currently in shop mode) gains two menus, **Network Plans** (Hubtel Standard Bundles) and **Pay Bills** (Utility Bills), plus cashback-priced **Buy Airtime**. All three are paid through Hubtel's AddToCart checkout and confirmed by the shared bot engine. Plan `docs/superpowers/plans/2026-10-14-cashback-bots-2-hubtel-ussd.md`. Ships DARK: the menus appear only when the cashback switches below are on.
+
+1. **Apply `migrations/0124_hubtel_ussd_bot_orders.sql` BEFORE deploying.** Apply it after 0123, using Supabase Management API SQL. It widens the `hubtel_transactions.order_table` CHECK to add `hubtel_bill_orders` and `hubtel_data_orders`. Without it, every Network Plans / Pay Bills CONFIRM fails at the tx insert: the order is failed and the customer sees "Error creating order".
+   - Pre-check: `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'hubtel_transactions_order_table_check';` should return the 0106 list of 6 tables.
+   - Post-check: the same query must return those 6 tables plus `hubtel_bill_orders` and `hubtel_data_orders`.
+2. Deploy. Customers see no change while the switches are off: the main and shop menus stay byte-for-byte the same (tested).
+3. Turn it on in Admin > Hubtel Commission > Cashback:
+   - Master switch ON, and the **Bots** surface ON.
+   - "Sell on bots" per group: **Network Plans** (bundles), **Pay Bills** (bills), and **Airtime**, for cashback airtime on Hubtel USSD.
+   - **Hubtel USSD fee set: 0 recommended for every group.** Hubtel adds its own checkout charge on top of our price, so a bot fee would charge the customer twice.
+   - Rates and shares must be set for each group. In shop mode the buyer gets `storefrontCustomer` and the shop gets `storefrontShop`. In main mode the buyer gets `customer` and there is no shop share.
+   - A menu shows only when ALL of these are on: master, Bots surface, the group's "Sell on bots" (bundles → Network Plans, bills → Pay Bills), and the Hubtel visibility toggle (step 4). If the cashback config cannot be read, both menus are hidden (fail closed). The gate is re-read on every request.
+4. Visibility toggles on `/admin/ussd-hubtel`. The new "Network Plans" and "Pay Bills" toggles default to ON, so the cashback switch is the real gate. Turn a toggle off to hide that menu on Hubtel USSD only.
+5. Test in shop mode with a test number (your own phone; smallest amounts):
+   - Dial the code, enter a test shop's code. The product menu must show `4. Network Plans` and `5. Pay Bills` after the existing three items.
+   - Network Plans: MTN → the cheapest plan → "My number" → confirm → approve the Hubtel prompt. Check `/admin/hubtel-commission` Standard Bundles: the order shows channel "Bot · Hubtel USSD", status completed, and the shop share credited.
+   - Pay Bills: ECG → "This number" (or "Meter number" for a meter not linked to the phone; it asks consent to link) → GHS 1 → confirm → pay. Check `/admin/utility-bills`.
+   - Airtime: Buy Airtime → your number. The prompt must read "Enter airtime amount". Then GHS 1 → the confirm screen shows `Pay GHS x (was GHS 1.00)`.
+   - Leave one cart unpaid. After the status-check expiry it must show failed with "payment not completed" (payment_status stays `unpaid`, so it is never refundable or dispatched).
+   - Switch the Bots surface OFF and re-dial: both menus are gone and airtime asks "Enter amount to pay" again.
+6. What customers see (sample screens, shop mode):
+   ```
+   Ama Data Hub                      Network Plans
+   What would you like to buy?       Select network:
+   1. Buy Data Bundle                1. MTN
+   2. Buy Airtime                    2. Telecel
+   3. Results Checker                3. AirtelTigo
+   4. Network Plans                  0. Back
+   5. Pay Bills
+   0. Exit
+
+   MTN Internet                      Pay GHS 9.50 (was GHS 10.00)
+   1. 1GB GHS 9.50                   You receive 1GB on 0244123456
+   2. 2GB GHS 10.50                  1 Confirm 2 Cancel
+   0 Next
+   00 Back
+
+   Pay Bills                         ECG
+   1. ECG                            1 This number
+   2. DStv                           2 Other number
+   3. GOtv                           3 Meter number
+   4. StarTimes                      0 Back
+   5. Telecel Broadband
+   0 Back
+
+   ECG P1234567                      Pay GHS 49.00 (was GHS 50.00)
+   Name: Kof*** Men***               You receive GHS 50.00 ECG on P1234567
+   Due: GHS 12.50                    1 Confirm 2 Cancel
+   Enter amount (GHS 1.00 - 1000.00):
+   0 Back
+   ```
+   In main mode the same items follow `4. Results Checker` as `5. Network Plans` / `6. Pay Bills`. No screen says "data", "bundle" or "water". Hubtel's cart only ever shows `CH order <8 chars>`.
+7. Rollback / disable, fastest first:
+   - Hide one menu: turn off its visibility toggle on `/admin/ussd-hubtel`, or turn off its "Sell on bots" group.
+   - Hide all bot menus and cashback airtime: turn the **Bots** surface OFF. Airtime returns to today's fee pricing on the next screen. A customer already on a confirm screen gets "Airtime rates changed. Please restart your order." and is never re-priced silently.
+   - Whole channel: the Hubtel USSD kill switch on `/admin/ussd-hubtel`.
+   - Code rollback: redeploy the previous build. 0124 is additive and can stay; do not drop the CHECK values while rows reference them.
+   - Unpaid bot orders left behind are failed by the existing status-check expiry. An order the engine created but that never got a checkout (an engine error mid-CONFIRM) is failed right away, and the log shows "Failing uncarted engine order <id>".
+
+Known limits:
+- ECG meter type (Prepaid / Postpaid) is informational. It is shown on the confirm screen but is not sent to Hubtel: the meter number decides.
+- Entering an unlinked meter number uses 2 verify calls: the phone's meters lookup, then the consent add-meter verify. Both count against the verify caps (20 per 10 min per phone).
+- Ghana Water is not offered on USSD (WhatsApp only). The engine refuses it on USSD as well.
+- The airtime wording is probed at the minimum amount. If a typed amount is above Hubtel's per-request cap, cashback does not apply to it, so the confirm screen shows today's "You pay / They get" pricing even though the prompt said "airtime amount". Both numbers are always shown before payment.
+- Margin report (`/admin/hubtel-commission` → Cashback → report): Network Plans and Pay Bills rows have `channel='bots'` (`bot_surface='hubtel_ussd'`), so they appear under **Bots** and **All**. Cashback airtime from Hubtel USSD is stored in `airtime_orders` with channel `ussd` / `ussd_shop`, and `cashback_margin_report` (0120/0123) maps airtime only by `shop_id`. So these rows count under **All**, but the channel filter puts main-mode rows under **Dashboard** and shop-mode rows under **Storefront**, and **Bots** shows no airtime. Totals are correct; only the channel split is off. This is a SQL change to the report RPC, left to a later bot plan, as 0123 anticipated (no code change here).
