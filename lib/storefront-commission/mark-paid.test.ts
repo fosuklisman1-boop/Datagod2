@@ -30,7 +30,7 @@ const PATCH = { paid_at: "2026-10-15T00:00:00Z", payment_reference: "H1" }
 
 describe("markCommissionOrderPaid", () => {
   it("flips an unpaid commission row once; a second call is a no-op", async () => {
-    const rows = [{ id: "o1", channel: "bots", payment_status: "unpaid", status: "pending" }]
+    const rows: Row[] = [{ id: "o1", channel: "bots", payment_status: "unpaid", status: "pending" }]
     const { client } = fakeDb(rows)
     expect(await markCommissionOrderPaid(client, "hubtel_data_orders", "o1", PATCH)).toBe(1)
     expect(rows[0]).toMatchObject({ payment_status: "paid", payment_reference: "H1", paid_at: PATCH.paid_at, status: "pending" })
