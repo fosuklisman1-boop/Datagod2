@@ -10,7 +10,9 @@ import { toLocalPhone } from "../protocol"
 import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { HubtelReply } from "../types"
 import { samePrice } from "@/lib/cashback/quote"
-import { cashbackAirtimeColumns, cashbackAirtimeConfirmText, usableCashbackQuote } from "./airtime-cashback"
+import {
+  airtimeAmountText, cashbackAirtimeColumns, cashbackAirtimeConfirmText, cashbackPromptApplies, usableCashbackQuote,
+} from "./airtime-cashback"
 
 const RECIPIENT = { label: "Recipient number", fieldType: "phone" as const }
 const NETWORK = { label: "Recipient network" }
@@ -26,8 +28,9 @@ export function airtimeNetworkMenuText(): string {
   return "Select recipient network:\n" + AIRTIME_NETWORKS.map(n => `${n.digit}. ${n.label}`).join("\n") + "\n0. Back"
 }
 
-export function airtimeAmountPromptText(label: string, min: number, max: number): string {
-  return `${label} Airtime\nEnter amount to pay\n(GHS ${min} - ${max}):\n0. Back`
+/** Amount prompt; `cashback` (cashback pricing applies) asks for the airtime amount instead of the amount to pay. */
+export function airtimeAmountPromptText(label: string, min: number, max: number, cashback = false): string {
+  return airtimeAmountText(label, min, max, cashback)
 }
 
 export function airtimeConfirmText(label: string, recipient: string, pay: number, get: number, payerLocal: string): string {
@@ -79,8 +82,9 @@ async function applyNetwork(ctx: FlowCtx, local: string, network: AirtimeNetwork
     if (!check.ok) return toRecipient(ctx, check.message ?? "Number does not match the network.")
   }
   const { min, max } = await deps.airtime.getLimits()
+  const cashback = await cashbackPromptApplies(deps.airtime.cashbackQuote, network, min, false)
   return goto(ctx, { step: "AIRTIME_ENTER_AMOUNT", airtimeRecipient: local, airtimeNetwork: network },
-    airtimeAmountPromptText(label, min, max), AMOUNT)
+    airtimeAmountPromptText(label, min, max, cashback), AMOUNT)
 }
 
 async function enterAmount(ctx: FlowCtx): Promise<HubtelReply> {
@@ -89,7 +93,10 @@ async function enterAmount(ctx: FlowCtx): Promise<HubtelReply> {
   const network = session.airtimeNetwork!
   const label = airtimeLabel(network)
   const { min, max } = await deps.airtime.getLimits()
-  const invalid = () => say(ctx, "Enter a valid amount.\n" + airtimeAmountPromptText(label, min, max), "AIRTIME_ENTER_AMOUNT", AMOUNT)
+  const invalid = async () => {
+    const cashback = await cashbackPromptApplies(deps.airtime.cashbackQuote, network, min, false)
+    return say(ctx, "Enter a valid amount.\n" + airtimeAmountPromptText(label, min, max, cashback), "AIRTIME_ENTER_AMOUNT", AMOUNT)
+  }
 
   const amount = AMOUNT_RE.test(ctx.input) ? Number(ctx.input) : NaN
   if (!(amount > 0) || amount < min || amount > max) return invalid()

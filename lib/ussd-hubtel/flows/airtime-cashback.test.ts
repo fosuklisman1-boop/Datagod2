@@ -200,6 +200,46 @@ describe("main airtime: cashback applied", () => {
   })
 })
 
+describe("amount prompt wording", () => {
+  const PROMPT_CB = "MTN Airtime\nEnter airtime amount\n(GHS 1 - 500):\n0. Back"
+  const PROMPT_LEGACY = "MTN Airtime\nEnter amount to pay\n(GHS 1 - 500):\n0. Back"
+  it("main: cashback applies => 'Enter airtime amount' (probe at the minimum, main split), also on the re-prompt", async () => {
+    const sup = fakeSupabase({ pkg: OK_PKG })
+    const cashbackQuote = vi.fn(async (_n: string, face: number) => quote({ faceAmount: face }))
+    const { deps } = makeDeps({ airtime: fakeAirtime({ cashbackQuote }) }, sup)
+    const menu = await hubtelRouter(req({ Type: "Initiation" }), deps)
+    await hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Airtime") }), deps)
+    expect((await hubtelRouter(req({ Message: "0244123456" }), deps)).Message).toBe(PROMPT_CB)
+    expect(cashbackQuote).toHaveBeenCalledWith("MTN", 1, false)
+    expect((await hubtelRouter(req({ Message: "abc" }), deps)).Message).toBe("Enter a valid amount.\n" + PROMPT_CB)
+  })
+  it("shop: cashback applies => 'Enter airtime amount' (probe with the shop split)", async () => {
+    const sup = fakeSupabase({ pkg: OK_PKG })
+    const cashbackQuote = vi.fn(async (_n: string, face: number) => ({ ...SHOP_QUOTE, faceAmount: face }))
+    const { deps } = makeDeps({ getConfig: SHOP_CONFIG, airtime: fakeAirtime({ cashbackQuote }) }, sup)
+    const r = await shopRun(deps, sup)
+    expect(r.screens[1]).toBe(PROMPT_CB)
+    expect(cashbackQuote).toHaveBeenCalledWith("MTN", 1, true)
+  })
+  it("not applied, unusable, or a throwing quote => today's 'Enter amount to pay' (main and shop)", async () => {
+    for (const cb of [async () => null, async () => quote({ applied: false }), async () => quote({ payAmount: NaN }), async () => { throw new Error("x") }]) {
+      for (const shop of [false, true]) {
+        const sup = fakeSupabase({ pkg: OK_PKG })
+        const { deps } = makeDeps({ ...(shop ? { getConfig: SHOP_CONFIG } : {}), airtime: fakeAirtime({ cashbackQuote: cb as never }) }, sup)
+        if (shop) {
+          await hubtelRouter(req({ Type: "Initiation" }), deps)
+          const menu = await hubtelRouter(req({ Message: "1234" }), deps)
+          await hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Airtime") }), deps)
+        } else {
+          const menu = await hubtelRouter(req({ Type: "Initiation" }), deps)
+          await hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Airtime") }), deps)
+        }
+        expect((await hubtelRouter(req({ Message: "0244123456" }), deps)).Message).toBe(PROMPT_LEGACY)
+      }
+    }
+  })
+})
+
 describe("shop airtime: cashback applied", () => {
   it("shop split: price = payAmount, merchant_commission = the shop's cashback share (not the markup)", async () => {
     const sup = fakeSupabase({ pkg: OK_PKG })

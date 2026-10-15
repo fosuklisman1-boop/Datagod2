@@ -30,6 +30,29 @@ export function usableCashbackQuote(q: StorefrontQuote | null, face: number): q 
 }
 
 /**
+ * True when cashback pricing applies to `network` airtime, probed with the minimum amount: the amount
+ * prompt then asks for the AIRTIME amount (the face) instead of the amount to pay. Any failure => false
+ * (today's wording). The confirm screen always states both what is paid and what is received, so an
+ * amount above Hubtel's per-request cap (cashback then not applied) is still shown correctly.
+ */
+export async function cashbackPromptApplies(
+  quote: (network: string, face: number, shop: boolean) => Promise<StorefrontQuote | null>,
+  network: string, probe: number, shop: boolean,
+): Promise<boolean> {
+  try {
+    const q = await quote(network, probe, shop)
+    return !!q && q.applied === true && Number.isFinite(q.payAmount) && q.payAmount > 0
+  } catch {
+    return false
+  }
+}
+
+/** "Enter amount to pay" (today) or, with cashback, "Enter airtime amount". */
+export function airtimeAmountText(label: string, min: number, max: number, cashback = false): string {
+  return `${label} Airtime\n${cashback ? "Enter airtime amount" : "Enter amount to pay"}\n(GHS ${min} - ${max}):\n0. Back`
+}
+
+/**
  * airtime_orders columns that differ from the legacy row when cashback applies: face delivered, no
  * fee, total = pay amount, plus the cashback snapshot (same columns as the storefront airtime insert).
  * `shopShare` is passed separately so main mode always snapshots 0.
