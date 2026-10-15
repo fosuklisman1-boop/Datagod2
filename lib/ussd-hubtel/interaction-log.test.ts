@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import {
-  getTranscript, logInteraction, purgeOldInteractions, sessionOutcome, shapeInteractionRow, trackSessionStore,
+  getTranscript, logInteraction, purgeOldInteractions, rowsForShop, sessionOutcome, shapeInteractionRow, trackSessionStore,
   __resetInteractionLogWarningsForTests,
 } from "./interaction-log"
 import { parseListParams } from "./interaction-routes"
@@ -107,5 +107,30 @@ describe("logInteraction / purge", () => {
     expect(warn).toHaveBeenCalledTimes(1)
     await expect(purgeOldInteractions(client)).resolves.toBeUndefined()
     warn.mockRestore()
+  })
+})
+
+describe("redaction of personal data", () => {
+  it("answers on name / Ghana Card / PIN / index / DOB steps are never stored", () => {
+    for (const step of ["AFA_ENTER_NAME", "AFA_ENTER_CARD", "RC_CHECK_VOUCHER", "RC_CHECK_INDEX", "RC_CHECK_DOB"] as const) {
+      const row = shapeInteractionRow(req({ Message: "GHA-123456789-0" }), reply({ ClientState: "NEXT" }), null, new Date(), step)
+      expect(row.input).toBe("[hidden]")
+    }
+    expect(shapeInteractionRow(req({ Message: "1" }), reply(), null, new Date(), "MAIN").input).toBe("1")
+  })
+  it("screens that echo it (confirmations, voucher details) are never stored", () => {
+    const row = shapeInteractionRow(req({ Message: "Accra" }), reply({ ClientState: "AFA_CONFIRM", Message: "Kwame Mensah GHA-123456789-0" }), null, new Date(), "AFA_ENTER_LOCATION")
+    expect(row.reply).toBe("[hidden]")
+    expect(row.input).toBe("Accra")
+  })
+})
+
+describe("rowsForShop: another shop's screens in the same session never reach this owner", () => {
+  const r = (shop_id: string | null, input: string) => ({ created_at: input, seq: null, request_type: "Response", input, reply_type: "response", reply: "x", shop_id })
+  it("pre-code rows go to the next shop accepted, trailing rows to the last", () => {
+    const rows = [r(null, "dial"), r(null, "1111"), r("A", "A-menu"), r("A", "A-buy"), r(null, "re-dial code"), r("B", "B-menu"), r(null, "timeout")]
+    expect(rowsForShop(rows, "A").map(x => x.input)).toEqual(["dial", "1111", "A-menu", "A-buy"])
+    expect(rowsForShop(rows, "B").map(x => x.input)).toEqual(["re-dial code", "B-menu", "timeout"])
+    expect(rowsForShop(rows, "C")).toEqual([])
   })
 })

@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     reply = release(req.SessionId, "Service unavailable. Please try again.", { platform: req.Platform })
   }
   // Session transcript (admin + shop owner viewers): written after the reply is sent, never delays it.
-  const row = shapeInteractionRow(req, reply, tracked.latest(), receivedAt)
+  const row = shapeInteractionRow(req, reply, tracked.latest(), receivedAt, tracked.answered()?.step ?? null)
   runAfterResponse(() => logInteraction(supabase, row))
   return NextResponse.json(reply)
 }

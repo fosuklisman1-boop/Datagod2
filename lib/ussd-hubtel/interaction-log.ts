@@ -7,7 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { isCallbackLogTableMissing } from "./callback-log"
 import type { HubtelSessionStore } from "./session"
 import { safeDbError } from "./log-safe"
-import type { HubtelReply, HubtelRequest, HubtelSession } from "./types"
+import type { HubtelReply, HubtelRequest, HubtelSession, HubtelStep } from "./types"
 
 export const INTERACTION_LOG_TABLE = "hubtel_ussd_interactions"
 export const INTERACTION_LOG_RETENTION_DAYS = 30
@@ -32,10 +32,24 @@ export interface InteractionRow {
 
 const cap = (s: string | null | undefined) => (s == null ? null : s.length > TEXT_CAP ? s.slice(0, TEXT_CAP) : s)
 
-/** The row for one exchange. `session` is the session as it stands after the reply (null once ended). */
+export const REDACTED = "[hidden]"
+/** Steps whose ANSWER is personal data (name, Ghana Card, voucher PIN/serial, index number, DOB): never stored. */
+const SENSITIVE_INPUT_STEPS: ReadonlySet<HubtelStep> = new Set<HubtelStep>([
+  "AFA_ENTER_NAME", "AFA_ENTER_CARD", "RC_CHECK_VOUCHER", "RC_CHECK_INDEX", "RC_CHECK_DOB",
+])
+/** Screens that echo that data back (confirmations, voucher details): never stored. */
+const SENSITIVE_REPLY_STEPS: ReadonlySet<string> = new Set<string>(["AFA_CONFIRM", "RC_CHECK_CONFIRM", "RC_VOUCHER_DETAIL"])
+
+/**
+ * The row for one exchange. `session` is the session as it stands after the reply (null once
+ * ended); `answeredStep` is the step the caller was answering (the session read at the start).
+ */
 export function shapeInteractionRow(
-  req: HubtelRequest, reply: HubtelReply | null, session: HubtelSession | null, at: Date
+  req: HubtelRequest, reply: HubtelReply | null, session: HubtelSession | null, at: Date, answeredStep?: HubtelStep | null
 ): InteractionRow {
+  const hideInput = !!answeredStep && SENSITIVE_INPUT_STEPS.has(answeredStep)
+  const replyStep = reply?.ClientState || ""
+  const hideReply = SENSITIVE_REPLY_STEPS.has(replyStep) || (!!answeredStep && SENSITIVE_REPLY_STEPS.has(answeredStep) && !replyStep)
   return {
     created_at: at.toISOString(),
     session_id: req.SessionId,
@@ -43,9 +57,9 @@ export function shapeInteractionRow(
     mobile: req.Mobile || null,
     platform: req.Platform || null,
     request_type: req.Type,
-    input: cap(req.Message),
+    input: hideInput ? REDACTED : cap(req.Message),
     reply_type: reply?.Type ?? null,
-    reply: cap(reply?.Message ?? null),
+    reply: hideReply && reply?.Message ? REDACTED : cap(reply?.Message ?? null),
     step: reply?.ClientState || session?.step || null,
     mode: session?.mode ?? null,
     shop_id: session?.shopId ?? null,
@@ -56,12 +70,22 @@ export function shapeInteractionRow(
  * Wraps the session store for ONE request and remembers the latest session read or written, so
  * the log row knows the shop (set by the code step) even when the session is deleted later.
  */
-export function trackSessionStore(inner: HubtelSessionStore): { store: HubtelSessionStore; latest(): HubtelSession | null } {
+export function trackSessionStore(inner: HubtelSessionStore): {
+  store: HubtelSessionStore; latest(): HubtelSession | null; answered(): HubtelSession | null
+} {
   let last: HubtelSession | null = null
+  let first: HubtelSession | null = null
+  let read = false
   return {
     latest: () => last,
+    answered: () => first,
     store: {
-      async get(id) { const s = await inner.get(id); if (s) last = s; return s },
+      async get(id) {
+        const s = await inner.get(id)
+        if (!read) { read = true; first = s } // the session as it stood when the caller answered
+        if (s) last = s
+        return s
+      },
       async set(id, s) { last = s; await inner.set(id, s) },
       async del(id) { await inner.del(id) }, // keep `last`: the row still belongs to that shop
     },
@@ -131,6 +155,8 @@ export interface SessionSummary {
   last_request_type: string | null
   payment_state: string | null
   amount: number | null
+  /** More than one shop's code was accepted in this Hubtel session. */
+  multi_shop?: boolean
 }
 
 /** "Paid", "Awaiting payment", "Timed out", ... for a summary row. */
@@ -162,7 +188,12 @@ export async function listSessionSummaries(
   }
   return {
     ok: true,
-    sessions: ((data ?? []) as SessionSummary[]).map(s => ({ ...s, amount: s.amount == null ? null : Number(s.amount) })),
+    sessions: ((data ?? []) as SessionSummary[]).map(s => {
+      const row = { ...s, amount: s.amount == null ? null : Number(s.amount) }
+      // A shop owner never sees the payment of a session another shop's code was also used in:
+      // it may be that shop's order.
+      return opts.shopId && s.multi_shop ? { ...row, payment_state: null, amount: null } : row
+    }),
   }
 }
 
@@ -192,6 +223,23 @@ export async function getTranscript(
   }
   const rows = (data ?? []) as TranscriptRow[]
   if (rows.length === 0) return { ok: false, status: 404, error: "Session not found" }
-  if (shopId && !rows.some(r => r.shop_id === shopId)) return { ok: false, status: 404, error: "Session not found" }
-  return { ok: true, rows }
+  if (!shopId) return { ok: true, rows }
+  const mine = rowsForShop(rows, shopId)
+  if (mine.length === 0) return { ok: false, status: 404, error: "Session not found" }
+  return { ok: true, rows: mine }
+}
+
+/**
+ * A shop owner's slice of a session. Rows without a shop (screens before a code was accepted, a
+ * Timeout) belong to the NEXT shop accepted in the session, or, after the last one, the previous
+ * one. So if a caller entered another shop's code in the same Hubtel session, that shop's screens
+ * are never shown here.
+ */
+export function rowsForShop(rows: TranscriptRow[], shopId: string): TranscriptRow[] {
+  const owner: (string | null)[] = new Array(rows.length).fill(null)
+  let next: string | null = null
+  for (let i = rows.length - 1; i >= 0; i--) { if (rows[i].shop_id) next = rows[i].shop_id; owner[i] = rows[i].shop_id ?? next }
+  let prev: string | null = null
+  for (let i = 0; i < rows.length; i++) { if (rows[i].shop_id) prev = rows[i].shop_id; if (!owner[i]) owner[i] = prev }
+  return rows.filter((_, i) => owner[i] === shopId)
 }
