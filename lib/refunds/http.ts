@@ -55,7 +55,9 @@ export function parseManualReference(v: unknown): { ok: true; value: string | nu
   if (typeof v !== "string") return { ok: false }
   const s = v.trim()
   if (s === "") return { ok: true, value: null }
-  if (s.length > 100 || /[\u0000-\u001f\u007f]/.test(s)) return { ok: false }
+  // Control characters, and invisible format characters (bidi overrides, zero-width, BOM) that could disguise a
+  // reference in History or the audit log.
+  if (s.length > 100 || /[\u0000-\u001f\u007f]/.test(s) || /\p{Cf}/u.test(s)) return { ok: false }
   return { ok: true, value: s }
 }
 

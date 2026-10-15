@@ -48,6 +48,28 @@ describe("loadRefundContact", () => {
     expect(eq).toHaveBeenCalledWith("users", "id", "uB")
     expect(c).toEqual({ name: "Kofi Boateng", email: "kofi@x.com", phone: "0551234567", payerPhone: null, recipientPhone: "0243334444", payTo: "0551234567" })
   })
+  it("storefront paid from a Datagod WALLET (no payer number): falls back to the wallet owner's account details", async () => {
+    const { db, eq } = fakeDb({
+      shop_orders: { customer_name: null, customer_email: null, customer_phone: "0243334444" },
+      users: { first_name: "Efua", last_name: "Asante", email: "efua@x.com", phone_number: "0277001122", phone: null },
+    })
+    const c = await loadRefundContact(db, order({ payment: { gateway: "wallet", reference: null, payerPhone: null, walletUserId: "uW" } }))
+    expect(eq).toHaveBeenCalledWith("users", "id", "uW")
+    expect(c).toEqual({ name: "Efua Asante", email: "efua@x.com", phone: "0277001122", payerPhone: null, recipientPhone: "0243334444", payTo: "0277001122" })
+  })
+  it("storefront wallet order keeps the order's own name/email when present (account only fills the gaps)", async () => {
+    const { db } = fakeDb({
+      shop_orders: { customer_name: "Ama", customer_email: "ama@x.com", customer_phone: "0243334444" },
+      users: { first_name: "Efua", last_name: "Asante", email: "efua@x.com", phone_number: "0277001122" },
+    })
+    const c = await loadRefundContact(db, order({ payment: { gateway: "wallet", reference: null, payerPhone: null, walletUserId: "uW" } }))
+    expect(c).toMatchObject({ name: "Ama", email: "ama@x.com", phone: "0277001122", payTo: "0277001122" })
+  })
+  it("no wallet lookup when the order already has a payer number", async () => {
+    const { db, eq } = fakeDb({ shop_orders: { customer_name: "Ama" } })
+    await loadRefundContact(db, order({ payment: { gateway: "paystack", reference: "r", payerPhone: "0241112222", walletUserId: "uW" } }))
+    expect(eq).not.toHaveBeenCalledWith("users", "id", "uW")
+  })
   it("commission orders get no contact card (they use 'Mark refunded manually')", async () => {
     const { db, from } = fakeDb({})
     expect(await loadRefundContact(db, order({ table: "airtime_orders" }))).toBeNull()

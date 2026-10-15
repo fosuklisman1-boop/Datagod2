@@ -47,11 +47,27 @@ export async function loadRefundContact(db: SupabaseClient, order: RefundableOrd
     recipientPhone = str(r?.recipient_phone) ?? recipientPhone
   } else if (order.buyerUserId) {
     // orders / api_orders: paid from the ACCOUNT holder's wallet.
-    const r = await row(db, "users", "first_name, last_name, email, phone_number, phone", order.buyerUserId)
-    name = [str(r?.first_name), str(r?.last_name)].filter(Boolean).join(" ") || null
-    email = str(r?.email)
-    phone = str(r?.phone_number) ?? str(r?.phone)
+    const a = await account(db, order.buyerUserId)
+    ;({ name, email, phone } = a)
+  }
+
+  // Any other order paid from a Datagod wallet with no payer number on record (e.g. a storefront order paid from
+  // the buyer's wallet): the wallet owner is who paid, so their account fills the gaps.
+  if (!payerPhone && !phone && order.payment.walletUserId && !order.buyerUserId) {
+    const a = await account(db, order.payment.walletUserId)
+    name = name ?? a.name
+    email = email ?? a.email
+    phone = a.phone
   }
 
   return { name, email, phone, payerPhone, recipientPhone, payTo: payerPhone ?? phone }
+}
+
+async function account(db: SupabaseClient, userId: string): Promise<{ name: string | null; email: string | null; phone: string | null }> {
+  const r = await row(db, "users", "first_name, last_name, email, phone_number, phone", userId)
+  return {
+    name: [str(r?.first_name), str(r?.last_name)].filter(Boolean).join(" ") || null,
+    email: str(r?.email),
+    phone: str(r?.phone_number) ?? str(r?.phone),
+  }
 }

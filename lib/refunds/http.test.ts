@@ -16,6 +16,17 @@ describe("parseManualReference", () => {
     expect(parseManualReference("x".repeat(101)).ok).toBe(false)
     expect(parseManualReference("ref\nwith newline").ok).toBe(false)
   })
+  it("rejects invisible Unicode format characters (bidi overrides, zero-width) that could disguise a reference", () => {
+    expect(parseManualReference("MP‮1234").ok).toBe(false)
+    expect(parseManualReference("MP​1234").ok).toBe(false)
+    expect(parseManualReference("MP﻿1234").ok).toBe(false)
+  })
+  it("a leading/trailing BOM is simply trimmed away (trim() treats it as whitespace)", () => {
+    expect(parseManualReference("﻿MP1234")).toEqual({ ok: true, value: "MP1234" })
+  })
+  it("still accepts ordinary non-ASCII text (e.g. a name in a bank note)", () => {
+    expect(parseManualReference("Kwabena Ɔpare – ref 77")).toEqual({ ok: true, value: "Kwabena Ɔpare – ref 77" })
+  })
 })
 import { REFUND_ERROR_CODES, RefundError } from "./service"
 
