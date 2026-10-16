@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ArrowRight, CheckCircle2, Clock, Loader2, Phone, XCircle } from "lucide-react"
 import { BILLERS, isValidAmountInput, type BillerKey } from "@/lib/bills/billers"
 import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
@@ -52,15 +52,23 @@ async function authedPost(path: string, body: unknown): Promise<{ status: number
 }
 
 export function BillPayFlow({
-  billers, balance, defaultPhone, onPaid,
+  billers, balance, defaultPhone, onPaid, initialKey,
 }: {
   billers: AvailabilityBiller[]
   balance: number | null
   defaultPhone?: string
   onPaid: () => void
+  /** Opens this biller's sheet once it is in the list (deep link from the dashboard carousel). */
+  initialKey?: string | null
 }) {
   const [active, setActive] = useState<AvailabilityBiller | null>(null)
   const { rates, ensureFresh } = useCashbackRates()
+  const openedInitial = useRef(false)
+  useEffect(() => {
+    if (openedInitial.current || !initialKey) return
+    const b = billers.find(x => x.key === initialKey)
+    if (b) { openedInitial.current = true; setActive(b) }
+  }, [initialKey, billers])
 
   return (
     <>
