@@ -321,7 +321,7 @@ export function HeroCarousel() {
           </div>
           <p className="mt-6 font-display text-3xl font-black tracking-tight text-foreground">{wordmark}</p>
           <span className="mt-6 inline-flex items-center gap-2 clay-sm px-5 py-2.5 text-base font-medium text-foreground">
-            <Zap className="h-5 w-5 text-[#1b388b]" /> Ultra Fast Instant Delivery
+            <Zap className="h-5 w-5 text-[#1b388b]" /> All Your Digital Services in One App
           </span>
         </div>
 
