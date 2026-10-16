@@ -243,9 +243,12 @@ export function Sidebar() {
           variant="ghost"
           size="icon"
           className={cn(
-            "fixed top-4 left-4 z-50 md:hidden bg-primary text-primary-foreground hover:bg-primary/90 transition-opacity duration-300",
+            "fixed left-4 z-50 md:hidden bg-primary text-primary-foreground hover:bg-primary/90 transition-opacity duration-300",
             isOpen && "opacity-0 pointer-events-none"
           )}
+          // Centred in the h-14 header, below the iOS status bar when the app
+          // runs from the home screen (black-translucent + viewport-fit=cover).
+          style={{ top: "calc(env(safe-area-inset-top, 0px) + 0.625rem)" }}
         >
           <Menu className="w-5 h-5" />
         </Button>
@@ -268,6 +271,7 @@ export function Sidebar() {
           isOpen ? "w-64" : "w-20",
           isMobile && !isOpen && "-translate-x-full"
         )}
+        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
         {/* Logo Section */}
         <div className={cn(

@@ -229,7 +229,7 @@ export default function ShopAirtimePage() {
   return (
     <div className="min-h-screen bg-card pb-20">
       {/* Header */}
-      <nav className="bg-card/80 backdrop-blur-md border-b border-border shadow-sm sticky top-0 z-40">
+      <nav className="bg-card/80 backdrop-blur-md border-b border-border shadow-sm sticky top-0 z-40" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <button 
             onClick={() => router.push(shopHome)} 

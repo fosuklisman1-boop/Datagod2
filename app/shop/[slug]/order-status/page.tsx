@@ -281,7 +281,7 @@ export default function OrderStatusPage() {
   return (
     <div className="min-h-screen bg-card">
       {/* Header */}
-      <div className="bg-card border-b border-border sticky top-0 z-10">
+      <div className="bg-card border-b border-border sticky top-0 z-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Store className="w-6 h-6 text-primary" />

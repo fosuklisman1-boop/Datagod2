@@ -1177,7 +1177,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         />
       )}
       {/* Navigation Bar */}
-      <nav className="bg-card rounded-b-[1.75rem] clay-bar sticky top-0 z-40">
+      <nav className="bg-card rounded-b-[1.75rem] clay-bar sticky top-0 z-40" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
             {/* 3-Line Hamburger Button */}
@@ -1224,10 +1224,11 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         className={`fixed left-0 top-0 h-screen bg-card rounded-r-[2rem] clay-rail w-72 transform transition-all duration-300 ease-in-out z-30 overflow-y-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
-        <div className="relative p-6 text-center text-white" style={{ backgroundColor: "var(--shop-accent)" }}>
+        <div className="relative p-6 text-center text-white" style={{ backgroundColor: "var(--shop-accent)", paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-white/15 hover:bg-white/25"
+            style={{ top: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
+            className="absolute right-3 grid h-8 w-8 place-items-center rounded-full bg-white/15 hover:bg-white/25"
             aria-label="Close menu"
           >
             <X className="w-4 h-4" />
