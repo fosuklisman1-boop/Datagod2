@@ -317,6 +317,7 @@ const TOP_SERVICES = [
   { icon: Database, title: "Data Bundles", desc: "High-speed MTN, Telecel & AT data bundles at the best rates, delivered in seconds.", tag: null, color: "bg-emerald-100 text-emerald-600" },
   { icon: Zap, title: "Airtime Topup", desc: "Instant airtime recharge for any network, paid straight from your wallet.", tag: null, color: "bg-blue-100 text-blue-600" },
   { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers instantly — no queues, no paperwork.", tag: null, color: "bg-purple-100 text-purple-600" },
+  { icon: Receipt, title: "Utility Bills", desc: "Pay ECG prepaid, Ghana Water, DSTV, GOtv, StarTimes & Telecel Broadband instantly from your wallet.", tag: "NEW", color: "bg-orange-100 text-orange-600" },
   { icon: FileCheck2, title: "Results Checker", desc: "WASSCE, BECE & NovDec PINs delivered instantly so you can check your own results.", tag: null, color: "bg-amber-100 text-amber-600" },
   { icon: Search, title: "Results Check Service", desc: "No PIN to spare? We check your results for you and send them by email & WhatsApp.", tag: null, color: "bg-cyan-100 text-cyan-600" },
   { icon: Send, title: "Bulk SMS", desc: "Send OTPs, alerts and campaigns with your own sender ID, address book & templates.", tag: null, color: "bg-rose-100 text-rose-600" },
@@ -328,7 +329,6 @@ const TOP_SERVICES = [
 // section, muted/dashed cards) from TOP_SERVICES so visitors never mistake
 // something unreleased for something they can buy today.
 const COMING_SOON = [
-  { icon: Receipt, title: "Bill Pay", desc: "Pay ECG, Ghana Water, and other utility bills instantly from your wallet." },
   { icon: Monitor, title: "Website & App Development", desc: "Custom websites, online stores and mobile apps for businesses across Ghana — built and kept running by our team." },
 ] as const
 
