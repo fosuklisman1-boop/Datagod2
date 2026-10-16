@@ -6,6 +6,8 @@ import { Zap, Download, Apple, Bot, Laptop, Share } from "lucide-react"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPageHidden } from "@/lib/custom-domains"
 import { usePwaInstall } from "@/hooks/use-pwa-install"
+import { useBillsAvailability } from "@/components/bills/use-bills-availability"
+import { isBillerKey } from "@/lib/bills/billers"
 
 interface SupportConfig {
   whatsapp?: string
@@ -66,6 +68,9 @@ export function HeroCarousel() {
   const [links, setLinks] = useState<CommunityLinks>({})
   const { mode: installMode, promptInstall } = usePwaInstall()
   const [showInstallGuide, setShowInstallGuide] = useState(false)
+  // Live billers only — the slide is left out when bill pay is off.
+  const billsAvailability = useBillsAvailability()
+  const billers = billsAvailability?.enabled ? billsAvailability.billers.filter((b) => isBillerKey(b.key)) : []
 
   useEffect(() => {
     fetch("/api/support-config").then((r) => (r.ok ? r.json() : {})).then(setSupport).catch(() => {})
@@ -89,7 +94,7 @@ export function HeroCarousel() {
     <div key="welcome">
       <Eyebrow>Welcome to</Eyebrow>
       <Heading>{wordmark}</Heading>
-      <Body>Ghana&apos;s all-in-one platform for mobile data, airtime, AFA, Results Checkers, bulk SMS and business growth. Instant delivery, always.</Body>
+      <Body>Ghana&apos;s all-in-one platform for mobile data, airtime, utility bills, AFA, Results Checkers, bulk SMS and business growth. Instant delivery, always.</Body>
       <div className="mt-10 space-y-4">
         <Link href="/auth/login" className={PILL.primary}>Sign In</Link>
         <Link href="/auth/signup" className={PILL.muted}>Create Account</Link>
@@ -143,6 +148,33 @@ export function HeroCarousel() {
         )}
       </div>
     </div>,
+
+    ...(billers.length > 0 ? [
+      <div key="bills">
+        <Eyebrow>Utility Bills</Eyebrow>
+        <Heading>Pay ECG, water &amp; TV bills in seconds</Heading>
+        <Body>Top up ECG prepaid, pay Ghana Water and renew DSTV, GOtv or StarTimes straight from your wallet — no queues, no vendor.</Body>
+        <div className="mt-8 grid grid-cols-3 gap-3">
+          {billers.map((b) => (
+            <Link
+              key={b.key}
+              href="/auth/signup"
+              className="relative flex flex-col items-center gap-2 overflow-hidden rounded-2xl bg-neutral-900 px-2 py-4 text-center"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={b.logo} alt="" aria-hidden className="pointer-events-none absolute inset-0 h-full w-full scale-150 object-cover blur-xl saturate-150" />
+              <span className="pointer-events-none absolute inset-0 bg-black/40" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={b.logo} alt="" className="relative h-12 w-12 rounded-xl bg-white object-contain p-0.5 shadow-md" />
+              <span className="relative text-xs font-bold leading-tight text-white">{b.label}</span>
+            </Link>
+          ))}
+        </div>
+        <div className="mt-8 space-y-4">
+          <Link href="/auth/signup" className={PILL.primary}>Pay a Bill</Link>
+        </div>
+      </div>,
+    ] : []),
 
     <div key="results">
       <Eyebrow>Results Checker</Eyebrow>
