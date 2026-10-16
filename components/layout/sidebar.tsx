@@ -248,7 +248,7 @@ export function Sidebar() {
           )}
           // Centred in the h-14 header, below the iOS status bar when the app
           // runs from the home screen (black-translucent + viewport-fit=cover).
-          style={{ top: "calc(env(safe-area-inset-top, 0px) + 0.625rem)" }}
+          style={{ top: "calc(env(safe-area-inset-top, 0px) + 1.125rem)" }}
         >
           <Menu className="w-5 h-5" />
         </Button>
