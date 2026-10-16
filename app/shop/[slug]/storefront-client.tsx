@@ -48,7 +48,8 @@ import {
   ChevronDown,
   ChevronUp,
   Smartphone,
-  UserPlus
+  UserPlus,
+  Receipt
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -56,6 +57,7 @@ import { ResultsCheckServiceForm } from "@/components/shop/ResultsCheckServiceFo
 import { VoucherLookup } from "@/components/shop/VoucherLookup"
 import { BundlesTab } from "@/components/storefront-commission/BundlesTab"
 import { BillsTab } from "@/components/storefront-commission/BillsTab"
+import { BILLER_KEYS } from "@/lib/bills/billers"
 import { parseStorefrontBillers, type StorefrontBiller } from "@/lib/storefront-commission/ui-helpers"
 import { SubAgentRequestForm } from "@/components/shop/SubAgentRequestForm"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
@@ -158,6 +160,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
   // it did, via a separate activeTab value, which made the picker disappear).
   const [selectedService, setSelectedService] = useState<"data" | "airtime" | "vouchers" | "bundles" | "bills">(allowedServices[0])
   const [storefrontBillers, setStorefrontBillers] = useState<StorefrontBiller[]>([])
+  const [billOpenRequest, setBillOpenRequest] = useState<{ key: string; n: number } | null>(null)
   // Commission-funded Bundles tab: shown only while this storefront may sell them (fails closed on any error).
   const [bundleNetworks, setBundleNetworks] = useState<{ network: string; label: string }[]>([])
   const [rcTab, setRcTab] = useState<"buy" | "retrieve" | "check">("buy")
@@ -1083,6 +1086,20 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
       cta: "Buy Airtime", icon: Zap, gradient: "from-[#431407] to-[#d97706]",
       onClick: () => { setSelectedService("airtime"); setActiveTab("home"); scrollToServiceTabs() },
     }] : []),
+    // One slide per utility the storefront sells (same gate as the sidebar's Bills entry).
+    ...(allowedServices.includes("data")
+      ? storefrontBillers
+          .filter(b => (BILLER_KEYS as readonly string[]).includes(b.key))
+          .map(b => ({
+            key: `bill-${b.key}`, badge: b.page === "broadband" ? "BROADBAND" : "BILLS", title: b.label,
+            description: `Pay your ${b.label} bill in seconds.`,
+            cta: "Pay Now", icon: Receipt, gradient: "", image: b.logo,
+            onClick: () => {
+              setSelectedService("bills"); setActiveTab("home"); scrollToServiceTabs()
+              setBillOpenRequest(r => ({ key: b.key, n: (r?.n ?? 0) + 1 }))
+            },
+          }))
+      : []),
     ...(allowedServices.includes("vouchers") ? [{
       key: "vouchers", badge: "EDUCATION", title: "Results Checker", description: "Buy checker vouchers or check your results online.",
       cta: "Get Checker", icon: GraduationCap, gradient: "from-[#052e16] to-[#059669]",
@@ -1631,7 +1648,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                   </div>
                 ) : selectedService === "bills" ? (
                   <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <BillsTab shopSlug={shopSlug} billers={storefrontBillers} />
+                    <BillsTab shopSlug={shopSlug} billers={storefrontBillers} openRequest={billOpenRequest} />
                   </div>
                 ) : (
                   /* Results Checker Vouchers Section */
