@@ -4,6 +4,7 @@
 // through Hubtel's AddToCart. The engine creates the unpaid order (idempotency key = this session);
 // submitOrder then writes the hubtel_transactions row and the cart at the order's payAmount.
 // Plan and category names are shown exactly as Hubtel sends them (only shortened to fit the screen).
+import { recipientPromptText, whoForText } from "../menus"
 import { confirmNote } from "../confirm-note"
 import crypto from "crypto"
 import { validateNetworkPrefix } from "@/lib/phone-format"
@@ -22,6 +23,7 @@ import type { HubtelReply, HubtelSession, NpPlan } from "../types"
 export const NP_PAGE_SIZE = 5
 const NETWORKS: readonly BundleNetwork[] = ["MTN", "TELECEL", "AT"]
 const NETWORK_LABEL: Record<BundleNetwork, string> = { MTN: "MTN", TELECEL: "Telecel", AT: "AirtelTigo" }
+const npLabel = (s: HubtelSession) => (s.npNetwork ? NETWORK_LABEL[s.npNetwork] : "")
 
 const NETWORK = { label: "Select network" }
 const CATEGORY = { label: "Select type" }
@@ -53,21 +55,26 @@ function planScreen(network: BundleNetwork, category: string, plans: NpPlan[], h
   )
 }
 
-const recipientScreen = (s: HubtelSession, prefix = "") =>
-  `${prefix}Send to:\n1. My number (${toLocalPhone(s.dialingPhone)})\n2. Other number\n0. Back`
-const otherScreen = (prefix = "") => `${prefix}Enter recipient number:\n0. Back`
+// Same "Who is this for?" step and confirm layout as the data bundle menus.
+const recipientScreen = (s: HubtelSession, prefix = "") => `${prefix}${whoForText(toLocalPhone(s.dialingPhone))}`
+const otherScreen = (prefix = "") => `${prefix}${recipientPromptText()}`
 
-/** Confirm screen (≤ 182 chars; the plan text is shortened if needed). "(was …)" only when the price is below face. */
-export function networkPlanConfirmText(plan: NpPlan, recipient: string, note?: string | null): string {
+/**
+ * Confirm screen (≤ 182 chars; the plan text is shortened if needed), laid out like the data bundle confirm:
+ *   MTN <plan> / To: <number> / Amount: GHS x (was GHS y) / [delivery lines] / / Confirm your order? / 1. Confirm / 0. Cancel
+ * "(was …)" only when the price is below face.
+ */
+export function networkPlanConfirmText(plan: NpPlan, recipient: string, note?: string | null, networkLabel = ""): string {
   const was = plan.p < plan.f ? ` (was GHS ${money(plan.f)})` : ""
-  const head = `Pay GHS ${money(plan.p)}${was}\nYou receive `
+  const label = networkLabel ? `${networkLabel} ` : ""
   const desc = plan.d
+  const tailWith = (extra: string) => `\nTo: ${recipient}\nAmount: GHS ${money(plan.p)}${was}\n${extra}\nConfirm your order?\n1. Confirm\n0. Cancel`
   const build = (extra: string) => {
-    const tail = ` on ${recipient}\n${extra}1 Confirm 2 Cancel`
-    return head + clip(desc, USSD_SCREEN_LIMIT - head.length - tail.length) + tail
+    const tail = tailWith(extra)
+    return label + clip(desc, USSD_SCREEN_LIMIT - label.length - tail.length) + tail
   }
-  // The delivery-time line only when the plan text keeps enough room to stay readable.
-  const room = USSD_SCREEN_LIMIT - head.length - ` on ${recipient}\n${note}\n1 Confirm 2 Cancel`.length
+  // The delivery lines only when the plan text keeps enough room to stay readable.
+  const room = note ? USSD_SCREEN_LIMIT - label.length - tailWith(`${note}\n`).length : 0
   return note && room >= Math.min(desc.length, 24) ? build(`${note}\n`) : build("")
 }
 
@@ -176,7 +183,7 @@ async function recipientProblem(ctx: FlowCtx, local: string): Promise<string | n
 // Standard Bundles have their own suppliers: no MTN number check, only the Standard Bundles delivery time.
 async function toConfirm(ctx: FlowCtx, local: string): Promise<HubtelReply> {
   const note = await confirmNote(ctx, { network: ctx.session.npNetwork, recipientLocal: local, verify: false, estimate: "standard" })
-  return goto(ctx, { step: "NP_CONFIRM", npRecipient: local, npOtherNumber: false, confirmNote: note }, networkPlanConfirmText(ctx.session.npPlan!, local, note), CONFIRM)
+  return goto(ctx, { step: "NP_CONFIRM", npRecipient: local, npOtherNumber: false, confirmNote: note }, networkPlanConfirmText(ctx.session.npPlan!, local, note, npLabel(ctx.session)), CONFIRM)
 }
 
 async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
@@ -205,8 +212,8 @@ export function npIdempotencyKey(sessionId: string): string {
 
 async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const { input, deps, req, session } = ctx
-  if (input === "2") return finish(ctx, "Order cancelled.")
-  if (input !== "1") return say(ctx, networkPlanConfirmText(session.npPlan!, session.npRecipient!, session.confirmNote), "NP_CONFIRM", CONFIRM)
+  if (input === "0") return finish(ctx, "Order cancelled.")
+  if (input !== "1") return say(ctx, networkPlanConfirmText(session.npPlan!, session.npRecipient!, session.confirmNote, npLabel(session)), "NP_CONFIRM", CONFIRM)
 
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
