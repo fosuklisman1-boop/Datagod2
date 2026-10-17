@@ -173,3 +173,11 @@ describe("shownDeliveredAt", () => {
     expect(shownDeliveredAt(computeEstimate({ c: null, p: null, now: at(30) }))).toBeNull()
   })
 })
+
+describe("shownDeliveredAt on odd data", () => {
+  it("falls back to the raw delivered time instead of throwing", () => {
+    const lastOrder = { createdAt: "not a date", completedAt: "2026-10-17T16:30:00.000Z" }
+    expect(shownDeliveredAt({ lastOrder, lastOrderSeconds: 300 })).toBe("2026-10-17T16:30:00.000Z")
+    expect(shownDeliveredAt({ lastOrder: { ...lastOrder, createdAt: "2026-10-17T16:20:00.000Z" }, lastOrderSeconds: Number.NaN })).toBe("2026-10-17T16:30:00.000Z")
+  })
+})

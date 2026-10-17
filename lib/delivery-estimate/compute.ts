@@ -121,8 +121,10 @@ export function formatDuration(seconds: number): string {
  */
 export function shownDeliveredAt(e: Pick<ChannelEstimate, "lastOrder" | "lastOrderSeconds">): string | null {
   if (!e.lastOrder) return null
-  if (e.lastOrderSeconds === null) return e.lastOrder.completedAt
-  return new Date(Date.parse(e.lastOrder.createdAt) + e.lastOrderSeconds * 1000).toISOString()
+  const placed = Date.parse(e.lastOrder.createdAt)
+  // Never throw on odd data (toISOString on an invalid date would): fall back to the raw delivered time.
+  if (e.lastOrderSeconds === null || !Number.isFinite(placed) || !Number.isFinite(e.lastOrderSeconds)) return e.lastOrder.completedAt
+  return new Date(placed + e.lastOrderSeconds * 1000).toISOString()
 }
 
 /** Metric 2 for an open P at `now`, after the buffer. */
