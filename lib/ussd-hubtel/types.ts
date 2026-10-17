@@ -72,6 +72,8 @@ export interface HubtelSession {
   bundleSize?: string
   bundlePrice?: number
   recipientPhone?: string // local 0XXXXXXXXX
+  /** Data recipient step: true once "2. Someone Else" was chosen (typing a number). */
+  otherRecipient?: boolean
   /** Extra confirm-screen line (verification warning or delivery estimate), computed once per recipient. */
   confirmNote?: string | null
   // Airtime

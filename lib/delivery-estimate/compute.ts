@@ -190,5 +190,12 @@ export function confirmScreenText(e: ChannelEstimate | null): string | null {
   if (!e || e.state !== "live" || e.currentSeconds === null || !e.headline || !e.strength) return null
   if (e.headline.key === "working") return null
   if (e.strength.tier !== "Excellent" && e.strength.tier !== "Good") return null
-  return `Delivery: ~${formatDuration(e.currentSeconds)}`
+  const lines = [`Delivery Est: ${compactDuration(e.currentSeconds)}`]
+  if (e.lastOrderSeconds !== null) lines.push(`Last Order Took: ${compactDuration(e.lastOrderSeconds)}`)
+  return lines.join("\n")
+}
+
+/** formatDuration without the space before units, for tight screens: "3min", "39sec", "1hr 35min". */
+export function compactDuration(seconds: number): string {
+  return formatDuration(seconds).replace(/(\d) (sec|min|hr)/g, "$1$2")
 }

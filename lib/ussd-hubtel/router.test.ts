@@ -65,6 +65,7 @@ async function walkTo(step: "SELECT_BUNDLE" | "ENTER_RECIPIENT" | "CONFIRM", dep
   await hubtelRouter(req({ Message: "1" }), deps) // MTN
   if (step === "SELECT_BUNDLE") return
   await hubtelRouter(req({ Message: "1" }), deps) // first bundle
+  await hubtelRouter(req({ Message: "2" }), deps) // Who is this for? -> 2. Someone Else (type a number)
   if (step === "ENTER_RECIPIENT") return
   await hubtelRouter(req({ Message: "0244123456" }), deps)
 }
@@ -131,7 +132,7 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true } })
     const { deps } = makeDeps({}, sup)
     await walkTo("CONFIRM", deps)
-    const r = await hubtelRouter(req({ Message: "2" }), deps)
+    const r = await hubtelRouter(req({ Message: "0" }), deps)
     expect(r.Type).toBe("release")
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
   })
@@ -229,9 +230,10 @@ describe("hubtelRouter: back navigation and pagination", () => {
     expect(r.Message).toContain("MTN")
     expect(store.get("S1")?.step).toBe("SELECT_NETWORK")
   })
-  it("'0' at ENTER_RECIPIENT returns the bundle menu", async () => {
+  it("'0' while typing a number returns to 'Who is this for?', and '0' there returns the bundle menu", async () => {
     const { deps, store } = makeDeps()
     await walkTo("ENTER_RECIPIENT", deps)
+    expect((await hubtelRouter(req({ Message: "0" }), deps)).Message).toBe("Who is this for?\n1. My Self (0200585542)\n2. Someone Else\n0. Back")
     const r = await hubtelRouter(req({ Message: "0" }), deps)
     expect(r.Message).toContain("Select Package")
     expect(store.get("S1")?.step).toBe("SELECT_BUNDLE")
@@ -527,7 +529,7 @@ describe("hubtelRouter: delivery estimate on the data confirm screen", () => {
     const { deps } = makeDeps({ deliveryEstimate: async network => { seen.push(network); return "Delivery: ~3 min" } })
     await walkTo("ENTER_RECIPIENT", deps)
     const r = await hubtelRouter(req({ Message: "0244123456" }), deps)
-    expect(r.Message).toContain("Delivery: ~3 min\n1. Pay now")
+    expect(r.Message).toContain("Amount: GHS 10.00\nDelivery: ~3 min\n\nConfirm your order?")
     expect(seen).toEqual(["mtn"])
   })
   it("shows nothing extra when there is no estimate, the lookup fails, or it is slow", async () => {
@@ -543,7 +545,7 @@ describe("hubtelRouter: delivery estimate on the data confirm screen", () => {
         const pending = hubtelRouter(req({ Message: "0244123456" }), deps)
         await vi.advanceTimersByTimeAsync(3000)
         const r = await pending
-        expect(r.Message).toContain("Confirm order:")
+        expect(r.Message).toContain("Confirm your order?")
         expect(r.Message).not.toContain("Delivery")
       }
     } finally {
@@ -561,7 +563,7 @@ describe("hubtelRouter: MTN number verification warning on the data confirm scre
     })
     await walkTo("ENTER_RECIPIENT", deps)
     const r = await hubtelRouter(req({ Message: "0244123456" }), deps)
-    expect(r.Message).toContain("Not yet verified: delivery may be delayed.\n1. Pay now")
+    expect(r.Message).toContain("Not yet verified: delivery may be delayed.\n\nConfirm your order?")
     expect(r.Message).not.toContain("Delivery: ~")
     expect(checked).toEqual(["0244123456"])
     // Re-showing the screen (bad input) reuses the stored note: no second provider check.
@@ -590,5 +592,46 @@ describe("hubtelRouter: MTN number verification warning on the data confirm scre
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe("hubtelRouter: 'Who is this for?' and the confirm screen (data bundles)", () => {
+  async function toWhoFor(deps: RouterDeps) {
+    await hubtelRouter(req({ Type: "Initiation" }), deps)
+    await hubtelRouter(req({ Message: "1" }), deps) // data
+    await hubtelRouter(req({ Message: "1" }), deps) // MTN
+    return hubtelRouter(req({ Message: "1" }), deps) // first bundle
+  }
+  it("after the package, asks who it's for with the caller's own number first", async () => {
+    const { deps, store } = makeDeps()
+    const r = await toWhoFor(deps)
+    expect(r.Message).toBe("Who is this for?\n1. My Self (0200585542)\n2. Someone Else\n0. Back")
+    expect(store.get("S1")?.step).toBe("ENTER_RECIPIENT")
+  })
+  it("1. My Self goes straight to the confirm screen with the caller's number (exact layout)", async () => {
+    const { deps, store } = makeDeps({
+      getPrefixConfig: async () => ({ enabled: false, map: {} as never }),
+      deliveryEstimate: async () => "Delivery Est: 3min\nLast Order Took: 39sec",
+    })
+    await toWhoFor(deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Message).toBe("MTN 5GB\nTo: 0200585542\nAmount: GHS 10.00\nDelivery Est: 3min\nLast Order Took: 39sec\n\nConfirm your order?\n1. Confirm\n0. Cancel")
+    expect(store.get("S1")).toMatchObject({ step: "CONFIRM", recipientPhone: "0200585542" })
+  })
+  it("1. My Self is still network-checked: a Telecel caller buying MTN is told and stays on the question", async () => {
+    const { deps, store } = makeDeps()
+    await toWhoFor(deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Message).toContain("looks like a Telecel number")
+    expect(r.Message).toContain("Who is this for?")
+    expect(store.get("S1")?.step).toBe("ENTER_RECIPIENT")
+  })
+  it("2. Someone Else asks for the number; anything else re-asks the question", async () => {
+    const { deps } = makeDeps()
+    await toWhoFor(deps)
+    expect((await hubtelRouter(req({ Message: "7" }), deps)).Message).toContain("Who is this for?")
+    expect((await hubtelRouter(req({ Message: "2" }), deps)).Message).toContain("Enter recipient number")
+    const c = await hubtelRouter(req({ Message: "0244123456" }), deps)
+    expect(c.Message.startsWith("MTN 5GB\nTo: 0244123456\nAmount: GHS 10.00\n")).toBe(true)
   })
 })

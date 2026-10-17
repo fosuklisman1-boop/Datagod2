@@ -1,12 +1,11 @@
 // lib/ussd-hubtel/flows/shop-data.ts
 // Shop-mode data bundles. Port of lib/ussd-shop/handlers/bundles.ts minus Paystack and OTP: the
 // shop's catalog and prices (lib/shop-commerce), CONFIRM ends in AddToCart at the shop price.
-import { validateNetworkPrefix } from "@/lib/phone-format"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import {
-  bundleMenuText, confirmMenuText, recipientPromptText, shopHeader, shopNetworkLabel, shopNetworkMenuText,
+  bundleMenuText, confirmMenuText, shopHeader, shopNetworkLabel, shopNetworkMenuText,
 } from "../menus"
-import { toLocalPhone } from "../protocol"
+import { enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import { backToProduct, shopMenuReply } from "./shop"
 import { confirmNote } from "../confirm-note"
@@ -14,7 +13,6 @@ import type { HubtelReply, HubtelSession } from "../types"
 
 const NETWORK = { label: "Select network" }
 const PACKAGE = { label: "Select package" }
-const RECIPIENT = { label: "Recipient number", fieldType: "phone" as const }
 const CONFIRM = { label: "Confirm order" }
 
 const shopName = (s: HubtelSession) => s.shopName ?? "Shop"
@@ -27,7 +25,7 @@ function networkScreen(s: HubtelSession): string {
 function confirmText(s: HubtelSession): string {
   const header = `${shopHeader(shopName(s))}\n`
   return header + confirmMenuText(
-    shopNetworkLabel(s.network!), s.bundleSize!, s.bundlePrice!, s.recipientPhone!, toLocalPhone(s.dialingPhone), s.confirmNote, header.length
+    shopNetworkLabel(s.network!), s.bundleSize!, s.bundlePrice!, s.recipientPhone!, s.confirmNote, header.length
   )
 }
 
@@ -72,34 +70,29 @@ async function selectBundle(ctx: FlowCtx): Promise<HubtelReply> {
   const selected = Number.isInteger(chosen) ? bundles[chosen - offset - 1] : undefined
   if (!selected) return say(ctx, bundleMenuText(bundles, page, total, deps.pageSize), "SHOP_DATA_BUNDLE", PACKAGE)
   return goto(ctx, {
-    step: "SHOP_DATA_RECIPIENT", bundleId: selected.id, bundleSize: selected.size, bundlePrice: selected.price,
-  }, recipientPromptText(), RECIPIENT)
+    step: "SHOP_DATA_RECIPIENT", bundleId: selected.id, bundleSize: selected.size, bundlePrice: selected.price, ...enterRecipientStep.patch,
+  }, whoForScreen(ctx), enterRecipientStep.field)
 }
 
 async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
-  const { input, deps, session } = ctx
-  if (input === "0") {
-    const page = session.bundlePage ?? 0
-    const { bundles, total } = await pageOf(ctx, session.network!, page)
-    return goto(ctx, { step: "SHOP_DATA_BUNDLE" }, bundleMenuText(bundles, page, total, deps.pageSize), PACKAGE)
-  }
-  const local = toLocalPhone(input.replace(/\s+/g, ""))
-  const reprompt = (msg: string) => say(ctx, `${msg}\n${recipientPromptText()}`, "SHOP_DATA_RECIPIENT", RECIPIENT)
-  if (!/^0[0-9]{9}$/.test(local)) return reprompt("Invalid number. Enter a valid Ghana phone number.")
-
-  // Network <-> prefix hard block (admin-toggleable), as the Uzo shop.
-  const prefix = await deps.getPrefixConfig()
-  if (prefix.enabled && session.network) {
-    const check = validateNetworkPrefix(session.network, local, prefix.map)
-    if (!check.ok) return reprompt(check.message ?? "Number does not match the selected network.")
-  }
-  const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, verify: true, estimate: "network" })
-  return goto(ctx, { step: "SHOP_DATA_CONFIRM", recipientPhone: local, confirmNote: note }, confirmText({ ...session, recipientPhone: local, confirmNote: note }), CONFIRM)
+  const { deps, session } = ctx
+  return recipientStep(ctx, {
+    step: "SHOP_DATA_RECIPIENT",
+    back: async () => {
+      const page = session.bundlePage ?? 0
+      const { bundles, total } = await pageOf(ctx, session.network!, page)
+      return goto(ctx, { step: "SHOP_DATA_BUNDLE" }, bundleMenuText(bundles, page, total, deps.pageSize), PACKAGE)
+    },
+    confirm: async local => {
+      const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, verify: true, estimate: "network" })
+      return goto(ctx, { step: "SHOP_DATA_CONFIRM", recipientPhone: local, confirmNote: note }, confirmText({ ...session, recipientPhone: local, confirmNote: note }), CONFIRM)
+    },
+  })
 }
 
 async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const { input, deps, req, session } = ctx
-  if (input === "2") return finish(ctx, "Order cancelled.")
+  if (input === "0") return finish(ctx, "Order cancelled.")
   if (input !== "1") return say(ctx, confirmText(session), "SHOP_DATA_CONFIRM", CONFIRM)
 
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)

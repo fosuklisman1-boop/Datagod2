@@ -100,19 +100,23 @@ export function recipientPromptText(): string {
   return "Enter recipient number\n(who gets the bundle):\n0. Back"
 }
 
+/** "Who is this for?" with the caller's own number offered first. */
+export function whoForText(dialingLocal: string): string {
+  return `Who is this for?\n1. My Self (${dialingLocal})\n2. Someone Else\n0. Back`
+}
+
 export function confirmMenuText(
   networkLabel: string,
   size: string,
   price: number,
   recipientLocal: string,
-  dialingLocal: string,
-  /** Extra line above the options (e.g. a delivery estimate); dropped if the screen would overflow. */
+  /** Lines under the amount (delivery estimate, or the number-verification warning); dropped if the screen would overflow. */
   note?: string | null,
   /** Characters the caller will add around this text (e.g. a shop header), counted against the limit. */
   reserve = 0
 ): string {
-  const head = `Confirm order:\n${formatSize(size)} ${networkLabel}\nTo: ${recipientLocal}\nGHS ${price.toFixed(2)} from ${dialingLocal}\n`
-  const tail = "1. Pay now\n2. Cancel"
+  const head = `${networkLabel} ${formatSize(size)}\nTo: ${recipientLocal}\nAmount: GHS ${price.toFixed(2)}\n`
+  const tail = "\nConfirm your order?\n1. Confirm\n0. Cancel"
   const withNote = note ? `${head}${note}\n${tail}` : null
   return withNote && withNote.length + reserve <= USSD_SCREEN_LIMIT ? withNote : head + tail
 }

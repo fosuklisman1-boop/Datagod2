@@ -139,8 +139,8 @@ describe("tick", () => {
 describe("confirmScreenText", () => {
   const c = { createdAt: ago(min(20)), completedAt: ago(min(12)) }
   it("shows a short estimate only for a clean, healthy, live channel", () => {
-    expect(confirmScreenText(computeEstimate({ c, p: null, now: NOW }))).toBe("Delivery: ~3 min")
-    expect(confirmScreenText(computeEstimate({ c, p: { createdAt: ago(min(5) + 50) }, now: NOW }))).toBe("Delivery: ~50 sec")
+    expect(confirmScreenText(computeEstimate({ c, p: null, now: NOW }))).toBe("Delivery Est: 3min\nLast Order Took: 3min")
+    expect(confirmScreenText(computeEstimate({ c, p: { createdAt: ago(min(5) + 50) }, now: NOW }))).toBe("Delivery Est: 50sec\nLast Order Took: 3min")
   })
   it("shows nothing for anything that could read as bad news", () => {
     expect(confirmScreenText(null)).toBeNull()

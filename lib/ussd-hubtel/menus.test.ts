@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { resolveMainMenu, mainMenuText, networkMenuText, bundleMenuText, confirmMenuText, formatSize, recipientPromptText, HUBTEL_NETWORKS, IMPLEMENTED_SERVICES,
+import { resolveMainMenu, mainMenuText, networkMenuText, bundleMenuText, confirmMenuText, whoForText, formatSize, recipientPromptText, HUBTEL_NETWORKS, IMPLEMENTED_SERVICES,
   resolveShopMenu, shopHeader, shopCodePromptText, shopCodeRetryText, shopMenuText, shopNetworkLabel, sortShopNetworks, shopNetworkMenuText,
 } from "./menus"
 import { DEFAULT_BRAND, DEFAULT_WELCOME } from "./config"
@@ -73,19 +73,20 @@ describe("bundle menu", () => {
 })
 
 describe("confirm menu", () => {
-  it("states amount, recipient and payer, with real network label", () => {
-    const t = confirmMenuText("MTN", "5", 20, "0244123456", "0200585542")
-    expect(t).toContain("5GB MTN")
-    expect(t).toContain("To: 0244123456")
-    expect(t).toContain("GHS 20.00")
-    expect(t).toContain("1. Pay now")
+  it("network and size, recipient, amount, then the question and 1 Confirm / 0 Cancel", () => {
+    expect(confirmMenuText("MTN", "1", 4.5, "0555773910"))
+      .toBe("MTN 1GB\nTo: 0555773910\nAmount: GHS 4.50\n\nConfirm your order?\n1. Confirm\n0. Cancel")
     expect(recipientPromptText()).toContain("recipient")
   })
-  it("adds an optional note above the options, and drops it if the screen would overflow", () => {
-    expect(confirmMenuText("MTN", "5", 20, "0244123456", "0200585542", "Delivery: ~3 min")).toContain("Delivery: ~3 min\n1. Pay now")
-    const long = confirmMenuText("MTN", "5", 20, "0244123456", "0200585542", "x".repeat(150))
+  it("puts the delivery lines under the amount, and drops them if the screen would overflow", () => {
+    expect(confirmMenuText("MTN", "1", 4.5, "0555773910", "Delivery Est: 3min\nLast Order Took: 39sec"))
+      .toBe("MTN 1GB\nTo: 0555773910\nAmount: GHS 4.50\nDelivery Est: 3min\nLast Order Took: 39sec\n\nConfirm your order?\n1. Confirm\n0. Cancel")
+    const long = confirmMenuText("MTN", "1", 4.5, "0555773910", "x".repeat(150))
     expect(long).not.toContain("xxx")
-    expect(long).toBe(confirmMenuText("MTN", "5", 20, "0244123456", "0200585542"))
+    expect(long).toBe(confirmMenuText("MTN", "1", 4.5, "0555773910"))
+  })
+  it("asks who the bundle is for, offering the caller's own number", () => {
+    expect(whoForText("0555773910")).toBe("Who is this for?\n1. My Self (0555773910)\n2. Someone Else\n0. Back")
   })
 })
 
