@@ -21,17 +21,17 @@ import { useDomainBranding } from "@/components/providers/domain-branding-provid
 import { getServicePrimaryPath, isPageHidden } from "@/lib/custom-domains"
 import { useFirstVisiblePath } from "@/hooks/use-first-visible-path"
 import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
-import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
+import { DeliveryHeadlineCard, GatewayStrengthCard, useDeliveryEstimates } from "@/components/dashboard/delivery-estimate"
 import { useBillsAvailability } from "@/components/bills/use-bills-availability"
 import { isBillerKey } from "@/lib/bills/billers"
-import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network-health-card"
+import { NETWORK_BADGE } from "@/components/dashboard/network-health-card"
 // Type-only: order-health-service.ts pulls in mtn-hold.ts -> sms-service.ts
 // -> push-service.ts -> web-push (raw Node net/tls sockets) at runtime. A
 // value import (e.g. its HEALTH_NETWORKS const) would drag that whole chain
 // into this client bundle and fail the build ("Module not found: Can't
 // resolve 'net'"), so the network list below is instead derived from
 // NETWORK_BADGE's keys, which lives in the client-safe network-health-card.
-import type { LatestOrderSummary, NetworkHealthStat, HealthNetwork } from "@/lib/order-health-service"
+import type { HealthNetwork } from "@/lib/order-health-service"
 
 // Real Datagod services (not Apex Prime's Academic Writing / Apple Music /
 // Merchant SIM tiles, which don't apply to this platform). Each service gets
@@ -197,10 +197,7 @@ export default function DashboardPage() {
   const [showPhoneVerify, setShowPhoneVerify] = useState(false)
   const [currentPhone, setCurrentPhone] = useState("")
   const [phoneVerifyDeadline, setPhoneVerifyDeadline] = useState<string | null>(null)
-  const [latestOrder, setLatestOrder] = useState<LatestOrderSummary | null>(null)
-  const [latestOrderLoading, setLatestOrderLoading] = useState(true)
-  const [networkHealth, setNetworkHealth] = useState<NetworkHealthStat[]>([])
-  const [networkHealthLoading, setNetworkHealthLoading] = useState(true)
+  const delivery = useDeliveryEstimates()
   const [sendActivity, setSendActivity] = useState<SendActivityDay[]>([])
   const [promoIndex, setPromoIndex] = useState(0)
   const promoScrollRef = useRef<HTMLDivElement>(null)
@@ -297,26 +294,6 @@ export default function DashboardPage() {
     setPromoIndex(Math.round(el.scrollLeft / el.clientWidth))
   }
 
-  const fetchLatestOrder = async (token: string) => {
-    setLatestOrderLoading(true)
-    try {
-      const res = await fetch("/api/dashboard/latest-order", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
-      const d = res.ok ? await res.json() : null
-      if (d?.success) setLatestOrder(d.order)
-    } catch { /* silent — card shows its own empty state */ }
-    finally { setLatestOrderLoading(false) }
-  }
-
-  const fetchNetworkHealth = async (token: string) => {
-    setNetworkHealthLoading(true)
-    try {
-      const res = await fetch("/api/dashboard/network-health", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
-      const d = res.ok ? await res.json() : null
-      if (d?.success) setNetworkHealth(d.networks || [])
-    } catch { /* silent — card shows its own empty state */ }
-    finally { setNetworkHealthLoading(false) }
-  }
-
   const fetchSendActivity = async (token: string) => {
     try {
       const res = await fetch("/api/dashboard/send-activity", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
@@ -324,39 +301,6 @@ export default function DashboardPage() {
       if (d?.success) setSendActivity(d.days || [])
     } catch { /* silent — chart shows its own empty state */ }
   }
-
-  const refreshWithFreshToken = async (fetcher: (token: string) => Promise<void>) => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session?.access_token) await fetcher(session.access_token)
-  }
-
-  // Keep the order-health cards live without requiring a manual refresh or
-  // full page reload: refetch when the tab regains focus/visibility (the
-  // common case — place an order elsewhere, come back to an already-open
-  // dashboard tab) and on a periodic interval while the tab stays visible.
-  useEffect(() => {
-    if (!user) return
-
-    const refreshOrderHealth = () => {
-      refreshWithFreshToken(fetchLatestOrder)
-      refreshWithFreshToken(fetchNetworkHealth)
-    }
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") refreshOrderHealth()
-    }
-    document.addEventListener("visibilitychange", onVisibilityChange)
-    window.addEventListener("focus", refreshOrderHealth)
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") refreshOrderHealth()
-    }, 60_000)
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange)
-      window.removeEventListener("focus", refreshOrderHealth)
-      clearInterval(interval)
-    }
-  }, [user])
 
   const loadDashboardData = async () => {
     try {
@@ -442,16 +386,6 @@ export default function DashboardPage() {
                 })))
               })
           : Promise.resolve(),
-
-        // Latest completed order (real order-history trust widget)
-        token
-          ? fetchLatestOrder(token)
-          : Promise.resolve(setLatestOrderLoading(false)),
-
-        // Platform-wide network health (real, computed from order history)
-        token
-          ? fetchNetworkHealth(token)
-          : Promise.resolve(setNetworkHealthLoading(false)),
 
         // This account's own last-7-days send activity by network
         token
@@ -707,18 +641,22 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Latest completed order: real, computed trust widget — no fabricated numbers */}
-        <LatestOrderCard
-          order={latestOrder}
-          loading={latestOrderLoading}
-          onRefresh={() => refreshWithFreshToken(fetchLatestOrder)}
+        {/* Live delivery estimate: computed from two real reference orders, never an average
+            (lib/delivery-estimate). Polls every 25s while visible; the open order's wait ticks live. */}
+        <DeliveryHeadlineCard
+          row={delivery.rows?.find((r) => r.channel === "mtn") ?? null}
+          loading={delivery.loading}
+          refreshing={delivery.refreshing}
+          cooldown={delivery.cooldown}
+          onRefresh={delivery.refresh}
         />
 
-        {/* Network health: real, computed — no fabricated numbers */}
-        <NetworkHealthCard
-          networks={networkHealth}
-          loading={networkHealthLoading}
-          onRefresh={() => refreshWithFreshToken(fetchNetworkHealth)}
+        <GatewayStrengthCard
+          rows={delivery.rows}
+          loading={delivery.loading}
+          refreshing={delivery.refreshing}
+          cooldown={delivery.cooldown}
+          onRefresh={delivery.refresh}
         />
 
         {/* 7-Day Send Activity — this account's own completed orders per day

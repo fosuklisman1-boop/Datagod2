@@ -27,6 +27,8 @@ import { SHOP_AIRTIME_STEPS, startShopAirtime } from "./flows/shop-airtime"
 import { SHOP_DATA_STEPS, startShopData } from "./flows/shop-data"
 import { SHOP_RC_STEPS, startShopRc } from "./flows/shop-rc"
 import { SHOP_ENTRY_STEPS, recoverShopCodeEntry, shopMenuFor, shopMenuReply, startShopSession } from "./flows/shop"
+import { confirmScreenText } from "@/lib/delivery-estimate/compute"
+import { channelForNetwork, getCachedChannelEstimate } from "@/lib/delivery-estimate/query"
 import type { HubtelReply, HubtelRequest } from "./types"
 
 export type { RouterDeps } from "./flow-kit"
@@ -49,6 +51,10 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     networkPlans: defaultNetworkPlansServices(),
     payBills: defaultPayBillsServices(),
     botMenus: () => loadBotMenuGate(supabase),
+    deliveryEstimate: async network => {
+      const channel = channelForNetwork(network)
+      return channel ? confirmScreenText(await getCachedChannelEstimate(supabase, channel)) : null
+    },
   }
 }
 

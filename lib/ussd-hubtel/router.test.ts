@@ -521,3 +521,33 @@ describe("hubtelRouter: configurable brand name", () => {
     expect(r.Message.split("\n")[0]).toBe("Akwaaba!")
   })
 })
+describe("hubtelRouter: delivery estimate on the data confirm screen", () => {
+  it("shows the estimate line when the channel is healthy, for the order's network", async () => {
+    const seen: string[] = []
+    const { deps } = makeDeps({ deliveryEstimate: async network => { seen.push(network); return "Delivery: ~3 min" } })
+    await walkTo("ENTER_RECIPIENT", deps)
+    const r = await hubtelRouter(req({ Message: "0244123456" }), deps)
+    expect(r.Message).toContain("Delivery: ~3 min\n1. Pay now")
+    expect(seen).toEqual(["MTN"])
+  })
+  it("shows nothing extra when there is no estimate, the lookup fails, or it is slow", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    try {
+      for (const deliveryEstimate of [
+        async () => null,
+        async () => { throw new Error("db down") },
+        () => new Promise<string | null>(() => {}), // never answers
+      ]) {
+        const { deps } = makeDeps({ deliveryEstimate })
+        await walkTo("ENTER_RECIPIENT", deps)
+        const pending = hubtelRouter(req({ Message: "0244123456" }), deps)
+        await vi.advanceTimersByTimeAsync(2000)
+        const r = await pending
+        expect(r.Message).toContain("Confirm order:")
+        expect(r.Message).not.toContain("Delivery")
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

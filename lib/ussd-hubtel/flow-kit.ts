@@ -37,6 +37,11 @@ export interface RouterDeps {
    * throw (the default fails closed); the router also treats a throw as hidden.
    */
   botMenus(): Promise<BotMenuGate>
+  /**
+   * Optional "Delivery: ~N min" line for the data confirm screen, or null to show nothing. Must not throw
+   * and must be fast (cached); a purchase never waits on it or fails because of it.
+   */
+  deliveryEstimate?(network: string): Promise<string | null>
 }
 
 export interface FlowCtx {

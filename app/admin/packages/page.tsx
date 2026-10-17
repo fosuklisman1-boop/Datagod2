@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { Checkbox } from "@/components/ui/checkbox"
 import { BulkPriceUpdateDialog } from "@/components/admin/bulk-price-update-dialog"
 import { NetworkStockCard } from "@/components/admin/network-stock-card"
+import { DeliveryChannelsCard } from "@/components/admin/delivery-channels-card"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 // Format large numbers with K/M suffix
@@ -231,6 +232,8 @@ export default function AdminPackagesPage() {
         </div>
 
         <NetworkStockCard onChanged={loadPackages} />
+
+        <DeliveryChannelsCard />
 
         {/* Network Filter */}
         <div className="flex flex-wrap gap-2">
