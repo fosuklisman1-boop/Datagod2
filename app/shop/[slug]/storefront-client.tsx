@@ -1313,11 +1313,15 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         </div>
 
         {/* Live delivery status — real order timings (lib/delivery-estimate). Data networks always, plus
-            Utility Bills when this shop sells bills. Home view only, and only where this shop sells data. */}
+            Utility Bills / Standard Bundles when this shop sells them. Home view only, where it sells data. */}
         {activeTab === "home" && allowedServices.includes("data") && (
           <PublicDeliveryStatus
             className="mb-8"
-            channels={["mtn", "telecel", "at_ishare", "at_bigtime", ...(storefrontBillers.length > 0 ? (["utility"] as const) : [])]}
+            channels={[
+              "mtn", "telecel", "at_ishare", "at_bigtime",
+              ...(storefrontBillers.length > 0 ? (["utility"] as const) : []),
+              ...(bundleNetworks.length > 0 ? (["standard"] as const) : []),
+            ]}
           />
         )}
 

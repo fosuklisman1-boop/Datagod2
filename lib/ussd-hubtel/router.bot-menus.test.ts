@@ -11,9 +11,9 @@ import type { HubtelUssdConfig, BotMenuGate } from "./config"
 
 const OPEN: BotMenuGate = { networkPlans: true, payBills: true }
 const MAIN_LEGACY = "Welcome to Clingshub\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit"
-const MAIN_SHOWN = "Welcome to Clingshub\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n5. Network Plans\n6. Pay Bills\n0. Exit"
+const MAIN_SHOWN = "Welcome to Clingshub\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n5. Standard Bundles\n6. Pay Bills\n0. Exit"
 const SHOP_LEGACY = "Ama Data Hub\nWhat would you like to buy?\n1. Buy Data Bundle\n2. Buy Airtime\n3. Results Checker\n0. Exit"
-const SHOP_SHOWN = "Ama Data Hub\nWhat would you like to buy?\n1. Buy Data Bundle\n2. Buy Airtime\n3. Results Checker\n4. Network Plans\n5. Pay Bills\n0. Exit"
+const SHOP_SHOWN = "Ama Data Hub\nWhat would you like to buy?\n1. Buy Data Bundle\n2. Buy Airtime\n3. Results Checker\n4. Standard Bundles\n5. Pay Bills\n0. Exit"
 
 const mainConfig = (over: Partial<HubtelUssdConfig["visibility"]> = {}) => async (): Promise<HubtelUssdConfig> => ({
   welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main",
@@ -28,11 +28,11 @@ describe("bot menus: main mode", () => {
     const r = await hubtelRouter(req({ Message: "5" }), deps)
     expect(r.Message).toBe(MAIN_LEGACY)
   })
-  it("shown: appended as 5 Network Plans / 6 Pay Bills; each digit opens its flow", async () => {
+  it("shown: appended as 5 Standard Bundles / 6 Pay Bills; each digit opens its flow", async () => {
     const { deps, store } = makeDeps({ botMenus: async () => OPEN })
     expect((await hubtelRouter(req({ Type: "Initiation" }), deps)).Message).toBe(MAIN_SHOWN)
     const np = await hubtelRouter(req({ Message: "5" }), deps)
-    expect(np.Message.startsWith("Network Plans\nSelect network:")).toBe(true)
+    expect(np.Message.startsWith("Standard Bundles\nSelect network:")).toBe(true)
     expect(store.get("S1")?.step).toBe("NP_NETWORK")
     // Back to the main menu: still shows the bot menus.
     expect((await hubtelRouter(req({ Message: "0" }), deps)).Message).toBe(MAIN_SHOWN)
@@ -74,11 +74,11 @@ describe("bot menus: shop mode", () => {
     expect(menu.Message).toBe(SHOP_LEGACY)
     expect((await hubtelRouter(req({ Message: "4" }), deps)).Message).toBe(SHOP_LEGACY)
   })
-  it("shown: 4 Network Plans / 5 Pay Bills open the flows in shop mode; 0 returns to the shop menu", async () => {
+  it("shown: 4 Standard Bundles / 5 Pay Bills open the flows in shop mode; 0 returns to the shop menu", async () => {
     const { deps, store, menu } = await enterShop(true)
     expect(menu.Message).toBe(SHOP_SHOWN)
     const np = await hubtelRouter(req({ Message: "4" }), deps)
-    expect(np.Message.startsWith("Network Plans\nSelect network:")).toBe(true)
+    expect(np.Message.startsWith("Standard Bundles\nSelect network:")).toBe(true)
     expect(store.get("S1")).toMatchObject({ mode: "shop", step: "NP_NETWORK", shopId: "shop-1" })
     expect((await hubtelRouter(req({ Message: "0" }), deps)).Message).toBe(SHOP_SHOWN)
     const pb = await hubtelRouter(req({ Message: "5" }), deps)

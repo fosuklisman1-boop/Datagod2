@@ -15,7 +15,7 @@ const MAIN_ITEMS: MenuItemDef<MainMenuKey>[] = [
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
-  { key: "networkPlans", label: "Network Plans" },
+  { key: "networkPlans", label: "Standard Bundles" },
   { key: "payBills", label: "Pay Bills" },
 ]
 
@@ -144,7 +144,7 @@ const SHOP_ITEMS: MenuItemDef<ShopMenuKey>[] = [
   { key: "data", label: "Buy Data Bundle" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
-  { key: "networkPlans", label: "Network Plans" },
+  { key: "networkPlans", label: "Standard Bundles" },
   { key: "payBills", label: "Pay Bills" },
 ]
 

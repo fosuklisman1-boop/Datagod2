@@ -93,7 +93,7 @@ async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
     const check = validateNetworkPrefix(session.network, local, prefix.map)
     if (!check.ok) return reprompt(check.message ?? "Number does not match the selected network.")
   }
-  const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, estimate: true })
+  const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, verify: true, estimate: "network" })
   return goto(ctx, { step: "SHOP_DATA_CONFIRM", recipientPhone: local, confirmNote: note }, confirmText({ ...session, recipientPhone: local, confirmNote: note }), CONFIRM)
 }
 

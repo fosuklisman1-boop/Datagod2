@@ -29,7 +29,7 @@ import { SHOP_RC_STEPS, startShopRc } from "./flows/shop-rc"
 import { SHOP_ENTRY_STEPS, recoverShopCodeEntry, shopMenuFor, shopMenuReply, startShopSession } from "./flows/shop"
 import { confirmScreenText } from "@/lib/delivery-estimate/compute"
 import { checkCustomerFacingVerification } from "@/lib/mtn-providers/customer-verification"
-import { channelForNetwork, getCachedChannelEstimate } from "@/lib/delivery-estimate/query"
+import { getCachedChannelEstimate } from "@/lib/delivery-estimate/query"
 import type { HubtelReply, HubtelRequest } from "./types"
 
 export type { RouterDeps } from "./flow-kit"
@@ -53,10 +53,7 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     payBills: defaultPayBillsServices(),
     botMenus: () => loadBotMenuGate(supabase),
     verifyRecipient: async phone => (await checkCustomerFacingVerification([phone]))[0]?.verified !== false,
-    deliveryEstimate: async network => {
-      const channel = channelForNetwork(network)
-      return channel ? confirmScreenText(await getCachedChannelEstimate(supabase, channel)) : null
-    },
+    deliveryEstimate: async channel => confirmScreenText(await getCachedChannelEstimate(supabase, channel)),
   }
 }
 

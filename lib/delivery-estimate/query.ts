@@ -24,6 +24,7 @@ export const DELIVERY_CHANNELS = [
   { key: "at_ishare", label: "AT - iShare" },
   { key: "at_bigtime", label: "AT - BigTime" },
   { key: "utility", label: "Utility Bills" },
+  { key: "standard", label: "Standard Bundles" },
 ] as const
 export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number]["key"]
 export const isDeliveryChannel = (v: unknown): v is DeliveryChannel => DELIVERY_CHANNELS.some(c => c.key === v)
@@ -47,10 +48,16 @@ const DATA_SOURCES: Source[] = [
   { table: "ussd_shop_orders", statusColumn: "order_status", paid: { column: "payment_status", value: "completed" } },
 ]
 const BILL_SOURCES: Source[] = [{ table: "hubtel_bill_orders", statusColumn: "status", paid: { column: "payment_status", value: "paid" } }]
+// Standard Bundles (Hubtel-fulfilled data, all networks; also what USSD "Standard Bundles" sells).
+const STANDARD_SOURCES: Source[] = [{ table: "hubtel_data_orders", statusColumn: "status", paid: { column: "payment_status", value: "paid" } }]
+
+/** Channels that are a whole product line (one table, every network), not a single data network. */
+type ProductChannel = "utility" | "standard"
+const isProductChannel = (c: DeliveryChannel): c is ProductChannel => c === "utility" || c === "standard"
 
 // Network spellings per channel (case-insensitive), matching normalizeNetwork in lib/order-health-service.ts.
 // Bare "AT"/"AirtelTigo" belongs to neither AT bucket and is left out.
-const NETWORK_SPELLINGS: Record<Exclude<DeliveryChannel, "utility">, string[]> = {
+const NETWORK_SPELLINGS: Record<Exclude<DeliveryChannel, ProductChannel>, string[]> = {
   mtn: ["mtn"],
   telecel: ["telecel"],
   at_ishare: ["at - ishare", "ishare", "at-ishare"],
@@ -59,14 +66,14 @@ const NETWORK_SPELLINGS: Record<Exclude<DeliveryChannel, "utility">, string[]> =
 
 function scoped(q: any, source: Source, channel: DeliveryChannel): any {
   if (source.paid) q = q.eq(source.paid.column, source.paid.value)
-  if (channel !== "utility") {
+  if (!isProductChannel(channel)) {
     const names = NETWORK_SPELLINGS[channel]
     q = names.length === 1 ? q.ilike("network", names[0]) : q.or(names.map(n => `network.ilike.${n}`).join(","))
   }
   return q
 }
 
-const sourcesFor = (channel: DeliveryChannel) => (channel === "utility" ? BILL_SOURCES : DATA_SOURCES)
+const sourcesFor = (channel: DeliveryChannel) => (channel === "utility" ? BILL_SOURCES : channel === "standard" ? STANDARD_SOURCES : DATA_SOURCES)
 
 /** Pure: C = latest-placed completed candidate. */
 export function pickC(candidates: Array<ReferenceOrder | null>): ReferenceOrder | null {

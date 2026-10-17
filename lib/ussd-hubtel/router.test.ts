@@ -528,7 +528,7 @@ describe("hubtelRouter: delivery estimate on the data confirm screen", () => {
     await walkTo("ENTER_RECIPIENT", deps)
     const r = await hubtelRouter(req({ Message: "0244123456" }), deps)
     expect(r.Message).toContain("Delivery: ~3 min\n1. Pay now")
-    expect(seen).toEqual(["MTN"])
+    expect(seen).toEqual(["mtn"])
   })
   it("shows nothing extra when there is no estimate, the lookup fails, or it is slow", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] })

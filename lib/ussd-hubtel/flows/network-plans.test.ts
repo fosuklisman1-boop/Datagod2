@@ -43,7 +43,7 @@ describe("network plans: start + network", () => {
     const s = setup()
     const ctx: FlowCtx = { input: "", req: req({ SessionId: SID }), deps: s.deps, config: await s.deps.getConfig(), session: s.store.get(SID)! }
     const r = await startNetworkPlans(ctx)
-    expect(r.Message).toBe("Network Plans\nSelect network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n0. Back")
+    expect(r.Message).toBe("Standard Bundles\nSelect network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n0. Back")
     expect(s.store.get(SID)?.step).toBe("NP_NETWORK")
   })
   it("categories in CATEGORY_ORDER, product words rewritten, tokens not stored yet", async () => {
@@ -341,7 +341,7 @@ describe("network plans: helpers", () => {
 })
 
 describe("network plans: wording", () => {
-  it("no screen of a full run of every path says data or bundle (self-contained)", async () => {
+  it("no screen of a full run of every path says data or bundle, apart from the menu's own name (self-contained)", async () => {
     const screens: HubtelReply[] = []
     const run = async (s: Setup, ...inputs: string[]) => { await send(s, ...inputs); screens.push(...s.screens) }
     // Every network's categories, paging both ways, both recipient choices (bad + good numbers), cancel, cart.
@@ -353,8 +353,35 @@ describe("network plans: wording", () => {
     await run(setup({ shop: true, session: { mode: "shop", shopId: SHOP_UUID, shopName: "Ama Data Hub" } }), "1", "2", "1", "1", "1")
     expect(screens.length).toBeGreaterThan(25)
     for (const r of screens) {
-      expect(r.Message).not.toMatch(/data|bundle/i)
+      // "Standard Bundles" is the menu's name (owner's choice); provider plan text is still rewritten.
+      expect(r.Message.replace(/Standard Bundles/g, "")).not.toMatch(/data|bundle/i)
       if (r.Item) expect(r.Item.ItemName).not.toMatch(/data|bundle|mtn|gb/i)
     }
+  })
+})
+
+describe("standard bundles: delivery time, no number check", () => {
+  it("shows the Standard Bundles delivery time and never runs the MTN number check", async () => {
+    const s = setup()
+    const asked: string[] = []
+    let verified = 0
+    s.deps.deliveryEstimate = async channel => { asked.push(channel); return "Delivery: ~2 min" }
+    s.deps.verifyRecipient = async () => { verified++; return false }
+    const c = await toConfirm(s)
+    expect(c.Message).toBe("Pay GHS 9.50 (was GHS 10.00)\nYou receive 1GB on 0244123456\nDelivery: ~2 min\n1 Confirm 2 Cancel")
+    expect(asked).toEqual(["standard"])
+    expect(verified).toBe(0)
+    // Re-shown on bad input from the session, no new lookup.
+    expect((await send(s, "9")).Message).toContain("Delivery: ~2 min")
+    expect(asked).toHaveLength(1)
+  })
+  it("no estimate: the screen is unchanged", async () => {
+    const s = setup()
+    s.deps.deliveryEstimate = async () => null
+    expect((await toConfirm(s)).Message).toBe("Pay GHS 9.50 (was GHS 10.00)\nYou receive 1GB on 0244123456\n1 Confirm 2 Cancel")
+  })
+  it("never overflows the screen with a long plan description", () => {
+    const plan = { t: "x", d: "Y".repeat(170), f: 10, p: 9.5 }
+    expect(networkPlanConfirmText(plan, "0244123456", "Delivery: ~2 min").length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
   })
 })
