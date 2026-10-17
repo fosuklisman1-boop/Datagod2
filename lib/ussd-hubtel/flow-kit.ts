@@ -14,6 +14,7 @@ import { resolveMainMenu, mainMenuText } from "./menus"
 import { ORDER_TABLES, cartItemNameFor, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { addToCart, release, respond } from "./protocol"
 import { safeDbError } from "./log-safe"
+import type { DeliveryChannel } from "@/lib/delivery-estimate/query"
 import type { HubtelFieldType, HubtelPlatform, HubtelReply, HubtelRequest, HubtelSession, HubtelStep } from "./types"
 
 export interface RouterDeps {
@@ -41,7 +42,12 @@ export interface RouterDeps {
    * Optional "Delivery: ~N min" line for the data confirm screen, or null to show nothing. Must not throw
    * and must be fast (cached); a purchase never waits on it or fails because of it.
    */
-  deliveryEstimate?(network: string): Promise<string | null>
+  deliveryEstimate?(channel: DeliveryChannel): Promise<string | null>
+  /**
+   * Live customer-facing number verification (same check as the storefront / data packages page). Optional;
+   * false = not yet verified (warn, still sellable). Must fail open; callers also time it out.
+   */
+  verifyRecipient?(phoneLocal: string): Promise<boolean>
 }
 
 export interface FlowCtx {

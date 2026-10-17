@@ -19,6 +19,7 @@ const BADGE: Record<DeliveryChannel, { text: string; className: string }> = {
   at_ishare: { text: "iS", className: "bg-at text-at-foreground" },
   at_bigtime: { text: "BT", className: "bg-violet-600 text-white" },
   utility: { text: "UB", className: "bg-sky-600 text-white" },
+  standard: { text: "SB", className: "bg-emerald-600 text-white" },
 }
 
 const TIER_COLOR: Record<StrengthTier, string> = { Excellent: "#22c55e", Good: "#84cc16", Delayed: "#f59e0b", Critical: "#ef4444" }

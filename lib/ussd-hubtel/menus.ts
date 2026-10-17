@@ -15,7 +15,7 @@ const MAIN_ITEMS: MenuItemDef<MainMenuKey>[] = [
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
-  { key: "networkPlans", label: "Network Plans" },
+  { key: "networkPlans", label: "Standard Bundles" },
   { key: "payBills", label: "Pay Bills" },
 ]
 
@@ -107,12 +107,14 @@ export function confirmMenuText(
   recipientLocal: string,
   dialingLocal: string,
   /** Extra line above the options (e.g. a delivery estimate); dropped if the screen would overflow. */
-  note?: string | null
+  note?: string | null,
+  /** Characters the caller will add around this text (e.g. a shop header), counted against the limit. */
+  reserve = 0
 ): string {
   const head = `Confirm order:\n${formatSize(size)} ${networkLabel}\nTo: ${recipientLocal}\nGHS ${price.toFixed(2)} from ${dialingLocal}\n`
   const tail = "1. Pay now\n2. Cancel"
   const withNote = note ? `${head}${note}\n${tail}` : null
-  return withNote && withNote.length <= USSD_SCREEN_LIMIT ? withNote : head + tail
+  return withNote && withNote.length + reserve <= USSD_SCREEN_LIMIT ? withNote : head + tail
 }
 
 // Airtime networks (lib/airtime-pricing.ts vocabulary: "AT" is AirtelTigo).
@@ -142,7 +144,7 @@ const SHOP_ITEMS: MenuItemDef<ShopMenuKey>[] = [
   { key: "data", label: "Buy Data Bundle" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
-  { key: "networkPlans", label: "Network Plans" },
+  { key: "networkPlans", label: "Standard Bundles" },
   { key: "payBills", label: "Pay Bills" },
 ]
 

@@ -9,6 +9,7 @@ import {
 import { toLocalPhone } from "../protocol"
 import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import { backToProduct, shopMenuReply } from "./shop"
+import { confirmNote } from "../confirm-note"
 import type { HubtelReply, HubtelSession } from "../types"
 
 const NETWORK = { label: "Select network" }
@@ -24,8 +25,9 @@ function networkScreen(s: HubtelSession): string {
 }
 
 function confirmText(s: HubtelSession): string {
-  return `${shopHeader(shopName(s))}\n` + confirmMenuText(
-    shopNetworkLabel(s.network!), s.bundleSize!, s.bundlePrice!, s.recipientPhone!, toLocalPhone(s.dialingPhone)
+  const header = `${shopHeader(shopName(s))}\n`
+  return header + confirmMenuText(
+    shopNetworkLabel(s.network!), s.bundleSize!, s.bundlePrice!, s.recipientPhone!, toLocalPhone(s.dialingPhone), s.confirmNote, header.length
   )
 }
 
@@ -91,7 +93,8 @@ async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
     const check = validateNetworkPrefix(session.network, local, prefix.map)
     if (!check.ok) return reprompt(check.message ?? "Number does not match the selected network.")
   }
-  return goto(ctx, { step: "SHOP_DATA_CONFIRM", recipientPhone: local }, confirmText({ ...session, recipientPhone: local }), CONFIRM)
+  const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, verify: true, estimate: "network" })
+  return goto(ctx, { step: "SHOP_DATA_CONFIRM", recipientPhone: local, confirmNote: note }, confirmText({ ...session, recipientPhone: local, confirmNote: note }), CONFIRM)
 }
 
 async function confirm(ctx: FlowCtx): Promise<HubtelReply> {

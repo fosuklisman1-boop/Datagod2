@@ -1,29 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { clip, fitListScreen, noProductWords, pageSlice } from "./screen-fit"
+import { clip, fitListScreen, pageSlice } from "./screen-fit"
 import { USSD_SCREEN_LIMIT } from "./protocol"
-
-describe("noProductWords", () => {
-  it("rewrites data and drops bundle words", () => {
-    expect(noProductWords("Data")).toBe("Internet")
-    expect(noProductWords("Fuse (Mins + Data)")).toBe("Fuse (Mins + Internet)")
-    expect(noProductWords("Kokrokoo Bundle 400MB")).toBe("Kokrokoo 400MB")
-    expect(noProductWords("DATA bundles 1GB")).toBe("Internet 1GB")
-    expect(noProductWords("Video 1.33GB")).toBe("Video 1.33GB")
-  })
-  it("never leaves a product word", () => {
-    for (const s of ["data", "Databundle", "MTN Data Bundle", "bundles", "DATA_x", "1GB data"]) {
-      expect(noProductWords(s)).not.toMatch(/data|bundle/i)
-    }
-  })
-  it("leaves words that merely contain 'data' alone", () => {
-    expect(noProductWords("metadata")).toBe("metadata")
-  })
-  it("falls back to 'Plan' when nothing is left", () => {
-    expect(noProductWords("Bundle")).toBe("Plan")
-    expect(noProductWords("  bundles  ")).toBe("Plan")
-    expect(noProductWords("")).toBe("Plan")
-  })
-})
 
 describe("pageSlice", () => {
   const all = Array.from({ length: 12 }, (_, i) => i + 1)

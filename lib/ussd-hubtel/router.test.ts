@@ -528,7 +528,7 @@ describe("hubtelRouter: delivery estimate on the data confirm screen", () => {
     await walkTo("ENTER_RECIPIENT", deps)
     const r = await hubtelRouter(req({ Message: "0244123456" }), deps)
     expect(r.Message).toContain("Delivery: ~3 min\n1. Pay now")
-    expect(seen).toEqual(["MTN"])
+    expect(seen).toEqual(["mtn"])
   })
   it("shows nothing extra when there is no estimate, the lookup fails, or it is slow", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] })
@@ -541,10 +541,51 @@ describe("hubtelRouter: delivery estimate on the data confirm screen", () => {
         const { deps } = makeDeps({ deliveryEstimate })
         await walkTo("ENTER_RECIPIENT", deps)
         const pending = hubtelRouter(req({ Message: "0244123456" }), deps)
-        await vi.advanceTimersByTimeAsync(2000)
+        await vi.advanceTimersByTimeAsync(3000)
         const r = await pending
         expect(r.Message).toContain("Confirm order:")
         expect(r.Message).not.toContain("Delivery")
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe("hubtelRouter: MTN number verification warning on the data confirm screen", () => {
+  it("warns (instead of the estimate) when the MTN recipient isn't verified yet, and the order can still go ahead", async () => {
+    const checked: string[] = []
+    const { deps, store } = makeDeps({
+      verifyRecipient: async phone => { checked.push(phone); return false },
+      deliveryEstimate: async () => "Delivery: ~3 min",
+    })
+    await walkTo("ENTER_RECIPIENT", deps)
+    const r = await hubtelRouter(req({ Message: "0244123456" }), deps)
+    expect(r.Message).toContain("Not yet verified: delivery may be delayed.\n1. Pay now")
+    expect(r.Message).not.toContain("Delivery: ~")
+    expect(checked).toEqual(["0244123456"])
+    // Re-showing the screen (bad input) reuses the stored note: no second provider check.
+    const again = await hubtelRouter(req({ Message: "9" }), deps)
+    expect(again.Message).toContain("Not yet verified")
+    expect(checked).toHaveLength(1)
+    expect(store.get("S1")?.step).toBe("CONFIRM")
+  })
+  it("a verified number gets the delivery estimate as before", async () => {
+    const { deps } = makeDeps({ verifyRecipient: async () => true, deliveryEstimate: async () => "Delivery: ~3 min" })
+    await walkTo("ENTER_RECIPIENT", deps)
+    const r = await hubtelRouter(req({ Message: "0244123456" }), deps)
+    expect(r.Message).toContain("Delivery: ~3 min")
+    expect(r.Message).not.toContain("verified")
+  })
+  it("fails open: an erroring or slow check shows no warning", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    try {
+      for (const verifyRecipient of [async () => { throw new Error("provider down") }, () => new Promise<boolean>(() => {})]) {
+        const { deps } = makeDeps({ verifyRecipient })
+        await walkTo("ENTER_RECIPIENT", deps)
+        const pending = hubtelRouter(req({ Message: "0244123456" }), deps)
+        await vi.advanceTimersByTimeAsync(3000)
+        expect((await pending).Message).not.toContain("verified")
       }
     } finally {
       vi.useRealTimers()

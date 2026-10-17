@@ -96,6 +96,15 @@ describe("getDeliveryEstimates", () => {
     expect(bill.every(c => c.f["eq:payment_status"] === "paid" && !c.f["ilike:network"] && !c.f.or)).toBe(true)
   })
 
+  it("standard bundles read hubtel_data_orders (paid only) with no network filter", async () => {
+    const { db, calls } = fakeDb(table => (table === "hubtel_data_orders" ? { created_at: t(55), updated_at: t(56) } : null))
+    const rows = await getDeliveryEstimates(db, NOW)
+    expect(rows.find(r => r.channel === "standard")).toMatchObject({ state: "live", label: "Standard Bundles" })
+    const sb = calls.filter(c => c.table === "hubtel_data_orders")
+    expect(sb.length).toBe(2)
+    expect(sb.every(c => c.f["eq:payment_status"] === "paid" && !c.f["ilike:network"] && !c.f.or)).toBe(true)
+  })
+
   it("matches every AT-iShare spelling", async () => {
     const { db, calls } = fakeDb(() => null)
     await getDeliveryEstimates(db, NOW)
@@ -155,6 +164,6 @@ describe("getPublicDeliveryEstimates", () => {
     const bad = fakeDb(() => null, { failTable: "orders" })
     await expect(getPublicDeliveryEstimates(bad.db, ms)).rejects.toThrow()
     const good = fakeDb(() => null)
-    await expect(getPublicDeliveryEstimates(good.db, ms + 1000)).resolves.toHaveLength(5)
+    await expect(getPublicDeliveryEstimates(good.db, ms + 1000)).resolves.toHaveLength(6)
   })
 })

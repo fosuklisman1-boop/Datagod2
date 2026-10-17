@@ -1,9 +1,10 @@
 // lib/ussd-hubtel/flows/network-plans.ts
-// "Network Plans" (Commission Cashback bots): Hubtel Standard Bundles sold over Hubtel USSD, priced by
+// "Standard Bundles" (Commission Cashback bots): Hubtel Standard Bundles sold over Hubtel USSD, priced by
 // the bot engine (quoteBots, rail hubtel; shop split only for an accepted shop in shop mode) and paid
 // through Hubtel's AddToCart. The engine creates the unpaid order (idempotency key = this session);
 // submitOrder then writes the hubtel_transactions row and the cart at the order's payAmount.
-// No screen says "data" or "bundle" (noProductWords).
+// Plan and category names are shown exactly as Hubtel sends them (only shortened to fit the screen).
+import { confirmNote } from "../confirm-note"
 import crypto from "crypto"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { isValidIdempotencyKey } from "@/lib/standard-bundles/service"
@@ -14,7 +15,7 @@ import { toLocalPhone, USSD_SCREEN_LIMIT } from "../protocol"
 import {
   backToMain, failOrphanEngineOrder, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable,
 } from "../flow-kit"
-import { clip, fitListScreen, noProductWords, pageSlice } from "../screen-fit"
+import { clip, fitListScreen, pageSlice } from "../screen-fit"
 import { backToProduct } from "./shop"
 import type { HubtelReply, HubtelSession, NpPlan } from "../types"
 
@@ -39,15 +40,15 @@ export const NP_TEXT = {
 const money = (n: number) => n.toFixed(2)
 
 const networkScreen = (prefix = "") =>
-  prefix + "Network Plans\nSelect network:\n" + NETWORKS.map((n, i) => `${i + 1}. ${NETWORK_LABEL[n]}`).join("\n") + "\n0. Back"
+  prefix + "Standard Bundles\nSelect network:\n" + NETWORKS.map((n, i) => `${i + 1}. ${NETWORK_LABEL[n]}`).join("\n") + "\n0. Back"
 
 const categoryScreen = (network: BundleNetwork, categories: string[], prefix = "") =>
-  fitListScreen(`${prefix}${NETWORK_LABEL[network]} plans:`, categories.map(c => ({ label: noProductWords(c) })), ["0. Back"])
+  fitListScreen(`${prefix}${NETWORK_LABEL[network]} plans:`, categories.map(c => ({ label: c })), ["0. Back"])
 
 function planScreen(network: BundleNetwork, category: string, plans: NpPlan[], hasNext: boolean): string {
   return fitListScreen(
-    `${NETWORK_LABEL[network]} ${noProductWords(category)}`,
-    plans.map(p => ({ label: noProductWords(p.d), suffix: `GHS ${money(p.p)}` })),
+    `${NETWORK_LABEL[network]} ${category}`,
+    plans.map(p => ({ label: p.d, suffix: `GHS ${money(p.p)}` })),
     [...(hasNext ? ["0 Next"] : []), "00 Back"],
   )
 }
@@ -57,11 +58,17 @@ const recipientScreen = (s: HubtelSession, prefix = "") =>
 const otherScreen = (prefix = "") => `${prefix}Enter recipient number:\n0. Back`
 
 /** Confirm screen (≤ 182 chars; the plan text is shortened if needed). "(was …)" only when the price is below face. */
-export function networkPlanConfirmText(plan: NpPlan, recipient: string): string {
+export function networkPlanConfirmText(plan: NpPlan, recipient: string, note?: string | null): string {
   const was = plan.p < plan.f ? ` (was GHS ${money(plan.f)})` : ""
   const head = `Pay GHS ${money(plan.p)}${was}\nYou receive `
-  const tail = ` on ${recipient}\n1 Confirm 2 Cancel`
-  return head + clip(noProductWords(plan.d), USSD_SCREEN_LIMIT - head.length - tail.length) + tail
+  const desc = plan.d
+  const build = (extra: string) => {
+    const tail = ` on ${recipient}\n${extra}1 Confirm 2 Cancel`
+    return head + clip(desc, USSD_SCREEN_LIMIT - head.length - tail.length) + tail
+  }
+  // The delivery-time line only when the plan text keeps enough room to stay readable.
+  const room = USSD_SCREEN_LIMIT - head.length - ` on ${recipient}\n${note}\n1 Confirm 2 Cancel`.length
+  return note && room >= Math.min(desc.length, 24) ? build(`${note}\n`) : build("")
 }
 
 /** The engine context for this session: shop split only for an accepted shop in shop mode; null = fail closed. */
@@ -166,8 +173,11 @@ async function recipientProblem(ctx: FlowCtx, local: string): Promise<string | n
   return null
 }
 
-const toConfirm = (ctx: FlowCtx, local: string) =>
-  goto(ctx, { step: "NP_CONFIRM", npRecipient: local, npOtherNumber: false }, networkPlanConfirmText(ctx.session.npPlan!, local), CONFIRM)
+// Standard Bundles have their own suppliers: no MTN number check, only the Standard Bundles delivery time.
+async function toConfirm(ctx: FlowCtx, local: string): Promise<HubtelReply> {
+  const note = await confirmNote(ctx, { network: ctx.session.npNetwork, recipientLocal: local, verify: false, estimate: "standard" })
+  return goto(ctx, { step: "NP_CONFIRM", npRecipient: local, npOtherNumber: false, confirmNote: note }, networkPlanConfirmText(ctx.session.npPlan!, local, note), CONFIRM)
+}
 
 async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
   const s = ctx.session
@@ -196,7 +206,7 @@ export function npIdempotencyKey(sessionId: string): string {
 async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const { input, deps, req, session } = ctx
   if (input === "2") return finish(ctx, "Order cancelled.")
-  if (input !== "1") return say(ctx, networkPlanConfirmText(session.npPlan!, session.npRecipient!), "NP_CONFIRM", CONFIRM)
+  if (input !== "1") return say(ctx, networkPlanConfirmText(session.npPlan!, session.npRecipient!, session.confirmNote), "NP_CONFIRM", CONFIRM)
 
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
