@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Activity, CheckCircle2, Clock, RefreshCw, Timer } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { formatDuration, shownDeliveredAt, tick, type ChannelEstimate, type StrengthTier } from "@/lib/delivery-estimate/compute"
@@ -25,7 +25,19 @@ const BADGE: Record<DeliveryChannel, { text: string; className: string }> = {
 const TIER_COLOR: Record<StrengthTier, string> = { Excellent: "#22c55e", Good: "#84cc16", Delayed: "#f59e0b", Critical: "#ef4444" }
 
 function timeOf(iso: string): string {
-  return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+}
+
+/**
+ * Keeps a widget failure inside the widget: a bad row or an unexpected error here must never take down the
+ * dashboard, landing page or storefront around it. Renders nothing on error.
+ */
+export class WidgetBoundary extends Component<{ children: ReactNode; name: string }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidCatch(error: unknown) { console.error(`[${this.props.name}] widget error (hidden):`, error) }
+  render() { return this.state.failed ? null : this.props.children }
 }
 
 /**
@@ -89,8 +101,10 @@ export function useDeliveryEstimates({ public: isPublic = false }: { public?: bo
     try { await load() } finally { setRefreshing(false); setCooldown(COOLDOWN_S) }
   }, [cooldown, load, refreshing])
 
-  const now = new Date(Date.now() + skew.current).toISOString()
-  const live = rows?.map(r => ({ ...r, ...tick(r, now) })) ?? null
+  const now = new Date(Date.now() + (Number.isFinite(skew.current) ? skew.current : 0)).toISOString()
+  const live = rows?.map(r => {
+    try { return { ...r, ...tick(r, now) } } catch { return r } // a row that can't tick keeps its fetched numbers
+  }) ?? null
   return { rows: live, loading: rows === null, refreshing, cooldown, refresh }
 }
 
@@ -273,7 +287,11 @@ function StrengthRow({ r }: { r: ChannelEstimateRow }) {
  * Landing page / storefront version: the same two cards, fed by the no-login endpoint. `channels` limits the
  * strength list to what this page sells (e.g. a storefront without bills hides Utility Bills).
  */
-export function PublicDeliveryStatus({ channels, className = "" }: { channels?: DeliveryChannel[]; className?: string }) {
+export function PublicDeliveryStatus(props: { channels?: DeliveryChannel[]; className?: string }) {
+  return <WidgetBoundary name="delivery-estimate"><PublicDeliveryStatusInner {...props} /></WidgetBoundary>
+}
+
+function PublicDeliveryStatusInner({ channels, className = "" }: { channels?: DeliveryChannel[]; className?: string }) {
   const d = useDeliveryEstimates({ public: true })
   const rows = d.rows && channels ? d.rows.filter(r => channels.includes(r.channel)) : d.rows
   const headline = rows?.find(r => r.channel === "mtn") ?? rows?.[0] ?? null
@@ -282,5 +300,20 @@ export function PublicDeliveryStatus({ channels, className = "" }: { channels?: 
       <DeliveryHeadlineCard row={headline} loading={d.loading} refreshing={d.refreshing} cooldown={d.cooldown} onRefresh={d.refresh} />
       <GatewayStrengthCard rows={rows} loading={d.loading} refreshing={d.refreshing} cooldown={d.cooldown} onRefresh={d.refresh} />
     </div>
+  )
+}
+
+/** Dashboard version: MTN headline card + Gateway Status, signed-in endpoint, isolated by WidgetBoundary. */
+export function DashboardDeliveryStatus() {
+  return <WidgetBoundary name="delivery-estimate"><DashboardDeliveryStatusInner /></WidgetBoundary>
+}
+
+function DashboardDeliveryStatusInner() {
+  const d = useDeliveryEstimates()
+  return (
+    <>
+      <DeliveryHeadlineCard row={d.rows?.find(r => r.channel === "mtn") ?? null} loading={d.loading} refreshing={d.refreshing} cooldown={d.cooldown} onRefresh={d.refresh} />
+      <GatewayStrengthCard rows={d.rows} loading={d.loading} refreshing={d.refreshing} cooldown={d.cooldown} onRefresh={d.refresh} />
+    </>
   )
 }

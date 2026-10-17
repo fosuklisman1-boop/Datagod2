@@ -21,7 +21,7 @@ import { useDomainBranding } from "@/components/providers/domain-branding-provid
 import { getServicePrimaryPath, isPageHidden } from "@/lib/custom-domains"
 import { useFirstVisiblePath } from "@/hooks/use-first-visible-path"
 import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
-import { DeliveryHeadlineCard, GatewayStrengthCard, useDeliveryEstimates } from "@/components/dashboard/delivery-estimate"
+import { DashboardDeliveryStatus } from "@/components/dashboard/delivery-estimate"
 import { useBillsAvailability } from "@/components/bills/use-bills-availability"
 import { isBillerKey } from "@/lib/bills/billers"
 import { NETWORK_BADGE } from "@/components/dashboard/network-health-card"
@@ -197,7 +197,6 @@ export default function DashboardPage() {
   const [showPhoneVerify, setShowPhoneVerify] = useState(false)
   const [currentPhone, setCurrentPhone] = useState("")
   const [phoneVerifyDeadline, setPhoneVerifyDeadline] = useState<string | null>(null)
-  const delivery = useDeliveryEstimates()
   const [sendActivity, setSendActivity] = useState<SendActivityDay[]>([])
   const [promoIndex, setPromoIndex] = useState(0)
   const promoScrollRef = useRef<HTMLDivElement>(null)
@@ -643,21 +642,7 @@ export default function DashboardPage() {
 
         {/* Live delivery estimate: computed from two real reference orders, never an average
             (lib/delivery-estimate). Polls every 25s while visible; the open order's wait ticks live. */}
-        <DeliveryHeadlineCard
-          row={delivery.rows?.find((r) => r.channel === "mtn") ?? null}
-          loading={delivery.loading}
-          refreshing={delivery.refreshing}
-          cooldown={delivery.cooldown}
-          onRefresh={delivery.refresh}
-        />
-
-        <GatewayStrengthCard
-          rows={delivery.rows}
-          loading={delivery.loading}
-          refreshing={delivery.refreshing}
-          cooldown={delivery.cooldown}
-          onRefresh={delivery.refresh}
-        />
+        <DashboardDeliveryStatus />
 
         {/* 7-Day Send Activity — this account's own completed orders per day
             per network over the last 7 days (personal activity, unlike the
