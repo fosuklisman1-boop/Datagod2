@@ -3,6 +3,7 @@
 import { MenuItemDef, ResolvedMenuItem, renderMenuText, resolveMenuItems } from "@/lib/ussd/menu-items"
 import type { BundleOption } from "@/lib/ussd/types"
 import { BOT_MENUS_HIDDEN, DEFAULT_BRAND, DEFAULT_WELCOME, type BotMenuGate } from "./config"
+import { USSD_SCREEN_LIMIT } from "./protocol"
 
 /** Commission Cashback bot menus: shown only when the admin visibility flag AND the cashback bots gate are on. */
 export type BotMenuKey = "networkPlans" | "payBills"
@@ -104,12 +105,14 @@ export function confirmMenuText(
   size: string,
   price: number,
   recipientLocal: string,
-  dialingLocal: string
+  dialingLocal: string,
+  /** Extra line above the options (e.g. a delivery estimate); dropped if the screen would overflow. */
+  note?: string | null
 ): string {
-  return (
-    `Confirm order:\n${formatSize(size)} ${networkLabel}\nTo: ${recipientLocal}\n` +
-    `GHS ${price.toFixed(2)} from ${dialingLocal}\n1. Pay now\n2. Cancel`
-  )
+  const head = `Confirm order:\n${formatSize(size)} ${networkLabel}\nTo: ${recipientLocal}\nGHS ${price.toFixed(2)} from ${dialingLocal}\n`
+  const tail = "1. Pay now\n2. Cancel"
+  const withNote = note ? `${head}${note}\n${tail}` : null
+  return withNote && withNote.length <= USSD_SCREEN_LIMIT ? withNote : head + tail
 }
 
 // Airtime networks (lib/airtime-pricing.ts vocabulary: "AT" is AirtelTigo).

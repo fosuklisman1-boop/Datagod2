@@ -81,6 +81,12 @@ describe("confirm menu", () => {
     expect(t).toContain("1. Pay now")
     expect(recipientPromptText()).toContain("recipient")
   })
+  it("adds an optional note above the options, and drops it if the screen would overflow", () => {
+    expect(confirmMenuText("MTN", "5", 20, "0244123456", "0200585542", "Delivery: ~3 min")).toContain("Delivery: ~3 min\n1. Pay now")
+    const long = confirmMenuText("MTN", "5", 20, "0244123456", "0200585542", "x".repeat(150))
+    expect(long).not.toContain("xxx")
+    expect(long).toBe(confirmMenuText("MTN", "5", 20, "0244123456", "0200585542"))
+  })
 })
 
 describe("shop menus", () => {

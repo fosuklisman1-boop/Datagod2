@@ -15,6 +15,7 @@ import {
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
 import { HeroCarousel } from "@/components/home/HeroCarousel"
+import { PublicDeliveryStatus } from "@/components/dashboard/delivery-estimate"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPageHidden } from "@/lib/custom-domains"
 
@@ -477,6 +478,23 @@ export default function HomePage() {
           </p>
         </div>
       </section>
+
+      {/* ── Live delivery status (real orders, lib/delivery-estimate) ──
+          Data networks, so hidden on a custom domain that doesn't sell data. */}
+      {(!domainBranding.services || domainBranding.services.includes("data_bundles")) && (
+      <section className="px-4 sm:px-6 pb-14 sm:pb-20">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-8">
+            <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Live</span>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Live Delivery Status</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">
+              How long real orders are taking right now, updated every few seconds.
+            </p>
+          </div>
+          <PublicDeliveryStatus />
+        </div>
+      </section>
+      )}
 
       {/* ── Our Top Services ────────────────────────────────── */}
       <section id="services" className="py-16 sm:py-24">
