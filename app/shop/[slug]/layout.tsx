@@ -3,6 +3,7 @@ import { headers } from 'next/headers'
 import { shopService } from '@/lib/shop-service'
 import { resolveCustomDomain } from '@/lib/custom-domain-lookup'
 import { SERVICE_LABELS, joinServiceLabels, normalizeDomainHost } from '@/lib/custom-domains'
+import { shopPreviewDescription, shopPreviewImage } from '@/lib/shop-link-preview'
 import ShopClientWrapper from './shop-client-wrapper'
 
 // Mirrors the ROOT_DOMAIN used by middleware.ts and app/sitemap.ts. Not
@@ -67,12 +68,13 @@ export async function generateMetadata({
   const title = serviceLabelCapitalized
     ? `${shop.shop_name} - Buy ${serviceLabelCapitalized} Online${poweredBySuffix}`
     : `${shop.shop_name} - Buy Data & Airtime Online${poweredBySuffix}`
-  const description =
-    shop.description ||
-    (serviceLabel
+  const description = shopPreviewDescription(
+    shop,
+    serviceLabel
       ? `Get instant ${serviceLabel} from ${shop.shop_name}. Instant delivery, secure payment.`
-      : `Buy affordable data bundles, airtime, and results checker vouchers from ${shop.shop_name}. Instant delivery, secure payment.`)
-  const image = shop.banner_url || shop.logo_url || 'https://www.datagod.store/og-image.png'
+      : `Buy affordable data bundles, airtime, and results checker vouchers from ${shop.shop_name}. Instant delivery, secure payment.`,
+  )
+  const image = shopPreviewImage(shop)
 
   return {
     title,
@@ -84,13 +86,13 @@ export async function generateMetadata({
       siteName: shop.shop_name,
       title,
       description,
-      images: [{ url: image, width: 1200, height: 630, alt: shop.shop_name }],
+      images: [{ url: image.url, width: image.width, height: image.height, alt: shop.shop_name }],
     },
     twitter: {
-      card: 'summary_large_image',
+      card: image.card,
       title,
       description,
-      images: [image],
+      images: [image.url],
     },
   }
 }
