@@ -25,7 +25,7 @@ type Order = {
   status: "pending" | "processing" | "completed" | "failed" | "refunded"; payment_status: "unpaid" | "paid" | "refunded"
   hubtel_client_reference: string | null; commission: number | null; failure_reason: string | null; notes: string | null
   created_at: string; updated_at: string; purchaser: string; purchaser_email: string | null; source: string; channel_label?: string | null; shop_name?: string | null; buyer_phone?: string | null
-  can_dispatch: boolean; stuck_claim?: boolean; refund: Refund | null
+  can_dispatch: boolean; can_retry?: boolean; stuck_claim?: boolean; refund: Refund | null
 }
 type Stats = { totalSales: number; orders: number; completed: number; inFlight: number; commission: number; failed: number; refunded: number }
 type Listing = { rows: Order[]; total: number; offset: number }
@@ -111,9 +111,9 @@ function Pager({ listing, loading, onPage }: { listing: Listing; loading: boolea
   )
 }
 
-function OrderRow({ o, busy, onDetails, onSync, onDispatch, onRefund, queue }: {
+function OrderRow({ o, busy, onDetails, onSync, onDispatch, onRetry, onRefund, queue }: {
   o: Order; busy: boolean; queue?: boolean
-  onDetails: (o: Order) => void; onSync: (o: Order) => void; onDispatch: (o: Order) => void; onRefund: (o: Order) => void
+  onDetails: (o: Order) => void; onSync: (o: Order) => void; onDispatch: (o: Order) => void; onRetry: (o: Order) => void; onRefund: (o: Order) => void
 }) {
   const unverified = !o.verified
   return (
@@ -163,6 +163,7 @@ function OrderRow({ o, busy, onDetails, onSync, onDispatch, onRefund, queue }: {
           <Button size="sm" variant="outline" disabled={busy} onClick={() => onSync(o)}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Sync</Button>
         )}
         {o.can_dispatch && <Button size="sm" disabled={busy} onClick={() => onDispatch(o)}>Dispatch</Button>}
+        {o.can_retry && <Button size="sm" variant="outline" disabled={busy} onClick={() => onRetry(o)}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Retry</Button>}
         {/* Storefront buyers have no wallet: their refunds go through /admin/refunds (the server refuses a wallet refund). */}
         {queue && o.refund && (o.source === "storefront" || o.source === "bots") && (
           <div className="flex flex-col items-end gap-1">
@@ -342,6 +343,17 @@ export default function UtilityBillsPage() {
     })
   }
 
+  const retry = (o: Order) => {
+    if (!window.confirm(`Hubtel failed this order. Send ${money(o.amount)} ${BILLERS[o.biller]?.label ?? o.biller} (${o.account_number}) to Hubtel again?`)) return
+    return guarded(`retry-${o.id}`, async () => {
+      try {
+        const j = await authed("/api/admin/utility-bills/retry", { method: "POST", body: JSON.stringify({ orderId: o.id }) })
+        if (j.ok) toast.success(j.message ?? "Retried"); else toast.error(j.message ?? "Not sent")
+      } catch (e) { toast.error(errMsg(e)) }
+      await refreshLists()
+    })
+  }
+
   const noteOk = note.trim().length > 0 && note.trim().length <= NOTE_MAX
   const needsForce = refunding?.refund?.action === "ledger" && refunding.refund.needsForce
   const confirmRefund = () => {
@@ -367,7 +379,7 @@ export default function UtilityBillsPage() {
   const anyBusy = busy !== null
   const rowBusy = anyBusy || loading
   const openRefund = (o: Order) => { if (o.source === "storefront" || o.source === "bots") return; setNote(""); setAck(false); setRefunding(o) }
-  const rowProps = { busy: rowBusy, onDetails: setDetails, onSync: sync, onDispatch: dispatch, onRefund: openRefund }
+  const rowProps = { busy: rowBusy, onDetails: setDetails, onSync: sync, onDispatch: dispatch, onRetry: retry, onRefund: openRefund }
   const queueCount = queue.total
 
   return (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { releaseStuckClaimRow, canDispatch, isStuckClaim, STUCK_CLAIM_MS, computeStats, statsFromRpc, statsRpcArgs, parseOrderFilters, purchaserLabel, refundDecision, UNSENT_GRACE_MS, type LedgerFact } from "./admin"
+import { releaseStuckClaimRow, canDispatch, isStuckClaim, STUCK_CLAIM_MS, computeStats, statsFromRpc, statsRpcArgs, parseOrderFilters, purchaserLabel, refundDecision, retryDecision, UNSENT_GRACE_MS, type LedgerFact } from "./admin"
 import { executeBillRefund, type BillRefundDeps, type RefundOrder } from "./admin-refund"
 
 const NOW = Date.parse("2026-10-13T12:00:00Z")
@@ -280,5 +280,23 @@ describe("stuck release aborts", () => {
     const { deps, calls } = fakeDeps({ order: order({ status: "pending", channel: "api", user_id: null }) })
     expect(await executeBillRefund(deps, "o1", "n", false)).toMatchObject({ ok: false, status: 409 })
     expect(calls).toEqual([])
+  })
+})
+
+describe("retryDecision", () => {
+  const f = (o: Partial<LedgerFact> = {}): LedgerFact => ({ client_reference: "R1", state: "failed", refund_claimed_at: null, resolved_by: null, created_at: "", ...o })
+  const failed = { status: "failed", payment_status: "paid" }
+  it("allows a paid order whose every Hubtel attempt failed", () => {
+    expect(retryDecision(failed, [f()]).ok).toBe(true)
+    expect(retryDecision(failed, [f(), f({ client_reference: "R2" })]).ok).toBe(true)
+  })
+  it("blocks everything else", () => {
+    expect(retryDecision({ status: "pending", payment_status: "paid" }, [f()]).ok).toBe(false)
+    expect(retryDecision({ status: "failed", payment_status: "refunded" }, [f()]).ok).toBe(false)
+    expect(retryDecision(failed, []).ok).toBe(false)
+    expect(retryDecision(failed, [f(), f({ state: "pending" })]).ok).toBe(false)
+    expect(retryDecision(failed, [f({ state: "fulfilled" })]).ok).toBe(false)
+    expect(retryDecision(failed, [f({ refund_claimed_at: "t" })]).ok).toBe(false)
+    expect(retryDecision(failed, [f({ resolved_by: "admin" })]).ok).toBe(false)
   })
 })
