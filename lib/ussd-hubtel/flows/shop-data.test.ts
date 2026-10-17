@@ -16,6 +16,7 @@ async function toConfirm(deps: RouterDeps, recipient = "0244123456") {
   await toNetworks(deps)
   await hubtelRouter(req({ Message: "1" }), deps)
   await hubtelRouter(req({ Message: "1" }), deps)
+  await hubtelRouter(req({ Message: "2" }), deps) // Someone Else
   return hubtelRouter(req({ Message: recipient }), deps)
 }
 const shopDeps = (over: Parameters<typeof makeDeps>[0] = {}, sup = fakeSupabase({ pkg: OK_PKG })) =>
@@ -68,14 +69,15 @@ describe("shop data: packages and recipient", () => {
     await toNetworks(deps)
     await hubtelRouter(req({ Message: "1" }), deps)
     await hubtelRouter(req({ Message: "1" }), deps)
+    await hubtelRouter(req({ Message: "2" }), deps) // Someone Else
     const r = await hubtelRouter(req({ Message: "0201234567" }), deps) // Telecel number for MTN data
     expect(r.Message).toContain("Enter recipient number")
     expect(store.get("S1")?.step).toBe("SHOP_DATA_RECIPIENT")
   })
-  it("confirm shows the shop, bundle, recipient, shop price and payer", async () => {
+  it("confirm shows the shop, network + bundle, recipient and shop price", async () => {
     const { deps } = shopDeps()
     const r = await toConfirm(deps)
-    expect(r.Message).toBe("Ama Data Hub\nConfirm order:\n5GB MTN\nTo: 0244123456\nGHS 12.00 from 0200585542\n1. Pay now\n2. Cancel")
+    expect(r.Message).toBe("Ama Data Hub\nMTN 5GB\nTo: 0244123456\nAmount: GHS 12.00\n\nConfirm your order?\n1. Confirm\n0. Cancel")
   })
 })
 
@@ -165,11 +167,11 @@ describe("shop data: confirm -> AddToCart", () => {
     expect(r.Message).toBe("Package no longer available. Please try again.")
     expect(sup.inserts["ussd_shop_orders"]).toBeUndefined()
   })
-  it("'2' cancels without an order", async () => {
+  it("'0' cancels without an order", async () => {
     const sup = fakeSupabase({ pkg: OK_PKG })
     const { deps } = shopDeps({}, sup)
     await toConfirm(deps)
-    const r = await hubtelRouter(req({ Message: "2" }), deps)
+    const r = await hubtelRouter(req({ Message: "0" }), deps)
     expect(r.Message).toBe("Order cancelled.")
     expect(sup.inserts["ussd_shop_orders"]).toBeUndefined()
   })
@@ -213,7 +215,7 @@ describe("shop data: MTN number verification warning", () => {
   it("shows the warning under the shop header when the MTN recipient isn't verified", async () => {
     const { deps } = shopDeps({ verifyRecipient: async () => false })
     const r = await toConfirm(deps)
-    expect(r.Message).toBe("Ama Data Hub\nConfirm order:\n5GB MTN\nTo: 0244123456\nGHS 12.00 from 0200585542\nNot yet verified: delivery may be delayed.\n1. Pay now\n2. Cancel")
+    expect(r.Message).toBe("Ama Data Hub\nMTN 5GB\nTo: 0244123456\nAmount: GHS 12.00\nNot yet verified: delivery may be delayed.\n\nConfirm your order?\n1. Confirm\n0. Cancel")
   })
   it("verified numbers are unchanged", async () => {
     const { deps } = shopDeps({ verifyRecipient: async () => true })

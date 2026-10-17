@@ -1,22 +1,20 @@
 // lib/ussd-hubtel/flows/data.ts
 // Main-mode data bundles. Moved from router.ts (Plan 2 Task 1) with identical behaviour.
-import { validateNetworkPrefix } from "@/lib/phone-format"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { priceForTier } from "../catalog"
-import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, recipientPromptText, confirmMenuText } from "../menus"
-import { toLocalPhone } from "../protocol"
+import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } from "../menus"
+import { enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { HubtelReply, HubtelSession } from "../types"
 import { confirmNote } from "../confirm-note"
 
 const NETWORK = { label: "Select network" }
 const PACKAGE = { label: "Select package" }
-const RECIPIENT = { label: "Recipient number", fieldType: "phone" as const }
 const CONFIRM = { label: "Confirm order" }
 
 function confirmText(s: HubtelSession, note?: string | null): string {
   const net = HUBTEL_NETWORKS.find(n => n.dbName === s.network)
-  return confirmMenuText(net?.label ?? s.network!, s.bundleSize!, s.bundlePrice!, s.recipientPhone!, toLocalPhone(s.dialingPhone), note)
+  return confirmMenuText(net?.label ?? s.network!, s.bundleSize!, s.bundlePrice!, s.recipientPhone!, note)
 }
 
 export async function startData(ctx: FlowCtx): Promise<HubtelReply> {
@@ -57,34 +55,29 @@ async function selectBundle(ctx: FlowCtx): Promise<HubtelReply> {
   const selected = Number.isInteger(chosen) ? bundles[chosen - offset - 1] : undefined
   if (!selected) return say(ctx, bundleMenuText(bundles, page, total, deps.pageSize), "SELECT_BUNDLE", PACKAGE)
   return goto(ctx, {
-    step: "ENTER_RECIPIENT", bundleId: selected.id, bundleSize: selected.size, bundlePrice: selected.price,
-  }, recipientPromptText(), RECIPIENT)
+    step: "ENTER_RECIPIENT", bundleId: selected.id, bundleSize: selected.size, bundlePrice: selected.price, ...enterRecipientStep.patch,
+  }, whoForScreen(ctx), enterRecipientStep.field)
 }
 
 async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
-  const { input, deps, session } = ctx
-  if (input === "0") {
-    const page = session.bundlePage ?? 0
-    const { bundles, total } = await deps.fetchBundles(session.network!, page, session.effectivePriceTier ?? "regular", session.subAgentParentShopId)
-    return goto(ctx, { step: "SELECT_BUNDLE" }, bundleMenuText(bundles, page, total, deps.pageSize), PACKAGE)
-  }
-  const local = toLocalPhone(input)
-  const reprompt = (msg: string) => say(ctx, `${msg}\n${recipientPromptText()}`, "ENTER_RECIPIENT", RECIPIENT)
-
-  if (!/^0[0-9]{9}$/.test(local)) return reprompt("Invalid number. Enter a valid Ghana phone number.")
-
-  const prefix = await deps.getPrefixConfig()
-  if (prefix.enabled && session.network) {
-    const check = validateNetworkPrefix(session.network, local, prefix.map)
-    if (!check.ok) return reprompt(check.message ?? "Number does not match the selected network.")
-  }
-  const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, verify: true, estimate: "network" })
-  return goto(ctx, { step: "CONFIRM", recipientPhone: local, confirmNote: note }, confirmText({ ...session, recipientPhone: local }, note), CONFIRM)
+  const { deps, session } = ctx
+  return recipientStep(ctx, {
+    step: "ENTER_RECIPIENT",
+    back: async () => {
+      const page = session.bundlePage ?? 0
+      const { bundles, total } = await deps.fetchBundles(session.network!, page, session.effectivePriceTier ?? "regular", session.subAgentParentShopId)
+      return goto(ctx, { step: "SELECT_BUNDLE" }, bundleMenuText(bundles, page, total, deps.pageSize), PACKAGE)
+    },
+    confirm: async local => {
+      const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, verify: true, estimate: "network" })
+      return goto(ctx, { step: "CONFIRM", recipientPhone: local, confirmNote: note }, confirmText({ ...session, recipientPhone: local }, note), CONFIRM)
+    },
+  })
 }
 
 async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const { input, deps, req, session } = ctx
-  if (input === "2") return finish(ctx, "Order cancelled.")
+  if (input === "0") return finish(ctx, "Order cancelled.")
   if (input !== "1") return say(ctx, confirmText(session, session.confirmNote), "CONFIRM", CONFIRM)
 
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
