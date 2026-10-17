@@ -105,12 +105,12 @@ describe("network plans: paging (5 per screen, 0 Next / 00 Back)", () => {
     const long = (i: number) => `MTN Data Bundle super saver plan with a very long description number ${i} valid 30 days`
     const s = setup({ np: { catalog: async () => ({ ok: true, categories: [{ name: "Data", bundles: fakePlans("Data", 7, long) }] }) } })
     const screens = [await send(s, "1"), await send(s, "1"), await send(s, "0"), await send(s, "1"), await send(s, "1")]
-    for (const [r, footer] of [[screens[0], "0. Back"], [screens[1], "0 Next\n00 Back"], [screens[2], "00 Back"], [screens[3], "0. Back"], [screens[4], "1 Confirm 2 Cancel"]] as const) {
+    for (const [r, footer] of [[screens[0], "0. Back"], [screens[1], "0 Next\n00 Back"], [screens[2], "00 Back"], [screens[3], "0. Back"], [screens[4], "1. Confirm\n0. Cancel"]] as const) {
       whole(r, footer)
     }
     expect(screens[1].Message).toContain("GHS 13.50\n0 Next\n00 Back")
-    expect(screens[4].Message.startsWith("Pay GHS 14.50 (was GHS 15.00)\nYou receive ")).toBe(true)
-    expect(screens[4].Message.endsWith(" on 0244123456\n1 Confirm 2 Cancel")).toBe(true)
+    expect(screens[4].Message.startsWith("MTN ")).toBe(true)
+    expect(screens[4].Message.endsWith("\nTo: 0244123456\nAmount: GHS 14.50 (was GHS 15.00)\n\nConfirm your order?\n1. Confirm\n0. Cancel")).toBe(true)
   })
 })
 
@@ -118,32 +118,32 @@ describe("network plans: recipient", () => {
   it("1 = my number -> confirm", async () => {
     const s = setup()
     const rec = await send(s, "1", "1", "1")
-    expect(rec.Message).toBe("Send to:\n1. My number (0244123456)\n2. Other number\n0. Back")
+    expect(rec.Message).toBe("Who is this for?\n1. My Self (0244123456)\n2. Someone Else\n0. Back")
     const c = await send(s, "1")
-    expect(c.Message).toBe("Pay GHS 9.50 (was GHS 10.00)\nYou receive 1GB on 0244123456\n1 Confirm 2 Cancel")
+    expect(c.Message).toBe("MTN 1GB\nTo: 0244123456\nAmount: GHS 9.50 (was GHS 10.00)\n\nConfirm your order?\n1. Confirm\n0. Cancel")
     expect(s.store.get(SID)).toMatchObject({ step: "NP_CONFIRM", npRecipient: "0244123456" })
   })
   it("2 = other number: typed, prefix-checked against the network", async () => {
     const s = setup()
     await send(s, "1", "1", "1")
-    expect((await send(s, "2")).Message).toBe("Enter recipient number:\n0. Back")
+    expect((await send(s, "2")).Message).toBe("Enter recipient number\n(who gets the bundle):\n0. Back")
     const bad = await send(s, "0201234567") // Telecel number for an MTN plan
     expect(bad.Message).toContain("Enter recipient number")
     expect(s.store.get(SID)?.step).toBe("NP_RECIPIENT")
     expect((await send(s, "12")).Message).toContain("Invalid number")
     const ok = await send(s, "0541234567")
-    expect(ok.Message).toContain("You receive 1GB on 0541234567")
+    expect(ok.Message).toContain("MTN 1GB\nTo: 0541234567\n")
   })
   it("my number on the wrong network is refused with the reason", async () => {
     const s = setup({ session: { dialingPhone: "+233201234567" } })
     const r = await send(s, "1", "1", "1", "1")
-    expect(r.Message).toContain("Send to:")
+    expect(r.Message).toContain("Who is this for?")
     expect(s.store.get(SID)?.step).toBe("NP_RECIPIENT")
   })
   it("'0' on the choice goes back to the plan page; '0' on typing goes back to the choice", async () => {
     const s = setup()
     await send(s, "1", "1", "1", "2")
-    expect((await send(s, "0")).Message).toContain("Send to:")
+    expect((await send(s, "0")).Message).toContain("Who is this for?")
     expect((await send(s, "0")).Message).toContain("MTN Data\n1. 1GB")
   })
 })
@@ -299,10 +299,10 @@ describe("network plans: orphan engine orders are failed (guarded)", () => {
       expect(sup.updates).toEqual([])
     }
   })
-  it("2 cancels without an order", async () => {
+  it("0 cancels without an order", async () => {
     const s = setup()
     await toConfirm(s)
-    const r = await send(s, "2")
+    const r = await send(s, "0")
     expect(r.Message).toBe("Order cancelled.")
     expect(s.np.calls).toHaveLength(0)
   })
@@ -328,7 +328,7 @@ describe("network plans: shop mode", () => {
 
 describe("network plans: helpers", () => {
   it("confirm text shows (was …) only below face and stays <= 182", () => {
-    expect(networkPlanConfirmText({ t: "x", d: "1GB", f: 10, p: 10 }, "0244123456")).toBe("Pay GHS 10.00\nYou receive 1GB on 0244123456\n1 Confirm 2 Cancel")
+    expect(networkPlanConfirmText({ t: "x", d: "1GB", f: 10, p: 10 }, "0244123456", null, "MTN")).toBe("MTN 1GB\nTo: 0244123456\nAmount: GHS 10.00\n\nConfirm your order?\n1. Confirm\n0. Cancel")
     const worst = networkPlanConfirmText({ t: "x", d: "Z".repeat(400), f: 99999.99, p: 99999.98 }, "0244123456")
     expect(worst.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
   })
@@ -368,7 +368,7 @@ describe("standard bundles: delivery time, no number check", () => {
     s.deps.deliveryEstimate = async channel => { asked.push(channel); return "Delivery: ~2 min" }
     s.deps.verifyRecipient = async () => { verified++; return false }
     const c = await toConfirm(s)
-    expect(c.Message).toBe("Pay GHS 9.50 (was GHS 10.00)\nYou receive 1GB on 0244123456\nDelivery: ~2 min\n1 Confirm 2 Cancel")
+    expect(c.Message).toBe("MTN 1GB\nTo: 0244123456\nAmount: GHS 9.50 (was GHS 10.00)\nDelivery: ~2 min\n\nConfirm your order?\n1. Confirm\n0. Cancel")
     expect(asked).toEqual(["standard"])
     expect(verified).toBe(0)
     // Re-shown on bad input from the session, no new lookup.
@@ -378,7 +378,7 @@ describe("standard bundles: delivery time, no number check", () => {
   it("no estimate: the screen is unchanged", async () => {
     const s = setup()
     s.deps.deliveryEstimate = async () => null
-    expect((await toConfirm(s)).Message).toBe("Pay GHS 9.50 (was GHS 10.00)\nYou receive 1GB on 0244123456\n1 Confirm 2 Cancel")
+    expect((await toConfirm(s)).Message).toBe("MTN 1GB\nTo: 0244123456\nAmount: GHS 9.50 (was GHS 10.00)\n\nConfirm your order?\n1. Confirm\n0. Cancel")
   })
   it("never overflows the screen with a long plan description", () => {
     const plan = { t: "x", d: "Y".repeat(170), f: 10, p: 9.5 }
