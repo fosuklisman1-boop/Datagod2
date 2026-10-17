@@ -3,7 +3,7 @@ import { headers } from 'next/headers'
 import { shopService } from '@/lib/shop-service'
 import { resolveCustomDomain } from '@/lib/custom-domain-lookup'
 import { SERVICE_LABELS, joinServiceLabels, normalizeDomainHost } from '@/lib/custom-domains'
-import { shopPreviewDescription, shopPreviewImage } from '@/lib/shop-link-preview'
+import { shopIconUrl, shopPreviewDescription, shopPreviewImage } from '@/lib/shop-link-preview'
 import ShopClientWrapper from './shop-client-wrapper'
 
 // Mirrors the ROOT_DOMAIN used by middleware.ts and app/sitemap.ts. Not
@@ -75,8 +75,10 @@ export async function generateMetadata({
       : `Buy affordable data bundles, airtime, and results checker vouchers from ${shop.shop_name}. Instant delivery, secure payment.`,
   )
   const image = shopPreviewImage(shop)
+  const iconUrl = shopIconUrl(shop, domainConfig?.logo_url)
 
   return {
+    ...(iconUrl ? { icons: { icon: iconUrl, apple: iconUrl, shortcut: iconUrl } } : {}),
     title,
     description,
     alternates: { canonical: canonicalUrl },

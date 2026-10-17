@@ -29,6 +29,16 @@ export function shopPreviewDescription(shop: PreviewShop, fallback: string): str
   return own || fallback
 }
 
+// Browser-tab / home-screen icon for a storefront: the shop's own logo, so a
+// shop's subdomain isn't branded with the DATAGOD favicon. A custom domain's
+// admin-set logo still wins on that domain (the root layout already applies
+// it), so this returns null there and when the shop has no logo — callers then
+// leave the inherited icons alone.
+export function shopIconUrl(shop: PreviewShop, customDomainLogo?: string | null): string | null {
+  if (customDomainLogo?.trim()) return null
+  return shop.logo_url?.trim() || null
+}
+
 // Logo first: it's the shop's identity and what owners expect to see when
 // they share their link. Banner, then the platform image, are fallbacks for
 // shops that haven't uploaded a logo.

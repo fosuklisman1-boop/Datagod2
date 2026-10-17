@@ -1,6 +1,22 @@
-import { shopPreviewDescription, shopPreviewImage } from "@/lib/shop-link-preview"
+import { shopIconUrl, shopPreviewDescription, shopPreviewImage } from "@/lib/shop-link-preview"
 
 const base = { shop_name: "Kofi Data" }
+
+describe("shopIconUrl", () => {
+  it("uses the shop's logo as the tab icon", () => {
+    expect(shopIconUrl({ ...base, logo_url: "https://cdn/logo.png" })).toBe("https://cdn/logo.png")
+    expect(shopIconUrl({ ...base, logo_url: "https://cdn/logo.png" }, null)).toBe("https://cdn/logo.png")
+  })
+
+  it("defers to a custom domain's own logo", () => {
+    expect(shopIconUrl({ ...base, logo_url: "https://cdn/logo.png" }, "https://cdn/domain.png")).toBeNull()
+  })
+
+  it("returns null when the shop has no logo", () => {
+    expect(shopIconUrl({ ...base, logo_url: null })).toBeNull()
+    expect(shopIconUrl({ ...base, logo_url: "  " })).toBeNull()
+  })
+})
 
 describe("shopPreviewDescription", () => {
   it("uses the shop's own description", () => {
