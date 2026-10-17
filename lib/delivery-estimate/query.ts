@@ -176,3 +176,23 @@ export function channelForNetwork(network: string | null | undefined): DeliveryC
   for (const [channel, names] of Object.entries(NETWORK_SPELLINGS)) if (names.includes(n)) return channel as DeliveryChannel
   return null
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// Public read (landing page, storefronts): anyone can call it, so one computation is shared by every visitor
+// for a few seconds. The numbers carry no customer data, only durations, timestamps and labels.
+// ---------------------------------------------------------------------------------------------------------
+
+export const PUBLIC_CACHE_MS = 15_000
+let publicCache: { at: number; value: Promise<ChannelEstimateRow[]> } | null = null
+
+export function getPublicDeliveryEstimates(db: SupabaseClient, nowMs = Date.now()): Promise<ChannelEstimateRow[]> {
+  if (publicCache && nowMs - publicCache.at < PUBLIC_CACHE_MS) return publicCache.value
+  // Cache the in-flight promise too, so a burst of visitors triggers one computation, not one each.
+  const value = getDeliveryEstimates(db, new Date(nowMs).toISOString())
+  publicCache = { at: nowMs, value }
+  value.catch(() => { if (publicCache?.value === value) publicCache = null }) // never cache a failure
+  return value
+}
+
+/** Test hook. */
+export function clearPublicCache(): void { publicCache = null }

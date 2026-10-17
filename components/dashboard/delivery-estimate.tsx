@@ -27,8 +27,11 @@ function timeOf(iso: string): string {
   return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
 }
 
-/** Fetch + poll (paused while hidden) + a 1s tick for open orders + a manual refresh with cooldown. */
-export function useDeliveryEstimates() {
+/**
+ * Fetch + poll (paused while hidden) + a 1s tick for open orders + a manual refresh with cooldown.
+ * `public: true` (landing page, storefronts) reads the no-login endpoint instead of the signed-in one.
+ */
+export function useDeliveryEstimates({ public: isPublic = false }: { public?: boolean } = {}) {
   const [rows, setRows] = useState<ChannelEstimateRow[] | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [cooldown, setCooldown] = useState(0)
@@ -41,12 +44,19 @@ export function useDeliveryEstimates() {
     if (inFlight.current) return
     inFlight.current = true
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
-      const res = await fetch("/api/dashboard/delivery-estimate", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" })
+      let res: Response
+      if (isPublic) {
+        res = await fetch("/api/public/delivery-estimate")
+      } else {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        res = await fetch("/api/dashboard/delivery-estimate", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" })
+      }
       const d = res.ok ? await res.json() : null
       if (d?.success) {
-        skew.current = Date.parse(d.serverNow) - Date.now()
+        // The public response may come from a shared cache, so its serverNow can be seconds old: trust the
+        // browser clock there rather than skewing the live wait backwards.
+        if (!isPublic) skew.current = Date.parse(d.serverNow) - Date.now()
         setRows(d.channels)
       } else setRows(prev => prev ?? [])
     } catch {
@@ -54,7 +64,7 @@ export function useDeliveryEstimates() {
     } finally {
       inFlight.current = false
     }
-  }, [])
+  }, [isPublic])
 
   useEffect(() => {
     void load()
@@ -254,6 +264,22 @@ function StrengthRow({ r }: { r: ChannelEstimateRow }) {
         </span>
         {r.lastOrderSeconds !== null && <span>Last delivery took {formatDuration(r.lastOrderSeconds)}</span>}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Landing page / storefront version: the same two cards, fed by the no-login endpoint. `channels` limits the
+ * strength list to what this page sells (e.g. a storefront without bills hides Utility Bills).
+ */
+export function PublicDeliveryStatus({ channels, className = "" }: { channels?: DeliveryChannel[]; className?: string }) {
+  const d = useDeliveryEstimates({ public: true })
+  const rows = d.rows && channels ? d.rows.filter(r => channels.includes(r.channel)) : d.rows
+  const headline = rows?.find(r => r.channel === "mtn") ?? rows?.[0] ?? null
+  return (
+    <div className={`grid gap-4 md:grid-cols-2 ${className}`}>
+      <DeliveryHeadlineCard row={headline} loading={d.loading} refreshing={d.refreshing} cooldown={d.cooldown} onRefresh={d.refresh} />
+      <GatewayStrengthCard rows={rows} loading={d.loading} refreshing={d.refreshing} cooldown={d.cooldown} onRefresh={d.refresh} />
     </div>
   )
 }

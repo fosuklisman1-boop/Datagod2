@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest"
-import { channelForNetwork, clearConfirmCache, getCachedChannelEstimate, getDeliveryEstimates, pickC, pickP } from "./query"
+import { channelForNetwork, clearConfirmCache, clearPublicCache, getCachedChannelEstimate, getDeliveryEstimates, getPublicDeliveryEstimates, pickC, pickP } from "./query"
 
 const t = (m: number) => new Date(Date.UTC(2026, 9, 17, 12, m)).toISOString()
 
@@ -133,5 +133,28 @@ describe("getCachedChannelEstimate", () => {
   it("never throws: a failing lookup is null", async () => {
     const { db } = fakeDb(() => null, { failTable: "orders" })
     expect(await getCachedChannelEstimate(db, "mtn", ms)).toBeNull()
+  })
+})
+
+describe("getPublicDeliveryEstimates", () => {
+  beforeEach(() => clearPublicCache())
+  const ms = Date.parse(t(60))
+
+  it("shares one computation between visitors for a few seconds", async () => {
+    const { db, calls } = fakeDb(table => (table === "orders" ? { created_at: t(50), updated_at: t(52) } : null))
+    const [a, b] = await Promise.all([getPublicDeliveryEstimates(db, ms), getPublicDeliveryEstimates(db, ms + 1000)])
+    expect(a).toBe(b)
+    const n = calls.length
+    await getPublicDeliveryEstimates(db, ms + 10_000)
+    expect(calls.length).toBe(n)
+    await getPublicDeliveryEstimates(db, ms + 16_000)
+    expect(calls.length).toBeGreaterThan(n)
+  })
+
+  it("does not cache a failure", async () => {
+    const bad = fakeDb(() => null, { failTable: "orders" })
+    await expect(getPublicDeliveryEstimates(bad.db, ms)).rejects.toThrow()
+    const good = fakeDb(() => null)
+    await expect(getPublicDeliveryEstimates(good.db, ms + 1000)).resolves.toHaveLength(5)
   })
 })
