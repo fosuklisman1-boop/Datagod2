@@ -28,6 +28,80 @@ const CATEGORY_TABS = [
 // the no-space variants silently match zero rows.
 const NETWORKS = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]
 
+// Data-bundle storage differs by shop type: a sub-agent (parent_shop_id set)
+// buys from its parent's catalog and its prices live in sub_agent_shop_packages,
+// which is what /api/shop/public-packages reads for its storefront. Writing a
+// sub-agent's prices to shop_packages leaves its storefront empty.
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) throw new Error("Not authenticated")
+  return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+}
+
+async function subAgentFetch(method: string, body?: unknown) {
+  const res = await fetch("/api/shop/sub-agent-catalog", {
+    method,
+    headers: await authHeaders(),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || "Failed to update package")
+  return data
+}
+
+function dataPackageStore(shop: any) {
+  if (!shop?.parent_shop_id) {
+    return {
+      loadShopPackages: () => shopPackageService.getShopPackages(shop.id),
+      loadCatalog: () => packageService.getPackages(),
+      savePrice: async (pkg: any, existing: any, profitMargin: number) => {
+        if (existing) await shopPackageService.updatePackageProfitMargin(existing.id, profitMargin)
+        else await shopPackageService.addPackageToShop(shop.id, pkg.id, profitMargin)
+      },
+      setAvailability: (row: any, isAvailable: boolean) =>
+        shopPackageService.togglePackageAvailability(row.id, isAvailable),
+    }
+  }
+  return {
+    // Shaped like shop_packages rows so the rest of the page is shop-type agnostic.
+    loadShopPackages: async () => {
+      const data = await subAgentFetch("GET")
+      return (data.catalog || []).map((item: any) => ({
+        id: item.id,
+        package_id: item.package_id,
+        profit_margin: item.profit_margin ?? 0,
+        is_available: item.is_active,
+        packages: item.package,
+      }))
+    },
+    // Only what the parent offers; id is the real package id and parent_price
+    // is the sub-agent's cost (getBasePrice prefers it).
+    loadCatalog: async () => {
+      const res = await fetch("/api/shop/parent-packages", { headers: await authHeaders() })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Failed to load parent packages")
+      return (data.packages || []).map((p: any) => ({
+        id: p.package_id,
+        network: p.network,
+        size: p.size,
+        description: p.description,
+        parent_price: p.parent_price,
+        is_available: p.active,
+      }))
+    },
+    savePrice: async (pkg: any, existing: any, profitMargin: number) => {
+      if (existing) {
+        await subAgentFetch("PUT", { catalog_id: existing.id, sub_agent_profit_margin: profitMargin, parent_price: pkg.parent_price })
+      } else {
+        await subAgentFetch("POST", { package_id: pkg.id, sub_agent_profit_margin: profitMargin, parent_price: pkg.parent_price })
+      }
+    },
+    setAvailability: (row: any, isAvailable: boolean) =>
+      subAgentFetch("PUT", { catalog_id: row.id, is_active: isAvailable }),
+  }
+}
+
 export default function ShopPricingPage() {
   const { user } = useAuth()
   const [shop, setShop] = useState<any>(null)
@@ -95,8 +169,8 @@ export default function ShopPricingPage() {
       if (!userShop) return
 
       const [shopPkgs, allPkgs, constraintsRes, cfgRes, afaPriceRow] = await Promise.all([
-        shopPackageService.getShopPackages(userShop.id).catch(() => []),
-        packageService.getPackages().catch(() => []),
+        dataPackageStore(userShop).loadShopPackages().catch(() => []),
+        dataPackageStore(userShop).loadCatalog().catch(() => []),
         token ? fetch("/api/shop/airtime/constraints", { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.ok ? r.json() : null).catch(() => null) : null,
         fetch("/api/public/config").then((r) => r.ok ? r.json() : { admin_settings: {} }).catch(() => ({ admin_settings: {} })),
         supabase.from("afa_registration_prices").select("price").eq("is_active", true).eq("name", "default").maybeSingle(),
@@ -202,13 +276,8 @@ export default function ShopPricingPage() {
     const profitMargin = parseFloat((sellingPrice - base).toFixed(2))
     setSavingPackageId(pkg.id)
     try {
-      const existing = shopPkgFor(pkg.id)
-      if (existing) {
-        await shopPackageService.updatePackageProfitMargin(existing.id, profitMargin)
-      } else {
-        await shopPackageService.addPackageToShop(shop.id, pkg.id, profitMargin)
-      }
-      const refreshed = await shopPackageService.getShopPackages(shop.id)
+      await dataPackageStore(shop).savePrice(pkg, shopPkgFor(pkg.id), profitMargin)
+      const refreshed = await dataPackageStore(shop).loadShopPackages()
       setShopPackages(refreshed || [])
       toast.success(`${pkg.size}GB price saved`)
     } catch (error: any) {
@@ -227,9 +296,9 @@ export default function ShopPricingPage() {
     setTogglingStock(true)
     try {
       for (const row of rows) {
-        await shopPackageService.togglePackageAvailability(row.id, inStock)
+        await dataPackageStore(shop).setAvailability(row, inStock)
       }
-      const refreshed = await shopPackageService.getShopPackages(shop.id)
+      const refreshed = await dataPackageStore(shop).loadShopPackages()
       setShopPackages(refreshed || [])
       toast.success(inStock ? `${selectedNetwork} marked in stock` : `${selectedNetwork} marked out of stock`)
     } catch {
@@ -269,14 +338,9 @@ export default function ShopPricingPage() {
     setApplyingBulk(true)
     try {
       for (const row of rows) {
-        const existing = shopPkgFor(row.pkg.id)
-        if (existing) {
-          await shopPackageService.updatePackageProfitMargin(existing.id, row.newProfit)
-        } else {
-          await shopPackageService.addPackageToShop(shop.id, row.pkg.id, row.newProfit)
-        }
+        await dataPackageStore(shop).savePrice(row.pkg, shopPkgFor(row.pkg.id), row.newProfit)
       }
-      const refreshed = await shopPackageService.getShopPackages(shop.id)
+      const refreshed = await dataPackageStore(shop).loadShopPackages()
       setShopPackages(refreshed || [])
       toast.success(`Updated ${rows.length} package${rows.length === 1 ? "" : "s"}`)
     } catch (error: any) {

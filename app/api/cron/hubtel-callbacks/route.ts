@@ -6,6 +6,7 @@ import { dispatchCallback } from "@/lib/ussd-hubtel/callbacks"
 import { sendFulfillmentCallback } from "@/lib/ussd-hubtel/relay"
 import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 import { purgeOldCallbackLogs, withOutboundLogging } from "@/lib/ussd-hubtel/callback-log"
+import { purgeOldInteractions } from "@/lib/ussd-hubtel/interaction-log"
 
 export const maxDuration = 300
 
@@ -39,5 +40,7 @@ export async function GET(request: NextRequest) {
   }
   // 30-day retention for the callback log; best-effort (swallows its own errors).
   await purgeOldCallbackLogs(supabase)
+  // 30-day retention for the USSD session transcripts (migration 0126); best-effort.
+  await purgeOldInteractions(supabase)
   return NextResponse.json({ listed: rows.length, processed, ...counts })
 }

@@ -54,6 +54,10 @@ export function BillsPage({ page }: { page: "bills" | "broadband" }) {
   const [fBiller, setFBiller] = useState("")
   const [fStatus, setFStatus] = useState("")
   const [fRange, setFRange] = useState("today")
+  // ?biller=<key> (dashboard carousel) opens that biller's sheet. Read from
+  // window rather than useSearchParams so the page needs no Suspense boundary.
+  const [initialBiller, setInitialBiller] = useState<string | null>(null)
+  useEffect(() => { setInitialBiller(new URLSearchParams(window.location.search).get("biller")) }, [])
 
   const title = page === "bills" ? "Utility bills" : "Telecel Broadband"
   const subtitle = page === "bills"
@@ -134,7 +138,7 @@ export function BillsPage({ page }: { page: "bills" | "broadband" }) {
 
             <section className="space-y-3">
               <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Pay a bill</h2>
-              <BillPayFlow billers={billers} balance={balance} defaultPhone={phone} onPaid={onPaid} />
+              <BillPayFlow billers={billers} balance={balance} defaultPhone={phone} onPaid={onPaid} initialKey={initialBiller} />
             </section>
 
             <section className="space-y-3">

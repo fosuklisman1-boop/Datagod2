@@ -48,7 +48,8 @@ import {
   ChevronDown,
   ChevronUp,
   Smartphone,
-  UserPlus
+  UserPlus,
+  Receipt
 } from "lucide-react"
 import { AirtimeStorefrontForm } from "@/components/shop/AirtimeStorefrontForm"
 import { ResultsCheckerStorefrontForm } from "@/components/shop/ResultsCheckerStorefrontForm"
@@ -56,6 +57,7 @@ import { ResultsCheckServiceForm } from "@/components/shop/ResultsCheckServiceFo
 import { VoucherLookup } from "@/components/shop/VoucherLookup"
 import { BundlesTab } from "@/components/storefront-commission/BundlesTab"
 import { BillsTab } from "@/components/storefront-commission/BillsTab"
+import { BILLER_KEYS } from "@/lib/bills/billers"
 import { parseStorefrontBillers, type StorefrontBiller } from "@/lib/storefront-commission/ui-helpers"
 import { SubAgentRequestForm } from "@/components/shop/SubAgentRequestForm"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
@@ -158,6 +160,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
   // it did, via a separate activeTab value, which made the picker disappear).
   const [selectedService, setSelectedService] = useState<"data" | "airtime" | "vouchers" | "bundles" | "bills">(allowedServices[0])
   const [storefrontBillers, setStorefrontBillers] = useState<StorefrontBiller[]>([])
+  const [billOpenRequest, setBillOpenRequest] = useState<{ key: string; n: number } | null>(null)
   // Commission-funded Bundles tab: shown only while this storefront may sell them (fails closed on any error).
   const [bundleNetworks, setBundleNetworks] = useState<{ network: string; label: string }[]>([])
   const [rcTab, setRcTab] = useState<"buy" | "retrieve" | "check">("buy")
@@ -1083,6 +1086,20 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
       cta: "Buy Airtime", icon: Zap, gradient: "from-[#431407] to-[#d97706]",
       onClick: () => { setSelectedService("airtime"); setActiveTab("home"); scrollToServiceTabs() },
     }] : []),
+    // One slide per utility the storefront sells (same gate as the sidebar's Bills entry).
+    ...(allowedServices.includes("data")
+      ? storefrontBillers
+          .filter(b => (BILLER_KEYS as readonly string[]).includes(b.key))
+          .map(b => ({
+            key: `bill-${b.key}`, badge: b.page === "broadband" ? "BROADBAND" : "BILLS", title: b.label,
+            description: `Pay your ${b.label} bill in seconds.`,
+            cta: "Pay Now", icon: Receipt, gradient: "", image: b.logo,
+            onClick: () => {
+              setSelectedService("bills"); setActiveTab("home"); scrollToServiceTabs()
+              setBillOpenRequest(r => ({ key: b.key, n: (r?.n ?? 0) + 1 }))
+            },
+          }))
+      : []),
     ...(allowedServices.includes("vouchers") ? [{
       key: "vouchers", badge: "EDUCATION", title: "Results Checker", description: "Buy checker vouchers or check your results online.",
       cta: "Get Checker", icon: GraduationCap, gradient: "from-[#052e16] to-[#059669]",
@@ -1160,7 +1177,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         />
       )}
       {/* Navigation Bar */}
-      <nav className="bg-card rounded-b-[1.75rem] clay-bar sticky top-0 z-40">
+      <nav className="bg-card rounded-b-[1.75rem] clay-bar sticky top-0 z-40" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
             {/* 3-Line Hamburger Button */}
@@ -1207,10 +1224,11 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         className={`fixed left-0 top-0 h-screen bg-card rounded-r-[2rem] clay-rail w-72 transform transition-all duration-300 ease-in-out z-30 overflow-y-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
-        <div className="relative p-6 text-center text-white" style={{ backgroundColor: "var(--shop-accent)" }}>
+        <div className="relative p-6 text-center text-white" style={{ backgroundColor: "var(--shop-accent)", paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-white/15 hover:bg-white/25"
+            style={{ top: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
+            className="absolute right-3 grid h-8 w-8 place-items-center rounded-full bg-white/15 hover:bg-white/25"
             aria-label="Close menu"
           >
             <X className="w-4 h-4" />
@@ -1531,7 +1549,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                                 <p className="py-8 text-center text-sm text-muted-foreground">No packages match &quot;{packageSearch}&quot;.</p>
                               )}
 
-                              <div className={packageViewMode === "grid" ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" : "grid grid-cols-1 gap-3"}>
+                              <div className={packageViewMode === "grid" ? "grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4" : "grid grid-cols-1 gap-2"}>
                                 {packages
                                   .filter(p => p.packages.network === selectedNetwork)
                                   .filter(p => {
@@ -1556,28 +1574,56 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                                     const netColor = networkColorFor(pkg.network)
                                     const inStock = shopPkg.is_available && globalOrderingEnabled
 
+                                    if (packageViewMode === "list") {
+                                      return (
+                                        <button
+                                          key={shopPkg.id}
+                                          onClick={() => handleBuyNow(shopPkg)}
+                                          disabled={!inStock}
+                                          className={`flex w-full items-center gap-3 rounded-xl p-3 text-left shadow-sm transition-all ${inStock ? "hover:shadow-md" : "cursor-not-allowed opacity-60 grayscale"}`}
+                                          style={{ backgroundColor: netColor }}
+                                        >
+                                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/60">
+                                            <img src={getNetworkLogo(pkg.network)} alt="" className="h-5 w-5 object-contain" />
+                                          </span>
+                                          <span className="min-w-0 flex-1">
+                                            <span className="block text-lg font-black text-black/85">{pkg.size}GB</span>
+                                            {(pkg.description || !inStock) && (
+                                              <span className="block truncate text-xs text-black/60">
+                                                {!inStock ? (!shopPkg.is_available ? "Out of stock" : "Ordering paused") : pkg.description}
+                                              </span>
+                                            )}
+                                          </span>
+                                          <span className="shrink-0 text-base font-bold text-black/80">GH₵{totalPrice.toFixed(2)}</span>
+                                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/10">
+                                            <ShoppingCart className="h-4 w-4 text-black/80" />
+                                          </span>
+                                        </button>
+                                      )
+                                    }
+
                                     return (
                                       <div
                                         key={shopPkg.id}
                                         className={`overflow-hidden rounded-2xl shadow-md transition-all ${inStock ? "hover:shadow-xl hover:-translate-y-1" : "opacity-60 grayscale"}`}
                                         style={{ backgroundColor: netColor }}
                                       >
-                                        <div className="flex items-start justify-between p-4 pb-2">
-                                          <span className="grid h-8 w-8 place-items-center rounded-full bg-white/60">
-                                            <img src={getNetworkLogo(pkg.network)} alt="" className="h-5 w-5 object-contain" />
+                                        <div className="flex items-start justify-between gap-1 p-3 pb-1 sm:p-4 sm:pb-2">
+                                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/60 sm:h-8 sm:w-8">
+                                            <img src={getNetworkLogo(pkg.network)} alt="" className="h-4 w-4 object-contain sm:h-5 sm:w-5" />
                                           </span>
-                                          <span className="rounded-full bg-black/15 px-2.5 py-1 text-[11px] font-bold text-black/70">{pkg.network}</span>
+                                          <span className="truncate rounded-full bg-black/15 px-2 py-0.5 text-[10px] font-bold text-black/70 sm:px-2.5 sm:py-1 sm:text-[11px]">{pkg.network}</span>
                                         </div>
-                                        <div className="px-4 pb-4 text-center">
-                                          <p className="text-4xl font-black text-black/85">{pkg.size}GB</p>
-                                          <p className="mt-1 text-lg font-bold text-black/70">GH₵{totalPrice.toFixed(2)}</p>
+                                        <div className="px-3 pb-3 text-center sm:px-4 sm:pb-4">
+                                          <p className="text-3xl font-black text-black/85 sm:text-4xl">{pkg.size}GB</p>
+                                          <p className="mt-1 text-base font-bold text-black/70 sm:text-lg">GH₵{totalPrice.toFixed(2)}</p>
                                           {pkg.description && <p className="mt-1 text-xs text-black/60">{pkg.description}</p>}
                                           {!inStock && <p className="mt-1 text-xs font-semibold text-black/60">{!shopPkg.is_available ? "Out of stock" : "Ordering paused"}</p>}
                                         </div>
                                         <button
                                           onClick={() => handleBuyNow(shopPkg)}
                                           disabled={!inStock}
-                                          className="flex w-full items-center justify-center gap-2 py-3 text-sm font-bold text-black/80 disabled:cursor-not-allowed"
+                                          className="flex w-full items-center justify-center gap-2 py-2.5 text-sm font-bold text-black/80 disabled:cursor-not-allowed sm:py-3"
                                           style={{ backgroundColor: `rgba(0,0,0,0.12)` }}
                                         >
                                           <ShoppingCart className="h-4 w-4" /> Buy Now
@@ -1603,7 +1649,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                   </div>
                 ) : selectedService === "bills" ? (
                   <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <BillsTab shopSlug={shopSlug} billers={storefrontBillers} />
+                    <BillsTab shopSlug={shopSlug} billers={storefrontBillers} openRequest={billOpenRequest} />
                   </div>
                 ) : (
                   /* Results Checker Vouchers Section */

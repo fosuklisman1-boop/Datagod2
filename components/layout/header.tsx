@@ -83,7 +83,7 @@ export function Header() {
   return (
     <div
       className={`fixed right-0 left-0 top-0 z-30 transition-all duration-300 w-full rounded-b-[1.75rem] bg-card/95 backdrop-blur clay-bar`}
-      style={{ paddingTop: "env(safe-area-inset-top)" }}
+      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.5rem)" }}
     >
       <div className="h-14 md:h-16 grid grid-cols-[1fr_auto_1fr] items-center px-2 sm:px-3 md:px-4 lg:px-6">
       {/* Left side - empty for now */}

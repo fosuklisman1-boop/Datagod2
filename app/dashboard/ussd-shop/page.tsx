@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase"
 import { Smartphone, Hash, Copy, CheckCircle, RefreshCw, AlertCircle, Wallet, Loader2, MessageCircle, Tag } from "lucide-react"
 import { toast } from "sonner"
 import { validateUssdDisplayName } from "@/lib/ussd-display-name"
+import { HubtelSessionsViewer, bearerFetch } from "@/components/ussd/HubtelSessionsViewer"
 
 interface UssdShopCode {
   id: string
@@ -425,6 +426,16 @@ export default function UssdShopPage() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Hubtel USSD session transcripts on this shop's code */}
+              {shopCode && (
+                <HubtelSessionsViewer
+                  fetcher={bearerFetch}
+                  basePath="/api/dashboard/ussd-shop/sessions"
+                  title="Customer sessions"
+                  description="What each customer saw and typed on the USSD code with your shop code, screen by screen. Kept for 30 days."
+                />
+              )}
             </TabsContent>
 
             <TabsContent value="whatsapp" className="space-y-5">

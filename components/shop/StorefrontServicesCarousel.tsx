@@ -11,6 +11,8 @@ export interface StorefrontCarouselSlide {
   cta: string
   icon: LucideIcon
   gradient: string
+  /** Logo shown in the tile and, blurred, as the slide background (replaces the gradient). */
+  image?: string
   onClick: () => void
 }
 
@@ -67,13 +69,25 @@ export function StorefrontServicesCarousel({ slides }: Props) {
             <button
               key={slide.key}
               onClick={slide.onClick}
-              className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl bg-gradient-to-br ${slide.gradient} p-5 pl-12 pr-28 text-left sm:pl-14 sm:pr-36`}
+              className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl ${slide.image ? "bg-neutral-900" : `bg-gradient-to-br ${slide.gradient}`} p-5 pl-12 pr-28 text-left sm:pl-14 sm:pr-36`}
             >
+              {slide.image && (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={slide.image} alt="" aria-hidden className="pointer-events-none absolute inset-0 h-full w-full scale-150 object-cover blur-2xl saturate-150" />
+                  <span className="pointer-events-none absolute inset-0 bg-black/45" />
+                </>
+              )}
               <span className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
               <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />
-              <span className="absolute right-12 top-1/2 flex h-16 w-16 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-white sm:right-16 sm:h-20 sm:w-20">
-                <slide.icon className="h-7 w-7 sm:h-9 sm:w-9" />
-              </span>
+              {slide.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={slide.image} alt="" className="absolute right-12 top-1/2 h-16 w-16 -translate-y-1/2 rounded-2xl border border-white/30 bg-white object-contain p-1 shadow-lg sm:right-16 sm:h-20 sm:w-20" />
+              ) : (
+                <span className="absolute right-12 top-1/2 flex h-16 w-16 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-white sm:right-16 sm:h-20 sm:w-20">
+                  <slide.icon className="h-7 w-7 sm:h-9 sm:w-9" />
+                </span>
+              )}
               <span className="relative inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white">
                 <slide.icon className="h-3.5 w-3.5" /> {slide.badge}
               </span>

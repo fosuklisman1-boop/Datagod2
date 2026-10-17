@@ -19,6 +19,7 @@ import {
   BRAND_MAX, DEFAULT_BRAND, WELCOME_MAX, derivedWelcome, validateBrandName, validateWelcome, type HubtelUssdConfig,
 } from "@/lib/ussd-hubtel/config"
 import type { HubtelTxRow } from "@/lib/ussd-hubtel/types"
+import { HubtelSessionsViewer, bearerFetch } from "@/components/ussd/HubtelSessionsViewer"
 
 type EnvStatus = { webhookSecret: boolean; relayUrl: boolean; relaySecret: boolean; redis?: boolean }
 type Counts = { needs_review: number; callback_pending: number; callback_failed: number; awaiting_payment: number }
@@ -620,6 +621,14 @@ export default function AdminUssdHubtelPage() {
             )}
           </CardContent>
         </Card>
+
+        <HubtelSessionsViewer
+          fetcher={bearerFetch}
+          basePath="/api/admin/ussd-hubtel/sessions"
+          admin
+          title="USSD sessions"
+          description="Every Hubtel USSD session, screen by screen, filterable by shop. Kept for 30 days."
+        />
 
         <Card>
           <CardHeader><CardTitle>Environment</CardTitle><CardDescription>Secrets live in env vars; this only shows whether they are set.</CardDescription></CardHeader>

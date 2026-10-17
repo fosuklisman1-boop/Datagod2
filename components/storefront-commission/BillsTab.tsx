@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ArrowRight, Loader2, Phone, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,6 +22,8 @@ import {
 interface Props {
   shopSlug: string
   billers: StorefrontBiller[]
+  /** Opens this biller's sheet; `n` changes on every request so the same biller can be reopened. */
+  openRequest?: { key: string; n: number } | null
 }
 
 type Step = "input" | "meters" | "confirm"
@@ -32,9 +34,14 @@ const fieldCls = "rounded-2xl border-border bg-card py-3.5"
 const money = (n: number) => `GHS ${n.toFixed(2)}`
 const UNCONFIRMED = "We could not confirm your order. Please check your connection and tap Pay again; you will not be charged twice."
 
-export function BillsTab({ shopSlug, billers }: Props) {
+export function BillsTab({ shopSlug, billers, openRequest }: Props) {
   const [active, setActive] = useState<StorefrontBiller | null>(null)
   const list = billers.filter(b => (BILLER_KEYS as readonly string[]).includes(b.key))
+  useEffect(() => {
+    if (!openRequest) return
+    const b = billers.find(x => x.key === openRequest.key)
+    if (b) setActive(b)
+  }, [openRequest, billers])
   if (list.length === 0) return null
   return (
     <>

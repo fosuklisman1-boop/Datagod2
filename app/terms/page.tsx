@@ -101,7 +101,7 @@ export default async function TermsPage() {
 
   return (
     <div className="min-h-screen bg-card">
-      <nav className="bg-card border-b border-border shadow-sm sticky top-0 z-10">
+      <nav className="bg-card border-b border-border shadow-sm sticky top-0 z-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-bold text-foreground hover:text-primary transition-colors">
             <Shield className="w-5 h-5 text-primary" />

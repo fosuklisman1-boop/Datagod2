@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import {
   TrendingUp, CheckCircle, AlertCircle, Clock, Loader2,
-  Store, Users, Send, IdCard, Wallet as WalletIcon, Smartphone, ArrowRight, ChevronLeft, ChevronRight, Grid3x3, BarChart3,
+  Store, Users, Send, IdCard, Wallet as WalletIcon, Smartphone, ArrowRight, ChevronLeft, ChevronRight, Grid3x3, BarChart3, Receipt,
   type LucideIcon,
 } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
@@ -22,6 +22,8 @@ import { getServicePrimaryPath, isPageHidden } from "@/lib/custom-domains"
 import { useFirstVisiblePath } from "@/hooks/use-first-visible-path"
 import { TOGGLEABLE_PAGES } from "@/lib/custom-domain-pages"
 import { LatestOrderCard } from "@/components/dashboard/latest-order-card"
+import { useBillsAvailability } from "@/components/bills/use-bills-availability"
+import { isBillerKey } from "@/lib/bills/billers"
 import { NetworkHealthCard, NETWORK_BADGE } from "@/components/dashboard/network-health-card"
 // Type-only: order-health-service.ts pulls in mtn-hold.ts -> sms-service.ts
 // -> push-service.ts -> web-push (raw Node net/tls sockets) at runtime. A
@@ -36,7 +38,7 @@ import type { LatestOrderSummary, NetworkHealthStat, HealthNetwork } from "@/lib
 // its own gradient + accent color, matching the reference (a navy card for
 // "Website & App Development", a green one for "Result Checkers" -- every
 // service has its own colour, not one shared card color).
-const PROMO_SERVICES: {
+interface PromoService {
   badge: string
   title: string
   description: string
@@ -45,7 +47,11 @@ const PROMO_SERVICES: {
   icon: LucideIcon
   gradient: string
   textColor: string
-}[] = [
+  /** Logo shown in the tile and, blurred, as the slide background (replaces the gradient). */
+  image?: string
+}
+
+const PROMO_SERVICES: PromoService[] = [
   {
     badge: "STOREFRONT", title: "Own Shop", cta: "Launch Shop",
     description: "Launch your white-label storefront and sell under your own brand.",
@@ -158,8 +164,20 @@ export default function DashboardPage() {
   // "Own Shop" when my_shop is hidden, "Wallet Top Up" when wallet is
   // hidden) — matched generically by href against the registry's path, so
   // this stays correct without hardcoding each promo's gating key.
-  const visiblePromoServices = PROMO_SERVICES.filter(svc => {
-    const page = TOGGLEABLE_PAGES.find(p => p.paths?.includes(svc.href))
+  // One slide per utility biller that is live (same availability the
+  // sidebar's Utility Bills / Telecel Broadband entries use).
+  const billsAvailability = useBillsAvailability()
+  const billerPromos: PromoService[] = billsAvailability?.enabled
+    ? billsAvailability.billers.filter(b => isBillerKey(b.key)).map(b => ({
+        badge: b.page === "broadband" ? "BROADBAND" : "BILLS", title: b.label, cta: "Pay Now",
+        description: `Pay your ${b.label} bill straight from your wallet.`,
+        href: `/dashboard/${b.page}?biller=${encodeURIComponent(b.key)}`, icon: Receipt,
+        gradient: "", textColor: "text-neutral-900", image: b.logo,
+      }))
+    : []
+  const visiblePromoServices = [...PROMO_SERVICES.slice(0, 1), ...billerPromos, ...PROMO_SERVICES.slice(1)].filter(svc => {
+    const path = svc.href.split("?")[0]
+    const page = TOGGLEABLE_PAGES.find(p => p.paths?.includes(path))
     return !page || !isPageHidden(page.key, domainBranding.hiddenPages)
   })
   const [firstName, setFirstName] = useState("")
@@ -258,17 +276,19 @@ export default function DashboardPage() {
   // Advance the promo carousel automatically with the same smooth-scroll
   // animation, not a content swap — swiping the track manually (see
   // handlePromoScroll below) keeps promoIndex in sync either way.
+  const promoCount = visiblePromoServices.length
   useEffect(() => {
+    if (promoCount <= 1) return
     const interval = setInterval(() => {
       setPromoIndex((i) => {
-        const next = (i + 1) % visiblePromoServices.length
+        const next = (i + 1) % promoCount
         const el = promoScrollRef.current
         if (el) el.scrollTo({ left: next * el.clientWidth, behavior: "smooth" })
         return next
       })
     }, 5000)
     return () => clearInterval(interval)
-  }, [])
+  }, [promoCount])
 
   // Keeps the active dot in sync when the person swipes/drags the track by hand.
   const handlePromoScroll = () => {
@@ -597,17 +617,29 @@ export default function DashboardPage() {
               <button
                 key={svc.title}
                 onClick={() => router.push(svc.href)}
-                className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl bg-gradient-to-br ${svc.gradient} p-5 pr-28 text-left sm:pr-36`}
+                className={`relative block w-full shrink-0 snap-start overflow-hidden rounded-2xl ${svc.image ? "bg-neutral-900" : `bg-gradient-to-br ${svc.gradient}`} p-5 pr-28 text-left sm:pr-36`}
               >
+                {svc.image && (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={svc.image} alt="" aria-hidden className="pointer-events-none absolute inset-0 h-full w-full scale-150 object-cover blur-2xl saturate-150" />
+                    <span className="pointer-events-none absolute inset-0 bg-black/45" />
+                  </>
+                )}
                 <span className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
                 <span className="pointer-events-none absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-white/5 blur-xl" />
                 {/* Large, vertically-centered accent icon -- not a small
                     top-corner badge; matches the reference's proportions.
                     Inset far enough right that it never overlaps the
                     left/right nav arrows below. */}
-                <span className="absolute right-12 top-1/2 flex h-16 w-16 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-white sm:right-16 sm:h-20 sm:w-20">
-                  <svc.icon className="h-7 w-7 sm:h-9 sm:w-9" />
-                </span>
+                {svc.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={svc.image} alt="" className="absolute right-12 top-1/2 h-16 w-16 -translate-y-1/2 rounded-2xl border border-white/30 bg-white object-contain p-1 shadow-lg sm:right-16 sm:h-20 sm:w-20" />
+                ) : (
+                  <span className="absolute right-12 top-1/2 flex h-16 w-16 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/20 bg-white/15 text-white sm:right-16 sm:h-20 sm:w-20">
+                    <svc.icon className="h-7 w-7 sm:h-9 sm:w-9" />
+                  </span>
+                )}
                 <span className="relative inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white">
                   <svc.icon className="h-3.5 w-3.5" /> {svc.badge}
                 </span>
