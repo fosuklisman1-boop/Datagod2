@@ -358,3 +358,26 @@ describe("network plans: wording", () => {
     }
   })
 })
+
+describe("network plans: MTN number verification warning", () => {
+  it("adds the warning above the options for an unverified MTN recipient", async () => {
+    const s = setup()
+    s.deps.verifyRecipient = async () => false
+    const c = await toConfirm(s)
+    expect(c.Message).toBe("Pay GHS 9.50 (was GHS 10.00)\nYou receive 1GB on 0244123456\nNot yet verified: delivery may be delayed.\n1 Confirm 2 Cancel")
+    expect(c.Message.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
+  })
+  it("never checks other networks or shows the delivery estimate", async () => {
+    const s = setup()
+    const calls: string[] = []
+    s.deps.verifyRecipient = async p => { calls.push(p); return false }
+    s.deps.deliveryEstimate = async () => "Delivery: ~3 min"
+    const c = await send(s, "2", "1", "1", "1") // Telecel
+    expect(c.Message).not.toMatch(/verified|Delivery/)
+    expect(calls).toEqual([])
+  })
+  it("drops the note rather than squeezing a long plan description to nothing", () => {
+    const plan = { t: "x", d: "Y".repeat(170), f: 10, p: 9.5 }
+    expect(networkPlanConfirmText(plan, "0244123456", "Not yet verified: delivery may be delayed.").length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
+  })
+})

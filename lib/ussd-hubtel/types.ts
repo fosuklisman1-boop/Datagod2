@@ -72,6 +72,8 @@ export interface HubtelSession {
   bundleSize?: string
   bundlePrice?: number
   recipientPhone?: string // local 0XXXXXXXXX
+  /** Extra confirm-screen line (verification warning or delivery estimate), computed once per recipient. */
+  confirmNote?: string | null
   // Airtime
   airtimeRecipient?: string // local 0XXXXXXXXX
   airtimeNetwork?: "MTN" | "Telecel" | "AT"

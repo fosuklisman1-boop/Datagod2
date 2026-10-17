@@ -7,6 +7,7 @@ import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, recipientPromptText, 
 import { toLocalPhone } from "../protocol"
 import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { HubtelReply, HubtelSession } from "../types"
+import { confirmNote } from "../confirm-note"
 
 const NETWORK = { label: "Select network" }
 const PACKAGE = { label: "Select package" }
@@ -16,22 +17,6 @@ const CONFIRM = { label: "Confirm order" }
 function confirmText(s: HubtelSession, note?: string | null): string {
   const net = HUBTEL_NETWORKS.find(n => n.dbName === s.network)
   return confirmMenuText(net?.label ?? s.network!, s.bundleSize!, s.bundlePrice!, s.recipientPhone!, toLocalPhone(s.dialingPhone), note)
-}
-
-const ESTIMATE_TIMEOUT_MS = 1500
-
-/** The confirm screen's delivery estimate: null on any error, a missing dep, or a slow lookup. */
-async function estimateNote(ctx: FlowCtx): Promise<string | null> {
-  const lookup = ctx.deps.deliveryEstimate
-  if (!lookup || !ctx.session.network) return null
-  try {
-    return await Promise.race([
-      lookup(ctx.session.network).catch(() => null),
-      new Promise<null>(resolve => setTimeout(() => resolve(null), ESTIMATE_TIMEOUT_MS)),
-    ])
-  } catch {
-    return null
-  }
 }
 
 export async function startData(ctx: FlowCtx): Promise<HubtelReply> {
@@ -93,13 +78,14 @@ async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
     const check = validateNetworkPrefix(session.network, local, prefix.map)
     if (!check.ok) return reprompt(check.message ?? "Number does not match the selected network.")
   }
-  return goto(ctx, { step: "CONFIRM", recipientPhone: local }, confirmText({ ...session, recipientPhone: local }, await estimateNote(ctx)), CONFIRM)
+  const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, estimate: true })
+  return goto(ctx, { step: "CONFIRM", recipientPhone: local, confirmNote: note }, confirmText({ ...session, recipientPhone: local }, note), CONFIRM)
 }
 
 async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const { input, deps, req, session } = ctx
   if (input === "2") return finish(ctx, "Order cancelled.")
-  if (input !== "1") return say(ctx, confirmText(session, await estimateNote(ctx)), "CONFIRM", CONFIRM)
+  if (input !== "1") return say(ctx, confirmText(session, session.confirmNote), "CONFIRM", CONFIRM)
 
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay

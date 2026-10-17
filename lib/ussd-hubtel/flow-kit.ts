@@ -42,6 +42,11 @@ export interface RouterDeps {
    * and must be fast (cached); a purchase never waits on it or fails because of it.
    */
   deliveryEstimate?(network: string): Promise<string | null>
+  /**
+   * Live customer-facing number verification (same check as the storefront / data packages page). Optional;
+   * false = not yet verified (warn, still sellable). Must fail open; callers also time it out.
+   */
+  verifyRecipient?(phoneLocal: string): Promise<boolean>
 }
 
 export interface FlowCtx {

@@ -208,3 +208,15 @@ describe("shop data: idempotent CONFIRM and replay (review focus #3)", () => {
     })
   }
 })
+
+describe("shop data: MTN number verification warning", () => {
+  it("shows the warning under the shop header when the MTN recipient isn't verified", async () => {
+    const { deps } = shopDeps({ verifyRecipient: async () => false })
+    const r = await toConfirm(deps)
+    expect(r.Message).toBe("Ama Data Hub\nConfirm order:\n5GB MTN\nTo: 0244123456\nGHS 12.00 from 0200585542\nNot yet verified: delivery may be delayed.\n1. Pay now\n2. Cancel")
+  })
+  it("verified numbers are unchanged", async () => {
+    const { deps } = shopDeps({ verifyRecipient: async () => true })
+    expect((await toConfirm(deps)).Message).not.toContain("verified")
+  })
+})
