@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  applyOrderFilters, BILL_ORDERS_TABLE, canDispatch, fetchLedgerByOrders, isStuckClaim, fetchStats, parseOrderFilters, purchaserLabel, refundDecision,
+  applyOrderFilters, BILL_ORDERS_TABLE, canDispatch, fetchLedgerByOrders, isStuckClaim, fetchStats, parseOrderFilters, purchaserLabel, refundDecision, retryDecision,
 } from "@/lib/bills/admin"
 import { clampPage, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
 import { botChannelLabel } from "@/lib/cashback/bot-labels"
@@ -79,6 +79,7 @@ export async function GET(request: NextRequest) {
         channel_label: o.channel === "bots" ? botChannelLabel(o.bot_surface) : null,
         shop_name: o.shop_id ? (shops.get(o.shop_id) ?? "Unknown shop") : null,
         can_dispatch: canDispatch(o, stuck),
+        can_retry: ledgerOk && o.payment_status === "paid" && o.status === "failed" && retryDecision(o, ledger.get(o.id) ?? []).ok,
         stuck_claim: stuck,
         refund: decision,
       }

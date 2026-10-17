@@ -190,6 +190,20 @@ export function refundDecision(order: RefundOrderFacts, ledger: LedgerFact[], no
 export const canDispatch = (o: { status: string; payment_status: string; hubtel_client_reference: string | null }, stuck = false): boolean =>
   stuck || (o.status === "pending" && o.payment_status === "paid" && !o.hubtel_client_reference)
 
+/**
+ * Retry is for paid orders Hubtel itself failed: every attempt is a failed ledger row, no refund has been claimed
+ * against any of them, and none was failed by an admin override (that one may in fact have been delivered).
+ * The database allows a new transaction once all earlier ones are failed (hubtel_cs_tx_order_active_uidx).
+ */
+export function retryDecision(order: { status: string; payment_status: string }, ledger: LedgerFact[]): { ok: true } | { ok: false; reason: string } {
+  if (order.status !== "failed" || order.payment_status !== "paid") return { ok: false, reason: "Only paid, failed orders can be retried" }
+  if (ledger.length === 0) return { ok: false, reason: "This order never reached Hubtel; refund it instead" }
+  if (ledger.some(l => l.state !== "failed")) return { ok: false, reason: "A Hubtel transaction for this order is not failed; resolve it in Hubtel Commission first" }
+  if (ledger.some(l => l.refund_claimed_at)) return { ok: false, reason: "A refund was already claimed for this order; it cannot be retried" }
+  if (ledger.some(l => l.resolved_by)) return { ok: false, reason: "An attempt was marked failed by an admin override, not by Hubtel; it may have been delivered" }
+  return { ok: true }
+}
+
 /** Ledger rows per bill order (newest first). Throws on DB error: callers must fail closed. */
 export async function fetchLedgerByOrders(db: SupabaseClient, orderIds: string[]): Promise<Map<string, LedgerFact[]>> {
   const out = new Map<string, LedgerFact[]>()
