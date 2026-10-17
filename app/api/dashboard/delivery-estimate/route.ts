@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { getDeliveryEstimates } from "@/lib/delivery-estimate/query"
+import { channelsForClient, getDeliveryEstimates } from "@/lib/delivery-estimate/query"
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     if (authError || !user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const now = new Date().toISOString()
-    const channels = await getDeliveryEstimates(supabase, now)
+    const channels = channelsForClient(await getDeliveryEstimates(supabase, now), request.nextUrl.searchParams.get("v"))
     // serverNow lets the browser tick open orders against the server's clock, not its own (skewed) one.
     return NextResponse.json({ success: true, serverNow: now, channels })
   } catch (error) {

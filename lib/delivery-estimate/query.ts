@@ -30,6 +30,17 @@ export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number]["key"]
 export const isDeliveryChannel = (v: unknown): v is DeliveryChannel => DELIVERY_CHANNELS.some(c => c.key === v)
 
 export const OVERRIDES_TABLE = "delivery_channel_overrides"
+
+/**
+ * Pages loaded before a channel existed can't draw it (older builds crashed on an unknown channel). Current
+ * pages send `?v=` with this version; a request without it only gets the channels the first release knew.
+ */
+export const ESTIMATE_API_VERSION = 2
+const FIRST_RELEASE_CHANNELS: ReadonlySet<string> = new Set(["mtn", "telecel", "at_ishare", "at_bigtime", "utility"])
+
+export function channelsForClient<T extends { channel: string }>(rows: T[], clientVersion: string | null): T[] {
+  return Number(clientVersion) >= ESTIMATE_API_VERSION ? rows : rows.filter(r => FIRST_RELEASE_CHANNELS.has(r.channel))
+}
 const IN_FLIGHT = ["pending", "processing"]
 
 interface Source {
