@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  applyBuffer, computeEstimate, confirmScreenText, formatDuration, freeze, headlineFor, strengthFor, tick,
+  applyBuffer, computeEstimate, confirmScreenText, formatDuration, freeze, headlineFor, shownDeliveredAt, strengthFor, tick,
   type ChannelOverride,
 } from "./compute"
 
@@ -150,5 +150,26 @@ describe("confirmScreenText", () => {
     expect(confirmScreenText(computeEstimate({ c: slowC, p: null, now: NOW }))).toBeNull()
     const down: ChannelOverride = { isManuallyDown: true, reason: null, since: NOW, frozen: null }
     expect(confirmScreenText(computeEstimate({ c, p: null, now: NOW, override: down }))).toBeNull()
+  })
+})
+
+describe("shownDeliveredAt", () => {
+  const placed = "2026-10-17T16:20:00.000Z"
+  const at = (m: number) => new Date(Date.parse(placed) + min(m) * 1000).toISOString()
+
+  it("takes the buffer off the delivered time too, so placed + took = delivered", () => {
+    const e = computeEstimate({ c: { createdAt: placed, completedAt: at(10) }, p: null, now: at(15) })
+    expect(e.lastOrderSeconds).toBe(min(5))
+    expect(shownDeliveredAt(e)).toBe(at(5)) // 4:20 placed, raw 4:30 delivered -> shown 4:25
+  })
+  it("leaves a delivery within the buffer as it was", () => {
+    const e = computeEstimate({ c: { createdAt: placed, completedAt: at(3) }, p: null, now: at(15) })
+    expect(shownDeliveredAt(e)).toBe(at(3))
+  })
+  it("uses the frozen numbers while a channel is down, and is null with no order", () => {
+    const frozen = { lastOrder: { createdAt: placed, completedAt: at(12) }, lastOrderSeconds: min(7), currentSeconds: null }
+    const down = computeEstimate({ c: null, p: null, now: at(30), override: { isManuallyDown: true, reason: null, since: at(20), frozen } })
+    expect(shownDeliveredAt(down)).toBe(at(7))
+    expect(shownDeliveredAt(computeEstimate({ c: null, p: null, now: at(30) }))).toBeNull()
   })
 })

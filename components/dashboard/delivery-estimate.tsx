@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Activity, CheckCircle2, Clock, RefreshCw, Timer } from "lucide-react"
 import { supabase } from "@/lib/supabase"
-import { formatDuration, tick, type ChannelEstimate, type StrengthTier } from "@/lib/delivery-estimate/compute"
+import { formatDuration, shownDeliveredAt, tick, type ChannelEstimate, type StrengthTier } from "@/lib/delivery-estimate/compute"
 import type { ChannelEstimateRow, DeliveryChannel } from "@/lib/delivery-estimate/query"
 
 // Live delivery estimate widgets (lib/delivery-estimate). One fetch feeds both cards: the headline card for
@@ -186,7 +186,7 @@ function HeadlineBody({ e }: { e: ChannelEstimate }) {
           <span>Placed: {timeOf(e.lastOrder.createdAt)}</span>
           <span>•</span>
           <span className="flex items-center gap-1">
-            <CheckCircle2 className="h-3.5 w-3.5 text-[#0f7a4d]" /> Delivered: {timeOf(e.lastOrder.completedAt)}
+            <CheckCircle2 className="h-3.5 w-3.5 text-[#0f7a4d]" /> Delivered: {timeOf(shownDeliveredAt(e) ?? e.lastOrder.completedAt)}
           </span>
         </div>
       )}
