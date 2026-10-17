@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { isCommissionTable, type RefundContact, type RefundableOrder } from "./types"
 
 // Customer details for a MANUAL refund: the admin pays the customer by hand, so they need a name, a number to pay
@@ -7,6 +8,12 @@ import { isCommissionTable, type RefundContact, type RefundableOrder } from "./t
 
 type Row = Record<string, unknown> | null
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null)
+// Numbers are stored in whatever form their channel delivered them (USSD dialers arrive as +233XXXXXXXXX).
+// Show every Ghana number as 0XXXXXXXXX; anything that isn't one is shown as stored.
+const phoneOf = (v: unknown): string | null => {
+  const s = str(v)
+  return s ? normalizeGhanaPhone(s) ?? s : null
+}
 
 async function row(db: SupabaseClient, table: string, columns: string, id: string): Promise<Row> {
   try {
@@ -24,27 +31,27 @@ async function row(db: SupabaseClient, table: string, columns: string, id: strin
 
 export async function loadRefundContact(db: SupabaseClient, order: RefundableOrder): Promise<RefundContact | null> {
   if (isCommissionTable(order.table)) return null
-  const payerPhone = order.payment.payerPhone ?? null
+  const payerPhone = phoneOf(order.payment.payerPhone)
   let name: string | null = null
   let email: string | null = null
   let phone: string | null = null
-  let recipientPhone = order.recipientPhone ?? null
+  let recipientPhone = phoneOf(order.recipientPhone)
 
   if (order.table === "shop_orders") {
     // customer_phone is the DATA RECIPIENT on storefront orders (not necessarily who paid).
     const r = await row(db, "shop_orders", "customer_name, customer_email, customer_phone", order.id)
     name = str(r?.customer_name)
     email = str(r?.customer_email)
-    recipientPhone = str(r?.customer_phone) ?? recipientPhone
+    recipientPhone = phoneOf(r?.customer_phone) ?? recipientPhone
   } else if (order.table === "ussd_orders") {
     const r = await row(db, "ussd_orders", "dialing_phone, recipient_phone", order.id)
-    phone = str(r?.dialing_phone)
-    recipientPhone = str(r?.recipient_phone) ?? recipientPhone
+    phone = phoneOf(r?.dialing_phone)
+    recipientPhone = phoneOf(r?.recipient_phone) ?? recipientPhone
   } else if (order.table === "ussd_shop_orders") {
     const r = await row(db, "ussd_shop_orders", "dialing_phone, recipient_phone, customer_email", order.id)
-    phone = str(r?.dialing_phone)
+    phone = phoneOf(r?.dialing_phone)
     email = str(r?.customer_email)
-    recipientPhone = str(r?.recipient_phone) ?? recipientPhone
+    recipientPhone = phoneOf(r?.recipient_phone) ?? recipientPhone
   } else if (order.buyerUserId) {
     // orders / api_orders: paid from the ACCOUNT holder's wallet.
     const a = await account(db, order.buyerUserId)
@@ -68,6 +75,6 @@ async function account(db: SupabaseClient, userId: string): Promise<{ name: stri
   return {
     name: [str(r?.first_name), str(r?.last_name)].filter(Boolean).join(" ") || null,
     email: str(r?.email),
-    phone: str(r?.phone_number) ?? str(r?.phone),
+    phone: phoneOf(r?.phone_number) ?? phoneOf(r?.phone),
   }
 }

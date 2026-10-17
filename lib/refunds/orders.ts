@@ -4,6 +4,12 @@ import { loadPayerPhones } from "./payer-phone"
 import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
+
+/** A stored phone as 0XXXXXXXXX when it is a Ghana number (USSD rows store +233XXXXXXXXX), else as stored. */
+export function displayPhone(v: unknown): string | null {
+  if (typeof v !== "string" || v.trim() === "") return null
+  return normalizeGhanaPhone(v) ?? v.trim()
+}
 import {
   BOT_CHANNEL, isCommissionTable, isWalletOnlyTable, STOREFRONT_REFUNDS_FROM, type CommissionLedgerFact, type CommissionTable, type DispatchOutcome,
   type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder,
@@ -263,7 +269,7 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
       ...(bot ? { botSurface: (r.bot_surface as string | null | undefined) ?? null } : {}),
       packageLabel: label.packageLabel,
       network: label.network,
-      recipientPhone: label.recipient as string | null,
+      recipientPhone: displayPhone(label.recipient),
       createdAt: toUtcIso(r.created_at, false),
       paid,
       gatewayFee: Number(wp?.fee ?? 0) || 0,
@@ -457,13 +463,13 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
       fee = reference ? feeByRef.get(reference) ?? 0 : 0
       const debit = qualifyingDebit(paid)
       if (debit && !reference) {
-        payment = { gateway: "wallet", reference: null, payerPhone: r.dialing_phone, walletUserId: debit.user_id }
+        payment = { gateway: "wallet", reference: null, payerPhone: displayPhone(r.dialing_phone), walletUserId: debit.user_id }
       } else {
         // A Paystack-referenced order stays 'paystack' even if a (qualifying) debit exists: a debit never reclassifies it.
         payment = {
           gateway: reference ? "paystack" : null,
           reference,
-          payerPhone: r.dialing_phone ?? null,
+          payerPhone: displayPhone(r.dialing_phone),
           walletUserId: await resolveWalletUser(db, { phone: r.dialing_phone }),
         }
       }
@@ -485,7 +491,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
       shopName: r.shop_id ? (shopById.get(r.shop_id)?.shop_name as string | undefined) ?? null : null,
       packageLabel: table === "shop_orders" || table === "api_orders" ? `${r.volume_gb}GB` : String(r.package_size ?? r.size ?? ""),
       network: r.network,
-      recipientPhone: (r.recipient_phone ?? r.customer_phone ?? r.phone_number ?? null) as string | null,
+      recipientPhone: displayPhone(r.recipient_phone ?? r.customer_phone ?? r.phone_number),
       createdAt: toUtcIso(r.created_at, table === "orders"),
       paid, gatewayFee: fee, payment, owners,
       evidence: {
