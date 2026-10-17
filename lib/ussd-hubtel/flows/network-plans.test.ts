@@ -36,7 +36,7 @@ const whole = (r: HubtelReply, footer: string) => {
   expect(r.Message.endsWith("...")).toBe(false)
   expect(r.Message.endsWith(footer)).toBe(true)
 }
-const toConfirm = (s: Setup) => send(s, "1", "1", "1", "1") // MTN, Internet, first plan, my number
+const toConfirm = (s: Setup) => send(s, "1", "1", "1", "1") // MTN, Data, first plan, my number
 
 describe("network plans: start + network", () => {
   it("start screen lists the three networks", async () => {
@@ -46,10 +46,10 @@ describe("network plans: start + network", () => {
     expect(r.Message).toBe("Standard Bundles\nSelect network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n0. Back")
     expect(s.store.get(SID)?.step).toBe("NP_NETWORK")
   })
-  it("categories in CATEGORY_ORDER, product words rewritten, tokens not stored yet", async () => {
+  it("categories in CATEGORY_ORDER, named as Hubtel sends them, tokens not stored yet", async () => {
     const s = setup()
     const r = await send(s, "1")
-    expect(r.Message).toBe("MTN plans:\n1. Internet\n2. Video\n0. Back")
+    expect(r.Message).toBe("MTN plans:\n1. Data\n2. Video\n0. Back")
     expect(s.store.get(SID)).toMatchObject({ step: "NP_CATEGORY", npNetwork: "MTN", npCategories: ["Data", "Video"] })
     expect(s.np.calls).toHaveLength(0)
   })
@@ -85,15 +85,15 @@ describe("network plans: paging (5 per screen, 0 Next / 00 Back)", () => {
   it("pages forward and back, then back to the categories", async () => {
     const s = setup()
     const p1 = await send(s, "1", "1")
-    expect(p1.Message).toBe("MTN Internet\n1. 1GB GHS 9.50\n2. 2GB GHS 10.50\n3. 3GB GHS 11.50\n4. 4GB GHS 12.50\n5. 5GB GHS 13.50\n0 Next\n00 Back")
+    expect(p1.Message).toBe("MTN Data\n1. 1GB GHS 9.50\n2. 2GB GHS 10.50\n3. 3GB GHS 11.50\n4. 4GB GHS 12.50\n5. 5GB GHS 13.50\n0 Next\n00 Back")
     expect(s.store.get(SID)?.npPlans).toHaveLength(5)
     const p2 = await send(s, "0")
-    expect(p2.Message).toBe("MTN Internet\n1. 6GB GHS 14.50\n2. 7GB GHS 15.50\n00 Back")
+    expect(p2.Message).toBe("MTN Data\n1. 6GB GHS 14.50\n2. 7GB GHS 15.50\n00 Back")
     expect(s.store.get(SID)).toMatchObject({ npPage: 1, npPlans: [{ t: "tok-Data-5", d: "6GB", f: 15, p: 14.5 }, { t: "tok-Data-6", d: "7GB", f: 16, p: 15.5 }] })
     expect((await send(s, "0")).Message).toBe(p2.Message) // no page after the last
     expect((await send(s, "00")).Message).toBe(p1.Message)
     const cats = await send(s, "00")
-    expect(cats.Message).toBe("MTN plans:\n1. Internet\n2. Video\n0. Back")
+    expect(cats.Message).toBe("MTN plans:\n1. Data\n2. Video\n0. Back")
     expect(s.store.get(SID)?.step).toBe("NP_CATEGORY")
   })
   it("selecting on page 2 picks that page's plan", async () => {
@@ -107,7 +107,6 @@ describe("network plans: paging (5 per screen, 0 Next / 00 Back)", () => {
     const screens = [await send(s, "1"), await send(s, "1"), await send(s, "0"), await send(s, "1"), await send(s, "1")]
     for (const [r, footer] of [[screens[0], "0. Back"], [screens[1], "0 Next\n00 Back"], [screens[2], "00 Back"], [screens[3], "0. Back"], [screens[4], "1 Confirm 2 Cancel"]] as const) {
       whole(r, footer)
-      expect(r.Message).not.toMatch(/data|bundle/i)
     }
     expect(screens[1].Message).toContain("GHS 13.50\n0 Next\n00 Back")
     expect(screens[4].Message.startsWith("Pay GHS 14.50 (was GHS 15.00)\nYou receive ")).toBe(true)
@@ -145,7 +144,7 @@ describe("network plans: recipient", () => {
     const s = setup()
     await send(s, "1", "1", "1", "2")
     expect((await send(s, "0")).Message).toContain("Send to:")
-    expect((await send(s, "0")).Message).toContain("MTN Internet\n1. 1GB")
+    expect((await send(s, "0")).Message).toContain("MTN Data\n1. 1GB")
   })
 })
 
@@ -340,8 +339,10 @@ describe("network plans: helpers", () => {
   })
 })
 
-describe("network plans: wording", () => {
-  it("no screen of a full run of every path says data or bundle, apart from the menu's own name (self-contained)", async () => {
+describe("network plans: what Hubtel's checkout sees", () => {
+  // Screens may say "data"/"bundle" (plan names are shown as Hubtel sends them), but the cart item sent to
+  // Hubtel stays an opaque name: no product words or plan details leave our system.
+  it("cart items never carry product words, on any path (self-contained)", async () => {
     const screens: HubtelReply[] = []
     const run = async (s: Setup, ...inputs: string[]) => { await send(s, ...inputs); screens.push(...s.screens) }
     // Every network's categories, paging both ways, both recipient choices (bad + good numbers), cancel, cart.
@@ -352,9 +353,8 @@ describe("network plans: wording", () => {
     await run(setup({ np: { createResult: { ok: false, status: 409, error: "Price updated" } } }), "1", "1", "1", "1", "1")
     await run(setup({ shop: true, session: { mode: "shop", shopId: SHOP_UUID, shopName: "Ama Data Hub" } }), "1", "2", "1", "1", "1")
     expect(screens.length).toBeGreaterThan(25)
+    expect(screens.some(r => r.Item)).toBe(true)
     for (const r of screens) {
-      // "Standard Bundles" is the menu's name (owner's choice); provider plan text is still rewritten.
-      expect(r.Message.replace(/Standard Bundles/g, "")).not.toMatch(/data|bundle/i)
       if (r.Item) expect(r.Item.ItemName).not.toMatch(/data|bundle|mtn|gb/i)
     }
   })

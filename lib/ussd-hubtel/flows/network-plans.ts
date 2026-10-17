@@ -1,9 +1,9 @@
 // lib/ussd-hubtel/flows/network-plans.ts
-// "Network Plans" (Commission Cashback bots): Hubtel Standard Bundles sold over Hubtel USSD, priced by
+// "Standard Bundles" (Commission Cashback bots): Hubtel Standard Bundles sold over Hubtel USSD, priced by
 // the bot engine (quoteBots, rail hubtel; shop split only for an accepted shop in shop mode) and paid
 // through Hubtel's AddToCart. The engine creates the unpaid order (idempotency key = this session);
 // submitOrder then writes the hubtel_transactions row and the cart at the order's payAmount.
-// No screen says "data" or "bundle" (noProductWords).
+// Plan and category names are shown exactly as Hubtel sends them (only shortened to fit the screen).
 import { confirmNote } from "../confirm-note"
 import crypto from "crypto"
 import { validateNetworkPrefix } from "@/lib/phone-format"
@@ -15,7 +15,7 @@ import { toLocalPhone, USSD_SCREEN_LIMIT } from "../protocol"
 import {
   backToMain, failOrphanEngineOrder, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable,
 } from "../flow-kit"
-import { clip, fitListScreen, noProductWords, pageSlice } from "../screen-fit"
+import { clip, fitListScreen, pageSlice } from "../screen-fit"
 import { backToProduct } from "./shop"
 import type { HubtelReply, HubtelSession, NpPlan } from "../types"
 
@@ -43,12 +43,12 @@ const networkScreen = (prefix = "") =>
   prefix + "Standard Bundles\nSelect network:\n" + NETWORKS.map((n, i) => `${i + 1}. ${NETWORK_LABEL[n]}`).join("\n") + "\n0. Back"
 
 const categoryScreen = (network: BundleNetwork, categories: string[], prefix = "") =>
-  fitListScreen(`${prefix}${NETWORK_LABEL[network]} plans:`, categories.map(c => ({ label: noProductWords(c) })), ["0. Back"])
+  fitListScreen(`${prefix}${NETWORK_LABEL[network]} plans:`, categories.map(c => ({ label: c })), ["0. Back"])
 
 function planScreen(network: BundleNetwork, category: string, plans: NpPlan[], hasNext: boolean): string {
   return fitListScreen(
-    `${NETWORK_LABEL[network]} ${noProductWords(category)}`,
-    plans.map(p => ({ label: noProductWords(p.d), suffix: `GHS ${money(p.p)}` })),
+    `${NETWORK_LABEL[network]} ${category}`,
+    plans.map(p => ({ label: p.d, suffix: `GHS ${money(p.p)}` })),
     [...(hasNext ? ["0 Next"] : []), "00 Back"],
   )
 }
@@ -61,7 +61,7 @@ const otherScreen = (prefix = "") => `${prefix}Enter recipient number:\n0. Back`
 export function networkPlanConfirmText(plan: NpPlan, recipient: string, note?: string | null): string {
   const was = plan.p < plan.f ? ` (was GHS ${money(plan.f)})` : ""
   const head = `Pay GHS ${money(plan.p)}${was}\nYou receive `
-  const desc = noProductWords(plan.d)
+  const desc = plan.d
   const build = (extra: string) => {
     const tail = ` on ${recipient}\n${extra}1 Confirm 2 Cancel`
     return head + clip(desc, USSD_SCREEN_LIMIT - head.length - tail.length) + tail
