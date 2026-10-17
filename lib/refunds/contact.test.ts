@@ -38,6 +38,11 @@ describe("loadRefundContact", () => {
     const c = await loadRefundContact(db, order({ table: "ussd_orders", payment: { gateway: "paystack", reference: "r", payerPhone: null, walletUserId: null } }))
     expect(c).toMatchObject({ phone: "0209998888", recipientPhone: "0243334444", payTo: "0209998888" })
   })
+  it("shows +233 / 233 numbers (as USSD stores them) in the local 0XXXXXXXXX form", async () => {
+    const { db } = fakeDb({ ussd_orders: { dialing_phone: "+233209998888", recipient_phone: "233243334444" } })
+    const c = await loadRefundContact(db, order({ table: "ussd_orders", payment: { gateway: "paystack", reference: "r", payerPhone: "+233209998888", walletUserId: null } }))
+    expect(c).toMatchObject({ phone: "0209998888", payerPhone: "0209998888", recipientPhone: "0243334444", payTo: "0209998888" })
+  })
   it("USSD shop: includes the customer email when present", async () => {
     const { db } = fakeDb({ ussd_shop_orders: { dialing_phone: "0209998888", recipient_phone: "0243334444", customer_email: "k@x.com" } })
     expect(await loadRefundContact(db, order({ table: "ussd_shop_orders" }))).toMatchObject({ email: "k@x.com", phone: "0209998888", payTo: "0241112222" })
