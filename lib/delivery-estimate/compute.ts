@@ -115,6 +115,16 @@ export function formatDuration(seconds: number): string {
   return rest === 0 ? `${hours} hr` : `${hours} hr ${rest} min`
 }
 
+/**
+ * The delivered time to SHOW for the last order: placed time + the buffered duration. The buffer comes off
+ * the delivered time too, so "Placed 4:20, Delivered 4:25" agrees with "took 5 min" (raw delivery 4:30).
+ */
+export function shownDeliveredAt(e: Pick<ChannelEstimate, "lastOrder" | "lastOrderSeconds">): string | null {
+  if (!e.lastOrder) return null
+  if (e.lastOrderSeconds === null) return e.lastOrder.completedAt
+  return new Date(Date.parse(e.lastOrder.createdAt) + e.lastOrderSeconds * 1000).toISOString()
+}
+
 /** Metric 2 for an open P at `now`, after the buffer. */
 export function currentSecondsAt(openSince: string, now: string): number {
   return applyBuffer(secondsBetween(openSince, now))
