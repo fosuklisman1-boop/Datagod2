@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Lightbulb, RefreshCw, Wallet, Receipt, Wifi } from "lucide-react"
+import { Lightbulb, RefreshCw, Wallet, Receipt, Wifi, Bookmark, Trash2, Loader2 } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { supabase } from "@/lib/supabase"
-import { BillPayFlow, BillLogo } from "./BillPayFlow"
+import { BillPayFlow, BillLogo, PaySheet } from "./BillPayFlow"
+import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
+import type { SavedBillAccount } from "@/lib/bills/saved"
 import { useBillsAvailability } from "./use-bills-availability"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { billStatusLabel } from "@/lib/bills/ui-helpers"
@@ -105,6 +107,49 @@ export function BillsPage({ page }: { page: "bills" | "broadband" }) {
   useEffect(() => { loadWallet() }, [loadWallet])
   useEffect(() => { loadOrders() }, [loadOrders])
 
+  // ── Saved meters / accounts ──
+  const [tab, setTab] = useState<"pay" | "saved">("pay")
+  const [saved, setSaved] = useState<SavedBillAccount[]>([])
+  const [loadingSaved, setLoadingSaved] = useState(true)
+  const [savedError, setSavedError] = useState("")
+  const [payingSaved, setPayingSaved] = useState<SavedBillAccount | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const { rates, ensureFresh } = useCashbackRates()
+
+  const loadSaved = useCallback(async () => {
+    setSavedError("")
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) { setLoadingSaved(false); return }
+    try {
+      const res = await fetch("/api/bills/saved", { headers: { Authorization: `Bearer ${session.access_token}` } })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(String(json?.error || "Could not load saved meters"))
+      setSaved(Array.isArray(json.saved) ? json.saved : [])
+    } catch (e) {
+      setSavedError(e instanceof Error ? e.message : "Could not load saved meters")
+    } finally {
+      setLoadingSaved(false)
+    }
+  }, [])
+  useEffect(() => { loadSaved() }, [loadSaved])
+
+  const removeSaved = async (s: SavedBillAccount) => {
+    if (!window.confirm(`Remove ${s.nickname || s.account} from your saved list?`)) return
+    setDeleting(s.id)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const res = await fetch(`/api/bills/saved?id=${encodeURIComponent(s.id)}`, { method: "DELETE", headers: { Authorization: `Bearer ${session.access_token}` } })
+      if (res.ok) setSaved(list => list.filter(x => x.id !== s.id))
+      else setSavedError("Could not remove it. Please try again.")
+    } finally {
+      setDeleting(null)
+    }
+  }
+  // Only this page's billers (bills vs broadband), and only ones currently available.
+  const savedHere = saved.filter(s => billers.some(b => b.key === s.biller))
+  const savedLabel = page === "bills" ? "Saved meters" : "Saved accounts"
+
   const onPaid = () => { loadWallet(); loadOrders() }
   const logoFor = (key: string) => billers.find(b => b.key === key)
 
@@ -136,10 +181,86 @@ export function BillsPage({ page }: { page: "bills" | "broadband" }) {
               </p>
             </div>
 
-            <section className="space-y-3">
-              <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Pay a bill</h2>
-              <BillPayFlow billers={billers} balance={balance} defaultPhone={phone} onPaid={onPaid} initialKey={initialBiller} />
-            </section>
+            <div className="grid grid-cols-2 gap-1 rounded-2xl bg-muted p-1" role="tablist" aria-label="Bills">
+              {([["pay", "Pay a bill"], ["saved", `${savedLabel}${savedHere.length ? ` (${savedHere.length})` : ""}`]] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === k}
+                  onClick={() => setTab(k)}
+                  className={`rounded-xl py-2.5 text-sm font-bold transition ${tab === k ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {tab === "pay" ? (
+              <section className="space-y-3">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Pay a bill</h2>
+                <BillPayFlow billers={billers} balance={balance} defaultPhone={phone} onPaid={onPaid} initialKey={initialBiller} onSaved={loadSaved} />
+              </section>
+            ) : (
+              <section className="space-y-3" role="tabpanel" aria-label={savedLabel}>
+                {savedError && <p role="alert" className="text-sm text-destructive">{savedError}</p>}
+                {loadingSaved ? (
+                  <div className="space-y-3" aria-busy="true">
+                    {[0, 1].map(i => <div key={i} className="h-20 animate-pulse rounded-2xl bg-muted" />)}
+                  </div>
+                ) : savedHere.length === 0 ? (
+                  <div className="rounded-3xl border border-white/60 dark:border-white/5 bg-card p-8 text-center clay">
+                    <Bookmark className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
+                    <p className="font-bold text-foreground">No {savedLabel.toLowerCase()} yet</p>
+                    <p className="mx-auto mt-1 max-w-xs text-sm text-muted-foreground">When you pay a bill, tick &quot;Save for next time&quot; and it will appear here for one-tap payments.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+                    {savedHere.map(s => {
+                      const b = logoFor(s.biller)!
+                      return (
+                        <div key={s.id} className="flex items-center gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
+                          <BillLogo biller={b} size={44} />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-foreground">{s.nickname || s.customer_name || b.label}</p>
+                            <p className="truncate font-mono text-xs text-muted-foreground">
+                              {b.label} · {s.account}{s.broadband_account ? ` / ${s.broadband_account}` : ""}
+                            </p>
+                            {s.phone && <p className="truncate text-xs text-muted-foreground">Phone {s.phone}</p>}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button type="button" onClick={() => setPayingSaved(s)} className="rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground">Pay</button>
+                            <button
+                              type="button"
+                              aria-label={`Remove ${s.nickname || s.account}`}
+                              onClick={() => removeSaved(s)}
+                              disabled={deleting === s.id}
+                              className="rounded-xl p-2 text-muted-foreground hover:text-destructive disabled:opacity-50"
+                            >
+                              {deleting === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {payingSaved && logoFor(payingSaved.biller) && (
+              <PaySheet
+                key={payingSaved.id}
+                biller={logoFor(payingSaved.biller)!}
+                saved={payingSaved}
+                rates={rates}
+                ensureFresh={ensureFresh}
+                balance={balance}
+                defaultPhone={phone}
+                onClose={() => setPayingSaved(null)}
+                onPaid={onPaid}
+              />
+            )}
 
             <section className="space-y-3">
               <div className="flex items-center justify-between">

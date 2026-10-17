@@ -10,6 +10,7 @@ import { classifyPayResponse } from "@/lib/bills/ui-helpers"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { supabase } from "@/lib/supabase"
 import type { AvailabilityBiller } from "./use-bills-availability"
+import type { SavedBillAccount } from "@/lib/bills/saved"
 
 type Step = "input" | "meters" | "confirm" | "done"
 interface Meter { meter: string; name: string | null; outstanding: number | null; token: string }
@@ -52,12 +53,13 @@ async function authedPost(path: string, body: unknown): Promise<{ status: number
 }
 
 export function BillPayFlow({
-  billers, balance, defaultPhone, onPaid, initialKey,
+  billers, balance, defaultPhone, onPaid, initialKey, onSaved,
 }: {
   billers: AvailabilityBiller[]
   balance: number | null
   defaultPhone?: string
   onPaid: () => void
+  onSaved?: () => void
   /** Opens this biller's sheet once it is in the list (deep link from the dashboard carousel). */
   initialKey?: string | null
 }) {
@@ -98,14 +100,15 @@ export function BillPayFlow({
           defaultPhone={defaultPhone}
           onClose={() => setActive(null)}
           onPaid={onPaid}
+          onSaved={onSaved}
         />
       )}
     </>
   )
 }
 
-function PaySheet({
-  biller, balance, defaultPhone, onClose, onPaid, rates, ensureFresh,
+export function PaySheet({
+  biller, balance, defaultPhone, onClose, onPaid, rates, ensureFresh, saved, onSaved,
 }: {
   rates: RatesResponse
   ensureFresh: () => Promise<RatesResponse>
@@ -114,6 +117,10 @@ function PaySheet({
   defaultPhone?: string
   onClose: () => void
   onPaid: () => void
+  /** Paying a saved meter/account: fields are filled in and verified straight away. */
+  saved?: SavedBillAccount | null
+  /** Called after "Save for next time" stores this account. */
+  onSaved?: () => void
 }) {
   const key = biller.key
   const isEcg = key === "ecg"
@@ -122,16 +129,18 @@ function PaySheet({
   const needsPhone = isEcg || isWater
 
   const [step, setStep] = useState<Step>("input")
-  const [account, setAccount] = useState("")
-  const [phone, setPhone] = useState(defaultPhone ?? "")
-  const [email, setEmail] = useState("")
-  const [broadbandAccount, setBroadbandAccount] = useState("")
+  const [account, setAccount] = useState(saved?.account ?? "")
+  const [phone, setPhone] = useState(saved?.phone ?? defaultPhone ?? "")
+  const [email, setEmail] = useState(saved?.email ?? "")
+  const [broadbandAccount, setBroadbandAccount] = useState(saved?.broadband_account ?? "")
+  const [saveIt, setSaveIt] = useState(false)
+  const [nickname, setNickname] = useState("")
   const [consent, setConsent] = useState(false)
   const [addingMeter, setAddingMeter] = useState(false)
   /** ECG start: look up meters by phone, or enter the meter number first (then the phone to link it to). */
   const [ecgMode, setEcgMode] = useState<"phone" | "meter">("phone")
   /** Prepaid = meter number, Postpaid = account number. Both go to Hubtel as the bundle value. */
-  const [meterType, setMeterType] = useState<"prepaid" | "postpaid">("prepaid")
+  const [meterType, setMeterType] = useState<"prepaid" | "postpaid">(saved?.meter_type ?? "prepaid")
   const meterNoun = meterType === "prepaid" ? "meter" : "postpaid account"
   const [meters, setMeters] = useState<Meter[]>([])
   const [picked, setPicked] = useState<Picked | null>(null)
@@ -190,9 +199,18 @@ function PaySheet({
     if (isEcg && !opts.addMeter) {
       const list: Meter[] = Array.isArray(json.meters) ? json.meters : []
       setMeters(list)
+      // A saved meter that's linked to this phone goes straight to the amount.
+      const mine = saved ? list.find(m => m.meter.replace(/\s+/g, "") === saved.account) : undefined
+      if (mine) {
+        goToConfirm({ token: mine.token, name: mine.name, account: mine.meter, due: mine.outstanding }, mine.outstanding && mine.outstanding > 0 ? mine.outstanding : 0)
+        return
+      }
       if (list.length === 0) {
         setAddingMeter(true)
         setError("No meters are linked to this phone yet. Enter your meter number below — paying links it to this phone.")
+      } else if (saved) {
+        setAddingMeter(true)
+        setError(`Saved meter ${saved.account} isn't linked to this phone yet. Tick the box below to link it, or pick another meter.`)
       } else {
         setAddingMeter(false)
       }
@@ -238,6 +256,7 @@ function PaySheet({
       setDoneStatus(outcome.status)
       setStep("done")
       onPaid()
+      if (saveIt && !saved) void saveForNextTime(picked)
       return // payingRef stays true: this verification is spent
     }
     payingRef.current = false
@@ -246,6 +265,26 @@ function PaySheet({
     if (outcome.kind === "retry") { setError(outcome.message); return }
     backToInput(outcome.message)
   }
+
+  /** "Save for next time": best effort, never affects the payment. */
+  const saveForNextTime = async (p: Picked) => {
+    const { status, json } = await authedPost("/api/bills/saved", {
+      biller: key, account: p.account, phone: needsPhone ? phone : undefined, email: isWater ? email : undefined,
+      broadbandAccount: isBroadband ? broadbandAccount : undefined, meterType: isEcg ? meterType : undefined,
+      nickname: nickname.trim() || undefined, customerName: p.name ?? undefined,
+    })
+    if (status === 200) onSaved?.()
+    else setError(String(json?.error || "Paid, but this account could not be saved."))
+  }
+
+  // Paying a saved account: verify straight away with the saved details (ECG: look up the phone's meters).
+  const autoVerified = useRef(false)
+  useEffect(() => {
+    if (!saved || autoVerified.current) return
+    autoVerified.current = true
+    void verify()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved])
 
   const inputReady = isEcg
     ? ecgMode === "meter"
@@ -407,6 +446,17 @@ function PaySheet({
                   <PriceSummary pay={payShown} receive={billReceiveLabel(biller.label, numAmount, picked.account)} balance={balance} />
                 </div>
               )}
+              {!saved && (
+                <div className="space-y-2 rounded-2xl border border-border p-3">
+                  <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <input type="checkbox" checked={saveIt} onChange={e => setSaveIt(e.target.checked)} />
+                    Save for next time
+                  </label>
+                  {saveIt && (
+                    <input className={inputCls} maxLength={40} placeholder="Nickname (optional), e.g. Home, Shop" value={nickname} onChange={e => setNickname(e.target.value)} />
+                  )}
+                </div>
+              )}
               <ErrorLine msg={error} />
               <button type="button" onClick={pay} disabled={busy || !amountValid || insufficient} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-sm font-bold text-primary-foreground transition disabled:opacity-50">
                 {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing…</> : <>Pay {amountValid ? money(payShown) : "GHS 0.00"}</>}
@@ -429,6 +479,7 @@ function PaySheet({
                 <p className="mt-1 text-sm text-muted-foreground">{doneStatus === "completed" ? "Your bill has been paid." : doneStatus === "failed" ? "Payment failed — under review; a refund follows if nothing was delivered." : "Processing — we'll notify you when it completes."}</p>
                 {reference && <p className="mt-2 font-mono text-xs text-muted-foreground">Ref: {reference}</p>}
               </div>
+              <ErrorLine msg={error} />
               <button type="button" onClick={onClose} className="w-full rounded-2xl bg-primary py-3.5 text-sm font-bold text-primary-foreground">Done</button>
             </div>
           )}
