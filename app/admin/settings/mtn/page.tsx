@@ -41,7 +41,12 @@ interface MTNBalance {
     codecraft: ProviderBalance
     agentportalgh: ProviderBalance
     apexprime: ProviderBalance
+    bundleportal?: ProviderBalance
+    /** spfastit.com account (Telecel only, GHS). Never an MTN provider. */
+    spfastit_telecel?: ProviderBalance
   }
+  /** console.spfastit.com account (AT-iShare only): balance is GB of data, not cedis. */
+  spfastit?: { balance_gb: number | null; threshold_gb: number; is_low: boolean; alert: string | null }
   threshold: number
   active_provider: string
   timestamp: string
@@ -1365,13 +1370,44 @@ export default function MTNSettingsPage() {
                       })}
                     </div>
 
-                    {Object.values(balance.balances).some(pb => pb?.is_low) && (
+                    {/* SPFastIT runs two separate accounts that never serve MTN, so they aren't in the MTN
+                        provider list above: console.spfastit.com (AT-iShare, balance in GB) and
+                        spfastit.com (Telecel, balance in cedis). */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="p-3 rounded-lg border-2 bg-muted/40 border-border">
+                        <div className="mb-1">
+                          <span className="text-xs font-medium text-foreground">SPFastIT (AT-iShare)</span>
+                          <p className="text-[10px] text-muted-foreground truncate">console.spfastit.com</p>
+                        </div>
+                        {balance.spfastit?.balance_gb != null ? (
+                          <p className={`text-lg font-bold ${balance.spfastit.is_low ? "text-warning" : "text-success"}`}>{balance.spfastit.balance_gb.toFixed(1)} GB</p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">—</p>
+                        )}
+                        {balance.spfastit?.is_low && <p className="text-[10px] text-warning mt-0.5">⚠️ Below {balance.spfastit.threshold_gb} GB</p>}
+                      </div>
+                      <div className="p-3 rounded-lg border-2 bg-muted/40 border-border">
+                        <div className="mb-1">
+                          <span className="text-xs font-medium text-foreground">SPFastIT (Telecel)</span>
+                          <p className="text-[10px] text-muted-foreground truncate">spfastit.com</p>
+                        </div>
+                        {balance.balances.spfastit_telecel?.balance != null ? (
+                          <p className={`text-lg font-bold ${balance.balances.spfastit_telecel.is_low ? "text-warning" : "text-success"}`}>₵{balance.balances.spfastit_telecel.balance.toFixed(0)}</p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">—</p>
+                        )}
+                        {balance.balances.spfastit_telecel?.is_low && <p className="text-[10px] text-warning mt-0.5">⚠️ Low</p>}
+                      </div>
+                    </div>
+
+                    {(Object.values(balance.balances).some(pb => pb?.is_low) || balance.spfastit?.is_low) && (
                       <Alert className="border-border bg-warning/10">
                         <AlertCircle className="h-4 w-4 text-warning" />
                         <AlertDescription className="text-warning">
                           {Object.entries(balance.balances).filter(([, pb]) => pb?.alert).map(([k, pb]) => (
                             <p key={k}>• {pb!.alert}</p>
                           ))}
+                          {balance.spfastit?.alert && <p>• {balance.spfastit.alert}</p>}
                           <p className="mt-1 font-medium">SMS alert has been sent to admin.</p>
                         </AlertDescription>
                       </Alert>
