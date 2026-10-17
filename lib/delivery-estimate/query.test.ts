@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest"
-import { channelForNetwork, clearConfirmCache, clearPublicCache, getCachedChannelEstimate, getDeliveryEstimates, getPublicDeliveryEstimates, pickC, pickP } from "./query"
+import { channelForNetwork, channelsForClient, ESTIMATE_API_VERSION, clearConfirmCache, clearPublicCache, getCachedChannelEstimate, getDeliveryEstimates, getPublicDeliveryEstimates, pickC, pickP } from "./query"
 
 const t = (m: number) => new Date(Date.UTC(2026, 9, 17, 12, m)).toISOString()
 
@@ -165,5 +165,16 @@ describe("getPublicDeliveryEstimates", () => {
     await expect(getPublicDeliveryEstimates(bad.db, ms)).rejects.toThrow()
     const good = fakeDb(() => null)
     await expect(getPublicDeliveryEstimates(good.db, ms + 1000)).resolves.toHaveLength(6)
+  })
+})
+
+describe("channelsForClient", () => {
+  const rows = ["mtn", "telecel", "at_ishare", "at_bigtime", "utility", "standard"].map(channel => ({ channel }))
+  it("current pages (sending ?v=) get every channel", () => {
+    expect(channelsForClient(rows, String(ESTIMATE_API_VERSION))).toHaveLength(6)
+  })
+  it("pages loaded before Standard Bundles existed don't get a row they can't draw", () => {
+    expect(channelsForClient(rows, null).map(r => r.channel)).toEqual(["mtn", "telecel", "at_ishare", "at_bigtime", "utility"])
+    expect(channelsForClient(rows, "abc")).toHaveLength(5)
   })
 })

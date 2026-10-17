@@ -5,6 +5,8 @@ import { Activity, CheckCircle2, Clock, RefreshCw, Timer } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { formatDuration, shownDeliveredAt, tick, type ChannelEstimate, type StrengthTier } from "@/lib/delivery-estimate/compute"
 import type { ChannelEstimateRow, DeliveryChannel } from "@/lib/delivery-estimate/query"
+// Kept in step with ESTIMATE_API_VERSION in lib/delivery-estimate/query.ts (not imported: that module is server code).
+const ESTIMATE_API_VERSION = 2
 
 // Live delivery estimate widgets (lib/delivery-estimate). One fetch feeds both cards: the headline card for
 // the main network and the per-channel strength list. Numbers come from two real reference orders, never
@@ -59,11 +61,11 @@ export function useDeliveryEstimates({ public: isPublic = false }: { public?: bo
     try {
       let res: Response
       if (isPublic) {
-        res = await fetch("/api/public/delivery-estimate")
+        res = await fetch(`/api/public/delivery-estimate?v=${ESTIMATE_API_VERSION}`)
       } else {
         const { data: { session } } = await supabase.auth.getSession()
         if (!session?.access_token) return
-        res = await fetch("/api/dashboard/delivery-estimate", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" })
+        res = await fetch(`/api/dashboard/delivery-estimate?v=${ESTIMATE_API_VERSION}`, { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" })
       }
       const d = res.ok ? await res.json() : null
       if (d?.success) {
@@ -247,7 +249,9 @@ export function GatewayStrengthCard({ rows, loading, refreshing, cooldown, onRef
 }
 
 function StrengthRow({ r }: { r: ChannelEstimateRow }) {
-  const badge = BADGE[r.channel]
+  // A channel this build doesn't know yet (e.g. the server added one after this page loaded) still gets a
+  // neutral badge: a missing entry here used to crash the whole page.
+  const badge = BADGE[r.channel] ?? { text: (r.label || "?").replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase() || "?", className: "bg-slate-500 text-white" }
   const head = (
     <div className="flex items-center gap-2">
       <span className={`flex h-8 w-8 items-center justify-center rounded-full text-[10px] font-extrabold ${badge.className}`}>{badge.text}</span>
