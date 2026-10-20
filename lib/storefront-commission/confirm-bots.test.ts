@@ -5,7 +5,7 @@ import {
   confirmBotOrder, confirmCommissionOrder, confirmStorefrontOrder, settleStorefrontPayment, verifyStorefrontPayment,
   type SettleDeps, type VerifyDeps,
 } from "./confirm"
-import { botPaymentEmail, checkCommissionPayable, DEFAULT_BOT_PAYMENT_EMAIL } from "./payment"
+import { botPaymentEmail, checkCommissionPayable, DEFAULT_BOT_PAYMENT_EMAIL, isStorefrontOrderType, STOREFRONT_ORDER_TABLE } from "./payment"
 import type { StorefrontOrderTable } from "./payment"
 
 // Bot (channel 'bots') bill / bundle orders through the shared commission confirmation. Same fake-world pattern as
@@ -237,6 +237,58 @@ describe("confirmCommissionOrder: bot orders", () => {
     const r = await settleStorefrontPayment(m.d, { table: "hubtel_bill_orders", orderId: "b1", walletPaymentId: "wp1", reference: REF, paidAmount: 10.11, transactionId: "t1" })
     expect(r.outcome).toBe("confirmed")
     expect(m.paymentRecords).toEqual([expect.objectContaining({ walletPaymentId: "wp1", reference: REF, paidAmount: 10.11 })])
+  })
+})
+
+// Bots Plan 3 proof: a shop-USSD (Uzo) order charged by botChargeMomo writes a cs_bundle wallet_payments row; the
+// existing Paystack webhook resolves reference -> wallet_payments -> STOREFRONT_ORDER_TABLE[order_type] ->
+// settleStorefrontPayment (app/api/webhooks/paystack/route.ts, settleStorefrontWebhook). No production change.
+describe("Uzo shop USSD (bot_surface ussd_shop) paid through a cs_bundle wallet_payments row", () => {
+  const WALLET_ROW = { id: "wp-ussd", reference: REF, order_type: "cs_bundle", order_id: "d1", status: "pending" }
+
+  /** The webhook's storefront branch, step for step (charge.success, amount in pesewas). */
+  async function webhook(d: SettleDeps, wallet: typeof WALLET_ROW, pesewas: number) {
+    if (!isStorefrontOrderType(wallet.order_type)) throw new Error("not a storefront order type")
+    return settleStorefrontPayment(d, {
+      table: STOREFRONT_ORDER_TABLE[wallet.order_type], orderId: wallet.order_id, walletPaymentId: wallet.id, reference: REF,
+      paidAmount: Math.round(pesewas) / 100, transactionId: "t1", gatewayResponse: "success",
+    })
+  }
+
+  it("one paid flip, one shop share, one dispatch; a second identical webhook is already_processed", async () => {
+    const m = make({ bundles: [botBundle({ bot_surface: "ussd_shop" })] })
+    const first = await webhook(m.d, WALLET_ROW, 1003)
+    expect(first.outcome).toBe("confirmed")
+    expect(m.flips()).toBe(1)
+    expect(m.tables.hubtel_data_orders[0]).toMatchObject({ payment_status: "paid", payment_reference: REF, bot_surface: "ussd_shop" })
+    expect(m.profits).toEqual([expect.objectContaining({ shop_id: "shop1", data_order_id: "d1", profit_amount: 0.15 })])
+    expect(m.purchases).toHaveLength(1)
+    expect(m.paymentRecords).toEqual([expect.objectContaining({ walletPaymentId: "wp-ussd", reference: REF, paidAmount: 10.03 })])
+
+    const again = await webhook(m.d, WALLET_ROW, 1003)
+    expect(again.outcome).toBe("already_processed")
+    expect(m.flips()).toBe(1)
+    expect(m.profits).toHaveLength(1)
+    expect(m.purchases).toHaveLength(1)
+    expect(m.alerts.filter(a => a.urgent)).toEqual([])
+  })
+
+  it("verifyStorefrontPayment racing the webhook => the same single effect", async () => {
+    const m = make({ bundles: [botBundle({ bot_surface: "ussd_shop" })] })
+    const vd: VerifyDeps = { ...m.d, verifyPayment: async () => { await tick(); return { status: "success", amount: 10.03, transaction_id: "t1" } } }
+    const [w, v] = await Promise.all([
+      webhook(m.d, WALLET_ROW, 1003),
+      verifyStorefrontPayment(vd, STOREFRONT_ORDER_TABLE.cs_bundle, { id: WALLET_ROW.id, status: "pending", order_id: "d1" }, REF),
+    ])
+    expect(["confirmed", "already_processed"]).toContain(w.outcome)
+    expect(v.httpStatus).toBe(200)
+    expect(m.flips()).toBe(1)
+    expect(m.profits).toHaveLength(1)
+    expect(m.purchases).toHaveLength(1)
+    expect(m.alerts.filter(a => a.urgent)).toEqual([])
+    // and a late webhook replay after both
+    expect((await webhook(m.d, WALLET_ROW, 1003)).outcome).toBe("already_processed")
+    expect(m.purchases).toHaveLength(1)
   })
 })
 
