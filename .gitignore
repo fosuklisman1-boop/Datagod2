@@ -87,6 +87,9 @@ desktop.ini
 # Visual companion (brainstorming) mockups
 .superpowers/
 
+# cron-job.org sync script daily API-call counter
+.cron-sync-budget.json
+
 # Playwright QA artifacts
 .playwright-mcp/
 *-dark-real.jpeg
