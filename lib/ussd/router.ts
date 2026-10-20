@@ -23,6 +23,7 @@ import {
 import { handleOtpSubmit } from "./handlers/otp"
 import { handleNetworkPlansStep } from "./bots/network-plans"
 import { handlePayBillsStep } from "./bots/pay-bills"
+import { botOtpCandidate, handleBotOtpRedial } from "./bots/otp-redial"
 
 const TERMINATE_THRESHOLD = 29
 
@@ -53,6 +54,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       { data: pendingCheck },
       { data: whitelistSetting },
       { data: hasPurchasedData },
+      botPointer,
     ] = await Promise.all([
       supabase.from("ussd_orders").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").gte("created_at", cutoff)
@@ -69,6 +71,8 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
       // Single function checks all order tables + manual whitelist in one DB round-trip
       supabase.rpc("has_completed_purchase", { local_phone: localPhone, msisdn }),
+      // Commission-cashback bot charge waiting for its OTP (Redis pointer by dialing phone; never throws).
+      botOtpCandidate(msisdn),
     ])
 
     const hasPurchased = hasPurchasedData === true
@@ -79,12 +83,17 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       pendingAirtime ? { id: pendingAirtime.id, created_at: pendingAirtime.created_at, table: 'airtime_orders' as const } : null,
       pendingRc ? { id: pendingRc.id, created_at: pendingRc.created_at, table: 'results_checker_orders' as const } : null,
       pendingCheck ? { id: pendingCheck.id, created_at: pendingCheck.created_at, table: 'results_check_requests' as const } : null,
-    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' }>
+      botPointer ? { id: '', created_at: botPointer.created_at, table: undefined, bot: true } : null,
+    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'; bot?: true }>
 
     if (candidates.length) {
       candidates.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       const top = candidates[0]
-      await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, pendingOrderId: top.id, pendingOrderTable: top.table })
+      if (top.bot) {
+        await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, botOtp: true })
+      } else {
+        await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, pendingOrderId: top.id, pendingOrderTable: top.table })
+      }
       return cont(
         `Pending payment.\nEnter the OTP sent\nto your number to\ncomplete payment:\n\n0. Cancel`
       )
@@ -132,6 +141,8 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       return handlePaymentMethod(input, sessionID, session)
 
     case 'SUBMIT_OTP':
+      // Bot charge (Redis pointer): the pointer is looked up again by the dialing phone; a retry keeps this step.
+      if (session.botOtp) return handleBotOtpRedial(input, session.dialingPhone ?? msisdn)
       if (
         session.pendingOrderTable === 'airtime_orders' ||
         session.pendingOrderTable === 'results_checker_orders' ||

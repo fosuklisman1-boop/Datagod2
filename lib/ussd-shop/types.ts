@@ -50,6 +50,7 @@ export interface USSDShopSession extends UzoNpSessionFields, UzoPbSessionFields 
   recipientPhone?: string
   pendingOrderId?: string          // ussd_shop_orders.id; used by SUBMIT_OTP
   pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' // SUBMIT_OTP target for airtime/RC (data bundles use ussd_shop_orders)
+  botOtp?: boolean                 // SUBMIT_OTP is for a commission-cashback bot charge (Redis OTP pointer, lib/ussd/bots/otp-redial.ts)
   // Shop Airtime (MoMo only)
   airtimeRecipient?: string        // beneficiary (local 0XXXXXXXXX)
   airtimeNetwork?: string          // 'MTN' | 'Telecel' | 'AT'

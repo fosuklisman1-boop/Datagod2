@@ -149,6 +149,7 @@ export interface USSDSession extends UzoNpSessionFields, UzoPbSessionFields {
   walletBalance?: number            // fetched at network selection for display; re-verified at payment
   pendingOrderId?: string  // order created at CONFIRM; used by PAYMENT_METHOD + SUBMIT_OTP
   pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' // which table SUBMIT_OTP targets (data bundles default to ussd_orders)
+  botOtp?: boolean         // SUBMIT_OTP is for a commission-cashback bot charge (Redis OTP pointer, lib/ussd/bots/otp-redial.ts)
   // AFA registration fields
   afaFullName?: string
   afaGhCard?: string
