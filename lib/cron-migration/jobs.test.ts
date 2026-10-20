@@ -4,7 +4,7 @@ import { join } from "path"
 import { buildJobSpecs, toCreatePayload, redactSecret } from "./jobs"
 
 const HOST = "https://www.datagod.store"
-const cfg = JSON.parse(readFileSync(join(__dirname, "../../vercel.json"), "utf8"))
+const cfg = JSON.parse(readFileSync(join(__dirname, "crons.json"), "utf8"))
 const specs = buildJobSpecs(cfg.crons, HOST)
 const byPath = (p: string) => specs.find((s) => s.path === p)!
 

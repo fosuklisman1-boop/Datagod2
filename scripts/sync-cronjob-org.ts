@@ -69,7 +69,7 @@ async function main() {
   const apiKey = process.env.CRONJOB_API_KEY || ""
   const cronSecret = process.env.CRON_SECRET || ""
 
-  const vercel = JSON.parse(readFileSync(join(ROOT, "vercel.json"), "utf8"))
+  const vercel = JSON.parse(readFileSync(join(ROOT, "lib/cron-migration/crons.json"), "utf8"))
   let specs = buildJobSpecs(vercel.crons, HOST)
   const only = arg("--only")
   if (only) specs = specs.filter((s) => s.path === only)

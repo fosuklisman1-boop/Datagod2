@@ -5,7 +5,7 @@ import { buildJobSpecs } from "./jobs"
 import { planActions, checkBudget, type ExistingJob } from "./plan"
 
 const HOST = "https://www.datagod.store"
-const cfg = JSON.parse(readFileSync(join(__dirname, "../../vercel.json"), "utf8"))
+const cfg = JSON.parse(readFileSync(join(__dirname, "crons.json"), "utf8"))
 const specs = buildJobSpecs(cfg.crons, HOST)
 
 describe("planActions", () => {

@@ -70,14 +70,6 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/check-subscription-expiry",
-      "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/check-subscriptions",
-      "schedule": "0 * * * *"
-    },
-    {
       "path": "/api/cron/withdrawals-status-check",
       "schedule": "*/5 * * * *"
     },
@@ -88,14 +80,6 @@
     {
       "path": "/api/cron/phone-verify",
       "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/expire-stale-airtime",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/sms-delivery-sync",
-      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/sync-digiwapy",
@@ -126,28 +110,8 @@
       "schedule": "*/2 * * * *"
     },
     {
-      "path": "/api/cron/sms-senderid-poll",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/cron/sms-contact-verify",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/cron/security-alerts",
       "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/release-held-mtn-orders",
-      "schedule": "7 * * * *"
-    },
-    {
-      "path": "/api/cron/mtn-whitelist-retry",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/cron/check-mtn-balance",
-      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/drain-fulfillment-queue",
@@ -156,10 +120,6 @@
     {
       "path": "/api/cron/reconcile-paystack-refunds",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/sms-kyc-purge",
-      "schedule": "30 3 * * *"
     }
   ]
 }

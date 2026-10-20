@@ -45,7 +45,7 @@ describe("cronToSchedule", () => {
   })
 
   it("converts every schedule in the real vercel.json", () => {
-    const cfg = JSON.parse(readFileSync(join(__dirname, "../../vercel.json"), "utf8"))
+    const cfg = JSON.parse(readFileSync(join(__dirname, "crons.json"), "utf8"))
     expect(cfg.crons.length).toBe(39)
     for (const c of cfg.crons) expect(() => cronToSchedule(c.schedule)).not.toThrow()
   })
