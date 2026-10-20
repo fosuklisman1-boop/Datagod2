@@ -1475,8 +1475,9 @@ export async function POST(request: NextRequest) {
       const { failBotOrderForDeclinedCharge } = await import("@/lib/bot-commission/charge-failed")
       await failBotOrderForDeclinedCharge(supabase, reference)
 
-      // Only a still-pending payment row is failed (a completed payment is never flipped back).
-      await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference).eq("status", "pending")
+      // A completed payment is never flipped back to failed. Every other status is failed as before (prod rows also
+      // carry Paystack's own 'ongoing' / 'abandoned', so the guard excludes 'completed' rather than requiring 'pending').
+      await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference).neq("status", "completed")
       await supabase.from("payment_attempts").update({ status: "failed", gateway_response: gateway_response || "failed" }).eq("reference", reference)
     } else if (
       event.event === "transfer.success" ||

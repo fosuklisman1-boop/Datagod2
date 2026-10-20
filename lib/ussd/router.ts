@@ -119,7 +119,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
   const session = await getSession(sessionID)
 
   if (!session) {
-    // Session expired or missing — restart (no whitelist re-check; show full menu, user re-dials).
+    // Session expired or missing — restart at the main menu (the data whitelist is re-checked below).
     // Diagnostic log: distinguishes "Redis not configured at all" from a genuine
     // TTL expiry or a transient Redis error (logged separately, by this same
     // sessionID, in session.ts's getSession/setSession catch blocks).

@@ -117,4 +117,21 @@ describe("Paystack charge.failed for a commission payment", () => {
     expect(h.tables.wallet_payments[0].status).toBe("completed")
     expect(h.tables.hubtel_bill_orders[0]).toEqual(paid)
   })
+
+  it("a completed payment never fails its still-open bots order (a stray charge.failed after success)", async () => {
+    const open = order("b1")
+    h.tables.hubtel_bill_orders = [{ ...open }]
+    h.tables.wallet_payments = [payment("b1", "cs_bill", { status: "completed" })]
+    await chargeFailed()
+    expect(h.tables.hubtel_bill_orders[0]).toEqual(open)
+    expect(h.tables.wallet_payments[0].status).toBe("completed")
+  })
+
+  it("a payment Paystack left 'ongoing' is still failed with its bots order (only 'completed' is protected)", async () => {
+    h.tables.hubtel_bill_orders = [order("b1")]
+    h.tables.wallet_payments = [payment("b1", "cs_bill", { status: "ongoing" })]
+    await chargeFailed()
+    expect(h.tables.wallet_payments[0].status).toBe("failed")
+    expect(h.tables.hubtel_bill_orders[0]).toMatchObject({ status: "failed", failure_reason: "payment not completed" })
+  })
 })

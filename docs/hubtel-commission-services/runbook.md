@@ -398,6 +398,7 @@ The Uzo main USSD (`/api/ussd`) and shop USSD (`/api/ussd-shop`) gain **Network 
    - The deploy also changes two shared paths, for every rail:
      - A `charge.failed` for a cs_* payment now fails its **bot** order at once (guarded; storefront orders unchanged), and only a still-pending `wallet_payments` row is marked failed.
      - The commission confirm decides share + dispatch from the paid flip's own row state.
+   - One visible change for every caller, on purpose: when the data whitelist is on, a whitelist-blocked caller who gets "Time limit exceeded" (or an unknown step) now sees the main menu WITHOUT Browse Services, the same as when they first dial. Before, those repaints showed Browse Services to a blocked caller.
 3. **Before going live: set the Paystack bots fee (`botFees.paystack`).** In prod it is 0 for every group. With 0, Paystack's MoMo fee (~1.95%) is not passed to the buyer and comes out of our margin on every Uzo bot order and cashback airtime row.
    - Set it in Admin > Hubtel Commission > Cashback, in the "Paystack bots (USSD + WhatsApp)" fee set: about 2 per group (bundles, bills, airtime). It is added on top of the price and rounded up.
    - Check it:
@@ -407,7 +408,7 @@ The Uzo main USSD (`/api/ussd`) and shop USSD (`/api/ussd-shop`) gain **Network 
      ```
      Expect a non-zero value for each of `airtime`, `bundles` and `bills`.
    - This fee set does not affect Hubtel USSD, which uses the "Hubtel USSD" fee set.
-4. **Go live** (after step 3). Turn the three switches on at `/admin/ussd-shops` ("USSD Menu Services": **Network Plans**, **Pay Bills**, **Cashback airtime**), one at a time if you want a staged rollout.
+4. **Go live** (after step 3), **one switch at a time, testing each before the next** (step 5): at `/admin/ussd-shops` ("USSD Menu Services") turn on **Pay Bills**, test it with a real GHS 1 payment; then **Network Plans**, test; then **Cashback airtime**, test. If a test fails, turn that switch off again.
    - An item is live only when the shared cashback gate (master AND Bots AND its group: bundles → Network Plans, bills → Pay Bills, airtime → Cashback airtime) AND its Uzo switch are on.
    - If any config read fails, the items stay hidden and airtime stays on today's pricing (fail closed). Both configs are re-read on every request.
    - Rates and shares for each group: main USSD pays the buyer `customer` (no shop share); shop USSD pays `storefrontCustomer` to the buyer and `storefrontShop` to the shop.

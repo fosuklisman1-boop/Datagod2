@@ -17,6 +17,9 @@ export async function failBotOrderForDeclinedCharge(db: SupabaseClient, referenc
       .from("wallet_payments")
       .select("order_id, order_type")
       .eq("reference", reference)
+      // A payment that already completed never fails the order behind it (runs before the webhook marks this row
+      // failed). In-flight rows can be 'pending' or Paystack's own 'ongoing' / 'abandoned', so only 'completed' is excluded.
+      .neq("status", "completed")
       .maybeSingle()
     if (error) throw error
     const p = data as { order_id?: string | null; order_type?: string | null } | null
