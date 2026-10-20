@@ -2,13 +2,12 @@ import { createClient } from "@supabase/supabase-js"
 import { UzoRequest, UzoResponse } from "./types"
 import { getSession, setSession, deleteSession, isRedisConfigured } from "./session"
 import { cont, end, mainMenu } from "./menus"
-import { getUssdServiceVisibility } from "../ussd-service-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-import { handleMain } from "./handlers/main"
+import { handleMain, mainMenuVisibility } from "./handlers/main"
 import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleConfirm, handlePaymentMethod, handleSubmitOtp } from "./handlers/bundles"
 import { handleStatus } from "./handlers/status"
 import { handleAfaEnterName, handleAfaEnterCard, handleAfaEnterLocation, handleAfaEnterRegion, handleAfaConfirm } from "./handlers/afa"
@@ -92,13 +91,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     }
 
     await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn, dataBlocked })
-    const visibility = await getUssdServiceVisibility(supabase)
-    return cont(mainMenu({
-      data: !dataBlocked && visibility.data,
-      afa: visibility.afa,
-      airtime: visibility.airtime,
-      resultsChecker: visibility.resultsChecker,
-    }))
+    return cont(mainMenu(await mainMenuVisibility(dataBlocked, true)))
   }
 
   // Continuing request — route by current session step
@@ -114,20 +107,14 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       "op:", ussdServiceOp, "redisConfigured:", isRedisConfigured()
     )
     await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-    const visibility = await getUssdServiceVisibility(supabase)
-    return cont('Time limit exceeded.\n\n' + mainMenu({
-      data: visibility.data,
-      afa: visibility.afa,
-      airtime: visibility.airtime,
-      resultsChecker: visibility.resultsChecker,
-    }))
+    return cont('Time limit exceeded.\n\n' + mainMenu(await mainMenuVisibility(false, true)))
   }
 
   const input = ussdString ?? ''
 
   switch (session.step) {
     case 'MAIN':
-      return handleMain(input, sessionID, session)
+      return handleMain(input, sessionID, session, 'ussd')
 
     case 'SELECT_NETWORK':
       return handleSelectNetwork(input, sessionID, session)
@@ -266,13 +253,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     default: {
       await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-      const visibility = await getUssdServiceVisibility(supabase)
-      return cont(mainMenu({
-        data: visibility.data,
-        afa: visibility.afa,
-        airtime: visibility.airtime,
-        resultsChecker: visibility.resultsChecker,
-      }))
+      return cont(mainMenu(await mainMenuVisibility(false, true)))
     }
   }
 }

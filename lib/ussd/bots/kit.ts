@@ -64,7 +64,7 @@ const mainIo: UzoBotIo = {
     await setMainSession(ctx.sessionId, next)
     // No digit matches "": handleMain renders the main menu itself (one renderer, same visibility rules).
     const { handleMain } = await import("../handlers/main")
-    return handleMain("", ctx.sessionId, next)
+    return handleMain("", ctx.sessionId, next, "ussd")
   },
 }
 

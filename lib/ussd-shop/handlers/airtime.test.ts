@@ -74,6 +74,13 @@ vi.mock("@/lib/airtime-pricing", async (orig) => ({
   airtimeBaseFeeRate: vi.fn(async (_n: string, isDealer: boolean) => (isDealer ? 2 : 5)),
 }))
 
+// Bot menus gate (Network Plans / Pay Bills on the product menu): hidden unless a test opens it.
+const g = vi.hoisted(() => ({ open: false }))
+vi.mock("@/lib/ussd/bots/gate", () => ({
+  botMenusVisible: async () => ({ networkPlans: g.open, payBills: g.open }),
+  UZO_BOT_MENUS_HIDDEN: { networkPlans: false, payBills: false },
+}))
+
 import {
   handleShopAirtimeEnterRecipient, handleShopAirtimeSelectNetwork, handleShopAirtimeEnterAmount, handleShopAirtimeConfirm,
 } from "./airtime"
@@ -289,5 +296,22 @@ describe("shop cashback amount must have at most 2 decimals (Plan 2 AMOUNT_RE)",
     h.state.quote = onFor({ base: 9.9 })
     const r = await enter("10.80")
     expect(r.message).toBe(LEGACY_CONFIRM)
+  })
+})
+
+describe("0 at the recipient prompt: back to the product menu", () => {
+  const LEGACY_MENU = "Kofi Shop\nWhat to buy?\n1. Browse Services\n2. Airtime\n3. Results Checker\n0. Exit"
+  afterEach(() => { g.open = false })
+
+  it("gate closed: the legacy product menu, byte for byte", async () => {
+    const r = await handleShopAirtimeEnterRecipient("0", "s1", { step: "SHOP_AIRTIME_ENTER_RECIPIENT", ...base } as any)
+    expect(r).toEqual({ message: LEGACY_MENU, ussdServiceOp: 2 })
+    expect(lastSession()).toMatchObject({ step: "SELECT_PRODUCT", shopId: SHOP_ID })
+  })
+
+  it("gate open: the bot items follow the legacy ones", async () => {
+    g.open = true
+    const r = await handleShopAirtimeEnterRecipient("0", "s1", { step: "SHOP_AIRTIME_ENTER_RECIPIENT", ...base } as any)
+    expect(r.message).toBe(LEGACY_MENU.replace("\n0. Exit", "\n4. Network Plans\n5. Pay Bills\n0. Exit"))
   })
 })

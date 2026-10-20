@@ -87,6 +87,13 @@ vi.mock("@/lib/airtime-pricing", async (orig) => ({
   airtimeBaseFeeRate: vi.fn(async (_n: string, isDealer: boolean) => (isDealer ? h.state.feeRate.dealer : h.state.feeRate.customer)),
 }))
 
+// Bot menus gate (Network Plans / Pay Bills on the main menu): hidden unless a test opens it.
+const g = vi.hoisted(() => ({ open: false, calls: 0 }))
+vi.mock("@/lib/ussd/bots/gate", () => ({
+  botMenusVisible: async () => { g.calls++; return { networkPlans: g.open, payBills: g.open } },
+  UZO_BOT_MENUS_HIDDEN: { networkPlans: false, payBills: false },
+}))
+
 import {
   handleAirtimeEnterRecipient, handleAirtimeSelectNetwork, handleAirtimeEnterAmount,
   handleAirtimeConfirm, handleAirtimePaymentMethod,
@@ -464,5 +471,28 @@ describe("fail-closed: wallet price and quote base", () => {
     const c = await handleAirtimeConfirm("1", "s1", cbConfirmSession(), "ussd")
     expect(c).toEqual({ message: "Price changed. Please try again.", ussdServiceOp: 17 })
     expect(airtimeInserts()).toEqual([])
+  })
+})
+
+describe("0 at the recipient prompt: back to the main menu", () => {
+  const LEGACY_MENU = "Welcome to Datagod\n1. Browse Services\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit"
+  beforeEach(() => { g.open = false; g.calls = 0 })
+
+  it("gate closed: the legacy menu, byte for byte", async () => {
+    const r = await handleAirtimeEnterRecipient("0", "s1", { step: "AIRTIME_ENTER_RECIPIENT", dialingPhone: DIALER }, "ussd")
+    expect(r).toEqual({ message: LEGACY_MENU, ussdServiceOp: 2 })
+  })
+
+  it("gate open on the Uzo main USSD: the bot items follow the legacy ones", async () => {
+    g.open = true
+    const r = await handleAirtimeEnterRecipient("0", "s1", { step: "AIRTIME_ENTER_RECIPIENT", dialingPhone: DIALER }, "ussd")
+    expect(r.message).toBe(LEGACY_MENU.replace("\n0. Exit", "\n5. Network Plans\n6. Pay Bills\n0. Exit"))
+  })
+
+  it("WhatsApp never reads the gate and never shows the bot items", async () => {
+    g.open = true
+    const r = await handleAirtimeEnterRecipient("0", "s1", { step: "AIRTIME_ENTER_RECIPIENT", dialingPhone: DIALER }, "whatsapp")
+    expect(r).toEqual({ message: LEGACY_MENU, ussdServiceOp: 2 })
+    expect(g.calls).toBe(0)
   })
 })

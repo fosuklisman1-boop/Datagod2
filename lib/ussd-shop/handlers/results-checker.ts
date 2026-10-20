@@ -17,7 +17,7 @@ import {
 } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 import { createShopRcOrder } from "@/lib/shop-commerce/orders"
-import { getUssdServiceVisibility } from "../../ussd-service-visibility"
+import { productMenuVisibility } from "./shop"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,12 +39,8 @@ export async function handleShopRcSelectBoard(
   const shopName = session.shopName ?? "Shop"
   if (input.trim() === "0") {
     await setSession(sessionId, { ...session, step: "SELECT_PRODUCT" })
-    const adminVisibility = await getUssdServiceVisibility(supabase)
-    return cont(productMenu(shopName, {
-      data: adminVisibility.data,
-      airtime: adminVisibility.airtime,
-      resultsChecker: adminVisibility.resultsChecker,
-    }))
+    // As before: the whitelist flag is not applied on this back path (only the admin toggles + the bot menus gate).
+    return cont(productMenu(shopName, await productMenuVisibility(false)))
   }
 
   const options = session.rcBoardOptions ?? []

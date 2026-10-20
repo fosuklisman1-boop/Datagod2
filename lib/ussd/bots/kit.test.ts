@@ -33,7 +33,7 @@ describe("liveUzoBotIo.leave", () => {
     const r = await liveUzoBotIo("ussd").leave(main, { step: "NP_NETWORK", dialingPhone: "+233244123456", dataBlocked: true, npNetwork: "MTN" })
     const next = { step: "MAIN", dialingPhone: "+233244123456", dataBlocked: true }
     expect(h.setMain).toHaveBeenCalledWith("s1", next)
-    expect(h.handleMain).toHaveBeenCalledWith("", "s1", next)
+    expect(h.handleMain).toHaveBeenCalledWith("", "s1", next, "ussd")
     expect(r.message).toBe("MAIN MENU")
     expect(h.setShop).not.toHaveBeenCalled()
   })

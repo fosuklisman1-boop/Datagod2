@@ -26,6 +26,7 @@ import {
   uzoCashbackAirtimeColumns, uzoUsableAirtimeQuote, uzoWalletRepriceColumns, UZO_AIRTIME_AMOUNT_RE,
 } from "../bots/airtime"
 import { botErrorText } from "../bots/screen"
+import { botMenusVisible, UZO_BOT_MENUS_HIDDEN } from "../bots/gate"
 
 type Channel = 'ussd' | 'whatsapp'
 
@@ -85,11 +86,15 @@ export async function handleAirtimeEnterRecipient(
   if (input.trim() === "0") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
     const visibility = await getUssdServiceVisibility(supabase)
+    // Bot menus (Network Plans / Pay Bills) only on the Uzo main USSD; WhatsApp keeps the legacy menu.
+    const bots = channel === "ussd" ? await botMenusVisible(supabase, visibility) : UZO_BOT_MENUS_HIDDEN
     return cont(mainMenu({
       data: visibility.data,
       afa: visibility.afa,
       airtime: visibility.airtime,
       resultsChecker: visibility.resultsChecker,
+      networkPlans: bots.networkPlans,
+      payBills: bots.payBills,
     }))
   }
 

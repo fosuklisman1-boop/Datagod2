@@ -32,16 +32,22 @@ export function invalidCodeMenu(reason: string): string {
 // drift out of sync. See lib/ussd/menu-items.ts for why hand-numbering a
 // second switch is unsafe here.
 
-export type ProductMenuKey = "data" | "airtime" | "resultsChecker"
+export type ProductMenuKey = "data" | "airtime" | "resultsChecker" | "networkPlans" | "payBills"
 
+// The commission-cashback bot items (networkPlans / payBills) stay LAST so the existing digits never move.
 const PRODUCT_MENU_ITEMS: MenuItemDef<ProductMenuKey>[] = [
   { key: "data", label: "Browse Services" },
   { key: "airtime", label: "Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
+  { key: "networkPlans", label: "Network Plans" },
+  { key: "payBills", label: "Pay Bills" },
 ]
 
+/** Legacy items default to shown; the bot items default to HIDDEN (only the gate turns them on). */
 export function resolveProductMenu(visible: Partial<Record<ProductMenuKey, boolean>> = {}) {
-  const full: Record<ProductMenuKey, boolean> = { data: true, airtime: true, resultsChecker: true, ...visible }
+  const full: Record<ProductMenuKey, boolean> = {
+    data: true, airtime: true, resultsChecker: true, networkPlans: false, payBills: false, ...visible,
+  }
   return resolveMenuItems(PRODUCT_MENU_ITEMS, full)
 }
 

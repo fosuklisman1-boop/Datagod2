@@ -22,23 +22,29 @@ function truncate(msg: string): string {
 // with the same visibility input, so they can never drift out of sync. See
 // lib/ussd/menu-items.ts for why hand-numbering a second switch is unsafe here.
 
-export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker"
+export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker" | "networkPlans" | "payBills"
 
+// The commission-cashback bot items (networkPlans / payBills) stay LAST so the existing digits never move.
 const MAIN_MENU_ITEMS: MenuItemDef<MainMenuKey>[] = [
   { key: "data", label: "Browse Services" },
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
+  { key: "networkPlans", label: "Network Plans" },
+  { key: "payBills", label: "Pay Bills" },
 ]
 
+/** Legacy items default to shown; the bot items default to HIDDEN (only the gated Uzo main USSD turns them on). */
 export function resolveMainMenu(visible: Partial<Record<MainMenuKey, boolean>> = {}) {
-  const full: Record<MainMenuKey, boolean> = { data: true, afa: true, airtime: true, resultsChecker: true, ...visible }
+  const full: Record<MainMenuKey, boolean> = {
+    data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: false, payBills: false, ...visible,
+  }
   return resolveMenuItems(MAIN_MENU_ITEMS, full)
 }
 
 /**
  * Renders the main menu. `visible` defaults to `{}`, which resolves every
- * key to true — so `mainMenu()` with no arguments is IDENTICAL to today's
+ * legacy key to true and the bot keys to false — so `mainMenu()` with no arguments is IDENTICAL to today's
  * full 4-item menu. This is required for backward compatibility: the
  * WhatsApp bot (lib/whatsapp-bot/router.ts, out of scope for this feature)
  * and the AI ordering tool (lib/ai-tools.ts) both call `mainMenu()` with no

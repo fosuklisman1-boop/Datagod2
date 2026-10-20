@@ -6,6 +6,10 @@ import { buildRcBoardOptions } from "../../ussd/handlers/results-checker"
 import { resolveShopCode } from "@/lib/shop-commerce/shop-code"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 import { keyForDigit } from "../../ussd/menu-items"
+import { botMenusVisible } from "@/lib/ussd/bots/gate"
+import { startNetworkPlans } from "@/lib/ussd/bots/network-plans"
+import { startPayBills } from "@/lib/ussd/bots/pay-bills"
+import type { UzoBotCtx } from "@/lib/ussd/bots/kit"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -113,13 +117,26 @@ export async function handleEnterShopCode(
     dataBlocked,
   })
 
+  return cont(productMenu(shopName, await productMenuVisibility(dataBlocked)))
+}
+
+/**
+ * What the product menu shows. Combines the per-caller whitelist gate (existing, unrelated to the admin toggle)
+ * with the admin's global service-visibility toggle — data bundle only shows if BOTH allow it; Airtime / Results
+ * Checker are gated only by the admin toggle. The commission-cashback bot items (Network Plans / Pay Bills) come
+ * from their gate (cashback config AND visibility flag, fail closed); closed, the map renders the legacy menu byte
+ * for byte.
+ */
+export async function productMenuVisibility(dataBlocked: boolean): Promise<Record<ProductMenuKey, boolean>> {
   const adminVisibility = await getUssdServiceVisibility(supabase)
-  const effective: Partial<Record<ProductMenuKey, boolean>> = {
+  const gate = await botMenusVisible(supabase, adminVisibility)
+  return {
     data: !dataBlocked && adminVisibility.data,
     airtime: adminVisibility.airtime,
     resultsChecker: adminVisibility.resultsChecker,
+    networkPlans: gate.networkPlans,
+    payBills: gate.payBills,
   }
-  return cont(productMenu(shopName, effective))
 }
 
 // ── SELECT_PRODUCT ────────────────────────────────────────────────────────────
@@ -138,18 +155,13 @@ export async function handleSelectProduct(
 
   if (input.trim() === '0') return end('Goodbye.')
 
-  // Combine the per-caller whitelist gate (existing, unrelated to this
-  // feature) with the admin's global service-visibility toggle — data
-  // bundle only shows if BOTH allow it. Airtime/Results Checker are gated
-  // only by the admin toggle.
-  const adminVisibility = await getUssdServiceVisibility(supabase)
-  const effective: Partial<Record<ProductMenuKey, boolean>> = {
-    data: !dataBlocked && adminVisibility.data,
-    airtime: adminVisibility.airtime,
-    resultsChecker: adminVisibility.resultsChecker,
-  }
+  const effective = await productMenuVisibility(dataBlocked)
   const resolved = resolveProductMenu(effective)
   const matchedKey = keyForDigit(resolved, input)
+  // The shop this session resolved (active only); the bot flows fail closed when it is missing.
+  const botCtx: UzoBotCtx = {
+    surface: 'ussd_shop', sessionId, dialingPhone: session.dialingPhone ?? '', shopId: session.shopId ?? null, shopName,
+  }
 
   switch (matchedKey) {
     case 'data': {
@@ -167,6 +179,11 @@ export async function handleSelectProduct(
       await setSession(sessionId, { ...session, step: 'SHOP_RC_SELECT_BOARD', rcBoardOptions: boards })
       return cont(shopRcBoardMenu(shopName, boards))
     }
+    // Only reachable when the gate showed the item (resolveProductMenu hides them otherwise).
+    case 'networkPlans':
+      return startNetworkPlans(botCtx, session)
+    case 'payBills':
+      return startPayBills(botCtx, session)
     default:
       return cont(productMenu(shopName, effective))
   }
