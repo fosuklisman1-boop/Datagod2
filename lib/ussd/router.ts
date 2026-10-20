@@ -27,6 +27,18 @@ import { botOtpCandidate, handleBotOtpRedial } from "./bots/otp-redial"
 
 const TERMINATE_THRESHOLD = 29
 
+/** The data whitelist check op=1 runs (whitelist ON and no completed purchase => blocked). */
+async function dataBlockedFor(msisdn: string): Promise<boolean> {
+  const localPhone = msisdn.startsWith('+233') ? '0' + msisdn.slice(4)
+    : msisdn.startsWith('233') ? '0' + msisdn.slice(3)
+    : msisdn
+  const [{ data: whitelistSetting }, { data: hasPurchasedData }] = await Promise.all([
+    supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
+    supabase.rpc("has_completed_purchase", { local_phone: localPhone, msisdn }),
+  ])
+  return whitelistSetting?.value?.enabled === true && hasPurchasedData !== true
+}
+
 export async function router(req: UzoRequest): Promise<UzoResponse> {
   const { sessionID, ussdServiceOp, ussdString, msisdn } = req
   const op = parseInt(ussdServiceOp, 10)
@@ -115,8 +127,10 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       "[USSD-SESSION] No session found for", sessionID,
       "op:", ussdServiceOp, "redisConfigured:", isRedisConfigured()
     )
-    await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-    return cont('Time limit exceeded.\n\n' + mainMenu(await mainMenuVisibility(false, true)))
+    // The whitelist state was lost with the session: re-check it, as op=1 does (Browse Services and Network Plans).
+    const dataBlocked = await dataBlockedFor(msisdn)
+    await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn, dataBlocked })
+    return cont('Time limit exceeded.\n\n' + mainMenu(await mainMenuVisibility(dataBlocked, true)))
   }
 
   const input = ussdString ?? ''
@@ -263,8 +277,9 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       )
 
     default: {
-      await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-      return cont(mainMenu(await mainMenuVisibility(false, true)))
+      const dataBlocked = session.dataBlocked === true
+      await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn, dataBlocked })
+      return cont(mainMenu(await mainMenuVisibility(dataBlocked, true)))
     }
   }
 }

@@ -149,7 +149,8 @@ export async function productMenuVisibility(dataBlocked: boolean): Promise<Recor
 export async function handleSelectProduct(
   input: string,
   sessionId: string,
-  session: USSDShopSession
+  session: USSDShopSession,
+  msisdn?: string
 ): Promise<UzoResponse> {
   const shopName = session.shopName ?? 'Shop'
   const dataBlocked = session.dataBlocked === true
@@ -159,9 +160,10 @@ export async function handleSelectProduct(
   const effective = await productMenuVisibility(dataBlocked)
   const resolved = resolveProductMenu(effective)
   const matchedKey = keyForDigit(resolved, input)
-  // The shop this session resolved (active only); the bot flows fail closed when it is missing.
+  // The shop this session resolved (active only); the bot flows fail closed when it is missing. Dialing phone: the
+  // session's, else the request MSISDN (same fallback as the routers).
   const botCtx: UzoBotCtx = {
-    surface: 'ussd_shop', sessionId, dialingPhone: session.dialingPhone ?? '', shopId: session.shopId ?? null, shopName,
+    surface: 'ussd_shop', sessionId, dialingPhone: session.dialingPhone ?? msisdn ?? '', shopId: session.shopId ?? null, shopName,
   }
 
   switch (matchedKey) {

@@ -131,6 +131,15 @@ describe("handleSelectProduct: every gate combination", () => {
     expect(h.setSession).toHaveBeenLastCalledWith(SID, expect.objectContaining({ step: "SHOP_AIRTIME_ENTER_RECIPIENT" }))
   })
 
+  it("dialing phone: the session's, else the request MSISDN (same fallback as the routers)", async () => {
+    h.bots = { networkPlans: true, payBills: true }
+    const s = session({ dialingPhone: undefined })
+    await handleSelectProduct("4", SID, s, "233200000001")
+    expect(h.startNetworkPlans).toHaveBeenCalledWith({ ...SHOP_CTX, dialingPhone: "233200000001" }, s)
+    await handleSelectProduct("5", SID, session(), "233200000001")
+    expect(h.startPayBills).toHaveBeenCalledWith(SHOP_CTX, expect.anything()) // the session's own number wins
+  })
+
   it("the bot flows get the session's resolved shop; a session without one passes null (the flow fails closed)", async () => {
     h.bots = { networkPlans: true, payBills: true }
     const s = session({ shopId: undefined })

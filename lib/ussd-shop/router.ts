@@ -92,7 +92,7 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
       return handleEnterShopCode(input, sessionID, session.dialingPhone ?? msisdn)
 
     case 'SELECT_PRODUCT':
-      return handleSelectProduct(input, sessionID, session)
+      return handleSelectProduct(input, sessionID, session, msisdn)
 
     case 'SELECT_NETWORK':
       return handleSelectNetwork(input, sessionID, session)

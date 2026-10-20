@@ -207,6 +207,35 @@ describe("existing OTP submit paths are unchanged", () => {
   })
 })
 
+describe("main router repaints keep the caller's data whitelist state", () => {
+  const BLOCKED_MENU = "Welcome to Datagod\n1. AFA Registration\n2. Buy Airtime\n3. Results Checker\n0. Exit"
+  const blockWhitelist = () => {
+    // Whitelist ON (admin_settings) and no completed purchase (rpc => false): the caller is data-blocked.
+    ;(h.state.pending as any).admin_settings = { value: { enabled: true } }
+  }
+
+  it("timeout (no session): the whitelist is re-checked; a blocked caller gets no Browse Services, and it is saved", async () => {
+    blockWhitelist()
+    const r = await router(req("18", "1"))
+    expect(r).toEqual({ message: `Time limit exceeded.\n\n${BLOCKED_MENU}`, ussdServiceOp: 2 })
+    expect(h.state.mainSessions.get(SID)).toEqual({ step: "MAIN", dialingPhone: MSISDN, dataBlocked: true })
+  })
+
+  it("timeout, whitelist off: today's full menu", async () => {
+    const r = await router(req("18", "1"))
+    expect(r).toEqual({ message: `Time limit exceeded.\n\n${LEGACY_MAIN}`, ussdServiceOp: 2 })
+    expect(h.state.mainSessions.get(SID)).toEqual({ step: "MAIN", dialingPhone: MSISDN, dataBlocked: false })
+  })
+
+  it("default (unknown step): the session's dataBlocked is kept for the repaint and the saved session", async () => {
+    h.state.mainSessions.set(SID, { step: "NOPE", dialingPhone: MSISDN, dataBlocked: true })
+    expect(await router(req("18", "1"))).toEqual({ message: BLOCKED_MENU, ussdServiceOp: 2 })
+    expect(h.state.mainSessions.get(SID)).toEqual({ step: "MAIN", dialingPhone: MSISDN, dataBlocked: true })
+    h.state.mainSessions.set(SID, { step: "NOPE", dialingPhone: MSISDN })
+    expect(await router(req("18", "1"))).toEqual({ message: LEGACY_MAIN, ussdServiceOp: 2 })
+  })
+})
+
 describe("NP_* / PB_* steps: shop context from the router", () => {
   const NP = ["NP_NETWORK", "NP_CATEGORY", "NP_PLAN", "NP_RECIPIENT", "NP_CONFIRM"]
   const PB = ["PB_BILLER", "PB_ECG_MODE", "PB_ACCOUNT", "PB_METERS", "PB_METER_TYPE", "PB_CONSENT", "PB_AMOUNT", "PB_CONFIRM"]
