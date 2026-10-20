@@ -17,6 +17,21 @@ export async function markCommissionOrderPaid(
   patch: { paid_at: string; payment_reference: string },
   opts: { extra?: Record<string, unknown>; channels?: readonly string[] } = {},
 ): Promise<number> {
+  return (await markCommissionOrderPaidRow(db, table, id, patch, opts)).changed
+}
+
+/**
+ * The same guarded flip, also returning the `status` the flipped row has, read from the update itself (no second
+ * read). The confirmation decides share + dispatch from it, so a row failed (e.g. by the stale sweep) after the
+ * confirm's earlier read can never be credited or sent. `{ changed: 0, status: null }` when nothing flipped.
+ */
+export async function markCommissionOrderPaidRow(
+  db: SupabaseClient,
+  table: StorefrontOrderTable,
+  id: string,
+  patch: { paid_at: string; payment_reference: string },
+  opts: { extra?: Record<string, unknown>; channels?: readonly string[] } = {},
+): Promise<{ changed: number; status: string | null }> {
   const { data, error } = await db
     .from(table)
     .update({
@@ -26,7 +41,8 @@ export async function markCommissionOrderPaid(
     .eq("id", id)
     .in("channel", [...(opts.channels ?? PAYABLE_CHANNELS)])
     .eq("payment_status", "unpaid")
-    .select("id")
+    .select("id, status")
   if (error) throw error
-  return data?.length ?? 0
+  const rows = (data ?? []) as { id: string; status?: string | null }[]
+  return { changed: rows.length, status: rows.length ? rows[0].status ?? null : null }
 }

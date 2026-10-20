@@ -20,14 +20,19 @@ export interface StorefrontPaidOrder {
   created_at: string
 }
 
+/** Rows changed, or rows changed + the flipped row's status (preferred; see ConfirmDeps.markPaid). */
+export type MarkPaidResult = number | { changed: number; status: string | null }
+
 export interface ConfirmDeps {
   /** Throws on a read error. */
   getOrder(table: StorefrontOrderTable, id: string): Promise<StorefrontPaidOrder | null>
   /**
-   * Guarded `unpaid -> paid` (`.eq('payment_status','unpaid')`, commission rows only: channel storefront or bots);
-   * returns rows changed. Throws on error.
+   * Guarded `unpaid -> paid` (`.eq('payment_status','unpaid')`, commission rows only: channel storefront or bots).
+   * Returns the rows changed and, preferably, the `status` the flipped row has (read from the update itself): share
+   * and dispatch are decided from it, never from the earlier read. A plain number (status unknown) falls back to the
+   * earlier read. Throws on error.
    */
-  markPaid(table: StorefrontOrderTable, id: string, patch: { paid_at: string; payment_reference: string }): Promise<number>
+  markPaid(table: StorefrontOrderTable, id: string, patch: { paid_at: string; payment_reference: string }): Promise<MarkPaidResult>
   /** shop_profits insert; throws the PostgREST error (with `code`) on failure. */
   insertShopProfit(row: Record<string, unknown>): Promise<void>
   /** Utility Bills auto-fulfil switch (dashboard rule reused for storefront bills). Throws on a read error. */
@@ -142,8 +147,18 @@ export async function confirmCommissionOrder(
   }
 
   let flipped: number
+  // The status the row has AT the flip. The earlier read can be stale: the stale-unpaid sweep may fail the order
+  // between that read and this (status-unguarded) flip; deciding from the read would credit a share for, and try to
+  // send, a failed order. With the flip's own status it takes the needs-review path below instead.
+  let statusAtFlip = order.status
   try {
-    flipped = await d.markPaid(table, order.id, { paid_at: new Date(d.now()).toISOString(), payment_reference: p.reference })
+    const m = await d.markPaid(table, order.id, { paid_at: new Date(d.now()).toISOString(), payment_reference: p.reference })
+    if (typeof m === "number") {
+      flipped = m
+    } else {
+      flipped = m.changed
+      if (m.status) statusAtFlip = m.status
+    }
   } catch (e) {
     // The write may still have committed: a retry goes through the recovery path.
     console.error(`[storefront-confirm] paid flip failed for ${ref}:`, msg(e))
@@ -158,9 +173,9 @@ export async function confirmCommissionOrder(
 
   // This call flipped the order. A non-pending order (failed / expired, then paid) is never sent and is to be
   // refunded, so no shop share is credited for it.
-  if (order.status !== "pending") {
-    await safeAlert(d, `URGENT: ${kind(order)} order ${ref} was paid (ref ${p.reference}) while its status is ${order.status}. Not sent; refund it.`, true)
-    return { outcome: "confirmed", status: order.status }
+  if (statusAtFlip !== "pending") {
+    await safeAlert(d, `URGENT: ${kind(order)} order ${ref} was paid (ref ${p.reference}) while its status is ${statusAtFlip}. Not sent; refund it.`, true)
+    return { outcome: "confirmed", status: statusAtFlip }
   }
   return { outcome: "confirmed", status: await postFlip(d, table, order) }
 }

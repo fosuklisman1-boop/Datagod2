@@ -220,6 +220,38 @@ describe("confirmCommissionOrder: bot orders", () => {
     expect(m.profits).toEqual([])
   })
 
+  it("RACE: the stale sweep fails the order between the confirm's read and its paid flip => needs review (no share, no send, alert)", async () => {
+    const m = make()
+    const real = m.d.markPaid
+    // The confirm already read the row as pending; the sweep fails it just before the (status-unguarded) paid flip.
+    // The runtime flip returns the row state it wrote (select on the update); the fake does the same.
+    m.d.markPaid = async (t, id, patch) => {
+      const row = m.tables[t].find(r => r.id === id)!
+      Object.assign(row, { status: "failed", failure_reason: "payment not completed" })
+      const n = (await real(t, id, patch)) as number
+      return { changed: n, status: n ? row.status : null }
+    }
+    const r = await confirmBotOrder(m.d, "hubtel_data_orders", "d1", BUNDLE_PAY)
+    expect(r).toEqual({ outcome: "confirmed", status: "failed" })
+    expect(m.tables.hubtel_data_orders[0]).toMatchObject({ payment_status: "paid", status: "failed" })
+    expect(m.profits).toEqual([]) // no shop share for a never-sent order
+    expect(m.purchases).toHaveLength(0) // never sent
+    expect(m.alerts.some(a => a.urgent && a.m.includes("refund"))).toBe(true)
+  })
+
+  it("no race: a flip that reports status pending still credits once and dispatches (same as a number result)", async () => {
+    const m = make()
+    const real = m.d.markPaid
+    m.d.markPaid = async (t, id, patch) => {
+      const n = (await real(t, id, patch)) as number
+      return { changed: n, status: n ? m.tables[t].find(r => r.id === id)!.status : null }
+    }
+    expect(await confirmBotOrder(m.d, "hubtel_data_orders", "d1", BUNDLE_PAY)).toEqual({ outcome: "confirmed", status: "processing" })
+    expect(m.profits).toHaveLength(1)
+    expect(m.purchases).toHaveLength(1)
+    expect(m.alerts).toEqual([])
+  })
+
   it("confirmBotOrder refuses storefront and dashboard rows; confirmCommissionOrder refuses dashboard", async () => {
     const sf = make({ bills: [botBill({ channel: "storefront", shop_id: "shop1" })] })
     expect((await confirmBotOrder(sf.d, "hubtel_bill_orders", "b1", BILL_PAY)).outcome).toBe("refused")

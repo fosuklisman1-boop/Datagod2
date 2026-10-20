@@ -9,7 +9,7 @@ import {
   COMMISSION_CHANNELS, confirmBotOrder, settleStorefrontPayment, verifyStorefrontPayment,
   type ConfirmPayment, type ConfirmResult, type SettleDeps, type SettleInput, type StorefrontPaidOrder, type StorefrontPaymentRow, type VerifyDeps,
 } from "./confirm"
-import { markCommissionOrderPaid } from "./mark-paid"
+import { markCommissionOrderPaidRow } from "./mark-paid"
 import { STOREFRONT_ORDER_TABLE, type StorefrontOrderTable, type StorefrontOrderType } from "./payment"
 
 const COLUMNS =
@@ -24,7 +24,8 @@ export function buildSettleDeps(db: SupabaseClient, bills: BillsDeps, bundles: B
       if (error) throw error
       return (data as unknown as StorefrontPaidOrder | null) ?? null
     },
-    markPaid: (table, id, patch) => markCommissionOrderPaid(db, table, id, patch, { channels: COMMISSION_CHANNELS }),
+    // Returns the flipped row's status too: share + dispatch are decided from the flip, never a stale read.
+    markPaid: (table, id, patch) => markCommissionOrderPaidRow(db, table, id, patch, { channels: COMMISSION_CHANNELS }),
     async insertShopProfit(row) {
       const { error } = await db.from("shop_profits").insert([row])
       if (error) throw error
