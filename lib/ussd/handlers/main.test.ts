@@ -67,13 +67,15 @@ describe("handleMain on the Uzo main USSD: every gate combination", () => {
     it(`np=${np} pb=${pb} dataBlocked=${dataBlocked}: text and digits agree`, async () => {
       h.bots = { networkPlans: np, payBills: pb }
       const s = session({ dataBlocked })
-      const menu = expected({ data: !dataBlocked, np, pb })
+      // Network Plans is a data product: the data whitelist hides it exactly like Browse Services.
+      const npShown = np && !dataBlocked
+      const menu = expected({ data: !dataBlocked, np: npShown, pb })
       expect(await handleMain("", SID, s, "ussd")).toEqual({ message: menu, ussdServiceOp: 2 })
       if (!np && !pb && !dataBlocked) expect(menu).toBe(LEGACY)
 
       const first = dataBlocked ? 4 : 5 // the first digit after the legacy items
-      const npDigit = np ? first : null
-      const pbDigit = pb ? (np ? first + 1 : first) : null
+      const npDigit = npShown ? first : null
+      const pbDigit = pb ? (npShown ? first + 1 : first) : null
       for (let d = first; d <= first + 2; d++) {
         h.startNetworkPlans.mockClear()
         h.startPayBills.mockClear()
@@ -114,6 +116,21 @@ describe("handleMain on the Uzo main USSD: every gate combination", () => {
     expect((await handleMain("5", SID, session(), "ussd")).message).toBe("PB START")
   })
 
+  it("data whitelist: a blocked caller never sees Network Plans; Pay Bills stays; legacy digits do not move", async () => {
+    h.bots = { networkPlans: true, payBills: true }
+    const blocked = session({ dataBlocked: true })
+    const menu = "Welcome to Datagod\n1. AFA Registration\n2. Buy Airtime\n3. Results Checker\n4. Pay Bills\n0. Exit"
+    expect((await handleMain("", SID, blocked, "ussd")).message).toBe(menu)
+    expect((await handleMain("4", SID, blocked, "ussd")).message).toBe("PB START")
+    expect((await handleMain("5", SID, blocked, "ussd")).message).toBe(menu)
+    expect(h.startNetworkPlans).not.toHaveBeenCalled()
+    // The legacy items keep the digits they have today for a blocked caller (gate closed: same menu minus Pay Bills).
+    h.bots = { networkPlans: false, payBills: false }
+    expect((await handleMain("", SID, blocked, "ussd")).message).toBe(menu.replace("\n4. Pay Bills", ""))
+    await handleMain("1", SID, blocked, "ussd")
+    expect(h.setSession).toHaveBeenLastCalledWith(SID, { step: "AFA_ENTER_NAME", dialingPhone: ME, dataBlocked: true })
+  })
+
   it("the gate gets the visibility map already read (no second read)", async () => {
     await handleMain("", SID, session(), "ussd")
     expect(h.botMenusVisible).toHaveBeenCalledTimes(1)
@@ -140,8 +157,12 @@ describe("mainMenuVisibility", () => {
       data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: false, payBills: false,
     })
     expect(h.botMenusVisible).not.toHaveBeenCalled()
+    expect(await mainMenuVisibility(false, true)).toEqual({
+      data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: false,
+    })
+    // dataBlocked hides Network Plans with Browse Services.
     expect(await mainMenuVisibility(true, true)).toEqual({
-      data: false, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: false,
+      data: false, afa: true, airtime: true, resultsChecker: true, networkPlans: false, payBills: false,
     })
   })
 })

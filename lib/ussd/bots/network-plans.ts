@@ -119,6 +119,7 @@ export async function startNetworkPlans(
   ctx: UzoBotCtx, session: UzoBotSession, d: NetworkPlansDeps = liveNetworkPlansDeps(ctx.surface),
 ): Promise<UzoResponse> {
   if (!uzoBotContext(ctx)) return d.io.end(UZO_BOT_UNAVAILABLE) // shop menu without a resolved shop: fail closed
+  if (session.dataBlocked === true) return d.io.end(NP_TEXT.notAvailable) // data whitelist (as Browse Services)
   await d.io.save(ctx.sessionId, { ...withoutBotFields(session), step: "NP_NETWORK" } as UzoBotSession)
   return d.io.cont(networkScreen(ctx))
 }
@@ -128,6 +129,8 @@ export async function handleNetworkPlansStep(
 ): Promise<UzoResponse> {
   const x: Step = { ctx, input: (input ?? "").trim(), s: session, d }
   if (!uzoBotContext(ctx)) return d.io.end(UZO_BOT_UNAVAILABLE)
+  // Data whitelist: a blocked caller never gets here from the menu; a stale / crafted session is refused.
+  if (session.dataBlocked === true) return d.io.end(NP_TEXT.notAvailable)
   switch (session.step) {
     case "NP_NETWORK": return selectNetwork(x)
     case "NP_CATEGORY": return selectCategory(x)

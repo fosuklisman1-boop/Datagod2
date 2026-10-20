@@ -80,13 +80,15 @@ describe("handleSelectProduct: every gate combination", () => {
     it(`np=${np} pb=${pb} dataBlocked=${dataBlocked}: text and digits agree`, async () => {
       h.bots = { networkPlans: np, payBills: pb }
       const s = session({ dataBlocked })
-      const menu = expected({ data: !dataBlocked, np, pb })
+      // Network Plans is a data product: the data whitelist hides it exactly like Browse Services.
+      const npShown = np && !dataBlocked
+      const menu = expected({ data: !dataBlocked, np: npShown, pb })
       expect(await handleSelectProduct("", SID, s)).toEqual({ message: menu, ussdServiceOp: 2 })
       if (!np && !pb && !dataBlocked) expect(menu).toBe(LEGACY)
 
       const first = dataBlocked ? 3 : 4
-      const npDigit = np ? first : null
-      const pbDigit = pb ? (np ? first + 1 : first) : null
+      const npDigit = npShown ? first : null
+      const pbDigit = pb ? (npShown ? first + 1 : first) : null
       for (let d = first; d <= first + 2; d++) {
         h.startNetworkPlans.mockClear()
         h.startPayBills.mockClear()
@@ -115,6 +117,18 @@ describe("handleSelectProduct: every gate combination", () => {
     await handleSelectProduct("3", SID, session())
     expect(h.setSession).toHaveBeenLastCalledWith(SID, expect.objectContaining({ step: "SHOP_RC_SELECT_BOARD" }))
     expect(h.startNetworkPlans).not.toHaveBeenCalled()
+  })
+
+  it("data whitelist: a blocked caller never sees Network Plans; Pay Bills stays; legacy digits do not move", async () => {
+    h.bots = { networkPlans: true, payBills: true }
+    const blocked = session({ dataBlocked: true })
+    const menu = "Ama\nWhat to buy?\n1. Airtime\n2. Results Checker\n3. Pay Bills\n0. Exit"
+    expect((await handleSelectProduct("", SID, blocked)).message).toBe(menu)
+    expect((await handleSelectProduct("3", SID, blocked)).message).toBe("PB START")
+    expect((await handleSelectProduct("4", SID, blocked)).message).toBe(menu)
+    expect(h.startNetworkPlans).not.toHaveBeenCalled()
+    await handleSelectProduct("1", SID, blocked)
+    expect(h.setSession).toHaveBeenLastCalledWith(SID, expect.objectContaining({ step: "SHOP_AIRTIME_ENTER_RECIPIENT" }))
   })
 
   it("the bot flows get the session's resolved shop; a session without one passes null (the flow fails closed)", async () => {

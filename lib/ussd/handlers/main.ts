@@ -29,7 +29,8 @@ export async function mainMenuVisibility(dataBlocked: boolean, bots: boolean): P
     afa: adminVisibility.afa,
     airtime: adminVisibility.airtime,
     resultsChecker: adminVisibility.resultsChecker,
-    networkPlans: gate.networkPlans,
+    // Network Plans is a data product: the data whitelist hides it exactly like Browse Services. Pay Bills is not.
+    networkPlans: !dataBlocked && gate.networkPlans,
     payBills: gate.payBills,
   }
 }

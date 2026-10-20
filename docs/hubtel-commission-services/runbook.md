@@ -404,7 +404,7 @@ The Uzo main USSD (`/api/ussd`) and shop USSD (`/api/ussd-shop`) gain **Network 
    - Main: dial, and check that `5. Network Plans` / `6. Pay Bills` follow `4. Results Checker` (numbering shifts down if an item above is hidden). Shop: enter a test shop code, and check that `4. Network Plans` / `5. Pay Bills` follow `3. Results Checker`.
    - Network Plans: network → type → cheapest plan → "My number" → `1. Confirm` → approve the MoMo prompt. The order must show channel Bot (USSD / Shop USSD), status completed, and in shop mode the shop share credited once.
    - Pay Bills: ECG → "This number" (or "Meter number" for an unlinked meter, which asks consent to link it) → GHS 1 → confirm → approve. Check `/admin/utility-bills`.
-   - OTP: if the prompt says an OTP was sent instead, redial. The OTP prompt appears, the code finishes the charge, a wrong code shows "Wrong code. Try again.", and `0` cancels (payment + order failed, guarded).
+   - OTP: if the prompt says an OTP was sent instead, redial. The OTP prompt appears, the code finishes the charge, a wrong code shows "Wrong code. Try again.", and `0` cancels (payment + order failed, guarded). The code is submitted while the USSD session is still open, so verify on a real handset that the MoMo approval prompt arrives after you enter the OTP.
    - Leave one prompt unapproved. Within about 40 minutes the order must be `failed` with "payment not completed" (payment_status stays `unpaid`) and its `wallet_payments` row `failed`.
    - Switch the Bots surface OFF and re-dial: both menus are gone on both Uzo menus.
 5. **Ruling: no OTP switch and no direct-charge switch on USSD.** The dialing number is network-authenticated, so the storefront OTP and direct-charge admin switches do not apply. The MoMo prompt always goes to the dialing number. There is a per-phone cap of 3 charges per hour (shared with the storefront `momodirect_phone` budget), on top of the engine's pending-order caps.
@@ -423,8 +423,8 @@ The Uzo main USSD (`/api/ussd`) and shop USSD (`/api/ussd-shop`) gain **Network 
 
 Known limits:
 - Back (`0`) from the legacy Data / AFA / Results Checker / Status screens on the **main** menu repaints the main menu WITHOUT the bot items. Those renderers are shared with the WhatsApp bot and were left untouched. The items still work by their digit, since they are numbered last, and they show again on the next full menu (redial, or back from Airtime or a bot flow). The shop menu and main Airtime back paths do show them.
-- The bot items are not hidden by the data whitelist (`ussd_data_whitelist_enabled` / `dataBlocked`): only the cashback gate and the visibility switches apply.
-- An OTP code is submitted to Paystack while the USSD session is still open. The existing OTP handlers submit after the session closes, with a 3 s delay. If MoMo approval prompts collide with the open USSD session on some handsets, revisit this.
+- Data whitelist (`ussd_data_whitelist_enabled` / `dataBlocked`): **Network Plans** is a data product, so it is hidden for a blocked caller exactly where Browse Services is. A stale session that reaches a Network Plans step anyway gets "Not available right now.". **Pay Bills** is not data and follows only the cashback gate and its visibility switch.
+- An OTP code is submitted to Paystack while the USSD session is still open (kept on purpose, for the "Wrong code" retry). The existing OTP handlers submit after the session closes, with a 3 s delay. Step 4 covers the handset check.
 - Once confirm has called the engine, the session goes back to the menu (all bot fields and tokens dropped), so back-navigation can never create a second order.
 
 Follow-ups (not fixed in Plan 3):

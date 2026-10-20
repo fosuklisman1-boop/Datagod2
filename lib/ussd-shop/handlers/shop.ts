@@ -134,7 +134,8 @@ export async function productMenuVisibility(dataBlocked: boolean): Promise<Recor
     data: !dataBlocked && adminVisibility.data,
     airtime: adminVisibility.airtime,
     resultsChecker: adminVisibility.resultsChecker,
-    networkPlans: gate.networkPlans,
+    // Network Plans is a data product: the data whitelist hides it exactly like Browse Services. Pay Bills is not.
+    networkPlans: !dataBlocked && gate.networkPlans,
     payBills: gate.payBills,
   }
 }

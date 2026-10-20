@@ -380,6 +380,29 @@ describe("network plans: the flow is closed once the engine was called", () => {
   }
 })
 
+describe("network plans: data whitelist", () => {
+  for (const surface of ["ussd", "ussd_shop"] as const) {
+    it(`${surface}: a dataBlocked caller is refused at the start and at every NP_* step (stale session); nothing looked up or ordered`, async () => {
+      const t = setup({ surface })
+      const blocked = { ...(surface === "ussd_shop"
+        ? { step: "SELECT_PRODUCT", shopId: SHOP, shopName: "Ama Shop" }
+        : { step: "MAIN" }), dialingPhone: ME, dataBlocked: true } as UzoBotSession
+      expect(await startNetworkPlans(t.ctx, blocked, t.deps)).toEqual({ message: "Not available right now.", ussdServiceOp: 17 })
+      expect(t.store.size).toBe(0)
+      for (const step of ["NP_NETWORK", "NP_CATEGORY", "NP_PLAN", "NP_RECIPIENT", "NP_CONFIRM"] as const) {
+        const s = {
+          ...blocked, step, npNetwork: "MTN", npCategories: ["Data"], npCategory: "Data", npPage: 0,
+          npPlans: [{ t: "tok-1", d: "1GB", f: 11, p: 10.5 }], npPlan: { t: "tok-1", d: "1GB", f: 11, p: 10.5 }, npRecipient: ME_LOCAL,
+        } as UzoBotSession
+        expect(await handleNetworkPlansStep(t.ctx, "1", s, t.deps)).toEqual({ message: "Not available right now.", ussdServiceOp: 17 })
+      }
+      expect(t.deps.catalog).not.toHaveBeenCalled()
+      expect(t.deps.createOrder).not.toHaveBeenCalled()
+      expect(t.deps.charge).not.toHaveBeenCalled()
+    })
+  }
+})
+
 describe("network plans: catalog token expired at confirm", () => {
   it("the engine's 'prices refreshed' 409 shows a start-again hint; a price-change 409 stays 'Price changed'", async () => {
     const t = setup({ createOrder: async () => ({ ok: false, status: 409, error: PRICES_REFRESHED }) })
