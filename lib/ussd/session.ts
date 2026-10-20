@@ -28,6 +28,11 @@ export function isRedisConfigured(): boolean {
   return redis !== null
 }
 
+/** The USSD sessions' Upstash client (null when not configured), shared with the bot OTP pointer. */
+export function getUssdRedis(): Redis | null {
+  return redis
+}
+
 const fallbackCache = new Map<string, { data: USSDSession, expires: number }>()
 
 export async function getSession(sessionId: string): Promise<USSDSession | null> {
