@@ -45,6 +45,11 @@ describe("uzoAirtimeQuote", () => {
     expect(await uzoUsableAirtimeQuote("MTN", 10, false)).toBeNull()
     h.quoteBotAirtime.mockResolvedValueOnce(quote({ applied: false }))
     expect(await uzoUsableAirtimeQuote("MTN", 10, false)).toBeNull()
+    // base is the wallet price: must be finite, positive and not above payAmount.
+    for (const base of [NaN, 0, 9.7]) {
+      h.quoteBotAirtime.mockResolvedValueOnce(quote({ base }))
+      expect(await uzoUsableAirtimeQuote("MTN", 10, false)).toBeNull()
+    }
   })
 })
 
@@ -64,9 +69,9 @@ describe("airtimeRequote (stale-session guard)", () => {
 })
 
 describe("uzoCashbackAirtimeColumns", () => {
-  it("main: face delivered, total = payAmount, fee = payment fee, no shop share", () => {
+  it("main: face delivered, total = payAmount, fee_amount 0 (fee only in payment_fee_amount), no shop share", () => {
     expect(uzoCashbackAirtimeColumns(quote({ shopShare: 0.2 }), false)).toEqual({
-      airtime_amount: 10, fee_amount: 0.19, total_paid: 9.69, payment_fee_amount: 0.19,
+      airtime_amount: 10, fee_amount: 0, total_paid: 9.69, payment_fee_amount: 0.19,
       cashback_amount: 0.5, shop_share_amount: 0, cashback_rate: 10, cashback_share: 50,
       cashback_provider: "hubtel", expected_commission: 1, merchant_commission: 0,
     })

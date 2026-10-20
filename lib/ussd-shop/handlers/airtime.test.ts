@@ -184,7 +184,7 @@ const CASHBACK_CONFIRM =
 const CASHBACK_ROW = {
   ...LEGACY_ROW,
   airtime_amount: 10,
-  fee_amount: 0.19,
+  fee_amount: 0, // ruling: the Paystack fee lives in payment_fee_amount only
   total_paid: 9.79,
   merchant_commission: 0.25,
   payment_fee_amount: 0.19,

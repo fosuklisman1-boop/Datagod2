@@ -254,7 +254,7 @@ export async function handleShopAirtimeConfirm(
       network,
       beneficiaryPhone: session.airtimeRecipient!,
       airtimeAmount: amount,
-      feeAmount: cb.paymentFee,
+      feeAmount: 0, // the Paystack fee lives in payment_fee_amount only
       totalPaid: cb.payAmount,
       shopId: session.shopId!,
       merchantCommission: cb.shopShare,

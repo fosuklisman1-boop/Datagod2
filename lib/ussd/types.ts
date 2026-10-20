@@ -100,6 +100,7 @@ export interface USSDSession {
   airtimeToDeliver?: number   // amount the recipient receives (amount − fee)
   airtimeFee?: number
   airtimeCashbackPay?: number // cashback applied (Uzo USSD only): price shown = charged (quote.payAmount); airtimeAmount is then the face
+  airtimeCashbackWalletPay?: number // cashback applied: dealer-wallet price (quote.base, no Paystack fee)
   // Results Checker fields
   rcBoard?: string            // 'WASSCE' | 'BECE' | 'NOVDEC'
   rcQty?: number

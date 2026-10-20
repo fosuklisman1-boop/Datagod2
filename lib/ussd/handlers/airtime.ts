@@ -4,7 +4,7 @@ import { UzoResponse, USSDSession } from "../types"
 import {
   cont, end, mainMenu,
   airtimeRecipientPrompt, airtimeNetworkMenu, airtimeAmountPrompt,
-  airtimeConfirmMenu, airtimePaymentMethodMenu,
+  airtimeConfirmMenu, airtimePaymentMethodMenu, airtimeCashbackPaymentMethodMenu,
 } from "../menus"
 import { setSession } from "../session"
 import { networkNickname } from "../network-labels"
@@ -23,7 +23,7 @@ import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 import type { StorefrontQuote } from "../../cashback/quote"
 import {
   airtimeRequote, uzoAirtimeCashbackConfirm, uzoAirtimePromptCashback, uzoAirtimeQuote,
-  uzoCashbackAirtimeColumns, uzoUsableAirtimeQuote,
+  uzoCashbackAirtimeColumns, uzoUsableAirtimeQuote, uzoWalletRepriceColumns,
 } from "../bots/airtime"
 import { botErrorText } from "../bots/screen"
 
@@ -48,6 +48,16 @@ function cashbackConfirmText(session: USSDSession, pay: number, face: number): s
 /** Price the caller pays: the cashback price shown (USSD only), else today's typed amount. */
 const payAmountOf = (session: USSDSession, channel: Channel): number =>
   channel === 'ussd' && session.airtimeCashbackPay !== undefined ? session.airtimeCashbackPay : session.airtimeAmount!
+
+/**
+ * Cashback dealer-wallet price (quote.base) pinned at confirm, or undefined (no cashback / WhatsApp).
+ * Fails closed to the MoMo price when it is missing or not a sane amount (finite, > 0, <= MoMo price).
+ */
+function cashbackWalletPayOf(session: USSDSession, channel: Channel, momoPay: number): number | undefined {
+  if (channel !== 'ussd' || session.airtimeCashbackPay === undefined) return undefined
+  const w = session.airtimeCashbackWalletPay
+  return typeof w === "number" && Number.isFinite(w) && w > 0 && w <= momoPay ? w : momoPay
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -244,11 +254,13 @@ export async function handleAirtimeConfirm(
     const rate = await dialerFeeRate(network, dialer.role)
     ;({ fee, toDeliver } = splitInclusive(amount, rate))
   }
-  // What the caller is charged (MoMo or wallet) = the row's total_paid.
+  // MoMo charge = the row's total_paid as inserted. With cashback the wallet pays the quote's base
+  // (no Paystack fee); the row is re-priced to it if the wallet is chosen.
   const price = cb ? cb.payAmount : amount
+  const walletPrice = cb ? cb.base : amount
 
   const provider = paystackProviderFromPhone(dialingPhone)
-  const walletEligible = dialer.userId && dialer.balance !== undefined && dialer.balance >= price
+  const walletEligible = dialer.userId && dialer.balance !== undefined && dialer.balance >= walletPrice
   if (!walletEligible && !provider) {
     await setSession(sessionId, { step: "MAIN", dialingPhone })
     return end("Payment not available for your number.")
@@ -274,7 +286,7 @@ export async function handleAirtimeConfirm(
       customer_email: dialer.email ?? null,
       dialing_phone: dialingPhone,
       channel: "ussd",
-      // Applied: face delivered, total_paid = payAmount, fee = payment fee, cashback snapshot, no shop share.
+      // Applied: face delivered, total_paid = payAmount, fee_amount 0 (fee in payment_fee_amount), cashback snapshot, no shop share.
       ...(cb ? uzoCashbackAirtimeColumns(cb, false) : {}),
     }])
     .select("id")
@@ -285,8 +297,8 @@ export async function handleAirtimeConfirm(
     return end("Error creating order.\nPlease try again.")
   }
 
-  // Pin the charged price to the row's total_paid for the payment-method step.
-  const priced = cb ? { airtimeCashbackPay: cb.payAmount } : {}
+  // Pin the charged prices for the payment-method step: MoMo = the row's total_paid, wallet = base.
+  const priced = cb ? { airtimeCashbackPay: cb.payAmount, airtimeCashbackWalletPay: cb.base } : {}
 
   if (walletEligible) {
     await setSession(sessionId, {
@@ -300,7 +312,9 @@ export async function handleAirtimeConfirm(
       pendingOrderTable: "airtime_orders",
       ...priced,
     })
-    return cont(airtimePaymentMethodMenu(price, dialer.balance!))
+    return cont(cb
+      ? airtimeCashbackPaymentMethodMenu(walletPrice, price, dialer.balance!)
+      : airtimePaymentMethodMenu(price, dialer.balance!))
   }
 
   await setSession(sessionId, {
@@ -322,7 +336,10 @@ export async function handleAirtimePaymentMethod(
   channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   const orderId = session.pendingOrderId!
-  const amount = payAmountOf(session, channel) // = the row's total_paid
+  const amount = payAmountOf(session, channel) // MoMo charge = the row's total_paid as inserted
+  // Cashback (USSD only): the wallet pays the quote's base, no Paystack fee; the row is re-priced on debit.
+  const walletCashback = cashbackWalletPayOf(session, channel, amount)
+  const walletAmount = walletCashback ?? amount
   const dialingPhone = session.dialingPhone!
 
   if (input.trim() === "0") {
@@ -343,18 +360,22 @@ export async function handleAirtimePaymentMethod(
     const userId = session.userId!
     const { data: walletRow } = await supabase.from("wallets").select("balance").eq("user_id", userId).maybeSingle()
     const balance = walletRow ? Number(walletRow.balance) : 0
-    if (balance < amount) {
-      return cont(`Insufficient balance.\nWallet: GHS ${balance.toFixed(2)}\nNeeded: GHS ${amount.toFixed(2)}\n\n2. Pay via MoMo\n0. Cancel`)
+    if (balance < walletAmount) {
+      return cont(`Insufficient balance.\nWallet: GHS ${balance.toFixed(2)}\nNeeded: GHS ${walletAmount.toFixed(2)}\n\n2. Pay via MoMo\n0. Cancel`)
     }
 
-    const { data: deductResult, error: deductError } = await supabase.rpc("deduct_wallet", { p_user_id: userId, p_amount: amount })
+    const { data: deductResult, error: deductError } = await supabase.rpc("deduct_wallet", { p_user_id: userId, p_amount: walletAmount })
     if (deductError || !deductResult || deductResult.length === 0) {
-      return cont(`Insufficient balance.\nWallet: GHS ${balance.toFixed(2)}\nNeeded: GHS ${amount.toFixed(2)}\n\n2. Pay via MoMo\n0. Cancel`)
+      return cont(`Insufficient balance.\nWallet: GHS ${balance.toFixed(2)}\nNeeded: GHS ${walletAmount.toFixed(2)}\n\n2. Pay via MoMo\n0. Cancel`)
     }
     const { new_balance: newBalance, old_balance: balanceBefore } = deductResult[0]
 
     await supabase.from("airtime_orders")
-      .update({ payment_status: "completed", status: "pending", updated_at: new Date().toISOString() })
+      .update({
+        payment_status: "completed", status: "pending", updated_at: new Date().toISOString(),
+        // Cashback via wallet: total_paid = base, no payment fee; cashback snapshot columns unchanged.
+        ...(walletCashback !== undefined ? uzoWalletRepriceColumns(walletCashback) : {}),
+      })
       .eq("id", orderId)
 
     try {
@@ -362,7 +383,7 @@ export async function handleAirtimePaymentMethod(
         user_id: userId,
         type: "debit",
         source: "airtime_purchase",
-        amount,
+        amount: walletAmount,
         balance_before: balanceBefore,
         balance_after: newBalance,
         description: `Airtime: ${session.airtimeNetwork} GHS ${session.airtimeToDeliver} to ${session.airtimeRecipient}`,
@@ -393,6 +414,9 @@ export async function handleAirtimePaymentMethod(
     return end("Payment successful.\nAirtime will reflect\nshortly.")
   }
 
+  if (walletCashback !== undefined) {
+    return cont(airtimeCashbackPaymentMethodMenu(walletCashback, amount, session.walletBalance ?? 0))
+  }
   return cont(airtimePaymentMethodMenu(amount, session.walletBalance ?? 0))
 }
 

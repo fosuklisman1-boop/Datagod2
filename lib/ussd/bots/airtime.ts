@@ -40,8 +40,12 @@ export function uzoAirtimePromptCashback(network: string, min: number, shop: boo
 /** A quote the handlers may sell at for `face` (applied, finite, positive; fail closed otherwise). */
 export async function uzoUsableAirtimeQuote(network: string, face: number, shop: boolean): Promise<StorefrontQuote | null> {
   const q = await uzoAirtimeQuote(network, face, shop)
-  return usableCashbackQuote(q, face) ? q : null
+  return usableCashbackQuote(q, face) && usableWalletBase(q) ? q : null
 }
+
+/** `base` (face - customer cashback) is the dealer-wallet price: finite, positive, never above payAmount. */
+const usableWalletBase = (q: StorefrontQuote): boolean =>
+  Number.isFinite(q.base) && q.base > 0 && q.base <= q.payAmount + 1e-9
 
 /**
  * Confirm-time decision. The screen and the live quote must agree on BOTH the pricing mode and the
@@ -53,7 +57,7 @@ export type AirtimeRequote =
   | { kind: "changed" }
 
 export function airtimeRequote(shownPay: number | undefined, live: StorefrontQuote | null, face: number): AirtimeRequote {
-  const usable = usableCashbackQuote(live, face)
+  const usable = usableCashbackQuote(live, face) && usableWalletBase(live)
   if (shownPay === undefined && !usable) return { kind: "legacy" }
   if (!usable || shownPay === undefined || !Number.isFinite(shownPay) || !samePrice(live.payAmount, shownPay)) {
     return { kind: "changed" }
@@ -62,17 +66,25 @@ export function airtimeRequote(shownPay: number | undefined, live: StorefrontQuo
 }
 
 /**
- * airtime_orders columns for an applied quote: face delivered, total_paid = payAmount, the cashback
- * snapshot via cashbackAirtimeColumns, fee_amount = the payment fee, and merchant_commission = the
- * shop's cashback share on shop USSD (0 on the main menu; no markup either way).
+ * airtime_orders columns for an applied quote (MoMo pricing): face delivered, total_paid = payAmount,
+ * the cashback snapshot via cashbackAirtimeColumns with fee_amount 0 (the Paystack fee lives only in
+ * payment_fee_amount, so admin "profit" never counts it), and merchant_commission = the shop's cashback
+ * share on shop USSD (0 on the main menu; no markup either way).
  */
 export function uzoCashbackAirtimeColumns(q: StorefrontQuote, shop: boolean): Record<string, unknown> {
   const shopShare = shop ? q.shopShare : 0
   return {
     ...cashbackAirtimeColumns(q, shopShare),
-    fee_amount: q.paymentFee,
     merchant_commission: shopShare,
   }
+}
+
+/**
+ * Re-price patch for a cashback row paid from the dealer wallet: no Paystack payment, so no payment fee.
+ * The wallet pays `base`; the cashback snapshot columns stay as inserted.
+ */
+export function uzoWalletRepriceColumns(base: number): Record<string, unknown> {
+  return { total_paid: base, payment_fee_amount: 0, fee_amount: 0 }
 }
 
 /**

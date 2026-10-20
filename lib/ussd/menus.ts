@@ -83,6 +83,18 @@ export function airtimePaymentMethodMenu(amount: number, balance: number): strin
   )
 }
 
+/** Cashback airtime: the wallet (no Paystack fee) and MoMo are charged different amounts, shown per line. */
+export function airtimeCashbackPaymentMethodMenu(walletPay: number, momoPay: number, balance: number): string {
+  return (
+    `Pay by:\n` +
+    `1. Datagod Wallet\n` +
+    `   GHS ${walletPay.toFixed(2)} (bal ${balance.toFixed(2)})\n` +
+    `2. MoMo prompt\n` +
+    `   GHS ${momoPay.toFixed(2)}\n` +
+    `0. Cancel`
+  )
+}
+
 // ── Results Checker ───────────────────────────────────────────────────────────
 export function rcMenu(): string {
   return 'Results Checker\n1. Buy Vouchers\n2. My Vouchers\n3. Check Results\n0. Back'

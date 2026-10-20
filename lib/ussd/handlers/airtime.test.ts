@@ -191,6 +191,8 @@ describe("main USSD airtime: legacy (no cashback) is byte-identical", () => {
     expect(h.state.rpcCalls).toEqual([{ name: "deduct_wallet", args: { p_user_id: "u1", p_amount: 10.2 } }])
     const tx = h.state.inserts.find(i => i.table === "transactions")!.row
     expect(tx.amount).toBe(10.2)
+    const upd = h.state.updates.filter(u => u.table === "airtime_orders").map(u => Object.keys(u.patch).sort())
+    expect(upd).toEqual([["payment_status", "status", "updated_at"]])
   })
 
   it("WhatsApp confirm inserts the same row and charges the typed amount", async () => {
@@ -215,7 +217,7 @@ const CASHBACK_CONFIRM =
 const CASHBACK_ROW = {
   ...LEGACY_ROW,
   airtime_amount: 10,
-  fee_amount: 0.19,
+  fee_amount: 0, // ruling: the Paystack fee lives in payment_fee_amount only
   total_paid: 9.69,
   merchant_commission: 0,
   payment_fee_amount: 0.19,
@@ -271,26 +273,55 @@ describe("main USSD airtime: cashback applied", () => {
     expect(airtimeInserts()[0]).toMatchObject({ merchant_commission: 0, shop_share_amount: 0, shop_id: null })
   })
 
-  it("dealer wallet stays: it is offered at payAmount and deducts payAmount", async () => {
+  it("dealer wallet stays: it pays the quote's base (no payment fee) and the row is re-priced to base", async () => {
     h.state.quote = onFor()
-    h.state.dialer = { userId: "u1", role: "dealer", balance: 9.7, email: "d@example.com" }
+    // 9.60 covers base 9.50 but not payAmount 9.69: the wallet is still offered.
+    h.state.dialer = { userId: "u1", role: "dealer", balance: 9.6, email: "d@example.com" }
     const r = await handleAirtimeConfirm("1", "s1", cbConfirmSession())
-    expect(r.message).toBe("Pay GHS 9.69\n1. Datagod Wallet\n   (GHS 9.70)\n2. MoMo prompt\n0. Cancel")
+    expect(r.message).toBe("Pay by:\n1. Datagod Wallet\n   GHS 9.50 (bal 9.60)\n2. MoMo prompt\n   GHS 9.69\n0. Cancel")
+    // Inserted before the method is chosen: MoMo pricing.
     expect(airtimeInserts()).toEqual([{ ...CASHBACK_ROW, user_id: "u1", customer_email: "d@example.com" }])
-    h.state.walletBalance = 9.7
+    h.state.walletBalance = 9.6
     const pm = await handleAirtimePaymentMethod("1", "s1", lastSession())
     expect(pm.message).toBe("Payment successful.\nAirtime will reflect\nshortly.")
-    expect(h.state.rpcCalls).toEqual([{ name: "deduct_wallet", args: { p_user_id: "u1", p_amount: 9.69 } }])
-    expect(h.state.inserts.find(i => i.table === "transactions")!.row.amount).toBe(9.69)
+    expect(h.state.rpcCalls).toEqual([{ name: "deduct_wallet", args: { p_user_id: "u1", p_amount: 9.5 } }])
+    expect(h.state.inserts.find(i => i.table === "transactions")!.row.amount).toBe(9.5)
+    const upd = h.state.updates.filter(u => u.table === "airtime_orders").map(u => u.patch)
+    expect(upd).toHaveLength(1)
+    expect(upd[0]).toMatchObject({
+      payment_status: "completed", status: "pending", total_paid: 9.5, payment_fee_amount: 0, fee_amount: 0,
+    })
+    // Cashback snapshot columns are untouched by the wallet re-price.
+    expect(Object.keys(upd[0]).filter(k => k.startsWith("cashback") || k === "shop_share_amount" || k === "airtime_amount")).toEqual([])
   })
 
-  it("wallet screen -> MoMo charges payAmount", async () => {
+  it("wallet short of base: refused with the base as the amount needed, no debit", async () => {
+    h.state.quote = onFor()
+    h.state.dialer = { userId: "u1", role: "dealer", balance: 9.6 }
+    await handleAirtimeConfirm("1", "s1", cbConfirmSession())
+    h.state.walletBalance = 9.4
+    const pm = await handleAirtimePaymentMethod("1", "s1", lastSession())
+    expect(pm.message).toBe("Insufficient balance.\nWallet: GHS 9.40\nNeeded: GHS 9.50\n\n2. Pay via MoMo\n0. Cancel")
+    expect(h.state.rpcCalls).toEqual([])
+  })
+
+  it("wallet below base: no wallet offer, straight to MoMo at payAmount", async () => {
+    h.state.quote = onFor()
+    h.state.dialer = { userId: "u1", role: "dealer", balance: 9.4 }
+    const r = await handleAirtimeConfirm("1", "s1", cbConfirmSession())
+    expect(r.ussdServiceOp).toBe(17)
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 9.69 })
+  })
+
+  it("wallet screen -> MoMo charges payAmount and leaves the row's price alone", async () => {
     h.state.quote = onFor()
     h.state.dialer = { userId: "u1", role: "customer", balance: 50 }
     await handleAirtimeConfirm("1", "s1", cbConfirmSession())
     await handleAirtimePaymentMethod("2", "s1", lastSession())
     await flushAfter()
     expect(h.state.charges[0]).toMatchObject({ amount: 9.69 })
+    expect(h.state.updates.filter(u => u.table === "airtime_orders" && "total_paid" in u.patch)).toEqual([])
   })
 
   it("re-quote mismatch at confirm: 'Price changed. Please try again.' and no order", async () => {
