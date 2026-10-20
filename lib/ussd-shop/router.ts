@@ -7,6 +7,7 @@ import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleCo
 import { handleShopAirtimeEnterRecipient, handleShopAirtimeSelectNetwork, handleShopAirtimeEnterAmount, handleShopAirtimeConfirm } from "./handlers/airtime"
 import { handleShopRcSelectBoard, handleShopRcEnterQty, handleShopRcConfirm } from "./handlers/results-checker"
 import { handleOtpSubmit } from "@/lib/ussd/handlers/otp"
+import { handleNetworkPlansStep } from "@/lib/ussd/bots/network-plans"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -122,6 +123,21 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
 
     case 'SHOP_RC_CONFIRM':
       return handleShopRcConfirm(input, sessionID, session)
+
+    // Network Plans (commission cashback bots): the shop this session resolved (active only); the flow fails
+    // closed when it is missing.
+    case 'NP_NETWORK':
+    case 'NP_CATEGORY':
+    case 'NP_PLAN':
+    case 'NP_RECIPIENT':
+    case 'NP_CONFIRM':
+      return handleNetworkPlansStep(
+        {
+          surface: 'ussd_shop', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn,
+          shopId: session.shopId ?? null, shopName: session.shopName,
+        },
+        input, session
+      )
 
     default:
       await setSession(sessionID, { step: 'ENTER_SHOP_CODE', dialingPhone: msisdn })

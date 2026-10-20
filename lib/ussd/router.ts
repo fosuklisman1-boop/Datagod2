@@ -22,6 +22,7 @@ import {
   handleRcCheckConfirm, handleRcCheckPaymentMethod,
 } from "./handlers/results-checker"
 import { handleOtpSubmit } from "./handlers/otp"
+import { handleNetworkPlansStep } from "./bots/network-plans"
 
 const TERMINATE_THRESHOLD = 29
 
@@ -236,6 +237,17 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
 
     case 'AFA_CONFIRM_AFA':
       return handleAfaConfirm(input, sessionID, session)
+
+    // Network Plans (commission cashback bots): main menu => no shop.
+    case 'NP_NETWORK':
+    case 'NP_CATEGORY':
+    case 'NP_PLAN':
+    case 'NP_RECIPIENT':
+    case 'NP_CONFIRM':
+      return handleNetworkPlansStep(
+        { surface: 'ussd', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn, shopId: null },
+        input, session
+      )
 
     default: {
       await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
