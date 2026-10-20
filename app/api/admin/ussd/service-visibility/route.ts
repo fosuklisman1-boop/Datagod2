@@ -10,7 +10,7 @@ import {
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-const VALID_SERVICES: (keyof UssdServiceVisibility)[] = ["data", "afa", "airtime", "resultsChecker"]
+const VALID_SERVICES: (keyof UssdServiceVisibility)[] = ["data", "afa", "airtime", "resultsChecker", "networkPlans", "payBills"]
 
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)

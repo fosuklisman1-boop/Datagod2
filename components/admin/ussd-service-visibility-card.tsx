@@ -13,6 +13,8 @@ const SERVICE_ROWS: { key: keyof UssdServiceVisibility; label: string }[] = [
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
+  { key: "networkPlans", label: "Network Plans" },
+  { key: "payBills", label: "Pay Bills" },
 ]
 
 export function UssdServiceVisibilityCard() {

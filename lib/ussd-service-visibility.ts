@@ -20,9 +20,18 @@ export interface UssdServiceVisibility {
   afa: boolean
   airtime: boolean
   resultsChecker: boolean
+  networkPlans: boolean
+  payBills: boolean
 }
 
-const DEFAULT_VISIBILITY: UssdServiceVisibility = { data: true, afa: true, airtime: true, resultsChecker: true }
+const DEFAULT_VISIBILITY: UssdServiceVisibility = {
+  data: true,
+  afa: true,
+  airtime: true,
+  resultsChecker: true,
+  networkPlans: true,
+  payBills: true,
+}
 
 /**
  * Reads the service-visibility map from admin_settings. A row that has never

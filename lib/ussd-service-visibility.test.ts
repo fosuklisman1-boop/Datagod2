@@ -50,19 +50,27 @@ beforeEach(() => {
 describe("getUssdServiceVisibility", () => {
   it("defaults all services to visible when the row has never been seeded", async () => {
     const visibility = await getUssdServiceVisibility(createFakeSupabase(state))
-    expect(visibility).toEqual({ data: true, afa: true, airtime: true, resultsChecker: true })
+    expect(visibility).toEqual({ data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true })
   })
 
   it("defaults missing fields to true when the stored value is only partially populated", async () => {
     state.storedValue = { data: false }
     const visibility = await getUssdServiceVisibility(createFakeSupabase(state))
-    expect(visibility).toEqual({ data: false, afa: true, airtime: true, resultsChecker: true })
+    expect(visibility).toEqual({ data: false, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true })
+  })
+
+  it("reads missing networkPlans/payBills as true and keeps the legacy four as stored", async () => {
+    state.storedValue = { data: false, afa: false, airtime: false, resultsChecker: false }
+    const v = await getUssdServiceVisibility(createFakeSupabase(state))
+    expect(v.networkPlans).toBe(true)
+    expect(v.payBills).toBe(true)
+    expect([v.data, v.afa, v.airtime, v.resultsChecker]).toEqual([false, false, false, false])
   })
 
   it("returns a fully-populated stored value untouched", async () => {
-    state.storedValue = { data: false, afa: false, airtime: true, resultsChecker: false }
+    state.storedValue = { data: false, afa: false, airtime: true, resultsChecker: false, networkPlans: true, payBills: true }
     const visibility = await getUssdServiceVisibility(createFakeSupabase(state))
-    expect(visibility).toEqual({ data: false, afa: false, airtime: true, resultsChecker: false })
+    expect(visibility).toEqual({ data: false, afa: false, airtime: true, resultsChecker: false, networkPlans: true, payBills: true })
   })
 })
 
@@ -70,19 +78,19 @@ describe("setUssdServiceVisibility", () => {
   it("persists a change and a subsequent get reflects it", async () => {
     const supabase = createFakeSupabase(state)
     const result = await setUssdServiceVisibility(supabase, "afa", false)
-    expect(result).toEqual({ data: true, afa: false, airtime: true, resultsChecker: true })
+    expect(result).toEqual({ data: true, afa: false, airtime: true, resultsChecker: true, networkPlans: true, payBills: true })
 
     const after = await getUssdServiceVisibility(createFakeSupabase(state))
-    expect(after).toEqual({ data: true, afa: false, airtime: true, resultsChecker: true })
+    expect(after).toEqual({ data: true, afa: false, airtime: true, resultsChecker: true, networkPlans: true, payBills: true })
   })
 
   it("setting one service does not affect the others already stored", async () => {
-    state.storedValue = { data: false, afa: false, airtime: false, resultsChecker: false }
+    state.storedValue = { data: false, afa: false, airtime: false, resultsChecker: false, networkPlans: true, payBills: true }
     const supabase = createFakeSupabase(state)
     const result = await setUssdServiceVisibility(supabase, "airtime", true)
-    expect(result).toEqual({ data: false, afa: false, airtime: true, resultsChecker: false })
+    expect(result).toEqual({ data: false, afa: false, airtime: true, resultsChecker: false, networkPlans: true, payBills: true })
 
     const after = await getUssdServiceVisibility(createFakeSupabase(state))
-    expect(after).toEqual({ data: false, afa: false, airtime: true, resultsChecker: false })
+    expect(after).toEqual({ data: false, afa: false, airtime: true, resultsChecker: false, networkPlans: true, payBills: true })
   })
 })
