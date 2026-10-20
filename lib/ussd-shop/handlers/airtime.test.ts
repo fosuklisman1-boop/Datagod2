@@ -13,6 +13,8 @@ const h = vi.hoisted(() => {
     markup: 3,
     ownerRole: "agent",
     seq: 0,
+    quote: null as any, // what quoteBotAirtime returns (null = cashback not applied)
+    quoteCalls: [] as any[],
   }
   const fake = {
     from(table: string) {
@@ -57,6 +59,13 @@ vi.mock("@/lib/sms-service", () => ({
 vi.mock("@/lib/secure-random", () => ({ secureReference: () => "AT-REF-001" }))
 vi.mock("@/lib/ussd-service-visibility", () => ({
   getUssdServiceVisibility: vi.fn(async () => ({ data: true, afa: true, airtime: true, resultsChecker: true })),
+}))
+vi.mock("@/lib/cashback/storefront-airtime", () => ({
+  quoteBotAirtime: vi.fn(async (network: string, face: number, opts: any) => {
+    h.state.quoteCalls.push([network, face, opts])
+    const q = typeof h.state.quote === "function" ? h.state.quote(face) : h.state.quote
+    return q ? { ...q } : null
+  }),
 }))
 vi.mock("@/lib/airtime-pricing", async (orig) => ({
   ...(await orig<typeof import("@/lib/airtime-pricing")>()),
@@ -110,6 +119,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   h.state.inserts = []; h.state.updates = []; h.state.sessions = []; h.state.charges = []; h.state.afterFns = []
   h.state.markup = 3; h.state.ownerRole = "agent"; h.state.seq = 0
+  h.state.quote = null; h.state.quoteCalls = []
 })
 afterEach(() => { vi.useRealTimers() })
 
@@ -157,5 +167,94 @@ describe("shop USSD airtime: legacy (no cashback) is byte-identical", () => {
     expect(h.state.charges[0]).toMatchObject({ amount: 10.8, phone: DIALER, provider: "vod", reference: "order-1" })
     const pa = h.state.inserts.find(i => i.table === "payment_attempts")!.row
     expect(pa.amount).toBe(10.8)
+  })
+})
+
+// ── Cashback ───────────────────────────────────────────────────────────────────
+// Shop menu: storefront split (customer cashback + shop share); merchant_commission = shop share, no markup.
+const SHOP_QUOTE = {
+  applied: true, faceAmount: 10, rate: 10, share: 50, commission: 1, customerCashback: 0.4, shopShare: 0.25,
+  payAmount: 9.79, datagodKeeps: 0.35, provider: "hubtel", base: 9.6, paymentFee: 0.19, feeRate: 1.95,
+}
+const onFor = (over: any = {}) => (face: number) => ({ ...SHOP_QUOTE, faceAmount: face, ...over })
+
+const CASHBACK_CONFIRM =
+  "Kofi Shop\nPay GHS 9.79 (was GHS 10.00)\nYou get GHS 10.00 Yellow Plans airtime\nTo: 0241234567\nMoMo: 0201112222\n1. Confirm\n2. Cancel"
+
+const CASHBACK_ROW = {
+  ...LEGACY_ROW,
+  airtime_amount: 10,
+  fee_amount: 0.19,
+  total_paid: 9.79,
+  merchant_commission: 0.25,
+  payment_fee_amount: 0.19,
+  cashback_amount: 0.4,
+  shop_share_amount: 0.25,
+  cashback_rate: 10,
+  cashback_share: 50,
+  cashback_provider: "hubtel",
+  expected_commission: 1,
+}
+
+const cbConfirmSession = (extra: any = {}) => ({
+  step: "SHOP_AIRTIME_CONFIRM", ...base, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN",
+  airtimeAmount: 10, airtimeFee: 0, airtimeToDeliver: 10, airtimeMerchantCommission: 0.25, airtimeCashbackPay: 9.79, ...extra,
+}) as any
+
+describe("shop USSD airtime: cashback applied", () => {
+  it("asks for the airtime amount, probing at the minimum on rail paystack with the shop split", async () => {
+    h.state.quote = onFor()
+    const r = await handleShopAirtimeEnterRecipient(RECIPIENT, "s1", { step: "SHOP_AIRTIME_ENTER_RECIPIENT", ...base } as any)
+    expect(r.message).toBe("Yellow Plans Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back")
+    expect(h.state.quoteCalls[0]).toEqual(["MTN", 1, { rail: "paystack", shop: true }])
+    const r2 = await handleShopAirtimeSelectNetwork("1", "s1", { step: "SHOP_AIRTIME_SELECT_NETWORK", ...base, airtimeRecipient: "0311234567" } as any)
+    expect(r2.message).toBe("Yellow Plans Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back")
+    const r3 = await handleShopAirtimeEnterAmount("9999", "s1", { step: "SHOP_AIRTIME_ENTER_AMOUNT", ...base, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any)
+    expect(r3.message).toBe("Enter a valid amount.\nYellow Plans Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back")
+  })
+
+  it("amount is the face: confirm shows Pay x (was y); the shop share is the commission", async () => {
+    h.state.quote = onFor()
+    const r = await handleShopAirtimeEnterAmount("10", "s1", { step: "SHOP_AIRTIME_ENTER_AMOUNT", ...base, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any)
+    expect(r).toEqual({ message: CASHBACK_CONFIRM, ussdServiceOp: 2 })
+    expect(lastSession()).toMatchObject({
+      step: "SHOP_AIRTIME_CONFIRM", airtimeAmount: 10, airtimeFee: 0, airtimeToDeliver: 10,
+      airtimeMerchantCommission: 0.25, airtimeCashbackPay: 9.79,
+    })
+    expect(h.state.quoteCalls.at(-1)).toEqual(["MTN", 10, { rail: "paystack", shop: true }])
+    const again = await handleShopAirtimeConfirm("9", "s1", lastSession())
+    expect(again.message).toBe(CASHBACK_CONFIRM)
+  })
+
+  it("confirm inserts the cashback row (merchant_commission = shop share) and charges payAmount", async () => {
+    h.state.quote = onFor()
+    const r = await handleShopAirtimeConfirm("1", "s1", cbConfirmSession())
+    expect(r.ussdServiceOp).toBe(17)
+    expect(airtimeInserts()).toEqual([CASHBACK_ROW])
+    await flushAfter()
+    expect(h.state.charges).toHaveLength(1)
+    expect(h.state.charges[0]).toMatchObject({ amount: 9.79, reference: "order-1" })
+    expect(h.state.inserts.find(i => i.table === "payment_attempts")!.row.amount).toBe(9.79)
+  })
+
+  it("re-quote mismatch at confirm: 'Price changed. Please try again.' and no order", async () => {
+    h.state.quote = onFor({ payAmount: 9.9 })
+    const r = await handleShopAirtimeConfirm("1", "s1", cbConfirmSession())
+    expect(r).toEqual({ message: "Price changed. Please try again.", ussdServiceOp: 17 })
+    h.state.quote = null
+    expect((await handleShopAirtimeConfirm("1", "s1", cbConfirmSession())).message).toBe("Price changed. Please try again.")
+    h.state.quote = onFor()
+    const legacyShown = cbConfirmSession({ airtimeAmount: 10.8, airtimeFee: 0.8, airtimeMerchantCommission: 0.3, airtimeCashbackPay: undefined })
+    expect((await handleShopAirtimeConfirm("1", "s1", legacyShown)).message).toBe("Price changed. Please try again.")
+    expect(airtimeInserts()).toEqual([])
+    expect(h.state.afterFns).toHaveLength(0)
+  })
+
+  it("no resolved shop in the session: fails closed to today's pricing (never quotes)", async () => {
+    h.state.quote = onFor()
+    const noShop = { dialingPhone: DIALER, shopName: "Kofi Shop" }
+    const r = await handleShopAirtimeEnterRecipient(RECIPIENT, "s1", { step: "SHOP_AIRTIME_ENTER_RECIPIENT", ...noShop } as any)
+    expect(r.message).toBe("Yellow Plans Airtime\nEnter amount to pay\n(GHS 1 - 500):\n\n0. Back")
+    expect(h.state.quoteCalls).toEqual([])
   })
 })

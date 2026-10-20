@@ -52,6 +52,7 @@ export interface USSDShopSession {
   airtimeToDeliver?: number        // amount the recipient receives
   airtimeFee?: number
   airtimeMerchantCommission?: number
+  airtimeCashbackPay?: number      // cashback applied: price shown = charged (quote.payAmount); airtimeAmount is then the face
   // Shop Results Checker (MoMo only)
   rcBoard?: string                 // 'WASSCE' | 'BECE' | 'NOVDEC'
   rcQty?: number

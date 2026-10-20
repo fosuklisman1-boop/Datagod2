@@ -58,8 +58,14 @@ export function shopAirtimeNetworkMenu(): string {
   return 'Select Network:\n1. Yellow Plans\n2. Tele\n3. Instant Blue\n\n0. Back'
 }
 
-export function shopAirtimeAmountPrompt(network: string, min: number, max: number): string {
-  return `${network} Airtime\nEnter amount to pay\n(GHS ${min} - ${max}):\n\n0. Back`
+/** `cashback` (commission cashback applies) asks for the airtime amount (the face) instead of the amount to pay. */
+export function shopAirtimeAmountPrompt(network: string, min: number, max: number, cashback = false): string {
+  return `${network} Airtime\n${cashback ? "Enter airtime amount" : "Enter amount to pay"}\n(GHS ${min} - ${max}):\n\n0. Back`
+}
+
+/** Shop name as shown in screen headers (printable ASCII only). */
+export function shopHeaderName(shopName: string): string {
+  return gsm7(shopName)
 }
 
 export function shopAirtimeConfirmMenu(shopName: string, network: string, recipient: string, pay: number, get: number, dialingPhone: string): string {

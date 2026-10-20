@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDShopSession } from "../types"
 import {
   cont, end, productMenu,
-  shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu, shopAirtimeAmountPrompt, shopAirtimeConfirmMenu,
+  shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu, shopAirtimeAmountPrompt, shopAirtimeConfirmMenu, shopHeaderName,
 } from "../menus"
 import { setSession } from "../session"
 import { networkNickname } from "@/lib/ussd/network-labels"
@@ -18,6 +18,29 @@ import {
 } from "@/lib/airtime-pricing"
 import { createShopAirtimeOrder } from "@/lib/shop-commerce/orders"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
+import type { StorefrontQuote } from "@/lib/cashback/quote"
+import {
+  airtimeRequote, uzoAirtimeCashbackConfirm, uzoAirtimePromptCashback, uzoAirtimeQuote,
+  uzoCashbackAirtimeColumns, uzoUsableAirtimeQuote,
+} from "@/lib/ussd/bots/airtime"
+import { botErrorText } from "@/lib/ussd/bots/screen"
+
+// Commission cashback (storefront split) needs the shop resolved at the code step (resolveShopCode,
+// status 'active' only). No shop in the session => fail closed: today's pricing, never a quote.
+const hasShop = (session: USSDShopSession): boolean => typeof session.shopId === "string" && session.shopId.length > 0
+
+const promptCashback = (session: USSDShopSession, network: string, min: number): Promise<boolean> =>
+  hasShop(session) ? uzoAirtimePromptCashback(network, min, true) : Promise.resolve(false)
+
+function cashbackConfirmText(session: USSDShopSession, pay: number, face: number): string {
+  return uzoAirtimeCashbackConfirm({
+    header: shopHeaderName(session.shopName ?? "Shop"),
+    label: networkNickname(session.airtimeNetwork!),
+    recipient: toLocal(session.airtimeRecipient!),
+    pay, face,
+    payer: toLocal(session.dialingPhone!),
+  })
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -101,7 +124,7 @@ export async function handleShopAirtimeEnterRecipient(
 
   const { min, max } = await getAirtimeLimits()
   await setSession(sessionId, { ...session, step: "SHOP_AIRTIME_ENTER_AMOUNT", airtimeRecipient: local, airtimeNetwork: network })
-  return cont(shopAirtimeAmountPrompt(networkNickname(network), min, max))
+  return cont(shopAirtimeAmountPrompt(networkNickname(network), min, max, await promptCashback(session, network, min)))
 }
 
 // ── SHOP_AIRTIME_SELECT_NETWORK (fallback) ────────────────────────────────────
@@ -126,7 +149,7 @@ export async function handleShopAirtimeSelectNetwork(
 
   const { min, max } = await getAirtimeLimits()
   await setSession(sessionId, { ...session, step: "SHOP_AIRTIME_ENTER_AMOUNT", airtimeNetwork: network })
-  return cont(shopAirtimeAmountPrompt(networkNickname(network), min, max))
+  return cont(shopAirtimeAmountPrompt(networkNickname(network), min, max, await promptCashback(session, network, min)))
 }
 
 // ── SHOP_AIRTIME_ENTER_AMOUNT ─────────────────────────────────────────────────
@@ -145,9 +168,27 @@ export async function handleShopAirtimeEnterAmount(
   const network = session.airtimeNetwork!
   const { min, max } = await getAirtimeLimits()
   if (isNaN(amount) || amount < min || amount > max) {
-    return cont(`Enter a valid amount.\n` + shopAirtimeAmountPrompt(networkNickname(network), min, max))
+    return cont(`Enter a valid amount.\n` + shopAirtimeAmountPrompt(networkNickname(network), min, max, await promptCashback(session, network, min)))
   }
 
+  // Commission cashback (storefront split). Applied => the typed amount is the face delivered and the
+  // shop earns its cashback share (no markup).
+  const cb = hasShop(session) ? await uzoUsableAirtimeQuote(network, amount, true) : null
+  if (cb) {
+    const next: USSDShopSession = {
+      ...session,
+      step: "SHOP_AIRTIME_CONFIRM",
+      airtimeAmount: amount,
+      airtimeFee: 0,
+      airtimeToDeliver: amount,
+      airtimeMerchantCommission: cb.shopShare,
+      airtimeCashbackPay: cb.payAmount,
+    }
+    await setSession(sessionId, next)
+    return cont(cashbackConfirmText(next, cb.payAmount, amount))
+  }
+
+  // Not applied: today's shop markup pricing, unchanged.
   const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
   const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
   const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
@@ -159,6 +200,7 @@ export async function handleShopAirtimeEnterAmount(
     airtimeFee: fee,
     airtimeToDeliver: toDeliver,
     airtimeMerchantCommission: commission,
+    ...(session.airtimeCashbackPay !== undefined ? { airtimeCashbackPay: undefined } : {}),
   })
   return cont(shopAirtimeConfirmMenu(shopName, networkNickname(network), session.airtimeRecipient!, amount, toDeliver, session.dialingPhone!))
 }
@@ -172,6 +214,9 @@ export async function handleShopAirtimeConfirm(
   const shopName = session.shopName ?? "Shop"
   if (input.trim() === "2" || input.trim() === "0") return end("Order cancelled.")
   if (input.trim() !== "1") {
+    if (session.airtimeCashbackPay !== undefined) {
+      return cont(cashbackConfirmText(session, session.airtimeCashbackPay, session.airtimeAmount!))
+    }
     return cont(shopAirtimeConfirmMenu(
       shopName, networkNickname(session.airtimeNetwork!), session.airtimeRecipient!,
       session.airtimeAmount!, session.airtimeToDeliver!, session.dialingPhone!
@@ -190,23 +235,52 @@ export async function handleShopAirtimeConfirm(
   const provider = paystackProviderFromPhone(dialingPhone)
   if (!provider) return end("Payment not available for your number.")
 
-  const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
-  const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
-  const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
+  // Cashback re-quote: the screen and the live quote must agree on the pricing mode AND the price;
+  // otherwise no order is created and the caller restarts. No shop => never cashback (fail closed).
+  let cb: StorefrontQuote | null = null
+  if (hasShop(session)) {
+    const rq = airtimeRequote(session.airtimeCashbackPay, await uzoAirtimeQuote(network, amount, true), amount)
+    if (rq.kind === "changed") return end(botErrorText(409))
+    if (rq.kind === "cashback") cb = rq.quote
+  }
 
   const referenceCode = secureReference("AT", 2, 3)
-  const orderResult = await createShopAirtimeOrder({
-    referenceCode,
-    network,
-    beneficiaryPhone: session.airtimeRecipient!,
-    airtimeAmount: toDeliver,
-    feeAmount: fee,
-    totalPaid: amount,
-    shopId: session.shopId!,
-    merchantCommission: commission,
-    dialingPhone,
-    channel: "ussd_shop",
-  })
+  let orderResult: Awaited<ReturnType<typeof createShopAirtimeOrder>>
+  if (cb) {
+    // Applied: face delivered, total_paid = payAmount, merchant_commission = the shop's cashback share
+    // (credited once to shop_id by markAirtimeOrderPaid after payment), no markup.
+    orderResult = await createShopAirtimeOrder({
+      referenceCode,
+      network,
+      beneficiaryPhone: session.airtimeRecipient!,
+      airtimeAmount: amount,
+      feeAmount: cb.paymentFee,
+      totalPaid: cb.payAmount,
+      shopId: session.shopId!,
+      merchantCommission: cb.shopShare,
+      dialingPhone,
+      channel: "ussd_shop",
+      cashbackColumns: uzoCashbackAirtimeColumns(cb, true),
+    })
+  } else {
+    const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
+    const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
+    const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
+    orderResult = await createShopAirtimeOrder({
+      referenceCode,
+      network,
+      beneficiaryPhone: session.airtimeRecipient!,
+      airtimeAmount: toDeliver,
+      feeAmount: fee,
+      totalPaid: amount,
+      shopId: session.shopId!,
+      merchantCommission: commission,
+      dialingPhone,
+      channel: "ussd_shop",
+    })
+  }
+  // What the caller is charged = the row's total_paid.
+  const price = cb ? cb.payAmount : amount
 
   if ("error" in orderResult) {
     console.error("[USSD-SHOP-AIRTIME] Failed to create order:", orderResult.error)
@@ -222,7 +296,7 @@ export async function handleShopAirtimeConfirm(
     try {
       const { status } = await chargeMobileMoney({
         email,
-        amount,
+        amount: price,
         phone: dialingPhone,
         provider,
         reference: orderId,
@@ -236,7 +310,7 @@ export async function handleShopAirtimeConfirm(
       })
       try {
         await supabase.from("payment_attempts").insert({
-          reference: orderId, amount, email,
+          reference: orderId, amount: price, email,
           status: "pending", payment_type: "ussd_shop_airtime", order_id: orderId,
         })
       } catch (paErr) {
