@@ -1184,11 +1184,12 @@ export async function notifyFulfillmentFailure(
  */
 export async function notifyPriceManipulation(
   customerPhone: string,
-  actualPrice: number,
-  manipulatedPrice: number,
+  clientPrice: number,
+  serverPrice: number,
   skipEmailFallback = false
 ): Promise<void> {
-  const message = `[FRAUD ALERT] Price manipulation detected! Phone: ${customerPhone} | Paid: GHS${actualPrice} | Expected: GHS${manipulatedPrice}`
+  const ghs = (n: number) => (Number.isFinite(Number(n)) ? Number(n).toFixed(2) : String(n))
+  const message = `[FRAUD ALERT] Price manipulation detected! Phone: ${customerPhone} | Page sent: GHS${ghs(clientPrice)} | Real price: GHS${ghs(serverPrice)}`
   await notifyAdmins(message, 'price_manipulation', customerPhone, skipEmailFallback)
 }
 
