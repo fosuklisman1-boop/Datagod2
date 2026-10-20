@@ -23,6 +23,7 @@ import {
 } from "./handlers/results-checker"
 import { handleOtpSubmit } from "./handlers/otp"
 import { handleNetworkPlansStep } from "./bots/network-plans"
+import { handlePayBillsStep } from "./bots/pay-bills"
 
 const TERMINATE_THRESHOLD = 29
 
@@ -245,6 +246,20 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     case 'NP_RECIPIENT':
     case 'NP_CONFIRM':
       return handleNetworkPlansStep(
+        { surface: 'ussd', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn, shopId: null },
+        input, session
+      )
+
+    // Pay Bills (commission cashback bots): main menu => no shop.
+    case 'PB_BILLER':
+    case 'PB_ECG_MODE':
+    case 'PB_ACCOUNT':
+    case 'PB_METERS':
+    case 'PB_METER_TYPE':
+    case 'PB_CONSENT':
+    case 'PB_AMOUNT':
+    case 'PB_CONFIRM':
+      return handlePayBillsStep(
         { surface: 'ussd', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn, shopId: null },
         input, session
       )

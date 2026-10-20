@@ -61,6 +61,44 @@ export type USSDStep =
   | 'ADMIN_COMPLAINT_AWAIT_REPLY'
   // Network Plans (commission cashback bots; shared with the shop menu)
   | UzoNpStep
+  // Pay Bills (commission cashback bots; shared with the shop menu)
+  | UzoPbStep
+
+/** Pay Bills steps (lib/ussd/bots/pay-bills.ts), used by the main AND the shop USSD menus. */
+export type UzoPbStep =
+  | 'PB_BILLER' | 'PB_ECG_MODE' | 'PB_ACCOUNT' | 'PB_METERS' | 'PB_METER_TYPE' | 'PB_CONSENT' | 'PB_AMOUNT' | 'PB_CONFIRM'
+
+/** One ECG meter linked to a phone, as the engine's masked lookup returned it. */
+export interface UzoPbMeter {
+  m: string          // meter number
+  n: string | null   // masked customer name
+  o: number | null   // amount outstanding
+  t: string          // engine verify token for this meter (bot-bound, signed)
+}
+
+/** Which account entry the PB_ACCOUNT step is waiting for. */
+export type UzoPbAccountStage = 'phone' | 'meter' | 'account' | 'landline' | 'broadband'
+
+/** Pay Bills session fields (shared by USSDSession and USSDShopSession). */
+export interface UzoPbSessionFields {
+  pbBillers?: { key: string; min: number; max: number }[] // enabled billers, in the order shown
+  pbBiller?: string            // BillerKey
+  pbMin?: number
+  pbMax?: number
+  pbEcgMode?: 'self' | 'other' | 'meter'
+  pbStage?: UzoPbAccountStage
+  pbPhone?: string             // ECG: local 0XXXXXXXXX the meters are looked up on / the meter is linked to
+  pbLandline?: string          // Telecel Broadband: the landline typed before the broadband account
+  pbAccount?: string           // meter / smartcard / account number
+  pbMeterType?: 'prepaid' | 'postpaid'
+  pbMeters?: UzoPbMeter[]      // ECG meters linked to pbPhone (undefined = not looked up yet)
+  pbPage?: number              // 0-indexed page of the meter list
+  pbToken?: string             // engine verify token for the order (signed, bot-bound)
+  pbName?: string | null       // masked
+  pbDue?: number | null
+  pbFace?: number              // what the biller receives
+  pbPay?: number               // price shown = expectedPay (engine quote)
+}
 
 /** Network Plans steps (lib/ussd/bots/network-plans.ts), used by the main AND the shop USSD menus. */
 export type UzoNpStep = 'NP_NETWORK' | 'NP_CATEGORY' | 'NP_PLAN' | 'NP_RECIPIENT' | 'NP_CONFIRM'
@@ -91,7 +129,7 @@ export interface BundleOption {
   price: number
 }
 
-export interface USSDSession extends UzoNpSessionFields {
+export interface USSDSession extends UzoNpSessionFields, UzoPbSessionFields {
   step: USSDStep
   dialingPhone?: string
   dataBlocked?: boolean        // true when whitelist is ON and caller is not a registered user

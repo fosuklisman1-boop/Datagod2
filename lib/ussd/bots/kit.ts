@@ -10,7 +10,7 @@ import { handleMain } from "../handlers/main"
 import { cont as shopCont, end as shopEnd, shopHeaderName } from "@/lib/ussd-shop/menus"
 import { setSession as setShopSession } from "@/lib/ussd-shop/session"
 import { handleSelectProduct } from "@/lib/ussd-shop/handlers/shop"
-import type { UzoResponse, USSDSession, UzoNpSessionFields } from "../types"
+import type { UzoResponse, USSDSession, UzoNpSessionFields, UzoPbSessionFields } from "../types"
 import type { USSDShopSession } from "@/lib/ussd-shop/types"
 import { botErrorText } from "./screen"
 
@@ -38,11 +38,19 @@ export interface UzoBotIo {
 const NP_FIELDS: (keyof UzoNpSessionFields)[] = [
   "npNetwork", "npCategories", "npCategory", "npPage", "npPlans", "npPlan", "npOtherNumber", "npRecipient",
 ]
+// Typed as a full Record so a new Pay Bills field cannot be forgotten here (tsc fails until it is listed).
+const PB_FIELD_SET: Record<keyof UzoPbSessionFields, true> = {
+  pbBillers: true, pbBiller: true, pbMin: true, pbMax: true, pbEcgMode: true, pbStage: true, pbPhone: true,
+  pbLandline: true, pbAccount: true, pbMeterType: true, pbMeters: true, pbPage: true, pbToken: true, pbName: true,
+  pbDue: true, pbFace: true, pbPay: true,
+}
+const PB_FIELDS = Object.keys(PB_FIELD_SET) as (keyof UzoPbSessionFields)[]
 
 /** The session without any bot-flow fields (what the menu had before the flow started). */
 export function withoutBotFields<T extends UzoBotSession>(s: T): T {
   const out = { ...s }
   for (const k of NP_FIELDS) delete out[k]
+  for (const k of PB_FIELDS) delete out[k]
   return out
 }
 

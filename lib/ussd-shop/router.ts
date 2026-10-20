@@ -8,6 +8,7 @@ import { handleShopAirtimeEnterRecipient, handleShopAirtimeSelectNetwork, handle
 import { handleShopRcSelectBoard, handleShopRcEnterQty, handleShopRcConfirm } from "./handlers/results-checker"
 import { handleOtpSubmit } from "@/lib/ussd/handlers/otp"
 import { handleNetworkPlansStep } from "@/lib/ussd/bots/network-plans"
+import { handlePayBillsStep } from "@/lib/ussd/bots/pay-bills"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -132,6 +133,24 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
     case 'NP_RECIPIENT':
     case 'NP_CONFIRM':
       return handleNetworkPlansStep(
+        {
+          surface: 'ussd_shop', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn,
+          shopId: session.shopId ?? null, shopName: session.shopName,
+        },
+        input, session
+      )
+
+    // Pay Bills (commission cashback bots): the shop this session resolved (active only); the flow fails closed
+    // when it is missing.
+    case 'PB_BILLER':
+    case 'PB_ECG_MODE':
+    case 'PB_ACCOUNT':
+    case 'PB_METERS':
+    case 'PB_METER_TYPE':
+    case 'PB_CONSENT':
+    case 'PB_AMOUNT':
+    case 'PB_CONFIRM':
+      return handlePayBillsStep(
         {
           surface: 'ussd_shop', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn,
           shopId: session.shopId ?? null, shopName: session.shopName,
