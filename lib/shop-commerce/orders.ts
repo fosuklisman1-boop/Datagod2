@@ -101,6 +101,11 @@ export interface AirtimeOrderInput {
   // real name/email through here rather than getting the wrong literal.
   customerName?: string
   customerEmail?: string | null
+  /**
+   * Commission-cashback columns (Uzo shop USSD, lib/ussd/bots/airtime.ts uzoCashbackAirtimeColumns), merged
+   * last. Absent => today's row exactly.
+   */
+  cashbackColumns?: Record<string, unknown>
 }
 
 export async function createShopAirtimeOrder(
@@ -126,6 +131,7 @@ export async function createShopAirtimeOrder(
       customer_email: input.customerEmail ?? null,
       dialing_phone: input.dialingPhone,
       channel: input.channel,
+      ...(input.cashbackColumns ?? {}),
     }])
     .select("id")
     .single()

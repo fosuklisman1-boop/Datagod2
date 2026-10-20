@@ -13,6 +13,10 @@ const SERVICE_ROWS: { key: keyof UssdServiceVisibility; label: string }[] = [
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
+  // Uzo commission-cashback opt-ins: OFF until switched on here (also need the cashback Bots switches).
+  { key: "networkPlans", label: "Network Plans" },
+  { key: "payBills", label: "Pay Bills" },
+  { key: "cashbackAirtime", label: "Cashback airtime" },
 ]
 
 export function UssdServiceVisibilityCard() {

@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
-import { ORDER_TABLES, cartItemNameFor, isHubtelOrderTable, BOT_UNPAID_FAILURE_REASON } from "./order-tables"
+import { ORDER_TABLES, cartItemNameFor, failOrderGuarded, isHubtelOrderTable, BOT_UNPAID_FAILURE_REASON } from "./order-tables"
 
 // Copied from the CHECK constraint in migrations/0106_hubtel_ussd.sql, as widened by
 // migrations/0125_hubtel_ussd_bot_orders.sql. A table the channel writes but the CHECK does not allow
@@ -99,5 +99,26 @@ describe("cartItemNameFor", () => {
   it("works for a short or numeric id", () => {
     expect(cartItemNameFor("ab12")).toBe("CH order ab12")
     expect(cartItemNameFor(123456789)).toBe("CH order 12345678")
+  })
+})
+
+describe("failOrderGuarded (lives here; flow-kit re-exports it)", () => {
+  it("is the same function from both modules", async () => {
+    const kit = await import("./flow-kit")
+    expect(kit.failOrderGuarded).toBe(failOrderGuarded)
+  })
+
+  it("bot commission table: guarded patch, filters unpaid + bots + pending", async () => {
+    const calls: { patch?: unknown; eq: unknown[][]; in: unknown[][] } = { eq: [], in: [] }
+    const q: any = {
+      eq: (...a: unknown[]) => { calls.eq.push(a); return q },
+      in: (...a: unknown[]) => { calls.in.push(a); return q },
+      then: (res: any) => res({ error: null }),
+    }
+    const db = { from: () => ({ update: (p: unknown) => { calls.patch = p; return q } }) }
+    await failOrderGuarded(db as never, "hubtel_data_orders", "d1", true, "T")
+    expect(calls.patch).toMatchObject({ status: "failed", failure_reason: BOT_UNPAID_FAILURE_REASON })
+    expect(calls.eq).toEqual([["id", "d1"]])
+    expect(calls.in).toEqual([["payment_status", ["unpaid"]], ["channel", ["bots"]], ["status", ["pending"]]])
   })
 })

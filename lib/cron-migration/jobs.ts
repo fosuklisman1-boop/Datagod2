@@ -65,6 +65,7 @@ const C_EXACT = new Set(
     "withdrawals-status-check",
     "drain-fulfillment-queue",
     "reconcile-paystack-refunds",
+    "expire-stale-bot-orders",
   ].map((n) => P + n),
 )
 

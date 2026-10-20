@@ -11,7 +11,7 @@ import type { HubtelSessionStore } from "./session"
 import type { ShopServices } from "./shop-services"
 import type { CallerContext } from "./catalog"
 import { resolveMainMenu, mainMenuText } from "./menus"
-import { ORDER_TABLES, cartItemNameFor, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
+import { cartItemNameFor, failOrderGuarded, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { addToCart, release, respond } from "./protocol"
 import { safeDbError } from "./log-safe"
 import type { DeliveryChannel } from "@/lib/delivery-estimate/query"
@@ -148,25 +148,8 @@ export async function replaySubmittedOrder(
   })
 }
 
-/**
- * Mark an order failed with its table's fail patch plus the table's guards, so only a still-open row is touched.
- * `engine` (an engine-created order: not ours, the engine may hand back an existing row) also guards on a payable
- * payment_status, as guardedFailUpdate in order-handlers.ts: a paid order is never failed. Never throws.
- */
-export async function failOrderGuarded(
-  supabase: SupabaseClient, table: HubtelOrderTable, id: string, engine: boolean, logTag: string,
-): Promise<void> {
-  const spec = ORDER_TABLES[table]
-  try {
-    let q = supabase.from(table).update(spec.failPatch()).eq("id", id)
-    if (engine) q = q.in("payment_status", [...spec.payableStatuses])
-    for (const [column, values] of Object.entries(spec.failGuards ?? {})) q = q.in(column, [...values])
-    const { error } = await q
-    if (error) console.error(`[${logTag}] Failed to mark order failed:`, id, safeDbError(error))
-  } catch (e) {
-    console.error(`[${logTag}] Failed to mark order failed:`, id, safeDbError(e))
-  }
-}
+// Lives next to ORDER_TABLES (so non-Hubtel callers need not load the menu code); re-exported for Hubtel callers.
+export { failOrderGuarded }
 
 /**
  * An engine order that will NOT be carted this request (createOrder threw after committing, or its read-back

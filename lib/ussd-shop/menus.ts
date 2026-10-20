@@ -32,16 +32,22 @@ export function invalidCodeMenu(reason: string): string {
 // drift out of sync. See lib/ussd/menu-items.ts for why hand-numbering a
 // second switch is unsafe here.
 
-export type ProductMenuKey = "data" | "airtime" | "resultsChecker"
+export type ProductMenuKey = "data" | "airtime" | "resultsChecker" | "networkPlans" | "payBills"
 
+// The commission-cashback bot items (networkPlans / payBills) stay LAST so the existing digits never move.
 const PRODUCT_MENU_ITEMS: MenuItemDef<ProductMenuKey>[] = [
   { key: "data", label: "Browse Services" },
   { key: "airtime", label: "Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
+  { key: "networkPlans", label: "Network Plans" },
+  { key: "payBills", label: "Pay Bills" },
 ]
 
+/** Legacy items default to shown; the bot items default to HIDDEN (only the gate turns them on). */
 export function resolveProductMenu(visible: Partial<Record<ProductMenuKey, boolean>> = {}) {
-  const full: Record<ProductMenuKey, boolean> = { data: true, airtime: true, resultsChecker: true, ...visible }
+  const full: Record<ProductMenuKey, boolean> = {
+    data: true, airtime: true, resultsChecker: true, networkPlans: false, payBills: false, ...visible,
+  }
   return resolveMenuItems(PRODUCT_MENU_ITEMS, full)
 }
 
@@ -58,8 +64,14 @@ export function shopAirtimeNetworkMenu(): string {
   return 'Select Network:\n1. Yellow Plans\n2. Tele\n3. Instant Blue\n\n0. Back'
 }
 
-export function shopAirtimeAmountPrompt(network: string, min: number, max: number): string {
-  return `${network} Airtime\nEnter amount to pay\n(GHS ${min} - ${max}):\n\n0. Back`
+/** `cashback` (commission cashback applies) asks for the airtime amount (the face) instead of the amount to pay. */
+export function shopAirtimeAmountPrompt(network: string, min: number, max: number, cashback = false): string {
+  return `${network} Airtime\n${cashback ? "Enter airtime amount" : "Enter amount to pay"}\n(GHS ${min} - ${max}):\n\n0. Back`
+}
+
+/** Shop name as shown in screen headers (printable ASCII only). */
+export function shopHeaderName(shopName: string): string {
+  return gsm7(shopName)
 }
 
 export function shopAirtimeConfirmMenu(shopName: string, network: string, recipient: string, pay: number, get: number, dialingPhone: string): string {

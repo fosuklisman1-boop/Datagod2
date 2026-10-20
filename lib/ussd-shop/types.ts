@@ -1,5 +1,6 @@
 // Re-export shared Uzo gateway types
 export type { UzoRequest, UzoResponse } from "@/lib/ussd/types"
+import type { UzoNpSessionFields, UzoNpStep, UzoPbSessionFields, UzoPbStep } from "@/lib/ussd/types"
 
 export type USSDShopStep =
   | 'ENTER_SHOP_CODE'
@@ -18,6 +19,10 @@ export type USSDShopStep =
   | 'SHOP_RC_SELECT_BOARD'
   | 'SHOP_RC_ENTER_QTY'
   | 'SHOP_RC_CONFIRM'
+  // Network Plans (commission cashback bots; shared flow lib/ussd/bots/network-plans.ts)
+  | UzoNpStep
+  // Pay Bills (commission cashback bots; shared flow lib/ussd/bots/pay-bills.ts)
+  | UzoPbStep
 
 export interface ShopBundleOption {
   id: string
@@ -25,7 +30,7 @@ export interface ShopBundleOption {
   price: number  // packages.price + shop_packages.profit_margin
 }
 
-export interface USSDShopSession {
+export interface USSDShopSession extends UzoNpSessionFields, UzoPbSessionFields {
   step: USSDShopStep
   dialingPhone?: string
   shopCodeId?: string
@@ -45,6 +50,7 @@ export interface USSDShopSession {
   recipientPhone?: string
   pendingOrderId?: string          // ussd_shop_orders.id; used by SUBMIT_OTP
   pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' // SUBMIT_OTP target for airtime/RC (data bundles use ussd_shop_orders)
+  botOtp?: boolean                 // SUBMIT_OTP is for a commission-cashback bot charge (Redis OTP pointer, lib/ussd/bots/otp-redial.ts)
   // Shop Airtime (MoMo only)
   airtimeRecipient?: string        // beneficiary (local 0XXXXXXXXX)
   airtimeNetwork?: string          // 'MTN' | 'Telecel' | 'AT'
@@ -52,6 +58,7 @@ export interface USSDShopSession {
   airtimeToDeliver?: number        // amount the recipient receives
   airtimeFee?: number
   airtimeMerchantCommission?: number
+  airtimeCashbackPay?: number      // cashback applied: price shown = charged (quote.payAmount); airtimeAmount is then the face
   // Shop Results Checker (MoMo only)
   rcBoard?: string                 // 'WASSCE' | 'BECE' | 'NOVDEC'
   rcQty?: number

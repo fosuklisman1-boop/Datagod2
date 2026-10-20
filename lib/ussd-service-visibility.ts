@@ -20,15 +20,41 @@ export interface UssdServiceVisibility {
   afa: boolean
   airtime: boolean
   resultsChecker: boolean
+  /** Uzo opt-in: Network Plans menu item (commission cashback bots). Default OFF. */
+  networkPlans: boolean
+  /** Uzo opt-in: Pay Bills menu item (commission cashback bots). Default OFF. */
+  payBills: boolean
+  /** Uzo opt-in: cashback pricing on Uzo main + shop airtime. Default OFF. Hubtel USSD never reads it. */
+  cashbackAirtime: boolean
 }
 
-const DEFAULT_VISIBILITY: UssdServiceVisibility = { data: true, afa: true, airtime: true, resultsChecker: true }
+/** Every key the admin route accepts (the route validator). */
+export const USSD_VISIBILITY_SERVICES: readonly (keyof UssdServiceVisibility)[] = [
+  "data", "afa", "airtime", "resultsChecker", "networkPlans", "payBills", "cashbackAirtime",
+]
+export const isUssdVisibilityService = (s: unknown): s is keyof UssdServiceVisibility =>
+  typeof s === "string" && (USSD_VISIBILITY_SERVICES as readonly string[]).includes(s)
 
 /**
- * Reads the service-visibility map from admin_settings. A row that has never
- * been seeded, or one that's missing individual fields, defaults each field
- * to true (nothing hidden) — a missing/partial setting must never silently
- * hide a service.
+ * The Uzo commission-cashback opt-ins: OFF unless stored strictly `true`. These shipped while the shared cashback Bots
+ * switches were already ON in prod (Hubtel USSD), so a missing key must mean "not live" (the deploy is dark).
+ */
+const UZO_OPT_INS = ["networkPlans", "payBills", "cashbackAirtime"] as const
+
+const DEFAULT_VISIBILITY: UssdServiceVisibility = {
+  data: true,
+  afa: true,
+  airtime: true,
+  resultsChecker: true,
+  networkPlans: false,
+  payBills: false,
+  cashbackAirtime: false,
+}
+
+/**
+ * Reads the service-visibility map from admin_settings. For the four legacy services, a row that has never been
+ * seeded, or one that's missing individual fields, defaults each field to true (nothing hidden) — a missing/partial
+ * setting must never silently hide a service. The three Uzo opt-ins are the opposite: on only when stored `true`.
  */
 export async function getUssdServiceVisibility(supabase: SupabaseClient): Promise<UssdServiceVisibility> {
   const { data, error } = await supabase
@@ -38,7 +64,9 @@ export async function getUssdServiceVisibility(supabase: SupabaseClient): Promis
     .maybeSingle()
   if (error) throw error
   const stored = data?.value && typeof data.value === "object" ? (data.value as Partial<UssdServiceVisibility>) : {}
-  return { ...DEFAULT_VISIBILITY, ...stored }
+  const out: UssdServiceVisibility = { ...DEFAULT_VISIBILITY, ...stored }
+  for (const k of UZO_OPT_INS) out[k] = stored[k] === true
+  return out
 }
 
 async function writeUssdServiceVisibility(supabase: SupabaseClient, visibility: UssdServiceVisibility): Promise<void> {
@@ -46,7 +74,7 @@ async function writeUssdServiceVisibility(supabase: SupabaseClient, visibility: 
     {
       key: USSD_SERVICE_VISIBILITY_KEY,
       value: visibility,
-      description: "Which top-level services (data/afa/airtime/resultsChecker) show on the main USSD menu.",
+      description: "Which top-level services (data/afa/airtime/resultsChecker) show on the Uzo USSD menus, plus the Uzo commission-cashback opt-ins (networkPlans/payBills/cashbackAirtime, off unless true).",
       updated_at: new Date().toISOString(),
     },
     { onConflict: "key" }

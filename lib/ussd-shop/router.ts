@@ -7,6 +7,9 @@ import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleCo
 import { handleShopAirtimeEnterRecipient, handleShopAirtimeSelectNetwork, handleShopAirtimeEnterAmount, handleShopAirtimeConfirm } from "./handlers/airtime"
 import { handleShopRcSelectBoard, handleShopRcEnterQty, handleShopRcConfirm } from "./handlers/results-checker"
 import { handleOtpSubmit } from "@/lib/ussd/handlers/otp"
+import { handleNetworkPlansStep } from "@/lib/ussd/bots/network-plans"
+import { handlePayBillsStep } from "@/lib/ussd/bots/pay-bills"
+import { botOtpCandidate, handleBotOtpRedial } from "@/lib/ussd/bots/otp-redial"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,8 +34,8 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
     const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
     const phoneFilter = `dialing_phone.eq.${msisdn},dialing_phone.eq.${localPhone}`
 
-    // Check all three order types for a pending OTP; pick the most recent one.
-    const [{ data: pendingBundle }, { data: pendingAirtime }, { data: pendingRc }] = await Promise.all([
+    // Check all three order types and the bot OTP pointer for a pending OTP; pick the most recent one.
+    const [{ data: pendingBundle }, { data: pendingAirtime }, { data: pendingRc }, botPointer] = await Promise.all([
       supabase.from("ussd_shop_orders").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -42,18 +45,25 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
       supabase.from("results_checker_orders").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").eq("channel", "ussd_shop").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      // Commission-cashback bot charge waiting for its OTP (Redis pointer by dialing phone; never throws).
+      botOtpCandidate(msisdn),
     ])
 
     const candidates = [
       pendingBundle ? { id: pendingBundle.id, created_at: pendingBundle.created_at, table: undefined } : null,
       pendingAirtime ? { id: pendingAirtime.id, created_at: pendingAirtime.created_at, table: 'airtime_orders' as const } : null,
       pendingRc ? { id: pendingRc.id, created_at: pendingRc.created_at, table: 'results_checker_orders' as const } : null,
-    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders' }>
+      botPointer ? { id: '', created_at: botPointer.created_at, table: undefined, bot: true } : null,
+    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders'; bot?: true }>
 
     if (candidates.length) {
       candidates.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       const top = candidates[0]
-      await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, pendingOrderId: top.id, pendingOrderTable: top.table })
+      if (top.bot) {
+        await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, botOtp: true })
+      } else {
+        await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, pendingOrderId: top.id, pendingOrderTable: top.table })
+      }
       return cont(otpMenu())
     }
 
@@ -82,7 +92,7 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
       return handleEnterShopCode(input, sessionID, session.dialingPhone ?? msisdn)
 
     case 'SELECT_PRODUCT':
-      return handleSelectProduct(input, sessionID, session)
+      return handleSelectProduct(input, sessionID, session, msisdn)
 
     case 'SELECT_NETWORK':
       return handleSelectNetwork(input, sessionID, session)
@@ -97,6 +107,8 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
       return handleConfirm(input, sessionID, session)
 
     case 'SUBMIT_OTP':
+      // Bot charge (Redis pointer): the pointer is looked up again by the dialing phone; a retry keeps this step.
+      if (session.botOtp) return handleBotOtpRedial(input, session.dialingPhone ?? msisdn)
       if (session.pendingOrderTable === 'airtime_orders' || session.pendingOrderTable === 'results_checker_orders') {
         return handleOtpSubmit(input, session.pendingOrderId!, session.pendingOrderTable)
       }
@@ -122,6 +134,39 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
 
     case 'SHOP_RC_CONFIRM':
       return handleShopRcConfirm(input, sessionID, session)
+
+    // Network Plans (commission cashback bots): the shop this session resolved (active only); the flow fails
+    // closed when it is missing.
+    case 'NP_NETWORK':
+    case 'NP_CATEGORY':
+    case 'NP_PLAN':
+    case 'NP_RECIPIENT':
+    case 'NP_CONFIRM':
+      return handleNetworkPlansStep(
+        {
+          surface: 'ussd_shop', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn,
+          shopId: session.shopId ?? null, shopName: session.shopName,
+        },
+        input, session
+      )
+
+    // Pay Bills (commission cashback bots): the shop this session resolved (active only); the flow fails closed
+    // when it is missing.
+    case 'PB_BILLER':
+    case 'PB_ECG_MODE':
+    case 'PB_ACCOUNT':
+    case 'PB_METERS':
+    case 'PB_METER_TYPE':
+    case 'PB_CONSENT':
+    case 'PB_AMOUNT':
+    case 'PB_CONFIRM':
+      return handlePayBillsStep(
+        {
+          surface: 'ussd_shop', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn,
+          shopId: session.shopId ?? null, shopName: session.shopName,
+        },
+        input, session
+      )
 
     default:
       await setSession(sessionID, { step: 'ENTER_SHOP_CODE', dialingPhone: msisdn })

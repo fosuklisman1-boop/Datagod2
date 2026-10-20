@@ -3,14 +3,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import {
   getUssdServiceVisibility,
+  isUssdVisibilityService,
   setUssdServiceVisibility,
-  type UssdServiceVisibility,
+  USSD_VISIBILITY_SERVICES,
 } from "@/lib/ussd-service-visibility"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const VALID_SERVICES: (keyof UssdServiceVisibility)[] = ["data", "afa", "airtime", "resultsChecker"]
 
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
@@ -42,9 +41,9 @@ export async function POST(request: NextRequest) {
 
   const { service, visible } = body ?? {}
 
-  if (!VALID_SERVICES.includes(service)) {
+  if (!isUssdVisibilityService(service)) {
     return NextResponse.json(
-      { error: `service must be one of: ${VALID_SERVICES.join(", ")}` },
+      { error: `service must be one of: ${USSD_VISIBILITY_SERVICES.join(", ")}` },
       { status: 400 }
     )
   }
@@ -58,7 +57,7 @@ export async function POST(request: NextRequest) {
   })
 
   try {
-    const status = await setUssdServiceVisibility(adminClient, service as keyof UssdServiceVisibility, visible)
+    const status = await setUssdServiceVisibility(adminClient, service, visible)
 
     // Best-effort audit trail — never blocks the response on failure (same
     // fire-and-forget pattern as network-stock's admin_audit_log insert).

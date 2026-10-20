@@ -96,6 +96,9 @@ const priceChanged = (face: number, q: StorefrontQuote): Fail & { quote: PriceQu
 
 export interface BotBillOrderInput { token: unknown; amount: unknown; expectedPay: unknown }
 
+/** 400 error text for a verify token that is expired, forged or bound to another bot (callers may match on it). */
+export const BOT_BILL_TOKEN_EXPIRED = "Please verify the account again"
+
 /**
  * Create an UNPAID bot bill order (channel 'bots'; payment and dispatch happen after the rail confirms).
  * Every check runs before the single write; an expectedPay mismatch => 409 with the live quote, nothing written.
@@ -110,7 +113,7 @@ export async function botCreateBillOrder(d: BotBillsDeps, ctx: BotContext, input
   if (!d.secret) return fail(503, UNAVAILABLE)
   const token = typeof input.token === "string" ? input.token : ""
   const v = verifyBillToken(token, d.secret, botBinding(c), d.now())
-  if (!v) return fail(400, "Please verify the account again")
+  if (!v) return fail(400, BOT_BILL_TOKEN_EXPIRED)
   const hash = billTokenHash(token)
   // A retry with the same token hands back its order before any gate or cap (never consumes a slot).
   let prior: BotOrderRow | null

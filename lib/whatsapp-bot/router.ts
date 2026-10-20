@@ -382,13 +382,13 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
 
     case 'AIRTIME_ENTER_RECIPIENT':
-      result = await handleAirtimeEnterRecipient(input, sessionId, session)
+      result = await handleAirtimeEnterRecipient(input, sessionId, session, 'whatsapp')
       break
     case 'AIRTIME_SELECT_NETWORK':
-      result = await handleAirtimeSelectNetwork(input, sessionId, session)
+      result = await handleAirtimeSelectNetwork(input, sessionId, session, 'whatsapp')
       break
     case 'AIRTIME_ENTER_AMOUNT': {
-      result = await handleAirtimeEnterAmount(input, sessionId, session)
+      result = await handleAirtimeEnterAmount(input, sessionId, session, 'whatsapp')
       if (result.ussdServiceOp === 2) {
         const updated = await getWaSession(sessionId)
         if (updated?.step === 'AIRTIME_CONFIRM') {
