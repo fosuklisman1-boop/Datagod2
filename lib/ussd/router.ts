@@ -155,14 +155,15 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     case 'CHECK_STATUS':
       return handleStatus(input, sessionID, session)
 
+    // 'ussd' turns on commission-cashback pricing (the WhatsApp bot reuses these handlers without it).
     case 'AIRTIME_ENTER_RECIPIENT':
-      return handleAirtimeEnterRecipient(input, sessionID, session)
+      return handleAirtimeEnterRecipient(input, sessionID, session, 'ussd')
 
     case 'AIRTIME_SELECT_NETWORK':
-      return handleAirtimeSelectNetwork(input, sessionID, session)
+      return handleAirtimeSelectNetwork(input, sessionID, session, 'ussd')
 
     case 'AIRTIME_ENTER_AMOUNT':
-      return handleAirtimeEnterAmount(input, sessionID, session)
+      return handleAirtimeEnterAmount(input, sessionID, session, 'ussd')
 
     case 'AIRTIME_CONFIRM':
       return handleAirtimeConfirm(input, sessionID, session)

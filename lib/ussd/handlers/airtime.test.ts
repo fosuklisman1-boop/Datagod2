@@ -15,6 +15,8 @@ const h = vi.hoisted(() => {
     dialer: {} as any,
     feeRate: { customer: 5, dealer: 2 },
     seq: 0,
+    quote: null as any, // what quoteBotAirtime returns (null = cashback not applied)
+    quoteCalls: [] as any[],
   }
   const fake = {
     from(table: string) {
@@ -71,6 +73,13 @@ vi.mock("@/lib/secure-random", () => ({ secureReference: () => "AT-REF-001" }))
 vi.mock("@/lib/ussd-service-visibility", () => ({
   getUssdServiceVisibility: vi.fn(async () => ({ data: true, afa: true, airtime: true, resultsChecker: true })),
 }))
+vi.mock("@/lib/cashback/storefront-airtime", () => ({
+  quoteBotAirtime: vi.fn(async (network: string, face: number, opts: any) => {
+    h.state.quoteCalls.push([network, face, opts])
+    const q = typeof h.state.quote === "function" ? h.state.quote(face) : h.state.quote
+    return q ? { ...q } : null
+  }),
+}))
 vi.mock("@/lib/airtime-pricing", async (orig) => ({
   ...(await orig<typeof import("@/lib/airtime-pricing")>()),
   isAirtimeEnabled: vi.fn(async () => true),
@@ -126,6 +135,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   h.state.inserts = []; h.state.updates = []; h.state.rpcCalls = []; h.state.sessions = []
   h.state.charges = []; h.state.afterFns = []; h.state.walletBalance = 100; h.state.dialer = {}; h.state.seq = 0
+  h.state.quote = null; h.state.quoteCalls = []
 })
 afterEach(() => { vi.useRealTimers() })
 
@@ -188,5 +198,163 @@ describe("main USSD airtime: legacy (no cashback) is byte-identical", () => {
     expect(airtimeInserts()).toEqual([LEGACY_ROW])
     await flushAfter()
     expect(h.state.charges[0]).toMatchObject({ amount: 10.5 })
+  })
+})
+
+// ── Cashback ───────────────────────────────────────────────────────────────────
+// Main menu: customer share only (shopShare ignored), rail paystack.
+const QUOTE = {
+  applied: true, faceAmount: 10, rate: 10, share: 50, commission: 1, customerCashback: 0.5, shopShare: 0,
+  payAmount: 9.69, datagodKeeps: 0.5, provider: "hubtel", base: 9.5, paymentFee: 0.19, feeRate: 1.95,
+}
+const onFor = (over: any = {}) => (face: number) => ({ ...QUOTE, faceAmount: face, ...over })
+
+const CASHBACK_CONFIRM =
+  "Confirm Airtime\nPay GHS 9.69 (was GHS 10.00)\nYou get GHS 10.00 Yellow Plans airtime\nTo: 0241234567\nMoMo: 0201112222\n1. Confirm\n2. Cancel"
+
+const CASHBACK_ROW = {
+  ...LEGACY_ROW,
+  airtime_amount: 10,
+  fee_amount: 0.19,
+  total_paid: 9.69,
+  merchant_commission: 0,
+  payment_fee_amount: 0.19,
+  cashback_amount: 0.5,
+  shop_share_amount: 0,
+  cashback_rate: 10,
+  cashback_share: 50,
+  cashback_provider: "hubtel",
+  expected_commission: 1,
+}
+
+const cbConfirmSession = (extra: any = {}) => confirmSession({
+  airtimeAmount: 10, airtimeFee: 0, airtimeToDeliver: 10, airtimeCashbackPay: 9.69, ...extra,
+})
+
+describe("main USSD airtime: cashback applied", () => {
+  it("asks for the airtime amount, probing at the minimum on rail paystack (main share)", async () => {
+    h.state.quote = onFor()
+    const r = await handleAirtimeEnterRecipient(RECIPIENT, "s1", { step: "AIRTIME_ENTER_RECIPIENT", dialingPhone: DIALER } as any, "ussd")
+    expect(r.message).toBe("Yellow Plans Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back")
+    expect(h.state.quoteCalls[0]).toEqual(["MTN", 1, { rail: "paystack", shop: false }])
+    const r2 = await handleAirtimeSelectNetwork("1", "s1", { step: "AIRTIME_SELECT_NETWORK", dialingPhone: DIALER, airtimeRecipient: "0311234567" } as any, "ussd")
+    expect(r2.message).toBe("Yellow Plans Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back")
+    const r3 = await handleAirtimeEnterAmount("x", "s1", { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any, "ussd")
+    expect(r3.message).toBe("Enter a valid amount.\nYellow Plans Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back")
+  })
+
+  it("amount is the face: confirm shows Pay x (was y) and stores the shown price", async () => {
+    h.state.quote = onFor()
+    const r = await handleAirtimeEnterAmount("10", "s1", { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any, "ussd")
+    expect(r).toEqual({ message: CASHBACK_CONFIRM, ussdServiceOp: 2 })
+    expect(lastSession()).toMatchObject({ step: "AIRTIME_CONFIRM", airtimeAmount: 10, airtimeFee: 0, airtimeToDeliver: 10, airtimeCashbackPay: 9.69 })
+    expect(h.state.quoteCalls.at(-1)).toEqual(["MTN", 10, { rail: "paystack", shop: false }])
+    // Junk input repaints the same cashback screen.
+    const again = await handleAirtimeConfirm("9", "s1", lastSession())
+    expect(again.message).toBe(CASHBACK_CONFIRM)
+  })
+
+  it("confirm (MoMo) inserts the cashback row and charges payAmount (= total_paid)", async () => {
+    h.state.quote = onFor()
+    const r = await handleAirtimeConfirm("1", "s1", cbConfirmSession())
+    expect(r.ussdServiceOp).toBe(17)
+    expect(airtimeInserts()).toEqual([CASHBACK_ROW])
+    await flushAfter()
+    expect(h.state.charges).toHaveLength(1)
+    expect(h.state.charges[0]).toMatchObject({ amount: 9.69, reference: "order-1" })
+    expect(h.state.inserts.find(i => i.table === "payment_attempts")!.row.amount).toBe(9.69)
+  })
+
+  it("a shop share in the quote is never credited on the main menu", async () => {
+    h.state.quote = onFor({ shopShare: 0.3 })
+    await handleAirtimeConfirm("1", "s1", cbConfirmSession())
+    expect(airtimeInserts()[0]).toMatchObject({ merchant_commission: 0, shop_share_amount: 0, shop_id: null })
+  })
+
+  it("dealer wallet stays: it is offered at payAmount and deducts payAmount", async () => {
+    h.state.quote = onFor()
+    h.state.dialer = { userId: "u1", role: "dealer", balance: 9.7, email: "d@example.com" }
+    const r = await handleAirtimeConfirm("1", "s1", cbConfirmSession())
+    expect(r.message).toBe("Pay GHS 9.69\n1. Datagod Wallet\n   (GHS 9.70)\n2. MoMo prompt\n0. Cancel")
+    expect(airtimeInserts()).toEqual([{ ...CASHBACK_ROW, user_id: "u1", customer_email: "d@example.com" }])
+    h.state.walletBalance = 9.7
+    const pm = await handleAirtimePaymentMethod("1", "s1", lastSession())
+    expect(pm.message).toBe("Payment successful.\nAirtime will reflect\nshortly.")
+    expect(h.state.rpcCalls).toEqual([{ name: "deduct_wallet", args: { p_user_id: "u1", p_amount: 9.69 } }])
+    expect(h.state.inserts.find(i => i.table === "transactions")!.row.amount).toBe(9.69)
+  })
+
+  it("wallet screen -> MoMo charges payAmount", async () => {
+    h.state.quote = onFor()
+    h.state.dialer = { userId: "u1", role: "customer", balance: 50 }
+    await handleAirtimeConfirm("1", "s1", cbConfirmSession())
+    await handleAirtimePaymentMethod("2", "s1", lastSession())
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 9.69 })
+  })
+
+  it("re-quote mismatch at confirm: 'Price changed. Please try again.' and no order", async () => {
+    h.state.quote = onFor({ payAmount: 9.8 })
+    const r = await handleAirtimeConfirm("1", "s1", cbConfirmSession())
+    expect(r).toEqual({ message: "Price changed. Please try again.", ussdServiceOp: 17 })
+    expect(airtimeInserts()).toEqual([])
+    expect(h.state.afterFns).toHaveLength(0)
+  })
+
+  it("cashback switched off or on since the screen: same refusal, no order", async () => {
+    h.state.quote = null
+    expect((await handleAirtimeConfirm("1", "s1", cbConfirmSession())).message).toBe("Price changed. Please try again.")
+    h.state.quote = onFor()
+    expect((await handleAirtimeConfirm("1", "s1", confirmSession())).message).toBe("Price changed. Please try again.")
+    expect(airtimeInserts()).toEqual([])
+  })
+})
+
+describe("main USSD airtime: cashback not applied on the USSD channel stays byte-identical", () => {
+  it("screens, session and row match today's", async () => {
+    const r1 = await handleAirtimeEnterRecipient(RECIPIENT, "s1", { step: "AIRTIME_ENTER_RECIPIENT", dialingPhone: DIALER } as any, "ussd")
+    expect(r1.message).toBe("Yellow Plans Airtime\nEnter amount to pay\n(GHS 1 - 500):\n\n0. Back")
+    const r2 = await handleAirtimeEnterAmount("10.50", "s1", { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any, "ussd")
+    expect(r2.message).toBe(LEGACY_CONFIRM)
+    expect(lastSession()).toEqual({
+      step: "AIRTIME_CONFIRM", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN",
+      airtimeAmount: 10.5, airtimeFee: 0.5, airtimeToDeliver: 10, userId: undefined, walletBalance: undefined,
+    })
+    await handleAirtimeConfirm("1", "s1", confirmSession())
+    expect(airtimeInserts()).toEqual([LEGACY_ROW])
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 10.5 })
+  })
+})
+
+describe("WhatsApp reuse stays byte-identical even with cashback ON", () => {
+  it("entry handlers (called without a channel, as the WhatsApp router does) show today's screens", async () => {
+    h.state.quote = onFor()
+    const r1 = await handleAirtimeEnterRecipient(RECIPIENT, "wa1", { step: "AIRTIME_ENTER_RECIPIENT", dialingPhone: DIALER } as any)
+    expect(r1.message).toBe("Yellow Plans Airtime\nEnter amount to pay\n(GHS 1 - 500):\n\n0. Back")
+    const r2 = await handleAirtimeSelectNetwork("2", "wa1", { step: "AIRTIME_SELECT_NETWORK", dialingPhone: DIALER, airtimeRecipient: "0311234567" } as any)
+    expect(r2.message).toBe("Tele Airtime\nEnter amount to pay\n(GHS 1 - 500):\n\n0. Back")
+    const r3 = await handleAirtimeEnterAmount("10.50", "wa1", { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any)
+    expect(r3.message).toBe(LEGACY_CONFIRM)
+    expect(lastSession()).toEqual({
+      step: "AIRTIME_CONFIRM", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN",
+      airtimeAmount: 10.5, airtimeFee: 0.5, airtimeToDeliver: 10, userId: undefined, walletBalance: undefined,
+    })
+    expect(h.state.quoteCalls).toEqual([])
+  })
+
+  it("whatsapp confirm + payment method insert today's row and charge today's amount", async () => {
+    h.state.quote = onFor()
+    await handleAirtimeConfirm("1", "wa1", confirmSession(), "whatsapp")
+    expect(airtimeInserts()).toEqual([LEGACY_ROW])
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 10.5 })
+
+    h.state.dialer = { userId: "u1", role: "customer", balance: 50, email: "c@example.com" }
+    const r = await handleAirtimeConfirm("1", "wa1", confirmSession(), "whatsapp")
+    expect(r.message).toBe("Pay GHS 10.50\n1. Datagod Wallet\n   (GHS 50.00)\n2. MoMo prompt\n0. Cancel")
+    await handleAirtimePaymentMethod("1", "wa1", lastSession(), "whatsapp")
+    expect(h.state.rpcCalls).toEqual([{ name: "deduct_wallet", args: { p_user_id: "u1", p_amount: 10.5 } }])
+    expect(h.state.quoteCalls).toEqual([])
   })
 })

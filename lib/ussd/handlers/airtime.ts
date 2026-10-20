@@ -20,6 +20,34 @@ import {
   airtimeBaseFeeRate, splitInclusive,
 } from "../../airtime-pricing"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
+import type { StorefrontQuote } from "../../cashback/quote"
+import {
+  airtimeRequote, uzoAirtimeCashbackConfirm, uzoAirtimePromptCashback, uzoAirtimeQuote,
+  uzoCashbackAirtimeColumns, uzoUsableAirtimeQuote,
+} from "../bots/airtime"
+import { botErrorText } from "../bots/screen"
+
+type Channel = 'ussd' | 'whatsapp'
+
+// Commission cashback applies ONLY on the Uzo USSD channel, and the entry handlers only see it when
+// the USSD router passes 'ussd' explicitly. The WhatsApp router calls them without a channel and its
+// confirm/payment calls pass 'whatsapp': its screens and rows stay exactly today's (Plan 4 owns WhatsApp).
+const promptCashback = (channel: Channel | undefined, network: string, min: number): Promise<boolean> =>
+  channel === 'ussd' ? uzoAirtimePromptCashback(network, min, false) : Promise.resolve(false)
+
+function cashbackConfirmText(session: USSDSession, pay: number, face: number): string {
+  return uzoAirtimeCashbackConfirm({
+    header: "Confirm Airtime",
+    label: networkNickname(session.airtimeNetwork!),
+    recipient: toLocal(session.airtimeRecipient!),
+    pay, face,
+    payer: toLocal(session.dialingPhone!),
+  })
+}
+
+/** Price the caller pays: the cashback price shown (USSD only), else today's typed amount. */
+const payAmountOf = (session: USSDSession, channel: Channel): number =>
+  channel === 'ussd' && session.airtimeCashbackPay !== undefined ? session.airtimeCashbackPay : session.airtimeAmount!
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,7 +69,8 @@ async function dialerFeeRate(network: string, dialerRole?: string): Promise<numb
 export async function handleAirtimeEnterRecipient(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel?: Channel
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
@@ -73,14 +102,15 @@ export async function handleAirtimeEnterRecipient(
 
   const { min, max } = await getAirtimeLimits()
   await setSession(sessionId, { ...session, step: "AIRTIME_ENTER_AMOUNT", airtimeRecipient: local, airtimeNetwork: network })
-  return cont(airtimeAmountPrompt(networkNickname(network), min, max))
+  return cont(airtimeAmountPrompt(networkNickname(network), min, max, await promptCashback(channel, network, min)))
 }
 
 // ── AIRTIME_SELECT_NETWORK (fallback when prefix unknown) ─────────────────────
 export async function handleAirtimeSelectNetwork(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel?: Channel
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
     await setSession(sessionId, { ...session, step: "AIRTIME_ENTER_RECIPIENT" })
@@ -97,14 +127,15 @@ export async function handleAirtimeSelectNetwork(
 
   const { min, max } = await getAirtimeLimits()
   await setSession(sessionId, { ...session, step: "AIRTIME_ENTER_AMOUNT", airtimeNetwork: network })
-  return cont(airtimeAmountPrompt(networkNickname(network), min, max))
+  return cont(airtimeAmountPrompt(networkNickname(network), min, max, await promptCashback(channel, network, min)))
 }
 
 // ── AIRTIME_ENTER_AMOUNT ──────────────────────────────────────────────────────
 export async function handleAirtimeEnterAmount(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel?: Channel
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
     await setSession(sessionId, { ...session, step: "AIRTIME_ENTER_RECIPIENT" })
@@ -115,10 +146,29 @@ export async function handleAirtimeEnterAmount(
   const network = session.airtimeNetwork!
   const { min, max } = await getAirtimeLimits()
   if (isNaN(amount) || amount < min || amount > max) {
-    return cont(`Enter a valid amount.\n` + airtimeAmountPrompt(networkNickname(network), min, max))
+    return cont(`Enter a valid amount.\n` + airtimeAmountPrompt(networkNickname(network), min, max, await promptCashback(channel, network, min)))
   }
 
   const dialer = await resolveDialer(session.dialingPhone ?? "")
+
+  // Commission cashback (main menu: customer share). Applied => the typed amount is the face delivered.
+  const cb = channel === 'ussd' ? await uzoUsableAirtimeQuote(network, amount, false) : null
+  if (cb) {
+    const next: USSDSession = {
+      ...session,
+      step: "AIRTIME_CONFIRM",
+      airtimeAmount: amount,
+      airtimeFee: 0,
+      airtimeToDeliver: amount,
+      airtimeCashbackPay: cb.payAmount,
+      userId: dialer.userId,
+      walletBalance: dialer.balance,
+    }
+    await setSession(sessionId, next)
+    return cont(cashbackConfirmText(next, cb.payAmount, amount))
+  }
+
+  // Not applied: today's fee pricing, unchanged.
   const rate = await dialerFeeRate(network, dialer.role)
   const { fee, toDeliver } = splitInclusive(amount, rate)
 
@@ -130,6 +180,7 @@ export async function handleAirtimeEnterAmount(
     airtimeToDeliver: toDeliver,
     userId: dialer.userId,
     walletBalance: dialer.balance,
+    ...(session.airtimeCashbackPay !== undefined ? { airtimeCashbackPay: undefined } : {}),
   })
 
   return cont(airtimeConfirmMenu(networkNickname(network), session.airtimeRecipient!, amount, toDeliver, session.dialingPhone!))
@@ -147,6 +198,9 @@ export async function handleAirtimeConfirm(
     return end("Order cancelled.")
   }
   if (input.trim() !== "1") {
+    if (channel === 'ussd' && session.airtimeCashbackPay !== undefined) {
+      return cont(cashbackConfirmText(session, session.airtimeCashbackPay, session.airtimeAmount!))
+    }
     return cont(airtimeConfirmMenu(
       networkNickname(session.airtimeNetwork!), session.airtimeRecipient!,
       session.airtimeAmount!, session.airtimeToDeliver!, session.dialingPhone!
@@ -168,12 +222,33 @@ export async function handleAirtimeConfirm(
     return end(`Amount must be GHS ${min}-${max}. Please restart.`)
   }
 
+  // Cashback re-quote (USSD only): the screen and the live quote must agree on the pricing mode AND
+  // the price; otherwise no order is created and the caller restarts.
+  let cb: StorefrontQuote | null = null
+  if (channel === 'ussd') {
+    const rq = airtimeRequote(session.airtimeCashbackPay, await uzoAirtimeQuote(network, amount, false), amount)
+    if (rq.kind === "changed") {
+      await setSession(sessionId, { step: "MAIN", dialingPhone })
+      return end(botErrorText(409))
+    }
+    if (rq.kind === "cashback") cb = rq.quote
+  }
+
   const dialer = await resolveDialer(dialingPhone)
-  const rate = await dialerFeeRate(network, dialer.role)
-  const { fee, toDeliver } = splitInclusive(amount, rate)
+  let fee: number
+  let toDeliver: number
+  if (cb) {
+    fee = 0
+    toDeliver = amount
+  } else {
+    const rate = await dialerFeeRate(network, dialer.role)
+    ;({ fee, toDeliver } = splitInclusive(amount, rate))
+  }
+  // What the caller is charged (MoMo or wallet) = the row's total_paid.
+  const price = cb ? cb.payAmount : amount
 
   const provider = paystackProviderFromPhone(dialingPhone)
-  const walletEligible = dialer.userId && dialer.balance !== undefined && dialer.balance >= amount
+  const walletEligible = dialer.userId && dialer.balance !== undefined && dialer.balance >= price
   if (!walletEligible && !provider) {
     await setSession(sessionId, { step: "MAIN", dialingPhone })
     return end("Payment not available for your number.")
@@ -199,6 +274,8 @@ export async function handleAirtimeConfirm(
       customer_email: dialer.email ?? null,
       dialing_phone: dialingPhone,
       channel: "ussd",
+      // Applied: face delivered, total_paid = payAmount, fee = payment fee, cashback snapshot, no shop share.
+      ...(cb ? uzoCashbackAirtimeColumns(cb, false) : {}),
     }])
     .select("id")
     .single()
@@ -207,6 +284,9 @@ export async function handleAirtimeConfirm(
     console.error("[USSD-AIRTIME] Failed to create order:", orderErr)
     return end("Error creating order.\nPlease try again.")
   }
+
+  // Pin the charged price to the row's total_paid for the payment-method step.
+  const priced = cb ? { airtimeCashbackPay: cb.payAmount } : {}
 
   if (walletEligible) {
     await setSession(sessionId, {
@@ -218,8 +298,9 @@ export async function handleAirtimeConfirm(
       walletBalance: dialer.balance,
       pendingOrderId: order.id,
       pendingOrderTable: "airtime_orders",
+      ...priced,
     })
-    return cont(airtimePaymentMethodMenu(amount, dialer.balance!))
+    return cont(airtimePaymentMethodMenu(price, dialer.balance!))
   }
 
   await setSession(sessionId, {
@@ -228,8 +309,9 @@ export async function handleAirtimeConfirm(
     airtimeToDeliver: toDeliver,
     pendingOrderId: order.id,
     pendingOrderTable: "airtime_orders",
+    ...priced,
   })
-  return chargeAirtimeMomo(sessionId, session, order.id, amount, provider!, channel)
+  return chargeAirtimeMomo(sessionId, session, order.id, price, provider!, channel)
 }
 
 // ── AIRTIME_PAYMENT_METHOD ────────────────────────────────────────────────────
@@ -240,7 +322,7 @@ export async function handleAirtimePaymentMethod(
   channel: 'ussd' | 'whatsapp' = 'ussd'
 ): Promise<UzoResponse> {
   const orderId = session.pendingOrderId!
-  const amount = session.airtimeAmount!
+  const amount = payAmountOf(session, channel) // = the row's total_paid
   const dialingPhone = session.dialingPhone!
 
   if (input.trim() === "0") {

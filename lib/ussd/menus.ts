@@ -57,8 +57,9 @@ export function airtimeNetworkMenu(): string {
   return 'Select Network:\n1. Yellow Plans\n2. Tele\n3. Instant Blue\n\n0. Back'
 }
 
-export function airtimeAmountPrompt(network: string, min: number, max: number): string {
-  return `${network} Airtime\nEnter amount to pay\n(GHS ${min} - ${max}):\n\n0. Back`
+/** `cashback` (commission cashback applies) asks for the airtime amount (the face) instead of the amount to pay. */
+export function airtimeAmountPrompt(network: string, min: number, max: number, cashback = false): string {
+  return `${network} Airtime\n${cashback ? "Enter airtime amount" : "Enter amount to pay"}\n(GHS ${min} - ${max}):\n\n0. Back`
 }
 
 export function airtimeConfirmMenu(network: string, recipient: string, amountPay: number, amountGet: number, dialingPhone: string): string {
