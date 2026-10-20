@@ -50,6 +50,21 @@ describe("uzoPagedList", () => {
     expect(r.text).toBe("Pick:\n3. C\n0. Back")
   })
 
+  it("a long label is cut on a word boundary, never mid-word", () => {
+    const items = [1, 2, 3, 4, 5].map(i => `${i}0.50 ${i}GB Internet 30 Days`)
+    const r = uzoPagedList([...items, "x"], 0, (s) => s, { header: "Yellow Plans Internet" })
+    expect(r.text).toBe(
+      "Yellow Plans Internet\n1. 10.50 1GB Internet\n2. 20.50 2GB Internet\n3. 30.50 3GB Internet\n" +
+      "4. 40.50 4GB Internet\n5. 50.50 5GB Internet\n6. More...\n0. Back",
+    )
+  })
+
+  it("a label with no space left in reach is hard-cut (still fits)", () => {
+    const r = uzoPagedList(["Y".repeat(80), "Z".repeat(80)], 0, (s) => s, { header: "Pick:" })
+    expect(fitsUzo(r.text)).toBe(true)
+    expect(r.text.endsWith("0. Back")).toBe(true)
+  })
+
   it("every page fits 160 with 40-char labels and keeps footer", () => {
     for (let page = 0; page < 3; page++) {
       const r = uzoPagedList(longItems, page, (s) => s.slice(0, 40), { header: "Select Plan:" })

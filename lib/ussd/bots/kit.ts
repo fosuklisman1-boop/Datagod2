@@ -106,6 +106,10 @@ export function uzoPromptSentText(dialingPhone: string): string {
 
 export const UZO_BOT_UNAVAILABLE = botErrorText(503)
 
+/** Two GHS amounts equal to the pesewa (the engine order's price vs the price the confirm screen showed). */
+export const samePrice = (a: number, b: number): boolean =>
+  Number.isFinite(a) && Number.isFinite(b) && Math.round(a * 100) === Math.round(b * 100)
+
 /** What the read-back + charge tail needs. */
 export interface UzoBotPayDeps {
   /** The order's status + payment_status; null when there is no row. Throws on a read error. */

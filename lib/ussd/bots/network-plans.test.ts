@@ -144,20 +144,20 @@ describe("network plans: networks + categories", () => {
 })
 
 describe("network plans: plan list paging", () => {
-  it("5 per page, More / Back, price first (a long name is shortened, never the price), names rewritten", async () => {
+  it("5 per page, More / Back, price first (a long name is shortened on a word, never the price), names rewritten", async () => {
     const t = setup()
     await t.start()
     const p0 = await t.send("1", "1")
     expect(p0.message).toBe(
       "Yellow Plans Internet\n" +
-      "1. GHS 10.50 1GB Intern\n2. GHS 11.50 2GB Intern\n3. GHS 12.50 3GB Intern\n" +
-      "4. GHS 13.50 4GB Intern\n5. GHS 14.50 5GB Intern\n6. More...\n0. Back",
+      "1. 10.50 1GB Internet\n2. 11.50 2GB Internet\n3. 12.50 3GB Internet\n" +
+      "4. 13.50 4GB Internet\n5. 14.50 5GB Internet\n6. More...\n0. Back",
     )
     expect(t.store.get(SID)).toMatchObject({ step: "NP_PLAN", npCategory: "Data", npPage: 0 })
     expect(t.store.get(SID)?.npPlans?.map(p => p.t)).toEqual(["tok-1", "tok-2", "tok-3", "tok-4", "tok-5"])
 
     const p1 = await t.send("6")
-    expect(p1.message).toBe("Yellow Plans Internet\n6. GHS 15.50 6GB Internet 30 Days\n7. GHS 16.50 7GB Internet 30 Days\n0. Back")
+    expect(p1.message).toBe("Yellow Plans Internet\n6. 15.50 6GB Internet 30 Days\n7. 16.50 7GB Internet 30 Days\n0. Back")
     expect(t.store.get(SID)).toMatchObject({ npPage: 1 })
     expect(t.store.get(SID)?.npPlans?.map(p => p.t)).toEqual(["tok-6", "tok-7"])
 
@@ -180,7 +180,7 @@ describe("network plans: plan list paging", () => {
     await t.send("1", "1")
     t.store.set(SID, { ...t.store.get(SID)!, npPage: 9, npPlans: [] })
     const r = await t.send("x")
-    expect(r.message).toContain("6. GHS 15.50")
+    expect(r.message).toContain("6. 15.50")
     expect(t.store.get(SID)?.npPage).toBe(1)
     // "More" on the last page just repaints it.
     const again = await t.send("8")
@@ -271,6 +271,19 @@ describe("network plans: confirm + pay", () => {
     expect(await t.send("1", "1", "1", "1", "1")).toEqual({ message: text, ussdServiceOp: 17 })
     expect(t.deps.charge).not.toHaveBeenCalled()
     expect(t.deps.readOrder).not.toHaveBeenCalled()
+  })
+
+  it("engine replay at another price (reused key) => 'Price changed', nothing read back or charged", async () => {
+    const t = setup({
+      createOrder: async () => ({
+        ok: true, order: { id: ORDER, reference: "R0", payAmount: 12, faceAmount: 11, customerCashback: 0, paymentFee: 1 },
+      }),
+    })
+    await t.start()
+    expect(await t.send("1", "1", "1", "1", "1")).toEqual({ message: "Price changed. Please try again.", ussdServiceOp: 17 })
+    expect(t.deps.readOrder).not.toHaveBeenCalled()
+    expect(t.deps.charge).not.toHaveBeenCalled()
+    expect(t.deps.failOrder).not.toHaveBeenCalled()
   })
 
   it("engine throws: an order committed under the key is failed (guarded); nothing charged", async () => {

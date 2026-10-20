@@ -17,7 +17,7 @@ import { isValidIdempotencyKey } from "@/lib/standard-bundles/service"
 import { networkNickname } from "../network-labels"
 import type { UzoNpPlan, UzoResponse } from "../types"
 import {
-  ascii, liveUzoBotIo, uzoBotContext, uzoChargeOrder, uzoShopHeader, withoutBotFields, UZO_BOT_UNAVAILABLE,
+  ascii, liveUzoBotIo, samePrice, uzoBotContext, uzoChargeOrder, uzoShopHeader, withoutBotFields, UZO_BOT_UNAVAILABLE,
   type UzoBotCtx, type UzoBotIo, type UzoBotPayDeps, type UzoBotSession,
 } from "./kit"
 import { botErrorText, fitsUzo, uzoConfirmText, uzoPagedList, uzoSafeLabel } from "./screen"
@@ -62,8 +62,8 @@ function categoryScreen(network: BundleNetwork, names: string[], prefix = ""): s
   return uzoPagedList(names, 0, label, { header: `${prefix}${npNickname(network)}\nSelect type:`, pageSize: Math.max(1, names.length) }).text
 }
 
-/** Price first: when a long plan name is shortened, the price is never cut. */
-const planLabel = (p: UzoNpPlan) => `GHS ${money(p.p)} ${label(p.d)}`
+/** Price first (no "GHS " so the name gets the room): a long plan name is shortened on a word, never the price. */
+const planLabel = (p: UzoNpPlan) => `${money(p.p)} ${label(p.d)}`
 
 function recipientScreen(ctx: UzoBotCtx, prefix = ""): string {
   return `${prefix}${uzoShopHeader(ctx)}Recipient:\n1. My number\n2. Other number\n0. Back`
@@ -262,6 +262,11 @@ async function confirm(x: Step): Promise<UzoResponse> {
     return d.io.end(UZO_BOT_UNAVAILABLE)
   }
   if (!r.ok) return d.io.end(botErrorText(r.status))
+  // An engine replay under a reused key hands back an older order: never charge a price the screen did not show.
+  if (!samePrice(r.order.payAmount, plan.p)) {
+    console.error(`[${TAG}] engine order price differs from the confirm screen; refusing to charge:`, r.order.id)
+    return d.io.end(botErrorText(409))
+  }
   return d.io.end(await uzoChargeOrder(d, ctx, "cs_bundle", r.order.id, TAG))
 }
 

@@ -23,6 +23,15 @@ function cut(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, Math.max(0, max))
 }
 
+/** Cut to `max` on a word boundary (whole words only); a first word longer than `max` is hard-cut. */
+function cutWord(s: string, max: number): string {
+  if (s.length <= max) return s
+  const hard = cut(s, max)
+  if (s[hard.length] === " ") return hard.trimEnd()
+  const space = hard.lastIndexOf(" ")
+  return space > 0 ? hard.slice(0, space).trimEnd() : hard
+}
+
 export function uzoPagedList<T>(
   items: T[],
   page: number,
@@ -36,7 +45,7 @@ export function uzoPagedList<T>(
   const labels = pageItems.map((t) => label(t))
 
   const build = (max: number): string => {
-    const lines = labels.map((l, i) => `${offset + i + 1}. ${cut(l, max)}`)
+    const lines = labels.map((l, i) => `${offset + i + 1}. ${cutWord(l, max)}`)
     if (hasMore) lines.push(`${offset + pageItems.length + 1}. More...`)
     lines.push("0. Back")
     return `${opts.header}\n${lines.join("\n")}`
