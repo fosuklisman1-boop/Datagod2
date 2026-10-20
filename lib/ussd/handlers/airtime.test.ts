@@ -17,6 +17,7 @@ const h = vi.hoisted(() => {
     seq: 0,
     quote: null as any, // what quoteBotAirtime returns (null = cashback not applied)
     quoteCalls: [] as any[],
+    cashbackAirtime: true as boolean | undefined, // ussd_service_visibility.cashbackAirtime (Uzo-only opt-in)
   }
   const fake = {
     from(table: string) {
@@ -71,7 +72,10 @@ vi.mock("@/lib/sms-service", () => ({
 vi.mock("@/lib/whatsapp-bot/send", () => ({ sendWhatsAppText: vi.fn(async () => {}) }))
 vi.mock("@/lib/secure-random", () => ({ secureReference: () => "AT-REF-001" }))
 vi.mock("@/lib/ussd-service-visibility", () => ({
-  getUssdServiceVisibility: vi.fn(async () => ({ data: true, afa: true, airtime: true, resultsChecker: true })),
+  getUssdServiceVisibility: vi.fn(async () => ({
+    data: true, afa: true, airtime: true, resultsChecker: true,
+    ...(h.state.cashbackAirtime === undefined ? {} : { cashbackAirtime: h.state.cashbackAirtime }),
+  })),
 }))
 vi.mock("@/lib/cashback/storefront-airtime", () => ({
   quoteBotAirtime: vi.fn(async (network: string, face: number, opts: any) => {
@@ -142,7 +146,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   h.state.inserts = []; h.state.updates = []; h.state.rpcCalls = []; h.state.sessions = []
   h.state.charges = []; h.state.afterFns = []; h.state.walletBalance = 100; h.state.dialer = {}; h.state.seq = 0
-  h.state.quote = null; h.state.quoteCalls = []
+  h.state.quote = null; h.state.quoteCalls = []; h.state.cashbackAirtime = true
 })
 afterEach(() => { vi.useRealTimers() })
 
@@ -362,6 +366,31 @@ describe("main USSD airtime: cashback not applied on the USSD channel stays byte
     expect(airtimeInserts()).toEqual([LEGACY_ROW])
     await flushAfter()
     expect(h.state.charges[0]).toMatchObject({ amount: 10.5 })
+  })
+})
+
+describe("main USSD airtime: the Uzo cashbackAirtime opt-in is off (key missing or false)", () => {
+  for (const flag of [undefined, false] as const) {
+    it(`cashbackAirtime=${flag}: byte-identical to today even with the shared bots airtime gate ON`, async () => {
+      h.state.cashbackAirtime = flag
+      h.state.quote = onFor() // what the shared gate would sell at
+      const r1 = await handleAirtimeEnterRecipient(RECIPIENT, "s1", { step: "AIRTIME_ENTER_RECIPIENT", dialingPhone: DIALER } as any, "ussd")
+      expect(r1.message).toBe("Yellow Plans Airtime\nEnter amount to pay\n(GHS 1 - 500):\n\n0. Back")
+      const r2 = await handleAirtimeEnterAmount("10.50", "s1", { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any, "ussd")
+      expect(r2.message).toBe(LEGACY_CONFIRM)
+      expect(lastSession().airtimeCashbackPay).toBeUndefined()
+      await handleAirtimeConfirm("1", "s1", confirmSession(), "ussd")
+      expect(airtimeInserts()).toEqual([LEGACY_ROW])
+      await flushAfter()
+      expect(h.state.charges[0]).toMatchObject({ amount: 10.5 })
+      expect(h.state.quoteCalls).toEqual([]) // the shared gate is never even asked
+    })
+  }
+
+  it("opted in (true) with the gate on => cashback live", async () => {
+    h.state.quote = onFor()
+    const r = await handleAirtimeEnterRecipient(RECIPIENT, "s1", { step: "AIRTIME_ENTER_RECIPIENT", dialingPhone: DIALER } as any, "ussd")
+    expect(r.message).toBe("Yellow Plans Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back")
   })
 })
 

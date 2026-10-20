@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { StorefrontQuote } from "@/lib/cashback/quote"
 
-const h = vi.hoisted(() => ({ quoteBotAirtime: vi.fn() }))
+const h = vi.hoisted(() => ({ quoteBotAirtime: vi.fn(), vis: vi.fn() }))
 vi.mock("@/lib/cashback/storefront-airtime", () => ({ quoteBotAirtime: h.quoteBotAirtime }))
+// The Uzo-only opt-in (ussd_service_visibility.cashbackAirtime); on unless a test turns it off.
+vi.mock("@/lib/ussd-service-visibility", () => ({ getUssdServiceVisibility: h.vis }))
 
 import {
   airtimeRequote, uzoAirtimeCashbackConfirm, uzoAirtimePromptCashback, uzoAirtimeQuote,
@@ -15,7 +17,35 @@ const quote = (over: Partial<StorefrontQuote> = {}): StorefrontQuote => ({
   payAmount: 9.69, datagodKeeps: 0.5, provider: "hubtel", base: 9.5, paymentFee: 0.19, feeRate: 1.95, ...over,
 })
 
-beforeEach(() => { h.quoteBotAirtime.mockReset() })
+beforeEach(() => {
+  h.quoteBotAirtime.mockReset()
+  h.vis.mockReset().mockResolvedValue({ cashbackAirtime: true })
+})
+
+describe("uzoAirtimeQuote: the Uzo-only cashbackAirtime opt-in", () => {
+  it("key missing, false, non-boolean or a read error => no quote, quoteBotAirtime never asked (legacy pricing)", async () => {
+    h.quoteBotAirtime.mockResolvedValue(quote())
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    for (const v of [{}, { cashbackAirtime: false }, { cashbackAirtime: "true" }]) {
+      h.vis.mockResolvedValueOnce(v)
+      expect(await uzoAirtimeQuote("MTN", 10, false)).toBeNull()
+    }
+    h.vis.mockRejectedValueOnce(new Error("db down"))
+    expect(await uzoAirtimeQuote("MTN", 10, true)).toBeNull()
+    h.vis.mockResolvedValueOnce({})
+    expect(await uzoAirtimePromptCashback("MTN", 1, false)).toBe(false)
+    h.vis.mockResolvedValueOnce({})
+    expect(await uzoUsableAirtimeQuote("MTN", 10, false)).toBeNull()
+    expect(h.quoteBotAirtime).not.toHaveBeenCalled()
+    err.mockRestore()
+  })
+
+  it("opted in (=== true) => the shared bots gate decides as before", async () => {
+    h.quoteBotAirtime.mockResolvedValue(quote())
+    expect(await uzoAirtimeQuote("MTN", 10, false)).toEqual(quote())
+    expect(h.quoteBotAirtime).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe("uzoAirtimeQuote", () => {
   it("quotes on rail paystack with the shop flag", async () => {

@@ -6,6 +6,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { quoteBotAirtime, type BotAirtimeDeps } from "@/lib/cashback/storefront-airtime"
 import { getCashbackConfig } from "@/lib/cashback/config"
+import { getUssdServiceVisibility } from "@/lib/ussd-service-visibility"
 import { getAirtimeProvider } from "@/lib/airtime-provider"
 import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork } from "@/lib/digiwapy-provider"
 import { samePrice, type StorefrontQuote } from "@/lib/cashback/quote"
@@ -32,10 +33,26 @@ const liveDeps = (): BotAirtimeDeps => ({
 })
 
 /**
- * Cashback quote for Uzo airtime on rail paystack, or null when cashback does not apply (bots airtime
- * gate off, provider earns nothing, above Hubtel's cap, any error). `shop` = shop USSD (storefront split).
+ * Uzo-only opt-in: `ussd_service_visibility.cashbackAirtime === true`. The shared bots airtime gate is also ON for
+ * Hubtel USSD, so without this switch Uzo airtime would go cashback the moment it deploys. Missing key / read error
+ * => off (today's pricing). Hubtel USSD never reads it.
  */
-export function uzoAirtimeQuote(network: string, face: number, shop: boolean): Promise<StorefrontQuote | null> {
+export async function uzoCashbackAirtimeOn(): Promise<boolean> {
+  try {
+    return (await getUssdServiceVisibility(db())).cashbackAirtime === true
+  } catch (e) {
+    console.error("[USSD-AIRTIME] cashbackAirtime switch unavailable; cashback off:", e instanceof Error ? e.message : "error")
+    return false
+  }
+}
+
+/**
+ * Cashback quote for Uzo airtime on rail paystack, or null when cashback does not apply (Uzo opt-in off, bots
+ * airtime gate off, provider earns nothing, above Hubtel's cap, any error). `shop` = shop USSD (storefront split).
+ * Every cashback decision (prompt probe, amount, confirm re-quote) goes through here, so the opt-in covers them all.
+ */
+export async function uzoAirtimeQuote(network: string, face: number, shop: boolean): Promise<StorefrontQuote | null> {
+  if (!(await uzoCashbackAirtimeOn())) return null
   return quoteBotAirtime(network, face, { rail: "paystack", shop }, liveDeps())
 }
 

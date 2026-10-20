@@ -61,14 +61,24 @@ describe("botMenusVisible: every combination", () => {
 })
 
 describe("botMenusVisible: defaults and failures", () => {
-  it("no cashback row => both hidden; no visibility row => flags default on (the cashback switch is the gate)", async () => {
+  it("no cashback row => both hidden; no visibility row or keys missing => both hidden even with every Bots switch on", async () => {
     expect(await botMenusVisible(fakeDb({}).db)).toEqual({ networkPlans: false, payBills: false })
-    expect(await botMenusVisible(fakeDb({ [CASHBACK_CONFIG_KEY]: cfg() }).db)).toEqual({ networkPlans: true, payBills: true })
+    expect(await botMenusVisible(fakeDb({ [CASHBACK_CONFIG_KEY]: cfg() }).db)).toEqual({ networkPlans: false, payBills: false })
+    // Today's prod row: only the legacy four keys.
+    const prodRow = { data: true, afa: true, airtime: true, resultsChecker: true }
+    expect(await botMenusVisible(fakeDb({ [CASHBACK_CONFIG_KEY]: cfg(), [USSD_SERVICE_VISIBILITY_KEY]: prodRow }).db))
+      .toEqual({ networkPlans: false, payBills: false })
+    // Opted in: live.
+    expect(await botMenusVisible(fakeDb({
+      [CASHBACK_CONFIG_KEY]: cfg(), [USSD_SERVICE_VISIBILITY_KEY]: { ...prodRow, networkPlans: true, payBills: true },
+    }).db)).toEqual({ networkPlans: true, payBills: true })
   })
 
   it("a cashback config read error hides both (fail closed), never throws", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
-    const { db } = fakeDb({ [CASHBACK_CONFIG_KEY]: new Error("db down") })
+    const { db } = fakeDb({
+      [CASHBACK_CONFIG_KEY]: new Error("db down"), [USSD_SERVICE_VISIBILITY_KEY]: { networkPlans: true, payBills: true },
+    })
     expect(await botMenusVisible(db)).toEqual({ networkPlans: false, payBills: false })
     expect(err).toHaveBeenCalled()
     err.mockRestore()
@@ -83,7 +93,7 @@ describe("botMenusVisible: defaults and failures", () => {
 
   it("a visibility map passed in is used as is (no second read); both flags off => the cashback config is not read", async () => {
     const { db, reads } = fakeDb({ [CASHBACK_CONFIG_KEY]: cfg() })
-    const vis = { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: false }
+    const vis = { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: false, cashbackAirtime: false }
     expect(await botMenusVisible(db, vis)).toEqual({ networkPlans: true, payBills: false })
     expect(reads).toEqual([CASHBACK_CONFIG_KEY])
     const off = fakeDb({ [CASHBACK_CONFIG_KEY]: cfg() })
