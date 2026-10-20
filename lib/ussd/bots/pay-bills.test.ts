@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from "vitest"
 import type { BotChargeResult } from "@/lib/bot-commission/momo"
-import type { BotOrderResult } from "@/lib/bot-commission/orders"
+import { BOT_BILL_TOKEN_EXPIRED, type BotOrderResult } from "@/lib/bot-commission/orders"
 import type { VerifyResult } from "@/lib/bills/service"
 import { cont as mainCont, end as mainEnd } from "../menus"
 import { cont as shopCont, end as shopEnd } from "@/lib/ussd-shop/menus"
 import type { UzoPbMeter, UzoResponse } from "../types"
 import { handlePayBillsStep, pbAmountScreen, startPayBills, type PayBillsDeps, type PbVerifyInput } from "./pay-bills"
-import type { UzoBotCtx, UzoBotSession } from "./kit"
+import { UZO_BOT_RESTART, type UzoBotCtx, type UzoBotSession } from "./kit"
 import { fitsUzo } from "./screen"
 
 const SID = "uzo-session-0002"
@@ -188,7 +188,7 @@ describe("pay bills: ECG this number", () => {
     await t.start()
     expect((await t.send("1")).message).toBe(ECG_MODE)
     const list = await t.send("1")
-    expect(list.message).toBe("Select meter:\n1. P12345671 Due 12.50 K***1 A***h\n2. P12345672 K***2 A***h\n0. Back")
+    expect(list.message).toBe("Select meter:\n1. P12345671 Due:12.50 K***1 A***h\n2. P12345672 K***2 A***h\n0. Back")
     expect(t.verifyCalls()).toEqual([{ biller: "ecg", phone: ME_LOCAL }])
     const amount = await t.send("1")
     expect(amount.message).toBe("ECG P12345671\nName: K***1 A***h\nDue: GHS 12.50\nEnter amount (GHS 1.00 - 5000.00):\n0. Back")
@@ -565,6 +565,80 @@ describe("pay bills: every screen fits 160 with its footer, and never says data/
       }
     })
   }
+})
+
+describe("pay bills: meter list keeps the due amount whole", () => {
+  it("'Due:<amount>' is one token: shown whole or dropped, never a bare 'Due' or a cut amount", async () => {
+    let seenDue = 0
+    let seenCut = 0
+    for (let ml = 8; ml <= 22; ml++) {
+      for (let nl = 0; nl <= 30; nl += 3) {
+        const name = nl ? "Kofi Mensah Akwasi Oppong Ltd".slice(0, nl) : null
+        const meters = [1, 2, 3, 4, 5].map(i => meter(i, { meter: `${i}`.repeat(ml), name, outstanding: 111.11 }))
+        const t = setup({ meters: { [ME_LOCAL]: meters } })
+        await t.start()
+        const r = await t.send("1", "1")
+        whole(r)
+        for (const line of r.message.split("\n").filter(l => /^\d\. \d/.test(l))) {
+          expect(line).not.toMatch(/Due$/)
+          expect(line).not.toMatch(/Due(?!:111\.11(?: |$))/)
+          if (line.includes("Due:111.11")) seenDue++
+          else seenCut++
+        }
+      }
+    }
+    // Both cases happen across the sweep (shown whole, and dropped whole).
+    expect(seenDue).toBeGreaterThan(0)
+    expect(seenCut).toBeGreaterThan(0)
+  })
+})
+
+describe("pay bills: the flow is closed once the engine was called", () => {
+  for (const surface of ["ussd", "ussd_shop"] as const) {
+    it(`${surface}: success, refusal or a throw all close it: no token left, a replayed 1 / 0 never orders again`, async () => {
+      quiet()
+      for (const createOrder of [
+        undefined,
+        async (): Promise<BotOrderResult> => ({ ok: false, status: 503, error: "x" }),
+        async (): Promise<BotOrderResult> => { throw new Error("db") },
+      ]) {
+        const t = setup({ surface, ...(createOrder ? { createOrder } : {}) })
+        await t.start()
+        await t.send("2", "7012345678", "50", "1")
+        const s = t.store.get(SID)!
+        expect(s.step).toBe(surface === "ussd_shop" ? "SELECT_PRODUCT" : "MAIN")
+        expect(s.pbToken).toBeUndefined()
+        expect(s.pbMeters).toBeUndefined()
+        if (surface === "ussd_shop") expect(s).toMatchObject({ shopId: SHOP, shopName: "Ama Shop", shopCodeId: "c1" })
+        expect(await t.send("1")).toEqual({ message: "MENU", ussdServiceOp: 2 })
+        await t.send("0")
+        expect(t.deps.createOrder).toHaveBeenCalledTimes(1)
+      }
+    })
+  }
+
+  it("cancel (2) before ordering also leaves nothing to order with", async () => {
+    const t = setup()
+    await t.start()
+    await t.send("2", "7012345678", "50")
+    expect(t.store.get(SID)?.pbToken).toBe("tok-dstv")
+    expect(await t.send("2")).toEqual({ message: "Order cancelled.", ussdServiceOp: 17 })
+    expect(t.deps.createOrder).not.toHaveBeenCalled()
+  })
+})
+
+describe("pay bills: verify token expired at confirm", () => {
+  it("the engine's expired-token 400 shows a start-again hint; any other 400 stays generic", async () => {
+    const t = setup({ createOrder: async () => ({ ok: false, status: 400, error: BOT_BILL_TOKEN_EXPIRED }) })
+    await t.start()
+    await t.send("2", "7012345678", "50")
+    expect(await t.send("1")).toEqual({ message: UZO_BOT_RESTART, ussdServiceOp: 17 })
+    expect(t.deps.charge).not.toHaveBeenCalled()
+    const o = setup({ createOrder: async () => ({ ok: false, status: 400, error: "Amount out of range" }) })
+    await o.start()
+    await o.send("2", "7012345678", "50")
+    expect(await o.send("1")).toEqual({ message: UNAVAILABLE, ussdServiceOp: 17 })
+  })
 })
 
 describe("pay bills: meter session shape", () => {

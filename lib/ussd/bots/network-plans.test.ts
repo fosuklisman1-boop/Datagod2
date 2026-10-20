@@ -7,8 +7,9 @@ import { cont as mainCont, end as mainEnd } from "../menus"
 import { cont as shopCont, end as shopEnd } from "@/lib/ussd-shop/menus"
 import type { UzoResponse } from "../types"
 import { handleNetworkPlansStep, startNetworkPlans, uzoNpIdempotencyKey, type NetworkPlansDeps } from "./network-plans"
-import type { UzoBotCtx, UzoBotSession } from "./kit"
+import { UZO_BOT_RESTART, type UzoBotCtx, type UzoBotSession } from "./kit"
 import { fitsUzo } from "./screen"
+import { PRICES_REFRESHED } from "@/lib/standard-bundles/service"
 
 const SID = "uzo-session-0001"
 const ME = "+233244123456" // MTN
@@ -350,6 +351,44 @@ describe("network plans: confirm + pay", () => {
     const k = uzoNpIdempotencyKey("abc")
     expect(k).toMatch(/^[0-9a-f]{64}$/)
     expect(uzoNpIdempotencyKey("abc")).toBe(k)
+  })
+})
+
+describe("network plans: the flow is closed once the engine was called", () => {
+  for (const surface of ["ussd", "ussd_shop"] as const) {
+    it(`${surface}: success, refusal or a throw all close it: no plan/token left, a replayed 1 / 0 never orders again`, async () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {})
+      for (const createOrder of [
+        undefined,
+        async (): Promise<BotOrderResult> => ({ ok: false, status: 503, error: "x" }),
+        async (): Promise<BotOrderResult> => { throw new Error("db") },
+      ]) {
+        const t = setup({ surface, ...(createOrder ? { createOrder } : {}) })
+        await t.start()
+        await t.send("1", "1", "1", "1", "1")
+        const s = t.store.get(SID)!
+        expect(s.step).toBe(surface === "ussd_shop" ? "SELECT_PRODUCT" : "MAIN")
+        expect(s.npPlan).toBeUndefined()
+        expect(s.npPlans).toBeUndefined()
+        if (surface === "ussd_shop") expect(s).toMatchObject({ shopId: SHOP, shopName: "Ama Shop", shopCodeId: "c1" })
+        expect(await t.send("1")).toEqual({ message: "MENU", ussdServiceOp: 2 })
+        await t.send("0")
+        expect(t.deps.createOrder).toHaveBeenCalledTimes(1)
+      }
+      err.mockRestore()
+    })
+  }
+})
+
+describe("network plans: catalog token expired at confirm", () => {
+  it("the engine's 'prices refreshed' 409 shows a start-again hint; a price-change 409 stays 'Price changed'", async () => {
+    const t = setup({ createOrder: async () => ({ ok: false, status: 409, error: PRICES_REFRESHED }) })
+    await t.start()
+    expect(await t.send("1", "1", "1", "1", "1")).toEqual({ message: UZO_BOT_RESTART, ussdServiceOp: 17 })
+    expect(t.deps.charge).not.toHaveBeenCalled()
+    const p = setup({ createOrder: async () => ({ ok: false, status: 409, error: "Price updated — please review" }) })
+    await p.start()
+    expect((await p.send("1", "1", "1", "1", "1")).message).toBe("Price changed. Please try again.")
   })
 })
 

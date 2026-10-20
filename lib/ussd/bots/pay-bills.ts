@@ -10,14 +10,14 @@ import { quoteBots } from "@/lib/cashback/quote"
 import { resolveBotContext, type BotContext } from "@/lib/bot-commission/context"
 import { botChargeMomo, getBotMomoRuntime } from "@/lib/bot-commission/momo"
 import { failBotCharge } from "@/lib/bot-commission/momo-fail"
-import { botCreateBillOrder, type BotBillOrderInput, type BotOrderResult } from "@/lib/bot-commission/orders"
+import { botCreateBillOrder, BOT_BILL_TOKEN_EXPIRED, type BotBillOrderInput, type BotOrderResult } from "@/lib/bot-commission/orders"
 import { getBotBillsRuntime } from "@/lib/bot-commission/runtime"
 import { botVerifyBill } from "@/lib/bot-commission/verify"
 import { isValidGhanaMobile, normalizeGhanaPhone } from "@/lib/phone-format"
 import type { UzoPbAccountStage, UzoPbMeter, UzoPbSessionFields, UzoResponse } from "../types"
 import {
-  ascii, liveUzoBotIo, samePrice, uzoBotContext, uzoChargeOrder, uzoShopHeader, withoutBotFields, UZO_BOT_UNAVAILABLE,
-  type UzoBotCtx, type UzoBotIo, type UzoBotPayDeps, type UzoBotSession,
+  ascii, liveUzoBotIo, samePrice, uzoBotClosedSession, uzoBotContext, uzoChargeOrder, uzoShopHeader, withoutBotFields,
+  UZO_BOT_RESTART, UZO_BOT_UNAVAILABLE, type UzoBotCtx, type UzoBotIo, type UzoBotPayDeps, type UzoBotSession,
 } from "./kit"
 import { botErrorText, fitsUzo, uzoConfirmText, uzoPagedList, uzoSafeLabel, UZO_SCREEN_LIMIT } from "./screen"
 
@@ -84,9 +84,12 @@ const ACCOUNT_PROMPT: Record<UzoPbAccountStage, (s: PbSession) => string> = {
 }
 const accountScreen = (s: PbSession, stage: UzoPbAccountStage, prefix = "") => `${prefix}${ACCOUNT_PROMPT[stage](s)}\n0. Back`
 
-/** Meter, then due, then name: a long line loses the name's words first. */
+/**
+ * Meter, then due, then name: a long line loses the name's words first. The due is ONE word ("Due:12.50"), so the
+ * word cut either keeps it whole or drops it whole: never a bare "Due" or a cut amount.
+ */
 const meterLabel = (m: UzoPbMeter) =>
-  [m.m, m.o !== null && m.o > 0 ? `Due ${money(m.o)}` : "", nameText(m.n)].filter(Boolean).join(" ")
+  [m.m, m.o !== null && m.o > 0 ? `Due:${money(m.o)}` : "", nameText(m.n)].filter(Boolean).join(" ")
 
 const meterTypeScreen = (meter: string, prefix = "") => `${prefix}Meter ${meter}\nMeter type:\n1. Prepaid\n2. Postpaid\n0. Back`
 
@@ -387,6 +390,9 @@ async function confirm(x: Step): Promise<UzoResponse> {
   const pay = s.pbPay ?? 0
   if (!bc || !token || !ussdBiller(s.pbBiller) || !(face > 0) || !(pay > 0)) return finish(x, UZO_BOT_UNAVAILABLE)
 
+  // Close the flow BEFORE the engine call (whatever it answers, or if it throws): the token is gone from the
+  // session, so no back-navigation on it can reach a confirm and create a second order.
+  await d.io.save(ctx.sessionId, uzoBotClosedSession(ctx, s))
   // The engine dedupes on the verify token: a retried confirm with this session's token returns the same order.
   let r: BotOrderResult
   try {
@@ -398,7 +404,11 @@ async function confirm(x: Step): Promise<UzoResponse> {
     if (orphan) await d.failOrder(orphan)
     return finish(x, UZO_BOT_UNAVAILABLE)
   }
-  if (!r.ok) return finish(x, botErrorText(r.status))
+  if (!r.ok) {
+    // The verify token expired (or no longer verifies) between the lookup and confirm: only a new lookup helps.
+    if (r.status === 400 && r.error === BOT_BILL_TOKEN_EXPIRED) return finish(x, UZO_BOT_RESTART)
+    return finish(x, botErrorText(r.status))
+  }
   // A replay under the same verify token hands back an older order: never charge what the screen did not show.
   if (!samePrice(r.order.payAmount, pay) || !samePrice(r.order.faceAmount, face)) {
     console.error(`[${TAG}] engine order differs from the confirm screen; refusing to charge:`, r.order.id)

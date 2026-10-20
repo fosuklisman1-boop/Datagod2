@@ -6,10 +6,10 @@ import type { BotChargeInput, BotChargeResult } from "@/lib/bot-commission/momo"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { cont as mainCont, end as mainEnd } from "../menus"
 import { setSession as setMainSession } from "../session"
-import { handleMain } from "../handlers/main"
 import { cont as shopCont, end as shopEnd, shopHeaderName } from "@/lib/ussd-shop/menus"
 import { setSession as setShopSession } from "@/lib/ussd-shop/session"
-import { handleSelectProduct } from "@/lib/ussd-shop/handlers/shop"
+// The menu handlers (handleMain / handleSelectProduct) import the flows, which import this kit: they are loaded
+// lazily in leave() so the modules never form an import-time cycle.
 import type { UzoResponse, USSDSession, UzoNpSessionFields, UzoPbSessionFields } from "../types"
 import type { USSDShopSession } from "@/lib/ussd-shop/types"
 import { botErrorText } from "./screen"
@@ -63,6 +63,7 @@ const mainIo: UzoBotIo = {
     const next: USSDSession = { step: "MAIN", dialingPhone: main.dialingPhone ?? ctx.dialingPhone, dataBlocked: main.dataBlocked }
     await setMainSession(ctx.sessionId, next)
     // No digit matches "": handleMain renders the main menu itself (one renderer, same visibility rules).
+    const { handleMain } = await import("../handlers/main")
     return handleMain("", ctx.sessionId, next)
   },
 }
@@ -75,6 +76,7 @@ const shopIo: UzoBotIo = {
     const next: USSDShopSession = { ...withoutBotFields(s as USSDShopSession), step: "SELECT_PRODUCT" }
     await setShopSession(ctx.sessionId, next)
     // No digit matches "": handleSelectProduct renders the product menu itself.
+    const { handleSelectProduct } = await import("@/lib/ussd-shop/handlers/shop")
     return handleSelectProduct("", ctx.sessionId, next)
   },
 }
@@ -113,6 +115,21 @@ export function uzoPromptSentText(dialingPhone: string): string {
 }
 
 export const UZO_BOT_UNAVAILABLE = botErrorText(503)
+
+/** The engine refused an expired verify / catalog token at confirm: the buyer has to start over. */
+export const UZO_BOT_RESTART = "Time limit exceeded. Please dial again to start over."
+
+/**
+ * The session a flow leaves behind once its confirm has called the engine: every bot field (tokens included) is
+ * dropped and the step is the menu's own (main: MAIN, shop: SELECT_PRODUCT, shop fields kept). Any later input on
+ * this session lands on the menu, so back-navigation can never reach a confirm and create a second order.
+ */
+export function uzoBotClosedSession(ctx: UzoBotCtx, s: UzoBotSession): UzoBotSession {
+  const out = withoutBotFields(s)
+  return (ctx.surface === "ussd_shop"
+    ? { ...out, step: "SELECT_PRODUCT" }
+    : { ...out, step: "MAIN" }) as UzoBotSession
+}
 
 /** Two GHS amounts equal to the pesewa (the engine order's price vs the price the confirm screen showed). */
 export const samePrice = (a: number, b: number): boolean =>

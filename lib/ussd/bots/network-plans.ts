@@ -13,12 +13,12 @@ import { getBotBundlesRuntime } from "@/lib/bot-commission/runtime"
 import { getPrefixValidationConfig, type PrefixValidationConfig } from "@/lib/network-prefix-config"
 import { normalizeGhanaPhone, validateNetworkPrefix } from "@/lib/phone-format"
 import { CATEGORY_ORDER, type BundleNetwork } from "@/lib/standard-bundles/categories"
-import { isValidIdempotencyKey } from "@/lib/standard-bundles/service"
+import { isValidIdempotencyKey, PRICES_REFRESHED } from "@/lib/standard-bundles/service"
 import { networkNickname } from "../network-labels"
 import type { UzoNpPlan, UzoResponse } from "../types"
 import {
-  ascii, liveUzoBotIo, samePrice, uzoBotContext, uzoChargeOrder, uzoShopHeader, withoutBotFields, UZO_BOT_UNAVAILABLE,
-  type UzoBotCtx, type UzoBotIo, type UzoBotPayDeps, type UzoBotSession,
+  ascii, liveUzoBotIo, samePrice, uzoBotClosedSession, uzoBotContext, uzoChargeOrder, uzoShopHeader, withoutBotFields,
+  UZO_BOT_RESTART, UZO_BOT_UNAVAILABLE, type UzoBotCtx, type UzoBotIo, type UzoBotPayDeps, type UzoBotSession,
 } from "./kit"
 import { botErrorText, fitsUzo, uzoConfirmText, uzoPagedList, uzoSafeLabel } from "./screen"
 
@@ -251,6 +251,9 @@ async function confirm(x: Step): Promise<UzoResponse> {
   const bc = uzoBotContext(ctx)
   if (!bc) return d.io.end(UZO_BOT_UNAVAILABLE)
   const key = uzoNpIdempotencyKey(ctx.sessionId)
+  // Close the flow BEFORE the engine call (whatever it answers, or if it throws): the plan tokens are gone from the
+  // session, so no back-navigation on it can reach a confirm and create a second order.
+  await d.io.save(ctx.sessionId, uzoBotClosedSession(ctx, s))
   let r: BotOrderResult
   try {
     r = await d.createOrder(bc, { token: plan.t, recipient, idempotencyKey: key, expectedPay: plan.p })
@@ -261,7 +264,11 @@ async function confirm(x: Step): Promise<UzoResponse> {
     if (orphan) await d.failOrder(orphan)
     return d.io.end(UZO_BOT_UNAVAILABLE)
   }
-  if (!r.ok) return d.io.end(botErrorText(r.status))
+  if (!r.ok) {
+    // The catalog token expired (or no longer verifies) between the plan list and confirm: only a new list helps.
+    if (r.status === 409 && r.error === PRICES_REFRESHED) return d.io.end(UZO_BOT_RESTART)
+    return d.io.end(botErrorText(r.status))
+  }
   // An engine replay under a reused key hands back an older order: never charge a price the screen did not show.
   if (!samePrice(r.order.payAmount, plan.p)) {
     console.error(`[${TAG}] engine order price differs from the confirm screen; refusing to charge:`, r.order.id)
