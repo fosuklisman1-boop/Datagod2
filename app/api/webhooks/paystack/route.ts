@@ -1470,7 +1470,13 @@ export async function POST(request: NextRequest) {
         console.warn("[WEBHOOK] Failed to update failed USSD results-checker order:", e)
       }
 
-      await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference)
+      // Commission cashback bot orders (cs_bill / cs_bundle, channel 'bots'): fail the order now (guarded: pending +
+      // unpaid + bots only; storefront orders are left as before). Never throws.
+      const { failBotOrderForDeclinedCharge } = await import("@/lib/bot-commission/charge-failed")
+      await failBotOrderForDeclinedCharge(supabase, reference)
+
+      // Only a still-pending payment row is failed (a completed payment is never flipped back).
+      await supabase.from("wallet_payments").update({ status: "failed", updated_at: new Date().toISOString() }).eq("reference", reference).eq("status", "pending")
       await supabase.from("payment_attempts").update({ status: "failed", gateway_response: gateway_response || "failed" }).eq("reference", reference)
     } else if (
       event.event === "transfer.success" ||
