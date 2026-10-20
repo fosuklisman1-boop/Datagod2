@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { failOrderGuarded } from "@/lib/ussd-hubtel/flow-kit"
+import { failOrderGuarded } from "@/lib/ussd-hubtel/order-tables"
 import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 import { STOREFRONT_ORDER_TABLE, type StorefrontOrderType } from "@/lib/storefront-commission/payment"
 

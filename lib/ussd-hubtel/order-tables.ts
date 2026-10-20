@@ -3,6 +3,8 @@
 // hubtel_transactions insert fails) and expiry (fail an unpaid order). Every key must be allowed by
 // the order_table CHECK on hubtel_transactions: migrations/0106_hubtel_ussd.sql, widened by
 // migrations/0125_hubtel_ussd_bot_orders.sql (pinned by order-tables.test.ts).
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { safeDbError } from "./log-safe"
 
 export type HubtelOrderTable =
   | "ussd_orders" | "ussd_shop_orders" | "airtime_orders" | "results_checker_orders" | "results_check_requests" | "ussd_afa_orders"
@@ -78,4 +80,25 @@ export const ORDER_TABLES: Record<HubtelOrderTable, OrderTableSpec> = {
 
 export function isHubtelOrderTable(t: string): t is HubtelOrderTable {
   return Object.prototype.hasOwnProperty.call(ORDER_TABLES, t)
+}
+
+/**
+ * Mark an order failed with its table's fail patch plus the table's guards, so only a still-open row is touched.
+ * `engine` (an engine-created order: not ours, the engine may hand back an existing row) also guards on a payable
+ * payment_status, as guardedFailUpdate in order-handlers.ts: a paid order is never failed. Never throws.
+ * (Re-exported from flow-kit.ts.)
+ */
+export async function failOrderGuarded(
+  supabase: SupabaseClient, table: HubtelOrderTable, id: string, engine: boolean, logTag: string,
+): Promise<void> {
+  const spec = ORDER_TABLES[table]
+  try {
+    let q = supabase.from(table).update(spec.failPatch()).eq("id", id)
+    if (engine) q = q.in("payment_status", [...spec.payableStatuses])
+    for (const [column, values] of Object.entries(spec.failGuards ?? {})) q = q.in(column, [...values])
+    const { error } = await q
+    if (error) console.error(`[${logTag}] Failed to mark order failed:`, id, safeDbError(error))
+  } catch (e) {
+    console.error(`[${logTag}] Failed to mark order failed:`, id, safeDbError(e))
+  }
 }

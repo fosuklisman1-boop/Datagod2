@@ -25,9 +25,24 @@ export interface BotChargeInput {
   dialingPhone: string
 }
 
+/**
+ * - `ok: true`: a prompt is out for this order. `status` is Paystack's charge status (`send_otp` => OTP pointer
+ *   stored), or `"pending"` for an idempotent replay: the order already had a pending payment row from the last
+ *   15 minutes, whose `reference` is returned; no new row and no new prompt.
+ * - `NOT_PAYABLE`: not this bot's / this buyer's still-open order. Nothing was written; the order was not touched.
+ * - `NO_PROVIDER` / `RATE_LIMITED`: no prompt sent; the order WAS failed (guarded patch).
+ * - `CHARGE_FAILED`: no prompt was sent by this call, but the ORDER MAY STILL BE OPEN (pending + unpaid):
+ *   - the order could not be read, or the replay lookup failed: nothing written, the order left as is (ownership /
+ *     a live earlier prompt could not be ruled out);
+ *   - the payment row insert or the charge call failed / was refused: the order was failed (guarded patch).
+ *   Callers show the generic error and must not assume the order is closed.
+ */
 export type BotChargeResult =
   | { ok: true; reference: string; status: string }
   | { ok: false; code: "NOT_PAYABLE" | "NO_PROVIDER" | "RATE_LIMITED" | "CHARGE_FAILED"; message: string }
+
+/** A pending payment row this recent for the same order is replayed instead of prompting again. */
+export const BOT_MOMO_REPLAY_WINDOW_MS = 15 * 60 * 1000
 
 export interface BotMomoDeps {
   /** Service-role client. */
@@ -66,7 +81,8 @@ interface BotPayableRow extends CommissionPayableRow { bot_surface: string | nul
  *
  * 1. Re-read the order: only a channel 'bots' row of THIS surface (and, on shop USSD, this shop; on main USSD, no
  *    shop), still pending AND unpaid, bought by this dialing number (checkCommissionPayable + surface checks).
- *    Anything else is NOT_PAYABLE with no write at all.
+ *    Anything else is NOT_PAYABLE with no write at all. A pending payment row for the order from the last 15 minutes
+ *    is replayed (its reference returned, status "pending"): one order never gets two prompts from a resent confirm.
  * 2. Provider from the dialing number; then the per-phone cap. Either refusal fails the order (guarded): a charge
  *    that never starts never leaves a chargeable order behind.
  * 3. One wallet_payments row (order_type cs_bill / cs_bundle, amount = paid_amount, fee 0, opaque reference), then the
@@ -100,6 +116,25 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
   if ((row.shop_id ?? null) !== i.shopId) return refuse("NOT_PAYABLE")
   const dialSig = ghanaSignificant(i.dialingPhone)
   if (!dialSig || ghanaSignificant(String(row.buyer_phone ?? "")) !== dialSig) return refuse("NOT_PAYABLE")
+
+  // Idempotent replay: a resent confirm / second call must not prompt the same order twice.
+  try {
+    const { data, error } = await d.db
+      .from("wallet_payments")
+      .select("reference, created_at")
+      .eq("order_id", i.orderId)
+      .eq("order_type", i.orderType)
+      .eq("status", "pending")
+      .gte("created_at", new Date(d.now() - BOT_MOMO_REPLAY_WINDOW_MS).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1)
+    if (error) throw error
+    const prior = (data as { reference: string }[] | null)?.[0]
+    if (prior?.reference) return { ok: true, reference: prior.reference, status: "pending" }
+  } catch (e) {
+    console.error(`[${TAG}] replay lookup failed for ${i.orderId}:`, safeDbError(e))
+    return refuse("CHARGE_FAILED")
+  }
 
   const local = normalizeGhanaPhone(i.dialingPhone)!
   const provider = paystackProviderFromPhone(local)

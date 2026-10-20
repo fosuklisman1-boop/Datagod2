@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import { botChargeMomo, BOT_MOMO_PHONE_CAP, type BotChargeInput, type BotMomoDeps } from "./momo"
-import { submitBotOtp, type BotOtpPointer } from "./otp-pointer"
+import { submitBotOtp, type BotOtpPointer, type StoredBotOtpPointer } from "./otp-pointer"
 import { BOT_UNPAID_FAILURE_REASON } from "@/lib/ussd-hubtel/order-tables"
 import { DEFAULT_BOT_PAYMENT_EMAIL, STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE } from "@/lib/storefront-commission/payment"
 
@@ -12,14 +12,20 @@ const OTHER_SHOP = "99999999-2222-4333-8444-555555555555"
 const DIAL = "233241234567"
 
 /** In-memory PostgREST stand-in: select / insert / update with eq / in filters; records every update. */
-function fakeDb(tables: Record<string, Row[]>, opts: { insertError?: Record<string, unknown>; readError?: boolean } = {}) {
+function fakeDb(
+  tables: Record<string, Row[]>,
+  opts: { insertError?: Record<string, unknown>; readError?: boolean; selectError?: Record<string, unknown> } = {},
+) {
   const updates: { table: string; patch: Row; filters: [string, string, unknown][] }[] = []
   function from(table: string) {
     const rows = (tables[table] ??= [])
     let op: "select" | "insert" | "update" = "select"
     let payload: any
+    let orderBy: { c: string; asc: boolean } | null = null
+    let max: number | null = null
     const filters: [string, string, unknown][] = []
-    const match = (r: Row) => filters.every(([k, c, v]) => (k === "eq" ? r[c] === v : k === "in" ? (v as unknown[]).includes(r[c]) : r[c] === v))
+    const match = (r: Row) => filters.every(([k, c, v]) =>
+      k === "eq" ? r[c] === v : k === "in" ? (v as unknown[]).includes(r[c]) : k === "gte" ? String(r[c]) >= String(v) : r[c] === v)
     const run = () => {
       if (op === "insert") {
         const err = opts.insertError?.[table]
@@ -34,7 +40,14 @@ function fakeDb(tables: Record<string, Row[]>, opts: { insertError?: Record<stri
         return { data: hit.map(r => ({ id: r.id })), error: null }
       }
       if (opts.readError) return { data: null, error: { message: "boom" } }
-      return { data: rows.filter(match).map(r => ({ ...r })), error: null }
+      if (opts.selectError?.[table]) return { data: null, error: opts.selectError[table] }
+      let out = rows.filter(match).map(r => ({ ...r }))
+      if (orderBy) {
+        const { c, asc } = orderBy
+        out = out.sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0) * (asc ? 1 : -1))
+      }
+      if (max !== null) out = out.slice(0, max)
+      return { data: out, error: null }
     }
     const b: any = {
       select: () => b,
@@ -43,6 +56,9 @@ function fakeDb(tables: Record<string, Row[]>, opts: { insertError?: Record<stri
       eq: (c: string, v: unknown) => { filters.push(["eq", c, v]); return b },
       in: (c: string, v: unknown[]) => { filters.push(["in", c, v]); return b },
       is: (c: string, v: unknown) => { filters.push(["is", c, v]); return b },
+      gte: (c: string, v: unknown) => { filters.push(["gte", c, v]); return b },
+      order: (c: string, o?: { ascending?: boolean }) => { orderBy = { c, asc: o?.ascending !== false }; return b },
+      limit: (n: number) => { max = n; return b },
       maybeSingle: async () => { const r = run(); return { data: (r.data as Row[] | null)?.[0] ?? null, error: r.error } },
       single: async () => { const r = run(); return { data: (r.data as Row[] | null)?.[0] ?? null, error: r.error } },
       then: (res: any, rej: any) => Promise.resolve(run()).then(res, rej),
@@ -67,15 +83,15 @@ function billRow(o: Row = {}): Row {
 
 function make(opts: {
   bundles?: Row[]; bills?: Row[]; chargeStatus?: string; chargeThrows?: boolean; insertError?: Record<string, unknown>; readError?: boolean
-  otpStatus?: string; otpThrows?: boolean
+  otpStatus?: string; otpThrows?: boolean; wallet?: Row[]; selectError?: Record<string, unknown>
 } = {}) {
   const db = fakeDb(
-    { hubtel_data_orders: opts.bundles ?? [bundleRow()], hubtel_bill_orders: opts.bills ?? [billRow()], wallet_payments: [] },
-    { insertError: opts.insertError, readError: opts.readError },
+    { hubtel_data_orders: opts.bundles ?? [bundleRow()], hubtel_bill_orders: opts.bills ?? [billRow()], wallet_payments: (opts.wallet ?? []).map(r => ({ ...r })) },
+    { insertError: opts.insertError, readError: opts.readError, selectError: opts.selectError },
   )
   const charges: any[] = []
   const limiter = new Map<string, number>()
-  const pointers = new Map<string, BotOtpPointer>()
+  const pointers = new Map<string, StoredBotOtpPointer>()
   const deps: BotMomoDeps = {
     db: db.client,
     chargeMobileMoney: vi.fn(async (p: any) => {
@@ -219,12 +235,71 @@ describe("botChargeMomo: refusals (NOT_PAYABLE: no payment row, no charge, no wr
     expect(m.charges).toHaveLength(0)
   })
 
-  it("an order read error is CHARGE_FAILED and writes nothing", async () => {
+  it("an order read error is CHARGE_FAILED, writes nothing, and leaves the order OPEN (pending + unpaid)", async () => {
     const m = make({ readError: true })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toEqual({ ok: false, code: "CHARGE_FAILED", message: "Service unavailable. Please try again later." })
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.tables.wallet_payments).toHaveLength(0)
+    expect(m.db.updates).toEqual([])
+    // Not failed: ownership could not be verified, so the caller must treat CHARGE_FAILED as "order may still be open".
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    expect(m.deps.rateLimit).not.toHaveBeenCalled()
+  })
+})
+
+describe("botChargeMomo: idempotent replay (no double prompt for one order)", () => {
+  const MIN = 60 * 1000
+  const pendingRow = (o: Row = {}): Row => ({
+    id: "wp0", order_id: "d1", order_type: "cs_bundle", reference: "e".repeat(32), status: "pending",
+    created_at: new Date(NOW - 5 * MIN).toISOString(), ...o,
+  })
+
+  it("a second charge for the same order returns the first reference: no new row, no new charge, no cap slot", async () => {
+    const m = make()
+    const first = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    if (!first.ok) throw new Error("expected ok")
+    const again = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(again).toEqual({ ok: true, reference: first.reference, status: "pending" })
+    expect(m.charges).toHaveLength(1)
+    expect(m.db.tables.wallet_payments).toHaveLength(1)
+    expect(m.deps.rateLimit).toHaveBeenCalledTimes(1)
+    expect(m.deps.recordPayerPhone).toHaveBeenCalledTimes(1)
+    expect(m.db.updates).toEqual([])
+  })
+
+  it("an existing pending row within 15 minutes is replayed (the newest one)", async () => {
+    const m = make({ wallet: [pendingRow(), pendingRow({ id: "wp1", reference: "f".repeat(32), created_at: new Date(NOW - 2 * MIN).toISOString() })] })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toEqual({ ok: true, reference: "f".repeat(32), status: "pending" })
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.tables.wallet_payments).toHaveLength(2)
+  })
+
+  it("a pending row older than 15 minutes, a failed row, or another order's row does not block a new charge", async () => {
+    const m = make({ wallet: [
+      pendingRow({ created_at: new Date(NOW - 16 * MIN).toISOString() }),
+      pendingRow({ id: "wp1", status: "failed" }),
+      pendingRow({ id: "wp2", order_id: "other" }),
+    ] })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r.ok && r.status).toBe("pay_offline")
+    expect(m.charges).toHaveLength(1)
+    expect(m.db.tables.wallet_payments).toHaveLength(4)
+  })
+
+  it("the replay is only for a still-payable order: a paid order is NOT_PAYABLE", async () => {
+    const m = make({ bundles: [bundleRow({ payment_status: "paid" })], wallet: [pendingRow()] })
+    expect(await botChargeMomo(m.deps, SHOP_BUNDLE)).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+  })
+
+  it("a lookup error => CHARGE_FAILED, no charge, order left alone (a prompt may be live)", async () => {
+    const m = make({ selectError: { wallet_payments: { message: "timeout" } } })
     const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
     expect(r).toMatchObject({ ok: false, code: "CHARGE_FAILED" })
     expect(m.charges).toHaveLength(0)
     expect(m.db.updates).toEqual([])
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
   })
 })
 
@@ -335,21 +410,44 @@ describe("submitBotOtp", () => {
     return { m, p, reference: r.reference }
   }
 
-  it("submits the OTP for the pointer's reference and clears the pointer", async () => {
-    const { m, p, reference } = await charged()
-    const out = await submitBotOtp(m.deps, p, "123456")
-    expect(out).toEqual({ ok: true })
-    expect(m.deps.submitOtp).toHaveBeenCalledWith(reference, "123456")
-    expect(m.deps.otpPointer.clear).toHaveBeenCalledWith("0241234567")
-    expect(m.pointers.size).toBe(0)
+  for (const accepted of ["pending", "pay_offline", "success"]) {
+    it(`an accepted code ('${accepted}': approve the prompt) => ok, pointer cleared, order untouched`, async () => {
+      const { m, p, reference } = await charged({ otpStatus: accepted })
+      const out = await submitBotOtp(m.deps, p, "123456")
+      expect(out).toEqual({ ok: true, retry: false })
+      expect(m.deps.submitOtp).toHaveBeenCalledWith(reference, "123456")
+      expect(m.deps.otpPointer.clear).toHaveBeenCalledWith("0241234567")
+      expect(m.pointers.size).toBe(0)
+      expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+      expect(m.db.tables.wallet_payments[0].status).toBe("pending")
+    })
+  }
+
+  it("a wrong code (repeat send_otp) => retry, the pointer is KEPT, nothing failed", async () => {
+    const { m, p } = await charged({ otpStatus: "send_otp" })
+    const out = await submitBotOtp(m.deps, p, "999999")
+    expect(out).toEqual({ ok: false, retry: true })
+    expect(m.deps.otpPointer.clear).not.toHaveBeenCalled()
+    expect(m.pointers.get("0241234567")).toMatchObject({ reference: p.reference })
     expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
     expect(m.db.tables.wallet_payments[0].status).toBe("pending")
+    // and the retry with the right code completes
+    m.deps.submitOtp = vi.fn(async (reference: string) => ({ status: "pending", reference }))
+    expect(await submitBotOtp(m.deps, p, "123456")).toEqual({ ok: true, retry: false })
+    expect(m.pointers.size).toBe(0)
+  })
+
+  it("any other non-final answer (e.g. send_pin) => retry, pointer kept", async () => {
+    const { m, p } = await charged({ otpStatus: "send_pin" })
+    expect(await submitBotOtp(m.deps, p, "123456")).toEqual({ ok: false, retry: true })
+    expect(m.pointers.size).toBe(1)
+    expect(m.db.updates).toEqual([])
   })
 
   it("a rejected OTP ('failed') fails the payment row and the order (guarded) and clears the pointer", async () => {
     const { m, p } = await charged({ otpStatus: "failed" })
     const out = await submitBotOtp(m.deps, p, "000000")
-    expect(out).toEqual({ ok: false })
+    expect(out).toEqual({ ok: false, retry: false })
     expect(m.db.tables.wallet_payments[0].status).toBe("failed")
     expectGuardedFail(m, "hubtel_data_orders", "d1")
     expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "failed", payment_status: "unpaid" })
@@ -363,12 +461,20 @@ describe("submitBotOtp", () => {
     expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "paid" })
   })
 
-  it("a submit error leaves the order alone (the charge may still complete) and clears the pointer", async () => {
+  it("a submit error (not final) leaves the order alone and KEEPS the pointer for a retry", async () => {
     const { m, p } = await charged({ otpThrows: true })
     const out = await submitBotOtp(m.deps, p, "123456")
-    expect(out).toEqual({ ok: false })
+    expect(out).toEqual({ ok: false, retry: true })
     expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
     expect(m.db.tables.wallet_payments[0].status).toBe("pending")
-    expect(m.pointers.size).toBe(0)
+    expect(m.pointers.size).toBe(1)
+  })
+
+  it("takes a stored pointer: phone is required (type-level)", async () => {
+    const { m, p } = await charged()
+    const { phone: _phone, ...bare } = p
+    void _phone
+    // @ts-expect-error a pointer without its phone cannot be submitted (it could never be cleared)
+    await submitBotOtp(m.deps, bare as BotOtpPointer, "123456")
   })
 })
