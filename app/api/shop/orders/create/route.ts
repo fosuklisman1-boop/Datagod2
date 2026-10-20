@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { sendSMS, notifyPriceManipulation } from "@/lib/sms-service"
+import { checkClientPrice } from "@/lib/shop-commerce/price-check"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyShopSession } from "@/lib/shop-token"
@@ -123,10 +124,15 @@ export async function POST(request: NextRequest) {
     // "kkkkkkk", known throwaway domains like "mli.mc"). Near-zero false positives;
     // rejects the current scripted wave before any DB work. NOT a substitute for
     // Cloudflare/Turnstile — a cheap speed bump while the edge defence ramps.
-    const emailCheck = checkEmailQuality(customer_email)
-    if (!emailCheck.ok) {
-      console.warn(`[SHOP-ORDER] ❌ Email rejected (${emailCheck.reason}) for shop ${shop_id}: ${String(customer_email).slice(0, 40)}`)
-      return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 })
+    // Email is optional: only vet one the customer actually typed. A blank value
+    // is handled by the guest-email fallback further down (after phone validation).
+    const emailProvided = typeof customer_email === "string" && customer_email.trim() !== ""
+    if (emailProvided) {
+      const emailCheck = checkEmailQuality(customer_email)
+      if (!emailCheck.ok) {
+        console.warn(`[SHOP-ORDER] ❌ Email rejected (${emailCheck.reason}) for shop ${shop_id}: ${String(customer_email).slice(0, 40)}`)
+        return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 })
+      }
     }
     // Ghana phone: 10 digits starting 0, or 9 digits, optionally +233 prefix.
     const phoneDigits = String(customer_phone || "").replace(/\D/g, "")
@@ -420,8 +426,17 @@ export async function POST(request: NextRequest) {
     const finalVolumeGb = verifiedSize ? parseInt(verifiedSize.toString().replace(/[^0-9]/g, "")) || volume_gb : volume_gb
 
     // Validate client-provided prices match server-verified prices
-    const tolerance = 0.01 // Allow 1 pesewa tolerance for rounding
-    if (Math.abs(total_price - verifiedTotalPrice) > tolerance) {
+    // Compared in whole pesewas (1 pesewa tolerance). A page asking for MORE than the real price is a page left
+    // open while the shop changed its prices: reject, no fraud alert. Only a page asking for LESS raises the alert.
+    const priceCheck = checkClientPrice(total_price, verifiedTotalPrice)
+    if (priceCheck === "stale") {
+      console.warn(`[SHOP-ORDER] Stale page price: client ${total_price}, verified ${verifiedTotalPrice}, shop ${shop_id}`)
+      return NextResponse.json(
+        { error: "The price has changed - please refresh and try again" },
+        { status: 400 }
+      )
+    }
+    if (priceCheck === "under") {
       console.error(`[SHOP-ORDER] ❌ PRICE MANIPULATION DETECTED!`)
       console.error(`  Client total_price: ${total_price}`)
       console.error(`  Verified total_price: ${verifiedTotalPrice}`)

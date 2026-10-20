@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { resolveCustomerEmail } from "@/lib/guest-email"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -301,8 +302,8 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
       case "customerName":
         return !formData.customerName.trim() ? "Name is required" : null
       case "customerEmail":
-        return (!formData.customerEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.customerEmail))
-          ? "Valid email is required" : null
+        return (formData.customerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.customerEmail.trim()))
+          ? "Enter a valid email or leave it blank" : null
       case "phoneNumber":
         return !isValidGhanaPhone(formData.phoneNumber.replace(/\s/g, ""))
           ? "Valid 10-digit Mobile Money number required" : null
@@ -399,7 +400,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: formData.customerEmail,
+            email: resolveCustomerEmail(formData.customerEmail, formData.phoneNumber),
             amount: initData.totalPrice,
             orderId: initData.orderId,
             orderType: "results_check_service",
@@ -426,7 +427,7 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: formData.customerEmail,
+          email: resolveCustomerEmail(formData.customerEmail, formData.phoneNumber),
           amount: initData.totalPrice,
           orderId: initData.orderId,
           orderType: "results_check_service",
@@ -672,13 +673,13 @@ export function ResultsCheckServiceForm({ shop, shopSlug }: ResultsCheckServiceF
                   {formErrors.customerName && <p className="text-xs text-destructive mt-1">{formErrors.customerName}</p>}
                 </div>
                 <div>
-                  <Label className="text-sm">Email Address</Label>
+                  <Label className="text-sm">Email Address <span className="font-normal text-muted-foreground">(optional)</span></Label>
                   <Input type="email" value={formData.customerEmail} onChange={e => setFormData(p => ({ ...p, customerEmail: e.target.value }))}
                     onBlur={() => validateField("customerEmail")}
                     placeholder="e.g. kwame@example.com" className={`mt-1 ${formErrors.customerEmail ? "border-destructive" : ""}`} />
                   {formErrors.customerEmail
                     ? <p className="text-xs text-destructive mt-1">{formErrors.customerEmail}</p>
-                    : <p className="text-xs text-muted-foreground mt-1">Your results will be sent to this email address</p>}
+                    : <p className="text-xs text-muted-foreground mt-1">Optional — your results are also sent to your WhatsApp number</p>}
                 </div>
                 <div>
                   <Label className="text-sm">Phone Number</Label>

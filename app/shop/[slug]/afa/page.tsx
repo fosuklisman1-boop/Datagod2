@@ -52,7 +52,7 @@ export default function ShopAfaPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!fullName.trim() || !phoneNumber.trim() || !ghCardNumber.trim() || !location.trim() || !region || !customerEmail.trim()) {
+    if (!fullName.trim() || !phoneNumber.trim() || !ghCardNumber.trim() || !location.trim() || !region) {
       toast.error("Please fill in all fields")
       return
     }
@@ -164,7 +164,7 @@ export default function ShopAfaPage() {
               </select>
             </div>
             <div>
-              <Label htmlFor="email">Email (for payment receipt) *</Label>
+              <Label htmlFor="email">Email (for payment receipt — optional)</Label>
               <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="you@example.com" className="mt-1" />
             </div>
 

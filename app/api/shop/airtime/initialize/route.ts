@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { resolveCustomerEmail } from "@/lib/guest-email"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { applyRateLimit } from "@/lib/rate-limiter"
@@ -67,7 +68,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { shopSlug, beneficiaryPhone, paymentPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot, expectedPay } = body
+    const { shopSlug, beneficiaryPhone, paymentPhone, airtimeAmount, amount: bodyAmount, network: passedNetwork, customerName, customerEmail: rawCustomerEmail, paySeparately: bodyPaySeparately, turnstileToken, website: honeypot, expectedPay } = body
+    // Email is optional for the customer; synthesize a guest address from the phone when blank.
+    const customerEmail = resolveCustomerEmail(rawCustomerEmail, beneficiaryPhone)
 
     // SECURITY: shopId must always be resolved server-side from the slug — never
     // trusted from the client body. Accepting a raw shopId would let a caller
