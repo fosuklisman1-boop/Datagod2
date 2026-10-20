@@ -65,6 +65,9 @@ describe("airtimeRequote (stale-session guard)", () => {
     expect(airtimeRequote(9.69, null, 10)).toEqual({ kind: "changed" })
     expect(airtimeRequote(undefined, quote(), 10)).toEqual({ kind: "changed" })
     expect(airtimeRequote(NaN, quote(), 10)).toEqual({ kind: "changed" })
+    // base (the wallet price) above payAmount is not a usable quote.
+    expect(airtimeRequote(9.69, quote({ base: 9.7 }), 10)).toEqual({ kind: "changed" })
+    expect(airtimeRequote(undefined, quote({ base: 9.7 }), 10)).toEqual({ kind: "legacy" })
   })
 })
 

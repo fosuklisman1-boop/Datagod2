@@ -23,16 +23,16 @@ import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 import type { StorefrontQuote } from "../../cashback/quote"
 import {
   airtimeRequote, uzoAirtimeCashbackConfirm, uzoAirtimePromptCashback, uzoAirtimeQuote,
-  uzoCashbackAirtimeColumns, uzoUsableAirtimeQuote, uzoWalletRepriceColumns,
+  uzoCashbackAirtimeColumns, uzoUsableAirtimeQuote, uzoWalletRepriceColumns, UZO_AIRTIME_AMOUNT_RE,
 } from "../bots/airtime"
 import { botErrorText } from "../bots/screen"
 
 type Channel = 'ussd' | 'whatsapp'
 
-// Commission cashback applies ONLY on the Uzo USSD channel, and the entry handlers only see it when
-// the USSD router passes 'ussd' explicitly. The WhatsApp router calls them without a channel and its
-// confirm/payment calls pass 'whatsapp': its screens and rows stay exactly today's (Plan 4 owns WhatsApp).
-const promptCashback = (channel: Channel | undefined, network: string, min: number): Promise<boolean> =>
+// Commission cashback applies ONLY on the Uzo USSD channel. `channel` is REQUIRED on every handler: the
+// USSD router passes 'ussd', the WhatsApp router passes 'whatsapp' (its screens and rows stay exactly
+// today's; Plan 4 owns WhatsApp). No caller can silently get the wrong pricing mode.
+const promptCashback = (channel: Channel, network: string, min: number): Promise<boolean> =>
   channel === 'ussd' ? uzoAirtimePromptCashback(network, min, false) : Promise.resolve(false)
 
 function cashbackConfirmText(session: USSDSession, pay: number, face: number): string {
@@ -80,7 +80,7 @@ export async function handleAirtimeEnterRecipient(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel?: Channel
+  channel: Channel
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
@@ -120,7 +120,7 @@ export async function handleAirtimeSelectNetwork(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel?: Channel
+  channel: Channel
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
     await setSession(sessionId, { ...session, step: "AIRTIME_ENTER_RECIPIENT" })
@@ -145,7 +145,7 @@ export async function handleAirtimeEnterAmount(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel?: Channel
+  channel: Channel
 ): Promise<UzoResponse> {
   if (input.trim() === "0") {
     await setSession(sessionId, { ...session, step: "AIRTIME_ENTER_RECIPIENT" })
@@ -164,6 +164,10 @@ export async function handleAirtimeEnterAmount(
   // Commission cashback (main menu: customer share). Applied => the typed amount is the face delivered.
   const cb = channel === 'ussd' ? await uzoUsableAirtimeQuote(network, amount, false) : null
   if (cb) {
+    // The face is delivered as typed: at most 2 decimals, digits only (today's path keeps its parse).
+    if (!UZO_AIRTIME_AMOUNT_RE.test(input.trim())) {
+      return cont(`Enter a valid amount.\n` + airtimeAmountPrompt(networkNickname(network), min, max, true))
+    }
     const next: USSDSession = {
       ...session,
       step: "AIRTIME_CONFIRM",
@@ -201,7 +205,7 @@ export async function handleAirtimeConfirm(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel: 'ussd' | 'whatsapp' = 'ussd'
+  channel: Channel
 ): Promise<UzoResponse> {
   if (input.trim() === "2") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
@@ -333,7 +337,7 @@ export async function handleAirtimePaymentMethod(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel: 'ussd' | 'whatsapp' = 'ussd'
+  channel: Channel
 ): Promise<UzoResponse> {
   const orderId = session.pendingOrderId!
   const amount = payAmountOf(session, channel) // MoMo charge = the row's total_paid as inserted
@@ -427,7 +431,7 @@ async function chargeAirtimeMomo(
   orderId: string,
   amount: number,
   provider: "mtn" | "vod" | "tgo",
-  channel: 'ussd' | 'whatsapp' = 'ussd'
+  channel: Channel
 ): Promise<UzoResponse> {
   const dialingPhone = session.dialingPhone!
   const localDialing = toLocal(dialingPhone)

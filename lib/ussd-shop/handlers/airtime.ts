@@ -21,7 +21,7 @@ import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 import type { StorefrontQuote } from "@/lib/cashback/quote"
 import {
   airtimeRequote, uzoAirtimeCashbackConfirm, uzoAirtimePromptCashback, uzoAirtimeQuote,
-  uzoCashbackAirtimeColumns, uzoUsableAirtimeQuote,
+  uzoCashbackAirtimeColumns, uzoUsableAirtimeQuote, UZO_AIRTIME_AMOUNT_RE,
 } from "@/lib/ussd/bots/airtime"
 import { botErrorText } from "@/lib/ussd/bots/screen"
 
@@ -175,6 +175,10 @@ export async function handleShopAirtimeEnterAmount(
   // shop earns its cashback share (no markup).
   const cb = hasShop(session) ? await uzoUsableAirtimeQuote(network, amount, true) : null
   if (cb) {
+    // The face is delivered as typed: at most 2 decimals, digits only (today's path keeps its parse).
+    if (!UZO_AIRTIME_AMOUNT_RE.test(input.trim())) {
+      return cont(`Enter a valid amount.\n` + shopAirtimeAmountPrompt(networkNickname(network), min, max, true))
+    }
     const next: USSDShopSession = {
       ...session,
       step: "SHOP_AIRTIME_CONFIRM",

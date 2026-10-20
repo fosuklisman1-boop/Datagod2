@@ -14,6 +14,13 @@ import {
 } from "@/lib/ussd-hubtel/flows/airtime-cashback"
 import { fitsUzo, uzoConfirmText } from "./screen"
 
+/**
+ * Cashback-branch amount rule: whole cedis with at most 2 decimals, digits only. Identical to Plan 2's
+ * AMOUNT_RE (lib/ussd-hubtel/flows/airtime.ts, module-private there; Hubtel left untouched). The face is
+ * delivered as typed, so a sub-pesewa face must never reach the row or the provider.
+ */
+export const UZO_AIRTIME_AMOUNT_RE = /^\d+(\.\d{1,2})?$/
+
 let client: SupabaseClient | null = null
 const db = (): SupabaseClient =>
   (client ??= createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!))

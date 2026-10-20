@@ -258,3 +258,36 @@ describe("shop USSD airtime: cashback applied", () => {
     expect(h.state.quoteCalls).toEqual([])
   })
 })
+
+describe("shop cashback amount must have at most 2 decimals (Plan 2 AMOUNT_RE)", () => {
+  const enter = (input: string) => handleShopAirtimeEnterAmount(input, "s1", {
+    step: "SHOP_AIRTIME_ENTER_AMOUNT", ...base, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN",
+  } as any)
+  const REPROMPT = "Enter a valid amount.\nYellow Plans Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back"
+
+  it("10.555 and 10abc are re-prompted on the cashback branch; no confirm session is written", async () => {
+    h.state.quote = onFor()
+    expect((await enter("10.555")).message).toBe(REPROMPT)
+    expect((await enter("10abc")).message).toBe(REPROMPT)
+    expect(h.state.sessions.filter(x => x.s.step === "SHOP_AIRTIME_CONFIRM")).toEqual([])
+  })
+
+  it("10.55 is accepted on the cashback branch", async () => {
+    h.state.quote = onFor()
+    const r = await enter("10.55")
+    expect(r.message).toContain("Pay GHS 9.79 (was GHS 10.55)")
+    expect(lastSession()).toMatchObject({ step: "SHOP_AIRTIME_CONFIRM", airtimeAmount: 10.55, airtimeCashbackPay: 9.79, airtimeMerchantCommission: 0.25 })
+  })
+
+  it("not applied: today's parse is unchanged (10.555 still reaches today's confirm)", async () => {
+    const r = await enter("10.555")
+    expect(r.message.startsWith("Kofi Shop\nYellow Plans to 0241234567\nPay GHS ")).toBe(true)
+    expect(lastSession()).toMatchObject({ step: "SHOP_AIRTIME_CONFIRM", airtimeAmount: 10.555 })
+  })
+
+  it("a quote whose base is above payAmount is refused: today's markup pricing", async () => {
+    h.state.quote = onFor({ base: 9.9 })
+    const r = await enter("10.80")
+    expect(r.message).toBe(LEGACY_CONFIRM)
+  })
+})
