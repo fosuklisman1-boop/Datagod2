@@ -2,6 +2,7 @@
 
 import { PublicDeliveryStatus } from "@/components/dashboard/delivery-estimate"
 import { useEffect, useState, useRef } from "react"
+import { resolveCustomerEmail } from "@/lib/guest-email"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -737,7 +738,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             amount: totalPrice,
-            email: orderData.customer_email,
+            email: resolveCustomerEmail(orderData.customer_email, orderData.customer_phone),
             userId: momoSession?.user?.id || null,
             orderId: order.id,
             shopSlug,
@@ -786,7 +787,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
           },
           body: JSON.stringify({
             amount: totalPrice,
-            email: orderData.customer_email,
+            email: resolveCustomerEmail(orderData.customer_email, orderData.customer_phone),
             userId: session?.user?.id || null,
             orderId: order.id,
             shopSlug: shopSlug,

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { resolveCustomerEmail } from "@/lib/guest-email"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { GraduationCap, Loader2, CheckCircle2, Copy, AlertCircle, Download } from "lucide-react"
@@ -249,8 +250,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   const validate = () => {
     const errors: Record<string, string> = {}
     if (!formData.customerName.trim()) errors.customerName = "Name is required"
-    if (!formData.customerEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.customerEmail)) {
-      errors.customerEmail = "Valid email is required"
+    if (formData.customerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.customerEmail.trim())) {
+      errors.customerEmail = "Enter a valid email or leave it blank"
     }
     if (!formData.customerPhone.trim() || !/^\d{10}$/.test(formData.customerPhone.replace(/\s/g, ""))) {
       errors.customerPhone = "Valid 10-digit phone number required"
@@ -314,7 +315,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: formData.customerEmail,
+            email: resolveCustomerEmail(formData.customerEmail, formData.customerPhone),
             amount: initData.totalPrice,
             orderId: initData.orderId,
             orderType: "results_checker",
@@ -341,7 +342,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: formData.customerEmail,
+          email: resolveCustomerEmail(formData.customerEmail, formData.customerPhone),
           amount: initData.totalPrice,
           orderId: initData.orderId,
           orderType: "results_checker",
@@ -555,7 +556,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
               {formErrors.customerName && <p className="text-xs text-destructive mt-1">{formErrors.customerName}</p>}
             </div>
             <div>
-              <p className="text-sm font-bold text-foreground">Email Address</p>
+              <p className="text-sm font-bold text-foreground">Email Address <span className="font-normal text-muted-foreground">(optional)</span></p>
               <Input type="email" value={formData.customerEmail} onChange={e => setFormData(p => ({ ...p, customerEmail: e.target.value }))}
                 placeholder="e.g. kwame@example.com" className={`mt-1 rounded-2xl bg-card py-3.5 ${formErrors.customerEmail ? "border-destructive" : "border-border"}`} />
               {formErrors.customerEmail && <p className="text-xs text-destructive mt-1">{formErrors.customerEmail}</p>}

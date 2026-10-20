@@ -124,10 +124,15 @@ export async function POST(request: NextRequest) {
     // "kkkkkkk", known throwaway domains like "mli.mc"). Near-zero false positives;
     // rejects the current scripted wave before any DB work. NOT a substitute for
     // Cloudflare/Turnstile — a cheap speed bump while the edge defence ramps.
-    const emailCheck = checkEmailQuality(customer_email)
-    if (!emailCheck.ok) {
-      console.warn(`[SHOP-ORDER] ❌ Email rejected (${emailCheck.reason}) for shop ${shop_id}: ${String(customer_email).slice(0, 40)}`)
-      return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 })
+    // Email is optional: only vet one the customer actually typed. A blank value
+    // is handled by the guest-email fallback further down (after phone validation).
+    const emailProvided = typeof customer_email === "string" && customer_email.trim() !== ""
+    if (emailProvided) {
+      const emailCheck = checkEmailQuality(customer_email)
+      if (!emailCheck.ok) {
+        console.warn(`[SHOP-ORDER] ❌ Email rejected (${emailCheck.reason}) for shop ${shop_id}: ${String(customer_email).slice(0, 40)}`)
+        return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 })
+      }
     }
     // Ghana phone: 10 digits starting 0, or 9 digits, optionally +233 prefix.
     const phoneDigits = String(customer_phone || "").replace(/\D/g, "")

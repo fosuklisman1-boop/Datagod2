@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { resolveCustomerEmail } from "@/lib/guest-email"
 import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -137,7 +138,7 @@ export default function ShopAirtimePage() {
       return
     }
 
-    if (!formData.customerEmail || !formData.beneficiaryPhone || !formData.amount) {
+    if (!formData.beneficiaryPhone || !formData.amount) {
       toast.error("Please fill in all required fields")
       return
     }
@@ -178,7 +179,7 @@ export default function ShopAirtimePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: totalPrice,
-          email: formData.customerEmail,
+          email: resolveCustomerEmail(formData.customerEmail, formData.beneficiaryPhone),
           orderId: data.orderId,
           orderType: "airtime",
           shopSlug,
@@ -343,11 +344,10 @@ export default function ShopAirtimePage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="customerEmail" className="text-muted-foreground">Email Address *</Label>
-                    <Input 
+                    <Label htmlFor="customerEmail" className="text-muted-foreground">Email Address <span className="font-normal">(for receipt — optional)</span></Label>
+                    <Input
                       id="customerEmail"
                       type="email"
-                      required
                       placeholder="john@example.com"
                       className="bg-muted/40 border-border focus:ring-primary focus:border-primary rounded-xl"
                       value={formData.customerEmail}

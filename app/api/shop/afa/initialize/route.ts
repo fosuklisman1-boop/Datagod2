@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { resolveCustomerEmail } from "@/lib/guest-email"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { applyRateLimit } from "@/lib/rate-limiter"
@@ -31,7 +32,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { shopSlug, fullName, ghCardNumber, location, region, phoneNumber, customerEmail, turnstileToken, website: honeypot } = body
+    const { shopSlug, fullName, ghCardNumber, location, region, phoneNumber, customerEmail: rawCustomerEmail, turnstileToken, website: honeypot } = body
+    // Email is optional for the customer; synthesize a guest address from the phone when blank.
+    const customerEmail = resolveCustomerEmail(rawCustomerEmail, phoneNumber)
 
     if (!shopSlug || typeof shopSlug !== "string" || !shopSlug.trim()) {
       return NextResponse.json({ error: "shopSlug is required" }, { status: 400 })

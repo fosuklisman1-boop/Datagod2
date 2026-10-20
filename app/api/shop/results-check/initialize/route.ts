@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { resolveCustomerEmail } from "@/lib/guest-email"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import {
@@ -70,13 +71,15 @@ export async function POST(request: NextRequest) {
       voucherPin,
       voucherSerial,
       customerName,
-      customerEmail,
+      customerEmail: rawCustomerEmail,
       phoneNumber,
       whatsappNumber,
       paymentPhone,
       turnstileToken,
       website: honeypot,
     } = body
+    // Email is optional for the customer; synthesize a guest address from the phone when blank.
+    const customerEmail = resolveCustomerEmail(rawCustomerEmail, phoneNumber)
 
     // SECURITY: shopId must always be resolved server-side from the slug — never
     // trusted from the client body.

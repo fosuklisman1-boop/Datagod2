@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { resolveCustomerEmail } from "@/lib/guest-email"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loader2, CheckCircle2, Circle, ArrowRight } from "lucide-react"
@@ -281,7 +282,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
       return
     }
 
-    if (!formData.customerEmail || !formData.beneficiaryPhone || !formData.amount) {
+    if (!formData.beneficiaryPhone || !formData.amount) {
       toast.error("Please fill in all required fields")
       return
     }
@@ -371,7 +372,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             amount: totalPrice,
-            email: formData.customerEmail,
+            email: resolveCustomerEmail(formData.customerEmail, formData.beneficiaryPhone),
             orderId: data.orderId,
             orderType: "airtime",
             shopSlug,
@@ -398,7 +399,7 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: totalPrice,
-          email: formData.customerEmail,
+          email: resolveCustomerEmail(formData.customerEmail, formData.beneficiaryPhone),
           orderId: data.orderId,
           orderType: "airtime",
           shopSlug,
@@ -503,10 +504,9 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
             />
           </div>
           <div className="space-y-2">
-            <p className="text-sm font-bold text-foreground">Email Address *</p>
+            <p className="text-sm font-bold text-foreground">Email Address <span className="font-normal text-muted-foreground">(for receipt — optional)</span></p>
             <Input
               type="email"
-              required
               placeholder="john@example.com"
               className="rounded-2xl border-border bg-card py-3.5"
               value={formData.customerEmail}
