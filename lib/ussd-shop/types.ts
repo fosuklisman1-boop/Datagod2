@@ -1,5 +1,6 @@
 // Re-export shared Uzo gateway types
 export type { UzoRequest, UzoResponse } from "@/lib/ussd/types"
+import type { UzoNpSessionFields, UzoNpStep } from "@/lib/ussd/types"
 
 export type USSDShopStep =
   | 'ENTER_SHOP_CODE'
@@ -18,6 +19,8 @@ export type USSDShopStep =
   | 'SHOP_RC_SELECT_BOARD'
   | 'SHOP_RC_ENTER_QTY'
   | 'SHOP_RC_CONFIRM'
+  // Network Plans (commission cashback bots; shared flow lib/ussd/bots/network-plans.ts)
+  | UzoNpStep
 
 export interface ShopBundleOption {
   id: string
@@ -25,7 +28,7 @@ export interface ShopBundleOption {
   price: number  // packages.price + shop_packages.profit_margin
 }
 
-export interface USSDShopSession {
+export interface USSDShopSession extends UzoNpSessionFields {
   step: USSDShopStep
   dialingPhone?: string
   shopCodeId?: string
