@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { syncWindowStartIso } from "@/lib/status-sync-window"
 import { sendPushToUser } from "@/lib/push-service"
 import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
+import { backgroundCron } from "@/lib/cron-background"
+
+// Answer the scheduler at once (cron-job.org times out at 30s); the sync itself
+// runs after the response and can take the route's full maxDuration.
+export const GET = backgroundCron("sync-xpress", (request) => runXpressSync(request))
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -25,7 +31,7 @@ function sleep(ms: number): Promise<void> {
  * and updates mtn_fulfillment_tracking + the originating order table.
  * Sends in-app notifications on completed/failed.
  */
-export async function GET(request: NextRequest) {
+async function runXpressSync(request: NextRequest) {
     const { authorized, errorResponse } = verifyCronAuth(request)
     if (!authorized && errorResponse) return errorResponse
 
@@ -37,6 +43,7 @@ export async function GET(request: NextRequest) {
             .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type")
             .eq("provider", "xpress")
             .in("status", ["pending", "processing"])
+            .gte("created_at", syncWindowStartIso())
             .order("created_at", { ascending: true })
             .limit(BATCH_SIZE)
 

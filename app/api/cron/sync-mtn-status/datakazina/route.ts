@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { syncWindowStartIso } from "@/lib/status-sync-window"
+import { backgroundCron } from "@/lib/cron-background"
+
+// Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
+export const GET = backgroundCron("sync-datakazina", (request) => runDatakazinaSync(request))
 import { sendPushToUser } from "@/lib/push-service"
 import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
 
@@ -31,7 +36,7 @@ function sleep(ms: number): Promise<void> {
  * Dedicated cron job for DataKazina MTN status syncing.
  * Uses individual polling to ensure high reliability.
  */
-export async function GET(request: NextRequest) {
+async function runDatakazinaSync(request: NextRequest) {
     // Verify cron authorization (CRON_SECRET)
     const { authorized, errorResponse } = verifyCronAuth(request)
     if (!authorized && errorResponse) {
@@ -47,6 +52,7 @@ export async function GET(request: NextRequest) {
             .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type")
             .eq("provider", "datakazina")
             .in("status", ["pending", "processing"])
+            .gte("created_at", syncWindowStartIso())
             .order("created_at", { ascending: true })
             .limit(BATCH_SIZE)
 

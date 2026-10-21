@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { atishareService } from "@/lib/at-ishare-service"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { backgroundCron } from "@/lib/cron-background"
+
+// Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
+export const GET = backgroundCron("sync-codecraft-status", (request) => runCodecraftStatusSync(request))
 
 /**
  * GET /api/cron/sync-codecraft-status
@@ -10,7 +14,7 @@ import { verifyCronAuth } from "@/lib/cron-auth"
  * 
  * This handles AT-iShare, Telecel, and AT-BigTime orders fulfilled via CodeCraft API.
  */
-export async function GET(request: NextRequest) {
+async function runCodecraftStatusSync(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse
 

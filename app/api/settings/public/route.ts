@@ -45,6 +45,10 @@ export async function GET() {
       storefront_announcement_enabled: data?.storefront_announcement_enabled ?? false,
       storefront_announcement_title: data?.storefront_announcement_title ?? "",
       storefront_announcement_message: data?.storefront_announcement_message ?? "",
+    }, {
+      // Same answer for every visitor and polled constantly; an admin toggle shows within ~30s
+      // (same window as /api/public/turnstile-status).
+      headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" },
     })
   } catch (error) {
     console.error("[PUBLIC_SETTINGS] Internal error:", error)

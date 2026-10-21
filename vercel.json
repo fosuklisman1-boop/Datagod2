@@ -22,52 +22,12 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/sync-mtn-status/datakazina",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/xpress",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/eazyghdata",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/bisdel",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/codecraft",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/agentportalgh",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/apexprime",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/cron/sync-afa-status/apexprime",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/spfastit",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/spfastit-telecel",
       "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/verify-pending-payments",
       "schedule": "*/2 * * * *"
-    },
-    {
-      "path": "/api/cron/sync-codecraft-status",
-      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/withdrawals-status-check",
@@ -76,14 +36,6 @@
     {
       "path": "/api/cron/expire-stale-bot-orders",
       "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/cron/sync-digiwapy",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/drain-fulfillment-queue",
-      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/reconcile-paystack-refunds",

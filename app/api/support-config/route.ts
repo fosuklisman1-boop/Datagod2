@@ -60,6 +60,9 @@ export async function GET() {
       website: "https://www.datagod.store",
       guestPurchaseUrl: settings.guest_purchase_url || null,
       guestPurchaseButtonText: settings.guest_purchase_button_text || 'Buy as Guest',
+    }, {
+      // Same answer for every visitor; a support-settings change shows within ~30s.
+      headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" },
     })
   } catch (error: any) {
     console.error("API error:", error)
