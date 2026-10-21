@@ -1,7 +1,10 @@
 // Stale-unpaid sweep for commission-cashback bot orders from the Uzo main + shop USSD (bot_surface 'ussd' /
-// 'ussd_shop'). Those orders are created unpaid and charged by a MoMo prompt; a buyer who never approves (or never
-// finishes the OTP) leaves them pending + unpaid, where they would count against the engine's pending caps forever.
-// Hubtel USSD bot orders have their own expiry (status check); storefront and other channels are not touched.
+// 'ussd_shop') and the WhatsApp main + shop bots ('whatsapp' / 'whatsapp_shop'). Those orders are created unpaid and
+// charged by a MoMo prompt; a buyer who never approves (or never finishes the SMS / Paystack OTP) leaves them pending +
+// unpaid, where they would count against the engine's pending caps forever. 30 min is past every WhatsApp window (SMS
+// code and OTP pointer 10 min, replay 15 min); a buyer still at *_PAY_VERIFY after the sweep finds the order not open
+// and is never charged. Hubtel USSD bot orders have their own expiry (status check); storefront and other channels are
+// not touched.
 //
 // Each run: the oldest stale rows (pending + unpaid, older than 30 min) per table, at most `batch`, are failed with the
 // bot commission guarded patch (status 'failed', failure_reason 'payment not completed'; payment_status stays
@@ -21,7 +24,8 @@ export const STALE_BOT_ORDER_MINUTES = 30
 export const STALE_BOT_SWEEP_BATCH = 200
 /** Max ids in one `.in()` filter. */
 export const STALE_BOT_SWEEP_CHUNK = 100
-export const UZO_BOT_SURFACES = ["ussd", "ussd_shop"] as const
+/** Uzo main + shop USSD and the WhatsApp main + shop bots. `hubtel_ussd` is never swept (it has its own expiry). */
+export const BOT_SWEPT_SURFACES = ["ussd", "ussd_shop", "whatsapp", "whatsapp_shop"] as const
 
 const SWEPT = [
   { table: "hubtel_bill_orders", orderType: "cs_bill" },
@@ -58,7 +62,7 @@ export async function expireStaleBotOrders(
     // The same guards on the select and on every update (the update is what protects a row paid in between).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const guarded = (q: any) =>
-      q.eq("channel", "bots").in("bot_surface", [...UZO_BOT_SURFACES]).eq("status", "pending").eq("payment_status", "unpaid")
+      q.eq("channel", "bots").in("bot_surface", [...BOT_SWEPT_SURFACES]).eq("status", "pending").eq("payment_status", "unpaid")
         .lt("created_at", cutoff)
 
     let ids: string[]

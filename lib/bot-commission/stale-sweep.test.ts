@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { BOT_UNPAID_FAILURE_REASON } from "@/lib/ussd-hubtel/order-tables"
-import { expireStaleBotOrders, STALE_BOT_SWEEP_CHUNK } from "./stale-sweep"
+import { BOT_SWEPT_SURFACES, expireStaleBotOrders, STALE_BOT_SWEEP_CHUNK } from "./stale-sweep"
 
 type Row = Record<string, any>
 const NOW = Date.parse("2026-10-20T12:00:00.000Z")
@@ -79,13 +79,55 @@ describe("expireStaleBotOrders", () => {
     expect(status).toEqual({ p1: "failed", p2: "failed", p3: "failed", p4: "completed", p5: "pending", p6: "pending" })
   })
 
-  it("never touches paid rows, Hubtel USSD rows, storefront / other-channel rows, WhatsApp bot rows, fresh or closed rows", async () => {
+  it("fails stale unpaid pending WhatsApp bot orders (main + shop) in both tables and their pending cs_* payments", async () => {
+    const tables = {
+      hubtel_bill_orders: [order("wb1", { bot_surface: "whatsapp" }), order("wb2", { bot_surface: "whatsapp_shop" })],
+      hubtel_data_orders: [order("wd1", { bot_surface: "whatsapp_shop" }), order("wd2", { bot_surface: "whatsapp" })],
+      wallet_payments: [
+        payment("q1", "wb1", "cs_bill"), payment("q2", "wb2", "cs_bill"), payment("q3", "wd1", "cs_bundle"),
+        payment("q4", "wd2", "cs_bundle"), payment("q5", "wd2", "cs_bundle", { status: "completed" }),
+      ],
+    }
+    const r = await expireStaleBotOrders(fakeDb(tables).db, { now: NOW })
+    expect(r.tables.hubtel_bill_orders).toEqual({ found: 2, failed: 2, payments: 2 })
+    expect(r.tables.hubtel_data_orders).toEqual({ found: 2, failed: 2, payments: 2 })
+    for (const o of [...tables.hubtel_bill_orders, ...tables.hubtel_data_orders]) {
+      expect(o).toMatchObject({ status: "failed", failure_reason: BOT_UNPAID_FAILURE_REASON, payment_status: "unpaid" })
+    }
+    const status = Object.fromEntries(tables.wallet_payments.map(p => [p.id, p.status]))
+    expect(status).toEqual({ q1: "failed", q2: "failed", q3: "failed", q4: "failed", q5: "completed" })
+  })
+
+  it("the swept surfaces are exactly Uzo + WhatsApp (never hubtel_ussd)", () => {
+    expect([...BOT_SWEPT_SURFACES].sort()).toEqual(["ussd", "ussd_shop", "whatsapp", "whatsapp_shop"])
+  })
+
+  it("WhatsApp: paid and recent rows are untouched; hubtel_ussd rows are untouched", async () => {
+    const keep = [
+      order("wa-paid", { bot_surface: "whatsapp", payment_status: "paid" }),
+      order("was-paid", { bot_surface: "whatsapp_shop", payment_status: "paid" }),
+      order("wa-fresh", { bot_surface: "whatsapp", created_at: ago(29) }),
+      order("was-fresh", { bot_surface: "whatsapp_shop", created_at: ago(5) }),
+      order("hubtel", { bot_surface: "hubtel_ussd" }),
+    ]
+    const tables = {
+      hubtel_bill_orders: keep.map(r => ({ ...r })),
+      hubtel_data_orders: keep.map(r => ({ ...r })),
+      wallet_payments: keep.map(r => payment(`p-${r.id}`, r.id, "cs_bill")),
+    }
+    const before = JSON.parse(JSON.stringify(tables))
+    const r = await expireStaleBotOrders(fakeDb(tables).db, { now: NOW })
+    expect(r.tables.hubtel_bill_orders.found).toBe(0)
+    expect(r.tables.hubtel_data_orders.found).toBe(0)
+    expect(tables).toEqual(before)
+  })
+
+  it("never touches paid rows, Hubtel USSD rows, storefront / other-channel rows, fresh or closed rows", async () => {
     const keep = [
       order("paid", { payment_status: "paid" }),
       order("hubtel", { bot_surface: "hubtel_ussd" }),
       order("store", { channel: "storefront", bot_surface: null }),
       order("dash", { channel: "dashboard", bot_surface: null }),
-      order("wa", { bot_surface: "whatsapp" }),
       order("fresh", { created_at: ago(29) }),
       order("done", { status: "completed" }),
       order("failed", { status: "failed", failure_reason: "x" }),
