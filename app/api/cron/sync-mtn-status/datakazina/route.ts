@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { syncWindowStartIso } from "@/lib/status-sync-window"
 import { backgroundCron } from "@/lib/cron-background"
 
 // Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
@@ -51,6 +52,7 @@ async function runDatakazinaSync(request: NextRequest) {
             .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type")
             .eq("provider", "datakazina")
             .in("status", ["pending", "processing"])
+            .gte("created_at", syncWindowStartIso())
             .order("created_at", { ascending: true })
             .limit(BATCH_SIZE)
 

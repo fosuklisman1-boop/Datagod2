@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { syncWindowStartIso } from "@/lib/status-sync-window"
 import { sendPushToUser } from "@/lib/push-service"
 import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
 import { backgroundCron } from "@/lib/cron-background"
@@ -42,6 +43,7 @@ async function runXpressSync(request: NextRequest) {
             .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type")
             .eq("provider", "xpress")
             .in("status", ["pending", "processing"])
+            .gte("created_at", syncWindowStartIso())
             .order("created_at", { ascending: true })
             .limit(BATCH_SIZE)
 
