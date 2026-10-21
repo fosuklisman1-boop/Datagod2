@@ -6,7 +6,7 @@
 import { getBotMomoRuntime } from "@/lib/bot-commission/momo"
 import { failBotCharge } from "@/lib/bot-commission/momo-fail"
 import {
-  clearBotOtpPointer, peekBotOtpPointer, submitBotOtp, type StoredBotOtpPointer, type SubmitBotOtpResult,
+  clearBotOtpPointer, peekBotOtpPointer, submitBotOtp, type BotOtpChannel, type StoredBotOtpPointer, type SubmitBotOtpResult,
 } from "@/lib/bot-commission/otp-pointer"
 import type { UzoResponse } from "../types"
 
@@ -30,13 +30,18 @@ export interface BotOtpRedialDeps {
   cancel(p: StoredBotOtpPointer): Promise<void>
 }
 
-export function liveBotOtpRedialDeps(): BotOtpRedialDeps {
+/**
+ * Live wiring. `channel` = the pointer key space: "ussd" (default, the Uzo menus: exactly as before) or "whatsapp"
+ * (the WhatsApp bots, `wa-bot-otp:<sender>`): the peek and the cancel's clear stay inside that key space.
+ */
+export function liveBotOtpRedialDeps(channel: BotOtpChannel = "ussd"): BotOtpRedialDeps {
   return {
-    peek: peekBotOtpPointer,
+    peek: channel === "whatsapp" ? (phone) => peekBotOtpPointer(phone, "whatsapp") : peekBotOtpPointer,
     submit: (p, otp) => submitBotOtp(getBotMomoRuntime(), p, otp),
     async cancel(p) {
       await failBotCharge(getBotMomoRuntime().db, p.orderType, p.orderId, p.reference, TAG)
-      await clearBotOtpPointer(p.phone)
+      if (channel === "whatsapp") await clearBotOtpPointer(p.phone, "whatsapp")
+      else await clearBotOtpPointer(p.phone)
     },
   }
 }
