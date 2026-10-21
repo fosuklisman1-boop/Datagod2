@@ -4,6 +4,7 @@ import { recordPayerPhone } from "@/lib/refunds/payer-phone"
 import { ghanaSignificant, normalizeGhanaPhone } from "@/lib/phone-format"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
+import { isPhoneOtpVerified, readStorefrontOtpRequiredStrict } from "@/lib/storefront-otp"
 import {
   checkCommissionPayable, isStorefrontOrderType, newPaystackReference, STOREFRONT_ORDER_TABLE,
   STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, type CommissionPayableRow,
@@ -15,21 +16,42 @@ import { botCapDeps } from "./runtime"
 /** Internal order types of the bot commission orders (wallet_payments.order_type). */
 export type BotOrderType = "cs_bill" | "cs_bundle"
 
+export type BotChargeSurface = "ussd" | "ussd_shop" | "whatsapp" | "whatsapp_shop"
+
+/** Surfaces that run without a shop / with the session's resolved shop. */
+const MAIN_SURFACES: readonly BotChargeSurface[] = ["ussd", "whatsapp"]
+const SHOP_SURFACES: readonly BotChargeSurface[] = ["ussd_shop", "whatsapp_shop"]
+/** The WhatsApp bots: the buyer types the MoMo number, so the storefront OTP switch applies to it. */
+const WHATSAPP_SURFACES: readonly BotChargeSurface[] = ["whatsapp", "whatsapp_shop"]
+
 export interface BotChargeInput {
   orderType: BotOrderType
   orderId: string
-  botSurface: "ussd" | "ussd_shop"
-  /** Shop USSD: the session's resolved active shop. Main USSD: null. */
+  botSurface: BotChargeSurface
+  /** Shop bots (USSD / WhatsApp): the session's resolved active shop. Main bots: null. */
   shopId: string | null
-  /** The number that dialled: the only number ever prompted. */
+  /**
+   * The session's authenticated number: the USSD dialling MSISDN, or the WhatsApp sender. The order's buyer_phone must
+   * be this number, and a `send_otp` pointer is stored under it.
+   */
   dialingPhone: string
+  /**
+   * The number to charge (provider, per-number cap, payer record, the prompt). Defaults to `dialingPhone`. On the Uzo
+   * USSD surfaces it may only be the dialling number itself (anything else is NOT_PAYABLE); on WhatsApp it is the
+   * MoMo number the buyer typed, subject to the storefront OTP switch (NEEDS_VERIFY).
+   */
+  payPhone?: string
 }
 
 /**
  * - `ok: true`: a prompt is out for this order. `status` is Paystack's charge status (`send_otp` => OTP pointer
  *   stored), or `"pending"` for an idempotent replay: the order already had a pending payment row from the last
  *   15 minutes, whose `reference` is returned; no new row and no new prompt.
- * - `NOT_PAYABLE`: not this bot's / this buyer's still-open order. Nothing was written; the order was not touched.
+ * - `NOT_PAYABLE`: not this bot's / this buyer's still-open order (or an unusable `payPhone`). Nothing was written;
+ *   the order was not touched.
+ * - `NEEDS_VERIFY` (WhatsApp surfaces only): the storefront OTP switch is on (or could not be read) and the paying
+ *   number has no SMS OTP verification. Nothing was written, no cap slot used, the order left open: verify the number
+ *   (payer-verify.ts) and call again with the same order.
  * - `NO_PROVIDER` / `RATE_LIMITED`: no prompt sent; the order WAS failed (guarded patch).
  * - `CHARGE_FAILED`: no prompt was sent by this call, but the ORDER MAY STILL BE OPEN (pending + unpaid):
  *   - the order could not be read, or the replay lookup failed: nothing written, the order left as is (ownership /
@@ -39,7 +61,7 @@ export interface BotChargeInput {
  */
 export type BotChargeResult =
   | { ok: true; reference: string; status: string }
-  | { ok: false; code: "NOT_PAYABLE" | "NO_PROVIDER" | "RATE_LIMITED" | "CHARGE_FAILED"; message: string }
+  | { ok: false; code: "NOT_PAYABLE" | "NEEDS_VERIFY" | "NO_PROVIDER" | "RATE_LIMITED" | "CHARGE_FAILED"; message: string }
 
 /** A pending payment row this recent for the same order is replayed instead of prompting again. */
 export const BOT_MOMO_REPLAY_WINDOW_MS = 15 * 60 * 1000
@@ -53,6 +75,11 @@ export interface BotMomoDeps {
   /** Atomic sliding-window limiter (applyRateLimit's store); true = allowed. Fails open like applyRateLimit. */
   rateLimit(name: string, max: number, windowMs: number, id: string): Promise<boolean>
   otpPointer: { set(phone: string, p: BotOtpPointer): Promise<void>; clear(phone: string): Promise<void> }
+  /**
+   * The storefront OTP switch for the typed paying number (WhatsApp surfaces only). `required` THROWS when the switch
+   * cannot be read (treated as on); `verified` = a real SMS OTP verification for the number (a throw = not verified).
+   */
+  payerOtp: { required(): Promise<boolean>; verified(phone: string): Promise<boolean> }
   now(): number
 }
 
@@ -65,6 +92,7 @@ export const BOT_MOMO_PHONE_CAP = { name: "momodirect_phone", max: 3, windowMs: 
 /** Buyer-facing texts (never provider or DB text). */
 export const BOT_MOMO_MESSAGES = {
   NOT_PAYABLE: "Not available right now.",
+  NEEDS_VERIFY: "Please verify this MoMo number first.",
   NO_PROVIDER: "Payment not available for your number.",
   RATE_LIMITED: "Too many attempts. Please try later.",
   CHARGE_FAILED: "Service unavailable. Please try again later.",
@@ -76,25 +104,38 @@ const refuse = (code: keyof typeof BOT_MOMO_MESSAGES): BotChargeResult => ({ ok:
 interface BotPayableRow extends CommissionPayableRow { bot_surface: string | null }
 
 /**
- * Charge a USSD bot commission order (created by the engine) by a Paystack MoMo prompt to the dialing number. The
- * in-process twin of /api/payments/initialize's momoDirect path for channel 'bots' rows (that route is IP-limited):
+ * Charge a bot commission order (created by the engine) by a Paystack MoMo prompt to the paying number: the dialing
+ * number on the Uzo USSD, the typed `payPhone` on WhatsApp (default: the session's number). The in-process twin of
+ * /api/payments/initialize's momoDirect path for channel 'bots' rows (that route is IP-limited):
  *
- * 1. Re-read the order: only a channel 'bots' row of THIS surface (and, on shop USSD, this shop; on main USSD, no
- *    shop), still pending AND unpaid, bought by this dialing number (checkCommissionPayable + surface checks).
- *    Anything else is NOT_PAYABLE with no write at all. A pending payment row for the order from the last 15 minutes
- *    is replayed (its reference returned, status "pending"): one order never gets two prompts from a resent confirm.
- * 2. Provider from the dialing number; then the per-phone cap. Either refusal fails the order (guarded): a charge
- *    that never starts never leaves a chargeable order behind.
+ * 1. Re-read the order: only a channel 'bots' row of THIS surface (and, on a shop bot, this shop; on a main bot, no
+ *    shop), still pending AND unpaid, bought by this session's number (`dialingPhone`; checkCommissionPayable +
+ *    surface checks). Anything else is NOT_PAYABLE with no write at all. A pending payment row for the order from the
+ *    last 15 minutes is replayed (its reference returned, status "pending"): one order never gets two prompts from a
+ *    resent confirm.
+ * 2. Provider from the paying number; on WhatsApp, the storefront OTP switch for the paying number (NEEDS_VERIFY, no
+ *    write); then the per-number cap on the paying number. A provider / cap refusal fails the order (guarded): a
+ *    charge that never starts never leaves a chargeable order behind.
  * 3. One wallet_payments row (order_type cs_bill / cs_bundle, amount = paid_amount, fee 0, opaque reference), then the
  *    charge at paid_amount. Nothing sent to Paystack names the product. A charge that throws / is refused marks the
  *    payment row failed and fails the order with the guarded patch (a paid order is never touched).
- * 4. Payer phone recorded (refund payouts); `send_otp` stores the redial OTP pointer.
+ * 4. Payer phone (the paying number) recorded for refund payouts; `send_otp` stores the OTP pointer under the
+ *    session's number (`dialingPhone`: the USSD dialler / the WhatsApp sender), never under the paying number.
  *
  * Confirmation is the existing charge.success webhook (reference -> wallet_payments -> settleStorefrontWebhook).
  */
 export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<BotChargeResult> {
   if (!isStorefrontOrderType(i.orderType)) return refuse("NOT_PAYABLE")
-  if (i.botSurface === "ussd" ? i.shopId !== null : i.botSurface === "ussd_shop" ? !i.shopId : true) return refuse("NOT_PAYABLE")
+  if (MAIN_SURFACES.includes(i.botSurface) ? i.shopId !== null : SHOP_SURFACES.includes(i.botSurface) ? !i.shopId : true) {
+    return refuse("NOT_PAYABLE")
+  }
+  const whatsapp = WHATSAPP_SURFACES.includes(i.botSurface)
+  // The number to charge. A given payPhone must be a Ghana mobile number; on the Uzo USSD it may only be the dialler.
+  const paySig = ghanaSignificant(i.payPhone ?? i.dialingPhone)
+  if (i.payPhone !== undefined) {
+    if (!paySig) return refuse("NOT_PAYABLE")
+    if (!whatsapp && paySig !== ghanaSignificant(i.dialingPhone)) return refuse("NOT_PAYABLE")
+  }
   const table = STOREFRONT_ORDER_TABLE[i.orderType]
 
   let row: BotPayableRow | null
@@ -136,12 +177,17 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
     return refuse("CHARGE_FAILED")
   }
 
-  const local = normalizeGhanaPhone(i.dialingPhone)!
+  // `dialSig` passed above, so both are set (without payPhone, paySig === dialSig).
+  const dialLocal = normalizeGhanaPhone(i.dialingPhone)!
+  const local = "0" + paySig!
   const provider = paystackProviderFromPhone(local)
   if (!provider) {
     await failBotCharge(d.db, i.orderType, i.orderId, null, TAG)
     return refuse("NO_PROVIDER")
   }
+  // WhatsApp: the typed paying number follows the storefront OTP switch. Fails closed: an unreadable switch counts as
+  // on, an unreadable verification as unverified. Before the cap, so a refusal never spends a slot; no write at all.
+  if (whatsapp && !(await payerVerifiedOrNotRequired(d, local))) return refuse("NEEDS_VERIFY")
   const cap = BOT_MOMO_PHONE_CAP
   if (!(await d.rateLimit(cap.name, cap.max, cap.windowMs, `mp:${local}`))) {
     await failBotCharge(d.db, i.orderType, i.orderId, null, TAG)
@@ -174,7 +220,7 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
       provider,
       reference,
       // Neutral labels only: the internal cs_bill / cs_bundle code stays in wallet_payments.order_type.
-      metadata: { source: "ussd_bot", bot_surface: i.botSurface, order_type: STOREFRONT_PAYMENT_CHANNEL },
+      metadata: { source: whatsapp ? "whatsapp_bot" : "ussd_bot", bot_surface: i.botSurface, order_type: STOREFRONT_PAYMENT_CHANNEL },
       channel: STOREFRONT_PAYMENT_CHANNEL,
       purpose: STOREFRONT_PAYMENT_PURPOSE,
     })).status
@@ -201,7 +247,9 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
 
   if (status === "send_otp") {
     try {
-      await d.otpPointer.set(local, { reference, orderType: i.orderType, orderId: i.orderId, createdAt })
+      // Keyed by the session's authenticated number (dialler / WhatsApp sender), never the paying number: only this
+      // session's owner can ever submit the code for this order.
+      await d.otpPointer.set(dialLocal, { reference, orderType: i.orderType, orderId: i.orderId, createdAt })
     } catch (e) {
       console.error(`[${TAG}] could not store the OTP pointer for ${i.orderId}:`, e instanceof Error ? e.message : String(e))
     }
@@ -209,7 +257,27 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
   return { ok: true, reference, status }
 }
 
-/** Service-role wiring: Paystack charge / OTP, payer-phone record, applyRateLimit's store, the Upstash OTP pointer. */
+/** Storefront OTP switch off, or the paying number verified. Fails closed (switch unreadable => required). */
+async function payerVerifiedOrNotRequired(d: BotMomoDeps, local: string): Promise<boolean> {
+  let required = true
+  try {
+    required = await d.payerOtp.required()
+  } catch (e) {
+    console.error(`[${TAG}] storefront OTP switch unreadable; requiring verification:`, e instanceof Error ? e.message : "error")
+  }
+  if (!required) return true
+  try {
+    return (await d.payerOtp.verified(local)) === true
+  } catch (e) {
+    console.error(`[${TAG}] payer verification lookup failed:`, e instanceof Error ? e.message : "error")
+    return false
+  }
+}
+
+/**
+ * Service-role wiring: Paystack charge / OTP, payer-phone record, applyRateLimit's store, the Upstash OTP pointer, the
+ * storefront OTP switch (strict read) and the strict SMS OTP verification lookup.
+ */
 export function getBotMomoRuntime(): BotMomoDeps {
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
   return {
@@ -220,6 +288,7 @@ export function getBotMomoRuntime(): BotMomoDeps {
     // applyRateLimit's Upstash store (same wiring as the engine's caps).
     rateLimit: botCapDeps(db).limit,
     otpPointer: { set: setBotOtpPointer, clear: clearBotOtpPointer },
+    payerOtp: { required: readStorefrontOtpRequiredStrict, verified: isPhoneOtpVerified },
     now: Date.now,
   }
 }

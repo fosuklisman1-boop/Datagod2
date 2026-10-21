@@ -4,13 +4,16 @@ import { failBotCharge } from "./momo-fail"
 import type { BotMomoDeps, BotOrderType } from "./momo"
 
 /**
- * A bot MoMo charge that Paystack answered with `send_otp`: the buyer finishes it on redial. Keyed by the dialing
- * phone (normalised local form), so the next dial from that number can ask for the code.
+ * A bot MoMo charge that Paystack answered with `send_otp`: the buyer finishes it on redial (USSD) or with the next
+ * chat reply (WhatsApp). Keyed by the session's authenticated number (normalised local form): the USSD dialling
+ * MSISDN, or the WhatsApp sender. NEVER by the typed paying number (botChargeMomo's `payPhone`), so a pointer can only
+ * be reached by the session that owns the order.
  */
 export interface BotOtpPointer { reference: string; orderType: BotOrderType; orderId: string; createdAt: string }
 /**
  * A pointer as stored / read back: `phone` is the local number it lives under (so it can clear itself). Obtain it
- * only through `peekBotOtpPointer(dialingPhone)`: the lookup by the network-authenticated MSISDN is the auth.
+ * only through `peekBotOtpPointer(sessionPhone)` with the network-authenticated MSISDN (USSD) or the WhatsApp sender:
+ * that lookup is the auth. One key space for both channels: the same number is the same buyer.
  */
 export interface StoredBotOtpPointer extends BotOtpPointer { phone: string }
 
@@ -96,12 +99,12 @@ export function createBotOtpPointerStore(getRedis: () => RedisLike | null, now: 
 
 const store = createBotOtpPointerStore(() => getUssdRedis())
 
-/** Store the pending-OTP pointer for this dialing phone (TTL 10 min). */
+/** Store the pending-OTP pointer for this session phone (dialler / WhatsApp sender; TTL 10 min). */
 export async function setBotOtpPointer(phone: string, p: BotOtpPointer): Promise<void> {
   return store.set(phone, p)
 }
 
-/** The pending-OTP pointer for this dialing phone, if any (not consumed). */
+/** The pending-OTP pointer for this session phone (dialler / WhatsApp sender), if any (not consumed). */
 export async function peekBotOtpPointer(phone: string): Promise<StoredBotOtpPointer | null> {
   return store.peek(phone)
 }
