@@ -4,14 +4,14 @@
 import { createHmac, timingSafeEqual } from "crypto"
 import type { GatewayOutcome } from "./types"
 
-/** Reuses the Commission Services callback secret, domain-separated so tokens never cross over. */
+/** Dedicated refund-callback secret (not shared with Commission Services). */
 function tokenSecret(): string {
-  return process.env.HUBTEL_CS_CALLBACK_SECRET ?? ""
+  return process.env.HUBTEL_REFUND_CALLBACK_SECRET ?? ""
 }
 
 export function signCallbackToken(refundId: string): string {
   const secret = tokenSecret()
-  if (!secret) throw new Error("HUBTEL_CS_CALLBACK_SECRET is not set")
+  if (!secret) throw new Error("HUBTEL_REFUND_CALLBACK_SECRET is not set")
   return createHmac("sha256", secret).update(`hubtel-refund:${refundId}`).digest("hex")
 }
 
@@ -30,7 +30,7 @@ export function buildCallbackUrl(refundId: string): string {
   const base = process.env.NEXT_PUBLIC_APP_URL
   if (!base) throw new Error("NEXT_PUBLIC_APP_URL is not set")
   const token = signCallbackToken(refundId) // throws when the secret is missing
-  return `${base.replace(/\/$/, "")}/api/webhooks/hubtel-refund?refund=${encodeURIComponent(refundId)}&t=${token}`
+  return `${base.replace(/\/$/, "")}/api/webhooks/hubtel-refund?refund=${encodeURIComponent(refundId)}&t=${encodeURIComponent(token)}`
 }
 
 const PENDING_CODES = new Set(["0001", "4515"]) // accepted / already in progress
@@ -41,7 +41,7 @@ export function classifyRefundReply(upstreamStatus: number, body: unknown): Gate
   const b = body && typeof body === "object" ? (body as any) : null
   const code = b && typeof b.responseCode === "string" ? b.responseCode : null
   if (code && PENDING_CODES.has(code)) {
-    const orderId = b.data?.orderId
+    const orderId = b.data && typeof b.data === "object" ? b.data.orderId : undefined
     return { kind: "pending", ref: typeof orderId === "string" ? orderId : "" }
   }
   if (code && REJECTED_CODES.has(code)) {

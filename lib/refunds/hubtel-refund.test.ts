@@ -6,7 +6,7 @@ import {
 beforeEach(() => {
   vi.stubEnv("HUBTEL_RELAY_URL", "https://relay.example.com/")
   vi.stubEnv("HUBTEL_RELAY_SECRET", "relay-secret")
-  vi.stubEnv("HUBTEL_CS_CALLBACK_SECRET", "cb-secret")
+  vi.stubEnv("HUBTEL_REFUND_CALLBACK_SECRET", "cb-secret")
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com")
 })
 afterEach(() => vi.unstubAllEnvs())
@@ -14,6 +14,9 @@ afterEach(() => vi.unstubAllEnvs())
 describe("classifyRefundReply", () => {
   it("0001 is pending with Hubtel's orderId", () => {
     expect(classifyRefundReply(202, { responseCode: "0001", data: { orderId: "X" } })).toEqual({ kind: "pending", ref: "X" })
+  })
+  it("does not throw when data is a non-object truthy value", () => {
+    expect(classifyRefundReply(202, { responseCode: "0001", data: "oops" })).toEqual({ kind: "pending", ref: "" })
   })
   it("4515 (already in progress) is pending, empty ref when no data", () => {
     expect(classifyRefundReply(423, { responseCode: "4515", data: null })).toEqual({ kind: "pending", ref: "" })
@@ -55,7 +58,7 @@ describe("callback token", () => {
   })
   it("empty secret: verify false, sign throws", () => {
     const token = signCallbackToken("r1")
-    vi.stubEnv("HUBTEL_CS_CALLBACK_SECRET", "")
+    vi.stubEnv("HUBTEL_REFUND_CALLBACK_SECRET", "")
     expect(verifyCallbackToken("r1", token)).toBe(false)
     expect(() => signCallbackToken("r1")).toThrow()
   })
@@ -68,12 +71,17 @@ describe("buildCallbackUrl", () => {
     expect(url.searchParams.get("refund")).toBe("r1")
     expect(verifyCallbackToken("r1", url.searchParams.get("t") ?? "")).toBe(true)
   })
+  it("percent-encodes the token and refund id in the query", () => {
+    const url = buildCallbackUrl("a b&c")
+    expect(url).toContain("refund=a%20b%26c")
+    expect(url).toContain(`t=${encodeURIComponent(signCallbackToken("a b&c"))}`)
+  })
   it("throws when NEXT_PUBLIC_APP_URL is missing", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "")
     expect(() => buildCallbackUrl("r1")).toThrow()
   })
   it("throws when the callback secret is missing", () => {
-    vi.stubEnv("HUBTEL_CS_CALLBACK_SECRET", "")
+    vi.stubEnv("HUBTEL_REFUND_CALLBACK_SECRET", "")
     expect(() => buildCallbackUrl("r1")).toThrow()
   })
 })
