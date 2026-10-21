@@ -162,8 +162,32 @@ export function shopAirtimeNetworkMenu(): string {
   return 'Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n\n0. Back'
 }
 
-export function shopAirtimeAmountPrompt(network: string, min: number, max: number): string {
-  return `${network} Airtime\nEnter amount to pay\n(GHS ${min} - ${max}):\n\n0. Back`
+/** "Enter amount to pay" (today) or, with commission cashback, "Enter airtime amount" (the face delivered). */
+export function shopAirtimeAmountPrompt(network: string, min: number, max: number, cashback = false): string {
+  return `${network} Airtime\n${cashback ? "Enter airtime amount" : "Enter amount to pay"}\n(GHS ${min} - ${max}):\n\n0. Back`
+}
+
+/**
+ * Airtime confirm when commission cashback applies: "Pay GHS x (was GHS y)" (x = the MoMo price, y = the airtime
+ * face) and what the recipient gets. Same layout as shopAirtimeConfirmMenu otherwise.
+ */
+export function shopAirtimeCashbackConfirmMenu(
+  shopName: string,
+  network: string,
+  recipient: string,
+  pay: number,
+  face: number,
+  paymentPhone: string
+): string {
+  const was = pay < face ? ` (was GHS ${face.toFixed(2)})` : ""
+  return (
+    `${shopName}\n` +
+    `${network} to ${formatLocal(recipient)}\n` +
+    `Pay GHS ${pay.toFixed(2)}${was}\n` +
+    `Get GHS ${face.toFixed(2)} airtime\n` +
+    `from ${formatLocal(paymentPhone)}\n\n` +
+    `1. Pay now\n2. Cancel`
+  )
 }
 
 export function shopAirtimeConfirmMenu(

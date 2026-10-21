@@ -94,6 +94,9 @@ export interface WaShopSession extends UzoNpSessionFields, UzoPbSessionFields {
   airtimeToDeliver?: number
   airtimeFee?: number
   airtimeMerchantCommission?: number
+  // Commission cashback airtime: the MoMo price (quote payAmount) shown at amount entry; set only when the WhatsApp
+  // cashbackAirtime switch is on AND the quote is usable. The confirm re-quotes and must match it.
+  airtimeCashbackPay?: number
   // Results Checker flow
   rcBoard?: string
   rcQty?: number

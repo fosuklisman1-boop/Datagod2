@@ -206,3 +206,143 @@ const QUOTE = {
   applied: true, faceAmount: 10, rate: 10, share: 50, commission: 1, customerCashback: 0.4, shopShare: 0.25,
   payAmount: 9.79, datagodKeeps: 0.35, provider: "hubtel", base: 9.6, paymentFee: 0.19, feeRate: 1.95,
 }
+const onFor = (over: any = {}) => (face: number) => ({ ...QUOTE, faceAmount: face, ...over })
+const cashbackOn = (over: any = {}) => {
+  h.state.vis = { networkPlans: false, payBills: false, cashbackAirtime: true }
+  h.state.quote = onFor(over)
+}
+
+const CB_AMOUNT_PROMPT = "MTN Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back"
+const CB_CONFIRM = `${SHOP}\nMTN to 0241234567\nPay GHS 9.79 (was GHS 10.00)\nGet GHS 10.00 airtime\nfrom ${PAY}\n\n1. Pay now\n2. Cancel`
+const PRICE_CHANGED = "Price changed. Please try again."
+
+describe("WhatsApp shop airtime: cashback applied (WhatsApp switch on + usable quote)", () => {
+  it("asks for the airtime amount; every quote is rail paystack with the storefront split (shop: true)", async () => {
+    cashbackOn()
+    await toRecipient()
+    expect(await send(RECIPIENT)).toBe(CB_AMOUNT_PROMPT)
+    expect(h.state.quoteCalls[0]).toEqual(["MTN", 1, { rail: "paystack", shop: true }])
+    expect(await send("abc")).toBe("Enter a valid amount.\n" + CB_AMOUNT_PROMPT)
+  })
+
+  it("confirm shows Pay x (was y); the order carries the shop share and the typed number is charged payAmount", async () => {
+    cashbackOn()
+    await toRecipient()
+    await send(RECIPIENT)
+    expect(await send("10")).toBe(MOMO_PROMPT)
+    expect(h.state.quoteCalls.at(-1)).toEqual(["MTN", 10, { rail: "paystack", shop: true }])
+    expect(await send(PAY)).toBe(CB_CONFIRM)
+    expect(await send("9")).toBe(CB_CONFIRM) // junk repaints the cashback screen
+    expect(await send("1")).toBe(SENT)
+    expect(h.createShopAirtimeOrder).toHaveBeenCalledTimes(1)
+    expect(h.createShopAirtimeOrder.mock.calls[0][0]).toStrictEqual({
+      ...LEGACY_ORDER,
+      airtimeAmount: 10,
+      feeAmount: 0, // the Paystack fee lives in payment_fee_amount only
+      totalPaid: 9.79,
+      merchantCommission: 0.25, // = the quote's shop share (no markup)
+      cashbackColumns: {
+        airtime_amount: 10,
+        fee_amount: 0,
+        total_paid: 9.79,
+        payment_fee_amount: 0.19,
+        cashback_amount: 0.4,
+        shop_share_amount: 0.25,
+        cashback_rate: 10,
+        cashback_share: 50,
+        cashback_provider: "hubtel",
+        expected_commission: 1,
+        merchant_commission: 0.25,
+      },
+    })
+    expect(h.chargeMobileMoney).toHaveBeenCalledTimes(1)
+    expect(h.chargeMobileMoney.mock.calls[0][0]).toStrictEqual({ ...LEGACY_CHARGE, amount: 9.79 })
+  })
+
+  it("more than 2 decimals is refused on the cashback branch", async () => {
+    cashbackOn()
+    await toRecipient()
+    await send(RECIPIENT)
+    expect(await send("10.555")).toBe("Enter a valid amount.\n" + CB_AMOUNT_PROMPT)
+    expect(session().step).toBe("AIRTIME_ENTER_AMOUNT")
+    expect(await send("10.55")).toBe(MOMO_PROMPT)
+    expect(session()).toMatchObject({ airtimeAmount: 10.55, airtimeToDeliver: 10.55, airtimeFee: 0, airtimeCashbackPay: 9.79 })
+  })
+
+  it("re-quote mismatch at confirm: 'Price changed. Please try again.', no order, no charge", async () => {
+    cashbackOn()
+    await toRecipient()
+    await send(RECIPIENT, "10", PAY)
+    h.state.quote = onFor({ payAmount: 9.9 })
+    expect(await send("1")).toBe(PRICE_CHANGED)
+    expect(h.createShopAirtimeOrder).not.toHaveBeenCalled()
+    expect(h.chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("cashback switched off since the screen: same refusal", async () => {
+    cashbackOn()
+    await toRecipient()
+    await send(RECIPIENT, "10", PAY)
+    h.state.vis = { networkPlans: false, payBills: false, cashbackAirtime: false }
+    expect(await send("1")).toBe(PRICE_CHANGED)
+    expect(h.createShopAirtimeOrder).not.toHaveBeenCalled()
+  })
+
+  it("a legacy-priced confirm (e.g. staged by the AI, no cashback price) while cashback now applies: refused, no order", async () => {
+    // Plan 3 rule (airtimeRequote): the pricing MODE shown must match the live one. Reported as a follow-up: AI-staged
+    // airtime (lib/ai-tools.ts, unchanged by this plan) stages today's pricing, so it is refused while the switch is on.
+    cashbackOn()
+    h.state.sessions.set(FROM, {
+      step: "AIRTIME_CONFIRM", shopCodeId: "code-1", shopId: "shop-1", shopName: SHOP,
+      airtimeNetwork: "MTN", airtimeRecipient: RECIPIENT, airtimeAmount: 20, airtimeFee: 1.31, airtimeToDeliver: 18.69,
+      paymentPhone: PAY, paystackProvider: "vod",
+    })
+    expect(await send("1")).toBe(PRICE_CHANGED)
+    expect(h.createShopAirtimeOrder).not.toHaveBeenCalled()
+    expect(h.chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("the shop is re-checked before the order: closed => refused, no quote at confirm, no order", async () => {
+    cashbackOn()
+    await toRecipient()
+    await send(RECIPIENT, "10", PAY)
+    const quotesBefore = h.state.quoteCalls.length
+    h.state.shop = { ...h.state.shop, whatsappActivated: false }
+    expect(await send("1")).toBe(CLOSED)
+    expect(h.state.quoteCalls.length).toBe(quotesBefore)
+    expect(h.createShopAirtimeOrder).not.toHaveBeenCalled()
+    expect(h.chargeMobileMoney).not.toHaveBeenCalled()
+  })
+})
+
+describe("WhatsApp shop airtime: cashback NOT applied stays byte-identical", () => {
+  it("switch off with a usable quote: today's walk, the quote is never asked", async () => {
+    h.state.quote = onFor()
+    await legacyWalk()
+    expect(h.state.quoteCalls).toEqual([])
+  })
+
+  it("switch on, no quote: today's walk", async () => {
+    h.state.vis = { networkPlans: false, payBills: false, cashbackAirtime: true }
+    await legacyWalk()
+  })
+
+  for (const [label, over] of [
+    ["not applied", { applied: false }],
+    ["NaN payAmount", { payAmount: NaN }],
+    ["negative shop share", { shopShare: -0.1 }],
+    ["face mismatch", { faceAmount: 11 }],
+  ] as const) {
+    it(`switch on, unusable quote (${label}): today's order and charge`, async () => {
+      cashbackOn()
+      h.state.quote = (face: number) => ({ ...QUOTE, faceAmount: face, ...over })
+      await toRecipient()
+      await send(RECIPIENT)
+      expect(await send("20")).toBe(MOMO_PROMPT)
+      expect(await send(PAY)).toBe(LEGACY_CONFIRM)
+      expect(await send("1")).toBe(SENT)
+      expect(h.createShopAirtimeOrder.mock.calls[0][0]).toStrictEqual(LEGACY_ORDER)
+      expect(h.chargeMobileMoney.mock.calls[0][0]).toStrictEqual(LEGACY_CHARGE)
+    })
+  }
+})
