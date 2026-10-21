@@ -96,7 +96,9 @@ export function createPayerVerify(d: PayerVerifyDeps) {
       const r = await checkPhoneOtp(d, local, c, PAYER_OTP_PURPOSE)
       if (r === "verified") return { ok: true, retry: false }
       if (r === "too_many_attempts") return { ok: false, retry: false }
-      if (r === "unavailable") return { ok: false, retry: true }
+      // The DB attempt counter is down: fail closed AND end the step (retry false), so the buyer is never re-prompted
+      // without the DB backstop (the Upstash bucket fails open).
+      if (r === "unavailable") return { ok: false, retry: false }
       return { ok: false, retry: await hasLivePhoneOtp(d, local, PAYER_OTP_PURPOSE) }
     } catch (e) {
       console.error(TAG, "verify failed:", errText(e))

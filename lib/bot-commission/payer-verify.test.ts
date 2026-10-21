@@ -237,10 +237,11 @@ describe("verifyPayerOtp", () => {
     expect(await pv.verifyPayerOtp(LOCAL, "135790")).toEqual({ ok: false, retry: false })
   })
 
-  it("the DB attempt counter unavailable => fail closed, retry true (nothing verified)", async () => {
+  it("the DB attempt counter unavailable => fail closed, retry FALSE (the flow ends; no unbounded re-prompt)", async () => {
     const m = make([otpRow({ phone: LOCAL, code: "135790" }, NOW)], { rpc: "error" })
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
-    expect(await m.pv.verifyPayerOtp(LOCAL, "135790")).toEqual({ ok: false, retry: true })
+    expect(await m.pv.verifyPayerOtp(LOCAL, "135790")).toEqual({ ok: false, retry: false })
+    expect(await m.pv.verifyPayerOtp(LOCAL, "000000")).toEqual({ ok: false, retry: false })
     expect(m.f.rows[0].used).toBe(false)
     spy.mockRestore()
   })
