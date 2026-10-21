@@ -1,3 +1,5 @@
+import type { BotWaFlowStep, UzoNpSessionFields, UzoNpStep, UzoPbSessionFields, UzoPbStep } from "@/lib/ussd/types"
+
 export type WaShopStep =
   | 'ENTER_CODE'
   | 'SELECT_PRODUCT'
@@ -38,6 +40,12 @@ export type WaShopStep =
   // (lib/ai-tools.ts) overwrites this with a real CONFIRM/AIRTIME_CONFIRM/
   // RC_CONFIRM step once the AI is ready to charge, which exits this mode.
   | 'AI_CONVERSATION'
+  // Commission-cashback "Network Plans" (NP_*) / "Pay Bills" (PB_*): the shared flows (lib/ussd/bots/*) with
+  // WHATSAPP_PROFILE, run through the shop adapter (lib/whatsapp-bot/shop-bot-flows.ts). Includes the WhatsApp-only
+  // steps (typed MoMo number, its SMS check, the Ghana Water email).
+  | UzoNpStep
+  | UzoPbStep
+  | BotWaFlowStep
 
 export interface WaShopBundleOption {
   id: string
@@ -45,7 +53,8 @@ export interface WaShopBundleOption {
   price: number
 }
 
-export interface WaShopSession {
+// The np* / pb* fields are the shared flows' own (UzoNpSessionFields / UzoPbSessionFields); only those flows set them.
+export interface WaShopSession extends UzoNpSessionFields, UzoPbSessionFields {
   step: WaShopStep
   // Set once the shop code resolves (mirrors USSDShopSession's dialingPhone/shopCodeId/etc,
   // but there's no "dialingPhone" here — the customer's WhatsApp number IS the session key,
@@ -75,6 +84,9 @@ export interface WaShopSession {
   // leaves this undefined only for data-bundle orders; here it's always set so
   // SUBMIT_OTP never has to guess/default).
   pendingOrderTable?: 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'
+  // SUBMIT_OTP is for a commission-cashback bot charge (Paystack send_otp): the code goes to submitBotOtp through the
+  // sender's wa-bot-otp pointer (looked up again on every reply), never to the legacy submitOtp path.
+  botOtp?: boolean
   // Airtime flow
   airtimeRecipient?: string
   airtimeNetwork?: string

@@ -48,11 +48,28 @@ export function shopInvalidCodeMenu(reason: string): string {
   return `${reason}\n\nEnter shop code:\n\n0. Exit`
 }
 
-export function shopProductMenu(shopName: string, showData = true): string {
+/**
+ * Commission-cashback items shown at the END of the product menu (whatsappBotItemsVisible; Network Plans also hidden
+ * while the data whitelist blocks the customer, like Data Bundle). Absent / all false => today's menu byte for byte.
+ */
+export interface ShopBotMenuItems { networkPlans?: boolean; payBills?: boolean }
+
+/** The digits the visible cashback items take: right after the legacy items (which never move). */
+export function shopBotMenuDigits(showData: boolean, bots?: ShopBotMenuItems): { networkPlans?: string; payBills?: string } {
+  let next = showData ? 5 : 4
+  const out: { networkPlans?: string; payBills?: string } = {}
+  if (bots?.networkPlans) out.networkPlans = String(next++)
+  if (bots?.payBills) out.payBills = String(next++)
+  return out
+}
+
+export function shopProductMenu(shopName: string, showData = true, bots?: ShopBotMenuItems): string {
+  const d = shopBotMenuDigits(showData, bots)
+  const extra = (d.networkPlans ? `${d.networkPlans}. Network Plans\n` : '') + (d.payBills ? `${d.payBills}. Pay Bills\n` : '')
   if (showData) {
-    return `${shopName}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n4. Check My Results\n0. Exit`
+    return `${shopName}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n4. Check My Results\n${extra}0. Exit`
   }
-  return `${shopName}\nWhat to buy?\n1. Airtime\n2. Results Checker\n3. Check My Results\n0. Exit`
+  return `${shopName}\nWhat to buy?\n1. Airtime\n2. Results Checker\n3. Check My Results\n${extra}0. Exit`
 }
 
 // ── Shop Data Bundle ──────────────────────────────────────────────────────────
