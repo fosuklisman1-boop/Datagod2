@@ -34,6 +34,8 @@ import {
   waConfirmMenu, waAirtimeConfirmMenu, waRcConfirmMenu,
 } from "@/lib/ussd/menus"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
+import { handleWaBotOtp, handleWaBotStep, isWaBotStep, waBotNaturalToDigit, waBotOtpPending } from "./bot-flows"
+import { whatsappBotItemsVisible } from "./cashback-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -134,6 +136,9 @@ async function handleSelectBundleWa(
 // digit still progress through the (completable) USSD flow. Returns the digit string
 // or null if it can't confidently map (caller then tries keywords / escapes to AI).
 async function naturalToDigit(step: string, input: string, session: USSDSession): Promise<string | null> {
+  // Cashback bot flows (Network Plans / Pay Bills): only the obvious replies, never on a typed-data step
+  // (MoMo number, SMS code, account, email...).
+  if (isWaBotStep(step)) return waBotNaturalToDigit(step, input, session)
   const lc = input.toLowerCase().replace(/\s+/g, "")
   if (step === "SELECT_NETWORK" || step === "AIRTIME_SELECT_NETWORK") {
     if (lc.startsWith("mtn")) return "1"
@@ -173,6 +178,8 @@ async function naturalToDigit(step: string, input: string, session: USSDSession)
 }
 
 export async function waRouter(phone: string, text: string): Promise<string> {
+  // A cashback bot charge's send_otp pointer counts for this reply only if created from here on.
+  const startedAt = Date.now()
   const sessionId = phone
   const session = await getWaSession(sessionId)
 
@@ -257,9 +264,18 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     }
   }
 
+  // Cashback bot flows (Network Plans / Pay Bills). These steps are not menu-selection steps above: free text never
+  // escapes to the AI mid-flow (the flow repaints its screen), and it is mapped to a digit only where obvious.
+  if (isWaBotStep(session.step)) {
+    if (!/^\d+$/.test(input)) input = (await naturalToDigit(session.step, input, session)) ?? input
+    return finishWaBotReply(sessionId, phone, await handleWaBotStep(phone, input, session), startedAt)
+  }
+
   switch (session.step) {
     case 'MAIN':
-      result = await handleMain(input, sessionId, session)
+      // 'whatsapp': the cashback items (end of the menu) follow the WhatsApp switches; off => today's menu.
+      // A bot flow's first screen never charges, so the generic tail below fits it.
+      result = await handleMain(input, sessionId, session, 'whatsapp')
       break
 
     case 'SELECT_NETWORK':
@@ -335,6 +351,13 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
 
     case 'SUBMIT_OTP': {
+      // Cashback bot charge (Paystack send_otp): the sender's wa-bot-otp pointer is looked up again; a retry keeps
+      // this step, ok / cancel / final failure end it.
+      if (session.botOtp) {
+        result = await handleWaBotOtp(phone, input)
+        overrideMessage = fixWaMomoMsg(result.message)
+        break
+      }
       const isOtpLike = /^\d{4,8}$/.test(input.trim())
       const isCancel = input.trim() === '0'
 
@@ -539,9 +562,11 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       result = await handleWaEnterPaymentPhone(input, sessionId, session)
       break
 
-    default:
-      await setWaSession(sessionId, { step: 'MAIN', dialingPhone: phone })
-      result = { message: mainMenu(), ussdServiceOp: 2 }
+    default: {
+      const fresh: USSDSession = { step: 'MAIN', dialingPhone: phone }
+      await setWaSession(sessionId, fresh)
+      result = { message: await waMainMenuText(sessionId, fresh), ussdServiceOp: 2 }
+    }
   }
 
   if (result.ussdServiceOp === 17) {
@@ -552,6 +577,38 @@ export async function waRouter(phone: string, text: string): Promise<string> {
   }
 
   return overrideMessage ?? result.message
+}
+
+// ── Cashback bot flows ────────────────────────────────────────────────────────
+
+/**
+ * Tail of a bot-flow reply: WhatsApp wording on the text; a final screen ends the session unless THIS reply's charge
+ * answered Paystack `send_otp` (the sender's wa-bot-otp pointer is newer than the reply): then the chat waits on
+ * SUBMIT_OTP for the code (it is the newest pending OTP of this sender by construction).
+ */
+async function finishWaBotReply(sessionId: string, phone: string, r: UzoResponse, since: number): Promise<string> {
+  const message = fixWaMomoMsg(r.message)
+  if (r.ussdServiceOp !== 17) {
+    await extendWaSession(sessionId)
+    return message
+  }
+  if (await waBotOtpPending(phone, since)) {
+    const local = phone.startsWith('233') ? '0' + phone.slice(3) : phone
+    await setWaSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone: local, botOtp: true })
+    return message
+  }
+  await deleteWaSession(sessionId)
+  return message
+}
+
+/**
+ * The main menu after a session reset. Switches off => exactly today's mainMenu(); on => the menu handleMain renders
+ * for 'whatsapp' (one resolved list for the text and the digit dispatch).
+ */
+async function waMainMenuText(sessionId: string, session: USSDSession): Promise<string> {
+  const vis = await whatsappBotItemsVisible(supabase)
+  if (!vis.networkPlans && !vis.payBills) return mainMenu()
+  return (await handleMain('', sessionId, session, 'whatsapp')).message
 }
 
 // ── WA_ENTER_PAYMENT_PHONE ────────────────────────────────────────────────────
