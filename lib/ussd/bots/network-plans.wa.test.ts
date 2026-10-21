@@ -96,7 +96,7 @@ describe("WhatsApp network plans: presentation", () => {
     await t.send("1", "1", "1", "1", PAY, "1")
     expect(t.deps.createOrder).toHaveBeenCalledWith(
       { botSurface: "whatsapp_shop", shopId: SHOP, rail: "paystack", buyerPhone: ME },
-      { token: "tok-1", recipient: "0244123456", idempotencyKey: SID, expectedPay: 10.5 },
+      { token: "tok-1", recipient: "0244123456", idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/), expectedPay: 10.5 },
     )
     expect(t.deps.charge).toHaveBeenCalledWith({ orderType: "cs_bundle", orderId: ORDER, botSurface: "whatsapp_shop", shopId: SHOP, dialingPhone: ME, payPhone: PAY })
   })
@@ -205,6 +205,119 @@ describe("WhatsApp network plans: NEEDS_VERIFY", () => {
     await a.send("1", "1", "1", "1", PAY, "1")
     expect(await a.send("123456")).toEqual({ message: "Service unavailable. Please try again later.", ussdServiceOp: 17 })
     expect(a.deps.failOrder).toHaveBeenCalledWith(ORDER)
+    quiet.mockRestore()
+  })
+})
+
+describe("WhatsApp network plans: idempotency key per flow (never the sender's phone)", () => {
+  const keyOf = (t: ReturnType<typeof setup>, i: number) =>
+    (t.deps.createOrder.mock.calls as unknown as [unknown, { idempotencyKey: string }][])[i][1].idempotencyKey
+
+  it("two consecutive purchases by the same sender use two different opaque keys", async () => {
+    const t = setup()
+    await t.start()
+    await t.send("1", "1", "1", "1", PAY, "1")
+    await t.start()
+    await t.send("1", "1", "1", "1", PAY, "1")
+    expect(t.deps.createOrder).toHaveBeenCalledTimes(2)
+    expect(keyOf(t, 0)).not.toBe(keyOf(t, 1))
+    for (const i of [0, 1]) {
+      expect(keyOf(t, i)).not.toBe(SID)
+      expect(keyOf(t, i)).not.toContain("244123456")
+      expect(keyOf(t, i)).toMatch(/^[A-Za-z0-9-]{8,64}$/)
+    }
+    expect(t.store.get(SID)?.npKey).toBeUndefined() // cleared once the flow ended
+  })
+
+  it("a resent confirm within one flow (same session state) reuses the key", async () => {
+    const t = setup()
+    await t.start()
+    await t.send("1", "1", "1", "1", PAY)
+    const atConfirm = t.store.get(SID)!
+    expect(atConfirm.npKey).toBeTruthy()
+    await handleNetworkPlansStep(t.ctx, "1", atConfirm, t.deps)
+    await handleNetworkPlansStep(t.ctx, "1", atConfirm, t.deps)
+    expect(keyOf(t, 0)).toBe(keyOf(t, 1))
+    expect(keyOf(t, 0)).toBe(atConfirm.npKey)
+  })
+
+  it("a different plan at the same price after a cancel gets a new key", async () => {
+    const t = setup({
+      catalog: async () => ({ ok: true, categories: [{ name: "Data", bundles: [bundle(1), bundle(2, { payAmount: 10.5 })] }] }),
+    })
+    await t.start()
+    await t.send("1", "1", "1", "1", PAY)
+    const first = t.store.get(SID)!.npKey
+    await t.send("2") // cancel
+    await t.start()
+    await t.send("1", "1", "2", "1", PAY, "1")
+    expect(t.deps.createOrder).toHaveBeenCalledTimes(1)
+    expect(keyOf(t, 0)).not.toBe(first)
+  })
+
+  it("WhatsApp confirm without a key (stale session) never orders", async () => {
+    const t = setup()
+    await t.start()
+    await t.send("1", "1", "1", "1", PAY)
+    t.store.set(SID, { ...t.store.get(SID)!, npKey: undefined })
+    expect((await t.send("1")).ussdServiceOp).toBe(17)
+    expect(t.deps.createOrder).not.toHaveBeenCalled()
+  })
+})
+
+describe("WhatsApp network plans: terminal exits close the flow", () => {
+  it("cancel at confirm, then '1' creates nothing", async () => {
+    const t = setup()
+    await t.start()
+    await t.send("1", "1", "1", "1", PAY)
+    expect(await t.send("2")).toEqual({ message: "Order cancelled.", ussdServiceOp: 17 })
+    expect(t.store.get(SID)?.step).toBe("MAIN")
+    expect(t.store.get(SID)?.npPlan).toBeUndefined()
+    await t.send("1")
+    expect(t.deps.createOrder).not.toHaveBeenCalled()
+  })
+
+  it("an error exit (catalog 503), then '1' creates nothing and the flow state is gone", async () => {
+    const t = setup({ catalog: vi.fn().mockResolvedValueOnce(CATALOG).mockResolvedValue({ ok: false, status: 503, error: "x" }) })
+    await t.start()
+    await t.send("1")
+    expect((await t.send("1")).ussdServiceOp).toBe(17)
+    expect(t.store.get(SID)).toMatchObject({ step: "MAIN" })
+    expect(t.store.get(SID)?.npCategories).toBeUndefined()
+    await t.send("1")
+    expect(t.deps.createOrder).not.toHaveBeenCalled()
+  })
+
+  it("shop bot: a terminal exit goes back to the product menu step", async () => {
+    const t = setup({ surface: "whatsapp_shop" })
+    await t.start()
+    await t.send("1", "1", "1", "1", PAY, "2")
+    expect(t.store.get(SID)?.step).toBe("SELECT_PRODUCT")
+  })
+})
+
+describe("WhatsApp network plans: code entry at NP_PAY_VERIFY", () => {
+  it("non-code text re-prompts without using an attempt", async () => {
+    const t = setup({ charge: async () => NEEDS })
+    await t.start()
+    await t.send("1", "1", "1", "1", PAY, "1")
+    for (const junk of ["hi", "menu", "12345", "1234567", "12 34 56"]) {
+      const r = await t.send(junk)
+      expect(r.ussdServiceOp).toBe(2)
+      expect(r.message.endsWith(VERIFY)).toBe(true)
+    }
+    expect(t.payer!.verify).not.toHaveBeenCalled()
+    expect(t.store.get(SID)?.step).toBe("NP_PAY_VERIFY")
+  })
+
+  it("a throwing verify fails closed: order failed, friendly text, no re-prompt", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {})
+    const t = setup({ charge: async () => NEEDS, payer: { send: async () => ({ ok: true }), verify: async () => { throw new Error("db") } } })
+    await t.start()
+    await t.send("1", "1", "1", "1", PAY, "1")
+    expect(await t.send("123456")).toEqual({ message: "Service unavailable. Please try again later.", ussdServiceOp: 17 })
+    expect(t.deps.failOrder).toHaveBeenCalledWith(ORDER)
+    expect(t.store.get(SID)?.npOrderId).toBeUndefined()
     quiet.mockRestore()
   })
 })

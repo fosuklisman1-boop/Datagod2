@@ -174,6 +174,62 @@ describe("WhatsApp pay bills: NEEDS_VERIFY", () => {
   })
 })
 
+describe("WhatsApp pay bills: terminal exits close the flow", () => {
+  it("cancel at confirm, then '1' creates nothing", async () => {
+    const t = setup()
+    await t.start()
+    await t.send("3", "7012345678", "50", PAY)
+    expect(await t.send("2")).toEqual({ message: "Order cancelled.", ussdServiceOp: 17 })
+    expect(t.store.get(SID)).toMatchObject({ step: "MAIN" })
+    expect(t.store.get(SID)?.pbToken).toBeUndefined()
+    expect(t.store.get(SID)?.pbPayPhone).toBeUndefined()
+    await t.send("1")
+    expect(t.deps.createOrder).not.toHaveBeenCalled()
+  })
+
+  it("consent cancel closes the flow", async () => {
+    const t = setup({ verify: async (_bc, i) => ({ ok: true, customerName: null, amountDue: null, suggestedAmount: 0, meters: i.biller === "ecg" ? [] : [] }) })
+    await t.start()
+    await t.send("1", "3", "P99887766", "1")
+    expect(t.store.get(SID)?.step).toBe("PB_CONSENT")
+    expect((await t.send("2")).message).toBe("Order cancelled.")
+    expect(t.store.get(SID)?.step).toBe("MAIN")
+    await t.send("1")
+    expect(t.verifyCalls().some(i => i.addMeter)).toBe(false)
+  })
+
+  it("an error exit (quote fails), then more input creates nothing", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {})
+    const t = setup()
+    t.deps.quote.mockRejectedValueOnce(new Error("cfg"))
+    await t.start()
+    expect((await t.send("3", "7012345678", "50")).ussdServiceOp).toBe(17)
+    expect(t.store.get(SID)).toMatchObject({ step: "MAIN" })
+    expect(t.store.get(SID)?.pbToken).toBeUndefined()
+    await t.send("50", PAY, "1")
+    expect(t.deps.createOrder).not.toHaveBeenCalled()
+    quiet.mockRestore()
+  })
+})
+
+describe("WhatsApp pay bills: code entry at PB_PAY_VERIFY", () => {
+  it("non-code text re-prompts without using an attempt; a throwing verify fails closed", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {})
+    const t = setup({ charge: async () => NEEDS })
+    await t.start()
+    await t.send("3", "7012345678", "50", PAY, "1")
+    const r = await t.send("yes")
+    expect(r.ussdServiceOp).toBe(2)
+    expect(r.message.endsWith(VERIFY)).toBe(true)
+    expect(t.payer.verify).not.toHaveBeenCalled()
+    t.payer.verify.mockRejectedValueOnce(new Error("db"))
+    expect(await t.send("123456")).toEqual({ message: "Service unavailable. Please try again later.", ussdServiceOp: 17 })
+    expect(t.deps.failOrder).toHaveBeenCalledWith(ORDER)
+    expect(t.store.get(SID)?.step).toBe("MAIN")
+    quiet.mockRestore()
+  })
+})
+
 describe("WhatsApp pay bills: limits + wiring", () => {
   it("every message is at most 1000 chars", async () => {
     const long = "Akwasi-Kwabena Oppong-Mensah Enterprises Limited Data Bundle ".repeat(6)

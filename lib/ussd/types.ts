@@ -136,6 +136,7 @@ export interface UzoNpSessionFields {
   // WhatsApp only (never set on the Uzo menus):
   npPayPhone?: string        // the MoMo number to charge (local 0XXXXXXXXX), typed by the buyer
   npOrderId?: string         // NP_PAY_VERIFY: the order already created, charged again once the number is verified
+  npKey?: string             // engine idempotency key of THIS flow (opaque, minted at start; the WhatsApp session id is the sender's phone)
 }
 
 export interface BundleOption {

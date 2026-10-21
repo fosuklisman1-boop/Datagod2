@@ -22,7 +22,7 @@ import { botVerifyBill } from "@/lib/bot-commission/verify"
 import { isValidGhanaMobile, normalizeGhanaPhone } from "@/lib/phone-format"
 import type { UzoPbAccountStage, UzoPbMeter, UzoPbSessionFields, UzoResponse } from "../types"
 import {
-  botFlowChargeOrder, botFlowContext, botRestartText, flowProfile, liveUzoBotIo, parsePayPhone, payerVerifyStep,
+  botFlowChargeOrder, botFlowContext, botRestartText, endBotFlow, flowProfile, liveUzoBotIo, parsePayPhone, payerVerifyStep,
   samePrice, startPayerVerify, uzoBotClosedSession, uzoShopHeader, withoutBotFields, PAY_PHONE_INVALID, PAY_PHONE_PROMPT,
   UZO_BOT_UNAVAILABLE, type BotFlowCtx, type UzoBotIo, type UzoBotPayDeps, type UzoBotSession,
 } from "./kit"
@@ -179,7 +179,8 @@ async function goto(x: Step, patch: Partial<UzoPbSessionFields> & { step: UzoBot
   await x.d.io.save(x.ctx.sessionId, x.s)
   return x.d.io.cont(text)
 }
-const finish = (x: Step, text: string) => x.d.io.end(text)
+/** Terminal exit (WhatsApp: the closed session is saved first, so a later "1" never reaches a stale confirm; Uzo: unchanged). */
+const finish = (x: Step, text: string) => endBotFlow(x.d.io, x.ctx, x.s, text)
 
 export async function startPayBills(
   ctx: BotFlowCtx, session: UzoBotSession, d: PayBillsDeps = livePayBillsDeps(ctx.surface),
@@ -203,8 +204,8 @@ export async function handlePayBillsStep(
   ctx: BotFlowCtx, input: string, session: UzoBotSession, d: PayBillsDeps = livePayBillsDeps(ctx.surface),
 ): Promise<UzoResponse> {
   const p = flowProfile(ctx)
-  if (!p || !botFlowContext(ctx)) return d.io.end(UZO_BOT_UNAVAILABLE)
-  const x: Step = { ctx, p, input: (input ?? "").trim(), s: session as PbSession, d }
+  if (!p || !botFlowContext(ctx)) return endBotFlow(d.io, ctx, session, UZO_BOT_UNAVAILABLE)
+  const x: Step ={ ctx, p, input: (input ?? "").trim(), s: session as PbSession, d }
   switch (session.step) {
     case "PB_BILLER": return selectBiller(x)
     case "PB_ECG_MODE": return selectEcgMode(x)

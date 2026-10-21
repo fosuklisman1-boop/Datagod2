@@ -65,7 +65,7 @@ export interface UzoBotIo {
 // Typed as full Records so a new flow field cannot be forgotten here (tsc fails until it is listed).
 const NP_FIELD_SET: Record<keyof UzoNpSessionFields, true> = {
   npNetwork: true, npCategories: true, npCategory: true, npPage: true, npPlans: true, npPlan: true, npOtherNumber: true,
-  npRecipient: true, npPayPhone: true, npOrderId: true,
+  npRecipient: true, npPayPhone: true, npOrderId: true, npKey: true,
 }
 const NP_FIELDS = Object.keys(NP_FIELD_SET) as (keyof UzoNpSessionFields)[]
 const PB_FIELD_SET: Record<keyof UzoPbSessionFields, true> = {
@@ -188,6 +188,16 @@ export function uzoBotClosedSession(ctx: BotFlowCtx, s: UzoBotSession): UzoBotSe
     : { ...out, step: "MAIN" }) as UzoBotSession
 }
 
+/**
+ * End the flow. WhatsApp sessions outlive the reply (Redis TTL), so the closed session (back to the menu, no flow
+ * fields, no token) is saved first: a later "1" can never reach a confirm the buyer cancelled or that errored.
+ * Uzo: `end` kills the USSD session, so nothing is saved (Plan 3 behaviour, pinned by the goldens).
+ */
+export async function endBotFlow(io: UzoBotIo, ctx: BotFlowCtx, s: UzoBotSession, text: string): Promise<UzoResponse> {
+  if (isWhatsappSurface(ctx.surface)) await io.save(ctx.sessionId, uzoBotClosedSession(ctx, s))
+  return io.end(text)
+}
+
 // ── WhatsApp: the typed MoMo number ──────────────────────────────────────────
 
 export const PAY_PHONE_PROMPT = "Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Back"
@@ -199,8 +209,12 @@ export function parsePayPhone(input: string): string | null {
   return local && isValidGhanaMobile(local) ? local : null
 }
 
+/** The SMS code shape payer-verify issues (6 digits); anything else never reaches verifyPayerOtp. */
+const PAY_VERIFY_CODE = /^\d{6}$/
+
 export const PAY_VERIFY_TEXT = {
   wrongCode: "Wrong code. Try again.",
+  notACode: "Please reply with the 6-digit code.",
   expired: "Code expired or too many tries. Please start over.",
   cancelled: "Order cancelled.",
 } as const
@@ -333,13 +347,17 @@ export async function payerVerifyStep(
     await d.failOrder(orderId)
     return { kind: "end", text: PAY_VERIFY_TEXT.cancelled }
   }
+  // Free text ("hi", "menu", a wrong length) is not a code: re-prompt without spending a verify attempt.
+  if (!PAY_VERIFY_CODE.test(input)) return { kind: "retry", text: `${PAY_VERIFY_TEXT.notACode}\n${payVerifyPrompt(payPhone)}` }
   let v: VerifyPayerOtpResult = { ok: false, retry: false }
   if (d.payer) {
     try {
       v = await d.payer.verify(payPhone, input)
     } catch (e) {
+      // Fail closed: never an open-ended re-prompt while the check is down; the order stops holding the caps.
       console.error(`[${logTag}] payer code check threw:`, e instanceof Error ? e.message : "error")
-      v = { ok: false, retry: true }
+      await d.failOrder(orderId)
+      return { kind: "end", text: UZO_BOT_UNAVAILABLE }
     }
   }
   if (!v.ok) {

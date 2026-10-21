@@ -20,7 +20,7 @@ import { isValidIdempotencyKey, PRICES_REFRESHED } from "@/lib/standard-bundles/
 import { networkNickname } from "../network-labels"
 import type { UzoNpPlan, UzoResponse } from "../types"
 import {
-  botFlowChargeOrder, botFlowContext, botRestartText, flowProfile, liveUzoBotIo, parsePayPhone, payerVerifyStep,
+  botFlowChargeOrder, botFlowContext, botRestartText, endBotFlow, flowProfile, isWhatsappSurface, liveUzoBotIo, parsePayPhone, payerVerifyStep,
   samePrice, startPayerVerify, uzoBotClosedSession, uzoShopHeader, withoutBotFields, PAY_PHONE_INVALID, PAY_PHONE_PROMPT,
   UZO_BOT_UNAVAILABLE, type BotFlowCtx, type UzoBotCtx, type UzoBotIo, type UzoBotPayDeps, type UzoBotSession,
 } from "./kit"
@@ -36,9 +36,8 @@ const NETWORKS: readonly BundleNetwork[] = ["MTN", "TELECEL", "AT"]
 /** Engine network => the Uzo nickname key (lib/ussd/network-labels.ts). */
 const NICK_KEY: Record<BundleNetwork, string> = { MTN: "MTN", TELECEL: "Telecel", AT: "AT" }
 export const npNickname = (n: BundleNetwork): string => networkNickname(NICK_KEY[n])
-/** WhatsApp shows the networks by name. */
-const WA_NETWORK: Record<BundleNetwork, string> = { MTN: "MTN", TELECEL: "Telecel", AT: "AT" }
-const networkName = (p: BotFlowProfile, n: BundleNetwork) => (p.kind === "whatsapp" ? WA_NETWORK[n] : npNickname(n))
+/** WhatsApp shows the networks by name (the nickname keys are the plain names). */
+const networkName = (p: BotFlowProfile, n: BundleNetwork) => (p.kind === "whatsapp" ? NICK_KEY[n] : npNickname(n))
 
 export const NP_TEXT = {
   notAvailable: botErrorText(403),
@@ -130,6 +129,8 @@ async function goto(x: Step, patch: Partial<UzoBotSession> & { step: UzoBotSessi
   await x.d.io.save(x.ctx.sessionId, { ...x.s, ...patch } as UzoBotSession)
   return x.d.io.cont(text)
 }
+/** Terminal exit (WhatsApp: the closed session is saved first; Uzo: unchanged). */
+const fin = (x: Step, text: string) => endBotFlow(x.d.io, x.ctx, x.s, text)
 
 export async function startNetworkPlans(
   ctx: BotFlowCtx, session: UzoBotSession, d: NetworkPlansDeps = liveNetworkPlansDeps(ctx.surface),
@@ -137,7 +138,10 @@ export async function startNetworkPlans(
   const p = flowProfile(ctx)
   if (!p || !botFlowContext(ctx)) return d.io.end(UZO_BOT_UNAVAILABLE) // shop without a resolved shop: fail closed
   if (session.dataBlocked === true) return d.io.end(NP_TEXT.notAvailable) // data whitelist (as Browse Services)
-  await d.io.save(ctx.sessionId, { ...withoutBotFields(session), step: "NP_NETWORK" } as UzoBotSession)
+  // WhatsApp: a fresh opaque engine key per flow (the session id there is the sender's phone, shared by every order
+  // that sender ever places). Uzo keeps the USSD session id (one dial = one flow).
+  const key = isWhatsappSurface(ctx.surface) ? { npKey: crypto.randomUUID() } : {}
+  await d.io.save(ctx.sessionId, { ...withoutBotFields(session), step: "NP_NETWORK", ...key } as UzoBotSession)
   return d.io.cont(networkScreen(ctx, p))
 }
 
@@ -145,10 +149,10 @@ export async function handleNetworkPlansStep(
   ctx: BotFlowCtx, input: string, session: UzoBotSession, d: NetworkPlansDeps = liveNetworkPlansDeps(ctx.surface),
 ): Promise<UzoResponse> {
   const p = flowProfile(ctx)
-  if (!p || !botFlowContext(ctx)) return d.io.end(UZO_BOT_UNAVAILABLE)
+  if (!p || !botFlowContext(ctx)) return endBotFlow(d.io, ctx, session, UZO_BOT_UNAVAILABLE)
   const x: Step = { ctx, p, input: (input ?? "").trim(), s: session, d }
   // Data whitelist: a blocked caller never gets here from the menu; a stale / crafted session is refused.
-  if (session.dataBlocked === true) return d.io.end(NP_TEXT.notAvailable)
+  if (session.dataBlocked === true) return fin(x, NP_TEXT.notAvailable)
   switch (session.step) {
     case "NP_NETWORK": return selectNetwork(x)
     case "NP_CATEGORY": return selectCategory(x)
@@ -170,7 +174,7 @@ async function selectNetwork(x: Step): Promise<UzoResponse> {
 
 async function showCategories(x: Step, network: BundleNetwork, prefix = ""): Promise<UzoResponse> {
   const c = await loadCatalog(x.d, x.ctx, network)
-  if (!c.ok && c.status !== 403) return x.d.io.end(botErrorText(c.status))
+  if (!c.ok && c.status !== 403) return fin(x, botErrorText(c.status))
   if (!c.ok || c.categories.length === 0) {
     return goto(x, { step: "NP_NETWORK" }, networkScreen(x.ctx, x.p, `${NP_TEXT.notAvailable}\n`))
   }
@@ -184,8 +188,8 @@ async function showPlans(x: Step, category: string, page: number): Promise<UzoRe
   const network = x.s.npNetwork
   if (!network) return goto(x, { step: "NP_NETWORK" }, networkScreen(x.ctx, x.p))
   const c = await loadCatalog(x.d, x.ctx, network)
-  if (!c.ok && c.status !== 403) return x.d.io.end(botErrorText(c.status))
-  const bundles = c.ok ? c.categories.find(k => k.name === category)?.bundles ?? [] : []
+  if (!c.ok && c.status !== 403) return fin(x, botErrorText(c.status))
+  const bundles =c.ok ? c.categories.find(k => k.name === category)?.bundles ?? [] : []
   if (bundles.length === 0) return showCategories(x, network, `${NP_TEXT.notAvailable}\n`)
   const plans = bundles.map(toPlan)
   const size = x.p.pageSize
@@ -285,7 +289,7 @@ async function confirm(x: Step): Promise<UzoResponse> {
   // WhatsApp: no paying number yet (stale / crafted session) => ask for it, never charge the sender by default.
   const payPhone = p.askPayPhone ? s.npPayPhone : undefined
   if (p.askPayPhone && !payPhone) return goto(x, { step: "NP_PAY_PHONE" }, payPhoneScreen())
-  if (x.input === "2") return d.io.end(NP_TEXT.cancelled)
+  if (x.input === "2") return fin(x, NP_TEXT.cancelled)
   if (x.input === "0") {
     if (p.askPayPhone) return goto(x, { step: "NP_PAY_PHONE", npPayPhone: undefined }, payPhoneScreen())
     return goto(x, { step: "NP_RECIPIENT", npOtherNumber: false, npRecipient: undefined }, recipientScreen(ctx))
@@ -293,8 +297,14 @@ async function confirm(x: Step): Promise<UzoResponse> {
   if (x.input !== "1") return goto(x, { step: "NP_CONFIRM" }, npConfirmScreen(ctx, s.npNetwork, plan, recipient, payPhone))
 
   const bc = botFlowContext(ctx)
-  if (!bc) return d.io.end(UZO_BOT_UNAVAILABLE)
-  const key = uzoNpIdempotencyKey(ctx.sessionId)
+  if (!bc) return fin(x, UZO_BOT_UNAVAILABLE)
+  // WhatsApp: this flow's own key (minted at start); a session without one never orders. Uzo: the USSD session id.
+  const wa = isWhatsappSurface(ctx.surface)
+  if (wa && !isValidIdempotencyKey(s.npKey)) {
+    console.error(`[${TAG}] WhatsApp confirm without a flow key; refusing to order`)
+    return fin(x, UZO_BOT_UNAVAILABLE)
+  }
+  const key = wa ? s.npKey! : uzoNpIdempotencyKey(ctx.sessionId)
   // Close the flow BEFORE the engine call (whatever it answers, or if it throws): the plan tokens are gone from the
   // session, so no back-navigation on it can reach a confirm and create a second order.
   const closed = uzoBotClosedSession(ctx, s)
