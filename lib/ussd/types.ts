@@ -63,6 +63,14 @@ export type USSDStep =
   | UzoNpStep
   // Pay Bills (commission cashback bots; shared with the shop menu)
   | UzoPbStep
+  // WhatsApp-only steps of the same flows (WHATSAPP_PROFILE, lib/ussd/bots/profile.ts); never set on the Uzo menus
+  | BotWaFlowStep
+
+/**
+ * WhatsApp-only steps of Network Plans / Pay Bills: the MoMo number to charge (before confirm), the SMS check of that
+ * number when the charge answers NEEDS_VERIFY, and the Ghana Water email.
+ */
+export type BotWaFlowStep = 'NP_PAY_PHONE' | 'NP_PAY_VERIFY' | 'PB_PAY_PHONE' | 'PB_PAY_VERIFY' | 'PB_EMAIL'
 
 /** Pay Bills steps (lib/ussd/bots/pay-bills.ts), used by the main AND the shop USSD menus. */
 export type UzoPbStep =
@@ -76,8 +84,8 @@ export interface UzoPbMeter {
   t: string          // engine verify token for this meter (bot-bound, signed)
 }
 
-/** Which account entry the PB_ACCOUNT step is waiting for. */
-export type UzoPbAccountStage = 'phone' | 'meter' | 'account' | 'landline' | 'broadband'
+/** Which account entry the PB_ACCOUNT step is waiting for ('water_phone': Ghana Water's linked mobile, WhatsApp only). */
+export type UzoPbAccountStage = 'phone' | 'meter' | 'account' | 'landline' | 'broadband' | 'water_phone'
 
 /** Pay Bills session fields (shared by USSDSession and USSDShopSession). */
 export interface UzoPbSessionFields {
@@ -87,7 +95,7 @@ export interface UzoPbSessionFields {
   pbMax?: number
   pbEcgMode?: 'self' | 'other' | 'meter'
   pbStage?: UzoPbAccountStage
-  pbPhone?: string             // ECG: local 0XXXXXXXXX the meters are looked up on / the meter is linked to
+  pbPhone?: string             // ECG: local 0XXXXXXXXX the meters are looked up on / the meter is linked to; Ghana Water: the meter's mobile
   pbLandline?: string          // Telecel Broadband: the landline typed before the broadband account
   pbAccount?: string           // meter / smartcard / account number
   pbMeterType?: 'prepaid' | 'postpaid'
@@ -98,6 +106,10 @@ export interface UzoPbSessionFields {
   pbDue?: number | null
   pbFace?: number              // what the biller receives
   pbPay?: number               // price shown = expectedPay (engine quote)
+  // WhatsApp only (never set on the Uzo menus):
+  pbEmail?: string             // Ghana Water: the buyer's email (storefront bills validator)
+  pbPayPhone?: string          // the MoMo number to charge (local 0XXXXXXXXX), typed by the buyer
+  pbOrderId?: string           // PB_PAY_VERIFY: the order already created, charged again once the number is verified
 }
 
 /** Network Plans steps (lib/ussd/bots/network-plans.ts), used by the main AND the shop USSD menus. */
@@ -121,6 +133,9 @@ export interface UzoNpSessionFields {
   npPlan?: UzoNpPlan         // the chosen plan
   npOtherNumber?: boolean    // recipient step is waiting for a typed number
   npRecipient?: string       // local 0XXXXXXXXX
+  // WhatsApp only (never set on the Uzo menus):
+  npPayPhone?: string        // the MoMo number to charge (local 0XXXXXXXXX), typed by the buyer
+  npOrderId?: string         // NP_PAY_VERIFY: the order already created, charged again once the number is verified
 }
 
 export interface BundleOption {

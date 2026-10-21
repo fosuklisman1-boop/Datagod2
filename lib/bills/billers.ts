@@ -27,6 +27,11 @@ const BROADBAND = /^[A-Za-z0-9]{3,20}$/
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const phone233 = (p: string) => "233" + ghanaSignificant(p)!
 
+/** The email rule normaliseInputs applies to Ghana Water (exported so a step-by-step bot can check it as typed). */
+export const isValidBillEmail = (email: unknown): boolean => EMAIL.test(String(email ?? "").trim())
+/** The meter / smartcard / account rule normaliseInputs applies (spaces removed first). */
+export const isValidBillAccount = (account: unknown): boolean => ACCOUNT.test(String(account ?? "").trim().replace(/ /g, ""))
+
 export function normaliseInputs(biller: BillerKey, i: BillInputs): { ok: true; value: NormalisedInputs } | { ok: false; error: string } {
   const str = (x: unknown) => String(x ?? "").trim()
   const compact = (x: unknown) => str(x).replace(/ /g, "")

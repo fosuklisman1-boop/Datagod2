@@ -78,7 +78,8 @@ const ecgModeScreen = (prefix = "") => `${prefix}ECG\n1. This number\n2. Other n
 const ACCOUNT_PROMPT: Record<UzoPbAccountStage, (s: PbSession) => string> = {
   phone: () => "Enter the phone number linked to the meter:",
   meter: () => "Enter meter number:",
-  account: s => (s.pbBiller === "startimes" ? "Enter account number:" : "Enter smartcard number:"),
+  account: s => (s.pbBiller === "startimes" ? "Enter account number:" : s.pbBiller === "ghana_water" ? "Enter meter number:" : "Enter smartcard number:"),
+  water_phone: () => "Enter the phone number linked to the meter:",
   landline: () => "Enter the landline number (e.g. 0302450262):",
   broadband: () => "Enter the broadband account number:",
 }
