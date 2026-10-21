@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { getPriceAdjustments, getAdjustmentForNetwork, applyPriceAdjustment } from "./price-adjustment-service"
 import { checkWithdrawalCoolingOff } from "./withdrawal-policy"
 import { shopHandleOrFilter } from "./shop-handle"
+import { shopLogoPublicUrl } from "./shop-logo-public"
 
 // Public shape of a shop returned to the anonymous storefront client. The
 // internal id and user_id columns are intentionally absent — server-side
@@ -110,7 +111,10 @@ export const shopService = {
 
     const shop = data as unknown as PublicShop
     const linked_custom_domain = await shopService.getLinkedCustomDomain(shop.subdomain)
-    return { ...shop, linked_custom_domain }
+    // Legacy shops keep the logo as an embedded base64 image (up to ~8 MB). Callers copy
+    // logo_url into page HTML (icons, link preview, props), so hand out a short cached
+    // URL instead -- see app/api/shop-logo/[slug]/route.ts. Normal URLs pass through.
+    return { ...shop, logo_url: shopLogoPublicUrl(shop.shop_slug || slug, shop.logo_url), linked_custom_domain }
   },
 
   // Reverse lookup: is this shop (identified by its own, already-globally-
