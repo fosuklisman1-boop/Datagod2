@@ -30,6 +30,14 @@ async function readStrict(db: SupabaseClient): Promise<WhatsAppCashbackVisibilit
   return { networkPlans: stored.networkPlans === true, payBills: stored.payBills === true, cashbackAirtime: stored.cashbackAirtime === true }
 }
 
+/**
+ * The stored switches for the admin page: same `=== true` reading, but a read error THROWS, so a failed read is shown
+ * as an error and never as "all off".
+ */
+export async function getWhatsAppCashbackVisibilityStrict(db: SupabaseClient): Promise<WhatsAppCashbackVisibility> {
+  return readStrict(db)
+}
+
 /** The WhatsApp switches. Missing key or any read error => all off. Never throws. */
 export async function getWhatsAppCashbackVisibility(db: SupabaseClient): Promise<WhatsAppCashbackVisibility> {
   try {

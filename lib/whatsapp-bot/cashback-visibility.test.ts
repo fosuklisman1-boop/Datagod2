@@ -5,7 +5,8 @@ import { describe, it, expect } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { CASHBACK_CONFIG_KEY } from "@/lib/cashback/config"
 import {
-  getWhatsAppCashbackVisibility, setWhatsAppCashbackVisibility, whatsappBotItemsVisible, WHATSAPP_CASHBACK_VISIBILITY_KEY,
+  getWhatsAppCashbackVisibility, getWhatsAppCashbackVisibilityStrict, setWhatsAppCashbackVisibility, whatsappBotItemsVisible,
+  WHATSAPP_CASHBACK_VISIBILITY_KEY,
 } from "./cashback-visibility"
 
 type Rows = Record<string, unknown>
@@ -49,6 +50,19 @@ const cfg = (o: { enabled?: boolean; bots?: boolean; bundles?: boolean; bills?: 
   enabled: o.enabled ?? true,
   surfaces: { bots: o.bots ?? true },
   botGroups: { bundles: o.bundles ?? true, bills: o.bills ?? true, airtime: o.airtime ?? true },
+})
+
+describe("getWhatsAppCashbackVisibilityStrict (admin read)", () => {
+  it("same `=== true` reading; a missing key is all off", async () => {
+    expect(await getWhatsAppCashbackVisibilityStrict(fakeDb({}).db)).toEqual(ALL_OFF)
+    const { db } = fakeDb({ [WHATSAPP_CASHBACK_VISIBILITY_KEY]: { networkPlans: true, payBills: "true", cashbackAirtime: 1 } })
+    expect(await getWhatsAppCashbackVisibilityStrict(db)).toEqual({ networkPlans: true, payBills: false, cashbackAirtime: false })
+  })
+
+  it("a read error THROWS (the admin page never shows a failed read as 'off')", async () => {
+    const { db } = fakeDb({ [WHATSAPP_CASHBACK_VISIBILITY_KEY]: new Error("db down") })
+    await expect(getWhatsAppCashbackVisibilityStrict(db)).rejects.toThrow()
+  })
 })
 
 describe("getWhatsAppCashbackVisibility", () => {
