@@ -98,6 +98,59 @@ describe("loadRefundableOrders: bot commission orders", () => {
     expect(orderEligibility(o, NOW)).toEqual({ eligible: true }) // never sent, > 60 s
   })
 
+  describe("Hubtel payment facts (hubtel_transactions)", () => {
+    const ussdData = (o: Record<string, unknown> = {}) => ({
+      id: "d1", shop_id: null, user_id: null, channel: "bots", bot_surface: "hubtel_ussd", network: "MTN", bundle_display: "1GB",
+      beneficiary_phone: "233249999999", amount: 10, paid_amount: 10.03, status: "pending", payment_status: "paid",
+      hubtel_client_reference: null, notes: null, buyer_phone: "233241112222", payment_reference: "HUBTEL-CHK-1",
+      created_at: ago(600_000), updated_at: ago(600_000), ...o,
+    })
+    const tx = (o: Record<string, unknown> = {}) => ({
+      order_id: "d1", hubtel_order_id: "HO-1", amount_paid: "10.030", paid_at: "2026-10-20T11:00:00Z", ...o,
+    })
+    const load = async (rows: Record<string, unknown[]>, order = ussdData(), calls: unknown[][] = []) =>
+      (await loadRefundableOrders(fakeDb({ hubtel_data_orders: [order], ...rows }, calls), [{ table: "hubtel_data_orders", id: order.id as string }]))[0]
+
+    it("one paid transaction: payment.hubtel populated, amountPaid a number, gateway hubtel", async () => {
+      const calls: unknown[][] = []
+      const o = await load({ hubtel_transactions: [tx()] }, ussdData(), calls)
+      expect(o.payment.gateway).toBe("hubtel")
+      expect(o.payment.hubtel).toEqual({ orderId: "HO-1", amountPaid: 10.03, paidAt: "2026-10-20T11:00:00Z", paidRows: 1 })
+      expect(calls).toContainEqual(["hubtel_transactions", "eq", "order_table", "hubtel_data_orders"])
+      expect(calls).toContainEqual(["hubtel_transactions", "not", "paid_at", "is", null])
+    })
+
+    it("two paid transactions: paidRows is 2", async () => {
+      const o = await load({ hubtel_transactions: [tx(), tx({ hubtel_order_id: "HO-2" })] })
+      expect(o.payment.hubtel?.paidRows).toBe(2)
+    })
+
+    it("unpaid transaction (paid_at null) or no hubtel_order_id or zero amount: no hubtel, gateway stays null", async () => {
+      for (const t of [tx({ paid_at: null }), tx({ hubtel_order_id: null }), tx({ amount_paid: 0 })]) {
+        const o = await load({ hubtel_transactions: [t] })
+        expect(o.payment.hubtel).toBeUndefined()
+        expect(o.payment.gateway).toBeNull()
+      }
+    })
+
+    it("a Paystack-paid row keeps gateway paystack and still carries hubtel", async () => {
+      const o = await load({
+        hubtel_transactions: [tx()],
+        wallet_payments: [{ order_id: "d1", reference: "HUBTEL-CHK-1", amount: 10.03, fee: 0, status: "completed" }],
+      })
+      expect(o.payment.gateway).toBe("paystack")
+      expect(o.payment.hubtel?.orderId).toBe("HO-1")
+    })
+
+    it("non-hubtel_ussd bot row and storefront row never get hubtel", async () => {
+      const wa = await load({ hubtel_transactions: [tx()] }, ussdData({ bot_surface: "whatsapp" }))
+      expect(wa.payment.hubtel).toBeUndefined()
+      expect(wa.payment.gateway).toBeNull()
+      const sf = await load({ hubtel_transactions: [tx()] }, ussdData({ channel: "storefront", bot_surface: null }))
+      expect(sf.payment.hubtel).toBeUndefined()
+    })
+  })
+
   it("same eligibility rules as storefront: Hubtel ledger live blocks, never-sent waits 60 s", async () => {
     const live = fakeDb({ hubtel_bill_orders: [botBill({ status: "processing" })], hubtel_cs_transactions: [{ ...failedLedger[0], state: "pending" }] })
     const [a] = await loadRefundableOrders(live, [{ table: "hubtel_bill_orders", id: "b1" }])

@@ -199,13 +199,20 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
   const ids = rows.map((r) => r.id as string)
   const fk = PROFIT_FK[table]!
 
-  const [profits, refunds, walletPayments, ledgerRows] = await Promise.all([
+  const hubtelBotIds = rows.filter((r) => isBotRow(table, r) && r.bot_surface === "hubtel_ussd").map((r) => r.id as string)
+  const [profits, refunds, walletPayments, ledgerRows, hubtelTxRows] = await Promise.all([
     inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${fk}`, fk, ids, (q) => q.is("refund_id", null)),
     inRows<any>(db, "order_refunds", "order_id, status", "order_id", ids, (q) => q.neq("status", "failed")),
     inRows<any>(db, "wallet_payments", "order_id, reference, amount, fee, status", "order_id", ids),
     inRows<any>(db, "hubtel_cs_transactions", "order_id, client_reference, state, refund_claimed_at, resolved_by, created_at", "order_id", ids,
       (q) => q.eq("order_table", table)),
+    // Hubtel USSD checkout payments (bot rows only): paid = paid_at set + a Hubtel order id + a positive amount.
+    hubtelBotIds.length
+      ? inRows<any>(db, "hubtel_transactions", "order_id, hubtel_order_id, amount_paid, paid_at", "order_id", hubtelBotIds,
+        (q) => q.eq("order_table", table).not("paid_at", "is", null))
+      : Promise.resolve([] as any[]),
   ])
+  const paidHubtelTx = hubtelTxRows.filter((t) => t.paid_at && t.hubtel_order_id && Number(t.amount_paid) > 0)
 
   const shopIds = [...new Set([
     ...profits.map((p) => p.shop_id as string),
@@ -242,12 +249,16 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
     const reference = referenceOf(r)
     const wp = reference ? walletPayments.find((w) => w.reference === reference) : undefined
     const buyerPhone = table === "airtime_orders" || !r.buyer_phone ? null : normalizeGhanaPhone(String(r.buyer_phone))
+    const hubtelPaid = bot && r.bot_surface === "hubtel_ussd" ? paidHubtelTx.filter((t) => t.order_id === id) : []
     const payment: PaymentSource = {
-      gateway: reference ? "paystack" : null,
+      gateway: reference ? "paystack" : hubtelPaid.length > 0 ? "hubtel" : null,
       reference,
       // Bot rows: the buyer's own number (dialing / WhatsApp number) and nobody else's.
       payerPhone: bot ? buyerPhone ?? null : (reference ? payerByRef.get(reference) : undefined) ?? buyerPhone ?? null,
       walletUserId: null,
+      ...(hubtelPaid.length > 0
+        ? { hubtel: { orderId: String(hubtelPaid[0].hubtel_order_id), amountPaid: round2(Number(hubtelPaid[0].amount_paid)), paidAt: String(hubtelPaid[0].paid_at), paidRows: hubtelPaid.length } }
+        : {}),
     }
     const paid = round2(Number(table === "airtime_orders" ? r.total_paid : (r.paid_amount ?? r.amount)))
     const ledger: CommissionLedgerFact[] = ledgerRows

@@ -304,7 +304,7 @@ export default function AdminRefundsPage() {
                       <TableCell>{order.packageLabel} {order.network}</TableCell>
                       <TableCell>{order.recipientPhone ?? "-"}</TableCell>
                       <TableCell>GHS {order.paid.toFixed(2)}</TableCell>
-                      <TableCell>{order.payment.gateway ?? "unknown"}</TableCell>
+                      <TableCell>{order.payment.gateway === "hubtel" ? "Hubtel" : order.payment.gateway ?? "unknown"}</TableCell>
                       <TableCell>{order.owners.length ? `GHS ${order.owners.reduce((s, o) => s + o.credited + o.pending, 0).toFixed(2)}` : "-"}</TableCell>
                       <TableCell>{new Date(order.createdAt).toLocaleString()}</TableCell>
                       <TableCell className="text-right">

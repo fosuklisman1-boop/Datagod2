@@ -93,10 +93,12 @@ export interface OwnerCut {
 export type DispatchOutcome = "claimed" | "submitted" | "failed" | "unknown"
 
 export interface PaymentSource {
-  gateway: "paystack" | "wallet" | null
+  gateway: "paystack" | "wallet" | "hubtel" | null
   reference: string | null
   payerPhone: string | null
   walletUserId: string | null
+  /** Hubtel USSD bot orders only: the paid hubtel_transactions row(s) for this order. paidRows > 1 is refused by the gateway. */
+  hubtel?: { orderId: string; amountPaid: number; paidAt: string; paidRows: number }
 }
 
 export interface RefundableOrder {
