@@ -60,7 +60,15 @@ export interface BotChargeInput {
  *   Callers show the generic error and must not assume the order is closed.
  */
 export type BotChargeResult =
-  | { ok: true; reference: string; status: string }
+  | {
+      ok: true; reference: string; status: string
+      /**
+       * The number the prompt went to (local 0XXXXXXXXX). On a replay this is the ORIGINAL prompt's number, which may
+       * differ from this call's payPhone: WhatsApp reads it from the payer record (null when that is unavailable,
+       * so name no number); Uzo only ever prompts the dialler.
+       */
+      promptedPhone: string | null
+    }
   | { ok: false; code: "NOT_PAYABLE" | "NEEDS_VERIFY" | "NO_PROVIDER" | "RATE_LIMITED" | "CHARGE_FAILED"; message: string }
 
 /** A pending / ongoing payment row this recent for the same order is replayed instead of prompting again. */
@@ -132,6 +140,8 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
     return refuse("NOT_PAYABLE")
   }
   const whatsapp = WHATSAPP_SURFACES.includes(i.botSurface)
+  // WhatsApp never charges the sender by default: the flow must ask for the number (payPhone). No I/O, order left open.
+  if (whatsapp && !i.payPhone) return refuse("NOT_PAYABLE")
   // The number to charge. A given payPhone must be a Ghana mobile number; on the Uzo USSD it may only be the dialler.
   const paySig = ghanaSignificant(i.payPhone ?? i.dialingPhone)
   if (i.payPhone !== undefined) {
@@ -160,7 +170,12 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
   const dialSig = ghanaSignificant(i.dialingPhone)
   if (!dialSig || ghanaSignificant(String(row.buyer_phone ?? "")) !== dialSig) return refuse("NOT_PAYABLE")
 
+  // `dialSig` passed above, so both are set (without payPhone, paySig === dialSig).
+  const dialLocal = normalizeGhanaPhone(i.dialingPhone)!
+  const local = "0" + paySig!
+
   // Idempotent replay: a resent confirm / second call must not prompt the same order twice.
+  let priorRef: string | null = null
   try {
     const { data, error } = await d.db
       .from("wallet_payments")
@@ -174,15 +189,18 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
       .limit(1)
     if (error) throw error
     const prior = (data as { reference: string }[] | null)?.[0]
-    if (prior?.reference) return { ok: true, reference: prior.reference, status: "pending" }
+    priorRef = prior?.reference || null
   } catch (e) {
     console.error(`[${TAG}] replay lookup failed for ${i.orderId}:`, safeDbError(e))
     return refuse("CHARGE_FAILED")
   }
+  if (priorRef) {
+    // The ORIGINAL prompt's number: Uzo only ever prompts the dialler; WhatsApp reads the payer record (this call's
+    // payPhone may differ). Never fails the replay.
+    const promptedPhone = whatsapp ? await priorPromptedPhone(d.db, priorRef) : dialLocal
+    return { ok: true, reference: priorRef, status: "pending", promptedPhone }
+  }
 
-  // `dialSig` passed above, so both are set (without payPhone, paySig === dialSig).
-  const dialLocal = normalizeGhanaPhone(i.dialingPhone)!
-  const local = "0" + paySig!
   const provider = paystackProviderFromPhone(local)
   if (!provider) {
     await failBotCharge(d.db, i.orderType, i.orderId, null, TAG)
@@ -260,7 +278,23 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
       console.error(`[${TAG}] could not store the OTP pointer for ${i.orderId}:`, e instanceof Error ? e.message : String(e))
     }
   }
-  return { ok: true, reference, status }
+  return { ok: true, reference, status, promptedPhone: local }
+}
+
+/**
+ * The number a replayed payment was prompted to: payment_attempts.payer_phone for that reference (written by
+ * recordPayerPhone), local form. null when there is no record, the column is missing or the read fails.
+ */
+async function priorPromptedPhone(db: SupabaseClient, reference: string): Promise<string | null> {
+  try {
+    const { data, error } = await db.from("payment_attempts").select("payer_phone").eq("reference", reference).maybeSingle()
+    if (error) throw error
+    const raw = (data as { payer_phone?: string | null } | null)?.payer_phone
+    return raw ? normalizeGhanaPhone(raw) : null
+  } catch (e) {
+    console.error(`[${TAG}] replay payer lookup failed:`, safeDbError(e))
+    return null
+  }
 }
 
 /** Storefront OTP switch off, or the paying number verified. Fails closed (switch unreadable => required). */

@@ -107,7 +107,10 @@ function make(opts: {
       if (opts.otpThrows) throw new Error("network")
       return { status: opts.otpStatus ?? "pending", reference }
     }),
-    recordPayerPhone: vi.fn(async () => {}),
+    // Like the real one: a payment_attempts row carrying payer_phone (local form) for the reference.
+    recordPayerPhone: vi.fn(async (_db: unknown, a: { reference: string; rawPhone: string }) => {
+      (db.tables.payment_attempts ??= []).push({ reference: a.reference, payer_phone: a.rawPhone })
+    }),
     rateLimit: vi.fn(async (name: string, max: number, _w: number, id: string) => {
       const k = `${name}:${id}`
       const n = (limiter.get(k) ?? 0) + 1
@@ -275,7 +278,8 @@ describe("botChargeMomo: idempotent replay (no double prompt for one order)", ()
     const first = await botChargeMomo(m.deps, SHOP_BUNDLE)
     if (!first.ok) throw new Error("expected ok")
     const again = await botChargeMomo(m.deps, SHOP_BUNDLE)
-    expect(again).toEqual({ ok: true, reference: first.reference, status: "pending" })
+    // Uzo only ever prompts the dialler: that is the prompted number (no extra read).
+    expect(again).toEqual({ ok: true, reference: first.reference, status: "pending", promptedPhone: "0241234567" })
     expect(m.charges).toHaveLength(1)
     expect(m.db.tables.wallet_payments).toHaveLength(1)
     expect(m.deps.rateLimit).toHaveBeenCalledTimes(1)
@@ -286,7 +290,8 @@ describe("botChargeMomo: idempotent replay (no double prompt for one order)", ()
   it("an existing pending row within 15 minutes is replayed (the newest one)", async () => {
     const m = make({ wallet: [pendingRow(), pendingRow({ id: "wp1", reference: "f".repeat(32), created_at: new Date(NOW - 2 * MIN).toISOString() })] })
     const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
-    expect(r).toEqual({ ok: true, reference: "f".repeat(32), status: "pending" })
+    expect(r).toEqual({ ok: true, reference: "f".repeat(32), status: "pending", promptedPhone: "0241234567" })
+    expect(m.db.tables.payment_attempts).toBeUndefined() // the Uzo replay reads no payer record
     expect(m.charges).toHaveLength(0)
     expect(m.db.tables.wallet_payments).toHaveLength(2)
   })
@@ -305,7 +310,7 @@ describe("botChargeMomo: idempotent replay (no double prompt for one order)", ()
 
   it("a recent row Paystack marked 'ongoing' is replayed too (never a second prompt)", async () => {
     const m = make({ wallet: [pendingRow({ status: "ongoing", reference: "a".repeat(32) })] })
-    expect(await botChargeMomo(m.deps, SHOP_BUNDLE)).toEqual({ ok: true, reference: "a".repeat(32), status: "pending" })
+    expect(await botChargeMomo(m.deps, SHOP_BUNDLE)).toEqual({ ok: true, reference: "a".repeat(32), status: "pending", promptedPhone: "0241234567" })
     expect(m.charges).toHaveLength(0)
     expect(m.db.tables.wallet_payments).toHaveLength(1)
     expect(m.deps.rateLimit).not.toHaveBeenCalled()
@@ -542,13 +547,40 @@ describe("botChargeMomo: payPhone (WhatsApp: charge the typed number)", () => {
     expect(m.db.tables.wallet_payments[0]).toMatchObject({ order_id: "b1", order_type: "cs_bill", amount: 20.22, fee: 0, status: "pending", shop_id: null })
   })
 
-  it("an 'ongoing' row is replayed on WhatsApp too", async () => {
+  it("an 'ongoing' row is replayed on WhatsApp too (prompted number from the payer record)", async () => {
     const m = make({
       bills: [waBill()],
       wallet: [{ id: "wp0", order_id: "b1", order_type: "cs_bill", reference: "c".repeat(32), status: "ongoing", created_at: new Date(NOW - 60_000).toISOString() }],
     })
-    expect(await botChargeMomo(m.deps, WA_BILL)).toEqual({ ok: true, reference: "c".repeat(32), status: "pending" })
+    m.db.tables.payment_attempts = [{ reference: "c".repeat(32), payer_phone: "233551112222" }]
+    expect(await botChargeMomo(m.deps, WA_BILL)).toEqual({ ok: true, reference: "c".repeat(32), status: "pending", promptedPhone: "0551112222" })
     expect(m.charges).toHaveLength(0)
+  })
+
+  it("a new charge reports the number it prompted", async () => {
+    const m = make({ bills: [waBill()] })
+    expect(await botChargeMomo(m.deps, WA_BILL)).toMatchObject({ ok: true, status: "pay_offline", promptedPhone: PAY })
+  })
+
+  it("replay with a DIFFERENT payPhone: the originally prompted number comes back, no new charge", async () => {
+    const m = make({ bills: [waBill()] })
+    const first = await botChargeMomo(m.deps, WA_BILL)
+    if (!first.ok) throw new Error("expected ok")
+    const again = await botChargeMomo(m.deps, { ...WA_BILL, payPhone: "0551112222" })
+    expect(again).toEqual({ ok: true, reference: first.reference, status: "pending", promptedPhone: PAY })
+    expect(m.charges).toHaveLength(1)
+    expect(m.charges[0].phone).toBe(PAY)
+    expect(m.db.tables.wallet_payments).toHaveLength(1)
+    expect(m.deps.rateLimit).toHaveBeenCalledTimes(1)
+  })
+
+  it("replay with no payer record (or a failed lookup) => promptedPhone null, still no new charge", async () => {
+    const wallet = [{ id: "wp0", order_id: "b1", order_type: "cs_bill", reference: "c".repeat(32), status: "pending", created_at: new Date(NOW - 60_000).toISOString() }]
+    const m = make({ bills: [waBill()], wallet })
+    expect(await botChargeMomo(m.deps, WA_BILL)).toEqual({ ok: true, reference: "c".repeat(32), status: "pending", promptedPhone: null })
+    const e = make({ bills: [waBill()], wallet, selectError: { payment_attempts: { message: "column payer_phone does not exist" } } })
+    expect(await botChargeMomo(e.deps, WA_BILL)).toEqual({ ok: true, reference: "c".repeat(32), status: "pending", promptedPhone: null })
+    expect(e.charges).toHaveLength(0)
   })
 
   it("WhatsApp shop send_otp also uses the whatsapp pointer channel", async () => {
@@ -621,11 +653,25 @@ describe("botChargeMomo: payPhone (WhatsApp: charge the typed number)", () => {
     expect(m.db.updates).toEqual([])
   })
 
-  it("without payPhone a WhatsApp charge goes to the sender", async () => {
+  it("WhatsApp without payPhone => NOT_PAYABLE: the sender is never charged by default, nothing written, order left open", async () => {
+    for (const [world, input] of [[{ bills: [waBill()] }, WA_BILL], [{ bundles: [waShopBundle()] }, WA_SHOP_BUNDLE]] as [Parameters<typeof make>[0], BotChargeInput][]) {
+      const m = make({ ...world, otpRequired: true })
+      const { payPhone: _p, ...noPay } = input
+      void _p
+      for (const i of [noPay, { ...noPay, payPhone: undefined }, { ...noPay, payPhone: "" }]) {
+        expect(await botChargeMomo(m.deps, i)).toEqual({ ok: false, code: "NOT_PAYABLE", message: BOT_MOMO_MESSAGES.NOT_PAYABLE })
+      }
+      expect(m.charges).toHaveLength(0)
+      expect(m.db.tables.wallet_payments).toHaveLength(0)
+      expect(m.db.updates).toEqual([])
+      expect(m.deps.rateLimit).not.toHaveBeenCalled()
+      expect(m.deps.payerOtp.required).not.toHaveBeenCalled()
+    }
+  })
+
+  it("a sender who types their own number is charged (payPhone given explicitly)", async () => {
     const m = make({ bills: [waBill()] })
-    const { payPhone: _p, ...noPay } = WA_BILL
-    void _p
-    expect((await botChargeMomo(m.deps, noPay)).ok).toBe(true)
+    expect((await botChargeMomo(m.deps, { ...WA_BILL, payPhone: "0241234567" })).ok).toBe(true)
     expect(m.charges[0]).toMatchObject({ phone: "0241234567", provider: "mtn" })
   })
 
@@ -734,7 +780,7 @@ describe("botChargeMomo: NEEDS_VERIFY (storefront OTP switch on the WhatsApp sur
       bills: [waBill()], otpRequired: true,
       wallet: [{ id: "wp0", order_id: "b1", order_type: "cs_bill", reference: "e".repeat(32), status: "pending", created_at: new Date(NOW - 60_000).toISOString() }],
     })
-    expect(await botChargeMomo(m.deps, WA_BILL)).toEqual({ ok: true, reference: "e".repeat(32), status: "pending" })
+    expect(await botChargeMomo(m.deps, WA_BILL)).toEqual({ ok: true, reference: "e".repeat(32), status: "pending", promptedPhone: null })
     expect(m.charges).toHaveLength(0)
   })
 

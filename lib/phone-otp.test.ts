@@ -2,7 +2,7 @@
 // app/api/auth/*-phone-otp/route.test.ts; this covers the core directly, including hasLivePhoneOtp.
 import { describe, it, expect, vi } from "vitest"
 import { checkPhoneOtp, defaultPhoneOtpCode, hasLivePhoneOtp, issuePhoneOtp, phoneOtpVerifyLimitId, PHONE_OTP_VERIFY_PHONE_LIMIT, type PhoneOtpDeps } from "./phone-otp"
-import { fakeOtpDb, otpRow, type FakeOtpDbOptions, type OtpRow } from "./phone-otp.fake"
+import { fakeOtpDb, otpRow, type FakeOtpDbOptions, type OtpRow } from "./testing/phone-otp-fakes"
 
 const NOW = Date.parse("2026-10-21T10:00:00Z")
 const PHONE = "0241234567"

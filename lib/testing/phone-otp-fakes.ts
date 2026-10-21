@@ -1,3 +1,4 @@
+// lib/testing/phone-otp-fakes.ts (lib/<area>/testing/fakes.ts convention, as lib/ussd-hubtel/testing/fakes.ts)
 // Test-only stand-in for the phone_otp_verifications table + bump_otp_attempts() RPC (migrations 0051/0052 and
 // otp_verify_attempts_fallback.sql). Used by the /api/auth/*-phone-otp route tests, lib/phone-otp tests and the bot
 // payer-verify tests. Not imported by production code.

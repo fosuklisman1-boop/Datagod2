@@ -2,7 +2,7 @@
 // (3 codes / phone / hour), the stored row and the SMS. Pins the route's behaviour across the lib/phone-otp extraction.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { NextRequest } from "next/server"
-import { fakeOtpDb, otpRow, type FakeOtpDbOptions, type OtpRow } from "@/lib/phone-otp.fake"
+import { fakeOtpDb, otpRow, type FakeOtpDbOptions, type OtpRow } from "@/lib/testing/phone-otp-fakes"
 
 const h = vi.hoisted(() => ({
   db: null as any,

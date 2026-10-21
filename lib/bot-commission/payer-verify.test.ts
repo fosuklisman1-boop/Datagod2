@@ -3,7 +3,7 @@
 // isPhoneOtpVerified(payPhone) then passes and botChargeMomo stops answering NEEDS_VERIFY.
 import { describe, it, expect, vi } from "vitest"
 import { createPayerVerify, PAYER_OTP_BURST, PAYER_OTP_PURPOSE, PAYER_OTP_REQUESTER_CAP, type PayerVerifyDeps } from "./payer-verify"
-import { fakeOtpDb, otpRow, type FakeOtpDbOptions, type OtpRow } from "@/lib/phone-otp.fake"
+import { fakeOtpDb, otpRow, type FakeOtpDbOptions, type OtpRow } from "@/lib/testing/phone-otp-fakes"
 
 const NOW = Date.parse("2026-10-21T10:00:00Z")
 const LOCAL = "0241234567"
@@ -161,6 +161,25 @@ describe("verifyPayerOtp", () => {
     expect(await m.pv.verifyPayerOtp("233241234567", " 135790 ")).toEqual({ ok: true, retry: false })
     expect(m.f.rows[0]).toMatchObject({ phone: LOCAL, used: true })
     expect(await m.pv.verifyPayerOtp(LOCAL, "135790")).toEqual({ ok: false, retry: false })
+  })
+
+  it("a code sent to number A cannot verify number B (and A's code stays unused)", async () => {
+    const m = make()
+    const A = LOCAL
+    const B = "0201234567"
+    expect(await m.pv.sendPayerOtp(A)).toEqual({ ok: true })
+    expect(await m.pv.verifyPayerOtp(B, "135790")).toEqual({ ok: false, retry: false })
+    expect(m.f.rows).toHaveLength(1)
+    expect(m.f.rows[0]).toMatchObject({ phone: A, used: false })
+    // B with a live code of its own: A's code still does not match it
+    m.advance(61_000)
+    m.deps.randomCode = () => "246802"
+    expect(await m.pv.sendPayerOtp(B)).toEqual({ ok: true })
+    expect(await m.pv.verifyPayerOtp(B, "135790")).toEqual({ ok: false, retry: true })
+    expect(m.f.rows.every(r => !r.used)).toBe(true)
+    // and A's own code still verifies A only
+    expect(await m.pv.verifyPayerOtp(A, "135790")).toEqual({ ok: true, retry: false })
+    expect(m.f.rows.find(r => r.phone === B)!.used).toBe(false)
   })
 
   it("a wrong code => retry true (the live code stays usable)", async () => {
