@@ -9,7 +9,10 @@
 // Raster formats only. SVG is deliberately NOT served: it can carry scripts
 // (lib/shop-logo.ts refuses SVG uploads for the same reason). HEIC isn't
 // displayable by most browsers.
-const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"])
+// HEIC/HEIF (iPhone photos) is a raster format with no scripting; Safari/iOS render it, other
+// browsers don't - exactly as when it was embedded - so it's still served rather than 404'd.
+const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/heic", "image/heif"])
+const HEIC_BRANDS = new Set(["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1"])
 
 const ROOT_DOMAIN = (process.env.NEXT_PUBLIC_ROOT_DOMAIN || "datagod.store").toLowerCase()
 
@@ -22,6 +25,7 @@ function detectImageType(b: Buffer): string | null {
   if (b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png"
   if (b.length >= 6 && ["GIF87a", "GIF89a"].includes(b.toString("latin1", 0, 6))) return "image/gif"
   if (b.length >= 12 && b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP") return "image/webp"
+  if (b.length >= 12 && b.toString("latin1", 4, 8) === "ftyp" && HEIC_BRANDS.has(b.toString("latin1", 8, 12))) return "image/heic"
   return null
 }
 

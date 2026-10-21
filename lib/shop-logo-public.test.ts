@@ -31,10 +31,15 @@ describe("parseImageDataUri", () => {
     expect(parseImageDataUri(`data:image/jpeg;base64,${Buffer.from("hello world").toString("base64")}`)).toBeNull()
   })
 
-  it("rejects svg (can carry scripts), heic, non-image types, non-base64 and empty payloads", () => {
+  it("serves iPhone HEIC logos as image/heic (Safari shows them, as it did when embedded), even when mislabelled", () => {
+    const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x1c]), Buffer.from("ftypheic"), Buffer.from([0, 0, 0, 0, 0x6d, 0x69])]).toString("base64")
+    expect(parseImageDataUri(`data:image/heic;base64,${heic}`)?.contentType).toBe("image/heic")
+    expect(parseImageDataUri(`data:image/webp;base64,${heic}`)?.contentType).toBe("image/heic")
+  })
+
+  it("rejects svg (can carry scripts), non-image types, non-base64 and empty payloads", () => {
     const svg = Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>").toString("base64")
     expect(parseImageDataUri(`data:image/svg+xml;base64,${svg}`)).toBeNull()
-    expect(parseImageDataUri(`data:image/heic;base64,${PNG_B64}`)).toBeNull()
     expect(parseImageDataUri(`data:text/html;base64,${PNG_B64}`)).toBeNull()
     expect(parseImageDataUri("data:image/png,rawtext")).toBeNull()
     expect(parseImageDataUri("data:image/png;base64,")).toBeNull()
