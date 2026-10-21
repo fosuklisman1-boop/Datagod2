@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { alertAdminsOfRequest } from "@/lib/admin-actions"
+import { checkLogoInput, storeEmbeddedLogo } from "@/lib/shop-logo-intake"
 
 // Server-side shop creation. Migration 0077 revoked INSERT on every public table
 // from `authenticated`/`anon`, so the old browser-client insert in
@@ -46,7 +47,13 @@ export async function POST(request: NextRequest) {
   }
   // Optional presentation fields — coerce to null when absent/blank.
   const description = typeof body?.description === "string" && body.description.trim() ? body.description.trim() : null
-  const logo_url = typeof body?.logo_url === "string" && body.logo_url.trim() ? body.logo_url.trim() : null
+  // An embedded base64 logo (the signup form sends one) is validated up front, then moved into
+  // storage after the shop exists (the storage path needs the shop id); only its URL is ever saved.
+  const logoInput = checkLogoInput(typeof body?.logo_url === "string" ? body.logo_url : null)
+  if (logoInput.kind === "invalid") {
+    return NextResponse.json({ error: logoInput.error }, { status: 400 })
+  }
+  const logo_url = logoInput.kind === "url" ? logoInput.url : null
   const banner_url = typeof body?.banner_url === "string" && body.banner_url.trim() ? body.banner_url.trim() : null
 
   // 3) Insert with SERVER-controlled identity + status. user_id comes from the
@@ -83,5 +90,19 @@ export async function POST(request: NextRequest) {
     await alertAdminsOfRequest("shop", { shopId: data.id, shopName: data.shop_name || shop_name })
   }
 
-  return NextResponse.json({ success: true, shop: data })
+  // Store an embedded logo now that the shop id exists. A logo problem never blocks the shop:
+  // it is created without one and the owner can add it from the shop profile page.
+  let shop = data
+  let logoWarning: string | undefined
+  if (logoInput.kind === "image" && data) {
+    const stored = await storeEmbeddedLogo(supabaseAdmin, data.id, logoInput)
+    if (stored.ok) {
+      const { data: updated } = await supabaseAdmin.from("user_shops").update({ logo_url: stored.url }).eq("id", data.id).select().single()
+      shop = updated ?? { ...data, logo_url: stored.url }
+    } else {
+      logoWarning = "Your shop was created, but the logo couldn't be saved. Add it from your shop profile."
+    }
+  }
+
+  return NextResponse.json({ success: true, shop, ...(logoWarning ? { logoWarning } : {}) })
 }
