@@ -74,28 +74,12 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/phone-verify",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/expire-stale-bot-orders",
       "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/cron/sync-digiwapy",
       "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/drain-broadcasts",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sms-scheduled",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sms-hubtel-dlr",
-      "schedule": "*/2 * * * *"
     },
     {
       "path": "/api/cron/drain-fulfillment-queue",
