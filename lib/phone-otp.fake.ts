@@ -46,8 +46,8 @@ export function fakeOtpDb(rows: OtpRow[], opts: FakeOtpDbOptions) {
           const p = payload as Partial<OtpRow>
           rows.push({
             id: `otp${++seq}`, used: false, attempts: 0, purpose: "signup", created_at: new Date(opts.now()).toISOString(),
-            ...(p as OtpRow),
-          })
+            ...p,
+          } as OtpRow)
           return { data: null, error: null }
         }
         if (op === "update") {
