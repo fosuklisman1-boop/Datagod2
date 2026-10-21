@@ -13,6 +13,7 @@ import { samePrice, type StorefrontQuote } from "@/lib/cashback/quote"
 import {
   cashbackAirtimeColumns, cashbackPromptApplies, usableCashbackQuote,
 } from "@/lib/ussd-hubtel/flows/airtime-cashback"
+import { whatsappBotItemsVisible } from "@/lib/whatsapp-bot/cashback-visibility"
 import { fitsUzo, uzoConfirmText } from "./screen"
 
 /**
@@ -64,6 +65,38 @@ export function uzoAirtimePromptCashback(network: string, min: number, shop: boo
 /** A quote the handlers may sell at for `face` (applied, finite, positive; fail closed otherwise). */
 export async function uzoUsableAirtimeQuote(network: string, face: number, shop: boolean): Promise<StorefrontQuote | null> {
   const q = await uzoAirtimeQuote(network, face, shop)
+  return usableCashbackQuote(q, face) && usableWalletBase(q) ? q : null
+}
+
+// ── WhatsApp bots (main + shop) ───────────────────────────────────────────────
+// Same quote, same glue; only the opt-in differs. WhatsApp follows its own `cashbackAirtime` switch
+// (admin_settings.whatsapp_cashback_visibility, `=== true` only, AND the shared bots airtime gate) via
+// whatsappBotItemsVisible, which never throws and fails closed. The Uzo switch is never read here, and the Uzo
+// functions above never read the WhatsApp one.
+
+/** WhatsApp opt-in: the WhatsApp `cashbackAirtime` switch AND the cashback bots airtime gate. Never throws. */
+export async function whatsappCashbackAirtimeOn(): Promise<boolean> {
+  return (await whatsappBotItemsVisible(db())).cashbackAirtime === true
+}
+
+/**
+ * Cashback quote for WhatsApp airtime on rail paystack, or null when cashback does not apply. `shop` = the WhatsApp
+ * shop bot (storefront split); false = the main WhatsApp bot (customer share). Every WhatsApp cashback decision
+ * (prompt probe, amount, confirm re-quote) goes through here.
+ */
+export async function waAirtimeQuote(network: string, face: number, shop: boolean): Promise<StorefrontQuote | null> {
+  if (!(await whatsappCashbackAirtimeOn())) return null
+  return quoteBotAirtime(network, face, { rail: "paystack", shop }, liveDeps())
+}
+
+/** True when the WhatsApp amount prompt should ask for the airtime amount (probed at the minimum). */
+export function waAirtimePromptCashback(network: string, min: number, shop: boolean): Promise<boolean> {
+  return cashbackPromptApplies(waAirtimeQuote, network, min, shop)
+}
+
+/** A WhatsApp quote the bots may sell at for `face` (applied, finite, positive, sane base; fail closed otherwise). */
+export async function waUsableAirtimeQuote(network: string, face: number, shop: boolean): Promise<StorefrontQuote | null> {
+  const q = await waAirtimeQuote(network, face, shop)
   return usableCashbackQuote(q, face) && usableWalletBase(q) ? q : null
 }
 

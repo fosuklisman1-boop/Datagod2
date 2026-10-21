@@ -231,3 +231,162 @@ const QUOTE = {
   applied: true, faceAmount: 10, rate: 10, share: 50, commission: 1, customerCashback: 0.5, shopShare: 0,
   payAmount: 9.69, datagodKeeps: 0.5, provider: "hubtel", base: 9.5, paymentFee: 0.19, feeRate: 1.95,
 }
+const onFor = (over: any = {}) => (face: number) => ({ ...QUOTE, faceAmount: face, ...over })
+const cashbackOn = (over: any = {}) => {
+  h.state.vis = { networkPlans: false, payBills: false, cashbackAirtime: true }
+  h.state.quote = onFor(over)
+}
+
+const CB_AMOUNT_PROMPT = "Yellow Plans Airtime\nEnter airtime amount\n(GHS 1 - 500):\n\n0. Back"
+const cbConfirm = (balance: string) =>
+  "Confirm Airtime\nMTN to 0241234567\nPay GHS 9.69 (was GHS 10.00)\nThey get GHS 10.00 airtime\n\n" +
+  `1. Pay via Wallet\n   GHS 9.50 (bal ${balance})\n2. Pay via MoMo\n   GHS 9.69\n0. Cancel`
+const PRICE_CHANGED = "Price changed. Please try again."
+
+const CASHBACK_ROW = {
+  ...LEGACY_ROW,
+  airtime_amount: 10,
+  fee_amount: 0, // ruling: the Paystack fee lives in payment_fee_amount only
+  total_paid: 9.69,
+  merchant_commission: 0,
+  payment_fee_amount: 0.19,
+  cashback_amount: 0.5,
+  shop_share_amount: 0,
+  cashback_rate: 10,
+  cashback_share: 50,
+  cashback_provider: "hubtel",
+  expected_commission: 1,
+}
+
+describe("main WhatsApp airtime: cashback applied (WhatsApp switch on + usable quote)", () => {
+  it("asks for the airtime amount; every quote is rail paystack, customer share (no shop)", async () => {
+    cashbackOn()
+    expect(await send(RECIPIENT)).toBe(CB_AMOUNT_PROMPT)
+    expect(h.state.quoteCalls[0]).toEqual(["MTN", 1, { rail: "paystack", shop: false }])
+    expect(await send("abc")).toBe("Enter a valid amount.\n" + CB_AMOUNT_PROMPT)
+  })
+
+  it("MoMo: confirm shows Pay x (was y); the typed number is charged payAmount = total_paid, reference = order id", async () => {
+    cashbackOn()
+    await send(RECIPIENT)
+    expect(await send("10")).toBe(cbConfirm("0.00"))
+    expect(session()).toMatchObject({
+      step: "AIRTIME_CONFIRM", airtimeAmount: 10, airtimeFee: 0, airtimeToDeliver: 10, airtimeCashbackPay: 9.69,
+    })
+    expect(h.state.quoteCalls.at(-1)).toEqual(["MTN", 10, { rail: "paystack", shop: false }])
+    // Junk repaints the cashback screen.
+    expect(await send("9")).toBe(cbConfirm("0.00"))
+    expect(await send("2")).toBe(MOMO_PROMPT)
+    expect(await send(PAY)).toBe(SENT)
+    expect(airtimeInserts()).toEqual([CASHBACK_ROW])
+    await flushAfter()
+    expect(h.state.charges).toHaveLength(1)
+    expect(h.state.charges[0]).toMatchObject({ amount: 9.69, phone: PAY, provider: "vod", reference: "order-1" })
+    expect(h.state.inserts.find(i => i.table === "payment_attempts")!.row.amount).toBe(9.69)
+    expect(h.state.rpcCalls).toEqual([])
+  })
+
+  it("MoMo with a funded wallet on the typed number: still charges payAmount, row price untouched", async () => {
+    cashbackOn()
+    await send(RECIPIENT, "10", "2")
+    h.state.dialer = { userId: "u2", role: "customer", balance: 50 }
+    expect(await send(PAY)).toBe(SENT)
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 9.69, phone: PAY })
+    expect(h.state.updates.filter(u => u.table === "airtime_orders" && "total_paid" in u.patch)).toEqual([])
+    expect(h.state.rpcCalls).toEqual([])
+  })
+
+  it("wallet pays base (no Paystack fee): offered when the balance covers base but not payAmount", async () => {
+    cashbackOn()
+    h.state.dialer = { userId: "u1", role: "dealer", balance: 9.6, email: "d@example.com" }
+    h.state.walletBalance = 9.6
+    await send(RECIPIENT)
+    expect(await send("10")).toBe(cbConfirm("9.60"))
+    expect(await send("1")).toBe(PAID)
+    expect(airtimeInserts()).toEqual([{ ...CASHBACK_ROW, user_id: "u1", customer_email: "d@example.com", dialing_phone: ME }])
+    expect(h.state.rpcCalls).toEqual([{ name: "deduct_wallet", args: { p_user_id: "u1", p_amount: 9.5 } }])
+    expect(h.state.inserts.find(i => i.table === "transactions")!.row.amount).toBe(9.5)
+    const reprice = h.state.updates.filter(u => u.table === "airtime_orders" && "total_paid" in u.patch).map(u => u.patch)
+    expect(reprice).toHaveLength(1)
+    expect(reprice[0]).toMatchObject({ payment_status: "completed", status: "pending", total_paid: 9.5, payment_fee_amount: 0, fee_amount: 0 })
+    expect(h.state.charges).toEqual([])
+  })
+
+  it("wallet below base: 'Wallet balance too low' and the MoMo number is asked (never the sender's)", async () => {
+    cashbackOn()
+    h.state.dialer = { userId: "u1", role: "dealer", balance: 9.4 }
+    await send(RECIPIENT, "10")
+    expect(await send("1")).toBe("Wallet balance too low.\n" + MOMO_PROMPT)
+    expect(airtimeInserts()).toEqual([])
+    expect(await send(PAY)).toBe(SENT)
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 9.69, phone: PAY })
+  })
+
+  it("more than 2 decimals is refused on the cashback branch; no confirm", async () => {
+    cashbackOn()
+    await send(RECIPIENT)
+    expect(await send("10.555")).toBe("Enter a valid amount.\n" + CB_AMOUNT_PROMPT)
+    expect(session().step).toBe("AIRTIME_ENTER_AMOUNT")
+    expect(await send("10.55")).toContain("Pay GHS 9.69 (was GHS 10.55)")
+  })
+
+  it("re-quote mismatch at confirm (MoMo): 'Price changed. Please try again.' and no order, no charge", async () => {
+    cashbackOn()
+    await send(RECIPIENT, "10", "2")
+    h.state.quote = onFor({ payAmount: 9.8 })
+    expect(await send(PAY)).toBe(PRICE_CHANGED)
+    expect(airtimeInserts()).toEqual([])
+    expect(h.state.afterFns).toHaveLength(0)
+  })
+
+  it("re-quote mismatch at confirm (wallet) or cashback switched off since the screen: same refusal", async () => {
+    cashbackOn()
+    h.state.dialer = { userId: "u1", role: "customer", balance: 50 }
+    await send(RECIPIENT, "10")
+    h.state.vis = { networkPlans: false, payBills: false, cashbackAirtime: false }
+    expect(await send("1")).toBe(PRICE_CHANGED)
+    expect(airtimeInserts()).toEqual([])
+    expect(h.state.rpcCalls).toEqual([])
+  })
+})
+
+describe("main WhatsApp airtime: cashback NOT applied stays byte-identical", () => {
+  it("switch off (key missing / false) with a usable quote: today's walk, the quote is never asked", async () => {
+    h.state.quote = onFor()
+    await legacyMomoWalk()
+    expect(h.state.quoteCalls).toEqual([])
+  })
+
+  it("switch on, no quote (gate off / provider earns nothing): today's MoMo walk", async () => {
+    h.state.vis = { networkPlans: false, payBills: false, cashbackAirtime: true }
+    await legacyMomoWalk()
+  })
+
+  it("switch on, no quote: today's wallet walk", async () => {
+    h.state.vis = { networkPlans: false, payBills: false, cashbackAirtime: true }
+    await legacyWalletWalk()
+  })
+
+  for (const [label, over] of [
+    ["not applied", { applied: false }],
+    ["NaN payAmount", { payAmount: NaN }],
+    ["base above payAmount", { base: 9.8 }],
+    ["negative cashback", { customerCashback: -1 }],
+  ] as const) {
+    it(`switch on, unusable quote (${label}): today's walk`, async () => {
+      cashbackOn(over)
+      // The prompt probe only checks applied + payAmount (Plan 2/3 rule, same as Uzo); from the amount on, an
+      // unusable quote prices exactly as today.
+      await send(RECIPIENT)
+      expect(await send("10.50")).toBe(LEGACY_CONFIRM)
+      expect(session().airtimeCashbackPay).toBeUndefined()
+      expect(await send("2")).toBe(MOMO_PROMPT)
+      expect(await send(PAY)).toBe(SENT)
+      expect(airtimeInserts()).toEqual([LEGACY_ROW])
+      await flushAfter()
+      expect(h.state.charges[0]).toMatchObject({ amount: 10.5, phone: PAY, reference: "order-1" })
+    })
+  }
+})

@@ -394,7 +394,9 @@ describe("main USSD airtime: the Uzo cashbackAirtime opt-in is off (key missing 
   })
 })
 
-describe("WhatsApp reuse stays byte-identical even with cashback ON", () => {
+// WhatsApp follows its OWN cashbackAirtime switch (admin_settings.whatsapp_cashback_visibility, absent in this fake
+// DB => off): the Uzo switch being on never reaches it. Cashback on WhatsApp: lib/whatsapp-bot/airtime-cashback.test.ts.
+describe("WhatsApp reuse stays byte-identical with the Uzo cashback ON (WhatsApp switch off)", () => {
   it("entry handlers (channel 'whatsapp', as the WhatsApp router passes) show today's screens", async () => {
     h.state.quote = onFor()
     const r1 = await handleAirtimeEnterRecipient(RECIPIENT, "wa1", { step: "AIRTIME_ENTER_RECIPIENT", dialingPhone: DIALER } as any, "whatsapp")

@@ -352,6 +352,25 @@ export function waAirtimeConfirmMenu(network: string, recipient: string, amountP
   )
 }
 
+/**
+ * WhatsApp main-bot airtime confirm when commission cashback applies: "Pay GHS x (was GHS y)" (x = the MoMo price,
+ * y = the airtime face), what the recipient gets, and each payment option with what it charges (the wallet pays the
+ * quote's base, no Paystack fee; MoMo pays x).
+ */
+export function waAirtimeCashbackConfirmMenu(
+  network: string, recipient: string, pay: number, face: number, walletPay: number, balance: number,
+): string {
+  const was = pay < face ? ` (was GHS ${face.toFixed(2)})` : ""
+  return (
+    `Confirm Airtime\n` +
+    `${network} to ${formatLocal(recipient)}\n` +
+    `Pay GHS ${pay.toFixed(2)}${was}\n` +
+    `They get GHS ${face.toFixed(2)} airtime\n\n` +
+    `1. Pay via Wallet\n   GHS ${walletPay.toFixed(2)} (bal ${balance.toFixed(2)})\n` +
+    `2. Pay via MoMo\n   GHS ${pay.toFixed(2)}\n0. Cancel`
+  )
+}
+
 export function waRcConfirmMenu(board: string, qty: number, total: number, balance: number): string {
   return (
     `Confirm Vouchers\n` +

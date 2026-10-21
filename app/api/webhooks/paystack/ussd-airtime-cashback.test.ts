@@ -136,6 +136,41 @@ describe("Paystack webhook: Uzo cashback airtime row", () => {
     expect(h.state.profitInserts).toEqual([])
   })
 
+  it("WhatsApp shop bot cashback row (whatsapp_shop): accepts total_paid, credits the shop share once", async () => {
+    // The row createShopAirtimeOrder inserts for the shop bot's applied quote (lib/whatsapp-bot/shop-router.ts):
+    // merchant_commission = shopShare, then the cashback columns spread on top.
+    h.state.order = {
+      ...cashbackShopRow(),
+      customer_name: "WhatsApp Customer",
+      dialing_phone: "233244123456",
+      channel: "whatsapp_shop",
+      airtime_amount: 10, fee_amount: 0, total_paid: 9.79, merchant_commission: 0.25,
+      ...uzoCashbackAirtimeColumns(QUOTE, true),
+    }
+    expect(h.state.order).toMatchObject({ total_paid: 9.79, fee_amount: 0, payment_fee_amount: 0.19, merchant_commission: 0.25 })
+    expect((await chargeSuccess(979)).status).toBe(200)
+    expect(h.state.order.payment_status).toBe("completed")
+    expect(h.state.profitInserts).toEqual([
+      expect.objectContaining({ shop_id: SHOP_ID, airtime_order_id: ORDER_ID, profit_amount: 0.25, status: "credited" }),
+    ])
+    expect((await chargeSuccess(979)).status).toBe(200)
+    expect(h.state.profitInserts).toHaveLength(1)
+    expect(h.state.flips).toBe(1)
+    // Underpayment below total_paid is still refused (fresh row).
+    h.state.order = { ...cashbackShopRow(), channel: "whatsapp_shop" }
+    h.state.profitInserts = []
+    expect((await chargeSuccess(970)).status).toBe(400)
+    expect(h.state.profitInserts).toEqual([])
+  })
+
+  it("main WhatsApp bot cashback row (no shop) accepts total_paid and credits nothing", async () => {
+    h.state.order = { ...cashbackShopRow(), shop_id: null, channel: "whatsapp", ...uzoCashbackAirtimeColumns({ ...QUOTE, shopShare: 0.25 }, false) }
+    expect(h.state.order.merchant_commission).toBe(0)
+    expect((await chargeSuccess(979)).status).toBe(200)
+    expect(h.state.order.payment_status).toBe("completed")
+    expect(h.state.profitInserts).toEqual([])
+  })
+
   it("main-menu cashback row (no shop) credits nothing", async () => {
     h.state.order = { ...cashbackShopRow(), shop_id: null, channel: "ussd", ...uzoCashbackAirtimeColumns({ ...QUOTE, shopShare: 0.25 }, false) }
     expect(h.state.order.merchant_commission).toBe(0)

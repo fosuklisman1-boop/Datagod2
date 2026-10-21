@@ -28,10 +28,10 @@ import { handleStatus } from "@/lib/ussd/handlers/status"
 import {
   mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt,
   recipientPrompt, paymentMethodMenu,
-  airtimePaymentMethodMenu, rcPaymentMethodMenu,
+  airtimePaymentMethodMenu, airtimeCashbackPaymentMethodMenu, rcPaymentMethodMenu,
   rcCheckBoardMenu, rcCheckCandidateTypeMenu, rcCheckModeMenu,
   rcCheckVoucherPrompt, rcCheckIndexPrompt,
-  waConfirmMenu, waAirtimeConfirmMenu, waRcConfirmMenu,
+  waConfirmMenu, waAirtimeConfirmMenu, waAirtimeCashbackConfirmMenu, waRcConfirmMenu,
 } from "@/lib/ussd/menus"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { handleWaBotOtp, handleWaBotStep, isWaBotStep, waBotNaturalToDigit, waBotOtpPending } from "./bot-flows"
@@ -47,6 +47,30 @@ function fixWaMomoMsg(msg: string): string {
   return msg
     .replace(/Received an OTP instead\?[^\n]*/gi, 'If you receive an OTP code, reply here with it.')
     .replace(/Redial\s+\S*\s*and\s+enter\s+the\s+code\.?/gi, 'Reply here with your OTP code.')
+}
+
+// ── Airtime (commission cashback) ─────────────────────────────────────────────
+// `airtimeCashbackPay` is set by handleAirtimeEnterAmount only when the WhatsApp cashbackAirtime switch is on AND the
+// quote is usable; otherwise both helpers below return exactly today's values/screens.
+
+/**
+ * What the dealer wallet must cover: today's typed amount, or with cashback the quote's base (no Paystack fee).
+ * The base fails closed to the MoMo price when missing or not sane (finite, > 0, <= MoMo price).
+ */
+function waAirtimeWalletNeed(s: USSDSession): number {
+  if (s.airtimeCashbackPay === undefined) return s.airtimeAmount ?? 0
+  const w = s.airtimeCashbackWalletPay
+  return typeof w === 'number' && Number.isFinite(w) && w > 0 && w <= s.airtimeCashbackPay ? w : s.airtimeCashbackPay
+}
+
+/** The WhatsApp airtime confirm screen: today's, or with cashback "Pay GHS x (was GHS y)" + per-option prices. */
+function waAirtimeConfirmText(s: USSDSession): string {
+  if (s.airtimeCashbackPay !== undefined) {
+    return waAirtimeCashbackConfirmMenu(
+      s.airtimeNetwork!, s.airtimeRecipient!, s.airtimeCashbackPay, s.airtimeAmount!, waAirtimeWalletNeed(s), s.walletBalance ?? 0,
+    )
+  }
+  return waAirtimeConfirmMenu(s.airtimeNetwork!, s.airtimeRecipient!, s.airtimeAmount!, s.airtimeToDeliver!, s.walletBalance ?? 0)
 }
 
 // ── WhatsApp bundle helpers (full list, no pagination) ───────────────────────
@@ -415,7 +439,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       if (result.ussdServiceOp === 2) {
         const updated = await getWaSession(sessionId)
         if (updated?.step === 'AIRTIME_CONFIRM') {
-          result = { message: waAirtimeConfirmMenu(updated.airtimeNetwork!, updated.airtimeRecipient!, updated.airtimeAmount!, updated.airtimeToDeliver!, updated.walletBalance ?? 0), ussdServiceOp: 2 }
+          result = { message: waAirtimeConfirmText(updated), ussdServiceOp: 2 }
         }
       }
       break
@@ -425,7 +449,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
         result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else if (input === '1') {
-        if (!session.userId || (session.walletBalance ?? 0) < (session.airtimeAmount ?? 0)) {
+        if (!session.userId || (session.walletBalance ?? 0) < waAirtimeWalletNeed(session)) {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
           result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
         } else {
@@ -442,7 +466,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       } else if (input === '0') {
         result = await handleAirtimeConfirm('2', sessionId, session, 'whatsapp')
       } else {
-        result = { message: waAirtimeConfirmMenu(session.airtimeNetwork!, session.airtimeRecipient!, session.airtimeAmount!, session.airtimeToDeliver!, session.walletBalance ?? 0), ussdServiceOp: 2 }
+        result = { message: waAirtimeConfirmText(session), ussdServiceOp: 2 }
       }
       break
     }
@@ -641,7 +665,11 @@ async function handleWaEnterPaymentPhone(
       : (session.rcTotal ?? 0)
     const balance = session.walletBalance ?? 0
     const menu = parentStep === 'PAYMENT_METHOD' ? paymentMethodMenu(amount, balance)
-      : parentStep === 'AIRTIME_PAYMENT_METHOD' ? airtimePaymentMethodMenu(amount, balance)
+      : parentStep === 'AIRTIME_PAYMENT_METHOD'
+        ? (session.airtimeCashbackPay !== undefined
+          // Cashback: the wallet (base) and MoMo (payAmount) charge different amounts.
+          ? airtimeCashbackPaymentMethodMenu(waAirtimeWalletNeed(session), session.airtimeCashbackPay, balance)
+          : airtimePaymentMethodMenu(amount, balance))
       : rcPaymentMethodMenu(amount, balance)
     await setWaSession(sessionId, { ...session, step: parentStep as USSDSession['step'] })
     return { message: menu, ussdServiceOp: 2 }
