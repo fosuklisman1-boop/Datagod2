@@ -59,8 +59,15 @@ const h = vi.hoisted(() => {
       state.pointer && (state.pointer.channel ?? "ussd") === (channel ?? "ussd") ? state.pointer : null),
     submitBotOtp: vi.fn(async () => ({ ...state.submit })),
     clear: vi.fn(async () => {}),
+    legacySubmitOtp: vi.fn(async (..._a: unknown[]) => ({ message: "LEGACY-OTP-REPLY", ussdServiceOp: 2 as const })),
   }
 })
+
+// Only the legacy data OTP handler is spied (SUBMIT_OTP without botOtp); every other bundles handler is real.
+vi.mock("@/lib/ussd/handlers/bundles", async (orig) => ({
+  ...(await orig<typeof import("@/lib/ussd/handlers/bundles")>()),
+  handleSubmitOtp: h.legacySubmitOtp,
+}))
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.db }))
 vi.mock("./session", () => ({
@@ -171,6 +178,40 @@ describe("main menu on WhatsApp", () => {
     expect(await send("1")).toBe(networkMenu())
     h.state.sessions.set(FROM, { step: "BOGUS", dialingPhone: ME })
     expect(await send("x")).toBe(WITH_BOTS)
+  })
+
+  it("MAIN keywords \"pay bills\" / \"network plans\" open their item when it is visible", async () => {
+    on()
+    expect(await send("Pay Bills")).toBe("Pay Bills\n1. Ghana Water\n2. DStv\n0. Back")
+    expect(session()?.step).toBe("PB_BILLER")
+    atMain()
+    expect(await send("network plans")).toBe("Network Plans\n1. MTN\n2. Telecel\n3. AT\n0. Back")
+    expect(session()?.step).toBe("NP_NETWORK")
+    atMain()
+    expect(await send("paybill")).toBe("Pay Bills\n1. Ghana Water\n2. DStv\n0. Back")
+    // only Pay Bills visible: it is digit 5 and the keyword follows it; "network plans" is not a menu word
+    h.state.vis = { networkPlans: false, payBills: true, cashbackAirtime: false }
+    atMain()
+    expect(await send("pay bills")).toBe("Pay Bills\n1. Ghana Water\n2. DStv\n0. Back")
+    atMain()
+    expect(await send("network plans")).toBe("")
+    expect(session()).toBeUndefined()
+  })
+
+  it("MAIN keywords with the switches off: escape to the AI exactly as today (session deleted)", async () => {
+    for (const t of ["pay bills", "network plans"]) {
+      atMain()
+      expect(await send(t)).toBe("")
+      expect(session()).toBeUndefined()
+    }
+    expect(h.catalog).not.toHaveBeenCalled()
+  })
+
+  it("Network Plans keyword is hidden by the data whitelist like its menu item", async () => {
+    on()
+    h.state.sessions.set(FROM, { step: "MAIN", dialingPhone: ME, dataBlocked: true })
+    expect(await send("network plans")).toBe("")
+    expect(session()).toBeUndefined()
   })
 
   it("only Pay Bills on: it takes digit 5", async () => {
@@ -362,6 +403,34 @@ describe("Paystack send_otp in chat", () => {
     }
     expect(await send("5", "1", "1", "1", "1", PAY, "1")).toBe(SENT)
     expect(session()).toBeUndefined()
+  })
+})
+
+describe("switches off: today's router behaviour pinned", () => {
+  it("MAIN free text that is no keyword returns '' (the AI answers) and deletes the session", async () => {
+    expect(await send("hello, what do you sell?")).toBe("")
+    expect(session()).toBeUndefined()
+    expect(h.vis).not.toHaveBeenCalled() // no keyword => not even the switches are read
+  })
+
+  it("a MAIN ordering keyword opens the legacy flow", async () => {
+    expect(await send("I want data")).toBe(networkMenu())
+    expect(session()).toMatchObject({ step: "SELECT_NETWORK" })
+    expect(h.catalog).not.toHaveBeenCalled()
+  })
+
+  it("a SUBMIT_OTP session without botOtp goes to the legacy handleSubmitOtp, never to submitBotOtp", async () => {
+    h.state.pointer = {
+      reference: "pay-ref", orderType: "cs_bill", orderId: "pb-order-1", createdAt: new Date().toISOString(), phone: ME, channel: "whatsapp",
+    }
+    const legacy = { step: "SUBMIT_OTP", dialingPhone: ME, pendingOrderId: "ord-1" }
+    h.state.sessions.set(FROM, { ...legacy })
+    expect(await send("123456")).toBe("LEGACY-OTP-REPLY")
+    expect(h.legacySubmitOtp).toHaveBeenCalledTimes(1)
+    expect(h.legacySubmitOtp.mock.calls[0][0]).toBe("123456")
+    expect(h.legacySubmitOtp.mock.calls[0][1]).toBe(FROM)
+    expect(h.legacySubmitOtp.mock.calls[0][2]).toMatchObject(legacy)
+    expect(h.submitBotOtp).not.toHaveBeenCalled()
   })
 })
 

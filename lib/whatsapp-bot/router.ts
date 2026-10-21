@@ -2,7 +2,8 @@
 import { createClient } from "@supabase/supabase-js"
 import { getWaSession, setWaSession, deleteWaSession, extendWaSession } from "./session"
 import { USSDSession, UzoResponse, BundleOption } from "@/lib/ussd/types"
-import { handleMain } from "@/lib/ussd/handlers/main"
+import { handleMain, mainMenuVisibility } from "@/lib/ussd/handlers/main"
+import { resolveMainMenu } from "@/lib/ussd/menus"
 import {
   handleSelectNetwork, handleEnterRecipient,
   handleConfirm, handlePaymentMethod, handleSubmitOtp,
@@ -164,6 +165,17 @@ async function naturalToDigit(step: string, input: string, session: USSDSession)
   // (MoMo number, SMS code, account, email...).
   if (isWaBotStep(step)) return waBotNaturalToDigit(step, input, session)
   const lc = input.toLowerCase().replace(/\s+/g, "")
+  if (step === "MAIN") {
+    // "pay bills" / "network plans" (whole reply) => that item's digit, only when the menu shows it (WhatsApp
+    // switches + gate, and the data whitelist for Network Plans): the same resolved list as the menu's own dispatch.
+    // Anything else (or the item hidden) => null: the ordering keywords / AI escape below, as today.
+    const words = lc.replace(/[.!]+/g, "")
+    const want = /^networkplans?$/.test(words) ? "networkPlans" : /^paybills?$/.test(words) ? "payBills" : null
+    if (!want) return null
+    const resolved = resolveMainMenu(await mainMenuVisibility(session.dataBlocked === true, "whatsapp"))
+    const item = resolved.find((r) => r.key === want)
+    return item ? String(item.digit) : null
+  }
   if (step === "SELECT_NETWORK" || step === "AIRTIME_SELECT_NETWORK") {
     if (lc.startsWith("mtn")) return "1"
     if (/telecel|vodafone/.test(lc)) return "2"
