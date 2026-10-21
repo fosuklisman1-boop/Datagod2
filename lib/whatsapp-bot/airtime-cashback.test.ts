@@ -23,12 +23,19 @@ const h = vi.hoisted(() => {
     quoteCalls: [] as any[],
     uzoCashbackAirtime: true, // the Uzo switch: must never matter on WhatsApp
     pkgPrice: 10,             // packages.price (data bundles)
+    // Per-account wallets (by user_id). null = every wallets read answers `walletBalance` (the older tests).
+    wallets: null as null | Record<string, number>,
+    walletReads: [] as string[], // the user_id of every wallets read
   }
   const db = {
     from(table: string) {
       let op: "select" | "insert" | "update" = "select"
+      let userIdFilter: string | undefined
       const chain: any = new Proxy({}, {
         get(_t, prop) {
+          if (prop === "eq") {
+            return (col: string, v: any) => { if (col === "user_id") userIdFilter = v; return chain }
+          }
           if (prop === "insert") {
             return (rows: any) => {
               op = "insert"
@@ -48,7 +55,13 @@ const h = vi.hoisted(() => {
             }
           }
           if (prop === "maybeSingle") {
-            return async () => ({ data: table === "wallets" ? { balance: state.walletBalance } : null, error: null })
+            return async () => {
+              if (table !== "wallets") return { data: null, error: null }
+              state.walletReads.push(String(userIdFilter))
+              if (!state.wallets) return { data: { balance: state.walletBalance }, error: null }
+              const b = userIdFilter !== undefined ? state.wallets[userIdFilter] : undefined
+              return { data: b === undefined ? null : { balance: b }, error: null }
+            }
           }
           if (prop === "then") return (ok: (v: unknown) => unknown) => ok({ data: null, error: null })
           return () => chain
@@ -172,7 +185,7 @@ beforeEach(() => {
   h.state.sessions.clear()
   h.state.vis = { networkPlans: false, payBills: false, cashbackAirtime: false }
   h.state.inserts = []; h.state.updates = []; h.state.rpcCalls = []; h.state.charges = []; h.state.afterFns = []
-  h.state.walletBalance = 100; h.state.dialer = {}; h.state.seq = 0
+  h.state.walletBalance = 100; h.state.dialer = {}; h.state.seq = 0; h.state.wallets = null; h.state.walletReads = []
   h.state.quote = null; h.state.quoteCalls = []; h.state.uzoCashbackAirtime = true; h.state.pkgPrice = 10
   h.vis.mockClear()
   atRecipient()
@@ -445,6 +458,7 @@ describe("ruling 1: confirm honours the pricing mode the session was staged with
 describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sender's number", () => {
   it("airtime (legacy): the cached balance passed, the live one is short => ask for the MoMo number, no order", async () => {
     h.state.dialer = { userId: "u1", role: "customer", balance: 5 } // live
+    h.state.wallets = { u1: 5 } // live, read by the session's account
     h.state.sessions.set(FROM, aiStaged({ userId: "u1", walletBalance: 50 })) // cached
     expect(await send("1")).toBe(WALLET_SHORT)
     expect(session()).toMatchObject({ step: "WA_ENTER_PAYMENT_PHONE", waNextStep: "CONFIRM_AIRTIME" })
@@ -462,6 +476,7 @@ describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sen
     h.state.dialer = { userId: "u1", role: "dealer", balance: 9.6 }
     await send(RECIPIENT, "10")
     h.state.dialer = { userId: "u1", role: "dealer", balance: 9.0 }
+    h.state.wallets = { u1: 9.0 }
     expect(await send("1")).toBe(WALLET_SHORT)
     expect(airtimeInserts()).toEqual([])
     expect(h.state.afterFns).toHaveLength(0)
@@ -472,6 +487,7 @@ describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sen
 
   it("results checker: same fix (live price/balance short at confirm)", async () => {
     h.state.dialer = { userId: "u1", role: "customer", balance: 5 }
+    h.state.wallets = { u1: 5 }
     h.state.sessions.set(FROM, {
       step: "RC_CONFIRM", dialingPhone: ME, rcBoard: "WASSCE", rcQty: 1, rcTotal: 20, userId: "u1", walletBalance: 50,
     })
@@ -483,6 +499,7 @@ describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sen
 
   it("data bundles: same fix (verified price a pesewa above the cached balance)", async () => {
     h.state.pkgPrice = 10.005
+    h.state.wallets = { u1: 10 } // the live wallet is a pesewa short too
     h.state.sessions.set(FROM, {
       step: "CONFIRM", dialingPhone: ME, network: "MTN", bundleId: "p1", bundleSize: "1", bundlePrice: 10,
       recipientPhone: RECIPIENT, userId: "u1", walletBalance: 10, paystackProvider: "mtn",
@@ -500,6 +517,7 @@ describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sen
 
   it("data bundles: the cached balance passed, the LIVE one is short => ask for the MoMo number, no pending order row", async () => {
     h.state.dialer = { userId: "u1", role: "customer", balance: 5 } // live
+    h.state.wallets = { u1: 5 }
     h.state.sessions.set(FROM, dataConfirm()) // cached 50
     expect(await send("1")).toBe(WALLET_SHORT)
     expect(session()).toMatchObject({ step: "WA_ENTER_PAYMENT_PHONE", waNextStep: "CONFIRM_BUNDLE" })
@@ -508,11 +526,57 @@ describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sen
     expect(h.state.charges).toHaveLength(0)
   })
 
-  it("data bundles: a live balance owned by another account never counts", async () => {
-    h.state.dialer = { userId: "u2", role: "customer", balance: 50 }
+  // An OTP-linked WhatsApp account (lib/ai-tools.ts stages session.userId = the linked account, registered on ANOTHER
+  // phone): the sender's own number resolves to no account (or another one). The wallet of the SESSION's account pays.
+  const LINKED = { u1: 50 }
+
+  it("data bundles, OTP-linked account: the session account's live wallet pays (not the sender phone's account)", async () => {
+    h.state.dialer = {} // the sender's phone is not the account's phone
+    h.state.wallets = LINKED
     h.state.sessions.set(FROM, dataConfirm())
+    expect(await send("1")).not.toBe(WALLET_SHORT)
+    expect(h.state.walletReads).toContain("u1")
+    expect(h.state.inserts.filter(i => i.table === "ussd_orders")).toHaveLength(1)
+    expect(h.state.charges).toHaveLength(0)
+    expect(h.state.rpcCalls).toContainEqual({ name: "deduct_wallet", args: expect.objectContaining({ p_user_id: "u1" }) })
+  })
+
+  it("data bundles, OTP-linked account with another account on the sender phone: still the session account", async () => {
+    h.state.dialer = { userId: "u2", role: "customer", balance: 0 }
+    h.state.wallets = { u1: 50, u2: 0 }
+    h.state.sessions.set(FROM, dataConfirm())
+    expect(await send("1")).not.toBe(WALLET_SHORT)
+    expect(h.state.walletReads).not.toContain("u2")
+  })
+
+  it("airtime, OTP-linked account: the session account's live wallet pays", async () => {
+    h.state.dialer = {}
+    h.state.wallets = LINKED
+    h.state.sessions.set(FROM, aiStaged({ userId: "u1", walletBalance: 50 }))
+    expect(await send("1")).toBe(PAID)
+    expect(airtimeInserts()[0]).toMatchObject({ user_id: "u1" })
+    expect(h.state.rpcCalls).toEqual([{ name: "deduct_wallet", args: { p_user_id: "u1", p_amount: 10.5 } }])
+    expect(h.state.charges).toHaveLength(0)
+  })
+
+  it("results checker, OTP-linked account: the session account's live wallet pays (no MoMo prompt)", async () => {
+    h.state.dialer = {}
+    h.state.wallets = LINKED
+    h.state.sessions.set(FROM, {
+      step: "RC_CONFIRM", dialingPhone: ME, rcBoard: "WASSCE", rcQty: 1, rcTotal: 20, userId: "u1", walletBalance: 50,
+    })
+    expect(await send("1")).not.toBe(WALLET_SHORT)
+    expect(h.state.walletReads).toContain("u1")
+    expect(h.state.charges).toHaveLength(0)
+    expect(h.state.afterFns).toHaveLength(0)
+  })
+
+  it("no session account => short, whatever the sender phone's account holds (data, airtime, RC)", async () => {
+    h.state.dialer = { userId: "u2", role: "customer", balance: 500 }
+    h.state.wallets = { u2: 500 }
+    h.state.sessions.set(FROM, dataConfirm({ userId: undefined }))
     expect(await send("1")).toBe(WALLET_SHORT)
-    expect(h.state.inserts.filter(i => i.table === "ussd_orders")).toEqual([])
+    expect(h.state.inserts).toEqual([])
   })
 
   it("data bundles, Uzo path (no walletOnly): the cached balance decides, no live read (unchanged)", async () => {
@@ -528,6 +592,7 @@ describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sen
 
   it("data bundles: a live balance that covers the price still creates the order (wallet path)", async () => {
     h.state.dialer = { userId: "u1", role: "customer", balance: 50 }
+    h.state.wallets = { u1: 50 }
     h.state.sessions.set(FROM, dataConfirm())
     expect(await send("1")).not.toBe(WALLET_SHORT)
     expect(h.state.inserts.filter(i => i.table === "ussd_orders")).toHaveLength(1)

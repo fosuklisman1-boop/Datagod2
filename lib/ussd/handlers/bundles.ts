@@ -5,7 +5,7 @@ import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, payme
 import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
-import { resolveDialer } from "../resolve-dialer"
+import { liveWalletBalance } from "../wallet-balance"
 import { chargeMobileMoney, submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { fulfillUssdOrder } from "../fulfill"
@@ -347,13 +347,11 @@ export async function handleConfirm(
   }
 
   // Same wallet test as the PAYMENT_METHOD detour below, made before any order exists. WhatsApp "Pay via Wallet"
-  // (walletOnly) reads the LIVE balance of the session's own account, as airtime and RC do, so a balance spent since the
-  // menu never leaves a pending order row behind; the Uzo path keeps the session's cached balance exactly as before.
+  // (walletOnly) reads the LIVE wallet of the session's account (session.userId: the sender's own account or an
+  // OTP-linked one; the debit uses that same id), so a balance spent since the menu never leaves a pending order row
+  // behind; the Uzo path keeps the session's cached balance exactly as before.
   let walletBalance = session.walletBalance
-  if (opts.walletOnly) {
-    const live = await resolveDialer(dialingPhone ?? '')
-    walletBalance = session.userId && live.userId === session.userId ? live.balance : undefined
-  }
+  if (opts.walletOnly) walletBalance = await liveWalletBalance(session.userId)
   const walletEligible = !!session.userId && walletBalance !== undefined && walletBalance >= verifiedPrice
   if (opts.walletOnly && !walletEligible) return waWalletShort()
 

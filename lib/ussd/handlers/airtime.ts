@@ -10,6 +10,7 @@ import { setSession } from "../session"
 import { networkNickname } from "../network-labels"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
+import { liveWalletBalance } from "../wallet-balance"
 import { chargeMobileMoney } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { secureReference } from "../../secure-random"
@@ -287,7 +288,12 @@ export async function handleAirtimeConfirm(
   const walletPrice = cb ? cb.base : amount
 
   const provider = paystackProviderFromPhone(dialingPhone)
-  const walletEligible = dialer.userId && dialer.balance !== undefined && dialer.balance >= walletPrice
+  // The wallet account: on WhatsApp "Pay via Wallet" (walletOnly) the session's account (the sender's own or an
+  // OTP-linked one, the id the debit uses) with its LIVE balance; elsewhere the dialing phone's account, as before.
+  const payer = opts.walletOnly
+    ? { userId: session.userId, balance: await liveWalletBalance(session.userId) }
+    : { userId: dialer.userId, balance: dialer.balance }
+  const walletEligible = payer.userId && payer.balance !== undefined && payer.balance >= walletPrice
   if (!walletEligible && opts.walletOnly) return waWalletShort()
   if (!walletEligible && !provider) {
     await setSession(sessionId, { step: "MAIN", dialingPhone })
@@ -307,7 +313,7 @@ export async function handleAirtimeConfirm(
       pay_separately: false,
       status: "pending_payment",
       payment_status: "pending_payment",
-      user_id: dialer.userId ?? null,
+      user_id: payer.userId ?? null,
       shop_id: null,
       merchant_commission: 0,
       customer_name: "USSD Customer",
@@ -334,15 +340,15 @@ export async function handleAirtimeConfirm(
       step: "AIRTIME_PAYMENT_METHOD",
       airtimeFee: fee,
       airtimeToDeliver: toDeliver,
-      userId: dialer.userId,
-      walletBalance: dialer.balance,
+      userId: payer.userId,
+      walletBalance: payer.balance,
       pendingOrderId: order.id,
       pendingOrderTable: "airtime_orders",
       ...priced,
     })
     return cont(cb
-      ? airtimeCashbackPaymentMethodMenu(walletPrice, price, dialer.balance!)
-      : airtimePaymentMethodMenu(price, dialer.balance!))
+      ? airtimeCashbackPaymentMethodMenu(walletPrice, price, payer.balance!)
+      : airtimePaymentMethodMenu(price, payer.balance!))
   }
 
   await setSession(sessionId, {

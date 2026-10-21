@@ -12,6 +12,7 @@ import { setSession } from "../session"
 import { isValidDob } from "../../results-check-validation"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
+import { liveWalletBalance } from "../wallet-balance"
 import { chargeMobileMoney } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { secureReference } from "../../secure-random"
@@ -148,7 +149,12 @@ export async function handleRcConfirm(
 
   const dialer = await resolveDialer(dialingPhone)
   const provider = paystackProviderFromPhone(dialingPhone)
-  const walletEligible = dialer.userId && dialer.balance !== undefined && dialer.balance >= pricing.totalPaid
+  // The wallet account: on WhatsApp "Pay via Wallet" (walletOnly) the session's account (the sender's own or an
+  // OTP-linked one, the id the debit uses) with its LIVE balance; elsewhere the dialing phone's account, as before.
+  const payer = opts.walletOnly
+    ? { userId: session.userId, balance: await liveWalletBalance(session.userId) }
+    : { userId: dialer.userId, balance: dialer.balance }
+  const walletEligible = payer.userId && payer.balance !== undefined && payer.balance >= pricing.totalPaid
   if (!walletEligible && opts.walletOnly) return waWalletShort()
 
   if (walletEligible) {
@@ -157,10 +163,10 @@ export async function handleRcConfirm(
       step: "RC_PAYMENT_METHOD",
       rcUnitPrice: pricing.unitPrice,
       rcTotal: pricing.totalPaid,
-      userId: dialer.userId,
-      walletBalance: dialer.balance,
+      userId: payer.userId,
+      walletBalance: payer.balance,
     })
-    return cont(rcPaymentMethodMenu(pricing.totalPaid, dialer.balance!))
+    return cont(rcPaymentMethodMenu(pricing.totalPaid, payer.balance!))
   }
 
   if (!provider) {
