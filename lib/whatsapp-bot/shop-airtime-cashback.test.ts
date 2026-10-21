@@ -312,6 +312,20 @@ describe("WhatsApp shop airtime: cashback applied (WhatsApp switch on + usable q
     expect(h.chargeMobileMoney.mock.calls[0][0]).toStrictEqual(LEGACY_CHARGE)
   })
 
+  it("a cashback-priced session without a shopId is refused with 409 (never sold at the legacy price)", async () => {
+    cashbackOn()
+    await toRecipient()
+    await send(RECIPIENT, "10", PAY)
+    const s = { ...session() }
+    expect(s.airtimeCashbackPay).toBeDefined()
+    delete s.shopId
+    h.state.sessions.set(FROM, s)
+    expect(await send("1")).toBe(PRICE_CHANGED)
+    expect(h.createShopAirtimeOrder).not.toHaveBeenCalled()
+    expect(h.chargeMobileMoney).not.toHaveBeenCalled()
+    expect(session()).toEqual({ step: "AI_CONVERSATION" })
+  })
+
   it("the shop is re-checked before the order: closed => refused, no quote at confirm, no order", async () => {
     cashbackOn()
     await toRecipient()

@@ -506,7 +506,10 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         if (botDigits?.networkPlans && input === botDigits.networkPlans) {
           // Data whitelist, re-checked live exactly like Data Bundle's SELECT_NETWORK (the flow re-checks the flag).
           if (await isDataWhitelistBlocked(from)) {
-            reply = 'Data bundles not available.\nSign up on our app\nto unlock this service.\n\n' + menu()
+            // Remember the block (the session is saved below): this and every later menu hide Data Bundle and Network
+            // Plans, and the digits renumber with the text (the menu shown is the one the next digit is read against).
+            session.dataBlocked = true
+            reply = 'Data bundles not available.\nSign up on our app\nto unlock this service.\n\n' + await shopProductMenuFor(shopName, session)
             break
           }
           reply = await startShopBotFlow('networkPlans', from, session)
@@ -1048,6 +1051,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         // the live quote must still be usable at the same price, otherwise no order, no charge. A session staged with
         // today's pricing (incl. AI-staged) is sold at today's pricing. No shop => never cashback (fail closed).
         let cb: StorefrontQuote | null = null
+        // A cashback-priced session that lost its shop can be neither re-quoted nor sold at the legacy price it was
+        // never shown: refuse (no order, no charge).
+        if (session.airtimeCashbackPay !== undefined && !hasShop(session)) {
+          deleteAfter = true
+          reply = botErrorText(409)
+          break
+        }
         if (hasShop(session) && session.airtimeCashbackPay !== undefined) {
           const rq = airtimeRequote(session.airtimeCashbackPay, await waAirtimeQuote(network, amount, true), amount)
           if (rq.kind === 'changed') {

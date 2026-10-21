@@ -254,6 +254,18 @@ describe("data whitelist", () => {
     expect(h.catalog).not.toHaveBeenCalled()
   })
 
+  it("a live block sets dataBlocked: the menu shown with the refusal and the next ones hide Network Plans (digits agree)", async () => {
+    on()
+    expect(await enter()).toBe(ON)
+    h.state.whitelist = true
+    expect(await send("5")).toBe(`Data bundles not available.\nSign up on our app\nto unlock this service.\n\n${ON_BLOCKED}`)
+    expect(session()).toMatchObject({ step: "SELECT_PRODUCT", dataBlocked: true })
+    expect(await send("9")).toBe(ON_BLOCKED)
+    expect(await send("5")).toBe(ON_BLOCKED) // no item 5 any more
+    expect(await send("4")).toBe(`${SHOP}\nPay Bills\n1. Ghana Water\n2. DStv\n0. Back`) // the blocked numbering
+    expect(h.catalog).not.toHaveBeenCalled()
+  })
+
   it("off with the whitelist on: today's blocked menu, byte for byte", async () => {
     h.state.whitelist = true
     expect(await enter()).toBe(OFF_BLOCKED)
