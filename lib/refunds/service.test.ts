@@ -1,5 +1,5 @@
 import {
-  executeRefund, previewRefund, submitRefundOtp, cancelRefund, reconcileRefund,
+  executeRefund, previewRefund, submitRefundOtp, cancelRefund, reconcileRefund, applyGatewayOutcome,
   RefundError, mapReserveError, type RefundDeps, type StoredRefund,
 } from "./service"
 import type { RefundableOrder, RefundGateway, GatewayOutcome } from "./types"
@@ -566,5 +566,27 @@ describe("wallet-only tables (orders / api_orders)", () => {
     expect(p.eligibility).toEqual({ eligible: true })
     expect(p.gateways.filter((g) => g.ok).map((g) => g.id)).toEqual(["wallet", "manual"])
     expect(p.clawback.lines).toEqual([])
+  })
+})
+
+describe("applyGatewayOutcome", () => {
+  it("completes a processing row once and notifies once", async () => {
+    const { deps, calls } = otpSetup({})
+    const res = await applyGatewayOutcome(deps, stored({ status: "processing" }), { kind: "completed", ref: "T" })
+    expect(res.status).toBe("completed")
+    expect(calls.map((c) => c.name)).toEqual(["complete_order_refund"])
+    expect(deps.notify).toHaveBeenCalledTimes(1)
+  })
+  it("replay on an already completed row is a no-op", async () => {
+    const { deps, calls } = otpSetup({})
+    await expect(applyGatewayOutcome(deps, stored({ status: "completed" }), { kind: "completed", ref: "T" })).rejects.toMatchObject({ code: "ORDER_NOT_PENDING" })
+    expect(calls).toEqual([])
+    expect(deps.notify).not.toHaveBeenCalled()
+  })
+  it("unknown outcome marks processing without notifying", async () => {
+    const { deps, calls } = otpSetup({})
+    await applyGatewayOutcome(deps, stored({ status: "reserved" }), { kind: "unknown", error: "t" })
+    expect(calls.map((c) => c.name)).toEqual(["mark_refund_processing"])
+    expect(deps.notify).not.toHaveBeenCalled()
   })
 })

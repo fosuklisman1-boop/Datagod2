@@ -363,6 +363,18 @@ async function settleStored(deps: RefundDeps, stored: StoredRefund, ctx: RefundC
   return settled
 }
 
+/**
+ * Settles a stored refund from an outcome reported by the gateway itself (e.g. a callback).
+ * A replay for an already settled row is rejected before any RPC or notification.
+ */
+export async function applyGatewayOutcome(deps: RefundDeps, stored: StoredRefund, outcome: GatewayOutcome): Promise<Settled> {
+  if (stored.status !== "reserved" && stored.status !== "processing") {
+    throw new RefundError("ORDER_NOT_PENDING", "This refund is not awaiting a gateway outcome")
+  }
+  const ctx = await contextFor(deps, stored)
+  return settleStored(deps, stored, ctx, outcome)
+}
+
 /** Re-checks a refund stuck in `reserved` / `processing` / `awaiting_otp` against its gateway and settles it. */
 export async function reconcileRefund(deps: RefundDeps, stored: StoredRefund): Promise<Settled> {
   if (stored.status !== "processing" && stored.status !== "awaiting_otp" && stored.status !== "reserved") {
