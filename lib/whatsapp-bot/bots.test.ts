@@ -54,7 +54,9 @@ const h = vi.hoisted(() => {
     failBotCharge: vi.fn(async () => {}),
     sendPayerOtp: vi.fn(async () => ({ ok: true })),
     verifyPayerOtp: vi.fn(async (_p: string, code: string) => (code === "123456" ? { ok: true, retry: false } : { ok: false, retry: true })),
-    peek: vi.fn(async (_phone: string, _channel?: string) => state.pointer),
+    // Channel-aware like the real store: a pointer is only found in its own key space.
+    peek: vi.fn(async (_phone: string, channel?: string) =>
+      state.pointer && (state.pointer.channel ?? "ussd") === (channel ?? "ussd") ? state.pointer : null),
     submitBotOtp: vi.fn(async () => ({ ...state.submit })),
     clear: vi.fn(async () => {}),
   }
@@ -108,6 +110,7 @@ vi.mock("@/lib/bot-commission/otp-pointer", () => ({
 }))
 
 import { waRouter } from "./router"
+import { waMainBotOtpFallback } from "./bot-flows"
 import { mainMenu, networkMenu } from "@/lib/ussd/menus"
 
 const FROM = "233244123456"   // the WhatsApp sender (Meta's wa_id)
@@ -359,5 +362,66 @@ describe("Paystack send_otp in chat", () => {
     }
     expect(await send("5", "1", "1", "1", "1", PAY, "1")).toBe(SENT)
     expect(session()).toBeUndefined()
+  })
+})
+
+describe("no-session OTP fallback (webhook: the send_otp hand-off read failed, the chat has no session)", () => {
+  const live = (o: Record<string, unknown> = {}) => {
+    h.state.pointer = {
+      reference: "pay-ref", orderType: "cs_bill", orderId: "pb-order-1", createdAt: new Date().toISOString(), phone: ME, channel: "whatsapp", ...o,
+    }
+  }
+  beforeEach(() => { h.state.sessions.clear() })
+
+  it("an OTP-shaped reply with this sender's pointer goes to submitBotOtp (ok => approve text, no session left)", async () => {
+    live()
+    expect(await waMainBotOtpFallback(FROM, " 123456 ")).toBe(APPROVE)
+    expect(h.peek).toHaveBeenCalledWith(ME, "whatsapp")
+    for (const c of h.peek.mock.calls) expect(c[0]).toBe(ME) // only ever the sender's own pointer
+    expect(h.submitBotOtp).toHaveBeenCalledTimes(1)
+    expect((h.submitBotOtp.mock.calls as unknown as unknown[][])[0][1]).toMatchObject({ reference: "pay-ref", phone: ME })
+    expect((h.submitBotOtp.mock.calls as unknown as unknown[][])[0][2]).toBe("123456")
+    expect(session()).toBeUndefined()
+  })
+
+  it("a wrong code puts the chat on SUBMIT_OTP (botOtp) so the next reply, incl. 0, reaches the bot OTP step", async () => {
+    live()
+    h.state.submit = { ok: false, retry: true }
+    expect(await waMainBotOtpFallback(FROM, "1111")).toBe(`Wrong code. Try again.\n${OTP_PROMPT}`)
+    expect(session()).toEqual({ step: "SUBMIT_OTP", dialingPhone: ME, botOtp: true })
+    expect(await send("0")).toBe("Order cancelled.")
+    expect(h.failBotCharge).toHaveBeenCalledWith(h.db, "cs_bill", "pb-order-1", "pay-ref", expect.any(String))
+    expect(h.clear).toHaveBeenCalledWith(ME, "whatsapp")
+  })
+
+  it("no pointer => null (the webhook goes on to the AI exactly as before); nothing is submitted", async () => {
+    expect(await waMainBotOtpFallback(FROM, "123456")).toBeNull()
+    expect(h.submitBotOtp).not.toHaveBeenCalled()
+    expect(session()).toBeUndefined()
+  })
+
+  it("only 4-8 digits are OTP-shaped: anything else is null without even reading the pointer", async () => {
+    live()
+    for (const t of ["123", "123456789", "hello", "12 34", "1", "0", "", "12345a"]) {
+      expect(await waMainBotOtpFallback(FROM, t)).toBeNull()
+    }
+    expect(h.peek).not.toHaveBeenCalled()
+    expect(h.submitBotOtp).not.toHaveBeenCalled()
+  })
+
+  it("the shop bot's pointer (or a Uzo one) for the same sender is never used by the main bot", async () => {
+    live({ channel: "whatsapp_shop" })
+    expect(await waMainBotOtpFallback(FROM, "123456")).toBeNull()
+    live({ channel: undefined })
+    expect(await waMainBotOtpFallback(FROM, "123456")).toBeNull()
+    expect(h.submitBotOtp).not.toHaveBeenCalled()
+  })
+
+  it("a pointer read error or a non-Ghana sender => null (fail closed to today's path)", async () => {
+    h.peek.mockRejectedValueOnce(new Error("redis down"))
+    expect(await waMainBotOtpFallback(FROM, "123456")).toBeNull()
+    live()
+    expect(await waMainBotOtpFallback("4412345", "123456")).toBeNull()
+    expect(h.submitBotOtp).not.toHaveBeenCalled()
   })
 })

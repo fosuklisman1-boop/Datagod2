@@ -95,6 +95,46 @@ export async function handleWaBotOtp(sender: string, input: string, channel: WaB
   return handleBotOtpRedial(input, local, liveBotOtpRedialDeps(channel))
 }
 
+/** A reply shaped like a Paystack MoMo OTP: 4 to 8 digits, nothing else (surrounding spaces ignored). */
+export const WA_OTP_SHAPE = /^\d{4,8}$/
+
+/**
+ * No-session fallback (the webhook calls it only when the chat has no active bot flow): the send_otp hand-off may have
+ * failed to read the pointer back (Redis), leaving the chat without its SUBMIT_OTP step. An OTP-shaped reply is then
+ * checked against THIS sender's pointer in THIS bot's key space only (never anyone else's: the lookup is by the
+ * sender, which is the auth); when one exists, the reply goes to submitBotOtp (handleWaBotOtp). null = not handled
+ * (no OTP shape, not a Ghana sender, no pointer, or the read failed): the caller carries on exactly as before.
+ */
+export async function waBotOtpWithoutSession(
+  sender: string, text: string, channel: WaBotOtpChannel,
+): Promise<UzoResponse | null> {
+  const code = String(text ?? "").trim()
+  if (!WA_OTP_SHAPE.test(code)) return null
+  const local = normalizeGhanaPhone(String(sender ?? ""))
+  if (!local) return null
+  try {
+    if (!(await peekBotOtpPointer(local, channel))) return null
+  } catch (e) {
+    console.error(`[${TAG}] OTP pointer read failed (no-session fallback):`, e instanceof Error ? e.message : "error")
+    return null
+  }
+  return handleWaBotOtp(sender, code, channel)
+}
+
+/**
+ * The main bot's no-session fallback (webhook, `!session` branch only): the reply text, or null to go on to the AI as
+ * before. A retry (wrong code) leaves the chat on SUBMIT_OTP (botOtp) so the next reply, "0" included, reaches the
+ * bot OTP step; a final answer leaves no session (as the in-session path does).
+ */
+export async function waMainBotOtpFallback(sender: string, text: string): Promise<string | null> {
+  const r = await waBotOtpWithoutSession(sender, text, "whatsapp")
+  if (!r) return null
+  if (r.ussdServiceOp !== 17) {
+    await setWaSession(sender, { step: "SUBMIT_OTP", dialingPhone: normalizeGhanaPhone(String(sender))!, botOtp: true })
+  }
+  return r.message
+}
+
 /**
  * Natural replies on the bot steps, only where the meaning is obvious (whole reply, case / spaces ignored):
  * "my number" on the recipient choice, "yes" / "no" / "cancel" on the confirm screens, "cancel" on the meter-link

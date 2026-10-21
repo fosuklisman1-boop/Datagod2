@@ -141,6 +141,7 @@ vi.mock("@/lib/bot-commission/otp-pointer", () => ({
 }))
 
 import { shopWaRouter } from "./shop-router"
+import { shopBotOtpFallback } from "./shop-bot-flows"
 import { shopNetworkMenu, shopPaymentPhonePrompt, shopInvalidPaymentPhoneMenu, shopProductMenu } from "./shop-menus"
 
 const FROM = "233244123456"   // the WhatsApp sender (Meta's wa_id)
@@ -502,5 +503,65 @@ describe("Paystack send_otp in chat", () => {
     })
     expect(await send("5", "1", "1", "1", "1", PAY, "1")).toBe(SENT)
     expect(session()?.step).toBe("SELECT_PRODUCT")
+  })
+})
+
+describe("no-session OTP fallback (webhook: the send_otp hand-off read failed)", () => {
+  const live = (o: Record<string, unknown> = {}) => {
+    h.state.pointer = {
+      reference: "pay-ref", orderType: "cs_bundle", orderId: "np-order-1", createdAt: new Date().toISOString(), phone: ME,
+      channel: "whatsapp_shop", ...o,
+    }
+  }
+  const SELECT = {
+    step: "SELECT_PRODUCT", shopCodeId: "code-1", shopId: "shop-1", parentShopId: "parent-1", shopName: SHOP, networks: ["MTN"], dataBlocked: false,
+  }
+
+  it("no session: an OTP-shaped reply with this sender's SHOP pointer goes to submitBotOtp; ok ends on the AI step", async () => {
+    live()
+    expect(await shopBotOtpFallback(FROM, "123456")).toBe(APPROVE)
+    expect(h.peek).toHaveBeenCalledWith(ME, "whatsapp_shop")
+    for (const c of h.peek.mock.calls) expect(c[0]).toBe(ME)
+    expect(h.peek).not.toHaveBeenCalledWith(ME, "whatsapp")
+    expect((h.submitBotOtp.mock.calls as unknown as unknown[][])[0][2]).toBe("123456")
+    expect(session()).toEqual({ step: "AI_CONVERSATION" })
+  })
+
+  it("the closed flow's SELECT_PRODUCT session (the case that used to repaint the menu): a wrong code waits on SUBMIT_OTP, shop kept; 0 cancels", async () => {
+    live()
+    h.state.sessions.set(FROM, { ...SELECT })
+    h.state.submit = { ok: false, retry: true }
+    expect(await shopBotOtpFallback(FROM, "1111")).toBe(`Wrong code. Try again.\n${OTP_PROMPT}`)
+    expect(session()).toEqual({ ...SELECT, step: "SUBMIT_OTP", botOtp: true })
+    expect(await send("0")).toBe("Order cancelled.")
+    expect(h.failBotCharge).toHaveBeenCalledWith(h.db, "cs_bundle", "np-order-1", "pay-ref", expect.any(String))
+    expect(h.clear).toHaveBeenCalledWith(ME, "whatsapp_shop")
+    expect(h.submitOtp).not.toHaveBeenCalled()
+  })
+
+  it("an AI_CONVERSATION session is also no active flow: handled", async () => {
+    live()
+    h.state.sessions.set(FROM, { step: "AI_CONVERSATION" })
+    expect(await shopBotOtpFallback(FROM, "123456")).toBe(APPROVE)
+  })
+
+  it("a session inside any other step is left alone (null) without reading the pointer", async () => {
+    live()
+    for (const step of ["NP_PAY_VERIFY", "PB_PAY_VERIFY", "SUBMIT_OTP", "ENTER_PAYMENT_PHONE", "AIRTIME_ENTER_AMOUNT", "CONFIRM"]) {
+      h.state.sessions.set(FROM, { ...SELECT, step })
+      expect(await shopBotOtpFallback(FROM, "123456")).toBeNull()
+    }
+    expect(h.peek).not.toHaveBeenCalled()
+    expect(h.submitBotOtp).not.toHaveBeenCalled()
+  })
+
+  it("no pointer, the MAIN bot's pointer, or a non-OTP shape => null (today's shop router runs)", async () => {
+    expect(await shopBotOtpFallback(FROM, "123456")).toBeNull()
+    live({ channel: "whatsapp" })
+    expect(await shopBotOtpFallback(FROM, "123456")).toBeNull()
+    live()
+    for (const t of ["123", "123456789", "hi", "12 34"]) expect(await shopBotOtpFallback(FROM, t)).toBeNull()
+    expect(h.submitBotOtp).not.toHaveBeenCalled()
+    expect(session()).toBeUndefined()
   })
 })

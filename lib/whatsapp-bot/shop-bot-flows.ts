@@ -23,10 +23,10 @@ import { handlePayBillsStep, livePayBillsDeps, startPayBills } from "@/lib/ussd/
 import { WHATSAPP_PROFILE } from "@/lib/ussd/bots/profile"
 import { botErrorText } from "@/lib/ussd/bots/screen"
 import type { USSDSession, UzoResponse } from "@/lib/ussd/types"
-import { handleWaBotOtp, waBotNaturalToDigit, waBotOtpPending } from "./bot-flows"
+import { handleWaBotOtp, waBotNaturalToDigit, waBotOtpPending, waBotOtpWithoutSession, WA_OTP_SHAPE } from "./bot-flows"
 import { whatsappBotItemsVisible } from "./cashback-visibility"
 import { shopInvalidPaymentPhoneMenu, shopPaymentPhonePrompt, shopProductMenu, type ShopBotMenuItems } from "./shop-menus"
-import { setSession } from "./shop-session"
+import { getSession, setSession } from "./shop-session"
 import type { WaShopSession } from "./shop-types"
 
 export { isWaBotStep as isShopBotStep } from "./bot-flows"
@@ -146,6 +146,30 @@ async function finish(sender: string, session: WaShopSession, r: UzoResponse, si
   if (r.ussdServiceOp === 17 && (await waBotOtpPending(sender, since, "whatsapp_shop"))) {
     await setSession(sender, { ...withoutFlow(session), step: "SUBMIT_OTP", botOtp: true })
   }
+  return r.message
+}
+
+/**
+ * The shop bot's no-session fallback (webhook, before the shop router): when the chat has no active flow (no session,
+ * the closed flow's SELECT_PRODUCT, or the AI step) an OTP-shaped reply is checked against this sender's
+ * wa-shop-bot-otp pointer and, when one exists, goes to submitBotOtp. Returns the reply text (the caller sends it on the
+ * shop number), or null to run the shop router exactly as before. A retry leaves the chat on SUBMIT_OTP (botOtp, shop
+ * fields kept); a final answer lands on AI_CONVERSATION, as the in-session SUBMIT_OTP path does.
+ */
+export async function shopBotOtpFallback(sender: string, text: string): Promise<string | null> {
+  if (!WA_OTP_SHAPE.test(String(text ?? "").trim())) return null
+  let s: WaShopSession | null
+  try {
+    s = await getSession(sender)
+  } catch (e) {
+    console.error(`[${TAG}] session read failed (no-session OTP fallback):`, e instanceof Error ? e.message : "error")
+    return null
+  }
+  if (s && s.step !== "SELECT_PRODUCT" && s.step !== "AI_CONVERSATION") return null
+  const r = await waBotOtpWithoutSession(sender, text, "whatsapp_shop")
+  if (!r) return null
+  if (r.ussdServiceOp === 17) await setSession(sender, { step: "AI_CONVERSATION" })
+  else await setSession(sender, { ...(s && s.step === "SELECT_PRODUCT" ? withoutFlow(s) : {}), step: "SUBMIT_OTP", botOtp: true })
   return r.message
 }
 
