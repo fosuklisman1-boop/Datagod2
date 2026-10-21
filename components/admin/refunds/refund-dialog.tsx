@@ -15,7 +15,7 @@ export interface PreviewPayload {
   /** warning: refundable only after the admin confirms (admin-overridden Hubtel failure). */
   eligibility: { eligible: true; warning?: string } | { eligible: false; code?: string; reason: string }
   defaultAmount: number
-  gateways: { id: string; label: string; ok: boolean; reason?: string }[]
+  gateways: { id: string; label: string; ok: boolean; reason?: string; fixedAmount?: number }[]
   clawback: { ok: boolean; lines: { shopId: string; credited: number; pending: number; fromProfit: number; fromWallet: number; shortfall: number }[] }
   /** Customer details for a manual refund (who to pay); null when unknown. */
   contact?: {
@@ -105,10 +105,13 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, getToken])
 
-  const parsed = parseRefundAmount(amount)
+  const gw = preview?.gateways.find((g) => g.id === gateway)
+  // A gateway that can only refund one exact amount (Hubtel) locks the field; never for an unavailable entry.
+  const lockedAmount = gw?.ok === true && typeof gw.fixedAmount === "number" ? gw.fixedAmount : null
+  const effectiveAmount = lockedAmount !== null ? lockedAmount.toFixed(2) : amount
+  const parsed = parseRefundAmount(effectiveAmount)
   const amountNum = parsed ?? 0
   const amountOk = parsed !== null && (!preview || parsed <= preview.order.paid)
-  const gw = preview?.gateways.find((g) => g.id === gateway)
   const cutTotal = preview ? preview.clawback.lines.reduce((s, l) => s + l.credited + l.pending, 0) : 0
   const eligible = preview?.eligibility.eligible === true
   const isManual = gateway === "manual"
@@ -206,7 +209,7 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
                       name="gateway"
                       disabled={!g.ok || submitting}
                       checked={gateway === g.id}
-                      onChange={() => { setGateway(g.id); setConfirmed(false) }}
+                      onChange={() => { setGateway(g.id); setAmount(Number(preview.defaultAmount).toFixed(2)); setConfirmed(false) }}
                       className="mt-1"
                     />
                     <span>
@@ -226,11 +229,15 @@ export function RefundDialog({ target, getToken, onClose, onOutcome, onReload }:
                 step="0.01"
                 min="0.01"
                 max={preview.order.paid}
-                value={amount}
-                disabled={submitting}
+                value={effectiveAmount}
+                disabled={submitting || lockedAmount !== null}
                 onChange={(e) => { setAmount(e.target.value); setConfirmed(false) }}
               />
-              <p className="text-xs text-muted-foreground">Default is the price minus the gateway fee. Lower it to keep part. The owner&apos;s full cut is removed either way.</p>
+              <p className="text-xs text-muted-foreground">
+                {lockedAmount !== null
+                  ? "Hubtel refunds the full amount only"
+                  : "Default is the price minus the gateway fee. Lower it to keep part. The owner's full cut is removed either way."}
+              </p>
             </div>
 
             {isManual && (
