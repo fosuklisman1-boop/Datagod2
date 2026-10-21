@@ -270,9 +270,10 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
     try {
       // Keyed by the session's authenticated number (dialler / WhatsApp sender), never the paying number: only this
       // session's owner can ever submit the code for this order.
-      // Each channel has its own key space (Uzo: ussd-bot-otp, unchanged; WhatsApp: wa-bot-otp).
+      // Each channel has its own key space (Uzo: ussd-bot-otp, unchanged; main WhatsApp: wa-bot-otp; WhatsApp shop:
+      // wa-shop-bot-otp), so one bot's send_otp never overwrites the other bot's pending code for the same sender.
       const pointer: BotOtpPointer = { reference, orderType: i.orderType, orderId: i.orderId, createdAt }
-      if (whatsapp) pointer.channel = "whatsapp"
+      if (whatsapp) pointer.channel = i.botSurface === "whatsapp_shop" ? "whatsapp_shop" : "whatsapp"
       await d.otpPointer.set(dialLocal, pointer)
     } catch (e) {
       console.error(`[${TAG}] could not store the OTP pointer for ${i.orderId}:`, e instanceof Error ? e.message : String(e))

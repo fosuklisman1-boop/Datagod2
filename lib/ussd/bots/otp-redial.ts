@@ -31,17 +31,18 @@ export interface BotOtpRedialDeps {
 }
 
 /**
- * Live wiring. `channel` = the pointer key space: "ussd" (default, the Uzo menus: exactly as before) or "whatsapp"
- * (the WhatsApp bots, `wa-bot-otp:<sender>`): the peek and the cancel's clear stay inside that key space.
+ * Live wiring. `channel` = the pointer key space: "ussd" (default, the Uzo menus: exactly as before), "whatsapp" (the
+ * main WhatsApp bot, `wa-bot-otp:<sender>`) or "whatsapp_shop" (the WhatsApp shop bot, `wa-shop-bot-otp:<sender>`):
+ * the peek and the cancel's clear stay inside that key space.
  */
 export function liveBotOtpRedialDeps(channel: BotOtpChannel = "ussd"): BotOtpRedialDeps {
   return {
-    peek: channel === "whatsapp" ? (phone) => peekBotOtpPointer(phone, "whatsapp") : peekBotOtpPointer,
+    peek: channel === "ussd" ? peekBotOtpPointer : (phone) => peekBotOtpPointer(phone, channel),
     submit: (p, otp) => submitBotOtp(getBotMomoRuntime(), p, otp),
     async cancel(p) {
       await failBotCharge(getBotMomoRuntime().db, p.orderType, p.orderId, p.reference, TAG)
-      if (channel === "whatsapp") await clearBotOtpPointer(p.phone, "whatsapp")
-      else await clearBotOtpPointer(p.phone)
+      if (channel === "ussd") await clearBotOtpPointer(p.phone)
+      else await clearBotOtpPointer(p.phone, channel)
     },
   }
 }

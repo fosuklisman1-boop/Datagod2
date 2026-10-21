@@ -10,8 +10,9 @@
 // - "Back to menu" = the shop's product menu (same visibility rules as its dispatch).
 // - Order safety: the shop is re-checked (isShopStillOpen) right before the order is created (confirm "1") and right
 //   before a verified payer code would charge (*_PAY_VERIFY); a closed shop fails closed with the shop-closed text.
-// - Paystack send_otp: same as the main bot (bot-flows.ts): a pointer this reply's charge stored under the sender in
-//   the wa-bot-otp key space puts the chat on SUBMIT_OTP (botOtp); the next reply goes to submitBotOtp.
+// - Paystack send_otp: same as the main bot (bot-flows.ts) but in the shop bot's OWN key space: a pointer this reply's
+//   charge stored under the sender in wa-shop-bot-otp puts the chat on SUBMIT_OTP (botOtp); the next reply goes to
+//   submitBotOtp. The main bot's wa-bot-otp pointer for the same sender is never read or cleared here.
 import { createClient } from "@supabase/supabase-js"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import {
@@ -22,13 +23,18 @@ import { handlePayBillsStep, livePayBillsDeps, startPayBills } from "@/lib/ussd/
 import { WHATSAPP_PROFILE } from "@/lib/ussd/bots/profile"
 import { botErrorText } from "@/lib/ussd/bots/screen"
 import type { USSDSession, UzoResponse } from "@/lib/ussd/types"
-import { waBotNaturalToDigit, waBotOtpPending } from "./bot-flows"
+import { handleWaBotOtp, waBotNaturalToDigit, waBotOtpPending } from "./bot-flows"
 import { whatsappBotItemsVisible } from "./cashback-visibility"
 import { shopInvalidPaymentPhoneMenu, shopPaymentPhonePrompt, shopProductMenu, type ShopBotMenuItems } from "./shop-menus"
 import { setSession } from "./shop-session"
 import type { WaShopSession } from "./shop-types"
 
-export { isWaBotStep as isShopBotStep, handleWaBotOtp as handleShopBotOtp } from "./bot-flows"
+export { isWaBotStep as isShopBotStep } from "./bot-flows"
+
+/** The reply on the shop bot's OTP step: the sender's pointer in the SHOP key space (`wa-shop-bot-otp`) only. */
+export function handleShopBotOtp(sender: string, input: string): Promise<UzoResponse> {
+  return handleWaBotOtp(sender, input, "whatsapp_shop")
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -133,11 +139,11 @@ async function shopOpen(session: WaShopSession, hooks: ShopBotHooks): Promise<bo
 
 /**
  * Tail of a flow reply: a final screen whose charge answered Paystack `send_otp` during THIS reply (the sender's
- * wa-bot-otp pointer is newer than `since`) puts the chat on SUBMIT_OTP for the code. Everything else was already
+ * wa-shop-bot-otp pointer is newer than `since`) puts the chat on SUBMIT_OTP for the code. Everything else was already
  * saved by the flow (the closed session lands on SELECT_PRODUCT).
  */
 async function finish(sender: string, session: WaShopSession, r: UzoResponse, since: number): Promise<string> {
-  if (r.ussdServiceOp === 17 && (await waBotOtpPending(sender, since))) {
+  if (r.ussdServiceOp === 17 && (await waBotOtpPending(sender, since, "whatsapp_shop"))) {
     await setSession(sender, { ...withoutFlow(session), step: "SUBMIT_OTP", botOtp: true })
   }
   return r.message

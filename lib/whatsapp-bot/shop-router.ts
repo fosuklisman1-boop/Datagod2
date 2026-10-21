@@ -1675,7 +1675,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
 
       // ── SUBMIT_OTP ───────────────────────────────────────────────────────────
       case 'SUBMIT_OTP': {
-        // Commission-cashback bot charge (Paystack send_otp): the sender's wa-bot-otp pointer is looked up again
+        // Commission-cashback bot charge (Paystack send_otp): the sender's wa-shop-bot-otp pointer is looked up again
         // (that lookup is the auth); a wrong code keeps this step, ok / "0" cancel / final failure end it.
         if (session.botOtp) {
           const r = await handleShopBotOtp(from, input)

@@ -67,7 +67,9 @@ const h = vi.hoisted(() => {
     failBotCharge: vi.fn(async () => {}),
     sendPayerOtp: vi.fn(async () => ({ ok: true })),
     verifyPayerOtp: vi.fn(async (_p: string, code: string) => (code === "123456" ? { ok: true, retry: false } : { ok: false, retry: true })),
-    peek: vi.fn(async (_phone: string, _channel?: string) => state.pointer),
+    // Channel-aware like the real store: a pointer is only found in its own key space.
+    peek: vi.fn(async (_phone: string, channel?: string) =>
+      state.pointer && (state.pointer.channel ?? "ussd") === (channel ?? "ussd") ? state.pointer : null),
     submitBotOtp: vi.fn(async () => ({ ...state.submit })),
     clear: vi.fn(async () => {}),
     chargeMobileMoney: vi.fn(),
@@ -439,7 +441,7 @@ describe("Paystack send_otp in chat", () => {
   function sendOtpCharge() {
     h.charge.mockImplementationOnce(async (_rt: unknown, i: any) => {
       h.state.pointer = {
-        reference: "pay-ref", orderType: i.orderType, orderId: i.orderId, createdAt: new Date().toISOString(), phone: ME, channel: "whatsapp",
+        reference: "pay-ref", orderType: i.orderType, orderId: i.orderId, createdAt: new Date().toISOString(), phone: ME, channel: "whatsapp_shop",
       }
       return { ok: true, reference: "pay-ref", status: "send_otp", promptedPhone: i.payPhone }
     })
@@ -450,7 +452,8 @@ describe("Paystack send_otp in chat", () => {
     await enter()
     sendOtpCharge()
     expect(await send("5", "1", "1", "1", "1", PAY, "1")).toBe(SENT)
-    expect(h.peek).toHaveBeenCalledWith(ME, "whatsapp")
+    expect(h.peek).toHaveBeenCalledWith(ME, "whatsapp_shop")
+    expect(h.peek).not.toHaveBeenCalledWith(ME, "whatsapp")
     expect(session()).toMatchObject({ step: "SUBMIT_OTP", botOtp: true })
     h.state.submit = { ok: false, retry: true }
     expect(await send("1111")).toBe(`Wrong code. Try again.\n${OTP_PROMPT}`)
@@ -470,7 +473,7 @@ describe("Paystack send_otp in chat", () => {
     await send("6", "2", "7012345678", "50", PAY, "1")
     expect(await send("0")).toBe("Order cancelled.")
     expect(h.failBotCharge).toHaveBeenCalledWith(h.db, "cs_bill", "pb-order-1", "pay-ref", expect.any(String))
-    expect(h.clear).toHaveBeenCalledWith(ME, "whatsapp")
+    expect(h.clear).toHaveBeenCalledWith(ME, "whatsapp_shop")
     expect(await send("1")).toBe("")
     expect(h.submitBotOtp).not.toHaveBeenCalled()
     expect(h.createBill).toHaveBeenCalledTimes(1)
@@ -481,8 +484,22 @@ describe("Paystack send_otp in chat", () => {
     on()
     await enter()
     h.state.pointer = {
-      reference: "old", orderType: "cs_bundle", orderId: "old-order", createdAt: new Date(Date.now() - 60_000).toISOString(), phone: ME, channel: "whatsapp",
+      reference: "old", orderType: "cs_bundle", orderId: "old-order", createdAt: new Date(Date.now() - 60_000).toISOString(), phone: ME, channel: "whatsapp_shop",
     }
+    expect(await send("5", "1", "1", "1", "1", PAY, "1")).toBe(SENT)
+    expect(session()?.step).toBe("SELECT_PRODUCT")
+  })
+
+  it("a fresh MAIN-bot pointer for the same sender never takes over the shop chat", async () => {
+    on()
+    await enter()
+    h.charge.mockImplementationOnce(async (_rt: unknown, i: any) => {
+      // Something else (the main bot) stored a pointer under the sender in ITS key space during this reply.
+      h.state.pointer = {
+        reference: "main-ref", orderType: "cs_bill", orderId: "main-order", createdAt: new Date().toISOString(), phone: ME, channel: "whatsapp",
+      }
+      return { ok: true, reference: "pay-ref", status: "pay_offline", promptedPhone: i.payPhone }
+    })
     expect(await send("5", "1", "1", "1", "1", PAY, "1")).toBe(SENT)
     expect(session()?.step).toBe("SELECT_PRODUCT")
   })

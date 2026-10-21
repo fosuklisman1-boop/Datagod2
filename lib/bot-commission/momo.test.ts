@@ -10,6 +10,9 @@ const NOW = Date.parse("2026-10-20T10:00:00Z")
 const SHOP = "11111111-2222-4333-8444-555555555555"
 const OTHER_SHOP = "99999999-2222-4333-8444-555555555555"
 const DIAL = "233241234567"
+/** The fake pointer store's key per channel (Uzo = the bare phone, as before). */
+const fakePointerKey = (phone: string, channel?: string) =>
+  channel === "whatsapp" ? `wa:${phone}` : channel === "whatsapp_shop" ? `was:${phone}` : phone
 
 /** In-memory PostgREST stand-in: select / insert / update with eq / in filters; records every update. */
 function fakeDb(
@@ -118,9 +121,9 @@ function make(opts: {
       return n <= max
     }),
     otpPointer: {
-      // Uzo pointers under the bare phone (as before); WhatsApp ones under "wa:<phone>".
-      set: vi.fn(async (phone: string, p: BotOtpPointer) => { pointers.set(p.channel === "whatsapp" ? `wa:${phone}` : phone, { ...p, phone }) }),
-      clear: vi.fn(async (phone: string, channel?: string) => { pointers.delete(channel === "whatsapp" ? `wa:${phone}` : phone) }),
+      // Uzo pointers under the bare phone (as before); WhatsApp ones under "wa:<phone>", WhatsApp shop under "was:<phone>".
+      set: vi.fn(async (phone: string, p: BotOtpPointer) => { pointers.set(fakePointerKey(phone, p.channel), { ...p, phone }) }),
+      clear: vi.fn(async (phone: string, channel?: string) => { pointers.delete(fakePointerKey(phone, channel)) }),
     },
     payerOtp: {
       required: vi.fn(async () => {
@@ -583,11 +586,22 @@ describe("botChargeMomo: payPhone (WhatsApp: charge the typed number)", () => {
     expect(e.charges).toHaveLength(0)
   })
 
-  it("WhatsApp shop send_otp also uses the whatsapp pointer channel", async () => {
+  it("WhatsApp shop send_otp uses its own whatsapp_shop pointer channel (never the main bot's)", async () => {
     const m = make({ bundles: [waShopBundle()], chargeStatus: "send_otp" })
     expect((await botChargeMomo(m.deps, WA_SHOP_BUNDLE)).ok).toBe(true)
-    expect(m.pointers.get("wa:0241234567")).toMatchObject({ channel: "whatsapp", orderId: "d1" })
+    expect(m.pointers.get("was:0241234567")).toMatchObject({ channel: "whatsapp_shop", orderId: "d1" })
+    expect(m.pointers.has("wa:0241234567")).toBe(false)
     expect(m.pointers.has("0241234567")).toBe(false)
+  })
+
+  it("submitBotOtp on a WhatsApp shop pointer clears it in the whatsapp_shop channel only", async () => {
+    const m = make({ bundles: [waShopBundle()], chargeStatus: "send_otp", otpStatus: "pending" })
+    const r = await botChargeMomo(m.deps, WA_SHOP_BUNDLE)
+    if (!r.ok) throw new Error("expected ok")
+    const p = m.pointers.get("was:0241234567")!
+    expect(await submitBotOtp(m.deps, p, "123456")).toEqual({ ok: true, retry: false })
+    expect(m.deps.otpPointer.clear).toHaveBeenCalledWith("0241234567", "whatsapp_shop")
+    expect(m.pointers.size).toBe(0)
   })
 
   it("submitBotOtp on a WhatsApp pointer clears it in the whatsapp channel only", async () => {

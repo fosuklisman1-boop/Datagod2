@@ -85,7 +85,7 @@ export interface WaShopSession extends UzoNpSessionFields, UzoPbSessionFields {
   // SUBMIT_OTP never has to guess/default).
   pendingOrderTable?: 'ussd_shop_orders' | 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'
   // SUBMIT_OTP is for a commission-cashback bot charge (Paystack send_otp): the code goes to submitBotOtp through the
-  // sender's wa-bot-otp pointer (looked up again on every reply), never to the legacy submitOtp path.
+  // sender's wa-shop-bot-otp pointer (looked up again on every reply), never to the legacy submitOtp path.
   botOtp?: boolean
   // Airtime flow
   airtimeRecipient?: string

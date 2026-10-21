@@ -86,6 +86,39 @@ describe("bot OTP pointer", () => {
     expect(await s.peek("0241234567", "whatsapp")).toBeNull()
   })
 
+  it("the WhatsApp shop bot has its own key space (wa-shop-bot-otp:<0X>); main WhatsApp and Uzo keys are unchanged", () => {
+    expect(botOtpPointerKey("233241234567", "whatsapp_shop")).toBe("wa-shop-bot-otp:0241234567")
+    expect(botOtpPointerKey("233241234567", "whatsapp")).toBe("wa-bot-otp:0241234567")
+    expect(botOtpPointerKey("233241234567")).toBe("ussd-bot-otp:0241234567")
+    expect(botOtpPointerKey("12", "whatsapp_shop")).toBeNull()
+  })
+
+  it("a shop-bot pointer never overwrites (or is seen as) the main bot's pointer for the same sender", async () => {
+    const r = fakeRedis()
+    const s = createBotOtpPointerStore(() => r as any)
+    const MAIN: BotOtpPointer = { ...P, orderId: "main-1", channel: "whatsapp" }
+    const SHOP: BotOtpPointer = { ...P, orderId: "shop-1", channel: "whatsapp_shop" }
+    await s.set("233241234567", MAIN)
+    await s.set("233241234567", SHOP)
+    expect([...r.data.keys()].sort()).toEqual(["wa-bot-otp:0241234567", "wa-shop-bot-otp:0241234567"])
+    expect(r.ttls.get("wa-shop-bot-otp:0241234567")).toBe(600)
+    expect(await s.peek("0241234567", "whatsapp")).toMatchObject({ orderId: "main-1", channel: "whatsapp" })
+    expect(await s.peek("0241234567", "whatsapp_shop")).toEqual({ ...SHOP, phone: "0241234567" })
+    expect(await s.peek("0241234567")).toBeNull()
+    await s.clear("0241234567", "whatsapp_shop")
+    expect(await s.peek("0241234567", "whatsapp_shop")).toBeNull()
+    expect(await s.peek("0241234567", "whatsapp")).toMatchObject({ orderId: "main-1" })
+  })
+
+  it("a main-bot value stored under the shop key (or the reverse) is ignored", async () => {
+    const r = fakeRedis()
+    r.data.set("wa-shop-bot-otp:0241234567", { ...P, phone: "0241234567", channel: "whatsapp" })
+    r.data.set("wa-bot-otp:0241234567", { ...P, phone: "0241234567", channel: "whatsapp_shop" })
+    const s = createBotOtpPointerStore(() => r as any)
+    expect(await s.peek("0241234567", "whatsapp_shop")).toBeNull()
+    expect(await s.peek("0241234567", "whatsapp")).toBeNull()
+  })
+
   it("memory fallback keeps the channels apart too", async () => {
     const s = createBotOtpPointerStore(() => null, () => 1_000)
     await s.set("0241234567", { ...P, channel: "whatsapp" })

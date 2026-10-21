@@ -65,15 +65,19 @@ export async function handleWaBotStep(sender: string, input: string, session: US
   return handlePayBillsStep(ctx, input, session, livePayBillsDeps("whatsapp", waBotIo))
 }
 
+/** The WhatsApp bots' pointer key spaces: the main bot ("whatsapp") and the shop bot ("whatsapp_shop"). */
+export type WaBotOtpChannel = "whatsapp" | "whatsapp_shop"
+
 /**
  * A Paystack `send_otp` pointer this sender's charge stored during THIS reply (created at or after `since`, epoch ms),
- * in the WhatsApp key space. An older pointer (an earlier order) never takes over the chat. Never throws.
+ * in this bot's key space (default: the main bot's). An older pointer (an earlier order) never takes over the chat.
+ * Never throws.
  */
-export async function waBotOtpPending(sender: string, since: number): Promise<boolean> {
+export async function waBotOtpPending(sender: string, since: number, channel: WaBotOtpChannel = "whatsapp"): Promise<boolean> {
   const local = normalizeGhanaPhone(String(sender ?? ""))
   if (!local) return false
   try {
-    const p = await peekBotOtpPointer(local, "whatsapp")
+    const p = await peekBotOtpPointer(local, channel)
     const at = p ? Date.parse(p.createdAt) : NaN
     return Number.isFinite(at) && at >= since
   } catch (e) {
@@ -82,10 +86,13 @@ export async function waBotOtpPending(sender: string, since: number): Promise<bo
   }
 }
 
-/** The reply on the bot OTP step: the pointer is looked up again by the sender (that lookup is the auth). */
-export async function handleWaBotOtp(sender: string, input: string): Promise<UzoResponse> {
+/**
+ * The reply on the bot OTP step: the pointer is looked up again by the sender in this bot's key space (that lookup is
+ * the auth). Default: the main bot.
+ */
+export async function handleWaBotOtp(sender: string, input: string, channel: WaBotOtpChannel = "whatsapp"): Promise<UzoResponse> {
   const local = normalizeGhanaPhone(String(sender ?? "")) ?? ""
-  return handleBotOtpRedial(input, local, liveBotOtpRedialDeps("whatsapp"))
+  return handleBotOtpRedial(input, local, liveBotOtpRedialDeps(channel))
 }
 
 /**
