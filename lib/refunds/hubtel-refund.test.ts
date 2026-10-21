@@ -1,0 +1,140 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  buildCallbackUrl, classifyRefundReply, requestHubtelRefund, signCallbackToken, verifyCallbackToken,
+} from "./hubtel-refund"
+
+beforeEach(() => {
+  vi.stubEnv("HUBTEL_RELAY_URL", "https://relay.example.com/")
+  vi.stubEnv("HUBTEL_RELAY_SECRET", "relay-secret")
+  vi.stubEnv("HUBTEL_CS_CALLBACK_SECRET", "cb-secret")
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com")
+})
+afterEach(() => vi.unstubAllEnvs())
+
+describe("classifyRefundReply", () => {
+  it("0001 is pending with Hubtel's orderId", () => {
+    expect(classifyRefundReply(202, { responseCode: "0001", data: { orderId: "X" } })).toEqual({ kind: "pending", ref: "X" })
+  })
+  it("4515 (already in progress) is pending, empty ref when no data", () => {
+    expect(classifyRefundReply(423, { responseCode: "4515", data: null })).toEqual({ kind: "pending", ref: "" })
+  })
+  it.each(["3000", "4000", "4509"])("404 %s is failed with Hubtel's message", (code) => {
+    expect(classifyRefundReply(404, { responseCode: code, message: "nope" })).toEqual({ kind: "failed", error: "nope" })
+  })
+  it("a failed code without a message still carries an error", () => {
+    const r = classifyRefundReply(404, { responseCode: "3000" })
+    expect(r.kind).toBe("failed")
+  })
+  it("5xx html is unknown", () => {
+    expect(classifyRefundReply(500, "<html>").kind).toBe("unknown")
+  })
+  it("network error (status 0) is unknown", () => {
+    expect(classifyRefundReply(0, "timeout").kind).toBe("unknown")
+  })
+  it("404 with a non-JSON body is unknown", () => {
+    expect(classifyRefundReply(404, "Not Found").kind).toBe("unknown")
+  })
+  it("404 with an unrecognised responseCode is unknown", () => {
+    expect(classifyRefundReply(404, { responseCode: "9999", message: "x" }).kind).toBe("unknown")
+  })
+})
+
+describe("callback token", () => {
+  it("round trips", () => {
+    expect(verifyCallbackToken("r1", signCallbackToken("r1"))).toBe(true)
+  })
+  it("rejects a wrong token", () => {
+    expect(verifyCallbackToken("r1", "0".repeat(64))).toBe(false)
+  })
+  it("rejects a token minted for another refund", () => {
+    expect(verifyCallbackToken("r2", signCallbackToken("r1"))).toBe(false)
+  })
+  it("rejects a different-length token without throwing", () => {
+    expect(verifyCallbackToken("r1", "abc")).toBe(false)
+    expect(verifyCallbackToken("r1", "")).toBe(false)
+  })
+  it("empty secret: verify false, sign throws", () => {
+    const token = signCallbackToken("r1")
+    vi.stubEnv("HUBTEL_CS_CALLBACK_SECRET", "")
+    expect(verifyCallbackToken("r1", token)).toBe(false)
+    expect(() => signCallbackToken("r1")).toThrow()
+  })
+})
+
+describe("buildCallbackUrl", () => {
+  it("builds the webhook url with refund id and token", () => {
+    const url = new URL(buildCallbackUrl("r1"))
+    expect(url.origin + url.pathname).toBe("https://app.example.com/api/webhooks/hubtel-refund")
+    expect(url.searchParams.get("refund")).toBe("r1")
+    expect(verifyCallbackToken("r1", url.searchParams.get("t") ?? "")).toBe(true)
+  })
+  it("throws when NEXT_PUBLIC_APP_URL is missing", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "")
+    expect(() => buildCallbackUrl("r1")).toThrow()
+  })
+  it("throws when the callback secret is missing", () => {
+    vi.stubEnv("HUBTEL_CS_CALLBACK_SECRET", "")
+    expect(() => buildCallbackUrl("r1")).toThrow()
+  })
+})
+
+const relayReply = (status: number, json: unknown) =>
+  vi.fn(async () => new Response(typeof json === "string" ? json : JSON.stringify(json), { status })) as unknown as typeof fetch
+
+describe("requestHubtelRefund", () => {
+  it("posts orderId and callbackUrl to the relay with bearer auth", async () => {
+    const f = relayReply(200, { ok: true, upstreamStatus: 202, body: { responseCode: "0001", data: { orderId: "H1" } } })
+    await requestHubtelRefund("H1", "r1", f)
+    const [url, init] = (f as any).mock.calls[0]
+    expect(url).toBe("https://relay.example.com/refund")
+    expect(init.headers.Authorization).toBe("Bearer relay-secret")
+    const sent = JSON.parse(init.body)
+    expect(sent.orderId).toBe("H1")
+    expect(sent.callbackUrl).toContain("refund=r1")
+  })
+  it("maps an accepted refund to pending", async () => {
+    const f = relayReply(200, { ok: true, upstreamStatus: 202, body: { responseCode: "0001", data: { orderId: "H1" } } })
+    expect(await requestHubtelRefund("H1", "r1", f)).toEqual({ kind: "pending", ref: "H1" })
+  })
+  it("overrides ref with the hubtelOrderId argument for 4515 (null data)", async () => {
+    const f = relayReply(200, { ok: false, upstreamStatus: 423, body: { responseCode: "4515", data: null } })
+    expect(await requestHubtelRefund("H1", "r1", f)).toEqual({ kind: "pending", ref: "H1" })
+  })
+  it("overrides ref even when Hubtel returns a different orderId", async () => {
+    const f = relayReply(200, { ok: true, upstreamStatus: 202, body: { responseCode: "0001", data: { orderId: "OTHER" } } })
+    expect(await requestHubtelRefund("H1", "r1", f)).toEqual({ kind: "pending", ref: "H1" })
+  })
+  it("maps a Hubtel rejection relayed with ok:false to failed", async () => {
+    const f = relayReply(200, { ok: false, upstreamStatus: 404, body: { responseCode: "4000", message: "bad order" } })
+    expect(await requestHubtelRefund("H1", "r1", f)).toEqual({ kind: "failed", error: "bad order" })
+  })
+  it("relay 404 (route missing) is failed with the update message", async () => {
+    const f = relayReply(404, { error: "not found" })
+    expect(await requestHubtelRefund("H1", "r1", f)).toEqual({
+      kind: "failed", error: "Hubtel relay has not been updated to support refunds",
+    })
+  })
+  it("relay unreachable is unknown", async () => {
+    const f = vi.fn(async () => { throw new Error("boom") }) as unknown as typeof fetch
+    expect((await requestHubtelRefund("H1", "r1", f)).kind).toBe("unknown")
+  })
+  it("relay non-200 is unknown", async () => {
+    expect((await requestHubtelRefund("H1", "r1", relayReply(502, "bad gateway"))).kind).toBe("unknown")
+  })
+  it("relay-reported network error (upstreamStatus 0) is unknown", async () => {
+    const f = relayReply(200, { ok: false, upstreamStatus: 0, body: "timeout" })
+    expect((await requestHubtelRefund("H1", "r1", f)).kind).toBe("unknown")
+  })
+  it("relay not configured is failed and sends nothing", async () => {
+    vi.stubEnv("HUBTEL_RELAY_URL", "")
+    const f = relayReply(200, {})
+    expect(await requestHubtelRefund("H1", "r1", f)).toEqual({ kind: "failed", error: "relay not configured" })
+    expect(f).not.toHaveBeenCalled()
+  })
+  it("missing callback config is failed and sends nothing", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "")
+    const f = relayReply(200, {})
+    expect((await requestHubtelRefund("H1", "r1", f)).kind).toBe("failed")
+    expect(f).not.toHaveBeenCalled()
+  })
+})
