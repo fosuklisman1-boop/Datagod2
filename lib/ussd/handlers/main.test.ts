@@ -12,7 +12,12 @@ const h = vi.hoisted(() => ({
   botMenusVisible: vi.fn(),
   startNetworkPlans: vi.fn(async () => ({ message: "NP START", ussdServiceOp: 2 as const })),
   startPayBills: vi.fn(async () => ({ message: "PB START", ussdServiceOp: 2 as const })),
+  wa: { networkPlans: false, payBills: false, cashbackAirtime: false },
+  waVisible: vi.fn(),
+  startWaBotFlow: vi.fn(async (kind: string) => ({ message: `WA ${kind}`, ussdServiceOp: 2 as const })),
 }))
+vi.mock("../../whatsapp-bot/cashback-visibility", () => ({ whatsappBotItemsVisible: h.waVisible }))
+vi.mock("@/lib/whatsapp-bot/bot-flows", () => ({ startWaBotFlow: h.startWaBotFlow }))
 vi.mock("../session", () => ({ setSession: h.setSession, deleteSession: h.deleteSession }))
 vi.mock("../../ussd-service-visibility", () => ({ getUssdServiceVisibility: async () => ({ ...h.vis }) }))
 vi.mock("../bots/gate", () => ({ botMenusVisible: h.botMenusVisible, UZO_BOT_MENUS_HIDDEN: { networkPlans: false, payBills: false } }))
@@ -45,7 +50,9 @@ beforeEach(() => {
   h.vis = { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true }
   h.bots = { networkPlans: false, payBills: false }
   h.botMenusVisible.mockReset().mockImplementation(async () => ({ ...h.bots }))
-  for (const f of [h.setSession, h.deleteSession, h.startNetworkPlans, h.startPayBills]) f.mockClear()
+  h.wa = { networkPlans: false, payBills: false, cashbackAirtime: false }
+  h.waVisible.mockReset().mockImplementation(async () => ({ ...h.wa }))
+  for (const f of [h.setSession, h.deleteSession, h.startNetworkPlans, h.startPayBills, h.startWaBotFlow]) f.mockClear()
 })
 
 describe("mainMenu (pure)", () => {
@@ -147,6 +154,36 @@ describe("handleMain for any other caller (the WhatsApp bot)", () => {
     expect(h.botMenusVisible).not.toHaveBeenCalled()
     expect(h.startNetworkPlans).not.toHaveBeenCalled()
     expect(h.startPayBills).not.toHaveBeenCalled()
+  })
+})
+
+describe("handleMain on the main WhatsApp bot (channel \"whatsapp\")", () => {
+  it("switches off: today's menu and digits, even with the Uzo gate open; the Uzo gate is never read", async () => {
+    h.bots = { networkPlans: true, payBills: true }
+    expect(await handleMain("", SID, session(), "whatsapp")).toEqual({ message: LEGACY, ussdServiceOp: 2 })
+    expect(await handleMain("5", SID, session(), "whatsapp")).toEqual({ message: LEGACY, ussdServiceOp: 2 })
+    expect(await handleMain("6", SID, session(), "whatsapp")).toEqual({ message: LEGACY, ussdServiceOp: 2 })
+    expect(h.botMenusVisible).not.toHaveBeenCalled()
+    expect(h.startWaBotFlow).not.toHaveBeenCalled()
+  })
+
+  it("switches on: items at the end, started with the WhatsApp flow starter (never the Uzo io)", async () => {
+    h.wa = { networkPlans: true, payBills: true, cashbackAirtime: false }
+    expect((await handleMain("", SID, session(), "whatsapp")).message).toBe(expected({ np: true, pb: true }))
+    const s = session()
+    expect((await handleMain("5", SID, s, "whatsapp")).message).toBe("WA networkPlans")
+    expect(h.startWaBotFlow).toHaveBeenLastCalledWith("networkPlans", SID, s)
+    expect((await handleMain("6", SID, s, "whatsapp")).message).toBe("WA payBills")
+    expect(h.startWaBotFlow).toHaveBeenLastCalledWith("payBills", SID, s)
+    expect(h.startNetworkPlans).not.toHaveBeenCalled()
+    expect(h.startPayBills).not.toHaveBeenCalled()
+    expect(h.botMenusVisible).not.toHaveBeenCalled()
+  })
+
+  it("data whitelist hides Network Plans on WhatsApp too", async () => {
+    h.wa = { networkPlans: true, payBills: true, cashbackAirtime: false }
+    expect((await handleMain("", SID, session({ dataBlocked: true }), "whatsapp")).message)
+      .toBe("Welcome to Datagod\n1. AFA Registration\n2. Buy Airtime\n3. Results Checker\n4. Pay Bills\n0. Exit")
   })
 })
 
