@@ -105,8 +105,11 @@ const usableWalletBase = (q: StorefrontQuote): boolean =>
   Number.isFinite(q.base) && q.base > 0 && q.base <= q.payAmount + 1e-9
 
 /**
- * Confirm-time decision. The screen and the live quote must agree on BOTH the pricing mode and the
- * price: cashback switched on/off or re-rated since the screen => "changed" (no order, no charge).
+ * Confirm-time decision; it honours the pricing mode the session was STAGED with (ruling 2026-10-21):
+ * - staged without a cashback price (`shownPay` undefined: today's screen, an AI-staged order, or the switch flipped
+ *   on mid-session) => "legacy": today's pricing, exactly the price shown. Never refused for cashback turning on.
+ * - staged with a cashback price => re-quoted: the live quote must be usable and the same price, else "changed"
+ *   (cashback switched off or re-rated since the screen: no order, no charge).
  */
 export type AirtimeRequote =
   | { kind: "legacy" }
@@ -114,9 +117,9 @@ export type AirtimeRequote =
   | { kind: "changed" }
 
 export function airtimeRequote(shownPay: number | undefined, live: StorefrontQuote | null, face: number): AirtimeRequote {
+  if (shownPay === undefined) return { kind: "legacy" }
   const usable = usableCashbackQuote(live, face) && usableWalletBase(live)
-  if (shownPay === undefined && !usable) return { kind: "legacy" }
-  if (!usable || shownPay === undefined || !Number.isFinite(shownPay) || !samePrice(live.payAmount, shownPay)) {
+  if (!usable || !Number.isFinite(shownPay) || !samePrice(live.payAmount, shownPay)) {
     return { kind: "changed" }
   }
   return { kind: "cashback", quote: live }

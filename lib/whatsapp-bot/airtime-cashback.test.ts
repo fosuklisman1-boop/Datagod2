@@ -22,6 +22,7 @@ const h = vi.hoisted(() => {
     quote: null as any, // what quoteBotAirtime returns (null = cashback not applied)
     quoteCalls: [] as any[],
     uzoCashbackAirtime: true, // the Uzo switch: must never matter on WhatsApp
+    pkgPrice: 10,             // packages.price (data bundles)
   }
   const db = {
     from(table: string) {
@@ -39,7 +40,12 @@ const h = vi.hoisted(() => {
             return (patch: any) => { op = "update"; state.updates.push({ table, patch }); return chain }
           }
           if (prop === "single") {
-            return async () => (op === "insert" ? { data: { id: `order-${++state.seq}` }, error: null } : { data: null, error: null })
+            return async () => {
+              if (op === "insert") return { data: { id: `order-${++state.seq}` }, error: null }
+              if (table === "packages") return { data: { price: state.pkgPrice, dealer_price: null, is_available: true }, error: null }
+              if (table === "app_settings") return { data: { paystack_fee_percentage: 3 }, error: null }
+              return { data: null, error: null }
+            }
           }
           if (prop === "maybeSingle") {
             return async () => ({ data: table === "wallets" ? { balance: state.walletBalance } : null, error: null })
@@ -105,6 +111,13 @@ vi.mock("@/lib/sms-service", () => ({
 }))
 vi.mock("@/lib/whatsapp-bot/send", () => ({ sendWhatsAppText: vi.fn(async () => {}) }))
 vi.mock("@/lib/secure-random", () => ({ secureReference: () => "AT-REF-001" }))
+vi.mock("@/lib/results-checker-service", () => ({
+  isExamBoardEnabled: vi.fn(async () => true),
+  getAvailableCount: vi.fn(async () => 100),
+  getMaxQuantity: vi.fn(async () => 50),
+  getRCBulkHint: vi.fn(async () => null),
+  calculateRCPrice: vi.fn(async () => ({ unitPrice: 20, totalPaid: 20, bulkApplied: false })),
+}))
 
 import { waRouter } from "./router"
 
@@ -160,7 +173,7 @@ beforeEach(() => {
   h.state.vis = { networkPlans: false, payBills: false, cashbackAirtime: false }
   h.state.inserts = []; h.state.updates = []; h.state.rpcCalls = []; h.state.charges = []; h.state.afterFns = []
   h.state.walletBalance = 100; h.state.dialer = {}; h.state.seq = 0
-  h.state.quote = null; h.state.quoteCalls = []; h.state.uzoCashbackAirtime = true
+  h.state.quote = null; h.state.quoteCalls = []; h.state.uzoCashbackAirtime = true; h.state.pkgPrice = 10
   h.vis.mockClear()
   atRecipient()
 })
@@ -389,4 +402,94 @@ describe("main WhatsApp airtime: cashback NOT applied stays byte-identical", () 
       expect(h.state.charges[0]).toMatchObject({ amount: 10.5, phone: PAY, reference: "order-1" })
     })
   }
+})
+
+// ── Rulings 2026-10-21 ────────────────────────────────────────────────────────
+/** An AIRTIME_CONFIRM session as lib/ai-tools.ts stages it: today's pricing, no cashback price. */
+const aiStaged = (extra: any = {}) => ({
+  step: "AIRTIME_CONFIRM", dialingPhone: ME, airtimeNetwork: "MTN", airtimeRecipient: RECIPIENT,
+  airtimeAmount: 10.5, airtimeFee: 0.5, airtimeToDeliver: 10, ...extra,
+})
+const WALLET_SHORT = "Wallet balance too low.\n" + MOMO_PROMPT
+
+describe("ruling 1: confirm honours the pricing mode the session was staged with", () => {
+  it("AI-staged airtime with cashback ON (MoMo): charged the legacy price shown, not refused", async () => {
+    cashbackOn()
+    h.state.sessions.set(FROM, aiStaged())
+    expect(await send("2")).toBe(MOMO_PROMPT)
+    expect(await send(PAY)).toBe(SENT)
+    expect(airtimeInserts()).toEqual([LEGACY_ROW])
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 10.5, phone: PAY, reference: "order-1" })
+  })
+
+  it("AI-staged airtime with cashback ON (wallet): debits the legacy price shown", async () => {
+    cashbackOn()
+    h.state.dialer = { userId: "u1", role: "customer", balance: 50, email: "c@example.com" }
+    h.state.walletBalance = 50
+    h.state.sessions.set(FROM, aiStaged({ userId: "u1", walletBalance: 50 }))
+    expect(await send("1")).toBe(PAID)
+    expect(airtimeInserts()).toEqual([{ ...LEGACY_ROW, user_id: "u1", customer_email: "c@example.com", dialing_phone: ME }])
+    expect(h.state.rpcCalls).toEqual([{ name: "deduct_wallet", args: { p_user_id: "u1", p_amount: 10.5 } }])
+  })
+
+  it("cashback-staged with a price mismatch is still refused", async () => {
+    cashbackOn()
+    await send(RECIPIENT, "10", "2")
+    h.state.quote = onFor({ payAmount: 9.7 })
+    expect(await send(PAY)).toBe(PRICE_CHANGED)
+    expect(airtimeInserts()).toEqual([])
+  })
+})
+
+describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sender's number", () => {
+  it("airtime (legacy): the cached balance passed, the live one is short => ask for the MoMo number, no order", async () => {
+    h.state.dialer = { userId: "u1", role: "customer", balance: 5 } // live
+    h.state.sessions.set(FROM, aiStaged({ userId: "u1", walletBalance: 50 })) // cached
+    expect(await send("1")).toBe(WALLET_SHORT)
+    expect(session()).toMatchObject({ step: "WA_ENTER_PAYMENT_PHONE", waNextStep: "CONFIRM_AIRTIME" })
+    expect(airtimeInserts()).toEqual([])
+    expect(h.state.afterFns).toHaveLength(0)
+    // The typed number is then charged (never the sender's).
+    expect(await send(PAY)).toBe(SENT)
+    await flushAfter()
+    expect(h.state.charges).toHaveLength(1)
+    expect(h.state.charges[0]).toMatchObject({ amount: 10.5, phone: PAY })
+  })
+
+  it("airtime (cashback): live balance below base => ask for the MoMo number, then payAmount to the typed number", async () => {
+    cashbackOn()
+    h.state.dialer = { userId: "u1", role: "dealer", balance: 9.6 }
+    await send(RECIPIENT, "10")
+    h.state.dialer = { userId: "u1", role: "dealer", balance: 9.0 }
+    expect(await send("1")).toBe(WALLET_SHORT)
+    expect(airtimeInserts()).toEqual([])
+    expect(h.state.afterFns).toHaveLength(0)
+    expect(await send(PAY)).toBe(SENT)
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 9.69, phone: PAY })
+  })
+
+  it("results checker: same fix (live price/balance short at confirm)", async () => {
+    h.state.dialer = { userId: "u1", role: "customer", balance: 5 }
+    h.state.sessions.set(FROM, {
+      step: "RC_CONFIRM", dialingPhone: ME, rcBoard: "WASSCE", rcQty: 1, rcTotal: 20, userId: "u1", walletBalance: 50,
+    })
+    expect(await send("1")).toBe(WALLET_SHORT)
+    expect(session()).toMatchObject({ step: "WA_ENTER_PAYMENT_PHONE", waNextStep: "CONFIRM_RC" })
+    expect(h.state.inserts.filter(i => i.table === "results_checker_orders")).toEqual([])
+    expect(h.state.afterFns).toHaveLength(0)
+  })
+
+  it("data bundles: same fix (verified price a pesewa above the cached balance)", async () => {
+    h.state.pkgPrice = 10.005
+    h.state.sessions.set(FROM, {
+      step: "CONFIRM", dialingPhone: ME, network: "MTN", bundleId: "p1", bundleSize: "1", bundlePrice: 10,
+      recipientPhone: RECIPIENT, userId: "u1", walletBalance: 10, paystackProvider: "mtn",
+    })
+    expect(await send("1")).toBe(WALLET_SHORT)
+    expect(session()).toMatchObject({ step: "WA_ENTER_PAYMENT_PHONE", waNextStep: "CONFIRM_BUNDLE" })
+    expect(h.state.inserts.filter(i => i.table === "ussd_orders")).toEqual([])
+    expect(h.state.afterFns).toHaveLength(0)
+  })
 })

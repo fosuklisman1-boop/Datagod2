@@ -288,18 +288,28 @@ describe("WhatsApp shop airtime: cashback applied (WhatsApp switch on + usable q
     expect(h.createShopAirtimeOrder).not.toHaveBeenCalled()
   })
 
-  it("a legacy-priced confirm (e.g. staged by the AI, no cashback price) while cashback now applies: refused, no order", async () => {
-    // Plan 3 rule (airtimeRequote): the pricing MODE shown must match the live one. Reported as a follow-up: AI-staged
-    // airtime (lib/ai-tools.ts, unchanged by this plan) stages today's pricing, so it is refused while the switch is on.
+  it("AI-staged airtime (legacy price, no cashback price) while cashback applies: legacy order + charge, not refused", async () => {
+    // Ruling 2026-10-21: confirm honours the pricing mode the session was staged with. lib/ai-tools.ts (unchanged)
+    // stages today's pricing, so the customer is charged exactly the legacy price they were shown.
     cashbackOn()
     h.state.sessions.set(FROM, {
       step: "AIRTIME_CONFIRM", shopCodeId: "code-1", shopId: "shop-1", shopName: SHOP,
       airtimeNetwork: "MTN", airtimeRecipient: RECIPIENT, airtimeAmount: 20, airtimeFee: 1.31, airtimeToDeliver: 18.69,
       paymentPhone: PAY, paystackProvider: "vod",
     })
-    expect(await send("1")).toBe(PRICE_CHANGED)
-    expect(h.createShopAirtimeOrder).not.toHaveBeenCalled()
-    expect(h.chargeMobileMoney).not.toHaveBeenCalled()
+    expect(await send("1")).toBe(SENT)
+    expect(h.createShopAirtimeOrder.mock.calls[0][0]).toStrictEqual(LEGACY_ORDER)
+    expect(h.chargeMobileMoney.mock.calls[0][0]).toStrictEqual(LEGACY_CHARGE)
+  })
+
+  it("switch flipped ON after a legacy screen: the legacy price shown is charged, not refused", async () => {
+    await toRecipient()
+    await send(RECIPIENT, "20")
+    expect(await send(PAY)).toBe(LEGACY_CONFIRM)
+    cashbackOn()
+    expect(await send("1")).toBe(SENT)
+    expect(h.createShopAirtimeOrder.mock.calls[0][0]).toStrictEqual(LEGACY_ORDER)
+    expect(h.chargeMobileMoney.mock.calls[0][0]).toStrictEqual(LEGACY_CHARGE)
   })
 
   it("the shop is re-checked before the order: closed => refused, no quote at confirm, no order", async () => {

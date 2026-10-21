@@ -343,12 +343,19 @@ describe("main USSD airtime: cashback applied", () => {
     expect(h.state.afterFns).toHaveLength(0)
   })
 
-  it("cashback switched off or on since the screen: same refusal, no order", async () => {
+  it("cashback switched off since a cashback screen: same refusal, no order", async () => {
     h.state.quote = null
     expect((await handleAirtimeConfirm("1", "s1", cbConfirmSession(), "ussd")).message).toBe("Price changed. Please try again.")
-    h.state.quote = onFor()
-    expect((await handleAirtimeConfirm("1", "s1", confirmSession(), "ussd")).message).toBe("Price changed. Please try again.")
     expect(airtimeInserts()).toEqual([])
+  })
+
+  it("cashback switched on since a legacy screen: the legacy price shown is honoured (row + charge)", async () => {
+    h.state.quote = onFor()
+    const r = await handleAirtimeConfirm("1", "s1", confirmSession(), "ussd")
+    expect(r.ussdServiceOp).toBe(17)
+    expect(airtimeInserts()).toEqual([LEGACY_ROW])
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 10.5 })
   })
 })
 

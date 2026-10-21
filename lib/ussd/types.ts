@@ -11,6 +11,11 @@ export interface UzoRequest {
 export interface UzoResponse {
   message: string
   ussdServiceOp: 2 | 17  // 2=continue, 17=final
+  /**
+   * WhatsApp only: a confirm handler called with `{ walletOnly: true }` found the LIVE wallet short. Nothing was
+   * created or charged; the WhatsApp router must ask for a MoMo number (never charge the sender's own number).
+   */
+  walletShort?: true
 }
 
 export type USSDStep =

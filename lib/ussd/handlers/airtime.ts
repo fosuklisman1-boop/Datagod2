@@ -4,7 +4,7 @@ import { UzoResponse, USSDSession } from "../types"
 import {
   cont, end, mainMenu,
   airtimeRecipientPrompt, airtimeNetworkMenu, airtimeAmountPrompt,
-  airtimeConfirmMenu, airtimePaymentMethodMenu, airtimeCashbackPaymentMethodMenu,
+  airtimeConfirmMenu, airtimePaymentMethodMenu, airtimeCashbackPaymentMethodMenu, waWalletShort,
 } from "../menus"
 import { setSession } from "../session"
 import { networkNickname } from "../network-labels"
@@ -221,7 +221,13 @@ export async function handleAirtimeConfirm(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel: Channel
+  channel: Channel,
+  /**
+   * WhatsApp "Pay via Wallet": if the LIVE wallet cannot cover the price, create nothing and return `walletShort`
+   * (the router then asks for a MoMo number) instead of charging `dialingPhone`, which there is the sender's own
+   * number. USSD never passes it (the dialing phone is the caller's own MoMo there).
+   */
+  opts: { walletOnly?: boolean } = {}
 ): Promise<UzoResponse> {
   if (input.trim() === "2") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
@@ -252,10 +258,11 @@ export async function handleAirtimeConfirm(
     return end(`Amount must be GHS ${min}-${max}. Please restart.`)
   }
 
-  // Cashback re-quote (the channel's own opt-in): the screen and the live quote must agree on the pricing
-  // mode AND the price; otherwise no order is created and the caller restarts.
+  // Cashback re-quote (the channel's own opt-in), only for a session staged WITH a cashback price: the live quote
+  // must still be usable at the same price, otherwise no order is created and the caller restarts. A session staged
+  // with today's pricing (incl. AI-staged) is sold at today's pricing, exactly as shown.
   let cb: StorefrontQuote | null = null
-  {
+  if (session.airtimeCashbackPay !== undefined) {
     const rq = airtimeRequote(session.airtimeCashbackPay, await quoteFor(channel, network, amount), amount)
     if (rq.kind === "changed") {
       await setSession(sessionId, { step: "MAIN", dialingPhone })
@@ -281,6 +288,7 @@ export async function handleAirtimeConfirm(
 
   const provider = paystackProviderFromPhone(dialingPhone)
   const walletEligible = dialer.userId && dialer.balance !== undefined && dialer.balance >= walletPrice
+  if (!walletEligible && opts.walletOnly) return waWalletShort()
   if (!walletEligible && !provider) {
     await setSession(sessionId, { step: "MAIN", dialingPhone })
     return end("Payment not available for your number.")

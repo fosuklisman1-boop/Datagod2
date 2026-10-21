@@ -31,7 +31,7 @@ import {
   airtimePaymentMethodMenu, airtimeCashbackPaymentMethodMenu, rcPaymentMethodMenu,
   rcCheckBoardMenu, rcCheckCandidateTypeMenu, rcCheckModeMenu,
   rcCheckVoucherPrompt, rcCheckIndexPrompt,
-  waConfirmMenu, waAirtimeConfirmMenu, waAirtimeCashbackConfirmMenu, waRcConfirmMenu,
+  waConfirmMenu, waAirtimeConfirmMenu, waAirtimeCashbackConfirmMenu, waRcConfirmMenu, WA_WALLET_SHORT_PROMPT,
 } from "@/lib/ussd/menus"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { handleWaBotOtp, handleWaBotStep, isWaBotStep, waBotNaturalToDigit, waBotOtpPending } from "./bot-flows"
@@ -344,9 +344,15 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       } else if (input === '1') {
         if (!session.userId || (session.walletBalance ?? 0) < (session.bundlePrice ?? 0)) {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
-          result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+          result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
         } else {
-          result = await handleConfirm('1', sessionId, session, 'whatsapp')
+          result = await handleConfirm('1', sessionId, session, 'whatsapp', { walletOnly: true })
+          if (result.walletShort) {
+            // The verified price is above the wallet: ask for a MoMo number, never charge the sender's own.
+            await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
+            result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
+            break
+          }
           await tagOrderChannel(sessionId, phone, 'ussd_orders', result.ussdServiceOp === 17)
           // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
           if (result.ussdServiceOp === 2) {
@@ -451,9 +457,15 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       } else if (input === '1') {
         if (!session.userId || (session.walletBalance ?? 0) < waAirtimeWalletNeed(session)) {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
-          result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+          result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
         } else {
-          result = await handleAirtimeConfirm('1', sessionId, session, 'whatsapp')
+          result = await handleAirtimeConfirm('1', sessionId, session, 'whatsapp', { walletOnly: true })
+          if (result.walletShort) {
+            // The LIVE wallet is short: ask for a MoMo number, never charge the sender's own.
+            await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
+            result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
+            break
+          }
           await tagOrderChannel(sessionId, phone, 'airtime_orders', false)
           // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
           if (result.ussdServiceOp === 2) {
@@ -517,9 +529,15 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       } else if (input === '1') {
         if (!session.userId || (session.walletBalance ?? 0) < (session.rcTotal ?? 0)) {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
-          result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+          result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
         } else {
-          result = await handleRcConfirm('1', sessionId, session, 'whatsapp')
+          result = await handleRcConfirm('1', sessionId, session, 'whatsapp', { walletOnly: true })
+          if (result.walletShort) {
+            // The LIVE wallet / price is short: ask for a MoMo number, never charge the sender's own.
+            await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
+            result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
+            break
+          }
           await tagOrderChannel(sessionId, phone, 'results_checker_orders', false)
           // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
           if (result.ussdServiceOp === 2) {

@@ -352,6 +352,14 @@ export function waAirtimeConfirmMenu(network: string, recipient: string, amountP
   )
 }
 
+/** WhatsApp: "Pay via Wallet" chosen but the wallet cannot cover the price => ask for the MoMo number to charge. */
+export const WA_WALLET_SHORT_PROMPT = 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel'
+
+/** WhatsApp: the wallet-shortfall reply of a confirm handler called with `{ walletOnly: true }` (nothing created). */
+export function waWalletShort(): UzoResponse {
+  return { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2, walletShort: true }
+}
+
 /**
  * WhatsApp main-bot airtime confirm when commission cashback applies: "Pay GHS x (was GHS y)" (x = the MoMo price,
  * y = the airtime face), what the recipient gets, and each payment option with what it charges (the wallet pays the

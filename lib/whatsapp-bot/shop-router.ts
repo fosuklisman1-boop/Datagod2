@@ -1044,10 +1044,11 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
 
-        // Cashback re-quote (the shop was re-checked open above): the screen and the live quote must agree on the
-        // pricing mode AND the price; otherwise no order, no charge. No shop => never cashback (fail closed).
+        // Cashback re-quote (the shop was re-checked open above), only for a session staged WITH a cashback price:
+        // the live quote must still be usable at the same price, otherwise no order, no charge. A session staged with
+        // today's pricing (incl. AI-staged) is sold at today's pricing. No shop => never cashback (fail closed).
         let cb: StorefrontQuote | null = null
-        if (hasShop(session)) {
+        if (hasShop(session) && session.airtimeCashbackPay !== undefined) {
           const rq = airtimeRequote(session.airtimeCashbackPay, await waAirtimeQuote(network, amount, true), amount)
           if (rq.kind === 'changed') {
             deleteAfter = true
