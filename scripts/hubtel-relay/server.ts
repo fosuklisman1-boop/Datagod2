@@ -21,6 +21,7 @@ const handle = createRelayHandler({
   disbursementAccount: process.env.HUBTEL_DISBURSEMENT_ACCOUNT || undefined,
   csBasicAuth: process.env.HUBTEL_CS_BASIC_AUTH || undefined,
   balanceBasicAuth: process.env.HUBTEL_BALANCE_BASIC_AUTH || undefined,
+  refundBasicAuth: process.env.HUBTEL_REFUND_BASIC_AUTH || undefined,
 })
 
 function reply(res: http.ServerResponse, status: number, body: unknown, after?: () => void) {
