@@ -126,7 +126,8 @@ export interface RefundPreview {
   order: RefundableOrder
   eligibility: Eligibility
   defaultAmount: number
-  gateways: { id: string; label: string; ok: boolean; reason?: string }[]
+  /** fixedAmount: set when the gateway can refund only that exact amount (Hubtel). */
+  gateways: { id: string; label: string; ok: boolean; reason?: string; fixedAmount?: number }[]
   clawback: ClawbackPlan
   /** Who to pay for a manual refund; null when unknown, not applicable, or the lookup failed. */
   contact: RefundContact | null
@@ -152,7 +153,10 @@ export async function previewRefund(deps: RefundDeps, ref: { table: OrderTable; 
     defaultAmount: defaultRefundAmount(order.paid, order.gatewayFee),
     gateways: listGateways().map((g) => {
       const s = g.supports(order)
-      return { id: g.id, label: g.label, ok: s.ok, reason: s.ok ? undefined : s.reason }
+      const entry: RefundPreview["gateways"][number] = { id: g.id, label: g.label, ok: s.ok, reason: s.ok ? undefined : s.reason }
+      const fixed = g.fixedAmount?.(order)
+      if (typeof fixed === "number") entry.fixedAmount = fixed
+      return entry
     }),
     clawback: planClawback(order.owners),
   }
@@ -294,6 +298,10 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
 
   const amountError = validateRefundAmount(input.amount, order.paid)
   if (amountError) throw new RefundError("BAD_AMOUNT", amountError)
+  const fixed = gateway.fixedAmount?.(order)
+  if (typeof fixed === "number" && Math.abs(fixed - input.amount) > 0.005) {
+    throw new RefundError("BAD_AMOUNT", `${gateway.label} refunds the full amount only (GHS ${fixed.toFixed(2)})`)
+  }
 
   if (elig.releaseStuck) await releaseStuck(deps, order, input.adminId)
 

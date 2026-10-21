@@ -168,6 +168,8 @@ export interface RefundGateway {
   id: string
   label: string
   supports(order: RefundableOrder): GatewaySupport
+  /** Gateways that can only refund one exact amount (Hubtel: the full payment). null = no constraint for this order. */
+  fixedAmount?(order: RefundableOrder): number | null
   refund(ctx: RefundContext): Promise<GatewayOutcome>
   checkStatus?(ctx: RefundContext, gatewayRef: string | null): Promise<GatewayOutcome>
   /** Only gateways whose payout needs a one-time code (Paystack payout). */

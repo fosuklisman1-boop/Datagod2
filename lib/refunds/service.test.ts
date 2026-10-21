@@ -239,6 +239,42 @@ describe("previewRefund", () => {
   })
 })
 
+describe("fixed-amount gateways (Hubtel refunds the full amount only)", () => {
+  const fixedSetup = (fixed: number | null) => {
+    const s = setup({ kind: "pending", ref: "HUB-1" })
+    s.gateway.fixedAmount = () => fixed
+    return s
+  }
+  it("executeRefund rejects an amount differing from fixedAmount before reserving anything", async () => {
+    const { deps, calls, gateway } = fixedSetup(10)
+    await expect(executeRefund(deps, { ...input, amount: 9.8 })).rejects.toMatchObject({ code: "BAD_AMOUNT" })
+    expect(calls).toEqual([])
+    expect(gateway.refund).not.toHaveBeenCalled()
+  })
+  it("executeRefund accepts the fixed amount", async () => {
+    const { deps, calls } = fixedSetup(9.8)
+    await executeRefund(deps, input)
+    expect(names(calls)[0]).toBe("reserve_order_refund")
+  })
+  it("a null fixedAmount imposes no constraint", async () => {
+    const { deps, calls } = fixedSetup(null)
+    await executeRefund(deps, input)
+    expect(names(calls)[0]).toBe("reserve_order_refund")
+  })
+  it("previewRefund copies fixedAmount onto the gateway entry", async () => {
+    vi.stubEnv("HUBTEL_REFUND_ENABLED", "true")
+    const hubtelOrder = order({
+      table: "ussd_orders",
+      payment: { gateway: "hubtel", reference: null, payerPhone: "0241112222", walletUserId: null, hubtel: { orderId: "HUB-1", amountPaid: 10, paidAt: new Date().toISOString(), paidRows: 1 } },
+    })
+    const { deps } = setup({ kind: "completed", ref: "x" }, hubtelOrder)
+    const p = await previewRefund(deps, { table: "ussd_orders", id: "o1" })
+    vi.unstubAllEnvs()
+    expect(p.gateways.find((g) => g.id === "hubtel")).toMatchObject({ ok: true, fixedAmount: 10 })
+    expect(p.gateways.find((g) => g.id === "moolre")).not.toHaveProperty("fixedAmount")
+  })
+})
+
 describe("manual refund wiring", () => {
   it("passes the admin's reference to the gateway context", async () => {
     const { deps, gateway } = setup({ kind: "completed", ref: "manual: TX9" })
