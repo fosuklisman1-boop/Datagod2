@@ -5,6 +5,7 @@ import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, payme
 import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
+import { resolveDialer } from "../resolve-dialer"
 import { chargeMobileMoney, submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { fulfillUssdOrder } from "../fulfill"
@@ -345,8 +346,15 @@ export async function handleConfirm(
     return end(`Price changed to GHS ${verifiedPrice.toFixed(2)}. Please restart your order.`)
   }
 
-  // Same wallet test as the PAYMENT_METHOD detour below, made before any order exists.
-  const walletEligible = !!session.userId && session.walletBalance !== undefined && session.walletBalance >= verifiedPrice
+  // Same wallet test as the PAYMENT_METHOD detour below, made before any order exists. WhatsApp "Pay via Wallet"
+  // (walletOnly) reads the LIVE balance of the session's own account, as airtime and RC do, so a balance spent since the
+  // menu never leaves a pending order row behind; the Uzo path keeps the session's cached balance exactly as before.
+  let walletBalance = session.walletBalance
+  if (opts.walletOnly) {
+    const live = await resolveDialer(dialingPhone ?? '')
+    walletBalance = session.userId && live.userId === session.userId ? live.balance : undefined
+  }
+  const walletEligible = !!session.userId && walletBalance !== undefined && walletBalance >= verifiedPrice
   if (opts.walletOnly && !walletEligible) return waWalletShort()
 
   // Create pending order
@@ -379,8 +387,8 @@ export async function handleConfirm(
   const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
 
   if (walletEligible) {
-    await setSession(sessionId, { ...session, step: 'PAYMENT_METHOD', pendingOrderId: orderId })
-    return cont(paymentMethodMenu(verifiedPrice, session.walletBalance!))
+    await setSession(sessionId, { ...session, step: 'PAYMENT_METHOD', pendingOrderId: orderId, ...(opts.walletOnly ? { walletBalance } : {}) })
+    return cont(paymentMethodMenu(verifiedPrice, walletBalance!))
   }
 
   const email = await resolveEmail(dialingPhone!)

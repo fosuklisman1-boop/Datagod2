@@ -492,4 +492,45 @@ describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sen
     expect(h.state.inserts.filter(i => i.table === "ussd_orders")).toEqual([])
     expect(h.state.afterFns).toHaveLength(0)
   })
+
+  const dataConfirm = (extra: any = {}) => ({
+    step: "CONFIRM", dialingPhone: ME, network: "MTN", bundleId: "p1", bundleSize: "1", bundlePrice: 10,
+    recipientPhone: RECIPIENT, userId: "u1", walletBalance: 50, paystackProvider: "mtn", ...extra,
+  })
+
+  it("data bundles: the cached balance passed, the LIVE one is short => ask for the MoMo number, no pending order row", async () => {
+    h.state.dialer = { userId: "u1", role: "customer", balance: 5 } // live
+    h.state.sessions.set(FROM, dataConfirm()) // cached 50
+    expect(await send("1")).toBe(WALLET_SHORT)
+    expect(session()).toMatchObject({ step: "WA_ENTER_PAYMENT_PHONE", waNextStep: "CONFIRM_BUNDLE" })
+    expect(h.state.inserts.filter(i => i.table === "ussd_orders")).toEqual([])
+    expect(h.state.afterFns).toHaveLength(0)
+    expect(h.state.charges).toHaveLength(0)
+  })
+
+  it("data bundles: a live balance owned by another account never counts", async () => {
+    h.state.dialer = { userId: "u2", role: "customer", balance: 50 }
+    h.state.sessions.set(FROM, dataConfirm())
+    expect(await send("1")).toBe(WALLET_SHORT)
+    expect(h.state.inserts.filter(i => i.table === "ussd_orders")).toEqual([])
+  })
+
+  it("data bundles, Uzo path (no walletOnly): the cached balance decides, no live read (unchanged)", async () => {
+    const { handleConfirm } = await import("@/lib/ussd/handlers/bundles")
+    const { resolveDialer } = await import("@/lib/ussd/resolve-dialer")
+    vi.mocked(resolveDialer).mockClear()
+    h.state.dialer = { userId: "u1", role: "customer", balance: 5 }
+    const r = await handleConfirm("1", "uzo-session", dataConfirm() as any, "ussd")
+    expect(resolveDialer).not.toHaveBeenCalled()
+    expect(r.message).toContain("(GHS 50.00)") // the payment-method screen shows the cached balance
+    expect(h.state.inserts.filter(i => i.table === "ussd_orders")).toHaveLength(1)
+  })
+
+  it("data bundles: a live balance that covers the price still creates the order (wallet path)", async () => {
+    h.state.dialer = { userId: "u1", role: "customer", balance: 50 }
+    h.state.sessions.set(FROM, dataConfirm())
+    expect(await send("1")).not.toBe(WALLET_SHORT)
+    expect(h.state.inserts.filter(i => i.table === "ussd_orders")).toHaveLength(1)
+    expect(h.state.charges).toHaveLength(0)
+  })
 })
