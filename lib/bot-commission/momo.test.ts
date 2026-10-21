@@ -115,8 +115,9 @@ function make(opts: {
       return n <= max
     }),
     otpPointer: {
-      set: vi.fn(async (phone: string, p: BotOtpPointer) => { pointers.set(phone, { ...p, phone }) }),
-      clear: vi.fn(async (phone: string) => { pointers.delete(phone) }),
+      // Uzo pointers under the bare phone (as before); WhatsApp ones under "wa:<phone>".
+      set: vi.fn(async (phone: string, p: BotOtpPointer) => { pointers.set(p.channel === "whatsapp" ? `wa:${phone}` : phone, { ...p, phone }) }),
+      clear: vi.fn(async (phone: string, channel?: string) => { pointers.delete(channel === "whatsapp" ? `wa:${phone}` : phone) }),
     },
     payerOtp: {
       required: vi.fn(async () => {
@@ -300,6 +301,28 @@ describe("botChargeMomo: idempotent replay (no double prompt for one order)", ()
     expect(r.ok && r.status).toBe("pay_offline")
     expect(m.charges).toHaveLength(1)
     expect(m.db.tables.wallet_payments).toHaveLength(4)
+  })
+
+  it("a recent row Paystack marked 'ongoing' is replayed too (never a second prompt)", async () => {
+    const m = make({ wallet: [pendingRow({ status: "ongoing", reference: "a".repeat(32) })] })
+    expect(await botChargeMomo(m.deps, SHOP_BUNDLE)).toEqual({ ok: true, reference: "a".repeat(32), status: "pending" })
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.tables.wallet_payments).toHaveLength(1)
+    expect(m.deps.rateLimit).not.toHaveBeenCalled()
+  })
+
+  it("completed / abandoned / failed rows are not replayed", async () => {
+    for (const status of ["completed", "abandoned", "failed"]) {
+      const m = make({ wallet: [pendingRow({ status })] })
+      const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+      expect(r.ok && r.status).toBe("pay_offline")
+      expect(m.charges).toHaveLength(1)
+    }
+  })
+
+  it("an 'ongoing' row older than 15 minutes does not block", async () => {
+    const m = make({ wallet: [pendingRow({ status: "ongoing", created_at: new Date(NOW - 16 * MIN).toISOString() })] })
+    expect(await botChargeMomo(m.deps, SHOP_BUNDLE)).toMatchObject({ ok: true, status: "pay_offline" })
   })
 
   it("the replay is only for a still-payable order: a paid order is NOT_PAYABLE", async () => {
@@ -513,8 +536,36 @@ describe("botChargeMomo: payPhone (WhatsApp: charge the typed number)", () => {
     expect(m.deps.rateLimit).toHaveBeenCalledTimes(1)
     expect(m.deps.rateLimit).toHaveBeenCalledWith("momodirect_phone", 3, 60 * 60 * 1000, `mp:${PAY}`)
     expect(m.deps.recordPayerPhone).toHaveBeenCalledWith(m.db.client, expect.objectContaining({ rawPhone: PAY }))
-    expect(m.deps.otpPointer.set).toHaveBeenCalledWith("0241234567", expect.objectContaining({ reference: r.reference, orderId: "b1" }))
+    expect(m.deps.otpPointer.set).toHaveBeenCalledWith("0241234567", {
+      reference: r.reference, orderType: "cs_bill", orderId: "b1", createdAt: new Date(NOW).toISOString(), channel: "whatsapp",
+    })
     expect(m.db.tables.wallet_payments[0]).toMatchObject({ order_id: "b1", order_type: "cs_bill", amount: 20.22, fee: 0, status: "pending", shop_id: null })
+  })
+
+  it("an 'ongoing' row is replayed on WhatsApp too", async () => {
+    const m = make({
+      bills: [waBill()],
+      wallet: [{ id: "wp0", order_id: "b1", order_type: "cs_bill", reference: "c".repeat(32), status: "ongoing", created_at: new Date(NOW - 60_000).toISOString() }],
+    })
+    expect(await botChargeMomo(m.deps, WA_BILL)).toEqual({ ok: true, reference: "c".repeat(32), status: "pending" })
+    expect(m.charges).toHaveLength(0)
+  })
+
+  it("WhatsApp shop send_otp also uses the whatsapp pointer channel", async () => {
+    const m = make({ bundles: [waShopBundle()], chargeStatus: "send_otp" })
+    expect((await botChargeMomo(m.deps, WA_SHOP_BUNDLE)).ok).toBe(true)
+    expect(m.pointers.get("wa:0241234567")).toMatchObject({ channel: "whatsapp", orderId: "d1" })
+    expect(m.pointers.has("0241234567")).toBe(false)
+  })
+
+  it("submitBotOtp on a WhatsApp pointer clears it in the whatsapp channel only", async () => {
+    const m = make({ bills: [waBill()], chargeStatus: "send_otp", otpStatus: "pending" })
+    const r = await botChargeMomo(m.deps, WA_BILL)
+    if (!r.ok) throw new Error("expected ok")
+    const p = m.pointers.get("wa:0241234567")!
+    expect(await submitBotOtp(m.deps, p, "123456")).toEqual({ ok: true, retry: false })
+    expect(m.deps.otpPointer.clear).toHaveBeenCalledWith("0241234567", "whatsapp")
+    expect(m.pointers.size).toBe(0)
   })
 
   it("WhatsApp shop: the session shop, payPhone charged", async () => {

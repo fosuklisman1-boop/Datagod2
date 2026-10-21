@@ -4,12 +4,13 @@
 //
 // Same table and rules as /api/auth/send-phone-otp + verify-phone-otp (the shared core in lib/phone-otp):
 // - send: at most 3 codes per number per hour (DB count, shared with the web flow), plus the route's burst cap
-//   (2 / min) applied per number since there is no client IP in-process; 6-digit code, 10-minute expiry.
+//   (2 / min) applied per number since there is no client IP in-process, plus 5 codes per requesting WhatsApp
+//   sender per hour; 6-digit code, 10-minute expiry.
 // - verify: the route's per-number Upstash bucket (verify_phone_otp_phone, otpv:<digits>, 6 / 10 min, the SAME
 //   bucket), the bump_otp_attempts DB counter (fail closed; > 6 refused), then used=true on the matching code.
 // The number is always stored in local 0XXXXXXXXX form, so caps and lookups see one spelling.
 import { createClient } from "@supabase/supabase-js"
-import { normalizeGhanaPhone } from "@/lib/phone-format"
+import { ghanaSignificant, normalizeGhanaPhone } from "@/lib/phone-format"
 import {
   checkPhoneOtp, defaultPhoneOtpCode, hasLivePhoneOtp, issuePhoneOtp, phoneOtpVerifyLimitId, PHONE_OTP_VERIFY_PHONE_LIMIT,
   type PhoneOtpDeps,
@@ -22,6 +23,20 @@ export const PAYER_OTP_PURPOSE = "signup"
 
 /** The send route's per-IP burst cap, applied per number here (keyed otps:<0XXXXXXXXX>). */
 export const PAYER_OTP_BURST = { name: "phone_otp_burst", max: 2, windowMs: 60_000 } as const
+
+/**
+ * Per-requester cap (the WhatsApp sender asking for codes), on top of the per-number limits: 5 codes / sender / hour,
+ * keyed otpr:<233XXXXXXXXX> for a Ghana number (any spelling), otpr:<digits> otherwise.
+ */
+export const PAYER_OTP_REQUESTER_CAP = { name: "payer_otp_requester", max: 5, windowMs: 60 * 60 * 1000 } as const
+
+/** Canonical requester id: one bucket per sender whatever the spelling; null when it has no digits. */
+function requesterId(requester: string): string | null {
+  const sig = ghanaSignificant(requester ?? "")
+  if (sig) return `otpr:233${sig}`
+  const digits = String(requester ?? "").replace(/\D/g, "")
+  return digits ? `otpr:${digits}` : null
+}
 
 export interface PayerVerifyDeps extends PhoneOtpDeps {
   /** Atomic sliding-window limiter (applyRateLimit's store); true = allowed. Fails open like applyRateLimit. */
@@ -48,12 +63,15 @@ function smsSent(r: unknown): boolean {
 }
 
 export function createPayerVerify(d: PayerVerifyDeps) {
-  async function sendPayerOtp(phone: string): Promise<SendPayerOtpResult> {
+  async function sendPayerOtp(phone: string, requester: string): Promise<SendPayerOtpResult> {
     const local = normalizeGhanaPhone(phone)
-    if (!local) return { ok: false, code: "SEND_FAILED" }
+    const rid = requesterId(requester)
+    if (!local || !rid) return { ok: false, code: "SEND_FAILED" }
     try {
       const b = PAYER_OTP_BURST
       if (!(await d.rateLimit(b.name, b.max, b.windowMs, `otps:${local}`))) return { ok: false, code: "RATE_LIMITED" }
+      const rc = PAYER_OTP_REQUESTER_CAP
+      if (!(await d.rateLimit(rc.name, rc.max, rc.windowMs, rid))) return { ok: false, code: "RATE_LIMITED" }
       const r = await issuePhoneOtp(d, local, PAYER_OTP_PURPOSE)
       if (!r.ok) return { ok: false, code: r.reason === "PHONE_LIMIT" ? "RATE_LIMITED" : "SEND_FAILED" }
       if (!smsSent(r.sms)) {
@@ -108,9 +126,12 @@ function getPayerVerify(): ReturnType<typeof createPayerVerify> {
   return runtime
 }
 
-/** SMS a verification code to the paying number. Never throws. */
-export async function sendPayerOtp(phone: string): Promise<SendPayerOtpResult> {
-  return getPayerVerify().sendPayerOtp(phone)
+/**
+ * SMS a verification code to the paying number. `requester` = the WhatsApp sender asking for it (capped at 5 codes per
+ * sender per hour on top of the per-number limits). Never throws.
+ */
+export async function sendPayerOtp(phone: string, requester: string): Promise<SendPayerOtpResult> {
+  return getPayerVerify().sendPayerOtp(phone, requester)
 }
 
 /** Check the code the buyer typed for the paying number. Never throws. */

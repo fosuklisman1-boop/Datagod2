@@ -1,7 +1,7 @@
 // The shared SMS phone-OTP core (send/verify routes + bot payer verification). Route-level behaviour is pinned in
 // app/api/auth/*-phone-otp/route.test.ts; this covers the core directly, including hasLivePhoneOtp.
 import { describe, it, expect, vi } from "vitest"
-import { checkPhoneOtp, hasLivePhoneOtp, issuePhoneOtp, phoneOtpVerifyLimitId, PHONE_OTP_VERIFY_PHONE_LIMIT, type PhoneOtpDeps } from "./phone-otp"
+import { checkPhoneOtp, defaultPhoneOtpCode, hasLivePhoneOtp, issuePhoneOtp, phoneOtpVerifyLimitId, PHONE_OTP_VERIFY_PHONE_LIMIT, type PhoneOtpDeps } from "./phone-otp"
 import { fakeOtpDb, otpRow, type FakeOtpDbOptions, type OtpRow } from "./phone-otp.fake"
 
 const NOW = Date.parse("2026-10-21T10:00:00Z")
@@ -84,6 +84,21 @@ describe("hasLivePhoneOtp", () => {
   })
   it("throws on a DB error", async () => {
     await expect(hasLivePhoneOtp(deps([], { selectError: true }).d, PHONE, "signup")).rejects.toBeTruthy()
+  })
+})
+
+describe("defaultPhoneOtpCode", () => {
+  it("6 digits, 100000..999999, from crypto.randomInt (never Math.random)", () => {
+    const spy = vi.spyOn(Math, "random")
+    const seen = new Set<string>()
+    for (let i = 0; i < 500; i++) {
+      const c = defaultPhoneOtpCode()
+      expect(c).toMatch(/^[1-9]\d{5}$/)
+      seen.add(c)
+    }
+    expect(spy).not.toHaveBeenCalled()
+    expect(seen.size).toBeGreaterThan(450)
+    spy.mockRestore()
   })
 })
 

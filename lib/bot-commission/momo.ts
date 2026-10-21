@@ -10,7 +10,7 @@ import {
   STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, type CommissionPayableRow,
 } from "@/lib/storefront-commission/payment"
 import { failBotCharge } from "./momo-fail"
-import { clearBotOtpPointer, setBotOtpPointer, type BotOtpPointer } from "./otp-pointer"
+import { clearBotOtpPointer, setBotOtpPointer, type BotOtpChannel, type BotOtpPointer } from "./otp-pointer"
 import { botCapDeps } from "./runtime"
 
 /** Internal order types of the bot commission orders (wallet_payments.order_type). */
@@ -45,7 +45,7 @@ export interface BotChargeInput {
 
 /**
  * - `ok: true`: a prompt is out for this order. `status` is Paystack's charge status (`send_otp` => OTP pointer
- *   stored), or `"pending"` for an idempotent replay: the order already had a pending payment row from the last
+ *   stored), or `"pending"` for an idempotent replay: the order already had a pending / ongoing payment row from the last
  *   15 minutes, whose `reference` is returned; no new row and no new prompt.
  * - `NOT_PAYABLE`: not this bot's / this buyer's still-open order (or an unusable `payPhone`). Nothing was written;
  *   the order was not touched.
@@ -63,8 +63,10 @@ export type BotChargeResult =
   | { ok: true; reference: string; status: string }
   | { ok: false; code: "NOT_PAYABLE" | "NEEDS_VERIFY" | "NO_PROVIDER" | "RATE_LIMITED" | "CHARGE_FAILED"; message: string }
 
-/** A pending payment row this recent for the same order is replayed instead of prompting again. */
+/** A pending / ongoing payment row this recent for the same order is replayed instead of prompting again. */
 export const BOT_MOMO_REPLAY_WINDOW_MS = 15 * 60 * 1000
+/** Payment-row statuses that mean a prompt may still be live (never 'completed' / 'failed' / 'abandoned'). */
+export const BOT_MOMO_REPLAY_STATUSES = ["pending", "ongoing"]
 
 export interface BotMomoDeps {
   /** Service-role client. */
@@ -74,7 +76,7 @@ export interface BotMomoDeps {
   recordPayerPhone: typeof recordPayerPhone
   /** Atomic sliding-window limiter (applyRateLimit's store); true = allowed. Fails open like applyRateLimit. */
   rateLimit(name: string, max: number, windowMs: number, id: string): Promise<boolean>
-  otpPointer: { set(phone: string, p: BotOtpPointer): Promise<void>; clear(phone: string): Promise<void> }
+  otpPointer: { set(phone: string, p: BotOtpPointer): Promise<void>; clear(phone: string, channel?: BotOtpChannel): Promise<void> }
   /**
    * The storefront OTP switch for the typed paying number (WhatsApp surfaces only). `required` THROWS when the switch
    * cannot be read (treated as on); `verified` = a real SMS OTP verification for the number (a throw = not verified).
@@ -110,7 +112,7 @@ interface BotPayableRow extends CommissionPayableRow { bot_surface: string | nul
  *
  * 1. Re-read the order: only a channel 'bots' row of THIS surface (and, on a shop bot, this shop; on a main bot, no
  *    shop), still pending AND unpaid, bought by this session's number (`dialingPhone`; checkCommissionPayable +
- *    surface checks). Anything else is NOT_PAYABLE with no write at all. A pending payment row for the order from the
+ *    surface checks). Anything else is NOT_PAYABLE with no write at all. A pending / ongoing payment row for the order from the
  *    last 15 minutes is replayed (its reference returned, status "pending"): one order never gets two prompts from a
  *    resent confirm.
  * 2. Provider from the paying number; on WhatsApp, the storefront OTP switch for the paying number (NEEDS_VERIFY, no
@@ -165,7 +167,8 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
       .select("reference, created_at")
       .eq("order_id", i.orderId)
       .eq("order_type", i.orderType)
-      .eq("status", "pending")
+      // A live prompt: our 'pending' row, or one Paystack has since marked 'ongoing'.
+      .in("status", BOT_MOMO_REPLAY_STATUSES)
       .gte("created_at", new Date(d.now() - BOT_MOMO_REPLAY_WINDOW_MS).toISOString())
       .order("created_at", { ascending: false })
       .limit(1)
@@ -249,7 +252,10 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
     try {
       // Keyed by the session's authenticated number (dialler / WhatsApp sender), never the paying number: only this
       // session's owner can ever submit the code for this order.
-      await d.otpPointer.set(dialLocal, { reference, orderType: i.orderType, orderId: i.orderId, createdAt })
+      // Each channel has its own key space (Uzo: ussd-bot-otp, unchanged; WhatsApp: wa-bot-otp).
+      const pointer: BotOtpPointer = { reference, orderType: i.orderType, orderId: i.orderId, createdAt }
+      if (whatsapp) pointer.channel = "whatsapp"
+      await d.otpPointer.set(dialLocal, pointer)
     } catch (e) {
       console.error(`[${TAG}] could not store the OTP pointer for ${i.orderId}:`, e instanceof Error ? e.message : String(e))
     }

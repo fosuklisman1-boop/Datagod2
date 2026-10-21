@@ -9,21 +9,38 @@ import type { BotMomoDeps, BotOrderType } from "./momo"
  * MSISDN, or the WhatsApp sender. NEVER by the typed paying number (botChargeMomo's `payPhone`), so a pointer can only
  * be reached by the session that owns the order.
  */
-export interface BotOtpPointer { reference: string; orderType: BotOrderType; orderId: string; createdAt: string }
+export interface BotOtpPointer {
+  reference: string; orderType: BotOrderType; orderId: string; createdAt: string
+  /**
+   * Key space: absent = the Uzo USSD (`ussd-bot-otp:<0X>`, stored exactly as before), "whatsapp" = the WhatsApp bots
+   * (`wa-bot-otp:<0X>`). A pointer is only ever found through its own channel.
+   */
+  channel?: "whatsapp"
+}
+
+/** Which bot channel's key space a pointer lives in. */
+export type BotOtpChannel = "ussd" | "whatsapp"
 /**
  * A pointer as stored / read back: `phone` is the local number it lives under (so it can clear itself). Obtain it
  * only through `peekBotOtpPointer(sessionPhone)` with the network-authenticated MSISDN (USSD) or the WhatsApp sender:
- * that lookup is the auth. One key space for both channels: the same number is the same buyer.
+ * that lookup is the auth. Each channel has its own key space, so a WhatsApp pointer never surfaces on a USSD redial
+ * (or the reverse).
  */
 export interface StoredBotOtpPointer extends BotOtpPointer { phone: string }
 
 export const BOT_OTP_POINTER_TTL_SECONDS = 10 * 60
 
-/** `ussd-bot-otp:<0XXXXXXXXX>`, or null for a phone that is not a Ghana mobile number. */
-export function botOtpPointerKey(phone: string): string | null {
+/**
+ * `ussd-bot-otp:<0XXXXXXXXX>` (Uzo, the default) or `wa-bot-otp:<0XXXXXXXXX>` (WhatsApp), or null for a phone that is
+ * not a Ghana mobile number.
+ */
+export function botOtpPointerKey(phone: string, channel: BotOtpChannel = "ussd"): string | null {
   const local = normalizeGhanaPhone(phone)
-  return local ? `ussd-bot-otp:${local}` : null
+  if (!local) return null
+  return channel === "whatsapp" ? `wa-bot-otp:${local}` : `ussd-bot-otp:${local}`
 }
+
+const channelOf = (p: { channel?: unknown }): BotOtpChannel => (p.channel === "whatsapp" ? "whatsapp" : "ussd")
 
 /** The subset of the Upstash client the pointer uses. */
 interface RedisLike {
@@ -36,6 +53,7 @@ function isPointer(v: unknown): v is StoredBotOtpPointer {
   const p = v as StoredBotOtpPointer | null
   return !!p && typeof p === "object" && typeof p.reference === "string" && typeof p.orderId === "string"
     && (p.orderType === "cs_bill" || p.orderType === "cs_bundle") && typeof p.createdAt === "string" && typeof p.phone === "string"
+    && (p.channel === undefined || p.channel === "whatsapp")
 }
 
 /**
@@ -47,11 +65,13 @@ export function createBotOtpPointerStore(getRedis: () => RedisLike | null, now: 
   const tag = "[USSD-BOT-OTP]"
   return {
     async set(phone: string, p: BotOtpPointer): Promise<void> {
-      const key = botOtpPointerKey(phone)
+      const channel = channelOf(p)
+      const key = botOtpPointerKey(phone, channel)
       if (!key) return
       const value: StoredBotOtpPointer = {
         reference: p.reference, orderType: p.orderType, orderId: p.orderId, createdAt: p.createdAt, phone: normalizeGhanaPhone(phone)!,
       }
+      if (channel === "whatsapp") value.channel = "whatsapp" // Uzo values are stored exactly as before
       const redis = getRedis()
       if (redis) {
         try {
@@ -63,15 +83,16 @@ export function createBotOtpPointerStore(getRedis: () => RedisLike | null, now: 
       }
       memory.set(key, { p: value, expires: now() + BOT_OTP_POINTER_TTL_SECONDS * 1000 })
     },
-    async peek(phone: string): Promise<StoredBotOtpPointer | null> {
-      const key = botOtpPointerKey(phone)
+    async peek(phone: string, channel: BotOtpChannel = "ussd"): Promise<StoredBotOtpPointer | null> {
+      const key = botOtpPointerKey(phone, channel)
       if (!key) return null
       const redis = getRedis()
       if (redis) {
         try {
           const raw = await redis.get<unknown>(key)
           const v = typeof raw === "string" ? JSON.parse(raw) : raw
-          if (v != null) return isPointer(v) ? v : null
+          // A value must belong to the key space it was found in.
+          if (v != null) return isPointer(v) && channelOf(v) === channel ? v : null
         } catch (e) {
           console.error(tag, "get error:", e instanceof Error ? e.message : String(e))
         }
@@ -81,8 +102,8 @@ export function createBotOtpPointerStore(getRedis: () => RedisLike | null, now: 
       if (m) memory.delete(key)
       return null
     },
-    async clear(phone: string): Promise<void> {
-      const key = botOtpPointerKey(phone)
+    async clear(phone: string, channel: BotOtpChannel = "ussd"): Promise<void> {
+      const key = botOtpPointerKey(phone, channel)
       if (!key) return
       const redis = getRedis()
       if (redis) {
@@ -99,18 +120,18 @@ export function createBotOtpPointerStore(getRedis: () => RedisLike | null, now: 
 
 const store = createBotOtpPointerStore(() => getUssdRedis())
 
-/** Store the pending-OTP pointer for this session phone (dialler / WhatsApp sender; TTL 10 min). */
+/** Store the pending-OTP pointer for this session phone (TTL 10 min), in `p.channel`'s key space (default Uzo). */
 export async function setBotOtpPointer(phone: string, p: BotOtpPointer): Promise<void> {
   return store.set(phone, p)
 }
 
-/** The pending-OTP pointer for this session phone (dialler / WhatsApp sender), if any (not consumed). */
-export async function peekBotOtpPointer(phone: string): Promise<StoredBotOtpPointer | null> {
-  return store.peek(phone)
+/** The pending-OTP pointer for this session phone in this channel (default Uzo), if any (not consumed). */
+export async function peekBotOtpPointer(phone: string, channel: BotOtpChannel = "ussd"): Promise<StoredBotOtpPointer | null> {
+  return store.peek(phone, channel)
 }
 
-export async function clearBotOtpPointer(phone: string): Promise<void> {
-  return store.clear(phone)
+export async function clearBotOtpPointer(phone: string, channel: BotOtpChannel = "ussd"): Promise<void> {
+  return store.clear(phone, channel)
 }
 
 /**
@@ -140,7 +161,11 @@ export async function submitBotOtp(d: BotMomoDeps, p: StoredBotOtpPointer, otp: 
   }
   const clear = async () => {
     if (!p.phone) return
-    try { await d.otpPointer.clear(p.phone) } catch { /* expires on its own */ }
+    try {
+      // Cleared in its own channel (a Uzo pointer exactly as before).
+      if (p.channel === "whatsapp") await d.otpPointer.clear(p.phone, "whatsapp")
+      else await d.otpPointer.clear(p.phone)
+    } catch { /* expires on its own */ }
   }
   if (OTP_ACCEPTED.has(status)) {
     await clear()

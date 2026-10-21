@@ -2,7 +2,7 @@
 // back in the chat. Same table + rules as /api/auth/*-phone-otp (lib/phone-otp); a success writes used=true, so
 // isPhoneOtpVerified(payPhone) then passes and botChargeMomo stops answering NEEDS_VERIFY.
 import { describe, it, expect, vi } from "vitest"
-import { createPayerVerify, PAYER_OTP_BURST, PAYER_OTP_PURPOSE, type PayerVerifyDeps } from "./payer-verify"
+import { createPayerVerify, PAYER_OTP_BURST, PAYER_OTP_PURPOSE, PAYER_OTP_REQUESTER_CAP, type PayerVerifyDeps } from "./payer-verify"
 import { fakeOtpDb, otpRow, type FakeOtpDbOptions, type OtpRow } from "@/lib/phone-otp.fake"
 
 const NOW = Date.parse("2026-10-21T10:00:00Z")
@@ -29,9 +29,58 @@ function make(rows: OtpRow[] = [], o: Partial<FakeOtpDbOptions> = {}, sms: unkno
       return true
     }),
   }
-  const pv = createPayerVerify(deps)
+  const raw = createPayerVerify(deps)
+  // Most tests use one WhatsApp sender; the requester cap tests pass their own.
+  const pv = { sendPayerOtp: (p: string, requester: string = SENDER) => raw.sendPayerOtp(p, requester), verifyPayerOtp: raw.verifyPayerOtp }
   return { pv, deps, f, sent, blocked, advance: (ms: number) => { now += ms } }
 }
+
+const SENDER = "233551112222"
+
+describe("sendPayerOtp: per-sender cap (5 codes / sender / hour, on top of the per-number limits)", () => {
+  it("the 6th code for one sender within the hour => RATE_LIMITED, nothing stored or sent", async () => {
+    const m = make()
+    const numbers = ["0241234561", "0241234562", "0241234563", "0241234564", "0241234565", "0241234566"]
+    const out = []
+    for (const n of numbers) out.push(await m.pv.sendPayerOtp(n, SENDER))
+    expect(out.slice(0, 5)).toEqual(Array(5).fill({ ok: true }))
+    expect(out[5]).toEqual({ ok: false, code: "RATE_LIMITED" })
+    expect(m.f.rows).toHaveLength(5)
+    expect(m.sent).toHaveLength(5)
+    expect(m.deps.rateLimit).toHaveBeenCalledWith(PAYER_OTP_REQUESTER_CAP.name, 5, 60 * 60 * 1000, "otpr:233551112222")
+    expect(PAYER_OTP_REQUESTER_CAP).toEqual({ name: "payer_otp_requester", max: 5, windowMs: 60 * 60 * 1000 })
+  })
+
+  it("the cap is per sender (any format of the sender shares it); another sender has its own", async () => {
+    const m = make()
+    const senders = ["233551112222", "+233 55 111 2222", "0551112222", "233551112222", "0551112222"]
+    for (const [i, s] of senders.entries()) expect(await m.pv.sendPayerOtp(`024123456${i}`, s)).toEqual({ ok: true })
+    expect(await m.pv.sendPayerOtp("0241234569", "0551112222")).toEqual({ ok: false, code: "RATE_LIMITED" })
+    expect(await m.pv.sendPayerOtp("0241234569", "233201234567")).toEqual({ ok: true })
+  })
+
+  it("an hour later the sender may request again", async () => {
+    const m = make()
+    for (let i = 0; i < 5; i++) await m.pv.sendPayerOtp(`024123456${i}`, SENDER)
+    expect(await m.pv.sendPayerOtp("0241234569", SENDER)).toEqual({ ok: false, code: "RATE_LIMITED" })
+    m.advance(60 * 60 * 1000 + 1)
+    expect(await m.pv.sendPayerOtp("0241234569", SENDER)).toEqual({ ok: true })
+  })
+
+  it("a missing / non-numeric requester => SEND_FAILED, nothing sent", async () => {
+    const m = make()
+    for (const r of ["", "   ", "abc"]) expect(await m.pv.sendPayerOtp(LOCAL, r)).toEqual({ ok: false, code: "SEND_FAILED" })
+    expect(m.sent).toEqual([])
+    expect(m.deps.rateLimit).not.toHaveBeenCalled()
+  })
+
+  it("the per-number limits still apply under the sender cap", async () => {
+    const m = make()
+    expect(await m.pv.sendPayerOtp(LOCAL, SENDER)).toEqual({ ok: true })
+    expect(await m.pv.sendPayerOtp(LOCAL, SENDER)).toEqual({ ok: true })
+    expect(await m.pv.sendPayerOtp(LOCAL, "233201234567")).toEqual({ ok: false, code: "RATE_LIMITED" }) // per-number burst
+  })
+})
 
 describe("sendPayerOtp", () => {
   it("normalises the number, stores one code (purpose as the storefront checkout) and SMSes it", async () => {

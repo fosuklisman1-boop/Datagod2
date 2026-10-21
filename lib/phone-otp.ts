@@ -6,6 +6,7 @@
 //   unexpired row matching phone + code + purpose, which is marked used=true (isPhoneOtpVerified then passes).
 //
 // The routes keep their own request-scoped (IP) Upstash caps and HTTP mapping; callers add their own caps on top.
+import { randomInt } from "node:crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 /** Codes per exact phone string per hour (send). */
@@ -32,8 +33,8 @@ export interface PhoneOtpDeps {
   randomCode(): string
 }
 
-/** The routes' code generator (unchanged). */
-export const defaultPhoneOtpCode = (): string => Math.floor(100000 + Math.random() * 900000).toString()
+/** 6-digit code (100000..999999) from the CSPRNG: same length/range the routes always issued. */
+export const defaultPhoneOtpCode = (): string => randomInt(100000, 1000000).toString()
 
 export type IssuePhoneOtpResult =
   | { ok: true; sms: unknown }
