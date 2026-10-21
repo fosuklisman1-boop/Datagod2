@@ -96,7 +96,9 @@ export async function expireStaleBotOrders(
           .update({ status: "failed", updated_at: new Date(now).toISOString() })
           .eq("order_type", orderType)
           .in("order_id", failed)
-          .eq("status", "pending")
+          // In-flight payment rows only: prod rows also carry Paystack's own 'ongoing' / 'abandoned'. 'completed' is
+          // never touched (a late success is handled by the engine's needs-review path).
+          .in("status", ["pending", "ongoing", "abandoned"])
           .select("id")
         if (error) throw error
         counts.payments += (data ?? []).length

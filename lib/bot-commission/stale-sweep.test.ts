@@ -98,6 +98,22 @@ describe("expireStaleBotOrders", () => {
     expect(status).toEqual({ q1: "failed", q2: "failed", q3: "failed", q4: "failed", q5: "completed" })
   })
 
+  it("fails a swept order's payment rows Paystack left 'ongoing' / 'abandoned' too; 'completed' is never touched", async () => {
+    const tables = {
+      hubtel_bill_orders: [order("b1", { bot_surface: "whatsapp" })],
+      hubtel_data_orders: [] as Row[],
+      wallet_payments: [
+        payment("o1", "b1", "cs_bill", { status: "ongoing" }),
+        payment("o2", "b1", "cs_bill", { status: "abandoned" }),
+        payment("o3", "b1", "cs_bill", { status: "completed" }),
+      ],
+    }
+    const r = await expireStaleBotOrders(fakeDb(tables).db, { now: NOW })
+    expect(r.tables.hubtel_bill_orders).toEqual({ found: 1, failed: 1, payments: 2 })
+    const status = Object.fromEntries(tables.wallet_payments.map(p => [p.id, p.status]))
+    expect(status).toEqual({ o1: "failed", o2: "failed", o3: "completed" })
+  })
+
   it("the swept surfaces are exactly Uzo + WhatsApp (never hubtel_ussd)", () => {
     expect([...BOT_SWEPT_SURFACES].sort()).toEqual(["ussd", "ussd_shop", "whatsapp", "whatsapp_shop"])
   })

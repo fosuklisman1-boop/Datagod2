@@ -571,7 +571,7 @@ describe("ruling 2: a live wallet shortfall never sends a MoMo prompt to the sen
     expect(h.state.afterFns).toHaveLength(0)
   })
 
-  it("no session account => short, whatever the sender phone's account holds (data, airtime, RC)", async () => {
+  it("no session account => short, whatever the sender phone's account holds (data)", async () => {
     h.state.dialer = { userId: "u2", role: "customer", balance: 500 }
     h.state.wallets = { u2: 500 }
     h.state.sessions.set(FROM, dataConfirm({ userId: undefined }))
