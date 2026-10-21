@@ -21,8 +21,14 @@ describe("classifyRefundReply", () => {
   it("4515 (already in progress) is pending, empty ref when no data", () => {
     expect(classifyRefundReply(423, { responseCode: "4515", data: null })).toEqual({ kind: "pending", ref: "" })
   })
-  it.each(["3000", "4000", "4509"])("404 %s is failed with Hubtel's message", (code) => {
+  it.each(["3000", "4000"])("404 %s is failed with Hubtel's message", (code) => {
     expect(classifyRefundReply(404, { responseCode: code, message: "nope" })).toEqual({ kind: "failed", error: "nope" })
+  })
+  it("4509 is failed and warns that Hubtel may already have refunded it", () => {
+    expect(classifyRefundReply(404, { responseCode: "4509", message: "nope" })).toEqual({
+      kind: "failed",
+      error: "Hubtel 4509: not eligible — it may already have been refunded by Hubtel; check Hubtel before refunding another way. nope",
+    })
   })
   it("a failed code without a message still carries an error", () => {
     const r = classifyRefundReply(404, { responseCode: "3000" })
@@ -120,6 +126,18 @@ describe("requestHubtelRefund", () => {
     const f = relayReply(404, { error: "not found" })
     expect(await requestHubtelRefund("H1", "r1", f)).toEqual({
       kind: "failed", error: "Hubtel relay has not been updated to support refunds",
+    })
+  })
+  it("relay 400 (request never reached Hubtel) is failed", async () => {
+    const f = relayReply(400, { error: "bad request" })
+    expect(await requestHubtelRefund("H1", "r1", f)).toEqual({
+      kind: "failed", error: "Hubtel relay rejected the request (invalid order id or callback URL)",
+    })
+  })
+  it.each([401, 403])("relay %i (auth) is failed", async (status) => {
+    const f = relayReply(status, { error: "unauthorized" })
+    expect(await requestHubtelRefund("H1", "r1", f)).toEqual({
+      kind: "failed", error: "Hubtel relay authentication failed — check HUBTEL_RELAY_SECRET",
     })
   })
   it("relay unreachable is unknown", async () => {

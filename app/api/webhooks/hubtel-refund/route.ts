@@ -23,6 +23,17 @@ export async function POST(request: NextRequest) {
         if (error) throw new Error(`refund load failed: ${error.message}`)
         return (data as StoredRefund | null) ?? null
       },
+      async markConflict(id) {
+        // Never throws: the conflict is also logged by the handler; a failed flag must not make Hubtel retry forever.
+        try {
+          const { error } = await db.from("order_refunds")
+            .update({ error: "CONFLICT: Hubtel reported this refund paid after it was marked failed — check for a double refund" })
+            .eq("id", id).eq("status", "failed")
+          if (error) console.error("[HUBTEL-REFUND-CALLBACK] could not flag conflict for refund", id, error.message)
+        } catch (e) {
+          console.error("[HUBTEL-REFUND-CALLBACK] could not flag conflict for refund", id, e instanceof Error ? e.message : "unknown")
+        }
+      },
     })
     return NextResponse.json(result.body, { status: result.status })
   } catch (err) {

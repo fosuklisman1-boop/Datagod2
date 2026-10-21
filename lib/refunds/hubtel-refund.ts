@@ -46,6 +46,9 @@ export function classifyRefundReply(upstreamStatus: number, body: unknown): Gate
   }
   if (code && REJECTED_CODES.has(code)) {
     const msg = typeof b.message === "string" && b.message ? b.message : `Hubtel refused the refund (${code})`
+    if (code === "4509") {
+      return { kind: "failed", error: `Hubtel 4509: not eligible — it may already have been refunded by Hubtel; check Hubtel before refunding another way. ${msg}` }
+    }
     return { kind: "failed", error: msg }
   }
   return { kind: "unknown", error: `hubtel refund ${upstreamStatus}: ${JSON.stringify(body ?? null).slice(0, 200)}` }
@@ -71,7 +74,10 @@ export async function requestHubtelRefund(
       body: JSON.stringify({ orderId: hubtelOrderId, callbackUrl }),
       signal: AbortSignal.timeout(10_000),
     })
+    // The relay refused before calling Hubtel, so no money can have moved: these are definite failures.
     if (res.status === 404) return { kind: "failed", error: "Hubtel relay has not been updated to support refunds" }
+    if (res.status === 400) return { kind: "failed", error: "Hubtel relay rejected the request (invalid order id or callback URL)" }
+    if (res.status === 401 || res.status === 403) return { kind: "failed", error: "Hubtel relay authentication failed — check HUBTEL_RELAY_SECRET" }
     const json: any = await res.json().catch(() => null)
     if (!res.ok || typeof json?.upstreamStatus !== "number") {
       return { kind: "unknown", error: `relay ${res.status}: ${JSON.stringify(json ?? null).slice(0, 200)}` }

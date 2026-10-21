@@ -68,6 +68,12 @@ describe("hubtelGateway.supports", () => {
     expect(hubtelGateway.supports(order({ amountPaid: 0.5 })).ok).toBe(false)
     expect(hubtelGateway.supports(order({ amountPaid: 1 })).ok).toBe(true)
   })
+  it("refuses when Hubtel collected more than the order price", () => {
+    expect(hubtelGateway.supports(order({ amountPaid: 12 }))).toEqual({
+      ok: false, reason: "Hubtel collected GHS 12.00, more than the order price GHS 10.00 — refund manually",
+    })
+    expect(hubtelGateway.supports(order({ amountPaid: 10.004 })).ok).toBe(true)
+  })
   it("refuses non-finite amounts", () => {
     expect(hubtelGateway.supports(order({ amountPaid: NaN })).ok).toBe(false)
   })
@@ -112,10 +118,14 @@ describe("hubtelGateway.refund", () => {
 })
 
 describe("hubtelGateway.checkStatus", () => {
-  it("stays pending on the stored ref (the callback settles it)", async () => {
-    expect(await hubtelGateway.checkStatus!(ctx(), "HUB-9")).toEqual({ kind: "pending", ref: "HUB-9" })
+  const UNKNOWN = {
+    kind: "unknown",
+    error: "Hubtel has no refund-status lookup — waiting for Hubtel's callback; confirm with Hubtel before resolving",
+  }
+  it("is unknown (no lookup exists; the callback settles it) so the stored ref is kept", async () => {
+    expect(await hubtelGateway.checkStatus!(ctx(), "HUB-9")).toEqual(UNKNOWN)
   })
-  it("falls back to the Hubtel order id", async () => {
-    expect(await hubtelGateway.checkStatus!(ctx(), null)).toEqual({ kind: "pending", ref: "HUB-1" })
+  it("is unknown without a stored ref too", async () => {
+    expect(await hubtelGateway.checkStatus!(ctx(), null)).toEqual(UNKNOWN)
   })
 })

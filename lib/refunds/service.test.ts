@@ -34,6 +34,9 @@ function setup(outcome: GatewayOutcome, ord: RefundableOrder | null = order(), r
   }
   return { deps, calls, gateway }
 }
+// Env stubs (e.g. HUBTEL_REFUND_ENABLED) are always undone, even when a test fails before its own cleanup.
+afterEach(() => vi.unstubAllEnvs())
+
 const input = { table: "ussd_shop_orders" as const, orderId: "o1", gateway: "paystack", amount: 9.8, adminId: "admin1" }
 const names = (calls: { name: string }[]) => calls.map((c) => c.name)
 
@@ -269,7 +272,6 @@ describe("fixed-amount gateways (Hubtel refunds the full amount only)", () => {
     })
     const { deps } = setup({ kind: "completed", ref: "x" }, hubtelOrder)
     const p = await previewRefund(deps, { table: "ussd_orders", id: "o1" })
-    vi.unstubAllEnvs()
     expect(p.gateways.find((g) => g.id === "hubtel")).toMatchObject({ ok: true, fixedAmount: 10 })
     expect(p.gateways.find((g) => g.id === "moolre")).not.toHaveProperty("fixedAmount")
   })

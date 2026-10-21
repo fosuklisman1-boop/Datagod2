@@ -17,6 +17,10 @@ export const hubtelGateway: RefundGateway = {
     // With several paid rows the other hubtel fields come from an arbitrary one, so never guess.
     if (h.paidRows !== 1) return { ok: false, reason: "This order has more than one Hubtel payment — refund manually" }
     if (!Number.isFinite(h.amountPaid) || h.amountPaid < MIN_AMOUNT) return { ok: false, reason: "Hubtel cannot refund amounts under GHS 1.00" }
+    // Hubtel refunds everything it collected; never send back more than the order cost through the automated path.
+    if (h.amountPaid > order.paid + 0.005) {
+      return { ok: false, reason: `Hubtel collected GHS ${h.amountPaid.toFixed(2)}, more than the order price GHS ${order.paid.toFixed(2)} — refund manually` }
+    }
     const paidAt = Date.parse(h.paidAt)
     if (!Number.isFinite(paidAt) || Date.now() - paidAt > MAX_AGE_MS) return { ok: false, reason: "Hubtel refunds are only possible within 45 days of payment" }
     return { ok: true }
@@ -30,10 +34,9 @@ export const hubtelGateway: RefundGateway = {
     if (Math.abs(ctx.amount - h.amountPaid) > 0.005) return { kind: "failed", error: "Hubtel refunds the full amount only" }
     return await requestHubtelRefund(h.orderId, ctx.refundId)
   },
-  // Hubtel has no refund-status endpoint: the callback settles the refund, so a re-check just keeps it pending.
-  async checkStatus(ctx, gatewayRef) {
-    const ref = gatewayRef ?? ctx.order.payment.hubtel?.orderId
-    if (!ref) return { kind: "unknown", error: "No Hubtel order id to track" }
-    return { kind: "pending", ref }
+  // Hubtel has no refund-status endpoint: the callback settles the refund. `unknown` passes a null ref, so
+  // mark_refund_processing's COALESCE keeps the stored Hubtel orderId the callback is matched against.
+  async checkStatus() {
+    return { kind: "unknown", error: "Hubtel has no refund-status lookup — waiting for Hubtel's callback; confirm with Hubtel before resolving" }
   },
 }
