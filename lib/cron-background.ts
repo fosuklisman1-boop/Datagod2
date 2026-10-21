@@ -19,7 +19,7 @@ import { verifyCronAuth } from "@/lib/cron-auth"
  */
 export function backgroundCron(
   label: string,
-  handler: (request: NextRequest) => Promise<Response>,
+  handler: (request: NextRequest) => Promise<Response | undefined | void>,
 ): (request: NextRequest) => Promise<Response> {
   return async (request: NextRequest) => {
     const { authorized, errorResponse } = verifyCronAuth(request)
@@ -28,7 +28,7 @@ export function backgroundCron(
     after(async () => {
       try {
         const res = await handler(request)
-        if (!res.ok) console.error(`[CRON-BG:${label}] handler returned ${res.status}`)
+        if (res && !res.ok) console.error(`[CRON-BG:${label}] handler returned ${res.status}`)
       } catch (err) {
         console.error(`[CRON-BG:${label}] handler threw:`, err)
       }

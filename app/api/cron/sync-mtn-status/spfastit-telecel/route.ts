@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { backgroundCron } from "@/lib/cron-background"
+
+// Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
+export const GET = backgroundCron("sync-spfastit-telecel", (request) => runSpfastitTelecelSync(request))
 import { sendPushToUser } from "@/lib/push-service"
 import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
 
@@ -25,7 +29,7 @@ function sleep(ms: number): Promise<void> {
  * order_id per order, with no documented retry-splits-into-new-order
  * behavior like AgentPortalGH's).
  */
-export async function GET(request: NextRequest) {
+async function runSpfastitTelecelSync(request: NextRequest) {
     const { authorized, errorResponse } = verifyCronAuth(request)
     if (!authorized && errorResponse) return errorResponse
 

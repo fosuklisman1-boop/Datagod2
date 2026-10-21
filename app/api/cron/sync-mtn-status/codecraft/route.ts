@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { backgroundCron } from "@/lib/cron-background"
+
+// Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
+export const GET = backgroundCron("sync-codecraft-mtn", (request) => runCodecraftMtnSync(request))
 import { sendPushToUser } from "@/lib/push-service"
 import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
 
@@ -24,7 +28,7 @@ function sleep(ms: number): Promise<void> {
  * and updates mtn_fulfillment_tracking + the originating order table.
  * Sends in-app + push notifications on completed/failed.
  */
-export async function GET(request: NextRequest) {
+async function runCodecraftMtnSync(request: NextRequest) {
     const { authorized, errorResponse } = verifyCronAuth(request)
     if (!authorized && errorResponse) return errorResponse
 
