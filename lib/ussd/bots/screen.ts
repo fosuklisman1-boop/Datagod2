@@ -1,5 +1,6 @@
-// Pure screen helpers for the cashback-priced Uzo USSD menus (main + shop).
-// Wording rule: no "data" / "bundle" words on any Uzo screen.
+// Pure screen helpers for the cashback-priced Uzo USSD menus (main + shop), also used by the WhatsApp bots with a
+// larger `limit` (lib/ussd/bots/profile.ts).
+// Wording rule: no "data" / "bundle" words on any Uzo screen (WhatsApp shows Hubtel names as sent).
 
 export const UZO_SCREEN_LIMIT = 160
 
@@ -32,13 +33,15 @@ function cutWord(s: string, max: number): string {
   return space > 0 ? hard.slice(0, space).trimEnd() : hard
 }
 
+/** Paged list; `limit` = the screen size (default the Uzo 160; the WhatsApp profile passes its own). */
 export function uzoPagedList<T>(
   items: T[],
   page: number,
   label: (t: T) => string,
-  opts: { header: string; pageSize?: number }
+  opts: { header: string; pageSize?: number; limit?: number }
 ): { text: string; pageItems: T[]; hasMore: boolean } {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE
+  const limit = opts.limit ?? UZO_SCREEN_LIMIT
   const offset = Math.max(0, page) * pageSize
   const pageItems = items.slice(offset, offset + pageSize)
   const hasMore = offset + pageItems.length < items.length
@@ -53,7 +56,7 @@ export function uzoPagedList<T>(
 
   const longest = labels.reduce((m, l) => Math.max(m, l.length), MIN_LABEL)
   let text = build(longest)
-  for (let max = longest - 1; !fitsUzo(text) && max >= MIN_LABEL; max--) {
+  for (let max = longest - 1; text.length > limit && max >= MIN_LABEL; max--) {
     text = build(max)
   }
   return { text, pageItems, hasMore }
@@ -65,7 +68,10 @@ export function uzoConfirmText(o: {
   receive: string
   recipient?: string
   payer: string
+  /** Screen size (default the Uzo 160). */
+  limit?: number
 }): string {
+  const limit = o.limit ?? UZO_SCREEN_LIMIT
   const was = o.pay < o.face ? ` (was GHS ${o.face.toFixed(2)})` : ""
   const build = (receive: string) =>
     `Pay GHS ${o.pay.toFixed(2)}${was}\n` +
@@ -75,8 +81,8 @@ export function uzoConfirmText(o: {
     `1. Confirm\n2. Cancel`
 
   let text = build(o.receive)
-  if (!fitsUzo(text)) {
-    const over = text.length - UZO_SCREEN_LIMIT
+  if (text.length > limit) {
+    const over = text.length - limit
     text = build(cut(o.receive, Math.max(MIN_LABEL, o.receive.length - over)))
   }
   return text

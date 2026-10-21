@@ -235,10 +235,11 @@ export async function handleShopAirtimeConfirm(
   const provider = paystackProviderFromPhone(dialingPhone)
   if (!provider) return end("Payment not available for your number.")
 
-  // Cashback re-quote: the screen and the live quote must agree on the pricing mode AND the price;
-  // otherwise no order is created and the caller restarts. No shop => never cashback (fail closed).
+  // Cashback re-quote, only for a session staged WITH a cashback price: the live quote must still be usable at the
+  // same price, otherwise no order is created and the caller restarts. A session staged with today's pricing is sold
+  // at today's pricing, exactly as shown (ruling 2026-10-21). No shop => never cashback (fail closed).
   let cb: StorefrontQuote | null = null
-  if (hasShop(session)) {
+  if (hasShop(session) && session.airtimeCashbackPay !== undefined) {
     const rq = airtimeRequote(session.airtimeCashbackPay, await uzoAirtimeQuote(network, amount, true), amount)
     if (rq.kind === "changed") return end(botErrorText(409))
     if (rq.kind === "cashback") cb = rq.quote

@@ -59,6 +59,26 @@ export function invalidateStorefrontOtpCache(): void {
   enabledCache = null
 }
 
+/**
+ * The same switch, for callers that must FAIL CLOSED (the WhatsApp bots' typed paying number: an unreadable switch
+ * means "verification required"). A fresh cached value (30s, shared with isStorefrontOtpRequired) is used as-is;
+ * otherwise the row is read and a successful read refreshes the shared cache. THROWS when the switch cannot be read
+ * (DB error, or no service client): never falls back to a stale value or to "off".
+ */
+export async function readStorefrontOtpRequiredStrict(): Promise<boolean> {
+  if (enabledCache && enabledCache.expiresAt > Date.now()) return enabledCache.enabled
+  if (!supabase) throw new Error("storefront OTP switch unavailable (no service client)")
+  const { data, error } = await supabase
+    .from("admin_settings")
+    .select("value")
+    .eq("key", "storefront_otp_required")
+    .maybeSingle()
+  if (error) throw error
+  const enabled = data?.value?.enabled === true
+  enabledCache = { enabled, expiresAt: Date.now() + CACHE_TTL_MS }
+  return enabled
+}
+
 // ── Wallet / upgrade payment gate ──────────────────────────────────────────
 // Independent of the storefront gate. The order-free payment paths (wallet
 // top-up, dealer upgrade) reach a hosted Paystack checkout that, via the

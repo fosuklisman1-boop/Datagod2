@@ -3,8 +3,9 @@ import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { expireStaleBotOrders } from "@/lib/bot-commission/stale-sweep"
 
-// Fails commission-cashback bot orders from the Uzo main + shop USSD that stayed pending + unpaid for 30 minutes
-// (bounded per run), and their pending wallet_payments rows. All logic: lib/bot-commission/stale-sweep.ts.
+// Fails commission-cashback bot orders from the Uzo main + shop USSD and the WhatsApp main + shop bots (never Hubtel
+// USSD or storefront) that stayed pending + unpaid for 30 minutes (bounded per run), and their in-flight
+// wallet_payments rows. All logic: lib/bot-commission/stale-sweep.ts.
 // A late Paystack payment after the sweep lands in the engine's needs-review path (paid + failed, never sent,
 // URGENT refund alert); see docs/hubtel-commission-services/runbook.md.
 export async function GET(request: NextRequest) {

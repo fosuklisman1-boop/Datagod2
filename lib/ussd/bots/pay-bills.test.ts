@@ -78,7 +78,7 @@ function setup(o: {
     findOrderId: vi.fn(o.findOrderId ?? (async () => null)),
     readOrder: vi.fn(o.readOrder ?? (async () => ({ status: "pending", payment_status: "unpaid" }))),
     failOrder: vi.fn(async () => {}),
-    charge: vi.fn(o.charge ?? (async (): Promise<BotChargeResult> => ({ ok: true, reference: "ref1", status: "pay_offline" }))),
+    charge: vi.fn(o.charge ?? (async (): Promise<BotChargeResult> => ({ ok: true, reference: "ref1", status: "pay_offline", promptedPhone: "0241234567" }))),
   }
   const ctx: UzoBotCtx = {
     surface, sessionId: SID, dialingPhone: ME,

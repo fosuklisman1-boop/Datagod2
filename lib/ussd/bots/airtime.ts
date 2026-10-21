@@ -13,6 +13,7 @@ import { samePrice, type StorefrontQuote } from "@/lib/cashback/quote"
 import {
   cashbackAirtimeColumns, cashbackPromptApplies, usableCashbackQuote,
 } from "@/lib/ussd-hubtel/flows/airtime-cashback"
+import { whatsappBotItemsVisible } from "@/lib/whatsapp-bot/cashback-visibility"
 import { fitsUzo, uzoConfirmText } from "./screen"
 
 /**
@@ -67,13 +68,48 @@ export async function uzoUsableAirtimeQuote(network: string, face: number, shop:
   return usableCashbackQuote(q, face) && usableWalletBase(q) ? q : null
 }
 
+// ── WhatsApp bots (main + shop) ───────────────────────────────────────────────
+// Same quote, same glue; only the opt-in differs. WhatsApp follows its own `cashbackAirtime` switch
+// (admin_settings.whatsapp_cashback_visibility, `=== true` only, AND the shared bots airtime gate) via
+// whatsappBotItemsVisible, which never throws and fails closed. The Uzo switch is never read here, and the Uzo
+// functions above never read the WhatsApp one.
+
+/** WhatsApp opt-in: the WhatsApp `cashbackAirtime` switch AND the cashback bots airtime gate. Never throws. */
+export async function whatsappCashbackAirtimeOn(): Promise<boolean> {
+  return (await whatsappBotItemsVisible(db())).cashbackAirtime === true
+}
+
+/**
+ * Cashback quote for WhatsApp airtime on rail paystack, or null when cashback does not apply. `shop` = the WhatsApp
+ * shop bot (storefront split); false = the main WhatsApp bot (customer share). Every WhatsApp cashback decision
+ * (prompt probe, amount, confirm re-quote) goes through here.
+ */
+export async function waAirtimeQuote(network: string, face: number, shop: boolean): Promise<StorefrontQuote | null> {
+  if (!(await whatsappCashbackAirtimeOn())) return null
+  return quoteBotAirtime(network, face, { rail: "paystack", shop }, liveDeps())
+}
+
+/** True when the WhatsApp amount prompt should ask for the airtime amount (probed at the minimum). */
+export function waAirtimePromptCashback(network: string, min: number, shop: boolean): Promise<boolean> {
+  return cashbackPromptApplies(waAirtimeQuote, network, min, shop)
+}
+
+/** A WhatsApp quote the bots may sell at for `face` (applied, finite, positive, sane base; fail closed otherwise). */
+export async function waUsableAirtimeQuote(network: string, face: number, shop: boolean): Promise<StorefrontQuote | null> {
+  const q = await waAirtimeQuote(network, face, shop)
+  return usableCashbackQuote(q, face) && usableWalletBase(q) ? q : null
+}
+
 /** `base` (face - customer cashback) is the dealer-wallet price: finite, positive, never above payAmount. */
 const usableWalletBase = (q: StorefrontQuote): boolean =>
   Number.isFinite(q.base) && q.base > 0 && q.base <= q.payAmount + 1e-9
 
 /**
- * Confirm-time decision. The screen and the live quote must agree on BOTH the pricing mode and the
- * price: cashback switched on/off or re-rated since the screen => "changed" (no order, no charge).
+ * Confirm-time decision; it honours the pricing mode the session was STAGED with (ruling 2026-10-21):
+ * - staged without a cashback price (`shownPay` undefined: today's screen, an AI-staged order, or the switch flipped
+ *   on mid-session) => "legacy": today's pricing, exactly the price shown. Never refused for cashback turning on.
+ * - staged with a cashback price => re-quoted: the live quote must be usable and the same price, else "changed"
+ *   (cashback switched off or re-rated since the screen: no order, no charge).
  */
 export type AirtimeRequote =
   | { kind: "legacy" }
@@ -81,9 +117,9 @@ export type AirtimeRequote =
   | { kind: "changed" }
 
 export function airtimeRequote(shownPay: number | undefined, live: StorefrontQuote | null, face: number): AirtimeRequote {
+  if (shownPay === undefined) return { kind: "legacy" }
   const usable = usableCashbackQuote(live, face) && usableWalletBase(live)
-  if (shownPay === undefined && !usable) return { kind: "legacy" }
-  if (!usable || shownPay === undefined || !Number.isFinite(shownPay) || !samePrice(live.payAmount, shownPay)) {
+  if (!usable || !Number.isFinite(shownPay) || !samePrice(live.payAmount, shownPay)) {
     return { kind: "changed" }
   }
   return { kind: "cashback", quote: live }

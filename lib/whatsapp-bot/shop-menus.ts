@@ -48,11 +48,28 @@ export function shopInvalidCodeMenu(reason: string): string {
   return `${reason}\n\nEnter shop code:\n\n0. Exit`
 }
 
-export function shopProductMenu(shopName: string, showData = true): string {
+/**
+ * Commission-cashback items shown at the END of the product menu (whatsappBotItemsVisible; Network Plans also hidden
+ * while the data whitelist blocks the customer, like Data Bundle). Absent / all false => today's menu byte for byte.
+ */
+export interface ShopBotMenuItems { networkPlans?: boolean; payBills?: boolean }
+
+/** The digits the visible cashback items take: right after the legacy items (which never move). */
+export function shopBotMenuDigits(showData: boolean, bots?: ShopBotMenuItems): { networkPlans?: string; payBills?: string } {
+  let next = showData ? 5 : 4
+  const out: { networkPlans?: string; payBills?: string } = {}
+  if (bots?.networkPlans) out.networkPlans = String(next++)
+  if (bots?.payBills) out.payBills = String(next++)
+  return out
+}
+
+export function shopProductMenu(shopName: string, showData = true, bots?: ShopBotMenuItems): string {
+  const d = shopBotMenuDigits(showData, bots)
+  const extra = (d.networkPlans ? `${d.networkPlans}. Network Plans\n` : '') + (d.payBills ? `${d.payBills}. Pay Bills\n` : '')
   if (showData) {
-    return `${shopName}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n4. Check My Results\n0. Exit`
+    return `${shopName}\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n4. Check My Results\n${extra}0. Exit`
   }
-  return `${shopName}\nWhat to buy?\n1. Airtime\n2. Results Checker\n3. Check My Results\n0. Exit`
+  return `${shopName}\nWhat to buy?\n1. Airtime\n2. Results Checker\n3. Check My Results\n${extra}0. Exit`
 }
 
 // ── Shop Data Bundle ──────────────────────────────────────────────────────────
@@ -145,8 +162,32 @@ export function shopAirtimeNetworkMenu(): string {
   return 'Select Network:\n1. MTN\n2. Telecel\n3. AirtelTigo\n\n0. Back'
 }
 
-export function shopAirtimeAmountPrompt(network: string, min: number, max: number): string {
-  return `${network} Airtime\nEnter amount to pay\n(GHS ${min} - ${max}):\n\n0. Back`
+/** "Enter amount to pay" (today) or, with commission cashback, "Enter airtime amount" (the face delivered). */
+export function shopAirtimeAmountPrompt(network: string, min: number, max: number, cashback = false): string {
+  return `${network} Airtime\n${cashback ? "Enter airtime amount" : "Enter amount to pay"}\n(GHS ${min} - ${max}):\n\n0. Back`
+}
+
+/**
+ * Airtime confirm when commission cashback applies: "Pay GHS x (was GHS y)" (x = the MoMo price, y = the airtime
+ * face) and what the recipient gets. Same layout as shopAirtimeConfirmMenu otherwise.
+ */
+export function shopAirtimeCashbackConfirmMenu(
+  shopName: string,
+  network: string,
+  recipient: string,
+  pay: number,
+  face: number,
+  paymentPhone: string
+): string {
+  const was = pay < face ? ` (was GHS ${face.toFixed(2)})` : ""
+  return (
+    `${shopName}\n` +
+    `${network} to ${formatLocal(recipient)}\n` +
+    `Pay GHS ${pay.toFixed(2)}${was}\n` +
+    `Get GHS ${face.toFixed(2)} airtime\n` +
+    `from ${formatLocal(paymentPhone)}\n\n` +
+    `1. Pay now\n2. Cancel`
+  )
 }
 
 export function shopAirtimeConfirmMenu(

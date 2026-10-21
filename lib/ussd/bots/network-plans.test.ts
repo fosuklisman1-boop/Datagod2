@@ -58,7 +58,7 @@ function setup(o: {
     findOrderId: vi.fn(o.findOrderId ?? (async () => null)),
     readOrder: vi.fn(o.readOrder ?? (async () => ({ status: "pending", payment_status: "unpaid" }))),
     failOrder: vi.fn(async () => {}),
-    charge: vi.fn(o.charge ?? (async (): Promise<BotChargeResult> => ({ ok: true, reference: "ref1", status: "pay_offline" }))),
+    charge: vi.fn(o.charge ?? (async (): Promise<BotChargeResult> => ({ ok: true, reference: "ref1", status: "pay_offline", promptedPhone: "0241234567" }))),
     getPrefixConfig: vi.fn(async () => ({ enabled: o.prefixEnabled ?? true, map: DEFAULT_NETWORK_PREFIXES })),
   }
   const ctx: UzoBotCtx = {
@@ -248,7 +248,7 @@ describe("network plans: confirm + pay", () => {
   })
 
   it("an idempotent replay (status pending) shows the same prompt-sent text", async () => {
-    const t = setup({ charge: async () => ({ ok: true, reference: "ref0", status: "pending" }) })
+    const t = setup({ charge: async () => ({ ok: true, reference: "ref0", status: "pending", promptedPhone: "0241234567" }) })
     await t.start()
     expect((await t.send("1", "1", "1", "1", "1")).message).toBe(SENT)
   })

@@ -254,11 +254,18 @@ describe("shop USSD airtime: cashback applied", () => {
     expect(r).toEqual({ message: "Price changed. Please try again.", ussdServiceOp: 17 })
     h.state.quote = null
     expect((await handleShopAirtimeConfirm("1", "s1", cbConfirmSession())).message).toBe("Price changed. Please try again.")
-    h.state.quote = onFor()
-    const legacyShown = cbConfirmSession({ airtimeAmount: 10.8, airtimeFee: 0.8, airtimeMerchantCommission: 0.3, airtimeCashbackPay: undefined })
-    expect((await handleShopAirtimeConfirm("1", "s1", legacyShown)).message).toBe("Price changed. Please try again.")
     expect(airtimeInserts()).toEqual([])
     expect(h.state.afterFns).toHaveLength(0)
+  })
+
+  it("cashback switched on since a legacy screen: the legacy price shown is honoured (ruling 2026-10-21)", async () => {
+    h.state.quote = onFor()
+    const legacyShown = cbConfirmSession({ airtimeAmount: 10.8, airtimeFee: 0.8, airtimeMerchantCommission: 0.3, airtimeCashbackPay: undefined })
+    const r = await handleShopAirtimeConfirm("1", "s1", legacyShown)
+    expect(r.ussdServiceOp).toBe(17)
+    expect(airtimeInserts()).toEqual([LEGACY_ROW])
+    await flushAfter()
+    expect(h.state.charges[0]).toMatchObject({ amount: 10.8, reference: "order-1" })
   })
 
   it("no resolved shop in the session: fails closed to today's pricing (never quotes)", async () => {

@@ -5,7 +5,7 @@ import {
   shopAirtimeAmountPrompt, shopAirtimeConfirmMenu, shopRcBoardMenu, shopRcQtyPrompt,
   shopRcConfirmMenu, shopRcCheckBoardMenu, shopRcCheckCandidateTypeMenu, shopRcCheckModeMenu,
   shopRcCheckVoucherPrompt, shopRcCheckIndexPrompt, shopRcCheckYearPrompt, shopRcCheckDobPrompt,
-  shopRcCheckConfirmMenu, sortNetworks, PAGE_SIZE,
+  shopRcCheckConfirmMenu, sortNetworks, PAGE_SIZE, shopBotMenuDigits,
 } from "./shop-menus"
 import { WaShopBundleOption } from "./shop-types"
 
@@ -38,6 +38,25 @@ describe("whatsapp-bot shop-menus", () => {
       expect(text).toContain("1. Airtime")
       expect(text).toContain("2. Results Checker")
       expect(text).toContain("3. Check My Results")
+    })
+
+    it("cashback items absent or off: byte-identical to the legacy menus", () => {
+      const legacy = "S\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n4. Check My Results\n0. Exit"
+      const legacyBlocked = "S\nWhat to buy?\n1. Airtime\n2. Results Checker\n3. Check My Results\n0. Exit"
+      expect(shopProductMenu("S")).toBe(legacy)
+      expect(shopProductMenu("S", true, { networkPlans: false, payBills: false })).toBe(legacy)
+      expect(shopProductMenu("S", false, {})).toBe(legacyBlocked)
+      expect(shopBotMenuDigits(true, undefined)).toEqual({})
+    })
+
+    it("cashback items come at the END, after the legacy digits", () => {
+      expect(shopProductMenu("S", true, { networkPlans: true, payBills: true }))
+        .toBe("S\nWhat to buy?\n1. Data Bundle\n2. Airtime\n3. Results Checker\n4. Check My Results\n5. Network Plans\n6. Pay Bills\n0. Exit")
+      expect(shopBotMenuDigits(true, { networkPlans: true, payBills: true })).toEqual({ networkPlans: "5", payBills: "6" })
+      expect(shopProductMenu("S", false, { payBills: true }))
+        .toBe("S\nWhat to buy?\n1. Airtime\n2. Results Checker\n3. Check My Results\n4. Pay Bills\n0. Exit")
+      expect(shopBotMenuDigits(false, { payBills: true })).toEqual({ payBills: "4" })
+      expect(shopBotMenuDigits(true, { payBills: true })).toEqual({ payBills: "5" })
     })
   })
 

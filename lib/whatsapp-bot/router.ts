@@ -2,7 +2,8 @@
 import { createClient } from "@supabase/supabase-js"
 import { getWaSession, setWaSession, deleteWaSession, extendWaSession } from "./session"
 import { USSDSession, UzoResponse, BundleOption } from "@/lib/ussd/types"
-import { handleMain } from "@/lib/ussd/handlers/main"
+import { handleMain, mainMenuVisibility } from "@/lib/ussd/handlers/main"
+import { resolveMainMenu } from "@/lib/ussd/menus"
 import {
   handleSelectNetwork, handleEnterRecipient,
   handleConfirm, handlePaymentMethod, handleSubmitOtp,
@@ -28,12 +29,14 @@ import { handleStatus } from "@/lib/ussd/handlers/status"
 import {
   mainMenu, networkMenu, rcMenu, airtimeRecipientPrompt, afaEnterNamePrompt,
   recipientPrompt, paymentMethodMenu,
-  airtimePaymentMethodMenu, rcPaymentMethodMenu,
+  airtimePaymentMethodMenu, airtimeCashbackPaymentMethodMenu, rcPaymentMethodMenu,
   rcCheckBoardMenu, rcCheckCandidateTypeMenu, rcCheckModeMenu,
   rcCheckVoucherPrompt, rcCheckIndexPrompt,
-  waConfirmMenu, waAirtimeConfirmMenu, waRcConfirmMenu,
+  waConfirmMenu, waAirtimeConfirmMenu, waAirtimeCashbackConfirmMenu, waRcConfirmMenu, WA_WALLET_SHORT_PROMPT,
 } from "@/lib/ussd/menus"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
+import { handleWaBotOtp, handleWaBotStep, isWaBotStep, waBotNaturalToDigit, waBotOtpPending } from "./bot-flows"
+import { whatsappBotItemsVisible } from "./cashback-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -45,6 +48,30 @@ function fixWaMomoMsg(msg: string): string {
   return msg
     .replace(/Received an OTP instead\?[^\n]*/gi, 'If you receive an OTP code, reply here with it.')
     .replace(/Redial\s+\S*\s*and\s+enter\s+the\s+code\.?/gi, 'Reply here with your OTP code.')
+}
+
+// ── Airtime (commission cashback) ─────────────────────────────────────────────
+// `airtimeCashbackPay` is set by handleAirtimeEnterAmount only when the WhatsApp cashbackAirtime switch is on AND the
+// quote is usable; otherwise both helpers below return exactly today's values/screens.
+
+/**
+ * What the dealer wallet must cover: today's typed amount, or with cashback the quote's base (no Paystack fee).
+ * The base fails closed to the MoMo price when missing or not sane (finite, > 0, <= MoMo price).
+ */
+function waAirtimeWalletNeed(s: USSDSession): number {
+  if (s.airtimeCashbackPay === undefined) return s.airtimeAmount ?? 0
+  const w = s.airtimeCashbackWalletPay
+  return typeof w === 'number' && Number.isFinite(w) && w > 0 && w <= s.airtimeCashbackPay ? w : s.airtimeCashbackPay
+}
+
+/** The WhatsApp airtime confirm screen: today's, or with cashback "Pay GHS x (was GHS y)" + per-option prices. */
+function waAirtimeConfirmText(s: USSDSession): string {
+  if (s.airtimeCashbackPay !== undefined) {
+    return waAirtimeCashbackConfirmMenu(
+      s.airtimeNetwork!, s.airtimeRecipient!, s.airtimeCashbackPay, s.airtimeAmount!, waAirtimeWalletNeed(s), s.walletBalance ?? 0,
+    )
+  }
+  return waAirtimeConfirmMenu(s.airtimeNetwork!, s.airtimeRecipient!, s.airtimeAmount!, s.airtimeToDeliver!, s.walletBalance ?? 0)
 }
 
 // ── WhatsApp bundle helpers (full list, no pagination) ───────────────────────
@@ -134,7 +161,21 @@ async function handleSelectBundleWa(
 // digit still progress through the (completable) USSD flow. Returns the digit string
 // or null if it can't confidently map (caller then tries keywords / escapes to AI).
 async function naturalToDigit(step: string, input: string, session: USSDSession): Promise<string | null> {
+  // Cashback bot flows (Network Plans / Pay Bills): only the obvious replies, never on a typed-data step
+  // (MoMo number, SMS code, account, email...).
+  if (isWaBotStep(step)) return waBotNaturalToDigit(step, input, session)
   const lc = input.toLowerCase().replace(/\s+/g, "")
+  if (step === "MAIN") {
+    // "pay bills" / "network plans" (whole reply) => that item's digit, only when the menu shows it (WhatsApp
+    // switches + gate, and the data whitelist for Network Plans): the same resolved list as the menu's own dispatch.
+    // Anything else (or the item hidden) => null: the ordering keywords / AI escape below, as today.
+    const words = lc.replace(/[.!]+/g, "")
+    const want = /^networkplans?$/.test(words) ? "networkPlans" : /^paybills?$/.test(words) ? "payBills" : null
+    if (!want) return null
+    const resolved = resolveMainMenu(await mainMenuVisibility(session.dataBlocked === true, "whatsapp"))
+    const item = resolved.find((r) => r.key === want)
+    return item ? String(item.digit) : null
+  }
   if (step === "SELECT_NETWORK" || step === "AIRTIME_SELECT_NETWORK") {
     if (lc.startsWith("mtn")) return "1"
     if (/telecel|vodafone/.test(lc)) return "2"
@@ -173,6 +214,8 @@ async function naturalToDigit(step: string, input: string, session: USSDSession)
 }
 
 export async function waRouter(phone: string, text: string): Promise<string> {
+  // A cashback bot charge's send_otp pointer counts for this reply only if created from here on.
+  const startedAt = Date.now()
   const sessionId = phone
   const session = await getWaSession(sessionId)
 
@@ -257,9 +300,18 @@ export async function waRouter(phone: string, text: string): Promise<string> {
     }
   }
 
+  // Cashback bot flows (Network Plans / Pay Bills). These steps are not menu-selection steps above: free text never
+  // escapes to the AI mid-flow (the flow repaints its screen), and it is mapped to a digit only where obvious.
+  if (isWaBotStep(session.step)) {
+    if (!/^\d+$/.test(input)) input = (await naturalToDigit(session.step, input, session)) ?? input
+    return finishWaBotReply(sessionId, phone, await handleWaBotStep(phone, input, session), startedAt)
+  }
+
   switch (session.step) {
     case 'MAIN':
-      result = await handleMain(input, sessionId, session)
+      // 'whatsapp': the cashback items (end of the menu) follow the WhatsApp switches; off => today's menu.
+      // A bot flow's first screen never charges, so the generic tail below fits it.
+      result = await handleMain(input, sessionId, session, 'whatsapp')
       break
 
     case 'SELECT_NETWORK':
@@ -304,9 +356,15 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       } else if (input === '1') {
         if (!session.userId || (session.walletBalance ?? 0) < (session.bundlePrice ?? 0)) {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
-          result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+          result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
         } else {
-          result = await handleConfirm('1', sessionId, session, 'whatsapp')
+          result = await handleConfirm('1', sessionId, session, 'whatsapp', { walletOnly: true })
+          if (result.walletShort) {
+            // The verified price is above the wallet: ask for a MoMo number, never charge the sender's own.
+            await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_BUNDLE' })
+            result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
+            break
+          }
           await tagOrderChannel(sessionId, phone, 'ussd_orders', result.ussdServiceOp === 17)
           // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
           if (result.ussdServiceOp === 2) {
@@ -335,6 +393,13 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       break
 
     case 'SUBMIT_OTP': {
+      // Cashback bot charge (Paystack send_otp): the sender's wa-bot-otp pointer is looked up again; a retry keeps
+      // this step, ok / cancel / final failure end it.
+      if (session.botOtp) {
+        result = await handleWaBotOtp(phone, input)
+        overrideMessage = fixWaMomoMsg(result.message)
+        break
+      }
       const isOtpLike = /^\d{4,8}$/.test(input.trim())
       const isCancel = input.trim() === '0'
 
@@ -392,7 +457,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       if (result.ussdServiceOp === 2) {
         const updated = await getWaSession(sessionId)
         if (updated?.step === 'AIRTIME_CONFIRM') {
-          result = { message: waAirtimeConfirmMenu(updated.airtimeNetwork!, updated.airtimeRecipient!, updated.airtimeAmount!, updated.airtimeToDeliver!, updated.walletBalance ?? 0), ussdServiceOp: 2 }
+          result = { message: waAirtimeConfirmText(updated), ussdServiceOp: 2 }
         }
       }
       break
@@ -402,11 +467,17 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
         result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
       } else if (input === '1') {
-        if (!session.userId || (session.walletBalance ?? 0) < (session.airtimeAmount ?? 0)) {
+        if (!session.userId || (session.walletBalance ?? 0) < waAirtimeWalletNeed(session)) {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
-          result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+          result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
         } else {
-          result = await handleAirtimeConfirm('1', sessionId, session, 'whatsapp')
+          result = await handleAirtimeConfirm('1', sessionId, session, 'whatsapp', { walletOnly: true })
+          if (result.walletShort) {
+            // The LIVE wallet is short: ask for a MoMo number, never charge the sender's own.
+            await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AIRTIME' })
+            result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
+            break
+          }
           await tagOrderChannel(sessionId, phone, 'airtime_orders', false)
           // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
           if (result.ussdServiceOp === 2) {
@@ -419,7 +490,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       } else if (input === '0') {
         result = await handleAirtimeConfirm('2', sessionId, session, 'whatsapp')
       } else {
-        result = { message: waAirtimeConfirmMenu(session.airtimeNetwork!, session.airtimeRecipient!, session.airtimeAmount!, session.airtimeToDeliver!, session.walletBalance ?? 0), ussdServiceOp: 2 }
+        result = { message: waAirtimeConfirmText(session), ussdServiceOp: 2 }
       }
       break
     }
@@ -470,9 +541,15 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       } else if (input === '1') {
         if (!session.userId || (session.walletBalance ?? 0) < (session.rcTotal ?? 0)) {
           await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
-          result = { message: 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+          result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
         } else {
-          result = await handleRcConfirm('1', sessionId, session, 'whatsapp')
+          result = await handleRcConfirm('1', sessionId, session, 'whatsapp', { walletOnly: true })
+          if (result.walletShort) {
+            // The LIVE wallet / price is short: ask for a MoMo number, never charge the sender's own.
+            await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_RC' })
+            result = { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2 }
+            break
+          }
           await tagOrderChannel(sessionId, phone, 'results_checker_orders', false)
           // Already chose "Pay via Wallet" above — skip the redundant payment-method screen.
           if (result.ussdServiceOp === 2) {
@@ -539,9 +616,11 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       result = await handleWaEnterPaymentPhone(input, sessionId, session)
       break
 
-    default:
-      await setWaSession(sessionId, { step: 'MAIN', dialingPhone: phone })
-      result = { message: mainMenu(), ussdServiceOp: 2 }
+    default: {
+      const fresh: USSDSession = { step: 'MAIN', dialingPhone: phone }
+      await setWaSession(sessionId, fresh)
+      result = { message: await waMainMenuText(sessionId, fresh), ussdServiceOp: 2 }
+    }
   }
 
   if (result.ussdServiceOp === 17) {
@@ -552,6 +631,38 @@ export async function waRouter(phone: string, text: string): Promise<string> {
   }
 
   return overrideMessage ?? result.message
+}
+
+// ── Cashback bot flows ────────────────────────────────────────────────────────
+
+/**
+ * Tail of a bot-flow reply: WhatsApp wording on the text; a final screen ends the session unless THIS reply's charge
+ * answered Paystack `send_otp` (the sender's wa-bot-otp pointer is newer than the reply): then the chat waits on
+ * SUBMIT_OTP for the code (it is the newest pending OTP of this sender by construction).
+ */
+async function finishWaBotReply(sessionId: string, phone: string, r: UzoResponse, since: number): Promise<string> {
+  const message = fixWaMomoMsg(r.message)
+  if (r.ussdServiceOp !== 17) {
+    await extendWaSession(sessionId)
+    return message
+  }
+  if (await waBotOtpPending(phone, since)) {
+    const local = phone.startsWith('233') ? '0' + phone.slice(3) : phone
+    await setWaSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone: local, botOtp: true })
+    return message
+  }
+  await deleteWaSession(sessionId)
+  return message
+}
+
+/**
+ * The main menu after a session reset. Switches off => exactly today's mainMenu(); on => the menu handleMain renders
+ * for 'whatsapp' (one resolved list for the text and the digit dispatch).
+ */
+async function waMainMenuText(sessionId: string, session: USSDSession): Promise<string> {
+  const vis = await whatsappBotItemsVisible(supabase)
+  if (!vis.networkPlans && !vis.payBills) return mainMenu()
+  return (await handleMain('', sessionId, session, 'whatsapp')).message
 }
 
 // ── WA_ENTER_PAYMENT_PHONE ────────────────────────────────────────────────────
@@ -584,7 +695,11 @@ async function handleWaEnterPaymentPhone(
       : (session.rcTotal ?? 0)
     const balance = session.walletBalance ?? 0
     const menu = parentStep === 'PAYMENT_METHOD' ? paymentMethodMenu(amount, balance)
-      : parentStep === 'AIRTIME_PAYMENT_METHOD' ? airtimePaymentMethodMenu(amount, balance)
+      : parentStep === 'AIRTIME_PAYMENT_METHOD'
+        ? (session.airtimeCashbackPay !== undefined
+          // Cashback: the wallet (base) and MoMo (payAmount) charge different amounts.
+          ? airtimeCashbackPaymentMethodMenu(waAirtimeWalletNeed(session), session.airtimeCashbackPay, balance)
+          : airtimePaymentMethodMenu(amount, balance))
       : rcPaymentMethodMenu(amount, balance)
     await setWaSession(sessionId, { ...session, step: parentStep as USSDSession['step'] })
     return { message: menu, ussdServiceOp: 2 }

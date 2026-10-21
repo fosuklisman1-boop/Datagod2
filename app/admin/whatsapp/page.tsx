@@ -12,6 +12,7 @@ import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Loader2, Send, Search, UserCheck, Bot, AlertTriangle, X, ChevronRight, Check, CheckCheck, Paperclip, FileText, Hand } from "lucide-react"
+import { WhatsAppCashbackSwitches } from "./cashback-switches"
 
 interface Conversation {
   id: string
@@ -446,7 +447,9 @@ export default function WhatsAppInboxPage() {
           subtitle="View bot conversations and take over to reply manually."
         />
 
-        {/* Conversation list (full width) */}
+        {/* Desktop: the inbox and the bot settings side by side; mobile: stacked (inbox first). */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,48rem)_minmax(18rem,24rem)] lg:items-start">
+        {/* Conversation list */}
         <Card className="flex flex-col overflow-hidden max-w-3xl">
           <div className="p-3 border-b space-y-2">
             <div className="relative">
@@ -518,6 +521,12 @@ export default function WhatsAppInboxPage() {
             ))}
           </div>
         </Card>
+
+        {/* WhatsApp bot settings: the commission-cashback switches (both bots). */}
+        <div className="max-w-3xl lg:sticky lg:top-4">
+          <WhatsAppCashbackSwitches />
+        </div>
+        </div>
       </DashboardLayout>
 
       {/* Full-screen thread modal */}

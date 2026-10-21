@@ -6,12 +6,13 @@ import {
   rcMyVouchersMenu, rcVoucherDetailMenu, rcCheckBoardMenu, rcCheckCandidateTypeMenu,
   rcCheckModeMenu, rcCheckVoucherPrompt,
   rcCheckIndexPrompt, rcCheckDobPrompt, rcCheckWaNumberPrompt, rcCheckYearPrompt,
-  rcCheckConfirmMenu, rcCheckPaymentMethodMenu,
+  rcCheckConfirmMenu, rcCheckPaymentMethodMenu, waWalletShort,
 } from "../menus"
 import { setSession } from "../session"
 import { isValidDob } from "../../results-check-validation"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
+import { liveWalletBalance } from "../wallet-balance"
 import { chargeMobileMoney } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { secureReference } from "../../secure-random"
@@ -118,7 +119,13 @@ export async function handleRcConfirm(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel: 'ussd' | 'whatsapp' = 'ussd'
+  channel: 'ussd' | 'whatsapp' = 'ussd',
+  /**
+   * WhatsApp "Pay via Wallet": if the LIVE wallet cannot cover the live price, create nothing and return
+   * `walletShort` (the router asks for a MoMo number) instead of charging `dialingPhone`, the sender's own number
+   * there. USSD never passes it.
+   */
+  opts: { walletOnly?: boolean } = {}
 ): Promise<UzoResponse> {
   if (input.trim() === "2") {
     await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
@@ -142,7 +149,13 @@ export async function handleRcConfirm(
 
   const dialer = await resolveDialer(dialingPhone)
   const provider = paystackProviderFromPhone(dialingPhone)
-  const walletEligible = dialer.userId && dialer.balance !== undefined && dialer.balance >= pricing.totalPaid
+  // The wallet account: on WhatsApp "Pay via Wallet" (walletOnly) the session's account (the sender's own or an
+  // OTP-linked one, the id the debit uses) with its LIVE balance; elsewhere the dialing phone's account, as before.
+  const payer = opts.walletOnly
+    ? { userId: session.userId, balance: await liveWalletBalance(session.userId) }
+    : { userId: dialer.userId, balance: dialer.balance }
+  const walletEligible = payer.userId && payer.balance !== undefined && payer.balance >= pricing.totalPaid
+  if (!walletEligible && opts.walletOnly) return waWalletShort()
 
   if (walletEligible) {
     await setSession(sessionId, {
@@ -150,10 +163,10 @@ export async function handleRcConfirm(
       step: "RC_PAYMENT_METHOD",
       rcUnitPrice: pricing.unitPrice,
       rcTotal: pricing.totalPaid,
-      userId: dialer.userId,
-      walletBalance: dialer.balance,
+      userId: payer.userId,
+      walletBalance: payer.balance,
     })
-    return cont(rcPaymentMethodMenu(pricing.totalPaid, dialer.balance!))
+    return cont(rcPaymentMethodMenu(pricing.totalPaid, payer.balance!))
   }
 
   if (!provider) {

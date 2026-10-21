@@ -90,14 +90,17 @@ describe("airtimeRequote (stale-session guard)", () => {
   it("cashback when the shown price still matches", () => {
     expect(airtimeRequote(9.69, quote(), 10)).toEqual({ kind: "cashback", quote: quote() })
   })
-  it("changed when the price moved, cashback turned off, or turned on", () => {
+  it("changed when a cashback-staged price moved or cashback turned off", () => {
     expect(airtimeRequote(9.69, quote({ payAmount: 9.7 }), 10)).toEqual({ kind: "changed" })
     expect(airtimeRequote(9.69, null, 10)).toEqual({ kind: "changed" })
-    expect(airtimeRequote(undefined, quote(), 10)).toEqual({ kind: "changed" })
     expect(airtimeRequote(NaN, quote(), 10)).toEqual({ kind: "changed" })
     // base (the wallet price) above payAmount is not a usable quote.
     expect(airtimeRequote(9.69, quote({ base: 9.7 }), 10)).toEqual({ kind: "changed" })
     expect(airtimeRequote(undefined, quote({ base: 9.7 }), 10)).toEqual({ kind: "legacy" })
+  })
+  it("legacy-staged (no cashback price shown) stays legacy even when cashback now applies (ruling 2026-10-21)", () => {
+    // The customer was shown today's price (e.g. an AI-staged order, or the switch flipped mid-session): honour it.
+    expect(airtimeRequote(undefined, quote(), 10)).toEqual({ kind: "legacy" })
   })
 })
 
