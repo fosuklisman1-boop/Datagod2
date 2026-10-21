@@ -4,6 +4,11 @@ import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { sendPushToUser } from "@/lib/push-service"
 import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
+import { backgroundCron } from "@/lib/cron-background"
+
+// Answer the scheduler at once (cron-job.org times out at 30s); the sync itself
+// runs after the response and can take the route's full maxDuration.
+export const GET = backgroundCron("sync-xpress", (request) => runXpressSync(request))
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -25,7 +30,7 @@ function sleep(ms: number): Promise<void> {
  * and updates mtn_fulfillment_tracking + the originating order table.
  * Sends in-app notifications on completed/failed.
  */
-export async function GET(request: NextRequest) {
+async function runXpressSync(request: NextRequest) {
     const { authorized, errorResponse } = verifyCronAuth(request)
     if (!authorized && errorResponse) return errorResponse
 

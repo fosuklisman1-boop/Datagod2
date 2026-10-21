@@ -26,10 +26,6 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/sync-mtn-status/xpress",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/sync-mtn-status/eazyghdata",
       "schedule": "* * * * *"
     },
