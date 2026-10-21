@@ -82,10 +82,6 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/drain-fulfillment-queue",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/cron/reconcile-paystack-refunds",
       "schedule": "*/5 * * * *"
     }
