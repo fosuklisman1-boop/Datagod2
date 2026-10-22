@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Loader2, ScrollText, Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { ConsoleKey } from "@/lib/api-v2/admin-view"
+import { sanitizeV1Search, type ConsoleKey } from "@/lib/api-v2/admin-view"
+import { createLatestGate } from "@/lib/api-v2/latest-gate"
 import { adminFetch } from "./admin-fetch"
 import { LogTable, type LogRow } from "./LogTable"
 import { InlineError, Segmented } from "./ui"
@@ -43,7 +44,7 @@ export function RequestLogs({ keys, preset }: { keys: ConsoleKey[]; preset?: { r
   const [total, setTotal] = useState<number | null>(preset?.total ?? null)
   const [loading, setLoading] = useState(!preset)
   const [error, setError] = useState<string | null>(null)
-  const seq = useRef(0)
+  const gate = useRef(createLatestGate())
 
   const load = useCallback(async () => {
     if (preset) return
@@ -57,13 +58,16 @@ export function RequestLogs({ keys, preset }: { keys: ConsoleKey[]; preset?: { r
       url = `/api/admin/api-v2/logs?${p}`
     } else {
       if (statusClass !== "all") p.set("statusFilter", statusClass)
-      if (search.trim()) p.set("search", search.trim())
+      // Stopgap: /api/admin/api-logs puts `search` unescaped into a PostgREST .or() filter,
+      // so strip the characters that could add clauses (`,` `(` `)`) before sending.
+      const q = sanitizeV1Search(search)
+      if (q) p.set("search", q)
       if (keyId !== "all") p.set("apiKeyId", keyId)
       url = `/api/admin/api-logs?${p}`
     }
-    const mine = ++seq.current
+    const ticket = gate.current.next()
     const r = await adminFetch<{ logs?: Record<string, unknown>[]; total?: number }>(url)
-    if (mine !== seq.current) return // a newer filter/page request superseded this one
+    if (!gate.current.isLatest(ticket)) return // a newer filter/page request superseded this one
     if (r.ok) {
       const list = Array.isArray(r.data?.logs) ? r.data.logs : []
       setRows(list.map((x) => toRow(x, source)))

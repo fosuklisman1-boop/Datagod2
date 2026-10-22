@@ -247,6 +247,28 @@ export function toggleRole(selected: readonly string[], role: string): string[] 
   })
 }
 
+/**
+ * Stopgap for GET /api/admin/api-logs, which interpolates `search` unescaped into a PostgREST
+ * `.or()` filter: removing `,`, `(` and `)` keeps a typed search from adding filter clauses.
+ */
+export function sanitizeV1Search(raw: string): string {
+  return raw.replace(/[,()]/g, "").trim()
+}
+
+export interface ConsoleConfig {
+  enabled: boolean
+  allowed_roles: string[]
+}
+
+/** Value equality for the v2 API config (role order does not matter). */
+export function sameConfig(a: ConsoleConfig | null, b: ConsoleConfig | null): boolean {
+  if (!a || !b) return a === b
+  if (a.enabled !== b.enabled) return false
+  const x = [...a.allowed_roles].sort()
+  const y = [...b.allowed_roles].sort()
+  return x.length === y.length && x.every((r, i) => r === y[i])
+}
+
 const DASH = "—"
 const finite = (n: number | null | undefined): n is number => typeof n === "number" && Number.isFinite(n)
 

@@ -21,9 +21,12 @@ export function GlobalKill({ onConfirm }: { onConfirm: () => Promise<void> }) {
 
   const run = async () => {
     setRunning(true)
-    await onConfirm()
-    setRunning(false)
-    setOpen(false)
+    try {
+      await onConfirm()
+    } finally {
+      setRunning(false)
+      setOpen(false)
+    }
   }
 
   return (

@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { createLatestGate } from "@/lib/api-v2/latest-gate"
 import { toast } from "sonner"
 import { mergeKeys, type ConsoleKey, type V1AdminKey, type V2AdminKey } from "@/lib/api-v2/admin-view"
 import type { AdminStats, KeyActivity } from "@/lib/api-v2/admin-stats"
@@ -34,7 +35,12 @@ export function useConsoleData(enabled: boolean) {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<Record<string, boolean>>({})
 
-  const refresh = useCallback(async () => {
+  // Last-started refresh wins: an older load that resolves late must not overwrite newer state.
+  const gate = useRef(createLatestGate())
+  const latest = useRef<Promise<void>>(Promise.resolve())
+
+  const load = useCallback(async (): Promise<void> => {
+    const ticket = gate.current.next()
     setLoading(true)
     const [r1, r2, rs, rc] = await Promise.all([
       adminFetch<{ keys?: V1AdminKey[] }>("/api/admin/api-keys"),
@@ -42,6 +48,9 @@ export function useConsoleData(enabled: boolean) {
       adminFetch<{ stats?: AdminStats }>("/api/admin/api-v2/stats"),
       adminFetch<ApiConfig>("/api/admin/api-v2/config"),
     ])
+    // Superseded: wait for the newest load instead, so callers (and row busy flags) only
+    // resume once the freshest state has been applied.
+    if (!gate.current.isLatest(ticket)) return latest.current
     if (r1.ok) setV1(Array.isArray(r1.data?.keys) ? r1.data.keys : [])
     if (r2.ok) setV2(Array.isArray(r2.data?.keys) ? r2.data.keys : [])
     setStats(rs.ok && rs.data?.stats ? rs.data.stats : null)
@@ -54,6 +63,12 @@ export function useConsoleData(enabled: boolean) {
     })
     setLoading(false)
   }, [])
+
+  const refresh = useCallback((): Promise<void> => {
+    const p = load()
+    latest.current = p
+    return p
+  }, [load])
 
   useEffect(() => {
     if (enabled) void refresh()

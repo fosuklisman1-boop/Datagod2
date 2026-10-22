@@ -9,6 +9,8 @@ import {
   formatCount,
   formatPercent,
   formatLatency,
+  sanitizeV1Search,
+  sameConfig,
   type ConsoleKey,
 } from "./admin-view"
 
@@ -101,6 +103,26 @@ describe("toggleRole", () => {
     expect(toggleRole(["dealer"], "user")).toEqual(["user", "dealer"])
     expect(toggleRole(["user", "dealer"], "user")).toEqual(["dealer"])
     expect(toggleRole([], "admin")).toEqual(["admin"])
+  })
+})
+
+describe("sanitizeV1Search", () => {
+  it("strips the PostgREST .or() separators and grouping characters", () => {
+    expect(sanitizeV1Search("/v1/bundles")).toBe("/v1/bundles")
+    expect(sanitizeV1Search("x,status_code.eq.200")).toBe("xstatus_code.eq.200")
+    expect(sanitizeV1Search("and(a.eq.1,b.eq.2)")).toBe("anda.eq.1b.eq.2")
+    expect(sanitizeV1Search("  POST  ")).toBe("POST")
+    expect(sanitizeV1Search(",()")).toBe("")
+  })
+})
+
+describe("sameConfig", () => {
+  it("compares enabled and roles by value, ignoring role order", () => {
+    expect(sameConfig({ enabled: true, allowed_roles: ["dealer", "user"] }, { enabled: true, allowed_roles: ["user", "dealer"] })).toBe(true)
+    expect(sameConfig({ enabled: true, allowed_roles: ["dealer"] }, { enabled: false, allowed_roles: ["dealer"] })).toBe(false)
+    expect(sameConfig({ enabled: true, allowed_roles: ["dealer"] }, { enabled: true, allowed_roles: ["dealer", "user"] })).toBe(false)
+    expect(sameConfig(null, null)).toBe(true)
+    expect(sameConfig(null, { enabled: true, allowed_roles: [] })).toBe(false)
   })
 })
 

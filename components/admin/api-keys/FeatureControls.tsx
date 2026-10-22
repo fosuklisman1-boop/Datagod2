@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { V2_ROLES } from "@/lib/api-v2/lifecycle"
-import { roleLabel, toggleRole } from "@/lib/api-v2/admin-view"
+import { roleLabel, sameConfig, toggleRole } from "@/lib/api-v2/admin-view"
 import type { ApiConfig } from "./use-console-data"
 import { Eyebrow, IconChip, InlineError, Panel } from "./ui"
 import { GlobalKill } from "./GlobalKill"
@@ -25,17 +25,29 @@ export function FeatureControls({
   onGlobalKill: () => Promise<void>
 }) {
   const [draft, setDraft] = useState<ApiConfig | null>(config)
+  // The server values the draft was last synced from; lets a refresh update a clean draft
+  // without throwing away unsaved edits.
+  const [base, setBase] = useState<ApiConfig | null>(config)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setDraft(config)
+    if (sameConfig(config, base)) return
+    if (base === null || sameConfig(draft, base)) {
+      setDraft(config)
+      setBase(config)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config])
 
   const save = async () => {
     if (!draft) return
     setSaving(true)
-    await onSave(draft)
-    setSaving(false)
+    try {
+      const saved = draft
+      if (await onSave(saved)) setBase(saved)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -54,6 +66,14 @@ export function FeatureControls({
         <div className="h-24 animate-pulse rounded-xl bg-muted" aria-label="Loading settings" />
       ) : (
         <>
+          {error && (
+            <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+              <span className="min-w-0">Couldn&apos;t refresh settings; showing the last loaded values.</span>
+              <button type="button" onClick={onRetry} className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold hover:underline">
+                Retry
+              </button>
+            </div>
+          )}
           <label
             className={cn(
               "flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors",
