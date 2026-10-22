@@ -17,6 +17,7 @@ import { getAuthErrorMessage } from "@/lib/auth-errors"
 import GoogleAuthButton from "@/components/GoogleAuthButton"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPageHidden } from "@/lib/custom-domains"
+import { safeRedirectPath, authUrl } from "@/lib/post-auth-redirect"
 
 const DEFAULT_TERMS = `Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service. Please read them carefully before creating an account or making any purchase.
 
@@ -80,6 +81,13 @@ function passwordStrength(pw: string): number {
 export default function SignupPage() {
   const domainBranding = useDomainBranding()
   const router = useRouter()
+  // Page the user clicked before landing here (?redirect=/dashboard/...), kept
+  // through login/Google/email-confirmation. null = plain dashboard.
+  const [destination, setDestination] = useState<string | null>(null)
+  useEffect(() => {
+    const safe = safeRedirectPath(new URLSearchParams(window.location.search).get("redirect"), "")
+    setDestination(safe || null)
+  }, [])
   const [isLoading, setIsLoading] = useState(false)
   const [confirmationSent, setConfirmationSent] = useState(false)
   const [formData, setFormData] = useState({
@@ -278,7 +286,7 @@ export default function SignupPage() {
         first_name: formData.firstName,
         last_name: formData.lastName,
         phone_number: formData.phoneNumber,
-      })
+      }, destination)
 
       if (result?.confirmationRequired) {
         // Email confirmation is ON — no session yet. Show the "check your email"
@@ -289,7 +297,7 @@ export default function SignupPage() {
       } else {
         // Auto-confirm path (confirmation off): profile already created.
         toast.success("Account created! You can now sign in.")
-        router.push("/auth/login")
+        router.push(authUrl("login", destination))
       }
     } catch (error: any) {
       const { message, type } = getAuthErrorMessage(error)
@@ -297,7 +305,7 @@ export default function SignupPage() {
       if (type === 'user-exists') {
         toast.error(message)
         setTimeout(() => {
-          router.push("/auth/login")
+          router.push(authUrl("login", destination))
         }, 2000)
       } else {
         toast.error(message)
@@ -372,7 +380,7 @@ export default function SignupPage() {
                   We are currently performing maintenance or upgrades. New account registrations are paused. Please try again later.
                 </p>
                 <div className="pt-4">
-                  <Link href="/auth/login" className="text-primary hover:underline font-medium">
+                  <Link href={authUrl("login", destination)} className="text-primary hover:underline font-medium">
                     Return to Login
                   </Link>
                 </div>
@@ -389,7 +397,7 @@ export default function SignupPage() {
                 </p>
                 <p className="text-xs text-muted-foreground">Don&apos;t see it? Check your Spam or Promotions folder.</p>
                 <div className="pt-4">
-                  <Link href="/auth/login">
+                  <Link href={authUrl("login", destination)}>
                     <Button className="w-full font-semibold">Go to Login</Button>
                   </Link>
                 </div>
@@ -611,12 +619,12 @@ export default function SignupPage() {
                     <span className="bg-card/70 px-2 text-muted-foreground">or</span>
                   </div>
                 </div>
-                <GoogleAuthButton />
+                <GoogleAuthButton redirectTo={destination ?? "/dashboard"} />
 
                 {/* Login Link */}
                 <div className="text-center text-sm text-muted-foreground">
                   Already have an account?{" "}
-                  <Link href="/auth/login" className="text-primary hover:underline font-medium">
+                  <Link href={authUrl("login", destination)} className="text-primary hover:underline font-medium">
                     Sign in
                   </Link>
                 </div>

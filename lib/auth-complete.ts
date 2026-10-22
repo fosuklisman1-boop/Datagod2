@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { finalizeJoinIntent } from "@/lib/sub-agents/join"
+import { safeRedirectPath } from "@/lib/post-auth-redirect"
 
 /**
  * Decide where to send a user after an auth session has just been established
@@ -67,7 +68,12 @@ export async function resolvePostAuthRedirect(opts: {
   joinConfirmation?: JoinConfirmation | null
 }): Promise<string> {
   const { origin, userId, email, userMetadata, accessToken, next, joinConfirmation } = opts
-  const safeNext = next.startsWith("/") ? next : "/dashboard"
+  const safeNext = safeRedirectPath(next)
+  // Carry the destination through onboarding so it survives /auth/complete-profile.
+  const completeProfile =
+    safeNext === "/dashboard"
+      ? "/auth/complete-profile"
+      : `/auth/complete-profile?next=${encodeURIComponent(safeNext)}`
 
   const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -119,5 +125,5 @@ export async function resolvePostAuthRedirect(opts: {
     }
   }
 
-  return "/auth/complete-profile"
+  return completeProfile
 }

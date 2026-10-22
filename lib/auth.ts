@@ -2,7 +2,7 @@ import { supabase } from "./supabase"
 import { readFirstTouchFromBrowser } from "./signup-source"
 
 export const authService = {
-  async signUp(email: string, password: string, userData: any) {
+  async signUp(email: string, password: string, userData: any, destination?: string | null) {
     try {
       // FIRST: Check if phone number already exists (before creating auth user)
       const phoneCheckResponse = await fetch("/api/auth/check-phone", {
@@ -23,7 +23,9 @@ export const authService = {
       // the profile from this metadata. When confirmation is OFF we finalize
       // immediately below (a session already exists).
       const emailRedirectTo =
-        typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined
+        typeof window !== "undefined"
+          ? `${window.location.origin}/auth/callback${destination ? `?next=${encodeURIComponent(destination)}` : ""}`
+          : undefined
 
       const signupSource = readFirstTouchFromBrowser()
 
