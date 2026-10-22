@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { V2_ROLES } from "@/lib/api-v2/lifecycle"
-import { roleLabel, sameConfig, toggleRole } from "@/lib/api-v2/admin-view"
+import { roleLabel, serverChangedUnderDraft, shouldSyncDraft, toggleRole } from "@/lib/api-v2/admin-view"
 import type { ApiConfig } from "./use-console-data"
 import { Eyebrow, IconChip, InlineError, Panel } from "./ui"
 import { GlobalKill } from "./GlobalKill"
@@ -29,15 +29,34 @@ export function FeatureControls({
   // without throwing away unsaved edits.
   const [base, setBase] = useState<ApiConfig | null>(config)
   const [saving, setSaving] = useState(false)
+  // Set after a Global Kill (success or partial): the next sync overwrites even a dirty draft, so an
+  // unsaved "enabled" draft cannot switch v2 back on with the next Save.
+  const [forceSync, setForceSync] = useState(false)
 
   useEffect(() => {
-    if (sameConfig(config, base)) return
-    if (base === null || sameConfig(draft, base)) {
+    if (shouldSyncDraft({ config, base, draft, force: forceSync })) {
       setDraft(config)
       setBase(config)
+      setForceSync(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config])
+  }, [config, forceSync])
+
+  const serverChanged = serverChangedUnderDraft({ config, base, draft })
+
+  const discardDraft = () => {
+    if (!config) return
+    setDraft(config)
+    setBase(config)
+  }
+
+  const globalKill = async () => {
+    try {
+      await onGlobalKill()
+    } finally {
+      setForceSync(true)
+    }
+  }
 
   const save = async () => {
     if (!draft) return
@@ -71,6 +90,16 @@ export function FeatureControls({
               <span className="min-w-0">Couldn&apos;t refresh settings; showing the last loaded values.</span>
               <button type="button" onClick={onRetry} className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold hover:underline">
                 Retry
+              </button>
+            </div>
+          )}
+          {serverChanged && config && (
+            <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+              <span className="min-w-0">
+                Settings changed on the server (API access is now {config.enabled ? "on" : "off"}). Saving will overwrite them with your edits.
+              </span>
+              <button type="button" onClick={discardDraft} className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold hover:underline">
+                Load server values
               </button>
             </div>
           )}
@@ -140,7 +169,7 @@ export function FeatureControls({
         </>
       )}
 
-      <GlobalKill onConfirm={onGlobalKill} />
+      <GlobalKill onConfirm={globalKill} />
     </Panel>
   )
 }

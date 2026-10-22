@@ -269,6 +269,33 @@ export function sameConfig(a: ConsoleConfig | null, b: ConsoleConfig | null): bo
   return x.length === y.length && x.every((r, i) => r === y[i])
 }
 
+interface DraftState {
+  /** Latest server value. */
+  config: ConsoleConfig | null
+  /** Server value the draft was last synced from (or saved as). */
+  base: ConsoleConfig | null
+  /** What the admin is editing. */
+  draft: ConsoleConfig | null
+}
+
+/**
+ * Whether Feature Controls should replace its draft with the server config. A clean draft follows
+ * the server; a dirty draft is kept so unsaved edits are not lost, EXCEPT when `force` is set (after a
+ * Global Kill), so a stale draft with "enabled" on can never re-enable v2 on the next Save.
+ */
+export function shouldSyncDraft(s: DraftState & { force: boolean }): boolean {
+  if (!s.config) return false
+  if (s.force) return true
+  if (sameConfig(s.config, s.base)) return false
+  return s.base === null || sameConfig(s.draft, s.base)
+}
+
+/** True when the server config changed underneath unsaved edits (show "Settings changed on the server"). */
+export function serverChangedUnderDraft(s: DraftState): boolean {
+  if (!s.config || !s.base) return false
+  return !sameConfig(s.config, s.base) && !sameConfig(s.draft, s.base)
+}
+
 const DASH = "—"
 const finite = (n: number | null | undefined): n is number => typeof n === "number" && Number.isFinite(n)
 

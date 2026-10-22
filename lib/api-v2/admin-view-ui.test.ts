@@ -11,8 +11,53 @@ import {
   formatLatency,
   sanitizeV1Search,
   sameConfig,
+  shouldSyncDraft,
+  serverChangedUnderDraft,
   type ConsoleKey,
 } from "./admin-view"
+
+describe("shouldSyncDraft / serverChangedUnderDraft (Feature Controls draft vs server)", () => {
+  const on = { enabled: true, allowed_roles: ["dealer"] }
+  const off = { enabled: false, allowed_roles: ["dealer"] }
+  const onMore = { enabled: true, allowed_roles: ["dealer", "user"] }
+
+  it("syncs the first loaded config", () => {
+    expect(shouldSyncDraft({ config: on, base: null, draft: null, force: false })).toBe(true)
+  })
+
+  it("syncs a clean draft when the server changes", () => {
+    expect(shouldSyncDraft({ config: off, base: on, draft: on, force: false })).toBe(true)
+  })
+
+  it("keeps a dirty draft when the server changes without a forced sync", () => {
+    expect(shouldSyncDraft({ config: off, base: on, draft: onMore, force: false })).toBe(false)
+  })
+
+  it("does nothing when the server value is unchanged", () => {
+    expect(shouldSyncDraft({ config: on, base: on, draft: onMore, force: false })).toBe(false)
+  })
+
+  it("after a Global Kill (forced), overwrites even a dirty draft with enabled on", () => {
+    // The scenario that let an unsaved draft undo the kill switch on the next Save.
+    expect(shouldSyncDraft({ config: off, base: on, draft: onMore, force: true })).toBe(true)
+    expect(shouldSyncDraft({ config: off, base: off, draft: onMore, force: true })).toBe(true)
+  })
+
+  it("never syncs to a missing config, even when forced", () => {
+    expect(shouldSyncDraft({ config: null, base: on, draft: onMore, force: true })).toBe(false)
+  })
+
+  it("flags a server change under a dirty draft", () => {
+    expect(serverChangedUnderDraft({ config: off, base: on, draft: onMore })).toBe(true)
+  })
+
+  it("does not flag a clean draft, an unchanged server, or missing values", () => {
+    expect(serverChangedUnderDraft({ config: off, base: on, draft: on })).toBe(false)
+    expect(serverChangedUnderDraft({ config: on, base: on, draft: onMore })).toBe(false)
+    expect(serverChangedUnderDraft({ config: null, base: on, draft: onMore })).toBe(false)
+    expect(serverChangedUnderDraft({ config: off, base: null, draft: onMore })).toBe(false)
+  })
+})
 
 const key = (over: Partial<ConsoleKey> = {}): ConsoleKey => ({
   id: "k1",
