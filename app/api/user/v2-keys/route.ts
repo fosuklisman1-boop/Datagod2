@@ -94,7 +94,13 @@ export async function POST(request: NextRequest) {
   const suspended = Boolean(userRow?.is_suspended)
 
   const config = await getConfig(client)
-  const decision = canIssue({ type: keyType, role, allowedRoles: config.allowed_roles, suspended })
+  const decision = canIssue({
+    enabled: config.enabled,
+    type: keyType,
+    role,
+    allowedRoles: config.allowed_roles,
+    suspended,
+  })
   if (!decision.ok || !isIssuableType(keyType)) {
     const d = decision.ok ? { status: 400, message: "Invalid key_type" } : decision
     return NextResponse.json({ error: d.message }, { status: d.status })

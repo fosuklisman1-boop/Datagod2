@@ -3,7 +3,9 @@ import type { KeyType } from "./keys"
 const ISSUABLE_TYPES: readonly string[] = ["standard", "commission"]
 const KNOWN_TYPES: readonly string[] = ["standard", "commission", "sms"]
 
-export type CanIssueResult = { ok: true } | { ok: false; status: 400 | 403; message: string }
+export type CanIssueResult = { ok: true } | { ok: false; status: 400 | 403 | 503; message: string }
+
+export const MSG_V2_NOT_OPEN = "The v2 API is not open yet, so keys cannot be generated right now"
 
 /** Type guard so the route can narrow unvalidated input after canIssue says ok. */
 export function isIssuableType(type: string): type is KeyType {
@@ -11,16 +13,21 @@ export function isIssuableType(type: string): type is KeyType {
 }
 
 /**
- * Pure eligibility decision for issuing a v2 key. Order: type validity (400),
- * then suspension (403), then role (403).
+ * Pure eligibility decision for issuing a v2 key. Order: v2 switched off (503), then type
+ * validity (400), then suspension (403), then role (403). The 503 matches what GET's access
+ * answer says (`disabled` first), so a direct POST cannot mint keys while v2 is dark.
  * `sms` is a known type but not issuable until the SMS plan replaces this branch.
  */
 export function canIssue(input: {
+  enabled: boolean
   type: KeyType | string
   role: string
   allowedRoles: string[]
   suspended: boolean
 }): CanIssueResult {
+  if (!input.enabled) {
+    return { ok: false, status: 503, message: MSG_V2_NOT_OPEN }
+  }
   if (!KNOWN_TYPES.includes(input.type)) {
     return { ok: false, status: 400, message: "Invalid key_type" }
   }

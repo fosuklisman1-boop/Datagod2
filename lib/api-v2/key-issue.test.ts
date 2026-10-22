@@ -4,51 +4,71 @@ import { accessSummary, canIssue, legacyDefaultOpen } from "./key-issue"
 const allowedRoles = ["dealer", "admin"]
 
 describe("canIssue", () => {
+  const on = { enabled: true, allowedRoles, suspended: false }
+
   it("allows a standard key for an allowed role", () => {
-    expect(canIssue({ type: "standard", role: "dealer", allowedRoles, suspended: false })).toEqual({ ok: true })
+    expect(canIssue({ ...on, type: "standard", role: "dealer" })).toEqual({ ok: true })
   })
 
   it("allows a commission key for an allowed role", () => {
-    expect(canIssue({ type: "commission", role: "admin", allowedRoles, suspended: false })).toEqual({ ok: true })
+    expect(canIssue({ ...on, type: "commission", role: "admin" })).toEqual({ ok: true })
+  })
+
+  it("rejects everyone with 503 while v2 is switched off", () => {
+    expect(canIssue({ ...on, enabled: false, type: "standard", role: "dealer" })).toEqual({
+      ok: false,
+      status: 503,
+      message: "The v2 API is not open yet, so keys cannot be generated right now",
+    })
+  })
+
+  it("checks enabled before anything else (bad type, suspended, disallowed role)", () => {
+    const r = canIssue({ enabled: false, type: "bogus", role: "user", allowedRoles: [], suspended: true })
+    expect(r).toMatchObject({ ok: false, status: 503 })
   })
 
   it("rejects a role that is not in the allowed list with 403", () => {
-    const r = canIssue({ type: "standard", role: "user", allowedRoles, suspended: false })
+    const r = canIssue({ ...on, type: "standard", role: "user" })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.status).toBe(403)
   })
 
   it("rejects everyone when the allowed list is empty (fail closed)", () => {
-    const r = canIssue({ type: "standard", role: "admin", allowedRoles: [], suspended: false })
+    const r = canIssue({ ...on, type: "standard", role: "admin", allowedRoles: [] })
     expect(r).toMatchObject({ ok: false, status: 403 })
   })
 
   it("rejects sms keys with 400 and the not-available message", () => {
-    const r = canIssue({ type: "sms", role: "dealer", allowedRoles, suspended: false })
+    const r = canIssue({ ...on, type: "sms", role: "dealer" })
     expect(r).toEqual({ ok: false, status: 400, message: "SMS keys are not available yet" })
   })
 
   it("rejects an unknown type with 400", () => {
-    const r = canIssue({ type: "bogus", role: "dealer", allowedRoles, suspended: false })
+    const r = canIssue({ ...on, type: "bogus", role: "dealer" })
     expect(r).toMatchObject({ ok: false, status: 400 })
   })
 
-  it("checks type validity before role", () => {
-    const r = canIssue({ type: "bogus", role: "user", allowedRoles, suspended: false })
+  it("checks type validity before role (after enabled)", () => {
+    const r = canIssue({ ...on, type: "bogus", role: "user" })
     expect(r).toMatchObject({ ok: false, status: 400 })
   })
 
   it("rejects a suspended user with 403 even when the role is allowed", () => {
-    expect(canIssue({ type: "standard", role: "dealer", allowedRoles, suspended: true })).toEqual({
+    expect(canIssue({ ...on, type: "standard", role: "dealer", suspended: true })).toEqual({
       ok: false,
       status: 403,
       message: "This account is suspended",
     })
   })
 
-  it("still checks type before suspension", () => {
-    const r = canIssue({ type: "bogus", role: "dealer", allowedRoles, suspended: true })
+  it("still checks type before suspension (after enabled)", () => {
+    const r = canIssue({ ...on, type: "bogus", role: "dealer", suspended: true })
     expect(r).toMatchObject({ ok: false, status: 400 })
+  })
+
+  it("checks suspension before role", () => {
+    const r = canIssue({ ...on, type: "standard", role: "user", suspended: true })
+    expect(r).toMatchObject({ ok: false, status: 403, message: "This account is suspended" })
   })
 })
 
