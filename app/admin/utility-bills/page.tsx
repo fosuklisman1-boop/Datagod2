@@ -17,6 +17,7 @@ import { toast } from "sonner"
 import { Eye, RefreshCw, Search } from "lucide-react"
 import { BILLER_KEYS, BILLERS, type BillerKey } from "@/lib/bills/billers"
 import { BILL_LIMIT_CEIL, BILL_LIMIT_FLOOR, type BillsConfig } from "@/lib/bills/config"
+import { botSurfaceStatus, type BotSurfaceStatus } from "@/lib/cashback/bot-surface-status"
 
 type Refund = { action: "blocked"; reason: string } | { action: "ledger"; ref: string; needsForce: boolean } | { action: "direct"; markFailedFirst: boolean }
 type Order = {
@@ -198,6 +199,7 @@ export default function UtilityBillsPage() {
   const [surfaces, setSurfaces] = useState<{
     storefront: boolean; feePct: number
     shares: { customer: number; dealer: number; storefrontCustomer: number; storefrontShop: number } | null
+    bots: BotSurfaceStatus
   } | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -235,10 +237,17 @@ export default function UtilityBillsPage() {
     // Best-effort: the Surfaces / cashback cards just show "—" if this fails.
     try {
       const c = (await authed("/api/admin/cashback/config")).config
+      // Each bot's own Pay Bills switch; a source that fails to load shows that bot as off.
+      const [hubtel, uzo, wa] = await Promise.all([
+        authed("/api/admin/ussd-hubtel/config").then(j => j?.config ?? null).catch(() => null),
+        authed("/api/admin/ussd/service-visibility").then(j => j?.status ?? null).catch(() => null),
+        authed("/api/admin/whatsapp/cashback-visibility").then(j => j?.switches ?? null).catch(() => null),
+      ])
       setSurfaces({
         storefront: !!(c?.enabled && c?.surfaces?.storefront && c?.storefrontGroups?.bills),
         feePct: Number(c?.paymentFee?.bills ?? 0),
         shares: c?.shares?.bills ?? null,
+        bots: botSurfaceStatus("bills", c, hubtel, uzo, wa),
       })
     } catch { setSurfaces(null) }
   }, [])
@@ -526,7 +535,33 @@ export default function UtilityBillsPage() {
                       on={!!surfaces?.storefront}
                       link={{ href: "/admin/hubtel-commission?tab=cashback", label: "Change in Cashback" }}
                     />
-                    <SurfaceRow title="USSD / WhatsApp" detail="Bill payment from the bots" state="Not yet" on={false} />
+                    <SurfaceRow
+                      title="Hubtel USSD"
+                      detail="Pay Bills on the Hubtel code (paid at Hubtel checkout)"
+                      state={surfaces === null ? "—" : surfaces.bots.hubtel ? "On" : "Off"}
+                      on={!!surfaces?.bots.hubtel}
+                      link={{ href: "/admin/ussd-hubtel", label: "Menu switch" }}
+                    />
+                    <SurfaceRow
+                      title="Uzo USSD (main + shop)"
+                      detail="Pay Bills on the Uzo menus (MoMo prompt to the dialing number)"
+                      state={surfaces === null ? "—" : surfaces.bots.uzo ? "On" : "Off"}
+                      on={!!surfaces?.bots.uzo}
+                      link={{ href: "/admin/ussd-shops", label: "Menu switch" }}
+                    />
+                    <SurfaceRow
+                      title="WhatsApp bots (main + shop)"
+                      detail="Pay Bills in chat, incl. Ghana Water (MoMo prompt to the typed number)"
+                      state={surfaces === null ? "—" : surfaces.bots.whatsapp ? "On" : "Off"}
+                      on={!!surfaces?.bots.whatsapp}
+                      link={{ href: "/admin/whatsapp", label: "Menu switch" }}
+                    />
+                    {surfaces && !surfaces.bots.gate && (
+                      <p className="text-xs text-muted-foreground">
+                        Bots are off for bills in Cashback (master, Bots surface or &quot;Sell on bots&quot;), so no bot sells Pay Bills.{" "}
+                        <Link href="/admin/hubtel-commission?tab=cashback" className="font-semibold text-primary underline">Change in Cashback</Link>
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
 
