@@ -30,7 +30,7 @@ function makeDeps(over: any = {}) {
     touchLastUsed: vi.fn(async () => {}),
     logRequest: vi.fn(async () => {}),
   }
-  const rateLimit = vi.fn(async () => ({ allowed: over.allowed ?? true, remaining: 1, resetAt: 0 }))
+  const rateLimit = vi.fn(async () => ({ allowed: over.allowed ?? true, remaining: 1, resetAt: 0, degraded: over.degraded }))
   return { store, rateLimit, now: () => new Date("2026-01-01T00:00:00Z") }
 }
 
@@ -256,5 +256,48 @@ describe("runV2", () => {
     }
     await runV2(makeDeps({ row: { environment: "test" } }), OPTS, h, input(generateV2Key("standard", "test").key))
     expect(seen).toBe("test")
+  })
+})
+
+describe("runV2 failClosedWhenLimiterDegraded", () => {
+  const FC = { ...OPTS, failClosedWhenLimiterDegraded: true }
+
+  it("returns 503 without running the handler or writing a log row when the limiter is degraded", async () => {
+    const deps = makeDeps({ degraded: true })
+    const handler = vi.fn(ok)
+    const r = await runV2(deps, FC, handler, input(validKey()))
+    expect(r.status).toBe(503)
+    expect(r.body).toMatchObject({ success: false, error: { code: 503, message: "This API is currently unavailable" } })
+    expect(handler).not.toHaveBeenCalled()
+    expect(deps.store.logRequest).not.toHaveBeenCalled()
+    expect(deps.store.touchLastUsed).not.toHaveBeenCalled()
+    expect(deps.store.getUserForKey).not.toHaveBeenCalled()
+  })
+
+  it("runs the handler when the option is false and the limiter is degraded (existing behaviour)", async () => {
+    const handler = vi.fn(ok)
+    const r = await runV2(makeDeps({ degraded: true }), OPTS, handler, input(validKey()))
+    expect(r.status).toBe(200)
+    expect(handler).toHaveBeenCalledTimes(1)
+    const r2 = await runV2(makeDeps({ degraded: true }), { ...OPTS, failClosedWhenLimiterDegraded: false }, handler, input(validKey()))
+    expect(r2.status).toBe(200)
+  })
+
+  it("runs the handler when the option is true and the limiter is healthy", async () => {
+    const handler = vi.fn(ok)
+    const r = await runV2(makeDeps({ degraded: false }), FC, handler, input(validKey()))
+    expect(r.status).toBe(200)
+    expect(handler).toHaveBeenCalledTimes(1)
+    const r2 = await runV2(makeDeps(), FC, handler, input(validKey()))
+    expect(r2.status).toBe(200)
+  })
+
+  it("a denied result is still 429 even when degraded", async () => {
+    const handler = vi.fn(ok)
+    const r = await runV2(makeDeps({ allowed: false }), FC, handler, input(validKey()))
+    expect(r.status).toBe(429)
+    const r2 = await runV2(makeDeps({ allowed: false, degraded: true }), FC, handler, input(validKey()))
+    expect(r2.status).toBe(429)
+    expect(handler).not.toHaveBeenCalled()
   })
 })

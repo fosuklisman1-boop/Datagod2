@@ -1,6 +1,6 @@
 import type { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
-import { extractKey, decideAccess, MSG_UNAUTHORIZED, MSG_RATE_LIMITED } from "./access"
+import { extractKey, decideAccess, MSG_UNAUTHORIZED, MSG_RATE_LIMITED, MSG_UNAVAILABLE } from "./access"
 import { errorBody, successBody, v2Response, type V2ErrorStatus } from "./envelope"
 import { hashV2Key, parseV2Key, type Environment, type KeyType } from "./keys"
 import { resolveLimit, type LimitGroup } from "./limits"
@@ -28,6 +28,8 @@ export interface V2Options {
   requiredType: KeyType
   group: LimitGroup
   endpoint: string
+  /** Purchase endpoints set this: a degraded rate limiter returns 503 instead of letting the request through. */
+  failClosedWhenLimiterDegraded?: boolean
 }
 
 export interface V2HandlerResult {
@@ -117,6 +119,9 @@ export async function runV2(
     row.user_id
   )
   if (!limit.allowed) return fail(429, MSG_RATE_LIMITED)
+  // Purchase endpoints fail closed: a degraded limiter (store unreachable, fallback cap) must not let money move.
+  // Not logged and last_used not touched, same as the 429 above.
+  if (opts.failClosedWhenLimiterDegraded && limit.degraded) return fail(503, MSG_UNAVAILABLE)
 
   const [user, config] = await Promise.all([deps.store.getUserForKey(row.user_id), deps.store.getConfig()])
   if (!user) return unauthorized()
