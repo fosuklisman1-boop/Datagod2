@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: { "@": path.resolve(__dirname, ".") },
   },
+  // tsconfig keeps `jsx: preserve` for Next; a test that renders a component to static markup needs it compiled.
+  oxc: { jsx: { runtime: "automatic" } },
   test: {
     globals: true,
     environment: "node",

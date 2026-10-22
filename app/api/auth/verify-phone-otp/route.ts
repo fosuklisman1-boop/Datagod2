@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { checkPhoneOtp, phoneOtpVerifyLimitId, PHONE_OTP_VERIFY_PHONE_LIMIT } from "@/lib/phone-otp"
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,8 +18,9 @@ export async function POST(request: NextRequest) {
     // grandfathers) that number. Two caps close it:
     //   • per-phone: 6 guesses / 10 min  → far below the ~150k needed to brute a 6-digit code
     //   • per-IP:    20 / min            → stops spraying many phones from one host
-    const phoneKey = String(phone).replace(/\D/g, "")
-    const perPhone = await applyRateLimit(request, "verify_phone_otp_phone", 6, 10 * 60 * 1000, `otpv:${phoneKey}`)
+    // (Shared with the bots' in-process payer verification: same bucket, verify_phone_otp_phone / otpv:<digits>.)
+    const cap = PHONE_OTP_VERIFY_PHONE_LIMIT
+    const perPhone = await applyRateLimit(request, cap.name, cap.max, cap.windowMs, phoneOtpVerifyLimitId(phone))
     if (!perPhone.allowed) {
       return NextResponse.json(
         { verified: false, error: "Too many attempts. Request a new code and try again later." },
@@ -39,64 +41,29 @@ export async function POST(request: NextRequest) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    // DB-backed brute-force fallback. The Upstash caps above FAIL OPEN if Redis
-    // is unreachable, which would re-expose the 6-digit code to guessing. This
-    // Postgres counter holds regardless: bump_otp_attempts() increments `attempts`
-    // on every live code for the phone and returns the new max; we reject once it
-    // exceeds the cap. Counts expire with the codes (10-min window) — no cleanup.
-    const PHONE_ATTEMPT_CAP = 6
-    let dbFallbackOk = false
-    try {
-      const { data: maxAttempts, error: bumpErr } = await supabaseAdmin.rpc("bump_otp_attempts", { p_phone: phone })
-      if (!bumpErr) {
-        dbFallbackOk = true
-        if (typeof maxAttempts === "number" && maxAttempts > PHONE_ATTEMPT_CAP) {
-          return NextResponse.json(
-            { verified: false, error: "Too many attempts. Request a new code and try again later." },
-            { status: 429 }
-          )
-        }
-      }
-    } catch {
-      // bump_otp_attempts unavailable (migration not applied / DB blip) — handled
-      // by the fail-closed check below. Apply migrations/otp_verify_attempts_fallback.sql.
-    }
+    // DB-backed brute-force fallback + the code match, in the shared core (lib/phone-otp; also used in-process by the
+    // bots' payer verification). The Upstash caps above FAIL OPEN if Redis is unreachable, which would re-expose the
+    // 6-digit code to guessing. The Postgres counter holds regardless: bump_otp_attempts() increments `attempts` on
+    // every live code for the phone and returns the new max; the core rejects once it exceeds the cap (counts expire
+    // with the codes, 10-min window). It FAILS CLOSED only if that DB-backed cap is unavailable (apply
+    // migrations/otp_verify_attempts_fallback.sql); Upstash degrading alone does not block verification.
+    const result = await checkPhoneOtp({ db: supabaseAdmin, now: Date.now }, phone, code, purpose)
 
-    // FAIL CLOSED only if OUR OWN DB-backed cap is unavailable — that's the real
-    // backstop now (bump_otp_attempts holds regardless of Upstash). Upstash
-    // degrading is no longer treated as a reason to block verification on its
-    // own: it fails open by design, and the DB counter above already covers
-    // brute-force protection when it does.
-    if (!dbFallbackOk) {
-      console.error("[VERIFY-OTP] DB attempt-cap fallback unavailable — failing closed")
+    if (result === "too_many_attempts") {
+      return NextResponse.json(
+        { verified: false, error: "Too many attempts. Request a new code and try again later." },
+        { status: 429 }
+      )
+    }
+    if (result === "unavailable") {
       return NextResponse.json(
         { verified: false, error: "Verification is temporarily unavailable. Please try again shortly." },
         { status: 503 }
       )
     }
-
-    const now = new Date().toISOString()
-
-    const { data: record } = await supabaseAdmin
-      .from("phone_otp_verifications")
-      .select("id")
-      .eq("phone", phone)
-      .eq("code", code)
-      .eq("purpose", purpose)
-      .eq("used", false)
-      .gte("expires_at", now)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (!record) {
+    if (result !== "verified") {
       return NextResponse.json({ verified: false, error: "Invalid or expired code" }, { status: 400 })
     }
-
-    await supabaseAdmin
-      .from("phone_otp_verifications")
-      .update({ used: true })
-      .eq("id", record.id)
 
     return NextResponse.json({ verified: true })
   } catch (error: any) {

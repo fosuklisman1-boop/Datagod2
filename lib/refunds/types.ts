@@ -93,10 +93,17 @@ export interface OwnerCut {
 export type DispatchOutcome = "claimed" | "submitted" | "failed" | "unknown"
 
 export interface PaymentSource {
-  gateway: "paystack" | "wallet" | null
+  gateway: "paystack" | "wallet" | "hubtel" | null
   reference: string | null
   payerPhone: string | null
   walletUserId: string | null
+  /**
+   * Hubtel USSD checkout payments (ussd_orders / ussd_shop_orders rows, and Hubtel USSD bot commission rows): the paid
+   * hubtel_transactions row(s) for this order. Facts come from the first row; paidRows !== 1 is refused by the gateway.
+   * amountPaid = gross the customer paid Hubtel (order price + Hubtel's customer fee); amountAfterCharges = net (in prod
+   * equal to the order price); null when unknown.
+   */
+  hubtel?: { orderId: string; amountPaid: number; amountAfterCharges: number | null; paidAt: string; paidRows: number }
 }
 
 export interface RefundableOrder {
@@ -166,6 +173,8 @@ export interface RefundGateway {
   id: string
   label: string
   supports(order: RefundableOrder): GatewaySupport
+  /** Gateways that can only refund one exact amount (Hubtel: the full payment). null = no constraint for this order. */
+  fixedAmount?(order: RefundableOrder): number | null
   refund(ctx: RefundContext): Promise<GatewayOutcome>
   checkStatus?(ctx: RefundContext, gatewayRef: string | null): Promise<GatewayOutcome>
   /** Only gateways whose payout needs a one-time code (Paystack payout). */

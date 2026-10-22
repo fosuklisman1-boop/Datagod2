@@ -118,7 +118,11 @@ export default function XpressRecoveryPage() {
       })
       const json = await res.json()
       if (res.ok) {
-        toast.success(`Cron ran: ${json.synced ?? 0} synced, ${json.reversed ?? 0} reversed`)
+        toast.success(
+          json.accepted
+            ? "Xpress sync started — it finishes in the background; refresh in a minute"
+            : `Cron ran: ${json.synced ?? 0} synced, ${json.reversed ?? 0} reversed`
+        )
       } else {
         toast.error(json.error || "Cron failed — check server logs")
       }

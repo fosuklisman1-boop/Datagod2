@@ -11,6 +11,11 @@ export interface UzoRequest {
 export interface UzoResponse {
   message: string
   ussdServiceOp: 2 | 17  // 2=continue, 17=final
+  /**
+   * WhatsApp only: a confirm handler called with `{ walletOnly: true }` found the LIVE wallet short. Nothing was
+   * created or charged; the WhatsApp router must ask for a MoMo number (never charge the sender's own number).
+   */
+  walletShort?: true
 }
 
 export type USSDStep =
@@ -59,6 +64,85 @@ export type USSDStep =
   // WhatsApp admin: complaints queue
   | 'ADMIN_COMPLAINT_LIST'
   | 'ADMIN_COMPLAINT_AWAIT_REPLY'
+  // Network Plans (commission cashback bots; shared with the shop menu)
+  | UzoNpStep
+  // Pay Bills (commission cashback bots; shared with the shop menu)
+  | UzoPbStep
+  // WhatsApp-only steps of the same flows (WHATSAPP_PROFILE, lib/ussd/bots/profile.ts); never set on the Uzo menus
+  | BotWaFlowStep
+
+/**
+ * WhatsApp-only steps of Network Plans / Pay Bills: the MoMo number to charge (before confirm), the SMS check of that
+ * number when the charge answers NEEDS_VERIFY, and the Ghana Water email.
+ */
+export type BotWaFlowStep = 'NP_PAY_PHONE' | 'NP_PAY_VERIFY' | 'PB_PAY_PHONE' | 'PB_PAY_VERIFY' | 'PB_EMAIL'
+
+/** Pay Bills steps (lib/ussd/bots/pay-bills.ts), used by the main AND the shop USSD menus. */
+export type UzoPbStep =
+  | 'PB_BILLER' | 'PB_ECG_MODE' | 'PB_ACCOUNT' | 'PB_METERS' | 'PB_METER_TYPE' | 'PB_CONSENT' | 'PB_AMOUNT' | 'PB_CONFIRM'
+
+/** One ECG meter linked to a phone, as the engine's masked lookup returned it. */
+export interface UzoPbMeter {
+  m: string          // meter number
+  n: string | null   // masked customer name
+  o: number | null   // amount outstanding
+  t: string          // engine verify token for this meter (bot-bound, signed)
+}
+
+/** Which account entry the PB_ACCOUNT step is waiting for ('water_phone': Ghana Water's linked mobile, WhatsApp only). */
+export type UzoPbAccountStage = 'phone' | 'meter' | 'account' | 'landline' | 'broadband' | 'water_phone'
+
+/** Pay Bills session fields (shared by USSDSession and USSDShopSession). */
+export interface UzoPbSessionFields {
+  pbBillers?: { key: string; min: number; max: number }[] // enabled billers, in the order shown
+  pbBiller?: string            // BillerKey
+  pbMin?: number
+  pbMax?: number
+  pbEcgMode?: 'self' | 'other' | 'meter'
+  pbStage?: UzoPbAccountStage
+  pbPhone?: string             // ECG: local 0XXXXXXXXX the meters are looked up on / the meter is linked to; Ghana Water: the meter's mobile
+  pbLandline?: string          // Telecel Broadband: the landline typed before the broadband account
+  pbAccount?: string           // meter / smartcard / account number
+  pbMeterType?: 'prepaid' | 'postpaid'
+  pbMeters?: UzoPbMeter[]      // ECG meters linked to pbPhone (undefined = not looked up yet)
+  pbPage?: number              // 0-indexed page of the meter list
+  pbToken?: string             // engine verify token for the order (signed, bot-bound)
+  pbName?: string | null       // masked
+  pbDue?: number | null
+  pbFace?: number              // what the biller receives
+  pbPay?: number               // price shown = expectedPay (engine quote)
+  // WhatsApp only (never set on the Uzo menus):
+  pbEmail?: string             // Ghana Water: the buyer's email (storefront bills validator)
+  pbPayPhone?: string          // the MoMo number to charge (local 0XXXXXXXXX), typed by the buyer
+  pbOrderId?: string           // PB_PAY_VERIFY: the order already created, charged again once the number is verified
+}
+
+/** Network Plans steps (lib/ussd/bots/network-plans.ts), used by the main AND the shop USSD menus. */
+export type UzoNpStep = 'NP_NETWORK' | 'NP_CATEGORY' | 'NP_PLAN' | 'NP_RECIPIENT' | 'NP_CONFIRM'
+
+/** One plan as kept in the session: the engine's signed catalog token plus what the screen showed. */
+export interface UzoNpPlan {
+  t: string  // engine catalog token (signed; the engine re-prices from it)
+  d: string  // plan text as Hubtel sends it (rewritten only when shown)
+  f: number  // face amount
+  p: number  // price shown = expectedPay (the engine 409s when the live price differs)
+}
+
+/** Network Plans session fields (shared by USSDSession and USSDShopSession). */
+export interface UzoNpSessionFields {
+  npNetwork?: 'MTN' | 'TELECEL' | 'AT'
+  npCategories?: string[]    // category names as the catalog sends them, in screen order
+  npCategory?: string
+  npPage?: number            // 0-indexed page of the plan list
+  npPlans?: UzoNpPlan[]      // the plans on the page last shown
+  npPlan?: UzoNpPlan         // the chosen plan
+  npOtherNumber?: boolean    // recipient step is waiting for a typed number
+  npRecipient?: string       // local 0XXXXXXXXX
+  // WhatsApp only (never set on the Uzo menus):
+  npPayPhone?: string        // the MoMo number to charge (local 0XXXXXXXXX), typed by the buyer
+  npOrderId?: string         // NP_PAY_VERIFY: the order already created, charged again once the number is verified
+  npKey?: string             // engine idempotency key of THIS flow (opaque, minted at start; the WhatsApp session id is the sender's phone)
+}
 
 export interface BundleOption {
   id: string
@@ -66,7 +150,7 @@ export interface BundleOption {
   price: number
 }
 
-export interface USSDSession {
+export interface USSDSession extends UzoNpSessionFields, UzoPbSessionFields {
   step: USSDStep
   dialingPhone?: string
   dataBlocked?: boolean        // true when whitelist is ON and caller is not a registered user
@@ -86,6 +170,7 @@ export interface USSDSession {
   walletBalance?: number            // fetched at network selection for display; re-verified at payment
   pendingOrderId?: string  // order created at CONFIRM; used by PAYMENT_METHOD + SUBMIT_OTP
   pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' // which table SUBMIT_OTP targets (data bundles default to ussd_orders)
+  botOtp?: boolean         // SUBMIT_OTP is for a commission-cashback bot charge (Redis OTP pointer, lib/ussd/bots/otp-redial.ts)
   // AFA registration fields
   afaFullName?: string
   afaGhCard?: string
@@ -99,6 +184,8 @@ export interface USSDSession {
   airtimeAmount?: number      // total the caller pays (fee inclusive)
   airtimeToDeliver?: number   // amount the recipient receives (amount − fee)
   airtimeFee?: number
+  airtimeCashbackPay?: number // cashback applied (Uzo USSD only): price shown = charged (quote.payAmount); airtimeAmount is then the face
+  airtimeCashbackWalletPay?: number // cashback applied: dealer-wallet price (quote.base, no Paystack fee)
   // Results Checker fields
   rcBoard?: string            // 'WASSCE' | 'BECE' | 'NOVDEC'
   rcQty?: number

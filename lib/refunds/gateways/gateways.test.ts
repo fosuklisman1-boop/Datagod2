@@ -51,7 +51,7 @@ beforeEach(() => vi.clearAllMocks())
 
 describe("registry", () => {
   it("lists every adapter and resolves by id", () => {
-    expect(listGateways().map((g) => g.id).sort()).toEqual(["manual", "moolre", "paystack", "paystack_payout", "wallet"])
+    expect(listGateways().map((g) => g.id).sort()).toEqual(["hubtel", "manual", "moolre", "paystack", "paystack_payout", "wallet"])
     expect(getGateway("moolre")).toBe(moolreGateway)
     expect(getGateway("manual")).toBe(manualGateway)
     expect(getGateway("nope")).toBeUndefined()

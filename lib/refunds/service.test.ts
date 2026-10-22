@@ -1,5 +1,5 @@
 import {
-  executeRefund, previewRefund, submitRefundOtp, cancelRefund, reconcileRefund,
+  executeRefund, previewRefund, submitRefundOtp, cancelRefund, reconcileRefund, applyGatewayOutcome,
   RefundError, mapReserveError, type RefundDeps, type StoredRefund,
 } from "./service"
 import type { RefundableOrder, RefundGateway, GatewayOutcome } from "./types"
@@ -34,6 +34,9 @@ function setup(outcome: GatewayOutcome, ord: RefundableOrder | null = order(), r
   }
   return { deps, calls, gateway }
 }
+// Env stubs (e.g. HUBTEL_REFUND_ENABLED) are always undone, even when a test fails before its own cleanup.
+afterEach(() => vi.unstubAllEnvs())
+
 const input = { table: "ussd_shop_orders" as const, orderId: "o1", gateway: "paystack", amount: 9.8, adminId: "admin1" }
 const names = (calls: { name: string }[]) => calls.map((c) => c.name)
 
@@ -236,6 +239,41 @@ describe("previewRefund", () => {
     expect(p.defaultAmount).toBe(9.8)
     expect(p.clawback.ok).toBe(true)
     expect(p.gateways.find((g) => g.id === "paystack")).toMatchObject({ ok: true })
+  })
+})
+
+describe("fixed-amount gateways (Hubtel refunds the full amount only)", () => {
+  const fixedSetup = (fixed: number | null) => {
+    const s = setup({ kind: "pending", ref: "HUB-1" })
+    s.gateway.fixedAmount = () => fixed
+    return s
+  }
+  it("executeRefund rejects an amount differing from fixedAmount before reserving anything", async () => {
+    const { deps, calls, gateway } = fixedSetup(10)
+    await expect(executeRefund(deps, { ...input, amount: 9.8 })).rejects.toMatchObject({ code: "BAD_AMOUNT" })
+    expect(calls).toEqual([])
+    expect(gateway.refund).not.toHaveBeenCalled()
+  })
+  it("executeRefund accepts the fixed amount", async () => {
+    const { deps, calls } = fixedSetup(9.8)
+    await executeRefund(deps, input)
+    expect(names(calls)[0]).toBe("reserve_order_refund")
+  })
+  it("a null fixedAmount imposes no constraint", async () => {
+    const { deps, calls } = fixedSetup(null)
+    await executeRefund(deps, input)
+    expect(names(calls)[0]).toBe("reserve_order_refund")
+  })
+  it("previewRefund copies fixedAmount onto the gateway entry", async () => {
+    vi.stubEnv("HUBTEL_REFUND_ENABLED", "true")
+    const hubtelOrder = order({
+      table: "ussd_orders",
+      payment: { gateway: "hubtel", reference: null, payerPhone: "0241112222", walletUserId: null, hubtel: { orderId: "HUB-1", amountPaid: 10.3, amountAfterCharges: 10, paidAt: new Date().toISOString(), paidRows: 1 } },
+    })
+    const { deps } = setup({ kind: "completed", ref: "x" }, hubtelOrder)
+    const p = await previewRefund(deps, { table: "ussd_orders", id: "o1" })
+    expect(p.gateways.find((g) => g.id === "hubtel")).toMatchObject({ ok: true, fixedAmount: 10 })
+    expect(p.gateways.find((g) => g.id === "moolre")).not.toHaveProperty("fixedAmount")
   })
 })
 
@@ -530,5 +568,27 @@ describe("wallet-only tables (orders / api_orders)", () => {
     expect(p.eligibility).toEqual({ eligible: true })
     expect(p.gateways.filter((g) => g.ok).map((g) => g.id)).toEqual(["wallet", "manual"])
     expect(p.clawback.lines).toEqual([])
+  })
+})
+
+describe("applyGatewayOutcome", () => {
+  it("completes a processing row once and notifies once", async () => {
+    const { deps, calls } = otpSetup({})
+    const res = await applyGatewayOutcome(deps, stored({ status: "processing" }), { kind: "completed", ref: "T" })
+    expect(res.status).toBe("completed")
+    expect(calls.map((c) => c.name)).toEqual(["complete_order_refund"])
+    expect(deps.notify).toHaveBeenCalledTimes(1)
+  })
+  it("replay on an already completed row is a no-op", async () => {
+    const { deps, calls } = otpSetup({})
+    await expect(applyGatewayOutcome(deps, stored({ status: "completed" }), { kind: "completed", ref: "T" })).rejects.toMatchObject({ code: "ORDER_NOT_PENDING" })
+    expect(calls).toEqual([])
+    expect(deps.notify).not.toHaveBeenCalled()
+  })
+  it("unknown outcome marks processing without notifying", async () => {
+    const { deps, calls } = otpSetup({})
+    await applyGatewayOutcome(deps, stored({ status: "reserved" }), { kind: "unknown", error: "t" })
+    expect(calls.map((c) => c.name)).toEqual(["mark_refund_processing"])
+    expect(deps.notify).not.toHaveBeenCalled()
   })
 })

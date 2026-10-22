@@ -1,0 +1,824 @@
+import { describe, it, expect, vi } from "vitest"
+import { botChargeMomo, BOT_MOMO_MESSAGES, BOT_MOMO_PHONE_CAP, type BotChargeInput, type BotMomoDeps } from "./momo"
+import { submitBotOtp, type BotOtpPointer, type StoredBotOtpPointer } from "./otp-pointer"
+import { BOT_UNPAID_FAILURE_REASON } from "@/lib/ussd-hubtel/order-tables"
+import { DEFAULT_BOT_PAYMENT_EMAIL, STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE } from "@/lib/storefront-commission/payment"
+
+type Row = Record<string, any>
+
+const NOW = Date.parse("2026-10-20T10:00:00Z")
+const SHOP = "11111111-2222-4333-8444-555555555555"
+const OTHER_SHOP = "99999999-2222-4333-8444-555555555555"
+const DIAL = "233241234567"
+/** The fake pointer store's key per channel (Uzo = the bare phone, as before). */
+const fakePointerKey = (phone: string, channel?: string) =>
+  channel === "whatsapp" ? `wa:${phone}` : channel === "whatsapp_shop" ? `was:${phone}` : phone
+
+/** In-memory PostgREST stand-in: select / insert / update with eq / in filters; records every update. */
+function fakeDb(
+  tables: Record<string, Row[]>,
+  opts: { insertError?: Record<string, unknown>; readError?: boolean; selectError?: Record<string, unknown> } = {},
+) {
+  const updates: { table: string; patch: Row; filters: [string, string, unknown][] }[] = []
+  function from(table: string) {
+    const rows = (tables[table] ??= [])
+    let op: "select" | "insert" | "update" = "select"
+    let payload: any
+    let orderBy: { c: string; asc: boolean } | null = null
+    let max: number | null = null
+    const filters: [string, string, unknown][] = []
+    const match = (r: Row) => filters.every(([k, c, v]) =>
+      k === "eq" ? r[c] === v : k === "in" ? (v as unknown[]).includes(r[c]) : k === "gte" ? String(r[c]) >= String(v) : r[c] === v)
+    const run = () => {
+      if (op === "insert") {
+        const err = opts.insertError?.[table]
+        if (err) return { data: null, error: err }
+        rows.push(...([] as Row[]).concat(payload).map(r => ({ ...r })))
+        return { data: null, error: null }
+      }
+      if (op === "update") {
+        const hit = rows.filter(match)
+        hit.forEach(r => Object.assign(r, payload))
+        updates.push({ table, patch: payload, filters: [...filters] })
+        return { data: hit.map(r => ({ id: r.id })), error: null }
+      }
+      if (opts.readError) return { data: null, error: { message: "boom" } }
+      if (opts.selectError?.[table]) return { data: null, error: opts.selectError[table] }
+      let out = rows.filter(match).map(r => ({ ...r }))
+      if (orderBy) {
+        const { c, asc } = orderBy
+        out = out.sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0) * (asc ? 1 : -1))
+      }
+      if (max !== null) out = out.slice(0, max)
+      return { data: out, error: null }
+    }
+    const b: any = {
+      select: () => b,
+      insert: (p: any) => { op = "insert"; payload = p; return b },
+      update: (p: any) => { op = "update"; payload = p; return b },
+      eq: (c: string, v: unknown) => { filters.push(["eq", c, v]); return b },
+      in: (c: string, v: unknown[]) => { filters.push(["in", c, v]); return b },
+      is: (c: string, v: unknown) => { filters.push(["is", c, v]); return b },
+      gte: (c: string, v: unknown) => { filters.push(["gte", c, v]); return b },
+      order: (c: string, o?: { ascending?: boolean }) => { orderBy = { c, asc: o?.ascending !== false }; return b },
+      limit: (n: number) => { max = n; return b },
+      maybeSingle: async () => { const r = run(); return { data: (r.data as Row[] | null)?.[0] ?? null, error: r.error } },
+      single: async () => { const r = run(); return { data: (r.data as Row[] | null)?.[0] ?? null, error: r.error } },
+      then: (res: any, rej: any) => Promise.resolve(run()).then(res, rej),
+    }
+    return b
+  }
+  return { client: { from } as any, tables, updates }
+}
+
+function bundleRow(o: Row = {}): Row {
+  return {
+    id: "d1", channel: "bots", bot_surface: "ussd_shop", shop_id: SHOP, status: "pending", payment_status: "unpaid",
+    amount: 10, paid_amount: 10.03, buyer_email: null, buyer_phone: DIAL, ...o,
+  }
+}
+function billRow(o: Row = {}): Row {
+  return {
+    id: "b1", channel: "bots", bot_surface: "ussd", shop_id: null, status: "pending", payment_status: "unpaid",
+    amount: 20, paid_amount: 20.22, buyer_email: null, buyer_phone: DIAL, ...o,
+  }
+}
+
+function make(opts: {
+  bundles?: Row[]; bills?: Row[]; chargeStatus?: string; chargeThrows?: boolean; insertError?: Record<string, unknown>; readError?: boolean
+  otpStatus?: string; otpThrows?: boolean; wallet?: Row[]; selectError?: Record<string, unknown>
+  /** The storefront OTP switch as the payer gate reads it ("throw" = the read fails). Default off. */
+  otpRequired?: boolean | "throw"
+  /** Numbers (local form) with a real SMS OTP verification. "throw" = the lookup fails. */
+  verified?: string[] | "throw"
+} = {}) {
+  const db = fakeDb(
+    { hubtel_data_orders: opts.bundles ?? [bundleRow()], hubtel_bill_orders: opts.bills ?? [billRow()], wallet_payments: (opts.wallet ?? []).map(r => ({ ...r })) },
+    { insertError: opts.insertError, readError: opts.readError, selectError: opts.selectError },
+  )
+  const charges: any[] = []
+  const limiter = new Map<string, number>()
+  const pointers = new Map<string, StoredBotOtpPointer>()
+  const deps: BotMomoDeps = {
+    db: db.client,
+    chargeMobileMoney: vi.fn(async (p: any) => {
+      charges.push(p)
+      if (opts.chargeThrows) throw new Error("Paystack charge failed (HTTP 400)")
+      return { status: opts.chargeStatus ?? "pay_offline", reference: p.reference }
+    }),
+    submitOtp: vi.fn(async (reference: string) => {
+      if (opts.otpThrows) throw new Error("network")
+      return { status: opts.otpStatus ?? "pending", reference }
+    }),
+    // Like the real one: a payment_attempts row carrying payer_phone (local form) for the reference.
+    recordPayerPhone: vi.fn(async (_db: unknown, a: { reference: string; rawPhone: string }) => {
+      (db.tables.payment_attempts ??= []).push({ reference: a.reference, payer_phone: a.rawPhone })
+    }),
+    rateLimit: vi.fn(async (name: string, max: number, _w: number, id: string) => {
+      const k = `${name}:${id}`
+      const n = (limiter.get(k) ?? 0) + 1
+      limiter.set(k, n)
+      return n <= max
+    }),
+    otpPointer: {
+      // Uzo pointers under the bare phone (as before); WhatsApp ones under "wa:<phone>", WhatsApp shop under "was:<phone>".
+      set: vi.fn(async (phone: string, p: BotOtpPointer) => { pointers.set(fakePointerKey(phone, p.channel), { ...p, phone }) }),
+      clear: vi.fn(async (phone: string, channel?: string) => { pointers.delete(fakePointerKey(phone, channel)) }),
+    },
+    payerOtp: {
+      required: vi.fn(async () => {
+        if (opts.otpRequired === "throw") throw new Error("admin_settings read failed")
+        return opts.otpRequired ?? false
+      }),
+      verified: vi.fn(async (phone: string) => {
+        if (opts.verified === "throw") throw new Error("lookup failed")
+        return (opts.verified ?? []).includes(phone)
+      }),
+    },
+    now: () => NOW,
+  }
+  return { deps, db, charges, pointers, limiter }
+}
+
+const SHOP_BUNDLE: BotChargeInput = { orderType: "cs_bundle", orderId: "d1", botSurface: "ussd_shop", shopId: SHOP, dialingPhone: DIAL }
+const MAIN_BILL: BotChargeInput = { orderType: "cs_bill", orderId: "b1", botSurface: "ussd", shopId: null, dialingPhone: "0241234567" }
+
+// Whole words (letters only around them, so the brand domain "datagod" is fine but "cs_bundle" is caught).
+const PRODUCT_WORDS = /(?<![a-z])(bills?|bundles?|data|airtime|cashback|commission|ecg|internet)(?![a-z])/i
+
+describe("botChargeMomo: happy path", () => {
+  it("charges paid_amount (not amount) to the dialing number with one wallet_payments row", async () => {
+    const m = make()
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.reference).toMatch(/^[0-9a-f]{32}$/)
+    expect(r.status).toBe("pay_offline")
+
+    expect(m.charges).toHaveLength(1)
+    const c = m.charges[0]
+    expect(c).toMatchObject({
+      amount: 10.03, phone: "0241234567", provider: "mtn", reference: r.reference, email: DEFAULT_BOT_PAYMENT_EMAIL,
+      channel: STOREFRONT_PAYMENT_CHANNEL, purpose: STOREFRONT_PAYMENT_PURPOSE,
+    })
+    expect(c.metadata).toEqual({ source: "ussd_bot", bot_surface: "ussd_shop", order_type: STOREFRONT_PAYMENT_CHANNEL })
+    expect(c.recipient).toBeUndefined()
+    // Nothing that leaves our system names the product.
+    expect(r.reference).not.toMatch(PRODUCT_WORDS)
+    expect(JSON.stringify({ m: c.metadata, ch: c.channel, p: c.purpose, e: c.email })).not.toMatch(PRODUCT_WORDS)
+
+    expect(m.db.tables.wallet_payments).toHaveLength(1)
+    expect(m.db.tables.wallet_payments[0]).toEqual({
+      user_id: null, shop_id: SHOP, order_id: "d1", order_type: "cs_bundle", amount: 10.03, fee: 0, reference: r.reference,
+      status: "pending", payment_method: "paystack", created_at: new Date(NOW).toISOString(),
+    })
+    // The order is untouched by the charge itself (the webhook flips it).
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    expect(m.db.updates).toEqual([])
+  })
+
+  it("main-menu bill: shop_id null, cs_bill, Telecel number => vod", async () => {
+    const m = make({ bills: [billRow({ buyer_phone: "233201234567" })] })
+    const r = await botChargeMomo(m.deps, { ...MAIN_BILL, dialingPhone: "+233201234567" })
+    expect(r.ok).toBe(true)
+    expect(m.charges[0]).toMatchObject({ amount: 20.22, phone: "0201234567", provider: "vod" })
+    expect(m.charges[0].metadata).toEqual({ source: "ussd_bot", bot_surface: "ussd", order_type: STOREFRONT_PAYMENT_CHANNEL })
+    expect(m.db.tables.wallet_payments[0]).toMatchObject({ shop_id: null, order_id: "b1", order_type: "cs_bill", amount: 20.22, fee: 0 })
+  })
+
+  it("records the payer phone via recordPayerPhone (payment_type shop_order, neutral email)", async () => {
+    const m = make()
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    if (!r.ok) throw new Error("expected ok")
+    expect(m.deps.recordPayerPhone).toHaveBeenCalledTimes(1)
+    expect(m.deps.recordPayerPhone).toHaveBeenCalledWith(m.db.client, {
+      reference: r.reference,
+      rawPhone: "0241234567",
+      baseRow: {
+        user_id: null, reference: r.reference, amount: 10.03, fee: 0, email: DEFAULT_BOT_PAYMENT_EMAIL, status: "pending",
+        payment_type: "shop_order", shop_id: SHOP, order_id: "d1", created_at: new Date(NOW).toISOString(),
+      },
+    })
+  })
+
+  it("send_otp stores an OTP pointer for the dialing phone (local form)", async () => {
+    const m = make({ chargeStatus: "send_otp" })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    if (!r.ok) throw new Error("expected ok")
+    expect(r.status).toBe("send_otp")
+    expect(m.deps.otpPointer.set).toHaveBeenCalledWith("0241234567", {
+      reference: r.reference, orderType: "cs_bundle", orderId: "d1", createdAt: new Date(NOW).toISOString(),
+    })
+  })
+
+  it("no OTP pointer for a plain prompt", async () => {
+    const m = make()
+    await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(m.deps.otpPointer.set).not.toHaveBeenCalled()
+  })
+})
+
+describe("botChargeMomo: refusals (NOT_PAYABLE: no payment row, no charge, no write)", () => {
+  const cases: [string, Partial<{ bundles: Row[] }>, Partial<BotChargeInput>][] = [
+    ["paid", { bundles: [bundleRow({ payment_status: "paid" })] }, {}],
+    ["failed", { bundles: [bundleRow({ status: "failed" })] }, {}],
+    ["processing", { bundles: [bundleRow({ status: "processing" })] }, {}],
+    ["storefront channel", { bundles: [bundleRow({ channel: "storefront" })] }, {}],
+    ["dashboard channel", { bundles: [bundleRow({ channel: "dashboard" })] }, {}],
+    ["wrong bot_surface (whatsapp_shop)", { bundles: [bundleRow({ bot_surface: "whatsapp_shop" })] }, {}],
+    ["wrong bot_surface (hubtel_ussd)", { bundles: [bundleRow({ bot_surface: "hubtel_ussd" })] }, {}],
+    ["different shop", { bundles: [bundleRow({ shop_id: OTHER_SHOP })] }, {}],
+    ["shop surface without a shop id", {}, { shopId: null }],
+    ["main surface given a shop id", { bundles: [bundleRow({ bot_surface: "ussd" })] }, { botSurface: "ussd", shopId: SHOP }],
+    ["main surface but the row has a shop", { bundles: [bundleRow({ bot_surface: "ussd" })] }, { botSurface: "ussd", shopId: null }],
+    ["another buyer's order", { bundles: [bundleRow({ buyer_phone: "233551112222" })] }, {}],
+    ["missing order", { bundles: [] }, {}],
+    ["no paid_amount", { bundles: [bundleRow({ paid_amount: null })] }, {}],
+  ]
+  for (const [name, world, input] of cases) {
+    it(name, async () => {
+      const m = make(world)
+      const before = JSON.stringify(m.db.tables.hubtel_data_orders)
+      const r = await botChargeMomo(m.deps, { ...SHOP_BUNDLE, ...input })
+      expect(r).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+      expect(m.charges).toHaveLength(0)
+      expect(m.db.tables.wallet_payments).toHaveLength(0)
+      expect(m.db.updates).toEqual([])
+      expect(JSON.stringify(m.db.tables.hubtel_data_orders)).toBe(before)
+      expect(m.deps.rateLimit).not.toHaveBeenCalled()
+    })
+  }
+
+  it("unknown order type is refused", async () => {
+    const m = make()
+    const r = await botChargeMomo(m.deps, { ...SHOP_BUNDLE, orderType: "airtime" as any })
+    expect(r).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+    expect(m.charges).toHaveLength(0)
+  })
+
+  it("an order read error is CHARGE_FAILED, writes nothing, and leaves the order OPEN (pending + unpaid)", async () => {
+    const m = make({ readError: true })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toEqual({ ok: false, code: "CHARGE_FAILED", message: "Service unavailable. Please try again later." })
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.tables.wallet_payments).toHaveLength(0)
+    expect(m.db.updates).toEqual([])
+    // Not failed: ownership could not be verified, so the caller must treat CHARGE_FAILED as "order may still be open".
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    expect(m.deps.rateLimit).not.toHaveBeenCalled()
+  })
+})
+
+describe("botChargeMomo: idempotent replay (no double prompt for one order)", () => {
+  const MIN = 60 * 1000
+  const pendingRow = (o: Row = {}): Row => ({
+    id: "wp0", order_id: "d1", order_type: "cs_bundle", reference: "e".repeat(32), status: "pending",
+    created_at: new Date(NOW - 5 * MIN).toISOString(), ...o,
+  })
+
+  it("a second charge for the same order returns the first reference: no new row, no new charge, no cap slot", async () => {
+    const m = make()
+    const first = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    if (!first.ok) throw new Error("expected ok")
+    const again = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    // Uzo only ever prompts the dialler: that is the prompted number (no extra read).
+    expect(again).toEqual({ ok: true, reference: first.reference, status: "pending", promptedPhone: "0241234567" })
+    expect(m.charges).toHaveLength(1)
+    expect(m.db.tables.wallet_payments).toHaveLength(1)
+    expect(m.deps.rateLimit).toHaveBeenCalledTimes(1)
+    expect(m.deps.recordPayerPhone).toHaveBeenCalledTimes(1)
+    expect(m.db.updates).toEqual([])
+  })
+
+  it("an existing pending row within 15 minutes is replayed (the newest one)", async () => {
+    const m = make({ wallet: [pendingRow(), pendingRow({ id: "wp1", reference: "f".repeat(32), created_at: new Date(NOW - 2 * MIN).toISOString() })] })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toEqual({ ok: true, reference: "f".repeat(32), status: "pending", promptedPhone: "0241234567" })
+    expect(m.db.tables.payment_attempts).toBeUndefined() // the Uzo replay reads no payer record
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.tables.wallet_payments).toHaveLength(2)
+  })
+
+  it("a pending row older than 15 minutes, a failed row, or another order's row does not block a new charge", async () => {
+    const m = make({ wallet: [
+      pendingRow({ created_at: new Date(NOW - 16 * MIN).toISOString() }),
+      pendingRow({ id: "wp1", status: "failed" }),
+      pendingRow({ id: "wp2", order_id: "other" }),
+    ] })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r.ok && r.status).toBe("pay_offline")
+    expect(m.charges).toHaveLength(1)
+    expect(m.db.tables.wallet_payments).toHaveLength(4)
+  })
+
+  it("a recent row Paystack marked 'ongoing' is replayed too (never a second prompt)", async () => {
+    const m = make({ wallet: [pendingRow({ status: "ongoing", reference: "a".repeat(32) })] })
+    expect(await botChargeMomo(m.deps, SHOP_BUNDLE)).toEqual({ ok: true, reference: "a".repeat(32), status: "pending", promptedPhone: "0241234567" })
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.tables.wallet_payments).toHaveLength(1)
+    expect(m.deps.rateLimit).not.toHaveBeenCalled()
+  })
+
+  it("completed / abandoned / failed rows are not replayed", async () => {
+    for (const status of ["completed", "abandoned", "failed"]) {
+      const m = make({ wallet: [pendingRow({ status })] })
+      const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+      expect(r.ok && r.status).toBe("pay_offline")
+      expect(m.charges).toHaveLength(1)
+    }
+  })
+
+  it("an 'ongoing' row older than 15 minutes does not block", async () => {
+    const m = make({ wallet: [pendingRow({ status: "ongoing", created_at: new Date(NOW - 16 * MIN).toISOString() })] })
+    expect(await botChargeMomo(m.deps, SHOP_BUNDLE)).toMatchObject({ ok: true, status: "pay_offline" })
+  })
+
+  it("the replay is only for a still-payable order: a paid order is NOT_PAYABLE", async () => {
+    const m = make({ bundles: [bundleRow({ payment_status: "paid" })], wallet: [pendingRow()] })
+    expect(await botChargeMomo(m.deps, SHOP_BUNDLE)).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+  })
+
+  it("a lookup error => CHARGE_FAILED, no charge, order left alone (a prompt may be live)", async () => {
+    const m = make({ selectError: { wallet_payments: { message: "timeout" } } })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toMatchObject({ ok: false, code: "CHARGE_FAILED" })
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.updates).toEqual([])
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+  })
+})
+
+/** The guarded fail patch on the order: only a channel 'bots', pending, unpaid row. */
+function expectGuardedFail(m: ReturnType<typeof make>, table: string, id: string) {
+  const u = m.db.updates.find(x => x.table === table)
+  expect(u).toBeDefined()
+  expect(u!.patch).toMatchObject({ status: "failed", failure_reason: BOT_UNPAID_FAILURE_REASON })
+  expect(u!.patch).not.toHaveProperty("payment_status")
+  expect(u!.filters).toEqual(expect.arrayContaining([
+    ["eq", "id", id], ["in", "payment_status", ["unpaid"]], ["in", "channel", ["bots"]], ["in", "status", ["pending"]],
+  ]))
+}
+
+describe("botChargeMomo: no provider / cap / charge failure", () => {
+  it("NO_PROVIDER for a number with no MoMo provider: no charge, no payment row, order failed (guarded)", async () => {
+    const m = make({ bundles: [bundleRow({ buyer_phone: "233311234567" })] })
+    const r = await botChargeMomo(m.deps, { ...SHOP_BUNDLE, dialingPhone: "0311234567" })
+    expect(r).toEqual({ ok: false, code: "NO_PROVIDER", message: "Payment not available for your number." })
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.tables.wallet_payments).toHaveLength(0)
+    expectGuardedFail(m, "hubtel_data_orders", "d1")
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "failed", payment_status: "unpaid" })
+  })
+
+  it("RATE_LIMITED after 3 charges in an hour for one phone (key mp:<local digits>)", async () => {
+    const m = make({ bundles: ["d1", "d2", "d3", "d4"].map(id => bundleRow({ id })) })
+    for (const id of ["d1", "d2", "d3"]) {
+      expect((await botChargeMomo(m.deps, { ...SHOP_BUNDLE, orderId: id })).ok).toBe(true)
+    }
+    const r = await botChargeMomo(m.deps, { ...SHOP_BUNDLE, orderId: "d4" })
+    expect(r).toEqual({ ok: false, code: "RATE_LIMITED", message: "Too many attempts. Please try later." })
+    expect(m.charges).toHaveLength(3)
+    expect(m.db.tables.wallet_payments).toHaveLength(3)
+    expect(m.deps.rateLimit).toHaveBeenCalledWith("momodirect_phone", 3, 60 * 60 * 1000, "mp:0241234567")
+    expect(BOT_MOMO_PHONE_CAP).toEqual({ name: "momodirect_phone", max: 3, windowMs: 60 * 60 * 1000 })
+    expectGuardedFail(m, "hubtel_data_orders", "d4")
+    expect(m.db.tables.hubtel_data_orders.find(r => r.id === "d4")).toMatchObject({ status: "failed" })
+  })
+
+  it("the cap is per phone: any format of the same number shares it", async () => {
+    const m = make({ bundles: ["d1", "d2", "d3", "d4"].map(id => bundleRow({ id })) })
+    const phones = ["0241234567", "233241234567", "+233241234567", "0241234567"]
+    const out = []
+    for (const [i, id] of ["d1", "d2", "d3", "d4"].entries()) out.push(await botChargeMomo(m.deps, { ...SHOP_BUNDLE, orderId: id, dialingPhone: phones[i] }))
+    expect(out.map(o => o.ok)).toEqual([true, true, true, false])
+  })
+
+  it("charge throws => CHARGE_FAILED, payment row failed, order failed with the guarded patch", async () => {
+    const m = make({ chargeThrows: true })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toEqual({ ok: false, code: "CHARGE_FAILED", message: "Service unavailable. Please try again later." })
+    expect(m.db.tables.wallet_payments).toHaveLength(1)
+    expect(m.db.tables.wallet_payments[0].status).toBe("failed")
+    const wp = m.db.updates.find(u => u.table === "wallet_payments")!
+    expect(wp.filters).toEqual(expect.arrayContaining([["eq", "reference", m.db.tables.wallet_payments[0].reference], ["eq", "status", "pending"]]))
+    expectGuardedFail(m, "hubtel_data_orders", "d1")
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "failed", failure_reason: BOT_UNPAID_FAILURE_REASON, payment_status: "unpaid" })
+    expect(m.deps.recordPayerPhone).not.toHaveBeenCalled()
+    // never leaks provider text
+    expect(r.ok ? "" : r.message).not.toMatch(/paystack|http/i)
+  })
+
+  it("charge throws for an order that got paid meanwhile => the paid row is untouched", async () => {
+    const m = make({ chargeThrows: true })
+    m.deps.chargeMobileMoney = vi.fn(async () => {
+      // A webhook for an earlier attempt flips the row before our failure handling runs.
+      Object.assign(m.db.tables.hubtel_data_orders[0], { payment_status: "paid" })
+      throw new Error("timeout")
+    })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toMatchObject({ ok: false, code: "CHARGE_FAILED" })
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "paid" })
+    expect(m.db.tables.hubtel_data_orders[0].failure_reason).toBeUndefined()
+  })
+
+  it("a charge answered 'failed' is treated like a throw", async () => {
+    const m = make({ chargeStatus: "failed" })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toMatchObject({ ok: false, code: "CHARGE_FAILED" })
+    expect(m.db.tables.wallet_payments[0].status).toBe("failed")
+    expectGuardedFail(m, "hubtel_data_orders", "d1")
+  })
+
+  it("wallet_payments insert error => CHARGE_FAILED, no charge, order failed (guarded)", async () => {
+    const m = make({ insertError: { wallet_payments: { code: "23502", message: "null value" } } })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toMatchObject({ ok: false, code: "CHARGE_FAILED" })
+    expect(m.charges).toHaveLength(0)
+    expectGuardedFail(m, "hubtel_data_orders", "d1")
+  })
+
+  it("an OTP pointer write failure does not fail the charge", async () => {
+    const m = make({ chargeStatus: "send_otp" })
+    m.deps.otpPointer.set = vi.fn(async () => { throw new Error("redis down") })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    expect(r).toMatchObject({ ok: true, status: "send_otp" })
+  })
+})
+
+describe("submitBotOtp", () => {
+  async function charged(otp: { otpStatus?: string; otpThrows?: boolean } = {}) {
+    const m = make({ chargeStatus: "send_otp", ...otp })
+    const r = await botChargeMomo(m.deps, SHOP_BUNDLE)
+    if (!r.ok) throw new Error("expected ok")
+    const p = m.pointers.get("0241234567")!
+    expect(p).toBeDefined()
+    return { m, p, reference: r.reference }
+  }
+
+  for (const accepted of ["pending", "pay_offline", "success"]) {
+    it(`an accepted code ('${accepted}': approve the prompt) => ok, pointer cleared, order untouched`, async () => {
+      const { m, p, reference } = await charged({ otpStatus: accepted })
+      const out = await submitBotOtp(m.deps, p, "123456")
+      expect(out).toEqual({ ok: true, retry: false })
+      expect(m.deps.submitOtp).toHaveBeenCalledWith(reference, "123456")
+      expect(m.deps.otpPointer.clear).toHaveBeenCalledWith("0241234567")
+      expect(m.pointers.size).toBe(0)
+      expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+      expect(m.db.tables.wallet_payments[0].status).toBe("pending")
+    })
+  }
+
+  it("a wrong code (repeat send_otp) => retry, the pointer is KEPT, nothing failed", async () => {
+    const { m, p } = await charged({ otpStatus: "send_otp" })
+    const out = await submitBotOtp(m.deps, p, "999999")
+    expect(out).toEqual({ ok: false, retry: true })
+    expect(m.deps.otpPointer.clear).not.toHaveBeenCalled()
+    expect(m.pointers.get("0241234567")).toMatchObject({ reference: p.reference })
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    expect(m.db.tables.wallet_payments[0].status).toBe("pending")
+    // and the retry with the right code completes
+    m.deps.submitOtp = vi.fn(async (reference: string) => ({ status: "pending", reference }))
+    expect(await submitBotOtp(m.deps, p, "123456")).toEqual({ ok: true, retry: false })
+    expect(m.pointers.size).toBe(0)
+  })
+
+  it("any other non-final answer (e.g. send_pin) => retry, pointer kept", async () => {
+    const { m, p } = await charged({ otpStatus: "send_pin" })
+    expect(await submitBotOtp(m.deps, p, "123456")).toEqual({ ok: false, retry: true })
+    expect(m.pointers.size).toBe(1)
+    expect(m.db.updates).toEqual([])
+  })
+
+  it("a rejected OTP ('failed') fails the payment row and the order (guarded) and clears the pointer", async () => {
+    const { m, p } = await charged({ otpStatus: "failed" })
+    const out = await submitBotOtp(m.deps, p, "000000")
+    expect(out).toEqual({ ok: false, retry: false })
+    expect(m.db.tables.wallet_payments[0].status).toBe("failed")
+    expectGuardedFail(m, "hubtel_data_orders", "d1")
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "failed", payment_status: "unpaid" })
+    expect(m.pointers.size).toBe(0)
+  })
+
+  it("a rejected OTP never touches an order that is already paid", async () => {
+    const { m, p } = await charged({ otpStatus: "failed" })
+    Object.assign(m.db.tables.hubtel_data_orders[0], { payment_status: "paid" })
+    await submitBotOtp(m.deps, p, "000000")
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "paid" })
+  })
+
+  it("a submit error (not final) leaves the order alone and KEEPS the pointer for a retry", async () => {
+    const { m, p } = await charged({ otpThrows: true })
+    const out = await submitBotOtp(m.deps, p, "123456")
+    expect(out).toEqual({ ok: false, retry: true })
+    expect(m.db.tables.hubtel_data_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    expect(m.db.tables.wallet_payments[0].status).toBe("pending")
+    expect(m.pointers.size).toBe(1)
+  })
+
+  it("takes a stored pointer: phone is required (type-level)", async () => {
+    const { m, p } = await charged()
+    const { phone: _phone, ...bare } = p
+    void _phone
+    // @ts-expect-error a pointer without its phone cannot be submitted (it could never be cleared)
+    await submitBotOtp(m.deps, bare as BotOtpPointer, "123456")
+  })
+})
+
+// ── Plan 4: WhatsApp surfaces (paying number + storefront OTP switch) ─────────────────────────────────────────────
+
+const SENDER = "233241234567" // the WhatsApp sender (buyer_phone)
+const PAY = "0201234567" // the typed MoMo number (Telecel)
+const WA_BILL: BotChargeInput = { orderType: "cs_bill", orderId: "b1", botSurface: "whatsapp", shopId: null, dialingPhone: "0241234567", payPhone: PAY }
+const WA_SHOP_BUNDLE: BotChargeInput = { orderType: "cs_bundle", orderId: "d1", botSurface: "whatsapp_shop", shopId: SHOP, dialingPhone: SENDER, payPhone: PAY }
+const waBill = (o: Row = {}) => billRow({ bot_surface: "whatsapp", buyer_phone: SENDER, ...o })
+const waShopBundle = (o: Row = {}) => bundleRow({ bot_surface: "whatsapp_shop", buyer_phone: SENDER, ...o })
+
+describe("botChargeMomo: payPhone (WhatsApp: charge the typed number)", () => {
+  it("the charge, provider, cap and payer record use payPhone; the OTP pointer stays on the sender", async () => {
+    const m = make({ bills: [waBill()], chargeStatus: "send_otp" })
+    const r = await botChargeMomo(m.deps, WA_BILL)
+    if (!r.ok) throw new Error(`expected ok, got ${JSON.stringify(r)}`)
+    expect(m.charges).toHaveLength(1)
+    expect(m.charges[0]).toMatchObject({ amount: 20.22, phone: PAY, provider: "vod", reference: r.reference })
+    expect(m.charges[0].metadata).toEqual({ source: "whatsapp_bot", bot_surface: "whatsapp", order_type: STOREFRONT_PAYMENT_CHANNEL })
+    expect(m.deps.rateLimit).toHaveBeenCalledTimes(1)
+    expect(m.deps.rateLimit).toHaveBeenCalledWith("momodirect_phone", 3, 60 * 60 * 1000, `mp:${PAY}`)
+    expect(m.deps.recordPayerPhone).toHaveBeenCalledWith(m.db.client, expect.objectContaining({ rawPhone: PAY }))
+    expect(m.deps.otpPointer.set).toHaveBeenCalledWith("0241234567", {
+      reference: r.reference, orderType: "cs_bill", orderId: "b1", createdAt: new Date(NOW).toISOString(), channel: "whatsapp",
+    })
+    expect(m.db.tables.wallet_payments[0]).toMatchObject({ order_id: "b1", order_type: "cs_bill", amount: 20.22, fee: 0, status: "pending", shop_id: null })
+  })
+
+  it("an 'ongoing' row is replayed on WhatsApp too (prompted number from the payer record)", async () => {
+    const m = make({
+      bills: [waBill()],
+      wallet: [{ id: "wp0", order_id: "b1", order_type: "cs_bill", reference: "c".repeat(32), status: "ongoing", created_at: new Date(NOW - 60_000).toISOString() }],
+    })
+    m.db.tables.payment_attempts = [{ reference: "c".repeat(32), payer_phone: "233551112222" }]
+    expect(await botChargeMomo(m.deps, WA_BILL)).toEqual({ ok: true, reference: "c".repeat(32), status: "pending", promptedPhone: "0551112222" })
+    expect(m.charges).toHaveLength(0)
+  })
+
+  it("a new charge reports the number it prompted", async () => {
+    const m = make({ bills: [waBill()] })
+    expect(await botChargeMomo(m.deps, WA_BILL)).toMatchObject({ ok: true, status: "pay_offline", promptedPhone: PAY })
+  })
+
+  it("replay with a DIFFERENT payPhone: the originally prompted number comes back, no new charge", async () => {
+    const m = make({ bills: [waBill()] })
+    const first = await botChargeMomo(m.deps, WA_BILL)
+    if (!first.ok) throw new Error("expected ok")
+    const again = await botChargeMomo(m.deps, { ...WA_BILL, payPhone: "0551112222" })
+    expect(again).toEqual({ ok: true, reference: first.reference, status: "pending", promptedPhone: PAY })
+    expect(m.charges).toHaveLength(1)
+    expect(m.charges[0].phone).toBe(PAY)
+    expect(m.db.tables.wallet_payments).toHaveLength(1)
+    expect(m.deps.rateLimit).toHaveBeenCalledTimes(1)
+  })
+
+  it("replay with no payer record (or a failed lookup) => promptedPhone null, still no new charge", async () => {
+    const wallet = [{ id: "wp0", order_id: "b1", order_type: "cs_bill", reference: "c".repeat(32), status: "pending", created_at: new Date(NOW - 60_000).toISOString() }]
+    const m = make({ bills: [waBill()], wallet })
+    expect(await botChargeMomo(m.deps, WA_BILL)).toEqual({ ok: true, reference: "c".repeat(32), status: "pending", promptedPhone: null })
+    const e = make({ bills: [waBill()], wallet, selectError: { payment_attempts: { message: "column payer_phone does not exist" } } })
+    expect(await botChargeMomo(e.deps, WA_BILL)).toEqual({ ok: true, reference: "c".repeat(32), status: "pending", promptedPhone: null })
+    expect(e.charges).toHaveLength(0)
+  })
+
+  it("WhatsApp shop send_otp uses its own whatsapp_shop pointer channel (never the main bot's)", async () => {
+    const m = make({ bundles: [waShopBundle()], chargeStatus: "send_otp" })
+    expect((await botChargeMomo(m.deps, WA_SHOP_BUNDLE)).ok).toBe(true)
+    expect(m.pointers.get("was:0241234567")).toMatchObject({ channel: "whatsapp_shop", orderId: "d1" })
+    expect(m.pointers.has("wa:0241234567")).toBe(false)
+    expect(m.pointers.has("0241234567")).toBe(false)
+  })
+
+  it("submitBotOtp on a WhatsApp shop pointer clears it in the whatsapp_shop channel only", async () => {
+    const m = make({ bundles: [waShopBundle()], chargeStatus: "send_otp", otpStatus: "pending" })
+    const r = await botChargeMomo(m.deps, WA_SHOP_BUNDLE)
+    if (!r.ok) throw new Error("expected ok")
+    const p = m.pointers.get("was:0241234567")!
+    expect(await submitBotOtp(m.deps, p, "123456")).toEqual({ ok: true, retry: false })
+    expect(m.deps.otpPointer.clear).toHaveBeenCalledWith("0241234567", "whatsapp_shop")
+    expect(m.pointers.size).toBe(0)
+  })
+
+  it("submitBotOtp on a WhatsApp pointer clears it in the whatsapp channel only", async () => {
+    const m = make({ bills: [waBill()], chargeStatus: "send_otp", otpStatus: "pending" })
+    const r = await botChargeMomo(m.deps, WA_BILL)
+    if (!r.ok) throw new Error("expected ok")
+    const p = m.pointers.get("wa:0241234567")!
+    expect(await submitBotOtp(m.deps, p, "123456")).toEqual({ ok: true, retry: false })
+    expect(m.deps.otpPointer.clear).toHaveBeenCalledWith("0241234567", "whatsapp")
+    expect(m.pointers.size).toBe(0)
+  })
+
+  it("WhatsApp shop: the session shop, payPhone charged", async () => {
+    const m = make({ bundles: [waShopBundle()] })
+    const r = await botChargeMomo(m.deps, WA_SHOP_BUNDLE)
+    expect(r.ok).toBe(true)
+    expect(m.charges[0]).toMatchObject({ phone: PAY, provider: "vod", amount: 10.03 })
+    expect(m.charges[0].metadata).toEqual({ source: "whatsapp_bot", bot_surface: "whatsapp_shop", order_type: STOREFRONT_PAYMENT_CHANNEL })
+    expect(m.db.tables.wallet_payments[0]).toMatchObject({ shop_id: SHOP })
+  })
+
+  it("the buyer_phone guard still compares the sender (dialingPhone), never payPhone", async () => {
+    // payPhone equals the order's buyer but the sender does not: refused.
+    const m = make({ bills: [waBill({ buyer_phone: "233201234567" })] })
+    const r = await botChargeMomo(m.deps, { ...WA_BILL, dialingPhone: "0551112222", payPhone: "0201234567" })
+    expect(r).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.updates).toEqual([])
+    // sender matches, payPhone is anyone: allowed.
+    const ok = make({ bills: [waBill()] })
+    expect((await botChargeMomo(ok.deps, { ...WA_BILL, payPhone: "0551112222" })).ok).toBe(true)
+    expect(ok.charges[0]).toMatchObject({ phone: "0551112222", provider: "mtn" })
+  })
+
+  it("the cap is per paying number (any format), not per sender", async () => {
+    const m = make({ bills: ["b1", "b2", "b3", "b4"].map(id => waBill({ id })) })
+    const pays = ["0201234567", "233201234567", "+233201234567", "0201234567"]
+    const out = []
+    for (const [i, id] of ["b1", "b2", "b3", "b4"].entries()) out.push(await botChargeMomo(m.deps, { ...WA_BILL, orderId: id, payPhone: pays[i] }))
+    expect(out.map(o => o.ok)).toEqual([true, true, true, false])
+    expect(out[3]).toMatchObject({ code: "RATE_LIMITED" })
+    // another paying number from the same sender is a fresh budget
+    const m2 = make({ bills: ["b1", "b2", "b3", "b4"].map(id => waBill({ id })) })
+    for (const [i, id] of ["b1", "b2", "b3"].entries()) await botChargeMomo(m2.deps, { ...WA_BILL, orderId: id, payPhone: ["0201234567", "0201234568", "0201234569"][i] })
+    expect((await botChargeMomo(m2.deps, { ...WA_BILL, orderId: "b4", payPhone: "0201234560" })).ok).toBe(true)
+  })
+
+  it("a paying number with no MoMo provider => NO_PROVIDER, order failed (guarded)", async () => {
+    const m = make({ bills: [waBill()] })
+    const r = await botChargeMomo(m.deps, { ...WA_BILL, payPhone: "0311234567" })
+    expect(r).toMatchObject({ ok: false, code: "NO_PROVIDER" })
+    expect(m.charges).toHaveLength(0)
+    expectGuardedFail(m, "hubtel_bill_orders", "b1")
+  })
+
+  it("a malformed payPhone => NOT_PAYABLE before any read or write", async () => {
+    const m = make({ bills: [waBill()] })
+    for (const payPhone of ["", "12345", "not a number"]) {
+      expect(await botChargeMomo(m.deps, { ...WA_BILL, payPhone })).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+    }
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.tables.wallet_payments).toHaveLength(0)
+    expect(m.db.updates).toEqual([])
+  })
+
+  it("WhatsApp without payPhone => NOT_PAYABLE: the sender is never charged by default, nothing written, order left open", async () => {
+    for (const [world, input] of [[{ bills: [waBill()] }, WA_BILL], [{ bundles: [waShopBundle()] }, WA_SHOP_BUNDLE]] as [Parameters<typeof make>[0], BotChargeInput][]) {
+      const m = make({ ...world, otpRequired: true })
+      const { payPhone: _p, ...noPay } = input
+      void _p
+      for (const i of [noPay, { ...noPay, payPhone: undefined }, { ...noPay, payPhone: "" }]) {
+        expect(await botChargeMomo(m.deps, i)).toEqual({ ok: false, code: "NOT_PAYABLE", message: BOT_MOMO_MESSAGES.NOT_PAYABLE })
+      }
+      expect(m.charges).toHaveLength(0)
+      expect(m.db.tables.wallet_payments).toHaveLength(0)
+      expect(m.db.updates).toEqual([])
+      expect(m.deps.rateLimit).not.toHaveBeenCalled()
+      expect(m.deps.payerOtp.required).not.toHaveBeenCalled()
+    }
+  })
+
+  it("a sender who types their own number is charged (payPhone given explicitly)", async () => {
+    const m = make({ bills: [waBill()] })
+    expect((await botChargeMomo(m.deps, { ...WA_BILL, payPhone: "0241234567" })).ok).toBe(true)
+    expect(m.charges[0]).toMatchObject({ phone: "0241234567", provider: "mtn" })
+  })
+
+  it("surface/shop pairing: whatsapp needs no shop, whatsapp_shop needs one; rows of another surface are refused", async () => {
+    const cases: [Row[], Partial<BotChargeInput>][] = [
+      [[waBill()], { shopId: SHOP }],
+      [[billRow({ buyer_phone: SENDER })], {}], // a ussd row on the whatsapp surface
+    ]
+    for (const [bills, input] of cases) {
+      const m = make({ bills })
+      expect(await botChargeMomo(m.deps, { ...WA_BILL, ...input })).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+      expect(m.charges).toHaveLength(0)
+    }
+    const s = make({ bundles: [waShopBundle()] })
+    expect(await botChargeMomo(s.deps, { ...WA_SHOP_BUNDLE, shopId: null })).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+    const o = make({ bundles: [waShopBundle({ shop_id: OTHER_SHOP })] })
+    expect(await botChargeMomo(o.deps, WA_SHOP_BUNDLE)).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+  })
+
+  it("Uzo surfaces: a payPhone other than the dialing number is refused (USSD only ever prompts the dialler)", async () => {
+    const m = make()
+    expect(await botChargeMomo(m.deps, { ...SHOP_BUNDLE, payPhone: "0201234567" })).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.updates).toEqual([])
+    // the dialing number itself, in any format, is fine
+    const same = make()
+    expect((await botChargeMomo(same.deps, { ...SHOP_BUNDLE, payPhone: "0241234567" })).ok).toBe(true)
+    expect(same.charges[0]).toMatchObject({ phone: "0241234567" })
+  })
+})
+
+describe("botChargeMomo: NEEDS_VERIFY (storefront OTP switch on the WhatsApp surfaces)", () => {
+  const expectNothing = (m: ReturnType<typeof make>) => {
+    expect(m.charges).toHaveLength(0)
+    expect(m.db.tables.wallet_payments).toHaveLength(0)
+    expect(m.db.updates).toEqual([])
+    expect(m.deps.rateLimit).not.toHaveBeenCalled()
+    expect(m.deps.recordPayerPhone).not.toHaveBeenCalled()
+    expect(m.deps.otpPointer.set).not.toHaveBeenCalled()
+  }
+
+  it("switch on + paying number unverified => NEEDS_VERIFY: no payment row, no charge, no cap slot, order left open", async () => {
+    const m = make({ bills: [waBill()], otpRequired: true, verified: ["0241234567"] /* the sender, not the payer */ })
+    const r = await botChargeMomo(m.deps, WA_BILL)
+    expect(r).toEqual({ ok: false, code: "NEEDS_VERIFY", message: BOT_MOMO_MESSAGES.NEEDS_VERIFY })
+    expectNothing(m)
+    expect(m.db.tables.hubtel_bill_orders[0]).toMatchObject({ status: "pending", payment_status: "unpaid" })
+    expect(m.deps.payerOtp.verified).toHaveBeenCalledWith(PAY)
+  })
+
+  it("switch on + paying number verified => charged", async () => {
+    const m = make({ bills: [waBill()], otpRequired: true, verified: [PAY] })
+    const r = await botChargeMomo(m.deps, WA_BILL)
+    expect(r.ok).toBe(true)
+    expect(m.charges[0]).toMatchObject({ phone: PAY })
+  })
+
+  it("verify, then the same order charges (the retry after the SMS code)", async () => {
+    const verified: string[] = []
+    const m = make({ bills: [waBill()], otpRequired: true, verified })
+    expect(await botChargeMomo(m.deps, WA_BILL)).toMatchObject({ code: "NEEDS_VERIFY" })
+    verified.push(PAY)
+    const r = await botChargeMomo(m.deps, WA_BILL)
+    expect(r.ok).toBe(true)
+    expect(m.charges).toHaveLength(1)
+    expect(m.deps.rateLimit).toHaveBeenCalledTimes(1)
+  })
+
+  it("switch off => charged as typed (verification not consulted)", async () => {
+    const m = make({ bills: [waBill()], otpRequired: false })
+    expect((await botChargeMomo(m.deps, WA_BILL)).ok).toBe(true)
+    expect(m.deps.payerOtp.verified).not.toHaveBeenCalled()
+  })
+
+  it("WhatsApp shop surface follows the same switch", async () => {
+    const m = make({ bundles: [waShopBundle()], otpRequired: true })
+    expect(await botChargeMomo(m.deps, WA_SHOP_BUNDLE)).toMatchObject({ ok: false, code: "NEEDS_VERIFY" })
+    expectNothing(m)
+  })
+
+  it("a failed read of the switch fails closed => NEEDS_VERIFY", async () => {
+    const m = make({ bills: [waBill()], otpRequired: "throw", verified: [] })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(await botChargeMomo(m.deps, WA_BILL)).toMatchObject({ ok: false, code: "NEEDS_VERIFY" })
+    expectNothing(m)
+    spy.mockRestore()
+  })
+
+  it("a failed read of the switch still charges a verified number (closed = verification required)", async () => {
+    const m = make({ bills: [waBill()], otpRequired: "throw", verified: [PAY] })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect((await botChargeMomo(m.deps, WA_BILL)).ok).toBe(true)
+    spy.mockRestore()
+  })
+
+  it("a failed verification lookup fails closed => NEEDS_VERIFY", async () => {
+    const m = make({ bills: [waBill()], otpRequired: true, verified: "throw" })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(await botChargeMomo(m.deps, WA_BILL)).toMatchObject({ ok: false, code: "NEEDS_VERIFY" })
+    expectNothing(m)
+    spy.mockRestore()
+  })
+
+  it("an idempotent replay is still returned (a prompt is already out for this order)", async () => {
+    const m = make({
+      bills: [waBill()], otpRequired: true,
+      wallet: [{ id: "wp0", order_id: "b1", order_type: "cs_bill", reference: "e".repeat(32), status: "pending", created_at: new Date(NOW - 60_000).toISOString() }],
+    })
+    expect(await botChargeMomo(m.deps, WA_BILL)).toEqual({ ok: true, reference: "e".repeat(32), status: "pending", promptedPhone: null })
+    expect(m.charges).toHaveLength(0)
+  })
+
+  it("NOT_PAYABLE wins over NEEDS_VERIFY (another buyer's order never learns the switch)", async () => {
+    const m = make({ bills: [waBill({ buyer_phone: "233551112222" })], otpRequired: true })
+    expect(await botChargeMomo(m.deps, WA_BILL)).toMatchObject({ ok: false, code: "NOT_PAYABLE" })
+    expect(m.deps.payerOtp.required).not.toHaveBeenCalled()
+  })
+
+  const uzo: [string, BotChargeInput, { bills?: Row[] }][] = [
+    ["ussd", MAIN_BILL, { bills: [billRow()] }],
+    ["ussd_shop", SHOP_BUNDLE, {}],
+  ]
+  for (const [name, input, world] of uzo) {
+    it(`Uzo surface ${name} never gets NEEDS_VERIFY and never consults the switch (switch on, nothing verified)`, async () => {
+      const m = make({ ...world, otpRequired: true, verified: [] })
+      const r = await botChargeMomo(m.deps, input)
+      expect(r.ok).toBe(true)
+      expect(m.deps.payerOtp.required).not.toHaveBeenCalled()
+      expect(m.deps.payerOtp.verified).not.toHaveBeenCalled()
+    })
+    it(`Uzo surface ${name}: a failing switch read is irrelevant`, async () => {
+      const m = make({ ...world, otpRequired: "throw", verified: "throw" })
+      expect((await botChargeMomo(m.deps, input)).ok).toBe(true)
+    })
+  }
+})

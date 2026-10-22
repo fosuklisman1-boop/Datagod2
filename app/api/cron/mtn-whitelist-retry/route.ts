@@ -4,11 +4,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { backgroundCron } from "@/lib/cron-background"
 import { WHITELIST_REGISTRY, unionProviders } from "@/lib/mtn-providers/provider-whitelist"
 import { releaseWhitelistHeldOrders } from "@/lib/mtn-hold"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
+
+// Answer the scheduler at once (cron-job.org times out at 30s); the retry loop
+// over up to 500 numbers runs after the response.
+export const GET = backgroundCron("mtn-whitelist-retry", (request) => runWhitelistRetry(request))
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,7 +23,7 @@ const supabase = createClient(
 const MAX_RETRIES = 3 // 72h total (3 × 24h)
 const RETRY_INTERVAL_H = 24
 
-export async function GET(request: NextRequest) {
+async function runWhitelistRetry(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse!
 

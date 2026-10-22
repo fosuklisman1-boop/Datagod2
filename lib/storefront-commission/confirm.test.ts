@@ -296,6 +296,39 @@ describe("confirmStorefrontOrder", () => {
   })
 })
 
+describe("decision from the flip's own row state (race with an expiry between the read and the flip)", () => {
+  /** The runtime flip returns { changed, status } read from the update itself; mirror that on the fake. */
+  const withRowState = (m: ReturnType<typeof make>, before?: (row: Row) => void) => {
+    const real = m.d.markPaid
+    m.d.markPaid = async (t, id, patch) => {
+      const row = m.tables[t].find(r => r.id === id)!
+      before?.(row)
+      const n = (await real(t, id, patch)) as number
+      return { changed: n, status: n ? row.status : null }
+    }
+  }
+
+  it("storefront: no race => identical to today (one share, one dispatch, no alert)", async () => {
+    const m = make()
+    withRowState(m)
+    expect(await confirmStorefrontOrder(m.d, "hubtel_bill_orders", "b1", PAY)).toEqual({ outcome: "confirmed", status: "processing" })
+    expect(m.profits).toHaveLength(1)
+    expect(m.purchases).toHaveLength(1)
+    expect(m.alerts).toEqual([])
+  })
+
+  it("storefront: the order is failed between the read and the flip => no share, no send, urgent refund alert", async () => {
+    const m = make()
+    withRowState(m, row => { row.status = "failed" })
+    expect(await confirmStorefrontOrder(m.d, "hubtel_bill_orders", "b1", PAY)).toEqual({ outcome: "confirmed", status: "failed" })
+    expect(m.tables.hubtel_bill_orders[0]).toMatchObject({ payment_status: "paid", status: "failed" })
+    expect(m.profits).toEqual([])
+    expect(m.purchases).toHaveLength(0)
+    expect(m.alerts).toEqual([expect.objectContaining({ urgent: true })])
+    expect(m.alerts[0].m).toContain("while its status is failed. Not sent; refund it.")
+  })
+})
+
 describe("recovery of a paid order that was never sent (I1)", () => {
   /** The flip commits but the caller sees an error (timeout) — or dies right after it. */
   const crashAfterFlip = (m: ReturnType<typeof make>) => {

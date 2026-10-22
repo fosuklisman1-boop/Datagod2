@@ -2,6 +2,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { backgroundCron } from "@/lib/cron-background"
+
+// Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
+export const GET = backgroundCron("sync-digiwapy", (request) => runDigiwapySync(request))
 import { fetchDigiWapyTransactionStatus, isDigiWapyConfigured } from "@/lib/digiwapy-provider"
 import { sendPushToUser } from "@/lib/push-service"
 
@@ -16,7 +20,7 @@ function extractDgwRef(notes: string | null): string | null {
   return match ? match[1] : null
 }
 
-export async function GET(request: NextRequest) {
+async function runDigiwapySync(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse!
 

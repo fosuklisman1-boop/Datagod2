@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { syncWindowStartIso } from "@/lib/status-sync-window"
 import { sendPushToUser } from "@/lib/push-service"
 import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
 
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
             .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type, recipient_phone, size_gb")
             .eq("provider", "bundleportal")
             .in("status", ["pending", "processing"])
+            .gte("created_at", syncWindowStartIso())
             .order("created_at", { ascending: true })
             .limit(BATCH_SIZE)
 

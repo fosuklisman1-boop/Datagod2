@@ -2,13 +2,12 @@ import { createClient } from "@supabase/supabase-js"
 import { UzoRequest, UzoResponse } from "./types"
 import { getSession, setSession, deleteSession, isRedisConfigured } from "./session"
 import { cont, end, mainMenu } from "./menus"
-import { getUssdServiceVisibility } from "../ussd-service-visibility"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-import { handleMain } from "./handlers/main"
+import { handleMain, mainMenuVisibility } from "./handlers/main"
 import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleConfirm, handlePaymentMethod, handleSubmitOtp } from "./handlers/bundles"
 import { handleStatus } from "./handlers/status"
 import { handleAfaEnterName, handleAfaEnterCard, handleAfaEnterLocation, handleAfaEnterRegion, handleAfaConfirm } from "./handlers/afa"
@@ -22,8 +21,23 @@ import {
   handleRcCheckConfirm, handleRcCheckPaymentMethod,
 } from "./handlers/results-checker"
 import { handleOtpSubmit } from "./handlers/otp"
+import { handleNetworkPlansStep } from "./bots/network-plans"
+import { handlePayBillsStep } from "./bots/pay-bills"
+import { botOtpCandidate, handleBotOtpRedial } from "./bots/otp-redial"
 
 const TERMINATE_THRESHOLD = 29
+
+/** The data whitelist check op=1 runs (whitelist ON and no completed purchase => blocked). */
+async function dataBlockedFor(msisdn: string): Promise<boolean> {
+  const localPhone = msisdn.startsWith('+233') ? '0' + msisdn.slice(4)
+    : msisdn.startsWith('233') ? '0' + msisdn.slice(3)
+    : msisdn
+  const [{ data: whitelistSetting }, { data: hasPurchasedData }] = await Promise.all([
+    supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
+    supabase.rpc("has_completed_purchase", { local_phone: localPhone, msisdn }),
+  ])
+  return whitelistSetting?.value?.enabled === true && hasPurchasedData !== true
+}
 
 export async function router(req: UzoRequest): Promise<UzoResponse> {
   const { sessionID, ussdServiceOp, ussdString, msisdn } = req
@@ -52,6 +66,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       { data: pendingCheck },
       { data: whitelistSetting },
       { data: hasPurchasedData },
+      botPointer,
     ] = await Promise.all([
       supabase.from("ussd_orders").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").gte("created_at", cutoff)
@@ -68,6 +83,8 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
       // Single function checks all order tables + manual whitelist in one DB round-trip
       supabase.rpc("has_completed_purchase", { local_phone: localPhone, msisdn }),
+      // Commission-cashback bot charge waiting for its OTP (Redis pointer by dialing phone; never throws).
+      botOtpCandidate(msisdn),
     ])
 
     const hasPurchased = hasPurchasedData === true
@@ -78,32 +95,31 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       pendingAirtime ? { id: pendingAirtime.id, created_at: pendingAirtime.created_at, table: 'airtime_orders' as const } : null,
       pendingRc ? { id: pendingRc.id, created_at: pendingRc.created_at, table: 'results_checker_orders' as const } : null,
       pendingCheck ? { id: pendingCheck.id, created_at: pendingCheck.created_at, table: 'results_check_requests' as const } : null,
-    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' }>
+      botPointer ? { id: '', created_at: botPointer.created_at, table: undefined, bot: true } : null,
+    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'; bot?: true }>
 
     if (candidates.length) {
       candidates.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       const top = candidates[0]
-      await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, pendingOrderId: top.id, pendingOrderTable: top.table })
+      if (top.bot) {
+        await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, botOtp: true })
+      } else {
+        await setSession(sessionID, { step: 'SUBMIT_OTP', dialingPhone: msisdn, pendingOrderId: top.id, pendingOrderTable: top.table })
+      }
       return cont(
         `Pending payment.\nEnter the OTP sent\nto your number to\ncomplete payment:\n\n0. Cancel`
       )
     }
 
     await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn, dataBlocked })
-    const visibility = await getUssdServiceVisibility(supabase)
-    return cont(mainMenu({
-      data: !dataBlocked && visibility.data,
-      afa: visibility.afa,
-      airtime: visibility.airtime,
-      resultsChecker: visibility.resultsChecker,
-    }))
+    return cont(mainMenu(await mainMenuVisibility(dataBlocked, true)))
   }
 
   // Continuing request — route by current session step
   const session = await getSession(sessionID)
 
   if (!session) {
-    // Session expired or missing — restart (no whitelist re-check; show full menu, user re-dials).
+    // Session expired or missing — restart at the main menu (the data whitelist is re-checked below).
     // Diagnostic log: distinguishes "Redis not configured at all" from a genuine
     // TTL expiry or a transient Redis error (logged separately, by this same
     // sessionID, in session.ts's getSession/setSession catch blocks).
@@ -111,21 +127,17 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       "[USSD-SESSION] No session found for", sessionID,
       "op:", ussdServiceOp, "redisConfigured:", isRedisConfigured()
     )
-    await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-    const visibility = await getUssdServiceVisibility(supabase)
-    return cont('Time limit exceeded.\n\n' + mainMenu({
-      data: visibility.data,
-      afa: visibility.afa,
-      airtime: visibility.airtime,
-      resultsChecker: visibility.resultsChecker,
-    }))
+    // The whitelist state was lost with the session: re-check it, as op=1 does (Browse Services and Network Plans).
+    const dataBlocked = await dataBlockedFor(msisdn)
+    await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn, dataBlocked })
+    return cont('Time limit exceeded.\n\n' + mainMenu(await mainMenuVisibility(dataBlocked, true)))
   }
 
   const input = ussdString ?? ''
 
   switch (session.step) {
     case 'MAIN':
-      return handleMain(input, sessionID, session)
+      return handleMain(input, sessionID, session, 'ussd')
 
     case 'SELECT_NETWORK':
       return handleSelectNetwork(input, sessionID, session)
@@ -143,6 +155,8 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       return handlePaymentMethod(input, sessionID, session)
 
     case 'SUBMIT_OTP':
+      // Bot charge (Redis pointer): the pointer is looked up again by the dialing phone; a retry keeps this step.
+      if (session.botOtp) return handleBotOtpRedial(input, session.dialingPhone ?? msisdn)
       if (
         session.pendingOrderTable === 'airtime_orders' ||
         session.pendingOrderTable === 'results_checker_orders' ||
@@ -155,20 +169,21 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     case 'CHECK_STATUS':
       return handleStatus(input, sessionID, session)
 
+    // 'ussd' (required) turns on commission-cashback pricing; the WhatsApp bot passes 'whatsapp'.
     case 'AIRTIME_ENTER_RECIPIENT':
-      return handleAirtimeEnterRecipient(input, sessionID, session)
+      return handleAirtimeEnterRecipient(input, sessionID, session, 'ussd')
 
     case 'AIRTIME_SELECT_NETWORK':
-      return handleAirtimeSelectNetwork(input, sessionID, session)
+      return handleAirtimeSelectNetwork(input, sessionID, session, 'ussd')
 
     case 'AIRTIME_ENTER_AMOUNT':
-      return handleAirtimeEnterAmount(input, sessionID, session)
+      return handleAirtimeEnterAmount(input, sessionID, session, 'ussd')
 
     case 'AIRTIME_CONFIRM':
-      return handleAirtimeConfirm(input, sessionID, session)
+      return handleAirtimeConfirm(input, sessionID, session, 'ussd')
 
     case 'AIRTIME_PAYMENT_METHOD':
-      return handleAirtimePaymentMethod(input, sessionID, session)
+      return handleAirtimePaymentMethod(input, sessionID, session, 'ussd')
 
     case 'RC_MENU':
       return handleRcMenu(input, sessionID, session)
@@ -236,15 +251,35 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
     case 'AFA_CONFIRM_AFA':
       return handleAfaConfirm(input, sessionID, session)
 
+    // Network Plans (commission cashback bots): main menu => no shop.
+    case 'NP_NETWORK':
+    case 'NP_CATEGORY':
+    case 'NP_PLAN':
+    case 'NP_RECIPIENT':
+    case 'NP_CONFIRM':
+      return handleNetworkPlansStep(
+        { surface: 'ussd', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn, shopId: null },
+        input, session
+      )
+
+    // Pay Bills (commission cashback bots): main menu => no shop.
+    case 'PB_BILLER':
+    case 'PB_ECG_MODE':
+    case 'PB_ACCOUNT':
+    case 'PB_METERS':
+    case 'PB_METER_TYPE':
+    case 'PB_CONSENT':
+    case 'PB_AMOUNT':
+    case 'PB_CONFIRM':
+      return handlePayBillsStep(
+        { surface: 'ussd', sessionId: sessionID, dialingPhone: session.dialingPhone ?? msisdn, shopId: null },
+        input, session
+      )
+
     default: {
-      await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn })
-      const visibility = await getUssdServiceVisibility(supabase)
-      return cont(mainMenu({
-        data: visibility.data,
-        afa: visibility.afa,
-        airtime: visibility.airtime,
-        resultsChecker: visibility.resultsChecker,
-      }))
+      const dataBlocked = session.dataBlocked === true
+      await setSession(sessionID, { step: 'MAIN', dialingPhone: msisdn, dataBlocked })
+      return cont(mainMenu(await mainMenuVisibility(dataBlocked, true)))
     }
   }
 }

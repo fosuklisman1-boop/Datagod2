@@ -376,3 +376,141 @@ Follow-ups from the final review (2026-10-15), deliberately not fixed in Plan 2:
   - No test of the orphan race itself (tx inserted after the orphan check).
   - No `processFulfillment` → `airtimeOrderPostPayment` test showing a shop-mode cashback airtime share is credited exactly once and main mode credits nothing; coverage stops at the inserted row.
   - The 0125 constraint name can only be checked against prod. Use the pre-apply check in step 1; the migration's assertion block now fails loudly on a mismatch.
+
+## Commission Cashback — Bots (Plan 3: main + shop USSD)
+
+The Uzo main USSD (`/api/ussd`) and shop USSD (`/api/ussd-shop`) gain **Network Plans** and **Pay Bills**, plus cashback-priced airtime. Network Plans and Pay Bills are paid by **MoMo only**: a Paystack prompt to the dialing number. The shared bot engine creates the orders (`channel='bots'`, `bot_surface` `ussd` / `ussd_shop`), and Paystack's `charge.success` confirms them through the same engine path as storefront orders. Plan `docs/superpowers/plans/2026-10-20-cashback-bots-3-uzo-ussd.md`. Ships DARK.
+
+0. **The deploy is dark by default.** In prod the shared cashback switches are already ON for Plan 2 (Hubtel USSD): master, `surfaces.bots` and every `botGroups` value are `true`. So the Uzo side has its own three **opt-in switches**, all **OFF when their key is missing**:
+   - `networkPlans` (Network Plans menu item);
+   - `payBills` (Pay Bills menu item);
+   - `cashbackAirtime` (cashback pricing on Uzo airtime).
+
+   They live in `ussd_service_visibility` and are switched at `/admin/ussd-shops` ("USSD Menu Services" card). Hubtel USSD never reads them. Pre-deploy check that they are absent or false:
+   ```sql
+   SELECT value->'networkPlans' AS network_plans, value->'payBills' AS pay_bills, value->'cashbackAirtime' AS cashback_airtime
+     FROM admin_settings WHERE key = 'ussd_service_visibility';
+   ```
+   Expect NULL (key absent) or `false` for all three, or no row at all. If any of them is `true`, that item goes live at deploy.
+1. **No migration needed.** `bot_surface` already allows `ussd` / `ussd_shop` (0123), and `airtime_orders.channel` already allows `ussd` / `ussd_shop`.
+2. Deploy. With the three opt-ins off, the main menu, the shop product menu, airtime screens, prices and rows are byte-for-byte unchanged, even with every Bots switch on (tested). WhatsApp is untouched: `mainMenu()` with no arguments and `handleMain` without `"ussd"` never show the new items.
+   - The deploy adds the cron `/api/cron/expire-stale-bot-orders` (every 10 min, `CRON_SECRET`). See step 9.
+   - The deploy also changes two shared paths, for every rail:
+     - A `charge.failed` for a cs_* payment now fails its **bot** order at once (guarded; storefront orders unchanged), and its `wallet_payments` row is marked failed unless it is already `completed` (prod rows also carry Paystack's `ongoing` / `abandoned`).
+     - The commission confirm decides share + dispatch from the paid flip's own row state.
+   - One visible change for every caller, on purpose: when the data whitelist is on, a whitelist-blocked caller who gets "Time limit exceeded" (or an unknown step) now sees the main menu WITHOUT Browse Services, the same as when they first dial. Before, those repaints showed Browse Services to a blocked caller.
+3. **Before going live: set the Paystack bots fee (`botFees.paystack`).** In prod it is 0 for every group. With 0, Paystack's MoMo fee (~1.95%) is not passed to the buyer and comes out of our margin on every Uzo bot order and cashback airtime row.
+   - Set it in Admin > Hubtel Commission > Cashback, in the "Paystack bots (USSD + WhatsApp)" fee set: about 2 per group (bundles, bills, airtime). It is added on top of the price and rounded up.
+   - Check it:
+     ```sql
+     SELECT value->'botFees'->'paystack' AS paystack_bot_fees
+       FROM admin_settings WHERE key = 'commission_cashback_config';
+     ```
+     Expect a non-zero value for each of `airtime`, `bundles` and `bills`.
+   - This fee set does not affect Hubtel USSD, which uses the "Hubtel USSD" fee set.
+4. **Go live** (after step 3), **one switch at a time, testing each before the next** (step 5): at `/admin/ussd-shops` ("USSD Menu Services") turn on **Pay Bills**, test it with a real GHS 1 payment; then **Network Plans**, test; then **Cashback airtime**, test. If a test fails, turn that switch off again.
+   - An item is live only when the shared cashback gate (master AND Bots AND its group: bundles → Network Plans, bills → Pay Bills, airtime → Cashback airtime) AND its Uzo switch are on.
+   - If any config read fails, the items stay hidden and airtime stays on today's pricing (fail closed). Both configs are re-read on every request.
+   - Rates and shares for each group: main USSD pays the buyer `customer` (no shop share); shop USSD pays `storefrontCustomer` to the buyer and `storefrontShop` to the shop.
+   - Network Plans also follows the data whitelist (hidden for a whitelist-blocked caller, like Browse Services). Pay Bills does not.
+5. Test with a test number (your own phone, smallest amounts), on both menus. Include at least one real approved payment per menu, and check the order row, the shop share and the Hubtel ledger row for each:
+   - Main: dial, and check that `5. Network Plans` / `6. Pay Bills` follow `4. Results Checker` (numbering shifts down if an item above is hidden). Shop: enter a test shop code, and check that `4. Network Plans` / `5. Pay Bills` follow `3. Results Checker`.
+   - Network Plans: network → type → cheapest plan → "My number" → `1. Confirm` → approve the MoMo prompt. The order must show channel Bot (USSD / Shop USSD), status completed, and in shop mode the shop share credited once.
+   - Pay Bills: ECG → "This number" (or "Meter number" for an unlinked meter, which asks consent to link it) → GHS 1 → confirm → approve. Check `/admin/utility-bills`.
+   - OTP: if the prompt says an OTP was sent instead, redial. The OTP prompt appears, the code finishes the charge, a wrong code shows "Wrong code. Try again.", and `0` cancels (payment + order failed, guarded). The code is submitted while the USSD session is still open, so verify on a real handset that the MoMo approval prompt arrives after you enter the OTP.
+   - Leave one prompt unapproved. Within about 40 minutes the order must be `failed` with "payment not completed" (payment_status stays `unpaid`) and its `wallet_payments` row `failed`.
+   - Cashback airtime: with **Cashback airtime** ON, the amount prompt reads "Enter airtime amount" and the confirm screen shows `Pay GHS x (was GHS y)`. Turn it OFF and re-dial: the prompt is "Enter amount to pay" again (today's pricing).
+   - Turn **Network Plans** / **Pay Bills** OFF at `/admin/ussd-shops` and re-dial: those items are gone on both Uzo menus, and Hubtel USSD is unchanged.
+6. **Ruling: no OTP switch and no direct-charge switch on USSD.** The dialing number is network-authenticated, so the storefront OTP and direct-charge admin switches do not apply. The MoMo prompt always goes to the dialing number. There is a per-phone cap of 3 charges per hour (shared with the storefront `momodirect_phone` budget), on top of the engine's pending-order caps.
+7. **Refunds.** These rows are Paystack-paid, so `/admin/refunds` offers **Paystack reversal**, or a Moolre payout / manual. The paying MoMo number is recorded (`recordPayerPhone`); prefer it for payouts. A shop share credited at payment is clawed back on refund.
+8. **Paid but not delivered (needs review).** A payment that arrives for an order that is no longer pending (failed by the sweep, by a declined charge, by a cancel, or by a final OTP failure) is recorded paid with status `failed`. This holds even if the order is failed in the instant between the confirm's read and its paid flip: share and dispatch are decided from the flip's own row state. It is never dispatched, no shop share is credited, and admins get an URGENT "refund it" alert. Handle it with the same procedure as Plan 2 step 8 ("Paid bot orders held for review"), using **Paystack reversal** for the refund instead of a Moolre payout.
+9. **Stale unpaid sweep** (`/api/cron/expire-stale-bot-orders`, every 10 min, `lib/bot-commission/stale-sweep.ts`):
+   - It fails `hubtel_bill_orders` / `hubtel_data_orders` rows with `channel='bots'`, `bot_surface IN ('ussd','ussd_shop')` (plus `'whatsapp','whatsapp_shop'` since Plan 4), `status='pending'`, `payment_status='unpaid'` and `created_at` more than 30 min ago, at most 200 per table per run, oldest first.
+   - It uses the guarded bot patch (`status='failed'`, `failure_reason='payment not completed'`) and re-checks every guard on the update, so an order paid in between is never touched. It then marks that order's pending `wallet_payments` rows (`cs_bill` / `cs_bundle`) failed.
+   - It never touches paid rows, Hubtel USSD rows (`bot_surface='hubtel_ussd'`, which have their own expiry) or storefront rows. Since Plan 4 it also covers the WhatsApp bot rows (`whatsapp` / `whatsapp_shop`); see the Plan 4 section, step 1.
+   - A late Paystack payment after the sweep lands in step 8 (needs review), never as a delivery.
+   - A declined charge (Paystack `charge.failed`) fails its bot order right away, without waiting for the sweep.
+   - The response is 500 when any DB step failed (see the log tag `[BOT-STALE-SWEEP]`). Check it manually with `curl -H "Authorization: Bearer $CRON_SECRET" https://<host>/api/cron/expire-stale-bot-orders`.
+10. Rollback, fastest first:
+   - Uzo only: turn **Network Plans**, **Pay Bills** and/or **Cashback airtime** OFF at `/admin/ussd-shops`. This does not touch Hubtel USSD.
+   - Everything (Uzo and Hubtel USSD): turn a "Sell on bots" group or the **Bots** surface OFF.
+   - Code rollback: redeploy the previous build. There is no migration to undo. Unpaid Uzo bot orders left behind by a rollback are no longer swept, so fail them with the step 9 conditions by hand.
+
+Known limits:
+- Back (`0`) from the legacy Data / AFA / Results Checker / Status screens on the **main** menu repaints the main menu WITHOUT the bot items. Those renderers are shared with the WhatsApp bot and were left untouched. The items still work by their digit, since they are numbered last, and they show again on the next full menu (redial, or back from Airtime or a bot flow). The shop menu and main Airtime back paths do show them.
+- Data whitelist (`ussd_data_whitelist_enabled` / `dataBlocked`): **Network Plans** is a data product, so it is hidden for a blocked caller exactly where Browse Services is. A stale session that reaches a Network Plans step anyway gets "Not available right now.". **Pay Bills** is not data and follows only the cashback gate and its visibility switch.
+- An OTP code is submitted to Paystack while the USSD session is still open (kept on purpose, for the "Wrong code" retry). The existing OTP handlers submit after the session closes, with a 3 s delay. Step 5 covers the handset check.
+- Once confirm has called the engine, the session goes back to the menu (all bot fields and tokens dropped), so back-navigation can never create a second order.
+
+Follow-ups (not fixed in Plan 3):
+- **Airtime wallet paid-flip unchecked (pre-existing).** The dealer-wallet path for airtime does not check the result of the order's paid-flip update (Task 3 review, parked).
+- **`cleanupAbandonedPayments`** (`lib/payment-cleanup-service.ts`) is not wired to any cron today. If it is ever wired up, it needs a `cs_*` order-type exclusion: bot and storefront commission payments are owned by the engine and this sweep.
+- **Margin report airtime mapping.** This is unchanged from Plan 2: cashback airtime rows live in `airtime_orders` with channel `ussd` / `ussd_shop`, and `cashback_margin_report` maps airtime only by `shop_id`. So Uzo airtime shows under Dashboard / Storefront, not Bots. Totals are correct.
+- **Plan labels can still be cut.** Long Hubtel plan names are shortened on a word to fit 160 chars, and the price is never cut. Check the list screens against the live catalog after enabling, and shorten the labels if a name loses its meaning.
+- **Stale sweep.** It is new and has no live run yet: watch the first runs' logs. A late payment after the sweep is a needs-review refund (step 8), not a delivery.
+
+## Commission Cashback — Bots (Plan 4: WhatsApp)
+
+The main WhatsApp bot and the WhatsApp shop bot gain **Network Plans** and **Pay Bills** (Ghana Water included, WhatsApp only), plus cashback-priced airtime. Network Plans and Pay Bills are paid by **MoMo only**: the bot always asks `Enter MoMo number to charge:` and charges the number the customer types, never the WhatsApp sender's own number. The shared bot engine creates the orders (`channel='bots'`, `bot_surface` `whatsapp` / `whatsapp_shop`), and Paystack's `charge.success` confirms them through the same engine path as Plan 3. Plan `docs/superpowers/plans/2026-10-21-cashback-bots-4-whatsapp.md`. Ships DARK.
+
+0. **Pre-deploy: confirm the WhatsApp switches are absent or off.** In prod the shared cashback switches (master, `surfaces.bots`, every `botGroups` value) are already ON for Plans 2 and 3, so they cannot keep WhatsApp dark. WhatsApp has its own three opt-in switches in `admin_settings` key `whatsapp_cashback_visibility`, each ON only when stored `=== true` (a missing key, a missing field or a read error all mean off):
+   ```sql
+   SELECT value->'networkPlans'    AS network_plans,
+          value->'payBills'        AS pay_bills,
+          value->'cashbackAirtime' AS cashback_airtime
+     FROM admin_settings WHERE key = 'whatsapp_cashback_visibility';
+   ```
+   Expect no row at all (the normal case before go-live), or NULL / `false` for all three. If any is `true`, that item goes live on both WhatsApp bots at deploy: turn it off on `/admin/whatsapp` first, or deploy knowingly.
+
+   Also count the WhatsApp bot orders still pending + unpaid. The stale sweep (step 1) fails any that are older than 30 minutes on its first run after the deploy:
+   ```sql
+   SELECT 'hubtel_bill_orders' AS t, bot_surface, count(*) FROM hubtel_bill_orders
+    WHERE channel = 'bots' AND bot_surface IN ('whatsapp','whatsapp_shop') AND status = 'pending' AND payment_status = 'unpaid'
+    GROUP BY bot_surface
+   UNION ALL
+   SELECT 'hubtel_data_orders', bot_surface, count(*) FROM hubtel_data_orders
+    WHERE channel = 'bots' AND bot_surface IN ('whatsapp','whatsapp_shop') AND status = 'pending' AND payment_status = 'unpaid'
+    GROUP BY bot_surface;
+   ```
+   Expect no rows (0) while WhatsApp is dark. If there are rows, look at them before deploying: they are unpaid, so failing them moves no money.
+1. **No migration.** `bot_surface` already allows `whatsapp` / `whatsapp_shop` (0123), `airtime_orders.channel` keeps the values the WhatsApp bots already use, and `phone_otp_verifications` already exists.
+   - **Stale sweep: no new cron.** The existing `/api/cron/expire-stale-bot-orders` (every 10 min, `lib/bot-commission/stale-sweep.ts`, Plan 3 step 9) now also covers `bot_surface` `whatsapp` / `whatsapp_shop`. It fails pending + unpaid WhatsApp NP/PB orders older than 30 minutes with the guarded patch ("payment not completed"), plus their pending `cs_bill` / `cs_bundle` `wallet_payments` rows. It still never touches `hubtel_ussd`, paid rows or storefront rows. 30 minutes is past every WhatsApp window: the SMS code and the OTP pointer last 10 minutes and the replay window is 15. A buyer still on the SMS-code step after the sweep finds the order closed and is never charged. A late Paystack success becomes needs-review (step 9). WhatsApp airtime (`airtime_orders`) is not an engine order and is not swept.
+   - **Where the cron runs (checked on origin/main, 2026-10-21):** still on **Vercel**, in `vercel.json` (`*/10 * * * *`). `lib/cron-migration/jobs.ts` classifies it in batch C (fulfillment and money jobs) for the cron-job.org migration another session is running, but it has not moved yet. If it has moved by deploy time, check it on cron-job.org instead. Either way, the endpoint and `CRON_SECRET` are unchanged.
+2. Deploy. With the three switches off, every WhatsApp message, price and order row is byte-for-byte unchanged on both bots (tested), with ONE intentional live change, shipping with this deploy whatever the switches say:
+   - **Main WhatsApp bot, "Pay via Wallet" with a wallet shortfall** (data bundles, airtime and Results Checker): the bot now asks for a MoMo number (`Wallet balance too low.` + `Enter MoMo number to charge:`) and creates no order, instead of sending a MoMo prompt to the sender's own number. The balance is read live at confirm from the wallet of the chat's account (`session.userId`): the sender's own account, or an OTP-linked account registered on another phone. That is the same account the debit uses, so no pending order row is left behind. An OTP-linked account can still pay data by wallet; airtime and Results Checker sessions on WhatsApp always carry the sender phone's own account, so for them the read is the sender's account. The Uzo USSD path is unchanged.
+   - Also new, invisible until something goes wrong: the shop bot keeps its own Paystack-OTP pointer (`wa-shop-bot-otp:<0X>`, separate from the main bot's `wa-bot-otp:<0X>`; the Uzo `ussd-bot-otp:` keys are unchanged), and the webhook has a no-session OTP fallback (step 7).
+3. **Before going live: set the Paystack bots fee (`botFees.paystack`).** It is **0 in prod as of 2026-10-20**. With 0, Paystack's MoMo fee (~1.95%) comes out of our margin on every WhatsApp bot order and cashback airtime row. Set about 2 per group in Admin > Hubtel Commission > Cashback, fee set "Paystack bots (USSD + WhatsApp)" (shared with Plan 3). Check it with the Plan 3 step 3 query: expect a non-zero `airtime`, `bundles` and `bills`.
+4. **Go live one switch at a time**, on `/admin/whatsapp` ("WhatsApp bot settings" card, next to the inbox; switches **Network Plans**, **Pay Bills**, **Cashback airtime**, each labelled WhatsApp). Each switch covers BOTH WhatsApp bots. The card shows **Live** when the item is really offered, or **Waiting for the cashback Bots switch** when the switch is on but the shared gate (master AND Bots AND that group: bundles → Network Plans, bills → Pay Bills, airtime → Cashback airtime) keeps it hidden. Order, testing each with a **real GHS 1 payment on BOTH bots** (main number and shop number with a test shop code) before the next:
+   1. **Pay Bills**, including **Ghana Water with an email** (the bot asks for the email and validates it like the storefront; a bad email re-prompts), plus one ECG or DStv;
+   2. **Network Plans** (cheapest plan, "My number");
+   3. **Cashback airtime** (the amount prompt reads "Enter airtime amount", the confirm shows `Pay GHS x (was GHS y)`).
+
+   If a test fails, turn that switch off again. Check each order on `/admin/utility-bills` / Standard Bundles: channel Bot (WhatsApp / WhatsApp shop), status completed; on the shop bot, the shop share credited once to the resolved shop (never its parent); on the main bot, no shop share.
+   - What customers see: main bot `5. Network Plans` / `6. Pay Bills` after `4. Results Checker` (numbering shifts if an item above is hidden); the typed keywords "pay bills" / "network plans" on the main menu open them too, only when visible. Shop bot: the items follow `4. Check My Results`. Names show exactly as Hubtel sends them. Network Plans follows the data whitelist like Browse Services / Data Bundle (hidden for a blocked sender; a live block at the shop product menu also hides it for the rest of the session). Pay Bills does not.
+5. **MoMo number checks (the storefront OTP switch).** The typed MoMo number follows the storefront OTP switch (`isStorefrontOtpRequired()`), read strictly (a read error refuses the charge):
+   - **Switch ON:** before any charge the number must have a real SMS verification. If it has none, the bot texts a 6-digit code to the TYPED number (`We sent a 6-digit code by SMS to 0XX...`) and the customer replies with it in the chat; a wrong code re-prompts, `0` cancels (the order is failed, nothing charged). SMS caps: **3 codes per number per hour** (shared with the web OTP flow) plus a short burst cap, and **5 codes per WhatsApp sender per hour**. If the DB attempt counter is down, the code step ends (the order is failed, nothing charged) rather than re-prompting.
+   - **The per-number SMS code quota is shared with the web flows (signup, account link) only for rows that spell the number the same way.** The bot always stores the `0XXXXXXXXX` form. So a WhatsApp sender can use up a number's 3-per-hour quota and block that number's web OTP for the hour. This is bounded by the 5-per-hour per-sender cap, the same exposure the web route already has. Accepted.
+   - **A number verified once stays verified for any sender.** This is the storefront rule, chosen by the user (2026-10-21): a number someone verified on the storefront or another chat is not re-verified.
+   - **Switch OFF:** the typed number is charged as typed.
+   - Either way, for **Network Plans and Pay Bills**: at most **3 MoMo prompts per number per hour** (`momodirect_phone`, shared with storefronts and Plan 3), on top of the engine's unpaid-order caps (≤ 5/h per phone, ≤ 60/h per shop). **Airtime (cashback or legacy) on both WhatsApp bots has NO per-number cap.** Its charge paths (main `handleAirtimePaymentMethod`, shop AIRTIME_CONFIRM) do not use `momodirect_phone` (see Known limits).
+6. **Paystack OTP in chat.** If Paystack answers `send_otp`, the chat moves to the OTP step: the customer replies with the code, a wrong code shows "Wrong code. Try again." and keeps the step, `0` cancels (guarded fail of payment + order). The pointer is keyed to the WhatsApp sender (never the typed number) in that bot's own key space, so only that sender's chat can finish that order, and the main and shop bots never overwrite each other's pending code.
+7. **No-session OTP fallback (webhook).** If the hand-off could not read the pointer back (Redis blip), the chat is left without its OTP step. The webhook then catches a reply of 4-8 digits from a sender with no active bot flow (main bot: no session; shop bot: no session, the closed flow's product menu, or the AI step), checks THAT sender's pointer for that bot only, and sends the code to the same OTP handler. No pointer, or any other message: everything runs exactly as before. On the shop number, a 4-digit shop code typed within 10 minutes of an unfinished `send_otp` is taken as the OTP (rare; the customer re-sends the code after the OTP step ends).
+8. **Refunds.** These rows are Paystack-paid: `/admin/refunds` offers **Paystack reversal**, or a Moolre payout / manual. The paying (typed) MoMo number is recorded on `payment_attempts.payer_phone` (`recordPayerPhone`); prefer it for payouts, not the order's `buyer_phone` (the WhatsApp sender). A shop share credited at payment is clawed back on refund.
+9. **Paid but not delivered (needs review).** Same as Plan 3 step 8: a payment for an order that is no longer pending is recorded paid + `failed`, never dispatched, no shop share, URGENT alert. Handle it with the Plan 2 step 8 procedure ("Paid bot orders held for review"), refunding by **Paystack reversal** to the recorded payer number.
+10. Rollback, fastest first:
+   - WhatsApp only: turn **Network Plans**, **Pay Bills** and/or **Cashback airtime** OFF on `/admin/whatsapp`. Uzo and Hubtel USSD are untouched. The items leave the menus at once and a cashback airtime confirm already on screen gets "Price changed. Please try again." (never re-priced silently). A customer already INSIDE a Network Plans / Pay Bills flow is not stopped by the WhatsApp switch (the flow steps re-check only the shared gate, through the engine) and can finish that one order; to stop those too, use the next line.
+   - All bots (Uzo, Hubtel USSD and WhatsApp): turn a "Sell on bots" group or the **Bots** surface OFF. In-flight flows then get "Not available right now." from the engine.
+   - Code rollback: redeploy the previous build. There is no migration to undo. The wallet-shortfall change (step 2) goes back to charging the sender's number on a shortfall. The stale sweep goes back to Uzo rows only, so fail any unpaid WhatsApp bot orders left behind by hand, using the step 0 conditions plus `created_at < now() - interval '30 minutes'`.
+
+Known limits:
+- The AI's `start_ordering_bot` first menu (the plain `mainMenu()`) omits the new items; they show on the next full menu.
+- AI ordering (`lib/ai-tools.ts`, `lib/whatsapp-bot/shop-ai.ts`) does not offer Network Plans, Pay Bills or cashback airtime; an AI-staged airtime confirm is sold at today's pricing.
+- **Airtime OTP-switch gap.** Cashback airtime keeps the bots' existing airtime charge path: the typed MoMo number is NOT checked against the storefront OTP switch (Network Plans / Pay Bills are). **There is also no per-number MoMo prompt cap on WhatsApp airtime** (cashback or legacy, main or shop): only `botChargeMomo` (Network Plans / Pay Bills) and the web routes apply `momodirect_phone`.
+- **pay_offline wording.** When Paystack answers `pay_offline` the bot still invites an OTP reply (shop bot: "Received an OTP instead? Reply here with the code."; main bot: "If you receive an OTP code, reply here with it."). No OTP pointer exists in that case, so a code sent then is not treated as an OTP (main bot: the AI answers; shop bot: today's menu handling).
+- **The typed number's role sets the legacy fee and wallet eligibility (pre-existing).** On the main bot's legacy MoMo path (airtime / data / RC), entering a MoMo number overwrites the session's `dialingPhone`, so the account registered on the TYPED number (dealer or not) decides the legacy fee and wallet eligibility, not the WhatsApp sender. Cashback prices are not affected.
+- **Free text at the bot OTP step** re-prompts ("Wrong code. Try again.") until `0` or the 10-minute pointer expiry; it never escapes to the AI.
+
+Follow-ups:
+- WhatsApp airtime (main + shop): bring it under the storefront OTP switch AND add the per-number MoMo prompt cap (`momodirect_phone`, 3/h), as Network Plans / Pay Bills have (the airtime gap above).
+- Offer the new items through AI ordering, and add them to the AI `start_ordering_bot` first menu.
+- Margin report: cashback airtime from WhatsApp lives in `airtime_orders`, so it shows under Dashboard / Storefront, not Bots (same as Plans 2 and 3). Totals are correct.

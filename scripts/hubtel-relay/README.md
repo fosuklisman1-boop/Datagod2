@@ -42,6 +42,7 @@ transaction status check. No business logic, no queue. Retries live in Vercel cr
 - `HUBTEL_DISBURSEMENT_ACCOUNT` — the Disbursement (prepaid) account number (required for /balance; without it the route answers 501)
 - `HUBTEL_CS_BASIC_AUTH` — base64 `clientId:secret` for Hubtel Commission Services. Optional; only needed for `mode: relay` (the `/cs/<serviceId>` passthrough to cs.hubtel.com, using `HUBTEL_DISBURSEMENT_ACCOUNT`). Without it `/cs` answers 501. In the default `direct` mode Vercel calls cs.hubtel.com itself.
 - `HUBTEL_BALANCE_BASIC_AUTH` — optional base64 `user:pass`; defaults to `HUBTEL_STATUS_BASIC_AUTH`
+- `POST /refund` (Bearer RELAY_SECRET, body `{orderId, callbackUrl}`) → Hubtel refund API for `HUBTEL_COLLECTION_ACCOUNT`. `HUBTEL_REFUND_BASIC_AUTH` — optional base64 `user:pass`; defaults to `HUBTEL_STATUS_BASIC_AUTH`
 
 Confirm with the Hubtel Retail Systems Engineer that this droplet's IP is whitelisted for trnf.hubtel.com.
 Redeploy: copy `scripts/hubtel-relay/server.ts` and `lib/ussd-hubtel/relay-handler.ts` (same paths), set env, `systemctl restart hubtel-relay`.

@@ -7,11 +7,15 @@ import {
   shopPaymentPhonePrompt, shopInvalidPaymentPhoneMenu, shopConfirmMenu,
   shopPaymentSentMenu, shopOtpMenu, shopInvalidCodeMenu, sortNetworks, PAGE_SIZE,
   shopAirtimeRecipientPrompt, shopAirtimeNetworkMenu, shopAirtimeAmountPrompt, shopAirtimeConfirmMenu,
+  shopAirtimeCashbackConfirmMenu,
   shopRcBoardMenu, shopRcQtyPrompt, shopRcConfirmMenu,
   shopRcCheckBoardMenu, shopRcCheckCandidateTypeMenu, shopRcCheckModeMenu,
   shopRcCheckVoucherPrompt, shopRcCheckIndexPrompt, shopRcCheckYearPrompt,
-  shopRcCheckDobPrompt, shopRcCheckConfirmMenu,
+  shopRcCheckDobPrompt, shopRcCheckConfirmMenu, shopBotMenuDigits,
 } from "./shop-menus"
+import {
+  handleShopBotOtp, handleShopBotStep, isShopBotStep, shopBotMenuItems, shopProductMenuFor, startShopBotFlow,
+} from "./shop-bot-flows"
 import { resolveShopCode, fetchShopNetworks, getCanonicalShopName } from "@/lib/shop-commerce/shop-code"
 import { getShopPref, setShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 import type { WaShopSession } from "./shop-types"
@@ -33,6 +37,12 @@ import {
 } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 import { secureReference } from "@/lib/secure-random"
+import type { StorefrontQuote } from "@/lib/cashback/quote"
+import {
+  airtimeRequote, uzoCashbackAirtimeColumns, UZO_AIRTIME_AMOUNT_RE,
+  waAirtimePromptCashback, waAirtimeQuote, waUsableAirtimeQuote,
+} from "@/lib/ussd/bots/airtime"
+import { botErrorText } from "@/lib/ussd/bots/screen"
 import { isValidVoucherPin, isValidVoucherSerial, isValidIndexNumber, isValidDob, isValidExamYear } from "@/lib/results-check-validation"
 
 // Handles inbound messages that arrived on the dedicated shop WhatsApp number
@@ -137,6 +147,25 @@ async function shopAirtimeFeeRate(
   const rawMarkup = parseFloat((shop as any)?.[`airtime_markup_${airtimeNetworkKey(network)}`] ?? 0) || 0
   const cappedMarkup = Math.max(0, Math.min(rawMarkup, 10 - baseRate))
   return { totalFeeRate: baseRate + cappedMarkup, merchantCommissionRate: cappedMarkup }
+}
+
+// Commission cashback airtime (storefront split: shop: true, rail paystack). Behind the WhatsApp `cashbackAirtime`
+// switch AND the bots airtime gate (lib/ussd/bots/airtime.ts waAirtimeQuote); needs the shop the session resolved at
+// the code step. No shop, switch off or no usable quote => today's markup pricing, unchanged.
+const hasShop = (session: WaShopSession): boolean => typeof session.shopId === 'string' && session.shopId.length > 0
+
+const shopAirtimePromptCashback = (session: WaShopSession, network: string, min: number): Promise<boolean> =>
+  hasShop(session) ? waAirtimePromptCashback(network, min, true) : Promise.resolve(false)
+
+function shopAirtimeConfirmText(session: WaShopSession, shopName: string): string {
+  if (session.airtimeCashbackPay !== undefined) {
+    return shopAirtimeCashbackConfirmMenu(
+      shopName, session.airtimeNetwork!, session.airtimeRecipient!, session.airtimeCashbackPay, session.airtimeAmount!, session.paymentPhone!,
+    )
+  }
+  return shopAirtimeConfirmMenu(
+    shopName, session.airtimeNetwork!, session.airtimeRecipient!, session.airtimeAmount!, session.airtimeToDeliver!, session.paymentPhone!,
+  )
 }
 
 // Shared "we don't recognise this MoMo number's provider" reply — same wording
@@ -253,8 +282,20 @@ function looksLikeShopCodeAttempt(input: string): boolean {
 // null when the input doesn't map to anything recognisable, signalling the
 // caller should escape to AI instead. Deliberately narrow: only steps where a
 // customer might reasonably type a network/size/yes-no word instead of a digit.
-function shopNaturalToDigit(step: WaShopSession['step'], input: string): string | null {
+// `botDigits` (SELECT_PRODUCT only): the digits the visible commission-cashback items took on the product menu
+// (shopBotMenuDigits); "network plans" / "pay bills" map to them only when visible. Absent => exactly today's mapping.
+function shopNaturalToDigit(
+  step: WaShopSession['step'],
+  input: string,
+  botDigits?: { networkPlans?: string; payBills?: string }
+): string | null {
   const lc = input.trim().toLowerCase()
+
+  if (step === 'SELECT_PRODUCT' && botDigits) {
+    const words = lc.replace(/[\s.!]+/g, '')
+    if (botDigits.networkPlans && /^networkplans?$/.test(words)) return botDigits.networkPlans
+    if (botDigits.payBills && /^paybills?$/.test(words)) return botDigits.payBills
+  }
 
   if (step === 'SELECT_NETWORK' || step === 'AIRTIME_SELECT_NETWORK') {
     if (/^mtn$/.test(lc)) return '1'
@@ -299,6 +340,10 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
   // Set only for the "no session, code didn't resolve" branch — nothing was ever
   // created, so there's nothing to persist or delete; the next message retries.
   let skipPersist = false
+  // Set when a commission-cashback bot flow (shop-bot-flows.ts) handled this reply: it already stored the session
+  // (its own steps, the closed SELECT_PRODUCT session, or SUBMIT_OTP for a Paystack send_otp), so nothing is written
+  // after the reply is sent.
+  let flowOwnsSession = false
 
   if (!session) {
     // Returning-customer memory: a bare greeting/empty-ish first message with a
@@ -331,7 +376,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           networks,
           dataBlocked,
         }
-        reply = `Welcome back to *${remembered.shopName}* 👋\n\n${shopProductMenu(remembered.shopName, !dataBlocked)}`
+        reply = `Welcome back to *${remembered.shopName}* 👋\n\n${await shopProductMenuFor(remembered.shopName, session)}`
         matchedReturning = true
       } else {
         await clearShopPref(from)
@@ -382,7 +427,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           networks,
           dataBlocked,
         }
-        reply = shopProductMenu(resolved.shopName, !dataBlocked)
+        reply = await shopProductMenuFor(resolved.shopName, session)
         await setShopPref(from, resolved.shopCodeId)
       }
     }
@@ -426,9 +471,16 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       // validation/normalisation ever runs.
       'RCCHECK_ENTER_INDEX',
     ]
+    // Commission-cashback product-menu items (Network Plans / Pay Bills): resolved once per SELECT_PRODUCT reply, so
+    // the natural mapping, the digit dispatch and the menu text below all agree. Switches off => none, today's menu.
+    const botItems = session.step === 'SELECT_PRODUCT' ? await shopBotMenuItems(session) : undefined
+    const botDigits = botItems ? shopBotMenuDigits(session.dataBlocked !== true, botItems) : undefined
     const isDigitOrZero = /^[0-9]+$/.test(input)
-    if (!isDigitOrZero && !MONEY_STEPS.includes(session.step) && !FREE_TEXT_ENTRY_STEPS.includes(session.step)) {
-      const mapped = shopNaturalToDigit(session.step, input)
+    // Bot-flow steps (NP_* / PB_*) are exempt too: they handle their own free text (a typed MoMo number, an SMS code,
+    // an account, an email...) and map only the obvious replies (lib/whatsapp-bot/shop-bot-flows.ts); free text never
+    // escapes to the AI mid-flow.
+    if (!isDigitOrZero && !MONEY_STEPS.includes(session.step) && !FREE_TEXT_ENTRY_STEPS.includes(session.step) && !isShopBotStep(session.step)) {
+      const mapped = shopNaturalToDigit(session.step, input, botDigits)
       if (mapped !== null) {
         input = mapped
       } else {
@@ -447,6 +499,28 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       // ── SELECT_PRODUCT ──────────────────────────────────────────────────────
       case 'SELECT_PRODUCT': {
         const dataBlocked = session.dataBlocked === true
+        // Today's menu when no cashback item is visible (shopProductMenu with no items is byte-identical).
+        const menu = () => shopProductMenu(shopName, !dataBlocked, botItems)
+
+        // Commission-cashback items: their digits come after the legacy ones, so they never shadow them.
+        if (botDigits?.networkPlans && input === botDigits.networkPlans) {
+          // Data whitelist, re-checked live exactly like Data Bundle's SELECT_NETWORK (the flow re-checks the flag).
+          if (await isDataWhitelistBlocked(from)) {
+            // Remember the block (the session is saved below): this and every later menu hide Data Bundle and Network
+            // Plans, and the digits renumber with the text (the menu shown is the one the next digit is read against).
+            session.dataBlocked = true
+            reply = 'Data bundles not available.\nSign up on our app\nto unlock this service.\n\n' + await shopProductMenuFor(shopName, session)
+            break
+          }
+          reply = await startShopBotFlow('networkPlans', from, session)
+          flowOwnsSession = true
+          break
+        }
+        if (botDigits?.payBills && input === botDigits.payBills) {
+          reply = await startShopBotFlow('payBills', from, session)
+          flowOwnsSession = true
+          break
+        }
 
         if (dataBlocked) {
           // Renumbered menu (no Data option at all): 1=Airtime, 2=Results Checker, 3=Check My Results.
@@ -456,7 +530,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           } else if (input === '2') {
             const boards = await buildRcBoardOptions()
             if (boards.length === 0) {
-              reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName, false)}`
+              reply = `Results Checker unavailable.\n\n${menu()}`
             } else {
               session.step = 'RC_SELECT_BOARD'
               session.rcBoardOptions = boards
@@ -466,7 +540,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             const serviceEnabled = await isResultsCheckServiceEnabled()
             const boards = serviceEnabled ? await buildRcCheckBoardOptions() : []
             if (boards.length === 0) {
-              reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName, false)}`
+              reply = `Results Checker unavailable.\n\n${menu()}`
             } else {
               session.step = 'RCCHECK_SELECT_BOARD'
               session.rcBoardOptions = boards
@@ -476,7 +550,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             deleteAfter = true
             reply = 'Goodbye.'
           } else {
-            reply = shopProductMenu(shopName, false)
+            reply = menu()
           }
           break
         }
@@ -484,7 +558,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         if (input === '1') {
           const networks = session.networks ?? []
           if (networks.length === 0) {
-            reply = `No data bundles available for this shop.\n\n${shopProductMenu(shopName)}`
+            reply = `No data bundles available for this shop.\n\n${menu()}`
           } else {
             session.step = 'SELECT_NETWORK'
             reply = shopNetworkMenu(shopName, networks)
@@ -495,7 +569,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         } else if (input === '3') {
           const boards = await buildRcBoardOptions()
           if (boards.length === 0) {
-            reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName)}`
+            reply = `Results Checker unavailable.\n\n${menu()}`
           } else {
             session.step = 'RC_SELECT_BOARD'
             session.rcBoardOptions = boards
@@ -505,7 +579,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           const serviceEnabled = await isResultsCheckServiceEnabled()
           const boards = serviceEnabled ? await buildRcCheckBoardOptions() : []
           if (boards.length === 0) {
-            reply = `Results Checker unavailable.\n\n${shopProductMenu(shopName)}`
+            reply = `Results Checker unavailable.\n\n${menu()}`
           } else {
             session.step = 'RCCHECK_SELECT_BOARD'
             session.rcBoardOptions = boards
@@ -515,7 +589,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           deleteAfter = true
           reply = 'Goodbye.'
         } else {
-          reply = shopProductMenu(shopName)
+          reply = menu()
         }
         break
       }
@@ -525,7 +599,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const networks = sortNetworks(session.networks ?? [])
         if (input === '0') {
           session.step = 'SELECT_PRODUCT'
-          reply = shopProductMenu(shopName, !(session.dataBlocked === true))
+          reply = await shopProductMenuFor(shopName, session)
           break
         }
         const idx = parseInt(input, 10) - 1
@@ -802,7 +876,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       case 'AIRTIME_ENTER_RECIPIENT': {
         if (input === '0') {
           session.step = 'SELECT_PRODUCT'
-          reply = shopProductMenu(shopName, !(session.dataBlocked === true))
+          reply = await shopProductMenuFor(shopName, session)
           break
         }
 
@@ -829,7 +903,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         session.step = 'AIRTIME_ENTER_AMOUNT'
         session.airtimeRecipient = local
         session.airtimeNetwork = network
-        reply = shopAirtimeAmountPrompt(network, min, max)
+        reply = shopAirtimeAmountPrompt(network, min, max, await shopAirtimePromptCashback(session, network, min))
         break
       }
 
@@ -856,7 +930,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const { min, max } = await getAirtimeLimits()
         session.step = 'AIRTIME_ENTER_AMOUNT'
         session.airtimeNetwork = network
-        reply = shopAirtimeAmountPrompt(network, min, max)
+        reply = shopAirtimeAmountPrompt(network, min, max, await shopAirtimePromptCashback(session, network, min))
         break
       }
 
@@ -872,10 +946,30 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const amount = parseFloat(input)
         const { min, max } = await getAirtimeLimits()
         if (isNaN(amount) || amount < min || amount > max) {
-          reply = `Enter a valid amount.\n${shopAirtimeAmountPrompt(network, min, max)}`
+          reply = `Enter a valid amount.\n${shopAirtimeAmountPrompt(network, min, max, await shopAirtimePromptCashback(session, network, min))}`
           break
         }
 
+        // Commission cashback (storefront split). Applied => the typed amount is the face delivered and the shop
+        // earns its cashback share (no markup).
+        const cb = hasShop(session) ? await waUsableAirtimeQuote(network, amount, true) : null
+        if (cb) {
+          // The face is delivered as typed: at most 2 decimals, digits only (today's path keeps its parse).
+          if (!UZO_AIRTIME_AMOUNT_RE.test(input)) {
+            reply = `Enter a valid amount.\n${shopAirtimeAmountPrompt(network, min, max, true)}`
+            break
+          }
+          session.step = 'AIRTIME_ENTER_PAYMENT_PHONE'
+          session.airtimeAmount = amount
+          session.airtimeFee = 0
+          session.airtimeToDeliver = amount
+          session.airtimeMerchantCommission = cb.shopShare
+          session.airtimeCashbackPay = cb.payAmount
+          reply = shopPaymentPhonePrompt()
+          break
+        }
+
+        // Not applied: today's shop markup pricing, unchanged.
         const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
         const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
         const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
@@ -885,6 +979,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         session.airtimeFee = fee
         session.airtimeToDeliver = toDeliver
         session.airtimeMerchantCommission = commission
+        delete session.airtimeCashbackPay
         reply = shopPaymentPhonePrompt()
         break
       }
@@ -912,14 +1007,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         session.step = 'AIRTIME_CONFIRM'
         session.paymentPhone = local
         session.paystackProvider = paystackProvider
-        reply = shopAirtimeConfirmMenu(
-          shopName,
-          session.airtimeNetwork!,
-          session.airtimeRecipient!,
-          session.airtimeAmount!,
-          session.airtimeToDeliver!,
-          local
-        )
+        reply = shopAirtimeConfirmText(session, shopName)
         break
       }
 
@@ -931,14 +1019,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
         if (input !== '1') {
-          reply = shopAirtimeConfirmMenu(
-            shopName,
-            session.airtimeNetwork!,
-            session.airtimeRecipient!,
-            session.airtimeAmount!,
-            session.airtimeToDeliver!,
-            session.paymentPhone!
-          )
+          reply = shopAirtimeConfirmText(session, shopName)
           break
         }
 
@@ -966,27 +1047,74 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
 
-        const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
-        const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
-        const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
+        // Cashback re-quote (the shop was re-checked open above), only for a session staged WITH a cashback price:
+        // the live quote must still be usable at the same price, otherwise no order, no charge. A session staged with
+        // today's pricing (incl. AI-staged) is sold at today's pricing. No shop => never cashback (fail closed).
+        let cb: StorefrontQuote | null = null
+        // A cashback-priced session that lost its shop can be neither re-quoted nor sold at the legacy price it was
+        // never shown: refuse (no order, no charge).
+        if (session.airtimeCashbackPay !== undefined && !hasShop(session)) {
+          deleteAfter = true
+          reply = botErrorText(409)
+          break
+        }
+        if (hasShop(session) && session.airtimeCashbackPay !== undefined) {
+          const rq = airtimeRequote(session.airtimeCashbackPay, await waAirtimeQuote(network, amount, true), amount)
+          if (rq.kind === 'changed') {
+            deleteAfter = true
+            reply = botErrorText(409)
+            break
+          }
+          if (rq.kind === 'cashback') cb = rq.quote
+        }
 
         const referenceCode = secureReference("AT", 2, 3)
-        const customerEmail = await resolveEmail(from).catch(() => null)
+        let orderResult: Awaited<ReturnType<typeof createShopAirtimeOrder>>
+        let customerEmail: string | null
+        if (cb) {
+          customerEmail = await resolveEmail(from).catch(() => null)
+          // Applied: face delivered, total_paid = payAmount, fee_amount 0 (the Paystack fee lives in
+          // payment_fee_amount only), merchant_commission = the shop's cashback share (credited once to shop_id by
+          // markAirtimeOrderPaid after payment), no markup.
+          orderResult = await createShopAirtimeOrder({
+            referenceCode,
+            network,
+            beneficiaryPhone: session.airtimeRecipient!,
+            airtimeAmount: amount,
+            feeAmount: 0,
+            totalPaid: cb.payAmount,
+            shopId: session.shopId!,
+            merchantCommission: cb.shopShare,
+            dialingPhone: from,
+            channel: 'whatsapp_shop',
+            customerName: 'WhatsApp Customer',
+            customerEmail: customerEmail ?? null,
+            cashbackColumns: uzoCashbackAirtimeColumns(cb, true),
+          })
+        } else {
+          const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
+          const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
+          const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
 
-        const orderResult = await createShopAirtimeOrder({
-          referenceCode,
-          network,
-          beneficiaryPhone: session.airtimeRecipient!,
-          airtimeAmount: toDeliver,
-          feeAmount: fee,
-          totalPaid: amount,
-          shopId: session.shopId!,
-          merchantCommission: commission,
-          dialingPhone: from,
-          channel: 'whatsapp_shop',
-          customerName: 'WhatsApp Customer',
-          customerEmail: customerEmail ?? null,
-        })
+          customerEmail = await resolveEmail(from).catch(() => null)
+
+          orderResult = await createShopAirtimeOrder({
+            referenceCode,
+            network,
+            beneficiaryPhone: session.airtimeRecipient!,
+            airtimeAmount: toDeliver,
+            feeAmount: fee,
+            totalPaid: amount,
+            shopId: session.shopId!,
+            merchantCommission: commission,
+            dialingPhone: from,
+            channel: 'whatsapp_shop',
+            customerName: 'WhatsApp Customer',
+            customerEmail: customerEmail ?? null,
+          })
+        }
+        // What the payer is charged = the row's total_paid.
+        const price = cb ? cb.payAmount : amount
 
         if ('error' in orderResult) {
           console.error("[WA-SHOP-AIRTIME-CONFIRM] Failed to create order:", orderResult.error)
@@ -1001,7 +1129,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         try {
           const { status } = await chargeMobileMoney({
             email,
-            amount,
+            amount: price,
             phone: session.paymentPhone!,
             provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
             reference: orderId,
@@ -1038,7 +1166,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const options = session.rcBoardOptions ?? []
         if (input === '0') {
           session.step = 'SELECT_PRODUCT'
-          reply = shopProductMenu(shopName, !(session.dataBlocked === true))
+          reply = await shopProductMenuFor(shopName, session)
           break
         }
 
@@ -1233,7 +1361,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const options = session.rcBoardOptions ?? []
         if (input === '0') {
           session.step = 'SELECT_PRODUCT'
-          reply = shopProductMenu(shopName, !(session.dataBlocked === true))
+          reply = await shopProductMenuFor(shopName, session)
           break
         }
 
@@ -1557,6 +1685,14 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
 
       // ── SUBMIT_OTP ───────────────────────────────────────────────────────────
       case 'SUBMIT_OTP': {
+        // Commission-cashback bot charge (Paystack send_otp): the sender's wa-shop-bot-otp pointer is looked up again
+        // (that lookup is the auth); a wrong code keeps this step, ok / "0" cancel / final failure end it.
+        if (session.botOtp) {
+          const r = await handleShopBotOtp(from, input)
+          reply = r.message
+          if (r.ussdServiceOp === 17) deleteAfter = true
+          break
+        }
         // Every CONFIRM branch (Data/Airtime/RC) sets pendingOrderTable alongside
         // pendingOrderId before transitioning here — the fallback only guards
         // against a theoretically corrupted/older session.
@@ -1593,6 +1729,17 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         break
       }
 
+      // ── Network Plans / Pay Bills (commission cashback; shared flows via shop-bot-flows.ts) ──
+      case 'NP_NETWORK': case 'NP_CATEGORY': case 'NP_PLAN': case 'NP_RECIPIENT': case 'NP_PAY_PHONE':
+      case 'NP_CONFIRM': case 'NP_PAY_VERIFY':
+      case 'PB_BILLER': case 'PB_ECG_MODE': case 'PB_ACCOUNT': case 'PB_EMAIL': case 'PB_METERS': case 'PB_METER_TYPE':
+      case 'PB_CONSENT': case 'PB_AMOUNT': case 'PB_PAY_PHONE': case 'PB_CONFIRM': case 'PB_PAY_VERIFY': {
+        // The shop the session resolved is re-checked right before the order (closed => SHOP_CLOSED_REPLY).
+        reply = await handleShopBotStep(from, input, session, { isShopStillOpen, closedText: SHOP_CLOSED_REPLY })
+        flowOwnsSession = true
+        break
+      }
+
       default: {
         // Unknown/unreached step (e.g. a corrupted session) — reset rather than
         // get stuck.
@@ -1605,7 +1752,7 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
   const wamid = await sendWhatsAppText(from, reply, process.env.WHATSAPP_SHOP_PHONE_NUMBER_ID)
   await logMessage(from, "outbound", reply, wamid)
 
-  if (skipPersist) return reply
+  if (skipPersist || flowOwnsSession) return reply
   if (deleteAfter) {
     // Every terminal exit in this file (cancellation, a completed payment
     // handoff, a one-shot OTP submission, a stale-session failure, ...) used

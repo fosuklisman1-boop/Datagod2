@@ -98,6 +98,141 @@ describe("loadRefundableOrders: bot commission orders", () => {
     expect(orderEligibility(o, NOW)).toEqual({ eligible: true }) // never sent, > 60 s
   })
 
+  describe("Hubtel payment facts (hubtel_transactions)", () => {
+    const ussdData = (o: Record<string, unknown> = {}) => ({
+      id: "d1", shop_id: null, user_id: null, channel: "bots", bot_surface: "hubtel_ussd", network: "MTN", bundle_display: "1GB",
+      beneficiary_phone: "233249999999", amount: 10, paid_amount: 10.03, status: "pending", payment_status: "paid",
+      hubtel_client_reference: null, notes: null, buyer_phone: "233241112222", payment_reference: "HUBTEL-CHK-1",
+      created_at: ago(600_000), updated_at: ago(600_000), ...o,
+    })
+    const tx = (o: Record<string, unknown> = {}) => ({
+      order_id: "d1", hubtel_order_id: "HO-1", amount_paid: "10.330", amount_after_charges: "10.030", paid_at: "2026-10-20T11:00:00Z", ...o,
+    })
+    const load = async (rows: Record<string, unknown[]>, order = ussdData(), calls: unknown[][] = []) =>
+      (await loadRefundableOrders(fakeDb({ hubtel_data_orders: [order], ...rows }, calls), [{ table: "hubtel_data_orders", id: order.id as string }]))[0]
+
+    it("one paid transaction: payment.hubtel populated, amountPaid a number, gateway hubtel", async () => {
+      const calls: unknown[][] = []
+      const o = await load({ hubtel_transactions: [tx()] }, ussdData(), calls)
+      expect(o.payment.gateway).toBe("hubtel")
+      expect(o.payment.hubtel).toEqual({ orderId: "HO-1", amountPaid: 10.33, amountAfterCharges: 10.03, paidAt: "2026-10-20T11:00:00Z", paidRows: 1 })
+      expect(calls).toContainEqual(["hubtel_transactions", "eq", "order_table", "hubtel_data_orders"])
+      expect(calls).toContainEqual(["hubtel_transactions", "not", "paid_at", "is", null])
+      expect(calls).toContainEqual(["hubtel_transactions", "select", "order_id, hubtel_order_id, amount_paid, amount_after_charges, paid_at"])
+    })
+
+    it("amount_after_charges null or non-numeric: amountAfterCharges null (gateway then refuses)", async () => {
+      for (const v of [null, "abc"]) {
+        const o = await load({ hubtel_transactions: [tx({ amount_after_charges: v })] })
+        expect(o.payment.hubtel?.amountAfterCharges, String(v)).toBeNull()
+        expect(o.payment.hubtel?.amountPaid).toBe(10.33)
+      }
+    })
+
+    it("two paid transactions: paidRows is 2", async () => {
+      const o = await load({ hubtel_transactions: [tx(), tx({ hubtel_order_id: "HO-2" })] })
+      expect(o.payment.hubtel?.paidRows).toBe(2)
+    })
+
+    it("unpaid transaction (paid_at null) or no hubtel_order_id or zero amount: no hubtel, gateway stays null", async () => {
+      for (const t of [tx({ paid_at: null }), tx({ hubtel_order_id: null }), tx({ amount_paid: 0 })]) {
+        const o = await load({ hubtel_transactions: [t] })
+        expect(o.payment.hubtel).toBeUndefined()
+        expect(o.payment.gateway).toBeNull()
+      }
+    })
+
+    it("a Paystack-paid row keeps gateway paystack and still carries hubtel", async () => {
+      const o = await load({
+        hubtel_transactions: [tx()],
+        wallet_payments: [{ order_id: "d1", reference: "HUBTEL-CHK-1", amount: 10.03, fee: 0, status: "completed" }],
+      })
+      expect(o.payment.gateway).toBe("paystack")
+      expect(o.payment.hubtel?.orderId).toBe("HO-1")
+    })
+
+    it("non-hubtel_ussd bot row and storefront row never get hubtel", async () => {
+      const wa = await load({ hubtel_transactions: [tx()] }, ussdData({ bot_surface: "whatsapp" }))
+      expect(wa.payment.hubtel).toBeUndefined()
+      expect(wa.payment.gateway).toBeNull()
+      const sf = await load({ hubtel_transactions: [tx()] }, ussdData({ channel: "storefront", bot_surface: null }))
+      expect(sf.payment.hubtel).toBeUndefined()
+    })
+  })
+
+  describe("Hubtel payment facts on Hubtel USSD data orders (ussd_orders / ussd_shop_orders)", () => {
+    const ussdRow = (o: Record<string, unknown> = {}) => ({
+      id: "u1", shop_id: null, dialing_phone: "+233241112222", recipient_phone: "+233249999999", network: "MTN", package_size: "2",
+      amount: 10, order_status: "pending", payment_status: "completed", paystack_reference: null, created_at: ago(600_000), ...o,
+    })
+    const tx = (o: Record<string, unknown> = {}) => ({
+      order_id: "u1", hubtel_order_id: "HO-U1", amount_paid: 10.3, amount_after_charges: 10, paid_at: "2026-10-20T11:00:00Z", ...o,
+    })
+    const load = async (table: "ussd_orders" | "ussd_shop_orders", rows: Record<string, unknown[]>, order = ussdRow(), calls: unknown[][] = []) =>
+      (await loadRefundableOrders(fakeDb({ [table]: [order], ...rows }, calls), [{ table, id: order.id as string }]))[0]
+
+    for (const table of ["ussd_orders", "ussd_shop_orders"] as const) {
+      it(`${table}: one paid Hubtel tx, no Paystack ref => payment.hubtel (net + gross) and gateway hubtel`, async () => {
+        const calls: unknown[][] = []
+        const row = table === "ussd_shop_orders" ? ussdRow({ shop_id: "shopA" }) : ussdRow()
+        const o = await load(table, { hubtel_transactions: [tx()] }, row, calls)
+        expect(o.payment.gateway).toBe("hubtel")
+        expect(o.payment.hubtel).toEqual({ orderId: "HO-U1", amountPaid: 10.3, amountAfterCharges: 10, paidAt: "2026-10-20T11:00:00Z", paidRows: 1 })
+        expect(o.paid).toBe(10)
+        expect(o.gatewayFee).toBe(0)
+        expect(calls).toContainEqual(["hubtel_transactions", "eq", "order_table", table])
+        expect(calls).toContainEqual(["hubtel_transactions", "not", "paid_at", "is", null])
+        expect(calls).toContainEqual(["hubtel_transactions", "in", "order_id", ["u1"]])
+      })
+
+      it(`${table}: a Paystack reference keeps gateway paystack, Hubtel facts still present`, async () => {
+        const o = await load(table, { hubtel_transactions: [tx()] }, ussdRow({ paystack_reference: "PS-1" }))
+        expect(o.payment.gateway).toBe("paystack")
+        expect(o.payment.reference).toBe("PS-1")
+        expect(o.payment.hubtel?.orderId).toBe("HO-U1")
+      })
+
+      it(`${table}: unpaid / zero-amount / no Hubtel order id txs are ignored`, async () => {
+        for (const t of [tx({ paid_at: null }), tx({ hubtel_order_id: null }), tx({ amount_paid: 0 }), tx({ order_id: "someone-else" })]) {
+          const o = await load(table, { hubtel_transactions: [t] })
+          expect(o.payment.hubtel).toBeUndefined()
+          expect(o.payment.gateway).toBeNull()
+        }
+      })
+
+      it(`${table}: two paid txs => paidRows 2`, async () => {
+        const o = await load(table, { hubtel_transactions: [tx(), tx({ hubtel_order_id: "HO-U2" })] })
+        expect(o.payment.hubtel?.paidRows).toBe(2)
+      })
+    }
+
+    it("a wallet-paid USSD order stays wallet (facts attached, gateway untouched)", async () => {
+      const o = await load("ussd_orders", {
+        hubtel_transactions: [tx()],
+        transactions: [{ reference_id: "u1", user_id: "w1", type: "debit", amount: 10 }],
+      })
+      expect(o.payment.gateway).toBe("wallet")
+      expect(o.payment.hubtel?.orderId).toBe("HO-U1")
+    })
+
+    it("other classic tables (shop_orders, orders, api_orders) get no Hubtel facts and never query hubtel_transactions", async () => {
+      const calls: unknown[][] = []
+      const db = fakeDb({
+        shop_orders: [{ id: "u1", shop_id: "shopA", customer_phone: "0249999999", network: "MTN", volume_gb: 2, total_price: 10, order_status: "pending", payment_status: "completed", created_at: ago(600_000) }],
+        orders: [{ id: "u1", user_id: "w1", network: "MTN", size: "2", price: 10, status: "failed", phone_number: "0249999999", created_at: "2026-10-20 10:00:00" }],
+        api_orders: [{ id: "u1", user_id: "w1", network: "MTN", volume_gb: 2, price: 10, status: "failed", recipient_phone: "0249999999", created_at: ago(600_000) }],
+        hubtel_transactions: [tx()],
+      }, calls)
+      const out = await loadRefundableOrders(db, [{ table: "shop_orders", id: "u1" }, { table: "orders", id: "u1" }, { table: "api_orders", id: "u1" }])
+      expect(out).toHaveLength(3)
+      for (const o of out) {
+        expect(o.payment.hubtel, o.table).toBeUndefined()
+        expect(o.payment.gateway, o.table).not.toBe("hubtel")
+      }
+      expect(calls.some((c) => c[0] === "hubtel_transactions")).toBe(false)
+    })
+  })
+
   it("same eligibility rules as storefront: Hubtel ledger live blocks, never-sent waits 60 s", async () => {
     const live = fakeDb({ hubtel_bill_orders: [botBill({ status: "processing" })], hubtel_cs_transactions: [{ ...failedLedger[0], state: "pending" }] })
     const [a] = await loadRefundableOrders(live, [{ table: "hubtel_bill_orders", id: "b1" }])

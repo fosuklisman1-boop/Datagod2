@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { checkLogoInput, storeEmbeddedLogo } from "@/lib/shop-logo-intake"
 
 // Server-side shop management (owner-only writes). Migration 0077 revoked
 // INSERT/UPDATE/DELETE on user_shops + shop_packages from the browser
@@ -122,6 +123,20 @@ export async function POST(request: NextRequest) {
       }
       if (key === "section_divider_style" && value !== null && !(typeof value === "string" && DIVIDER_STYLES.has(value))) {
         return NextResponse.json({ error: "Invalid section_divider_style" }, { status: 400 })
+      }
+      // logo_url: an embedded base64 image is validated and moved into storage; only the
+      // short public URL is saved (see lib/shop-logo-intake.ts). Anything else is kept as sent.
+      if (key === "logo_url") {
+        const logo = checkLogoInput(typeof value === "string" ? value : null)
+        if (logo.kind === "invalid") return NextResponse.json({ error: logo.error }, { status: 400 })
+        if (logo.kind === "image") {
+          const stored = await storeEmbeddedLogo(supabaseAdmin, shopId, logo)
+          if (!stored.ok) return NextResponse.json({ error: stored.error }, { status: 500 })
+          clean.logo_url = stored.url
+        } else {
+          clean.logo_url = logo.kind === "url" ? logo.url : null
+        }
+        continue
       }
       clean[key] = value
     }

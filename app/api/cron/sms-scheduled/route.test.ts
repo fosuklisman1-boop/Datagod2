@@ -72,9 +72,9 @@ describe("GET /api/cron/sms-scheduled", () => {
   })
 })
 
-describe("vercel.json", () => {
-  it("parses and schedules the cron every minute", () => {
-    const cfg = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8"))
+describe("cron schedule", () => {
+  it("is scheduled every minute (now run by cron-job.org; schedule kept in lib/cron-migration/crons.json)", () => {
+    const cfg = JSON.parse(readFileSync(join(process.cwd(), "lib/cron-migration/crons.json"), "utf8"))
     expect(cfg.crons).toContainEqual({ path: "/api/cron/sms-scheduled", schedule: "* * * * *" })
   })
 })

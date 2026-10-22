@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { defaultPhoneOtpCode, issuePhoneOtp } from "@/lib/phone-otp"
 
 export async function POST(request: NextRequest) {
   const rateLimit = await applyRateLimit(
@@ -48,38 +49,28 @@ export async function POST(request: NextRequest) {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    // Per-phone rate limit: max 3 OTPs per phone per hour (prevent SMS bombing a specific number)
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-    const { count } = await supabaseAdmin
-      .from("phone_otp_verifications")
-      .select("*", { count: "exact", head: true })
-      .eq("phone", phone)
-      .gte("created_at", oneHourAgo)
+    // Per-phone rate limit (max 3 OTPs per phone per hour: prevents SMS bombing a specific number), the code row and
+    // the SMS: the shared core (lib/phone-otp), also used in-process by the bots' payer verification.
+    const issued = await issuePhoneOtp(
+      {
+        db: supabaseAdmin,
+        sendCode: (to, code) => sendSMS({ phone: to, message: SMSTemplates.verificationCode(code), type: "phone_otp" }),
+        now: Date.now,
+        randomCode: defaultPhoneOtpCode,
+      },
+      phone,
+      purpose,
+    )
 
-    if (count !== null && count >= 3) {
+    if (!issued.ok && issued.reason === "PHONE_LIMIT") {
       return NextResponse.json(
         { error: "Too many OTP requests for this number. Please try again later." },
         { status: 429 }
       )
     }
-
-    const code = Math.floor(100000 + Math.random() * 900000).toString()
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-
-    const { error: insertError } = await supabaseAdmin
-      .from("phone_otp_verifications")
-      .insert({ phone, code, expires_at: expiresAt, purpose })
-
-    if (insertError) {
-      console.error("[SEND-OTP] Insert error:", insertError)
+    if (!issued.ok) {
       return NextResponse.json({ error: "Failed to generate OTP" }, { status: 500 })
     }
-
-    await sendSMS({
-      phone,
-      message: SMSTemplates.verificationCode(code),
-      type: "phone_otp",
-    })
 
     return NextResponse.json({ sent: true })
   } catch (error: any) {

@@ -18,6 +18,9 @@ export interface RelayConfig {
   /** Basic credential for Commission Services (cs.hubtel.com); required for the /cs passthrough. */
   csBasicAuth?: string
   csBaseUrl?: string
+  /** Basic credential for the refund API; defaults to statusBasicAuth. */
+  refundBasicAuth?: string
+  refundBaseUrl?: string
 }
 
 export interface RelayRequest {
@@ -30,6 +33,7 @@ export interface RelayRequest {
 
 const SAFE_REF = /^[A-Za-z0-9_-]{1,100}$/
 const CS_PATH = /^\/cs\/([a-f0-9]{32})$/
+const REFUND_ORDER_ID = /^[a-f0-9]{32}$/
 const CS_QUERY_KEYS = ["destination", "mobile"] as const
 const CS_QUERY_VALUE = /^[A-Za-z0-9+_-]{1,40}$/
 /** Bounds each upstream call (headers + body), below the Vercel side's own timeout. */
@@ -52,6 +56,7 @@ export function createRelayHandler(cfg: RelayConfig) {
   const callbackUrl = cfg.callbackUrl ?? "https://gs-callback.hubtel.com:9055/callback"
   const statusBase = cfg.statusBaseUrl ?? "https://api-txnstatus.hubtel.com"
   const balanceBase = cfg.balanceBaseUrl ?? "https://trnf.hubtel.com"
+  const refundBase = (cfg.refundBaseUrl ?? "https://refund-api.hubtel.com").replace(/\/$/, "")
   const csBase = (cfg.csBaseUrl ?? "https://cs.hubtel.com/commissionservices").replace(/\/$/, "")
 
   return async function handle(req: RelayRequest): Promise<{ status: number; body: unknown }> {
@@ -108,6 +113,35 @@ export function createRelayHandler(cfg: RelayConfig) {
             Authorization: `Basic ${cfg.balanceBasicAuth ?? cfg.statusBasicAuth}`,
             Accept: "application/json", "Content-Type": "application/json", "Cache-Control": "no-cache",
           },
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        })
+        return { status: 200, body: { ok: res.ok, upstreamStatus: res.status, body: await readBody(res) } }
+      } catch (e: any) {
+        return { status: 200, body: { ok: false, upstreamStatus: 0, body: String(e?.message ?? e) } }
+      }
+    }
+
+    if (req.method === "POST" && req.path === "/refund") {
+      let parsed: any
+      try { parsed = JSON.parse(req.body) } catch { return { status: 400, body: { error: "invalid json" } } }
+      if (typeof parsed?.orderId !== "string" || !REFUND_ORDER_ID.test(parsed.orderId)) {
+        return { status: 400, body: { error: "invalid orderId" } }
+      }
+      let httpsOk = false
+      try {
+        httpsOk = typeof parsed.callbackUrl === "string" && parsed.callbackUrl.length <= 500 &&
+          new URL(parsed.callbackUrl).protocol === "https:"
+      } catch { /* not a URL */ }
+      if (!httpsOk) return { status: 400, body: { error: "invalid callbackUrl" } }
+      const url = `${refundBase}/refund/${encodeURIComponent(cfg.collectionAccount)}/order/${parsed.orderId}`
+      try {
+        const res = await doFetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${cfg.refundBasicAuth ?? cfg.statusBasicAuth}`,
+            Accept: "application/json", "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ callbackUrl: parsed.callbackUrl }),
           signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         })
         return { status: 200, body: { ok: res.ok, upstreamStatus: res.status, body: await readBody(res) } }

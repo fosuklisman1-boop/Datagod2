@@ -8,6 +8,8 @@ import { waRouter } from "@/lib/whatsapp-bot/router"
 import { isResultsCheckAdmin, adminRcRouter, adminComplaintRouter } from "@/lib/whatsapp-bot/admin-router"
 import { sendWhatsAppText, markWaMessageRead, sendWaTyping, downloadWaMedia, formatForWhatsApp } from "@/lib/whatsapp-bot/send"
 import { shopWaRouter, isShopWhatsAppNumber } from "@/lib/whatsapp-bot/shop-router"
+import { waMainBotOtpFallback } from "@/lib/whatsapp-bot/bot-flows"
+import { shopBotOtpFallback } from "@/lib/whatsapp-bot/shop-bot-flows"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { maybeNotifyAdmins, isHumanRequest } from "@/lib/whatsapp-bot/notify-admins"
 import { runAgenticLoop } from "@/lib/ai-agentic-loop"
@@ -308,6 +310,14 @@ async function processInbound(body: unknown): Promise<void> {
   const receivingPhoneNumberId: string | undefined = change?.metadata?.phone_number_id
   if (isShopWhatsAppNumber(receivingPhoneNumberId)) {
     if (msg.id) void sendWaTyping(msg.id, process.env.WHATSAPP_SHOP_PHONE_NUMBER_ID)
+    // Cashback bot charge whose send_otp hand-off could not read its pointer back: with no active flow, an
+    // OTP-shaped reply is checked against THIS sender's shop-bot pointer (null = carry on exactly as before).
+    const otpReply = await shopBotOtpFallback(from, text)
+    if (otpReply !== null) {
+      const wamid = await sendWhatsAppText(from, otpReply, process.env.WHATSAPP_SHOP_PHONE_NUMBER_ID)
+      await logMessage(from, "outbound", otpReply, wamid)
+      return
+    }
     const reply = await shopWaRouter(from, text, msg.id ?? null)
     if (reply === '') {
       const { handleShopWithAI } = await import("@/lib/whatsapp-bot/shop-ai")
@@ -406,7 +416,9 @@ async function processInbound(body: unknown): Promise<void> {
     reply = await waRouter(from, text)
     if (reply === '') reply = await handleWithAI(from, text)
   } else {
-    reply = await handleWithAI(from, text)
+    // Cashback bot charge whose send_otp hand-off could not read its pointer back: an OTP-shaped reply is checked
+    // against THIS sender's main-bot pointer before the AI (null = the AI, exactly as before).
+    reply = (await waMainBotOtpFallback(from, text)) ?? (await handleWithAI(from, text))
   }
 
   if (reply) {

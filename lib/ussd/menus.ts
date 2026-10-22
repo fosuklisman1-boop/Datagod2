@@ -22,23 +22,29 @@ function truncate(msg: string): string {
 // with the same visibility input, so they can never drift out of sync. See
 // lib/ussd/menu-items.ts for why hand-numbering a second switch is unsafe here.
 
-export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker"
+export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker" | "networkPlans" | "payBills"
 
+// The commission-cashback bot items (networkPlans / payBills) stay LAST so the existing digits never move.
 const MAIN_MENU_ITEMS: MenuItemDef<MainMenuKey>[] = [
   { key: "data", label: "Browse Services" },
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
+  { key: "networkPlans", label: "Network Plans" },
+  { key: "payBills", label: "Pay Bills" },
 ]
 
+/** Legacy items default to shown; the bot items default to HIDDEN (only the gated Uzo main USSD turns them on). */
 export function resolveMainMenu(visible: Partial<Record<MainMenuKey, boolean>> = {}) {
-  const full: Record<MainMenuKey, boolean> = { data: true, afa: true, airtime: true, resultsChecker: true, ...visible }
+  const full: Record<MainMenuKey, boolean> = {
+    data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: false, payBills: false, ...visible,
+  }
   return resolveMenuItems(MAIN_MENU_ITEMS, full)
 }
 
 /**
  * Renders the main menu. `visible` defaults to `{}`, which resolves every
- * key to true — so `mainMenu()` with no arguments is IDENTICAL to today's
+ * legacy key to true and the bot keys to false — so `mainMenu()` with no arguments is IDENTICAL to today's
  * full 4-item menu. This is required for backward compatibility: the
  * WhatsApp bot (lib/whatsapp-bot/router.ts, out of scope for this feature)
  * and the AI ordering tool (lib/ai-tools.ts) both call `mainMenu()` with no
@@ -57,8 +63,9 @@ export function airtimeNetworkMenu(): string {
   return 'Select Network:\n1. Yellow Plans\n2. Tele\n3. Instant Blue\n\n0. Back'
 }
 
-export function airtimeAmountPrompt(network: string, min: number, max: number): string {
-  return `${network} Airtime\nEnter amount to pay\n(GHS ${min} - ${max}):\n\n0. Back`
+/** `cashback` (commission cashback applies) asks for the airtime amount (the face) instead of the amount to pay. */
+export function airtimeAmountPrompt(network: string, min: number, max: number, cashback = false): string {
+  return `${network} Airtime\n${cashback ? "Enter airtime amount" : "Enter amount to pay"}\n(GHS ${min} - ${max}):\n\n0. Back`
 }
 
 export function airtimeConfirmMenu(network: string, recipient: string, amountPay: number, amountGet: number, dialingPhone: string): string {
@@ -78,6 +85,18 @@ export function airtimePaymentMethodMenu(amount: number, balance: number): strin
     `1. Datagod Wallet\n` +
     `   (GHS ${balance.toFixed(2)})\n` +
     `2. MoMo prompt\n` +
+    `0. Cancel`
+  )
+}
+
+/** Cashback airtime: the wallet (no Paystack fee) and MoMo are charged different amounts, shown per line. */
+export function airtimeCashbackPaymentMethodMenu(walletPay: number, momoPay: number, balance: number): string {
+  return (
+    `Pay by:\n` +
+    `1. Datagod Wallet\n` +
+    `   GHS ${walletPay.toFixed(2)} (bal ${balance.toFixed(2)})\n` +
+    `2. MoMo prompt\n` +
+    `   GHS ${momoPay.toFixed(2)}\n` +
     `0. Cancel`
   )
 }
@@ -330,6 +349,33 @@ export function waAirtimeConfirmMenu(network: string, recipient: string, amountP
     `They get GHS ${amountGet.toFixed(2)}\n\n` +
     `1. Pay via Wallet\n   (GHS ${balance.toFixed(2)})\n` +
     `2. Pay via MoMo\n0. Cancel`
+  )
+}
+
+/** WhatsApp: "Pay via Wallet" chosen but the wallet cannot cover the price => ask for the MoMo number to charge. */
+export const WA_WALLET_SHORT_PROMPT = 'Wallet balance too low.\nEnter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel'
+
+/** WhatsApp: the wallet-shortfall reply of a confirm handler called with `{ walletOnly: true }` (nothing created). */
+export function waWalletShort(): UzoResponse {
+  return { message: WA_WALLET_SHORT_PROMPT, ussdServiceOp: 2, walletShort: true }
+}
+
+/**
+ * WhatsApp main-bot airtime confirm when commission cashback applies: "Pay GHS x (was GHS y)" (x = the MoMo price,
+ * y = the airtime face), what the recipient gets, and each payment option with what it charges (the wallet pays the
+ * quote's base, no Paystack fee; MoMo pays x).
+ */
+export function waAirtimeCashbackConfirmMenu(
+  network: string, recipient: string, pay: number, face: number, walletPay: number, balance: number,
+): string {
+  const was = pay < face ? ` (was GHS ${face.toFixed(2)})` : ""
+  return (
+    `Confirm Airtime\n` +
+    `${network} to ${formatLocal(recipient)}\n` +
+    `Pay GHS ${pay.toFixed(2)}${was}\n` +
+    `They get GHS ${face.toFixed(2)} airtime\n\n` +
+    `1. Pay via Wallet\n   GHS ${walletPay.toFixed(2)} (bal ${balance.toFixed(2)})\n` +
+    `2. Pay via MoMo\n   GHS ${pay.toFixed(2)}\n0. Cancel`
   )
 }
 

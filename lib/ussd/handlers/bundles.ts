@@ -1,10 +1,11 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
-import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu } from "../menus"
+import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, waWalletShort } from "../menus"
 import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
+import { liveWalletBalance } from "../wallet-balance"
 import { chargeMobileMoney, submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { fulfillUssdOrder } from "../fulfill"
@@ -272,7 +273,13 @@ export async function handleConfirm(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel: 'ussd' | 'whatsapp' = 'ussd'
+  channel: 'ussd' | 'whatsapp' = 'ussd',
+  /**
+   * WhatsApp "Pay via Wallet": if the wallet cannot cover the verified price, create nothing and return
+   * `walletShort` (the router asks for a MoMo number) instead of charging `dialingPhone`, the sender's own number
+   * there. USSD never passes it.
+   */
+  opts: { walletOnly?: boolean } = {}
 ): Promise<UzoResponse> {
   if (input.trim() === '2') {
     // Cancel
@@ -339,6 +346,15 @@ export async function handleConfirm(
     return end(`Price changed to GHS ${verifiedPrice.toFixed(2)}. Please restart your order.`)
   }
 
+  // Same wallet test as the PAYMENT_METHOD detour below, made before any order exists. WhatsApp "Pay via Wallet"
+  // (walletOnly) reads the LIVE wallet of the session's account (session.userId: the sender's own account or an
+  // OTP-linked one; the debit uses that same id), so a balance spent since the menu never leaves a pending order row
+  // behind; the Uzo path keeps the session's cached balance exactly as before.
+  let walletBalance = session.walletBalance
+  if (opts.walletOnly) walletBalance = await liveWalletBalance(session.userId)
+  const walletEligible = !!session.userId && walletBalance !== undefined && walletBalance >= verifiedPrice
+  if (opts.walletOnly && !walletEligible) return waWalletShort()
+
   // Create pending order
   const { data: order, error: orderError } = await supabase
     .from("ussd_orders")
@@ -368,9 +384,9 @@ export async function handleConfirm(
   const orderId = order.id
   const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
 
-  if (session.userId && session.walletBalance !== undefined && session.walletBalance >= verifiedPrice) {
-    await setSession(sessionId, { ...session, step: 'PAYMENT_METHOD', pendingOrderId: orderId })
-    return cont(paymentMethodMenu(verifiedPrice, session.walletBalance))
+  if (walletEligible) {
+    await setSession(sessionId, { ...session, step: 'PAYMENT_METHOD', pendingOrderId: orderId, ...(opts.walletOnly ? { walletBalance } : {}) })
+    return cont(paymentMethodMenu(verifiedPrice, walletBalance!))
   }
 
   const email = await resolveEmail(dialingPhone!)

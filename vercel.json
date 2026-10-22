@@ -22,43 +22,7 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/cron/sync-mtn-status/datakazina",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/xpress",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/eazyghdata",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/bisdel",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/codecraft",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/agentportalgh",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/apexprime",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/cron/sync-afa-status/apexprime",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/spfastit",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync-mtn-status/spfastit-telecel",
       "schedule": "* * * * *"
     },
     {
@@ -66,100 +30,16 @@
       "schedule": "*/2 * * * *"
     },
     {
-      "path": "/api/cron/sync-codecraft-status",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/check-subscription-expiry",
-      "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/check-subscriptions",
-      "schedule": "0 * * * *"
-    },
-    {
       "path": "/api/cron/withdrawals-status-check",
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/run-ai-tasks",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/phone-verify",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/expire-stale-airtime",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/sms-delivery-sync",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/sync-digiwapy",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/drain-broadcasts",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/wa-delivery-notify",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sms-pending-credits",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sms-send-drain",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sms-scheduled",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sms-hubtel-dlr",
-      "schedule": "*/2 * * * *"
-    },
-    {
-      "path": "/api/cron/sms-senderid-poll",
+      "path": "/api/cron/expire-stale-bot-orders",
       "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/cron/sms-contact-verify",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/security-alerts",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/release-held-mtn-orders",
-      "schedule": "7 * * * *"
-    },
-    {
-      "path": "/api/cron/mtn-whitelist-retry",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/cron/check-mtn-balance",
-      "schedule": "*/30 * * * *"
-    },
-    {
-      "path": "/api/cron/drain-fulfillment-queue",
-      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/reconcile-paystack-refunds",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/sms-kyc-purge",
-      "schedule": "30 3 * * *"
     }
   ]
 }

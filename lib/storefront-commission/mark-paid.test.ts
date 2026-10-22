@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { markCommissionOrderPaid } from "./mark-paid"
+import { markCommissionOrderPaid, markCommissionOrderPaidRow } from "./mark-paid"
 
 type Row = Record<string, any>
 
@@ -17,7 +17,7 @@ function fakeDb(rows: Row[]) {
         select: async () => {
           const hit = rows.filter(r => filters.every(f => f(r)))
           for (const r of hit) Object.assign(r, patch)
-          return { data: hit.map(r => ({ id: r.id })), error: null }
+          return { data: hit.map(r => ({ id: r.id, status: r.status })), error: null }
         },
       }
       return q
@@ -27,6 +27,15 @@ function fakeDb(rows: Row[]) {
 }
 
 const PATCH = { paid_at: "2026-10-15T00:00:00Z", payment_reference: "H1" }
+
+describe("markCommissionOrderPaidRow (the flip's own row state)", () => {
+  it("returns rows changed and the status the flipped row has (no re-read); a no-op flip => 0 / null", async () => {
+    const rows: Row[] = [{ id: "o1", channel: "bots", payment_status: "unpaid", status: "failed" }]
+    const { client } = fakeDb(rows)
+    expect(await markCommissionOrderPaidRow(client, "hubtel_data_orders", "o1", PATCH)).toEqual({ changed: 1, status: "failed" })
+    expect(await markCommissionOrderPaidRow(client, "hubtel_data_orders", "o1", PATCH)).toEqual({ changed: 0, status: null })
+  })
+})
 
 describe("markCommissionOrderPaid", () => {
   it("flips an unpaid commission row once; a second call is a no-op", async () => {
