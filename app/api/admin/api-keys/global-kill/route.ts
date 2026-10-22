@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { revokeAllV2Keys } from "@/lib/api-v2/store"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -29,8 +30,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to disable all API keys" }, { status: 500 })
   }
 
+  let v2Count: number
+  try {
+    v2Count = await revokeAllV2Keys(supabase)
+  } catch (v2Error) {
+    console.error("[ADMIN API KEYS] Global kill v2 error:", v2Error)
+    return NextResponse.json(
+      { error: "v1 API keys WERE disabled, but v2 API keys could NOT be revoked. Retry the kill switch." },
+      { status: 500 }
+    )
+  }
+
   return NextResponse.json({
     success: true,
-    message: "All API keys have been disabled successfully."
+    message: `All API keys have been disabled successfully (v1 keys and ${v2Count} v2 keys).`,
+    v2Revoked: v2Count,
   })
 }
