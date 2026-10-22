@@ -38,7 +38,7 @@ async function writeClipboard(text: string): Promise<boolean> {
 }
 
 /** Outlined Copy button with ~1.5s check feedback; `label` describes what is copied for screen readers. */
-export function CopyButton({ text, label }: { text: string; label: string }) {
+export function CopyButton({ text, label, onCopied }: { text: string; label: string; onCopied?: () => void }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle")
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
@@ -52,6 +52,7 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
       onClick={async () => {
         const ok = await writeClipboard(text)
         setState(ok ? "copied" : "failed")
+        if (ok) onCopied?.()
         if (timer.current) clearTimeout(timer.current)
         timer.current = setTimeout(() => setState("idle"), ok ? 1500 : 2500)
       }}

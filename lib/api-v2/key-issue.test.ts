@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { canIssue } from "./key-issue"
+import { accessSummary, canIssue } from "./key-issue"
 
 const allowedRoles = ["dealer", "admin"]
 
@@ -49,5 +49,38 @@ describe("canIssue", () => {
   it("still checks type before suspension", () => {
     const r = canIssue({ type: "bogus", role: "dealer", allowedRoles, suspended: true })
     expect(r).toMatchObject({ ok: false, status: 400 })
+  })
+})
+
+describe("accessSummary", () => {
+  const base = { role: "dealer", suspended: false, enabled: true, allowedRoles }
+
+  it("returns ok when enabled, not suspended and the role is allowed", () => {
+    expect(accessSummary(base)).toEqual({ canGenerate: true, reason: "ok" })
+  })
+
+  it("reports disabled first, even for a suspended user with a disallowed role", () => {
+    expect(accessSummary({ ...base, enabled: false, suspended: true, role: "user" })).toEqual({
+      canGenerate: false,
+      reason: "disabled",
+    })
+  })
+
+  it("reports suspended before role_not_allowed", () => {
+    expect(accessSummary({ ...base, suspended: true, role: "user" })).toEqual({
+      canGenerate: false,
+      reason: "suspended",
+    })
+  })
+
+  it("reports role_not_allowed when the role is not in the allowed list", () => {
+    expect(accessSummary({ ...base, role: "user" })).toEqual({ canGenerate: false, reason: "role_not_allowed" })
+  })
+
+  it("fails closed with an empty allowed list", () => {
+    expect(accessSummary({ ...base, role: "admin", allowedRoles: [] })).toEqual({
+      canGenerate: false,
+      reason: "role_not_allowed",
+    })
   })
 })

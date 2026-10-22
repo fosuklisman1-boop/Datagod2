@@ -35,3 +35,25 @@ export function canIssue(input: {
   }
   return { ok: true }
 }
+
+export type AccessReason = "ok" | "disabled" | "suspended" | "role_not_allowed"
+export interface AccessSummary {
+  canGenerate: boolean
+  reason: AccessReason
+}
+
+/**
+ * What the developer dashboard shows before any generate attempt. Order: v2 disabled,
+ * then suspension, then role. `canGenerate` is true exactly when `reason === "ok"`.
+ */
+export function accessSummary(input: {
+  role: string
+  suspended: boolean
+  enabled: boolean
+  allowedRoles: string[]
+}): AccessSummary {
+  if (!input.enabled) return { canGenerate: false, reason: "disabled" }
+  if (input.suspended) return { canGenerate: false, reason: "suspended" }
+  if (!input.allowedRoles.includes(input.role)) return { canGenerate: false, reason: "role_not_allowed" }
+  return { canGenerate: true, reason: "ok" }
+}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
-import { canIssue, isIssuableType } from "@/lib/api-v2/key-issue"
+import { accessSummary, canIssue, isIssuableType, type AccessSummary } from "@/lib/api-v2/key-issue"
 import type { Environment } from "@/lib/api-v2/keys"
 import { createKey, getAdminClient, getConfig } from "@/lib/api-v2/store"
 
@@ -16,20 +16,49 @@ async function getSessionUser(request: NextRequest): Promise<{ id: string } | nu
   return data?.user ?? null
 }
 
-/** GET /api/user/v2-keys - list the caller's non-revoked v2 keys. */
+/**
+ * Whether the caller may generate keys, derived exactly like POST: role and suspension from the
+ * users row (never the token), enabled/allowed roles from getConfig (which already fails closed to
+ * disabled). If the users row cannot be read the role is treated as unknown, so the answer is
+ * `role_not_allowed` (or `disabled` when v2 is off): fail closed, never `ok`.
+ */
+async function callerAccess(userId: string): Promise<AccessSummary> {
+  let role = ""
+  let suspended = false
+  try {
+    const { data: userRow, error } = await client
+      .from("users")
+      .select("role, is_suspended")
+      .eq("id", userId)
+      .maybeSingle()
+    if (!error && userRow) {
+      role = typeof userRow.role === "string" ? userRow.role : ""
+      suspended = Boolean(userRow.is_suspended)
+    }
+  } catch {
+    role = ""
+  }
+  const config = await getConfig(client)
+  return accessSummary({ role, suspended, enabled: config.enabled, allowedRoles: config.allowed_roles })
+}
+
+/** GET /api/user/v2-keys - list the caller's non-revoked v2 keys plus whether they may generate. */
 export async function GET(request: NextRequest) {
   const sessionUser = await getSessionUser(request)
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { data: keys, error } = await client
-    .from("api_v2_keys")
-    .select("id, key_type, environment, status, key_prefix, last_used_at, created_at")
-    .eq("user_id", sessionUser.id)
-    .in("status", ["pending", "active"])
-    .order("created_at", { ascending: false })
+  const [{ data: keys, error }, access] = await Promise.all([
+    client
+      .from("api_v2_keys")
+      .select("id, key_type, environment, status, key_prefix, last_used_at, created_at")
+      .eq("user_id", sessionUser.id)
+      .in("status", ["pending", "active"])
+      .order("created_at", { ascending: false }),
+    callerAccess(sessionUser.id),
+  ])
 
   if (error) return NextResponse.json({ error: "Failed to fetch API keys" }, { status: 500 })
-  return NextResponse.json({ keys })
+  return NextResponse.json({ keys, access })
 }
 
 /** POST /api/user/v2-keys - issue a key. The full key is returned once. */
