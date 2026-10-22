@@ -105,7 +105,9 @@ Datagod navy accent, clear typographic hierarchy, consistent callouts (info / wa
 
 ## Calls I made (the user has not decided these)
 
-1. Key prefixes: `dg_live_` (standard), `dg_cs_live_` (commission), `dg_sms_live_` (SMS); test equivalents for sandbox (`dg_test_`, `dg_cs_test_`, `dg_sms_test_`).
+1. Key prefixes: `dg2_live_` (standard), `dg2_cs_live_` (commission), `dg2_sms_live_` (SMS); test equivalents for sandbox (`dg2_test_`, `dg2_cs_test_`, `dg2_sms_test_`). Changed from the first draft's `dg_live_`, which v1 keys already use and would be indistinguishable from v2 keys.
+14. Sandbox (test) keys are active immediately; only live keys wait for admin approval, because test keys can't spend real money.
+15. v2 keys live in a new table, because v1's one-active-key-per-environment index would collide with v2's three key types. v1's table is untouched except that the global kill also revokes v2 keys.
 2. Sandbox carries over to v2 for all three key types.
 3. Auth header: accept `Authorization: <key>` (with or without `Bearer`) and also `X-API-Key`, so v1 habits keep working.
 4. v1 keys appear in the new admin console with a "v1" badge and limited controls.
