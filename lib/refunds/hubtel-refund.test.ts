@@ -46,6 +46,36 @@ describe("classifyRefundReply", () => {
   it("404 with an unrecognised responseCode is unknown", () => {
     expect(classifyRefundReply(404, { responseCode: "9999", message: "x" }).kind).toBe("unknown")
   })
+
+  const HTML_403 = "<html><head><title>403 Forbidden</title></head><body><center><h1>403 Forbidden</h1></center></body></html>"
+  const frontDoor = (status: number) =>
+    `Hubtel refused the refund request (HTTP ${status}) — the relay's IP is probably not whitelisted for the refund API, or the credential was rejected. Nothing was processed.`
+  it("upstream 403 with an HTML body is failed with the fixed message and no markup", () => {
+    const r = classifyRefundReply(403, HTML_403)
+    expect(r).toEqual({ kind: "failed", error: frontDoor(403) })
+    expect((r as any).error).not.toContain("<html")
+  })
+  it("upstream 401 with an HTML body is failed", () => {
+    expect(classifyRefundReply(401, "<html>401 Unauthorized</html>")).toEqual({ kind: "failed", error: frontDoor(401) })
+  })
+  it("upstream 403 with a JSON body carrying 4509 keeps the 4509 mapping", () => {
+    expect(classifyRefundReply(403, { responseCode: "4509", message: "nope" })).toEqual({
+      kind: "failed",
+      error: "Hubtel 4509: not eligible — it may already have been refunded by Hubtel; check Hubtel before refunding another way. nope",
+    })
+  })
+  it("upstream 403 with a JSON body carrying 0001 stays pending", () => {
+    expect(classifyRefundReply(403, { responseCode: "0001", data: { orderId: "X" } })).toEqual({ kind: "pending", ref: "X" })
+  })
+  it("upstream 500 with an HTML body stays unknown", () => {
+    expect(classifyRefundReply(500, HTML_403).kind).toBe("unknown")
+  })
+  it("upstream 0 (timeout) stays unknown", () => {
+    expect(classifyRefundReply(0, "timeout").kind).toBe("unknown")
+  })
+  it("upstream 302 with an empty body stays unknown", () => {
+    expect(classifyRefundReply(302, "").kind).toBe("unknown")
+  })
 })
 
 describe("callback token", () => {
@@ -139,6 +169,19 @@ describe("requestHubtelRefund", () => {
     expect(await requestHubtelRefund("H1", "r1", f)).toEqual({
       kind: "failed", error: "Hubtel relay authentication failed — check HUBTEL_RELAY_SECRET",
     })
+  })
+  it("Hubtel front-door 403 (relay IP not whitelisted) is failed, called once, no markup", async () => {
+    const f = relayReply(200, {
+      ok: false, upstreamStatus: 403,
+      body: "<html><head><title>403 Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>",
+    })
+    const r = await requestHubtelRefund("H1", "r1", f)
+    expect(r).toEqual({
+      kind: "failed",
+      error: "Hubtel refused the refund request (HTTP 403) — the relay's IP is probably not whitelisted for the refund API, or the credential was rejected. Nothing was processed.",
+    })
+    expect((r as any).error).not.toContain("<html")
+    expect(f).toHaveBeenCalledTimes(1)
   })
   it("relay unreachable is unknown", async () => {
     const f = vi.fn(async () => { throw new Error("boom") }) as unknown as typeof fetch

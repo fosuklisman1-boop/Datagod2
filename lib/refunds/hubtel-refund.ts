@@ -51,6 +51,14 @@ export function classifyRefundReply(upstreamStatus: number, body: unknown): Gate
     }
     return { kind: "failed", error: msg }
   }
+  // Hubtel's front door (auth / IP whitelist) refused the call before any processing, so no money can have
+  // moved. The body is usually HTML; it is deliberately left out of the error so no markup reaches the ledger.
+  if (upstreamStatus === 401 || upstreamStatus === 403) {
+    return {
+      kind: "failed",
+      error: `Hubtel refused the refund request (HTTP ${upstreamStatus}) — the relay's IP is probably not whitelisted for the refund API, or the credential was rejected. Nothing was processed.`,
+    }
+  }
   return { kind: "unknown", error: `hubtel refund ${upstreamStatus}: ${JSON.stringify(body ?? null).slice(0, 200)}` }
 }
 
