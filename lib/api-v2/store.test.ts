@@ -8,6 +8,7 @@ import {
   findKeyByHash,
   getUserForKey,
   revokeAllV2Keys,
+  disableV2,
 } from "./store"
 
 type Op = { table: string; op: string; payload?: any; filters: Array<[string, string, any]> }
@@ -214,6 +215,19 @@ describe("reads", () => {
   it("revokeAllV2Keys throws when the client reports an error", async () => {
     const { client } = makeFake({ updateError: { message: "x" } })
     await expect(revokeAllV2Keys(client)).rejects.toThrow()
+  })
+  it("disableV2 sets enabled=false and updated_at on the single config row", async () => {
+    const { client, ops } = makeFake()
+    await disableV2(client)
+    const upd = ops.find((o) => o.op === "update")!
+    expect(upd.table).toBe("api_v2_config")
+    expect(upd.payload.enabled).toBe(false)
+    expect(typeof upd.payload.updated_at).toBe("string")
+    expect(upd.filters).toEqual([["id", "eq", true]])
+  })
+  it("disableV2 throws when the client reports an error", async () => {
+    const { client } = makeFake({ updateError: { message: "x" } })
+    await expect(disableV2(client)).rejects.toThrow()
   })
   it("revokeAllV2Keys revokes pending and active", async () => {
     const { client, ops } = makeFake()

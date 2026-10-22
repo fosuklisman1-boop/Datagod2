@@ -184,3 +184,12 @@ export async function revokeAllV2Keys(client: SupabaseLike): Promise<number> {
   if (error) throw new Error("Failed to revoke v2 keys")
   return Array.isArray(data) ? data.length : 0
 }
+
+/** Kill switch: turn the v2 API off (single config row). Throws on error. */
+export async function disableV2(client: SupabaseLike): Promise<void> {
+  const { error } = await client
+    .from("api_v2_config")
+    .update({ enabled: false, updated_at: new Date().toISOString() })
+    .eq("id", true)
+  if (error) throw new Error("Failed to disable v2 API")
+}
