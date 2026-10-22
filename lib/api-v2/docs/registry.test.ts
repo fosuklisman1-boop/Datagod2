@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { v2DocsRegistry } from "./registry"
+import { initialStatus } from "../lifecycle"
 import type { V2ErrorStatus } from "../envelope"
 import {
   MSG_UNAUTHORIZED,
@@ -78,5 +79,28 @@ describe("v2DocsRegistry", () => {
     expect(auth.steps?.length).toBeGreaterThan(0)
     expect(auth.callouts?.some((c) => c.tone === "warning")).toBe(true)
     expect(auth.steps?.[auth.steps.length - 1]).toMatch(/approval/i)
+  })
+
+  it("describes key approval exactly as lifecycle.ts implements it", () => {
+    const auth = v2DocsRegistry.find((s) => s.id === "authentication")!
+    const sandbox = v2DocsRegistry.find((s) => s.id === "sandbox")!
+    const authText = [auth.intro ?? "", ...(auth.steps ?? [])].join(" ")
+    const allText = v2DocsRegistry
+      .map((s) => [s.intro ?? "", ...(s.steps ?? []), ...(s.callouts ?? []).map((c) => c.body)].join(" "))
+      .join(" ")
+
+    // Expectations derived from the lifecycle so the docs cannot drift from it.
+    expect(initialStatus("live")).toBe("pending")
+    expect(initialStatus("test")).toBe("active")
+    expect(authText).toMatch(/live keys? (start|starts) (as )?pending/i)
+    expect(authText).toMatch(/returns? 403 until Datagod approves/i)
+    expect(authText).toMatch(/test .*keys? (are|is) active (immediately|at once)/i)
+    expect(sandbox.intro).toMatch(/test keys? (are|is) active (immediately|at once)/i)
+    expect(sandbox.intro).toMatch(/no approval/i)
+
+    // Claims that contradict the lifecycle or the UI must not appear anywhere.
+    expect(allText).not.toMatch(/usage policy/i)
+    expect(allText).not.toMatch(/approved[^.]*independently/i)
+    expect(allText).not.toMatch(/a new key starts as pending/i)
   })
 })

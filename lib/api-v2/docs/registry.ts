@@ -74,9 +74,9 @@ const START_SECTIONS: V2DocSection[] = [
     steps: [
       "Log in to your Datagod account with a role that is allowed to use the API (the allowed roles are set by Datagod and can change).",
       "Open Dashboard, then Developer API.",
-      "Choose the key type and environment you need, then generate the key and accept the API usage policy.",
+      "Choose the key type and environment you need, then generate the key.",
       "Copy the key and store it somewhere safe, such as a secrets manager or an environment variable on your server.",
-      "Wait for admin approval. A new key starts as pending and every call returns 403 until Datagod approves it; once approved it becomes active and works immediately.",
+      "For a live key, wait for admin approval. Live keys start as pending and every call returns 403 until Datagod approves them; once approved the key becomes active and works immediately. Test (sandbox) keys are active immediately and need no approval.",
     ],
     callouts: [
       {
@@ -129,7 +129,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Sandbox",
     group: "start",
     intro:
-      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). Test and live keys are approved, rate limited and revoked independently, and each environment has its own rate-limit counters.",
+      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
     endpoints: [],
   },
 ]
