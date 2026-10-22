@@ -50,7 +50,10 @@ export interface V2DocSection {
   endpoints: V2Endpoint[]
 }
 
-export const V2_BASE_URL = "https://api.datagod.store/v2"
+// The api.datagod.store host rewrite ships in plan 8. Until then api.datagod.store
+// serves the main app, so v2 is reached under /api/v2 on www. When the plan-8
+// rewrite is live, flip this to "https://api.datagod.store/v2" (and its tests).
+export const V2_BASE_URL = "https://www.datagod.store/api/v2"
 
 const TS = "2026-10-22T09:30:00.000Z"
 

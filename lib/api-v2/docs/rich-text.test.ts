@@ -17,22 +17,22 @@ describe("splitRichText", () => {
   })
 
   it("keeps a trailing full stop or bracket out of a URL chip", () => {
-    expect(splitRichText("Base https://api.datagod.store/v2.")).toEqual([
+    expect(splitRichText("Base https://www.datagod.store/api/v2.")).toEqual([
       { code: false, text: "Base " },
-      { code: true, text: "https://api.datagod.store/v2" },
+      { code: true, text: "https://www.datagod.store/api/v2" },
       { code: false, text: "." },
     ])
-    expect(splitRichText("(see https://api.datagod.store/v2).")).toEqual([
+    expect(splitRichText("(see https://www.datagod.store/api/v2).")).toEqual([
       { code: false, text: "(see " },
-      { code: true, text: "https://api.datagod.store/v2" },
+      { code: true, text: "https://www.datagod.store/api/v2" },
       { code: false, text: ")." },
     ])
   })
 
   it("stops a URL at a comma", () => {
-    expect(splitRichText("to https://api.datagod.store/v2, is")).toEqual([
+    expect(splitRichText("to https://www.datagod.store/api/v2, is")).toEqual([
       { code: false, text: "to " },
-      { code: true, text: "https://api.datagod.store/v2" },
+      { code: true, text: "https://www.datagod.store/api/v2" },
       { code: false, text: ", is" },
     ])
   })
