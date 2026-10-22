@@ -16,6 +16,7 @@ function makeFake(opts: {
   insertError?: { code: string } | null
   selectResult?: { data: any; error: any }
   updateError?: any
+  updateData?: any
   throwOnAny?: boolean
 } = {}) {
   const ops: Op[] = []
@@ -29,7 +30,7 @@ function makeFake(opts: {
             ? { data: null, error: opts.insertError }
             : { data: { id: "k1", ...rec.payload }, error: null }
         }
-        if (rec.op === "update") return { data: null, error: opts.updateError ?? null, count: 2 }
+        if (rec.op === "update") return { data: opts.updateData ?? null, error: opts.updateError ?? null, count: 2 }
         return opts.selectResult ?? { data: null, error: null }
       }
       const b: any = {
@@ -113,6 +114,17 @@ describe("createKey", () => {
   })
 })
 
+describe("createKey failure paths", () => {
+  it("returns 500 and inserts nothing when the revoke step fails", async () => {
+    const { client, ops } = makeFake({ updateError: { message: "x" } })
+    expect(await createKey(client, { userId: "u1", type: "standard", env: "live", name: "n" })).toEqual({
+      ok: false,
+      status: 500,
+    })
+    expect(ops.some((o) => o.op === "insert")).toBe(false)
+  })
+})
+
 describe("logRequest", () => {
   it("writes exactly the allowed columns", async () => {
     const { client, ops } = makeFake()
@@ -154,8 +166,27 @@ describe("reads", () => {
     expect(await findKeyByHash(makeFake().client, "h")).toBeNull()
     expect(await findKeyByHash(makeFake({ throwOnAny: true }).client, "h")).toBeNull()
   })
+  it("findKeyByHash never returns key_hash even if the client does", async () => {
+    const { client } = makeFake({ selectResult: { data: { id: "k", key_hash: "secret" }, error: null } })
+    const row = await findKeyByHash(client, "h")
+    expect(row).toEqual({ id: "k" })
+    expect(JSON.stringify(row)).not.toContain("secret")
+  })
   it("getUserForKey returns null on miss", async () => {
     expect(await getUserForKey(makeFake().client, "u")).toBeNull()
+  })
+  it("getUserForKey returns the user on a hit", async () => {
+    const user = { id: "u", role: "dealer", first_name: "Ama", email: "a@b.c" }
+    const { client } = makeFake({ selectResult: { data: user, error: null } })
+    expect(await getUserForKey(client, "u")).toEqual(user)
+  })
+  it("revokeAllV2Keys returns the number of revoked rows", async () => {
+    const { client } = makeFake({ updateData: [{ id: "a" }, { id: "b" }, { id: "c" }] })
+    expect(await revokeAllV2Keys(client)).toBe(3)
+  })
+  it("revokeAllV2Keys throws when the client reports an error", async () => {
+    const { client } = makeFake({ updateError: { message: "x" } })
+    await expect(revokeAllV2Keys(client)).rejects.toThrow()
   })
   it("revokeAllV2Keys revokes pending and active", async () => {
     const { client, ops } = makeFake()

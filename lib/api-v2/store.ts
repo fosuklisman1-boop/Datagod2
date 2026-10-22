@@ -42,7 +42,10 @@ export async function findKeyByHash(client: SupabaseLike, hash: string): Promise
       .eq("key_hash", hash)
       .maybeSingle()
     if (error || !data) return null
-    return data as V2KeyRow
+    // Defensive: never hand key_hash back, whatever the client returned.
+    const { key_hash: _omit, ...row } = data as V2KeyRow & { key_hash?: string }
+    void _omit
+    return row
   } catch {
     return null
   }
