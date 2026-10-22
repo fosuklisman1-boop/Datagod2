@@ -1,5 +1,6 @@
 import { DEFAULT_LIMITS, parseLimitOverrides, type LimitGroup } from "./limits"
 import type { KeyType, Environment, KeyStatus } from "./keys"
+import { V2_ROLES } from "./lifecycle"
 
 interface OwnerUser {
   email?: string | null
@@ -167,4 +168,98 @@ export function validateLimitForm(
     else value[g] = n
   }
   return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: true, value }
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  user: "Customer",
+  sub_agent: "Subagent",
+  dealer: "Dealer",
+  admin: "Admin",
+}
+
+export function roleLabel(role: string | null): string {
+  if (!role) return "No role"
+  if (ROLE_LABELS[role]) return ROLE_LABELS[role]
+  const words = role.replace(/[_-]+/g, " ").trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+const TYPE_LABELS: Record<KeyType, string> = {
+  standard: "Standard",
+  commission: "Commission · Utilities",
+  sms: "SMS",
+}
+
+export function keyTypeLabel(k: ConsoleKey): string {
+  if (k.source === "v1" || !k.keyType) return "v1"
+  return TYPE_LABELS[k.keyType]
+}
+
+export interface KeyActionSet {
+  approve: boolean
+  revoke: boolean
+  activity: boolean
+  limits: boolean
+  v1Toggle: boolean
+  v1Delete: boolean
+  v1Rate: boolean
+}
+
+/** Which controls a row offers. v1 keys only get the controls the v1 admin routes support. */
+export function keyActions(k: ConsoleKey): KeyActionSet {
+  if (k.source === "v1") {
+    return { approve: false, revoke: false, activity: false, limits: false, v1Toggle: true, v1Delete: true, v1Rate: true }
+  }
+  return {
+    approve: k.status === "pending",
+    revoke: k.status !== "revoked",
+    activity: true,
+    limits: k.status !== "revoked",
+    v1Toggle: false,
+    v1Delete: false,
+    v1Rate: false,
+  }
+}
+
+/** Same rule as PATCH /api/admin/api-keys: integer 1-10000. */
+export function parseV1RateLimit(raw: string): { ok: true; value: number } | { ok: false; error: string } {
+  const s = raw.trim()
+  const n = /^\d+$/.test(s) ? Number(s) : NaN
+  if (!Number.isInteger(n) || n < 1 || n > 10000) return { ok: false, error: "Enter a whole number from 1 to 10000" }
+  return { ok: true, value: n }
+}
+
+export function roleOptions(keys: ConsoleKey[]): string[] {
+  const roles = Array.from(new Set(keys.map((k) => k.ownerRole).filter((r): r is string => !!r)))
+  return roles.sort((a, b) => roleLabel(a).localeCompare(roleLabel(b)))
+}
+
+/** Toggle a role in the allowed list, keeping V2_ROLES order and no duplicates. */
+export function toggleRole(selected: readonly string[], role: string): string[] {
+  const set = new Set(selected)
+  if (set.has(role)) set.delete(role)
+  else set.add(role)
+  const order = V2_ROLES
+  return Array.from(set).sort((a, b) => {
+    const ia = order.indexOf(a)
+    const ib = order.indexOf(b)
+    return (ia === -1 ? order.length : ia) - (ib === -1 ? order.length : ib)
+  })
+}
+
+const DASH = "—"
+const finite = (n: number | null | undefined): n is number => typeof n === "number" && Number.isFinite(n)
+
+export function formatCount(n: number | null | undefined): string {
+  return finite(n) ? n.toLocaleString("en-US") : DASH
+}
+
+export function formatPercent(n: number | null | undefined): string {
+  return finite(n) ? `${n}%` : DASH
+}
+
+export function formatLatency(ms: number | null | undefined): string {
+  if (!finite(ms)) return DASH
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  return `${Math.round(ms / 10) / 100} s`
 }
