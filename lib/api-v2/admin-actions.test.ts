@@ -49,6 +49,10 @@ describe("planKeyPatch", () => {
       if (!r.ok) expect(r.status).toBe(409)
     }
   })
+  it("invalid limits on a revoked key return 400 (limits are validated before the revoked check)", () => {
+    const r = planKeyPatch({ status: "revoked" }, { action: "set_limits", limits: { purchase: 0 } }, now)
+    expect(r).toMatchObject({ ok: false, status: 400 })
+  })
   it("resets limits to null", () => {
     expect(planKeyPatch({ status: "pending" }, { action: "reset_limits" }, now)).toEqual({
       ok: true,

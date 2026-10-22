@@ -11,19 +11,24 @@ export function isIssuableType(type: string): type is KeyType {
 }
 
 /**
- * Pure eligibility decision for issuing a v2 key. Type is checked before role.
+ * Pure eligibility decision for issuing a v2 key. Order: type validity (400),
+ * then suspension (403), then role (403).
  * `sms` is a known type but not issuable until the SMS plan replaces this branch.
  */
 export function canIssue(input: {
   type: KeyType | string
   role: string
   allowedRoles: string[]
+  suspended: boolean
 }): CanIssueResult {
   if (!KNOWN_TYPES.includes(input.type)) {
     return { ok: false, status: 400, message: "Invalid key_type" }
   }
   if (input.type === "sms") {
     return { ok: false, status: 400, message: "SMS keys are not available yet" }
+  }
+  if (input.suspended) {
+    return { ok: false, status: 403, message: "This account is suspended" }
   }
   if (!input.allowedRoles.includes(input.role)) {
     return { ok: false, status: 403, message: "Your account is not eligible for API keys" }

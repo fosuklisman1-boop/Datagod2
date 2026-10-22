@@ -51,18 +51,23 @@ export async function findKeyByHash(client: SupabaseLike, hash: string): Promise
   }
 }
 
-export async function getUserForKey(
-  client: SupabaseLike,
-  userId: string
-): Promise<{ id: string; role: string; first_name: string | null; email: string | null } | null> {
+export interface V2KeyOwner {
+  id: string
+  role: string
+  first_name: string | null
+  suspended: boolean
+}
+
+export async function getUserForKey(client: SupabaseLike, userId: string): Promise<V2KeyOwner | null> {
   try {
     const { data, error } = await client
       .from("users")
-      .select("id, role, first_name, email")
+      .select("id, role, first_name, is_suspended")
       .eq("id", userId)
       .maybeSingle()
     if (error || !data) return null
-    return data
+    // is_suspended is BOOLEAN DEFAULT FALSE (nullable); any truthy value means suspended.
+    return { id: data.id, role: data.role, first_name: data.first_name ?? null, suspended: Boolean(data.is_suspended) }
   } catch {
     return null
   }

@@ -22,13 +22,21 @@ export interface AccessInput {
   configEnabled: boolean
   allowedRoles: string[]
   userRole: string
+  suspended: boolean
 }
 
+/**
+ * Order: config disabled (503) > account suspended > key status (pending, revoked)
+ * > key type > role. All denials except the first are 403.
+ */
 export function decideAccess(
   i: AccessInput
 ): { ok: true } | { ok: false; status: 403 | 503; message: string } {
   if (!i.configEnabled) {
     return { ok: false, status: 503, message: "This API is currently unavailable" }
+  }
+  if (i.suspended) {
+    return { ok: false, status: 403, message: "This account is suspended" }
   }
   if (i.keyStatus === "pending") {
     return { ok: false, status: 403, message: "This API key is awaiting approval" }

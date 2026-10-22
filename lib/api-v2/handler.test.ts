@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import { runV2, type V2Context } from "./handler"
-import { generateV2Key } from "./keys"
+import { generateV2Key, hashV2Key } from "./keys"
 
 const OPTS = { requiredType: "standard" as const, group: "status" as const, endpoint: "/api/v2/account/role" }
 
@@ -20,7 +20,9 @@ function makeDeps(over: any = {}) {
   }
   const store = {
     findKeyByHash: vi.fn(async () => (over.noKey ? null : row)),
-    getUserForKey: vi.fn(async () => ({ id: "user-1", role: over.role ?? "dealer", first_name: "Ama", email: null })),
+    getUserForKey: vi.fn(async () =>
+      over.noUser ? null : { id: "user-1", role: over.role ?? "dealer", first_name: "Ama", suspended: over.suspended ?? false }
+    ),
     getConfig: vi.fn(async () => ({
       enabled: over.enabled ?? true,
       allowed_roles: over.allowedRoles ?? ["dealer"],
@@ -75,6 +77,43 @@ describe("runV2", () => {
   it("503 when config disabled", async () => {
     const r = await runV2(makeDeps({ enabled: false }), OPTS, ok, input(validKey()))
     expect(r.status).toBe(503)
+  })
+
+  it("403 for a suspended account, and the handler never runs", async () => {
+    const handler = vi.fn(ok)
+    const r = await runV2(makeDeps({ suspended: true }), OPTS, handler, input(validKey()))
+    expect(r.status).toBe(403)
+    expect(r.body).toMatchObject({ success: false, error: { code: 403, message: "This account is suspended" } })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("503 beats suspension when config is disabled", async () => {
+    const r = await runV2(makeDeps({ suspended: true, enabled: false }), OPTS, ok, input(validKey()))
+    expect(r.status).toBe(503)
+  })
+
+  it("401 when the key's user row is missing", async () => {
+    const deps = makeDeps({ noUser: true })
+    const r = await runV2(deps, OPTS, ok, input(validKey()))
+    expect(r.status).toBe(401)
+    expect(r.body).toMatchObject({ success: false, error: { code: 401 } })
+  })
+
+  it("403 for a revoked key", async () => {
+    const r = await runV2(makeDeps({ row: { status: "revoked" } }), OPTS, ok, input(validKey()))
+    expect(r.status).toBe(403)
+    expect(r.body).toMatchObject({ error: { code: 403, message: "This API key has been revoked" } })
+  })
+
+  it("looks the key up by hashV2Key(rawKey), never by the raw key", async () => {
+    const deps = makeDeps()
+    const key = validKey()
+    await runV2(deps, OPTS, ok, input(key))
+    expect(deps.store.findKeyByHash).toHaveBeenCalledTimes(1)
+    const arg = (deps.store.findKeyByHash.mock.calls as any)[0][0]
+    expect(arg).toBe(hashV2Key(key))
+    expect(arg).not.toBe(key)
+    expect(arg).not.toContain(key)
   })
 
   it("403 when role not allowed", async () => {

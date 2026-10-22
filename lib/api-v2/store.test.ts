@@ -175,10 +175,37 @@ describe("reads", () => {
   it("getUserForKey returns null on miss", async () => {
     expect(await getUserForKey(makeFake().client, "u")).toBeNull()
   })
-  it("getUserForKey returns the user on a hit", async () => {
-    const user = { id: "u", role: "dealer", first_name: "Ama", email: "a@b.c" }
-    const { client } = makeFake({ selectResult: { data: user, error: null } })
-    expect(await getUserForKey(client, "u")).toEqual(user)
+  it("getUserForKey returns the user on a hit, without email, with suspended as a boolean", async () => {
+    const { client, ops } = makeFake({
+      selectResult: { data: { id: "u", role: "dealer", first_name: "Ama", is_suspended: false }, error: null },
+    })
+    expect(await getUserForKey(client, "u")).toEqual({ id: "u", role: "dealer", first_name: "Ama", suspended: false })
+    expect(ops[0].filters).toContainEqual(["id", "eq", "u"])
+  })
+  it("getUserForKey selects is_suspended and not email", async () => {
+    let selected = ""
+    const client = {
+      from() {
+        const b: any = {
+          select(cols: string) { selected = cols; return b },
+          eq() { return b },
+          maybeSingle() { return Promise.resolve({ data: null, error: null }) },
+        }
+        return b
+      },
+    }
+    await getUserForKey(client, "u")
+    expect(selected).toContain("is_suspended")
+    expect(selected).not.toContain("email")
+  })
+  it("getUserForKey maps is_suspended true/null/undefined to a boolean", async () => {
+    const cases: Array<[unknown, boolean]> = [[true, true], [null, false], [undefined, false], [false, false]]
+    for (const [raw, expected] of cases) {
+      const { client } = makeFake({
+        selectResult: { data: { id: "u", role: "dealer", first_name: null, is_suspended: raw }, error: null },
+      })
+      expect((await getUserForKey(client, "u"))?.suspended).toBe(expected)
+    }
   })
   it("revokeAllV2Keys returns the number of revoked rows", async () => {
     const { client } = makeFake({ updateData: [{ id: "a" }, { id: "b" }, { id: "c" }] })

@@ -34,4 +34,11 @@ describe("parseV2Key", () => {
     expect(parseV2Key("dg2_live_")).toBeNull()
     expect(parseV2Key("dg2_cs_live_x y")).toBeNull()
   })
+  it("rejects uppercase hex and a trailing newline", () => {
+    const { key } = generateV2Key("standard", "live")
+    expect(parseV2Key(key)).not.toBeNull()
+    expect(parseV2Key("dg2_live_ABCDEF0123")).toBeNull()
+    expect(parseV2Key(key.toUpperCase())).toBeNull()
+    expect(parseV2Key(key + "\n")).toBeNull()
+  })
 })

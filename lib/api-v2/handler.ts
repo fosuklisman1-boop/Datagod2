@@ -11,6 +11,7 @@ import {
   getUserForKey,
   logRequest,
   touchLastUsed,
+  type V2KeyOwner,
   type V2KeyRow,
 } from "./store"
 
@@ -40,7 +41,7 @@ export type V2Handler = (req: NextRequest, ctx: V2Context) => Promise<V2HandlerR
 export interface V2Deps {
   store: {
     findKeyByHash(hash: string): Promise<V2KeyRow | null>
-    getUserForKey(userId: string): Promise<{ id: string; role: string; first_name: string | null; email: string | null } | null>
+    getUserForKey(userId: string): Promise<V2KeyOwner | null>
     getConfig(): Promise<{ enabled: boolean; allowed_roles: string[] }>
     touchLastUsed(keyId: string): Promise<void>
     logRequest(p: Parameters<typeof logRequest>[1]): Promise<void>
@@ -130,6 +131,7 @@ export async function runV2(
     configEnabled: config.enabled,
     allowedRoles: config.allowed_roles,
     userRole: user.role,
+    suspended: user.suspended,
   })
   if (!access.ok) return failLogged(access.status, access.message)
 

@@ -55,16 +55,17 @@ export async function POST(request: NextRequest) {
   }
   const keyType = typeof body?.key_type === "string" ? body.key_type : ""
 
-  // Role comes from the users table, never from the request or token metadata.
+  // Role and suspension come from the users table, never from the request or token metadata.
   const { data: userRow } = await client
     .from("users")
-    .select("role")
+    .select("role, is_suspended")
     .eq("id", sessionUser.id)
     .maybeSingle()
   const role = typeof userRow?.role === "string" ? userRow.role : ""
+  const suspended = Boolean(userRow?.is_suspended)
 
   const config = await getConfig(client)
-  const decision = canIssue({ type: keyType, role, allowedRoles: config.allowed_roles })
+  const decision = canIssue({ type: keyType, role, allowedRoles: config.allowed_roles, suspended })
   if (!decision.ok || !isIssuableType(keyType)) {
     const d = decision.ok ? { status: 400, message: "Invalid key_type" } : decision
     return NextResponse.json({ error: d.message }, { status: d.status })
