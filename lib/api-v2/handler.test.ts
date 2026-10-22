@@ -128,14 +128,67 @@ describe("runV2", () => {
     expect(r.status).toBe(429)
     expect(r.body).toMatchObject({ error: { code: 429 } })
     expect(handler).not.toHaveBeenCalled()
-    expect((deps.rateLimit.mock.calls as any)[0][1]).toBe("v2_standard_status")
+    expect((deps.rateLimit.mock.calls as any)[0][1]).toBe("v2_standard_live_status")
+  })
+
+  it("over-limit requests get 429 before any user/config lookup or DB write", async () => {
+    const deps = makeDeps({ allowed: false })
+    const r = await runV2(deps, OPTS, ok, input(validKey()))
+    expect(r.status).toBe(429)
+    expect(deps.store.getUserForKey).not.toHaveBeenCalled()
+    expect(deps.store.getConfig).not.toHaveBeenCalled()
+    expect(deps.store.logRequest).not.toHaveBeenCalled()
+    expect(deps.store.touchLastUsed).not.toHaveBeenCalled()
+  })
+
+  it("a revoked key over its limit gets 429 and nothing is logged or touched", async () => {
+    const deps = makeDeps({ row: { status: "revoked" }, allowed: false })
+    const r = await runV2(deps, OPTS, ok, input(validKey()))
+    expect(r.status).toBe(429)
+    expect(deps.store.logRequest).not.toHaveBeenCalled()
+    expect(deps.store.touchLastUsed).not.toHaveBeenCalled()
+  })
+
+  it("a revoked key within its limit still gets 403 and consumes the bucket", async () => {
+    const deps = makeDeps({ row: { status: "revoked" } })
+    const r = await runV2(deps, OPTS, ok, input(validKey()))
+    expect(r.status).toBe(403)
+    expect(deps.rateLimit).toHaveBeenCalledTimes(1)
+  })
+
+  it("denied outcomes (503, suspended, pending, wrong type, role) all consume the rate-limit bucket", async () => {
+    const cases: Array<[any, any]> = [
+      [{ enabled: false }, OPTS],
+      [{ suspended: true }, OPTS],
+      [{ row: { status: "pending" } }, OPTS],
+      [{}, { ...OPTS, requiredType: "commission" }],
+      [{ role: "customer" }, OPTS],
+    ]
+    for (const [over, opts] of cases) {
+      const deps = makeDeps(over)
+      const r = await runV2(deps, opts, ok, input(validKey()))
+      expect(r.status).not.toBe(200)
+      expect(deps.rateLimit).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it("test and live keys use different rate-limit buckets", async () => {
+    const live = makeDeps()
+    await runV2(live, OPTS, ok, input(validKey()))
+    const test = makeDeps({ row: { environment: "test" } })
+    await runV2(test, OPTS, ok, input(generateV2Key("standard", "test").key))
+    const liveName = (live.rateLimit.mock.calls as any)[0][1]
+    const testName = (test.rateLimit.mock.calls as any)[0][1]
+    expect(liveName).toBe("v2_standard_live_status")
+    expect(testName).toBe("v2_standard_test_status")
+    expect(liveName).not.toBe(testName)
   })
 
   it("rate limiter gets per-key override, group name, window and owner id", async () => {
     const deps = makeDeps({ row: { rate_limits: { status: 7 } } })
     await runV2(deps, OPTS, ok, input(validKey()))
     const c = (deps.rateLimit.mock.calls as any)[0]
-    expect(c[1]).toBe("v2_standard_status")
+    expect(c[1]).toBe("v2_standard_live_status")
     expect(c[2]).toBe(7)
     expect(c[3]).toBe(60000)
     expect(c[4]).toBe("user-1")
@@ -161,6 +214,24 @@ describe("runV2", () => {
     const r = await runV2(makeDeps(), OPTS, h, input(validKey()))
     expect(r.status).toBe(500)
     expect(r.body).toMatchObject({ success: false, error: { code: 500, message: "Nope" } })
+  })
+
+  it("a non-2xx handler status without an error becomes a generic 500, never a success body", async () => {
+    for (const status of [404, 302, 500, 199]) {
+      const deps = makeDeps()
+      const h = async () => ({ status, data: { leaked: "SECRET-DATA" } })
+      const r = await runV2(deps, OPTS, h, input(validKey()))
+      expect(r.status).toBe(500)
+      expect(r.body).toMatchObject({ success: false, error: { code: 500, message: "Internal server error" } })
+      expect(JSON.stringify(r.body)).not.toContain("SECRET-DATA")
+    }
+  })
+
+  it("2xx handler statuses keep the success envelope", async () => {
+    const h = async () => ({ status: 201, data: { x: 1 } })
+    const r = await runV2(makeDeps(), OPTS, h, input(validKey()))
+    expect(r.status).toBe(201)
+    expect(r.body).toMatchObject({ success: true, data: { x: 1 } })
   })
 
   it("happy path returns envelope and logs once without payload", async () => {

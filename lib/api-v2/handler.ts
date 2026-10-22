@@ -93,8 +93,30 @@ export async function runV2(
   const parsed = parseV2Key(raw)
   if (!parsed) return unauthorized()
 
+  /*
+   * Check order (each step short-circuits):
+   *   1. key header present and well-formed (401, no DB)
+   *   2. key row found by hash (401, not logged)
+   *   3. rate limit on the key's bucket (429, not logged, last_used not touched).
+   *      Runs before any further lookup so denied requests (503, suspended, pending,
+   *      revoked, wrong type, role) also consume the bucket and cannot be used to
+   *      force unbounded DB reads/writes.
+   *   4. key owner row found (401)
+   *   5. decideAccess: config disabled 503 > suspended > key status > key type > role (logged)
+   *   6. handler; error results and non-2xx statuses map to the error envelope (logged)
+   */
   const row = await deps.store.findKeyByHash(hashV2Key(raw))
   if (!row) return unauthorized()
+
+  // degraded => allowed here (read-only endpoints); purchase endpoints must add their own fallback cap.
+  const limit = await deps.rateLimit(
+    input.request,
+    `v2_${row.key_type}_${row.environment}_${opts.group}`,
+    resolveLimit(opts.group, row.rate_limits),
+    60000,
+    row.user_id
+  )
+  if (!limit.allowed) return fail(429, "Rate limit exceeded")
 
   const [user, config] = await Promise.all([deps.store.getUserForKey(row.user_id), deps.store.getConfig()])
   if (!user) return unauthorized()
@@ -135,16 +157,6 @@ export async function runV2(
   })
   if (!access.ok) return failLogged(access.status, access.message)
 
-  // degraded => allowed here (read-only endpoints); purchase endpoints must add their own fallback cap.
-  const limit = await deps.rateLimit(
-    input.request,
-    `v2_${row.key_type}_${opts.group}`,
-    resolveLimit(opts.group, row.rate_limits),
-    60000,
-    row.user_id
-  )
-  if (!limit.allowed) return failLogged(429, "Rate limit exceeded")
-
   const ctx: V2Context = {
     keyId: row.id,
     userId: row.user_id,
@@ -163,6 +175,8 @@ export async function runV2(
 
   if (result.error) return failLogged(result.error.status, result.error.message)
   const status = result.status || 200
+  // Success envelopes are only ever sent with a 2xx status.
+  if (status < 200 || status > 299) return failLogged(500, "Internal server error")
   return finish({ status, body: successBody(result.data, deps.now()) })
 }
 
