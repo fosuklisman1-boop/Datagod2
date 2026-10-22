@@ -1,0 +1,119 @@
+/**
+ * Provider hand-off for v2 data orders. Mirrors the DIRECT dispatch that
+ * app/api/v1/orders/route.ts does for api_orders (MTN via createMTNOrder +
+ * tracking/hold, Telecel/AT via createNonMTNOrder with orderType "api").
+ * The fulfillment_queue is NOT used: it is only fed by an admin enqueue
+ * route, no order source hands work to providers through it.
+ *
+ * dispatchFulfillment is pure over injected deps and imports nothing heavy.
+ * Real wiring (dynamic imports, so tests never load provider modules or
+ * next/server) lives in realFulfillmentDeps / scheduleFulfillment.
+ *
+ * Replays must NOT dispatch again: that is the caller's job.
+ */
+import type { MTNOrderRequest, MTNOrderResponse } from "@/lib/mtn-fulfillment"
+import type { NonMTNOrderParams } from "@/lib/non-mtn-fulfillment"
+
+export interface FulfillmentDeps {
+  isMtnAuto(): Promise<boolean>
+  createMtnOrder(req: MTNOrderRequest): Promise<MTNOrderResponse>
+  saveMtnTracking(
+    orderId: string,
+    mtnOrderId: number | string,
+    req: MTNOrderRequest,
+    resp: MTNOrderResponse,
+    provider: string
+  ): Promise<void>
+  holdMtnOrder(p: { orderId: string; phone: string }): Promise<{ held: boolean }>
+  markProcessing(orderId: string): Promise<void>
+  createNonMtnOrder(req: NonMTNOrderParams): Promise<unknown>
+}
+
+export interface FulfillmentTarget {
+  orderId: string
+  dbNetwork: string
+  gb: number
+  msisdn: string
+  /** Local 0XXXXXXXXX form, what the providers and the order row use. */
+  local: string
+}
+
+export type FulfillmentOutcome = { attempted: boolean; outcome: "mtn" | "non_mtn" | "skipped" | "error" }
+
+/** Same list v1 uses, compared lower-cased. */
+const NON_MTN_AUTO = new Set(["at - ishare", "at-ishare", "telecel", "at - bigtime", "at-bigtime"])
+
+export async function dispatchFulfillment(deps: FulfillmentDeps, o: FulfillmentTarget): Promise<FulfillmentOutcome> {
+  const network = o.dbNetwork.trim().toLowerCase()
+  let attempted = false
+  try {
+    if (network === "mtn") {
+      if (!(await deps.isMtnAuto())) return { attempted: false, outcome: "skipped" }
+      attempted = true
+      const req: MTNOrderRequest = {
+        recipient_phone: o.local,
+        network: "MTN",
+        size_gb: o.gb,
+        client_ref: o.orderId,
+      }
+      const res = await deps.createMtnOrder(req)
+      if (res.held) {
+        await deps.holdMtnOrder({ orderId: o.orderId, phone: o.local })
+      } else if (res.order_id) {
+        await deps.saveMtnTracking(o.orderId, res.order_id, req, res, res.provider || "sykes")
+        if (res.success) await deps.markProcessing(o.orderId)
+      }
+      return { attempted: true, outcome: "mtn" }
+    }
+
+    if (NON_MTN_AUTO.has(network)) {
+      attempted = true
+      await deps.createNonMtnOrder({
+        phoneNumber: o.local,
+        sizeGb: o.gb,
+        orderId: o.orderId,
+        network,
+        orderType: "api",
+      })
+      return { attempted: true, outcome: "non_mtn" }
+    }
+
+    return { attempted: false, outcome: "skipped" }
+  } catch (err) {
+    console.error("[API v2] fulfillment error:", err instanceof Error ? err.message : "unknown")
+    return { attempted, outcome: "error" }
+  }
+}
+
+/** The SAME underlying modules v1 uses, loaded lazily. */
+export function realFulfillmentDeps(): FulfillmentDeps {
+  return {
+    isMtnAuto: async () => (await import("@/lib/mtn-fulfillment")).isAutoFulfillmentEnabled(),
+    createMtnOrder: async (req) => (await import("@/lib/mtn-fulfillment")).createMTNOrder(req),
+    saveMtnTracking: async (orderId, mtnOrderId, req, resp, provider) => {
+      const m = await import("@/lib/mtn-fulfillment")
+      await m.saveMTNTracking(orderId, mtnOrderId, req, resp, "api", provider)
+    },
+    holdMtnOrder: async ({ orderId, phone }) => {
+      const { holdMtnOrder } = await import("@/lib/mtn-hold")
+      return holdMtnOrder({ table: "api_orders", orderId, phone })
+    },
+    markProcessing: async (orderId) => {
+      const { createClient } = await import("@supabase/supabase-js")
+      const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      })
+      // Guarded (v1 is unconditional): never move a row a webhook already advanced.
+      await client.from("api_orders").update({ status: "processing" }).eq("id", orderId).eq("status", "pending")
+    },
+    createNonMtnOrder: async (req) => (await import("@/lib/non-mtn-fulfillment")).createNonMTNOrder(req),
+  }
+}
+
+/** Runs the dispatch after the response is sent. Must be called from a request scope. */
+export async function scheduleFulfillment(o: FulfillmentTarget): Promise<void> {
+  const { after } = await import("next/server")
+  after(async () => {
+    await dispatchFulfillment(realFulfillmentDeps(), o)
+  })
+}
