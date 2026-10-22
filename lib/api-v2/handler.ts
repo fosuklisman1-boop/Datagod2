@@ -133,6 +133,7 @@ export async function runV2(
   })
   if (!access.ok) return failLogged(access.status, access.message)
 
+  // degraded => allowed here (read-only endpoints); purchase endpoints must add their own fallback cap.
   const limit = await deps.rateLimit(
     input.request,
     `v2_${row.key_type}_${opts.group}`,

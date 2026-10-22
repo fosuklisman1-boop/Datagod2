@@ -92,6 +92,22 @@ describe("runV2", () => {
     expect((deps.rateLimit.mock.calls as any)[0][1]).toBe("v2_standard_status")
   })
 
+  it("rate limiter gets per-key override, group name, window and owner id", async () => {
+    const deps = makeDeps({ row: { rate_limits: { status: 7 } } })
+    await runV2(deps, OPTS, ok, input(validKey()))
+    const c = (deps.rateLimit.mock.calls as any)[0]
+    expect(c[1]).toBe("v2_standard_status")
+    expect(c[2]).toBe(7)
+    expect(c[3]).toBe(60000)
+    expect(c[4]).toBe("user-1")
+  })
+
+  it("rate limiter uses the group default when no overrides", async () => {
+    const deps = makeDeps()
+    await runV2(deps, OPTS, ok, input(validKey()))
+    expect((deps.rateLimit.mock.calls as any)[0][2]).toBe(30)
+  })
+
   it("500 with generic body when handler throws", async () => {
     const boom = async () => {
       throw new Error("SECRET-DB-DETAIL")
