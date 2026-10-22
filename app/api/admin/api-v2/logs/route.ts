@@ -24,6 +24,8 @@ export async function GET(request: NextRequest) {
     .from("api_v2_logs")
     .select(LOG_COLUMNS, { count: "exact" })
     .order("created_at", { ascending: false })
+    // Tie-breaker: rows with equal timestamps keep a stable order, so paging never repeats or skips one.
+    .order("id", { ascending: false })
   if (q.keyId) query = query.eq("key_id", q.keyId)
   if (q.userId) query = query.eq("user_id", q.userId)
   if (q.statusClass === "success") query = query.gte("status_code", 200).lt("status_code", 400)
