@@ -2,7 +2,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Check, Copy } from "lucide-react"
+import { Check, Copy, X } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import type { DocLang } from "@/lib/api-v2/docs/registry"
@@ -39,24 +39,36 @@ async function writeClipboard(text: string): Promise<boolean> {
 
 /** Outlined Copy button with ~1.5s check feedback; `label` describes what is copied for screen readers. */
 export function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false)
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle")
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+
+  const ariaLabel =
+    state === "copied" ? `${label} copied` : state === "failed" ? `Copy failed for ${label}, select the code to copy it` : `Copy ${label}`
 
   return (
     <button
       type="button"
       onClick={async () => {
-        if (!(await writeClipboard(text))) return
-        setCopied(true)
+        const ok = await writeClipboard(text)
+        setState(ok ? "copied" : "failed")
         if (timer.current) clearTimeout(timer.current)
-        timer.current = setTimeout(() => setCopied(false), 1500)
+        timer.current = setTimeout(() => setState("idle"), ok ? 1500 : 2500)
       }}
-      aria-label={copied ? `${label} copied` : `Copy ${label}`}
-      className="inline-flex h-10 min-w-[84px] items-center justify-center gap-1.5 rounded-lg border border-slate-600/80 px-3 text-xs font-semibold text-slate-200 transition-colors hover:border-slate-400 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70"
+      aria-label={ariaLabel}
+      className={cn(
+        "inline-flex h-10 min-w-[84px] items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70",
+        state === "failed" ? "border-rose-400/70 text-rose-300" : "border-slate-600/80 text-slate-200 hover:border-slate-400"
+      )}
     >
-      {copied ? <Check className="size-3.5 text-emerald-400" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
-      <span aria-live="polite">{copied ? "Copied" : "Copy"}</span>
+      {state === "copied" ? (
+        <Check className="size-3.5 text-emerald-400" aria-hidden />
+      ) : state === "failed" ? (
+        <X className="size-3.5" aria-hidden />
+      ) : (
+        <Copy className="size-3.5" aria-hidden />
+      )}
+      <span aria-live="polite">{state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : "Copy"}</span>
     </button>
   )
 }

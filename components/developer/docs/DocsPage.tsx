@@ -7,7 +7,7 @@ import { V2_BASE_URL, type V2DocSection } from "@/lib/api-v2/docs/registry"
 import { Callout } from "./Callout"
 import { EndpointBlock } from "./EndpointBlock"
 import { InlineCode, RichText } from "./RichText"
-import { SectionBar, type SectionLink } from "./SectionBar"
+import { DOCS_BAR_SPACE_PX, DOCS_SCROLL_MT, SectionBar, type SectionLink } from "./SectionBar"
 import { StepList } from "./StepList"
 
 export const DOC_GROUP_LABELS: Record<V2DocSection["group"], string> = {
@@ -20,7 +20,7 @@ export const DOC_GROUP_LABELS: Record<V2DocSection["group"], string> = {
 }
 
 /** Highlights the section whose card crosses the band just below the sticky bar (IntersectionObserver scroll-spy). */
-function useScrollSpy(ids: string[]): [string, (id: string) => void] {
+function useScrollSpy(ids: string[], stickyTop: number): [string, (id: string) => void] {
   const [active, setActive] = useState(ids[0] ?? "")
   useEffect(() => {
     const visible = new Map<string, boolean>()
@@ -31,14 +31,14 @@ function useScrollSpy(ids: string[]): [string, (id: string) => void] {
         const next = atBottom ? ids[ids.length - 1] : ids.find((id) => visible.get(id))
         if (next) setActive(next)
       },
-      { rootMargin: "-96px 0px -55% 0px", threshold: 0 }
+      { rootMargin: `-${DOCS_BAR_SPACE_PX + stickyTop}px 0px -55% 0px`, threshold: 0 }
     )
     for (const id of ids) {
       const el = document.getElementById(id)
       if (el) observer.observe(el)
     }
     return () => observer.disconnect()
-  }, [ids])
+  }, [ids, stickyTop])
   return [active, setActive]
 }
 
@@ -47,8 +47,11 @@ export function DocsPage({
   top,
   compact = false,
   navFooter,
+  stickyTop = 0,
 }: {
   sections: V2DocSection[]
+  /** Height in px of the host's own sticky header, so the SECTION bar, side nav and anchors sit below it. */
+  stickyTop?: number
   /** Rendered above the first section, e.g. a "Download Postman collection" button. */
   top?: React.ReactNode
   /** Tighter padding and no hero, for embedding inside the dashboard. */
@@ -61,10 +64,13 @@ export function DocsPage({
     [sections]
   )
   const ids = useMemo(() => sections.map((s) => s.id), [sections])
-  const [activeId, setActiveId] = useScrollSpy(ids)
+  const [activeId, setActiveId] = useScrollSpy(ids, stickyTop)
 
   return (
-    <div className={cn("mx-auto w-full max-w-6xl", !compact && "px-4 py-6 sm:px-6 lg:px-8 lg:py-10")}>
+    <div
+      className={cn("mx-auto w-full max-w-6xl", !compact && "px-4 py-6 sm:px-6 lg:px-8 lg:py-10")}
+      style={{ "--docs-sticky-top": `${stickyTop}px` } as React.CSSProperties}
+    >
       {!compact && (
         <header className="mb-6 space-y-3 lg:mb-10 lg:pl-[272px]">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Developer API · v2</p>
@@ -86,11 +92,18 @@ export function DocsPage({
               key={s.id}
               id={s.id}
               aria-labelledby={`${s.id}-title`}
-              className="scroll-mt-24 space-y-5 rounded-2xl border border-white/60 bg-card p-4 clay dark:border-white/5 sm:p-6 lg:scroll-mt-8 lg:p-8"
+              className={cn(
+                DOCS_SCROLL_MT,
+                "space-y-5 rounded-2xl border border-white/60 bg-card p-4 clay dark:border-white/5 sm:p-6 lg:p-8"
+              )}
             >
               <div className="space-y-2">
                 <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-primary">{DOC_GROUP_LABELS[s.group]}</p>
-                <h2 id={`${s.id}-title`} className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                <h2
+                  id={`${s.id}-title`}
+                  tabIndex={-1}
+                  className="text-xl font-bold tracking-tight text-foreground outline-none sm:text-2xl"
+                >
                   {s.label}
                 </h2>
               </div>

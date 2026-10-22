@@ -6,6 +6,7 @@ import { buildSamples } from "@/lib/api-v2/docs/samples"
 import { CodeBlock, CodeTabs } from "./CodeTabs"
 import { ParamTable } from "./ParamTable"
 import { InlineCode, RichText } from "./RichText"
+import { DOCS_SCROLL_MT } from "./SectionBar"
 
 const KEY_LABEL: Record<NonNullable<V2Endpoint["keyType"]>, string> = {
   standard: "Standard key",
@@ -14,8 +15,8 @@ const KEY_LABEL: Record<NonNullable<V2Endpoint["keyType"]>, string> = {
 }
 
 const METHOD_CLS: Record<V2Endpoint["method"], string> = {
-  GET: "bg-sky-600 text-white",
-  POST: "bg-emerald-600 text-white",
+  GET: "bg-sky-700 text-white dark:bg-sky-600/30 dark:text-sky-100 dark:ring-1 dark:ring-sky-400/40",
+  POST: "bg-emerald-700 text-white dark:bg-emerald-600/30 dark:text-emerald-100 dark:ring-1 dark:ring-emerald-400/40",
 }
 
 /** Status badge colours: auth/permission rose, rate limit amber, server/upstream slate, other client errors orange. */
@@ -49,7 +50,7 @@ export function EndpointBlock({ endpoint: ep }: { endpoint: V2Endpoint }) {
     <article
       id={`endpoint-${ep.id}`}
       aria-label={name}
-      className="scroll-mt-24 space-y-6 rounded-2xl border border-border bg-background/60 p-4 sm:p-6 dark:bg-black/20"
+      className={cn(DOCS_SCROLL_MT, "space-y-6 rounded-2xl border border-border bg-background/60 p-4 sm:p-6 dark:bg-black/20")}
     >
       <header className="space-y-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2.5">

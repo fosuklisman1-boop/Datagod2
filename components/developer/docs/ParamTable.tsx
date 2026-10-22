@@ -6,7 +6,12 @@ import { RichText } from "./RichText"
 export function ParamTable({ params }: { params: V2Param[] }) {
   if (params.length === 0) return null
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
+    <div
+      role="region"
+      tabIndex={0}
+      aria-label="Parameters table, scrollable"
+      className="overflow-x-auto rounded-xl border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       <table className="w-full min-w-[560px] text-left text-sm">
         <thead className="bg-muted/60 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
           <tr>

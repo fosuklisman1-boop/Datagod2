@@ -13,12 +13,24 @@ export interface SectionLink {
   group?: string
 }
 
-/** Smooth-scroll to a section anchor and record it in the URL hash without adding history entries. */
+/**
+ * Offsets driven by `--docs-sticky-top` (px of host chrome above the docs, set on the DocsPage root).
+ * Kept as literal class strings so Tailwind picks them up. With the variable at 0 these equal
+ * the old `scroll-mt-24 lg:scroll-mt-8`, `top-0` and `lg:top-6`.
+ */
+export const DOCS_SCROLL_MT =
+  "scroll-mt-[calc(var(--docs-sticky-top,0px)+6rem)] lg:scroll-mt-[calc(var(--docs-sticky-top,0px)+2rem)]"
+/** Height of the band covered by the mobile SECTION bar, used by the scroll-spy rootMargin. */
+export const DOCS_BAR_SPACE_PX = 96
+
+/** Smooth-scroll to a section anchor, record it in the URL hash, and move focus to its heading. */
 export function scrollToSection(id: string) {
   const el = document.getElementById(id)
   if (!el) return
   el.scrollIntoView({ behavior: "smooth", block: "start" })
   history.replaceState(null, "", `#${id}`)
+  // Headings carry tabIndex={-1}; preventScroll keeps the smooth scroll in charge.
+  document.getElementById(`${id}-title`)?.focus({ preventScroll: true })
 }
 
 function NavList({ sections, activeId, onSelect }: { sections: SectionLink[]; activeId: string; onSelect: (id: string) => void }) {
@@ -83,9 +95,9 @@ export function SectionBar({
 
   return (
     <>
-      <div className="sticky top-0 z-30 -mt-1 mb-5 pt-1 lg:hidden">
+      <div className="sticky top-[var(--docs-sticky-top,0px)] z-30 -mt-1 mb-5 pt-1 lg:hidden">
         <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card/95 py-2 pl-4 pr-2 shadow-md backdrop-blur supports-[backdrop-filter]:bg-card/85">
-          <p className="min-w-0 truncate text-sm" aria-live="polite">
+          <p className="min-w-0 truncate text-sm">
             <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Section:</span>{" "}
             <span className="font-bold text-foreground">{active?.label}</span>
           </p>
@@ -132,8 +144,11 @@ export function SectionBar({
         </SheetContent>
       </Sheet>
 
-      <aside className="hidden lg:block lg:self-start lg:sticky lg:top-6">
-        <nav aria-label="API reference sections" className="max-h-[calc(100dvh-3rem)] overflow-y-auto pb-6 pr-1">
+      <aside className="hidden lg:block lg:self-start lg:sticky lg:top-[calc(var(--docs-sticky-top,0px)+1.5rem)]">
+        <nav
+          aria-label="API reference sections"
+          className="max-h-[calc(100dvh-3rem-var(--docs-sticky-top,0px))] overflow-y-auto pb-6 pr-1"
+        >
           <p className="mb-3 px-3 text-xs font-semibold text-muted-foreground">On this page</p>
           <NavList sections={sections} activeId={activeId} onSelect={go} />
           {navFooter && <div className="mt-6 px-3">{navFooter}</div>}

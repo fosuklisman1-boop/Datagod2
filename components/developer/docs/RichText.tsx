@@ -1,14 +1,7 @@
 // components/developer/docs/RichText.tsx
 import { Fragment } from "react"
 import { cn } from "@/lib/utils"
-
-/**
- * Code-like tokens in registry prose that read better as inline monospace chips:
- * JSON shapes (one level of nesting), header names, key prefixes and URLs.
- * Longer alternatives come first so "Authorization: Bearer <key>" wins over "Authorization".
- */
-const CODE_TOKEN =
-  /(\{(?:[^{}]|\{[^{}]*\})*\}|Authorization: Bearer <key>|Authorization|X-API-Key|dg2_(?:live|test)_|https:\/\/[^\s,]+)/g
+import { splitRichText } from "@/lib/api-v2/docs/rich-text"
 
 export function InlineCode({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -25,11 +18,10 @@ export function InlineCode({ children, className }: { children: React.ReactNode;
 
 /** Renders plain registry text, turning code-like tokens into InlineCode chips. */
 export function RichText({ text }: { text: string }) {
-  const parts = text.split(CODE_TOKEN)
   return (
     <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? <InlineCode key={i}>{part}</InlineCode> : <Fragment key={i}>{part}</Fragment>
+      {splitRichText(text).map((part, i) =>
+        part.code ? <InlineCode key={i}>{part.text}</InlineCode> : <Fragment key={i}>{part.text}</Fragment>
       )}
     </>
   )
