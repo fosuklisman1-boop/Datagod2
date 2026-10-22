@@ -9,7 +9,12 @@
 --                   new api_v2_key_id (v2 key, api_v2_keys) is added. CHECK
 --                   api_orders_exactly_one_key: every row carries exactly one
 --                   of the two. All 1,573 existing rows have a v1 key, so the
---                   check validates cleanly.
+--                   check validates cleanly. The CHECKs are added NOT VALID
+--                   and then VALIDATEd only so the idempotency guard is
+--                   simple; this gives NO lock benefit here, because the
+--                   earlier ALTERs in this transaction already hold ACCESS
+--                   EXCLUSIVE on the table until COMMIT. The tables are small
+--                   (about 1.6k rows), so the validation scan is brief.
 --   sandbox_orders  same split (controller ruling 2026-10-23): v2 TEST keys
 --                   live in api_v2_keys, so a v2 sandbox purchase would
 --                   violate the user_api_keys FK. CHECK
@@ -26,8 +31,17 @@
 --   balance  {success:false, error:'Insufficient balance', required, balance}
 --   wallet   {success:false, error:'Wallet not found'}
 --   failure  {success:false, error:'Order could not be placed'}
---            (bad parameters, key not owned / not active / not live, or any
---            unexpected error). SQLERRM is never returned.
+--            (bad parameters, a price that is not a positive whole-pesewa
+--            amount, key not owned / not active / not live, package missing /
+--            unavailable / not matching network+volume, price not one of the
+--            package's tiers, or any unexpected error). SQLERRM is never
+--            returned.
+--
+-- Check order: parameter guards -> key (locked FOR SHARE) -> reference
+-- lookup (replay / REFERENCE_REUSED) -> package + price tier -> money path.
+-- The package check runs AFTER the replay lookup on purpose: a replay moves
+-- no money and must still answer if the package was later disabled or
+-- repriced.
 --
 -- The money part mirrors place_api_order exactly (wallet FOR UPDATE, balance
 -- check, deduct balance + total_spent, order insert, transactions debit row
@@ -46,6 +60,10 @@
 --     (unique_api_reference_per_user), the inner block is rolled back
 --     (wallet deduction undone) and the handler returns replay or
 --     REFERENCE_REUSED from a fresh lookup.
+--   * Revocation: the key row is read FOR SHARE. A revoke that committed
+--     first makes the re-evaluated row fail the status = 'active' test (no
+--     order); a revoke that starts after we hold the lock waits for our
+--     commit, so the order was placed before the revoke took effect.
 --
 -- Triggers on api_orders (checked 2026-10-23): trg_00_refund_status_guard is
 -- BEFORE UPDATE only (status column); trg_capture_mtn_api_orders is AFTER
@@ -62,10 +80,15 @@ SET LOCAL statement_timeout = '120s';
 -- 1. api_orders: v2 key attribution.
 ALTER TABLE public.api_orders ALTER COLUMN api_key_id DROP NOT NULL;
 
+-- NO ACTION, not RESTRICT: a v2 key that has orders still cannot be deleted
+-- on its own, but NO ACTION is checked at the end of the statement, so a
+-- cascading delete (an auth user removed, cascading to api_v2_keys) that also
+-- removes the referencing api_orders rows in the same statement is not
+-- blocked the way an immediate RESTRICT check would block it.
 ALTER TABLE public.api_orders
   ADD COLUMN IF NOT EXISTS api_v2_key_id UUID
     CONSTRAINT api_orders_api_v2_key_id_fkey
-    REFERENCES public.api_v2_keys(id) ON DELETE RESTRICT;
+    REFERENCES public.api_v2_keys(id) ON DELETE NO ACTION;
 
 DO $$
 BEGIN
@@ -144,15 +167,25 @@ DECLARE
   v_created_at TIMESTAMPTZ;
 BEGIN
   -- 0. Defensive parameter checks. NaN and Infinity compare as > 0 in
-  --    numeric, so they are rejected by text form. A zero or negative price
-  --    must never reach the wallet update (it would credit the wallet).
+  --    numeric, so they are rejected by text form (round() of them does not
+  --    raise; any unexpected error lands in the generic-failure handler
+  --    anyway). A zero or negative price must never reach the
+  --    wallet update (it would credit the wallet). The wallet and
+  --    transactions columns are DECIMAL(15,2) while api_orders.price is
+  --    unbounded, so a sub-pesewa price (0.004 -> debit 0.00) or a 3-decimal
+  --    price (4.555 -> debit 4.56) is refused instead of being rounded.
   IF p_user_id IS NULL
      OR p_api_v2_key_id IS NULL
+     OR p_package_id IS NULL
      OR p_network IS NULL OR btrim(p_network) = ''
-     OR p_volume_gb IS NULL OR NOT (p_volume_gb > 0)
+     OR p_volume_gb IS NULL
      OR p_volume_gb::text IN ('NaN', 'Infinity', '-Infinity')
-     OR p_price IS NULL OR NOT (p_price > 0)
+     OR NOT (p_volume_gb > 0)
+     OR p_price IS NULL
      OR p_price::text IN ('NaN', 'Infinity', '-Infinity')
+     OR NOT (p_price > 0)
+     OR p_price < 0.01
+     OR p_price <> round(p_price, 2)
      OR p_recipient_phone IS NULL OR btrim(p_recipient_phone) = ''
      OR p_api_reference IS NULL OR btrim(p_api_reference) = ''
   THEN
@@ -160,14 +193,16 @@ BEGIN
   END IF;
 
   -- The key must belong to this user and be an active LIVE key. Test keys
-  -- never touch the real wallet (they use sandbox_orders).
-  IF NOT EXISTS (
-    SELECT 1 FROM public.api_v2_keys k
-    WHERE k.id = p_api_v2_key_id
-      AND k.user_id = p_user_id
-      AND k.status = 'active'
-      AND k.environment = 'live'
-  ) THEN
+  -- never touch the real wallet (they use sandbox_orders). FOR SHARE closes
+  -- the revocation race (see header); it does not block other placements.
+  PERFORM 1
+  FROM public.api_v2_keys k
+  WHERE k.id = p_api_v2_key_id
+    AND k.user_id = p_user_id
+    AND k.status = 'active'
+    AND k.environment = 'live'
+  FOR SHARE;
+  IF NOT FOUND THEN
     RETURN v_fail;
   END IF;
 
@@ -190,6 +225,24 @@ BEGIN
       );
     END IF;
     RETURN v_reused;
+  END IF;
+
+  -- 1b. Defence in depth: the package must exist, be available, and match
+  --     the network and volume; the price must be one of its tiers (price,
+  --     or dealer_price when > 0). The route resolves all of this already;
+  --     this stops a buggy caller from inserting a mismatched or underpriced
+  --     order. packages.size is TEXT ("1", "2", ...); the CASE guarantees the
+  --     regex runs before the numeric cast (AND has no evaluation order).
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.packages p
+    WHERE p.id = p_package_id
+      AND p.is_available = true
+      AND lower(p.network) = lower(p_network)
+      AND (CASE WHEN p.size ~ '^[0-9]+(\.[0-9]+)?$' THEN p.size::numeric END) = p_volume_gb
+      AND (p_price = p.price OR (p.dealer_price > 0 AND p_price = p.dealer_price))
+  ) THEN
+    RETURN v_fail;
   END IF;
 
   -- 2. Money path, one inner block: any exception rolls back the deduction.
@@ -292,7 +345,7 @@ BEGIN
       v_old_balance,
       v_new_balance,
       p_description,
-      v_order_id,
+      v_order_id::text,   -- transactions.reference_id is TEXT
       'completed',
       now()
     );
