@@ -97,8 +97,13 @@ export interface PaymentSource {
   reference: string | null
   payerPhone: string | null
   walletUserId: string | null
-  /** Hubtel USSD bot orders only: the paid hubtel_transactions row(s) for this order. paidRows > 1 is refused by the gateway. */
-  hubtel?: { orderId: string; amountPaid: number; paidAt: string; paidRows: number }
+  /**
+   * Hubtel USSD checkout payments (ussd_orders / ussd_shop_orders rows, and Hubtel USSD bot commission rows): the paid
+   * hubtel_transactions row(s) for this order. Facts come from the first row; paidRows !== 1 is refused by the gateway.
+   * amountPaid = gross the customer paid Hubtel (order price + Hubtel's customer fee); amountAfterCharges = net (in prod
+   * equal to the order price); null when unknown.
+   */
+  hubtel?: { orderId: string; amountPaid: number; amountAfterCharges: number | null; paidAt: string; paidRows: number }
 }
 
 export interface RefundableOrder {

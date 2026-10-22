@@ -5,6 +5,8 @@ import { isWalletOnlyTable, WALLET_ONLY_REASON, type RefundGateway } from "../ty
 const MAX_AGE_MS = 44 * 86_400_000
 // Hubtel rejects refunds under GHS 1.00 (code 4000).
 const MIN_AMOUNT = 1
+const round2 = (n: number) => Math.round(n * 100) / 100
+const money = (n: number | null) => (typeof n === "number" && Number.isFinite(n) ? n.toFixed(2) : "unknown")
 
 export const hubtelGateway: RefundGateway = {
   id: "hubtel",
@@ -17,21 +19,26 @@ export const hubtelGateway: RefundGateway = {
     // With several paid rows the other hubtel fields come from an arbitrary one, so never guess.
     if (h.paidRows !== 1) return { ok: false, reason: "This order has more than one Hubtel payment — refund manually" }
     if (!Number.isFinite(h.amountPaid) || h.amountPaid < MIN_AMOUNT) return { ok: false, reason: "Hubtel cannot refund amounts under GHS 1.00" }
-    // Hubtel refunds everything it collected; never send back more than the order cost through the automated path.
-    if (h.amountPaid > order.paid + 0.005) {
-      return { ok: false, reason: `Hubtel collected GHS ${h.amountPaid.toFixed(2)}, more than the order price GHS ${order.paid.toFixed(2)} — refund manually` }
+    // amountPaid is the gross (order price + Hubtel's customer fee). What we refund and ledger is the order price, so
+    // only proceed when Hubtel's net figure is exactly that price; anything else (or unknown) is a manual refund.
+    const net = h.amountAfterCharges
+    if (typeof net !== "number" || !Number.isFinite(net) || net < MIN_AMOUNT || !(Math.abs(net - order.paid) < 0.005)) {
+      return { ok: false, reason: `Hubtel net amount GHS ${money(net)} does not match the order price GHS ${money(order.paid)} — refund manually` }
     }
     const paidAt = Date.parse(h.paidAt)
     if (!Number.isFinite(paidAt) || Date.now() - paidAt > MAX_AGE_MS) return { ok: false, reason: "Hubtel refunds are only possible within 45 days of payment" }
     return { ok: true }
   },
+  // The order price (= Hubtel's net amount, checked in supports), never the gross the customer paid Hubtel.
   fixedAmount(order) {
-    return order.payment.hubtel?.amountPaid ?? null
+    return order.payment.hubtel ? round2(order.paid) : null
   },
   async refund(ctx) {
     const h = ctx.order.payment.hubtel
     if (!h) return { kind: "failed", error: "Not paid through Hubtel" }
-    if (Math.abs(ctx.amount - h.amountPaid) > 0.005) return { kind: "failed", error: "Hubtel refunds the full amount only" }
+    const net = h.amountAfterCharges
+    if (typeof net !== "number" || !Number.isFinite(net)) return { kind: "failed", error: "Hubtel net amount unknown — refund manually" }
+    if (Math.abs(ctx.amount - net) > 0.005) return { kind: "failed", error: "Hubtel refunds the full amount only" }
     return await requestHubtelRefund(h.orderId, ctx.refundId)
   },
   // Hubtel has no refund-status endpoint: the callback settles the refund. `unknown` passes a null ref, so

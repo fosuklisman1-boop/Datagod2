@@ -1,6 +1,6 @@
 import { verifyCallbackToken } from "./hubtel-refund"
 import { applyGatewayOutcome, RefundError, type RefundDeps, type StoredRefund } from "./service"
-import type { GatewayOutcome } from "./types"
+import type { GatewayOutcome, PaymentSource } from "./types"
 
 export interface HubtelCallbackInput {
   refundId: string | null
@@ -25,23 +25,37 @@ const clean = (v: unknown): string => String(v ?? "").replace(/[\u0000-\u001f\u0
 const asRecord = (v: unknown): Record<string, unknown> | null =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null
 
+interface Expected {
+  /** The Hubtel orderId this refund was sent for. */
+  orderId: string | null
+  /** The gross the customer paid Hubtel for that orderId (order price + Hubtel's fee), when known for sure. */
+  gross: number | null
+}
+
 /**
  * The Hubtel orderId this refund was sent for. gateway_ref is NULL while the row is still `reserved` (the callback
  * beat mark_refund_processing) or after an `unknown` send, so fall back to the order's single paid Hubtel row — the
  * id the gateway sent. Any doubt (load error, no facts, several paid rows) leaves only gateway_ref: fail closed.
+ * The gross is taken from the same single paid row, and only when it belongs to the expected orderId.
  */
-async function expectedOrderId(deps: RefundDeps, stored: StoredRefund): Promise<string | null> {
-  if (stored.gateway_ref) return stored.gateway_ref
+async function expectedOf(deps: RefundDeps, stored: StoredRefund): Promise<Expected> {
+  let h: PaymentSource["hubtel"]
   try {
     const order = await deps.loadOrder(stored.order_table, stored.order_id)
-    const h = order?.payment.hubtel
-    return h && h.paidRows === 1 && typeof h.orderId === "string" && h.orderId ? h.orderId : null
+    h = order?.payment.hubtel
   } catch {
-    return stored.gateway_ref
+    h = undefined
   }
+  const single = h && h.paidRows === 1 && typeof h.orderId === "string" && h.orderId ? h : undefined
+  const orderId = stored.gateway_ref || (single ? single.orderId : null)
+  const gross = single && orderId && single.orderId === orderId && Number.isFinite(single.amountPaid) && single.amountPaid > 0
+    ? single.amountPaid
+    : null
+  return { orderId, gross }
 }
 
-function decide(stored: StoredRefund, expected: string | null, body: unknown): GatewayOutcome {
+function decide(stored: StoredRefund, exp: Expected, body: unknown): GatewayOutcome {
+  const expected = exp.orderId
   const root = asRecord(body)
   const data = asRecord(root?.data)
   const park = (why: string): GatewayOutcome => ({ kind: "unknown", error: `Hubtel callback ${why} — review` })
@@ -50,8 +64,12 @@ function decide(stored: StoredRefund, expected: string | null, body: unknown): G
   if (typeof expected !== "string" || !expected || typeof data.orderId !== "string" || data.orderId !== expected) {
     return park("orderId mismatch")
   }
-  if (!(Math.abs(Number(data.amount) - Number(stored.amount)) < 0.005)) {
-    return park(`amount got ${clean(data.amount)} expected ${clean(stored.amount)}`)
+  // Accept the ledgered refund amount (the order price) or the gross the customer paid Hubtel: which one Hubtel reports
+  // is unconfirmed until the supervised live test. Anything else parks.
+  const got = Number(data.amount)
+  const matches = (want: number) => Math.abs(got - want) < 0.005
+  if (!(matches(Number(stored.amount)) || (exp.gross !== null && matches(exp.gross)))) {
+    return park(`amount got ${clean(data.amount)} expected ${clean(stored.amount)}${exp.gross !== null ? ` or ${clean(exp.gross)}` : ""}`)
   }
   // complete_order_refund replaces the stored gateway_ref with this string, so it must keep the Hubtel orderId.
   return { kind: "completed", ref: `${expected} ext:${clean(data.externalTransactionId) || "-"} charges:GHS ${clean(data.charges) || "?"}` }
@@ -60,7 +78,7 @@ function decide(stored: StoredRefund, expected: string | null, body: unknown): G
 /** A settled row: a matching success on a `failed` refund means money may have gone out twice — flag it. */
 async function settledResult(deps: RefundDeps, input: HubtelCallbackInput, stored: StoredRefund): Promise<HubtelCallbackResult> {
   if (stored.status !== "failed") return ALREADY_SETTLED
-  if (decide(stored, await expectedOrderId(deps, stored), input.body).kind !== "completed") return ALREADY_SETTLED
+  if (decide(stored, await expectedOf(deps, stored), input.body).kind !== "completed") return ALREADY_SETTLED
   await input.markConflict(stored.id)
   console.error("[HUBTEL-REFUND-CALLBACK] CONFLICT refund", stored.id)
   return { status: 200, body: { ok: true, note: "conflict" } }
@@ -80,7 +98,7 @@ export async function handleHubtelRefundCallback(deps: RefundDeps, input: Hubtel
   if (!isPending(stored)) return settledResult(deps, input, stored)
 
   try {
-    await applyGatewayOutcome(deps, stored, decide(stored, await expectedOrderId(deps, stored), input.body))
+    await applyGatewayOutcome(deps, stored, decide(stored, await expectedOf(deps, stored), input.body))
   } catch (e) {
     if (e instanceof RefundError && e.code === "ORDER_NOT_PENDING") return ALREADY_SETTLED
     throw e

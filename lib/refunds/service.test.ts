@@ -268,7 +268,7 @@ describe("fixed-amount gateways (Hubtel refunds the full amount only)", () => {
     vi.stubEnv("HUBTEL_REFUND_ENABLED", "true")
     const hubtelOrder = order({
       table: "ussd_orders",
-      payment: { gateway: "hubtel", reference: null, payerPhone: "0241112222", walletUserId: null, hubtel: { orderId: "HUB-1", amountPaid: 10, paidAt: new Date().toISOString(), paidRows: 1 } },
+      payment: { gateway: "hubtel", reference: null, payerPhone: "0241112222", walletUserId: null, hubtel: { orderId: "HUB-1", amountPaid: 10.3, amountAfterCharges: 10, paidAt: new Date().toISOString(), paidRows: 1 } },
     })
     const { deps } = setup({ kind: "completed", ref: "x" }, hubtelOrder)
     const p = await previewRefund(deps, { table: "ussd_orders", id: "o1" })

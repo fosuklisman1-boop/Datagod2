@@ -14,10 +14,11 @@ The gateway ships dark. Nothing changes for admins until step 4.
    - (a) Must the callback host be registered/whitelisted?
    - (b) Are refunds debited from our Hubtel collection balance?
    - (c) Is the callback `charges` fee taken from the customer's refund or from us?
-   - (d) Is the callback `amount` the gross refund or net of `charges`? (The callback only settles when `amount` equals the refund amount; a net figure would park every refund for review.)
+   - (d) Is the callback `amount` the gross refund or net of `charges`? (The callback settles when `amount` equals the refund amount — the order price — or the gross the customer paid Hubtel; any other figure parks the refund for review.)
    - (e) Does a ServiceStatus "failed" fulfilment callback automatically reverse the customer's payment? If yes, refunding those orders here would pay the customer twice — do not refund them until Hubtel answers.
 4. **Deploy the code with the gateway still dark**, then set `HUBTEL_REFUND_ENABLED=true` on Vercel and redeploy.
 5. **Supervised test**: refund ONE real Hubtel USSD order of 1-2 GHS from /admin/refunds, gateway "Hubtel (refund to payer)". Watch History go `processing` -> `completed` when the callback arrives. Confirm the customer actually received the money. Record the charges shown in the refund's reference.
+   - **Record the amount Hubtel actually refunded to the customer**: the net order price (`amount_after_charges`, what our ledger refunds) or the gross including Hubtel's customer fee (`amount_paid`). Also record the callback's `amount` and `charges` fields (from the Vercel log or the refund's reference/note). The code currently refunds and ledgers the **order price** and accepts a callback `amount` equal to **either** figure, so this test is what tells us which one Hubtel really uses; if the ledger and what the customer received differ, fix the code before enabling more refunds.
 6. **If the callback never arrives** (or the refund was parked for review): the refund stays `processing` and cannot be auto-checked — Hubtel has no refund-status endpoint, so no cron covers it, and "Check status" only reports that. There is no button for this; settle it by hand in SQL, under the project's prod-change protocol (read the `order_refunds` row first and confirm its `status`, `amount` and `gateway_ref`; state the exact statement; get the user's OK before running it):
    - **Only once Hubtel or the customer confirms the money arrived**:
      `select complete_order_refund('<refund id>', '<hubtel orderId> manual-confirm');`
@@ -31,7 +32,7 @@ The gateway ships dark. Nothing changes for admins until step 4.
 
 ## Known limits
 
-- Full refund only (the amount field is locked to what Hubtel collected).
+- Full refund only (the amount field is locked to the order price, which must equal Hubtel's net `amount_after_charges`; otherwise refund manually).
 - 44-day window from `paid_at`.
 - One paid Hubtel payment row per order.
-- Hubtel USSD bot orders only.
+- Scope: Hubtel USSD data orders (`ussd_orders` / `ussd_shop_orders` rows with a paid `hubtel_transactions` row) plus Hubtel USSD bot commission orders (`bot_surface = 'hubtel_ussd'`). NOT Uzo/Paystack-paid orders: they have no Hubtel payment to refund.

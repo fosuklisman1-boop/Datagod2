@@ -23,7 +23,13 @@ const okBody = { responseCode: "0000", message: "Successful", data: { amount: 0.
 
 const hubtelOrder = (paidRows = 1, orderId = "HO-1"): RefundableOrder => ({
   ...order,
-  payment: { ...order.payment, hubtel: { orderId, amountPaid: 0.5, paidAt: "2026-10-05T10:00:00Z", paidRows } },
+  payment: { ...order.payment, hubtel: { orderId, amountPaid: 0.5, amountAfterCharges: 0.5, paidAt: "2026-10-05T10:00:00Z", paidRows } },
+})
+
+/** Realistic prod order: GHS 10.00 price (net), customer paid Hubtel GHS 10.30 gross. */
+const grossOrder = (o: { paidRows?: number; orderId?: string } = {}): RefundableOrder => ({
+  ...order,
+  payment: { ...order.payment, hubtel: { orderId: o.orderId ?? "HO-1", amountPaid: 10.3, amountAfterCharges: 10, paidAt: "2026-10-05T10:00:00Z", paidRows: o.paidRows ?? 1 } },
 })
 
 function setup(rows: (StoredRefund | null)[] = [row()], loadOrder: RefundDeps["loadOrder"] = async () => order) {
@@ -203,6 +209,54 @@ describe("handleHubtelRefundCallback", () => {
     const { run, calls } = setup()
     expect((await run({ body: { ...okBody, data: { ...okBody.data, amount: 0.6 } } })).status).toBe(200)
     expect(parked(calls)).toBe("Hubtel callback amount got 0.6 expected 0.5 — review")
+  })
+
+  describe("callback amount: net order price or the gross the customer paid Hubtel", () => {
+    const body = (amount: unknown) => ({ ...okBody, data: { ...okBody.data, amount } })
+    it.each([10, 10.3, "10.00", 10.004, 10.296])("a GHS 10.00 refund completes on callback amount %j", async (amount) => {
+      const { run, calls } = setup([row({ amount: 10 })], async () => grossOrder())
+      await run({ body: body(amount) })
+      expect(calls.map((c) => c.name)).toEqual(["complete_order_refund"])
+    })
+    it.each([9.99, 20, 10.31, null])("a GHS 10.00 refund parks on callback amount %j, naming both accepted figures", async (amount) => {
+      const { run, calls } = setup([row({ amount: 10 })], async () => grossOrder())
+      await run({ body: body(amount) })
+      expect(parked(calls)).toBe(`Hubtel callback amount got ${amount ?? ""} expected 10 or 10.3 — review`)
+    })
+    it("without loadable order facts only the stored amount is accepted", async () => {
+      const ok = setup([row({ amount: 10 })], async () => order)
+      await ok.run({ body: body(10) })
+      expect(ok.calls.map((c) => c.name)).toEqual(["complete_order_refund"])
+      const noFacts = setup([row({ amount: 10 })], async () => order)
+      await noFacts.run({ body: body(10.3) })
+      expect(parked(noFacts.calls)).toBe("Hubtel callback amount got 10.3 expected 10 — review")
+      let n = 0 // the facts lookup throws; applyGatewayOutcome's own later load succeeds
+      const throws = setup([row({ amount: 10 })], async () => {
+        if (n++ === 0) throw new Error("db down")
+        return grossOrder()
+      })
+      await throws.run({ body: body(10.3) })
+      expect(parked(throws.calls)).toBe("Hubtel callback amount got 10.3 expected 10 — review")
+      let m = 0 // the facts lookup finds nothing; applyGatewayOutcome's own later load succeeds
+      const missing = setup([row({ amount: 10 })], async () => (m++ === 0 ? null : grossOrder()))
+      await missing.run({ body: body(10.3) })
+      expect(parked(missing.calls)).toBe("Hubtel callback amount got 10.3 expected 10 — review")
+    })
+    it("the gross is not trusted with several paid rows or facts for a different Hubtel orderId", async () => {
+      const multi = setup([row({ amount: 10 })], async () => grossOrder({ paidRows: 2 }))
+      await multi.run({ body: body(10.3) })
+      parked(multi.calls)
+      const other = setup([row({ amount: 10, gateway_ref: "HO-1" })], async () => grossOrder({ orderId: "HO-OTHER" }))
+      await other.run({ body: body(10.3) })
+      parked(other.calls)
+    })
+    it("a gross-amount success on a failed refund flags a conflict", async () => {
+      const { run, markConflict } = setup([row({ amount: 10, status: "failed" })], async () => grossOrder())
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      expect((await run({ body: body(10.3) })).body.note).toBe("conflict")
+      expect(markConflict).toHaveBeenCalledTimes(1)
+      errSpy.mockRestore()
+    })
   })
 
   it("parks on orderId mismatch and says so", async () => {

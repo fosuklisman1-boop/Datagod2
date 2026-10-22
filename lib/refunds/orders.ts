@@ -120,6 +120,37 @@ async function inRows<T>(db: SupabaseClient, table: string, select: string, col:
   return out
 }
 
+// Tables whose every row may be a Hubtel USSD checkout payment (no bot_surface): ussd_orders / ussd_shop_orders.
+const HUBTEL_CHECKOUT_TABLES: ReadonlySet<OrderTable> = new Set<OrderTable>(["ussd_orders", "ussd_shop_orders"])
+
+/**
+ * Paid Hubtel USSD checkout rows (hubtel_transactions) for these order ids: paid_at set + a Hubtel order id + a
+ * positive gross amount. Batched through inRows; a lookup error throws (never hide a payment).
+ */
+async function loadPaidHubtelTx(db: SupabaseClient, table: OrderTable, ids: string[]): Promise<any[]> {
+  if (ids.length === 0) return []
+  const rows = await inRows<any>(db, "hubtel_transactions", "order_id, hubtel_order_id, amount_paid, amount_after_charges, paid_at", "order_id", ids,
+    (q) => q.eq("order_table", table).not("paid_at", "is", null))
+  return rows.filter((t) => t.paid_at && t.hubtel_order_id && Number(t.amount_paid) > 0)
+}
+
+/** payment.hubtel for one order from its paid rows (facts from the first; the gateway refuses paidRows !== 1). */
+function hubtelFactsOf(paidTx: any[], id: string): Pick<PaymentSource, "hubtel"> {
+  const mine = paidTx.filter((t) => t.order_id === id)
+  if (mine.length === 0) return {}
+  const t = mine[0]
+  const net = t.amount_after_charges == null ? NaN : Number(t.amount_after_charges)
+  return {
+    hubtel: {
+      orderId: String(t.hubtel_order_id),
+      amountPaid: round2(Number(t.amount_paid)),
+      amountAfterCharges: Number.isFinite(net) ? round2(net) : null,
+      paidAt: String(t.paid_at),
+      paidRows: mine.length,
+    },
+  }
+}
+
 export async function resolveWalletUser(
   db: SupabaseClient,
   who: { phone?: string | null; email?: string | null }
@@ -200,19 +231,15 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
   const fk = PROFIT_FK[table]!
 
   const hubtelBotIds = rows.filter((r) => isBotRow(table, r) && r.bot_surface === "hubtel_ussd").map((r) => r.id as string)
-  const [profits, refunds, walletPayments, ledgerRows, hubtelTxRows] = await Promise.all([
+  const [profits, refunds, walletPayments, ledgerRows, paidHubtelTx] = await Promise.all([
     inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${fk}`, fk, ids, (q) => q.is("refund_id", null)),
     inRows<any>(db, "order_refunds", "order_id, status", "order_id", ids, (q) => q.neq("status", "failed")),
     inRows<any>(db, "wallet_payments", "order_id, reference, amount, fee, status", "order_id", ids),
     inRows<any>(db, "hubtel_cs_transactions", "order_id, client_reference, state, refund_claimed_at, resolved_by, created_at", "order_id", ids,
       (q) => q.eq("order_table", table)),
     // Hubtel USSD checkout payments (bot rows only): paid = paid_at set + a Hubtel order id + a positive amount.
-    hubtelBotIds.length
-      ? inRows<any>(db, "hubtel_transactions", "order_id, hubtel_order_id, amount_paid, paid_at", "order_id", hubtelBotIds,
-        (q) => q.eq("order_table", table).not("paid_at", "is", null))
-      : Promise.resolve([] as any[]),
+    loadPaidHubtelTx(db, table, hubtelBotIds),
   ])
-  const paidHubtelTx = hubtelTxRows.filter((t) => t.paid_at && t.hubtel_order_id && Number(t.amount_paid) > 0)
 
   const shopIds = [...new Set([
     ...profits.map((p) => p.shop_id as string),
@@ -249,16 +276,14 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
     const reference = referenceOf(r)
     const wp = reference ? walletPayments.find((w) => w.reference === reference) : undefined
     const buyerPhone = table === "airtime_orders" || !r.buyer_phone ? null : normalizeGhanaPhone(String(r.buyer_phone))
-    const hubtelPaid = bot && r.bot_surface === "hubtel_ussd" ? paidHubtelTx.filter((t) => t.order_id === id) : []
+    const hubtelFacts = bot && r.bot_surface === "hubtel_ussd" ? hubtelFactsOf(paidHubtelTx, id) : {}
     const payment: PaymentSource = {
-      gateway: reference ? "paystack" : hubtelPaid.length > 0 ? "hubtel" : null,
+      gateway: reference ? "paystack" : hubtelFacts.hubtel ? "hubtel" : null,
       reference,
       // Bot rows: the buyer's own number (dialing / WhatsApp number) and nobody else's.
       payerPhone: bot ? buyerPhone ?? null : (reference ? payerByRef.get(reference) : undefined) ?? buyerPhone ?? null,
       walletUserId: null,
-      ...(hubtelPaid.length > 0
-        ? { hubtel: { orderId: String(hubtelPaid[0].hubtel_order_id), amountPaid: round2(Number(hubtelPaid[0].amount_paid)), paidAt: String(hubtelPaid[0].paid_at), paidRows: hubtelPaid.length } }
-        : {}),
+      ...hubtelFacts,
     }
     const paid = round2(Number(table === "airtime_orders" ? r.total_paid : (r.paid_amount ?? r.amount)))
     const ledger: CommissionLedgerFact[] = ledgerRows
@@ -351,7 +376,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
   const walletOnly = isWalletOnlyTable(table)
   const fk = PROFIT_FK[table]
 
-  const [profits, tracking, claims, refunds, walletDebits, walletPayments, fulfillmentLogs] = await Promise.all([
+  const [profits, tracking, claims, refunds, walletDebits, walletPayments, fulfillmentLogs, paidHubtelTx] = await Promise.all([
     fk ? inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${fk}`, fk, ids, (q) => q.is("refund_id", null)) : Promise.resolve([] as any[]),
     inRows<any>(db, "mtn_fulfillment_tracking", `status, ${TRACKING_COL[table]}`, TRACKING_COL[table], ids),
     inRows<any>(db, "order_dispatch_claims", "order_id, last_outcome, attempts", "order_id", ids),
@@ -361,6 +386,8 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
     // CodeCraft (AT-iShare/Telecel/BigTime) logs its dispatch here, not in mtn_fulfillment_tracking. For api orders the
     // log also carries order_id = the api order id (legacy column), so one lookup by order_id covers both tables.
     walletOnly ? inRows<any>(db, "fulfillment_logs", "order_id, status", "order_id", ids) : Promise.resolve([] as any[]),
+    // Hubtel USSD checkout payments: any row of these tables may have been paid through Hubtel (no bot_surface here).
+    HUBTEL_CHECKOUT_TABLES.has(table) ? loadPaidHubtelTx(db, table, ids) : Promise.resolve([] as any[]),
   ])
 
   const shopIds = [...new Set([
@@ -473,15 +500,18 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
       const reference = (r.paystack_reference as string | null) ?? null
       fee = reference ? feeByRef.get(reference) ?? 0 : 0
       const debit = qualifyingDebit(paid)
+      const hubtelFacts = hubtelFactsOf(paidHubtelTx, id)
       if (debit && !reference) {
-        payment = { gateway: "wallet", reference: null, payerPhone: displayPhone(r.dialing_phone), walletUserId: debit.user_id }
+        payment = { gateway: "wallet", reference: null, payerPhone: displayPhone(r.dialing_phone), walletUserId: debit.user_id, ...hubtelFacts }
       } else {
         // A Paystack-referenced order stays 'paystack' even if a (qualifying) debit exists: a debit never reclassifies it.
+        // Hubtel only when there is no Paystack reference (Paystack precedence, as on commission bot rows).
         payment = {
-          gateway: reference ? "paystack" : null,
+          gateway: reference ? "paystack" : hubtelFacts.hubtel ? "hubtel" : null,
           reference,
           payerPhone: displayPhone(r.dialing_phone),
           walletUserId: await resolveWalletUser(db, { phone: r.dialing_phone }),
+          ...hubtelFacts,
         }
       }
     }
