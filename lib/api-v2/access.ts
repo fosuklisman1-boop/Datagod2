@@ -25,6 +25,15 @@ export interface AccessInput {
   suspended: boolean
 }
 
+export const MSG_UNAUTHORIZED = "Invalid or missing API key"
+export const MSG_UNAVAILABLE = "This API is currently unavailable"
+export const MSG_SUSPENDED = "This account is suspended"
+export const MSG_PENDING = "This API key is awaiting approval"
+export const MSG_REVOKED = "This API key has been revoked"
+export const MSG_ROLE_NOT_ALLOWED = "Your account is not permitted to use this API"
+export const MSG_RATE_LIMITED = "Rate limit exceeded"
+export const msgWrongKeyType = (required: string) => `This endpoint requires a ${required} key`
+
 /**
  * Order: config disabled (503) > account suspended > key status (pending, revoked)
  * > key type > role. All denials except the first are 403.
@@ -33,26 +42,26 @@ export function decideAccess(
   i: AccessInput
 ): { ok: true } | { ok: false; status: 403 | 503; message: string } {
   if (!i.configEnabled) {
-    return { ok: false, status: 503, message: "This API is currently unavailable" }
+    return { ok: false, status: 503, message: MSG_UNAVAILABLE }
   }
   if (i.suspended) {
-    return { ok: false, status: 403, message: "This account is suspended" }
+    return { ok: false, status: 403, message: MSG_SUSPENDED }
   }
   if (i.keyStatus === "pending") {
-    return { ok: false, status: 403, message: "This API key is awaiting approval" }
+    return { ok: false, status: 403, message: MSG_PENDING }
   }
   if (i.keyStatus === "revoked") {
-    return { ok: false, status: 403, message: "This API key has been revoked" }
+    return { ok: false, status: 403, message: MSG_REVOKED }
   }
   if (i.keyType !== i.requiredType) {
     return {
       ok: false,
       status: 403,
-      message: `This endpoint requires a ${i.requiredType} key`,
+      message: msgWrongKeyType(i.requiredType),
     }
   }
   if (!i.allowedRoles.includes(i.userRole)) {
-    return { ok: false, status: 403, message: "Your account is not permitted to use this API" }
+    return { ok: false, status: 403, message: MSG_ROLE_NOT_ALLOWED }
   }
   return { ok: true }
 }

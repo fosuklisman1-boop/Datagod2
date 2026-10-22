@@ -1,6 +1,6 @@
 import type { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
-import { extractKey, decideAccess } from "./access"
+import { extractKey, decideAccess, MSG_UNAUTHORIZED, MSG_RATE_LIMITED } from "./access"
 import { errorBody, successBody, v2Response, type V2ErrorStatus } from "./envelope"
 import { hashV2Key, parseV2Key, type Environment, type KeyType } from "./keys"
 import { resolveLimit, type LimitGroup } from "./limits"
@@ -86,7 +86,7 @@ export async function runV2(
   input: V2Input
 ): Promise<V2Outcome> {
   const start = deps.now().getTime()
-  const unauthorized = () => fail(401, "Invalid or missing API key")
+  const unauthorized = () => fail(401, MSG_UNAUTHORIZED)
 
   const raw = extractKey(input.headers)
   if (!raw) return unauthorized()
@@ -116,7 +116,7 @@ export async function runV2(
     60000,
     row.user_id
   )
-  if (!limit.allowed) return fail(429, "Rate limit exceeded")
+  if (!limit.allowed) return fail(429, MSG_RATE_LIMITED)
 
   const [user, config] = await Promise.all([deps.store.getUserForKey(row.user_id), deps.store.getConfig()])
   if (!user) return unauthorized()

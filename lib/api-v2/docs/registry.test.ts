@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest"
 import { v2DocsRegistry } from "./registry"
 import type { V2ErrorStatus } from "../envelope"
+import {
+  MSG_UNAUTHORIZED,
+  MSG_UNAVAILABLE,
+  MSG_SUSPENDED,
+  MSG_PENDING,
+  MSG_REVOKED,
+  MSG_ROLE_NOT_ALLOWED,
+  MSG_RATE_LIMITED,
+  msgWrongKeyType,
+} from "../access"
 
 const VALID_STATUS: V2ErrorStatus[] = [400, 401, 402, 403, 404, 409, 429, 500, 502, 503]
 const endpoints = v2DocsRegistry.flatMap((s) => s.endpoints)
@@ -24,6 +34,19 @@ describe("v2DocsRegistry", () => {
       expect(e.path.startsWith("/")).toBe(true)
       expect(["standard", "commission", "sms"]).toContain(e.keyType)
       for (const err of e.errors) expect(VALID_STATUS).toContain(err.status as V2ErrorStatus)
+    }
+  })
+
+  it("documents only real access error messages and all variants", () => {
+    const real403 = [MSG_SUSPENDED, MSG_PENDING, MSG_REVOKED, msgWrongKeyType("standard"), MSG_ROLE_NOT_ALLOWED]
+    for (const sig of ["GET /account/role", "GET /wallet/balance"]) {
+      const e = endpoints.find((x) => `${x.method} ${x.path}` === sig)!
+      const msgs = (s: number) => e.errors.filter((x) => x.status === s).map((x) => x.message)
+      expect(msgs(401)).toEqual([MSG_UNAUTHORIZED])
+      expect(MSG_UNAUTHORIZED).toBe("Invalid or missing API key")
+      expect(msgs(403).sort()).toEqual([...real403].sort())
+      expect(msgs(503)).toEqual([MSG_UNAVAILABLE])
+      expect(msgs(429)).toEqual([MSG_RATE_LIMITED])
     }
   })
 

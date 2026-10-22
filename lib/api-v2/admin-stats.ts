@@ -92,7 +92,20 @@ export interface LogQuery {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const ISO_RE = /^\d{4}-\d{2}-\d{2}([T ][\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/
+// Plain date, or a full timestamp with an explicit Z / offset designator.
+const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2}))?$/
+const MAX_OFFSET = 100000
+
+function isRealIsoDate(v: string): boolean {
+  const m = ISO_RE.exec(v)
+  if (!m) return false
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  if (mo < 1 || mo > 12 || d < 1) return false
+  if (d > new Date(Date.UTC(y, mo, 0)).getUTCDate()) return false
+  if (m[4] !== undefined && (Number(m[4]) > 23 || Number(m[5]) > 59)) return false
+  if (m[6] !== undefined && Number(m[6]) > 59) return false
+  return !Number.isNaN(Date.parse(v))
+}
 const CLASSES = ["success", "client_error", "server_error"] as const
 const MAX_LIMIT = 200
 const MAX_ENDPOINT = 200
@@ -118,7 +131,7 @@ export function parseLogQuery(
   for (const f of ["since", "until"] as const) {
     const v = sp.get(f)
     if (v === null || v === "") continue
-    if (!ISO_RE.test(v) || Number.isNaN(Date.parse(v))) return { ok: false, error: `${f} must be an ISO date` }
+    if (!isRealIsoDate(v)) return { ok: false, error: `${f} must be an ISO date` }
     value[f] = v
   }
 
@@ -137,7 +150,11 @@ export function parseLogQuery(
   const offset = sp.get("offset")
   if (offset !== null && offset !== "") {
     if (!/^\d+$/.test(offset)) return { ok: false, error: "offset must be a non-negative integer" }
-    value.offset = Number(offset)
+    const n = Number(offset)
+    if (!Number.isSafeInteger(n) || n > MAX_OFFSET) {
+      return { ok: false, error: `offset must be at most ${MAX_OFFSET}` }
+    }
+    value.offset = n
   }
 
   return { ok: true, value }

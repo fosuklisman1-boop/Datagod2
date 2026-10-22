@@ -115,4 +115,22 @@ describe("parseLogQuery", () => {
     expect(parse("until=2026-13-45").ok).toBe(false)
     expect(parse("limit=abc").ok).toBe(false)
   })
+
+  it("bounds offset", () => {
+    expect(parse("offset=100000").ok).toBe(true)
+    expect(parse("offset=100001").ok).toBe(false)
+    expect(parse(`offset=${"9".repeat(309)}`).ok).toBe(false)
+    expect(parse("offset=9007199254740993").ok).toBe(false)
+  })
+
+  it("rejects dates that roll over or lack a timezone", () => {
+    expect(parse("since=2026-02-31").ok).toBe(false)
+    expect(parse("since=2026-04-31T00:00:00Z").ok).toBe(false)
+    expect(parse("since=2026-10-01T25:00:00Z").ok).toBe(false)
+    expect(parse("since=2026-10-01T10:00:00").ok).toBe(false)
+    expect(parse("since=2026-10-01T10:00").ok).toBe(false)
+    expect(parse("since=2028-02-29").ok).toBe(true)
+    expect(parse("since=2026-10-01T10:00:00.123%2B02:00").ok).toBe(true)
+    expect(parse("since=2026-10-01T10:00:00Z").ok).toBe(true)
+  })
 })

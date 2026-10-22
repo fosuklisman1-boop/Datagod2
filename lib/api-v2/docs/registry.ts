@@ -1,4 +1,14 @@
 import type { KeyType } from "../keys"
+import {
+  MSG_UNAUTHORIZED,
+  MSG_UNAVAILABLE,
+  MSG_SUSPENDED,
+  MSG_PENDING,
+  MSG_REVOKED,
+  MSG_ROLE_NOT_ALLOWED,
+  MSG_RATE_LIMITED,
+  msgWrongKeyType,
+} from "../access"
 
 export type DocLang = "curl" | "node" | "php" | "python"
 
@@ -124,6 +134,20 @@ const START_SECTIONS: V2DocSection[] = [
   },
 ]
 
+/** Every access/limit error a standard-key endpoint can return, using the real API strings. */
+function standardAccessErrors(): { status: number; message: string }[] {
+  return [
+    { status: 401, message: MSG_UNAUTHORIZED },
+    { status: 403, message: MSG_SUSPENDED },
+    { status: 403, message: MSG_PENDING },
+    { status: 403, message: MSG_REVOKED },
+    { status: 403, message: msgWrongKeyType("standard") },
+    { status: 403, message: MSG_ROLE_NOT_ALLOWED },
+    { status: 429, message: MSG_RATE_LIMITED },
+    { status: 503, message: MSG_UNAVAILABLE },
+  ]
+}
+
 const ROLE_ENDPOINT: V2Endpoint = {
   id: "account-role",
   group: "data",
@@ -139,11 +163,7 @@ const ROLE_ENDPOINT: V2Endpoint = {
     data: { role: "dealer", key_type: "standard", environment: "live" },
     meta: { timestamp: TS, version: "2" },
   },
-  errors: [
-    { status: 401, message: "Invalid or missing API key" },
-    { status: 403, message: "This API key is pending approval" },
-    { status: 429, message: "Rate limit exceeded" },
-  ],
+  errors: [...standardAccessErrors()],
   notes: [
     "Role-specific pricing applies to your orders, so check the role here if your prices look unexpected.",
     "A cheap way to confirm a newly approved key works.",
@@ -165,12 +185,7 @@ const BALANCE_ENDPOINT: V2Endpoint = {
     data: { balance: 125.5, total_credited: 600, total_spent: 474.5, currency: "GHS" },
     meta: { timestamp: TS, version: "2" },
   },
-  errors: [
-    { status: 401, message: "Invalid or missing API key" },
-    { status: 403, message: "This API key is not permitted to use this endpoint" },
-    { status: 429, message: "Rate limit exceeded" },
-    { status: 500, message: "Failed to fetch wallet balance" },
-  ],
+  errors: [...standardAccessErrors(), { status: 500, message: "Failed to fetch wallet balance" }],
   notes: [
     "Check the balance before a large purchase to avoid a 400 for insufficient funds.",
     "With a test key the response is { balance, currency, sandbox: true } and never reflects your real wallet.",
