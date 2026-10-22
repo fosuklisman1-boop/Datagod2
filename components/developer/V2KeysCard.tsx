@@ -1,8 +1,9 @@
 // components/developer/V2KeysCard.tsx
 "use client"
 
-import { Coins, Loader2, MessageSquareText, Wallet } from "lucide-react"
+import { Coins, Loader2, MessageSquareText, RotateCw, Wallet } from "lucide-react"
 import { Callout } from "@/components/developer/docs/Callout"
+import { Button } from "@/components/ui/button"
 import type { Environment, KeyType } from "@/lib/api-v2/keys"
 import type { AccessReason, AccessSummary } from "@/lib/api-v2/key-issue"
 import type { V2KeySummary } from "@/lib/api-v2/key-slots"
@@ -46,6 +47,23 @@ export function AccessDeniedCallout({ reason }: { reason: Exclude<AccessReason, 
   return (
     <Callout tone="warning" title={d.title}>
       {d.body}
+    </Callout>
+  )
+}
+
+/**
+ * Shown when the keys/access answer could not be loaded. Deliberately offers no generate controls
+ * (fail closed); the only action is Retry.
+ */
+export function LoadErrorCallout({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Callout tone="warning" title="We could not load your API keys">
+      <p className="break-words">
+        {message.replace(/[.!\s]+$/, "")}. This is usually a network problem; your keys are not affected. Check your connection and try again.
+      </p>
+      <Button type="button" variant="outline" size="sm" className="mt-2" onClick={onRetry}>
+        <RotateCw className="size-4" aria-hidden /> Retry
+      </Button>
     </Callout>
   )
 }

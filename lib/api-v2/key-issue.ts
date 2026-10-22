@@ -57,3 +57,15 @@ export function accessSummary(input: {
   if (!input.allowedRoles.includes(input.role)) return { canGenerate: false, reason: "role_not_allowed" }
   return { canGenerate: true, reason: "ok" }
 }
+
+/** The dashboard's view of v2 access: the server's reason, or still loading, or the load failed. */
+export type DashboardAccessState = AccessReason | "loading" | "error"
+
+/**
+ * Whether the Legacy v1 section starts open. While v2 is not open (or we do not know yet because
+ * access is loading or failed to load) existing v1 integrators must see their working keys straight
+ * away; once v2 is open the section starts collapsed. The user can toggle it either way afterwards.
+ */
+export function legacyDefaultOpen(state: DashboardAccessState): boolean {
+  return state === "disabled" || state === "loading" || state === "error"
+}

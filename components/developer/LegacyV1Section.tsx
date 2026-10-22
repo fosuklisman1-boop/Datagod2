@@ -13,19 +13,31 @@ import { cn } from "@/lib/utils"
 const CARD = "rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 sm:p-5 clay"
 const CODE = "bg-background px-1 py-0.5 rounded border font-mono text-xs"
 
-/** The v1 keys card and v1 documentation, unchanged, behind a collapsed section. */
-export function LegacyV1Section() {
-  const [open, setOpen] = useState(false)
+export interface LegacyV1SectionProps {
+  /** Starting state (see legacyDefaultOpen). Followed until the user toggles the section themselves. */
+  defaultOpen: boolean
+  /** Whether v2 keys are open for accounts; only then does the copy point new integrations at v2. */
+  v2Open: boolean
+}
+
+/** The v1 keys card and v1 documentation, unchanged, behind a collapsible section. */
+export function LegacyV1Section({ defaultOpen, v2Open }: LegacyV1SectionProps) {
+  // null until the user toggles; until then the section follows the (possibly still loading) default.
+  const [userOpen, setUserOpen] = useState<boolean | null>(null)
+  const open = userOpen ?? defaultOpen
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="rounded-2xl border border-border bg-card/60">
+    <Collapsible open={open} onOpenChange={setUserOpen} className="rounded-2xl border border-border bg-card/60">
       <CollapsibleTrigger className="flex w-full items-center gap-3 rounded-2xl p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-5">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
           <History className="size-5" aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-bold text-foreground">Legacy v1 keys &amp; docs</span>
+          <span className="block text-sm font-bold text-foreground">{v2Open ? "Legacy v1 keys & docs" : "v1 keys & docs"}</span>
           <span className="block text-xs leading-5 text-muted-foreground">
-            Your existing <code className="font-mono">dg_live_</code> / <code className="font-mono">dg_test_</code> keys keep working. New integrations should use v2.
+            Your existing <code className="font-mono">dg_live_</code> / <code className="font-mono">dg_test_</code> keys keep working.{" "}
+            {v2Open
+              ? "New integrations should use v2."
+              : "Manage them here as usual; v2 keys will be offered on this page when v2 opens."}
           </span>
         </span>
         <ChevronDown className={cn("size-5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} aria-hidden />

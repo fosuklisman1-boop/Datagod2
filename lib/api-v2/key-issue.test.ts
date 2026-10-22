@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { accessSummary, canIssue } from "./key-issue"
+import { accessSummary, canIssue, legacyDefaultOpen } from "./key-issue"
 
 const allowedRoles = ["dealer", "admin"]
 
@@ -82,5 +82,22 @@ describe("accessSummary", () => {
       canGenerate: false,
       reason: "role_not_allowed",
     })
+  })
+})
+
+describe("legacyDefaultOpen", () => {
+  it("opens the legacy v1 section while v2 is not open yet", () => {
+    expect(legacyDefaultOpen("disabled")).toBe(true)
+  })
+
+  it("opens it while the access state is still loading or failed to load", () => {
+    expect(legacyDefaultOpen("loading")).toBe(true)
+    expect(legacyDefaultOpen("error")).toBe(true)
+  })
+
+  it("keeps it collapsed once v2 is open", () => {
+    expect(legacyDefaultOpen("ok")).toBe(false)
+    expect(legacyDefaultOpen("suspended")).toBe(false)
+    expect(legacyDefaultOpen("role_not_allowed")).toBe(false)
   })
 })

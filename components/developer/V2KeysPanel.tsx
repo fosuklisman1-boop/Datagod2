@@ -5,10 +5,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import type { Environment, KeyType } from "@/lib/api-v2/keys"
-import type { AccessSummary } from "@/lib/api-v2/key-issue"
+import type { AccessSummary, DashboardAccessState } from "@/lib/api-v2/key-issue"
 import type { V2KeySummary } from "@/lib/api-v2/key-slots"
 import { GenerateKeyDialog, type IssuedKey } from "./GenerateKeyDialog"
-import { KeysExplainer, V2KeysCard } from "./V2KeysCard"
+import { KeysExplainer, LoadErrorCallout, V2KeysCard } from "./V2KeysCard"
 import { slotId } from "./V2KeyBlock"
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -20,11 +20,15 @@ async function readJson(res: Response): Promise<Record<string, unknown>> {
   return res.json().catch(() => ({}))
 }
 
+const LOAD_FAILED = "Failed to load your API keys"
+
 /** Data owner for the v2 Keys tab: loads keys + access, generates and revokes. */
-export function V2KeysPanel() {
+export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (state: DashboardAccessState) => void }) {
   const [keys, setKeys] = useState<V2KeySummary[]>([])
   const [access, setAccess] = useState<AccessSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  // Set when the last load failed. Fail closed: no generate controls are rendered while it is set.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [busySlot, setBusySlot] = useState<string | null>(null)
   // The full key exists only here, between a successful POST and the dialog closing.
   const [issued, setIssued] = useState<IssuedKey | null>(null)
@@ -34,24 +38,34 @@ export function V2KeysPanel() {
     try {
       const res = await fetch("/api/user/v2-keys", { headers: await authHeader(), cache: "no-store" })
       const data = await readJson(res)
-      if (!res.ok) {
-        toast.error(typeof data.error === "string" ? data.error : "Failed to load your API keys")
-        // Fail closed: without an answer from the server, never offer Generate.
-        setAccess((a) => a ?? { canGenerate: false, reason: "disabled" })
+      const a = data.access as AccessSummary | undefined
+      if (!res.ok || !a || typeof a.canGenerate !== "boolean") {
+        const msg = typeof data.error === "string" ? data.error : LOAD_FAILED
+        toast.error(msg)
+        setLoadError(msg)
         return
       }
       setKeys(Array.isArray(data.keys) ? (data.keys as V2KeySummary[]) : [])
-      const a = data.access as AccessSummary | undefined
-      setAccess(a && typeof a.canGenerate === "boolean" ? a : { canGenerate: false, reason: "disabled" })
+      setAccess(a)
+      setLoadError(null)
     } catch {
-      toast.error("Failed to load your API keys")
-      setAccess((a) => a ?? { canGenerate: false, reason: "disabled" })
+      toast.error(LOAD_FAILED)
+      setLoadError(LOAD_FAILED)
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => { void load() }, [load])
+
+  const retry = () => {
+    setLoading(true)
+    setLoadError(null)
+    void load()
+  }
+
+  const state: DashboardAccessState = loading ? "loading" : loadError || !access ? "error" : access.reason
+  useEffect(() => { onAccessStateChange?.(state) }, [state, onAccessStateChange])
 
   /** Runs one request at a time; a second click while one is running is ignored. */
   const run = async (slot: string, fn: () => Promise<void>) => {
@@ -111,14 +125,18 @@ export function V2KeysPanel() {
   return (
     <div className="space-y-4">
       <KeysExplainer />
-      <V2KeysCard
-        keys={keys}
-        access={access}
-        loading={loading}
-        busySlot={busySlot}
-        onGenerate={(t, e) => void generate(t, e)}
-        onRevoke={(k) => void revoke(k)}
-      />
+      {state === "error" ? (
+        <LoadErrorCallout message={loadError ?? LOAD_FAILED} onRetry={retry} />
+      ) : (
+        <V2KeysCard
+          keys={keys}
+          access={access}
+          loading={loading}
+          busySlot={busySlot}
+          onGenerate={(t, e) => void generate(t, e)}
+          onRevoke={(k) => void revoke(k)}
+        />
+      )}
       <GenerateKeyDialog issued={issued} onClose={() => setIssued(null)} />
     </div>
   )

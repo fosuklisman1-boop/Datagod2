@@ -11,6 +11,7 @@ import { InlineCode } from "@/components/developer/docs/RichText"
 import { V2KeysPanel } from "@/components/developer/V2KeysPanel"
 import { LegacyV1Section } from "@/components/developer/LegacyV1Section"
 import { v2DocsRegistry, V2_BASE_URL } from "@/lib/api-v2/docs/registry"
+import { legacyDefaultOpen, type DashboardAccessState } from "@/lib/api-v2/key-issue"
 
 const PAGE_TABS = [
   { id: "keys", label: "API Keys", icon: KeyRound },
@@ -36,6 +37,9 @@ function useHeaderOffset(): number {
 
 export default function DeveloperPage() {
   const stickyTop = useHeaderOffset()
+  // Reported by the keys panel; drives whether existing v1 integrators see their keys open by default.
+  const [accessState, setAccessState] = useState<DashboardAccessState>("loading")
+  const legacyOpen = legacyDefaultOpen(accessState)
 
   return (
     <DashboardLayout>
@@ -66,7 +70,7 @@ export default function DeveloperPage() {
           </div>
 
           <TabsContent value="keys" className="mt-4">
-            <V2KeysPanel />
+            <V2KeysPanel onAccessStateChange={setAccessState} />
           </TabsContent>
 
           <TabsContent value="docs" className="mt-4">
@@ -74,7 +78,7 @@ export default function DeveloperPage() {
           </TabsContent>
         </Tabs>
 
-        <LegacyV1Section />
+        <LegacyV1Section defaultOpen={legacyOpen} v2Open={!legacyOpen} />
       </div>
     </DashboardLayout>
   )
