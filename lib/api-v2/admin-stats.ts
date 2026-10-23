@@ -7,8 +7,11 @@ export interface AdminStats {
   failed24h: number
   avgLatencyMs: number | null
   top: { userId: string; name: string | null; email: string | null; requests: number } | null
-  revenue24h: null
-  revenueLifetime: null
+  /** null when the stats function predates 0131 (or the value is malformed): the UI hides the tile. */
+  revenue24h: number | null
+  revenueLifetime: number | null
+  orders24h: number | null
+  pendingOrders24h: number | null
 }
 
 export interface KeyActivity {
@@ -18,8 +21,9 @@ export interface KeyActivity {
   successRate: number | null
   avgLatencyMs: number | null
   lastUsedAt: string | null
-  spent: null
-  orders: null
+  spent: number | null
+  orders: number | null
+  pending: number | null
 }
 
 function obj(v: unknown): Record<string, unknown> {
@@ -28,6 +32,16 @@ function obj(v: unknown): Record<string, unknown> {
 
 function count(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0
+}
+
+/** A non-negative finite number rounded to 2 dp, else null (absent or malformed). */
+function optAmount(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v * 100) / 100 : null
+}
+
+/** A non-negative finite count, else null (absent or malformed). */
+function optCount(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null
 }
 
 function latency(v: unknown): number | null {
@@ -60,8 +74,10 @@ export function shapeStats(
     top: topId
       ? { userId: topId, name: owner?.name ?? null, email: owner?.email ?? null, requests: count(top.requests) }
       : null,
-    revenue24h: null,
-    revenueLifetime: null,
+    revenue24h: optAmount(r.revenue),
+    revenueLifetime: optAmount(r.revenue_lifetime),
+    orders24h: optCount(r.orders),
+    pendingOrders24h: optCount(r.pending_orders),
   }
 }
 
@@ -75,8 +91,9 @@ export function shapeKeyActivity(raw: unknown): KeyActivity {
     successRate: rate(count(r.ok), requests),
     avgLatencyMs: latency(r.avg_latency_ms),
     lastUsedAt: typeof r.last_used_at === "string" ? r.last_used_at : null,
-    spent: null,
-    orders: null,
+    spent: optAmount(r.spent),
+    orders: optCount(r.orders),
+    pending: optCount(r.pending),
   }
 }
 

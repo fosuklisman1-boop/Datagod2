@@ -35,9 +35,7 @@ function Tile({
   )
 }
 
-/** Revenue is typed `null` until plan 3 attributes orders to keys; the tile renders only when a number arrives. */
-type MaybeRevenue = { revenue24h: number | null; revenueLifetime: number | null }
-
+/** Revenue is null until migration 0131 is applied; the tile renders only when a number arrives. */
 export function OverviewTiles({
   keys,
   stats,
@@ -54,7 +52,7 @@ export function OverviewTiles({
   const c = statusCounts(keys)
   const v1 = keys.filter((k) => k.source === "v1").length
   const s = stats
-  const rev = s as MaybeRevenue | null
+  const rev = s
   const showRevenue = typeof rev?.revenue24h === "number"
   const dash = loading && !s ? "…" : "—"
   const val = (f: (x: AdminStats) => string) => (s ? f(s) : dash)
