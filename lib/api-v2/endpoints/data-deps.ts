@@ -14,11 +14,16 @@ import {
 } from "../order-store"
 import { scheduleFulfillment } from "../fulfillment"
 import type { DataDeps, SandboxOrderLike } from "./data"
+import type { WhitelistEntry } from "@/lib/mtn-providers/provider-whitelist"
+import type { SupabaseClient } from "@supabase/supabase-js"
+
+type VerifySettings = { enabled: boolean; providers: string[] }
 
 export interface MtnVerifyIo {
-  settings(): Promise<{ enabled: boolean; providers: string[] }>
-  registry: Array<{ name: string; configured: () => boolean }>
-  check(phones: string[]): Promise<Array<{ phone: string; verified: boolean }>>
+  settings(): Promise<VerifySettings>
+  registry: WhitelistEntry[]
+  /** The shared guard (checkCustomerFacingVerification); receives the WRAPPED registry. */
+  check(phones: string[], registry: WhitelistEntry[], settings: VerifySettings): Promise<Array<{ phone: string; verified: boolean }>>
   timeoutMs: number
 }
 
@@ -32,7 +37,14 @@ function errName(err: unknown): string {
  * (lib/mtn-providers/customer-verification) v1 runs on MTN API orders.
  * Contract (same as that guard): FAIL OPEN. Feature off, no configured
  * provider, an error or a timeout yields null ("unchecked") for every number;
- * only an explicit verified:false from the guard yields false (blocked).
+ * only a POSITIVE negative yields false (blocked).
+ *
+ * Outage detection without editing the shared guard: the guard reports
+ * verified:false when every provider's checkBatch THREW (it treats a throw
+ * as "no approval"). Each registry entry is wrapped to count answers; the
+ * guard sends every still-unverified number to every provider in turn, so a
+ * verified:false is only trusted when at least one provider ANSWERED.
+ * Otherwise the number is unchecked (null).
  * Never throws; logs a fixed string with the error class name only.
  */
 export async function resolveMtnVerdicts(locals: string[], io: MtnVerifyIo): Promise<Map<string, boolean | null>> {
@@ -43,12 +55,26 @@ export async function resolveMtnVerdicts(locals: string[], io: MtnVerifyIo): Pro
     const settings = await io.settings()
     if (!settings.enabled || settings.providers.length === 0) return unchecked()
     if (!io.registry.some((p) => settings.providers.includes(p.name) && p.configured())) return unchecked()
+    let answered = 0
+    const wrapped: WhitelistEntry[] = io.registry.map((p) => ({
+      ...p,
+      checkBatch: async (msisdns: string[]) => {
+        const r = await p.checkBatch(msisdns)
+        answered++
+        return r
+      },
+    }))
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error("timeout")), io.timeoutMs)
     })
-    const results = await Promise.race([io.check(locals), timeout])
+    const results = await Promise.race([io.check(locals, wrapped, settings), timeout])
     const out = unchecked()
-    for (const r of results) if (out.has(r.phone)) out.set(r.phone, r.verified === true)
+    for (const r of results) {
+      if (!out.has(r.phone)) continue
+      if (r.verified === true) out.set(r.phone, true)
+      else if (answered > 0) out.set(r.phone, false)
+      // else: every provider threw -> outage -> stays null (unchecked)
+    }
     return out
   } catch (err) {
     console.error("[API v2] MTN verification unavailable (failing open):", errName(err))
@@ -67,8 +93,9 @@ async function realVerifyMtn(locals: string[]): Promise<Map<string, boolean | nu
     return await resolveMtnVerdicts(locals, {
       settings: async () => settings,
       registry: WHITELIST_REGISTRY,
-      check: (phones) => cv.checkCustomerFacingVerification(phones, WHITELIST_REGISTRY, settings),
-      // v1 bounds the single check at 5 s; a bulk batch gets a little longer.
+      check: (phones, registry, s) => cv.checkCustomerFacingVerification(phones, registry, s),
+      // v1 bounds the single check at 5 s; a bulk batch gets 10 s, which keeps
+      // the bulk request well inside its 35 s placement deadline.
       timeoutMs: locals.length > 1 ? 10_000 : 5_000,
     })
   } catch (err) {
@@ -89,9 +116,21 @@ export function realDataDeps(): DataDeps {
     },
     prefixConfig: async () => (await import("@/lib/network-prefix-config")).getPrefixValidationConfig(),
     verifyMtn: realVerifyMtn,
+    // Same guard and arguments as app/api/orders/purchase and v1 bundles/airtime
+    // (default failClosed: true). A throw is turned into a block by the handler.
+    phoneGate: async (userId) => {
+      const { checkPhoneVerified } = await import("@/lib/phone-verify-guard")
+      const r = await checkPhoneVerified(client as unknown as SupabaseClient, userId)
+      return { allowed: r.allowed === true }
+    },
     sandbox: {
       getOrder: async (userId, reference) =>
         ((await (await import("@/lib/sandbox")).getSandboxOrder(userId, reference)) as SandboxOrderLike | null),
+      getOrders: async (userId, refs) =>
+        ((await (await import("@/lib/sandbox")).getSandboxOrdersByReferences(userId, refs)) as Map<
+          string,
+          SandboxOrderLike
+        > | null),
       place: async (p) => (await import("@/lib/sandbox")).placeSandboxOrder(p),
       balance: async (userId) => (await import("@/lib/sandbox")).getSandboxBalance(userId),
     },

@@ -8,10 +8,11 @@
  * Purchase check order (each step short-circuits, nothing is charged before
  * the last one):
  *   parse body (price-like fields rejected) -> replay lookup by (user,
- *   reference): same content = 200 replay, different = 409 -> package
- *   (404) -> role price (server side) -> network prefix (400) -> MTN
- *   whitelist (409) -> placeV2Order (atomic RPC) -> schedule fulfillment
- *   only for a NEW placement.
+ *   reference): same content = 200 replay, different = 409 -> account
+ *   phone gate (403, fail closed) -> package (503 unreadable / 404) ->
+ *   role price (server side) -> network prefix (400) -> MTN whitelist
+ *   (409) -> placeV2Order (atomic RPC) -> schedule fulfillment only for a
+ *   NEW placement.
  *
  * Machine codes travel in the error message prefix ("NETWORK_MISMATCH: ...")
  * because plan 1's envelope only carries { code: <http status>, message }.
@@ -50,7 +51,8 @@ import type { FulfillmentTarget } from "../fulfillment"
 
 /** Order-store functions with the client already bound (see data-deps.ts). */
 export interface DataStore {
-  listAvailablePackages(dbNetwork?: string): Promise<PackageRow[]>
+  /** null = catalog unreadable (503), distinct from an empty catalog. */
+  listAvailablePackages(dbNetwork?: string): Promise<PackageRow[] | null>
   getOrderByReference(userId: string, reference: string): Promise<OrderRow | null>
   getOrdersByReferences(userId: string, references: string[]): Promise<Map<string, OrderRow> | null>
   getWalletBalance(userId: string): Promise<number | null>
@@ -90,8 +92,16 @@ export interface DataDeps {
    * open, like v1; the fulfillment-time hold stays the backstop).
    */
   verifyMtn(locals: string[]): Promise<Map<string, boolean | null>>
+  /**
+   * Account-holder phone gate (lib/phone-verify-guard checkPhoneVerified,
+   * fail closed). Live purchase/bulk only, after replay classification and
+   * before any MTN check or placement. A throw counts as blocked.
+   */
+  phoneGate(userId: string): Promise<{ allowed: boolean }>
   sandbox: {
     getOrder(userId: string, reference: string): Promise<SandboxOrderLike | null>
+    /** One query for a batch; null on read error (caller fails closed). */
+    getOrders(userId: string, references: string[]): Promise<Map<string, SandboxOrderLike> | null>
     place(p: SandboxPlaceParams): Promise<SandboxPlaceResult>
     balance(userId: string): Promise<number>
   }
@@ -109,8 +119,18 @@ export const MSG_NOT_REGISTERED =
 export const MSG_ORDER_FAILED = "Order could not be placed"
 export const MSG_ORDER_NOT_FOUND = "Order not found"
 export const MSG_LOOKUP_FAILED = "Could not check existing orders; nothing was charged"
-export const MSG_BALANCE_UNREADABLE = "Could not read wallet balance; nothing was charged"
+export const MSG_UNAVAILABLE = "Service temporarily unavailable"
+export const MSG_PHONE_GATE = "PHONE_NOT_VERIFIED: verify your account phone number in the dashboard to continue"
+export const MSG_NOT_ATTEMPTED = "NOT_ATTEMPTED: retry this item"
 const MSG_BODY_OBJECT = "Request body must be a JSON object"
+
+/**
+ * Bulk stops STARTING placements after this long: fulfillment is dispatched
+ * via after(), which only runs once the response is sent, so a request that
+ * hit maxDuration would leave paid orders undispatched. Unstarted items are
+ * reported NOT_ATTEMPTED; a resend replays the placed ones and places the rest.
+ */
+export const BULK_DEADLINE_MS = 35_000
 
 function insufficient(required: number, sandbox: boolean): string {
   return `INSUFFICIENT_BALANCE: ${sandbox ? "test" : "wallet"} balance is too low; required ${required.toFixed(2)}`
@@ -190,6 +210,23 @@ async function safeVerify(deps: DataDeps, locals: string[]): Promise<Map<string,
   }
 }
 
+/** Unpriced rows (price null/0/negative/non-numeric) are never listed or sold. */
+function usable(rows: PackageRow[]): PackageRow[] {
+  return rows.filter((r) => {
+    const n = Number(r.price)
+    return r.price !== null && Number.isFinite(n) && n > 0
+  })
+}
+
+/** Account phone gate; fails CLOSED (a throw is a block). */
+async function phoneGateOk(deps: DataDeps, userId: string): Promise<boolean> {
+  try {
+    return (await deps.phoneGate(userId)).allowed === true
+  } catch {
+    return false
+  }
+}
+
 function prefixOk(cfg: PrefixValidationConfig, input: PurchaseInput): boolean {
   if (!cfg.enabled) return true
   return validateNetworkPrefix(input.dbNetwork, input.local, cfg.map).ok
@@ -265,7 +302,9 @@ async function priceAndValidate(
   input: PurchaseInput,
   ctx: V2Context
 ): Promise<{ ok: true; priced: Priced } | { ok: false; result: V2HandlerResult }> {
-  const pkg = findPackage(await deps.store.listAvailablePackages(input.dbNetwork), input.dbNetwork, input.gb)
+  const rows = await deps.store.listAvailablePackages(input.dbNetwork)
+  if (!rows) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
+  const pkg = findPackage(usable(rows), input.dbNetwork, input.gb)
   if (!pkg) return { ok: false, result: fail(404, MSG_PACKAGE_NOT_FOUND) }
   const price = priceForRole(ctx.role, pkg)
   if (!prefixOk(await deps.prefixConfig(), input)) return { ok: false, result: fail(400, MSG_NETWORK_MISMATCH) }
@@ -280,18 +319,21 @@ async function livePurchase(deps: DataDeps, input: PurchaseInput, ctx: V2Context
     return ok(200, { order: mapOrder(existing), replayed: true })
   }
 
-  // 2. Package, server-side price, prefix.
+  // 2. Account phone gate (fail closed) before anything that can lead to a charge.
+  if (!(await phoneGateOk(deps, ctx.userId))) return fail(403, MSG_PHONE_GATE)
+
+  // 3. Package, server-side price, prefix.
   const v = await priceAndValidate(deps, input, ctx)
   if (!v.ok) return v.result
   const p = v.priced
 
-  // 3. MTN whitelist: an explicit "not registered" blocks with no charge.
+  // 4. MTN whitelist: an explicit "not registered" blocks with no charge.
   if (input.network === "MTN") {
     const verdicts = await safeVerify(deps, [input.local])
     if (verdicts.get(input.local) === false) return fail(409, MSG_NOT_REGISTERED)
   }
 
-  // 4. Atomic placement.
+  // 5. Atomic placement.
   const res = await deps.store.placeV2Order(placeParams(ctx, p))
   if (!res.ok) {
     switch (res.code) {
@@ -309,7 +351,7 @@ async function livePurchase(deps: DataDeps, input: PurchaseInput, ctx: V2Context
     return ok(200, { order: await liveReplayOrder(deps, ctx, p, res), replayed: true })
   }
 
-  // 5. Only a NEW placement dispatches, exactly once.
+  // 6. Only a NEW placement dispatches, exactly once.
   deps.schedule(target(res.orderId, input))
   return ok(201, {
     order: orderFromInput(input, p.price, "pending", res.createdAt),
@@ -357,55 +399,93 @@ export interface BulkResult {
   error?: string
 }
 
-type Slot = { kind: "new"; p: Priced } | { kind: "replay"; p: Priced; order: PublicOrder }
+type Slot = { kind: "new"; p: Priced } | { kind: "replay"; reference: string; order: PublicOrder }
+
+/** A classified item before pricing: replays need no package (it may since be disabled). */
+type Classified = { kind: "new"; index: number; input: PurchaseInput } | { kind: "replay"; reference: string; order: PublicOrder }
+
+/**
+ * Package + prefix validation for the NEW items only, one catalog read.
+ * Any failure rejects the whole batch (400 with the index, or 503).
+ */
+async function priceNewItems(
+  deps: DataDeps,
+  classified: Classified[],
+  ctx: V2Context
+): Promise<{ ok: true; slots: Slot[] } | { ok: false; result: V2HandlerResult }> {
+  const hasNew = classified.some((c) => c.kind === "new")
+  let packages: PackageRow[] = []
+  let cfg: PrefixValidationConfig | null = null
+  if (hasNew) {
+    const rows = await deps.store.listAvailablePackages()
+    if (!rows) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
+    packages = usable(rows)
+    cfg = await deps.prefixConfig()
+  }
+  const slots: Slot[] = []
+  for (const c of classified) {
+    if (c.kind === "replay") {
+      slots.push(c)
+      continue
+    }
+    const pkg = findPackage(packages, c.input.dbNetwork, c.input.gb)
+    if (!pkg) return { ok: false, result: fail(400, `orders[${c.index}]: ${MSG_PACKAGE_NOT_FOUND}`) }
+    if (!prefixOk(cfg!, c.input)) return { ok: false, result: fail(400, `orders[${c.index}]: ${MSG_NETWORK_MISMATCH}`) }
+    slots.push({ kind: "new", p: { input: c.input, pkg, price: priceForRole(ctx.role, pkg) } })
+  }
+  return { ok: true, slots }
+}
 
 export function bulkHandler(deps: DataDeps) {
   return async (body: unknown, ctx: V2Context): Promise<V2HandlerResult> => {
-    // 1. Validate EVERYTHING before any lookup that could lead to a charge.
+    const startedAt = deps.now().getTime()
+    // 1. Parse EVERYTHING before any lookup.
     const parsed = parseBulkBody(body)
     if (!parsed.ok) {
       return fail(400, parsed.index === undefined ? parsed.error : `orders[${parsed.index}]: ${parsed.error}`)
     }
     const items = parsed.items
-
-    const packages = await deps.store.listAvailablePackages()
-    const cfg = await deps.prefixConfig()
-    const priced: Priced[] = []
-    for (let i = 0; i < items.length; i++) {
-      const input = items[i]
-      const pkg = findPackage(packages, input.dbNetwork, input.gb)
-      if (!pkg) return fail(400, `orders[${i}]: ${MSG_PACKAGE_NOT_FOUND}`)
-      if (!prefixOk(cfg, input)) return fail(400, `orders[${i}]: ${MSG_NETWORK_MISMATCH}`)
-      priced.push({ input, pkg, price: priceForRole(ctx.role, pkg) })
-    }
-
-    return ctx.environment === "test" ? sandboxBulk(deps, priced, ctx) : liveBulk(deps, priced, ctx)
+    return ctx.environment === "test"
+      ? sandboxBulk(deps, items, ctx, startedAt)
+      : liveBulk(deps, items, ctx, startedAt)
   }
 }
 
-async function liveBulk(deps: DataDeps, priced: Priced[], ctx: V2Context): Promise<V2HandlerResult> {
-  // 2. Classify replay / conflict / new BEFORE any money moves.
+function pastDeadline(deps: DataDeps, startedAt: number): boolean {
+  return deps.now().getTime() - startedAt > BULK_DEADLINE_MS
+}
+
+async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, startedAt: number): Promise<V2HandlerResult> {
+  // 2. Classify replay / conflict / new BEFORE any validation of new items or money.
   const existing = await deps.store.getOrdersByReferences(
     ctx.userId,
-    priced.map((p) => p.input.reference)
+    items.map((i) => i.reference)
   )
   if (!existing) return fail(500, MSG_LOOKUP_FAILED)
-  const slots: Slot[] = []
-  for (let i = 0; i < priced.length; i++) {
-    const p = priced[i]
-    const row = existing.get(p.input.reference)
-    if (!row) {
-      slots.push({ kind: "new", p })
-    } else if (liveMatches(p.input, row)) {
-      slots.push({ kind: "replay", p, order: mapOrder(row) })
-    } else {
-      return fail(409, `orders[${i}]: ${MSG_REFERENCE_REUSED}`)
-    }
+  const classified: Classified[] = []
+  for (let i = 0; i < items.length; i++) {
+    const input = items[i]
+    const row = existing.get(input.reference)
+    if (!row) classified.push({ kind: "new", index: i, input })
+    else if (liveMatches(input, row)) classified.push({ kind: "replay", reference: input.reference, order: mapOrder(row) })
+    else return fail(409, `orders[${i}]: ${MSG_REFERENCE_REUSED}`)
   }
 
-  // 3. MTN whitelist for NEW items, one batch call; unregistered are skipped.
+  // 3. Validate the NEW items (package, price, prefix); any failure rejects the batch.
+  const v = await priceNewItems(deps, classified, ctx)
+  if (!v.ok) return v.result
+  const slots = v.slots
+
+  // 4. Account phone gate (fail closed) when anything new would be placed.
+  if (slots.some((s) => s.kind === "new") && !(await phoneGateOk(deps, ctx.userId))) {
+    return fail(403, MSG_PHONE_GATE)
+  }
+
+  // 5. MTN whitelist for NEW items, one batch call (bounded at 10 s); unregistered are skipped.
   const mtnLocals = [
-    ...new Set(slots.filter((s) => s.kind === "new" && s.p.input.network === "MTN").map((s) => s.p.input.local)),
+    ...new Set(
+      slots.flatMap((s) => (s.kind === "new" && s.p.input.network === "MTN" ? [s.p.input.local] : []))
+    ),
   ]
   const verdicts = await safeVerify(deps, mtnLocals)
   const skipped: Array<{ reference: string; reason: "NOT_REGISTERED" }> = []
@@ -419,24 +499,29 @@ async function liveBulk(deps: DataDeps, priced: Priced[], ctx: V2Context): Promi
     }
   }
 
-  // 4. Whole-batch balance check (no charge on failure).
-  const neededCents = [...toPlace].reduce((sum, s) => sum + cents(s.p.price), 0)
+  // 6. Whole-batch balance check (no charge on failure). No wallet row reads
+  //    as a zero balance: 402, same as single purchase.
+  const neededCents = [...toPlace].reduce((sum, s) => sum + (s.kind === "new" ? cents(s.p.price) : 0), 0)
   if (neededCents > 0) {
     const balance = await deps.store.getWalletBalance(ctx.userId)
-    if (balance === null) return fail(500, MSG_BALANCE_UNREADABLE)
-    if (cents(balance) < neededCents) return fail(402, insufficient(neededCents / 100, false))
+    if (balance === null || cents(balance) < neededCents) return fail(402, insufficient(neededCents / 100, false))
   }
 
-  // 5. Sequential placement; a failure marks the item and the batch continues.
+  // 7. Sequential placement; a failure marks the item and the batch continues.
+  //    Past the deadline no new placement STARTS (NOT_ATTEMPTED).
   const results: BulkResult[] = []
   let chargedCents = 0
   for (const s of slots) {
-    const ref = s.p.input.reference
     if (s.kind === "replay") {
-      results.push({ reference: ref, status: "replayed", order: s.order })
+      results.push({ reference: s.reference, status: "replayed", order: s.order })
       continue
     }
+    const ref = s.p.input.reference
     if (!toPlace.has(s)) continue
+    if (pastDeadline(deps, startedAt)) {
+      results.push({ reference: ref, status: "failed", error: MSG_NOT_ATTEMPTED })
+      continue
+    }
     const res = await deps.store.placeV2Order(placeParams(ctx, s.p))
     if (!res.ok) {
       results.push({
@@ -458,17 +543,27 @@ async function liveBulk(deps: DataDeps, priced: Priced[], ctx: V2Context): Promi
   return ok(200, { results, skipped, total_charged: chargedCents / 100 })
 }
 
-async function sandboxBulk(deps: DataDeps, priced: Priced[], ctx: V2Context): Promise<V2HandlerResult> {
-  const slots: Slot[] = []
-  for (let i = 0; i < priced.length; i++) {
-    const p = priced[i]
-    const prior = await deps.sandbox.getOrder(ctx.userId, p.input.reference)
-    if (!prior) slots.push({ kind: "new", p })
-    else if (sandboxMatches(p.input, prior)) slots.push({ kind: "replay", p, order: mapSandboxOrder(prior) })
+async function sandboxBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, startedAt: number): Promise<V2HandlerResult> {
+  // One query for the batch's existing sandbox orders.
+  const existing = await deps.sandbox.getOrders(
+    ctx.userId,
+    items.map((i) => i.reference)
+  )
+  if (!existing) return fail(500, MSG_LOOKUP_FAILED)
+  const classified: Classified[] = []
+  for (let i = 0; i < items.length; i++) {
+    const input = items[i]
+    const prior = existing.get(input.reference)
+    if (!prior) classified.push({ kind: "new", index: i, input })
+    else if (sandboxMatches(input, prior)) classified.push({ kind: "replay", reference: input.reference, order: mapSandboxOrder(prior) })
     else return fail(409, `orders[${i}]: ${MSG_REFERENCE_REUSED}`)
   }
 
-  const neededCents = slots.filter((s) => s.kind === "new").reduce((sum, s) => sum + cents(s.p.price), 0)
+  const v = await priceNewItems(deps, classified, ctx)
+  if (!v.ok) return v.result
+  const slots = v.slots
+
+  const neededCents = slots.reduce((sum, s) => sum + (s.kind === "new" ? cents(s.p.price) : 0), 0)
   if (neededCents > 0 && cents(await deps.sandbox.balance(ctx.userId)) < neededCents) {
     return fail(402, insufficient(neededCents / 100, true))
   }
@@ -476,9 +571,13 @@ async function sandboxBulk(deps: DataDeps, priced: Priced[], ctx: V2Context): Pr
   const results: BulkResult[] = []
   let chargedCents = 0
   for (const s of slots) {
-    const ref = s.p.input.reference
     if (s.kind === "replay") {
-      results.push({ reference: ref, status: "replayed", order: s.order })
+      results.push({ reference: s.reference, status: "replayed", order: s.order })
+      continue
+    }
+    const ref = s.p.input.reference
+    if (pastDeadline(deps, startedAt)) {
+      results.push({ reference: ref, status: "failed", error: MSG_NOT_ATTEMPTED })
       continue
     }
     const placed = await deps.sandbox.place(sandboxParams(ctx, s.p))
@@ -568,8 +667,9 @@ export function listPackagesHandler(deps: DataDeps) {
     }
 
     const rows = await deps.store.listAvailablePackages(dbNetwork)
+    if (!rows) return fail(503, MSG_UNAVAILABLE)
     const packages: Array<{ network: string; size_gb: number; price: number }> = []
-    for (const r of rows) {
+    for (const r of usable(rows)) {
       const net = parseNetwork(r.network)
       if (!net.ok) continue
       if (typeof r.size !== "string" || !/^[0-9]+(\.[0-9]+)?$/.test(r.size)) continue

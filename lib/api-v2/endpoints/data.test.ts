@@ -22,6 +22,9 @@ const PKGS: PackageRow[] = [
   { id: "p-mtn-2", network: "MTN", size: "2", price: 18, dealer_price: 0 },
   { id: "p-tel-2", network: "Telecel", size: "2", price: 9, dealer_price: 8.5 },
   { id: "p-ati-1", network: "AT - iShare", size: "1", price: 5, dealer_price: 4.5 },
+  // Unpriced rows are treated as unavailable (never listed, never sold).
+  { id: "p-tel-3", network: "Telecel", size: "3", price: 0, dealer_price: null },
+  { id: "p-mtn-4", network: "MTN", size: "4", price: -1, dealer_price: 5 },
   // Telecel 5GB and all AT-BigTime are unavailable, so never returned by the store.
 ]
 
@@ -45,7 +48,7 @@ function placedOk(ref: string, newBalance = 92): PlaceResult {
 
 function makeDeps(over: { prefixEnabled?: boolean } = {}) {
   const store = {
-    listAvailablePackages: vi.fn(async (dbNetwork?: string) =>
+    listAvailablePackages: vi.fn(async (dbNetwork?: string): Promise<PackageRow[] | null> =>
       PKGS.filter((p) => !dbNetwork || p.network.toLowerCase() === dbNetwork.toLowerCase())
     ),
     getOrderByReference: vi.fn(async (_u: string, _r: string): Promise<OrderRow | null> => null),
@@ -55,6 +58,7 @@ function makeDeps(over: { prefixEnabled?: boolean } = {}) {
   }
   const sandbox = {
     getOrder: vi.fn(async (_u: string, _r: string): Promise<SandboxOrderLike | null> => null),
+    getOrders: vi.fn(async (_u: string, _refs: string[]): Promise<Map<string, SandboxOrderLike> | null> => new Map()),
     place: vi.fn(async (p: any) => ({
       success: true as const,
       order: { ...p.orderFields, reference: p.reference, status: "pending", created_at: CREATED },
@@ -67,8 +71,10 @@ function makeDeps(over: { prefixEnabled?: boolean } = {}) {
     sandbox,
     prefixConfig: vi.fn(async () => ({ enabled: over.prefixEnabled ?? true, map: DEFAULT_NETWORK_PREFIXES })),
     verifyMtn: vi.fn(async (locals: string[]) => new Map<string, boolean | null>(locals.map((l) => [l, true]))),
+    phoneGate: vi.fn(async (_u: string) => ({ allowed: true })),
     schedule: vi.fn(),
-    now: () => new Date(CREATED),
+    clock: { ms: 0 },
+    now: (): Date => new Date(Date.parse(CREATED) + deps.clock.ms),
   }
   return deps as typeof deps & DataDeps
 }
@@ -81,6 +87,7 @@ function allFns(d: Deps) {
     ...Object.values(d.sandbox),
     d.prefixConfig,
     d.verifyMtn,
+    d.phoneGate,
     d.schedule,
   ] as Array<ReturnType<typeof vi.fn>>
 }
@@ -325,6 +332,26 @@ describe("purchase (live) money path", () => {
     }
   })
 
+  it("an unpriced package (price 0 or negative) is unavailable -> 404, no charge", async () => {
+    for (const b of [
+      body({ network: "Telecel", volume_gb: 3, recipient: "0249990486" }),
+      body({ network: "MTN", volume_gb: 4, recipient: "0249990486" }),
+    ]) {
+      const d = makeDeps({ prefixEnabled: false })
+      const r = await purchaseHandler(d)(b, LIVE)
+      expect(r.status).toBe(404)
+      expectNoMoney(d)
+    }
+  })
+
+  it("package catalog unreadable -> 503 Service temporarily unavailable (not 404), no charge", async () => {
+    const d = makeDeps()
+    d.store.listAvailablePackages.mockResolvedValue(null)
+    const r = await purchaseHandler(d)(body({ recipient: "0249990487" }), LIVE)
+    expect(r).toEqual({ status: 503, error: { status: 503, message: "Service temporarily unavailable" } })
+    expectNoMoney(d)
+  })
+
   it("network/prefix mismatch -> 400 NETWORK_MISMATCH, no charge, the number is not echoed", async () => {
     const d = makeDeps()
     const r = await purchaseHandler(d)(body({ network: "Telecel", volume_gb: 2, recipient: "0249990415" }), LIVE)
@@ -546,10 +573,11 @@ describe("bulk (live)", () => {
     expect(data(r).total_charged).toBe(16)
   })
 
-  it("unreadable wallet or failed replay lookup -> 500, no charge (fail closed)", async () => {
+  it("no wallet row -> 402 like single purchase; failed replay lookup -> 500; no charge either way", async () => {
     const d = makeDeps()
     d.store.getWalletBalance.mockResolvedValue(null)
-    expect((await bulkHandler(d)({ orders: [item(0)] }, LIVE)).status).toBe(500)
+    const r = await bulkHandler(d)({ orders: [item(0)] }, LIVE)
+    expect(r.error).toEqual({ status: 402, message: "INSUFFICIENT_BALANCE: wallet balance is too low; required 8.00" })
     expectNoMoney(d)
 
     const d2 = makeDeps()
@@ -657,25 +685,206 @@ describe("bulk (live)", () => {
     await bulkHandler(d)({ orders: [item(0, { network: "Telecel", volume_gb: 2 })] }, LIVE)
     expect(d.verifyMtn).not.toHaveBeenCalled()
   })
+
+  it("a resent batch whose package was since disabled REPLAYS the existing item instead of 400; only new items are validated", async () => {
+    const d = makeDeps()
+    d.store.getOrdersByReferences.mockResolvedValue(
+      new Map([
+        ["BULK-1", row({ api_reference: "BULK-1", network: "AT - BigTime", recipient_phone: "0249990431", price: "6" })],
+      ])
+    )
+    const r = await bulkHandler(d)({ orders: [item(0), item(1, { network: "AT-BigTime" })] }, LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r).results.map((x: any) => [x.reference, x.status])).toEqual([
+      ["BULK-0", "placed"],
+      ["BULK-1", "replayed"],
+    ])
+    expect(d.store.placeV2Order).toHaveBeenCalledTimes(1)
+    expect(data(r).total_charged).toBe(8)
+  })
+
+  it("package catalog unreadable -> 503, nothing charged", async () => {
+    const d = makeDeps()
+    d.store.listAvailablePackages.mockResolvedValue(null)
+    const r = await bulkHandler(d)({ orders: [item(0)] }, LIVE)
+    expect(r.error).toEqual({ status: 503, message: "Service temporarily unavailable" })
+    expectNoMoney(d)
+  })
+
+  it("an unpriced package in a batch rejects it 400 with the index", async () => {
+    const d = makeDeps({ prefixEnabled: false })
+    const r = await bulkHandler(d)({ orders: [item(0), item(1, { network: "Telecel", volume_gb: 3 })] }, LIVE)
+    expect(r.error?.message).toBe("orders[1]: Package not found or unavailable")
+    expectNoMoney(d)
+  })
+})
+
+describe("bulk deadline (after() only dispatches once the response is sent)", () => {
+  it("stops STARTING placements past 35 s: later items are NOT_ATTEMPTED, never placed, not charged", async () => {
+    const d = makeDeps()
+    // Each placement takes 20 s of wall clock.
+    d.store.placeV2Order.mockImplementation(async (p: PlaceParams) => {
+      d.clock.ms += 20_000
+      return placedOk(p.reference)
+    })
+    const r = await bulkHandler(d)({ orders: [item(0), item(1), item(2), item(3)] }, LIVE)
+    expect(r.status).toBe(200)
+    const res = data(r)
+    // t=0 start #0, t=20s start #1, t=40s > 35s -> stop.
+    expect(d.store.placeV2Order).toHaveBeenCalledTimes(2)
+    expect(d.store.placeV2Order.mock.calls.map((c) => c[0].reference)).toEqual(["BULK-0", "BULK-1"])
+    expect(res.results).toEqual([
+      expect.objectContaining({ reference: "BULK-0", status: "placed" }),
+      expect.objectContaining({ reference: "BULK-1", status: "placed" }),
+      { reference: "BULK-2", status: "failed", error: "NOT_ATTEMPTED: retry this item" },
+      { reference: "BULK-3", status: "failed", error: "NOT_ATTEMPTED: retry this item" },
+    ])
+    expect(res.total_charged).toBe(16)
+    expect(res.skipped).toEqual([])
+    expect(d.schedule).toHaveBeenCalledTimes(2)
+  })
+
+  it("time spent before the loop (lookups, MTN check) counts toward the deadline; skipped is unaffected", async () => {
+    const d = makeDeps()
+    d.verifyMtn.mockImplementation(async (locals: string[]) => {
+      d.clock.ms += 36_000
+      return new Map<string, boolean | null>(locals.map((l) => [l, l !== "0249990431"]))
+    })
+    const r = await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
+    expect(d.store.placeV2Order).not.toHaveBeenCalled()
+    expect(data(r).results).toEqual([{ reference: "BULK-0", status: "failed", error: "NOT_ATTEMPTED: retry this item" }])
+    expect(data(r).skipped).toEqual([{ reference: "BULK-1", reason: "NOT_REGISTERED" }])
+    expect(data(r).total_charged).toBe(0)
+  })
+
+  it("replayed items are still reported after the deadline", async () => {
+    const d = makeDeps()
+    d.store.getOrdersByReferences.mockResolvedValue(
+      new Map([["BULK-1", row({ api_reference: "BULK-1", recipient_phone: "0249990431" })]])
+    )
+    d.store.placeV2Order.mockImplementation(async (p: PlaceParams) => {
+      d.clock.ms += 40_000
+      return placedOk(p.reference)
+    })
+    const r = await bulkHandler(d)({ orders: [item(0), item(1), item(2)] }, LIVE)
+    expect(data(r).results.map((x: any) => x.status)).toEqual(["placed", "replayed", "failed"])
+  })
+
+  it("sandbox bulk honours the same deadline", async () => {
+    const d = makeDeps()
+    d.sandbox.place.mockImplementation(async (p: any) => {
+      d.clock.ms += 40_000
+      return { success: true as const, order: { ...p.orderFields, status: "pending", created_at: CREATED }, newBalance: 50 }
+    })
+    const r = await bulkHandler(d)({ orders: [item(0), item(1)] }, TEST)
+    expect(d.sandbox.place).toHaveBeenCalledTimes(1)
+    expect(data(r).results[1]).toEqual({ reference: "BULK-1", status: "failed", error: "NOT_ATTEMPTED: retry this item" })
+  })
+})
+
+describe("account phone gate (live purchase and bulk only)", () => {
+  const BLOCK_MSG = "PHONE_NOT_VERIFIED: verify your account phone number in the dashboard to continue"
+
+  it("single: a blocked account gets 403 and placeV2Order is never called (no MTN check either)", async () => {
+    const d = makeDeps()
+    d.phoneGate.mockResolvedValue({ allowed: false })
+    const r = await purchaseHandler(d)(body({ recipient: "0249990480" }), LIVE)
+    expect(r).toEqual({ status: 403, error: { status: 403, message: BLOCK_MSG } })
+    expect(d.phoneGate).toHaveBeenCalledWith("user-1")
+    expect(d.verifyMtn).not.toHaveBeenCalled()
+    expectNoMoney(d)
+  })
+
+  it("single: allowed (verified or in grace period) proceeds", async () => {
+    const d = makeDeps()
+    const r = await purchaseHandler(d)(body({ recipient: "0249990481" }), LIVE)
+    expect(r.status).toBe(201)
+    expect(d.phoneGate).toHaveBeenCalledTimes(1)
+  })
+
+  it("single: the gate throwing fails CLOSED with 403", async () => {
+    const d = makeDeps()
+    d.phoneGate.mockRejectedValue(new Error("db down"))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990482" }), LIVE)
+    expect(r.status).toBe(403)
+    expect(r.error?.message).toBe(BLOCK_MSG)
+    expectNoMoney(d)
+  })
+
+  it("single: a replay of an existing order still answers 200 for a blocked account", async () => {
+    const d = makeDeps()
+    d.phoneGate.mockResolvedValue({ allowed: false })
+    d.store.getOrderByReference.mockResolvedValue(row({ recipient_phone: "0249990483" }))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990483" }), LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r).replayed).toBe(true)
+    expectNoMoney(d)
+  })
+
+  it("bulk: a blocked account with new items gets 403, nothing placed, no MTN check, no balance read", async () => {
+    const d = makeDeps()
+    d.phoneGate.mockResolvedValue({ allowed: false })
+    const r = await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
+    expect(r.status).toBe(403)
+    expectNoMoney(d)
+    expect(d.verifyMtn).not.toHaveBeenCalled()
+    expect(d.store.getWalletBalance).not.toHaveBeenCalled()
+  })
+
+  it("bulk: the gate throwing fails closed", async () => {
+    const d = makeDeps()
+    d.phoneGate.mockRejectedValue(new Error("x"))
+    expect((await bulkHandler(d)({ orders: [item(0)] }, LIVE)).status).toBe(403)
+    expectNoMoney(d)
+  })
+
+  it("bulk: an all-replay batch still answers 200 for a blocked account", async () => {
+    const d = makeDeps()
+    d.phoneGate.mockResolvedValue({ allowed: false })
+    d.store.getOrdersByReferences.mockResolvedValue(
+      new Map([["BULK-0", row({ api_reference: "BULK-0", recipient_phone: "0249990430" })]])
+    )
+    const r = await bulkHandler(d)({ orders: [item(0)] }, LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r).results[0].status).toBe("replayed")
+  })
+
+  it("sandbox keys skip the gate (single and bulk), and reads never call it", async () => {
+    const d = makeDeps()
+    d.phoneGate.mockResolvedValue({ allowed: false })
+    expect((await purchaseHandler(d)(body({ recipient: "0249990484", reference: "SBX-G" }), TEST)).status).toBe(201)
+    expect((await bulkHandler(d)({ orders: [item(0)] }, TEST)).status).toBe(200)
+    await listPackagesHandler(d)({}, LIVE)
+    await verifyNumberHandler(d)({ network: "MTN", phone: "0249990485" }, LIVE)
+    await orderLookupHandler(d)("REF-001", LIVE)
+    expect(d.phoneGate).not.toHaveBeenCalled()
+  })
 })
 
 describe("bulk (test key / sandbox)", () => {
   it("never touches the real store, guard or fulfillment; places through the sandbox", async () => {
     const d = makeDeps()
-    d.sandbox.getOrder.mockImplementation(async (_u: string, ref: string) =>
-      ref === "BULK-1"
-        ? {
+    d.sandbox.getOrders.mockResolvedValue(
+      new Map([
+        [
+          "BULK-1",
+          {
             reference: "BULK-1",
             action: "data_order",
             response: { network: "MTN", volume_gb: 1, recipient: "0249990431", price: 8 },
             price: 8,
             created_at: CREATED,
             status: "completed",
-          }
-        : null
+          },
+        ],
+      ])
     )
     const r = await bulkHandler(d)({ orders: [item(0), item(1)] }, TEST)
     expect(r.status).toBe(200)
+    // One batch query for existing sandbox orders, not one per item.
+    expect(d.sandbox.getOrders).toHaveBeenCalledTimes(1)
+    expect(d.sandbox.getOrders).toHaveBeenCalledWith("user-1", ["BULK-0", "BULK-1"])
+    expect(d.sandbox.getOrder).not.toHaveBeenCalled()
     expectNoRealOrderOrWallet(d)
     expect(d.verifyMtn).not.toHaveBeenCalled()
     expect(d.schedule).not.toHaveBeenCalled()
@@ -685,6 +894,13 @@ describe("bulk (test key / sandbox)", () => {
     expect(res.sandbox).toBe(true)
     expect(res.results.map((x: any) => x.status)).toEqual(["placed", "replayed"])
     expect(res.total_charged).toBe(8)
+  })
+
+  it("sandbox batch lookup failure -> 500, no sandbox placement", async () => {
+    const d = makeDeps()
+    d.sandbox.getOrders.mockResolvedValue(null)
+    expect((await bulkHandler(d)({ orders: [item(0)] }, TEST)).status).toBe(500)
+    expect(d.sandbox.place).not.toHaveBeenCalled()
   })
 
   it("sandbox total over the test balance -> 402, no sandbox placement", async () => {
@@ -835,6 +1051,15 @@ describe("packages", () => {
     }
     const d = makeDeps()
     expect((await listPackagesHandler(d)({ network: "", size_gb: null }, LIVE)).status).toBe(200)
+  })
+
+  it("catalog unreadable -> 503, never an empty list", async () => {
+    const d = makeDeps()
+    d.store.listAvailablePackages.mockResolvedValue(null)
+    expect(await listPackagesHandler(d)({}, LIVE)).toEqual({
+      status: 503,
+      error: { status: 503, message: "Service temporarily unavailable" },
+    })
   })
 
   it("drops rows with a non-numeric size or an unknown network", async () => {
