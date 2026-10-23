@@ -13,6 +13,7 @@ import {
   MSG_UNAVAILABLE as MSG_CATALOG_UNAVAILABLE,
   MSG_PHONE_GATE,
   MSG_NOT_ATTEMPTED,
+  BULK_DEADLINE_MS,
 } from "../endpoints/data"
 import { initialStatus } from "../lifecycle"
 import type { V2ErrorStatus } from "../envelope"
@@ -276,7 +277,11 @@ describe("v2DocsRegistry data endpoints", () => {
     expect(purchase.params.find((p) => p.name === "recipient")!.description).toMatch(/\+233244000001/)
     const bn = find("POST /data/bulk").notes.join(" ")
     expect(bn).toMatch(/skipped/i)
-    expect(bn).toMatch(/35 seconds/)
+    const deadline = `${BULK_DEADLINE_MS / 1000} seconds`
+    expect(bn).toContain(deadline)
+    const bulkProse = v2DocsRegistry.find((x) => x.id === "bulk-orders")!
+    expect((bulkProse.callouts ?? []).map((c) => c.body).join(" ")).toContain(deadline)
+    expect(allText).not.toMatch(/35 seconds/)
     expect(bn).toContain(MSG_NOT_ATTEMPTED)
     expect(bn).toMatch(/test key[^.]*sandbox/i)
     expect(find("GET /packages").notes.join(" ")).toMatch(/availab/i)

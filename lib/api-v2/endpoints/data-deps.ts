@@ -95,7 +95,7 @@ async function realVerifyMtn(locals: string[]): Promise<Map<string, boolean | nu
       registry: WHITELIST_REGISTRY,
       check: (phones, registry, s) => cv.checkCustomerFacingVerification(phones, registry, s),
       // v1 bounds the single check at 5 s; a bulk batch gets 10 s, which keeps
-      // the bulk request well inside its 35 s placement deadline.
+      // the bulk request well inside its BULK_DEADLINE_MS placement deadline.
       timeoutMs: locals.length > 1 ? 10_000 : 5_000,
     })
   } catch (err) {

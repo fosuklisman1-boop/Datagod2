@@ -129,8 +129,10 @@ const MSG_BODY_OBJECT = "Request body must be a JSON object"
  * via after(), which only runs once the response is sent, so a request that
  * hit maxDuration would leave paid orders undispatched. Unstarted items are
  * reported NOT_ATTEMPTED; a resend replays the placed ones and places the rest.
+ * 25 s of the route's 300 s maxDuration, so most of the budget is left for
+ * the after() dispatch. The docs text is built from this constant.
  */
-export const BULK_DEADLINE_MS = 35_000
+export const BULK_DEADLINE_MS = 25_000
 
 function insufficient(required: number, sandbox: boolean): string {
   return `INSUFFICIENT_BALANCE: ${sandbox ? "test" : "wallet"} balance is too low; required ${required.toFixed(2)}`

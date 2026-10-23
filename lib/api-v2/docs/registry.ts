@@ -21,6 +21,7 @@ import {
   MSG_UNAVAILABLE as MSG_CATALOG_UNAVAILABLE,
   MSG_PHONE_GATE,
   MSG_NOT_ATTEMPTED,
+  BULK_DEADLINE_MS,
 } from "../endpoints/data"
 
 export type DocLang = "curl" | "node" | "php" | "python"
@@ -216,6 +217,8 @@ const MSG_RECIPIENT = "recipient must be a valid Ghana mobile number"
 const MSG_REFERENCE = "reference must be 3 to 100 characters: letters, digits, '-', '_', '.', ':'"
 const MSG_INSUFFICIENT = "INSUFFICIENT_BALANCE: wallet balance is too low; required 4.50"
 const MSG_BULK_SHAPE = "orders must be an array of 1 to 100 orders"
+/** Built from the handler's constant so the docs cannot drift from the code. */
+const BULK_DEADLINE_TEXT = `${BULK_DEADLINE_MS / 1000} seconds`
 
 const ORDER_EXAMPLE = {
   reference: "ORD-2026-0001",
@@ -364,7 +367,7 @@ const BULK_ENDPOINT: V2Endpoint = {
     "A successful request returns HTTP 200 with a results array (placed, replayed or failed per reference), a skipped array and total_charged. HTTP 200 does not mean every item was placed; always read each item's status.",
     "Unregistered MTN numbers are skipped, not failed: they appear in skipped with reason NOT_REGISTERED and nothing is charged for them.",
     "The wallet must cover every item that will be placed (402 otherwise, nothing charged). Live bulk purchases require a verified account phone number (403 PHONE_NOT_VERIFIED).",
-    "Orders are placed one after another and a request stops starting new placements after 35 seconds. Items not reached come back failed with " + MSG_NOT_ATTEMPTED + "; resend the same batch and the placed ones are replayed without a second charge.",
+    `Orders are placed one after another and a request stops starting new placements after ${BULK_DEADLINE_TEXT}. Items not reached come back failed with ${MSG_NOT_ATTEMPTED}; resend the same batch and the placed ones are replayed without a second charge.`,
     "Never send prices; the server prices every item from your role.",
     "A test key uses a sandbox wallet: the response carries sandbox: true and no real order is placed.",
   ],
@@ -470,7 +473,7 @@ const DATA_SECTIONS: V2DocSection[] = [
       {
         tone: "info",
         title: "Deadline and NOT_ATTEMPTED",
-        body: "A request stops starting new placements after 35 seconds. Items not reached are returned as failed with NOT_ATTEMPTED: retry this item. Nothing was charged for them.",
+        body: `A request stops starting new placements after ${BULK_DEADLINE_TEXT}. Items not reached are returned as failed with ${MSG_NOT_ATTEMPTED}. Nothing was charged for them.`,
       },
       {
         tone: "info",

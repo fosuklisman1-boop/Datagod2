@@ -9,6 +9,7 @@ import {
   listPackagesHandler,
   verifyNumberHandler,
   orderLookupHandler,
+  BULK_DEADLINE_MS,
   type DataDeps,
   type SandboxOrderLike,
 } from "./data"
@@ -720,17 +721,21 @@ describe("bulk (live)", () => {
 })
 
 describe("bulk deadline (after() only dispatches once the response is sent)", () => {
-  it("stops STARTING placements past 35 s: later items are NOT_ATTEMPTED, never placed, not charged", async () => {
+  it("the placement deadline is 25 s, leaving most of maxDuration for the after() dispatch", () => {
+    expect(BULK_DEADLINE_MS).toBe(25_000)
+  })
+
+  it("stops STARTING placements past the deadline: later items are NOT_ATTEMPTED, never placed, not charged", async () => {
     const d = makeDeps()
-    // Each placement takes 20 s of wall clock.
+    // Each placement takes 0.6 of the deadline in wall clock.
     d.store.placeV2Order.mockImplementation(async (p: PlaceParams) => {
-      d.clock.ms += 20_000
+      d.clock.ms += BULK_DEADLINE_MS * 0.6
       return placedOk(p.reference)
     })
     const r = await bulkHandler(d)({ orders: [item(0), item(1), item(2), item(3)] }, LIVE)
     expect(r.status).toBe(200)
     const res = data(r)
-    // t=0 start #0, t=20s start #1, t=40s > 35s -> stop.
+    // t=0 start #0, t=0.6D start #1, t=1.2D > D -> stop.
     expect(d.store.placeV2Order).toHaveBeenCalledTimes(2)
     expect(d.store.placeV2Order.mock.calls.map((c) => c[0].reference)).toEqual(["BULK-0", "BULK-1"])
     expect(res.results).toEqual([
@@ -747,7 +752,7 @@ describe("bulk deadline (after() only dispatches once the response is sent)", ()
   it("time spent before the loop (lookups, MTN check) counts toward the deadline; skipped is unaffected", async () => {
     const d = makeDeps()
     d.verifyMtn.mockImplementation(async (locals: string[]) => {
-      d.clock.ms += 36_000
+      d.clock.ms += BULK_DEADLINE_MS + 1_000
       return new Map<string, boolean | null>(locals.map((l) => [l, l !== "0249990431"]))
     })
     const r = await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
@@ -763,7 +768,7 @@ describe("bulk deadline (after() only dispatches once the response is sent)", ()
       new Map([["BULK-1", row({ api_reference: "BULK-1", recipient_phone: "0249990431" })]])
     )
     d.store.placeV2Order.mockImplementation(async (p: PlaceParams) => {
-      d.clock.ms += 40_000
+      d.clock.ms += BULK_DEADLINE_MS + 5_000
       return placedOk(p.reference)
     })
     const r = await bulkHandler(d)({ orders: [item(0), item(1), item(2)] }, LIVE)
@@ -773,7 +778,7 @@ describe("bulk deadline (after() only dispatches once the response is sent)", ()
   it("sandbox bulk honours the same deadline", async () => {
     const d = makeDeps()
     d.sandbox.place.mockImplementation(async (p: any) => {
-      d.clock.ms += 40_000
+      d.clock.ms += BULK_DEADLINE_MS + 5_000
       return { success: true as const, order: { ...p.orderFields, status: "pending", created_at: CREATED }, newBalance: 50 }
     })
     const r = await bulkHandler(d)({ orders: [item(0), item(1)] }, TEST)
