@@ -91,7 +91,22 @@ export interface PurchaseInput {
   reference: string
 }
 
-const FORBIDDEN_FIELDS = ["price", "amount", "package_id", "status", "user_id", "total"]
+// Price-like and ownership fields are rejected (case-insensitively) so a client
+// can never believe it set them. Unknown OTHER fields are ignored deliberately.
+const FORBIDDEN_FIELDS = new Set([
+  "price",
+  "amount",
+  "package_id",
+  "status",
+  "user_id",
+  "total",
+  "dealer_price",
+  "cost",
+  "api_key_id",
+  "recipient_phone",
+  "package",
+  "user",
+])
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v)
@@ -101,8 +116,8 @@ export function parsePurchaseBody(
   body: unknown
 ): { ok: true; value: PurchaseInput } | { ok: false; error: string } {
   if (!isPlainObject(body)) return { ok: false, error: "Request body must be a JSON object" }
-  for (const k of FORBIDDEN_FIELDS) {
-    if (Object.prototype.hasOwnProperty.call(body, k)) return { ok: false, error: `Unexpected field: ${k}` }
+  for (const k of Object.keys(body)) {
+    if (FORBIDDEN_FIELDS.has(k.toLowerCase())) return { ok: false, error: "Unexpected field" }
   }
   const net = parseNetwork(body.network)
   if (!net.ok) return net

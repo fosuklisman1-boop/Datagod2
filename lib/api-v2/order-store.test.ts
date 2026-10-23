@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { placeV2Order, getOrderByReference, getWalletBalance, listAvailablePackages, purchaseDescription } from "./order-store"
+import { storageRecipient, placeV2Order, getOrderByReference, getWalletBalance, listAvailablePackages, purchaseDescription } from "./order-store"
 
 const P = {
   userId: "u1",
@@ -8,7 +8,7 @@ const P = {
   dbNetwork: "AT - iShare",
   gb: 2,
   price: 9.5,
-  msisdn: "0249990203",
+  recipientPhone: "0249990301",
   reference: "REF-1",
   description: "API data purchase: AT-iShare 2GB (ref REF-1)",
 }
@@ -32,10 +32,22 @@ describe("placeV2Order", () => {
       p_network: "AT - iShare",
       p_volume_gb: 2,
       p_price: 9.5,
-      p_recipient_phone: "0249990203",
+      p_recipient_phone: "0249990301",
       p_api_reference: "REF-1",
       p_description: P.description,
     })
+  })
+
+  it("refuses a 233 msisdn or any non-local recipient without calling the RPC", async () => {
+    for (const bad of ["233249990302", "+233249990302", "249990302", "0149990302", "", "0249990302\n"]) {
+      const c = rpcClient({ data: { success: true, replayed: false, order_id: "o1", new_balance: 5, created_at: "t" } })
+      expect(await placeV2Order(c, { ...P, recipientPhone: bad })).toEqual({ ok: false, code: "FAILED" })
+      expect(c.rpc).not.toHaveBeenCalled()
+    }
+  })
+
+  it("storageRecipient is the local form", () => {
+    expect(storageRecipient({ local: "0249990303" })).toBe("0249990303")
   })
 
   it("maps success", async () => {
@@ -171,10 +183,12 @@ describe("listAvailablePackages", () => {
     expect(out[2].dealer_price).toBeNull()
   })
 
-  it("filters by network when given", async () => {
-    const { q, calls } = chain({ data: rows.filter((r) => r.network === "MTN"), error: null })
-    await listAvailablePackages({ from: () => q } as any, "MTN")
-    expect(calls).toContainEqual(["eq", "network", "MTN"])
+  it("filters by network case-insensitively when given", async () => {
+    const { q } = chain({ data: rows, error: null })
+    const out = await listAvailablePackages({ from: () => q } as any, "mtn")
+    expect(out.map((p) => p.id)).toEqual(["d", "b", "a"])
+    const { q: q2 } = chain({ data: rows, error: null })
+    expect((await listAvailablePackages({ from: () => q2 } as any, "AT - ISHARE")).map((p) => p.id)).toEqual(["c"])
   })
 
   it("returns [] on error", async () => {
@@ -188,7 +202,7 @@ describe("purchaseDescription", () => {
     expect(purchaseDescription("MTN", 1, "ABC123")).toBe("API data purchase: MTN 1GB (ref ABC123)")
     const d = purchaseDescription("AT-iShare", 2.5, "REF-9")
     expect(d).toBe("API data purchase: AT-iShare 2.5GB (ref REF-9)")
-    // no run of 9+ digits (a phone number) can appear
+    // The helper takes no recipient at all, so none can appear in the text.
     expect(d).not.toMatch(/[0-9]{9,}/)
   })
 })

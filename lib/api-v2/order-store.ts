@@ -19,13 +19,24 @@ export interface PlaceParams {
   dbNetwork: string
   gb: number
   price: number
-  /** Local 0XXXXXXXXX form, the storage form for v2 orders. */
-  msisdn: string
+  /** MUST be the LOCAL 0XXXXXXXXX form (see storageRecipient). Never the 233... msisdn. */
+  recipientPhone: string
   reference: string
   description: string
 }
 
 const FAILED: PlaceResult = { ok: false, code: "FAILED" }
+
+const STORAGE_RECIPIENT_RE = /^0[235][0-9]{8}$/
+
+/**
+ * The ONE storage form for api_orders.recipient_phone on v2 orders: LOCAL
+ * 0XXXXXXXXX. The SQL replay check compares this string exactly, so every
+ * call site (single and bulk) must go through here.
+ */
+export function storageRecipient(input: { local: string }): string {
+  return input.local
+}
 
 function num(v: unknown): number | undefined {
   if (v === null || v === undefined || v === "") return undefined
@@ -40,6 +51,8 @@ function num(v: unknown): number | undefined {
  */
 export async function placeV2Order(client: RpcClient, p: PlaceParams): Promise<PlaceResult> {
   try {
+    // Refuse anything but the local form (e.g. a 233... msisdn) before money can move.
+    if (typeof p.recipientPhone !== "string" || !STORAGE_RECIPIENT_RE.test(p.recipientPhone)) return FAILED
     const { data, error } = await client.rpc("place_api_v2_order", {
       p_user_id: p.userId,
       p_api_v2_key_id: p.apiV2KeyId,
@@ -47,7 +60,7 @@ export async function placeV2Order(client: RpcClient, p: PlaceParams): Promise<P
       p_network: p.dbNetwork,
       p_volume_gb: p.gb,
       p_price: p.price,
-      p_recipient_phone: p.msisdn,
+      p_recipient_phone: p.recipientPhone,
       p_api_reference: p.reference,
       p_description: p.description,
     })
@@ -148,11 +161,17 @@ function sizeKey(size: string): number {
 /** Available packages only, ordered by network then numeric size. Returns [] on error. */
 export async function listAvailablePackages(client: SupabaseLike, dbNetwork?: string): Promise<PackageRow[]> {
   try {
-    let q = client.from("packages").select("id, network, size, price, dealer_price").eq("is_available", true)
-    if (dbNetwork) q = q.eq("network", dbNetwork)
-    const { data, error } = await q
+    const { data, error } = await client
+      .from("packages")
+      .select("id, network, size, price, dealer_price")
+      .eq("is_available", true)
     if (error || !Array.isArray(data)) return []
-    const rows: PackageRow[] = (data as Array<Record<string, unknown>>).map((r) => ({
+    // Network filter in code, case-insensitive, to match findPackage.
+    const want = dbNetwork?.toLowerCase()
+    const filtered = (data as Array<Record<string, unknown>>).filter(
+      (r) => !want || String(r.network).toLowerCase() === want
+    )
+    const rows: PackageRow[] = filtered.map((r) => ({
       id: String(r.id),
       network: String(r.network),
       size: String(r.size),

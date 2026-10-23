@@ -219,3 +219,38 @@ describe("findPackage", () => {
     expect(findPackage([mk(".5")], "MTN", 0.5)).toBeNull()
   })
 })
+
+describe("hardening", () => {
+  const body = { network: "mtn", volume_gb: 1, recipient: "0249990301", reference: "REF-301" }
+  it.each(["Price", "AMOUNT", "dealer_price", "cost", "api_key_id", "recipient_phone", "package", "user", "Package_Id"])(
+    "rejects %s case-insensitively",
+    (k) => {
+      const r = parsePurchaseBody({ ...body, [k]: 1 })
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.error).toContain("Unexpected field")
+    }
+  )
+  it("ignores other unknown fields and a __proto__ key without throwing", () => {
+    expect(parsePurchaseBody({ ...body, note: "hi" }).ok).toBe(true)
+    const withProto = JSON.parse('{"__proto__":{"price":1},"network":"mtn","volume_gb":1,"recipient":"0249990302","reference":"REF-302"}')
+    expect(() => parsePurchaseBody(withProto)).not.toThrow()
+    expect(parsePurchaseBody(withProto).ok).toBe(true)
+  })
+  it("rejects non-ASCII digits for recipient and volume", () => {
+    expect(normalizeRecipient("٠٢٤٤١٢٣٤٥٦").ok).toBe(false)
+    expect(normalizeRecipient("０２４４１２３４５６").ok).toBe(false)
+    expect(parseVolume("١").ok).toBe(false)
+    expect(parseVolume("１").ok).toBe(false)
+    expect(parseVolume("0x10").ok).toBe(false)
+  })
+  it("priceForRole treats string, NaN and non-numeric dealer_price safely", () => {
+    expect(priceForRole("dealer", { price: 10, dealer_price: "8" as any })).toBe(8)
+    expect(priceForRole("dealer", { price: 10, dealer_price: NaN })).toBe(10)
+    expect(priceForRole("dealer", { price: 10, dealer_price: "abc" as any })).toBe(10)
+  })
+  it("bulk: whitespace-only differences are duplicates, case differences are distinct", () => {
+    const mk = (ref: string) => ({ ...body, reference: ref })
+    expect(parseBulkBody({ orders: [mk("REF-A1"), mk("  REF-A1 ")] })).toMatchObject({ ok: false, index: 1 })
+    expect(parseBulkBody({ orders: [mk("REF-A1"), mk("ref-a1")] }).ok).toBe(true)
+  })
+})

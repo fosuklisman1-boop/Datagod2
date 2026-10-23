@@ -43,6 +43,11 @@ export type FulfillmentOutcome = { attempted: boolean; outcome: "mtn" | "non_mtn
 /** Same list v1 uses, compared lower-cased. */
 const NON_MTN_AUTO = new Set(["at - ishare", "at-ishare", "telecel", "at - bigtime", "at-bigtime"])
 
+/** Error class name only: messages can carry phone numbers or provider payloads. */
+function errName(err: unknown): string {
+  return err instanceof Error && /^[A-Za-z0-9_]{1,40}$/.test(err.name) ? err.name : "UnknownError"
+}
+
 export async function dispatchFulfillment(deps: FulfillmentDeps, o: FulfillmentTarget): Promise<FulfillmentOutcome> {
   const network = o.dbNetwork.trim().toLowerCase()
   let attempted = false
@@ -80,7 +85,7 @@ export async function dispatchFulfillment(deps: FulfillmentDeps, o: FulfillmentT
 
     return { attempted: false, outcome: "skipped" }
   } catch (err) {
-    console.error("[API v2] fulfillment error:", err instanceof Error ? err.message : "unknown")
+    console.error("[API v2] fulfillment error:", errName(err))
     return { attempted, outcome: "error" }
   }
 }
@@ -110,10 +115,45 @@ export function realFulfillmentDeps(): FulfillmentDeps {
   }
 }
 
-/** Runs the dispatch after the response is sent. Must be called from a request scope. */
-export async function scheduleFulfillment(o: FulfillmentTarget): Promise<void> {
+export type AfterFn = (cb: () => Promise<void>) => void
+
+async function realAfter(cb: () => Promise<void>): Promise<void> {
   const { after } = await import("next/server")
-  after(async () => {
-    await dispatchFulfillment(realFulfillmentDeps(), o)
-  })
+  after(cb)
+}
+
+/**
+ * Synchronous from the caller's view; never throws and never leaves an
+ * unhandled rejection. Prefers next's after() (runs once the response is
+ * sent); if after() is unavailable or throws (no request scope), falls back to
+ * a caught fire-and-forget dispatch. Logs a fixed string with the error name.
+ */
+export function scheduleFulfillment(
+  o: FulfillmentTarget,
+  afterFn?: AfterFn,
+  makeDeps: () => FulfillmentDeps = realFulfillmentDeps
+): void {
+  const run = async () => {
+    try {
+      await dispatchFulfillment(makeDeps(), o)
+    } catch (err) {
+      console.error("[API v2] fulfillment schedule error:", errName(err))
+    }
+  }
+  const fallback = () => {
+    void run().catch(() => {})
+  }
+  try {
+    if (afterFn) {
+      afterFn(run)
+      return
+    }
+    realAfter(run).catch((err) => {
+      console.error("[API v2] after() unavailable, dispatching inline:", errName(err))
+      fallback()
+    })
+  } catch (err) {
+    console.error("[API v2] after() unavailable, dispatching inline:", errName(err))
+    fallback()
+  }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { dispatchFulfillment, type FulfillmentDeps } from "./fulfillment"
+import { dispatchFulfillment, scheduleFulfillment, type FulfillmentDeps } from "./fulfillment"
 
 function makeDeps(over: Partial<FulfillmentDeps> = {}) {
   const deps = {
@@ -128,5 +128,57 @@ describe("dispatchFulfillment: safety", () => {
     await dispatchFulfillment(d, base)
     await dispatchFulfillment(d, base)
     expect(d.createMtnOrder).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("scheduleFulfillment", () => {
+  const target = { orderId: "ord-9", dbNetwork: "Telecel", gb: 1, msisdn: "233249990304", local: "0249990304" }
+  const flush = () => new Promise((r) => setTimeout(r, 0))
+
+  it("uses after() when available and runs the dispatch inside it", async () => {
+    const d = makeDeps()
+    let captured: (() => Promise<void>) | undefined
+    const afterFn = vi.fn((cb: () => Promise<void>) => { captured = cb })
+    expect(scheduleFulfillment(target, afterFn, () => d)).toBeUndefined()
+    expect(afterFn).toHaveBeenCalledTimes(1)
+    expect(d.createNonMtnOrder).not.toHaveBeenCalled()
+    await captured!()
+    expect(d.createNonMtnOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it("falls back to an inline dispatch when after() throws", async () => {
+    const d = makeDeps()
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    scheduleFulfillment(target, () => { throw new Error("outside request scope 0249990304") }, () => d)
+    await flush()
+    expect(d.createNonMtnOrder).toHaveBeenCalledTimes(1)
+    const logged = JSON.stringify(spy.mock.calls)
+    expect(logged).not.toMatch(/[0-9]{9,}/)
+    expect(logged).not.toContain("outside request scope")
+    spy.mockRestore()
+  })
+
+  it("a rejecting dispatch causes no unhandled rejection and logs no message", async () => {
+    const d = makeDeps({ createNonMtnOrder: vi.fn(async () => { throw new Error("boom 0249990304") }) as any })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    scheduleFulfillment(target, () => { throw new Error("x") }, () => d)
+    scheduleFulfillment(target, (cb) => { void cb() }, () => d)
+    await flush()
+    await flush()
+    process.off("unhandledRejection", unhandled)
+    expect(unhandled).not.toHaveBeenCalled()
+    const logged = JSON.stringify(spy.mock.calls)
+    expect(logged).not.toMatch(/[0-9]{9,}/)
+    expect(logged).not.toContain("boom")
+    spy.mockRestore()
+  })
+
+  it("a throwing deps factory is contained", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    scheduleFulfillment(target, (cb) => { void cb() }, () => { throw new Error("bad") })
+    await flush()
+    spy.mockRestore()
   })
 })
