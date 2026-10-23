@@ -124,6 +124,33 @@ export async function placeSandboxOrder(params: {
   }
 }
 
+/**
+ * Batch form of getSandboxOrder for v2 bulk: one owner-scoped query for the
+ * whole batch (callers send at most 100 references). Returns null on a read
+ * error so the caller fails closed. Additive; v1 does not use it.
+ */
+export async function getSandboxOrdersByReferences(userId: string, references: string[]) {
+  const out = new Map<
+    string,
+    { reference: string; action: string; response: unknown; price: number; resolves_at: string; created_at: string; status: "pending" | "completed" }
+  >()
+  if (references.length === 0) return out
+  try {
+    const { data, error } = await supabase
+      .from("sandbox_orders")
+      .select("reference, action, response, price, resolves_at, created_at")
+      .eq("user_id", userId)
+      .in("reference", references)
+    if (error || !Array.isArray(data)) return null
+    for (const r of data) {
+      out.set(r.reference, { ...r, status: deriveSandboxStatus(r.resolves_at) })
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
 export async function getSandboxOrder(userId: string, reference: string) {
   const { data } = await supabase
     .from("sandbox_orders")

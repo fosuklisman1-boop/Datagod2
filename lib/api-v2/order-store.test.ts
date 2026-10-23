@@ -259,7 +259,7 @@ describe("listAvailablePackages", () => {
   it("filters is_available, sorts by network then numeric size, coerces prices", async () => {
     const { q, calls } = chain({ data: rows, error: null })
     const client = { from: vi.fn(() => q) } as any
-    const out = await listAvailablePackages(client)
+    const out = (await listAvailablePackages(client))!
     expect(client.from).toHaveBeenCalledWith("packages")
     expect(calls).toContainEqual(["eq", "is_available", true])
     expect(out.map((p) => p.id)).toEqual(["c", "d", "b", "a"])
@@ -269,15 +269,20 @@ describe("listAvailablePackages", () => {
 
   it("filters by network case-insensitively when given", async () => {
     const { q } = chain({ data: rows, error: null })
-    const out = await listAvailablePackages({ from: () => q } as any, "mtn")
+    const out = (await listAvailablePackages({ from: () => q } as any, "mtn"))!
     expect(out.map((p) => p.id)).toEqual(["d", "b", "a"])
     const { q: q2 } = chain({ data: rows, error: null })
-    expect((await listAvailablePackages({ from: () => q2 } as any, "AT - ISHARE")).map((p) => p.id)).toEqual(["c"])
+    expect((await listAvailablePackages({ from: () => q2 } as any, "AT - ISHARE"))!.map((p) => p.id)).toEqual(["c"])
   })
 
-  it("returns [] on error", async () => {
-    expect(await listAvailablePackages({ from: () => chain({ data: null, error: { message: "e" } }).q } as any)).toEqual([])
-    expect(await listAvailablePackages({ from: () => { throw new Error("x") } } as any)).toEqual([])
+  it("returns null (a distinct failure, never []) on error so callers answer 503", async () => {
+    expect(await listAvailablePackages({ from: () => chain({ data: null, error: { message: "e" } }).q } as any)).toBeNull()
+    expect(await listAvailablePackages({ from: () => { throw new Error("x") } } as any)).toBeNull()
+    expect(await listAvailablePackages({ from: () => chain({ data: { x: 1 }, error: null }).q } as any)).toBeNull()
+  })
+
+  it("an empty but successful read is []", async () => {
+    expect(await listAvailablePackages({ from: () => chain({ data: [], error: null }).q } as any)).toEqual([])
   })
 })
 

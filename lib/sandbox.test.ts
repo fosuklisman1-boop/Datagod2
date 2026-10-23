@@ -6,12 +6,26 @@ const h = vi.hoisted(() => {
     inserts: [] as Array<{ table: string; row: Record<string, unknown> }>,
     insertError: null as null | { code: string },
     balance: 100,
+    listResult: { data: [] as unknown, error: null as unknown },
+    queries: [] as Array<{ table: string; calls: Array<[string, ...unknown[]]> }>,
   }
   const client = {
     from(table: string) {
+      const calls: Array<[string, ...unknown[]]> = []
+      state.queries.push({ table, calls })
       const q: any = {}
-      q.select = () => q
-      q.eq = () => q
+      q.select = (...a: unknown[]) => {
+        calls.push(["select", ...a])
+        return q
+      }
+      q.eq = (...a: unknown[]) => {
+        calls.push(["eq", ...a])
+        return q
+      }
+      q.in = (...a: unknown[]) => {
+        calls.push(["in", ...a])
+        return { then: (res: any, rej: any) => Promise.resolve(state.listResult).then(res, rej) }
+      }
       q.update = () => q
       q.maybeSingle = async () => ({ data: table === "sandbox_wallets" ? { balance: state.balance } : null, error: null })
       q.single = q.maybeSingle
@@ -28,7 +42,41 @@ const h = vi.hoisted(() => {
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.client }))
 
-import { placeSandboxOrder } from "./sandbox"
+import { placeSandboxOrder, getSandboxOrdersByReferences } from "./sandbox"
+
+describe("getSandboxOrdersByReferences", () => {
+  beforeEach(() => {
+    h.state.queries = []
+    h.state.listResult = { data: [], error: null }
+  })
+
+  it("one owner-scoped query for the batch, status derived like getSandboxOrder", async () => {
+    h.state.listResult = {
+      data: [
+        { reference: "R1", action: "data_order", response: {}, price: 5, resolves_at: "2000-01-01T00:00:00Z", created_at: "t" },
+        { reference: "R2", action: "data_order", response: {}, price: 5, resolves_at: "2999-01-01T00:00:00Z", created_at: "t" },
+      ],
+      error: null,
+    }
+    const out = await getSandboxOrdersByReferences("u1", ["R1", "R2", "R3"])
+    expect(h.state.queries).toHaveLength(1)
+    const { table, calls } = h.state.queries[0]
+    expect(table).toBe("sandbox_orders")
+    expect(calls).toContainEqual(["eq", "user_id", "u1"])
+    expect(calls).toContainEqual(["in", "reference", ["R1", "R2", "R3"]])
+    expect(out!.get("R1")!.status).toBe("completed")
+    expect(out!.get("R2")!.status).toBe("pending")
+    expect(out!.has("R3")).toBe(false)
+  })
+
+  it("returns null on error (caller fails closed) and makes no query for an empty list", async () => {
+    h.state.listResult = { data: null, error: { message: "e" } }
+    expect(await getSandboxOrdersByReferences("u1", ["R1"])).toBeNull()
+    h.state.queries = []
+    expect((await getSandboxOrdersByReferences("u1", []))!.size).toBe(0)
+    expect(h.state.queries).toHaveLength(0)
+  })
+})
 
 const base = {
   userId: "u1",

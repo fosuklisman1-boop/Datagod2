@@ -197,14 +197,18 @@ function sizeKey(size: string): number {
   return /^[0-9]+(\.[0-9]+)?$/.test(size) ? Number(size) : Number.POSITIVE_INFINITY
 }
 
-/** Available packages only, ordered by network then numeric size. Returns [] on error. */
-export async function listAvailablePackages(client: SupabaseLike, dbNetwork?: string): Promise<PackageRow[]> {
+/**
+ * Available packages only, ordered by network then numeric size. Returns null
+ * on a read error (distinct from an empty catalog) so callers answer 503
+ * instead of a misleading "not found".
+ */
+export async function listAvailablePackages(client: SupabaseLike, dbNetwork?: string): Promise<PackageRow[] | null> {
   try {
     const { data, error } = await client
       .from("packages")
       .select("id, network, size, price, dealer_price")
       .eq("is_available", true)
-    if (error || !Array.isArray(data)) return []
+    if (error || !Array.isArray(data)) return null
     // Network filter in code, case-insensitive, to match findPackage.
     const want = dbNetwork?.toLowerCase()
     const filtered = (data as Array<Record<string, unknown>>).filter(
@@ -224,7 +228,7 @@ export async function listAvailablePackages(client: SupabaseLike, dbNetwork?: st
       return a.size < b.size ? -1 : a.size > b.size ? 1 : 0
     })
   } catch {
-    return []
+    return null
   }
 }
 
