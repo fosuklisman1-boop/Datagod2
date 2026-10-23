@@ -105,7 +105,13 @@ export interface DataDeps {
     place(p: SandboxPlaceParams): Promise<SandboxPlaceResult>
     balance(userId: string): Promise<number>
   }
+  /** Single purchase: one order's dispatch via after(). */
   schedule(o: FulfillmentTarget): void
+  /**
+   * Bulk: called ONCE after the placement loop with every NEW placement;
+   * one after() callback with bounded provider concurrency.
+   */
+  scheduleBatch(targets: FulfillmentTarget[]): void
   now(): Date
 }
 
@@ -511,35 +517,43 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
 
   // 7. Sequential placement; a failure marks the item and the batch continues.
   //    Past the deadline no new placement STARTS (NOT_ATTEMPTED).
+  //    NEW placements are collected and dispatched ONCE after the loop (one
+  //    after() callback, bounded concurrency); the finally makes sure orders
+  //    already paid for are dispatched even if a later step throws.
   const results: BulkResult[] = []
+  const placed: FulfillmentTarget[] = []
   let chargedCents = 0
-  for (const s of slots) {
-    if (s.kind === "replay") {
-      results.push({ reference: s.reference, status: "replayed", order: s.order })
-      continue
+  try {
+    for (const s of slots) {
+      if (s.kind === "replay") {
+        results.push({ reference: s.reference, status: "replayed", order: s.order })
+        continue
+      }
+      const ref = s.p.input.reference
+      if (!toPlace.has(s)) continue
+      if (pastDeadline(deps, startedAt)) {
+        results.push({ reference: ref, status: "failed", error: MSG_NOT_ATTEMPTED })
+        continue
+      }
+      const res = await deps.store.placeV2Order(placeParams(ctx, s.p))
+      if (!res.ok) {
+        results.push({
+          reference: ref,
+          status: "failed",
+          error: res.code === "WALLET_NOT_FOUND" ? "INSUFFICIENT_BALANCE" : res.code,
+        })
+        continue
+      }
+      if (res.replayed) {
+        results.push({ reference: ref, status: "replayed", order: await liveReplayOrder(deps, ctx, s.p, res) })
+        continue
+      }
+      chargedCents += cents(s.p.price)
+      placed.push(target(res.orderId, s.p.input))
+      results.push({ reference: ref, status: "placed", order: orderFromInput(s.p.input, s.p.price, "pending", res.createdAt) })
     }
-    const ref = s.p.input.reference
-    if (!toPlace.has(s)) continue
-    if (pastDeadline(deps, startedAt)) {
-      results.push({ reference: ref, status: "failed", error: MSG_NOT_ATTEMPTED })
-      continue
-    }
-    const res = await deps.store.placeV2Order(placeParams(ctx, s.p))
-    if (!res.ok) {
-      results.push({
-        reference: ref,
-        status: "failed",
-        error: res.code === "WALLET_NOT_FOUND" ? "INSUFFICIENT_BALANCE" : res.code,
-      })
-      continue
-    }
-    if (res.replayed) {
-      results.push({ reference: ref, status: "replayed", order: await liveReplayOrder(deps, ctx, s.p, res) })
-      continue
-    }
-    chargedCents += cents(s.p.price)
-    deps.schedule(target(res.orderId, s.p.input))
-    results.push({ reference: ref, status: "placed", order: orderFromInput(s.p.input, s.p.price, "pending", res.createdAt) })
+  } finally {
+    if (placed.length > 0) deps.scheduleBatch(placed)
   }
 
   return ok(200, { results, skipped, total_charged: chargedCents / 100 })

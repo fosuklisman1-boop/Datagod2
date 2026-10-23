@@ -6,8 +6,10 @@
  * route, no order source hands work to providers through it.
  *
  * dispatchFulfillment is pure over injected deps and imports nothing heavy.
- * Real wiring (dynamic imports, so tests never load provider modules or
- * next/server) lives in realFulfillmentDeps / scheduleFulfillment.
+ * Real wiring (dynamic imports, so tests never load provider modules) lives
+ * in realFulfillmentDeps. The routes pass next's after() in statically from
+ * endpoints/data-deps.ts; the lazy realAfter here is only the default when
+ * no afterFn is given.
  *
  * Replays must NOT dispatch again: that is the caller's job.
  */
@@ -140,6 +142,58 @@ export function scheduleFulfillment(
       console.error("[API v2] fulfillment schedule error:", errName(err))
     }
   }
+  scheduleRun(run, afterFn)
+}
+
+/** How many bulk orders are handed to providers at once (one createMTNOrder chain each). */
+export const BULK_DISPATCH_CONCURRENCY = 4
+
+/**
+ * Bulk variant: ONE after() callback that dispatches every target with at
+ * most `concurrency` in flight (a small worker pool), instead of one
+ * callback per order starting up to 100 provider chains at once. Same
+ * contract as scheduleFulfillment: synchronous, never throws, a failing
+ * target never stops the rest, inline fallback when after() is unavailable,
+ * PII-free logs. An empty list registers nothing.
+ */
+export function scheduleFulfillmentBatch(
+  targets: FulfillmentTarget[],
+  opts: { concurrency: number },
+  afterFn?: AfterFn,
+  makeDeps: () => FulfillmentDeps = realFulfillmentDeps
+): void {
+  if (targets.length === 0) return
+  const list = [...targets]
+  const limit = Math.max(1, Math.floor(opts.concurrency) || 1)
+  const run = async () => {
+    let deps: FulfillmentDeps
+    try {
+      deps = makeDeps()
+    } catch (err) {
+      console.error("[API v2] fulfillment schedule error:", errName(err))
+      return
+    }
+    let next = 0
+    const worker = async () => {
+      while (next < list.length) {
+        const o = list[next++]
+        try {
+          await dispatchFulfillment(deps, o)
+        } catch (err) {
+          console.error("[API v2] fulfillment schedule error:", errName(err))
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, list.length) }, () => worker()))
+  }
+  scheduleRun(run, afterFn)
+}
+
+/**
+ * Registers `run` with after() (the given one, else next's, loaded lazily),
+ * falling back to a caught inline run when after() is unavailable or throws.
+ */
+function scheduleRun(run: () => Promise<void>, afterFn?: AfterFn): void {
   const fallback = () => {
     void run().catch(() => {})
   }

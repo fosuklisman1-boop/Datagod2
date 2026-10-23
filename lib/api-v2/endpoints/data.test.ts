@@ -74,6 +74,7 @@ function makeDeps(over: { prefixEnabled?: boolean } = {}) {
     verifyMtn: vi.fn(async (locals: string[]) => new Map<string, boolean | null>(locals.map((l) => [l, true]))),
     phoneGate: vi.fn(async (_u: string) => ({ allowed: true })),
     schedule: vi.fn(),
+    scheduleBatch: vi.fn(),
     clock: { ms: 0 },
     now: (): Date => new Date(Date.parse(CREATED) + deps.clock.ms),
   }
@@ -90,6 +91,7 @@ function allFns(d: Deps) {
     d.verifyMtn,
     d.phoneGate,
     d.schedule,
+    d.scheduleBatch,
   ] as Array<ReturnType<typeof vi.fn>>
 }
 
@@ -109,6 +111,14 @@ function expectNoMoney(d: Deps) {
   expect(d.store.placeV2Order).not.toHaveBeenCalled()
   expect(d.sandbox.place).not.toHaveBeenCalled()
   expect(d.schedule).not.toHaveBeenCalled()
+  expect(d.scheduleBatch).not.toHaveBeenCalled()
+}
+
+/** Bulk dispatch: exactly one batch schedule with these order ids, never the single-order path. */
+function expectBatchScheduled(d: Deps, orderIds: string[]) {
+  expect(d.schedule).not.toHaveBeenCalled()
+  expect(d.scheduleBatch).toHaveBeenCalledTimes(1)
+  expect(d.scheduleBatch.mock.calls[0][0].map((t: { orderId: string }) => t.orderId)).toEqual(orderIds)
 }
 
 function expectOrderShape(o: unknown) {
@@ -156,6 +166,7 @@ describe("purchase (live) money path", () => {
       reference: "REF-001",
       description: "API data purchase: MTN 1GB (ref REF-001)",
     })
+    expect(d.scheduleBatch).not.toHaveBeenCalled()
     expect(d.schedule).toHaveBeenCalledTimes(1)
     expect(d.schedule).toHaveBeenCalledWith({
       orderId: "o-REF-001",
@@ -620,8 +631,14 @@ describe("bulk (live)", () => {
     for (const x of res.results) expectOrderShape(x.order)
     expect(res.skipped).toEqual([{ reference: "BULK-1", reason: "NOT_REGISTERED" }])
     expect(res.total_charged).toBe(26)
-    expect(d.schedule).toHaveBeenCalledTimes(2)
-    expect(d.schedule.mock.calls.map((c) => c[0].orderId)).toEqual(["o-BULK-0", "o-BULK-3"])
+    expectBatchScheduled(d, ["o-BULK-0", "o-BULK-3"])
+    expect(d.scheduleBatch.mock.calls[0][0][1]).toEqual({
+      orderId: "o-BULK-3",
+      dbNetwork: "MTN",
+      gb: 2,
+      msisdn: "233249990433",
+      local: "0249990433",
+    })
     expect(JSON.stringify(res.skipped)).not.toContain("0249990431")
   })
 
@@ -653,8 +670,53 @@ describe("bulk (live)", () => {
       expect.objectContaining({ reference: "BULK-2", status: "placed" }),
     ])
     expect(res.total_charged).toBe(16)
-    expect(d.schedule).toHaveBeenCalledTimes(2)
+    expectBatchScheduled(d, ["o-BULK-0", "o-BULK-2"])
     expect(d.store.placeV2Order).toHaveBeenCalledTimes(3)
+  })
+
+  it("dispatch is scheduled ONCE after the loop with only the placed items (not replayed, failed or NOT_ATTEMPTED)", async () => {
+    const d = makeDeps()
+    d.store.getOrdersByReferences.mockResolvedValue(
+      new Map([["BULK-1", row({ api_reference: "BULK-1", recipient_phone: "0249990431" })]])
+    )
+    let calls = 0
+    d.store.placeV2Order.mockImplementation(async (p: PlaceParams) => {
+      calls++
+      // Placement #0 dispatches nothing yet: the batch is scheduled after the loop.
+      expect(d.scheduleBatch).not.toHaveBeenCalled()
+      if (p.reference === "BULK-2") return { ok: false, code: "FAILED" }
+      if (p.reference === "BULK-3") return { ok: true, replayed: true, orderId: "o-r", createdAt: CREATED, status: "pending" }
+      if (calls === 4) d.clock.ms += BULK_DEADLINE_MS + 1
+      return placedOk(p.reference)
+    })
+    const orders = [item(0), item(1), item(2), item(3), item(4), item(5)]
+    const r = await bulkHandler(d)({ orders }, LIVE)
+    expect(data(r).results.map((x: any) => [x.reference, x.status, x.error ?? null])).toEqual([
+      ["BULK-0", "placed", null],
+      ["BULK-1", "replayed", null],
+      ["BULK-2", "failed", "FAILED"],
+      ["BULK-3", "replayed", null],
+      ["BULK-4", "placed", null],
+      ["BULK-5", "failed", "NOT_ATTEMPTED: retry this item"],
+    ])
+    expectBatchScheduled(d, ["o-BULK-0", "o-BULK-4"])
+  })
+
+  it("a placement that throws mid-batch still schedules the orders already placed", async () => {
+    const d = makeDeps()
+    d.store.placeV2Order
+      .mockResolvedValueOnce(placedOk("BULK-0"))
+      .mockRejectedValueOnce(new Error("connection reset"))
+    await expect(bulkHandler(d)({ orders: [item(0), item(1), item(2)] }, LIVE)).rejects.toThrow()
+    expectBatchScheduled(d, ["o-BULK-0"])
+  })
+
+  it("a batch with nothing placed schedules nothing", async () => {
+    const d = makeDeps()
+    d.store.placeV2Order.mockResolvedValue({ ok: false, code: "FAILED" })
+    await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
+    expect(d.scheduleBatch).not.toHaveBeenCalled()
+    expect(d.schedule).not.toHaveBeenCalled()
   })
 
   it("an RPC replay inside the batch is reported replayed, not charged, not scheduled; FAILED is a generic failure", async () => {
@@ -746,7 +808,7 @@ describe("bulk deadline (after() only dispatches once the response is sent)", ()
     ])
     expect(res.total_charged).toBe(16)
     expect(res.skipped).toEqual([])
-    expect(d.schedule).toHaveBeenCalledTimes(2)
+    expectBatchScheduled(d, ["o-BULK-0", "o-BULK-1"])
   })
 
   it("time spent before the loop (lookups, MTN check) counts toward the deadline; skipped is unaffected", async () => {
@@ -893,6 +955,7 @@ describe("bulk (test key / sandbox)", () => {
     expectNoRealOrderOrWallet(d)
     expect(d.verifyMtn).not.toHaveBeenCalled()
     expect(d.schedule).not.toHaveBeenCalled()
+    expect(d.scheduleBatch).not.toHaveBeenCalled()
     expect(d.sandbox.place).toHaveBeenCalledTimes(1)
     expect(d.sandbox.place.mock.calls[0][0]).toMatchObject({ apiV2KeyId: "key-test-1", action: "data_order", reference: "BULK-0" })
     const res = data(r)

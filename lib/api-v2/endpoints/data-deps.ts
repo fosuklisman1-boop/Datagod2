@@ -12,7 +12,10 @@ import {
   placeV2Order,
   type RpcClient,
 } from "../order-store"
-import { scheduleFulfillment } from "../fulfillment"
+// Static: after() must be registered synchronously while the request scope is
+// still live (a dynamic import resolves later, possibly after the response).
+import { after } from "next/server"
+import { BULK_DISPATCH_CONCURRENCY, scheduleFulfillment, scheduleFulfillmentBatch } from "../fulfillment"
 import type { DataDeps, SandboxOrderLike } from "./data"
 import type { WhitelistEntry } from "@/lib/mtn-providers/provider-whitelist"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -134,7 +137,8 @@ export function realDataDeps(): DataDeps {
       place: async (p) => (await import("@/lib/sandbox")).placeSandboxOrder(p),
       balance: async (userId) => (await import("@/lib/sandbox")).getSandboxBalance(userId),
     },
-    schedule: (o) => scheduleFulfillment(o),
+    schedule: (o) => scheduleFulfillment(o, after),
+    scheduleBatch: (targets) => scheduleFulfillmentBatch(targets, { concurrency: BULK_DISPATCH_CONCURRENCY }, after),
     now: () => new Date(),
   }
 }
