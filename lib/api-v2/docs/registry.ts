@@ -9,6 +9,19 @@ import {
   MSG_RATE_LIMITED,
   msgWrongKeyType,
 } from "../access"
+import { DEFAULT_LIMITS } from "../limits"
+import {
+  MSG_PACKAGE_NOT_FOUND,
+  MSG_NETWORK_MISMATCH,
+  MSG_REFERENCE_REUSED,
+  MSG_NOT_REGISTERED,
+  MSG_ORDER_FAILED,
+  MSG_ORDER_NOT_FOUND,
+  MSG_LOOKUP_FAILED,
+  MSG_UNAVAILABLE as MSG_CATALOG_UNAVAILABLE,
+  MSG_PHONE_GATE,
+  MSG_NOT_ATTEMPTED,
+} from "../endpoints/data"
 
 export type DocLang = "curl" | "node" | "php" | "python"
 
@@ -195,6 +208,280 @@ const BALANCE_ENDPOINT: V2Endpoint = {
   ],
 }
 
+// Fixed strings from the data endpoints; the exported ones are imported so the docs cannot drift.
+const MSG_BODY_OBJECT = "Request body must be a JSON object"
+const MSG_NETWORK_LIST = "network must be one of: MTN, Telecel, AT-iShare, AT-BigTime"
+const MSG_VOLUME = "volume_gb must be a positive number up to 1000 with at most 3 decimals"
+const MSG_RECIPIENT = "recipient must be a valid Ghana mobile number"
+const MSG_REFERENCE = "reference must be 3 to 100 characters: letters, digits, '-', '_', '.', ':'"
+const MSG_INSUFFICIENT = "INSUFFICIENT_BALANCE: wallet balance is too low; required 4.50"
+const MSG_BULK_SHAPE = "orders must be an array of 1 to 100 orders"
+
+const ORDER_EXAMPLE = {
+  reference: "ORD-2026-0001",
+  network: "MTN",
+  volume_gb: 1,
+  recipient: "0244000001",
+  price: 4.5,
+  status: "pending",
+  created_at: TS,
+}
+
+const NETWORK_PARAM =
+  "One of MTN, Telecel, AT-iShare or AT-BigTime (case-insensitive). Which networks and sizes can be bought right now is returned by GET /packages; a network or size that is not listed there is unavailable."
+
+const PACKAGES_ENDPOINT: V2Endpoint = {
+  id: "data-packages",
+  group: "data",
+  method: "GET",
+  path: "/packages",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Lists the data packages you can buy right now, with the price your account pays.",
+  params: [
+    { name: "network", type: "string", required: false, description: "Only return packages for this network. " + NETWORK_PARAM },
+    { name: "size_gb", type: "number", required: false, description: "Only return packages of exactly this size in GB, for example 1 or 0.5." },
+  ],
+  requestExample: null,
+  successExample: {
+    success: true,
+    data: {
+      packages: [
+        { network: "AT-iShare", size_gb: 1, price: 4.2 },
+        { network: "MTN", size_gb: 1, price: 4.5 },
+        { network: "MTN", size_gb: 2, price: 8.9 },
+      ],
+    },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [
+    { status: 400, message: MSG_NETWORK_LIST },
+    { status: 400, message: MSG_VOLUME.replace("volume_gb", "size_gb") },
+    ...standardAccessErrors(),
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+  ],
+  notes: [
+    "This is the source of truth for availability: the list changes as networks and sizes are switched on or off, so a size that is missing here (for example an AT-BigTime size) is currently unavailable and a purchase for it returns 404.",
+    "The price shown is what your account's role pays, in GHS. Role-specific pricing is applied by Datagod; you never send a price when ordering.",
+    "Results are sorted by network and then by size.",
+  ],
+}
+
+const PURCHASE_ENDPOINT: V2Endpoint = {
+  id: "data-purchase",
+  group: "data",
+  method: "POST",
+  path: "/data/purchase",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.purchase} requests per minute (purchase group)`,
+  summary:
+    "Buys one data bundle for one recipient and charges your wallet. Test keys use a sandbox wallet and never place real orders.",
+  params: [
+    { name: "network", type: "string", required: true, description: NETWORK_PARAM },
+    { name: "volume_gb", type: "number", required: true, description: "Bundle size in GB, positive, up to 1000, at most 3 decimals. It must match a size listed by GET /packages." },
+    { name: "recipient", type: "string", required: true, description: "Ghana mobile number in any of the forms 0244000001, 233244000001 or +233244000001 (spaces and hyphens are ignored)." },
+    { name: "reference", type: "string", required: true, description: "Your own unique id for this order: 3 to 100 characters, letters, digits and - _ . : only. It makes retries safe." },
+  ],
+  requestExample: { network: "MTN", volume_gb: 1, recipient: "0244000001", reference: "ORD-2026-0001" },
+  successExample: {
+    success: true,
+    data: { order: ORDER_EXAMPLE, new_balance: 120.5 },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [
+    { status: 400, message: MSG_BODY_OBJECT },
+    { status: 400, message: "Unexpected field" },
+    { status: 400, message: MSG_NETWORK_LIST },
+    { status: 400, message: MSG_VOLUME },
+    { status: 400, message: MSG_RECIPIENT },
+    { status: 400, message: MSG_REFERENCE },
+    { status: 400, message: MSG_NETWORK_MISMATCH },
+    { status: 402, message: MSG_INSUFFICIENT },
+    { status: 404, message: MSG_PACKAGE_NOT_FOUND },
+    { status: 409, message: MSG_REFERENCE_REUSED },
+    { status: 409, message: MSG_NOT_REGISTERED },
+    { status: 500, message: MSG_ORDER_FAILED },
+    ...standardAccessErrors(),
+    { status: 403, message: MSG_PHONE_GATE },
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+  ],
+  notes: [
+    "A new order returns HTTP 201 with the order and your new wallet balance. The order starts as pending and moves through the statuses described in Order statuses; poll GET /orders/{reference} to follow it.",
+    "Never send a price. The price is set by Datagod from your account's role and charged atomically with the order; price, amount, package, status and similar fields are rejected with 400 Unexpected field.",
+    "Resending the same reference with the same network, size and recipient is safe: it returns HTTP 200 with replayed: true and the existing order, and you are not charged a second time. Reusing a reference for different content returns 409.",
+    "Live purchases require the phone number on your Datagod account to be verified. Until it is, a live key gets 403 PHONE_NOT_VERIFIED; verify the number in the dashboard. Replays of an existing order are not blocked by this check.",
+    "An MTN recipient that is not registered for MTN data is rejected with 409 RECIPIENT_NOT_REGISTERED and nothing is charged. If the registration check itself is unavailable the order is accepted.",
+    "The recipient number must belong to the chosen network, otherwise 400 NETWORK_MISMATCH.",
+    "A test key uses a separate sandbox wallet: the response carries sandbox: true, no real order is placed and your real wallet is untouched.",
+  ],
+}
+
+const BULK_ENDPOINT: V2Endpoint = {
+  id: "data-bulk",
+  group: "data",
+  method: "POST",
+  path: "/data/bulk",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.bulk} requests per minute (bulk group)`,
+  summary:
+    "Buys up to 100 data bundles in one request. Test keys use a sandbox wallet and never place real orders.",
+  params: [
+    { name: "orders", type: "array", required: true, description: "1 to 100 items, each with network, volume_gb, recipient and reference exactly as for POST /data/purchase. References must be unique within the batch." },
+  ],
+  requestExample: {
+    orders: [
+      { network: "MTN", volume_gb: 1, recipient: "0244000001", reference: "ORD-2026-0001" },
+      { network: "MTN", volume_gb: 2, recipient: "0244000002", reference: "ORD-2026-0002" },
+    ],
+  },
+  successExample: {
+    success: true,
+    data: {
+      results: [
+        { reference: "ORD-2026-0001", status: "placed", order: ORDER_EXAMPLE },
+        { reference: "ORD-2026-0003", status: "failed", error: MSG_NOT_ATTEMPTED },
+      ],
+      skipped: [{ reference: "ORD-2026-0002", reason: "NOT_REGISTERED" }],
+      total_charged: 4.5,
+    },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [
+    { status: 400, message: MSG_BULK_SHAPE },
+    { status: 400, message: "orders[i]: Duplicate reference in batch" },
+    { status: 400, message: `orders[i]: ${MSG_RECIPIENT}` },
+    { status: 400, message: `orders[i]: ${MSG_PACKAGE_NOT_FOUND}` },
+    { status: 400, message: `orders[i]: ${MSG_NETWORK_MISMATCH}` },
+    { status: 402, message: MSG_INSUFFICIENT },
+    { status: 409, message: `orders[i]: ${MSG_REFERENCE_REUSED}` },
+    { status: 500, message: MSG_LOOKUP_FAILED },
+    ...standardAccessErrors(),
+    { status: 403, message: MSG_PHONE_GATE },
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+  ],
+  notes: [
+    "The whole batch is validated first: one bad item (invalid field, unavailable package, wrong-network number, duplicate or conflicting reference) rejects the entire request with 400 or 409, names the item as orders[i], and nothing is charged. See Bulk orders.",
+    "A successful request returns HTTP 200 with a results array (placed, replayed or failed per reference), a skipped array and total_charged. HTTP 200 does not mean every item was placed; always read each item's status.",
+    "Unregistered MTN numbers are skipped, not failed: they appear in skipped with reason NOT_REGISTERED and nothing is charged for them.",
+    "The wallet must cover every item that will be placed (402 otherwise, nothing charged). Live bulk purchases require a verified account phone number (403 PHONE_NOT_VERIFIED).",
+    "Orders are placed one after another and a request stops starting new placements after 35 seconds. Items not reached come back failed with " + MSG_NOT_ATTEMPTED + "; resend the same batch and the placed ones are replayed without a second charge.",
+    "Never send prices; the server prices every item from your role.",
+    "A test key uses a sandbox wallet: the response carries sandbox: true and no real order is placed.",
+  ],
+}
+
+const VERIFY_ENDPOINT: V2Endpoint = {
+  id: "data-verify-number",
+  group: "data",
+  method: "POST",
+  path: "/data/verify-number",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Checks whether a number can receive MTN data before you order. Free, no charge.",
+  params: [
+    { name: "network", type: "string", required: true, description: NETWORK_PARAM },
+    { name: "phone", type: "string", required: true, description: "Ghana mobile number: 0244000001, 233244000001 or +233244000001." },
+  ],
+  requestExample: { network: "MTN", phone: "0244000001" },
+  successExample: { success: true, data: { allowed: true, checked: true }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    { status: 400, message: MSG_BODY_OBJECT },
+    { status: 400, message: MSG_NETWORK_LIST },
+    { status: 400, message: "phone must be a valid Ghana mobile number" },
+    ...standardAccessErrors(),
+  ],
+  notes: [
+    "checked: true means the number was looked up; allowed: false means an MTN number that is not registered for data, which a purchase would reject with no charge.",
+    "checked: false (allowed: true) means no check was made: either the network is not MTN, or the registration check was unavailable. Treat it as permitted.",
+    "A test key never contacts a provider: it always returns allowed: true, checked: false and sandbox: true.",
+  ],
+}
+
+const ORDER_ENDPOINT: V2Endpoint = {
+  id: "order-lookup",
+  group: "data",
+  method: "GET",
+  path: "/orders/{reference}",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Returns one of your data orders by the reference you chose, including its current status.",
+  params: [{ name: "reference", type: "string", required: true, description: "The reference you sent when placing the order (path parameter)." }],
+  requestExample: null,
+  successExample: { success: true, data: { order: ORDER_EXAMPLE }, meta: { timestamp: TS, version: "2" } },
+  errors: [{ status: 404, message: MSG_ORDER_NOT_FOUND }, ...standardAccessErrors()],
+  notes: [
+    "Poll this endpoint to follow an order; Datagod does not send webhooks. See Order statuses for what each status means.",
+    "A reference that does not exist, is malformed, or belongs to another account all return the same 404, so references cannot be probed.",
+    "With a test key this reads your sandbox orders and the response carries sandbox: true.",
+  ],
+}
+
+const DATA_SECTIONS: V2DocSection[] = [
+  {
+    id: "packages",
+    label: "Packages",
+    group: "data",
+    intro: "See which networks and sizes you can buy and what your account pays for them.",
+    endpoints: [PACKAGES_ENDPOINT],
+  },
+  {
+    id: "data-purchase",
+    label: "Buy data",
+    group: "data",
+    intro: "Place a single data order. Orders are paid from your wallet and are safe to retry with the same reference.",
+    endpoints: [PURCHASE_ENDPOINT],
+  },
+  {
+    id: "data-bulk",
+    label: "Buy data in bulk",
+    group: "data",
+    intro: "Place up to 100 orders in one request.",
+    endpoints: [BULK_ENDPOINT],
+  },
+  {
+    id: "data-verify",
+    label: "Verify a number",
+    group: "data",
+    intro: "Check an MTN number before ordering to avoid a rejected purchase.",
+    endpoints: [VERIFY_ENDPOINT],
+  },
+  {
+    id: "data-orders",
+    label: "Orders",
+    group: "data",
+    intro: "Look up an order and follow it to completion.",
+    endpoints: [ORDER_ENDPOINT],
+  },
+  {
+    id: "order-statuses",
+    label: "Order statuses",
+    group: "data",
+    intro:
+      "An order's status is one of six values. pending: accepted and charged, waiting to be sent to the network. processing: being delivered. completed: the data was delivered. failed: delivery did not happen. refunded: the order did not complete and the amount was credited back to your wallet. queued: an MTN number that is waiting for its registration to finish before the order is sent; it moves on automatically. Statuses can change over time, so poll the order endpoint until you reach completed, failed or refunded.",
+    endpoints: [],
+  },
+  {
+    id: "bulk-orders",
+    label: "Bulk orders",
+    group: "data",
+    intro:
+      "A bulk request takes 1 to 100 orders. Datagod validates the whole batch first: if any item is invalid, names an unavailable package, has a number that does not match its network, or reuses a reference for different content, the whole request is rejected with the failing orders[i] position and nothing is charged. Once validation passes, MTN numbers that are not registered are skipped (listed in skipped with reason NOT_REGISTERED, never charged) and the rest are placed one at a time, so the result can be partial: read each item in results (placed, replayed or failed) and total_charged.",
+    callouts: [
+      {
+        tone: "info",
+        title: "Deadline and NOT_ATTEMPTED",
+        body: "A request stops starting new placements after 35 seconds. Items not reached are returned as failed with NOT_ATTEMPTED: retry this item. Nothing was charged for them.",
+      },
+      {
+        tone: "info",
+        title: "Resending is safe",
+        body: "Resend the same batch with the same references: orders already placed come back as replayed without a second charge and only the remaining ones are placed. Keep within the bulk rate limit when you resend.",
+      },
+    ],
+    endpoints: [],
+  },
+]
+
 export const v2DocsRegistry: V2DocSection[] = [
   ...START_SECTIONS,
   {
@@ -211,4 +498,5 @@ export const v2DocsRegistry: V2DocSection[] = [
     intro: "Read your wallet balance.",
     endpoints: [BALANCE_ENDPOINT],
   },
+  ...DATA_SECTIONS,
 ]
