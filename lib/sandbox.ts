@@ -61,7 +61,10 @@ export function deriveSandboxStatus(resolvesAt: string): "pending" | "completed"
  */
 export async function placeSandboxOrder(params: {
   userId: string
-  apiKeyId: string
+  /** v1 key id (user_api_keys). Exactly one of apiKeyId / apiV2KeyId must be given. */
+  apiKeyId?: string
+  /** v2 key id (api_v2_keys). When given, api_key_id is stored as null. */
+  apiV2KeyId?: string
   action: SandboxAction
   reference: string
   request: Record<string, unknown>
@@ -74,6 +77,11 @@ export async function placeSandboxOrder(params: {
   | { success: true; order: Record<string, unknown>; newBalance: number }
   | { success: false; error: string; status: number }
 > {
+  // sandbox_orders_exactly_one_key (migration 0130): a row needs a v1 OR a v2 key.
+  if (!params.apiKeyId && !params.apiV2KeyId) {
+    return { success: false, error: "Failed to place sandbox order", status: 500 }
+  }
+
   const balance = await getSandboxBalance(params.userId)
   if (balance < params.price) {
     return { success: false, error: "Insufficient test balance", status: 402 }
@@ -83,9 +91,13 @@ export async function placeSandboxOrder(params: {
   const initialStatus = params.instant ? "completed" : "pending"
   const response = { ...params.orderFields, reference: params.reference, status: initialStatus }
 
+  const keyColumns = params.apiV2KeyId
+    ? { api_key_id: null, api_v2_key_id: params.apiV2KeyId }
+    : { api_key_id: params.apiKeyId }
+
   const { error: insertError } = await supabase.from("sandbox_orders").insert({
     user_id: params.userId,
-    api_key_id: params.apiKeyId,
+    ...keyColumns,
     action: params.action,
     reference: params.reference,
     request: params.request,
