@@ -444,6 +444,19 @@ describe("purchase (test key / sandbox)", () => {
     expect(data(r).order).toMatchObject({ recipient: "0249990421", price: 8, status: "pending", reference: "SBX-1" })
   })
 
+  it("sandbox package catalog unreadable -> 503 (single and bulk), no sandbox placement", async () => {
+    const d = makeDeps()
+    d.store.listAvailablePackages.mockResolvedValue(null)
+    const r = await purchaseHandler(d)(body({ recipient: "0249990425", reference: "SBX-503" }), TEST)
+    expect(r).toEqual({ status: 503, error: { status: 503, message: "Service temporarily unavailable" } })
+    const rb = await bulkHandler(d)({ orders: [item(0), item(1)] }, TEST)
+    expect(rb).toEqual({ status: 503, error: { status: 503, message: "Service temporarily unavailable" } })
+    expect(d.sandbox.place).not.toHaveBeenCalled()
+    expect(d.sandbox.balance).not.toHaveBeenCalled()
+    expectNoRealOrderOrWallet(d)
+    expectNoMoney(d)
+  })
+
   it("sandbox still runs package and prefix checks", async () => {
     const d = makeDeps()
     expect((await purchaseHandler(d)(body({ network: "Telecel", volume_gb: 5, recipient: "0249990422" }), TEST)).status).toBe(404)

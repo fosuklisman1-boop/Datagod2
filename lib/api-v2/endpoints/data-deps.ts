@@ -107,6 +107,22 @@ async function realVerifyMtn(locals: string[]): Promise<Map<string, boolean | nu
   }
 }
 
+/**
+ * Account phone gate: the same guard and arguments as app/api/orders/purchase
+ * and v1 bundles/airtime (default failClosed: true). Only allowed === true
+ * passes; a throw is a block (the handler also fails closed). Never throws.
+ */
+export async function realPhoneGate(client: unknown, userId: string): Promise<{ allowed: boolean }> {
+  try {
+    const { checkPhoneVerified } = await import("@/lib/phone-verify-guard")
+    const r = await checkPhoneVerified(client as SupabaseClient, userId)
+    return { allowed: r?.allowed === true }
+  } catch (err) {
+    console.error("[API v2] phone gate check failed (blocking):", errName(err))
+    return { allowed: false }
+  }
+}
+
 export function realDataDeps(): DataDeps {
   const client = getAdminClient() as RpcClient
   return {
@@ -119,13 +135,7 @@ export function realDataDeps(): DataDeps {
     },
     prefixConfig: async () => (await import("@/lib/network-prefix-config")).getPrefixValidationConfig(),
     verifyMtn: realVerifyMtn,
-    // Same guard and arguments as app/api/orders/purchase and v1 bundles/airtime
-    // (default failClosed: true). A throw is turned into a block by the handler.
-    phoneGate: async (userId) => {
-      const { checkPhoneVerified } = await import("@/lib/phone-verify-guard")
-      const r = await checkPhoneVerified(client as unknown as SupabaseClient, userId)
-      return { allowed: r.allowed === true }
-    },
+    phoneGate: (userId) => realPhoneGate(client, userId),
     sandbox: {
       getOrder: async (userId, reference) =>
         ((await (await import("@/lib/sandbox")).getSandboxOrder(userId, reference)) as SandboxOrderLike | null),

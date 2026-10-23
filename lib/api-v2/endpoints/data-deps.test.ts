@@ -1,10 +1,43 @@
 import { describe, it, expect, vi } from "vitest"
 
 vi.mock("@/lib/supabase", () => ({ supabaseAdmin: { from: vi.fn() } }))
+const checkPhoneVerified = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/phone-verify-guard", () => ({ checkPhoneVerified }))
 
 import { checkCustomerFacingVerification } from "@/lib/mtn-providers/customer-verification"
 import type { WhitelistEntry } from "@/lib/mtn-providers/provider-whitelist"
-import { resolveMtnVerdicts, referenceFromPath, readJsonBody, type MtnVerifyIo } from "./data-deps"
+import { realPhoneGate, resolveMtnVerdicts, referenceFromPath, readJsonBody, type MtnVerifyIo } from "./data-deps"
+
+describe("realPhoneGate (account phone gate wiring)", () => {
+  const client = { from: vi.fn() } as any
+
+  it("calls the shared guard with the admin client and user id, default (fail-closed) options", async () => {
+    checkPhoneVerified.mockReset().mockResolvedValue({ allowed: true })
+    expect(await realPhoneGate(client, "user-1")).toEqual({ allowed: true })
+    expect(checkPhoneVerified).toHaveBeenCalledTimes(1)
+    expect(checkPhoneVerified).toHaveBeenCalledWith(client, "user-1")
+  })
+
+  it("a denied result is a block", async () => {
+    checkPhoneVerified.mockReset().mockResolvedValue({ allowed: false, reason: "unverified" })
+    expect(await realPhoneGate(client, "user-1")).toEqual({ allowed: false })
+  })
+
+  it("only allowed === true lets the purchase through", async () => {
+    for (const r of [{ allowed: "true" }, {}, null, undefined]) {
+      checkPhoneVerified.mockReset().mockResolvedValue(r)
+      expect(await realPhoneGate(client, "user-1")).toEqual({ allowed: false })
+    }
+  })
+
+  it("a throwing guard is a block, never a throw", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    checkPhoneVerified.mockReset().mockRejectedValue(new Error("db down for 0249990490"))
+    await expect(realPhoneGate(client, "user-1")).resolves.toEqual({ allowed: false })
+    for (const call of spy.mock.calls) expect(JSON.stringify(call)).not.toContain("9990490")
+    spy.mockRestore()
+  })
+})
 
 describe("referenceFromPath", () => {
   it("takes the last segment of /api/v2/orders/{reference}, URL-decoded", () => {
