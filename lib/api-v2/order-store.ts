@@ -143,6 +143,45 @@ export async function getOrderByReference(
   }
 }
 
+const REFERENCE_CHUNK = 200
+
+function pickOrderColumns(data: unknown): OrderRow {
+  const out: Record<string, unknown> = {}
+  for (const c of ORDER_COLUMNS) out[c] = (data as Record<string, unknown>)[c]
+  return out as unknown as OrderRow
+}
+
+/**
+ * Bulk replay lookup: the caller's orders for many references, one query per
+ * chunk of 200 (`.in()` stays small, see bulk-order-ops-chunking). Scoped to
+ * user_id. Returns null on ANY error so the caller fails closed (no charge).
+ */
+export async function getOrdersByReferences(
+  client: SupabaseLike,
+  userId: string,
+  references: string[]
+): Promise<Map<string, OrderRow> | null> {
+  const out = new Map<string, OrderRow>()
+  try {
+    for (let i = 0; i < references.length; i += REFERENCE_CHUNK) {
+      const chunk = references.slice(i, i + REFERENCE_CHUNK)
+      const { data, error } = await client
+        .from("api_orders")
+        .select(ORDER_COLUMNS.join(", "))
+        .eq("user_id", userId)
+        .in("api_reference", chunk)
+      if (error || !Array.isArray(data)) return null
+      for (const r of data) {
+        const row = pickOrderColumns(r)
+        if (typeof row.api_reference === "string") out.set(row.api_reference, row)
+      }
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
 export async function getWalletBalance(client: SupabaseLike, userId: string): Promise<number | null> {
   try {
     const { data, error } = await client.from("wallets").select("balance").eq("user_id", userId).maybeSingle()

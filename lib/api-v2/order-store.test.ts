@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { storageRecipient, placeV2Order, getOrderByReference, getWalletBalance, listAvailablePackages, purchaseDescription } from "./order-store"
+import { storageRecipient, placeV2Order, getOrderByReference, getOrdersByReferences, getWalletBalance, listAvailablePackages, purchaseDescription } from "./order-store"
 
 const P = {
   userId: "u1",
@@ -143,6 +143,90 @@ describe("getOrderByReference", () => {
     const { q } = chain({ data: { ...row, provider_reference: "p", id: "i" }, error: null })
     const r = await getOrderByReference({ from: () => q } as any, "u1", "REF-1")
     expect(Object.keys(r!).sort()).toEqual(Object.keys(row).sort())
+  })
+})
+
+describe("getOrdersByReferences", () => {
+  const row = (ref: string) => ({
+    api_reference: ref,
+    network: "MTN",
+    volume_gb: 1,
+    price: 5,
+    recipient_phone: "0249990411",
+    status: "pending",
+    created_at: "t",
+    provider_reference: "leak",
+    id: "leak",
+  })
+
+  function inClient(results: Array<{ data: any; error: any }>) {
+    const queries: Array<Array<[string, ...unknown[]]>> = []
+    let i = 0
+    const client = {
+      from: vi.fn(() => {
+        const calls: Array<[string, ...unknown[]]> = []
+        queries.push(calls)
+        const result = results[i++] ?? { data: [], error: null }
+        const q: any = {}
+        for (const m of ["select", "eq", "in"]) {
+          q[m] = (...a: unknown[]) => {
+            calls.push([m, ...a])
+            return q
+          }
+        }
+        q.then = (res: any, rej: any) => Promise.resolve(result).then(res, rej)
+        return q
+      }),
+    } as any
+    return { client, queries }
+  }
+
+  it("one query per chunk of 200, scoped to user_id, allow-listed columns only", async () => {
+    const refs = Array.from({ length: 450 }, (_, k) => `R-${k}`)
+    const { client, queries } = inClient([
+      { data: [row("R-1")], error: null },
+      { data: [row("R-250")], error: null },
+      { data: [], error: null },
+    ])
+    const out = await getOrdersByReferences(client, "u1", refs)
+    expect(queries).toHaveLength(3)
+    for (const calls of queries) {
+      expect(client.from).toHaveBeenCalledWith("api_orders")
+      expect(calls).toContainEqual(["eq", "user_id", "u1"])
+      const sel = calls.find((c) => c[0] === "select")![1] as string
+      expect(sel.split(",").map((s) => s.trim())).toEqual([
+        "api_reference",
+        "network",
+        "volume_gb",
+        "price",
+        "recipient_phone",
+        "status",
+        "created_at",
+      ])
+    }
+    const sizes = queries.map((calls) => (calls.find((c) => c[0] === "in")![2] as string[]).length)
+    expect(sizes).toEqual([200, 200, 50])
+    expect(queries[0].find((c) => c[0] === "in")![1]).toBe("api_reference")
+    expect(out).not.toBeNull()
+    expect([...out!.keys()].sort()).toEqual(["R-1", "R-250"])
+    expect(Object.keys(out!.get("R-1")!).sort()).toEqual(
+      ["api_reference", "network", "volume_gb", "price", "recipient_phone", "status", "created_at"].sort()
+    )
+  })
+
+  it("empty input makes no query", async () => {
+    const { client } = inClient([])
+    expect((await getOrdersByReferences(client, "u1", []))!.size).toBe(0)
+    expect(client.from).not.toHaveBeenCalled()
+  })
+
+  it("returns null (caller fails closed) on any chunk error or throw", async () => {
+    const { client } = inClient([{ data: [], error: null }, { data: null, error: { message: "e" } }])
+    const refs = Array.from({ length: 300 }, (_, k) => `R-${k}`)
+    expect(await getOrdersByReferences(client, "u1", refs)).toBeNull()
+    expect(await getOrdersByReferences({ from: () => { throw new Error("x") } } as any, "u1", ["abc"])).toBeNull()
+    const { client: c3 } = inClient([{ data: { not: "array" }, error: null }])
+    expect(await getOrdersByReferences(c3, "u1", ["abc"])).toBeNull()
   })
 })
 
