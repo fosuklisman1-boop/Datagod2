@@ -130,7 +130,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Errors and limits",
     group: "start",
     intro:
-      "400 means bad input or an insufficient wallet balance. 401 means the key is missing or invalid. 402 means insufficient SMS credits. 403 means the wrong key type, a pending or revoked key, a suspended account, or a role that is not allowed. 404 means not found. 409 means a duplicate reference or duplicate payment. 429 means you hit a rate limit; wait and retry. 500 is an internal error. 502 means an upstream provider could not be reached. 503 means the feature or a biller has been switched off by an administrator. Rate limits are counted per key per minute in four groups: purchase, bulk, balance and status. Default limits are 10, 3, 30 and 30 requests per minute, and Datagod can raise or lower them for an individual key; contact support to request a higher limit.",
+      "400 means bad input. 401 means the key is missing or invalid. 402 means an insufficient wallet balance (or, on SMS endpoints, insufficient SMS credits). 403 means the wrong key type, a pending or revoked key, a suspended account, or a role that is not allowed. 404 means not found. 409 means a duplicate reference or duplicate payment. 429 means you hit a rate limit; wait and retry. 500 is an internal error. 502 means an upstream provider could not be reached. 503 means the feature or a biller has been switched off by an administrator. Rate limits are counted per key per minute in four groups: purchase, bulk, balance and status. Default limits are 10, 3, 30 and 30 requests per minute, and Datagod can raise or lower them for an individual key; contact support to request a higher limit.",
     endpoints: [],
   },
   {
@@ -138,7 +138,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Idempotency",
     group: "start",
     intro:
-      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Utility payments return the original order when a reference is reused, even if other values changed. AFA registration references are unique across all developers, so include your own prefix. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
+      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Utility payments return the original order when a reference is reused, even if other values changed. AFA registration references are unique across all developers, so include your own prefix. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
     endpoints: [],
   },
   {
@@ -204,7 +204,7 @@ const BALANCE_ENDPOINT: V2Endpoint = {
   },
   errors: [...standardAccessErrors(), { status: 500, message: "Failed to fetch wallet balance" }],
   notes: [
-    "Check the balance before a large purchase to avoid a 400 for insufficient funds.",
+    "Check the balance before a large purchase to avoid a 402 for insufficient funds.",
     "With a test key the response is { balance, currency, sandbox: true } and never reflects your real wallet.",
   ],
 }
@@ -368,6 +368,7 @@ const BULK_ENDPOINT: V2Endpoint = {
     "Unregistered MTN numbers are skipped, not failed: they appear in skipped with reason NOT_REGISTERED and nothing is charged for them.",
     "The wallet must cover every item that will be placed (402 otherwise, nothing charged). Live bulk purchases require a verified account phone number (403 PHONE_NOT_VERIFIED).",
     `Orders are placed one after another and a request stops starting new placements after ${BULK_DEADLINE_TEXT}. Items not reached come back failed with ${MSG_NOT_ATTEMPTED}; resend the same batch and the placed ones are replayed without a second charge.`,
+    `A failed item carries an error value: INSUFFICIENT_BALANCE (the wallet ran short during the batch), REFERENCE_REUSED (the reference was taken by a different order in the meantime), FAILED (the order could not be placed) or ${MSG_NOT_ATTEMPTED} (the deadline was reached before it started). Resending the same batch is safe for all of them: an item that was in fact placed comes back replayed and is never charged twice.`,
     "Never send prices; the server prices every item from your role.",
     "A test key uses a sandbox wallet: the response carries sandbox: true and no real order is placed.",
   ],
@@ -460,7 +461,7 @@ const DATA_SECTIONS: V2DocSection[] = [
     label: "Order statuses",
     group: "data",
     intro:
-      "An order's status is one of six values. pending: accepted and charged, waiting to be sent to the network. processing: being delivered. completed: the data was delivered. failed: delivery did not happen. refunded: the order did not complete and the amount was credited back to your wallet. queued: an MTN number that is waiting for its registration to finish before the order is sent; it moves on automatically. Statuses can change over time, so poll the order endpoint until you reach completed, failed or refunded.",
+      "An order's status is one of six values. pending: accepted and charged, waiting to be sent to the network. processing: being delivered; an order under review or with a refund in progress also reads processing. completed: the data was delivered. failed: delivery did not happen and will not (a cancelled order also reads failed). refunded: the order did not complete and the amount was credited back to your wallet. queued: an MTN number that is waiting for its registration to finish before the order is sent; it moves on automatically. Statuses can change over time, so poll the order endpoint until you reach completed, failed or refunded.",
     endpoints: [],
   },
   {
@@ -468,7 +469,7 @@ const DATA_SECTIONS: V2DocSection[] = [
     label: "Bulk orders",
     group: "data",
     intro:
-      "A bulk request takes 1 to 100 orders. Datagod validates the whole batch first: if any item is invalid, names an unavailable package, has a number that does not match its network, or reuses a reference for different content, the whole request is rejected with the failing orders[i] position and nothing is charged. Once validation passes, MTN numbers that are not registered are skipped (listed in skipped with reason NOT_REGISTERED, never charged) and the rest are placed one at a time, so the result can be partial: read each item in results (placed, replayed or failed) and total_charged.",
+      "A bulk request takes 1 to 100 orders. Datagod validates the whole batch first: if any item is invalid, names an unavailable package, has a number that does not match its network, or reuses a reference for different content, the whole request is rejected with the failing orders[i] position and nothing is charged. Once validation passes, MTN numbers that are not registered are skipped (listed in skipped with reason NOT_REGISTERED, never charged) and the rest are placed one at a time, so the result can be partial: read each item in results (placed, replayed or failed) and total_charged. A failed item carries an error value (INSUFFICIENT_BALANCE, REFERENCE_REUSED, FAILED or NOT_ATTEMPTED); the bulk endpoint notes explain each one.",
     callouts: [
       {
         tone: "info",

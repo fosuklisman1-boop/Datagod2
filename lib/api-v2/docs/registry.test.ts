@@ -14,6 +14,7 @@ import {
   MSG_PHONE_GATE,
   MSG_NOT_ATTEMPTED,
   BULK_DEADLINE_MS,
+  BULK_ITEM_ERRORS,
 } from "../endpoints/data"
 import { initialStatus } from "../lifecycle"
 import type { V2ErrorStatus } from "../envelope"
@@ -194,13 +195,28 @@ describe("v2DocsRegistry data endpoints", () => {
     expect(section).toBeDefined()
     expect(section.endpoints).toEqual([])
     const produced = new Set(
-      ["pending", "processing", "completed", "failed", "refunded", "held_registration", "garbage", null].map((x) =>
-        mapOrderStatus(x)
-      )
+      [
+        "pending",
+        "processing",
+        "completed",
+        "failed",
+        "refunded",
+        "held_registration",
+        "cancelled",
+        "reversed",
+        "refunding",
+        "garbage",
+        null,
+      ].map((x) => mapOrderStatus(x))
     )
     expect(produced.size).toBe(6)
     const text = [section.intro ?? "", ...(section.steps ?? [])].join(" ")
     for (const st of produced) expect(text).toContain(st)
+    // The docs say how a cancelled order reads, matching the mapper.
+    expect(mapOrderStatus("cancelled")).toBe("failed")
+    expect(text).toMatch(/cancelled[^.]*failed|failed[^.]*cancelled/i)
+    expect(mapOrderStatus("refunding")).toBe("processing")
+    expect(text).toMatch(/processing[^.]*refund/i)
     expect(text).toMatch(/queued[^.]*registration/i)
     expect(text).toMatch(/refunded[^.]*wallet/i)
   })
@@ -300,6 +316,35 @@ describe("v2DocsRegistry data endpoints", () => {
     expect(text).toContain("NOT_ATTEMPTED")
     expect(text).toMatch(/resend/i)
     expect(text).toMatch(/100/)
+  })
+
+  it("insufficient funds is documented as 402 everywhere, never 400", () => {
+    const wallet = find("GET /wallet/balance")
+    expect(wallet.notes.join(" ")).toMatch(/402[^.]*insufficient|insufficient[^.]*402/i)
+    // No sentence anywhere pairs 400 with an insufficient balance.
+    for (const sentence of allText.split(/[.;]/)) {
+      if (/insufficient (wallet )?(balance|funds)/i.test(sentence)) expect(sentence).not.toMatch(/\b400\b/)
+    }
+    const limits = v2DocsRegistry.find((s) => s.id === "errors-and-limits")!
+    expect(limits.intro).toMatch(/402 means[^.]*wallet balance/i)
+  })
+
+  it("documents every bulk per-item error value the handler can return", () => {
+    expect([...BULK_ITEM_ERRORS].sort()).toEqual(
+      ["FAILED", "INSUFFICIENT_BALANCE", "REFERENCE_REUSED", MSG_NOT_ATTEMPTED].sort()
+    )
+    const bulkNotes = find("POST /data/bulk").notes.join(" ")
+    const prose = v2DocsRegistry.find((x) => x.id === "bulk-orders")!
+    const proseText = [prose.intro ?? "", ...(prose.callouts ?? []).map((c) => c.body)].join(" ")
+    for (const code of BULK_ITEM_ERRORS) {
+      expect(bulkNotes + " " + proseText, code).toContain(code)
+    }
+    expect(proseText).toMatch(/error/i)
+  })
+
+  it("says live references are shared with v1 API orders (replay on same content, 409 otherwise)", () => {
+    const idem = v2DocsRegistry.find((s) => s.id === "idempotency")!
+    expect(idem.intro).toMatch(/version 1[^.]*(same|identical)[^.]*replay[^.]*409/i)
   })
 
   it("does not leak internals in the docs text", () => {

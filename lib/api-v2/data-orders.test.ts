@@ -158,6 +158,14 @@ describe("mapOrderStatus", () => {
     for (const s of ["pending", "processing", "completed", "failed", "refunded"] as const) expect(mapOrderStatus(s)).toBe(s)
     expect(mapOrderStatus("held_registration")).toBe("queued")
   })
+  it("cancelled is terminal and reads failed (any case)", () => {
+    expect(mapOrderStatus("cancelled")).toBe("failed")
+    expect(mapOrderStatus(" Cancelled ")).toBe("failed")
+  })
+  it("reversed and refunding are still in flight and read processing", () => {
+    expect(mapOrderStatus("reversed")).toBe("processing")
+    expect(mapOrderStatus("refunding")).toBe("processing")
+  })
   it("unknown becomes processing", () => {
     expect(mapOrderStatus("weird")).toBe("processing")
     expect(mapOrderStatus(null)).toBe("processing")

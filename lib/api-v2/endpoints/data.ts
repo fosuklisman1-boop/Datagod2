@@ -400,11 +400,15 @@ async function sandboxPurchase(deps: DataDeps, input: PurchaseInput, ctx: V2Cont
 
 // ---------------------------------------------------------------- bulk
 
+/** Every per-item `error` a bulk result can carry; the docs list each one. */
+export const BULK_ITEM_ERRORS = ["INSUFFICIENT_BALANCE", "REFERENCE_REUSED", "FAILED", MSG_NOT_ATTEMPTED] as const
+export type BulkItemError = (typeof BULK_ITEM_ERRORS)[number]
+
 export interface BulkResult {
   reference: string
   status: "placed" | "replayed" | "failed"
   order?: PublicOrder
-  error?: string
+  error?: BulkItemError
 }
 
 type Slot = { kind: "new"; p: Priced } | { kind: "replay"; reference: string; order: PublicOrder }

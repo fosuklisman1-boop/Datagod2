@@ -170,6 +170,12 @@ export function priceForRole(role: string, pkg: { price: number; dealer_price: n
 
 export type ApiOrderStatus = "pending" | "processing" | "completed" | "failed" | "refunded" | "queued"
 
+/**
+ * DB status -> public status. cancelled is terminal (nothing will be
+ * delivered) so it reads failed; reversed and refunding are still being
+ * worked on (admin review / refund in flight) so they read processing, as
+ * does anything unknown.
+ */
 export function mapOrderStatus(dbStatus: unknown): ApiOrderStatus {
   const s = typeof dbStatus === "string" ? dbStatus.trim().toLowerCase() : ""
   switch (s) {
@@ -179,8 +185,12 @@ export function mapOrderStatus(dbStatus: unknown): ApiOrderStatus {
     case "failed":
     case "refunded":
       return s
+    case "cancelled":
+      return "failed"
     case "held_registration":
       return "queued"
+    case "reversed":
+    case "refunding":
     default:
       return "processing"
   }

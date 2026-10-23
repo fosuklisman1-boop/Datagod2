@@ -10,6 +10,7 @@ import {
   verifyNumberHandler,
   orderLookupHandler,
   BULK_DEADLINE_MS,
+  BULK_ITEM_ERRORS,
   type DataDeps,
   type SandboxOrderLike,
 } from "./data"
@@ -700,6 +701,7 @@ describe("bulk (live)", () => {
       ["BULK-5", "failed", "NOT_ATTEMPTED: retry this item"],
     ])
     expectBatchScheduled(d, ["o-BULK-0", "o-BULK-4"])
+    for (const x of data(r).results) if (x.error) expect(BULK_ITEM_ERRORS).toContain(x.error)
   })
 
   it("a placement that throws mid-batch still schedules the orders already placed", async () => {
