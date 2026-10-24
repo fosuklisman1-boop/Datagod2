@@ -9,6 +9,9 @@ import {
   AIRTIME_LIST_LIMIT,
   MSG_AIRTIME_NOT_FOUND,
   MSG_OUTCOME_UNKNOWN,
+  MSG_PRIOR_OUTCOME_UNKNOWN,
+  MSG_REQUEST_IN_PROGRESS,
+  MSG_SANDBOX_UNAVAILABLE,
   type AirtimeDeps,
   type AirtimeEngineParams,
   type AirtimeOrderRow,
@@ -152,7 +155,9 @@ function makeDeps() {
     complete: table.complete,
     release: table.release,
     markUnknown: table.markUnknown,
-    getClaim: vi.fn(async (_u: string, _r: string): Promise<{ orderRef: string | null; status: string; response: unknown } | null> => null),
+    getClaim: vi.fn(
+      async (_u: string, _r: string): Promise<{ orderRef: string | null; status: string; response: unknown; createdAt?: string | null } | null> => null
+    ),
     listClaims: vi.fn(async (_u: string, _limit: number): Promise<{ reference: string; orderRef: string | null; status: string }[]> => []),
     engine: vi.fn(async (p: AirtimeEngineParams) => engineOk(p)),
     getOrderByCode: vi.fn(async (_u: string, _c: string): Promise<AirtimeOrderRow | null> => liveRow()),
@@ -367,6 +372,26 @@ describe("POST /airtime/purchase (live): claim outcomes decided before phone gat
     expect(deps.release).not.toHaveBeenCalled()
   })
 
+  it("replay refreshes the status from the owner-scoped live row; a failed read falls back to the stored order", async () => {
+    const { deps } = makeDeps()
+    deps.claim.mockResolvedValueOnce({ kind: "replay", orderRef: "AT-CODE-1", response: stored })
+    deps.getOrderByCode.mockResolvedValueOnce(liveRow({ status: "completed", airtime_amount: 999 }))
+    const r = await purchaseAirtimeHandler(deps)(body(), LIVE)
+    expect(r.status).toBe(200)
+    expect(deps.getOrderByCode).toHaveBeenCalledWith("user-1", "AT-CODE-1")
+    // Only the status is refreshed; the stored order is otherwise what was returned at purchase.
+    expect(data(r)).toEqual({ order: { ...stored, status: "completed" }, replayed: true })
+    for (const fallback of [async () => null, async () => {
+      throw new Error("db")
+    }]) {
+      deps.claim.mockResolvedValueOnce({ kind: "replay", orderRef: "AT-CODE-1", response: stored })
+      deps.getOrderByCode.mockImplementationOnce(fallback as any)
+      const f = await purchaseAirtimeHandler(deps)(body(), LIVE)
+      expect(data(f)).toEqual({ order: stored, replayed: true })
+    }
+    expect(deps.engine).not.toHaveBeenCalled()
+  })
+
   it("replay whose stored response carries extra keys still returns only the allow-listed keys", async () => {
     const { deps } = makeDeps()
     deps.claim.mockResolvedValueOnce({ kind: "replay", orderRef: "AT-CODE-1", response: { ...stored, reference_code: "AT-CODE-1", user_id: "x" } })
@@ -536,7 +561,7 @@ describe("POST /airtime/purchase (live): ambiguous engine outcomes mark the clai
       expect(r.error?.message).toBe(MSG_OUTCOME_UNKNOWN)
       expect(MSG_OUTCOME_UNKNOWN.startsWith("OUTCOME_UNKNOWN:")).toBe(true)
       expect(MSG_OUTCOME_UNKNOWN).toContain("GET /airtime/orders/{reference}")
-      expect(MSG_OUTCOME_UNKNOWN).toMatch(/do not resend with a new reference/i)
+      expect(MSG_OUTCOME_UNKNOWN).toMatch(/do not place this order again under a new reference/i)
       expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1")
       expect(deps.release).not.toHaveBeenCalled()
       expect(deps.complete).not.toHaveBeenCalled()
@@ -674,8 +699,33 @@ describe("GET /airtime/orders/{reference} (live)", () => {
     expect(r.status).toBe(200)
     expect(deps.getClaim).toHaveBeenCalledWith("user-1", "AIR-001")
     expect(deps.getOrderByCode).toHaveBeenCalledWith("user-1", "AT-CODE-1")
-    expect(data(r)).toEqual({ order: { ...stored, status: "completed" } })
+    expect(data(r)).toEqual({ order: { ...stored, status: "completed" }, claim: null })
     expect(Object.keys(data(r).order).sort()).toEqual(ORDER_KEYS)
+  })
+
+  it("the caller's own in_progress claim => 200 { order: null, claim: { reference, state: in_progress } }", async () => {
+    const { deps } = makeDeps()
+    deps.getClaim.mockResolvedValueOnce({ orderRef: null, status: "in_progress", response: null, createdAt: new Date(NOW_MS - 1000).toISOString() })
+    const r = await airtimeOrderHandler(deps)("AIR-001", LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r)).toEqual({ order: null, claim: { reference: "AIR-001", state: "in_progress" } })
+    expect(deps.getClaim).toHaveBeenCalledWith("user-1", "AIR-001")
+  })
+
+  it("a stale in_progress claim (older than the 10-minute threshold, injected clock) reads outcome_unknown", async () => {
+    const { deps } = makeDeps()
+    deps.getClaim.mockResolvedValueOnce({ orderRef: null, status: "in_progress", response: null, createdAt: new Date(NOW_MS - 10 * 60 * 1000 - 1).toISOString() })
+    const r = await airtimeOrderHandler(deps)("AIR-001", LIVE)
+    expect(data(r)).toEqual({ order: null, claim: { reference: "AIR-001", state: "outcome_unknown" } })
+  })
+
+  it("the caller's own unknown claim => 200 claim.state outcome_unknown, never a 404", async () => {
+    const { deps } = makeDeps()
+    deps.getClaim.mockResolvedValueOnce({ orderRef: null, status: "unknown", response: null, createdAt: new Date(NOW_MS).toISOString() })
+    const r = await airtimeOrderHandler(deps)("AIR-001", LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r)).toEqual({ order: null, claim: { reference: "AIR-001", state: "outcome_unknown" } })
+    expect(JSON.stringify(r)).not.toContain(MSG_AIRTIME_NOT_FOUND)
   })
 
   it("unrecognised live status reads processing; a missing or failing live row falls back to the stored order", async () => {
@@ -691,8 +741,6 @@ describe("GET /airtime/orders/{reference} (live)", () => {
 
   const notFoundCases: Array<[string, (d: Deps) => void, string]> = [
     ["missing", (d) => d.getClaim.mockResolvedValueOnce(null), "AIR-001"],
-    ["in_progress without order", (d) => d.getClaim.mockResolvedValueOnce({ orderRef: null, status: "in_progress", response: null }), "AIR-001"],
-    ["unknown", (d) => d.getClaim.mockResolvedValueOnce({ orderRef: null, status: "unknown", response: null }), "AIR-001"],
     ["done without order_ref", (d) => d.getClaim.mockResolvedValueOnce({ orderRef: null, status: "done", response: stored }), "AIR-001"],
     ["getClaim throws", (d) => d.getClaim.mockRejectedValueOnce(new Error("x")), "AIR-001"],
     ["malformed reference", () => {}, "a b"],
@@ -922,5 +970,41 @@ describe("airtime sandbox (test key)", () => {
     deps.sandbox.listOrders.mockResolvedValueOnce(null)
     expect((await airtimeListHandler(deps)(TEST)).status).toBe(503)
     liveDepsUntouched(deps)
+  })
+
+  it("a throwing sandbox store => fixed generic 500 on purchase, lookup and list (no error text leaks)", async () => {
+    const boom = () => Promise.reject(new Error("sandbox db exploded 0249990699"))
+    const cases: Array<[string, (d: Deps) => void, (d: Deps) => Promise<any>]> = [
+      ["purchase getOrder", (d) => d.sandbox.getOrder.mockImplementationOnce(boom), (d) => purchaseAirtimeHandler(d)(body(), TEST)],
+      ["purchase place", (d) => d.sandbox.place.mockImplementationOnce(boom), (d) => purchaseAirtimeHandler(d)(body(), TEST)],
+      ["lookup getOrder", (d) => d.sandbox.getOrder.mockImplementationOnce(boom), (d) => airtimeOrderHandler(d)("AIR-001", TEST)],
+      ["list listOrders", (d) => d.sandbox.listOrders.mockImplementationOnce(boom), (d) => airtimeListHandler(d)(TEST)],
+    ]
+    for (const [, setup, run] of cases) {
+      const { deps } = makeDeps()
+      setup(deps)
+      const r = await run(deps)
+      expect(r.status).toBe(500)
+      expect(r.error.message).toBe(MSG_SANDBOX_UNAVAILABLE)
+      expect(JSON.stringify(r)).not.toContain("exploded")
+      liveDepsUntouched(deps)
+    }
+  })
+})
+
+describe("in-progress / unknown messages never send the client to a new reference", () => {
+  it.each([
+    ["MSG_REQUEST_IN_PROGRESS", MSG_REQUEST_IN_PROGRESS, "REQUEST_IN_PROGRESS:"],
+    ["MSG_PRIOR_OUTCOME_UNKNOWN", MSG_PRIOR_OUTCOME_UNKNOWN, "OUTCOME_UNKNOWN:"],
+    ["MSG_OUTCOME_UNKNOWN", MSG_OUTCOME_UNKNOWN, "OUTCOME_UNKNOWN:"],
+  ])("%s", (_n, msg, prefix) => {
+    expect(msg.startsWith(prefix)).toBe(true)
+    expect(msg).toMatch(/do not place this order again under a new reference/i)
+    expect(msg).toMatch(/not confirmed yet/i)
+    expect(msg).toContain("GET /airtime/orders/{reference}")
+    expect(msg).toContain("claim.state")
+    expect(msg).toMatch(/contact support quoting the reference/i)
+    expect(msg).not.toContain("Order not found")
+    expect(msg).not.toMatch(/resend with a new|use a new reference|try a new reference/i)
   })
 })

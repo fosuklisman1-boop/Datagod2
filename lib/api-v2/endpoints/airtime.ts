@@ -35,6 +35,7 @@ import {
   airtimeHash,
   classifyEngineError,
   mapAirtimeOrder,
+  mapClaimState,
   mapCommissionStatus,
   parseAirtimeBody,
   parseAirtimeNetwork,
@@ -116,7 +117,10 @@ export interface AirtimeDeps {
   complete(claimId: string, orderRef: string, response: unknown, userId: string): Promise<boolean>
   release(claimId: string, userId: string): Promise<boolean>
   markUnknown(claimId: string, userId: string): Promise<boolean>
-  getClaim(userId: string, reference: string): Promise<{ orderRef: string | null; status: string; response: unknown } | null>
+  getClaim(
+    userId: string,
+    reference: string
+  ): Promise<{ orderRef: string | null; status: string; response: unknown; createdAt?: string | null } | null>
   listClaims(userId: string, limit: number): Promise<{ reference: string; orderRef: string | null; status: string }[]>
   engine(p: AirtimeEngineParams): Promise<AirtimeEngineResult>
   /** Owner-scoped; null when missing or unreadable. */
@@ -139,14 +143,16 @@ export interface AirtimeDeps {
 export const AIRTIME_LIST_LIMIT = 30
 
 export const MSG_AIRTIME_NOT_FOUND = "Order not found"
-export const MSG_REQUEST_IN_PROGRESS =
-  "REQUEST_IN_PROGRESS: a request with this reference is still being processed; check GET /airtime/orders/{reference} shortly"
-export const MSG_PRIOR_OUTCOME_UNKNOWN =
-  "OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is unknown; do not resend with a new reference. Check GET /airtime/orders/{reference} or contact support"
-export const MSG_OUTCOME_UNKNOWN =
-  "OUTCOME_UNKNOWN: the outcome of this purchase is unknown; do not resend with a new reference. Check GET /airtime/orders/{reference} or contact support"
+// The pending-outcome messages never promise the lookup resolves it and never suggest a new
+// reference: a client that re-places the order under a new reference can be charged twice.
+const PENDING_TAIL =
+  "Do not place this order again under a new reference. Poll GET /airtime/orders/{reference}, whose claim.state reports it, or contact support quoting the reference"
+export const MSG_REQUEST_IN_PROGRESS = `REQUEST_IN_PROGRESS: a request with this reference is still being processed; its outcome is not confirmed yet. ${PENDING_TAIL}`
+export const MSG_PRIOR_OUTCOME_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is not confirmed yet. ${PENDING_TAIL}`
+export const MSG_OUTCOME_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this purchase is not confirmed yet. ${PENDING_TAIL}`
 export const MSG_CLAIM_UNAVAILABLE =
   "UNAVAILABLE: could not reserve this reference; nothing was charged. Retry with the same reference"
+export const MSG_SANDBOX_UNAVAILABLE = "Sandbox is temporarily unavailable"
 const MSG_SANDBOX_FAILED = "Order could not be placed"
 
 // Fixed, PII-free log lines.
@@ -192,6 +198,24 @@ function publicFromStored(s: unknown, reference: string): PublicAirtimeOrder {
     status: mapCommissionStatus(r.status),
     created_at: typeof r.created_at === "string" ? r.created_at : null,
   }
+}
+
+/** The stored order with its status refreshed from the owner-scoped live row; the stored order on any read failure. */
+async function refreshedStored(
+  deps: AirtimeDeps,
+  userId: string,
+  orderRef: string,
+  stored: unknown,
+  reference: string
+): Promise<PublicAirtimeOrder> {
+  const order = publicFromStored(stored, reference)
+  let live: AirtimeOrderRow | null = null
+  try {
+    live = await deps.getOrderByCode(userId, orderRef)
+  } catch {
+    live = null
+  }
+  return live ? { ...order, status: mapCommissionStatus(live.status) } : order
 }
 
 function engineParams(ctx: V2Context, input: AirtimeInput): AirtimeEngineParams {
@@ -268,7 +292,12 @@ export function purchaseAirtimeHandler(deps: AirtimeDeps) {
     const parsed = parseAirtimeBody(body)
     if (!parsed.ok) return fail(400, parsed.error)
     const input = parsed.value
-    return ctx.environment === "test" ? sandboxPurchase(deps, input, ctx) : livePurchase(deps, input, ctx)
+    if (ctx.environment !== "test") return livePurchase(deps, input, ctx)
+    try {
+      return await sandboxPurchase(deps, input, ctx)
+    } catch {
+      return fail(500, MSG_SANDBOX_UNAVAILABLE)
+    }
   }
 }
 
@@ -288,7 +317,7 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
   }
   switch (outcome.kind) {
     case "replay":
-      return ok(200, { order: publicFromStored(outcome.response, input.reference), replayed: true })
+      return ok(200, { order: await refreshedStored(deps, ctx.userId, outcome.orderRef, outcome.response, input.reference), replayed: true })
     case "conflict":
       return fail(409, MSG_REFERENCE_REUSED)
     case "in_progress":
@@ -443,9 +472,14 @@ export function airtimeOrderHandler(deps: AirtimeDeps) {
     if (!ref.ok) return notFound()
 
     if (ctx.environment === "test") {
-      const prior = await deps.sandbox.getOrder(ctx.userId, ref.reference)
+      let prior: AirtimeSandboxOrder | null
+      try {
+        prior = await deps.sandbox.getOrder(ctx.userId, ref.reference)
+      } catch {
+        return fail(500, MSG_SANDBOX_UNAVAILABLE)
+      }
       if (!prior || prior.action !== "airtime") return notFound()
-      return ok(200, { order: mapSandboxOrder(prior), sandbox: true })
+      return ok(200, { order: mapSandboxOrder(prior), claim: null, sandbox: true })
     }
 
     let claim: Awaited<ReturnType<AirtimeDeps["getClaim"]>>
@@ -454,7 +488,11 @@ export function airtimeOrderHandler(deps: AirtimeDeps) {
     } catch {
       claim = null
     }
-    if (!claim || claim.status !== "done" || !claim.orderRef) return notFound()
+    if (!claim) return notFound()
+    // The caller's own claim that is still running or ambiguous: say so (never a 404, which reads as "never created").
+    const pending = mapClaimState(claim, ref.reference, deps.now())
+    if (pending) return ok(200, { order: null, claim: pending })
+    if (claim.status !== "done" || !claim.orderRef) return notFound()
 
     let live: AirtimeOrderRow | null = null
     try {
@@ -463,10 +501,10 @@ export function airtimeOrderHandler(deps: AirtimeDeps) {
       live = null
     }
     if (!isObject(claim.response)) {
-      return live ? ok(200, { order: mapAirtimeOrder(live, ref.reference) }) : notFound()
+      return live ? ok(200, { order: mapAirtimeOrder(live, ref.reference), claim: null }) : notFound()
     }
     const stored = publicFromStored(claim.response, ref.reference)
-    return ok(200, { order: live ? { ...stored, status: mapCommissionStatus(live.status) } : stored })
+    return ok(200, { order: live ? { ...stored, status: mapCommissionStatus(live.status) } : stored, claim: null })
   }
 }
 
@@ -475,7 +513,12 @@ export function airtimeOrderHandler(deps: AirtimeDeps) {
 export function airtimeListHandler(deps: AirtimeDeps) {
   return async (ctx: V2Context): Promise<V2HandlerResult> => {
     if (ctx.environment === "test") {
-      const rows = await deps.sandbox.listOrders(ctx.userId, "airtime", AIRTIME_LIST_LIMIT)
+      let rows: AirtimeSandboxOrder[] | null
+      try {
+        rows = await deps.sandbox.listOrders(ctx.userId, "airtime", AIRTIME_LIST_LIMIT)
+      } catch {
+        return fail(500, MSG_SANDBOX_UNAVAILABLE)
+      }
       if (!rows) return fail(503, MSG_UNAVAILABLE)
       const orders = rows
         .filter((r) => r.action === "airtime")

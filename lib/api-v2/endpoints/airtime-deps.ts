@@ -102,7 +102,8 @@ export function realAirtimeDeps(): AirtimeDeps {
     release: (claimId, userId) => releaseClaim(client, claimId, userId),
     markUnknown: (claimId, userId) => markClaimUnknown(client, claimId, userId),
     getClaim: (userId, reference) => getClaimByReference(client, userId, "airtime", reference),
-    listClaims: (userId, limit) => listClaims(client, userId, "airtime", limit),
+    // Done claims only, filtered in the query: the limit must count orders, not claims still running.
+    listClaims: (userId, limit) => listClaims(client, userId, "airtime", limit, { status: "done" }),
     engine: realAirtimeEngine,
     getOrderByCode: (userId, code) => fetchAirtimeOrderByCode(client, userId, code),
     getOrdersByCodes: (userId, codes) => fetchAirtimeOrdersByCodes(client, userId, codes),

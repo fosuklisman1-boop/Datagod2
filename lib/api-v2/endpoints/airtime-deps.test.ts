@@ -6,7 +6,12 @@ vi.mock("@/lib/phone-verify-guard", () => ({ checkPhoneVerified }))
 const purchaseAirtime = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/airtime-service", () => ({ purchaseAirtime }))
 
+const idem = vi.hoisted(() => ({ listClaims: vi.fn(async () => []), getClaimByReference: vi.fn(async () => null) }))
+vi.mock("../idempotency", async (orig) => ({ ...(await orig<typeof import("../idempotency")>()), ...idem }))
+vi.mock("../store", async (orig) => ({ ...(await orig<typeof import("../store")>()), getAdminClient: () => ({ fake: true }) }))
+
 import {
+  realAirtimeDeps,
   AIRTIME_ORDER_COLUMNS,
   fetchAirtimeOrderByCode,
   fetchAirtimeOrdersByCodes,
@@ -127,5 +132,17 @@ describe("realAirtimePhoneGate", () => {
     expect(await realAirtimePhoneGate({}, "u1")).toBe(false)
     for (const call of spy.mock.calls) expect(JSON.stringify(call)).not.toContain("9990652")
     spy.mockRestore()
+  })
+})
+
+describe("realAirtimeDeps claim wiring", () => {
+  it("the order list asks the claim store for DONE airtime claims only (limit counts done claims)", async () => {
+    await realAirtimeDeps().listClaims("user-1", 30)
+    expect(idem.listClaims).toHaveBeenCalledWith({ fake: true }, "user-1", "airtime", 30, { status: "done" })
+  })
+
+  it("the order lookup reads the caller's own airtime claim", async () => {
+    await realAirtimeDeps().getClaim("user-1", "AIR-0650")
+    expect(idem.getClaimByReference).toHaveBeenCalledWith({ fake: true }, "user-1", "airtime", "AIR-0650")
   })
 })
