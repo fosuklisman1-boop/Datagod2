@@ -26,6 +26,14 @@ const h = vi.hoisted(() => {
         calls.push(["in", ...a])
         return { then: (res: any, rej: any) => Promise.resolve(state.listResult).then(res, rej) }
       }
+      q.order = (...a: unknown[]) => {
+        calls.push(["order", ...a])
+        return q
+      }
+      q.limit = (...a: unknown[]) => {
+        calls.push(["limit", ...a])
+        return { then: (res: any, rej: any) => Promise.resolve(state.listResult).then(res, rej) }
+      }
       q.update = () => q
       q.maybeSingle = async () => ({ data: table === "sandbox_wallets" ? { balance: state.balance } : null, error: null })
       q.single = q.maybeSingle
@@ -42,7 +50,46 @@ const h = vi.hoisted(() => {
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.client }))
 
-import { placeSandboxOrder, getSandboxOrdersByReferences } from "./sandbox"
+import { placeSandboxOrder, getSandboxOrdersByReferences, listSandboxOrders } from "./sandbox"
+
+describe("listSandboxOrders", () => {
+  beforeEach(() => {
+    h.state.queries = []
+    h.state.listResult = { data: [], error: null }
+  })
+
+  it("one owner- and action-scoped query, newest first, capped, status derived", async () => {
+    h.state.listResult = {
+      data: [
+        { reference: "R2", action: "airtime", response: {}, price: 5, resolves_at: "2999-01-01T00:00:00Z", created_at: "t2" },
+        { reference: "R1", action: "airtime", response: {}, price: 5, resolves_at: "2000-01-01T00:00:00Z", created_at: "t1" },
+      ],
+      error: null,
+    }
+    const out = await listSandboxOrders("u1", "airtime", 30)
+    expect(h.state.queries).toHaveLength(1)
+    const { table, calls } = h.state.queries[0]
+    expect(table).toBe("sandbox_orders")
+    expect(calls).toContainEqual(["eq", "user_id", "u1"])
+    expect(calls).toContainEqual(["eq", "action", "airtime"])
+    expect(calls).toContainEqual(["order", "created_at", { ascending: false }])
+    expect(calls).toContainEqual(["limit", 30])
+    expect(out!.map((o) => [o.reference, o.status])).toEqual([
+      ["R2", "pending"],
+      ["R1", "completed"],
+    ])
+  })
+
+  it("clamps the limit to 1..30 and returns null on a read error", async () => {
+    await listSandboxOrders("u1", "airtime", 500)
+    expect(h.state.queries[0].calls).toContainEqual(["limit", 30])
+    h.state.queries = []
+    await listSandboxOrders("u1", "airtime", 0)
+    expect(h.state.queries[0].calls).toContainEqual(["limit", 1])
+    h.state.listResult = { data: null, error: { message: "e" } }
+    expect(await listSandboxOrders("u1", "airtime", 30)).toBeNull()
+  })
+})
 
 describe("getSandboxOrdersByReferences", () => {
   beforeEach(() => {

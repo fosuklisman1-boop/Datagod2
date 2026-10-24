@@ -151,6 +151,33 @@ export async function getSandboxOrdersByReferences(userId: string, references: s
   }
 }
 
+/**
+ * Newest sandbox orders of one action for v2 list endpoints: one owner- and
+ * action-scoped query, limit clamped to 1..30. Returns null on a read error
+ * so the caller fails closed. Additive; v1 does not use it.
+ */
+export async function listSandboxOrders(userId: string, action: SandboxAction, limit: number) {
+  const n = Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit), 1), 30) : 30
+  try {
+    const { data, error } = await supabase
+      .from("sandbox_orders")
+      .select("reference, action, response, price, resolves_at, created_at")
+      .eq("user_id", userId)
+      .eq("action", action)
+      .order("created_at", { ascending: false })
+      .limit(n)
+    if (error || !Array.isArray(data)) return null
+    return data.slice(0, n).map(
+      (r: { reference: string; action: string; response: unknown; price: number; resolves_at: string; created_at: string }) => ({
+        ...r,
+        status: deriveSandboxStatus(r.resolves_at),
+      })
+    )
+  } catch {
+    return null
+  }
+}
+
 export async function getSandboxOrder(userId: string, reference: string) {
   const { data } = await supabase
     .from("sandbox_orders")
