@@ -94,7 +94,8 @@ const tokenFor = (userId = "user-1") =>
 describe("bill order read", () => {
   it("selects only the allow-listed columns", () => {
     expect(BILL_ORDER_V2_COLUMNS.split(",").map((s) => s.trim()).sort()).toEqual(
-      ["account_number", "amount", "biller", "cashback_amount", "created_at", "customer_name", "paid_amount", "reference_code", "status"]
+      // payment_status is read only to resolve an unknown claim (paid => show the order); it is never returned.
+      ["account_number", "amount", "biller", "cashback_amount", "created_at", "customer_name", "paid_amount", "payment_status", "reference_code", "status"]
     )
   })
 

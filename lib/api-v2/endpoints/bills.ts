@@ -39,6 +39,7 @@ import {
   billErrorResponse,
   billHash,
   mapBillOrder,
+  mapClaimState,
   mapCommissionStatus,
   parseAmountPesewas,
   parseBillLookupBody,
@@ -52,7 +53,7 @@ import type { BillsConfig } from "@/lib/bills/config"
 import type { PayResult, VerifyResult } from "@/lib/bills/service"
 import { parseSandboxToken, sandboxBillReference, sandboxVerify, verifyResponse, type ParsedVerifyBody } from "@/lib/api-v1/bills"
 import { MSG_PHONE_GATE, MSG_REFERENCE_REUSED } from "./data"
-import { MSG_CLAIM_UNAVAILABLE } from "./airtime"
+import { MSG_CLAIM_UNAVAILABLE, MSG_SANDBOX_UNAVAILABLE } from "./airtime"
 
 // ---------------------------------------------------------------- deps
 
@@ -82,6 +83,8 @@ export interface BillOrderV2Row {
   cashback_amount: number | string | null
   status: string
   created_at: string
+  /** Read only to resolve an `unknown` claim (paid => the order is shown); never returned. */
+  payment_status?: string | null
 }
 
 /** What lib/sandbox.ts getSandboxOrder returns. */
@@ -113,8 +116,12 @@ export interface BillsV2Deps {
   /** Each finalisation is owner-guarded: callers always pass ctx.userId. */
   complete(claimId: string, orderRef: string, response: unknown, userId: string): Promise<boolean>
   release(claimId: string, userId: string): Promise<boolean>
-  markUnknown(claimId: string, userId: string): Promise<boolean>
-  getClaim(userId: string, reference: string): Promise<{ orderRef: string | null; status: string; response: unknown } | null>
+  /** `orderRef`: the engine's order when payBill supplied one (debit uncertain), kept on the unknown claim. */
+  markUnknown(claimId: string, userId: string, orderRef?: string): Promise<boolean>
+  getClaim(
+    userId: string,
+    reference: string
+  ): Promise<{ orderRef: string | null; status: string; response: unknown; createdAt?: string | null } | null>
   /** Owner's bill claims linked to an engine order; null on a read error. */
   findClaimByOrderRef(userId: string, orderRef: string): Promise<{ reference: string; status: string }[] | null>
   /** The admin API surface switch (readApiSurface); only `true` opens. */
@@ -139,12 +146,14 @@ export interface BillsV2Deps {
 
 export const MSG_BILL_NOT_FOUND = "Order not found"
 export const MSG_TOKEN_REUSED = "REFERENCE_REUSED: this verification already paid another reference"
-export const MSG_BILL_IN_PROGRESS =
-  "REQUEST_IN_PROGRESS: a request with this reference is still being processed; check GET /utilities/orders/{reference} shortly"
-export const MSG_BILL_PRIOR_UNKNOWN =
-  "OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is unknown; do not resend with a new reference. Check GET /utilities/orders/{reference} or contact support"
-export const MSG_BILL_OUTCOME_UNKNOWN =
-  "OUTCOME_UNKNOWN: the outcome of this payment is unknown; do not resend with a new reference. Check GET /utilities/orders/{reference} or contact support"
+// The pending-outcome messages never promise the lookup resolves it and never suggest a new
+// reference: a client that re-pays under a new reference (and a new verify_token) can be charged twice.
+const PENDING_TAIL =
+  "Do not place this payment again under a new reference. Poll GET /utilities/orders/{reference}, whose claim.state reports it, or contact support quoting the reference"
+export const MSG_BILL_IN_PROGRESS = `REQUEST_IN_PROGRESS: a request with this reference is still being processed; its outcome is not confirmed yet. ${PENDING_TAIL}`
+export const MSG_BILL_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is not confirmed yet. ${PENDING_TAIL}`
+export const MSG_BILL_OUTCOME_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this payment is not confirmed yet. ${PENDING_TAIL}`
+export { MSG_SANDBOX_UNAVAILABLE }
 export const MSG_BILLS_NOT_AVAILABLE = "NOT_AVAILABLE: utility bills are not available on the API right now"
 export const MSG_VERIFY_AGAIN =
   "VERIFY_AGAIN: this verification can no longer be used; nothing was charged. Verify the account again with POST /utilities/lookup"
@@ -156,7 +165,9 @@ export const MSG_TOKEN_ON_TEST_KEY =
 export const MSG_INVALID_AMOUNT =
   "INVALID_AMOUNT: the amount is outside this biller's allowed range or precision (see GET /utilities/billers); nothing was charged"
 export const MSG_PAY_INVALID = "INVALID_REQUEST: the payment was refused; nothing was charged"
-export const MSG_INSUFFICIENT = "INSUFFICIENT_BALANCE: wallet balance is too low; nothing was charged"
+// The refused attempt still used up the verify_token (its order row exists), hence "verify again".
+export const MSG_INSUFFICIENT =
+  "INSUFFICIENT_BALANCE: wallet balance is too low; nothing was charged. Verify the account again after topping up, then pay with the new verify_token"
 export const MSG_BILLER_UNAVAILABLE = "BILLER_UNAVAILABLE: this biller is currently unavailable; nothing was charged"
 export const MSG_BILLS_UNAVAILABLE = "UNAVAILABLE: utility bills are temporarily unavailable; nothing was charged"
 export const MSG_PAY_INTERNAL = "INTERNAL_ERROR: the payment could not be started; nothing was charged"
@@ -225,6 +236,15 @@ function lookupBody(r: Parameters<typeof verifyResponse>[0] | ReturnType<typeof 
   return body
 }
 
+/** Owner-scoped live row by engine code; null when missing, unreadable or throwing. */
+async function safeOrderRead(deps: BillsV2Deps, userId: string, code: string): Promise<BillOrderV2Row | null> {
+  try {
+    return (await deps.getOrderByCode(userId, code)) ?? null
+  } catch {
+    return null
+  }
+}
+
 async function truthy(fn: () => Promise<boolean>): Promise<boolean> {
   try {
     return (await fn()) === true
@@ -243,10 +263,10 @@ async function safeRelease(deps: BillsV2Deps, claimId: string, userId: string): 
   if (!released) console.error(LOG_RELEASE_FAILED)
 }
 
-async function safeMarkUnknown(deps: BillsV2Deps, claimId: string, userId: string): Promise<void> {
+async function safeMarkUnknown(deps: BillsV2Deps, claimId: string, userId: string, orderRef?: string): Promise<void> {
   let marked = false
   try {
-    marked = await deps.markUnknown(claimId, userId)
+    marked = await deps.markUnknown(claimId, userId, orderRef)
   } catch {
     marked = false
   }
@@ -299,7 +319,13 @@ export function billPayHandler(deps: BillsV2Deps) {
     const parsed = parseBillPayBody(body)
     if (!parsed.ok) return fail(400, parsed.error)
     const input = parsed.value
-    if (ctx.environment === "test") return sandboxPay(deps, input, ctx)
+    if (ctx.environment === "test") {
+      try {
+        return await sandboxPay(deps, input, ctx)
+      } catch {
+        return fail(500, MSG_SANDBOX_UNAVAILABLE)
+      }
+    }
     if (input.verifyToken.startsWith(SANDBOX_TOKEN_PREFIX)) return fail(400, MSG_SANDBOX_TOKEN_ON_LIVE)
     return livePay(deps, input, ctx)
   }
@@ -320,8 +346,12 @@ async function livePay(deps: BillsV2Deps, input: BillPayInput, ctx: V2Context): 
     outcome = { kind: "error" }
   }
   switch (outcome.kind) {
-    case "replay":
-      return ok(200, { order: publicFromStored(outcome.response, input.reference), replayed: true })
+    case "replay": {
+      // The stored order, with its status refreshed from the owner-scoped live row (stored on any read failure).
+      const stored = publicFromStored(outcome.response, input.reference)
+      const live = await safeOrderRead(deps, ctx.userId, outcome.orderRef)
+      return ok(200, { order: live ? { ...stored, status: mapCommissionStatus(live.status) } : stored, replayed: true })
+    }
     case "conflict":
       return fail(409, MSG_REFERENCE_REUSED)
     case "in_progress":
@@ -368,7 +398,13 @@ async function livePay(deps: BillsV2Deps, input: BillPayInput, ctx: V2Context): 
       await safeRelease(deps, claimId, ctx.userId)
       return refusalResult(result, input.expectedPay)
     }
-    return ambiguous(deps, claimId, ctx.userId)
+    // Conservative by design: of payBill's 500s only "debit uncertain" (service.ts ~267) can have moved
+    // money; "Could not create the order" (~241) and the failed lookup after a 23505 (~250) debit nothing,
+    // yet they still lock the reference as unknown, because the text is the only thing telling them apart.
+    // When payBill supplied its order (debit uncertain), keep its reference_code on the claim so support
+    // and the order lookup can resolve the real paid/unpaid status.
+    const engineRef = typeof result.order?.reference_code === "string" && result.order.reference_code ? result.order.reference_code : undefined
+    return ambiguous(deps, claimId, ctx.userId, engineRef)
   }
 
   const order = result.order
@@ -396,13 +432,16 @@ async function livePay(deps: BillsV2Deps, input: BillPayInput, ctx: V2Context): 
   return ok(201, { order: pub })
 }
 
-async function ambiguous(deps: BillsV2Deps, claimId: string, userId: string): Promise<V2HandlerResult> {
-  await safeMarkUnknown(deps, claimId, userId)
+async function ambiguous(deps: BillsV2Deps, claimId: string, userId: string, orderRef?: string): Promise<V2HandlerResult> {
+  await safeMarkUnknown(deps, claimId, userId, orderRef)
   console.error(LOG_AMBIGUOUS)
   return fail(500, MSG_BILL_OUTCOME_UNKNOWN)
 }
 
-/** The claim is already released. Paid (or linked to another claim, or unreadable) => REFERENCE_REUSED. */
+/**
+ * The claim is already released. A PAID prior order, or one linked to another claim, => REFERENCE_REUSED.
+ * An unpaid, unlinked (or unreadable-link) order => VERIFY_AGAIN: nothing was charged.
+ */
 async function tokenReuseResult(deps: BillsV2Deps, userId: string, order: { reference_code?: unknown; payment_status?: unknown } | undefined) {
   const code = typeof order?.reference_code === "string" ? order.reference_code : ""
   let claims: { reference: string; status: string }[] | null = null
@@ -413,8 +452,8 @@ async function tokenReuseResult(deps: BillsV2Deps, userId: string, order: { refe
       claims = null
     }
   }
-  const unpaidAndUnlinked = order?.payment_status !== "paid" && Array.isArray(claims) && claims.length === 0
-  return fail(409, unpaidAndUnlinked ? MSG_VERIFY_AGAIN : MSG_TOKEN_REUSED)
+  const linked = Array.isArray(claims) && claims.length > 0
+  return fail(409, order?.payment_status === "paid" || linked ? MSG_TOKEN_REUSED : MSG_VERIFY_AGAIN)
 }
 
 // ---------------------------------------------------------------- sandbox pay
@@ -624,9 +663,14 @@ export function billOrderHandler(deps: BillsV2Deps) {
     if (!ref.ok) return notFound()
 
     if (ctx.environment === "test") {
-      const prior = await deps.sandbox.getOrder(ctx.userId, ref.reference)
+      let prior: BillSandboxOrder | null
+      try {
+        prior = await deps.sandbox.getOrder(ctx.userId, ref.reference)
+      } catch {
+        return fail(500, MSG_SANDBOX_UNAVAILABLE)
+      }
       if (!prior || prior.action !== "utility_bill") return notFound()
-      return ok(200, { order: mapSandboxOrder(prior), sandbox: true })
+      return ok(200, { order: mapSandboxOrder(prior), claim: null, sandbox: true })
     }
 
     let claim: Awaited<ReturnType<BillsV2Deps["getClaim"]>>
@@ -635,16 +679,24 @@ export function billOrderHandler(deps: BillsV2Deps) {
     } catch {
       claim = null
     }
-    if (!claim || claim.status !== "done" || !claim.orderRef) return notFound()
+    if (!claim) return notFound()
 
-    let live: BillOrderV2Row | null = null
-    try {
-      live = await deps.getOrderByCode(ctx.userId, claim.orderRef)
-    } catch {
-      live = null
+    // The caller's own claim that is still running or ambiguous: say so (never a 404, which reads as "never created").
+    const pending = mapClaimState(claim, ref.reference, deps.now())
+    if (pending) {
+      // An unknown claim that kept the engine order (debit uncertain): once the live row shows the
+      // order PAID, the outcome is known and the normal order is shown. Anything else stays pending.
+      if (claim.status === "unknown" && claim.orderRef) {
+        const row = await safeOrderRead(deps, ctx.userId, claim.orderRef)
+        if (row && row.payment_status === "paid") return ok(200, { order: mapBillOrder(row, ref.reference), claim: null })
+      }
+      return ok(200, { order: null, claim: pending })
     }
-    if (live) return ok(200, { order: mapBillOrder(live, ref.reference) })
+    if (claim.status !== "done" || !claim.orderRef) return notFound()
+
+    const live = await safeOrderRead(deps, ctx.userId, claim.orderRef)
+    if (live) return ok(200, { order: mapBillOrder(live, ref.reference), claim: null })
     if (!isObject(claim.response)) return notFound()
-    return ok(200, { order: publicFromStored(claim.response, ref.reference) })
+    return ok(200, { order: publicFromStored(claim.response, ref.reference), claim: null })
   }
 }

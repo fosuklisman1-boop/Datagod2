@@ -14,6 +14,9 @@ import {
   MSG_BILL_NOT_FOUND,
   MSG_BILL_OUTCOME_UNKNOWN,
   MSG_TOKEN_REUSED,
+  MSG_BILL_IN_PROGRESS,
+  MSG_BILL_PRIOR_UNKNOWN,
+  MSG_SANDBOX_UNAVAILABLE,
   type BillsV2Deps,
   type BillPayEngineParams,
   type BillOrderV2Row,
@@ -153,10 +156,11 @@ function claimTable() {
       rows.delete(hit[0])
       return true
     }),
-    markUnknown: vi.fn(async (claimId: string, userId?: string) => {
+    markUnknown: vi.fn(async (claimId: string, userId?: string, orderRef?: string) => {
       const hit = find(claimId, userId)
       if (!hit) return false
       hit[1].status = "unknown"
+      if (orderRef) hit[1].orderRef = orderRef
       return true
     }),
     findClaimByOrderRef: vi.fn(async (userId: string, orderRef: string) =>
@@ -173,7 +177,9 @@ function makeDeps() {
     release: table.release,
     markUnknown: table.markUnknown,
     findClaimByOrderRef: table.findClaimByOrderRef as ReturnType<typeof vi.fn<(u: string, o: string) => Promise<{ reference: string; status: string }[] | null>>>,
-    getClaim: vi.fn(async (_u: string, _r: string): Promise<{ orderRef: string | null; status: string; response: unknown } | null> => null),
+    getClaim: vi.fn(
+      async (_u: string, _r: string): Promise<{ orderRef: string | null; status: string; response: unknown; createdAt?: string | null } | null> => null
+    ),
     surfaceOpen: vi.fn(async () => true),
     phoneGate: vi.fn(async (_u: string) => true),
     getBillsConfig: vi.fn(async (): Promise<BillsConfig> => allOn()),
@@ -384,13 +390,21 @@ describe("POST /utilities/pay (live): body validation happens before any depende
 })
 
 describe("POST /utilities/pay (live): claim outcomes answer before any gate or engine", () => {
-  it("replay of a completed reference: 200 { order, replayed: true }, no gate, no engine, no new claim", async () => {
+  it("replay of a completed reference: 200 { order, replayed: true } with the status refreshed, no gate, no engine, no new claim", async () => {
     const { deps } = makeDeps()
     const first = await billPayHandler(deps)(payBody(), LIVE)
+    expect(data(first).order.status).toBe("processing")
     for (const f of [deps.surfaceOpen, deps.phoneGate, deps.pay, deps.complete]) f.mockClear()
+    // The live row has since completed: the replay reports it (owner-scoped read by the engine code).
     const again = await billPayHandler(deps)(payBody(), LIVE)
     expect(again.status).toBe(200)
-    expect(data(again)).toEqual({ order: data(first).order, replayed: true })
+    expect(data(again)).toEqual({ order: { ...data(first).order, status: "completed" }, replayed: true })
+    expect(deps.getOrderByCode).toHaveBeenLastCalledWith("user-1", "BILL-ENGINE-1")
+    // A failed or missing live read falls back to the stored order.
+    deps.getOrderByCode.mockRejectedValueOnce(new Error("db"))
+    expect(data(await billPayHandler(deps)(payBody(), LIVE))).toEqual({ order: data(first).order, replayed: true })
+    deps.getOrderByCode.mockResolvedValueOnce(null)
+    expect(data(await billPayHandler(deps)(payBody(), LIVE))).toEqual({ order: data(first).order, replayed: true })
     expect(deps.surfaceOpen).not.toHaveBeenCalled()
     expect(deps.phoneGate).not.toHaveBeenCalled()
     expect(deps.pay).not.toHaveBeenCalled()
@@ -499,6 +513,9 @@ describe("POST /utilities/pay (live): engine refusals (no debit) release the cla
     const r = await billPayHandler(deps)(payBody(), LIVE)
     expect(r.status).toBe(402)
     expect(msgOf(r)).toMatch(/^INSUFFICIENT_BALANCE: /)
+    // The failed attempt used up the token (its order row exists): the client must verify again after topping up.
+    expect(msgOf(r)).toMatch(/verify the account again after topping up/i)
+    expect(msgOf(r)).toMatch(/nothing was charged/i)
     expect(deps.release).toHaveBeenCalledWith("claim-1", "user-1")
     expect(deps.markUnknown).not.toHaveBeenCalled()
     expect(deps.complete).not.toHaveBeenCalled()
@@ -570,13 +587,40 @@ describe("POST /utilities/pay (live): ambiguous outcomes mark the claim unknown"
     const r = await billPayHandler(deps)(payBody(), LIVE)
     expect(r.status).toBe(500)
     expect(msgOf(r)).toBe(MSG_BILL_OUTCOME_UNKNOWN)
-    expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1")
+    expect(deps.markUnknown).toHaveBeenCalledTimes(1)
+    expect(deps.markUnknown.mock.calls[0].slice(0, 2)).toEqual(["claim-1", "user-1"])
     expect(deps.release).not.toHaveBeenCalled()
     expect(deps.complete).not.toHaveBeenCalled()
     expect([...table.rows.values()][0].status).toBe("unknown")
     const log = lines.join("\n")
     expect(log).not.toContain("0249990799")
     expect(log).not.toContain(LIVE_TOKEN)
+  })
+
+  it("debit uncertain WITH an engine order: the claim is marked unknown and keeps that order_ref", async () => {
+    const { deps, table } = makeDeps()
+    quietErrors()
+    deps.pay.mockResolvedValueOnce({
+      result: { ok: false, status: 500, error: "We could not confirm your payment.", order: engineRow({ payment_status: "unpaid", status: "pending" }) },
+      fresh: true,
+    })
+    const r = await billPayHandler(deps)(payBody(), LIVE)
+    expect(r.status).toBe(500)
+    expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1", "BILL-ENGINE-1")
+    expect([...table.rows.values()][0]).toMatchObject({ status: "unknown", orderRef: "BILL-ENGINE-1" })
+    expect(JSON.stringify(r)).not.toContain("BILL-ENGINE-1")
+  })
+
+  it("no engine order (throw, insert failure) => marked unknown without an order_ref", async () => {
+    const { deps } = makeDeps()
+    quietErrors()
+    deps.pay.mockRejectedValueOnce(new Error("x"))
+    await billPayHandler(deps)(payBody(), LIVE)
+    expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1", undefined)
+    const b = makeDeps().deps
+    b.pay.mockResolvedValueOnce({ result: { ok: false, status: 500, error: "Could not create the order" }, fresh: false })
+    await billPayHandler(b)(payBody(), LIVE)
+    expect(b.markUnknown).toHaveBeenCalledWith("claim-1", "user-1", undefined)
   })
 
   it("a retry with the same reference after an ambiguous outcome never re-calls the engine", async () => {
@@ -641,6 +685,21 @@ describe("POST /utilities/pay (live): one verify_token pays one reference", () =
     expect(r.status).toBe(409)
     expect(deps.complete).not.toHaveBeenCalled()
     expect(deps.release).toHaveBeenCalledTimes(1)
+  })
+
+  it("a claim lookup error with an UNPAID prior order answers VERIFY_AGAIN (REFERENCE_REUSED only when paid or linked)", async () => {
+    const { deps } = makeDeps()
+    deps.pay.mockResolvedValueOnce({ result: { ok: true, order: engineRow({ status: "failed", payment_status: "unpaid" }) }, fresh: false })
+    deps.findClaimByOrderRef.mockResolvedValueOnce(null)
+    const r = await billPayHandler(deps)(payBody(), LIVE)
+    expect(r.status).toBe(409)
+    expect(msgOf(r)).toMatch(/^VERIFY_AGAIN: /)
+    expect(deps.complete).not.toHaveBeenCalled()
+    // ...but an unpaid order that IS linked to another claim is still REFERENCE_REUSED.
+    const b = makeDeps().deps
+    b.pay.mockResolvedValueOnce({ result: { ok: true, order: engineRow({ payment_status: "unpaid" }) }, fresh: false })
+    b.findClaimByOrderRef.mockResolvedValueOnce([{ reference: "BILL-0790", status: "done" }])
+    expect(msgOf(await billPayHandler(b)(payBody(), LIVE))).toBe(MSG_TOKEN_REUSED)
   })
 
   it("a fresh order (inserted by this request) completes without a reuse lookup", async () => {
@@ -955,7 +1014,57 @@ describe("GET /utilities/orders/{reference} (live)", () => {
     expect(deps.getOrderByCode).toHaveBeenCalledWith("user-1", "BILL-ENGINE-1")
     expect(Object.keys(data(r).order).sort()).toEqual(ORDER_KEYS)
     expect(data(r).order).toMatchObject({ reference: "BILL-0701", status: "completed" })
+    expect(data(r).claim).toBeNull()
+    expect(Object.keys(data(r)).sort()).toEqual(["claim", "order"])
     expect(JSON.stringify(data(r))).not.toContain("BILL-ENGINE-1")
+  })
+
+  it("the caller's own in_progress claim => 200 { order: null, claim: { reference, state } }; stale reads outcome_unknown", async () => {
+    const { deps } = makeDeps()
+    deps.getClaim.mockResolvedValueOnce({ orderRef: null, status: "in_progress", response: null, createdAt: new Date(NOW_MS - 5000).toISOString() })
+    const r = await billOrderHandler(deps)("BILL-0701", LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r)).toEqual({ order: null, claim: { reference: "BILL-0701", state: "in_progress" } })
+    deps.getClaim.mockResolvedValueOnce({ orderRef: null, status: "in_progress", response: null, createdAt: new Date(NOW_MS - 10 * 60 * 1000 - 1).toISOString() })
+    expect(data(await billOrderHandler(deps)("BILL-0701", LIVE))).toEqual({ order: null, claim: { reference: "BILL-0701", state: "outcome_unknown" } })
+    expect(deps.getOrderByCode).not.toHaveBeenCalled()
+  })
+
+  it("an unknown claim without an order_ref => 200 claim.state outcome_unknown, never the 404", async () => {
+    const { deps } = makeDeps()
+    deps.getClaim.mockResolvedValueOnce({ orderRef: null, status: "unknown", response: null, createdAt: CREATED })
+    const r = await billOrderHandler(deps)("BILL-0701", LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r)).toEqual({ order: null, claim: { reference: "BILL-0701", state: "outcome_unknown" } })
+    expect(JSON.stringify(r)).not.toContain(MSG_BILL_NOT_FOUND)
+  })
+
+  it("an unknown claim WITH an order_ref resolves from the owner-scoped live row once the order is PAID", async () => {
+    const { deps } = makeDeps()
+    deps.getClaim.mockResolvedValueOnce({ orderRef: "BILL-ENGINE-1", status: "unknown", response: null, createdAt: CREATED })
+    deps.getOrderByCode.mockResolvedValueOnce(liveRow({ status: "completed", payment_status: "paid" }))
+    const r = await billOrderHandler(deps)("BILL-0701", LIVE)
+    expect(r.status).toBe(200)
+    expect(deps.getOrderByCode).toHaveBeenCalledWith("user-1", "BILL-ENGINE-1")
+    expect(data(r).claim).toBeNull()
+    expect(Object.keys(data(r).order).sort()).toEqual(ORDER_KEYS)
+    expect(data(r).order).toMatchObject({ reference: "BILL-0701", status: "completed" })
+    expect(JSON.stringify(data(r))).not.toContain("payment_status")
+  })
+
+  it.each([
+    ["unpaid row (debit may not have happened)", async () => liveRow({ status: "pending", payment_status: "unpaid" })],
+    ["row missing", async () => null],
+    ["row read throws", async () => {
+      throw new Error("db")
+    }],
+  ])("an unknown claim with an order_ref but %s stays outcome_unknown", async (_n, impl) => {
+    const { deps } = makeDeps()
+    deps.getClaim.mockResolvedValueOnce({ orderRef: "BILL-ENGINE-1", status: "unknown", response: null, createdAt: CREATED })
+    deps.getOrderByCode.mockImplementationOnce(impl as any)
+    const r = await billOrderHandler(deps)("BILL-0701", LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r)).toEqual({ order: null, claim: { reference: "BILL-0701", state: "outcome_unknown" } })
   })
 
   it("falls back to the stored response (allow-listed) when the row read fails", async () => {
@@ -972,11 +1081,13 @@ describe("GET /utilities/orders/{reference} (live)", () => {
     expect(JSON.stringify(data(r))).not.toContain("leak")
   })
 
-  it("missing, foreign, in-progress, unknown, malformed and errored are the identical 404", async () => {
+  it("missing, foreign (owner-scoped read finds nothing), malformed and errored are the identical 404", async () => {
     const cases: Array<(d: Deps) => void> = [
       () => {},
-      (d) => d.getClaim.mockResolvedValueOnce({ orderRef: null, status: "in_progress", response: null }),
-      (d) => d.getClaim.mockResolvedValueOnce({ orderRef: null, status: "unknown", response: null }),
+      (d) =>
+        d.getClaim.mockImplementation(async (u: string) =>
+          u === "user-2" ? { orderRef: null, status: "in_progress", response: null, createdAt: CREATED } : null
+        ),
       (d) => d.getClaim.mockRejectedValueOnce(new Error("db")),
       (d) => {
         d.getClaim.mockResolvedValueOnce({ orderRef: "BILL-ENGINE-1", status: "done", response: null })
@@ -1019,5 +1130,49 @@ describe("GET /utilities/orders/{reference} (sandbox)", () => {
     liveDepsUntouched(deps)
     deps.sandbox.getOrder.mockResolvedValueOnce({ reference: "BILL-0701", action: "airtime", response: {}, price: 5, created_at: CREATED, status: "completed" })
     expect((await billOrderHandler(deps)("BILL-0701", TEST)).status).toBe(404)
+  })
+})
+
+// ================================================================ fix wave
+
+describe("bills: a throwing sandbox store => fixed generic 500", () => {
+  it.each([
+    ["pay getOrder", (d: Deps) => d.sandbox.getOrder.mockImplementationOnce(() => Promise.reject(new Error("exploded"))), (d: Deps) => billPayHandler(d)(payBody({ verify_token: sandboxToken() }), TEST)],
+    ["pay findByTokenRef", (d: Deps) => d.sandbox.findByTokenRef.mockImplementationOnce(() => Promise.reject(new Error("exploded"))), (d: Deps) => billPayHandler(d)(payBody({ verify_token: sandboxToken() }), TEST)],
+    ["pay place", (d: Deps) => d.sandbox.place.mockImplementationOnce(() => Promise.reject(new Error("exploded"))), (d: Deps) => billPayHandler(d)(payBody({ verify_token: sandboxToken() }), TEST)],
+    ["order lookup getOrder", (d: Deps) => d.sandbox.getOrder.mockImplementationOnce(() => Promise.reject(new Error("exploded"))), (d: Deps) => billOrderHandler(d)("BILL-0701", TEST)],
+  ])("%s", async (_n, setup, run) => {
+    const { deps } = makeDeps()
+    setup(deps)
+    const r = await run(deps)
+    expect(r.status).toBe(500)
+    expect(msgOf(r)).toBe(MSG_SANDBOX_UNAVAILABLE)
+    expect(JSON.stringify(r)).not.toContain("exploded")
+    liveDepsUntouched(deps)
+  })
+})
+
+describe("bills: in-progress / unknown messages never send the client to a new reference", () => {
+  it.each([
+    ["MSG_BILL_IN_PROGRESS", MSG_BILL_IN_PROGRESS, "REQUEST_IN_PROGRESS:"],
+    ["MSG_BILL_PRIOR_UNKNOWN", MSG_BILL_PRIOR_UNKNOWN, "OUTCOME_UNKNOWN:"],
+    ["MSG_BILL_OUTCOME_UNKNOWN", MSG_BILL_OUTCOME_UNKNOWN, "OUTCOME_UNKNOWN:"],
+  ])("%s", (_n, msg, prefix) => {
+    expect(msg.startsWith(prefix)).toBe(true)
+    expect(msg).toMatch(/do not place this payment again under a new reference/i)
+    expect(msg).toMatch(/not confirmed yet/i)
+    expect(msg).toContain("GET /utilities/orders/{reference}")
+    expect(msg).toContain("claim.state")
+    expect(msg).toMatch(/contact support quoting the reference/i)
+    expect(msg).not.toContain("Order not found")
+    expect(msg).not.toMatch(/resend with a new|use a new reference|try a new reference/i)
+  })
+
+  it("the claim outcomes actually answer with these messages", async () => {
+    for (const [kind, msg] of [["in_progress", MSG_BILL_IN_PROGRESS], ["unknown", MSG_BILL_PRIOR_UNKNOWN]] as const) {
+      const { deps } = makeDeps()
+      deps.claim.mockResolvedValueOnce({ kind } as ClaimOutcome)
+      expect(msgOf(await billPayHandler(deps)(payBody(), LIVE))).toBe(msg)
+    }
   })
 })

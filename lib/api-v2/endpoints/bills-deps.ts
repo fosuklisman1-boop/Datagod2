@@ -29,8 +29,9 @@ import {
 import { realPhoneGate } from "./data-deps"
 import type { BillOrderV2Row, BillPayEngineParams, BillPayEngineResult, BillSandboxOrder, BillsV2Deps } from "./bills"
 
+// payment_status is read only to resolve an unknown claim (paid => show the order); mapBillOrder never returns it.
 export const BILL_ORDER_V2_COLUMNS =
-  "reference_code, biller, account_number, customer_name, amount, paid_amount, cashback_amount, status, created_at"
+  "reference_code, biller, account_number, customer_name, amount, paid_amount, cashback_amount, status, payment_status, created_at"
 
 /** Owner-scoped single order read; null when missing or on any error. */
 export async function fetchBillOrderByCode(client: SupabaseLike, userId: string, code: string): Promise<BillOrderV2Row | null> {
@@ -95,7 +96,7 @@ export function realBillsDeps(): BillsV2Deps {
     claim: (p) => claimRequest(client, p),
     complete: (claimId, orderRef, response, userId) => completeClaim(client, claimId, orderRef, response, Date.now, userId),
     release: (claimId, userId) => releaseClaim(client, claimId, userId),
-    markUnknown: (claimId, userId) => markClaimUnknown(client, claimId, userId),
+    markUnknown: (claimId, userId, orderRef) => markClaimUnknown(client, claimId, userId, orderRef),
     getClaim: (userId, reference) => getClaimByReference(client, userId, "bill", reference),
     findClaimByOrderRef: (userId, orderRef) => findClaimByOrderRef(client, userId, "bill", orderRef),
     surfaceOpen: async () => {
