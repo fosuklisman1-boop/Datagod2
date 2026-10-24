@@ -50,7 +50,7 @@ const h = vi.hoisted(() => {
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.client }))
 
-import { placeSandboxOrder, getSandboxOrdersByReferences, listSandboxOrders } from "./sandbox"
+import { placeSandboxOrder, getSandboxOrdersByReferences, listSandboxOrders, findSandboxBillOrdersByTokenRef } from "./sandbox"
 
 describe("listSandboxOrders", () => {
   beforeEach(() => {
@@ -122,6 +122,35 @@ describe("getSandboxOrdersByReferences", () => {
     h.state.queries = []
     expect((await getSandboxOrdersByReferences("u1", []))!.size).toBe(0)
     expect(h.state.queries).toHaveLength(0)
+  })
+})
+
+describe("findSandboxBillOrdersByTokenRef", () => {
+  beforeEach(() => {
+    h.state.queries = []
+    h.state.listResult = { data: [], error: null }
+  })
+
+  it("one owner-scoped utility_bill query on response->>token_ref, capped at 5, references only", async () => {
+    h.state.listResult = {
+      data: [{ reference: "V2-BILL-0701", action: "utility_bill", response: { token_ref: "SBX-BILL-ABC" }, price: 5, resolves_at: "x", created_at: "t" }],
+      error: null,
+    }
+    const out = await findSandboxBillOrdersByTokenRef("u1", "SBX-BILL-ABC")
+    expect(out).toEqual([{ reference: "V2-BILL-0701" }])
+    expect(h.state.queries).toHaveLength(1)
+    const { table, calls } = h.state.queries[0]
+    expect(table).toBe("sandbox_orders")
+    expect(calls).toContainEqual(["eq", "user_id", "u1"])
+    expect(calls).toContainEqual(["eq", "action", "utility_bill"])
+    expect(calls).toContainEqual(["eq", "response->>token_ref", "SBX-BILL-ABC"])
+    expect(calls).toContainEqual(["limit", 5])
+  })
+
+  it("returns null on a read error (caller fails closed) and [] when nothing matches", async () => {
+    expect(await findSandboxBillOrdersByTokenRef("u1", "SBX-BILL-ABC")).toEqual([])
+    h.state.listResult = { data: null, error: { message: "e" } }
+    expect(await findSandboxBillOrdersByTokenRef("u1", "SBX-BILL-ABC")).toBeNull()
   })
 })
 

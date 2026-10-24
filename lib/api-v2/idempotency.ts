@@ -157,6 +157,34 @@ export async function getClaimByReference(
   }
 }
 
+/**
+ * The owner's claims of one kind already linked to an engine order_ref (at
+ * most 5). Used by the bill pay path to tell whether an order the engine
+ * handed back belongs to another client reference. [] when none; null on a
+ * read error (callers must not read null as "none").
+ */
+export async function findClaimByOrderRef(
+  client: SupabaseLike,
+  userId: string,
+  kind: ClaimKind,
+  orderRef: string
+): Promise<{ reference: string; status: string }[] | null> {
+  if (typeof orderRef !== "string" || !orderRef) return null
+  try {
+    const { data, error } = await client
+      .from(TABLE)
+      .select("reference, status")
+      .eq("user_id", userId)
+      .eq("kind", kind)
+      .eq("order_ref", orderRef)
+      .limit(5)
+    if (error || !Array.isArray(data)) return null
+    return data.slice(0, 5).map((r: any) => ({ reference: String(r.reference), status: String(r.status) }))
+  } catch {
+    return null
+  }
+}
+
 export async function listClaims(
   client: SupabaseLike,
   userId: string,

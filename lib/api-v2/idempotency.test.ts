@@ -6,6 +6,7 @@ import {
   markClaimUnknown,
   getClaimByReference,
   listClaims,
+  findClaimByOrderRef,
 } from "./idempotency"
 
 type Row = Record<string, any>
@@ -378,5 +379,40 @@ describe("getClaimByReference / listClaims", () => {
   it("listClaims returns [] on error or exception", async () => {
     expect(await listClaims(makeFake({ errorOps: { select: { code: "X" } } }).client, "u1", "bill")).toEqual([])
     expect(await listClaims(makeFake({ throwOnFrom: true }).client, "u1", "bill")).toEqual([])
+  })
+})
+
+describe("findClaimByOrderRef", () => {
+  const B = { ...P, kind: "bill" as const, reference: "BILL-REF-0701" }
+
+  it("finds the owner's bill claim linked to an engine order_ref, filtered by user, kind and order_ref", async () => {
+    const f = makeFake()
+    const c = await claimRequest(f.client, B)
+    if (c.kind !== "claimed") throw new Error("x")
+    await completeClaim(f.client, c.claimId, "BILL-ENGINE-1", { a: 1 })
+    expect(await findClaimByOrderRef(f.client, "u1", "bill", "BILL-ENGINE-1")).toEqual([
+      { reference: "BILL-REF-0701", status: "done" },
+    ])
+    const q = f.calls.at(-1)!
+    expect(q.filters).toEqual([["user_id", "u1"], ["kind", "bill"], ["order_ref", "BILL-ENGINE-1"]])
+    expect(q.limit).toBe(5)
+  })
+
+  it("another user's claim, another kind, or an unlinked order_ref is []", async () => {
+    const f = makeFake()
+    const c = await claimRequest(f.client, B)
+    if (c.kind !== "claimed") throw new Error("x")
+    await completeClaim(f.client, c.claimId, "BILL-ENGINE-1", { a: 1 })
+    expect(await findClaimByOrderRef(f.client, "u2", "bill", "BILL-ENGINE-1")).toEqual([])
+    expect(await findClaimByOrderRef(f.client, "u1", "airtime", "BILL-ENGINE-1")).toEqual([])
+    expect(await findClaimByOrderRef(f.client, "u1", "bill", "BILL-ENGINE-2")).toEqual([])
+  })
+
+  it("returns null (not []) on a read error or exception, and refuses an empty order_ref without a query", async () => {
+    expect(await findClaimByOrderRef(makeFake({ errorOps: { select: { code: "X" } } }).client, "u1", "bill", "O-1")).toBeNull()
+    expect(await findClaimByOrderRef(makeFake({ throwOnFrom: true }).client, "u1", "bill", "O-1")).toBeNull()
+    const f = makeFake()
+    expect(await findClaimByOrderRef(f.client, "u1", "bill", "")).toBeNull()
+    expect(f.calls).toHaveLength(0)
   })
 })

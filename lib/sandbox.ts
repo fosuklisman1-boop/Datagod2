@@ -178,6 +178,29 @@ export async function listSandboxOrders(userId: string, action: SandboxAction, l
   }
 }
 
+/**
+ * v2 sandbox bill orders are keyed by the CLIENT reference and carry the
+ * deterministic sandboxBillReference(token) as response.token_ref. This finds
+ * the owner's utility_bill orders already paid with one sandbox token (at most
+ * 5), so a token can pay one reference only. Returns null on a read error so
+ * the caller fails closed. Additive; v1 does not use it.
+ */
+export async function findSandboxBillOrdersByTokenRef(userId: string, tokenRef: string) {
+  try {
+    const { data, error } = await supabase
+      .from("sandbox_orders")
+      .select("reference")
+      .eq("user_id", userId)
+      .eq("action", "utility_bill")
+      .eq("response->>token_ref", tokenRef)
+      .limit(5)
+    if (error || !Array.isArray(data)) return null
+    return data.slice(0, 5).map((r: { reference: string }) => ({ reference: String(r.reference) }))
+  } catch {
+    return null
+  }
+}
+
 export async function getSandboxOrder(userId: string, reference: string) {
   const { data } = await supabase
     .from("sandbox_orders")
