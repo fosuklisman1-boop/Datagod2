@@ -404,7 +404,7 @@ const BILL_STATUS_MESSAGES: Record<number, { code: string; message: string }> = 
 }
 
 /** Engine failure result -> {status, message}. Unexpected statuses collapse to 500 with a fixed message. */
-export function billErrorResponse(r: { status: number; error: string; quote?: unknown }): ErrorResponse {
+export function billErrorResponse(r: { ok?: false; status: number; error: string; quote?: unknown }): ErrorResponse {
   if (r.quote && r.status === 409) {
     return {
       status: 409,
