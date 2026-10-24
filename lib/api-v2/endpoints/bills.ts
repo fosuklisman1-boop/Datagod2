@@ -178,8 +178,8 @@ export const MSG_LOOKUP_UNAVAILABLE = "UNAVAILABLE: utility bills are temporaril
 export const MSG_LOOKUP_FAILED = "LOOKUP_FAILED: the biller could not verify this account; check the details and retry"
 export const MSG_LOOKUP_INTERNAL = "INTERNAL_ERROR: the account could not be verified"
 export const MSG_BILLERS_UNAVAILABLE = "UNAVAILABLE: the biller list is temporarily unavailable"
-const MSG_SANDBOX_FAILED = "Order could not be placed"
-const MSG_SANDBOX_CHECK_FAILED = "UNAVAILABLE: could not check earlier test payments; nothing was charged"
+export const MSG_SANDBOX_FAILED = "Order could not be placed"
+export const MSG_SANDBOX_CHECK_FAILED = "UNAVAILABLE: could not check earlier test payments; nothing was charged"
 
 // Fixed, PII-free log lines.
 const LOG_COMPLETE_FAILED = "[API v2] bills: claim not finalised after a successful payment (reads as unknown later)"

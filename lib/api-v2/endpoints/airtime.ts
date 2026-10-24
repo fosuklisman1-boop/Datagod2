@@ -153,7 +153,7 @@ export const MSG_OUTCOME_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this purchas
 export const MSG_CLAIM_UNAVAILABLE =
   "UNAVAILABLE: could not reserve this reference; nothing was charged. Retry with the same reference"
 export const MSG_SANDBOX_UNAVAILABLE = "Sandbox is temporarily unavailable"
-const MSG_SANDBOX_FAILED = "Order could not be placed"
+export const MSG_SANDBOX_FAILED = "Order could not be placed"
 
 // Fixed, PII-free log lines.
 const LOG_COMPLETE_FAILED = "[API v2] airtime: claim not finalised after a successful purchase (reads as unknown later)"
