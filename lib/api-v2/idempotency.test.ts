@@ -7,6 +7,7 @@ import {
   getClaimByReference,
   listClaims,
   findClaimByOrderRef,
+  CLAIM_STALE_MS,
 } from "./idempotency"
 
 type Row = Record<string, any>
@@ -322,7 +323,12 @@ describe("getClaimByReference / listClaims", () => {
     const c = await claimRequest(f.client, P)
     if (c.kind !== "claimed") throw new Error("x")
     await completeClaim(f.client, c.claimId, "order-1", { a: 1 })
-    expect(await getClaimByReference(f.client, "u1", "airtime", "REF-0501")).toEqual({ orderRef: "order-1", status: "done", response: { a: 1 } })
+    expect(await getClaimByReference(f.client, "u1", "airtime", "REF-0501")).toEqual({
+      orderRef: "order-1",
+      status: "done",
+      response: { a: 1 },
+      createdAt: f.rows[0].created_at,
+    })
     const q = f.calls.at(-1)!
     expect(q.filters).toEqual([["user_id", "u1"], ["kind", "airtime"], ["reference", "REF-0501"]])
   })
@@ -379,6 +385,62 @@ describe("getClaimByReference / listClaims", () => {
   it("listClaims returns [] on error or exception", async () => {
     expect(await listClaims(makeFake({ errorOps: { select: { code: "X" } } }).client, "u1", "bill")).toEqual([])
     expect(await listClaims(makeFake({ throwOnFrom: true }).client, "u1", "bill")).toEqual([])
+  })
+})
+
+describe("fix wave: stale threshold, unknown with order_ref, done-only lists", () => {
+  it("CLAIM_STALE_MS outlives the longest v2 purchase maxDuration (300 s), so a live request is never read as stale", () => {
+    // Invariant: a claim may only read as OUTCOME_UNKNOWN once the request that owns it is certainly dead.
+    // The longest maxDuration of any v2 purchase route is 300 s (airtime purchase).
+    expect(CLAIM_STALE_MS).toBeGreaterThan(300_000)
+    expect(CLAIM_STALE_MS).toBe(10 * 60 * 1000)
+  })
+
+  it("claimRequest uses CLAIM_STALE_MS: at the threshold in_progress, one ms past it unknown", async () => {
+    let t = 1_700_000_000_000
+    const f = makeFake({ now: () => t })
+    const c = await claimRequest(f.client, P, () => t)
+    if (c.kind !== "claimed") throw new Error("x")
+    t += CLAIM_STALE_MS
+    expect((await claimRequest(f.client, P, () => t)).kind).toBe("in_progress")
+    t += 1
+    expect((await claimRequest(f.client, P, () => t)).kind).toBe("unknown")
+  })
+
+  it("markClaimUnknown stores order_ref when given and keeps the unknown state", async () => {
+    const f = makeFake()
+    const c = await claimRequest(f.client, { ...P, kind: "bill" })
+    if (c.kind !== "claimed") throw new Error("x")
+    expect(await markClaimUnknown(f.client, c.claimId, "u1", "BILL-ENGINE-7")).toBe(true)
+    expect(f.rows[0]).toMatchObject({ status: "unknown", order_ref: "BILL-ENGINE-7" })
+    expect(f.calls.at(-1)!.payload).toEqual({ status: "unknown", order_ref: "BILL-ENGINE-7" })
+  })
+
+  it("markClaimUnknown without (or with an empty) orderRef writes only the status", async () => {
+    for (const ref of [undefined, ""]) {
+      const f = makeFake()
+      const c = await claimRequest(f.client, P)
+      if (c.kind !== "claimed") throw new Error("x")
+      expect(await markClaimUnknown(f.client, c.claimId, "u1", ref)).toBe(true)
+      expect(f.calls.at(-1)!.payload).toEqual({ status: "unknown" })
+      expect(f.rows[0].order_ref).toBeNull()
+    }
+  })
+
+  it("listClaims with status 'done' filters in the query, so the limit counts only done claims", async () => {
+    const f = makeFake()
+    for (let i = 0; i < 4; i++) {
+      const c = await claimRequest(f.client, { ...P, reference: `REF-D${i}` })
+      if (c.kind !== "claimed") throw new Error("x")
+      f.rows[f.rows.length - 1].created_at = new Date(1_700_000_000_000 + i * 1000).toISOString()
+      if (i % 2 === 0) await completeClaim(f.client, c.claimId, `O-${i}`, { a: i })
+    }
+    const out = await listClaims(f.client, "u1", "airtime", 2, { status: "done" })
+    expect(out.map((r) => r.reference)).toEqual(["REF-D2", "REF-D0"])
+    expect(f.calls.at(-1)!.filters).toEqual([["user_id", "u1"], ["kind", "airtime"], ["status", "done"]])
+    // Default unchanged: every status, no status filter.
+    expect(await listClaims(f.client, "u1", "airtime", 30)).toHaveLength(4)
+    expect(f.calls.at(-1)!.filters).toEqual([["user_id", "u1"], ["kind", "airtime"]])
   })
 })
 

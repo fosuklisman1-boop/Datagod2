@@ -15,7 +15,9 @@ import {
   classifyEngineError,
   airtimeErrorResponse,
   billErrorResponse,
+  mapClaimState,
 } from "./commission"
+import { CLAIM_STALE_MS } from "./idempotency"
 
 const okAirtime = (over: Record<string, unknown> = {}) =>
   parseAirtimeBody({ network: "MTN", recipient: "0249990501", amount: 5, reference: "REF-501", ...over })
@@ -318,5 +320,33 @@ describe("error responses", () => {
     expect(odd.status).toBe(500)
     expect(JSON.stringify(odd)).not.toContain("stack trace")
     expect(billErrorResponse({ ok: false, status: 502, error: "x" }).status).toBe(500)
+  })
+})
+
+describe("mapClaimState", () => {
+  const NOW = Date.parse("2026-10-24T12:00:00.000Z")
+  const at = (msAgo: number) => new Date(NOW - msAgo).toISOString()
+
+  it("a fresh in_progress claim reads in_progress with exactly { reference, state }", () => {
+    const v = mapClaimState({ status: "in_progress", createdAt: at(1000), orderRef: "SECRET-ORDER", response: { x: 1 } } as any, "REF-0599", NOW)
+    expect(v).toEqual({ reference: "REF-0599", state: "in_progress" })
+    expect(Object.keys(v!).sort()).toEqual(["reference", "state"])
+    expect(JSON.stringify(v)).not.toContain("SECRET-ORDER")
+  })
+
+  it("in_progress older than CLAIM_STALE_MS reads outcome_unknown (same rule as claimRequest)", () => {
+    expect(mapClaimState({ status: "in_progress", createdAt: at(CLAIM_STALE_MS) }, "REF-0599", NOW)!.state).toBe("in_progress")
+    expect(mapClaimState({ status: "in_progress", createdAt: at(CLAIM_STALE_MS + 1) }, "REF-0599", NOW)!.state).toBe("outcome_unknown")
+  })
+
+  it("an unreadable timestamp fails safe to outcome_unknown; unknown always reads outcome_unknown", () => {
+    expect(mapClaimState({ status: "in_progress", createdAt: null }, "REF-0599", NOW)!.state).toBe("outcome_unknown")
+    expect(mapClaimState({ status: "in_progress", createdAt: "garbage" }, "REF-0599", NOW)!.state).toBe("outcome_unknown")
+    expect(mapClaimState({ status: "unknown", createdAt: at(1) }, "REF-0599", NOW)).toEqual({ reference: "REF-0599", state: "outcome_unknown" })
+  })
+
+  it("done and anything else is not a pending state (null)", () => {
+    expect(mapClaimState({ status: "done", createdAt: at(1) }, "REF-0599", NOW)).toBeNull()
+    expect(mapClaimState({ status: "weird", createdAt: at(1) }, "REF-0599", NOW)).toBeNull()
   })
 })

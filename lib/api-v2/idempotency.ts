@@ -19,7 +19,13 @@ export type ClaimOutcome =
   | { kind: "error" }
 
 const TABLE = "api_v2_idempotency"
-const STALE_MS = 10 * 60 * 1000
+/**
+ * An in_progress claim older than this reads as unknown (claimRequest, and
+ * mapClaimState for the order lookups). INVARIANT: it must stay longer than
+ * the longest maxDuration of any v2 purchase route (airtime purchase: 300 s),
+ * so a claim whose request may still be running is never reported stale.
+ */
+export const CLAIM_STALE_MS = 10 * 60 * 1000
 const MAX_LIST = 30
 
 export async function claimRequest(
@@ -65,7 +71,7 @@ export async function claimRequest(
       case "in_progress": {
         const created = Date.parse(row.created_at)
         // An unreadable timestamp fails safe: treat as unknown (blocks the reference, never re-runs the engine).
-        if (!Number.isFinite(created) || now() - created > STALE_MS) return { kind: "unknown" }
+        if (!Number.isFinite(created) || now() - created > CLAIM_STALE_MS) return { kind: "unknown" }
         return { kind: "in_progress" }
       }
       case "unknown":
@@ -127,10 +133,15 @@ export async function releaseClaim(client: SupabaseLike, claimId: string, userId
   }
 }
 
-/** in_progress -> unknown: the outcome is ambiguous; the row keeps blocking the reference. */
-export async function markClaimUnknown(client: SupabaseLike, claimId: string, userId?: string): Promise<boolean> {
+/**
+ * in_progress -> unknown: the outcome is ambiguous; the row keeps blocking the reference.
+ * `orderRef` (optional): the engine's order when it supplied one (e.g. a bill whose debit
+ * is uncertain), stored so support and the order lookup can resolve the real status.
+ */
+export async function markClaimUnknown(client: SupabaseLike, claimId: string, userId?: string, orderRef?: string): Promise<boolean> {
   try {
-    return await guardedWrite(client.from(TABLE).update({ status: "unknown" }), claimId, userId)
+    const patch = typeof orderRef === "string" && orderRef ? { status: "unknown", order_ref: orderRef } : { status: "unknown" }
+    return await guardedWrite(client.from(TABLE).update(patch), claimId, userId)
   } catch {
     return false
   }
@@ -141,17 +152,22 @@ export async function getClaimByReference(
   userId: string,
   kind: ClaimKind,
   reference: string
-): Promise<{ orderRef: string | null; status: string; response: unknown } | null> {
+): Promise<{ orderRef: string | null; status: string; response: unknown; createdAt: string | null } | null> {
   try {
     const { data, error } = await client
       .from(TABLE)
-      .select("order_ref, status, response")
+      .select("order_ref, status, response, created_at")
       .eq("user_id", userId)
       .eq("kind", kind)
       .eq("reference", reference)
       .maybeSingle()
     if (error || !data) return null
-    return { orderRef: typeof data.order_ref === "string" ? data.order_ref : null, status: String(data.status), response: data.response ?? null }
+    return {
+      orderRef: typeof data.order_ref === "string" ? data.order_ref : null,
+      status: String(data.status),
+      response: data.response ?? null,
+      createdAt: typeof data.created_at === "string" ? data.created_at : null,
+    }
   } catch {
     return null
   }
@@ -189,15 +205,15 @@ export async function listClaims(
   client: SupabaseLike,
   userId: string,
   kind: ClaimKind,
-  limit = MAX_LIST
+  limit = MAX_LIST,
+  /** `status`: filter in the query (so the limit counts only matching claims); default: every status. */
+  opts: { status?: "in_progress" | "done" | "unknown" } = {}
 ): Promise<{ reference: string; orderRef: string | null; status: string }[]> {
   try {
     const n = Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit), 1), MAX_LIST) : MAX_LIST
-    const { data, error } = await client
-      .from(TABLE)
-      .select("reference, order_ref, status")
-      .eq("user_id", userId)
-      .eq("kind", kind)
+    let q = client.from(TABLE).select("reference, order_ref, status").eq("user_id", userId).eq("kind", kind)
+    if (opts.status) q = q.eq("status", opts.status)
+    const { data, error } = await q
       .order("created_at", { ascending: false })
       // Tie-breaker: equal created_at values still list in a stable order.
       .order("id", { ascending: false })

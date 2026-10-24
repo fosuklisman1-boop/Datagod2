@@ -10,6 +10,8 @@ import { isBillerKey, BILLER_KEYS, type BillerKey } from "@/lib/bills/billers"
 import { parseVerifyBody, type ParsedVerifyBody } from "@/lib/api-v1/bills"
 // Pure constants module (type-only Supabase import, billers + phone-format): safe for tests and clients.
 import { BILL_LIMIT_CEIL } from "@/lib/bills/config"
+// Constant only (idempotency.ts has a type-only store import): no I/O pulled in.
+import { CLAIM_STALE_MS } from "./idempotency"
 
 type Fail = { ok: false; error: string }
 
@@ -314,6 +316,35 @@ export function mapBillOrder(row: any, clientReference: string): PublicBillOrder
     status: mapCommissionStatus(r.status),
     created_at: typeof r.created_at === "string" ? r.created_at : null,
   }
+}
+
+// ---- pending claim state (order lookups) ----
+
+export type ClaimState = "in_progress" | "outcome_unknown"
+
+export interface PublicClaimState {
+  reference: string
+  state: ClaimState
+}
+
+/**
+ * The caller's own not-yet-done claim as the order lookups show it, so a
+ * client never reads "still running / outcome unknown" as "never created"
+ * and pays again under a new reference. in_progress older than
+ * CLAIM_STALE_MS (or with an unreadable timestamp) reads outcome_unknown,
+ * the same rule as claimRequest. Exactly { reference, state }; null for any
+ * other status (done is shown as an order).
+ */
+export function mapClaimState(
+  claim: { status: unknown; createdAt?: unknown },
+  reference: string,
+  now: number
+): PublicClaimState | null {
+  if (claim?.status === "unknown") return { reference, state: "outcome_unknown" }
+  if (claim?.status !== "in_progress") return null
+  const created = typeof claim.createdAt === "string" ? Date.parse(claim.createdAt) : NaN
+  const stale = !Number.isFinite(created) || now - created > CLAIM_STALE_MS
+  return { reference, state: stale ? "outcome_unknown" : "in_progress" }
 }
 
 // ---- engine errors ----
