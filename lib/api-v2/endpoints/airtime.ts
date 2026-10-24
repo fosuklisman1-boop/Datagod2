@@ -112,9 +112,10 @@ export type AirtimeSandboxPlaceResult =
 
 export interface AirtimeDeps {
   claim(p: { userId: string; apiV2KeyId: string; kind: "airtime"; reference: string; requestHash: string }): Promise<ClaimOutcome>
-  complete(claimId: string, orderRef: string, response: unknown): Promise<boolean>
-  release(claimId: string): Promise<boolean>
-  markUnknown(claimId: string): Promise<boolean>
+  /** Each finalisation is owner-guarded: callers always pass ctx.userId. */
+  complete(claimId: string, orderRef: string, response: unknown, userId: string): Promise<boolean>
+  release(claimId: string, userId: string): Promise<boolean>
+  markUnknown(claimId: string, userId: string): Promise<boolean>
   getClaim(userId: string, reference: string): Promise<{ orderRef: string | null; status: string; response: unknown } | null>
   listClaims(userId: string, limit: number): Promise<{ reference: string; orderRef: string | null; status: string }[]>
   engine(p: AirtimeEngineParams): Promise<AirtimeEngineResult>
@@ -185,7 +186,7 @@ function publicFromStored(s: unknown, reference: string): PublicAirtimeOrder {
     network: String(r.network ?? ""),
     recipient: String(r.recipient ?? ""),
     airtime_amount: money(r.airtime_amount),
-    fee: money(r.fee),
+    fee_amount: money(r.fee_amount),
     total_paid: money(r.total_paid),
     cashback: money(r.cashback),
     status: mapCommissionStatus(r.status),
@@ -213,20 +214,20 @@ async function gateOk(deps: AirtimeDeps, userId: string): Promise<boolean> {
   }
 }
 
-async function safeRelease(deps: AirtimeDeps, claimId: string): Promise<void> {
+async function safeRelease(deps: AirtimeDeps, claimId: string, userId: string): Promise<void> {
   let released = false
   try {
-    released = await deps.release(claimId)
+    released = await deps.release(claimId, userId)
   } catch {
     released = false
   }
   if (!released) console.error(LOG_RELEASE_FAILED)
 }
 
-async function safeMarkUnknown(deps: AirtimeDeps, claimId: string): Promise<void> {
+async function safeMarkUnknown(deps: AirtimeDeps, claimId: string, userId: string): Promise<void> {
   let marked = false
   try {
-    marked = await deps.markUnknown(claimId)
+    marked = await deps.markUnknown(claimId, userId)
   } catch {
     marked = false
   }
@@ -303,7 +304,7 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
 
   // 2. Account phone gate (fail closed). A block frees the reference: nothing was charged.
   if (!(await gateOk(deps, ctx.userId))) {
-    await safeRelease(deps, claimId)
+    await safeRelease(deps, claimId, ctx.userId)
     return fail(403, MSG_PHONE_GATE)
   }
 
@@ -313,10 +314,10 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
     result = await deps.engine(engineParams(ctx, input))
   } catch (e) {
     if (classifyEngineError(engineCode(e)) === "no_charge") {
-      await safeRelease(deps, claimId)
+      await safeRelease(deps, claimId, ctx.userId)
       return noChargeResult(e)
     }
-    await safeMarkUnknown(deps, claimId)
+    await safeMarkUnknown(deps, claimId, ctx.userId)
     console.error(LOG_AMBIGUOUS)
     return fail(500, MSG_OUTCOME_UNKNOWN)
   }
@@ -324,7 +325,7 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
   const code = result?.order?.reference_code
   if (typeof code !== "string" || !code) {
     // The engine returned without a usable order: money may have moved.
-    await safeMarkUnknown(deps, claimId)
+    await safeMarkUnknown(deps, claimId, ctx.userId)
     console.error(LOG_AMBIGUOUS)
     return fail(500, MSG_OUTCOME_UNKNOWN)
   }
@@ -343,7 +344,7 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
 
   let completed = false
   try {
-    completed = await deps.complete(claimId, code, order)
+    completed = await deps.complete(claimId, code, order, ctx.userId)
   } catch {
     completed = false
   }
@@ -378,7 +379,7 @@ function mapSandboxOrder(prior: AirtimeSandboxOrder): PublicAirtimeOrder {
       network: r.network,
       beneficiary_phone: r.recipient,
       airtime_amount: r.airtime_amount,
-      fee_amount: r.fee,
+      fee_amount: r.fee_amount,
       total_paid: r.total_paid,
       cashback_amount: r.cashback,
       status: prior.status,
@@ -402,7 +403,7 @@ async function sandboxPurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Co
     reference: input.reference,
     request: { network: input.network, recipient, amount: input.amount, reference: input.reference },
     price: input.amount,
-    orderFields: { network: input.network, recipient, airtime_amount: input.amount, fee: 0, total_paid: input.amount, cashback: 0 },
+    orderFields: { network: input.network, recipient, airtime_amount: input.amount, fee_amount: 0, total_paid: input.amount, cashback: 0 },
   })
   if (!placed.success) {
     if (placed.status === 402) {

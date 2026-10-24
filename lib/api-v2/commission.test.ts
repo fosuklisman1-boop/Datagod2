@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { BILL_LIMIT_CEIL } from "@/lib/bills/config"
 import {
   parseAirtimeNetwork,
   parseAmountPesewas,
@@ -129,6 +130,17 @@ describe("parseBillPayBody", () => {
     expect(pay({ verify_token: 123456789012 }).ok).toBe(false)
     expect(pay({ verify_token: undefined }).ok).toBe(false)
   })
+  it("bill amount max is BILL_LIMIT_CEIL; expected_pay is capped at twice that", () => {
+    expect(BILL_LIMIT_CEIL).toBe(10000)
+    expect(pay({ amount: BILL_LIMIT_CEIL }).ok).toBe(true)
+    expect(pay({ amount: BILL_LIMIT_CEIL + 0.01 }).ok).toBe(false)
+    expect(pay({ amount: 100_000 }).ok).toBe(false)
+    expect(pay({ expected_pay: BILL_LIMIT_CEIL * 2 }).ok).toBe(true)
+    expect(pay({ expected_pay: BILL_LIMIT_CEIL * 2 + 0.01 }).ok).toBe(false)
+    expect(okAirtime({ expected_pay: BILL_LIMIT_CEIL * 2 }).ok).toBe(true)
+    expect(okAirtime({ expected_pay: BILL_LIMIT_CEIL * 2 + 0.01 }).ok).toBe(false)
+    expect(okAirtime({ expected_pay: 1_000_000 }).ok).toBe(false)
+  })
   it("amount and reference rules and forbidden fields", () => {
     expect(pay({ amount: 0 }).ok).toBe(false)
     expect(pay({ amount: 5.555 }).ok).toBe(false)
@@ -231,9 +243,9 @@ describe("order mappers (allow-list)", () => {
     }
     const out = mapAirtimeOrder(row, "CLIENT-1")
     expect(Object.keys(out).sort()).toEqual(
-      ["airtime_amount", "cashback", "created_at", "fee", "network", "recipient", "reference", "status", "total_paid"].sort()
+      ["airtime_amount", "cashback", "created_at", "fee_amount", "network", "recipient", "reference", "status", "total_paid"].sort()
     )
-    expect(out).toMatchObject({ reference: "CLIENT-1", network: "AT", recipient: "0249990504", airtime_amount: 5.01, fee: 0.25, total_paid: 5.25, cashback: 0, status: "pending" })
+    expect(out).toMatchObject({ reference: "CLIENT-1", network: "AT", recipient: "0249990504", airtime_amount: 5.01, fee_amount: 0.25, total_paid: 5.25, cashback: 0, status: "pending" })
     expect(JSON.stringify(out)).not.toContain("secret")
   })
   it("mapAirtimeOrder keeps cashback and local recipient, and tolerates junk", () => {

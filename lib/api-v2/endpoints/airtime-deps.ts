@@ -98,9 +98,9 @@ export function realAirtimeDeps(): AirtimeDeps {
   const client = getAdminClient()
   return {
     claim: (p) => claimRequest(client, p),
-    complete: (claimId, orderRef, response) => completeClaim(client, claimId, orderRef, response),
-    release: (claimId) => releaseClaim(client, claimId),
-    markUnknown: (claimId) => markClaimUnknown(client, claimId),
+    complete: (claimId, orderRef, response, userId) => completeClaim(client, claimId, orderRef, response, Date.now, userId),
+    release: (claimId, userId) => releaseClaim(client, claimId, userId),
+    markUnknown: (claimId, userId) => markClaimUnknown(client, claimId, userId),
     getClaim: (userId, reference) => getClaimByReference(client, userId, "airtime", reference),
     listClaims: (userId, limit) => listClaims(client, userId, "airtime", limit),
     engine: realAirtimeEngine,

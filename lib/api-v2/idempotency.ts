@@ -78,53 +78,59 @@ export async function claimRequest(
   }
 }
 
-/** in_progress -> done. False when the claim is not (or no longer) in_progress. */
+/**
+ * Guarded write: only the in_progress row with this id and, when userId is
+ * given, owned by that user. Exactly one affected row means success.
+ */
+async function guardedWrite(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  claimId: string,
+  userId: string | undefined
+): Promise<boolean> {
+  let q = query.eq("id", claimId).eq("status", "in_progress")
+  if (userId !== undefined) q = q.eq("user_id", userId)
+  const { data, error } = await q.select("id")
+  return !error && Array.isArray(data) && data.length === 1
+}
+
+/** in_progress -> done. False when the claim is not (or no longer) in_progress, or not the user's. */
 export async function completeClaim(
   client: SupabaseLike,
   claimId: string,
   orderRef: string,
-  response: unknown
+  response: unknown,
+  now: () => number = Date.now,
+  userId?: string
 ): Promise<boolean> {
   try {
     // The DB requires order_ref AND response on a done row; refuse here rather than issue a doomed update.
     if (typeof orderRef !== "string" || !orderRef || response === null || response === undefined) return false
-    const { data, error } = await client
-      .from(TABLE)
-      .update({ status: "done", order_ref: orderRef, response, completed_at: new Date().toISOString() })
-      .eq("id", claimId)
-      .eq("status", "in_progress")
-      .select("id")
-    return !error && Array.isArray(data) && data.length === 1
+    return await guardedWrite(
+      client
+        .from(TABLE)
+        .update({ status: "done", order_ref: orderRef, response, completed_at: new Date(now()).toISOString() }),
+      claimId,
+      userId
+    )
   } catch {
     return false
   }
 }
 
 /** Deletes the claim ONLY while it is in_progress (a no-charge engine failure frees the reference). */
-export async function releaseClaim(client: SupabaseLike, claimId: string): Promise<boolean> {
+export async function releaseClaim(client: SupabaseLike, claimId: string, userId?: string): Promise<boolean> {
   try {
-    const { data, error } = await client
-      .from(TABLE)
-      .delete()
-      .eq("id", claimId)
-      .eq("status", "in_progress")
-      .select("id")
-    return !error && Array.isArray(data) && data.length === 1
+    return await guardedWrite(client.from(TABLE).delete(), claimId, userId)
   } catch {
     return false
   }
 }
 
 /** in_progress -> unknown: the outcome is ambiguous; the row keeps blocking the reference. */
-export async function markClaimUnknown(client: SupabaseLike, claimId: string): Promise<boolean> {
+export async function markClaimUnknown(client: SupabaseLike, claimId: string, userId?: string): Promise<boolean> {
   try {
-    const { data, error } = await client
-      .from(TABLE)
-      .update({ status: "unknown" })
-      .eq("id", claimId)
-      .eq("status", "in_progress")
-      .select("id")
-    return !error && Array.isArray(data) && data.length === 1
+    return await guardedWrite(client.from(TABLE).update({ status: "unknown" }), claimId, userId)
   } catch {
     return false
   }
@@ -165,6 +171,8 @@ export async function listClaims(
       .eq("user_id", userId)
       .eq("kind", kind)
       .order("created_at", { ascending: false })
+      // Tie-breaker: equal created_at values still list in a stable order.
+      .order("id", { ascending: false })
       .limit(n)
     if (error || !Array.isArray(data)) return []
     return data.slice(0, MAX_LIST).map((r: any) => ({

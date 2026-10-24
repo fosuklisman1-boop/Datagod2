@@ -25,7 +25,7 @@ const ORDER_KEYS = [
   "airtime_amount",
   "cashback",
   "created_at",
-  "fee",
+  "fee_amount",
   "network",
   "recipient",
   "reference",
@@ -114,27 +114,28 @@ function claimTable() {
       if (row.status === "unknown") return { kind: "unknown" }
       return { kind: "in_progress" }
     }),
-    complete: vi.fn(async (claimId: string, orderRef: string, response: unknown) => {
+    // Owner-guarded like the real store when userId is given.
+    complete: vi.fn(async (claimId: string, orderRef: string, response: unknown, userId?: string) => {
       for (const r of rows.values()) {
-        if (r.id === claimId && r.status === "in_progress") {
+        if (r.id === claimId && r.status === "in_progress" && (userId === undefined || r.userId === userId)) {
           Object.assign(r, { status: "done", orderRef, response })
           return true
         }
       }
       return false
     }),
-    release: vi.fn(async (claimId: string) => {
+    release: vi.fn(async (claimId: string, userId?: string) => {
       for (const [k, r] of rows) {
-        if (r.id === claimId && r.status === "in_progress") {
+        if (r.id === claimId && r.status === "in_progress" && (userId === undefined || r.userId === userId)) {
           rows.delete(k)
           return true
         }
       }
       return false
     }),
-    markUnknown: vi.fn(async (claimId: string) => {
+    markUnknown: vi.fn(async (claimId: string, userId?: string) => {
       for (const r of rows.values()) {
-        if (r.id === claimId && r.status === "in_progress") {
+        if (r.id === claimId && r.status === "in_progress" && (userId === undefined || r.userId === userId)) {
           r.status = "unknown"
           return true
         }
@@ -250,9 +251,9 @@ describe("POST /airtime/purchase (live): new purchase", () => {
     expect(d.order.reference).toBe("AIR-001")
     expect(JSON.stringify(d)).not.toContain("AT-CODE-1")
     expect(JSON.stringify(d)).not.toContain("order-uuid-1")
-    expect(d.order).toMatchObject({ network: "MTN", recipient: PHONE, airtime_amount: 10, fee: 0.5, total_paid: 10.5, cashback: 0.2, status: "pending", created_at: CREATED })
+    expect(d.order).toMatchObject({ network: "MTN", recipient: PHONE, airtime_amount: 10, fee_amount: 0.5, total_paid: 10.5, cashback: 0.2, status: "pending", created_at: CREATED })
     // complete() stores the engine code as order_ref and the mapped public order as response
-    expect(deps.complete).toHaveBeenCalledWith("claim-1", "AT-CODE-1", d.order)
+    expect(deps.complete).toHaveBeenCalledWith("claim-1", "AT-CODE-1", d.order, "user-1")
     expect(deps.getOrderByCode).toHaveBeenCalledWith("user-1", "AT-CODE-1")
   })
 
@@ -346,7 +347,7 @@ describe("POST /airtime/purchase (live): claim outcomes decided before phone gat
     network: "MTN",
     recipient: PHONE,
     airtime_amount: 10,
-    fee: 0.5,
+    fee_amount: 0.5,
     total_paid: 10.5,
     cashback: 0,
     status: "pending",
@@ -415,7 +416,7 @@ describe("POST /airtime/purchase (live): phone gate", () => {
     expect(r.status).toBe(403)
     expect(r.error?.message.startsWith("PHONE_NOT_VERIFIED:")).toBe(true)
     expect(r.error?.message).not.toContain(PHONE)
-    expect(deps.release).toHaveBeenCalledWith("claim-1")
+    expect(deps.release).toHaveBeenCalledWith("claim-1", "user-1")
     expect(deps.engine).not.toHaveBeenCalled()
     expect(deps.markUnknown).not.toHaveBeenCalled()
     expect(table.rows.size).toBe(0)
@@ -426,7 +427,7 @@ describe("POST /airtime/purchase (live): phone gate", () => {
     deps.phoneGate.mockRejectedValueOnce(new Error("guard down"))
     const r = await purchaseAirtimeHandler(deps)(body(), LIVE)
     expect(r.status).toBe(403)
-    expect(deps.release).toHaveBeenCalledWith("claim-1")
+    expect(deps.release).toHaveBeenCalledWith("claim-1", "user-1")
     expect(deps.engine).not.toHaveBeenCalled()
   })
 
@@ -461,7 +462,7 @@ describe("POST /airtime/purchase (live): engine no-charge errors release the cla
       // engine text (which can carry phone numbers) is never forwarded
       expect(r.error?.message).not.toContain("0249990699")
       expect(r.error?.message).not.toContain("AT-OTHER")
-      expect(deps.release).toHaveBeenCalledWith("claim-1")
+      expect(deps.release).toHaveBeenCalledWith("claim-1", "user-1")
       expect(deps.markUnknown).not.toHaveBeenCalled()
       expect(deps.complete).not.toHaveBeenCalled()
       expect(table.rows.size).toBe(0)
@@ -536,7 +537,7 @@ describe("POST /airtime/purchase (live): ambiguous engine outcomes mark the clai
       expect(MSG_OUTCOME_UNKNOWN.startsWith("OUTCOME_UNKNOWN:")).toBe(true)
       expect(MSG_OUTCOME_UNKNOWN).toContain("GET /airtime/orders/{reference}")
       expect(MSG_OUTCOME_UNKNOWN).toMatch(/do not resend with a new reference/i)
-      expect(deps.markUnknown).toHaveBeenCalledWith("claim-1")
+      expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1")
       expect(deps.release).not.toHaveBeenCalled()
       expect(deps.complete).not.toHaveBeenCalled()
       expect([...table.rows.values()][0].status).toBe("unknown")
@@ -622,6 +623,24 @@ describe("POST /airtime/purchase (live): never two engine calls for one referenc
     expect(deps.engine).toHaveBeenCalledTimes(1)
   })
 
+  it("every claim finalisation is owner-guarded with ctx.userId", async () => {
+    const other = { ...LIVE, userId: "user-7" }
+    const { deps } = makeDeps()
+    await purchaseAirtimeHandler(deps)(body({ reference: "AIR-OWN-1" }), other)
+    deps.phoneGate.mockResolvedValueOnce(false)
+    await purchaseAirtimeHandler(deps)(body({ reference: "AIR-OWN-2" }), other)
+    deps.engine.mockRejectedValueOnce(engineError("INVALID_AMOUNT"))
+    await purchaseAirtimeHandler(deps)(body({ reference: "AIR-OWN-3" }), other)
+    deps.engine.mockRejectedValueOnce(engineError("PAYMENT_FAILED"))
+    await purchaseAirtimeHandler(deps)(body({ reference: "AIR-OWN-4" }), other)
+    expect(deps.complete).toHaveBeenCalledTimes(1)
+    expect(deps.complete.mock.calls[0][3]).toBe("user-7")
+    expect(deps.release).toHaveBeenCalledTimes(2)
+    for (const c of deps.release.mock.calls) expect(c[1]).toBe("user-7")
+    expect(deps.markUnknown).toHaveBeenCalledTimes(1)
+    expect(deps.markUnknown.mock.calls[0][1]).toBe("user-7")
+  })
+
   it("different users may use the same reference independently", async () => {
     const { deps } = makeDeps()
     await purchaseAirtimeHandler(deps)(body(), LIVE)
@@ -640,7 +659,7 @@ describe("GET /airtime/orders/{reference} (live)", () => {
     network: "MTN",
     recipient: PHONE,
     airtime_amount: 10,
-    fee: 0.5,
+    fee_amount: 0.5,
     total_paid: 10.5,
     cashback: 0,
     status: "pending",
@@ -789,7 +808,7 @@ describe("airtime sandbox (test key)", () => {
   const prior = (over: Partial<AirtimeSandboxOrder> = {}): AirtimeSandboxOrder => ({
     reference: "AIR-001",
     action: "airtime",
-    response: { network: "MTN", recipient: PHONE, airtime_amount: 10, fee: 0, total_paid: 10, cashback: 0, reference: "AIR-001", status: "pending" },
+    response: { network: "MTN", recipient: PHONE, airtime_amount: 10, fee_amount: 0, total_paid: 10, cashback: 0, reference: "AIR-001", status: "pending" },
     price: 10,
     created_at: CREATED,
     status: "completed",
@@ -811,6 +830,7 @@ describe("airtime sandbox (test key)", () => {
       request: { network: "Telecel", recipient: "0209990604", amount: 7.25, reference: "AIR-001" },
     })
     expect(p).not.toHaveProperty("apiKeyId")
+    expect(p.orderFields).toEqual({ network: "Telecel", recipient: "0209990604", airtime_amount: 7.25, fee_amount: 0, total_paid: 7.25, cashback: 0 })
     const d = data(r)
     expect(d.sandbox).toBe(true)
     expect(d.new_balance).toBe(90)

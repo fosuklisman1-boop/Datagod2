@@ -9,7 +9,7 @@ import {
 } from "./idempotency"
 
 type Row = Record<string, any>
-type Call = { op: string; payload?: any; filters: Array<[string, any]>; order?: any; limit?: number }
+type Call = { op: string; payload?: any; filters: Array<[string, any]>; orders?: Array<{ col: string; ascending: boolean }>; limit?: number }
 
 /** Fake that models UNIQUE (user_id, kind, reference) and records every query. */
 function makeFake(opts: { throwOnFrom?: boolean; errorOps?: Record<string, any>; now?: () => number } = {}) {
@@ -49,7 +49,16 @@ function makeFake(opts: { throwOnFrom?: boolean; errorOps?: Record<string, any>;
           return { data: hit.map((r) => ({ id: r.id })), error: null }
         }
         let out = match()
-        if (q.order) out = [...out].sort((a, b) => (a[q.order.col] < b[q.order.col] ? 1 : -1) * (q.order.ascending ? -1 : 1))
+        if (q.orders) {
+          const keys = q.orders
+          out = [...out].sort((a, b) => {
+            for (const k of keys) {
+              if (a[k.col] === b[k.col]) continue
+              return (a[k.col] < b[k.col] ? -1 : 1) * (k.ascending ? 1 : -1)
+            }
+            return 0
+          })
+        }
         if (q.limit !== undefined) out = out.slice(0, q.limit)
         if (single) return { data: out[0] ?? null, error: null }
         return { data: out, error: null }
@@ -60,7 +69,7 @@ function makeFake(opts: { throwOnFrom?: boolean; errorOps?: Record<string, any>;
         delete() { q.op = "delete"; return b },
         select() { return b },
         eq(c: string, v: any) { q.filters.push([c, v]); return b },
-        order(col: string, o: any) { q.order = { col, ascending: !!o?.ascending }; return b },
+        order(col: string, o: any) { (q.orders ??= []).push({ col, ascending: !!o?.ascending }); return b },
         limit(n: number) { q.limit = n; return b },
         single() { single = "single"; return Promise.resolve(run()) },
         maybeSingle() { single = "maybe"; return Promise.resolve(run()) },
@@ -115,6 +124,19 @@ describe("claimRequest", () => {
     if (c.kind !== "claimed") throw new Error("x")
     await completeClaim(f.client, c.claimId, "order-1", { a: 1 })
     expect(await claimRequest(f.client, { ...P, requestHash: H2 })).toEqual({ kind: "conflict" })
+  })
+
+  it("hash is checked first: an unknown row or a done row with a DIFFERENT hash => conflict", async () => {
+    const f = makeFake()
+    const u = await claimRequest(f.client, P)
+    const d = await claimRequest(f.client, { ...P, reference: "REF-0502" })
+    if (u.kind !== "claimed" || d.kind !== "claimed") throw new Error("x")
+    expect(await markClaimUnknown(f.client, u.claimId)).toBe(true)
+    expect(await completeClaim(f.client, d.claimId, "order-2", { a: 2 })).toBe(true)
+    expect(await claimRequest(f.client, { ...P, requestHash: H2 })).toEqual({ kind: "conflict" })
+    expect(await claimRequest(f.client, { ...P, reference: "REF-0502", requestHash: H2 })).toEqual({ kind: "conflict" })
+    // same hash still reads its state
+    expect(await claimRequest(f.client, P)).toEqual({ kind: "unknown" })
   })
 
   it("stale in_progress (clock +11 min) => unknown; 9 minutes => in_progress", async () => {
@@ -232,6 +254,53 @@ describe("completeClaim / releaseClaim / markClaimUnknown", () => {
     expect(f.calls).toHaveLength(0)
   })
 
+  it("completeClaim stamps completed_at from the injected clock", async () => {
+    const f = makeFake()
+    const c = await claimRequest(f.client, P)
+    if (c.kind !== "claimed") throw new Error("x")
+    const t = Date.parse("2026-10-24T12:34:56.000Z")
+    expect(await completeClaim(f.client, c.claimId, "order-1", { a: 1 }, () => t)).toBe(true)
+    expect(f.rows[0].completed_at).toBe("2026-10-24T12:34:56.000Z")
+  })
+
+  it("with a wrong userId nothing is completed, released or marked (returns false)", async () => {
+    const f = makeFake()
+    const c = await claimRequest(f.client, P)
+    if (c.kind !== "claimed") throw new Error("x")
+    expect(await completeClaim(f.client, c.claimId, "order-1", { a: 1 }, undefined, "u2")).toBe(false)
+    expect(await markClaimUnknown(f.client, c.claimId, "u2")).toBe(false)
+    expect(await releaseClaim(f.client, c.claimId, "u2")).toBe(false)
+    expect(f.rows).toHaveLength(1)
+    expect(f.rows[0]).toMatchObject({ status: "in_progress", order_ref: null, response: null })
+    for (const call of f.calls.filter((x) => x.op !== "insert")) expect(call.filters).toContainEqual(["user_id", "u2"])
+  })
+
+  it("with the owner's userId each guarded write adds user_id and succeeds", async () => {
+    const f = makeFake()
+    const a = await claimRequest(f.client, P)
+    const b = await claimRequest(f.client, { ...P, reference: "REF-0502" })
+    const d = await claimRequest(f.client, { ...P, reference: "REF-0503" })
+    if (a.kind !== "claimed" || b.kind !== "claimed" || d.kind !== "claimed") throw new Error("x")
+    expect(await completeClaim(f.client, a.claimId, "order-1", { a: 1 }, undefined, "u1")).toBe(true)
+    expect(await markClaimUnknown(f.client, b.claimId, "u1")).toBe(true)
+    expect(await releaseClaim(f.client, d.claimId, "u1")).toBe(true)
+    const writes = f.calls.filter((x) => x.op === "update" || x.op === "delete")
+    expect(writes).toHaveLength(3)
+    for (const w of writes) expect(w.filters).toContainEqual(["user_id", "u1"])
+  })
+
+  it("without userId the guarded writes do not filter by user (unchanged)", async () => {
+    const f = makeFake()
+    const c = await claimRequest(f.client, P)
+    if (c.kind !== "claimed") throw new Error("x")
+    await markClaimUnknown(f.client, c.claimId)
+    await releaseClaim(f.client, c.claimId)
+    await completeClaim(f.client, c.claimId, "o", { a: 1 })
+    for (const w of f.calls.filter((x) => x.op !== "insert")) {
+      expect(w.filters.some(([col]) => col === "user_id")).toBe(false)
+    }
+  })
+
   it("swallow transport errors and exceptions, returning false", async () => {
     for (const errorOps of [{ update: { code: "X" } }, { delete: { code: "X" } }]) {
       const f = makeFake({ errorOps })
@@ -288,6 +357,22 @@ describe("getClaimByReference / listClaims", () => {
     expect(await listClaims(f.client, "u1", "airtime", 5)).toHaveLength(5)
     expect(await listClaims(f.client, "u1", "airtime")).toHaveLength(30)
     expect(await listClaims(f.client, "u1", "airtime", Number.NaN)).toHaveLength(30)
+  })
+
+  it("listClaims orders by created_at desc then id desc (stable tie-breaker)", async () => {
+    const f = makeFake()
+    for (const ref of ["REF-T1", "REF-T2", "REF-T3"]) await claimRequest(f.client, { ...P, reference: ref })
+    const same = new Date(1_700_000_000_000).toISOString()
+    f.rows[0].id = "00000000-0000-0000-0000-00000000000a"
+    f.rows[1].id = "00000000-0000-0000-0000-00000000000c"
+    f.rows[2].id = "00000000-0000-0000-0000-00000000000b"
+    for (const r of f.rows) r.created_at = same
+    const out = await listClaims(f.client, "u1", "airtime")
+    expect(out.map((r) => r.reference)).toEqual(["REF-T2", "REF-T3", "REF-T1"])
+    expect(f.calls.at(-1)!.orders).toEqual([
+      { col: "created_at", ascending: false },
+      { col: "id", ascending: false },
+    ])
   })
 
   it("listClaims returns [] on error or exception", async () => {

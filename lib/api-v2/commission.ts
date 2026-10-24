@@ -8,6 +8,8 @@ import { createHash } from "crypto"
 import { parseReference, normalizeRecipient } from "./data-orders"
 import { isBillerKey, BILLER_KEYS, type BillerKey } from "@/lib/bills/billers"
 import { parseVerifyBody, type ParsedVerifyBody } from "@/lib/api-v1/bills"
+// Pure constants module (type-only Supabase import, billers + phone-format): safe for tests and clients.
+import { BILL_LIMIT_CEIL } from "@/lib/bills/config"
 
 type Fail = { ok: false; error: string }
 
@@ -97,10 +99,13 @@ function hasForbiddenField(body: Record<string, unknown>): boolean {
   return Object.keys(body).some((k) => FORBIDDEN_FIELDS.has(k.toLowerCase()))
 }
 
-// expected_pay includes any fee, so it is not bound by the airtime face-value cap.
+// expected_pay includes any fee, so it is not bound by the airtime face-value
+// cap. Advisory only (the engine decides price), capped at twice the bill ceiling.
+const EXPECTED_PAY_MAX = BILL_LIMIT_CEIL * 2
+
 function parseExpectedPay(v: unknown): { ok: true; value: number | undefined } | Fail {
   if (v === undefined || v === null) return { ok: true, value: undefined }
-  const r = parseAmountPesewas(v, { max: 1_000_000 })
+  const r = parseAmountPesewas(v, { max: EXPECTED_PAY_MAX })
   if (!r.ok) return { ok: false, error: "expected_pay must be a positive amount with at most 2 decimals" }
   return { ok: true, value: r.amount }
 }
@@ -150,7 +155,8 @@ export interface BillPayInput {
   expectedPay?: number
 }
 
-const BILL_MAX = 100_000
+// The admin bill limits can never exceed BILL_LIMIT_CEIL (lib/bills/config.ts).
+const BILL_MAX = BILL_LIMIT_CEIL
 
 export function parseBillPayBody(body: unknown): { ok: true; value: BillPayInput } | Fail {
   if (!isPlainObject(body)) return { ok: false, error: "Request body must be a JSON object" }
@@ -260,7 +266,7 @@ export interface PublicAirtimeOrder {
   network: string
   recipient: string
   airtime_amount: number
-  fee: number
+  fee_amount: number
   total_paid: number
   cashback: number
   status: CommissionStatus
@@ -275,7 +281,7 @@ export function mapAirtimeOrder(row: any, clientReference: string): PublicAirtim
     network: String(r.network ?? ""),
     recipient: localRecipient(r.beneficiary_phone),
     airtime_amount: money(r.airtime_amount),
-    fee: money(r.fee_amount),
+    fee_amount: money(r.fee_amount),
     total_paid: money(r.total_paid),
     cashback: money(r.cashback_amount),
     status: mapCommissionStatus(r.status),
