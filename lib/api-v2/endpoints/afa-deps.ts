@@ -10,6 +10,7 @@
  *   selected, returned or logged.
  */
 import { submitAfaOrder } from "@/lib/afa-fulfillment"
+import { parseGhanaCardNumber } from "@/lib/ghana-card"
 import { getAdminClient, type SupabaseLike } from "../store"
 import {
   claimRequest,
@@ -63,9 +64,20 @@ export async function fetchAfaOrdersByCodes(client: SupabaseLike, userId: string
   }
 }
 
+/** Digits-only phone, normalised to the local 0XXXXXXXXX form when it is a Ghana number. */
+function localDigits(v: unknown): string {
+  const d = String(v ?? "").replace(/\D/g, "")
+  return d.startsWith("233") && d.length === 12 ? `0${d.slice(3)}` : d
+}
+
+const DUPLICATE_SCAN_LIMIT = 50
+
 /**
- * Duplicate guard: this user's non-failed afa_orders created since `sinceIso` with the same
- * phone (local or msisdn form, as stored) OR the same Ghana Card. Throws on any read error.
+ * Duplicate guard: does this user have a non-failed afa_orders row created since `sinceIso`
+ * with the same phone (any stored form) OR the same Ghana Card? The query filters by user and
+ * window ONLY and selects just phone + card; the phone and the card are compared in memory so
+ * neither ever appears in the PostgREST query string (which lands in request logs).
+ * Throws on any read error (the handler fails closed).
  */
 export async function findRecentAfaDuplicate(
   client: SupabaseLike,
@@ -74,18 +86,23 @@ export async function findRecentAfaDuplicate(
   cardCanonical: string,
   sinceIso: string
 ): Promise<boolean> {
-  const msisdn = /^0[0-9]{9}$/.test(phoneLocal) ? `233${phoneLocal.slice(1)}` : phoneLocal
-  const filter = [`phone_number.eq.${phoneLocal}`, `phone_number.eq.${msisdn}`, `phone_number.eq.+${msisdn}`, `gh_card_number.eq.${cardCanonical}`].join(",")
   const { data, error } = await (client as any)
     .from("afa_orders")
-    .select("order_code")
+    .select("phone_number, gh_card_number")
     .eq("user_id", userId)
     .neq("status", "failed")
     .gte("created_at", sinceIso)
-    .or(filter)
-    .limit(1)
+    .order("created_at", { ascending: false })
+    .limit(DUPLICATE_SCAN_LIMIT)
   if (error || !Array.isArray(data)) throw new Error("duplicate guard read failed")
-  return data.length > 0
+  const phone = localDigits(phoneLocal)
+  const card = parseGhanaCardNumber(cardCanonical) ?? cardCanonical
+  return data.some((row: any) => {
+    if (!row || typeof row !== "object") return false
+    if (phone && localDigits(row.phone_number) === phone) return true
+    const stored = typeof row.gh_card_number === "string" ? (parseGhanaCardNumber(row.gh_card_number) ?? row.gh_card_number.trim().toUpperCase()) : ""
+    return stored !== "" && stored === card
+  })
 }
 
 export async function realAfaEngine(p: AfaEngineParams): Promise<AfaEngineResult> {

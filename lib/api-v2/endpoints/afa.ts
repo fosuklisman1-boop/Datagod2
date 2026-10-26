@@ -224,7 +224,7 @@ async function markAmbiguous(deps: AfaDeps, claimId: string, ctx: V2Context, ref
   await safeMarkUnknown(deps, claimId, ctx.userId, orderRef)
   await safeAlert(
     deps,
-    `AFA API outcome uncertain: claim ${reference}, user ${ctx.userId} (afa). Check the wallet and the AFA order before anything is resent.`
+    `AFA API outcome uncertain: claim ${reference}, user ${ctx.userId} (afa)${orderRef ? `, order ${orderRef}` : ""}. Check the wallet and the AFA order before anything is resent.`
   )
 }
 

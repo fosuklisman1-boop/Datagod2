@@ -297,6 +297,8 @@ describe("POST /afa/register (live): new registration", () => {
       expect(deps.alert).toHaveBeenCalledTimes(1)
       expect(deps.alert.mock.calls[0][0]).toContain("user-1")
       expect(deps.alert.mock.calls[0][0]).toContain("AFA-001")
+      // the engine order code is in the alert so admins can find the order
+      expect(deps.alert.mock.calls[0][0]).toContain("AFA-1234567")
       noSecrets(spies, deps)
       vi.restoreAllMocks()
     }

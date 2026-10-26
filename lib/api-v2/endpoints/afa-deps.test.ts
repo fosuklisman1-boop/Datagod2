@@ -78,18 +78,42 @@ describe("afa order reads", () => {
 })
 
 describe("duplicate guard query", () => {
-  it("is owner-scoped, excludes failed, bounded by since, matches phone (local + msisdn) or card", async () => {
-    const { client, calls } = fakeClient({ data: [{ order_code: "AFA-1" }] })
-    expect(await findRecentAfaDuplicate(client, "u1", "0249991050", "GHA-123456789-0", "2026-10-26T09:50:00.000Z")).toBe(true)
+  const PHONE = "0249991050"
+  const CARD = "GHA-123456789-0"
+  const SINCE = "2026-10-26T09:50:00.000Z"
+  const dup = (rows: unknown[], phone = PHONE, card = CARD) => findRecentAfaDuplicate(fakeClient({ data: rows }).client, "u1", phone, card, SINCE)
+
+  it("queries ONLY by user and window (non-failed, newest first, limit 50), selecting just phone + card; neither value is in the query", async () => {
+    const { client, calls } = fakeClient({ data: [] })
+    expect(await findRecentAfaDuplicate(client, "u1", PHONE, CARD, SINCE)).toBe(false)
     expect(calls).toContainEqual(["from", "afa_orders"])
-    expect(calls).toContainEqual(["select", "order_code"])
+    expect(calls).toContainEqual(["select", "phone_number, gh_card_number"])
     expect(calls).toContainEqual(["eq", "user_id", "u1"])
     expect(calls).toContainEqual(["neq", "status", "failed"])
-    expect(calls).toContainEqual(["gte", "created_at", "2026-10-26T09:50:00.000Z"])
-    const or = calls.find((c) => c[0] === "or")![1] as string
-    expect(or).toContain("phone_number.eq.0249991050")
-    expect(or).toContain("phone_number.eq.233249991050")
-    expect(or).toContain("gh_card_number.eq.GHA-123456789-0")
+    expect(calls).toContainEqual(["gte", "created_at", SINCE])
+    expect(calls).toContainEqual(["order", "created_at", { ascending: false }])
+    expect(calls).toContainEqual(["limit", 50])
+    // no .or() / phone / card filter: nothing sensitive reaches the PostgREST query string
+    expect(calls.some((c) => c[0] === "or")).toBe(false)
+    const serialised = JSON.stringify(calls)
+    expect(serialised).not.toContain("123456789")
+    expect(serialised).not.toContain("0249991050")
+    expect(serialised).not.toContain("233249991050")
+  })
+
+  it("matches the phone in memory in every stored form, or the card, for this window's rows", async () => {
+    for (const stored of ["0249991050", "233249991050", "+233249991050", "+233 24 999 1050", "024 999 1050"]) {
+      expect(await dup([{ phone_number: stored, gh_card_number: "GHA-000000001-1" }])).toBe(true)
+    }
+    for (const card of ["GHA-123456789-0", "gha-123456789-0", "1234567890", " GHA-123456789-0 "]) {
+      expect(await dup([{ phone_number: "0249991099", gh_card_number: card }])).toBe(true)
+    }
+  })
+
+  it("does not match a different phone and a different card, or empty/odd rows", async () => {
+    expect(await dup([{ phone_number: "0249991099", gh_card_number: "GHA-987654321-1" }])).toBe(false)
+    expect(await dup([{ phone_number: null, gh_card_number: null }, {}, null as any])).toBe(false)
+    expect(await dup([])).toBe(false)
   })
 
   it("no rows => false; an error or throw rejects (the handler fails closed)", async () => {
