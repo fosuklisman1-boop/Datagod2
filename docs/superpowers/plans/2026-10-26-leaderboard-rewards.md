@@ -246,7 +246,11 @@ Each phase can ship on its own.
    - **Code:** `lib/leaderboard/{periods,service}.ts` with tests, cron `/api/cron/leaderboard-refresh` (every 5 min, cron-job.org batch A), and `scripts/leaderboard-backfill.ts`.
    - **Stock flag:** the shop order route now sets `is_stock_purchase`.
    - **Rollout order:** selftest → apply 0133 → apply 0134 statement by statement → run backfill → enable the cron.
-2. **User page (read-only):** daily/weekly/monthly/yearly, both boards, podium, list, countdown, Check my rank, pause notice.
+2. **User page (built 2026-10-26):** `/dashboard/top-performers`.
+   - **Content:** daily/weekly/monthly/yearly tabs, prev/next period, both boards, podium, ranks 4–30, countdown chip, Check my rank dialog, and the pause notice.
+   - **Code:** `components/leaderboard/*`, `lib/leaderboard/public.ts`, `GET /api/leaderboard`, `GET /api/leaderboard/me`.
+   - **Pause switch:** `admin_settings.leaderboard_config = { paused }`. The admin toggle comes in Phase 3.
+   - **Navigation:** sidebar item with a NEW tag. The bottom bar has no "More" slot, so it isn't there. Never chosen as a landing page.
 3. **Admin setup:** period picker, rewards toggle, Prizes tab, Presets, Pause program, Exclusions, live preview.
 4. **Close & Results:** close and close-no-reward flows, frozen results, past-winner view on the user page, winner notifications.
 5. **Delivery:** wallet, data, airtime, manual, and role upgrade with the `user_role_grants` expiry cron.

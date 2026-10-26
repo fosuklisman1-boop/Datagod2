@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { pickFirstVisiblePath, isNavActive } from "./dashboard-nav-items"
+import { pickFirstVisiblePath, isNavActive, menuItems } from "./dashboard-nav-items"
 import type { DomainService } from "./custom-domains"
 
 // NOTE on `services`: lib/custom-domains.ts's isPathAllowedForService/
@@ -71,6 +71,14 @@ describe("pickFirstVisiblePath", () => {
     // services-blocked (results_checker not selected); every other
     // sub_agent-reachable item is in `hidden`.
     expect(pickFirstVisiblePath("sub_agent", ["data_bundles"], hidden, false)).toBeNull()
+  })
+
+  it("never lands on Top Performers, even when it is the only page left", () => {
+    const hidden = [
+      "wallet", "profile", "developer", "my_shop", "ussd_shop", "payment_reverify", "buy_stock",
+    ]
+    expect(menuItems.some((i) => i.href === "/dashboard/top-performers" && i.roles.includes("sub_agent"))).toBe(true)
+    expect(pickFirstVisiblePath("sub_agent", ["data_bundles"], hidden, false)).not.toBe("/dashboard/top-performers")
   })
 
   it("returns null for a null role (not yet loaded / signed out)", () => {
