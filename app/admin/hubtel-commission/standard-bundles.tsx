@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
-import { Search } from "lucide-react"
+import { RefreshCw, Search } from "lucide-react"
 import { BUNDLE_NETWORKS, type BundleNetwork } from "@/lib/standard-bundles/categories"
 import { isValidReferenceNumber, type BundlesConfig } from "@/lib/standard-bundles/config"
 
@@ -148,7 +148,7 @@ type OrderRow = {
   amount: number; paid_amount?: number | null; status: string; payment_status: string; hubtel_client_reference: string | null; commission: number | null
   failure_reason: string | null; notes: string | null; created_at: string; updated_at: string
   channel?: string; channel_label?: string | null; shop_name?: string | null; buyer_phone?: string | null
-  purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo
+  purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo; can_retry?: boolean
 }
 
 export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; onReviewQueue: () => void }) {
@@ -198,6 +198,20 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
       const j = await authed("/api/admin/hubtel-cs/check-status", { method: "POST", body: JSON.stringify({ ref: r.hubtel_client_reference }) })
       if (j.ok) toast.success(j.message ?? "Status checked"); else toast.error(j.message ?? "Status check failed")
     } catch (e) { toast.error(errMsg(e)) } finally { inFlight.current = false; setBusy(null); await load(offset) }
+  }
+
+  async function retry(r: OrderRow) {
+    if (inFlight.current) return
+    if (!window.confirm("Resend this order to Hubtel? The customer's data is only sent if Hubtel accepts it.")) return
+    inFlight.current = true; setBusy(`retry-${r.id}`)
+    try {
+      const j = await authed("/api/admin/standard-bundles/retry", { method: "POST", body: JSON.stringify({ orderId: r.id }) })
+      setBanner({ ok: !!j.ok, text: `${r.reference_code}: ${j.message}` })
+      if (j.ok) toast.success(j.message ?? "Retried"); else toast.error(j.message ?? "Not sent")
+    } catch (e) {
+      // Non-2xx (409 conflict, 500 could not restore) carries the server's message: show it persistently.
+      setBanner({ ok: false, text: `${r.reference_code}: ${errMsg(e)}` }); toast.error(errMsg(e))
+    } finally { inFlight.current = false; setBusy(null); await load(offset) }
   }
 
   async function confirmRefund() {
@@ -315,6 +329,11 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
               <div className="flex flex-wrap gap-2 lg:w-56 lg:justify-end">
                 {r.status === "processing" && r.hubtel_client_reference && (
                   <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => sync(r)}>{busy === `sync-${r.id}` ? "Syncing..." : "Sync"}</Button>
+                )}
+                {r.can_retry && (
+                  <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => retry(r)}>
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `retry-${r.id}` ? "Retrying..." : "Retry"}
+                  </Button>
                 )}
                 {canRefund && <Button size="sm" disabled={anyBusy} onClick={() => { setNote(""); setRefunding(r) }}>Refund (never sent)</Button>}
                 {toReview && <Button size="sm" variant="outline" onClick={onReviewQueue}>Open Hubtel review queue</Button>}
