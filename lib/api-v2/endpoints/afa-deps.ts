@@ -6,8 +6,9 @@
  * - claims: lib/api-v2/idempotency.ts bound to the service-role client.
  * - order reads: only the allow-listed afa_orders columns, always filtered by user_id. The
  *   engine's order_code is 7 digits of a ms clock and NOT unique, so reads take the newest match.
- * - the Ghana Card number is only ever a filter value in the duplicate guard; it is never
- *   selected, returned or logged.
+ * - the Ghana Card number: the duplicate guard reads this user's recent rows (phone_number and
+ *   gh_card_number only) and compares in memory, so neither value is ever put in a request URL
+ *   (Supabase logs those). It is never returned or logged.
  */
 import { submitAfaOrder } from "@/lib/afa-fulfillment"
 import { parseGhanaCardNumber } from "@/lib/ghana-card"
@@ -70,7 +71,9 @@ function localDigits(v: unknown): string {
   return d.startsWith("233") && d.length === 12 ? `0${d.slice(3)}` : d
 }
 
-const DUPLICATE_SCAN_LIMIT = 50
+// A reseller can legitimately register well over 50 customers in the 10-minute window (the default
+// purchase limit alone allows ~100 per key), so scan up to 200 recent rows. Two columns only.
+const DUPLICATE_SCAN_LIMIT = 200
 
 /**
  * Duplicate guard: does this user have a non-failed afa_orders row created since `sinceIso`

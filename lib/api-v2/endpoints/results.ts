@@ -498,7 +498,7 @@ function sandboxMatches(input: ResultsInput, prior: ResultsSandboxOrder): boolea
   if (prior.action !== "results_checker") return false
   const r = sandboxResponse(prior)
   // Board, quantity AND recipients, like live: the recipients are compared through the request
-  // hash only (the contacts themselves are never stored in the sandbox order).
+  // hash only (only the hash of the contacts is stored in the sandbox order, never the contacts).
   return r.exam_board === input.board && Number(r.quantity) === input.quantity && r.request_hash === resultsHash(input)
 }
 
