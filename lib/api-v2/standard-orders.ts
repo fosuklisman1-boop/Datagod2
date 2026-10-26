@@ -265,12 +265,15 @@ export function parseAfaBody(body: unknown): { ok: true; value: AfaInput } | Fai
   }
 }
 
-/** Card (sha256 of the canonical number), name and phone only. The card number itself is never hashed raw into the canonical string. */
+/** Card (sha256 of the canonical number), name, phone, region, location and occupation. The raw card number never enters the hash input. The reference is excluded. */
 export function afaHash(i: AfaInput): string {
   return requestHash("afa", {
     card: createHash("sha256").update(i.cardCanonical).digest("hex"),
     full_name: i.fullName,
     phone: i.phone.local,
+    region: i.region,
+    location: i.location,
+    occupation: i.occupation,
   })
 }
 

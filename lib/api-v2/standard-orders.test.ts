@@ -336,7 +336,16 @@ describe("afaHash", () => {
     const h = afaHash(v)
     expect(h).toMatch(/^[0-9a-f]{64}$/)
     const cardSha = createHash("sha256").update("GHA-123456789-0").digest("hex")
-    expect(h).toBe(requestHash("afa", { card: cardSha, full_name: "Kofi Mensah", phone: "0249990801" }))
+    expect(h).toBe(
+      requestHash("afa", {
+        card: cardSha,
+        full_name: "Kofi Mensah",
+        phone: "0249990801",
+        region: "Greater Accra",
+        location: "Accra Central",
+        occupation: null,
+      })
+    )
   })
   it("never contains the card number in anything hashed (card only appears as its sha256)", () => {
     // the canonical string is not exposed, but the same request spelled differently must match
@@ -345,6 +354,18 @@ describe("afaHash", () => {
   it("is equal across spellings of the same registration", () => {
     const a = parse({ full_name: "  Kofi   Mensah ", phone: "+233249990801", id_number: "1234567890", id_type: "ghana card", reference: "AFA-X1" })
     expect(afaHash(a)).toBe(afaHash(parse()))
+  })
+  it("is equal across region case, location padding and occupation padding", () => {
+    const a = parse({ region: "GREATER  ACCRA", location: "  Accra Central ", occupation: " Trader " })
+    const b = parse({ region: "greater accra", location: "Accra Central", occupation: "Trader" })
+    expect(afaHash(a)).toBe(afaHash(b))
+  })
+  it("differs on region, location or occupation", () => {
+    const h = afaHash(parse())
+    expect(afaHash(parse({ region: "Ashanti" }))).not.toBe(h)
+    expect(afaHash(parse({ location: "Kumasi" }))).not.toBe(h)
+    expect(afaHash(parse({ occupation: "Trader" }))).not.toBe(h)
+    expect(afaHash(parse({ occupation: "Trader" }))).not.toBe(afaHash(parse({ occupation: "Farmer" })))
   })
   it("differs on card, name or phone", () => {
     const h = afaHash(parse())
