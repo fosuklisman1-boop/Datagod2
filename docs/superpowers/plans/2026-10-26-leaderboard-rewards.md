@@ -30,15 +30,25 @@ Ghana is UTC+0 with no DST, so period boundaries are plain UTC midnights. A sale
 | `results_checker_orders` | `total_paid` | `status = 'completed'` and `user_id IS NOT NULL` |
 | `hubtel_bill_orders` | `amount` | `status = 'completed'` |
 | standard bundles | ⚠️ verify whether they write to `orders` or their own table |
+| `shop_orders` stock purchases | `total_price`, credited to the sub-agent shop's owner | `is_stock_purchase AND order_status = 'completed' AND payment_status = 'completed'` |
 
 ### Shop board (ranked by shop owner = `user_shops.user_id`)
 
 | Table | Amount | "Completed" when |
 |---|---|---|
-| `shop_orders` | `total_price` (retail) | `order_status = 'completed' AND payment_status = 'completed'` |
+| `shop_orders` | `total_price` (retail) | `order_status = 'completed' AND payment_status = 'completed' AND NOT is_stock_purchase` |
 | `ussd_shop_orders` | `amount` | `order_status = 'completed' AND payment_status = 'completed'` |
 
-⚠️ To decide during build: whether sub-agent shop sales also count toward the parent shop. The default is no; each shop counts for its own owner.
+### Sub-agents (decided 2026-10-26: standalone everywhere)
+
+Sub-agents compete as ordinary users on both boards. Their sales count only for themselves and never roll up to the parent shop, because they compete with the parent. Only one level of sub-agents exists in practice.
+
+- **Customer sales through a sub-agent's shop or USSD** count on the **sub-agent's** Shop board. The `parent_profit_amount` / `parent_shop_id` columns are ignored for ranking.
+- **Stock purchases** (sub-agent buying from the parent via Buy Stock) are the sub-agent's own purchases, not customer sales:
+  - they count on the **sub-agent's Dashboard** board
+  - they are excluded from both Shop boards
+  - they give the parent nothing
+- **Prerequisite:** stock purchases are not marked on the stored row today. `is_stock_purchase` only exists in the request body (`app/api/shop/orders/create/route.ts`) and is never saved. A stock purchase is indistinguishable from a zero-markup customer sale. Phase 1 adds `shop_orders.is_stock_purchase boolean default false`, written by the create route. Historical rows are best-effort backfilled where `customer_email` matches the shop owner's email on a sub-agent shop.
 
 **Excluded:** admins, plus any user on the `leaderboard_exclusions` list (test accounts, staff).
 
@@ -186,6 +196,5 @@ Each phase can ship on its own.
 
 - [ ] Which status on `orders` means completed: `status` or `fulfillment_status`?
 - [ ] Where standard-bundle purchases are stored
-- [ ] Sub-agent shop sales: do they count for the sub-agent only? (default: yes)
 - [ ] Refund after close: results stay frozen and the admin can cancel the prize (default)
 - [ ] Rank count: fixed top 3, or let the admin set top N per board? (default: 3)
