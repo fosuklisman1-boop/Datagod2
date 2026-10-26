@@ -12,7 +12,7 @@ import { leaderboardFetch } from "./api"
 
 type Payload =
   | { paused: true; message: string }
-  | { paused: false; period: PeriodView; boards: { dashboard: PublicBoard; shop: PublicBoard }; rewards: PublicRewards | null }
+  | { paused: false; period: PeriodView; boards: { dashboard: PublicBoard; shop: PublicBoard }; rewards: PublicRewards | null; final: boolean }
 
 const KIND_LABEL: Record<PeriodKind, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" }
 
@@ -53,7 +53,11 @@ export function TopPerformersPage() {
       <div className="mx-auto max-w-5xl space-y-6 pb-8">
         <div className="space-y-3">
           <h1 className="text-3xl font-black tracking-tight text-foreground sm:text-4xl">{headerTitle(kind)}</h1>
-          {data && !data.paused && data.rewards && <p className="text-base font-semibold text-foreground">{rewardLine(kind)}</p>}
+          {data && !data.paused && data.rewards && (
+            <p className="text-base font-semibold text-foreground">
+              {data.final ? `Final results for ${data.period.label}. The top 3 in each category won the prizes shown.` : rewardLine(kind)}
+            </p>
+          )}
           <p className="text-base text-muted-foreground">{countingRule(kind)}</p>
         </div>
 
@@ -124,8 +128,8 @@ export function TopPerformersPage() {
 
         {data && !data.paused && (
           <div className="grid items-start gap-6 lg:grid-cols-2">
-            <BoardCard board="dashboard" data={data.boards.dashboard} period={data.period} prizes={data.rewards?.dashboard} refreshing={loading} onRefresh={load} />
-            <BoardCard board="shop" data={data.boards.shop} period={data.period} prizes={data.rewards?.shop} refreshing={loading} onRefresh={load} />
+            <BoardCard board="dashboard" data={data.boards.dashboard} period={data.period} prizes={data.rewards?.dashboard} final={data.final} refreshing={loading} onRefresh={load} />
+            <BoardCard board="shop" data={data.boards.shop} period={data.period} prizes={data.rewards?.shop} final={data.final} refreshing={loading} onRefresh={load} />
           </div>
         )}
       </div>

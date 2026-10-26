@@ -3,12 +3,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { BOARDS, parsePeriodQuery, type Board } from "@/lib/leaderboard/periods"
 import { getMyRank } from "@/lib/leaderboard/service"
-import { getLeaderboardConfig, PAUSED_MESSAGE } from "@/lib/leaderboard/public"
+import { getLeaderboardConfig, myRankFromResults, PAUSED_MESSAGE } from "@/lib/leaderboard/public"
+import { findPeriod, listResults } from "@/lib/leaderboard/admin"
 
 /**
  * "Check my rank" for the signed-in user on one board.
  *   GET ?board=dashboard|shop&kind=...&anchor=... -> { success, data: { paused: false, rank: MyRank } }
  * Identity comes only from the Bearer token, so a user can only ever see their own rank.
+ * A closed period answers from its frozen results; outside them, the live rank without gaps.
  */
 
 function serviceClient() {
@@ -47,8 +49,17 @@ export async function GET(request: NextRequest) {
     if (config.paused) {
       return NextResponse.json({ success: true, data: { paused: true, message: PAUSED_MESSAGE } })
     }
+    const row = await findPeriod(db, query.kind, query.range).catch(() => null)
+    if (row && row.status !== "open") {
+      const results = await listResults(db, row.id).catch(() => null)
+      if (results) {
+        const frozen = myRankFromResults(results, board as Board, user.id)
+        const rank = frozen ?? { ...(await getMyRank(db, user.id, board as Board, query.range)), gapToNext: null, gapToTop3: null }
+        return NextResponse.json({ success: true, data: { paused: false, final: true, rank } })
+      }
+    }
     const rank = await getMyRank(db, user.id, board as Board, query.range)
-    return NextResponse.json({ success: true, data: { paused: false, rank } })
+    return NextResponse.json({ success: true, data: { paused: false, final: false, rank } })
   } catch (error) {
     console.error("[/api/leaderboard/me] failed:", error)
     return NextResponse.json({ success: false, error: "Could not load your rank" }, { status: 500 })
