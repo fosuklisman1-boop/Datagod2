@@ -151,6 +151,56 @@ export async function getSandboxOrdersByReferences(userId: string, references: s
   }
 }
 
+/**
+ * Newest sandbox orders of one action for v2 list endpoints: one owner- and
+ * action-scoped query, limit clamped to 1..30. Returns null on a read error
+ * so the caller fails closed. Additive; v1 does not use it.
+ */
+export async function listSandboxOrders(userId: string, action: SandboxAction, limit: number) {
+  const n = Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit), 1), 30) : 30
+  try {
+    const { data, error } = await supabase
+      .from("sandbox_orders")
+      .select("reference, action, response, price, resolves_at, created_at")
+      .eq("user_id", userId)
+      .eq("action", action)
+      .order("created_at", { ascending: false })
+      .limit(n)
+    if (error || !Array.isArray(data)) return null
+    return data.slice(0, n).map(
+      (r: { reference: string; action: string; response: unknown; price: number; resolves_at: string; created_at: string }) => ({
+        ...r,
+        status: deriveSandboxStatus(r.resolves_at),
+      })
+    )
+  } catch {
+    return null
+  }
+}
+
+/**
+ * v2 sandbox bill orders are keyed by the CLIENT reference and carry the
+ * deterministic sandboxBillReference(token) as response.token_ref. This finds
+ * the owner's utility_bill orders already paid with one sandbox token (at most
+ * 5), so a token can pay one reference only. Returns null on a read error so
+ * the caller fails closed. Additive; v1 does not use it.
+ */
+export async function findSandboxBillOrdersByTokenRef(userId: string, tokenRef: string) {
+  try {
+    const { data, error } = await supabase
+      .from("sandbox_orders")
+      .select("reference")
+      .eq("user_id", userId)
+      .eq("action", "utility_bill")
+      .eq("response->>token_ref", tokenRef)
+      .limit(5)
+    if (error || !Array.isArray(data)) return null
+    return data.slice(0, 5).map((r: { reference: string }) => ({ reference: String(r.reference) }))
+  } catch {
+    return null
+  }
+}
+
 export async function getSandboxOrder(userId: string, reference: string) {
   const { data } = await supabase
     .from("sandbox_orders")

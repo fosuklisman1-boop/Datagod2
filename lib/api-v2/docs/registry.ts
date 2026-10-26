@@ -77,7 +77,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Overview",
     group: "start",
     intro:
-      "The Datagod Developer API lets approved partners work with their Datagod account from their own software: check wallet balance and account role today, with data, airtime, utility bills, results checkers, AFA registration and SMS arriving in later releases. Every request is made over HTTPS to " +
+      "The Datagod Developer API lets approved partners work with their Datagod account from their own software: check your wallet balance and account role, buy data bundles, buy airtime and pay utility bills. Results checkers, AFA registration and SMS are not part of this release. Every request is made over HTTPS to " +
       V2_BASE_URL +
       ", is authenticated with an API key, and returns JSON in a single consistent envelope. Version 1 of the API keeps working unchanged for existing integrations; v2 runs beside it.",
     endpoints: [],
@@ -87,7 +87,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Authentication",
     group: "start",
     intro:
-      "Send your API key on every request. The preferred form is the Authorization header containing the raw key. Two equivalent forms are also accepted: Authorization: Bearer <key>, and the X-API-Key header. If more than one is sent, Authorization wins. A missing, malformed or unknown key returns 401.",
+      "Send your API key on every request. The preferred form is the Authorization header containing the raw key. Two equivalent forms are also accepted: Authorization: Bearer <key>, and the X-API-Key header. If more than one is sent, Authorization wins. A missing, malformed or unknown key returns 401. The key's type decides which endpoints it can call: a standard key calls the data, wallet and account endpoints, and a commission key calls the airtime and utility bill endpoints. A key of the wrong type returns 403.",
     steps: [
       "Log in to your Datagod account with a role that is allowed to use the API (the allowed roles are set by Datagod and can change).",
       "Open Dashboard, then Developer API.",
@@ -114,7 +114,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Key types",
     group: "start",
     intro:
-      "Each key has a type and works only with that type's endpoint group; calling another group returns 403. Standard keys unlock data, wallet, orders, the results checker and AFA registration. Commission Services keys unlock airtime and utility bill payments. SMS keys unlock the SMS endpoints and are generated separately from the SMS dashboard. A key is also either live (real wallet, real orders) or test (sandbox). A key shows as pending, active or revoked; only active keys can call the API, and revoking a key disables it rather than deleting it.",
+      "Each key has a type and works only with that type's endpoint group; calling another group returns 403. Standard keys unlock data, wallet, orders, the results checker and AFA registration. Commission Services keys unlock airtime and utility bill payments (the Commission endpoints, such as POST /airtime/purchase and POST /utilities/pay). SMS keys unlock the SMS endpoints and are generated separately from the SMS dashboard. A key is also either live (real wallet, real orders) or test (sandbox). A key shows as pending, active or revoked; only active keys can call the API, and revoking a key disables it rather than deleting it.",
     endpoints: [],
   },
   {
@@ -138,7 +138,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Idempotency",
     group: "start",
     intro:
-      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Utility payments return the original order when a reference is reused, even if other values changed. AFA registration references are unique across all developers, so include your own prefix. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
+      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Airtime and utility bill payments follow the stricter claim rules in Idempotency and references (airtime and bills): a reference is required and a request that is still unconfirmed is never run a second time. AFA registration references are unique across all developers, so include your own prefix. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
     endpoints: [],
   },
   {
@@ -146,19 +146,19 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Sandbox",
     group: "start",
     intro:
-      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
+      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime and bill orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. Sandbox references are unique per account across all order types (data, airtime, bills and the rest), while live references are unique per order type, so a reference reused for a different order type can conflict in the sandbox only: use a distinct prefix per order type. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
     endpoints: [],
   },
 ]
 
 /** Every access/limit error a standard-key endpoint can return, using the real API strings. */
-function standardAccessErrors(): { status: number; message: string }[] {
+function standardAccessErrors(keyType: KeyType = "standard"): { status: number; message: string }[] {
   return [
     { status: 401, message: MSG_UNAUTHORIZED },
     { status: 403, message: MSG_SUSPENDED },
     { status: 403, message: MSG_PENDING },
     { status: 403, message: MSG_REVOKED },
-    { status: 403, message: msgWrongKeyType("standard") },
+    { status: 403, message: msgWrongKeyType(keyType) },
     { status: 403, message: MSG_ROLE_NOT_ALLOWED },
     { status: 429, message: MSG_RATE_LIMITED },
     { status: 503, message: MSG_UNAVAILABLE },
@@ -486,6 +486,471 @@ const DATA_SECTIONS: V2DocSection[] = [
   },
 ]
 
+// ---------------------------------------------------------------- Commission (airtime and utility bills)
+//
+// This module is imported by client components, so it must not import commission.ts or the
+// endpoint files (server-only modules at module scope). The strings below are copies of the real
+// messages; registry.test.ts imports the exported constants and asserts every documented message.
+
+const MSG_AIRTIME_NETWORK = "network must be one of: MTN, Telecel, AT, AirtelTigo"
+const MSG_AIRTIME_AMOUNT = "amount must be greater than 0 and at most 1000, with at most 2 decimals"
+const MSG_BILL_AMOUNT = "amount must be greater than 0 and at most 10000, with at most 2 decimals"
+const MSG_EXPECTED_PAY = "expected_pay must be a positive amount with at most 2 decimals"
+const MSG_TOKEN_REQUIRED = "verify_token is required"
+const MSG_BILLER_LIST = "biller must be one of: ecg, ghana_water, dstv, gotv, startimes, telecel_broadband"
+
+const PENDING_TAIL_AIRTIME =
+  "Do not place this order again under a new reference. Poll GET /airtime/orders/{reference}, whose claim.state reports it, or contact support quoting the reference"
+const PENDING_TAIL_BILL =
+  "Do not place this payment again under a new reference. Poll GET /utilities/orders/{reference}, whose claim.state reports it, or contact support quoting the reference"
+const MSG_AIR_IN_PROGRESS = `REQUEST_IN_PROGRESS: a request with this reference is still being processed; its outcome is not confirmed yet. ${PENDING_TAIL_AIRTIME}`
+const MSG_AIR_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is not confirmed yet. ${PENDING_TAIL_AIRTIME}`
+const MSG_AIR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this purchase is not confirmed yet. ${PENDING_TAIL_AIRTIME}`
+const MSG_BILL_IN_PROGRESS = `REQUEST_IN_PROGRESS: a request with this reference is still being processed; its outcome is not confirmed yet. ${PENDING_TAIL_BILL}`
+const MSG_BILL_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is not confirmed yet. ${PENDING_TAIL_BILL}`
+const MSG_BILL_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this payment is not confirmed yet. ${PENDING_TAIL_BILL}`
+const MSG_CLAIM_UNAVAILABLE =
+  "UNAVAILABLE: could not reserve this reference; nothing was charged. Retry with the same reference"
+const MSG_SANDBOX_UNAVAILABLE = "Sandbox is temporarily unavailable"
+const MSG_SANDBOX_NOT_PLACED = "Order could not be placed"
+const MSG_ORDER_MISSING = "Order not found"
+
+const AIRTIME_ORDER_EXAMPLE = {
+  reference: "AIR-2026-0001",
+  network: "MTN",
+  recipient: "0244000001",
+  airtime_amount: 10,
+  // Standard pricing (no cashback): the recipient gets the full 10.00 and the 0.50 fee is charged on top.
+  fee_amount: 0.5,
+  total_paid: 10.5,
+  cashback: 0,
+  status: "pending",
+  created_at: TS,
+}
+
+const BILL_ORDER_EXAMPLE = {
+  reference: "BILL-2026-0001",
+  biller: "dstv",
+  account: "7012345678",
+  customer_name: "Kwame Mensah",
+  face_amount: 120,
+  paid_amount: 120,
+  cashback: 1.2,
+  status: "pending",
+  created_at: TS,
+}
+
+const COMMISSION_STATUS_NOTE =
+  "status is one of pending, processing, completed, failed or refunded, and it can change, so poll until it is completed, failed or refunded."
+
+const claimLookupNotes = (what: string, path: string): string[] => [
+  `A found ${what} order returns HTTP 200 with { order, claim: null }. ${COMMISSION_STATUS_NOTE}`,
+  `If your own request with this reference is still unconfirmed, the answer is HTTP 200 with order: null and claim: { reference, state }, where claim.state is in_progress (still being processed) or outcome_unknown (not confirmed). An in_progress request older than 10 minutes reads outcome_unknown. Never place the ${what} again under a new reference; keep polling ${path}, or contact support quoting the reference.`,
+  "A reference that does not exist, is malformed, or belongs to another account all return the same identical 404, so references cannot be probed. A 404 never proves nothing was charged after an unknown outcome; see Idempotency and references (airtime and bills).",
+  "With a test key this reads your sandbox orders and the response carries sandbox: true.",
+]
+
+const replayNote = (what: string) =>
+  `Resending the same reference with the same request is safe: it returns HTTP 200 with replayed: true and the existing ${what}, and you are not charged a second time. Reusing a reference for a different request returns 409 REFERENCE_REUSED.`
+
+const AIRTIME_PURCHASE_ENDPOINT: V2Endpoint = {
+  id: "airtime-purchase",
+  group: "commission",
+  method: "POST",
+  path: "/airtime/purchase",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.purchase} requests per minute (purchase group)`,
+  summary: "Buys airtime for one recipient and charges your wallet. Test keys use a sandbox wallet and never call a provider.",
+  params: [
+    { name: "network", type: "string", required: true, description: "One of MTN, Telecel, AT or AirtelTigo (case-insensitive; AirtelTigo is the same network as AT)." },
+    { name: "recipient", type: "string", required: true, description: "Ghana mobile number in any of the forms 0244000001, 233244000001 or +233244000001. It must belong to the chosen network." },
+    { name: "amount", type: "number", required: true, description: "Airtime face value in GHS: greater than 0 and at most 1000, with at most 2 decimals. A plain decimal number or numeric string; no exponent or sign." },
+    { name: "reference", type: "string", required: true, description: "Your own unique id for this order: 3 to 100 characters, letters, digits and - _ . : only. Required: it makes retries safe." },
+    { name: "expected_pay", type: "number", required: false, description: "The total you expect to be charged: face value plus the fee, or face value minus cashback when cashback applies. Positive, up to 20000, at most 2 decimals. If the real price differs, the purchase is refused with 409 PRICE_CHANGED and nothing is charged." },
+  ],
+  requestExample: { network: "MTN", recipient: "0244000001", amount: 10, reference: "AIR-2026-0001", expected_pay: 10.5 },
+  successExample: {
+    success: true,
+    data: { order: AIRTIME_ORDER_EXAMPLE, new_balance: 89.5 },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [
+    { status: 400, message: MSG_BODY_OBJECT },
+    { status: 400, message: "Unexpected field" },
+    { status: 400, message: MSG_AIRTIME_NETWORK },
+    { status: 400, message: MSG_RECIPIENT },
+    { status: 400, message: MSG_AIRTIME_AMOUNT },
+    { status: 400, message: MSG_REFERENCE },
+    { status: 400, message: MSG_EXPECTED_PAY },
+    { status: 400, message: "NETWORK_MISMATCH: The recipient number does not belong to the selected network" },
+    { status: 400, message: "INVALID_AMOUNT: The amount is outside the allowed range" },
+    { status: 402, message: "INSUFFICIENT_BALANCE: wallet balance is too low; required 10.50" },
+    { status: 402, message: "INSUFFICIENT_BALANCE: test balance is too low; required 10.00" },
+    { status: 409, message: MSG_REFERENCE_REUSED },
+    { status: 409, message: MSG_AIR_IN_PROGRESS },
+    { status: 409, message: MSG_AIR_PRIOR_UNKNOWN },
+    {
+      status: 409,
+      message:
+        "DUPLICATE_REQUEST: An identical airtime order was just placed. Look it up under its original reference; do not resend it under a new reference unless you intend a second identical order.",
+    },
+    {
+      // Cashback path: pay_amount = face_amount - customer_cashback.
+      status: 409,
+      message:
+        "PRICE_CHANGED: the price has changed; face_amount 10.00, pay_amount 9.90, customer_cashback 0.10. Review the price and resend with expected_pay",
+    },
+    { status: 500, message: MSG_AIR_UNKNOWN },
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 500, message: MSG_SANDBOX_NOT_PLACED },
+    ...standardAccessErrors("commission"),
+    { status: 403, message: MSG_PHONE_GATE },
+    { status: 503, message: "NETWORK_DISABLED: Airtime for this network is currently unavailable" },
+    { status: 503, message: MSG_CLAIM_UNAVAILABLE },
+  ],
+  notes: [
+    "A new order returns HTTP 201 with the order and your new wallet balance. See Airtime pricing for what total_paid, fee_amount and cashback mean.",
+    "Never send a price. Fields such as price, fee, fee_amount, total_paid, cashback, status and user_id are rejected with 400 Unexpected field; the amount you send is only the airtime face value. To guard against a price change, send expected_pay with the total you expect.",
+    replayNote("order"),
+    "The reference is claimed before anything is charged. 409 REQUEST_IN_PROGRESS and 409 OUTCOME_UNKNOWN mean an earlier request with this reference is not confirmed yet: never place the order again under a new reference. Poll GET /airtime/orders/{reference} and read claim.state, or contact support quoting the reference.",
+    "500 OUTCOME_UNKNOWN means this request may or may not have charged you. The reference is locked to that outcome and is never run a second time automatically. Do not retry under a new reference.",
+    "A 503 with UNAVAILABLE means the reference could not be reserved and nothing was charged; retry with the same reference.",
+    "Live purchases require the phone number on your Datagod account to be verified. Until it is, a live key gets 403 PHONE_NOT_VERIFIED and nothing is charged; verify the number in the dashboard. Replays of an existing order are not blocked by this check.",
+    "A test key uses a separate sandbox wallet: the response carries sandbox: true, no provider is contacted, the order is charged at face value with no fee and no cashback, and a replay works the same way.",
+  ],
+}
+
+const AIRTIME_LIST_ENDPOINT: V2Endpoint = {
+  id: "airtime-orders",
+  group: "commission",
+  method: "GET",
+  path: "/airtime/orders",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Lists your most recent airtime orders under the references you chose.",
+  params: [],
+  requestExample: null,
+  successExample: { success: true, data: { orders: [AIRTIME_ORDER_EXAMPLE] }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    ...standardAccessErrors("commission"),
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+  ],
+  notes: [
+    "Returns up to 30 orders. Only orders that were placed successfully are listed; a request that is still unconfirmed shows up through GET /airtime/orders/{reference} instead.",
+    "Each order has the same shape as in POST /airtime/purchase. " + COMMISSION_STATUS_NOTE,
+    "With a test key the list is your sandbox orders and the response carries sandbox: true.",
+  ],
+}
+
+const AIRTIME_ORDER_ENDPOINT: V2Endpoint = {
+  id: "airtime-order-lookup",
+  group: "commission",
+  method: "GET",
+  path: "/airtime/orders/{reference}",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Returns one airtime order by the reference you chose, or tells you that your request is still unconfirmed.",
+  params: [{ name: "reference", type: "string", required: true, description: "The reference you sent with POST /airtime/purchase (path parameter)." }],
+  requestExample: null,
+  successExample: { success: true, data: { order: AIRTIME_ORDER_EXAMPLE, claim: null }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    { status: 404, message: MSG_ORDER_MISSING },
+    ...standardAccessErrors("commission"),
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+  ],
+  notes: claimLookupNotes("airtime", "this endpoint"),
+}
+
+const BILLER_EXAMPLES = (
+  [
+    { key: "ecg", label: "ECG Prepaid & Postpaid", inputs: [["phone", true], ["account", false], ["add_meter", false], ["consent", false]] },
+    { key: "ghana_water", label: "Ghana Water", inputs: [["account", true], ["phone", true], ["email", true]] },
+    { key: "dstv", label: "DSTV", inputs: [["account", true]] },
+    { key: "gotv", label: "GOtv", inputs: [["account", true]] },
+    { key: "startimes", label: "StarTimes TV", inputs: [["account", true]] },
+    { key: "telecel_broadband", label: "Telecel Broadband", inputs: [["account", true], ["broadband_account", true]] },
+  ] as { key: string; label: string; inputs: [string, boolean][] }[]
+).map((b) => ({
+  key: b.key,
+  label: b.label,
+  enabled: true,
+  min_amount: 1,
+  max_amount: 5000,
+  inputs: b.inputs.map(([name, required]) => ({ name, required })),
+}))
+
+const BILLERS_ENDPOINT: V2Endpoint = {
+  id: "utility-billers",
+  group: "commission",
+  method: "GET",
+  path: "/utilities/billers",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Lists the utility billers, whether each is switched on, its amount limits and the inputs its lookup needs.",
+  params: [],
+  requestExample: null,
+  successExample: { success: true, data: { billers: BILLER_EXAMPLES }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    ...standardAccessErrors("commission"),
+    { status: 503, message: "UNAVAILABLE: the biller list is temporarily unavailable" },
+  ],
+  notes: [
+    "Use key as the biller value in POST /utilities/lookup. enabled: false means the biller (or utility bills as a whole) is switched off right now; do not attempt it.",
+    "min_amount and max_amount are the limits in GHS an amount must fall within when you pay; they can change, so read them before you collect an amount.",
+    "inputs lists the lookup fields for the biller and whether each is required. See POST /utilities/lookup for what they mean.",
+  ],
+}
+
+const LOOKUP_ENDPOINT: V2Endpoint = {
+  id: "utility-lookup",
+  group: "commission",
+  method: "POST",
+  path: "/utilities/lookup",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.purchase} requests per minute (purchase group); lookup and pay share this limit`,
+  summary: "Verifies a customer's account with the biller and returns a single-use verify_token you pay with. Moves no money.",
+  params: [
+    { name: "biller", type: "string", required: true, description: "A biller key from GET /utilities/billers: ecg, ghana_water, dstv, gotv, startimes or telecel_broadband." },
+    { name: "account", type: "string", required: false, description: "The meter, smartcard or account number (letters, digits and hyphens, 4 to 30 characters). For telecel_broadband this is the landline number. Required for every biller except ecg." },
+    { name: "phone", type: "string", required: false, description: "A Ghana mobile number. Required for ecg and ghana_water." },
+    { name: "email", type: "string", required: false, description: "The customer's email address. Required for ghana_water." },
+    { name: "broadband_account", type: "string", required: false, description: "The broadband account. Required for telecel_broadband." },
+    { name: "add_meter", type: "boolean", required: false, description: "ecg only: true to look up the one specific meter given in account. Omit it to list the meters linked to phone." },
+  ],
+  requestExample: { biller: "dstv", account: "7012345678" },
+  successExample: {
+    success: true,
+    data: { customer_name: "Kwame Mensah", amount_due: 120, suggested_amount: 120, verify_token: "vt_8f3c2a91b7e04d56a1c9f0e2d4b6a8c0" },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [
+    { status: 400, message: MSG_BODY_OBJECT },
+    { status: 400, message: MSG_BILLER_LIST },
+    { status: 400, message: "INVALID_REQUEST: the account details are not valid for this biller (see GET /utilities/billers for the required inputs)" },
+    { status: 500, message: "INTERNAL_ERROR: the account could not be verified" },
+    { status: 502, message: "LOOKUP_FAILED: the biller could not verify this account; check the details and retry" },
+    ...standardAccessErrors("commission"),
+    { status: 403, message: "NOT_AVAILABLE: utility bills are not available on the API right now" },
+    { status: 503, message: "BILLER_UNAVAILABLE: this biller is currently unavailable" },
+    { status: 503, message: "UNAVAILABLE: utility bills are temporarily unavailable" },
+  ],
+  notes: [
+    "A lookup moves no money and creates no order. It returns the customer name, the amount due (null when the biller does not report one), a suggested_amount and a verify_token. Pass the token to POST /utilities/pay.",
+    "For ecg without add_meter the response lists the meters linked to the phone instead: { customer_name: null, amount_due: null, suggested_amount: 0, meters: [...] }, where each meter has meter (for example 8000000701), name, outstanding and its own verify_token. Pay with the verify_token of the meter you want.",
+    "Inputs by biller: ecg needs phone (account is optional, and add_meter true looks up the one meter in account); ghana_water needs account, phone and email; dstv and gotv need the smartcard number as account; startimes needs the account number as account; telecel_broadband needs the landline as account plus broadband_account.",
+    "A verify_token is single-use: one verification pays one reference. Look the account up again for every payment.",
+    "Lookup shares the purchase limit with pay, so a key makes about five complete bill payments per minute by default (each uses one lookup and one pay request).",
+    "A test key returns a sandbox verify_token and sandbox: true without calling the biller. A sandbox token works only with test keys; a live key that sends it gets 400 on pay.",
+  ],
+}
+
+const BILL_PAY_ENDPOINT: V2Endpoint = {
+  id: "utility-pay",
+  group: "commission",
+  method: "POST",
+  path: "/utilities/pay",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.purchase} requests per minute (purchase group); lookup and pay share this limit`,
+  summary: "Pays a utility bill with a verify_token from POST /utilities/lookup and charges your wallet. Test keys use the sandbox wallet.",
+  params: [
+    { name: "verify_token", type: "string", required: true, description: "The verify_token from POST /utilities/lookup. Single-use: it pays one reference, once." },
+    { name: "amount", type: "number", required: true, description: "The bill amount in GHS: greater than 0 and at most 10000, with at most 2 decimals, and inside the biller's min_amount and max_amount." },
+    { name: "reference", type: "string", required: true, description: "Your own unique id for this payment: 3 to 100 characters, letters, digits and - _ . : only. Required: it makes retries safe." },
+    { name: "expected_pay", type: "number", required: false, description: "The total you expect to be charged, positive, up to 20000, at most 2 decimals. If the real price differs, the payment is refused with 409 PRICE_CHANGED and nothing is charged." },
+  ],
+  requestExample: {
+    verify_token: "vt_8f3c2a91b7e04d56a1c9f0e2d4b6a8c0",
+    amount: 120,
+    reference: "BILL-2026-0001",
+    expected_pay: 120,
+  },
+  successExample: {
+    success: true,
+    data: { order: BILL_ORDER_EXAMPLE },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [
+    { status: 400, message: MSG_BODY_OBJECT },
+    { status: 400, message: "Unexpected field" },
+    { status: 400, message: MSG_TOKEN_REQUIRED },
+    { status: 400, message: MSG_BILL_AMOUNT },
+    { status: 400, message: MSG_REFERENCE },
+    { status: 400, message: MSG_EXPECTED_PAY },
+    { status: 400, message: "INVALID_TOKEN: the verify_token is invalid or expired; nothing was charged. Verify the account again" },
+    { status: 400, message: "INVALID_TOKEN: this is a sandbox verify_token; a live key needs a token from POST /utilities/lookup made with a live key" },
+    { status: 400, message: "INVALID_TOKEN: a test key needs a sandbox verify_token from POST /utilities/lookup made with a test key" },
+    { status: 400, message: "INVALID_AMOUNT: the amount is outside this biller's allowed range or precision (see GET /utilities/billers); nothing was charged" },
+    { status: 400, message: "INVALID_REQUEST: the payment was refused; nothing was charged" },
+    {
+      status: 402,
+      message:
+        "INSUFFICIENT_BALANCE: wallet balance is too low; nothing was charged. Verify the account again after topping up, then pay with the new verify_token",
+    },
+    { status: 402, message: "INSUFFICIENT_BALANCE: test balance is too low; required 120.00" },
+    { status: 409, message: MSG_REFERENCE_REUSED },
+    { status: 409, message: MSG_BILL_IN_PROGRESS },
+    { status: 409, message: MSG_BILL_PRIOR_UNKNOWN },
+    { status: 409, message: "REFERENCE_REUSED: this verification already paid another reference" },
+    {
+      status: 409,
+      message: "VERIFY_AGAIN: this verification can no longer be used; nothing was charged. Verify the account again with POST /utilities/lookup",
+    },
+    {
+      status: 409,
+      message:
+        "PRICE_CHANGED: expected 120.00, current 120.50 (face_amount 120.00, customer_cashback 1.20). Review the price and resend with expected_pay",
+    },
+    { status: 500, message: MSG_BILL_UNKNOWN },
+    { status: 500, message: "INTERNAL_ERROR: the payment could not be started; nothing was charged" },
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 500, message: MSG_SANDBOX_NOT_PLACED },
+    ...standardAccessErrors("commission"),
+    { status: 403, message: MSG_PHONE_GATE },
+    { status: 403, message: "NOT_AVAILABLE: utility bills are not available on the API right now" },
+    { status: 503, message: "BILLER_UNAVAILABLE: this biller is currently unavailable; nothing was charged" },
+    { status: 503, message: "UNAVAILABLE: utility bills are temporarily unavailable; nothing was charged" },
+    { status: 503, message: MSG_CLAIM_UNAVAILABLE },
+    { status: 503, message: "UNAVAILABLE: could not check earlier test payments; nothing was charged" },
+  ],
+  notes: [
+    "A new payment returns HTTP 201 with the order. paid_amount is what you were charged and cashback is the cashback credited for it. See Bill payment flow.",
+    "Never send a price. Fields such as price, fee, total_paid, cashback, status and user_id are rejected with 400 Unexpected field; the amount you send is the bill amount.",
+    replayNote("order"),
+    "One verification pays one reference. Reusing a verify_token for a second reference returns 409 REFERENCE_REUSED when it already paid, or 409 VERIFY_AGAIN when it can no longer be used and nothing was charged: look the account up again.",
+    "A refused payment can still use up the token. If the wallet is short you get 402 and nothing is charged, but the token is spent: after topping up the wallet, look the account up again for a new verify_token before paying.",
+    "If the price moved between lookup and payment, you get 409 PRICE_CHANGED with the current pay_amount in the message and nothing is charged. Resend with the new expected_pay (verify again if the amount changed).",
+    "409 REQUEST_IN_PROGRESS and 409 OUTCOME_UNKNOWN mean an earlier request with this reference is not confirmed yet; 500 OUTCOME_UNKNOWN means this request may or may not have paid. Never pay again under a new reference. Poll GET /utilities/orders/{reference} and read claim.state, or contact support quoting the reference.",
+    "Live payments require the phone number on your Datagod account to be verified (403 PHONE_NOT_VERIFIED otherwise) and utility bills to be open on the API (403 NOT_AVAILABLE otherwise). Both leave the reference free and nothing is charged.",
+    "Lookup shares the purchase limit with pay, so a key makes about five complete bill payments per minute by default.",
+    "A test key needs a sandbox verify_token from a test-key lookup, and a live key needs a live one; a live key that sends a sandbox verify_token gets 400. Test keys use the sandbox wallet, pay face value with no cashback, never call the biller, return sandbox: true, and replay the same way.",
+  ],
+}
+
+const BILL_ORDER_ENDPOINT: V2Endpoint = {
+  id: "utility-order-lookup",
+  group: "commission",
+  method: "GET",
+  path: "/utilities/orders/{reference}",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Returns one utility bill order by the reference you chose, or tells you that your payment is still unconfirmed.",
+  params: [{ name: "reference", type: "string", required: true, description: "The reference you sent with POST /utilities/pay (path parameter)." }],
+  requestExample: null,
+  successExample: { success: true, data: { order: BILL_ORDER_EXAMPLE, claim: null }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    { status: 404, message: MSG_ORDER_MISSING },
+    ...standardAccessErrors("commission"),
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+  ],
+  notes: claimLookupNotes("payment", "this endpoint"),
+}
+
+const COMMISSION_SECTIONS: V2DocSection[] = [
+  {
+    id: "commission-idempotency",
+    label: "Idempotency and references (airtime and bills)",
+    group: "commission",
+    intro:
+      "Every airtime purchase and every bill payment needs a reference that you choose: 3 to 100 characters, letters, digits and - _ . : only, unique to the order on your side. The reference is required. Datagod reserves it before anything is charged, and a request can end in one of four ways. A new request is charged once and returns HTTP 201. The same reference with the same request returns HTTP 200 with replayed: true and the existing order, with no second charge. The same reference with a different request returns 409 REFERENCE_REUSED. A reference whose earlier request is not confirmed yet returns 409 REQUEST_IN_PROGRESS while it is running, or 409 OUTCOME_UNKNOWN once it has been unconfirmed for more than 10 minutes or ended without a clear result. If the reference cannot be reserved at all you get 503 and nothing was charged; retry with the same reference. Live references are unique per order type within your account (an airtime reference and a bill reference can be the same string), but sandbox references are unique per account across all order types, so reusing one reference for different order types can conflict in the sandbox: use a distinct prefix per order type (for example AIR- and BILL-).",
+    steps: [
+      "Create one reference per order and store it before you send the request.",
+      "On a timeout or a network error, resend the same request with the same reference: you get the existing order back, never a second charge.",
+      "On 409 REQUEST_IN_PROGRESS or 409 OUTCOME_UNKNOWN, or a 500 OUTCOME_UNKNOWN, never resend under a new reference. Poll GET /airtime/orders/{reference} or GET /utilities/orders/{reference} and read claim.state: in_progress means it is still running, outcome_unknown means it is not confirmed.",
+      "If claim.state stays outcome_unknown, contact support quoting the reference. Support will investigate the reference you quote; do not place the order again meanwhile.",
+    ],
+    callouts: [
+      {
+        tone: "warning",
+        title: "A 404 is not proof that nothing was charged",
+        body: "After an unknown outcome, a missing order is not a safe answer: a 404 never means \"not charged\". The order lookup answers HTTP 200 with order: null and claim.state for your own unconfirmed request, and a plain 404 only when the reference was never used by your account. Never place the order again under a new reference to \"fix\" an unknown outcome; that is how customers are charged twice.",
+      },
+    ],
+    endpoints: [],
+  },
+  {
+    id: "airtime-pricing",
+    label: "Airtime pricing",
+    group: "commission",
+    intro:
+      "You send the airtime face value in amount, and the recipient always gets the full face value. Datagod prices the order from the role of the account that owns the key, on one of two paths. When cashback is applied, you pay the face value minus your cashback: a 10.00 order with 0.10 cashback charges 9.90 (fee_amount 0, cashback 0.10). Otherwise you pay the face value plus the fee: a 10.00 order with a 0.50 fee charges 10.50 (fee_amount 0.50, cashback 0). Which path applies, the fee rate and the cashback can change between requests, so there is no fixed price: read total_paid, fee_amount and cashback from the order rather than assuming a rate. To protect yourself, send expected_pay with the total you expect to be charged (10.50 or 9.90 in the examples). If the real price differs, the purchase is refused with 409 PRICE_CHANGED, nothing is charged, and the message carries the current face_amount, pay_amount and customer_cashback so you can show the customer and resend. In the sandbox (test keys) an order is charged at face value with no fee and no cashback.",
+    endpoints: [],
+  },
+  {
+    id: "airtime-purchase",
+    label: "Buy airtime",
+    group: "commission",
+    intro: "Buy airtime for a Ghana mobile number. Orders are paid from your wallet and are safe to retry with the same reference.",
+    endpoints: [AIRTIME_PURCHASE_ENDPOINT],
+  },
+  {
+    id: "airtime-orders",
+    label: "Airtime orders",
+    group: "commission",
+    intro: "List your airtime orders, or look one up by reference to follow it to completion.",
+    endpoints: [AIRTIME_LIST_ENDPOINT, AIRTIME_ORDER_ENDPOINT],
+  },
+  {
+    id: "bill-payment-flow",
+    label: "Bill payment flow",
+    group: "commission",
+    intro:
+      "A utility bill is paid in two requests: you verify the customer's account to get a verify_token, then pay with it. One verification pays one reference, so verify again for every payment.",
+    steps: [
+      "GET /utilities/billers: check that the biller is enabled, its min_amount and max_amount, and the inputs its lookup needs.",
+      "POST /utilities/lookup: send the biller and its inputs. You get the customer name, amount due, suggested_amount and a single-use verify_token.",
+      "POST /utilities/pay: send the verify_token, the amount and your own reference. The payment returns HTTP 201 with the order; poll GET /utilities/orders/{reference} to follow it.",
+      "If anything is unclear, read the reference back with GET /utilities/orders/{reference} before doing anything else.",
+    ],
+    callouts: [
+      {
+        tone: "info",
+        title: "VERIFY_AGAIN",
+        body: "409 VERIFY_AGAIN means the verify_token can no longer be used and nothing was charged. Call POST /utilities/lookup again and pay with the new token.",
+      },
+      {
+        tone: "info",
+        title: "The price changed (409 PRICE_CHANGED)",
+        body: "If you send expected_pay and the real price differs, the payment is refused with 409 PRICE_CHANGED and nothing is charged. The message shows the current price; resend with the new expected_pay.",
+      },
+      {
+        tone: "info",
+        title: "Wallet too low (402)",
+        body: "A 402 charges nothing, but the refused attempt uses up the verify_token. Top up your wallet, verify the account again, then pay with the new verify_token.",
+      },
+    ],
+    endpoints: [],
+  },
+  {
+    id: "utility-billers",
+    label: "Billers",
+    group: "commission",
+    intro: "See which billers are on, their amount limits and the inputs each lookup needs.",
+    endpoints: [BILLERS_ENDPOINT],
+  },
+  {
+    id: "utility-lookup",
+    label: "Verify an account",
+    group: "commission",
+    intro: "Look up the customer's account with the biller. Free; no money moves.",
+    endpoints: [LOOKUP_ENDPOINT],
+  },
+  {
+    id: "utility-pay",
+    label: "Pay a bill",
+    group: "commission",
+    intro: "Pay a bill with a verify_token. Payments are safe to retry with the same reference.",
+    endpoints: [BILL_PAY_ENDPOINT],
+  },
+  {
+    id: "utility-orders",
+    label: "Bill orders",
+    group: "commission",
+    intro: "Look up a utility bill order by reference.",
+    endpoints: [BILL_ORDER_ENDPOINT],
+  },
+]
+
 export const v2DocsRegistry: V2DocSection[] = [
   ...START_SECTIONS,
   {
@@ -503,4 +968,5 @@ export const v2DocsRegistry: V2DocSection[] = [
     endpoints: [BALANCE_ENDPOINT],
   },
   ...DATA_SECTIONS,
+  ...COMMISSION_SECTIONS,
 ]
