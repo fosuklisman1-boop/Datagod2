@@ -40,9 +40,10 @@ export function buildDeliveryDeps(db: SupabaseClient, adminId: string): Delivery
     },
 
     async getPackage(id) {
-      const { data, error } = await db.from("packages").select("id, network, size, name").eq("id", id).maybeSingle()
+      // packages has no name column: id, network and size are all a data order needs.
+      const { data, error } = await db.from("packages").select("id, network, size").eq("id", id).maybeSingle()
       if (error) throw error
-      return (data as { id: string; network: string; size: string; name: string | null } | null) ?? null
+      return (data as { id: string; network: string; size: string } | null) ?? null
     },
 
     async createDataOrder({ userId, packageId, network, size, phone, reference }) {

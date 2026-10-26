@@ -35,7 +35,7 @@ export interface DeliveryDeps {
   finish(deliveryId: string, status: DeliveryStatus, input?: FinishInput): Promise<void>
   creditWallet(userId: string, amount: number, reference: string, description: string): Promise<void>
   grantDealerDays(userId: string, days: number, reference: string): Promise<{ action: string; end_date: string }>
-  getPackage(id: string): Promise<{ id: string; network: string; size: string; name: string | null } | null>
+  getPackage(id: string): Promise<{ id: string; network: string; size: string } | null>
   createDataOrder(input: { userId: string; packageId: string; network: string; size: string; phone: string; reference: string }): Promise<string>
   fulfilDataOrder(orderId: string): Promise<{ success: boolean; message: string }>
   createAirtimeOrder(input: { userId: string; network: string; amount: number; phone: string; reference: string }): Promise<{ id: string; reference_code: string; network: string; beneficiary_phone: string; airtime_amount: number }>

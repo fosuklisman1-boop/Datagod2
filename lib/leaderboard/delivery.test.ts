@@ -17,7 +17,7 @@ function deps(s: StartedDelivery, over: Partial<DeliveryDeps> = {}) {
     finish: vi.fn().mockResolvedValue(undefined),
     creditWallet: vi.fn().mockResolvedValue(undefined),
     grantDealerDays: vi.fn().mockResolvedValue({ action: "created", end_date: "2026-11-16T10:00:00Z" }),
-    getPackage: vi.fn().mockResolvedValue({ id: PKG, network: "MTN", size: "10GB", name: "10GB" }),
+    getPackage: vi.fn().mockResolvedValue({ id: PKG, network: "MTN", size: "10GB" }),
     createDataOrder: vi.fn().mockResolvedValue("order-1"),
     fulfilDataOrder: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
     createAirtimeOrder: vi.fn().mockResolvedValue({ id: "air-1", reference_code: "AT-1", network: "MTN", beneficiary_phone: "0241234567", airtime_amount: 20 }),
