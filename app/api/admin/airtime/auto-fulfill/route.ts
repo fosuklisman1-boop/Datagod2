@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { sendAirtimeViaDigiwapy, isDigiWapyConfigured } from "@/lib/digiwapy-provider"
+import { fetchAirtimeLedgerByOrders, hasLiveHubtelAttempt } from "@/lib/airtime-hubtel-admin"
+import type { LedgerFact } from "@/lib/bills/admin"
 
 export async function POST(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
@@ -41,8 +43,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const results = await Promise.allSettled(
-      orders.map(async (order) => {
+    // Never send to Digiwapy an order Hubtel has (or may have) taken: any non-failed Hubtel ledger row is skipped.
+    // Fail closed: an unreadable ledger sends nothing.
+    let ledger: Map<string, LedgerFact[]>
+    try {
+      ledger = await fetchAirtimeLedgerByOrders(supabase, orders.map((o) => o.id))
+    } catch (e: any) {
+      console.error("[AUTO-FULFILL] Hubtel ledger read failed; sending nothing:", e?.message ?? e)
+      return NextResponse.json({ error: "Could not read the Hubtel ledger; try again" }, { status: 503 })
+    }
+    const skipped = orders
+      .filter((o) => hasLiveHubtelAttempt(ledger.get(o.id) ?? []))
+      .map((o) => ({
+        orderId: o.id,
+        reference: o.reference_code,
+        success: false,
+        message: "A Hubtel transaction exists for this order; resolve it in Hubtel Commission",
+      }))
+    const skippedIds = new Set(skipped.map((s) => s.orderId))
+    const toSend = orders.filter((o) => !skippedIds.has(o.id))
+
+    const sendResults = await Promise.allSettled(
+      toSend.map(async (order) => {
         const result = await sendAirtimeViaDigiwapy({
           network: order.network,
           recipient: order.beneficiary_phone,
@@ -61,9 +83,14 @@ export async function POST(request: NextRequest) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", order.id)
+          .eq("status", "pending")
         return { orderId: order.id, reference: order.reference_code, ...result }
       })
     )
+    const results: PromiseSettledResult<any>[] = [
+      ...sendResults,
+      ...skipped.map((s): PromiseFulfilledResult<any> => ({ status: "fulfilled", value: s })),
+    ]
 
     const succeeded = results.filter(
       (r) => r.status === "fulfilled" && (r as PromiseFulfilledResult<any>).value?.success

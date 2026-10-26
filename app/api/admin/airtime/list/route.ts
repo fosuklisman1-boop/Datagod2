@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { airtimeSendDecision, fetchAirtimeLedgerByOrders } from "@/lib/airtime-hubtel-admin"
+import type { LedgerFact } from "@/lib/bills/admin"
 
 export async function GET(request: NextRequest) {
   try {
@@ -98,8 +100,26 @@ export async function GET(request: NextRequest) {
       { totalRevenue: 0, totalProfit: 0, totalMerchantPayout: 0, totalVolume: 0, pending: 0, processing: 0, completed: 0, failed: 0 } as Record<string, number>
     )
 
+    // can_send_hubtel: paid pending orders that pass the Send-via-Hubtel decision. Fail closed on a ledger read error.
+    // The rows come from select("*"), so they carry notes and updated_at (the dispatch grace) for the decision.
+    const rows = (orders || []) as any[]
+    const candidates = rows.filter(o => o.payment_status === "completed" && o.status === "pending")
+    let ledger: Map<string, LedgerFact[]> | null = null
+    if (candidates.length > 0) {
+      try { ledger = await fetchAirtimeLedgerByOrders(supabase, candidates.map(o => o.id)) } catch (e: any) {
+        console.error("[AIRTIME-LIST] Hubtel ledger read failed; hiding Send via Hubtel:", e?.message ?? e)
+        ledger = null
+      }
+    }
+    const ledgerMap = ledger
+    const withFlags = rows.map(o => ({
+      ...o,
+      can_send_hubtel: ledgerMap !== null && o.payment_status === "completed" && o.status === "pending" &&
+        airtimeSendDecision(o, ledgerMap.get(o.id) ?? []).ok,
+    }))
+
     return NextResponse.json({
-      orders: orders || [],
+      orders: withFlags,
       total: count || 0,
       page,
       limit,
