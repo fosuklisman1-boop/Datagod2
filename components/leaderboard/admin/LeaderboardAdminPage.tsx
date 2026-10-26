@@ -22,16 +22,18 @@ import { cn } from "@/lib/utils"
 import { BOARDS, PERIOD_KINDS, adminPeriodOptions, type Board, type PeriodKind } from "@/lib/leaderboard/periods"
 import { PRIZE_RANKS, prizeSummary, type PrizeRank, type PrizeRow } from "@/lib/leaderboard/prizes"
 import { formatCedis, type PeriodView } from "@/lib/leaderboard/public"
-import type { AdminResultRow, PeriodRow, StandingRow } from "@/lib/leaderboard/admin"
+import type { AdminResultRow, DeliveryView, PeriodRow, StandingRow } from "@/lib/leaderboard/admin"
 import { closeReadiness } from "@/lib/leaderboard/close"
 import { leaderboardFetch } from "../api"
 import { PrizeFormDialog, type PackageOption, type PresetOption } from "./PrizeFormDialog"
+import { DeliveryPanel } from "./DeliveryPanel"
 
 interface Overview {
   config: { paused: boolean }
   period: PeriodView & { row: PeriodRow | null }
   prizes: PrizeRow[]
   results: AdminResultRow[]
+  deliveries: Record<string, DeliveryView>
   standings: Record<Board, StandingRow[]>
   presets: PresetOption[]
   packages: PackageOption[]
@@ -235,6 +237,7 @@ export function LeaderboardAdminPage() {
                 <TabsTrigger value="prizes">Prizes</TabsTrigger>
                 <TabsTrigger value="close">Close {UNIT[kind]}</TabsTrigger>
                 <TabsTrigger value="results">Results</TabsTrigger>
+                <TabsTrigger value="delivery">Delivery</TabsTrigger>
                 <TabsTrigger value="standings">Live standings</TabsTrigger>
                 <TabsTrigger value="presets">Presets</TabsTrigger>
                 <TabsTrigger value="exclusions">Exclusions</TabsTrigger>
@@ -366,7 +369,7 @@ export function LeaderboardAdminPage() {
                                           <Gift className="h-4 w-4 shrink-0 text-primary" /> {r.prize.label}
                                           {r.prize.status === "cancelled" && <span className="no-underline"> (cancelled)</span>}
                                         </p>
-                                        {r.prize.status === "active" && (
+                                        {r.prize.status === "active" && !["in_progress", "sent", "delivered"].includes(data.deliveries?.[r.id]?.status ?? "") && (
                                           <Button size="sm" variant="ghost" className="text-destructive"
                                             onClick={() => { const p = data.prizes.find((x) => x.id === r.prize!.id); if (p) setCancelling(p) }}>
                                             Cancel prize
@@ -383,6 +386,18 @@ export function LeaderboardAdminPage() {
                       )
                     })}
                   </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="delivery" className="pt-2">
+                {row?.status === "closed" ? (
+                  <DeliveryPanel results={data.results} deliveries={data.deliveries ?? {}} prizes={data.prizes} onChanged={load} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {row?.status === "closed_no_reward"
+                      ? "This period was closed without rewards, so there is nothing to deliver."
+                      : `Prizes are delivered after ${data.period.label} is closed with rewards.`}
+                  </p>
                 )}
               </TabsContent>
 

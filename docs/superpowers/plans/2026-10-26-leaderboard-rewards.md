@@ -263,7 +263,14 @@ Each phase can ship on its own.
    - **Close route:** `POST /api/admin/leaderboard/close` refreshes the whole period month by month first.
    - **Admin page:** Close tab (as in the screenshot) and Results tab with full names, contacts and a per-winner Cancel prize.
    - **User page:** closed periods show the frozen results with a "Final results" chip, and Check my rank answers from them.
-5. **Delivery:** wallet, data, airtime, manual, and role upgrade with the `user_role_grants` expiry cron.
+5. **Delivery (built 2026-10-26):**
+   - **Migration:** `migrations/0137_leaderboard_delivery.sql` adds `leaderboard_deliveries`, the start/finish/mark RPCs that lock the row (no double sends, a 2-minute in-flight guard, retry after failure), and `leaderboard_grant_dealer_days`. It also replaces `leaderboard_prize_cancel` (refused once delivery started) and `refresh_leaderboard_totals` (GH₵0 prize orders don't count).
+   - **Delivery code:** `lib/leaderboard/delivery.ts`, with tests, plus `delivery-runtime.ts`:
+     - cash via `credit_wallet_safely` (reference `LB-<result>`)
+     - data via a GH₵0 `orders` row and `processManualFulfillment`
+     - airtime via a GH₵0 `airtime_orders` row and `triggerAirtimeFulfillment`
+     - dealer upgrade via the existing `user_subscriptions`: extends an active subscription, or creates an N-day one for a plain user. A permanent dealer, sub-agent or admin is refused. This replaces the planned `user_role_grants` table: the existing subscription expiry cron already demotes.
+   - **Admin:** Delivery tab with per-winner Deliver / Try again / Mark delivered, an editable recipient phone, and Deliver all. Winners are notified on delivery.
 6. **Custom competitions:** admin CRUD, user-side chips, published/unpublished handling.
 
 ## 8. Open items to verify at the start of Phase 1

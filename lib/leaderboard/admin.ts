@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Board, DayRange, PeriodKind } from "./periods"
 import { bundleLabel, type PrizeFields, type PrizeRow } from "./prizes"
 import { LEADERBOARD_CONFIG_KEY, getLeaderboardConfig } from "./public"
+import { effectiveDeliveryStatus, type DeliveryStatus } from "./delivery"
 
 export interface PeriodRow {
   id: string
@@ -191,6 +192,57 @@ export async function listAdminResults(db: SupabaseClient, periodId: string): Pr
   })
 }
 
+export interface DeliveryView {
+  status: "not_started" | "in_progress" | "sent" | "delivered" | "failed"
+  attempts: number
+  lastError: string | null
+  note: string | null
+  recipientPhone: string | null
+  orderTable: string | null
+  orderId: string | null
+  orderStatus: string | null
+  deliveredAt: string | null
+}
+
+/** Delivery state per result id for a closed period; data/airtime prizes follow their order's status. */
+export async function listDeliveries(db: SupabaseClient, resultIds: string[]): Promise<Record<string, DeliveryView>> {
+  if (!resultIds.length) return {}
+  const { data, error } = await db.from("leaderboard_deliveries")
+    .select("result_id, status, attempts, last_error, note, recipient_phone, order_table, order_id, delivered_at")
+    .in("result_id", resultIds)
+  if (error) throw error
+  const rows = (data ?? []) as {
+    result_id: string; status: DeliveryStatus; attempts: number; last_error: string | null; note: string | null
+    recipient_phone: string | null; order_table: string | null; order_id: string | null; delivered_at: string | null
+  }[]
+
+  const orderStatus = new Map<string, string>()
+  for (const table of ["orders", "airtime_orders"] as const) {
+    const ids = rows.filter((r) => r.order_table === table && r.order_id).map((r) => r.order_id!)
+    if (!ids.length) continue
+    const { data: orders, error: ordersError } = await db.from(table).select("id, status").in("id", ids)
+    if (ordersError) throw ordersError
+    for (const o of (orders ?? []) as { id: string; status: string }[]) orderStatus.set(`${table}:${o.id}`, o.status)
+  }
+
+  const out: Record<string, DeliveryView> = {}
+  for (const r of rows) {
+    const os = r.order_table && r.order_id ? orderStatus.get(`${r.order_table}:${r.order_id}`) ?? null : null
+    out[r.result_id] = {
+      status: effectiveDeliveryStatus(r.status, os),
+      attempts: r.attempts,
+      lastError: r.last_error,
+      note: r.note,
+      recipientPhone: r.recipient_phone,
+      orderTable: r.order_table,
+      orderId: r.order_id,
+      orderStatus: os,
+      deliveredAt: r.delivered_at,
+    }
+  }
+  return out
+}
+
 export async function closePeriod(
   db: SupabaseClient, periodId: string, withRewards: boolean, adminId: string, periodLabel: string,
 ): Promise<{ status: string; results: number; notified: number }> {
@@ -209,6 +261,13 @@ const RPC_ERRORS: Record<string, { status: number; error: string }> = {
   period_not_ended: { status: 409, error: "This period has not ended yet" },
   rewards_off: { status: 409, error: "Prizes are off for this period. Switch them on or close with no reward." },
   prizes_missing: { status: 409, error: "All six prizes must be set before closing with rewards" },
+  result_not_found: { status: 404, error: "Winner not found" },
+  no_prize: { status: 409, error: "This winner has no prize to deliver" },
+  prize_cancelled: { status: 409, error: "This prize was cancelled" },
+  already_delivered: { status: 409, error: "This prize has already been delivered" },
+  delivery_in_progress: { status: 409, error: "This prize is being delivered right now. Wait a moment, then reload." },
+  delivery_not_in_progress: { status: 409, error: "This delivery already finished. Reload to see its status." },
+  prize_delivered: { status: 409, error: "This prize has already been delivered or is being delivered, so it can't be cancelled" },
 }
 
 /** Maps a database error from the leaderboard RPCs/tables to a JSON response. */
