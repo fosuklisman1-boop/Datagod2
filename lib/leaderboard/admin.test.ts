@@ -11,11 +11,11 @@ describe("leaderboardErrorJson", () => {
     expect(leaderboardErrorJson({ code: "23514", message: "violates check" }, "t").status).toBe(400)
     expect(leaderboardErrorJson({ code: "23505", message: "dup" }, "t").status).toBe(409)
   })
-  it("hides unknown errors behind a 500", async () => {
+  it("gives admins the database's reason for unknown errors", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
-    const r = leaderboardErrorJson({ message: "relation does not exist" }, "t")
+    const r = leaderboardErrorJson({ message: "column packages.name does not exist" }, "overview")
     expect(r.status).toBe(500)
-    expect((await r.json()).error).not.toContain("relation")
+    expect((await r.json()).error).toBe("Something went wrong (overview): column packages.name does not exist")
     spy.mockRestore()
   })
 })

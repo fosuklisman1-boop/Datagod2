@@ -27,6 +27,25 @@ export async function getLeaderboardConfig(db: SupabaseClient): Promise<Leaderbo
 
 export const PAUSED_MESSAGE = "Top performers is under maintenance. Please check back soon."
 
+/** Why a signed-in account never appears on the boards, or null when it is ranked normally. */
+export type NotRankedReason = "admin" | "excluded"
+
+export const NOT_RANKED_MESSAGE: Record<NotRankedReason, string> = {
+  admin: "Admin accounts are not ranked, so your sales here don't appear on the leaderboard. Sign in with a customer account to check a rank.",
+  excluded: "Your account is not included in the leaderboards. Contact support if you think this is a mistake.",
+}
+
+export async function notRankedReason(db: SupabaseClient, userId: string): Promise<NotRankedReason | null> {
+  const [{ data: user, error: userError }, { data: excluded, error: exclError }] = await Promise.all([
+    db.from("users").select("role").eq("id", userId).maybeSingle(),
+    db.from("leaderboard_exclusions").select("user_id").eq("user_id", userId).maybeSingle(),
+  ])
+  if (userError) throw userError
+  if ((user as { role?: string } | null)?.role === "admin") return "admin"
+  if (exclError) throw exclError
+  return excluded ? "excluded" : null
+}
+
 // ─── page copy ─────────────────────────────────────────────────────────────
 const KIND_WORD: Record<PeriodKind, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Board, DayRange, PeriodKind } from "./periods"
-import type { PrizeFields, PrizeRow } from "./prizes"
+import { bundleLabel, type PrizeFields, type PrizeRow } from "./prizes"
 import { LEADERBOARD_CONFIG_KEY, getLeaderboardConfig } from "./public"
 
 export interface PeriodRow {
@@ -88,19 +88,20 @@ export async function setPaused(db: SupabaseClient, paused: boolean, adminId: st
   return { paused }
 }
 
-/** Available bundles for the data-bundle prize picker. */
-export async function listPrizePackages(db: SupabaseClient): Promise<{ id: string; network: string; name: string; size: string }[]> {
-  const { data, error } = await db.from("packages").select("id, network, name, size").eq("is_available", true).order("network").order("price")
+/** Available bundles for the data-bundle prize picker, labelled "MTN 10GB". */
+export async function listPrizePackages(db: SupabaseClient): Promise<{ id: string; network: string; size: string; label: string }[]> {
+  const { data, error } = await db.from("packages").select("id, network, size").eq("is_available", true).order("network").order("price")
   if (error) throw error
-  return (data ?? []) as { id: string; network: string; name: string; size: string }[]
+  return ((data ?? []) as { id: string; network: string; size: string }[]).map((p) => ({ ...p, label: bundleLabel(p.network, p.size) }))
 }
 
+/** "MTN 10GB" for a package id, or null if it no longer exists. */
 export async function packageName(db: SupabaseClient, id: string): Promise<string | null> {
-  const { data, error } = await db.from("packages").select("name, size, network").eq("id", id).maybeSingle()
+  const { data, error } = await db.from("packages").select("size, network").eq("id", id).maybeSingle()
   if (error) throw error
   if (!data) return null
-  const row = data as { name: string | null; size: string | null; network: string | null }
-  return row.name?.trim() || [row.size, row.network, "bundle"].filter(Boolean).join(" ")
+  const row = data as { size: string | null; network: string | null }
+  return bundleLabel(row.network, row.size)
 }
 
 /** Live top N with full name and contact details. Admin only: never send this to users. */
@@ -218,5 +219,7 @@ export function leaderboardErrorJson(e: unknown, context: string): NextResponse 
   if (err.code === "23514") return NextResponse.json({ error: "Those prize details are not allowed" }, { status: 400 })
   if (err.code === "23505") return NextResponse.json({ error: "That name is already used" }, { status: 409 })
   console.error(`[leaderboard-admin] ${context}:`, err.message ?? e)
-  return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 })
+  // Admin routes only: include the database's reason so a failure can be diagnosed from the page.
+  const reason = err.message ? `: ${err.message.slice(0, 200)}` : ""
+  return NextResponse.json({ error: `Something went wrong (${context})${reason}` }, { status: 500 })
 }

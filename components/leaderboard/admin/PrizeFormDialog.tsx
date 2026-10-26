@@ -11,7 +11,7 @@ import {
   AIRTIME_NETWORKS, PRIZE_TYPES, PRIZE_TYPE_LABEL, MAX_LABEL, MAX_PRESET_NAME, type PrizeFields, type PrizeType,
 } from "@/lib/leaderboard/prizes"
 
-export interface PackageOption { id: string; network: string; name: string; size: string }
+export interface PackageOption { id: string; network: string; size: string; label: string }
 export interface PresetOption extends PrizeFields { id: string; name: string }
 
 interface Draft {
@@ -143,7 +143,7 @@ export function PrizeFormDialog({ open, onOpenChange, title, description, mode, 
               <Select value={draft.package_id} onValueChange={(v) => set({ package_id: v })}>
                 <SelectTrigger className="w-full"><SelectValue placeholder="Choose a bundle" /></SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {packages.map((p) => <SelectItem key={p.id} value={p.id}>{p.network} · {p.name || p.size}</SelectItem>)}
+                  {packages.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
