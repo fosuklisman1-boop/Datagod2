@@ -63,6 +63,23 @@ import {
   NO_CHARGE_ENGINE_CODES,
 } from "../commission"
 import { CLAIM_STALE_MS } from "../idempotency"
+import * as resultsMod from "../endpoints/results"
+import * as afaMod from "../endpoints/afa"
+import {
+  GH_REGIONS,
+  parseExamBoard,
+  parseVoucherQuantity,
+  parseResultsBody,
+  parseAfaBody,
+  mapResultsOrder,
+  mapVoucher,
+  mapAfaOrder,
+  mapAfaFulfillment,
+  resultsErrorResponse,
+  afaErrorResponse,
+  classifyResultsError,
+  classifyAfaError,
+} from "../standard-orders"
 import { BILLER_KEYS } from "@/lib/bills/billers"
 import { BILL_LIMIT_CEIL } from "@/lib/bills/config"
 import { verifyResponse } from "@/lib/api-v1/bills"
@@ -995,5 +1012,524 @@ describe("v2DocsRegistry commission endpoints (airtime and utility bills)", () =
   it("does not leak internals in the commission docs", () => {
     const all = JSON.stringify(v2DocsRegistry.filter((s) => s.group === "commission"))
     expect(all).not.toMatch(/api_v2_idempotency|purchaseAirtime|payBill|supabase|hubtel_bill_orders|deduct_wallet/i)
+  })
+})
+
+describe("v2DocsRegistry results checker and AFA endpoints", () => {
+  type Ep = (typeof endpoints)[number]
+  const find = (sig: string): Ep => endpoints.find((x) => `${x.method} ${x.path}` === sig)!
+  const msgs = (e: Ep, s: number) => e.errors.filter((x) => x.status === s).map((x) => x.message)
+  const text = (s: { intro?: string; steps?: string[]; callouts?: { body: string; title?: string }[] }) =>
+    [s.intro ?? "", ...(s.steps ?? []), ...(s.callouts ?? []).flatMap((c) => [c.title ?? "", c.body])].join(" ")
+  const prose = (id: string) => v2DocsRegistry.find((s) => s.id === id)!
+  const data = (sig: string) => (find(sig).successExample as { data: any }).data
+  const RES = {
+    types: "GET /resultschecker/types",
+    purchase: "POST /resultschecker/purchase",
+    list: "GET /resultschecker/orders",
+    order: "GET /resultschecker/orders/{reference}",
+  }
+  const AFA = {
+    register: "POST /afa/register",
+    list: "GET /afa/orders",
+    order: "GET /afa/orders/{reference}",
+  }
+  const sigs = [...Object.values(RES), ...Object.values(AFA)]
+  const access403 = [MSG_SUSPENDED, MSG_PENDING, MSG_REVOKED, msgWrongKeyType("standard"), MSG_ROLE_NOT_ALLOWED]
+  const limitRe = (n: number, g: string) => new RegExp(`${n} requests per minute \\(${g} group\\)`)
+  const MAX_QTY = resultsMod.SANDBOX_MAX_QUANTITY // the configurable prod default is the same 15
+
+  const LIVE = { keyId: "k", userId: "u", role: "dealer", keyType: "standard", environment: "live", firstName: null }
+  const TEST = { ...LIVE, environment: "test" }
+  const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {})
+  const ACCESS_STATUSES = [401, 403, 429, 503]
+  const docStatuses = (sig: string) => [...new Set(find(sig).errors.map((e) => e.status))].sort()
+
+  // ---- fakes over the real handlers
+  const resultsEngine = async (p: { userId: string; examBoard: string; quantity: number }) => ({
+    order: { reference_code: "RC-AAA", exam_board: p.examBoard, quantity: p.quantity, unit_price: 25, total_paid: 25 * p.quantity, status: "completed", created_at: "2026-10-22T09:30:00.000Z" },
+    vouchers: [{ pin: "TEST-00000001", serial_number: "SANDBOX-WASSCE-0001" }],
+    newBalance: 70.5,
+  })
+  const rcRow = { reference_code: "RC-AAA", exam_board: "WASSCE", quantity: 2, unit_price: 25, total_paid: 50, status: "completed", created_at: "2026-10-22T09:30:00.000Z" }
+  const resultsDeps = (over: object = {}): any => ({
+    claim: async () => ({ kind: "claimed", claimId: "c1" }),
+    complete: async () => true,
+    release: async () => true,
+    markUnknown: async () => true,
+    alert: async () => {},
+    getClaim: async () => ({ orderRef: "RC-AAA", status: "done", response: { reference: "RC-2026-0001" } }),
+    listClaims: async () => [{ reference: "RC-2026-0001", orderRef: "RC-AAA", status: "done" }],
+    engine: resultsEngine,
+    getMaxQuantity: async () => MAX_QTY,
+    boardEnabled: async () => true,
+    available: async () => 100,
+    price: async (_b: string, q: number) => ({ unitPrice: 25, totalPaid: 25 * q }),
+    readVouchers: async () => [{ pin: "TEST-00000001", serial_number: "SANDBOX-WASSCE-0001" }],
+    getOrderByCode: async () => rcRow,
+    getOrdersByCodes: async () => [rcRow],
+    deliver: async () => {},
+    phoneGate: async () => true,
+    sandbox: { getOrder: async () => null, listOrders: async () => [], place: async () => ({ success: false, error: "x", status: 402 }) },
+    now: () => Date.parse("2026-10-22T09:35:00.000Z"),
+    ...over,
+  })
+  const afaRow = { order_code: "AFA-AAA", full_name: "Ama Serwaa Boateng", phone_number: "0244000001", region: "Greater Accra", amount: 10, status: "pending", fulfillment_status: "unfulfilled", created_at: "2026-10-22T09:30:00.000Z" }
+  const afaDeps = (over: object = {}): any => ({
+    claim: async () => ({ kind: "claimed", claimId: "c1" }),
+    complete: async () => true,
+    release: async () => true,
+    markUnknown: async () => true,
+    alert: async () => {},
+    getClaim: async () => ({ orderRef: "AFA-AAA", status: "done", response: {} }),
+    listClaims: async () => [{ reference: "AFA-2026-0001", orderRef: "AFA-AAA", status: "done" }],
+    engine: async () => ({ order: afaRow }),
+    findRecentDuplicate: async () => false,
+    getOrderByCode: async () => afaRow,
+    getOrdersByCodes: async () => [afaRow],
+    phoneGate: async () => true,
+    afaPrice: async () => 10,
+    sandbox: { getOrder: async () => null, listOrders: async () => [], place: async () => ({ success: false, error: "x", status: 402 }) },
+    now: () => Date.parse("2026-10-22T09:35:00.000Z"),
+    ...over,
+  })
+  const rcBody = { exam_board: "WASSCE", quantity: 2, reference: "RC-2026-0001" }
+  const coded = (code?: string) => async () => {
+    throw Object.assign(new Error("x"), { code })
+  }
+
+  // ---- real messages, derived from the code
+  const failMsg = (r: { ok: boolean }): string => (r.ok ? "" : String((r as unknown as { error: string }).error))
+  const exported: string[] = [...Object.values(resultsMod), ...Object.values(afaMod)].flatMap((v: unknown) => (typeof v === "string" ? [v] : []))
+  const goodAfa = { reference: "AFA-2026-0001", full_name: "Ama Serwaa Boateng", phone: "0244000001", id_type: "Ghana Card", id_number: "GHA-000000000-0", region: "Greater Accra", location: "Madina, Accra" }
+  const parserMsgs = (): string[] => {
+    const good = rcBody
+    const out = [null, { ...good, price: 1 }, { ...good, exam_board: "x" }, { ...good, quantity: 0 }, { ...good, reference: "" }, { ...good, recipient_phone: "1" }, { ...good, recipient_email: "nope" }].map((b) =>
+      failMsg(parseResultsBody(b, MAX_QTY))
+    )
+    for (const b of [
+      null,
+      { ...goodAfa, price: 1 },
+      { ...goodAfa, reference: "" },
+      { ...goodAfa, full_name: "A" },
+      { ...goodAfa, phone: "1" },
+      { ...goodAfa, id_type: "Passport" },
+      { ...goodAfa, id_number: "1" },
+      { ...goodAfa, region: "Mars" },
+      { ...goodAfa, location: "x" },
+      { ...goodAfa, occupation: "x".repeat(81) },
+    ]) {
+      out.push(failMsg(parseAfaBody(b)))
+    }
+    return out
+  }
+  const engineMsg = (r: { code: string; message: string }) => `${r.code}: ${r.message}`
+  const realMessages = new Set<string>([
+    ...exported,
+    ...parserMsgs(),
+    engineMsg(resultsErrorResponse({ code: "INSUFFICIENT_INVENTORY" })),
+    engineMsg(afaErrorResponse({ code: "PRICE_UNAVAILABLE" })),
+    MSG_UNAUTHORIZED,
+    MSG_UNAVAILABLE,
+    MSG_RATE_LIMITED,
+    MSG_PHONE_GATE,
+    MSG_REFERENCE_REUSED,
+    MSG_CATALOG_UNAVAILABLE,
+    ...access403,
+  ])
+  const templatePrefixes = [
+    "INSUFFICIENT_BALANCE: wallet balance is too low; required ",
+    "INSUFFICIENT_BALANCE: test balance is too low; required ",
+    "OUT_OF_STOCK: ",
+  ]
+  const templateSuffixes = [" vouchers are currently unavailable"]
+
+  it("documents all seven endpoints with key type standard in the results group", () => {
+    for (const sig of sigs) {
+      const e = find(sig)
+      expect(e, sig).toBeDefined()
+      expect(e.keyType).toBe("standard")
+      expect(e.group).toBe("results")
+      expect(e.notes.length).toBeGreaterThan(0)
+      expect(e.summary.length).toBeGreaterThan(20)
+      expect(Object.keys(e.successExample)).toEqual(["success", "data", "meta"])
+    }
+    expect(sigs).toHaveLength(7)
+    const inSection = (id: string) => prose(id).endpoints.map((e) => `${e.method} ${e.path}`)
+    expect(inSection("results-types")).toEqual([RES.types])
+    expect(inSection("results-purchase")).toEqual([RES.purchase])
+    expect(inSection("results-orders")).toEqual([RES.list, RES.order])
+    expect(inSection("afa-register")).toEqual([AFA.register])
+    expect(inSection("afa-orders")).toEqual([AFA.list, AFA.order])
+  })
+
+  it("takes rate-limit strings from limits.ts: purchase group for purchase and register, status for the rest", () => {
+    expect(find(RES.purchase).rateLimit).toMatch(limitRe(DEFAULT_LIMITS.purchase, "purchase"))
+    expect(find(AFA.register).rateLimit).toMatch(limitRe(DEFAULT_LIMITS.purchase, "purchase"))
+    for (const sig of [RES.types, RES.list, RES.order, AFA.list, AFA.order]) {
+      expect(find(sig).rateLimit).toMatch(limitRe(DEFAULT_LIMITS.status, "status"))
+    }
+  })
+
+  it("documents params and request examples that the real parsers accept", () => {
+    expect(find(RES.purchase).params.map((p) => p.name)).toEqual(["exam_board", "quantity", "reference", "recipient_phone", "recipient_email"])
+    expect(find(RES.purchase).params.filter((p) => p.required).map((p) => p.name)).toEqual(["exam_board", "quantity", "reference"])
+    expect(find(AFA.register).params.map((p) => p.name)).toEqual(["reference", "full_name", "phone", "id_type", "id_number", "region", "location", "occupation"])
+    expect(find(AFA.register).params.filter((p) => p.required).map((p) => p.name)).toEqual(["reference", "full_name", "phone", "id_type", "id_number", "region", "location"])
+    for (const sig of [RES.order, AFA.order]) expect(find(sig).params.map((p) => p.name)).toEqual(["reference"])
+    for (const sig of [RES.types, RES.list, AFA.list]) expect(find(sig).params).toEqual([])
+    for (const sig of [RES.types, RES.list, RES.order, AFA.list, AFA.order]) expect(find(sig).requestExample).toBeNull()
+    expect(parseResultsBody(find(RES.purchase).requestExample, MAX_QTY).ok).toBe(true)
+    expect(parseAfaBody(find(AFA.register).requestExample).ok).toBe(true)
+    for (const sig of [RES.purchase, AFA.register]) {
+      expect(Object.keys(find(sig).requestExample as object).join(" ")).not.toMatch(/price|fee|total|cashback|amount|status/i)
+    }
+    expect(Object.keys(find(AFA.register).requestExample as object)).not.toContain("date_of_birth")
+    // Limits in the param text come from the parsers.
+    const qty = find(RES.purchase).params.find((p) => p.name === "quantity")!.description
+    expect(qty).toContain(String(MAX_QTY))
+    expect(qty).toMatch(/set by Datagod/i)
+    expect(parseVoucherQuantity(MAX_QTY, MAX_QTY).ok).toBe(true)
+    expect(parseVoucherQuantity(MAX_QTY + 1, MAX_QTY).ok).toBe(false)
+    const board = find(RES.purchase).params.find((p) => p.name === "exam_board")!.description
+    for (const b of ["WASSCE", "BECE", "NOVDEC"]) {
+      expect(parseExamBoard(b).ok).toBe(true)
+      expect(board).toContain(b)
+    }
+    expect(parseExamBoard("x")).toEqual({ ok: false, error: "exam_board must be one of: WASSCE, BECE, NOVDEC" })
+    expect(find(AFA.register).params.find((p) => p.name === "id_type")!.description).toContain("Ghana Card")
+    expect(find(AFA.register).params.find((p) => p.name === "region")!.description).toContain(GH_REGIONS.join(", "))
+  })
+
+  it("documented boards equal the parser's and the types endpoint's", async () => {
+    const r = await resultsMod.typesHandler(resultsDeps())(LIVE as any)
+    const boards = (r.data as any).types.map((t: any) => t.exam_board)
+    expect(boards).toEqual([...resultsMod.RESULTS_BOARDS])
+    expect(data(RES.types).types.map((t: any) => t.exam_board)).toEqual(boards)
+    for (const b of boards) expect(parseExamBoard(b).ok).toBe(true)
+  })
+
+  it("success examples have exactly the keys the real handlers return", async () => {
+    const orderKeys = Object.keys(mapResultsOrder({}, "x")).sort()
+    const voucherKeys = Object.keys(mapVoucher({})).sort()
+    expect(orderKeys).toEqual(["created_at", "exam_board", "quantity", "reference", "status", "total_paid", "unit_price"])
+    expect(voucherKeys).toEqual(["pin", "serial_number"])
+    const afaKeys = Object.keys(mapAfaOrder({}, "x")).sort()
+    expect(afaKeys).toEqual(["amount", "created_at", "fulfillment", "full_name", "phone", "reference", "region", "status"])
+
+    const keys = (o: object) => Object.keys(o).sort()
+    const live = async (r: Promise<any>) => (await r).data
+    // results
+    const types = await live(resultsMod.typesHandler(resultsDeps())(LIVE as any))
+    expect(keys(data(RES.types).types[0])).toEqual(keys(types.types[0]))
+    const purchase = await live(resultsMod.purchaseResultsHandler(resultsDeps())(rcBody, LIVE as any))
+    expect(keys(data(RES.purchase))).toEqual(keys(purchase))
+    expect(keys(data(RES.purchase).order)).toEqual(orderKeys)
+    for (const v of data(RES.purchase).vouchers) expect(keys(v)).toEqual(voucherKeys)
+    const lookup = await live(resultsMod.resultsOrderHandler(resultsDeps())("RC-2026-0001", LIVE as any))
+    expect(keys(data(RES.order))).toEqual(keys(lookup))
+    expect(keys(data(RES.order).order)).toEqual(orderKeys)
+    for (const v of data(RES.order).vouchers) expect(keys(v)).toEqual(voucherKeys)
+    expect(data(RES.order).claim).toBeNull()
+    const list = await live(resultsMod.resultsListHandler(resultsDeps())(LIVE as any))
+    expect(keys(data(RES.list))).toEqual(keys(list))
+    for (const o of data(RES.list).orders) expect(keys(o)).toEqual(orderKeys)
+    // afa
+    const reg = await live(afaMod.registerAfaHandler(afaDeps())(goodAfa, LIVE as any))
+    expect(keys(data(AFA.register))).toEqual(keys(reg))
+    expect(keys(data(AFA.register).order)).toEqual(afaKeys)
+    const alookup = await live(afaMod.afaOrderHandler(afaDeps())("AFA-2026-0001", LIVE as any))
+    expect(keys(data(AFA.order))).toEqual(keys(alookup))
+    expect(keys(data(AFA.order).order)).toEqual(afaKeys)
+    expect(data(AFA.order).claim).toBeNull()
+    const alist = await live(afaMod.afaListHandler(afaDeps())(LIVE as any))
+    expect(keys(data(AFA.list))).toEqual(keys(alist))
+    for (const o of data(AFA.list).orders) expect(keys(o)).toEqual(afaKeys)
+    // Status values in the examples are values the mappers produce.
+    for (const o of [data(RES.purchase).order, data(RES.order).order, data(RES.list).orders[0], data(AFA.register).order, data(AFA.order).order, data(AFA.list).orders[0]]) {
+      expect(mapCommissionStatus(o.status)).toBe(o.status)
+    }
+    for (const o of [data(AFA.register).order, data(AFA.order).order, data(AFA.list).orders[0]]) expect(mapAfaFulfillment(o.fulfillment)).toBe(o.fulfillment)
+    expect(typeof data(RES.purchase).new_balance).toBe("number")
+    // The total is quantity times the unit price.
+    const o = data(RES.purchase).order
+    expect(cents2(o.total_paid)).toBe(o.quantity * cents2(o.unit_price))
+    expect(data(RES.purchase).vouchers).toHaveLength(o.quantity)
+    expect(data(RES.purchase).order.reference).toBe((find(RES.purchase).requestExample as any).reference)
+    expect(parseResultsBody(find(RES.purchase).requestExample, MAX_QTY)).toMatchObject({ ok: true, value: { quantity: o.quantity } })
+  })
+  const cents2 = (n: number) => Math.round(n * 100)
+
+  it("example PINs are obviously fake, the list and types never carry a PIN, and no real-looking Ghana Card appears", () => {
+    for (const sig of [RES.purchase, RES.order]) {
+      const vs = data(sig).vouchers
+      expect(vs.length).toBeGreaterThan(0)
+      for (const v of vs) {
+        expect(v.pin).toMatch(/^(TEST|SANDBOX|DEMO)-/)
+        expect(v.serial_number).toMatch(/^(TEST|SANDBOX|DEMO)-/)
+      }
+    }
+    for (const sig of [RES.types, RES.list]) expect(JSON.stringify(find(sig).successExample)).not.toMatch(/"pin"|serial_number|vouchers/)
+    for (const sig of [AFA.register, AFA.list, AFA.order]) expect(JSON.stringify(find(sig).successExample)).not.toMatch(/id_number|ghana|GHA-/i)
+    const everything = JSON.stringify(v2DocsRegistry.filter((s) => s.group === "results"))
+    const cards = everything.match(/GHA-?\d{9}-?\d/gi) ?? []
+    expect(cards.length).toBeGreaterThan(0)
+    for (const c of cards) expect(c).toBe("GHA-000000000-0")
+    // Phone numbers in examples are the documented fake range.
+    for (const m of everything.match(/\b0\d{9}\b/g) ?? []) expect(m).toMatch(/^02440000\d\d$/)
+  })
+
+  it("every documented error is a real handler message or an allowed template", () => {
+    for (const sig of sigs) {
+      for (const err of find(sig).errors) {
+        const real =
+          realMessages.has(err.message) ||
+          templatePrefixes.some((p) => err.message.startsWith(p)) ||
+          templateSuffixes.some((s) => err.message.endsWith(s)) ||
+          // the quantity message carries the configured maximum
+          err.message === failMsg(parseVoucherQuantity("x", MAX_QTY))
+        expect(real, `${sig} ${err.status} ${err.message}`).toBe(true)
+        expect(VALID_STATUS).toContain(err.status as V2ErrorStatus)
+      }
+    }
+  })
+
+  it("access errors use the real standard-key strings on every endpoint", () => {
+    for (const sig of sigs) {
+      const e = find(sig)
+      expect(msgs(e, 401)).toEqual([MSG_UNAUTHORIZED])
+      expect(msgs(e, 429)).toEqual([MSG_RATE_LIMITED])
+      for (const m of access403) expect(msgs(e, 403), sig).toContain(m)
+      expect(msgs(e, 503)).toContain(MSG_UNAVAILABLE)
+    }
+    for (const sig of [RES.purchase, AFA.register]) expect(msgs(find(sig), 403)).toContain(MSG_PHONE_GATE)
+    // None of the machine-code strings claim the commission key type.
+    expect(JSON.stringify(sigs.map((s) => find(s).errors))).not.toContain(msgWrongKeyType("commission"))
+  })
+
+  it("documents the 409 machine codes, 402 wording, and 500/503 outcomes with the real strings", () => {
+    const p = find(RES.purchase)
+    expect(msgs(p, 409)).toEqual(
+      expect.arrayContaining([resultsMod.MSG_RESULTS_IN_PROGRESS, resultsMod.MSG_RESULTS_PRIOR_UNKNOWN, MSG_REFERENCE_REUSED])
+    )
+    expect(msgs(p, 409).some((m) => m.startsWith("OUT_OF_STOCK: "))).toBe(true)
+    expect(msgs(p, 402)).toContain("INSUFFICIENT_BALANCE: wallet balance is too low; required 50.00")
+    expect(msgs(p, 402)).toContain("INSUFFICIENT_BALANCE: test balance is too low; required 50.00")
+    expect(msgs(p, 500)).toContain(resultsMod.MSG_RESULTS_OUTCOME_UNKNOWN)
+    expect(msgs(p, 503)).toEqual(
+      expect.arrayContaining([
+        resultsMod.MSG_RESULTS_CLAIM_UNAVAILABLE,
+        resultsMod.MSG_VOUCHERS_UNAVAILABLE,
+        MSG_CATALOG_UNAVAILABLE,
+        engineMsg(resultsErrorResponse({ code: "INSUFFICIENT_INVENTORY" })),
+      ])
+    )
+    expect(msgs(p, 503).some((m) => m === "WASSCE vouchers are currently unavailable")).toBe(true)
+    const r = find(AFA.register)
+    expect(msgs(r, 409)).toEqual(expect.arrayContaining([afaMod.MSG_AFA_IN_PROGRESS, afaMod.MSG_AFA_PRIOR_UNKNOWN, afaMod.MSG_AFA_DUPLICATE, MSG_REFERENCE_REUSED]))
+    expect(msgs(r, 500)).toContain(afaMod.MSG_AFA_OUTCOME_UNKNOWN)
+    expect(msgs(r, 503)).toEqual(expect.arrayContaining([afaMod.MSG_AFA_CLAIM_UNAVAILABLE, MSG_CATALOG_UNAVAILABLE, engineMsg(afaErrorResponse({ code: "PRICE_UNAVAILABLE" }))]))
+    expect(msgs(r, 402)).toContain("INSUFFICIENT_BALANCE: wallet balance is too low; required 10.00")
+    expect(msgs(find(RES.order), 404)).toEqual([resultsMod.MSG_RESULTS_NOT_FOUND])
+    expect(msgs(find(AFA.order), 404)).toEqual([afaMod.MSG_AFA_NOT_FOUND])
+    expect(msgs(find(RES.order), 503)).toContain(resultsMod.MSG_VOUCHERS_UNAVAILABLE)
+    // Engine classification the notes rely on: only a no-charge code frees the reference.
+    expect(classifyResultsError("INSUFFICIENT_BALANCE")).toBe("no_charge")
+    expect(classifyResultsError("INSUFFICIENT_INVENTORY")).toBe("ambiguous")
+    expect(classifyAfaError("PAYMENT_FAILED")).toBe("ambiguous")
+  })
+
+  it("results purchase: documented statuses == statuses the handler produces", async () => {
+    const spy = quiet()
+    const produced = new Set<number>(ACCESS_STATUSES)
+    const run = async (over: object, b: unknown = rcBody, ctx: object = LIVE) => {
+      const r = await resultsMod.purchaseResultsHandler(resultsDeps(over))(b, ctx as any)
+      if (r.error) produced.add(r.status)
+    }
+    await run({}, null)
+    await run({ getMaxQuantity: coded() })
+    for (const kind of ["conflict", "in_progress", "unknown", "error"]) await run({ claim: async () => ({ kind }) })
+    await run({ claim: async () => ({ kind: "replay", orderRef: "RC-AAA", response: {} }), getOrderByCode: async () => null })
+    await run({ boardEnabled: async () => false })
+    await run({ available: async () => 0 })
+    await run({ phoneGate: async () => false })
+    for (const code of ["INSUFFICIENT_BALANCE", "INSUFFICIENT_INVENTORY", undefined]) await run({ engine: coded(code) })
+    await run({ getMaxQuantity: coded() }, rcBody, TEST)
+    await run({ sandbox: { ...resultsDeps().sandbox, place: async () => ({ success: false, error: "x", status: 402 }) } }, rcBody, TEST)
+    await run({ sandbox: { ...resultsDeps().sandbox, place: async () => ({ success: false, error: "x", status: 500 }) } }, rcBody, TEST)
+    spy.mockRestore()
+    expect(docStatuses(RES.purchase)).toEqual([...produced].sort())
+  })
+
+  it("results lookups and AFA register/lookups: documented statuses == statuses the handlers produce", async () => {
+    const spy = quiet()
+    const collect = async (base: number[], runs: (() => Promise<{ error?: unknown; status: number }>)[]) => {
+      const produced = new Set<number>(base)
+      for (const r of runs) {
+        const res = await r()
+        if (res.error) produced.add(res.status)
+      }
+      return [...produced].sort()
+    }
+    const rl = (o: object, ctx: object = LIVE) => () => resultsMod.resultsOrderHandler(resultsDeps(o))("RC-2026-0001", ctx as any)
+    expect(docStatuses(RES.order)).toEqual(
+      await collect(ACCESS_STATUSES, [
+        () => resultsMod.resultsOrderHandler(resultsDeps())("x", LIVE as any),
+        rl({ getOrderByCode: async () => null }),
+        rl({}, TEST),
+        rl({ sandbox: { ...resultsDeps().sandbox, getOrder: coded() } }, TEST),
+      ])
+    )
+    const ll = (o: object, ctx: object = LIVE) => () => resultsMod.resultsListHandler(resultsDeps(o))(ctx as any)
+    expect(docStatuses(RES.list)).toEqual(await collect(ACCESS_STATUSES, [ll({ listClaims: async () => null }), ll({ sandbox: { ...resultsDeps().sandbox, listOrders: coded() } }, TEST)]))
+    expect(docStatuses(RES.types)).toEqual(
+      await collect(ACCESS_STATUSES, [() => resultsMod.typesHandler(resultsDeps({ boardEnabled: coded() }))(LIVE as any)])
+    )
+
+    const reg = (o: object, b: unknown = goodAfa, ctx: object = LIVE) => () => afaMod.registerAfaHandler(afaDeps(o))(b, ctx as any)
+    const afaRuns = [
+      reg({}, null),
+      ...["conflict", "in_progress", "unknown", "error"].map((kind) => reg({ claim: async () => ({ kind }) })),
+      reg({ phoneGate: async () => false }),
+      reg({ findRecentDuplicate: async () => true }),
+      reg({ findRecentDuplicate: coded() }),
+      ...["INVALID_GHANA_CARD", "PRICE_UNAVAILABLE", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED", undefined].map((c) => reg({ engine: coded(c) })),
+      reg({ afaPrice: coded() }, goodAfa, TEST),
+      reg({ sandbox: { ...afaDeps().sandbox, place: async () => ({ success: false, error: "x", status: 500 }) } }, goodAfa, TEST),
+      reg({ sandbox: { ...afaDeps().sandbox, place: async () => ({ success: false, error: "x", status: 402 }) } }, goodAfa, TEST),
+    ]
+    expect(docStatuses(AFA.register)).toEqual(await collect(ACCESS_STATUSES, afaRuns))
+    const al = (o: object, ctx: object = LIVE) => () => afaMod.afaOrderHandler(afaDeps(o))("AFA-2026-0001", ctx as any)
+    expect(docStatuses(AFA.order)).toEqual(
+      await collect(ACCESS_STATUSES, [() => afaMod.afaOrderHandler(afaDeps())("x", LIVE as any), al({ getClaim: async () => null }), al({ sandbox: { ...afaDeps().sandbox, getOrder: coded() } }, TEST)])
+    )
+    const alist = (o: object, ctx: object = LIVE) => () => afaMod.afaListHandler(afaDeps(o))(ctx as any)
+    expect(docStatuses(AFA.list)).toEqual(await collect(ACCESS_STATUSES, [alist({ listClaims: async () => null }), alist({ sandbox: { ...afaDeps().sandbox, listOrders: coded() } }, TEST)]))
+    spy.mockRestore()
+  })
+
+  it("documented regions equal GH_REGIONS and the parser's error message", () => {
+    const sec = text(prose("afa-registration"))
+    for (const r of GH_REGIONS) expect(sec).toContain(r)
+    expect(GH_REGIONS).toHaveLength(16)
+    expect(sec).toContain(GH_REGIONS.join(", "))
+    const regionErr = failMsg(parseAfaBody({ ...goodAfa, region: "Mars" }))
+    expect(msgs(find(AFA.register), 400)).toContain(regionErr)
+    expect(regionErr).toBe(`region must be one of: ${GH_REGIONS.join(", ")}`)
+  })
+
+  it("explains voucher PIN handling", () => {
+    const t = text(prose("voucher-pins"))
+    expect(t).toMatch(/purchase response/i)
+    expect(t).toMatch(/GET \/resultschecker\/orders\/\{reference\}/)
+    expect(t).toMatch(/only (the )?(account )?owner|owner only|only you/i)
+    expect(t).toMatch(/never log[^.]*(plain text|store)|never (log or )?store/i)
+    expect(t).toMatch(/recipient_phone/)
+    expect(t).toMatch(/recipient_email/)
+    expect(t).toMatch(/never[^.]*(your own|account owner'?s?|account's)[^.]*(contact|phone|email)/i)
+    expect(t).toMatch(/list endpoint[^.]*never[^.]*PINs?/i)
+    expect(t).toMatch(/replay[^.]*never re-sends|never re-sends[^.]*replay/i)
+    // The lookup note says a non-completed order has no vouchers yet.
+    expect(find(RES.order).notes.join(" ")).toMatch(/vouchers: \[\]|empty/i)
+  })
+
+  it("explains AFA registration fields, the card format, no date of birth and the duplicate window", () => {
+    const t = text(prose("afa-registration"))
+    expect(t).toContain("Ghana Card")
+    expect(t).toContain("GHA-000000000-0")
+    expect(t).toMatch(/date of birth/i)
+    expect(t).toMatch(/not required/i)
+    expect(t).toContain("DUPLICATE_REGISTRATION")
+    expect(t).toContain(`${afaMod.AFA_DUPLICATE_WINDOW_MS / 60000} minutes`)
+    expect(t).toMatch(/same phone number or the same Ghana Card/i)
+    expect(parseAfaBody({ ...goodAfa, id_type: "Passport" })).toEqual({ ok: false, error: 'id_type must be "Ghana Card"' })
+    expect(parseAfaBody({ ...goodAfa, id_number: "GHA-123456789-0", date_of_birth: "x" }).ok).toBe(true)
+    expect(parseAfaBody({ ...goodAfa, id_number: "123456789-0" }).ok).toBe(true)
+    // The card number never comes back.
+    expect(JSON.stringify(find(AFA.register).notes)).toMatch(/Ghana Card number[^.]*(never|not)[^.]*(returned|echo|logged)/i)
+  })
+
+  it("claim states and the stale window in the lookup notes match the code", () => {
+    const states = [mapClaimState({ status: "in_progress", createdAt: new Date().toISOString() }, "r", Date.now())!.state, mapClaimState({ status: "unknown" }, "r", Date.now())!.state]
+    expect(states).toEqual(["in_progress", "outcome_unknown"])
+    expect(CLAIM_STALE_MS / 60000).toBe(10)
+    for (const sig of [RES.order, AFA.order]) {
+      const n = find(sig).notes.join(" ")
+      for (const s of states) expect(n).toContain(s)
+      expect(n).toMatch(/order: null/)
+      expect(n).toMatch(/claim: \{ reference, state \}/)
+      expect(n).toMatch(/claim: null/)
+      expect(n).toMatch(/10 minutes/)
+      expect(n).toMatch(/identical 404/i)
+      expect(n).toMatch(/sandbox: true/)
+    }
+  })
+
+  it("documents replay semantics, the quantity of retries, and the PHONE_NOT_VERIFIED gate", () => {
+    for (const sig of [RES.purchase, AFA.register]) {
+      const n = find(sig).notes.join(" ")
+      expect(n).toMatch(/HTTP 201/)
+      expect(n).toMatch(/replayed: true/)
+      expect(n).toMatch(/not charged a second time/i)
+      expect(n).toMatch(/REFERENCE_REUSED/)
+      expect(n).toMatch(/REQUEST_IN_PROGRESS/)
+      expect(n).toMatch(/OUTCOME_UNKNOWN/)
+      expect(n).toMatch(/PHONE_NOT_VERIFIED/)
+      expect(n).toMatch(/never[^.]*new reference|Do not[^.]*new reference/i)
+    }
+    expect(find(RES.purchase).notes.join(" ")).toMatch(/PINs?[^.]*(repeated|returned again)[^.]*replay|replay[^.]*PINs?/i)
+    expect(find(RES.purchase).notes.join(" ")).toMatch(/OUT_OF_STOCK/)
+    expect(find(RES.purchase).notes.join(" ")).toMatch(/nothing (was )?charged/i)
+    expect(find(AFA.register).notes.join(" ")).toMatch(/DUPLICATE_REGISTRATION/)
+  })
+
+  it("states sandbox behaviour for results and AFA and extends the shared prose", () => {
+    const rp = find(RES.purchase).notes.join(" ")
+    expect(rp).toMatch(/test key[^.]*fake[^.]*TEST-[^.]*PINs?/i)
+    expect(rp).toMatch(/sandbox wallet/i)
+    expect(rp).toMatch(/no provider|never contact|no (real )?(voucher|order)/i)
+    const ap = find(AFA.register).notes.join(" ")
+    expect(ap).toMatch(/test key/i)
+    expect(ap).toMatch(/sandbox wallet/i)
+    expect(ap).toMatch(/price[^.]*read|reads? the (real |active )?(AFA )?price/i)
+    expect(ap).toMatch(/nothing is registered|no registration is (sent|made|submitted)/i)
+    const sb = prose("sandbox").intro!
+    expect(sb).toMatch(/results checker/i)
+    expect(sb).toMatch(/AFA/)
+    expect(sb).toMatch(/TEST-/)
+    expect(sb).toMatch(/sandbox references are unique per account across all order types/i)
+    expect(sb).toMatch(/live references are unique per order type/i)
+    const idem = prose("idempotency").intro!
+    expect(idem).toMatch(/results checker/i)
+    expect(idem).toMatch(/AFA/)
+    expect(idem).not.toMatch(/unique across all developers/i)
+    expect(idem).toMatch(/per account|your account/i)
+    expect(idem).toMatch(/PINs?/)
+    const ri = text(prose("results-idempotency"))
+    expect(ri).toMatch(/results checker/i)
+    expect(ri).toMatch(/AFA/)
+    expect(ri).toMatch(/REFERENCE_REUSED/)
+    expect(ri).toMatch(/REQUEST_IN_PROGRESS/)
+    expect(ri).toMatch(/OUTCOME_UNKNOWN/)
+    expect(ri).toMatch(/10 minutes/)
+    expect(ri).toMatch(/sandbox references are unique per account across all order types/i)
+    expect(ri).toMatch(/live references are unique per order type/i)
+    expect(ri).toMatch(/distinct prefix/i)
+  })
+
+  it("no Start prose still says results checkers or AFA are coming later, and key types and auth say standard keys unlock them", () => {
+    const all = v2DocsRegistry.map((s) => text(s)).join(" ") + " " + JSON.stringify(endpoints.map((e) => e.notes))
+    expect(all).not.toMatch(/(results checkers?|AFA)[^.]*(not part of|arriving|coming|later releases?|soon)/i)
+    expect(all).not.toMatch(/(not part of|arriving|coming|later releases?|soon)[^.]*(results checkers?|AFA)/i)
+    expect(prose("overview").intro).toMatch(/results checker/i)
+    expect(prose("overview").intro).toMatch(/AFA/)
+    expect(prose("overview").intro).toMatch(/SMS[^.]*not part of this release/i)
+    expect(prose("authentication").intro).toMatch(/standard key[^.]*results checker[^.]*AFA/i)
+    expect(prose("key-types").intro).toMatch(/Standard keys unlock[^.]*results checker[^.]*AFA/i)
+  })
+
+  it("does not leak internals in the results and AFA docs", () => {
+    const all = JSON.stringify(v2DocsRegistry.filter((s) => s.group === "results"))
+    expect(all).not.toMatch(/api_v2_idempotency|purchaseResultsCheckerVouchers|submitAfaOrder|supabase|results_checker_orders|afa_orders|deduct_wallet/i)
   })
 })

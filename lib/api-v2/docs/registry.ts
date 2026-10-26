@@ -77,7 +77,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Overview",
     group: "start",
     intro:
-      "The Datagod Developer API lets approved partners work with their Datagod account from their own software: check your wallet balance and account role, buy data bundles, buy airtime and pay utility bills. Results checkers, AFA registration and SMS are not part of this release. Every request is made over HTTPS to " +
+      "The Datagod Developer API lets approved partners work with their Datagod account from their own software: check your wallet balance and account role, buy data bundles, buy airtime, pay utility bills, buy results checker vouchers (WASSCE, BECE and NOVDEC) and register customers for AFA. SMS is not part of this release. Every request is made over HTTPS to " +
       V2_BASE_URL +
       ", is authenticated with an API key, and returns JSON in a single consistent envelope. Version 1 of the API keeps working unchanged for existing integrations; v2 runs beside it.",
     endpoints: [],
@@ -87,7 +87,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Authentication",
     group: "start",
     intro:
-      "Send your API key on every request. The preferred form is the Authorization header containing the raw key. Two equivalent forms are also accepted: Authorization: Bearer <key>, and the X-API-Key header. If more than one is sent, Authorization wins. A missing, malformed or unknown key returns 401. The key's type decides which endpoints it can call: a standard key calls the data, wallet and account endpoints, and a commission key calls the airtime and utility bill endpoints. A key of the wrong type returns 403.",
+      "Send your API key on every request. The preferred form is the Authorization header containing the raw key. Two equivalent forms are also accepted: Authorization: Bearer <key>, and the X-API-Key header. If more than one is sent, Authorization wins. A missing, malformed or unknown key returns 401. The key's type decides which endpoints it can call: a standard key calls the data, wallet, account, results checker and AFA endpoints, and a commission key calls the airtime and utility bill endpoints. A key of the wrong type returns 403.",
     steps: [
       "Log in to your Datagod account with a role that is allowed to use the API (the allowed roles are set by Datagod and can change).",
       "Open Dashboard, then Developer API.",
@@ -138,7 +138,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Idempotency",
     group: "start",
     intro:
-      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Airtime and utility bill payments follow the stricter claim rules in Idempotency and references (airtime and bills): a reference is required and a request that is still unconfirmed is never run a second time. AFA registration references are unique across all developers, so include your own prefix. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
+      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Airtime and utility bill payments follow the stricter claim rules in Idempotency and references (airtime and bills): a reference is required and a request that is still unconfirmed is never run a second time. Results checker purchases and AFA registrations follow the same claim rules (see Idempotency and references (results checker and AFA)): a replay returns the existing order, and for the results checker the same PINs, with no second charge; their references are unique within your account. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
     endpoints: [],
   },
   {
@@ -146,7 +146,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Sandbox",
     group: "start",
     intro:
-      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime and bill orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. Sandbox references are unique per account across all order types (data, airtime, bills and the rest), while live references are unique per order type, so a reference reused for a different order type can conflict in the sandbox only: use a distinct prefix per order type. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
+      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime and bill orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. A test standard key buys results checker vouchers with fake TEST- PINs against the sandbox wallet and registers AFA customers without anything being registered. Sandbox references are unique per account across all order types (data, airtime, bills and the rest), while live references are unique per order type, so a reference reused for a different order type can conflict in the sandbox only: use a distinct prefix per order type. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
     endpoints: [],
   },
 ]
@@ -951,6 +951,435 @@ const COMMISSION_SECTIONS: V2DocSection[] = [
   },
 ]
 
+// ---------------------------------------------------------------- Results checker and AFA (standard key)
+//
+// Client-safe like the commission block above: results.ts / afa.ts / standard-orders.ts pull in node
+// crypto, so the strings below are literal copies. registry.test.ts imports the real constants,
+// handlers and parsers and asserts there is no drift.
+
+const RESULTS_BOARDS_TEXT = "WASSCE, BECE or NOVDEC"
+const AFA_REGIONS = [
+  "Ahafo",
+  "Ashanti",
+  "Bono",
+  "Bono East",
+  "Central",
+  "Eastern",
+  "Greater Accra",
+  "North East",
+  "Northern",
+  "Oti",
+  "Savannah",
+  "Upper East",
+  "Upper West",
+  "Volta",
+  "Western",
+  "Western North",
+]
+const AFA_REGIONS_TEXT = AFA_REGIONS.join(", ")
+const GHANA_CARD_EXAMPLE = "GHA-000000000-0"
+const MAX_VOUCHER_QUANTITY = 15
+
+const MSG_EXAM_BOARD = "exam_board must be one of: WASSCE, BECE, NOVDEC"
+const MSG_QUANTITY = `quantity must be a whole number from 1 to ${MAX_VOUCHER_QUANTITY}`
+const MSG_RECIPIENT_PHONE = "recipient_phone must be a valid Ghana mobile number"
+const MSG_RECIPIENT_EMAIL = "recipient_email must be a valid email address"
+const MSG_FULL_NAME = "full_name must be 3 to 100 characters and contain at least two letters"
+const MSG_AFA_PHONE = "phone must be a valid Ghana mobile number"
+const MSG_ID_TYPE = 'id_type must be "Ghana Card"'
+const MSG_ID_NUMBER = "id_number must be a valid Ghana Card number"
+const MSG_REGION = `region must be one of: ${AFA_REGIONS_TEXT}`
+const MSG_LOCATION = "location must be 2 to 120 characters"
+const MSG_OCCUPATION = "occupation must be at most 80 characters"
+
+const RC_TAIL =
+  "Do not place this order again under a new reference. Poll GET /resultschecker/orders/{reference}, whose claim.state reports it, or contact support quoting the reference"
+const AFA_TAIL =
+  "Do not place this registration again under a new reference. Poll GET /afa/orders/{reference}, whose claim.state reports it, or contact support quoting the reference"
+const MSG_RC_IN_PROGRESS = `REQUEST_IN_PROGRESS: a request with this reference is still being processed; its outcome is not confirmed yet. ${RC_TAIL}`
+const MSG_RC_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is not confirmed yet. ${RC_TAIL}`
+const MSG_RC_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this purchase is not confirmed yet. ${RC_TAIL}`
+const MSG_AFA_IN_PROGRESS = `REQUEST_IN_PROGRESS: a request with this reference is still being processed; its outcome is not confirmed yet. ${AFA_TAIL}`
+const MSG_AFA_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is not confirmed yet. ${AFA_TAIL}`
+const MSG_AFA_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this registration is not confirmed yet. ${AFA_TAIL}`
+const MSG_RC_CLAIM_UNAVAILABLE = "UNAVAILABLE: could not reserve this reference; nothing was charged. Retry with the same reference"
+const MSG_VOUCHERS_UNAVAILABLE =
+  "UNAVAILABLE: the vouchers could not be read right now. Retry the same request with the same reference; do not place a new order"
+const MSG_INSUFFICIENT_INVENTORY =
+  "INSUFFICIENT_INVENTORY: Vouchers for this exam board are out of stock. Check your wallet balance and order history before retrying under a new reference."
+const MSG_AFA_DUPLICATE =
+  "DUPLICATE_REGISTRATION: a registration for this customer was just submitted. Look it up under its original reference; do not resubmit under a new reference"
+const MSG_PRICE_UNAVAILABLE = "PRICE_UNAVAILABLE: AFA registration is temporarily unavailable"
+
+const RC_ORDER_EXAMPLE = {
+  reference: "RC-2026-0001",
+  exam_board: "WASSCE",
+  quantity: 2,
+  unit_price: 25,
+  total_paid: 50,
+  status: "completed",
+  created_at: TS,
+}
+
+// Obviously fake: the real API returns real PINs only to a live key; these are test-key style values.
+const RC_VOUCHERS_EXAMPLE = [
+  { pin: "TEST-00000001", serial_number: "SANDBOX-WASSCE-0001" },
+  { pin: "TEST-00000002", serial_number: "SANDBOX-WASSCE-0002" },
+]
+
+const AFA_ORDER_EXAMPLE = {
+  reference: "AFA-2026-0001",
+  full_name: "Ama Serwaa Boateng",
+  phone: "0244000001",
+  region: "Greater Accra",
+  amount: 10,
+  status: "pending",
+  fulfillment: "pending",
+  created_at: TS,
+}
+
+const standardLookupNotes = (what: string, path: string, extra: string[]): string[] => [
+  `A found ${what} returns HTTP 200 with { order, ... , claim: null }. ${COMMISSION_STATUS_NOTE}`,
+  `If your own request with this reference is still unconfirmed, the answer is HTTP 200 with order: null and claim: { reference, state }, where claim.state is in_progress (still being processed) or outcome_unknown (not confirmed). An in_progress request older than 10 minutes reads outcome_unknown. Never place the ${what} again under a new reference; keep polling ${path}, or contact support quoting the reference.`,
+  "A reference that does not exist, is malformed, or belongs to another account all return the same identical 404, so references cannot be probed. A 404 never proves nothing was charged after an unknown outcome.",
+  ...extra,
+  "With a test key this reads your sandbox orders and the response carries sandbox: true.",
+]
+
+const RC_TYPES_ENDPOINT: V2Endpoint = {
+  id: "results-types",
+  group: "results",
+  method: "GET",
+  path: "/resultschecker/types",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Lists the exam boards you can buy results checker vouchers for, the unit price your account pays and how many are in stock.",
+  params: [],
+  requestExample: null,
+  successExample: {
+    success: true,
+    data: {
+      types: [
+        { exam_board: "WASSCE", price: 25, available: 240, enabled: true },
+        { exam_board: "BECE", price: 20, available: 118, enabled: true },
+        { exam_board: "NOVDEC", price: 22, available: 0, enabled: false },
+      ],
+    },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [...standardAccessErrors(), { status: 503, message: MSG_CATALOG_UNAVAILABLE }],
+  notes: [
+    "Always returns the three boards, WASSCE, BECE and NOVDEC. price is the unit price in GHS for your account's role; you never send a price when buying.",
+    "enabled: false means the board is switched off right now and a purchase for it returns 503. available is how many vouchers are in stock; a purchase for more than that returns 409 OUT_OF_STOCK.",
+    "A board whose price or stock could not be read right now shows price: null, available: 0 and enabled: false. If none of the boards can be read the call returns 503.",
+    "No PINs are ever shown here.",
+  ],
+}
+
+const RC_PURCHASE_ENDPOINT: V2Endpoint = {
+  id: "results-purchase",
+  group: "results",
+  method: "POST",
+  path: "/resultschecker/purchase",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.purchase} requests per minute (purchase group)`,
+  summary:
+    "Buys results checker vouchers for one exam board, charges your wallet and returns the PINs. Test keys use a sandbox wallet and return fake PINs.",
+  params: [
+    { name: "exam_board", type: "string", required: true, description: `${RESULTS_BOARDS_TEXT} (case-insensitive). GET /resultschecker/types shows which boards are on.` },
+    {
+      name: "quantity",
+      type: "integer",
+      required: true,
+      description: `Number of vouchers, a whole number from 1 to your maximum per purchase. The maximum is set by Datagod and can change; it is ${MAX_VOUCHER_QUANTITY} by default. A number or a digits-only string.`,
+    },
+    { name: "reference", type: "string", required: true, description: "Your own unique id for this purchase: 3 to 100 characters, letters, digits and - _ . : only. Required: it makes retries safe." },
+    { name: "recipient_phone", type: "string", required: false, description: "Ghana mobile number to receive the vouchers by SMS: 0244000001, 233244000001 or +233244000001. Leave it out to send nothing. See Voucher PINs." },
+    { name: "recipient_email", type: "string", required: false, description: "Email address to receive the vouchers. Leave it out to send nothing. See Voucher PINs." },
+  ],
+  requestExample: { exam_board: "WASSCE", quantity: 2, reference: "RC-2026-0001", recipient_phone: "0244000001" },
+  successExample: {
+    success: true,
+    data: { order: RC_ORDER_EXAMPLE, vouchers: RC_VOUCHERS_EXAMPLE, new_balance: 70.5 },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [
+    { status: 400, message: MSG_BODY_OBJECT },
+    { status: 400, message: "Unexpected field" },
+    { status: 400, message: MSG_EXAM_BOARD },
+    { status: 400, message: MSG_QUANTITY },
+    { status: 400, message: MSG_REFERENCE },
+    { status: 400, message: MSG_RECIPIENT_PHONE },
+    { status: 400, message: MSG_RECIPIENT_EMAIL },
+    { status: 402, message: "INSUFFICIENT_BALANCE: wallet balance is too low; required 50.00" },
+    { status: 402, message: "INSUFFICIENT_BALANCE: test balance is too low; required 50.00" },
+    { status: 409, message: MSG_REFERENCE_REUSED },
+    { status: 409, message: MSG_RC_IN_PROGRESS },
+    { status: 409, message: MSG_RC_PRIOR_UNKNOWN },
+    { status: 409, message: "OUT_OF_STOCK: WASSCE vouchers are out of stock for this quantity; nothing was charged" },
+    { status: 500, message: MSG_RC_UNKNOWN },
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 500, message: MSG_SANDBOX_NOT_PLACED },
+    ...standardAccessErrors(),
+    { status: 403, message: MSG_PHONE_GATE },
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+    { status: 503, message: "WASSCE vouchers are currently unavailable" },
+    { status: 503, message: MSG_RC_CLAIM_UNAVAILABLE },
+    { status: 503, message: MSG_VOUCHERS_UNAVAILABLE },
+    { status: 503, message: MSG_INSUFFICIENT_INVENTORY },
+  ],
+  notes: [
+    "A new purchase returns HTTP 201 with the order, the vouchers (pin and serial_number each) and your new wallet balance. The PINs are in this response; see Voucher PINs.",
+    "Never send a price. The price is set by Datagod from your account's role; price, amount, total, status and similar fields are rejected with 400 Unexpected field.",
+    "Resending the same reference with the same request is safe: it returns HTTP 200 with replayed: true and the existing order, and you are not charged a second time. The PINs are repeated to you on a replay (to the account owner only) and a replay never sends an SMS or email again. Reusing a reference for a different request returns 409 REFERENCE_REUSED.",
+    "The reference is claimed before anything is charged. 409 REQUEST_IN_PROGRESS and 409 OUTCOME_UNKNOWN mean an earlier request with this reference is not confirmed yet: never place the order again under a new reference. Poll GET /resultschecker/orders/{reference} and read claim.state, or contact support quoting the reference.",
+    "500 OUTCOME_UNKNOWN means this request may or may not have charged you. The reference is locked to that outcome and is never run a second time automatically. Do not retry under a new reference.",
+    "503 INSUFFICIENT_INVENTORY means the vouchers ran out after the wallet was touched. Treat it like OUTCOME_UNKNOWN: the reference stays locked, so check your wallet balance and read the reference back with GET /resultschecker/orders/{reference} before doing anything else.",
+    "409 OUT_OF_STOCK is returned before anything is charged: fewer vouchers are in stock than the quantity you asked for, so nothing was charged and the reference is free again. A board that is switched off returns 503 with nothing charged; a 503 with UNAVAILABLE for the reference also means nothing was charged, so retry with the same reference.",
+    "402 means the wallet cannot cover the purchase and nothing was charged; the message states the amount required.",
+    "Live purchases require the phone number on your Datagod account to be verified. Until it is, a live key gets 403 PHONE_NOT_VERIFIED and nothing is charged; verify the number in the dashboard. Replays of an existing order are not blocked by this check.",
+    "A test key uses a separate sandbox wallet and returns fake vouchers with TEST- PINs: the response carries sandbox: true, no provider is contacted, no real voucher is issued and no SMS or email is sent. A replay works the same way.",
+  ],
+}
+
+const RC_LIST_ENDPOINT: V2Endpoint = {
+  id: "results-orders",
+  group: "results",
+  method: "GET",
+  path: "/resultschecker/orders",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Lists your most recent results checker orders under the references you chose. The list never contains PINs.",
+  params: [],
+  requestExample: null,
+  successExample: { success: true, data: { orders: [RC_ORDER_EXAMPLE] }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    ...standardAccessErrors(),
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+  ],
+  notes: [
+    "Returns up to 30 orders. Only purchases that were placed successfully are listed; a request that is still unconfirmed shows up through GET /resultschecker/orders/{reference} instead.",
+    "Each order has the same shape as in POST /resultschecker/purchase, without the vouchers. To read the PINs of one order, look it up by reference. " + COMMISSION_STATUS_NOTE,
+    "With a test key the list is your sandbox orders and the response carries sandbox: true.",
+  ],
+}
+
+const RC_ORDER_ENDPOINT: V2Endpoint = {
+  id: "results-order-lookup",
+  group: "results",
+  method: "GET",
+  path: "/resultschecker/orders/{reference}",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Returns one results checker order and its vouchers by the reference you chose, or tells you that your request is still unconfirmed.",
+  params: [{ name: "reference", type: "string", required: true, description: "The reference you sent with POST /resultschecker/purchase (path parameter)." }],
+  requestExample: null,
+  successExample: {
+    success: true,
+    data: { order: RC_ORDER_EXAMPLE, vouchers: RC_VOUCHERS_EXAMPLE, claim: null },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [
+    { status: 404, message: MSG_ORDER_MISSING },
+    ...standardAccessErrors(),
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 503, message: MSG_VOUCHERS_UNAVAILABLE },
+  ],
+  notes: standardLookupNotes("results checker order", "this endpoint", [
+    "The vouchers are returned only to the account that owns the order. An order that has not completed yet returns vouchers: [] (an empty list); keep polling until its status is completed. If the vouchers cannot be read right now the call returns 503 instead of an empty list: retry the same request.",
+  ]),
+}
+
+const AFA_REGISTER_ENDPOINT: V2Endpoint = {
+  id: "afa-register",
+  group: "results",
+  method: "POST",
+  path: "/afa/register",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.purchase} requests per minute (purchase group)`,
+  summary: "Registers one customer for AFA and charges your wallet. Test keys use a sandbox wallet and register nothing.",
+  params: [
+    { name: "reference", type: "string", required: true, description: "Your own unique id for this registration: 3 to 100 characters, letters, digits and - _ . : only. Required: it makes retries safe." },
+    { name: "full_name", type: "string", required: true, description: "The customer's full name as on their Ghana Card: 3 to 100 characters with at least two letters." },
+    { name: "phone", type: "string", required: true, description: "The customer's Ghana mobile number: 0244000001, 233244000001 or +233244000001." },
+    { name: "id_type", type: "string", required: true, description: 'Must be "Ghana Card" (case-insensitive). No other ID type is accepted.' },
+    { name: "id_number", type: "string", required: true, description: `The Ghana Card number, for example ${GHANA_CARD_EXAMPLE}. The letters GHA, 9 digits, a dash and 1 check digit; a number typed without the dashes or the GHA prefix is accepted if it has exactly 10 digits.` },
+    { name: "region", type: "string", required: true, description: `One of: ${AFA_REGIONS_TEXT} (case-insensitive).` },
+    { name: "location", type: "string", required: true, description: "The customer's town or area: 2 to 120 characters." },
+    { name: "occupation", type: "string", required: false, description: "The customer's occupation: at most 80 characters." },
+  ],
+  requestExample: {
+    reference: "AFA-2026-0001",
+    full_name: "Ama Serwaa Boateng",
+    phone: "0244000001",
+    id_type: "Ghana Card",
+    id_number: GHANA_CARD_EXAMPLE,
+    region: "Greater Accra",
+    location: "Madina, Accra",
+    occupation: "Trader",
+  },
+  successExample: { success: true, data: { order: AFA_ORDER_EXAMPLE }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    { status: 400, message: MSG_BODY_OBJECT },
+    { status: 400, message: "Unexpected field" },
+    { status: 400, message: MSG_REFERENCE },
+    { status: 400, message: MSG_FULL_NAME },
+    { status: 400, message: MSG_AFA_PHONE },
+    { status: 400, message: MSG_ID_TYPE },
+    { status: 400, message: MSG_ID_NUMBER },
+    { status: 400, message: MSG_REGION },
+    { status: 400, message: MSG_LOCATION },
+    { status: 400, message: MSG_OCCUPATION },
+    { status: 402, message: "INSUFFICIENT_BALANCE: wallet balance is too low; required 10.00" },
+    { status: 402, message: "INSUFFICIENT_BALANCE: test balance is too low; required 10.00" },
+    { status: 409, message: MSG_REFERENCE_REUSED },
+    { status: 409, message: MSG_AFA_IN_PROGRESS },
+    { status: 409, message: MSG_AFA_PRIOR_UNKNOWN },
+    { status: 409, message: MSG_AFA_DUPLICATE },
+    { status: 500, message: MSG_AFA_UNKNOWN },
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 500, message: MSG_SANDBOX_NOT_PLACED },
+    ...standardAccessErrors(),
+    { status: 403, message: MSG_PHONE_GATE },
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+    { status: 503, message: MSG_RC_CLAIM_UNAVAILABLE },
+    { status: 503, message: MSG_PRICE_UNAVAILABLE },
+  ],
+  notes: [
+    "A new registration returns HTTP 201 with the order. The registration starts as pending; poll GET /afa/orders/{reference} to follow it. fulfillment reads pending, fulfilled or failed. See AFA registration.",
+    "Never send a price. The AFA price is set by Datagod and charged with the registration; price, amount, status and similar fields are rejected with 400 Unexpected field. A date of birth is not required.",
+    "Resending the same reference with the same request is safe: it returns HTTP 200 with replayed: true and the existing order, and you are not charged a second time. Reusing a reference for a different request returns 409 REFERENCE_REUSED.",
+    "The reference is claimed before anything is charged. 409 REQUEST_IN_PROGRESS and 409 OUTCOME_UNKNOWN mean an earlier request with this reference is not confirmed yet: never register again under a new reference. Poll GET /afa/orders/{reference} and read claim.state, or contact support quoting the reference.",
+    "500 OUTCOME_UNKNOWN means this request may or may not have charged you. The reference is locked to that outcome and is never run a second time automatically. Do not retry under a new reference.",
+    "409 DUPLICATE_REGISTRATION means a registration for the same phone number or the same Ghana Card was made on your account in the last 10 minutes. Nothing was charged and the reference is free again; look the earlier one up under its original reference.",
+    "The Ghana Card number is never returned, echoed or logged: it is not in any response, order, list or error message.",
+    "Live registrations require the phone number on your Datagod account to be verified. Until it is, a live key gets 403 PHONE_NOT_VERIFIED and nothing is charged; verify the number in the dashboard. Replays of an existing order are not blocked by this check.",
+    "A test key uses a separate sandbox wallet: the response carries sandbox: true, it reads the active AFA price and charges it to the sandbox wallet, nothing is registered, and a replay works the same way.",
+  ],
+}
+
+const AFA_LIST_ENDPOINT: V2Endpoint = {
+  id: "afa-orders",
+  group: "results",
+  method: "GET",
+  path: "/afa/orders",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Lists your most recent AFA registrations under the references you chose.",
+  params: [],
+  requestExample: null,
+  successExample: { success: true, data: { orders: [AFA_ORDER_EXAMPLE] }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    ...standardAccessErrors(),
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+  ],
+  notes: [
+    "Returns up to 30 registrations. Only registrations that were placed successfully are listed; a request that is still unconfirmed shows up through GET /afa/orders/{reference} instead.",
+    "Each order has the same shape as in POST /afa/register. " + COMMISSION_STATUS_NOTE,
+    "With a test key the list is your sandbox orders and the response carries sandbox: true.",
+  ],
+}
+
+const AFA_ORDER_ENDPOINT: V2Endpoint = {
+  id: "afa-order-lookup",
+  group: "results",
+  method: "GET",
+  path: "/afa/orders/{reference}",
+  keyType: "standard",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Returns one AFA registration by the reference you chose, or tells you that your request is still unconfirmed.",
+  params: [{ name: "reference", type: "string", required: true, description: "The reference you sent with POST /afa/register (path parameter)." }],
+  requestExample: null,
+  successExample: { success: true, data: { order: AFA_ORDER_EXAMPLE, claim: null }, meta: { timestamp: TS, version: "2" } },
+  errors: [{ status: 404, message: MSG_ORDER_MISSING }, ...standardAccessErrors(), { status: 500, message: MSG_SANDBOX_UNAVAILABLE }],
+  notes: standardLookupNotes("registration", "this endpoint", [
+    "fulfillment is pending until the registration has been processed, then fulfilled or failed.",
+  ]),
+}
+
+const RESULTS_SECTIONS: V2DocSection[] = [
+  {
+    id: "voucher-pins",
+    label: "Voucher PINs",
+    group: "results",
+    intro:
+      "A results checker voucher is a pin and a serial_number. The PINs are returned in the purchase response, and they can be read again later through GET /resultschecker/orders/{reference}, which returns them to the account owner only. Treat every PIN like a password: never log them or store them in plain text on your side, and do not put them in URLs or analytics events. The list endpoint never returns PINs, only orders. If you give recipient_phone or recipient_email, Datagod also sends the vouchers by SMS or email to that recipient only, as a best effort that never changes the purchase result; a message is never sent to your own account's contact details, and if you give neither, nothing is sent. A replay never re-sends an SMS or email. Test keys return obviously fake PINs that start with TEST- and cannot be used on any exam site.",
+    callouts: [
+      {
+        tone: "warning",
+        title: "PINs are secrets",
+        body: "Anyone holding a PIN can use the voucher. Pass PINs straight to your customer over a secure channel and keep only the order reference. If you need a PIN again, read it back with GET /resultschecker/orders/{reference}.",
+      },
+    ],
+    endpoints: [],
+  },
+  {
+    id: "results-idempotency",
+    label: "Idempotency and references (results checker and AFA)",
+    group: "results",
+    intro:
+      "Every results checker purchase and every AFA registration needs a reference that you choose: 3 to 100 characters, letters, digits and - _ . : only, unique to the order on your side. The reference is required. Datagod reserves it before anything is charged, and a request can end in one of four ways. A new request is charged once and returns HTTP 201. The same reference with the same request returns HTTP 200 with replayed: true and the existing order (and, for the results checker, its PINs), with no second charge. The same reference with a different request returns 409 REFERENCE_REUSED. A reference whose earlier request is not confirmed yet returns 409 REQUEST_IN_PROGRESS while it is running, or 409 OUTCOME_UNKNOWN once it has been unconfirmed for more than 10 minutes or ended without a clear result. If the reference cannot be reserved at all you get 503 and nothing was charged; retry with the same reference. Live references are unique per order type within your account (a results reference and an AFA reference can be the same string), but sandbox references are unique per account across all order types, so reusing one reference for different order types can conflict in the sandbox: use a distinct prefix per order type (for example RC- and AFA-).",
+    steps: [
+      "Create one reference per order and store it before you send the request.",
+      "On a timeout or a network error, resend the same request with the same reference: you get the existing order back, never a second charge.",
+      "On 409 REQUEST_IN_PROGRESS or 409 OUTCOME_UNKNOWN, or a 500 OUTCOME_UNKNOWN, never resend under a new reference. Poll GET /resultschecker/orders/{reference} or GET /afa/orders/{reference} and read claim.state: in_progress means it is still running, outcome_unknown means it is not confirmed.",
+      "If claim.state stays outcome_unknown, contact support quoting the reference. Support will investigate the reference you quote; do not place the order again meanwhile.",
+    ],
+    callouts: [
+      {
+        tone: "warning",
+        title: "A 404 is not proof that nothing was charged",
+        body: 'After an unknown outcome, a missing order is not a safe answer: a 404 never means "not charged". The order lookup answers HTTP 200 with order: null and claim.state for your own unconfirmed request, and a plain 404 only when the reference was never used by your account. Never place the order again under a new reference to "fix" an unknown outcome; that is how customers are charged twice.',
+      },
+    ],
+    endpoints: [],
+  },
+  {
+    id: "results-types",
+    label: "Exam boards",
+    group: "results",
+    intro: "See which exam boards are on, the unit price your account pays and the stock.",
+    endpoints: [RC_TYPES_ENDPOINT],
+  },
+  {
+    id: "results-purchase",
+    label: "Buy results checker vouchers",
+    group: "results",
+    intro: "Buy WASSCE, BECE or NOVDEC vouchers. Purchases are paid from your wallet and are safe to retry with the same reference.",
+    endpoints: [RC_PURCHASE_ENDPOINT],
+  },
+  {
+    id: "results-orders",
+    label: "Results checker orders",
+    group: "results",
+    intro: "List your orders, or look one up by reference to read its vouchers.",
+    endpoints: [RC_LIST_ENDPOINT, RC_ORDER_ENDPOINT],
+  },
+  {
+    id: "afa-registration",
+    label: "AFA registration",
+    group: "results",
+    intro: `An AFA registration needs the customer's name, phone number, Ghana Card, region and location; occupation is optional. id_type must be "Ghana Card", the only ID type accepted, and id_number must be a valid Ghana Card number in the format ${GHANA_CARD_EXAMPLE} (the letters GHA, 9 digits, a dash and 1 check digit). A date of birth is not required, and nothing about one is stored or checked. The region must be one of the 16 official regions: ${AFA_REGIONS_TEXT}. To protect your customers and your wallet, a new registration is refused with 409 DUPLICATE_REGISTRATION when a registration for the same phone number or the same Ghana Card was made on your account in the last 10 minutes and has not failed. Nothing is charged for a refused request and the reference is free again; look the earlier registration up under its original reference instead of submitting it again. The Ghana Card number is used only to register the customer and is never returned by the API.`,
+    endpoints: [],
+  },
+  {
+    id: "afa-register",
+    label: "Register for AFA",
+    group: "results",
+    intro: "Register one customer for AFA. Registrations are paid from your wallet and are safe to retry with the same reference.",
+    endpoints: [AFA_REGISTER_ENDPOINT],
+  },
+  {
+    id: "afa-orders",
+    label: "AFA registrations",
+    group: "results",
+    intro: "List your registrations, or look one up by reference to follow it to completion.",
+    endpoints: [AFA_LIST_ENDPOINT, AFA_ORDER_ENDPOINT],
+  },
+]
+
 export const v2DocsRegistry: V2DocSection[] = [
   ...START_SECTIONS,
   {
@@ -969,4 +1398,5 @@ export const v2DocsRegistry: V2DocSection[] = [
   },
   ...DATA_SECTIONS,
   ...COMMISSION_SECTIONS,
+  ...RESULTS_SECTIONS,
 ]
