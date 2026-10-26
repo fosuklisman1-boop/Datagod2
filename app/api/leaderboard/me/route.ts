@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { BOARDS, parsePeriodQuery, type Board } from "@/lib/leaderboard/periods"
 import { getMyRank } from "@/lib/leaderboard/service"
-import { getLeaderboardConfig, myRankFromResults, PAUSED_MESSAGE } from "@/lib/leaderboard/public"
+import { getLeaderboardConfig, myRankFromResults, notRankedReason, NOT_RANKED_MESSAGE, PAUSED_MESSAGE } from "@/lib/leaderboard/public"
 import { findPeriod, listResults } from "@/lib/leaderboard/admin"
 
 /**
@@ -48,6 +48,11 @@ export async function GET(request: NextRequest) {
     const config = await getLeaderboardConfig(db)
     if (config.paused) {
       return NextResponse.json({ success: true, data: { paused: true, message: PAUSED_MESSAGE } })
+    }
+    // Admins and excluded accounts are never ranked: say so instead of "no sales".
+    const notRanked = await notRankedReason(db, user.id)
+    if (notRanked) {
+      return NextResponse.json({ success: true, data: { paused: false, final: false, notRanked, message: NOT_RANKED_MESSAGE[notRanked] } })
     }
     const row = await findPeriod(db, query.kind, query.range).catch(() => null)
     if (row && row.status !== "open") {

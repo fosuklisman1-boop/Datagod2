@@ -130,6 +130,13 @@ export function isPrizeRank(v: unknown): v is PrizeRank {
   return v === 1 || v === 2 || v === 3
 }
 
+/** "MTN 10GB" from a packages row (the table has no name column; size is the GB figure, e.g. "10"). */
+export function bundleLabel(network: string | null | undefined, size: string | number | null | undefined): string {
+  const s = String(size ?? "").trim()
+  const gb = s && /^\d+(\.\d+)?$/.test(s) ? `${s}GB` : s
+  return [network?.trim(), gb].filter(Boolean).join(" ") || "Data bundle"
+}
+
 /** "GH₵50 CASH (Wallet top-up)" as on the Prizes tab. */
 export function prizeSummary(p: Pick<PrizeFields, "label" | "prize_type">): string {
   return `${p.label} (${PRIZE_TYPE_LABEL[p.prize_type]})`
