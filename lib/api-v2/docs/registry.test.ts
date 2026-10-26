@@ -1316,14 +1316,32 @@ describe("v2DocsRegistry results checker and AFA endpoints", () => {
     expect(msgs(p, 402)).toContain("INSUFFICIENT_BALANCE: wallet balance is too low; required 50.00")
     expect(msgs(p, 402)).toContain("INSUFFICIENT_BALANCE: test balance is too low; required 50.00")
     expect(msgs(p, 500)).toContain(resultsMod.MSG_RESULTS_OUTCOME_UNKNOWN)
+    // INSUFFICIENT_INVENTORY (charged, then unassigned) is an unknown outcome: 500, never 503.
+    expect(msgs(p, 500)).toContain(engineMsg(resultsErrorResponse({ code: "INSUFFICIENT_INVENTORY" })))
+    expect(msgs(p, 503).some((m) => m.includes("ran out after the wallet was charged"))).toBe(false)
     expect(msgs(p, 503)).toEqual(
       expect.arrayContaining([
         resultsMod.MSG_RESULTS_CLAIM_UNAVAILABLE,
+        resultsMod.MSG_RESULTS_PRICE_UNAVAILABLE,
         resultsMod.MSG_VOUCHERS_UNAVAILABLE,
         MSG_CATALOG_UNAVAILABLE,
-        engineMsg(resultsErrorResponse({ code: "INSUFFICIENT_INVENTORY" })),
       ])
     )
+    // VOUCHERS_UNAVAILABLE is its own code (a charged order), never the "nothing was charged" UNAVAILABLE one.
+    expect(resultsMod.MSG_VOUCHERS_UNAVAILABLE).toMatch(/^VOUCHERS_UNAVAILABLE: your order was placed and charged/)
+    const purchaseNotes = p.notes.join(" ")
+    expect(purchaseNotes).toContain("VOUCHERS_UNAVAILABLE")
+    expect(purchaseNotes).not.toMatch(/503 INSUFFICIENT_INVENTORY/)
+    expect(purchaseNotes).toMatch(/vouchers ran out after the wallet was charged is also OUTCOME_UNKNOWN/)
+    expect(purchaseNotes).toMatch(/503 whose message starts with UNAVAILABLE[^.]*nothing was charged/)
+    // No "role" pricing claims on the results docs; the max is "currently", not "by default".
+    const resultsDocs = JSON.stringify(v2DocsRegistry.filter((s) => s.group === "results"))
+    expect(resultsDocs).not.toMatch(/account's role|account role|from your role/i)
+    expect(resultsDocs).toContain("the same price applies to every account")
+    expect(resultsDocs).toMatch(/it is currently 15/)
+    expect(resultsDocs).not.toMatch(/15 by default/)
+    // The Ghana Card example is labelled a placeholder to replace.
+    expect(resultsDocs).toMatch(/PLACEHOLDER that must be replaced with a real card number/)
     expect(msgs(p, 503).some((m) => m === "WASSCE vouchers are currently unavailable")).toBe(true)
     const r = find(AFA.register)
     expect(msgs(r, 409)).toEqual(expect.arrayContaining([afaMod.MSG_AFA_IN_PROGRESS, afaMod.MSG_AFA_PRIOR_UNKNOWN, afaMod.MSG_AFA_DUPLICATE, MSG_REFERENCE_REUSED]))
@@ -1353,6 +1371,7 @@ describe("v2DocsRegistry results checker and AFA endpoints", () => {
     await run({ boardEnabled: async () => false })
     await run({ available: async () => 0 })
     await run({ phoneGate: async () => false })
+    await run({ price: async () => ({ unitPrice: 0, totalPaid: 0 }) })
     for (const code of ["INSUFFICIENT_BALANCE", "INSUFFICIENT_INVENTORY", undefined]) await run({ engine: coded(code) })
     await run({ getMaxQuantity: coded() }, rcBody, TEST)
     await run({ sandbox: { ...resultsDeps().sandbox, place: async () => ({ success: false, error: "x", status: 402 }) } }, rcBody, TEST)

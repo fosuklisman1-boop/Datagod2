@@ -1004,9 +1004,9 @@ const MSG_AFA_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier reques
 const MSG_AFA_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this registration is not confirmed yet. ${AFA_TAIL}`
 const MSG_RC_CLAIM_UNAVAILABLE = "UNAVAILABLE: could not reserve this reference; nothing was charged. Retry with the same reference"
 const MSG_VOUCHERS_UNAVAILABLE =
-  "UNAVAILABLE: the vouchers could not be read right now. Retry the same request with the same reference; do not place a new order"
-const MSG_INSUFFICIENT_INVENTORY =
-  "INSUFFICIENT_INVENTORY: Vouchers for this exam board are out of stock. Check your wallet balance and order history before retrying under a new reference."
+  "VOUCHERS_UNAVAILABLE: your order was placed and charged; its vouchers could not be read right now. Retry with the same reference or contact support; do not place a new order."
+const MSG_RC_PRICE_UNAVAILABLE = "UNAVAILABLE: the voucher price could not be confirmed; nothing was charged. Retry with the same reference"
+const MSG_INSUFFICIENT_INVENTORY = `OUTCOME_UNKNOWN: the vouchers for this exam board ran out after the wallet was charged, and a refund to the wallet was attempted. Check your wallet balance and order history. ${RC_TAIL}`
 const MSG_AFA_DUPLICATE =
   "DUPLICATE_REGISTRATION: a registration for this customer was just submitted. Look it up under its original reference; do not resubmit under a new reference"
 const MSG_PRICE_UNAVAILABLE = "PRICE_UNAVAILABLE: AFA registration is temporarily unavailable"
@@ -1069,7 +1069,7 @@ const RC_TYPES_ENDPOINT: V2Endpoint = {
   },
   errors: [...standardAccessErrors(), { status: 503, message: MSG_CATALOG_UNAVAILABLE }],
   notes: [
-    "Always returns the three boards, WASSCE, BECE and NOVDEC. price is the unit price in GHS for your account's role; you never send a price when buying.",
+    "Always returns the three boards, WASSCE, BECE and NOVDEC. price is the unit price in GHS (the same price applies to every account); you never send a price when buying.",
     "enabled: false means the board is switched off right now and a purchase for it returns 503. available is how many vouchers are in stock; a purchase for more than that returns 409 OUT_OF_STOCK.",
     "A board whose price or stock could not be read right now shows price: null, available: 0 and enabled: false. If none of the boards can be read the call returns 503.",
     "No PINs are ever shown here.",
@@ -1091,7 +1091,7 @@ const RC_PURCHASE_ENDPOINT: V2Endpoint = {
       name: "quantity",
       type: "integer",
       required: true,
-      description: `Number of vouchers, a whole number from 1 to your maximum per purchase. The maximum is set by Datagod and can change; it is ${MAX_VOUCHER_QUANTITY} by default. A number or a digits-only string.`,
+      description: `Number of vouchers, a whole number from 1 to your maximum per purchase. The maximum is set by Datagod and can change; it is currently ${MAX_VOUCHER_QUANTITY}. A number or a digits-only string.`,
     },
     { name: "reference", type: "string", required: true, description: "Your own unique id for this purchase: 3 to 100 characters, letters, digits and - _ . : only. Required: it makes retries safe." },
     { name: "recipient_phone", type: "string", required: false, description: "Ghana mobile number to receive the vouchers by SMS: 0244000001, 233244000001 or +233244000001. Leave it out to send nothing. See Voucher PINs." },
@@ -1118,6 +1118,7 @@ const RC_PURCHASE_ENDPOINT: V2Endpoint = {
     { status: 409, message: MSG_RC_PRIOR_UNKNOWN },
     { status: 409, message: "OUT_OF_STOCK: WASSCE vouchers are out of stock for this quantity; nothing was charged" },
     { status: 500, message: MSG_RC_UNKNOWN },
+    { status: 500, message: MSG_INSUFFICIENT_INVENTORY },
     { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
     { status: 500, message: MSG_SANDBOX_NOT_PLACED },
     ...standardAccessErrors(),
@@ -1125,17 +1126,18 @@ const RC_PURCHASE_ENDPOINT: V2Endpoint = {
     { status: 503, message: MSG_CATALOG_UNAVAILABLE },
     { status: 503, message: "WASSCE vouchers are currently unavailable" },
     { status: 503, message: MSG_RC_CLAIM_UNAVAILABLE },
+    { status: 503, message: MSG_RC_PRICE_UNAVAILABLE },
     { status: 503, message: MSG_VOUCHERS_UNAVAILABLE },
-    { status: 503, message: MSG_INSUFFICIENT_INVENTORY },
   ],
   notes: [
     "A new purchase returns HTTP 201 with the order, the vouchers (pin and serial_number each) and your new wallet balance. The PINs are in this response; see Voucher PINs.",
-    "Never send a price. The price is set by Datagod from your account's role; price, amount, total, status and similar fields are rejected with 400 Unexpected field.",
+    "Never send a price. The price is set by Datagod and is the same for every account; price, amount, total, status and similar fields are rejected with 400 Unexpected field.",
     "Resending the same reference with the same request is safe: it returns HTTP 200 with replayed: true and the existing order, and you are not charged a second time. The PINs are repeated to you on a replay (to the account owner only) and a replay never sends an SMS or email again. Reusing a reference for a different request returns 409 REFERENCE_REUSED.",
     "The reference is claimed before anything is charged. 409 REQUEST_IN_PROGRESS and 409 OUTCOME_UNKNOWN mean an earlier request with this reference is not confirmed yet: never place the order again under a new reference. Poll GET /resultschecker/orders/{reference} and read claim.state, or contact support quoting the reference.",
     "500 OUTCOME_UNKNOWN means this request may or may not have charged you. The reference is locked to that outcome and is never run a second time automatically. Do not retry under a new reference.",
-    "503 INSUFFICIENT_INVENTORY means the vouchers ran out after the wallet was touched. Treat it like OUTCOME_UNKNOWN: the reference stays locked, so check your wallet balance and read the reference back with GET /resultschecker/orders/{reference} before doing anything else.",
-    "409 OUT_OF_STOCK is returned before anything is charged: fewer vouchers are in stock than the quantity you asked for, so nothing was charged and the reference is free again. A board that is switched off returns 503 with nothing charged; a 503 with UNAVAILABLE for the reference also means nothing was charged, so retry with the same reference.",
+    "A 500 whose message says the vouchers ran out after the wallet was charged is also OUTCOME_UNKNOWN: the engine charged the wallet, could not assign the vouchers and attempted a refund. It is never a 503 and it does not mean nothing was charged. The reference stays locked, so check your wallet balance and read the reference back with GET /resultschecker/orders/{reference}, and never place the order again under a new reference; contact support quoting the reference.",
+    "409 OUT_OF_STOCK is returned before anything is charged: fewer vouchers are in stock than the quantity you asked for, so nothing was charged and the reference is free again. A board that is switched off returns 503 with nothing charged. A 503 whose message starts with UNAVAILABLE (could not reserve this reference, or could not confirm the voucher price) also means nothing was charged, so retry with the same reference.",
+    "A 503 VOUCHERS_UNAVAILABLE is different: your order was placed and charged, but its vouchers could not be read right now. Retry the same request with the same reference (or read it with GET /resultschecker/orders/{reference}), or contact support; never place a new order.",
     "402 means the wallet cannot cover the purchase and nothing was charged; the message states the amount required.",
     "Live purchases require the phone number on your Datagod account to be verified. Until it is, a live key gets 403 PHONE_NOT_VERIFIED and nothing is charged; verify the number in the dashboard. Replays of an existing order are not blocked by this check.",
     "A test key uses a separate sandbox wallet and returns fake vouchers with TEST- PINs: the response carries sandbox: true, no provider is contacted, no real voucher is issued and no SMS or email is sent. A replay works the same way.",
@@ -1204,7 +1206,7 @@ const AFA_REGISTER_ENDPOINT: V2Endpoint = {
     { name: "full_name", type: "string", required: true, description: "The customer's full name as on their Ghana Card: 3 to 100 characters with at least two letters." },
     { name: "phone", type: "string", required: true, description: "The customer's Ghana mobile number: 0244000001, 233244000001 or +233244000001." },
     { name: "id_type", type: "string", required: true, description: 'Must be "Ghana Card" (case-insensitive). No other ID type is accepted.' },
-    { name: "id_number", type: "string", required: true, description: `The Ghana Card number, for example ${GHANA_CARD_EXAMPLE}. The letters GHA, 9 digits, a dash and 1 check digit; a number typed without the dashes or the GHA prefix is accepted if it has exactly 10 digits.` },
+    { name: "id_number", type: "string", required: true, description: `The customer's real Ghana Card number. ${GHANA_CARD_EXAMPLE} in the examples is a PLACEHOLDER that must be replaced with a real card number: the format is accepted, so a live key that sends the placeholder is charged and the registration then fails at fulfillment. The format is the letters GHA, 9 digits, a dash and 1 check digit; a number typed without the dashes or the GHA prefix is accepted if it has exactly 10 digits.` },
     { name: "region", type: "string", required: true, description: `One of: ${AFA_REGIONS_TEXT} (case-insensitive).` },
     { name: "location", type: "string", required: true, description: "The customer's town or area: 2 to 120 characters." },
     { name: "occupation", type: "string", required: false, description: "The customer's occupation: at most 80 characters." },
@@ -1361,7 +1363,7 @@ const RESULTS_SECTIONS: V2DocSection[] = [
     id: "afa-registration",
     label: "AFA registration",
     group: "results",
-    intro: `An AFA registration needs the customer's name, phone number, Ghana Card, region and location; occupation is optional. id_type must be "Ghana Card", the only ID type accepted, and id_number must be a valid Ghana Card number in the format ${GHANA_CARD_EXAMPLE} (the letters GHA, 9 digits, a dash and 1 check digit). A date of birth is not required, and nothing about one is stored or checked. The region must be one of the 16 official regions: ${AFA_REGIONS_TEXT}. To protect your customers and your wallet, a new registration is refused with 409 DUPLICATE_REGISTRATION when a registration for the same phone number or the same Ghana Card was made on your account in the last 10 minutes and has not failed. Nothing is charged for a refused request and the reference is free again; look the earlier registration up under its original reference instead of submitting it again. The Ghana Card number is used only to register the customer and is never returned by the API.`,
+    intro: `An AFA registration needs the customer's name, phone number, Ghana Card, region and location; occupation is optional. id_type must be "Ghana Card", the only ID type accepted, and id_number must be a valid Ghana Card number in the format ${GHANA_CARD_EXAMPLE} (the letters GHA, 9 digits, a dash and 1 check digit). ${GHANA_CARD_EXAMPLE} is a placeholder used in the examples only: replace it with the customer's real card number, because the format is accepted and a live key that sends the placeholder is charged and then fails at fulfillment. A date of birth is not required, and nothing about one is stored or checked. The region must be one of the 16 official regions: ${AFA_REGIONS_TEXT}. To protect your customers and your wallet, a new registration is refused with 409 DUPLICATE_REGISTRATION when a registration for the same phone number or the same Ghana Card was made on your account in the last 10 minutes and has not failed. Nothing is charged for a refused request and the reference is free again; look the earlier registration up under its original reference instead of submitting it again. The Ghana Card number is used only to register the customer and is never returned by the API.`,
     endpoints: [],
   },
   {
