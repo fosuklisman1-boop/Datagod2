@@ -101,6 +101,7 @@ export async function GET(request: NextRequest) {
     )
 
     // can_send_hubtel: paid pending orders that pass the Send-via-Hubtel decision. Fail closed on a ledger read error.
+    // The rows come from select("*"), so they carry notes and updated_at (the dispatch grace) for the decision.
     const rows = (orders || []) as any[]
     const candidates = rows.filter(o => o.payment_status === "completed" && o.status === "pending")
     let ledger: Map<string, LedgerFact[]> | null = null

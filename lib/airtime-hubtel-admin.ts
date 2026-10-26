@@ -5,10 +5,23 @@ import type { LedgerFact } from "@/lib/bills/admin"
 const AIRTIME_ORDERS_TABLE = "airtime_orders"
 const LEDGER_CHUNK = 200
 
+/**
+ * A pending order updated more recently than this may still be mid-dispatch: wallet/Paystack airtime on Digiwapy
+ * networks stays `pending` with no ledger row and no dgwRef while Digiwapy is being called (30s timeout + retries).
+ */
+export const AIRTIME_SEND_GRACE_MS = 180_000
+/**
+ * A Digiwapy attempt whose outcome is unclear: the request was sent but timed out / aborted, or Digiwapy answered with
+ * a server error or an unparseable body. It may have been delivered. A plain "fetch failed" never opened the connection.
+ */
+const DIGIWAPY_UNCLEAR = /digiwapy error:.*(abort|timeout|timed out|http 5\d\d|unexpected token|json)/i
+const NOTES_MAX = 900
+
 export interface AirtimeSendOrder extends AirtimeOrderMinimal {
   status: string
   payment_status: string
   notes?: string | null
+  updated_at: string
 }
 
 export interface AirtimeSendDeps {
@@ -17,6 +30,8 @@ export interface AirtimeSendDeps {
   /** fulfillAirtimeViaHubtel with the real deps: true = Hubtel owns it now, false = nothing was sent. */
   send(order: AirtimeSendOrder): Promise<boolean>
   alert(message: string, urgent?: boolean): Promise<void>
+  /** Clock for the dispatch grace; defaults to Date.now. */
+  now?(): number
 }
 
 export interface AirtimeSendResult { ok: boolean; status: number; message: string; orderStatus?: string }
@@ -24,19 +39,40 @@ export interface AirtimeSendResult { ok: boolean; status: number; message: strin
 /**
  * Whether an admin may send this airtime order to Hubtel. Airtime's Hubtel failure convention returns the order
  * to 'pending', so "never sent" and "Hubtel failed it" are one case. Checked in this order:
- * paid + pending; every Hubtel attempt failed (zero rows = never sent); no refund claim; no admin-overridden
- * failure (it may have been delivered); no Digiwapy reference (Digiwapy accepted it once).
+ * paid + pending; not updated within the dispatch grace (an unparseable updated_at is refused); every Hubtel
+ * attempt failed (zero rows = never sent); no refund claim; no admin-overridden failure (it may have been
+ * delivered); no Digiwapy reference (Digiwapy accepted it once); no unclear Digiwapy attempt (timeout/5xx).
  */
 export function airtimeSendDecision(
-  order: Pick<AirtimeSendOrder, "status" | "payment_status" | "notes">,
+  order: Pick<AirtimeSendOrder, "status" | "payment_status" | "notes" | "updated_at">,
   ledger: LedgerFact[],
+  now: number = Date.now(),
 ): { ok: true } | { ok: false; reason: string } {
   if (order.payment_status !== "completed" || order.status !== "pending") return { ok: false, reason: "Only paid, pending airtime can be sent" }
-  if (ledger.some(l => l.state !== "failed")) return { ok: false, reason: "A Hubtel transaction for this order is not failed; resolve it in Hubtel Commission first" }
+  if (!(now - Date.parse(order.updated_at) >= AIRTIME_SEND_GRACE_MS)) {
+    return { ok: false, reason: "This order was updated moments ago and may still be dispatching; try again in a few minutes" }
+  }
+  if (hasLiveHubtelAttempt(ledger)) return { ok: false, reason: "A Hubtel transaction for this order is not failed; resolve it in Hubtel Commission first" }
   if (ledger.some(l => l.refund_claimed_at)) return { ok: false, reason: "A refund was already claimed for this order" }
   if (ledger.some(l => l.resolved_by)) return { ok: false, reason: "An attempt was marked failed by an admin override, not by Hubtel; it may have been delivered" }
-  if ((order.notes ?? "").includes("dgwRef:")) return { ok: false, reason: "Digiwapy already accepted this order (dgwRef); check Digiwapy before resending" }
+  const notes = order.notes ?? ""
+  if (notes.includes("dgwRef:")) return { ok: false, reason: "Digiwapy already accepted this order (dgwRef); check Digiwapy before resending" }
+  if (DIGIWAPY_UNCLEAR.test(notes)) {
+    return { ok: false, reason: "A Digiwapy attempt ended unclear (timeout/server error); it may have been delivered. Check Digiwapy before resending" }
+  }
   return { ok: true }
+}
+
+/** True when any Hubtel attempt for the order is not `failed` (live, in review, or delivered): never send elsewhere. */
+export function hasLiveHubtelAttempt(ledger: LedgerFact[]): boolean {
+  return ledger.some(l => l.state !== "failed")
+}
+
+/** A route-owned notes write that keeps the previous notes as evidence: `${next} | prev: ${prior}`, capped. */
+export function appendPriorNotes(next: string, prior: string | null | undefined): string {
+  const p = (prior ?? "").trim()
+  if (!p) return next
+  return `${next} | prev: ${p}`.slice(0, NOTES_MAX)
 }
 
 /**
@@ -65,17 +101,22 @@ export async function fetchAirtimeLedgerByOrders(db: SupabaseClient, orderIds: s
  * outcome-unknown order and owns every state change. Hubtel's one-live-transaction-per-order rule is the backstop.
  */
 export async function executeAirtimeHubtelSend(d: AirtimeSendDeps, orderId: string): Promise<AirtimeSendResult> {
-  const order = await d.getOrder(orderId)
-  if (!order) return { ok: false, status: 404, message: "Order not found" }
+  const now = () => (d.now ? d.now() : Date.now())
+  const initial = await d.getOrder(orderId)
+  if (!initial) return { ok: false, status: 404, message: "Order not found" }
   const ledgerError: AirtimeSendResult = { ok: false, status: 503, message: "Could not read the Hubtel ledger; try again" }
 
   let ledger: LedgerFact[]
   try { ledger = await d.getLedger(orderId) } catch { return ledgerError }
-  const first = airtimeSendDecision(order, ledger)
+  const first = airtimeSendDecision(initial, ledger, now())
   if (!first.ok) return { ok: false, status: 409, message: first.reason }
 
   try { ledger = await d.getLedger(orderId) } catch { return ledgerError }
-  const second = airtimeSendDecision(order, ledger)
+  // Re-read the order too: it may have been refunded, sent or re-noted since the first read.
+  let order: AirtimeSendOrder | null
+  try { order = await d.getOrder(orderId) } catch { return { ok: false, status: 503, message: "Could not re-read the order; try again" } }
+  if (!order) return { ok: false, status: 404, message: "Order not found" }
+  const second = airtimeSendDecision(order, ledger, now())
   if (!second.ok) return { ok: false, status: 409, message: second.reason }
 
   let sent: boolean

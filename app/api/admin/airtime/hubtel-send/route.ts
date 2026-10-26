@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
 import {
-  executeAirtimeHubtelSend, fetchAirtimeLedgerByOrders,
+  appendPriorNotes, executeAirtimeHubtelSend, fetchAirtimeLedgerByOrders,
   type AirtimeSendDeps, type AirtimeSendOrder,
 } from "@/lib/airtime-hubtel-admin"
 import { auditLog, errorJson, requireAdmin } from "@/lib/hubtel-cs/admin-route"
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const d: AirtimeSendDeps = {
       async getOrder(id) {
         const { data, error } = await db.from("airtime_orders")
-          .select("id, reference_code, network, beneficiary_phone, airtime_amount, status, payment_status, notes")
+          .select("id, reference_code, network, beneficiary_phone, airtime_amount, status, payment_status, notes, updated_at")
           .eq("id", id).maybeSingle()
         if (error) throw error
         if (!data) return null
@@ -41,26 +41,50 @@ export async function POST(request: NextRequest) {
       },
       async getLedger(id) { return (await fetchAirtimeLedgerByOrders(db, [id])).get(id) ?? [] },
       async send(order) {
-        auditLog(db, { adminId, action: "airtime_hubtel_send_intent", newValue: { orderId: order.id, reference: order.reference_code } })
+        auditLog(db, {
+          adminId, action: "airtime_hubtel_send_intent",
+          newValue: { orderId: order.id, reference: order.reference_code, priorNotes: order.notes ?? null },
+        })
         let rt: ReturnType<typeof getHubtelCsRuntime>
         try {
           rt = getHubtelCsRuntime()
         } catch (e: any) {
           // Nothing was sent. Record why on the order (notes only, still pending) so the "Not sent" message is accurate.
+          // The previous notes (e.g. a Digiwapy error) are kept after "| prev:" as evidence.
           console.error(`[AIRTIME-HUBTEL-SEND] Hubtel runtime unavailable for order ${order.id}:`, e?.message ?? e)
           try {
+            const { data: cur } = await db.from("airtime_orders").select("notes")
+              .eq("id", order.id).eq("status", "pending").maybeSingle()
             await db.from("airtime_orders")
-              .update({ notes: "Hubtel: not sent - Hubtel is not configured. Fulfil manually.", updated_at: new Date().toISOString() })
+              .update({
+                notes: appendPriorNotes("Hubtel: not sent - Hubtel is not configured. Fulfil manually.", cur?.notes),
+                updated_at: new Date().toISOString(),
+              })
               .eq("id", order.id).eq("status", "pending")
           } catch { /* the executor still reports Not sent */ }
           return false
         }
-        // Same wiring as triggerAirtimeFulfillment (lib/airtime-service.ts).
+        // Same wiring as triggerAirtimeFulfillment (lib/airtime-service.ts), except that a notes-only or
+        // -> processing write keeps the previous notes after "| prev:" (evidence of earlier provider attempts).
         return fulfillAirtimeViaHubtel(order, {
           purchase: input => rt.client.purchase(input),
           markOrder: async (id, patch, onlyFromStatuses) => {
+            let notes = patch.notes
+            if (patch.status === undefined || patch.status === "processing") {
+              // Best effort: a failed read must never block the state write (the order would stay pending while
+              // Hubtel owns it). The intent audit entry also holds the prior notes.
+              try {
+                let r = db.from("airtime_orders").select("notes").eq("id", id)
+                r = onlyFromStatuses ? r.in("status", onlyFromStatuses) : r.neq("status", "completed")
+                const { data: cur, error: readError } = await r.maybeSingle()
+                if (readError) throw readError
+                notes = appendPriorNotes(patch.notes, cur?.notes)
+              } catch (e: any) {
+                console.warn(`[AIRTIME-HUBTEL-SEND] could not read prior notes for order ${id}:`, e?.message ?? e)
+              }
+            }
             let q = db.from("airtime_orders")
-              .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id)
+              .update({ ...patch, notes, updated_at: new Date().toISOString() }).eq("id", id)
             if (onlyFromStatuses) {
               q = q.in("status", onlyFromStatuses)
             } else {
