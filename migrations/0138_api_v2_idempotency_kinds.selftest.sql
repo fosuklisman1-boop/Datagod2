@@ -1,13 +1,16 @@
--- 0133_api_v2_idempotency_kinds.selftest.sql
+-- 0138_api_v2_idempotency_kinds.selftest.sql
+-- NOTE: this file was first numbered 0133 and was APPLIED to production on 2026-10-26 under that
+-- number. It was renumbered to 0138 because the leaderboard feature took 0133-0137 on main. The
+-- SQL is unchanged (comments and the self-test's labels only); re-running it is a no-op.
 --
--- NOT A MIGRATION. Self-rolling-back dry run for 0133_api_v2_idempotency_kinds.sql.
+-- NOT A MIGRATION. Self-rolling-back dry run for 0138_api_v2_idempotency_kinds.sql.
 --
 -- IMPORTANT: the run string must be built by CODE, never by hand or by a
 -- regex strip, and that code must ASSERT before anything is sent to
 -- production that the run string contains no COMMIT and no bare `END;`
 -- statement, and that it ends with this DO block (which always RAISEs).
 -- (The 0130 incident lesson.) Build it as:
---   1. 0133_api_v2_idempotency_kinds.sql with BEGIN kept (and both SET LOCALs)
+--   1. 0138_api_v2_idempotency_kinds.sql with BEGIN kept (and both SET LOCALs)
 --      and ONLY its final transaction-ending line removed; the trailing
 --      "Verify after apply" comment lines may stay (they contain no SQL);
 --   2. followed by this file from the line that STARTS (column 0) with the
@@ -38,7 +41,7 @@ DECLARE
   v_user uuid;
   v_key uuid;
   v_ref text := 'selftest-' || gen_random_uuid()::text;
-  v_hash text := encode(sha256(convert_to('selftest 0133 ' || gen_random_uuid()::text, 'UTF8')), 'hex');
+  v_hash text := encode(sha256(convert_to('selftest 0138 ' || gen_random_uuid()::text, 'UTF8')), 'hex');
   v_kind text;
   v_def text;
   v_n int;
@@ -55,7 +58,7 @@ BEGIN
   END IF;
 
   INSERT INTO public.api_v2_keys (user_id, key_type, environment, status, name, key_hash, key_prefix, revoked_at)
-  VALUES (v_user, 'commission', 'test', 'revoked', 'selftest 0133',
+  VALUES (v_user, 'commission', 'test', 'revoked', 'selftest 0138',
           'selftest-' || gen_random_uuid()::text, 'selftest', now())
   RETURNING id INTO v_key;
 
@@ -120,5 +123,5 @@ BEGIN
   END LOOP;
 
   -- Always roll back. -------------------------------------------------------
-  RAISE EXCEPTION 'SELFTEST_OK 0133: all scenarios passed; rolling back';
+  RAISE EXCEPTION 'SELFTEST_OK 0138: all scenarios passed; rolling back';
 END $selftest$;

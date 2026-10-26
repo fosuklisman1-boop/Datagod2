@@ -1,4 +1,7 @@
--- 0133_api_v2_idempotency_kinds.sql
+-- 0138_api_v2_idempotency_kinds.sql
+-- NOTE: this file was first numbered 0133 and was APPLIED to production on 2026-10-26 under that
+-- number. It was renumbered to 0138 because the leaderboard feature took 0133-0137 on main. The
+-- SQL is unchanged (comments and the self-test's labels only); re-running it is a no-op.
 --
 -- Widens the claim kind of api_v2_idempotency (created in 0132) from
 -- ('airtime', 'bill') to ('airtime', 'bill', 'results', 'afa') so the
@@ -16,7 +19,7 @@
 -- One transaction; DROP + ADD happen inside it, so no insert can slip through
 -- unchecked between them.
 --
--- Self-test (self-rolling-back dry run): migrations/0133_api_v2_idempotency_kinds.selftest.sql
+-- Self-test (self-rolling-back dry run): migrations/0138_api_v2_idempotency_kinds.selftest.sql
 -- That run string must be built by CODE which asserts it contains no COMMIT
 -- and no bare END; statement (the 0130 incident lesson); see the selftest header.
 
