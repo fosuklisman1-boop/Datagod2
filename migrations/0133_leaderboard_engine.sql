@@ -22,6 +22,11 @@
 -- not read from hubtel_cs_transactions: those mirror into the order tables
 -- below, so reading them too would double count.
 --
+-- Schema differences: the view is built by leaderboard_build_sales_view(),
+-- which uses paid_amount (0119), the storefront shop_id columns (0120) and the
+-- hubtel_* order tables only where they exist. After applying 0119/0120 later,
+-- run SELECT public.leaderboard_build_sales_view(); to include them.
+--
 -- Days are Africa/Accra calendar days (UTC+0, no DST). lb_ts() is overloaded
 -- so a timestamp-without-time-zone column (stored as UTC) and a timestamptz
 -- column both become the same instant, whichever type production has.
@@ -91,90 +96,157 @@ REVOKE ALL ON public.leaderboard_daily_totals FROM anon, authenticated;
 REVOKE ALL ON public.leaderboard_exclusions   FROM anon, authenticated;
 
 -- ───────────────────────── sales events view ─────────────────────────
-CREATE OR REPLACE VIEW public.leaderboard_sales_events WITH (security_invoker = true) AS
--- Dashboard board: the user's own purchases
-SELECT 'dashboard'::text AS board, o.user_id, o.price::numeric AS amount,
+-- Built by a function because production schemas differ: paid_amount (0119),
+-- the storefront shop_id columns (0120) and the hubtel_* order tables may not
+-- all exist. Each branch uses only what is there. Re-run
+--   SELECT public.leaderboard_build_sales_view();
+-- after applying 0119/0120 (or adding any of those tables) so the view picks
+-- them up. It returns a note of what each source used.
+CREATE OR REPLACE FUNCTION public.lb_has_column(p_table text, p_column text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = p_table AND column_name = p_column
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.leaderboard_build_sales_view()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  parts  text[] := ARRAY[]::text[];
+  notes  text[] := ARRAY[]::text[];
+  amt    text;
+  t      text;
+  a      text;
+BEGIN
+  -- Dashboard board: the user's own purchases
+  parts := parts || $q$SELECT 'dashboard'::text AS board, o.user_id, o.price::numeric AS amount,
        public.lb_ts(o.created_at) AS sold_at, 'orders'::text AS source_table, o.id::text AS order_id
   FROM public.orders o
- WHERE o.status = 'completed' AND o.user_id IS NOT NULL
-UNION ALL
-SELECT 'dashboard', ao.user_id, ao.price::numeric,
+ WHERE o.status = 'completed' AND o.user_id IS NOT NULL$q$::text;
+
+  parts := parts || $q$SELECT 'dashboard', ao.user_id, ao.price::numeric,
        public.lb_ts(ao.created_at), 'api_orders', ao.id::text
   FROM public.api_orders ao
- WHERE ao.status = 'completed'
-UNION ALL
-SELECT 'dashboard', air.user_id, COALESCE(air.paid_amount, air.total_paid)::numeric,
+ WHERE ao.status = 'completed'$q$::text;
+
+  amt := CASE WHEN public.lb_has_column('airtime_orders', 'paid_amount')
+              THEN 'COALESCE(air.paid_amount, air.total_paid)' ELSE 'air.total_paid' END;
+  IF public.lb_has_column('airtime_orders', 'shop_id') THEN
+    parts := parts || format($q$SELECT 'dashboard', air.user_id, (%s)::numeric,
        public.lb_ts(air.created_at), 'airtime_orders', air.id::text
   FROM public.airtime_orders air
- WHERE air.status = 'completed' AND air.shop_id IS NULL AND air.user_id IS NOT NULL
-UNION ALL
-SELECT 'dashboard', afa.user_id, afa.amount::numeric,
+ WHERE air.status = 'completed' AND air.shop_id IS NULL AND air.user_id IS NOT NULL$q$, amt);
+    parts := parts || format($q$SELECT 'shop', us.user_id, (%s)::numeric,
+       public.lb_ts(air.created_at), 'airtime_orders', air.id::text
+  FROM public.airtime_orders air
+  JOIN public.user_shops us ON us.id = air.shop_id
+ WHERE air.status = 'completed'$q$, amt);
+    notes := notes || format('airtime_orders: %s, dashboard + shop', amt);
+  ELSE
+    parts := parts || format($q$SELECT 'dashboard', air.user_id, (%s)::numeric,
+       public.lb_ts(air.created_at), 'airtime_orders', air.id::text
+  FROM public.airtime_orders air
+ WHERE air.status = 'completed' AND air.user_id IS NOT NULL$q$, amt);
+    notes := notes || format('airtime_orders: %s, dashboard only (no shop_id)', amt);
+  END IF;
+
+  parts := parts || $q$SELECT 'dashboard', afa.user_id, afa.amount::numeric,
        public.lb_ts(afa.created_at), 'afa_orders', afa.id::text
   FROM public.afa_orders afa
- WHERE afa.status = 'completed'
-UNION ALL
-SELECT 'dashboard', rc.user_id, rc.total_paid::numeric,
+ WHERE afa.status = 'completed'$q$::text;
+
+  IF public.lb_has_column('results_checker_orders', 'shop_id') THEN
+    parts := parts || $q$SELECT 'dashboard', rc.user_id, rc.total_paid::numeric,
        public.lb_ts(rc.created_at), 'results_checker_orders', rc.id::text
   FROM public.results_checker_orders rc
- WHERE rc.status = 'completed' AND rc.shop_id IS NULL AND rc.user_id IS NOT NULL
-UNION ALL
-SELECT 'dashboard', hb.user_id, COALESCE(hb.paid_amount, hb.amount)::numeric,
-       public.lb_ts(hb.created_at), 'hubtel_bill_orders', hb.id::text
-  FROM public.hubtel_bill_orders hb
- WHERE hb.status = 'completed' AND hb.shop_id IS NULL AND hb.user_id IS NOT NULL
-UNION ALL
-SELECT 'dashboard', hd.user_id, COALESCE(hd.paid_amount, hd.amount)::numeric,
-       public.lb_ts(hd.created_at), 'hubtel_data_orders', hd.id::text
-  FROM public.hubtel_data_orders hd
- WHERE hd.status = 'completed' AND hd.shop_id IS NULL AND hd.user_id IS NOT NULL
-UNION ALL
--- sub-agent stock purchases: the sub-agent's own purchase
-SELECT 'dashboard', us.user_id, so.total_price::numeric,
+ WHERE rc.status = 'completed' AND rc.shop_id IS NULL AND rc.user_id IS NOT NULL$q$::text;
+    parts := parts || $q$SELECT 'shop', us.user_id, rc.total_paid::numeric,
+       public.lb_ts(rc.created_at), 'results_checker_orders', rc.id::text
+  FROM public.results_checker_orders rc
+  JOIN public.user_shops us ON us.id = rc.shop_id
+ WHERE rc.status = 'completed'$q$::text;
+    notes := notes || 'results_checker_orders: dashboard + shop'::text;
+  ELSE
+    parts := parts || $q$SELECT 'dashboard', rc.user_id, rc.total_paid::numeric,
+       public.lb_ts(rc.created_at), 'results_checker_orders', rc.id::text
+  FROM public.results_checker_orders rc
+ WHERE rc.status = 'completed' AND rc.user_id IS NOT NULL$q$::text;
+    notes := notes || 'results_checker_orders: dashboard only (no shop_id)'::text;
+  END IF;
+
+  -- Hubtel bills and data: optional tables, optional cashback / storefront columns
+  FOREACH t IN ARRAY ARRAY['hubtel_bill_orders', 'hubtel_data_orders'] LOOP
+    IF to_regclass('public.' || t) IS NULL THEN
+      notes := notes || format('%s: skipped (table not found)', t);
+      CONTINUE;
+    END IF;
+    a := CASE t WHEN 'hubtel_bill_orders' THEN 'hb' ELSE 'hd' END;
+    amt := CASE WHEN public.lb_has_column(t, 'paid_amount')
+                THEN format('COALESCE(%1$s.paid_amount, %1$s.amount)', a) ELSE a || '.amount' END;
+    IF public.lb_has_column(t, 'shop_id') THEN
+      parts := parts || format($q$SELECT 'dashboard', %2$s.user_id, (%3$s)::numeric,
+       public.lb_ts(%2$s.created_at), %1$L, %2$s.id::text
+  FROM public.%1$I %2$s
+ WHERE %2$s.status = 'completed' AND %2$s.shop_id IS NULL AND %2$s.user_id IS NOT NULL$q$, t, a, amt);
+      parts := parts || format($q$SELECT 'shop', us.user_id, (%3$s)::numeric,
+       public.lb_ts(%2$s.created_at), %1$L, %2$s.id::text
+  FROM public.%1$I %2$s
+  JOIN public.user_shops us ON us.id = %2$s.shop_id
+ WHERE %2$s.status = 'completed'$q$, t, a, amt);
+      notes := notes || format('%s: %s, dashboard + shop', t, amt);
+    ELSE
+      parts := parts || format($q$SELECT 'dashboard', %2$s.user_id, (%3$s)::numeric,
+       public.lb_ts(%2$s.created_at), %1$L, %2$s.id::text
+  FROM public.%1$I %2$s
+ WHERE %2$s.status = 'completed' AND %2$s.user_id IS NOT NULL$q$, t, a, amt);
+      notes := notes || format('%s: %s, dashboard only (no shop_id)', t, amt);
+    END IF;
+  END LOOP;
+
+  -- Sub-agent stock purchases: the sub-agent's own purchase
+  parts := parts || $q$SELECT 'dashboard', us.user_id, so.total_price::numeric,
        public.lb_ts(so.created_at), 'shop_orders', so.id::text
   FROM public.shop_orders so
   JOIN public.user_shops us ON us.id = so.shop_id
  WHERE so.is_stock_purchase
-   AND so.order_status = 'completed' AND so.payment_status = 'completed'
-UNION ALL
--- Shop board: customer sales, credited to the shop owner
-SELECT 'shop', us.user_id, so.total_price::numeric,
+   AND so.order_status = 'completed' AND so.payment_status = 'completed'$q$::text;
+
+  -- Shop board: customer sales, credited to the shop owner
+  parts := parts || $q$SELECT 'shop', us.user_id, so.total_price::numeric,
        public.lb_ts(so.created_at), 'shop_orders', so.id::text
   FROM public.shop_orders so
   JOIN public.user_shops us ON us.id = so.shop_id
  WHERE NOT so.is_stock_purchase
-   AND so.order_status = 'completed' AND so.payment_status = 'completed'
-UNION ALL
-SELECT 'shop', us.user_id, uso.amount::numeric,
+   AND so.order_status = 'completed' AND so.payment_status = 'completed'$q$::text;
+
+  parts := parts || $q$SELECT 'shop', us.user_id, uso.amount::numeric,
        public.lb_ts(uso.created_at), 'ussd_shop_orders', uso.id::text
   FROM public.ussd_shop_orders uso
   JOIN public.user_shops us ON us.id = uso.shop_id
- WHERE uso.order_status = 'completed' AND uso.payment_status = 'completed'
-UNION ALL
-SELECT 'shop', us.user_id, COALESCE(air.paid_amount, air.total_paid)::numeric,
-       public.lb_ts(air.created_at), 'airtime_orders', air.id::text
-  FROM public.airtime_orders air
-  JOIN public.user_shops us ON us.id = air.shop_id
- WHERE air.status = 'completed'
-UNION ALL
-SELECT 'shop', us.user_id, rc.total_paid::numeric,
-       public.lb_ts(rc.created_at), 'results_checker_orders', rc.id::text
-  FROM public.results_checker_orders rc
-  JOIN public.user_shops us ON us.id = rc.shop_id
- WHERE rc.status = 'completed'
-UNION ALL
-SELECT 'shop', us.user_id, COALESCE(hb.paid_amount, hb.amount)::numeric,
-       public.lb_ts(hb.created_at), 'hubtel_bill_orders', hb.id::text
-  FROM public.hubtel_bill_orders hb
-  JOIN public.user_shops us ON us.id = hb.shop_id
- WHERE hb.status = 'completed'
-UNION ALL
-SELECT 'shop', us.user_id, COALESCE(hd.paid_amount, hd.amount)::numeric,
-       public.lb_ts(hd.created_at), 'hubtel_data_orders', hd.id::text
-  FROM public.hubtel_data_orders hd
-  JOIN public.user_shops us ON us.id = hd.shop_id
- WHERE hd.status = 'completed';
+ WHERE uso.order_status = 'completed' AND uso.payment_status = 'completed'$q$::text;
 
-REVOKE ALL ON public.leaderboard_sales_events FROM anon, authenticated;
+  EXECUTE 'CREATE OR REPLACE VIEW public.leaderboard_sales_events WITH (security_invoker = true) AS '
+       || array_to_string(parts, E'\nUNION ALL\n');
+  EXECUTE 'REVOKE ALL ON public.leaderboard_sales_events FROM anon, authenticated';
+
+  RETURN array_to_string(notes, E'\n');
+END
+$$;
+
+REVOKE ALL ON FUNCTION public.leaderboard_build_sales_view() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.leaderboard_build_sales_view() TO service_role;
+
+SELECT public.leaderboard_build_sales_view();
+
 
 -- ───────────────────────── refresh ─────────────────────────
 -- Rebuilds [p_from, p_to] (inclusive Accra days). The advisory lock makes

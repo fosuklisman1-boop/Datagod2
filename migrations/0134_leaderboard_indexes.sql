@@ -7,6 +7,9 @@
 -- CONCURRENTLY: run statement by statement OUTSIDE a transaction (no BEGIN),
 -- after 0133 is applied. Safe to re-run; a failed CONCURRENTLY build leaves an
 -- INVALID index, drop it and run that statement again.
+--
+-- Skip the line for any table your database does not have (for example
+-- hubtel_data_orders or hubtel_bill_orders); 0133 leaves those out of the view too.
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS lb_orders_completed_idx
   ON public.orders (public.lb_ts(created_at)) WHERE status = 'completed';
