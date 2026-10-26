@@ -251,7 +251,13 @@ Each phase can ship on its own.
    - **Code:** `components/leaderboard/*`, `lib/leaderboard/public.ts`, `GET /api/leaderboard`, `GET /api/leaderboard/me`.
    - **Pause switch:** `admin_settings.leaderboard_config = { paused }`. The admin toggle comes in Phase 3.
    - **Navigation:** sidebar item with a NEW tag. The bottom bar has no "More" slot, so it isn't there. Never chosen as a landing page.
-3. **Admin setup:** period picker, rewards toggle, Prizes tab, Presets, Pause program, Exclusions, live preview.
+3. **Admin setup (built 2026-10-26):** `/admin/leaderboard`.
+   - **Migration:** `migrations/0135_leaderboard_rewards.sql`, which adds periods, prizes and presets plus the `leaderboard_period_ensure` / `leaderboard_prize_set` / `leaderboard_prize_cancel` RPCs. Local test: `migrations/tests/0135_leaderboard_rewards_local_test.sql`.
+   - **Admin page:** Pause program, period type and period picker (including upcoming periods), "Give prizes" switch per period, and tabs Prizes / Live standings / Presets / Exclusions.
+   - **Admin API:** routes under `/api/admin/leaderboard/*`. Every write goes to `admin_audit_log`.
+   - **User page:** shows the reward line and prize labels on the podium when prizes are on. This degrades to no prizes if 0135 isn't applied yet.
+   - **Navigation:** admin sidebar link with a NEW tag.
+   - **Not yet built:** Close and Delivery tabs (Phases 4–5). The Results tab arrives with Close; until then Live standings stands in for it.
 4. **Close & Results:** close and close-no-reward flows, frozen results, past-winner view on the user page, winner notifications.
 5. **Delivery:** wallet, data, airtime, manual, and role upgrade with the `user_role_grants` expiry cron.
 6. **Custom competitions:** admin CRUD, user-side chips, published/unpublished handling.

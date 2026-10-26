@@ -134,6 +134,36 @@ export function refreshWindow(now: Date): DayRange {
   return { start: addDays(today, nightly ? -7 : -1), end: today }
 }
 
+const PICKER_SPAN: Record<PeriodKind, { back: number; ahead: number }> = {
+  daily: { back: 14, ahead: 1 },
+  weekly: { back: 8, ahead: 1 },
+  monthly: { back: 12, ahead: 2 },
+  yearly: { back: 2, ahead: 1 },
+}
+
+/** Admin period picker: upcoming periods first (prizes can be set ahead), then current, then past. Each value is the period's start day. */
+export function adminPeriodOptions(kind: PeriodKind, now: Date): { anchor: string; label: string; current: boolean }[] {
+  const today = accraDay(now)
+  const { back, ahead } = PICKER_SPAN[kind]
+  const options: { anchor: string; label: string; current: boolean }[] = []
+  for (let delta = ahead; delta >= -back; delta--) {
+    const anchor = shiftPeriod(kind, today, delta)
+    options.push({ anchor, label: periodLabel(kind, periodRange(kind, anchor)), current: delta === 0 })
+  }
+  return options
+}
+
+/** Like parsePeriodQuery, but also accepts the upcoming periods the admin picker offers. */
+export function parseAdminPeriod(kind: unknown, anchor: unknown, now: Date): { kind: PeriodKind; range: DayRange } | null {
+  if (typeof kind !== "string" || !(PERIOD_KINDS as readonly string[]).includes(kind)) return null
+  const k = kind as PeriodKind
+  const today = accraDay(now)
+  const day = anchor === undefined || anchor === null || anchor === "" ? today : anchor
+  const latest = shiftPeriod(k, today, PICKER_SPAN[k].ahead)
+  if (!isDay(day) || day < "2020-01-01" || day > periodRange(k, latest).end) return null
+  return { kind: k, range: periodRange(k, day) }
+}
+
 /** Splits [start, end] into calendar-month chunks (the refresh RPC caps a call at 93 days). */
 export function monthChunks(range: DayRange): DayRange[] {
   const chunks: DayRange[] = []

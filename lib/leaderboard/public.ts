@@ -85,6 +85,29 @@ export function toPublicBoard(board: Leaderboard, viewerId: string): PublicBoard
   }
 }
 
+/** Prize labels by board and rank, only when the period has prizes switched on. */
+export type PublicRewards = Record<Board, Partial<Record<1 | 2 | 3, string>>>
+
+export function publicRewards(
+  period: { rewards_enabled: boolean } | null,
+  prizes: { board: Board; rank: number; label: string; status: string }[],
+): PublicRewards | null {
+  if (!period?.rewards_enabled) return null
+  const out: PublicRewards = { dashboard: {}, shop: {} }
+  let any = false
+  for (const p of prizes) {
+    if (p.status !== "active" || (p.rank !== 1 && p.rank !== 2 && p.rank !== 3)) continue
+    out[p.board][p.rank] = p.label
+    any = true
+  }
+  return any ? out : null
+}
+
+export function rewardLine(kind: PeriodKind): string {
+  const every = { daily: "every day", weekly: "every week", monthly: "every month", yearly: "every year" }[kind]
+  return `The top 3 sellers in each category win a reward ${every}.`
+}
+
 export interface PeriodView {
   kind: PeriodKind
   range: DayRange

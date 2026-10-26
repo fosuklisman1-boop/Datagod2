@@ -40,6 +40,7 @@ import {
   BookOpen,
   Send,
   MessageSquare,
+  Trophy,
   Globe,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -585,6 +586,33 @@ export function Sidebar() {
                     </span>
                   )}
                   {!isOpen && isNew("/admin/sms") && <NewTag compact />}
+                </Button>
+              </Link>
+
+              <Link href="/admin/leaderboard" onClick={() => { markClicked("/admin/leaderboard"); handleNavigation("/admin/leaderboard") }}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "relative w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/leaderboard" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/leaderboard" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Leaderboard Rewards" : undefined}
+                  disabled={loadingPath === "/admin/leaderboard"}
+                >
+                  {loadingPath === "/admin/leaderboard" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Trophy className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">Leaderboard Rewards</span>
+                      {isNew("/admin/leaderboard") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/leaderboard") && <NewTag compact />}
                 </Button>
               </Link>
 

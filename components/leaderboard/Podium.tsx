@@ -2,6 +2,7 @@
 
 import { Award, Crown, Medal, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Gift } from "lucide-react"
 import { formatCedis, type PublicEntry } from "@/lib/leaderboard/public"
 
 interface Step {
@@ -37,7 +38,7 @@ const STEPS: Step[] = [
   },
 ]
 
-export function Podium({ entries }: { entries: PublicEntry[] }) {
+export function Podium({ entries, prizes }: { entries: PublicEntry[]; prizes?: Partial<Record<1 | 2 | 3, string>> }) {
   const byRank = new Map(entries.filter((e) => e.rank <= 3).map((e) => [e.rank, e]))
 
   return (
@@ -72,6 +73,17 @@ export function Podium({ entries }: { entries: PublicEntry[] }) {
                 <span className="mt-2 text-xs">Open spot</span>
               )}
             </div>
+            {prizes && (
+              // Same height on every step so the podium stays bottom-aligned.
+              <span className="flex h-8 w-full items-start justify-center gap-1 text-center text-[11px] font-semibold leading-tight text-foreground sm:text-xs">
+                {prizes[step.rank] && (
+                  <>
+                    <Gift className="mt-px h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+                    <span className="line-clamp-2">{prizes[step.rank]}</span>
+                  </>
+                )}
+              </span>
+            )}
           </div>
         )
       })}

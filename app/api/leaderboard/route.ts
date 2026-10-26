@@ -1,14 +1,16 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
-import { parsePeriodQuery, type DayRange } from "@/lib/leaderboard/periods"
+import { parsePeriodQuery, type DayRange, type PeriodKind } from "@/lib/leaderboard/periods"
 import { getLeaderboard, type Leaderboard } from "@/lib/leaderboard/service"
-import { getLeaderboardConfig, periodView, toPublicBoard, PAUSED_MESSAGE } from "@/lib/leaderboard/public"
+import { getLeaderboardConfig, periodView, publicRewards, toPublicBoard, PAUSED_MESSAGE, type PublicRewards } from "@/lib/leaderboard/public"
+import { findPeriod, listPrizes } from "@/lib/leaderboard/admin"
 
 /**
  * Top performers for one period, both boards.
  *   GET ?kind=daily|weekly|monthly|yearly&anchor=YYYY-MM-DD (anchor optional = current period)
- *   -> { success, data: { paused: false, period, boards: { dashboard, shop } } }
+ *   -> { success, data: { paused: false, period, boards: { dashboard, shop }, rewards } }
+ *      rewards: prize labels by board/rank, or null when the period has no prizes on
  *   -> { success, data: { paused: true, message } } while the admin has paused the program
  * Signed-in users only; identity comes from the Bearer token. Names are masked and
  * user ids never leave the server (the viewer's own row is flagged isMe).
@@ -26,18 +28,27 @@ function serviceClient() {
 const LIVE_TTL_MS = 60 * 1000
 const ENDED_TTL_MS = 10 * 60 * 1000
 const MAX_CACHED = 60
-const cache = new Map<string, { expires: number; boards: { dashboard: Leaderboard; shop: Leaderboard } }>()
+const cache = new Map<string, { expires: number; boards: { dashboard: Leaderboard; shop: Leaderboard }; rewards: PublicRewards | null }>()
 
-async function loadBoards(db: ReturnType<typeof serviceClient>, range: DayRange, ended: boolean) {
-  const key = `${range.start}:${range.end}`
+async function loadBoards(db: ReturnType<typeof serviceClient>, kind: PeriodKind, range: DayRange, ended: boolean) {
+  const key = `${kind}:${range.start}:${range.end}`
   const hit = cache.get(key)
-  if (hit && hit.expires > Date.now()) return hit.boards
+  if (hit && hit.expires > Date.now()) return hit
 
-  const [dashboard, shop] = await Promise.all([getLeaderboard(db, "dashboard", range), getLeaderboard(db, "shop", range)])
-  const boards = { dashboard, shop }
+  const [dashboard, shop, row] = await Promise.all([
+    getLeaderboard(db, "dashboard", range),
+    getLeaderboard(db, "shop", range),
+    // Prizes are optional on this page: if they can't be read (e.g. before
+    // migration 0135 is applied) the rankings still load, without rewards.
+    findPeriod(db, kind, range).catch((e) => { console.warn("[/api/leaderboard] period lookup failed:", e?.message ?? e); return null }),
+  ])
+  const rewards = row?.rewards_enabled
+    ? publicRewards(row, await listPrizes(db, row.id).catch((e) => { console.warn("[/api/leaderboard] prizes lookup failed:", e?.message ?? e); return [] }))
+    : null
+  const entry = { expires: Date.now() + (ended ? ENDED_TTL_MS : LIVE_TTL_MS), boards: { dashboard, shop }, rewards }
   if (cache.size >= MAX_CACHED) cache.delete(cache.keys().next().value as string)
-  cache.set(key, { expires: Date.now() + (ended ? ENDED_TTL_MS : LIVE_TTL_MS), boards })
-  return boards
+  cache.set(key, entry)
+  return entry
 }
 
 export async function GET(request: NextRequest) {
@@ -70,13 +81,14 @@ export async function GET(request: NextRequest) {
     }
 
     const period = periodView(query.kind, query.range, now)
-    const boards = await loadBoards(db, query.range, period.ended)
+    const { boards, rewards } = await loadBoards(db, query.kind, query.range, period.ended)
     return NextResponse.json({
       success: true,
       data: {
         paused: false,
         period,
         boards: { dashboard: toPublicBoard(boards.dashboard, user.id), shop: toPublicBoard(boards.shop, user.id) },
+        rewards,
       },
     })
   } catch (error) {

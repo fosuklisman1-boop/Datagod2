@@ -17,11 +17,13 @@ interface Props {
   board: Board
   data: PublicBoard
   period: PeriodView
+  /** Prize label per podium rank when the period has prizes on. */
+  prizes?: Partial<Record<1 | 2 | 3, string>>
   refreshing: boolean
   onRefresh: () => void
 }
 
-export function BoardCard({ board, data, period, refreshing, onRefresh }: Props) {
+export function BoardCard({ board, data, period, prizes, refreshing, onRefresh }: Props) {
   const [rankOpen, setRankOpen] = useState(false)
   const copy = BOARD_COPY[board]
   const { icon: Icon, tile } = ICONS[board]
@@ -67,7 +69,7 @@ export function BoardCard({ board, data, period, refreshing, onRefresh }: Props)
         </div>
       ) : (
         <>
-          <Podium entries={data.entries} />
+          <Podium entries={data.entries} prizes={prizes} />
           {rest.length > 0 && (
             <ol className="clay-inset space-y-1 rounded-3xl p-2 sm:p-3">
               {rest.map((e) => (

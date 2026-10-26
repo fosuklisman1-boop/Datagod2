@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { resolveLeaderboardConfig, toPublicBoard, periodView, headerTitle, countingRule, formatCedis } from "./public"
+import { resolveLeaderboardConfig, toPublicBoard, periodView, headerTitle, countingRule, formatCedis, publicRewards, rewardLine } from "./public"
 import { periodRange } from "./periods"
 
 describe("resolveLeaderboardConfig", () => {
@@ -43,6 +43,23 @@ describe("periodView", () => {
   it("lets a past period step forward and marks it ended", () => {
     const v = periodView("weekly", periodRange("weekly", "2026-10-14"), now)
     expect(v).toMatchObject({ ended: true, timeLeft: null, prevAnchor: "2026-10-05", nextAnchor: "2026-10-19" })
+  })
+})
+
+describe("publicRewards", () => {
+  const prizes = [
+    { board: "dashboard" as const, rank: 1, label: "GH₵50 Cash", status: "active" },
+    { board: "dashboard" as const, rank: 2, label: "Old", status: "cancelled" },
+    { board: "shop" as const, rank: 3, label: "10GB MTN", status: "active" },
+  ]
+  it("shows active prizes only when rewards are on", () => {
+    expect(publicRewards({ rewards_enabled: true }, prizes)).toEqual({ dashboard: { 1: "GH₵50 Cash" }, shop: { 3: "10GB MTN" } })
+    expect(publicRewards({ rewards_enabled: false }, prizes)).toBeNull()
+    expect(publicRewards(null, prizes)).toBeNull()
+    expect(publicRewards({ rewards_enabled: true }, [prizes[1]])).toBeNull()
+  })
+  it("words the reward line per period", () => {
+    expect(rewardLine("monthly")).toBe("The top 3 sellers in each category win a reward every month.")
   })
 })
 
