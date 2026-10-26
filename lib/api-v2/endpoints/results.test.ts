@@ -289,6 +289,8 @@ describe("POST /resultschecker/purchase (live): new purchase", () => {
     expect(deps.alert.mock.calls[0][0]).toContain("user-1")
     expect(deps.alert.mock.calls[0][0]).toContain("RC-001")
     expect(deps.alert.mock.calls[0][0]).toContain("results")
+    // the engine order code is in the alert so admins can find the order (no PIN/serial/phone/email)
+    expect(deps.alert.mock.calls[0][0]).toContain("RC-AAA-BBB")
     noSecretsAnywhere(spies, deps)
   })
 
@@ -378,7 +380,13 @@ describe("POST /resultschecker/purchase: claim outcomes", () => {
     expect((await purchaseResultsHandler(c.deps)(body(), LIVE)).status).toBe(503)
     const d = await completedTable()
     d.deps.readVouchers.mockResolvedValue([])
-    expect((await purchaseResultsHandler(d.deps)(body(), LIVE)).status).toBe(503)
+    const dr = await purchaseResultsHandler(d.deps)(body(), LIVE)
+    expect(dr.status).toBe(503)
+    // A charged order: its own code, never the "nothing was charged" UNAVAILABLE wording.
+    expect(dr.error?.message).toMatch(/^VOUCHERS_UNAVAILABLE: your order was placed and charged;/)
+    expect(dr.error?.message).toContain("do not place a new order")
+    expect(dr.error?.message).not.toMatch(/^UNAVAILABLE/)
+    expect(dr.error?.message).not.toContain("nothing was charged")
   })
 
   it("conflict (same reference, different content) => 409 REFERENCE_REUSED, nothing else runs", async () => {
@@ -490,6 +498,28 @@ describe("POST /resultschecker/purchase: gates release the claim and never reach
     }
   })
 
+  it("an unreadable / zero price (the engine would charge 0) => release + 503 UNAVAILABLE, nothing charged, no engine", async () => {
+    const bad: Array<() => Promise<any>> = [
+      () => Promise.resolve({ unitPrice: 0, totalPaid: 0 }),
+      () => Promise.resolve({ unitPrice: 20, totalPaid: 0 }),
+      () => Promise.resolve({ unitPrice: Number.NaN, totalPaid: Number.NaN }),
+      () => Promise.resolve({ unitPrice: 20, totalPaid: -5 }),
+      () => Promise.resolve(undefined),
+      () => Promise.reject(new Error("db")),
+    ]
+    for (const mk of bad) {
+      const { deps, table } = makeDeps()
+      deps.price.mockImplementation(mk as any)
+      const r = await purchaseResultsHandler(deps)(body(), LIVE)
+      expect(r.status).toBe(503)
+      expect(r.error?.message).toMatch(/^UNAVAILABLE: .*nothing was charged/)
+      expect(deps.price).toHaveBeenCalledWith("WASSCE", 2)
+      expect(deps.release).toHaveBeenCalledWith("claim-1", "user-1")
+      expect(deps.engine).not.toHaveBeenCalled()
+      expect(table.rows.size).toBe(0)
+    }
+  })
+
   it("max quantity read failing => 503 before any claim", async () => {
     for (const mk of [() => Promise.reject(new Error("db")), () => Promise.resolve(Number.NaN), () => Promise.resolve(0)]) {
       const { deps } = makeDeps()
@@ -524,14 +554,21 @@ describe("POST /resultschecker/purchase: engine error classification", () => {
     expect(r.error?.message).toBe("INSUFFICIENT_BALANCE: wallet balance is too low")
   })
 
-  it("INSUFFICIENT_INVENTORY marks unknown + alerts, never releases, 503 wording", async () => {
+  it("INSUFFICIENT_INVENTORY marks unknown + alerts, never releases, answers 500 OUTCOME_UNKNOWN (never 503)", async () => {
     const spies = logSpies()
     const { deps, table } = makeDeps()
     deps.engine.mockRejectedValueOnce(engineError("INSUFFICIENT_INVENTORY"))
     const r = await purchaseResultsHandler(deps)(body(), LIVE)
-    expect(r.status).toBe(503)
-    expect(r.error?.message).toMatch(/^INSUFFICIENT_INVENTORY:/)
-    expect(r.error?.message).toContain("Check your wallet balance")
+    expect(r.status).toBe(500)
+    const msg = r.error?.message ?? ""
+    expect(msg).toMatch(/^OUTCOME_UNKNOWN:/)
+    expect(msg).toContain("ran out after the wallet was charged")
+    expect(msg).toContain("refund")
+    expect(msg).toContain("Check your wallet balance and order history")
+    expect(msg).toContain("contact support quoting the reference")
+    // "new reference" only ever appears in a "do not" sentence
+    for (const m of msg.matchAll(/new reference/g)) expect(msg.slice(Math.max(0, m.index! - 60), m.index!)).toMatch(/Do not place this order again under a$|Do not[^.]*$/)
+    expect(msg).not.toMatch(/retrying under a new reference/)
     expect(deps.release).not.toHaveBeenCalled()
     expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1")
     expect(deps.alert).toHaveBeenCalledTimes(1)
@@ -772,7 +809,9 @@ describe("GET /resultschecker/orders/{reference}", () => {
     const b = makeDeps()
     b.deps.getClaim.mockResolvedValue(done)
     b.deps.readVouchers.mockResolvedValue(null)
-    expect((await resultsOrderHandler(b.deps)("RC-001", LIVE)).status).toBe(503)
+    const br = await resultsOrderHandler(b.deps)("RC-001", LIVE)
+    expect(br.status).toBe(503)
+    expect(br.error?.message).toMatch(/^VOUCHERS_UNAVAILABLE:/)
   })
 
   it("own in_progress / unknown claim => 200 { order: null, claim } with no vouchers and no reads", async () => {
@@ -920,6 +959,21 @@ describe("sandbox (test key)", () => {
     const conflict = await purchaseResultsHandler(deps)(body({ quantity: 3 }), TEST)
     expect(conflict.status).toBe(409)
     liveDepsUntouched(deps)
+  })
+
+  it("same reference with a changed recipient phone or email => 409 (like live); identical recipients replay", async () => {
+    const { deps } = makeDeps()
+    Object.assign(deps.sandbox, sandboxStore())
+    const first = await purchaseResultsHandler(deps)(body({ recipient_phone: PHONE }), TEST)
+    expect(first.status).toBe(201)
+    expect((await purchaseResultsHandler(deps)(body({ recipient_phone: PHONE }), TEST)).status).toBe(200)
+    expect((await purchaseResultsHandler(deps)(body({ recipient_phone: "0249990902" }), TEST)).status).toBe(409)
+    expect((await purchaseResultsHandler(deps)(body(), TEST)).status).toBe(409)
+    expect((await purchaseResultsHandler(deps)(body({ recipient_phone: PHONE, recipient_email: EMAIL }), TEST)).status).toBe(409)
+    // the contacts are never stored in the sandbox order
+    const placed = JSON.stringify(deps.sandbox.place.mock.calls)
+    expect(placed).not.toContain(PHONE)
+    expect(placed).not.toContain(EMAIL)
   })
 
   it("different references get different fake PINs", async () => {

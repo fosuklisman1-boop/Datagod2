@@ -520,7 +520,15 @@ describe("resultsErrorResponse / afaErrorResponse", () => {
     expect(bal.message).not.toContain("db host")
     expect(resultsErrorResponse({ code: "INSUFFICIENT_BALANCE" })).toMatchObject({ status: 402, code: "INSUFFICIENT_BALANCE" })
     expect("required" in resultsErrorResponse({ code: "INSUFFICIENT_BALANCE" })).toBe(false)
-    expect(resultsErrorResponse({ code: "INSUFFICIENT_INVENTORY" })).toMatchObject({ status: 503, code: "INSUFFICIENT_INVENTORY" })
+    // Charged-then-unassigned: an unknown outcome (500), never a 503 "switched off / nothing charged".
+    const inv = resultsErrorResponse({ code: "INSUFFICIENT_INVENTORY" })
+    expect(inv).toMatchObject({ status: 500, code: "OUTCOME_UNKNOWN" })
+    expect(inv.message).toContain("ran out after the wallet was charged")
+    expect(inv.message).toContain("refund")
+    expect(inv.message).toContain("Check your wallet balance and order history")
+    expect(inv.message).toContain("Do not place this order again under a new reference")
+    expect(inv.message).toContain("contact support quoting the reference")
+    expect(inv.message).not.toMatch(/retrying under a new reference/)
     for (const e of [new Error("Failed to create order. Wallet refunded."), null, undefined, "boom", { code: 5 }, {}]) {
       expect(resultsErrorResponse(e)).toMatchObject({ status: 500, code: "INTERNAL_ERROR" })
     }

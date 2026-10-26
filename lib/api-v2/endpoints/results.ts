@@ -39,6 +39,7 @@ import {
   classifyResultsError,
   mapResultsOrder,
   mapVoucher,
+  RESULTS_PENDING_TAIL,
   parseResultsBody,
   resultsErrorResponse,
   resultsHash,
@@ -161,15 +162,17 @@ export const RESULTS_LIST_LIMIT = 30
 export const SANDBOX_MAX_QUANTITY = 15
 
 export const MSG_RESULTS_NOT_FOUND = "Order not found"
-const PENDING_TAIL =
-  "Do not place this order again under a new reference. Poll GET /resultschecker/orders/{reference}, whose claim.state reports it, or contact support quoting the reference"
+const PENDING_TAIL = RESULTS_PENDING_TAIL
 export const MSG_RESULTS_IN_PROGRESS = `REQUEST_IN_PROGRESS: a request with this reference is still being processed; its outcome is not confirmed yet. ${PENDING_TAIL}`
 export const MSG_RESULTS_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is not confirmed yet. ${PENDING_TAIL}`
 export const MSG_RESULTS_OUTCOME_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this purchase is not confirmed yet. ${PENDING_TAIL}`
 export const MSG_RESULTS_CLAIM_UNAVAILABLE =
   "UNAVAILABLE: could not reserve this reference; nothing was charged. Retry with the same reference"
+// A CHARGED, completed order whose vouchers cannot be read: its own code, never "nothing was charged".
 export const MSG_VOUCHERS_UNAVAILABLE =
-  "UNAVAILABLE: the vouchers could not be read right now. Retry the same request with the same reference; do not place a new order"
+  "VOUCHERS_UNAVAILABLE: your order was placed and charged; its vouchers could not be read right now. Retry with the same reference or contact support; do not place a new order."
+export const MSG_RESULTS_PRICE_UNAVAILABLE =
+  "UNAVAILABLE: the voucher price could not be confirmed; nothing was charged. Retry with the same reference"
 export const MSG_RESULTS_SANDBOX_UNAVAILABLE = "Sandbox is temporarily unavailable"
 export const MSG_RESULTS_SANDBOX_FAILED = "Order could not be placed"
 
@@ -251,7 +254,7 @@ async function markAmbiguous(deps: ResultsDeps, claimId: string, ctx: V2Context,
   await safeMarkUnknown(deps, claimId, ctx.userId, orderRef)
   await safeAlert(
     deps,
-    `Results API outcome uncertain: claim ${reference}, user ${ctx.userId} (results). Check the wallet and the results order before anything is resent.`
+    `Results API outcome uncertain: claim ${reference}, user ${ctx.userId} (results)${orderRef ? `, order ${orderRef}` : ""}. Check the wallet and the results order before anything is resent.`
   )
 }
 
@@ -378,6 +381,17 @@ async function livePurchase(deps: ResultsDeps, input: ResultsInput, ctx: V2Conte
     return unavailable(`OUT_OF_STOCK: ${input.board} vouchers are out of stock for this quantity; nothing was charged`, 409)
   }
 
+  // 3b. The engine swallows settings read errors and would charge a price of 0: require a
+  //     real, finite, positive price BEFORE the engine is reached (nothing is charged yet).
+  try {
+    const p = await deps.price(input.board, input.quantity)
+    const unit = Number(p?.unitPrice)
+    const total = Number(p?.totalPaid)
+    if (!Number.isFinite(unit) || !Number.isFinite(total) || unit <= 0 || total <= 0) throw new Error("bad price")
+  } catch {
+    return unavailable(MSG_RESULTS_PRICE_UNAVAILABLE)
+  }
+
   // 4. Account phone gate (fail closed).
   if (!(await gateOk(deps, ctx.userId))) return unavailable(MSG_PHONE_GATE, 403)
 
@@ -483,7 +497,9 @@ function sandboxResponse(prior: ResultsSandboxOrder): Record<string, unknown> {
 function sandboxMatches(input: ResultsInput, prior: ResultsSandboxOrder): boolean {
   if (prior.action !== "results_checker") return false
   const r = sandboxResponse(prior)
-  return r.exam_board === input.board && Number(r.quantity) === input.quantity
+  // Board, quantity AND recipients, like live: the recipients are compared through the request
+  // hash only (the contacts themselves are never stored in the sandbox order).
+  return r.exam_board === input.board && Number(r.quantity) === input.quantity && r.request_hash === resultsHash(input)
 }
 
 /** Fake vouchers derived only from the stored order, so replay and lookup agree. */
@@ -529,7 +545,13 @@ async function sandboxPurchase(deps: ResultsDeps, input: ResultsInput, ctx: V2Co
     reference: input.reference,
     request: { exam_board: input.board, quantity: input.quantity, reference: input.reference },
     price: totalPaid,
-    orderFields: { exam_board: input.board, quantity: input.quantity, unit_price: unitPrice, total_paid: totalPaid },
+    orderFields: {
+      exam_board: input.board,
+      quantity: input.quantity,
+      unit_price: unitPrice,
+      total_paid: totalPaid,
+      request_hash: resultsHash(input),
+    },
     instant: true,
   })
   if (!placed.success) {

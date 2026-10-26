@@ -397,6 +397,10 @@ function insufficient(err: { required?: unknown }): ErrorResponse {
   }
 }
 
+/** The shared tail of every pending-outcome message for the results endpoints. */
+export const RESULTS_PENDING_TAIL =
+  "Do not place this order again under a new reference. Poll GET /resultschecker/orders/{reference}, whose claim.state reports it, or contact support quoting the reference"
+
 /** Fixed messages; engine text is never forwarded. */
 export function resultsErrorResponse(e: unknown): ErrorResponse {
   const err = errParts(e)
@@ -404,11 +408,13 @@ export function resultsErrorResponse(e: unknown): ErrorResponse {
     case "INSUFFICIENT_BALANCE":
       return insufficient(err)
     case "INSUFFICIENT_INVENTORY":
+      // The engine debits first, fails to assign, then credits back unchecked: the outcome is
+      // UNKNOWN, not "nothing charged". Never 503 (reads as switched off) and never an invitation
+      // to retry under a new reference (a double purchase).
       return {
-        status: 503,
-        code: "INSUFFICIENT_INVENTORY",
-        message:
-          "Vouchers for this exam board are out of stock. Check your wallet balance and order history before retrying under a new reference.",
+        status: 500,
+        code: "OUTCOME_UNKNOWN",
+        message: `the vouchers for this exam board ran out after the wallet was charged, and a refund to the wallet was attempted. Check your wallet balance and order history. ${RESULTS_PENDING_TAIL}`,
       }
     default:
       return { status: 500, code: "INTERNAL_ERROR", message: "Failed to purchase results checker vouchers" }
