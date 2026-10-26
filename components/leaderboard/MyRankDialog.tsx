@@ -20,6 +20,7 @@ interface Props {
 export function MyRankDialog({ open, onOpenChange, board, kind, anchor, periodLabel }: Props) {
   const [rank, setRank] = useState<MyRank | null>(null)
   const [error, setError] = useState("")
+  const [info, setInfo] = useState("")
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -27,12 +28,14 @@ export function MyRankDialog({ open, onOpenChange, board, kind, anchor, periodLa
     let cancelled = false
     setLoading(true)
     setError("")
+    setInfo("")
     setRank(null)
     const qs = new URLSearchParams({ board, kind, anchor })
-    leaderboardFetch<{ paused: boolean; message?: string; rank?: MyRank }>(`/api/leaderboard/me?${qs}`).then((res) => {
+    leaderboardFetch<{ paused: boolean; message?: string; notRanked?: string; rank?: MyRank }>(`/api/leaderboard/me?${qs}`).then((res) => {
       if (cancelled) return
       setLoading(false)
       if (!res.ok) setError(res.error)
+      else if (res.data.notRanked) setInfo(res.data.message ?? "This account is not ranked.")
       else if (res.data.paused || !res.data.rank) setError(res.data.message ?? "Rank unavailable right now.")
       else setRank(res.data.rank)
     })
@@ -51,6 +54,7 @@ export function MyRankDialog({ open, onOpenChange, board, kind, anchor, periodLa
           <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         )}
         {error && <p className="py-4 text-sm text-destructive">{error}</p>}
+        {info && <p className="clay-inset rounded-3xl p-4 text-sm text-muted-foreground">{info}</p>}
 
         {rank && (
           <div className="space-y-4">

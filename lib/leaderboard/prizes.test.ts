@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { validatePrize, validatePresetName, prizeSummary, missingPrizes, defaultPrizeLabel, isPrizeRank } from "./prizes"
+import { validatePrize, validatePresetName, prizeSummary, missingPrizes, defaultPrizeLabel, isPrizeRank, bundleLabel } from "./prizes"
 import { adminPeriodOptions, parseAdminPeriod } from "./periods"
 
 const PKG = "6f9619ff-8b86-4d11-b42d-00c04fc964ff"
@@ -54,6 +54,15 @@ describe("labels", () => {
   it("defaults sensibly", () => {
     expect(defaultPrizeLabel({ prize_type: "wallet_topup", amount: 1500, package_id: null, network: null, role: null, duration_days: null })).toBe("GH₵1,500 Cash")
     expect(defaultPrizeLabel({ prize_type: "data_bundle", amount: null, package_id: PKG, network: null, role: null, duration_days: null })).toBe("Data bundle")
+  })
+})
+
+describe("bundleLabel", () => {
+  it("builds the label from network and size, as packages has no name", () => {
+    expect(bundleLabel("MTN", "10")).toBe("MTN 10GB")
+    expect(bundleLabel("Telecel", 1.5)).toBe("Telecel 1.5GB")
+    expect(bundleLabel("AT - iShare", "500MB")).toBe("AT - iShare 500MB")
+    expect(bundleLabel(null, null)).toBe("Data bundle")
   })
 })
 
