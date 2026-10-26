@@ -11,19 +11,25 @@ describe("executeBundleRetry", () => {
   })
   const failedRow = (o: Partial<LedgerFact> = {}): LedgerFact => ({ client_reference: "RX", state: "failed", refund_claimed_at: null, resolved_by: null, created_at: "", ...o })
 
-  function makeRetry(o: { order?: BundleRetryOrder | null; ledger?: () => Promise<LedgerFact[]>; reopen?: number; revert?: number; sent?: string } = {}) {
+  function makeRetry(o: {
+    order?: BundleRetryOrder | null; ledger?: () => Promise<LedgerFact[]>; reopen?: number; revert?: number; sent?: string
+    /** Replaces the 2nd getOrder call (the re-read after reopen, before dispatch). */
+    reread?: () => Promise<BundleRetryOrder | null>
+  } = {}) {
     const calls: string[] = []
+    const revertReasons: Array<string | null | undefined> = []
     let current = o.order === undefined ? failedOrder() : o.order
+    let reads = 0
     const d: BundleRetryDeps = {
-      getOrder: async () => current,
+      getOrder: async () => { reads++; if (reads === 2 && o.reread) return o.reread(); return current },
       getLedger: o.ledger ?? (async () => [failedRow()]),
-      reopen: async (_i, note) => { calls.push("reopen:" + note); if (o.reopen === 0) return 0; if (current) current = { ...current, status: "pending" }; return 1 },
-      revertToFailed: async (_i, note) => { calls.push("revert:" + note); return o.revert ?? 1 },
+      reopen: async (_i, note) => { calls.push("reopen:" + note); if (o.reopen === 0) return 0; if (current) current = { ...current, status: "pending", failure_reason: null }; return 1 },
+      revertToFailed: async (_i, note, failureReason) => { calls.push("revert:" + note); revertReasons.push(failureReason); return o.revert ?? 1 },
       dispatch: async () => { calls.push("dispatch"); if (current && o.sent === "pending") current = { ...current, status: "pending", notes: "Not sent: Hubtel paused" }; return o.sent ?? "processing" },
       alert: async (_m, urgent) => { calls.push(urgent ? "alert:urgent" : "alert") },
       now: () => NOW,
     }
-    return { d, calls }
+    return { d, calls, revertReasons }
   }
 
   it("retries a paid failed order whose only ledger rows are failed", async () => {
@@ -81,5 +87,70 @@ describe("executeBundleRetry", () => {
     expect((await executeBundleRetry(d, "o1")).status).toBe(500)
     expect(calls).toContain("alert:urgent")
     expect(calls).toEqual(["reopen:Retrying after Hubtel failure: Invalid meter", "revert:Retry aborted", "alert:urgent"])
+  })
+
+  // Item 1: only processing/completed count as a successful retry.
+  it('ok true when dispatch returns "completed"', async () => {
+    const { d } = makeRetry({ sent: "completed" })
+    expect(await executeBundleRetry(d, "o1")).toMatchObject({ ok: true, status: 200, orderStatus: "completed", message: "Retried; order is completed" })
+  })
+  it('ok false when dispatch returns "failed"', async () => {
+    const { d } = makeRetry({ sent: "failed" })
+    expect(await executeBundleRetry(d, "o1")).toMatchObject({ ok: false, status: 200, orderStatus: "failed", message: "Retry did not go through; order is failed" })
+  })
+  it('ok false when dispatch returns "refunding"', async () => {
+    const { d } = makeRetry({ sent: "refunding" })
+    expect(await executeBundleRetry(d, "o1")).toMatchObject({ ok: false, status: 200, orderStatus: "refunding", message: "Retry did not go through; order is refunding" })
+  })
+
+  // Item 2: the re-read after reopen must never leave the order silently pending.
+  it("503 and reverts when the re-read after reopen throws", async () => {
+    const { d, calls } = makeRetry({ reread: async () => { throw new Error("db down") } })
+    expect(await executeBundleRetry(d, "o1")).toMatchObject({ ok: false, status: 503, message: "Could not re-read the order; retry cancelled" })
+    expect(calls).toEqual(["reopen:Retrying after Hubtel failure: Invalid meter", "revert:Retry aborted"])
+  })
+  it("500 + urgent alert when the re-read throws and the revert changes 0 rows", async () => {
+    const { d, calls } = makeRetry({ revert: 0, reread: async () => { throw new Error("db down") } })
+    const out = await executeBundleRetry(d, "o1")
+    expect(out).toMatchObject({ ok: false, status: 500 })
+    expect(calls).toContain("alert:urgent")
+    expect(calls).not.toContain("dispatch")
+  })
+  it("500 + urgent alert when the re-read throws and the revert itself throws", async () => {
+    const { d, calls } = makeRetry({ reread: async () => { throw new Error("db down") } })
+    d.revertToFailed = async () => { calls.push("revert:threw"); throw new Error("db down") }
+    expect((await executeBundleRetry(d, "o1")).status).toBe(500)
+    expect(calls).toContain("alert:urgent")
+  })
+  it("503 and reverts when the re-read after reopen returns null", async () => {
+    const { d, calls } = makeRetry({ reread: async () => null })
+    expect(await executeBundleRetry(d, "o1")).toMatchObject({ ok: false, status: 503, message: "Could not re-read the order; retry cancelled" })
+    expect(calls).toEqual(["reopen:Retrying after Hubtel failure: Invalid meter", "revert:Retry aborted"])
+  })
+  it("500 + urgent alert when the re-read returns null and the revert changes 0 rows", async () => {
+    const { d, calls } = makeRetry({ revert: 0, reread: async () => null })
+    expect((await executeBundleRetry(d, "o1")).status).toBe(500)
+    expect(calls).toContain("alert:urgent")
+  })
+
+  // Item 3: a revert restores the original failure reason (reopen cleared it).
+  it("passes the original failure reason on an abort revert", async () => {
+    let n = 0
+    const { d, revertReasons } = makeRetry({ ledger: async () => (n++ === 0 ? [failedRow()] : [failedRow({ refund_claimed_at: "t" })]) })
+    await executeBundleRetry(d, "o1")
+    expect(revertReasons).toEqual(["Invalid meter"])
+  })
+  it("passes the original failure reason on the re-read revert and the not-sent revert", async () => {
+    const a = makeRetry({ reread: async () => null })
+    await executeBundleRetry(a.d, "o1")
+    expect(a.revertReasons).toEqual(["Invalid meter"])
+    const b = makeRetry({ sent: "pending" })
+    await executeBundleRetry(b.d, "o1")
+    expect(b.revertReasons).toEqual(["Invalid meter"])
+  })
+  it("passes null as the failure reason when the order had none", async () => {
+    const { d, revertReasons } = makeRetry({ order: failedOrder({ failure_reason: null }), reread: async () => null })
+    await executeBundleRetry(d, "o1")
+    expect(revertReasons).toEqual([null])
   })
 })

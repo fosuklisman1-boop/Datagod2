@@ -10,8 +10,8 @@ export interface BundleRetryDeps {
   getLedger(orderId: string): Promise<LedgerFact[]>
   /** Guarded failed -> pending, clearing the old Hubtel reference; rows changed. */
   reopen(orderId: string, note: string): Promise<number>
-  /** Guarded pending -> failed; rows changed. Undoes reopen. */
-  revertToFailed(orderId: string, note: string): Promise<number>
+  /** Guarded pending -> failed; rows changed. Undoes reopen, restoring the failure reason reopen cleared (when given). */
+  revertToFailed(orderId: string, note: string, failureReason?: string | null): Promise<number>
   /** The service's bundle dispatch (claims pending -> processing atomically); returns the resulting status. */
   dispatch(order: BundleRetryOrder): Promise<string>
   alert(message: string, urgent?: boolean): Promise<void>
@@ -41,7 +41,7 @@ export async function executeBundleRetry(d: BundleRetryDeps, orderId: string): P
   const after = await d.getLedger(orderId).catch(() => null)
   if (after === null || !retryDecision({ status: "failed", payment_status: "paid" }, after).ok) {
     let back = 0
-    try { back = await d.revertToFailed(orderId, order.notes ?? "Retry aborted") } catch { back = 0 }
+    try { back = await d.revertToFailed(orderId, order.notes ?? "Retry aborted", order.failure_reason ?? null) } catch { back = 0 }
     if (back === 0) {
       try { await d.alert(`URGENT: standard bundle order ${order.reference_code} (${orderId}) was reopened for a retry while a refund or Hubtel transaction appeared, and could NOT be put back to failed. Check it by hand; do not resend or refund until resolved.`, true) } catch { /* never break the flow */ }
       return { ok: false, status: 500, message: "A refund or Hubtel transaction appeared during the retry and the order could not be restored. Admins were alerted." }
@@ -49,8 +49,17 @@ export async function executeBundleRetry(d: BundleRetryDeps, orderId: string): P
     return { ok: false, status: 409, message: "A refund or Hubtel transaction appeared for this order (or the ledger could not be read). Retry cancelled." }
   }
 
-  const fresh = await d.getOrder(orderId)
-  if (!fresh) return { ok: false, status: 404, message: "Order not found" }
+  // The order is now pending: a failed re-read must not leave it stranded there (pending can be neither sent nor refunded).
+  const fresh = await d.getOrder(orderId).catch(() => null)
+  if (!fresh) {
+    let back = 0
+    try { back = await d.revertToFailed(orderId, order.notes ?? "Retry aborted", order.failure_reason ?? null) } catch { back = 0 }
+    if (back === 0) {
+      try { await d.alert(`URGENT: standard bundle order ${order.reference_code} (${orderId}) was reopened for a retry but could not be re-read, and could NOT be put back to failed. Check it by hand; do not resend or refund until resolved.`, true) } catch { /* never break the flow */ }
+      return { ok: false, status: 500, message: "The order could not be re-read during the retry and could not be restored. Admins were alerted." }
+    }
+    return { ok: false, status: 503, message: "Could not re-read the order; retry cancelled" }
+  }
   const status = await d.dispatch(fresh)
   if (status === "pending") {
     // Not sent (nothing reached Hubtel). Pending + only failed ledger rows can be neither dispatched nor refunded,
@@ -58,11 +67,12 @@ export async function executeBundleRetry(d: BundleRetryDeps, orderId: string): P
     const cur = await d.getOrder(orderId).catch(() => null)
     const why = cur?.notes ?? "unknown reason"
     let back = 0
-    try { back = await d.revertToFailed(orderId, `Retry not sent: ${why}`) } catch { back = 0 }
+    try { back = await d.revertToFailed(orderId, `Retry not sent: ${why}`, order.failure_reason ?? null) } catch { back = 0 }
     if (back === 0) {
       try { await d.alert(`Standard bundle order ${order.reference_code} (${orderId}): a retry was not sent and the order could not be put back to failed. Check it in Standard Bundles.`) } catch { /* never break the flow */ }
     }
     return { ok: false, status: 200, orderStatus: back === 0 ? "pending" : "failed", message: `Retry not sent: ${why}` }
   }
-  return { ok: true, status: 200, orderStatus: status, message: `Retried; order is ${status}` }
+  const ok = status === "processing" || status === "completed"
+  return { ok, status: 200, orderStatus: status, message: ok ? `Retried; order is ${status}` : `Retry did not go through; order is ${status}` }
 }

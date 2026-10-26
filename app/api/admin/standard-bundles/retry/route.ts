@@ -25,10 +25,11 @@ export async function POST(request: NextRequest) {
       async getOrder(id) { return (await deps.getOrder(id)) as unknown as BundleRetryOrder | null },
       async getLedger(id) { return (await fetchBundleLedgerByOrders(db, [id])).get(id) ?? [] },
       async reopen(id, note) {
-        return deps.updateOrder(id, { status: "pending", hubtel_client_reference: null, failure_reason: null, notes: `${note} (retry by admin ${adminId})` }, ["failed"])
+        // Only a paid failed order may be reopened (the 4th argument adds `payment_status = 'paid'` to the guarded update).
+        return deps.updateOrder(id, { status: "pending", hubtel_client_reference: null, failure_reason: null, notes: `${note} (retry by admin ${adminId})` }, ["failed"], "paid")
       },
-      async revertToFailed(id, note) {
-        return deps.updateOrder(id, { status: "failed", notes: note }, ["pending"])
+      async revertToFailed(id, note, failureReason) {
+        return deps.updateOrder(id, { status: "failed", notes: note, ...(failureReason ? { failure_reason: failureReason } : {}) }, ["pending"])
       },
       async dispatch(order) {
         const fresh = await deps.getOrder(order.id)
