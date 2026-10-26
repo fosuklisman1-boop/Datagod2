@@ -13,6 +13,61 @@
 | Dashboard board products | Everything the user buys: data (web + API), airtime, AFA, results checker, bills |
 | "Custom" | Admin-made named competitions with start/end dates, optional prizes |
 
+| Winners per board | Fixed top 3 |
+| Refund after close | Results stay frozen; admin may cancel the prize by hand |
+| Public list | Podium 1–3 + list 4–30, plus Check my rank for everyone else |
+| Sub-agents | Compete on their own; see §1 |
+
+---
+
+## 0. Reference screenshots (8), and what each one requires
+
+The screenshots came from an existing implementation and the owner wants this look and flow. Copy below is quoted from the screens. Where a period name appears ("October 2026", "month"), it becomes the period label for the selected kind.
+
+**User side: "Top Performers" page** (dark navy, soft raised cards)
+
+1. **Page header (shot 8).**
+   - Title: "Monthly top performers".
+   - Lines: "The top 3 sellers in each category win a reward every month." and "Sales are counted from the 1st to the last day of each month (Ghana time). Only completed sales count."
+   - A pill with a calendar icon showing "October 2026".
+   - We add the Daily/Weekly/Monthly/Yearly/competition switcher above it. Header text changes with the kind, and the "win a reward" line only appears when rewards are enabled.
+2. **"Top dashboard sales" card (shots 7–8).**
+   - Blue grid icon tile, subtitle "Sales made from your dashboard.", round refresh button on the right.
+   - "October 2026" next to a yellow chip with calendar-clock icon: "6 days left in October".
+   - Rule line: "Counts your completed purchases made on the website and through the developer API." Because the owner chose *everything* for this board, this becomes "…on the website, the developer API, airtime, AFA, results checker and bills."
+   - **Podium**, ordered 2 · 1 · 3:
+     - #1 in the middle: tallest, gold, crown badge
+     - #2 on the left: silver, medal badge
+     - #3 on the right: bronze, ribbon badge
+     - each step shows the rank number, masked name ("Anthony A.", long names truncated "ABUBAKA…") and "GH₵ 2,928.80"
+   - Below it, an inset list of ranks 4–30, each row a round rank badge, the masked name, and the amount on the right.
+3. **"Top shop sales" card (shot 6).**
+   - Same layout, teal shop icon, subtitle "Sales made through your online shop.", rule "Counts completed sales through your storefront and USSD."
+4. **Card footer (shots 5–6).**
+   - A full-width blue gradient "Check my rank" button with a search icon. It opens your rank, your total and the gap to the next rank and to #3.
+   - Info line: "Pending, processing, failed and refunded orders are not counted."
+5. **Bottom nav (shots 5 and 8).** The page is reached from **More** in the floating bottom nav.
+
+**Admin side: "Leaderboard Rewards" page**
+
+6. **Header and program card (shot 4).**
+   - Header: "Monthly rewards", with "Set the six prizes for a month, then close the month to lock in the winners."
+   - A **Rewards program** card: "Shows a maintenance notice to every user instead of the rewards page. Cached for up to 1 hour on both ends — it does not take effect (or lift) instantly." It has an outline **Pause program** button.
+   - We use a 5-min cache and say so in the copy.
+   - Then a **Month** select. For us this is a kind select plus a period select.
+   - Then tabs: **Prizes · Close month · Results · Delivery · Presets**, with an underline on the active tab, wrapping to two rows on phones.
+7. **Prizes tab (shot 3).**
+   - "Prizes for October 2026", then a "Dashboard sales" card and a "Shop sales" card, each with Rank 1/2/3 rows.
+   - Each row shows the prize label and type ("GH₵50 CASH (Wallet top-up)", "10GB MTN BUNDLE (Data bundle)", "GH₵20 MTN Airtime (Airtime)", "15DAYS DEALER ROLE UPGRADE (Role upgrade)") and its status.
+   - A cancelled prize is greyed: "- Cancelled", with the note "Cancelled. This prize cannot be reassigned."
+   - **Our rule:** a cancelled prize stays as history and is never delivered or moved to another winner. Before close, the rank slot reopens so the admin can add a new prize. In the reference, every slot was cancelled while the Close tab still demanded "Prize needed", which would leave the admin stuck with only Close — No Reward.
+8. **Close month tab (shot 2).**
+   - Card "Close October 2026", note "This month has not ended yet. You can set prizes now and close it once the month is over."
+   - Six rows: "Dashboard Rank 1–3" and "Shop Rank 1–3", each showing the prize or "Prize needed".
+   - A red validation line: "Set a prize for: dashboard rank 1, …".
+   - Primary button "Close October 2026" and outline button "Close — No Reward". Both stay disabled before the period ends, with the helper "Closing is unavailable until the month has ended."
+9. **Results tab (shot 1).** Before close: "October 2026 is not closed yet, so there are no frozen results. Close the month to lock the standings." After close: the frozen standings. We also add a Live preview.
+
 ---
 
 ## 1. What counts as a sale
@@ -23,13 +78,13 @@ Ghana is UTC+0 with no DST, so period boundaries are plain UTC midnights. A sale
 
 | Table | Amount | "Completed" when |
 |---|---|---|
-| `orders` | `price` | `status = 'completed'` ⚠️ verify vs `fulfillment_status` |
+| `orders` | `price` | `status = 'completed'` (verified: every provider writes the final state to `status`) |
 | `api_orders` | `price` | `status = 'completed'` |
 | `airtime_orders` | `total_paid` | `status = 'completed'` |
 | `afa_orders` | `amount` | `status = 'completed'` |
 | `results_checker_orders` | `total_paid` | `status = 'completed'` and `user_id IS NOT NULL` |
 | `hubtel_bill_orders` | `amount` | `status = 'completed'` |
-| standard bundles | ⚠️ verify whether they write to `orders` or their own table |
+| standard bundles | Not read directly. `hubtel_cs_transactions` mirrors each purchase into an existing order table (`order_table` / `order_id`), so they are already counted through those tables. |
 | `shop_orders` stock purchases | `total_price`, credited to the sub-agent shop's owner | `is_stock_purchase AND order_status = 'completed' AND payment_status = 'completed'` |
 
 ### Shop board (ranked by shop owner = `user_shops.user_id`)
@@ -185,7 +240,12 @@ Winners get an in-app notification when the period closes, and another when the 
 
 Each phase can ship on its own.
 
-1. **Engine:** migration (all tables), sales view, rollup refresh function, cron, backfill script, `get_leaderboard` / `get_leaderboard_rank`. Vitest covers the period-boundary helpers (week starts Monday, Accra time) and name masking. A SQL test checks the totals against hand-picked orders.
+1. **Engine (built 2026-10-26):** only the engine tables. Periods, prizes, results and deliveries land with the phase that uses them.
+   - **Migrations:** `migrations/0133_leaderboard_engine.sql` (with `.selftest.sql`) and `0134_leaderboard_indexes.sql`.
+   - **SQL test:** `migrations/tests/0133_leaderboard_engine_local_test.sql`, using a stub schema and hand-worked totals.
+   - **Code:** `lib/leaderboard/{periods,service}.ts` with tests, cron `/api/cron/leaderboard-refresh` (every 5 min, cron-job.org batch A), and `scripts/leaderboard-backfill.ts`.
+   - **Stock flag:** the shop order route now sets `is_stock_purchase`.
+   - **Rollout order:** selftest → apply 0133 → apply 0134 statement by statement → run backfill → enable the cron.
 2. **User page (read-only):** daily/weekly/monthly/yearly, both boards, podium, list, countdown, Check my rank, pause notice.
 3. **Admin setup:** period picker, rewards toggle, Prizes tab, Presets, Pause program, Exclusions, live preview.
 4. **Close & Results:** close and close-no-reward flows, frozen results, past-winner view on the user page, winner notifications.
@@ -194,7 +254,4 @@ Each phase can ship on its own.
 
 ## 8. Open items to verify at the start of Phase 1
 
-- [ ] Which status on `orders` means completed: `status` or `fulfillment_status`?
-- [ ] Where standard-bundle purchases are stored
-- [ ] Refund after close: results stay frozen and the admin can cancel the prize (default)
-- [ ] Rank count: fixed top 3, or let the admin set top N per board? (default: 3)
+All resolved on 2026-10-26. See the decisions table and §1.

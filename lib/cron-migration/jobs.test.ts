@@ -10,14 +10,14 @@ const byPath = (p: string) => specs.find((s) => s.path === p)!
 
 describe("buildJobSpecs", () => {
   it("builds one spec per real vercel.json cron, none unclassified", () => {
-    expect(specs).toHaveLength(40)
-    expect(new Set(specs.map((s) => s.path)).size).toBe(40)
+    expect(specs).toHaveLength(41)
+    expect(new Set(specs.map((s) => s.path)).size).toBe(41)
     expect(specs.every((s) => ["A", "B", "C"].includes(s.batch))).toBe(true)
   })
 
-  it("batch sizes match the plan (10 / 9 / 21)", () => {
+  it("batch sizes match the plan (11 / 9 / 21)", () => {
     const n = (b: string) => specs.filter((s) => s.batch === b).length
-    expect([n("A"), n("B"), n("C")]).toEqual([10, 9, 21])
+    expect([n("A"), n("B"), n("C")]).toEqual([11, 9, 21])
   })
 
   it("uses the dg: ownership title prefix and full URL", () => {
