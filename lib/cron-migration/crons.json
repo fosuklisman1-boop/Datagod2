@@ -94,6 +94,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/leaderboard-refresh",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/sms-delivery-sync",
       "schedule": "*/5 * * * *"
     },
