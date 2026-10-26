@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { resolveLeaderboardConfig, toPublicBoard, periodView, headerTitle, countingRule, formatCedis, publicRewards, rewardLine } from "./public"
+import { resolveLeaderboardConfig, toPublicBoard, periodView, headerTitle, countingRule, formatCedis, publicRewards, rewardLine, boardsFromResults, rewardsFromResults, myRankFromResults } from "./public"
 import { periodRange } from "./periods"
 
 describe("resolveLeaderboardConfig", () => {
@@ -60,6 +60,29 @@ describe("publicRewards", () => {
   })
   it("words the reward line per period", () => {
     expect(rewardLine("monthly")).toBe("The top 3 sellers in each category win a reward every month.")
+  })
+})
+
+describe("frozen results", () => {
+  const prize = (label: string, status: "active" | "cancelled" = "active") => ({ id: "p", label, prize_type: "manual", status })
+  const results = [
+    { id: "r2", board: "dashboard" as const, rank: 2, userId: "u2", displayName: "Dev P.", total: 20, orders: 2, prize: prize("Cap", "cancelled") },
+    { id: "r1", board: "dashboard" as const, rank: 1, userId: "u1", displayName: "Anthony A.", total: 30, orders: 3, prize: prize("GH₵50 Cash") },
+    { id: "r4", board: "dashboard" as const, rank: 4, userId: "u4", displayName: "Abdul G.", total: 5, orders: 1, prize: null },
+    { id: "s1", board: "shop" as const, rank: 1, userId: "u9", displayName: "Michael I.", total: 900, orders: 9, prize: prize("GH₵100 Cash") },
+  ]
+  it("rebuilds the boards in rank order with the frozen names", () => {
+    const b = boardsFromResults(results)
+    expect(b.dashboard.entries.map((e) => e.name)).toEqual(["Anthony A.", "Dev P.", "Abdul G."])
+    expect(b.shop).toEqual({ participants: 1, entries: [{ rank: 1, userId: "u9", name: "Michael I.", total: 900, orders: 9 }] })
+  })
+  it("gives a frozen rank without gaps, or null outside the results", () => {
+    expect(myRankFromResults(results, "dashboard", "u2")).toEqual({ participants: 3, rank: 2, total: 20, orders: 2, gapToNext: null, gapToTop3: null })
+    expect(myRankFromResults(results, "shop", "u2")).toBeNull()
+  })
+  it("lists only prizes that were not cancelled", () => {
+    expect(rewardsFromResults(results)).toEqual({ dashboard: { 1: "GH₵50 Cash" }, shop: { 1: "GH₵100 Cash" } })
+    expect(rewardsFromResults(results.filter((r) => r.prize === null))).toBeNull()
   })
 })
 

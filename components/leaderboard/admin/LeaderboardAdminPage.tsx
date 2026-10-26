@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Gift, Loader2, Pencil, RefreshCw, Trash2, UserX, X } from "lucide-react"
+import { Gift, Loader2, Lock, Pencil, RefreshCw, Trash2, Trophy, UserX, X } from "lucide-react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import {
@@ -22,7 +22,8 @@ import { cn } from "@/lib/utils"
 import { BOARDS, PERIOD_KINDS, adminPeriodOptions, type Board, type PeriodKind } from "@/lib/leaderboard/periods"
 import { PRIZE_RANKS, prizeSummary, type PrizeRank, type PrizeRow } from "@/lib/leaderboard/prizes"
 import { formatCedis, type PeriodView } from "@/lib/leaderboard/public"
-import type { PeriodRow, StandingRow } from "@/lib/leaderboard/admin"
+import type { AdminResultRow, PeriodRow, StandingRow } from "@/lib/leaderboard/admin"
+import { closeReadiness } from "@/lib/leaderboard/close"
 import { leaderboardFetch } from "../api"
 import { PrizeFormDialog, type PackageOption, type PresetOption } from "./PrizeFormDialog"
 
@@ -30,6 +31,7 @@ interface Overview {
   config: { paused: boolean }
   period: PeriodView & { row: PeriodRow | null }
   prizes: PrizeRow[]
+  results: AdminResultRow[]
   standings: Record<Board, StandingRow[]>
   presets: PresetOption[]
   packages: PackageOption[]
@@ -39,6 +41,8 @@ interface Exclusion { user_id: string; reason: string | null; created_at: string
 
 const KIND_LABEL: Record<PeriodKind, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" }
 const BOARD_TITLE: Record<Board, string> = { dashboard: "Dashboard sales", shop: "Shop sales" }
+const BOARD_SHORT: Record<Board, string> = { dashboard: "Dashboard", shop: "Shop" }
+const UNIT: Record<PeriodKind, string> = { daily: "day", weekly: "week", monthly: "month", yearly: "year" }
 
 export function LeaderboardAdminPage() {
   const [kind, setKind] = useState<PeriodKind>("monthly")
@@ -53,6 +57,7 @@ export function LeaderboardAdminPage() {
   const [cancelling, setCancelling] = useState<PrizeRow | null>(null)
   const [confirmPause, setConfirmPause] = useState(false)
   const [presetOpen, setPresetOpen] = useState(false)
+  const [closing, setClosing] = useState<"rewards" | "no_reward" | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -76,6 +81,7 @@ export function LeaderboardAdminPage() {
   const row = data?.period.row ?? null
   const isOpen = !row || row.status === "open"
   const rewardsOn = row?.rewards_enabled ?? false
+  const readiness = data ? closeReadiness(kind, row, data.prizes, data.period.ended) : null
 
   async function togglePause() {
     if (!data) return
@@ -117,6 +123,20 @@ export function LeaderboardAdminPage() {
     setCancelling(null)
     if (!res.ok) return toast.error(res.error)
     toast.success("Prize cancelled")
+    load()
+  }
+
+  async function closeNow() {
+    if (!closing) return
+    setBusy(true)
+    const res = await leaderboardFetch<{ status: string; results: number; notified: number }>("/api/admin/leaderboard/close", {
+      method: "POST",
+      body: { kind, anchor, with_rewards: closing === "rewards" },
+    })
+    setBusy(false)
+    setClosing(null)
+    if (!res.ok) return toast.error(res.error)
+    toast.success(`${data?.period.label ?? "Period"} closed. ${res.data.notified} winner${res.data.notified === 1 ? "" : "s"} notified.`)
     load()
   }
 
@@ -213,6 +233,8 @@ export function LeaderboardAdminPage() {
             <Tabs defaultValue="prizes">
               <TabsList className="flex h-auto flex-wrap">
                 <TabsTrigger value="prizes">Prizes</TabsTrigger>
+                <TabsTrigger value="close">Close {UNIT[kind]}</TabsTrigger>
+                <TabsTrigger value="results">Results</TabsTrigger>
                 <TabsTrigger value="standings">Live standings</TabsTrigger>
                 <TabsTrigger value="presets">Presets</TabsTrigger>
                 <TabsTrigger value="exclusions">Exclusions</TabsTrigger>
@@ -266,6 +288,102 @@ export function LeaderboardAdminPage() {
                     </Card>
                   ))}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="close" className="pt-2">
+                {readiness && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xl">Close {data.period.label}</CardTitle>
+                      {readiness.note && <CardDescription>{readiness.note}</CardDescription>}
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <ul className="space-y-2">
+                        {BOARDS.flatMap((board) => PRIZE_RANKS.map((rank) => {
+                          const prize = data.prizes.find((p) => p.board === board && p.rank === rank && p.status === "active")
+                          return (
+                            <li key={`${board}-${rank}`} className="flex items-center justify-between gap-3">
+                              <span className="text-foreground">{BOARD_SHORT[board]} Rank {rank}</span>
+                              <span className={cn("truncate text-right", prize ? "text-foreground" : "text-muted-foreground")}>
+                                {prize ? prize.label : "Prize needed"}
+                              </span>
+                            </li>
+                          )
+                        }))}
+                      </ul>
+                      {readiness.problem && <p className="text-sm text-destructive">{readiness.problem}</p>}
+                      {!readiness.closed && (
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Button disabled={!readiness.canClose || busy} onClick={() => setClosing("rewards")}>
+                            <Lock className="h-4 w-4" /> Close {data.period.label}
+                          </Button>
+                          <Button variant="outline" disabled={!readiness.canCloseNoReward || busy} onClick={() => setClosing("no_reward")}>
+                            Close — No Reward
+                          </Button>
+                        </div>
+                      )}
+                      {readiness.helper && <p className="text-sm text-muted-foreground">{readiness.helper}</p>}
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              <TabsContent value="results" className="space-y-4 pt-2">
+                {!readiness?.closed ? (
+                  <p className="text-sm text-muted-foreground">
+                    {data.period.label} is not closed yet, so there are no frozen results. Close the {UNIT[kind]} to lock the standings.
+                  </p>
+                ) : (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {BOARDS.map((board) => {
+                      const rows = data.results.filter((r) => r.board === board)
+                      return (
+                        <Card key={board}>
+                          <CardHeader className="pb-2"><CardTitle className="text-base">{BOARD_TITLE[board]}</CardTitle></CardHeader>
+                          <CardContent>
+                            {rows.length === 0 ? (
+                              <p className="py-6 text-center text-sm text-muted-foreground">Nobody had completed sales in this period.</p>
+                            ) : (
+                              <ol className="divide-y divide-border">
+                                {rows.map((r) => (
+                                  <li key={r.id} className="space-y-1 py-2.5">
+                                    <div className="flex items-center gap-3">
+                                      <span className="w-6 shrink-0 text-center font-bold text-foreground">
+                                        {r.rank <= 3 ? <Trophy className={cn("mx-auto h-4 w-4", r.rank === 1 ? "text-amber-500" : r.rank === 2 ? "text-slate-400" : "text-orange-500")} aria-label={`Rank ${r.rank}`} /> : r.rank}
+                                      </span>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate font-semibold text-foreground">{r.fullName}</p>
+                                        <p className="truncate text-xs text-muted-foreground">{[r.email, r.phone].filter(Boolean).join(" · ")}</p>
+                                      </div>
+                                      <div className="shrink-0 text-right">
+                                        <p className="text-sm font-semibold tabular-nums text-foreground">{formatCedis(r.total)}</p>
+                                        <p className="text-xs text-muted-foreground">{r.orders} orders</p>
+                                      </div>
+                                    </div>
+                                    {r.prize && (
+                                      <div className="flex items-center justify-between gap-2 pl-9">
+                                        <p className={cn("flex items-center gap-1.5 text-sm", r.prize.status === "cancelled" ? "text-muted-foreground line-through" : "text-foreground")}>
+                                          <Gift className="h-4 w-4 shrink-0 text-primary" /> {r.prize.label}
+                                          {r.prize.status === "cancelled" && <span className="no-underline"> (cancelled)</span>}
+                                        </p>
+                                        {r.prize.status === "active" && (
+                                          <Button size="sm" variant="ghost" className="text-destructive"
+                                            onClick={() => { const p = data.prizes.find((x) => x.id === r.prize!.id); if (p) setCancelling(p) }}>
+                                            Cancel prize
+                                          </Button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </li>
+                                ))}
+                              </ol>
+                            )}
+                          </CardContent>
+                        </Card>
+                      )
+                    })}
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="standings" className="space-y-4 pt-2">
@@ -368,6 +486,25 @@ export function LeaderboardAdminPage() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Keep prize</AlertDialogCancel>
             <AlertDialogAction onClick={cancelPrize} disabled={busy} className="bg-destructive hover:bg-destructive/90">Cancel prize</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!closing} onOpenChange={(o) => { if (!o) setClosing(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{closing === "rewards" ? `Close ${data?.period.label} and lock the winners?` : `Close ${data?.period.label} with no reward?`}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {closing === "rewards"
+                ? "The top 30 on each board are frozen, the top 3 get their prizes and are notified, and prizes can no longer change. This cannot be undone."
+                : "The top 30 on each board are frozen and the top 3 are congratulated, but nobody gets a prize. This cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Back</AlertDialogCancel>
+            <AlertDialogAction onClick={closeNow} disabled={busy}>
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />} Close period
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

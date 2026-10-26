@@ -258,7 +258,11 @@ Each phase can ship on its own.
    - **User page:** shows the reward line and prize labels on the podium when prizes are on. This degrades to no prizes if 0135 isn't applied yet.
    - **Navigation:** admin sidebar link with a NEW tag.
    - **Not yet built:** Close and Delivery tabs (Phases 4–5). The Results tab arrives with Close; until then Live standings stands in for it.
-4. **Close & Results:** close and close-no-reward flows, frozen results, past-winner view on the user page, winner notifications.
+4. **Close & Results (built 2026-10-26):**
+   - **Migration:** `migrations/0136_leaderboard_close.sql` adds `leaderboard_results` and `leaderboard_close_period`, which validates, refreshes the last 8 days, freezes the top 30 per board, attaches prizes to ranks 1–3, notifies the podium and closes, all in one transaction. Local test: `migrations/tests/0136_*`.
+   - **Close route:** `POST /api/admin/leaderboard/close` refreshes the whole period month by month first.
+   - **Admin page:** Close tab (as in the screenshot) and Results tab with full names, contacts and a per-winner Cancel prize.
+   - **User page:** closed periods show the frozen results with a "Final results" chip, and Check my rank answers from them.
 5. **Delivery:** wallet, data, airtime, manual, and role upgrade with the `user_role_grants` expiry cron.
 6. **Custom competitions:** admin CRUD, user-side chips, published/unpublished handling.
 

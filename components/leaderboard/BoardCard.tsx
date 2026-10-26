@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { CalendarClock, Info, LayoutGrid, RefreshCw, Search, Store } from "lucide-react"
+import { CalendarClock, CheckCircle2, Info, LayoutGrid, RefreshCw, Search, Store } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { BOARD_COPY, NOT_COUNTED_NOTE, formatCedis, type PeriodView, type PublicBoard } from "@/lib/leaderboard/public"
 import type { Board } from "@/lib/leaderboard/periods"
@@ -19,11 +19,13 @@ interface Props {
   period: PeriodView
   /** Prize label per podium rank when the period has prizes on. */
   prizes?: Partial<Record<1 | 2 | 3, string>>
+  /** The period is closed and these are its frozen results. */
+  final?: boolean
   refreshing: boolean
   onRefresh: () => void
 }
 
-export function BoardCard({ board, data, period, prizes, refreshing, onRefresh }: Props) {
+export function BoardCard({ board, data, period, prizes, final, refreshing, onRefresh }: Props) {
   const [rankOpen, setRankOpen] = useState(false)
   const copy = BOARD_COPY[board]
   const { icon: Icon, tile } = ICONS[board]
@@ -52,7 +54,11 @@ export function BoardCard({ board, data, period, prizes, refreshing, onRefresh }
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-base font-semibold text-muted-foreground">{period.label}</span>
-        {period.timeLeft ? (
+        {final ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-success/15 px-3 py-1 text-sm font-bold text-success">
+            <CheckCircle2 className="h-4 w-4" aria-hidden /> Final results
+          </span>
+        ) : period.timeLeft ? (
           <span className="clay-btn inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-3 py-1 text-sm font-bold text-amber-950">
             <CalendarClock className="h-4 w-4" aria-hidden /> {period.timeLeft}
           </span>

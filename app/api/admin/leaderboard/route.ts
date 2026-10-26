@@ -3,14 +3,15 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/hubtel-cs/admin-route"
 import { parseAdminPeriod } from "@/lib/leaderboard/periods"
 import { getLeaderboardConfig, periodView } from "@/lib/leaderboard/public"
-import { findPeriod, leaderboardErrorJson, listPresets, listPrizePackages, listPrizes, liveStandings } from "@/lib/leaderboard/admin"
+import { findPeriod, leaderboardErrorJson, listAdminResults, listPresets, listPrizePackages, listPrizes, liveStandings } from "@/lib/leaderboard/admin"
 
 export const dynamic = "force-dynamic"
 
 /**
  * Admin overview for one period: program switch, the period row (null until
  * something is saved for it), its prizes (cancelled ones included), live top 10
- * per board with contact details, presets and the bundles a prize can use.
+ * per board with contact details, frozen results once closed, presets and the
+ * bundles a prize can use.
  *   GET ?kind=daily|weekly|monthly|yearly&anchor=YYYY-MM-DD
  */
 export async function GET(request: NextRequest) {
@@ -32,13 +33,16 @@ export async function GET(request: NextRequest) {
       listPresets(db),
       listPrizePackages(db),
     ])
-    const prizes = row ? await listPrizes(db, row.id) : []
+    const [prizes, results] = row
+      ? await Promise.all([listPrizes(db, row.id), row.status === "open" ? Promise.resolve([]) : listAdminResults(db, row.id)])
+      : [[], []]
     return NextResponse.json({
       success: true,
       data: {
         config,
         period: { ...periodView(query.kind, query.range, now), row },
         prizes,
+        results,
         standings: { dashboard, shop },
         presets,
         packages,

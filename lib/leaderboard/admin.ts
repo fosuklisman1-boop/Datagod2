@@ -130,11 +130,84 @@ export async function liveStandings(db: SupabaseClient, board: Board, range: Day
   })
 }
 
+export interface ResultRow {
+  id: string
+  board: Board
+  rank: number
+  userId: string
+  /** Masked public name, frozen at close. */
+  displayName: string
+  total: number
+  orders: number
+  prize: { id: string; label: string; prize_type: string; status: "active" | "cancelled" } | null
+}
+
+export interface AdminResultRow extends ResultRow {
+  fullName: string
+  email: string | null
+  phone: string | null
+}
+
+/** Frozen results of a closed period, best rank first, with each rank's prize. */
+export async function listResults(db: SupabaseClient, periodId: string): Promise<ResultRow[]> {
+  const { data, error } = await db.from("leaderboard_results")
+    .select("id, board, rank, user_id, display_name, total_amount, order_count, prize:leaderboard_prizes(id, label, prize_type, status)")
+    .eq("period_id", periodId).order("board").order("rank")
+  if (error) throw error
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => {
+    const prize = (Array.isArray(r.prize) ? r.prize[0] : r.prize) as ResultRow["prize"] | undefined
+    return {
+      id: String(r.id),
+      board: r.board as Board,
+      rank: Number(r.rank),
+      userId: String(r.user_id),
+      displayName: String(r.display_name),
+      total: Number(r.total_amount),
+      orders: Number(r.order_count),
+      prize: prize ?? null,
+    }
+  })
+}
+
+/** Results plus full name and contact details. Admin only. */
+export async function listAdminResults(db: SupabaseClient, periodId: string): Promise<AdminResultRow[]> {
+  const rows = await listResults(db, periodId)
+  const ids = [...new Set(rows.map((r) => r.userId))]
+  const users = new Map<string, { email: string | null; phone_number: string | null; first_name: string | null; last_name: string | null }>()
+  if (ids.length) {
+    const { data, error } = await db.from("users").select("id, email, phone_number, first_name, last_name").in("id", ids)
+    if (error) throw error
+    for (const u of (data ?? []) as { id: string; email: string | null; phone_number: string | null; first_name: string | null; last_name: string | null }[]) users.set(u.id, u)
+  }
+  return rows.map((r) => {
+    const u = users.get(r.userId)
+    return {
+      ...r,
+      fullName: [u?.first_name, u?.last_name].filter((s) => s && s.trim()).join(" ") || r.displayName,
+      email: u?.email ?? null,
+      phone: u?.phone_number ?? null,
+    }
+  })
+}
+
+export async function closePeriod(
+  db: SupabaseClient, periodId: string, withRewards: boolean, adminId: string, periodLabel: string,
+): Promise<{ status: string; results: number; notified: number }> {
+  const { data, error } = await db.rpc("leaderboard_close_period", {
+    p_period_id: periodId, p_with_rewards: withRewards, p_admin: adminId, p_period_label: periodLabel,
+  })
+  if (error) throw error
+  return data as { status: string; results: number; notified: number }
+}
+
 const RPC_ERRORS: Record<string, { status: number; error: string }> = {
   period_closed: { status: 409, error: "This period is closed. Its prizes can no longer change." },
   period_not_found: { status: 404, error: "Period not found" },
   prize_not_found: { status: 404, error: "Prize not found" },
   prize_already_cancelled: { status: 409, error: "That prize is already cancelled" },
+  period_not_ended: { status: 409, error: "This period has not ended yet" },
+  rewards_off: { status: 409, error: "Prizes are off for this period. Switch them on or close with no reward." },
+  prizes_missing: { status: 409, error: "All six prizes must be set before closing with rewards" },
 }
 
 /** Maps a database error from the leaderboard RPCs/tables to a JSON response. */

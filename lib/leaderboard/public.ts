@@ -3,7 +3,8 @@ import {
   accraDay, hasEnded, periodLabel, shiftPeriod, timeLeftLabel,
   type Board, type DayRange, type PeriodKind,
 } from "./periods"
-import type { Leaderboard } from "./service"
+import type { Leaderboard, MyRank } from "./service"
+import type { ResultRow } from "./admin"
 
 // ─── program switch (admin_settings) ───────────────────────────────────────
 export const LEADERBOARD_CONFIG_KEY = "leaderboard_config"
@@ -98,6 +99,41 @@ export function publicRewards(
   for (const p of prizes) {
     if (p.status !== "active" || (p.rank !== 1 && p.rank !== 2 && p.rank !== 3)) continue
     out[p.board][p.rank] = p.label
+    any = true
+  }
+  return any ? out : null
+}
+
+/** A closed period's frozen boards, in the same shape as the live ones. */
+export function boardsFromResults(results: ResultRow[]): Record<Board, Leaderboard> {
+  const pick = (board: Board): Leaderboard => {
+    const rows = results.filter((r) => r.board === board).sort((x, y) => x.rank - y.rank)
+    return {
+      participants: rows.length,
+      entries: rows.map((r) => ({ rank: r.rank, userId: r.userId, name: r.displayName, total: r.total, orders: r.orders })),
+    }
+  }
+  return { dashboard: pick("dashboard"), shop: pick("shop") }
+}
+
+/**
+ * "Check my rank" for a closed period: the user's frozen rank, or null when
+ * they finished outside the frozen top 30. No gaps: the period is over.
+ */
+export function myRankFromResults(results: ResultRow[], board: Board, userId: string): MyRank | null {
+  const rows = results.filter((r) => r.board === board)
+  const mine = rows.find((r) => r.userId === userId)
+  if (!mine) return null
+  return { participants: rows.length, rank: mine.rank, total: mine.total, orders: mine.orders, gapToNext: null, gapToTop3: null }
+}
+
+/** Prizes the winners of a closed period actually got (cancelled ones dropped). */
+export function rewardsFromResults(results: ResultRow[]): PublicRewards | null {
+  const out: PublicRewards = { dashboard: {}, shop: {} }
+  let any = false
+  for (const r of results) {
+    if (!r.prize || r.prize.status !== "active" || (r.rank !== 1 && r.rank !== 2 && r.rank !== 3)) continue
+    out[r.board][r.rank] = r.prize.label
     any = true
   }
   return any ? out : null
