@@ -83,7 +83,7 @@ describe("duplicate guard query", () => {
   const SINCE = "2026-10-26T09:50:00.000Z"
   const dup = (rows: unknown[], phone = PHONE, card = CARD) => findRecentAfaDuplicate(fakeClient({ data: rows }).client, "u1", phone, card, SINCE)
 
-  it("queries ONLY by user and window (non-failed, newest first, limit 50), selecting just phone + card; neither value is in the query", async () => {
+  it("queries ONLY by user and window (non-failed, newest first, limit 200), selecting just phone + card; neither value is in the query", async () => {
     const { client, calls } = fakeClient({ data: [] })
     expect(await findRecentAfaDuplicate(client, "u1", PHONE, CARD, SINCE)).toBe(false)
     expect(calls).toContainEqual(["from", "afa_orders"])
@@ -92,7 +92,7 @@ describe("duplicate guard query", () => {
     expect(calls).toContainEqual(["neq", "status", "failed"])
     expect(calls).toContainEqual(["gte", "created_at", SINCE])
     expect(calls).toContainEqual(["order", "created_at", { ascending: false }])
-    expect(calls).toContainEqual(["limit", 50])
+    expect(calls).toContainEqual(["limit", 200])
     // no .or() / phone / card filter: nothing sensitive reaches the PostgREST query string
     expect(calls.some((c) => c[0] === "or")).toBe(false)
     const serialised = JSON.stringify(calls)
