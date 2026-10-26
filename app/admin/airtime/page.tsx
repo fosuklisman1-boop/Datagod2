@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText, Zap, Wallet, RotateCcw } from "lucide-react"
+import { Download, CheckCircle, Clock, AlertCircle, Check, Loader2, Search, RefreshCw, Copy, ExternalLink, FileText, Zap, Wallet, RotateCcw, Send } from "lucide-react"
 import { toast } from "sonner"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
@@ -29,6 +29,8 @@ interface AirtimeOrder {
   customer_name: string | null
   customer_email: string | null
   merchant_commission: number
+  /** Server-computed: paid, pending, and safe to send to Hubtel (see lib/airtime-hubtel-admin.ts). */
+  can_send_hubtel?: boolean
 }
 
 interface DownloadBatch {
@@ -88,6 +90,7 @@ export default function AdminAirtimePage() {
   const [digiWapyNetworks, setDigiWapyNetworks] = useState<Set<string>>(new Set())
   const [autoFulfillingId, setAutoFulfillingId] = useState<string | null>(null)
   const [autoFulfillingAll, setAutoFulfillingAll] = useState(false)
+  const [hubtelSendingId, setHubtelSendingId] = useState<string | null>(null)
   const [digiWapyBalance, setDigiWapyBalance] = useState<{ balance: number; currency: string; last_updated: string } | null>(null)
   const [loadingBalance, setLoadingBalance] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -346,6 +349,37 @@ export default function AdminAirtimePage() {
       loadOrders()
     }
   }
+
+  const handleHubtelSend = async (order: AirtimeOrder) => {
+    if (hubtelSendingId) return
+    if (!window.confirm("Send this airtime to Hubtel now? Do not use this if the customer may already have received it.")) return
+    const t = token || await getToken()
+    if (!t) return
+    setHubtelSendingId(order.id)
+    try {
+      const res = await fetch("/api/admin/airtime/hubtel-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
+        body: JSON.stringify({ orderId: order.id }),
+      })
+      const data = await res.json().catch(() => ({}))
+      const message = data.message || data.error || (res.ok ? "Done" : "Send via Hubtel failed")
+      if (res.ok && data.ok) toast.success(message)
+      else toast.error(message)
+    } catch {
+      toast.error("Send via Hubtel request failed")
+    } finally {
+      setHubtelSendingId(null)
+      loadOrders()
+    }
+  }
+
+  const hubtelSendButton = (o: AirtimeOrder) => o.can_send_hubtel ? (
+    <Button size="sm" variant="outline" className="h-7 text-[10px] bg-primary/10 text-primary hover:bg-primary/20 border-border"
+      onClick={() => handleHubtelSend(o)} disabled={hubtelSendingId !== null}>
+      {hubtelSendingId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Send className="w-3 h-3 mr-1" />Send via Hubtel</>}
+    </Button>
+  ) : null
 
   const handleAutoFulfillAll = async () => {
     const eligibleOrders = orders.filter(
@@ -660,6 +694,7 @@ export default function AdminAirtimePage() {
                             {autoFulfillingId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Zap className="w-3 h-3 mr-1" />Auto Fulfill</>}
                           </Button>
                         )}
+                        {hubtelSendButton(o)}
                       </div>
                     </div>
                   ))}
@@ -730,6 +765,7 @@ export default function AdminAirtimePage() {
                                     )}
                                   </Button>
                                 )}
+                                {hubtelSendButton(o)}
                               </div>
                             </td>
                           </tr>
@@ -824,6 +860,7 @@ export default function AdminAirtimePage() {
                           disabled={o.status === "failed"}>
                           {o.status === "failed" ? "Failed" : "Fail"}
                         </Button>
+                        {hubtelSendButton(o)}
                       </div>
                     </div>
                   ))}
@@ -886,6 +923,7 @@ export default function AdminAirtimePage() {
                                   disabled={o.status === "failed"}>
                                   {o.status === "failed" ? "Failed" : "Fail"}
                                 </Button>
+                                {hubtelSendButton(o)}
                               </div>
                             </td>
                           </tr>
