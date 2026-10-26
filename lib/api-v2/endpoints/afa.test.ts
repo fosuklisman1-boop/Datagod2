@@ -12,6 +12,7 @@ import {
   MSG_AFA_OUTCOME_UNKNOWN,
   type AfaDeps,
   type AfaEngineParams,
+  type AfaEngineResult,
   type AfaOrderRow,
   type AfaSandboxOrder,
 } from "./afa"
@@ -155,7 +156,7 @@ function makeDeps() {
     ),
     listClaims: vi.fn(async (_u: string, _l: number): Promise<{ reference: string; orderRef: string | null; status: string }[] | null> => []),
     alert: vi.fn(async (_m: string): Promise<void> => {}),
-    engine: vi.fn(async (p: AfaEngineParams) => engineOk(p)),
+    engine: vi.fn(async (p: AfaEngineParams): Promise<AfaEngineResult> => engineOk(p)),
     findRecentDuplicate: vi.fn(async (_u: string, _p: string, _c: string, _s: string) => false),
     getOrderByCode: vi.fn(async (_u: string, _c: string): Promise<AfaOrderRow | null> => liveRow()),
     getOrdersByCodes: vi.fn(async (_u: string, _c: string[]): Promise<AfaOrderRow[] | null> => []),
