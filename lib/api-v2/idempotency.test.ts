@@ -480,3 +480,42 @@ describe("findClaimByOrderRef", () => {
     expect(f.calls).toHaveLength(0)
   })
 })
+
+describe.each(["results", "afa"] as const)("claim lifecycle for kind %s", (kind) => {
+  const PK = { ...P, kind, reference: "REF-0801" }
+
+  it("claims, blocks a duplicate, completes, then replays", async () => {
+    const f = makeFake()
+    const c = await claimRequest(f.client, PK)
+    expect(c).toEqual({ kind: "claimed", claimId: "claim-1" })
+    expect(f.rows[0]).toMatchObject({ kind, reference: "REF-0801", status: "in_progress" })
+    expect(await claimRequest(f.client, PK)).toEqual({ kind: "in_progress" })
+    if (c.kind !== "claimed") throw new Error("x")
+    expect(await completeClaim(f.client, c.claimId, "order-9", { reference: "REF-0801" })).toBe(true)
+    expect(await claimRequest(f.client, PK)).toEqual({ kind: "replay", orderRef: "order-9", response: { reference: "REF-0801" } })
+    expect(await claimRequest(f.client, { ...PK, requestHash: H2 })).toEqual({ kind: "conflict" })
+  })
+
+  it("is a separate namespace from airtime and bill, and the conflict read filters by this kind", async () => {
+    const f = makeFake()
+    expect((await claimRequest(f.client, { ...PK, kind: "airtime" })).kind).toBe("claimed")
+    expect((await claimRequest(f.client, { ...PK, kind: "bill" })).kind).toBe("claimed")
+    expect((await claimRequest(f.client, PK)).kind).toBe("claimed")
+    await claimRequest(f.client, PK)
+    const read = f.calls.filter((c) => c.op === "select").pop()
+    expect(read?.filters).toEqual([["user_id", "u1"], ["kind", kind], ["reference", "REF-0801"]])
+  })
+
+  it("an ambiguous outcome keeps blocking; a no-charge release frees the reference", async () => {
+    const f = makeFake()
+    const c = await claimRequest(f.client, PK)
+    if (c.kind !== "claimed") throw new Error("x")
+    await markClaimUnknown(f.client, c.claimId)
+    expect(await claimRequest(f.client, PK)).toEqual({ kind: "unknown" })
+    const f2 = makeFake()
+    const c2 = await claimRequest(f2.client, PK)
+    if (c2.kind !== "claimed") throw new Error("x")
+    await releaseClaim(f2.client, c2.claimId)
+    expect((await claimRequest(f2.client, PK)).kind).toBe("claimed")
+  })
+})
