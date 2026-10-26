@@ -36,7 +36,7 @@
 -- authenticated: user-facing reads go through API routes that mask names.
 --
 -- NOT YET APPLIED: dry run via 0133_leaderboard_engine.selftest.sql first,
--- then apply, then 0134_leaderboard_indexes.sql (CONCURRENTLY, no transaction),
+-- then apply, then 0134_leaderboard_indexes.sql (whole file; runs in the SQL editor),
 -- then backfill with scripts/leaderboard-backfill.ts.
 
 BEGIN;
