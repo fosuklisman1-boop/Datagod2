@@ -146,7 +146,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Sandbox",
     group: "start",
     intro:
-      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime and bill orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
+      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime and bill orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. Sandbox references are unique per account across all order types (data, airtime, bills and the rest), while live references are unique per order type, so a reference reused for a different order type can conflict in the sandbox only: use a distinct prefix per order type. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
     endpoints: [],
   },
 ]
@@ -520,9 +520,10 @@ const AIRTIME_ORDER_EXAMPLE = {
   network: "MTN",
   recipient: "0244000001",
   airtime_amount: 10,
+  // Standard pricing (no cashback): the recipient gets the full 10.00 and the 0.50 fee is charged on top.
   fee_amount: 0.5,
   total_paid: 10.5,
-  cashback: 0.1,
+  cashback: 0,
   status: "pending",
   created_at: TS,
 }
@@ -565,7 +566,7 @@ const AIRTIME_PURCHASE_ENDPOINT: V2Endpoint = {
     { name: "recipient", type: "string", required: true, description: "Ghana mobile number in any of the forms 0244000001, 233244000001 or +233244000001. It must belong to the chosen network." },
     { name: "amount", type: "number", required: true, description: "Airtime face value in GHS: greater than 0 and at most 1000, with at most 2 decimals. A plain decimal number or numeric string; no exponent or sign." },
     { name: "reference", type: "string", required: true, description: "Your own unique id for this order: 3 to 100 characters, letters, digits and - _ . : only. Required: it makes retries safe." },
-    { name: "expected_pay", type: "number", required: false, description: "The total you expect to be charged (face value plus any fee), positive, up to 20000, at most 2 decimals. If the real price differs, the purchase is refused with 409 PRICE_CHANGED and nothing is charged." },
+    { name: "expected_pay", type: "number", required: false, description: "The total you expect to be charged: face value plus the fee, or face value minus cashback when cashback applies. Positive, up to 20000, at most 2 decimals. If the real price differs, the purchase is refused with 409 PRICE_CHANGED and nothing is charged." },
   ],
   requestExample: { network: "MTN", recipient: "0244000001", amount: 10, reference: "AIR-2026-0001", expected_pay: 10.5 },
   successExample: {
@@ -588,11 +589,16 @@ const AIRTIME_PURCHASE_ENDPOINT: V2Endpoint = {
     { status: 409, message: MSG_REFERENCE_REUSED },
     { status: 409, message: MSG_AIR_IN_PROGRESS },
     { status: 409, message: MSG_AIR_PRIOR_UNKNOWN },
-    { status: 409, message: "DUPLICATE_REQUEST: A matching airtime order was just placed. Please wait before trying again." },
     {
       status: 409,
       message:
-        "PRICE_CHANGED: the price has changed; face_amount 10.00, pay_amount 10.60, customer_cashback 0.10. Review the price and resend with expected_pay",
+        "DUPLICATE_REQUEST: An identical airtime order was just placed. Look it up under its original reference; do not resend it under a new reference unless you intend a second identical order.",
+    },
+    {
+      // Cashback path: pay_amount = face_amount - customer_cashback.
+      status: 409,
+      message:
+        "PRICE_CHANGED: the price has changed; face_amount 10.00, pay_amount 9.90, customer_cashback 0.10. Review the price and resend with expected_pay",
     },
     { status: 500, message: MSG_AIR_UNKNOWN },
     { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
@@ -610,7 +616,7 @@ const AIRTIME_PURCHASE_ENDPOINT: V2Endpoint = {
     "500 OUTCOME_UNKNOWN means this request may or may not have charged you. The reference is locked to that outcome and is never run a second time automatically. Do not retry under a new reference.",
     "A 503 with UNAVAILABLE means the reference could not be reserved and nothing was charged; retry with the same reference.",
     "Live purchases require the phone number on your Datagod account to be verified. Until it is, a live key gets 403 PHONE_NOT_VERIFIED and nothing is charged; verify the number in the dashboard. Replays of an existing order are not blocked by this check.",
-    "A test key uses a separate sandbox wallet: the response carries sandbox: true, no provider is contacted, the order is charged at face value with no fee or cashback, and a replay works the same way.",
+    "A test key uses a separate sandbox wallet: the response carries sandbox: true, no provider is contacted, the order is charged at face value with no fee and no cashback, and a replay works the same way.",
   ],
 }
 
@@ -846,18 +852,18 @@ const COMMISSION_SECTIONS: V2DocSection[] = [
     label: "Idempotency and references (airtime and bills)",
     group: "commission",
     intro:
-      "Every airtime purchase and every bill payment needs a reference that you choose: 3 to 100 characters, letters, digits and - _ . : only, unique to the order on your side. The reference is required. Datagod reserves it before anything is charged, and a request can end in one of four ways. A new request is charged once and returns HTTP 201. The same reference with the same request returns HTTP 200 with replayed: true and the existing order, with no second charge. The same reference with a different request returns 409 REFERENCE_REUSED. A reference whose earlier request is not confirmed yet returns 409 REQUEST_IN_PROGRESS while it is running, or 409 OUTCOME_UNKNOWN once it has been unconfirmed for more than 10 minutes or ended without a clear result. If the reference cannot be reserved at all you get 503 and nothing was charged; retry with the same reference.",
+      "Every airtime purchase and every bill payment needs a reference that you choose: 3 to 100 characters, letters, digits and - _ . : only, unique to the order on your side. The reference is required. Datagod reserves it before anything is charged, and a request can end in one of four ways. A new request is charged once and returns HTTP 201. The same reference with the same request returns HTTP 200 with replayed: true and the existing order, with no second charge. The same reference with a different request returns 409 REFERENCE_REUSED. A reference whose earlier request is not confirmed yet returns 409 REQUEST_IN_PROGRESS while it is running, or 409 OUTCOME_UNKNOWN once it has been unconfirmed for more than 10 minutes or ended without a clear result. If the reference cannot be reserved at all you get 503 and nothing was charged; retry with the same reference. Live references are unique per order type within your account (an airtime reference and a bill reference can be the same string), but sandbox references are unique per account across all order types, so reusing one reference for different order types can conflict in the sandbox: use a distinct prefix per order type (for example AIR- and BILL-).",
     steps: [
       "Create one reference per order and store it before you send the request.",
       "On a timeout or a network error, resend the same request with the same reference: you get the existing order back, never a second charge.",
       "On 409 REQUEST_IN_PROGRESS or 409 OUTCOME_UNKNOWN, or a 500 OUTCOME_UNKNOWN, never resend under a new reference. Poll GET /airtime/orders/{reference} or GET /utilities/orders/{reference} and read claim.state: in_progress means it is still running, outcome_unknown means it is not confirmed.",
-      "If claim.state stays outcome_unknown, contact support quoting the reference. Datagod resolves it against the provider; do not place the order again meanwhile.",
+      "If claim.state stays outcome_unknown, contact support quoting the reference. Support will investigate the reference you quote; do not place the order again meanwhile.",
     ],
     callouts: [
       {
         tone: "warning",
         title: "A 404 is not proof that nothing was charged",
-        body: "After an unknown outcome, a missing order is not a safe answer: a 404 never means \"not charged\". The order lookup answers HTTP 200 with order: null and claim.state for your own unconfirmed request, and a plain 404 only when the reference was never used by your key. Never place the order again under a new reference to \"fix\" an unknown outcome; that is how customers are charged twice.",
+        body: "After an unknown outcome, a missing order is not a safe answer: a 404 never means \"not charged\". The order lookup answers HTTP 200 with order: null and claim.state for your own unconfirmed request, and a plain 404 only when the reference was never used by your account. Never place the order again under a new reference to \"fix\" an unknown outcome; that is how customers are charged twice.",
       },
     ],
     endpoints: [],
@@ -867,7 +873,7 @@ const COMMISSION_SECTIONS: V2DocSection[] = [
     label: "Airtime pricing",
     group: "commission",
     intro:
-      "You send the airtime face value in amount; Datagod prices the order from the role of the account that owns the key. The order returns the real total_paid you were charged, any fee_amount, and the cashback credited, so read them from the order rather than assuming a rate. There is no fixed face-value guarantee: the total can be above or below the face value, and the price for your role can change between requests. To protect yourself, send expected_pay with the total you expect. If the real price differs, the purchase is refused with 409 PRICE_CHANGED, nothing is charged, and the message carries the current face_amount, pay_amount and customer_cashback so you can show the customer and resend.",
+      "You send the airtime face value in amount, and the recipient always gets the full face value. Datagod prices the order from the role of the account that owns the key, on one of two paths. When cashback is applied, you pay the face value minus your cashback: a 10.00 order with 0.10 cashback charges 9.90 (fee_amount 0, cashback 0.10). Otherwise you pay the face value plus the fee: a 10.00 order with a 0.50 fee charges 10.50 (fee_amount 0.50, cashback 0). Which path applies, the fee rate and the cashback can change between requests, so there is no fixed price: read total_paid, fee_amount and cashback from the order rather than assuming a rate. To protect yourself, send expected_pay with the total you expect to be charged (10.50 or 9.90 in the examples). If the real price differs, the purchase is refused with 409 PRICE_CHANGED, nothing is charged, and the message carries the current face_amount, pay_amount and customer_cashback so you can show the customer and resend. In the sandbox (test keys) an order is charged at face value with no fee and no cashback.",
     endpoints: [],
   },
   {

@@ -2,7 +2,9 @@
  * Real AirtimeDeps wiring for the v2 airtime routes. MONEY PATH.
  *
  * - engine: the shared purchaseAirtime (lib/airtime-service.ts, unchanged),
- *   always channel "api", paySeparately false, NEVER a shopId.
+ *   always channel "api", paySeparately TRUE (user ruling: the recipient gets
+ *   the full amount; without cashback the fee is charged on top), NEVER a shopId.
+ *   v1 and the dashboard are unchanged.
  * - claims: lib/api-v2/idempotency.ts bound to the service-role client.
  * - phone gate: the same checkPhoneVerified wiring as the v2 data routes
  *   (realPhoneGate: default failClosed, a throw is a block).
@@ -68,14 +70,14 @@ export async function fetchAirtimeOrdersByCodes(
   }
 }
 
-/** Exactly the arguments v2 hands the engine: no shopId, channel "api". */
+/** Exactly the arguments v2 hands the engine: no shopId, channel "api", paySeparately forced true. */
 export function toEngineParams(p: AirtimeEngineParams) {
   return {
     userId: p.userId,
     network: p.network,
     beneficiaryPhone: p.beneficiaryPhone,
     airtimeAmount: p.airtimeAmount,
-    paySeparately: false,
+    paySeparately: true,
     channel: "api" as const,
     ...(p.expectedPay !== undefined ? { expectedPay: p.expectedPay } : {}),
   }
@@ -83,6 +85,20 @@ export function toEngineParams(p: AirtimeEngineParams) {
 
 export async function realAirtimeEngine(p: AirtimeEngineParams): Promise<AirtimeEngineResult> {
   return purchaseAirtime(toEngineParams(p))
+}
+
+/**
+ * URGENT admin alert through the same notifier the bills runtime uses for its
+ * "debit uncertain" alert (lib/bills/runtime.ts: notifyAdmins, email fallback
+ * kept for urgent alerts). Never throws.
+ */
+export async function realAirtimeAlert(message: string): Promise<void> {
+  try {
+    const { notifyAdmins } = await import("@/lib/sms-service")
+    await notifyAdmins(message, "airtime_review", undefined, false)
+  } catch {
+    // alerting must never break the flow
+  }
 }
 
 /** Phone gate as a boolean; only allowed === true passes. Never throws. */
@@ -100,7 +116,8 @@ export function realAirtimeDeps(): AirtimeDeps {
     claim: (p) => claimRequest(client, p),
     complete: (claimId, orderRef, response, userId) => completeClaim(client, claimId, orderRef, response, Date.now, userId),
     release: (claimId, userId) => releaseClaim(client, claimId, userId),
-    markUnknown: (claimId, userId) => markClaimUnknown(client, claimId, userId),
+    markUnknown: (claimId, userId, orderRef) => markClaimUnknown(client, claimId, userId, orderRef),
+    alert: realAirtimeAlert,
     getClaim: (userId, reference) => getClaimByReference(client, userId, "airtime", reference),
     // Done claims only, filtered in the query: the limit must count orders, not claims still running.
     listClaims: (userId, limit) => listClaims(client, userId, "airtime", limit, { status: "done" }),

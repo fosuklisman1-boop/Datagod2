@@ -360,14 +360,16 @@ export type EngineErrorClass = "no_charge" | "ambiguous"
  * ORDER_CREATE_FAILED (after the debit, refund best-effort) are ambiguous, as is
  * anything unrecognised.
  */
-const NO_CHARGE_CODES = new Set([
+export const NO_CHARGE_ENGINE_CODES = [
   "NETWORK_DISABLED",
   "NETWORK_MISMATCH",
   "INVALID_AMOUNT",
   "DUPLICATE_REQUEST",
   "PRICE_CHANGED",
   "INSUFFICIENT_BALANCE",
-])
+] as const
+
+const NO_CHARGE_CODES = new Set<string>(NO_CHARGE_ENGINE_CODES)
 
 export function classifyEngineError(code: unknown): EngineErrorClass {
   return typeof code === "string" && NO_CHARGE_CODES.has(code) ? "no_charge" : "ambiguous"
@@ -404,7 +406,13 @@ export function airtimeErrorResponse(e: unknown): ErrorResponse {
     case "INVALID_AMOUNT":
       return { status: 400, code: "INVALID_AMOUNT", message: "The amount is outside the allowed range" }
     case "DUPLICATE_REQUEST":
-      return { status: 409, code: "DUPLICATE_REQUEST", message: "A matching airtime order was just placed. Please wait before trying again." }
+      // Never "wait and retry": after a timeout a client that resends under a NEW reference would buy twice.
+      return {
+        status: 409,
+        code: "DUPLICATE_REQUEST",
+        message:
+          "An identical airtime order was just placed. Look it up under its original reference; do not resend it under a new reference unless you intend a second identical order.",
+      }
     case "PRICE_CHANGED":
       return {
         status: 409,

@@ -208,7 +208,8 @@ export async function listClaims(
   limit = MAX_LIST,
   /** `status`: filter in the query (so the limit counts only matching claims); default: every status. */
   opts: { status?: "in_progress" | "done" | "unknown" } = {}
-): Promise<{ reference: string; orderRef: string | null; status: string }[]> {
+  /** null on a read error (callers must fail closed, never read it as "no claims"). */
+): Promise<{ reference: string; orderRef: string | null; status: string }[] | null> {
   try {
     const n = Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit), 1), MAX_LIST) : MAX_LIST
     let q = client.from(TABLE).select("reference, order_ref, status").eq("user_id", userId).eq("kind", kind)
@@ -218,13 +219,13 @@ export async function listClaims(
       // Tie-breaker: equal created_at values still list in a stable order.
       .order("id", { ascending: false })
       .limit(n)
-    if (error || !Array.isArray(data)) return []
+    if (error || !Array.isArray(data)) return null
     return data.slice(0, MAX_LIST).map((r: any) => ({
       reference: String(r.reference),
       orderRef: typeof r.order_ref === "string" ? r.order_ref : null,
       status: String(r.status),
     }))
   } catch {
-    return []
+    return null
   }
 }

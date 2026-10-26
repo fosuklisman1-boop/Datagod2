@@ -153,6 +153,9 @@ BEGIN
   IF v_n <> 2 THEN
     RAISE EXCEPTION 'FAIL catalog: expected 2 secondary indexes, found %', v_n;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'api_v2_idempotency' AND indexname = 'api_v2_idempotency_key_idx') THEN
+    RAISE EXCEPTION 'FAIL catalog: FK index api_v2_idempotency_key_idx is missing';
+  END IF;
 
   -- 1. First claim inserts, defaults to in_progress ---------------------------
   INSERT INTO public.api_v2_idempotency (user_id, api_v2_key_id, kind, reference, request_hash)

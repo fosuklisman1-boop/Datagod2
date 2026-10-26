@@ -147,6 +147,12 @@ CREATE INDEX IF NOT EXISTS api_v2_idempotency_open_status_created_idx
   ON public.api_v2_idempotency (status, created_at)
   WHERE status <> 'done';
 
+--    FK index for api_v2_key_id: deleting a key (or an auth user, which
+--    cascades to api_v2_keys) checks this table's NO ACTION FK; without an
+--    index that check scans the whole table.
+CREATE INDEX IF NOT EXISTS api_v2_idempotency_key_idx
+  ON public.api_v2_idempotency (api_v2_key_id);
+
 -- 4. Lock to service_role only.
 ALTER TABLE public.api_v2_idempotency ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.api_v2_idempotency FROM PUBLIC, anon, authenticated;

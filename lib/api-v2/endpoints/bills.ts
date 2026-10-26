@@ -427,8 +427,12 @@ async function livePay(deps: BillsV2Deps, input: BillPayInput, ctx: V2Context): 
   } catch {
     completed = false
   }
-  // The money moved: answer 201 regardless. An unfinalised claim reads as unknown later (never re-run).
-  if (!completed) console.error(LOG_COMPLETE_FAILED)
+  // The money moved: answer 201 regardless. Fall back to unknown WITH the engine order, so the
+  // claim keeps the order link for support and the lookup (never re-run).
+  if (!completed) {
+    console.error(LOG_COMPLETE_FAILED)
+    await safeMarkUnknown(deps, claimId, ctx.userId, code)
+  }
   return ok(201, { order: pub })
 }
 

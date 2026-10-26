@@ -353,7 +353,7 @@ describe("getClaimByReference / listClaims", () => {
       f.rows[f.rows.length - 1].created_at = new Date(1_700_000_000_000 + i * 1000).toISOString()
     }
     await claimRequest(f.client, { ...P, userId: "u2", reference: "REF-OTHER" })
-    const out = await listClaims(f.client, "u1", "airtime", 500)
+    const out = (await listClaims(f.client, "u1", "airtime", 500))!
     expect(out).toHaveLength(30)
     expect(out[0].reference).toBe("REF-L044")
     expect(out.every((r) => r.reference.startsWith("REF-L"))).toBe(true)
@@ -374,7 +374,7 @@ describe("getClaimByReference / listClaims", () => {
     f.rows[1].id = "00000000-0000-0000-0000-00000000000c"
     f.rows[2].id = "00000000-0000-0000-0000-00000000000b"
     for (const r of f.rows) r.created_at = same
-    const out = await listClaims(f.client, "u1", "airtime")
+    const out = (await listClaims(f.client, "u1", "airtime"))!
     expect(out.map((r) => r.reference)).toEqual(["REF-T2", "REF-T3", "REF-T1"])
     expect(f.calls.at(-1)!.orders).toEqual([
       { col: "created_at", ascending: false },
@@ -382,9 +382,11 @@ describe("getClaimByReference / listClaims", () => {
     ])
   })
 
-  it("listClaims returns [] on error or exception", async () => {
-    expect(await listClaims(makeFake({ errorOps: { select: { code: "X" } } }).client, "u1", "bill")).toEqual([])
-    expect(await listClaims(makeFake({ throwOnFrom: true }).client, "u1", "bill")).toEqual([])
+  it("listClaims returns null (not []) on error or exception, so callers fail closed instead of listing nothing", async () => {
+    expect(await listClaims(makeFake({ errorOps: { select: { code: "X" } } }).client, "u1", "bill")).toBeNull()
+    expect(await listClaims(makeFake({ throwOnFrom: true }).client, "u1", "bill")).toBeNull()
+    // an empty result is still []
+    expect(await listClaims(makeFake().client, "u1", "bill")).toEqual([])
   })
 })
 
@@ -435,7 +437,7 @@ describe("fix wave: stale threshold, unknown with order_ref, done-only lists", (
       f.rows[f.rows.length - 1].created_at = new Date(1_700_000_000_000 + i * 1000).toISOString()
       if (i % 2 === 0) await completeClaim(f.client, c.claimId, `O-${i}`, { a: i })
     }
-    const out = await listClaims(f.client, "u1", "airtime", 2, { status: "done" })
+    const out = (await listClaims(f.client, "u1", "airtime", 2, { status: "done" }))!
     expect(out.map((r) => r.reference)).toEqual(["REF-D2", "REF-D0"])
     expect(f.calls.at(-1)!.filters).toEqual([["user_id", "u1"], ["kind", "airtime"], ["status", "done"]])
     // Default unchanged: every status, no status filter.

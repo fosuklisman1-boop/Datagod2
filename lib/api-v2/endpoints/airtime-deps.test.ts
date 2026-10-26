@@ -6,7 +6,14 @@ vi.mock("@/lib/phone-verify-guard", () => ({ checkPhoneVerified }))
 const purchaseAirtime = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/airtime-service", () => ({ purchaseAirtime }))
 
-const idem = vi.hoisted(() => ({ listClaims: vi.fn(async () => []), getClaimByReference: vi.fn(async () => null) }))
+const notifyAdmins = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock("@/lib/sms-service", () => ({ notifyAdmins }))
+
+const idem = vi.hoisted(() => ({
+  listClaims: vi.fn(async () => []),
+  getClaimByReference: vi.fn(async () => null),
+  markClaimUnknown: vi.fn(async () => true),
+}))
 vi.mock("../idempotency", async (orig) => ({ ...(await orig<typeof import("../idempotency")>()), ...idem }))
 vi.mock("../store", async (orig) => ({ ...(await orig<typeof import("../store")>()), getAdminClient: () => ({ fake: true }) }))
 
@@ -85,13 +92,14 @@ describe("airtime order reads", () => {
 })
 
 describe("realAirtimeEngine", () => {
-  it("calls purchaseAirtime with channel api, paySeparately false and NO shopId", async () => {
+  it("calls purchaseAirtime with channel api, paySeparately TRUE (forced) and NO shopId", async () => {
     purchaseAirtime.mockReset().mockResolvedValue({ order: {}, newBalance: 1 })
     await realAirtimeEngine({
       userId: "u1",
       network: "MTN",
       beneficiaryPhone: "0249990650",
       airtimeAmount: 5.1,
+      // even a caller that says false gets true: v2 always delivers the full amount
       paySeparately: false,
       channel: "api",
       // a stray field must not be forwarded
@@ -102,7 +110,7 @@ describe("realAirtimeEngine", () => {
       network: "MTN",
       beneficiaryPhone: "0249990650",
       airtimeAmount: 5.1,
-      paySeparately: false,
+      paySeparately: true,
       channel: "api",
     })
     expect(purchaseAirtime.mock.calls[0][0]).not.toHaveProperty("shopId")
@@ -113,7 +121,7 @@ describe("realAirtimeEngine", () => {
     err.code = "INSUFFICIENT_BALANCE"
     purchaseAirtime.mockReset().mockRejectedValue(err)
     await expect(
-      realAirtimeEngine({ userId: "u1", network: "AT", beneficiaryPhone: "0269990651", airtimeAmount: 2, paySeparately: false, channel: "api", expectedPay: 2.1 })
+      realAirtimeEngine({ userId: "u1", network: "AT", beneficiaryPhone: "0269990651", airtimeAmount: 2, paySeparately: true, channel: "api", expectedPay: 2.1 })
     ).rejects.toBe(err)
     expect(purchaseAirtime.mock.calls[0][0].expectedPay).toBe(2.1)
   })
@@ -139,6 +147,22 @@ describe("realAirtimeDeps claim wiring", () => {
   it("the order list asks the claim store for DONE airtime claims only (limit counts done claims)", async () => {
     await realAirtimeDeps().listClaims("user-1", 30)
     expect(idem.listClaims).toHaveBeenCalledWith({ fake: true }, "user-1", "airtime", 30, { status: "done" })
+  })
+
+  it("markUnknown forwards the owner and the engine order ref", async () => {
+    await realAirtimeDeps().markUnknown("claim-1", "user-1", "AT-CODE-1")
+    expect(idem.markClaimUnknown).toHaveBeenCalledWith({ fake: true }, "claim-1", "user-1", "AT-CODE-1")
+  })
+
+  it("alert goes through the same admin notifier as the bills 'debit uncertain' alert, urgent (email fallback kept)", async () => {
+    notifyAdmins.mockReset().mockResolvedValue(undefined)
+    await realAirtimeDeps().alert("Airtime API outcome uncertain: claim AIR-0653, user user-1")
+    expect(notifyAdmins).toHaveBeenCalledWith("Airtime API outcome uncertain: claim AIR-0653, user user-1", "airtime_review", undefined, false)
+  })
+
+  it("alert never throws, even when the notifier rejects", async () => {
+    notifyAdmins.mockReset().mockRejectedValue(new Error("sms down"))
+    await expect(realAirtimeDeps().alert("x")).resolves.toBeUndefined()
   })
 
   it("the order lookup reads the caller's own airtime claim", async () => {

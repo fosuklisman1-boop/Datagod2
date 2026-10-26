@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { v2DocsRegistry, V2_BASE_URL } from "./registry"
 import { DEFAULT_LIMITS } from "../limits"
 import { mapOrder, mapOrderStatus, parseNetwork } from "../data-orders"
@@ -60,6 +60,7 @@ import {
   parseBillPayBody,
   parseBillLookupBody,
   airtimeErrorResponse,
+  NO_CHARGE_ENGINE_CODES,
 } from "../commission"
 import { CLAIM_STALE_MS } from "../idempotency"
 import { BILLER_KEYS } from "@/lib/bills/billers"
@@ -805,6 +806,190 @@ describe("v2DocsRegistry commission endpoints (airtime and utility bills)", () =
     expect(prose("idempotency").intro).toMatch(/Idempotency and references \(airtime and bills\)/)
     expect(prose("idempotency").intro).not.toMatch(/even if other values changed/i)
     expect(prose("errors-and-limits").intro).toMatch(/502/)
+  })
+
+  // ---------------------------------------------------------------- fix wave 2 (pricing, wording, drift)
+
+  const cents = (n: number) => Math.round(n * 100)
+
+  it("the airtime order example is the legacy (no-cashback) path: total_paid = airtime_amount + fee_amount, expected_pay = total_paid", () => {
+    const purchase = find(AIRTIME.purchase)
+    const order = (purchase.successExample as { data: any }).data.order
+    expect(order.airtime_amount).toBe(10)
+    expect(order.fee_amount).toBe(0.5)
+    expect(order.total_paid).toBe(10.5)
+    expect(cents(order.total_paid)).toBe(cents(order.airtime_amount) + cents(order.fee_amount))
+    expect(order.cashback).toBe(0)
+    expect((purchase.requestExample as any).expected_pay).toBe(order.total_paid)
+    expect((purchase.requestExample as any).amount).toBe(order.airtime_amount)
+    // The 402 example asks for the same total.
+    expect(msgs(purchase, 402)).toContain(`INSUFFICIENT_BALANCE: wallet balance is too low; required ${order.total_paid.toFixed(2)}`)
+    for (const sig of [AIRTIME.list, AIRTIME.order]) {
+      const d = (find(sig).successExample as { data: any }).data
+      const o = d.orders ? d.orders[0] : d.order
+      expect(cents(o.total_paid)).toBe(cents(o.airtime_amount) + cents(o.fee_amount))
+    }
+  })
+
+  it("the airtime PRICE_CHANGED example is the cashback path: pay_amount = face_amount - customer_cashback", () => {
+    const m = msgs(find(AIRTIME.purchase), 409).find((x) => x.startsWith("PRICE_CHANGED:"))!
+    const g = /face_amount (\d+\.\d{2}), pay_amount (\d+\.\d{2}), customer_cashback (\d+\.\d{2})/.exec(m)
+    expect(g).not.toBeNull()
+    const [face, pay, cb] = [Number(g![1]), Number(g![2]), Number(g![3])]
+    expect(cb).toBeGreaterThan(0)
+    expect(cents(pay)).toBe(cents(face) - cents(cb))
+  })
+
+  it("the Airtime pricing prose explains both paths, expected_pay as the total, and the sandbox price", () => {
+    const t = text(prose("airtime-pricing"))
+    expect(t).toMatch(/cashback[^.]*applied[^.]*face value minus[^.]*cashback/i)
+    expect(t).toMatch(/otherwise[^.]*face value plus[^.]*fee/i)
+    expect(t).toMatch(/recipient (always )?(gets|receives) the full face value/i)
+    expect(t).toMatch(/expected_pay[^.]*total you expect to be charged/i)
+    expect(t).toMatch(/sandbox[^.]*face value[^.]*no fee[^.]*no cashback/i)
+    const pn = find(AIRTIME.purchase).notes.join(" ")
+    expect(pn).toMatch(/face value with no fee and no cashback/i)
+  })
+
+  it("DUPLICATE_REQUEST is documented with the real message, which never invites a resend under a new reference", () => {
+    const real = engineMsg("DUPLICATE_REQUEST")
+    expect(real).not.toMatch(/wait before trying again/i)
+    expect(real).toMatch(/identical airtime order was just placed/i)
+    expect(real).toMatch(/original reference/i)
+    expect(real).toMatch(/do not resend it under a new reference unless you intend a second identical order/i)
+    expect(msgs(find(AIRTIME.purchase), 409)).toContain(real)
+    expect(JSON.stringify(v2DocsRegistry)).not.toMatch(/wait before trying again/i)
+  })
+
+  it("references are per ACCOUNT (never 'by your key'), and support investigates rather than promising a provider resolution", () => {
+    expect(JSON.stringify(v2DocsRegistry)).not.toMatch(/(used|reference)[^."]*by your key/i)
+    const t = text(prose("commission-idempotency"))
+    expect(t).toMatch(/never used by your account/i)
+    expect(t).not.toMatch(/resolves it against the provider/i)
+    expect(t).toMatch(/support will investigate the reference you quote/i)
+  })
+
+  it("explains that sandbox references are unique per account across all order types (live: per type)", () => {
+    for (const t of [text(prose("commission-idempotency")), prose("sandbox").intro ?? ""]) {
+      expect(t).toMatch(/sandbox references are unique per account across all order types/i)
+      expect(t).toMatch(/live references are unique per order type/i)
+      expect(t).toMatch(/distinct prefix/i)
+    }
+  })
+
+  // Bidirectional drift: the SET of documented error statuses equals the set the real handler
+  // produces (driven through every branch with fakes), plus the access layer's statuses.
+  const ACCESS_STATUSES = [401, 403, 429, 503] // runV2: unauthorized, decideAccess 403s, rate limit, disabled/degraded
+  const docStatuses = (sig: string) => [...new Set(find(sig).errors.map((e) => e.status))].sort()
+  const LIVE_CTX = { keyId: "k", userId: "u", role: "dealer", keyType: "commission", environment: "live", firstName: null }
+  const TEST_CTX = { ...LIVE_CTX, environment: "test" }
+  const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {})
+
+  it("airtime purchase: documented statuses == statuses the handler produces", async () => {
+    const spy = quiet()
+    const produced = new Set<number>(ACCESS_STATUSES)
+    const sandbox = { getOrder: async () => null, listOrders: async () => [], place: async () => ({ success: false, error: "x", status: 402 }) }
+    const base = () => ({
+      claim: async () => ({ kind: "claimed", claimId: "c1" }),
+      complete: async () => true,
+      release: async () => true,
+      markUnknown: async () => true,
+      getClaim: async () => null,
+      listClaims: async () => [],
+      alert: async () => {},
+      engine: async () => {
+        throw new Error("x")
+      },
+      getOrderByCode: async () => null,
+      getOrdersByCodes: async () => [],
+      phoneGate: async () => true,
+      sandbox,
+      now: () => 0,
+    })
+    const good = { network: "MTN", recipient: "0244000001", amount: 10, reference: "AIR-2026-0001" }
+    const run = async (over: object, b: unknown = good, ctx: object = LIVE_CTX) => {
+      const r = await airtimeMod.purchaseAirtimeHandler({ ...base(), ...over } as any)(b, ctx as any)
+      if (r.error) produced.add(r.status)
+    }
+    await run({}, null)
+    for (const kind of ["conflict", "in_progress", "unknown", "error"]) await run({ claim: async () => ({ kind }) })
+    await run({ phoneGate: async () => false })
+    for (const code of [...NO_CHARGE_ENGINE_CODES, "PAYMENT_FAILED", "ORDER_CREATE_FAILED", undefined]) {
+      await run({
+        engine: async () => {
+          throw Object.assign(new Error("x"), { code })
+        },
+      })
+    }
+    await run({}, good, TEST_CTX)
+    await run({ sandbox: { ...sandbox, place: async () => ({ success: false, error: "x", status: 500 }) } }, good, TEST_CTX)
+    spy.mockRestore()
+    expect(docStatuses(AIRTIME.purchase)).toEqual([...produced].sort())
+  })
+
+  it("bill pay: documented statuses == statuses the handler produces", async () => {
+    const spy = quiet()
+    const produced = new Set<number>(ACCESS_STATUSES)
+    const refused = (status: number, extra: object = {}) => async () => ({ result: { ok: false, status, error: "x", ...extra }, fresh: true })
+    const base = () => ({
+      claim: async () => ({ kind: "claimed", claimId: "c1" }),
+      complete: async () => true,
+      release: async () => true,
+      markUnknown: async () => true,
+      getClaim: async () => null,
+      findClaimByOrderRef: async () => [],
+      surfaceOpen: async () => true,
+      phoneGate: async () => true,
+      getBillsConfig: async () => ({}),
+      verify: async () => ({ ok: false, status: 400, error: "x" }),
+      pay: refused(400),
+      getOrderByCode: async () => null,
+      sandbox: { getOrder: async () => null, findByTokenRef: async () => [], place: async () => ({ success: false, error: "x", status: 402 }) },
+      now: () => 0,
+    })
+    const good = { verify_token: "tok-1234567890", amount: 50, reference: "BILL-2026-0001" }
+    const run = async (over: object, b: unknown = good, ctx: object = LIVE_CTX) => {
+      const r = await billsMod.billPayHandler({ ...base(), ...over } as any)(b, ctx as any)
+      if (r.error) produced.add(r.status)
+    }
+    await run({}, null)
+    await run({}, { ...good, verify_token: "sandbox_bill.abcdefghij" })
+    for (const kind of ["conflict", "in_progress", "unknown", "error"]) await run({ claim: async () => ({ kind }) })
+    await run({ surfaceOpen: async () => false })
+    await run({ phoneGate: async () => false })
+    for (const s of [400, 402, 403, 409, 422, 503, 500]) await run({ pay: refused(s) })
+    await run({ pay: refused(409, { quote: { faceAmount: 50, payAmount: 50.5, customerCashback: 0.5 } }) })
+    await run({
+      pay: async () => {
+        throw new Error("x")
+      },
+    })
+    await run({ pay: async () => ({ result: { ok: true, order: { reference_code: "B-1", payment_status: "paid" } }, fresh: false }) })
+    await run({}, good, TEST_CTX)
+    spy.mockRestore()
+    expect(docStatuses(BILLS.pay)).toEqual([...produced].sort())
+  })
+
+  it("bill lookup: documented statuses == statuses the handler produces", async () => {
+    const spy = quiet()
+    const produced = new Set<number>(ACCESS_STATUSES)
+    const base = () => ({ surfaceOpen: async () => true, verify: async () => ({ ok: false, status: 400, error: "x" }) })
+    const good = { biller: "dstv", account: "7012345678" }
+    const run = async (over: object, b: unknown = good, ctx: object = LIVE_CTX) => {
+      const r = await billsMod.billLookupHandler({ ...base(), ...over } as any)(b, ctx as any)
+      if (r.error) produced.add(r.status)
+    }
+    await run({}, null)
+    await run({ surfaceOpen: async () => false })
+    for (const s of [400, 403, 422, 503, 500]) await run({ verify: async () => ({ ok: false, status: s, error: "x" }) })
+    await run({
+      verify: async () => {
+        throw new Error("x")
+      },
+    })
+    await run({}, { biller: "dstv" }, TEST_CTX)
+    spy.mockRestore()
+    expect(docStatuses(BILLS.lookup)).toEqual([...produced].sort())
   })
 
   it("does not leak internals in the commission docs", () => {

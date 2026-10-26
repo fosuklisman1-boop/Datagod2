@@ -136,10 +136,11 @@ function claimTable() {
       }
       return false
     }),
-    markUnknown: vi.fn(async (claimId: string, userId?: string) => {
+    markUnknown: vi.fn(async (claimId: string, userId?: string, orderRef?: string) => {
       for (const r of rows.values()) {
         if (r.id === claimId && r.status === "in_progress" && (userId === undefined || r.userId === userId)) {
           r.status = "unknown"
+          if (orderRef) r.orderRef = orderRef
           return true
         }
       }
@@ -158,7 +159,8 @@ function makeDeps() {
     getClaim: vi.fn(
       async (_u: string, _r: string): Promise<{ orderRef: string | null; status: string; response: unknown; createdAt?: string | null } | null> => null
     ),
-    listClaims: vi.fn(async (_u: string, _limit: number): Promise<{ reference: string; orderRef: string | null; status: string }[]> => []),
+    listClaims: vi.fn(async (_u: string, _limit: number): Promise<{ reference: string; orderRef: string | null; status: string }[] | null> => []),
+    alert: vi.fn(async (_m: string): Promise<void> => {}),
     engine: vi.fn(async (p: AirtimeEngineParams) => engineOk(p)),
     getOrderByCode: vi.fn(async (_u: string, _c: string): Promise<AirtimeOrderRow | null> => liveRow()),
     getOrdersByCodes: vi.fn(async (_u: string, _c: string[]): Promise<AirtimeOrderRow[] | null> => []),
@@ -190,6 +192,7 @@ function liveDepsUntouched(deps: Deps) {
   expect(deps.listClaims).not.toHaveBeenCalled()
   expect(deps.getOrderByCode).not.toHaveBeenCalled()
   expect(deps.getOrdersByCodes).not.toHaveBeenCalled()
+  expect(deps.alert).not.toHaveBeenCalled()
 }
 
 function nothingCalled(deps: Deps) {
@@ -232,7 +235,7 @@ describe("POST /airtime/purchase (live): new purchase", () => {
       network: "AT",
       beneficiaryPhone: "0269990603",
       airtimeAmount: 12.5,
-      paySeparately: false,
+      paySeparately: true,
       channel: "api",
     })
     expect(deps.engine.mock.calls[0][0]).not.toHaveProperty("shopId")
@@ -286,7 +289,7 @@ describe("POST /airtime/purchase (live): new purchase", () => {
     }
   })
 
-  it("complete() returning false after engine success still returns 201 (money moved) and logs a PII-free line", async () => {
+  it("complete() returning false after engine success: markUnknown keeps the order link, alert once, still 201, no release", async () => {
     const err = quietErrors()
     const { deps } = makeDeps()
     deps.complete.mockResolvedValueOnce(false)
@@ -294,11 +297,36 @@ describe("POST /airtime/purchase (live): new purchase", () => {
     expect(r.status).toBe(201)
     expect(data(r).order.reference).toBe("AIR-001")
     expect(deps.release).not.toHaveBeenCalled()
-    expect(deps.markUnknown).not.toHaveBeenCalled()
+    expect(deps.markUnknown).toHaveBeenCalledTimes(1)
+    expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1", "AT-CODE-1")
+    expect(deps.alert).toHaveBeenCalledTimes(1)
     expect(err).toHaveBeenCalled()
     const logged = JSON.stringify(err.mock.calls)
     expect(logged).not.toContain(PHONE)
     expect(logged).not.toContain("AIR-001")
+  })
+
+  it("complete() throwing behaves like complete() false (markUnknown with the order ref, 201)", async () => {
+    quietErrors()
+    const { deps, table } = makeDeps()
+    deps.complete.mockRejectedValueOnce(new Error("db"))
+    const r = await purchaseAirtimeHandler(deps)(body(), LIVE)
+    expect(r.status).toBe(201)
+    expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1", "AT-CODE-1")
+    expect([...table.rows.values()][0]).toMatchObject({ status: "unknown", orderRef: "AT-CODE-1" })
+  })
+
+  it("a successful purchase never alerts", async () => {
+    const { deps } = makeDeps()
+    expect((await purchaseAirtimeHandler(deps)(body(), LIVE)).status).toBe(201)
+    expect(deps.alert).not.toHaveBeenCalled()
+  })
+
+  it("the engine is called with paySeparately true (recipient gets the full amount, fee charged on top)", async () => {
+    const { deps } = makeDeps()
+    await purchaseAirtimeHandler(deps)(body({ amount: "10.00" }), LIVE)
+    expect(deps.engine.mock.calls[0][0].paySeparately).toBe(true)
+    expect(deps.engine.mock.calls[0][0].airtimeAmount).toBe(10)
   })
 })
 
@@ -477,7 +505,7 @@ describe("POST /airtime/purchase (live): engine no-charge errors release the cla
     ["NETWORK_DISABLED", 503, {}, "NETWORK_DISABLED:"],
   ]
   for (const [code, status, extra, prefix] of noCharge) {
-    it(`${code} => ${status}, release called, markUnknown NOT called`, async () => {
+    it(`${code} => ${status}, release called, markUnknown NOT called, never alerts`, async () => {
       const { deps, table } = makeDeps()
       deps.engine.mockRejectedValueOnce(engineError(code, extra))
       const r = await purchaseAirtimeHandler(deps)(body(), LIVE)
@@ -490,9 +518,27 @@ describe("POST /airtime/purchase (live): engine no-charge errors release the cla
       expect(deps.release).toHaveBeenCalledWith("claim-1", "user-1")
       expect(deps.markUnknown).not.toHaveBeenCalled()
       expect(deps.complete).not.toHaveBeenCalled()
+      expect(deps.alert).not.toHaveBeenCalled()
       expect(table.rows.size).toBe(0)
     })
   }
+
+  it("DUPLICATE_REQUEST never invites a resend under a new reference", async () => {
+    const { deps } = makeDeps()
+    deps.engine.mockRejectedValueOnce(engineError("DUPLICATE_REQUEST"))
+    const r = await purchaseAirtimeHandler(deps)(body(), LIVE)
+    expect(r.error?.message).not.toMatch(/wait before trying again/i)
+    expect(r.error?.message).toMatch(/identical airtime order was just placed/i)
+    expect(r.error?.message).toMatch(/original reference/i)
+    expect(r.error?.message).toMatch(/do not resend it under a new reference unless you intend a second identical order/i)
+  })
+
+  it("a phone-gate block never alerts", async () => {
+    const { deps } = makeDeps()
+    deps.phoneGate.mockResolvedValueOnce(false)
+    await purchaseAirtimeHandler(deps)(body(), LIVE)
+    expect(deps.alert).not.toHaveBeenCalled()
+  })
 
   it("402 carries the required amount in the message", async () => {
     const { deps } = makeDeps()
@@ -566,8 +612,45 @@ describe("POST /airtime/purchase (live): ambiguous engine outcomes mark the clai
       expect(deps.release).not.toHaveBeenCalled()
       expect(deps.complete).not.toHaveBeenCalled()
       expect([...table.rows.values()][0].status).toBe("unknown")
+      // URGENT admin alert, exactly once, PII-free: user id, client reference, "airtime"; no phone, no engine text
+      expect(deps.alert).toHaveBeenCalledTimes(1)
+      const msg = String(deps.alert.mock.calls[0][0])
+      expect(msg).toMatch(/airtime/i)
+      expect(msg).toContain("user-1")
+      expect(msg).toContain("AIR-001")
+      expect(msg).not.toContain(PHONE)
+      expect(msg).not.toContain("0249990699")
+      expect(msg).not.toMatch(/(\+?233|0)[235][0-9]{8}/)
     })
   }
+
+  it("an engine result without a reference_code => markUnknown and one alert", async () => {
+    const { deps } = makeDeps()
+    deps.engine.mockResolvedValueOnce({ order: {} as any, newBalance: 1 })
+    const r = await purchaseAirtimeHandler(deps)(body(), LIVE)
+    expect(r.status).toBe(500)
+    expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1")
+    expect(deps.alert).toHaveBeenCalledTimes(1)
+  })
+
+  it("a throwing or rejecting alert never changes the response", async () => {
+    for (const mode of ["reject", "throw"] as const) {
+      const { deps } = makeDeps()
+      deps.engine.mockRejectedValueOnce(engineError("PAYMENT_FAILED"))
+      if (mode === "reject") deps.alert.mockRejectedValueOnce(new Error("sms down"))
+      else
+        deps.alert.mockImplementationOnce(() => {
+          throw new Error("sync boom")
+        })
+      const r = await purchaseAirtimeHandler(deps)(body(), LIVE)
+      expect(r).toEqual({ status: 500, error: { status: 500, message: MSG_OUTCOME_UNKNOWN } })
+    }
+    quietErrors()
+    const { deps } = makeDeps()
+    deps.complete.mockResolvedValueOnce(false)
+    deps.alert.mockRejectedValueOnce(new Error("sms down"))
+    expect((await purchaseAirtimeHandler(deps)(body(), LIVE)).status).toBe(201)
+  })
 
   it("a retry with the same reference after an ambiguous outcome NEVER re-calls the engine", async () => {
     const { deps } = makeDeps()
@@ -817,6 +900,14 @@ describe("GET /airtime/orders (live)", () => {
     const { deps } = makeDeps()
     const r = await airtimeListHandler(deps)(LIVE)
     expect(data(r)).toEqual({ orders: [] })
+    expect(deps.getOrdersByCodes).not.toHaveBeenCalled()
+  })
+
+  it("a claim-store read error (listClaims null) => 503, never an empty 200", async () => {
+    const { deps } = makeDeps()
+    deps.listClaims.mockResolvedValueOnce(null)
+    const r = await airtimeListHandler(deps)(LIVE)
+    expect(r.status).toBe(503)
     expect(deps.getOrdersByCodes).not.toHaveBeenCalled()
   })
 

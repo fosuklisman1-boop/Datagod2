@@ -322,24 +322,34 @@ describe("POST /utilities/pay (live): new payment", () => {
     expect(d2.pay.mock.calls[0][0].amount).toBe(0.07)
   })
 
-  it("still answers 201 when the claim cannot be finalised after a successful payment, with a fixed log line", async () => {
-    const { deps } = makeDeps()
+  it("complete() false after a successful payment: markUnknown keeps the engine order link, still 201, no release, fixed log line", async () => {
+    const { deps, table } = makeDeps()
     deps.complete.mockResolvedValueOnce(false)
     const lines = captureLogs()
     const r = await billPayHandler(deps)(payBody(), LIVE)
     expect(r.status).toBe(201)
     expect(deps.release).not.toHaveBeenCalled()
-    expect(deps.markUnknown).not.toHaveBeenCalled()
+    expect(deps.markUnknown).toHaveBeenCalledTimes(1)
+    expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1", "BILL-ENGINE-1")
+    expect([...table.rows.values()][0]).toMatchObject({ status: "unknown", orderRef: "BILL-ENGINE-1" })
     expect(lines.join("\n")).toContain("[API v2] bills:")
     expect(lines.join("\n")).not.toContain(LIVE_TOKEN)
     expect(lines.join("\n")).not.toContain(SMARTCARD)
   })
 
-  it("a complete() throw after success is still 201", async () => {
+  it("a complete() throw after success is still 201 and falls back to markUnknown with the order ref", async () => {
     const { deps } = makeDeps()
     deps.complete.mockRejectedValueOnce(new Error("db"))
     quietErrors()
     expect((await billPayHandler(deps)(payBody(), LIVE)).status).toBe(201)
+    expect(deps.markUnknown).toHaveBeenCalledWith("claim-1", "user-1", "BILL-ENGINE-1")
+    expect(deps.release).not.toHaveBeenCalled()
+  })
+
+  it("a successful complete() never marks the claim unknown", async () => {
+    const { deps } = makeDeps()
+    expect((await billPayHandler(deps)(payBody(), LIVE)).status).toBe(201)
+    expect(deps.markUnknown).not.toHaveBeenCalled()
   })
 })
 

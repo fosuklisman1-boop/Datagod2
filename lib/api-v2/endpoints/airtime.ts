@@ -54,7 +54,8 @@ export interface AirtimeEngineParams {
   network: "MTN" | "AT" | "Telecel"
   beneficiaryPhone: string
   airtimeAmount: number
-  paySeparately: false
+  /** Always true for v2: the recipient gets the full amount (fee on top when cashback is not applied). */
+  paySeparately: true
   channel: "api"
   expectedPay?: number
 }
@@ -116,12 +117,19 @@ export interface AirtimeDeps {
   /** Each finalisation is owner-guarded: callers always pass ctx.userId. */
   complete(claimId: string, orderRef: string, response: unknown, userId: string): Promise<boolean>
   release(claimId: string, userId: string): Promise<boolean>
-  markUnknown(claimId: string, userId: string): Promise<boolean>
+  /** `orderRef`: the engine's order when it supplied one (complete failed after success), kept on the unknown claim. */
+  markUnknown(claimId: string, userId: string, orderRef?: string): Promise<boolean>
+  /**
+   * URGENT admin alert for an ambiguous outcome (same notifier as the bills
+   * "debit uncertain" alert). Message is PII-free: user id and client reference only.
+   */
+  alert(message: string): Promise<void>
   getClaim(
     userId: string,
     reference: string
   ): Promise<{ orderRef: string | null; status: string; response: unknown; createdAt?: string | null } | null>
-  listClaims(userId: string, limit: number): Promise<{ reference: string; orderRef: string | null; status: string }[]>
+  /** null on a read error (the list answers 503, never an empty 200). */
+  listClaims(userId: string, limit: number): Promise<{ reference: string; orderRef: string | null; status: string }[] | null>
   engine(p: AirtimeEngineParams): Promise<AirtimeEngineResult>
   /** Owner-scoped; null when missing or unreadable. */
   getOrderByCode(userId: string, code: string): Promise<AirtimeOrderRow | null>
@@ -224,7 +232,8 @@ function engineParams(ctx: V2Context, input: AirtimeInput): AirtimeEngineParams 
     network: input.engineNetwork,
     beneficiaryPhone: input.recipient.local,
     airtimeAmount: input.amount,
-    paySeparately: false,
+    // User ruling: the recipient always gets the full amount; without cashback the fee is charged on top.
+    paySeparately: true,
     channel: "api",
     ...(input.expectedPay !== undefined ? { expectedPay: input.expectedPay } : {}),
   }
@@ -248,14 +257,35 @@ async function safeRelease(deps: AirtimeDeps, claimId: string, userId: string): 
   if (!released) console.error(LOG_RELEASE_FAILED)
 }
 
-async function safeMarkUnknown(deps: AirtimeDeps, claimId: string, userId: string): Promise<void> {
+async function safeMarkUnknown(deps: AirtimeDeps, claimId: string, userId: string, orderRef?: string): Promise<void> {
   let marked = false
   try {
-    marked = await deps.markUnknown(claimId, userId)
+    marked = orderRef ? await deps.markUnknown(claimId, userId, orderRef) : await deps.markUnknown(claimId, userId)
   } catch {
     marked = false
   }
   if (!marked) console.error(LOG_UNKNOWN_FAILED)
+}
+
+/** Best-effort URGENT admin alert; never throws and never changes the response. No phone numbers. */
+async function safeAlert(deps: AirtimeDeps, message: string): Promise<void> {
+  try {
+    await deps.alert(message)
+  } catch {
+    // alerting must never break the flow
+  }
+}
+
+/**
+ * Ambiguous outcome: the claim becomes unknown (keeping the engine order when there is
+ * one) and admins get an urgent alert carrying only the user id and the client reference.
+ */
+async function markAmbiguous(deps: AirtimeDeps, claimId: string, ctx: V2Context, reference: string, orderRef?: string): Promise<void> {
+  await safeMarkUnknown(deps, claimId, ctx.userId, orderRef)
+  await safeAlert(
+    deps,
+    `Airtime API outcome uncertain: claim ${reference}, user ${ctx.userId}${orderRef ? `, order ${orderRef}` : ""}. Check the wallet and the order before anything is resent.`
+  )
 }
 
 /** No-charge engine error -> {status, message}; numbers travel in the message text. */
@@ -346,7 +376,7 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
       await safeRelease(deps, claimId, ctx.userId)
       return noChargeResult(e)
     }
-    await safeMarkUnknown(deps, claimId, ctx.userId)
+    await markAmbiguous(deps, claimId, ctx, input.reference)
     console.error(LOG_AMBIGUOUS)
     return fail(500, MSG_OUTCOME_UNKNOWN)
   }
@@ -354,7 +384,7 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
   const code = result?.order?.reference_code
   if (typeof code !== "string" || !code) {
     // The engine returned without a usable order: money may have moved.
-    await safeMarkUnknown(deps, claimId, ctx.userId)
+    await markAmbiguous(deps, claimId, ctx, input.reference)
     console.error(LOG_AMBIGUOUS)
     return fail(500, MSG_OUTCOME_UNKNOWN)
   }
@@ -377,8 +407,12 @@ async function livePurchase(deps: AirtimeDeps, input: AirtimeInput, ctx: V2Conte
   } catch {
     completed = false
   }
-  // The money moved: answer 201 regardless. An unfinalised claim reads as unknown later (never re-run).
-  if (!completed) console.error(LOG_COMPLETE_FAILED)
+  // The money moved: answer 201 regardless. Fall back to unknown WITH the engine order so the
+  // claim keeps the order link (never re-run), and alert admins.
+  if (!completed) {
+    console.error(LOG_COMPLETE_FAILED)
+    await markAmbiguous(deps, claimId, ctx, input.reference, code)
+  }
 
   const nb = Number(result.newBalance)
   return ok(201, { order, new_balance: Number.isFinite(nb) ? money(nb) : null })
@@ -533,7 +567,9 @@ export function airtimeListHandler(deps: AirtimeDeps) {
     } catch {
       return fail(503, MSG_UNAVAILABLE)
     }
-    const done = (Array.isArray(claims) ? claims : [])
+    // null = the claim store could not be read: fail closed (503), never an empty 200.
+    if (!Array.isArray(claims)) return fail(503, MSG_UNAVAILABLE)
+    const done = claims
       .slice(0, AIRTIME_LIST_LIMIT)
       .filter((c): c is { reference: string; orderRef: string; status: string } => c.status === "done" && !!c.orderRef)
     if (done.length === 0) return ok(200, { orders: [] })
