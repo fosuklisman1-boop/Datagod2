@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { retryDecision, type LedgerFact } from "@/lib/bills/admin"
 import { BUNDLE_NETWORKS } from "./categories"
 
 export const DATA_ORDERS_TABLE = "hubtel_data_orders"
@@ -89,6 +90,26 @@ export async function fetchLedgerOrderIds(db: SupabaseClient, orderIds: string[]
   for (const r of (data ?? []) as any[]) out.add(r.order_id)
   return out
 }
+
+/** Ledger rows per standard bundle order (newest first). Throws on DB error: callers must fail closed. */
+export async function fetchBundleLedgerByOrders(db: SupabaseClient, orderIds: string[]): Promise<Map<string, LedgerFact[]>> {
+  const out = new Map<string, LedgerFact[]>()
+  if (orderIds.length === 0) return out
+  const { data, error } = await db.from("hubtel_cs_transactions")
+    .select("order_id, client_reference, state, refund_claimed_at, resolved_by, created_at")
+    .eq("order_table", DATA_ORDERS_TABLE).in("order_id", orderIds.slice(0, 200)).order("created_at", { ascending: false })
+  if (error) throw error
+  for (const r of (data ?? []) as any[]) {
+    const list = out.get(r.order_id) ?? []
+    list.push({ client_reference: r.client_reference, state: r.state, refund_claimed_at: r.refund_claimed_at, resolved_by: r.resolved_by, created_at: r.created_at })
+    out.set(r.order_id, list)
+  }
+  return out
+}
+
+/** Whether an admin may retry this order: paid, failed, and every Hubtel attempt failed by Hubtel itself (see retryDecision). */
+export const bundleCanRetry = (o: { status: string; payment_status: string }, ledger: LedgerFact[]): boolean =>
+  o.status === "failed" && o.payment_status === "paid" && retryDecision(o, ledger).ok
 
 /**
  * Release a stuck dispatch claim (processing -> pending), fully guarded in SQL so a stale request can never

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest"
 import {
-  bundleRefundDecision, executeBundleRefund, isStuckClaim, parseOrderFilters, refundAmountOf, refundMessageOf, releaseStuckClaimRow, STUCK_CLAIM_MS, UNSENT_GRACE_MS,
+  bundleCanRetry, bundleRefundDecision, executeBundleRefund, fetchBundleLedgerByOrders, isStuckClaim, parseOrderFilters, refundAmountOf, refundMessageOf, releaseStuckClaimRow, STUCK_CLAIM_MS, UNSENT_GRACE_MS,
   type BundleRefundDeps, type RefundOrder,
 } from "./admin"
+import type { LedgerFact } from "@/lib/bills/admin"
 
 const NOW = Date.parse("2026-10-13T12:00:00Z")
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
@@ -66,6 +67,41 @@ describe("releaseStuckClaimRow", () => {
     expect(calls).toEqual(expect.arrayContaining([
       "update:pending", "eq:id=o1", "eq:status=processing", "eq:payment_status=paid", "is:hubtel_client_reference=null", "like:notes=Dispatching%", "lt:updated_at",
     ]))
+  })
+})
+
+describe("fetchBundleLedgerByOrders", () => {
+  it("filters on order_table = hubtel_data_orders and groups rows per order", async () => {
+    const calls: string[] = []
+    const rows = [
+      { order_id: "o1", client_reference: "R2", state: "failed", refund_claimed_at: null, resolved_by: null, created_at: "2026-10-13T11:00:00Z" },
+      { order_id: "o1", client_reference: "R1", state: "failed", refund_claimed_at: null, resolved_by: null, created_at: "2026-10-13T10:00:00Z" },
+    ]
+    const chain: any = {
+      select: () => chain,
+      eq: (c: string, v: any) => { calls.push(`eq:${c}=${v}`); return chain },
+      in: (c: string, v: any[]) => { calls.push(`in:${c}=${v.join(",")}`); return chain },
+      order: (c: string, o: any) => { calls.push(`order:${c}:${o.ascending}`); return Promise.resolve({ data: rows, error: null }) },
+    }
+    const map = await fetchBundleLedgerByOrders({ from: (t: string) => { calls.push(`from:${t}`); return chain } } as any, ["o1"])
+    expect(calls).toEqual(["from:hubtel_cs_transactions", "eq:order_table=hubtel_data_orders", "in:order_id=o1", "order:created_at:false"])
+    expect(map.get("o1")?.map(r => r.client_reference)).toEqual(["R2", "R1"])
+  })
+  it("throws on a DB error", async () => {
+    const chain: any = { select: () => chain, eq: () => chain, in: () => chain, order: () => Promise.resolve({ data: null, error: new Error("db down") }) }
+    await expect(fetchBundleLedgerByOrders({ from: () => chain } as any, ["o1"])).rejects.toThrow("db down")
+  })
+})
+
+describe("bundleCanRetry", () => {
+  const failedRow = (o: Partial<LedgerFact> = {}): LedgerFact => ({ client_reference: "RX", state: "failed", refund_claimed_at: null, resolved_by: null, created_at: "", ...o })
+  it("is true for a failed+paid order whose ledger rows are all failed", () => {
+    expect(bundleCanRetry({ status: "failed", payment_status: "paid" }, [failedRow(), failedRow()])).toBe(true)
+  })
+  it("is false with no ledger, when unpaid, or when any row has resolved_by", () => {
+    expect(bundleCanRetry({ status: "failed", payment_status: "paid" }, [])).toBe(false)
+    expect(bundleCanRetry({ status: "failed", payment_status: "unpaid" }, [failedRow()])).toBe(false)
+    expect(bundleCanRetry({ status: "failed", payment_status: "paid" }, [failedRow(), failedRow({ resolved_by: "admin" })])).toBe(false)
   })
 })
 

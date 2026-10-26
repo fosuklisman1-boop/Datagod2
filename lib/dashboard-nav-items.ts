@@ -1,7 +1,7 @@
 import {
   Layers, Package, ShoppingCart, IdCard, Wallet, History, User, AlertCircle,
   Store, Settings, Users, ShoppingBag, Zap, Sparkles, Smartphone, Activity,
-  GraduationCap, Send, Code2, Tag, Banknote, Lightbulb, Wifi,
+  GraduationCap, Send, Code2, Tag, Banknote, Lightbulb, Wifi, Trophy,
   type LucideIcon,
 } from "lucide-react"
 import { isPathAllowedForService, isPageHidden, type DomainService } from "./custom-domains"
@@ -13,6 +13,8 @@ export interface NavItem {
   roles: string[]
   /** Hidden unless /api/bills/availability reports this feature enabled (filtered where the sidebar renders). */
   feature?: "bills" | "broadband" | "standard-bundles"
+  /** Never picked as a landing page by pickFirstVisiblePath. */
+  notLanding?: boolean
 }
 
 /** Sidebar active state: exact match, plus the SMS section's sub-routes keep "SMS" highlighted. */
@@ -31,6 +33,7 @@ export const menuItems: NavItem[] = [
   { href: "/dashboard/afa-orders", label: "AFA Orders", icon: IdCard, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/transactions", label: "Transactions", icon: History, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/top-performers", label: "Top Performers", icon: Trophy, roles: ["user", "admin", "sub_agent", "dealer"], notLanding: true },
   { href: "/dashboard/profile", label: "Profile", icon: User, roles: ["user", "admin", "sub_agent", "dealer"] },
   { href: "/dashboard/bills", label: "Utility Bills", icon: Lightbulb, roles: ["user", "admin", "dealer", "sub_agent"], feature: "bills" },
   { href: "/dashboard/broadband", label: "Telecel Broadband", icon: Wifi, roles: ["user", "admin", "dealer", "sub_agent"], feature: "broadband" },
@@ -76,6 +79,7 @@ export function pickFirstVisiblePath(
   for (const item of allItems) {
     if (!item.roles.includes(role)) continue
     if (item.feature) continue // availability is client-side; never a landing page
+    if (item.notLanding) continue
     if (item.href === "/dashboard" && isPageHidden("dashboard_home", hiddenPages)) continue
     if (item.href === "/dashboard/upgrade" && role === "dealer" && !dealerHasSubscription) continue
     if (!isPathAllowedForService(item.href, services, hiddenPages)) continue

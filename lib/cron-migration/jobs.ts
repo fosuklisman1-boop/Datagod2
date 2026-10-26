@@ -31,6 +31,7 @@ const BATCH_A = new Set(
     "sms-contact-verify",
     "sms-delivery-sync",
     "expire-stale-airtime",
+    "leaderboard-refresh",
   ].map((n) => P + n),
 )
 
