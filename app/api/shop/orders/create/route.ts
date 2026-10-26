@@ -722,6 +722,19 @@ export async function POST(request: NextRequest) {
       parent_profit_amount: data[0].parent_profit_amount
     })
 
+    // Leaderboards count a verified sub-agent stock purchase as the sub-agent's
+    // own purchase, not a shop sale. Separate update so order creation keeps
+    // working before migration 0133 adds the column; a failure only logs.
+    if (isAuthenticatedDashboardCall) {
+      const { error: stockFlagError } = await supabase
+        .from("shop_orders")
+        .update({ is_stock_purchase: true })
+        .eq("id", data[0].id)
+      if (stockFlagError) {
+        console.warn("[SHOP-ORDER] Could not flag stock purchase (non-critical):", stockFlagError.message)
+      }
+    }
+
     // Anomaly alert: notify admins if pending orders spike (non-blocking, no hard block)
     // Threshold 80/hr chosen so a busy legitimate shop (60/hr cap) never trips this.
     ;(async () => {
