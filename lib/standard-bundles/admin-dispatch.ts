@@ -24,6 +24,7 @@ export interface BundleRetryResult { ok: boolean; status: number; message: strin
  * Re-send a paid standard bundle order Hubtel failed. Each attempt is a new Hubtel transaction with a new client reference.
  * Refund safety: a wallet refund claims the ledger row BEFORE it credits, and only credits a 'failed' order; so after
  * reopening we re-read the ledger, and any claim that appeared means a refund may be crediting: put the order back.
+ * A storefront refund (reserve RPC) locks the order row and moves it to 'refunding', which the dispatch claim loses to.
  * Port of executeBillRetry (lib/bills/admin-dispatch.ts); the decision rules are shared via retryDecision.
  */
 export async function executeBundleRetry(d: BundleRetryDeps, orderId: string): Promise<BundleRetryResult> {

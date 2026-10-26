@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  applyOrderFilters, bundleRefundDecision, DATA_ORDERS_TABLE, fetchLedgerOrderIds, isStuckClaim, ORDER_STATUSES, parseOrderFilters,
+  applyOrderFilters, bundleCanRetry, bundleRefundDecision, DATA_ORDERS_TABLE, fetchBundleLedgerByOrders, fetchLedgerOrderIds, isStuckClaim,
+  ORDER_STATUSES, parseOrderFilters,
 } from "@/lib/standard-bundles/admin"
+import type { LedgerFact } from "@/lib/bills/admin"
 import { clampPage, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
 import { botChannelLabel } from "@/lib/cashback/bot-labels"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
@@ -67,6 +69,12 @@ export async function GET(request: NextRequest) {
     let ledgerOk = true
     try { ledger = await fetchLedgerOrderIds(db, candidates.map(o => o.id)) } catch { ledgerOk = false }
 
+    // Retry eligibility needs the full ledger facts; fail closed (no retry offered) if it cannot be read.
+    const retryCandidates = orders.filter(o => o.status === "failed" && o.payment_status === "paid")
+    let ledgerMap = new Map<string, LedgerFact[]>()
+    let retryOk = true
+    try { ledgerMap = await fetchBundleLedgerByOrders(db, retryCandidates.map(o => o.id)) } catch { retryOk = false }
+
     const now = Date.now()
     const rows = orders.map(o => {
       const isCandidate = candidates.includes(o)
@@ -84,6 +92,7 @@ export async function GET(request: NextRequest) {
         stuck_claim: ledgerOk && isCandidate && !ledger.has(o.id) && isStuckClaim(o, now),
         has_ledger: ledgerOk && isCandidate ? ledger.has(o.id) : null,
         refund: decision,
+        can_retry: retryOk && retryCandidates.includes(o) && bundleCanRetry(o, ledgerMap.get(o.id) ?? []),
       }
     })
     return NextResponse.json({ rows, total: page.count ?? 0, stats })
