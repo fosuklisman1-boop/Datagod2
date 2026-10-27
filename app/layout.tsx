@@ -78,9 +78,6 @@ const BASE_METADATA: Omit<Metadata, "title" | "description" | "openGraph" | "twi
       "max-snippet": -1,
     },
   },
-  alternates: {
-    canonical: "https://www.datagod.store",
-  },
 }
 
 // A custom domain restricted to a subset of services (see lib/custom-domains.ts)

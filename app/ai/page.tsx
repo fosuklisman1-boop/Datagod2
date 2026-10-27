@@ -4,6 +4,7 @@ import { Cpu, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export const metadata: Metadata = {
+  alternates: { canonical: "https://www.datagod.store/ai" },
   title: "DATAGOD AI | One Assistant, Every Surface | DATAGOD",
   description: "DATAGOD AI helps you browse plans, track orders, and order data or airtime by chat — on the web, in your shop, on WhatsApp, and in the dealer dashboard.",
   openGraph: {

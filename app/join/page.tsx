@@ -10,6 +10,7 @@ import { supabaseAdmin } from "@/lib/supabase"
 // file is that page: a real, public "become an agent" landing page at the slug
 // the sitemap already promised.
 export const metadata: Metadata = {
+  alternates: { canonical: "https://www.datagod.store/join" },
   title: "Become a DATAGOD Agent | Sell Data & Airtime, Keep the Profit",
   description: "Open your own DATAGOD storefront, buy data and airtime at wholesale prices, set your own prices, and withdraw your profit to Mobile Money. Free to start.",
   openGraph: {

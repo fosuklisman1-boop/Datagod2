@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase"
 import { ghanaSignificant } from "@/lib/phone-format"
 
 export const metadata: Metadata = {
+  alternates: { canonical: "https://www.datagod.store/whatsapp" },
   title: "Order Data & Airtime via WhatsApp | DATAGOD",
   description: "Message DATAGOD on WhatsApp to buy data bundles, airtime, and results-checker vouchers by chat — no app to install.",
   openGraph: {

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { supabaseAdmin } from "@/lib/supabase"
 
 export const metadata: Metadata = {
+  alternates: { canonical: "https://www.datagod.store/bulk-sms" },
   title: "Bulk SMS Ghana | Send Campaigns with Your Own Sender ID | DATAGOD",
   description: "Send bulk SMS campaigns in Ghana with your own sender ID, address book, and templates. Prepaid credits, pay as you go, no monthly contract.",
   openGraph: {

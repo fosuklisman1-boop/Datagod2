@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
+  alternates: { canonical: "https://www.datagod.store/vouchers" },
   title: "Retrieve Your Voucher | DATAGOD",
   description: "Look up your DATAGOD results checker voucher PINs and resend them by SMS.",
   openGraph: {

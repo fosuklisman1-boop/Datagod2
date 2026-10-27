@@ -8,6 +8,7 @@ import { supabaseAdmin } from "@/lib/supabase"
 import { isPageHidden } from "@/lib/custom-domains"
 
 export const metadata: Metadata = {
+  alternates: { canonical: "https://www.datagod.store/results-checker" },
   title: "Check WASSCE, BECE & NOVDEC Results Online | DATAGOD",
   description: "Buy WASSCE, BECE, and NOVDEC results-checker voucher PINs instantly, or let DATAGOD check your results for you if you don't have a voucher. Instant delivery.",
   openGraph: {

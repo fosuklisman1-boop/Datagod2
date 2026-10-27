@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Shield } from "lucide-react"
 
 export const metadata = {
+  alternates: { canonical: "https://www.datagod.store/privacy" },
   title: "Privacy Policy | DATAGOD",
   description: "DATAGOD Privacy Policy — how we collect, use, and protect your personal information.",
 }

@@ -4,6 +4,7 @@ import { Shield } from "lucide-react"
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
+  alternates: { canonical: "https://www.datagod.store/terms" },
   title: "Terms of Service | DATAGOD",
   description: "DATAGOD Terms of Service — account registration, delivery policy, payment verification, and wallet terms for buying data, airtime, and digital services in Ghana.",
 }
