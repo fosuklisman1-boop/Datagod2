@@ -454,6 +454,7 @@ export default function HomePage() {
             ["Why Us", "#why-us"],
             ["How it works", "#how-it-works"],
             ["Shops", "/join"],
+            ["Developers", "/developers"],
           ].map(([l, href]) => (
             <a key={l} href={href} className="font-mono text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">{l}</a>
           ))}
@@ -595,18 +596,21 @@ export default function HomePage() {
           </div>
           <div className="order-1 lg:order-2">
             <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">For Developers</span>
-            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-4">Integrate data &amp; airtime into your own app</h2>
+            <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-4">Integrate Datagod into your own app</h2>
             <p className="text-muted-foreground mb-6">
-              Automate data bundle and airtime purchases directly from your own website, app, or system — get your API key from the dashboard and start building.
+              Automate data bundles, airtime, utility bills, results checker vouchers, AFA registration and bulk SMS from your own website, app, or system. Read the docs, download the Postman collection, test in the sandbox, then go live.
             </p>
             <ul className="space-y-3 mb-6">
-              {["Simple REST API — no SDK required", "Get your API key straight from the dashboard", "Automate data bundle & airtime purchases", "Built for Ghanaian apps & platforms"].map((item) => (
+              {["Simple REST API — no SDK required", "Get your API key straight from the dashboard", "Sandbox keys and a ready-made Postman collection", "Data, airtime, bills, results checker, AFA and SMS","Built for Ghanaian apps & platforms"].map((item) => (
                 <li key={item} className="flex items-start gap-2.5 text-sm text-foreground">
                   <CheckCircle2 className="w-4 h-4 text-success mt-0.5 flex-shrink-0" /> {item}
                 </li>
               ))}
             </ul>
-            <Link href="/auth/signup"><Button size="lg" variant="outline" className="clay-sm border-0 rounded-full gap-2">Get API Access <ArrowRight className="w-4 h-4" /></Button></Link>
+            <div className="flex flex-wrap gap-3">
+              <Link href="/developers"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Read the API docs <ArrowRight className="w-4 h-4" /></Button></Link>
+              <Link href="/auth/signup"><Button size="lg" variant="outline" className="clay-sm border-0 rounded-full gap-2">Get API Access <ArrowRight className="w-4 h-4" /></Button></Link>
+            </div>
           </div>
         </div>
       </section>
@@ -1102,6 +1106,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                 <li><Link href="/whatsapp" className="hover:text-foreground">Order via WhatsApp</Link></li>
                 <li><Link href="/results-checker" className="hover:text-foreground">Results Checker</Link></li>
                 <li><Link href="/join" className="hover:text-foreground">Shops & Sub-Agents</Link></li>
+                <li><Link href="/developers" className="hover:text-foreground">Developer API</Link></li>
               </ul>
             </div>
             <div>
