@@ -170,8 +170,9 @@ export function smsHash(i: SmsSendInput): string {
  *    EMPTY_MESSAGE, BLOCKED, NO_VALID_RECIPIENTS) happen before debit_sms_for_send (:208);
  *  - :214-216 NOT_ACTIVATED / SUSPENDED / INSUFFICIENT_CREDITS come back from the debit RPC itself,
  *    i.e. nothing was debited;
- *  - :303-349 ENQUEUE_FAILED: the debit happened but a compensating adjust_sms_units refund runs
- *    BEFORE the return (its own failure is only logged: see the plan note);
+ *  - :303-349 ENQUEUE_FAILED is deliberately NOT here: the debit happened and the compensating
+ *    adjust_sms_units refund is best-effort (its own failure is only logged), so a retry could
+ *    double-charge or double-send. It is AMBIGUOUS: claim marked unknown, urgent alert;
  *  - :618-701 enforced path: SMS_DISABLED, INVALID_SENDER_ID, EMPTY_MESSAGE, POLICY_REJECTED,
  *    SEND_IN_PROGRESS and the policy BLOCKED are all returned before any debit.
  * A THROW (runSequentialBatches rethrows a first-batch throw, :541) or any shape we do not
@@ -186,7 +187,6 @@ const NO_CHARGE_ERRORS: ReadonlySet<string> = new Set([
   "SUSPENDED",
   "INSUFFICIENT_CREDITS",
   "INVALID_SENDER_ID",
-  "ENQUEUE_FAILED",
   "SMS_DISABLED",
   "POLICY_REJECTED",
   "SEND_IN_PROGRESS",
@@ -248,12 +248,6 @@ export function smsErrorResponse(e: unknown): ErrorResponse {
         return { status: 400, code: "TOO_MANY_RECIPIENTS", message: `At most ${SMS_MAX_RECIPIENTS} recipients per send` }
       case "NO_VALID_RECIPIENTS":
         return { status: 400, code: "NO_VALID_RECIPIENTS", message: "None of the recipients is a valid phone number" }
-      case "ENQUEUE_FAILED":
-        return {
-          status: 500,
-          code: "SEND_FAILED",
-          message: "The send could not be queued and no credits were kept. Retry with the same reference",
-        }
     }
   }
   // A throw, or a shape we do not recognise: credits may or may not have been reserved.
@@ -288,7 +282,7 @@ function mapLogStatus(status: unknown, cancelled: unknown): SmsCampaignStatus {
 }
 
 /** The error names a later batch can stop on, plus the generic one (send-service.ts:541 "SEND_ERROR"). */
-const STOP_REASONS: ReadonlySet<string> = new Set([...NO_CHARGE_ERRORS, "SEND_ERROR"])
+const STOP_REASONS: ReadonlySet<string> = new Set([...NO_CHARGE_ERRORS, "ENQUEUE_FAILED", "SEND_ERROR"])
 
 export interface PublicSmsSendSummary {
   campaign_id: string | null

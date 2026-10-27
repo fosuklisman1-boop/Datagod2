@@ -192,10 +192,13 @@ describe("smsHash", () => {
 describe("classifySmsError", () => {
   const NO_CHARGE = [
     "BLOCKED", "NOT_ACTIVATED", "SUSPENDED", "INSUFFICIENT_CREDITS", "INVALID_SENDER_ID", "SMS_DISABLED",
-    "POLICY_REJECTED", "SEND_IN_PROGRESS", "EMPTY_MESSAGE", "TOO_MANY_RECIPIENTS", "NO_VALID_RECIPIENTS", "ENQUEUE_FAILED",
+    "POLICY_REJECTED", "SEND_IN_PROGRESS", "EMPTY_MESSAGE", "TOO_MANY_RECIPIENTS", "NO_VALID_RECIPIENTS",
   ]
   it.each(NO_CHARGE)("returned %s is no_charge", (error) => {
     expect(classifySmsError({ ok: false, error })).toBe("no_charge")
+  })
+  it("ENQUEUE_FAILED is ambiguous: the engine's compensating refund is best-effort, so a retry could double-charge", () => {
+    expect(classifySmsError({ ok: false, error: "ENQUEUE_FAILED" })).toBe("ambiguous")
   })
   it("a thrown Error is ambiguous", () => {
     expect(classifySmsError(new Error("boom"))).toBe("ambiguous")
@@ -228,7 +231,7 @@ describe("smsErrorResponse", () => {
     expect(r("EMPTY_MESSAGE")).toMatchObject({ status: 400, code: "EMPTY_MESSAGE" })
     expect(r("TOO_MANY_RECIPIENTS")).toMatchObject({ status: 400, code: "TOO_MANY_RECIPIENTS" })
     expect(r("NO_VALID_RECIPIENTS")).toMatchObject({ status: 400, code: "NO_VALID_RECIPIENTS" })
-    expect(r("ENQUEUE_FAILED")).toMatchObject({ status: 500, code: "SEND_FAILED" })
+    expect(r("ENQUEUE_FAILED")).toMatchObject({ status: 500, code: "OUTCOME_UNKNOWN" })
   })
   it("BLOCKED shows only the customer-safe reason of a policy block, else a fixed text", () => {
     expect(r("BLOCKED", { code: "SOME_POLICY", reason: "Remove the link and try again." })).toMatchObject({

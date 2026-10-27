@@ -1658,7 +1658,7 @@ describe("v2DocsRegistry SMS endpoints", () => {
     body({ ...goodBody, scheduled_at: "tomorrow" })
     body({ ...goodBody, scheduled_at: "2026-10-27T10:00:30Z" })
     body({ ...goodBody, scheduled_at: "2027-12-01T10:00:00Z" })
-    for (const err of ["INSUFFICIENT_CREDITS", "NOT_ACTIVATED", "SUSPENDED", "INVALID_SENDER_ID", "BLOCKED", "POLICY_REJECTED", "SMS_DISABLED", "SEND_IN_PROGRESS", "EMPTY_MESSAGE", "TOO_MANY_RECIPIENTS", "NO_VALID_RECIPIENTS", "ENQUEUE_FAILED"]) {
+    for (const err of ["INSUFFICIENT_CREDITS", "NOT_ACTIVATED", "SUSPENDED", "INVALID_SENDER_ID", "BLOCKED", "POLICY_REJECTED", "SMS_DISABLED", "SEND_IN_PROGRESS", "EMPTY_MESSAGE", "TOO_MANY_RECIPIENTS", "NO_VALID_RECIPIENTS"]) {
       const r = smsRules.smsErrorResponse({ ok: false, error: err })
       expect(sendMsgs, err).toContain(`${r.code}: ${r.message}`)
     }
@@ -1789,5 +1789,13 @@ describe("v2DocsRegistry SMS endpoints", () => {
     const all = JSON.stringify(v2DocsRegistry.filter((s) => s.group === "sms"))
     expect(all).not.toMatch(/api_v2_idempotency|enqueueSendBatched|sms_send_logs|sms_accounts|supabase|unit_balance|sendLogId/i)
     for (const p of all.match(/(\+233|0)\d{9}/g) ?? []) expect(p).toMatch(/^(\+23324400000|024400000)\d$/)
+  })
+})
+
+describe("sms docs: the reference is only free after genuinely no-charge errors", () => {
+  it("no doc text mentions SEND_FAILED or keeping no credits", () => {
+    const all = JSON.stringify(v2DocsRegistry)
+    expect(all).not.toContain("SEND_FAILED")
+    expect(all).not.toContain("no credits were kept")
   })
 })

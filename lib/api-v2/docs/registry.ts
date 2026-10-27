@@ -1428,7 +1428,6 @@ const SMS_ENGINE_ERRORS: { status: number; message: string }[] = [
     message:
       "SEND_IN_PROGRESS: Another send from your account is still being processed. Retry this same request with the same reference in a few seconds",
   },
-  { status: 500, message: "SEND_FAILED: The send could not be queued and no credits were kept. Retry with the same reference" },
   { status: 503, message: "SMS_DISABLED: SMS is temporarily unavailable. Please try again later." },
 ]
 

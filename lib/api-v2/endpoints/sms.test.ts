@@ -401,17 +401,29 @@ describe("POST /sms/send: engine outcomes", () => {
     ["SMS_DISABLED", 503],
     ["SEND_IN_PROGRESS", 429],
     ["NO_VALID_RECIPIENTS", 400],
-    ["ENQUEUE_FAILED", 500],
   ])("returned %s => release the claim and map to %i, no alert", async (error, status) => {
     const { deps, table } = makeDeps()
     deps.engine.mockResolvedValueOnce({ ok: false, error })
     const r = await handleSmsSend(deps)(body(), LIVE)
     expect(r.status).toBe(status)
-    expect(r.error?.message).toContain(error === "ENQUEUE_FAILED" ? "SEND_FAILED:" : `${error}:`)
+    expect(r.error?.message).toContain(`${error}:`)
     expect(deps.release).toHaveBeenCalledTimes(1)
     expect(deps.markUnknown).not.toHaveBeenCalled()
     expect(deps.alert).not.toHaveBeenCalled()
     expect(table.rows.size).toBe(0)
+  })
+
+  it("returned ENQUEUE_FAILED => claim marked unknown, urgent alert, 500 OUTCOME_UNKNOWN, never released", async () => {
+    logSpies()
+    const { deps } = makeDeps()
+    deps.engine.mockResolvedValueOnce({ ok: false, error: "ENQUEUE_FAILED" })
+    const r = await handleSmsSend(deps)(body(), LIVE)
+    expect(r.status).toBe(500)
+    expect(r.error?.message).toContain("OUTCOME_UNKNOWN:")
+    expect(r.error?.message).not.toContain("SEND_FAILED")
+    expect(deps.release).not.toHaveBeenCalled()
+    expect(deps.markUnknown).toHaveBeenCalledTimes(1)
+    expect(deps.alert).toHaveBeenCalledTimes(1)
   })
 
   it("a throw => claim marked unknown, urgent alert, 500 OUTCOME_UNKNOWN, never released, no secrets anywhere", async () => {
