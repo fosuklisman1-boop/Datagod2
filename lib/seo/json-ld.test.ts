@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { buildProductJsonLd, offerPrice } from "./json-ld"
-import { buildProductMetadata, availableEntries, liveBillerEntries } from "./page-meta"
+import { buildProductMetadata, availableEntries, liveBillerEntries, pageAvailability } from "./page-meta"
 import { getProduct, PRODUCTS, type ProductKey } from "./products"
 import { buildLiveFacts, FAILED_RAW, type ProductFacts } from "./live-facts"
 import { resolveBillsConfig } from "@/lib/bills/config"
@@ -142,5 +142,18 @@ describe("page helpers", () => {
 
   it("liveBillerEntries is empty when bills are off", () => {
     expect(liveBillerEntries(buildLiveFacts(FAILED_RAW))).toEqual([])
+  })
+})
+
+describe("pageAvailability", () => {
+  it("is missing for a dark product (fail-closed facts)", () => {
+    const facts = buildLiveFacts(FAILED_RAW)
+    expect(pageAvailability("ussd", facts)).toBe("missing")
+    expect(pageAvailability("pay-dstv", facts)).toBe("missing")
+  })
+  it("is ok when the product is available", () => {
+    const facts = buildLiveFacts(FAILED_RAW)
+    facts.products.ussd = { ...facts.products.ussd, available: true }
+    expect(pageAvailability("ussd", facts)).toBe("ok")
   })
 })

@@ -1,7 +1,6 @@
 import type { Metadata } from "next"
 import type { JSX } from "react"
 import Link from "next/link"
-import { headers } from "next/headers"
 import { notFound } from "next/navigation"
 import {
   ArrowRight,
@@ -20,7 +19,7 @@ import { assertMainSite } from "@/lib/seo/site"
 import { getProduct, REFUND_LINE, SPEED_LINE, type ProductEntry, type ProductGroup, type ProductKey } from "@/lib/seo/products"
 import { formatCedis, getLiveFacts, type LiveFacts, type ProductFacts } from "@/lib/seo/live-facts"
 import { buildProductJsonLd, productCrumbs } from "@/lib/seo/json-ld"
-import { buildProductMetadata, liveBillerEntries } from "@/lib/seo/page-meta"
+import { buildProductMetadata, liveBillerEntries, pageAvailability } from "@/lib/seo/page-meta"
 import { JsonLd } from "./json-ld-script"
 import { FaqSection } from "./faq-section"
 import { RelatedProducts } from "./related-products"
@@ -47,8 +46,10 @@ const CARD = "rounded-xl border border-white/60 dark:border-white/5 bg-card clay
 
 /** Product page metadata; custom domains / shop hosts get noindex instead. */
 export async function productPageMetadata(key: ProductKey): Promise<Metadata> {
-  const h = await headers()
-  if (h.get("x-domain-site-name")) return { robots: { index: false, follow: false } }
+  // 404s on custom domains / shop hosts, and for dark products, before any
+  // metadata (canonical) is emitted. Runs before the root loading.tsx streams.
+  await assertMainSite()
+  if (pageAvailability(key, await getLiveFacts()) === "missing") notFound()
   return buildProductMetadata(getProduct(key))
 }
 
@@ -58,7 +59,7 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
   const p = getProduct(key)
   const facts = await getLiveFacts()
   const f = facts.products[key]
-  if (!f?.available) notFound()
+  if (pageAvailability(key, facts) === "missing") notFound()
 
   const isBuy = p.group === "data" || p.group === "airtime" || p.group === "bills" || p.group === "education"
   const crumbs = productCrumbs(p)
@@ -86,7 +87,7 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
           </ol>
         </nav>
 
-        <Hero p={p} f={f} isBuy={isBuy} />
+        <Hero p={p} f={f} isBuy={isBuy} ussdMain={p.key === "ussd" ? facts.ussd.main : null} />
 
         <section aria-labelledby="bullets-heading" className="mt-16">
           <h2 id="bullets-heading" className="font-display text-2xl sm:text-3xl font-bold text-foreground">
@@ -122,7 +123,7 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
   )
 }
 
-function Hero({ p, f, isBuy }: { p: ProductEntry; f: ProductFacts; isBuy: boolean }) {
+function Hero({ p, f, isBuy, ussdMain }: { p: ProductEntry; f: ProductFacts; isBuy: boolean; ussdMain: string | null }) {
   const price = f.fromPrice != null ? formatCedis(f.fromPrice) : ""
   return (
     <section className="grid grid-cols-1 items-start gap-8 lg:grid-cols-2 lg:gap-12">
@@ -148,6 +149,12 @@ function Hero({ p, f, isBuy }: { p: ProductEntry; f: ProductFacts; isBuy: boolea
       </div>
 
       <div className={`${CARD} p-6`}>
+        {ussdMain ? (
+          <div className="mb-5">
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">Dial</div>
+            <div className="mt-1 font-mono text-4xl font-bold tracking-tight text-primary">{ussdMain}</div>
+          </div>
+        ) : null}
         {price ? (
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">Prices start at</div>

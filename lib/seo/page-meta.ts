@@ -9,6 +9,11 @@ import type { LiveFacts } from "./live-facts"
 
 export const OG_IMAGE = "/og-image.png"
 
+/** "missing" means the page must 404 (product dark or its facts unavailable). */
+export function pageAvailability(key: ProductKey, facts: LiveFacts): "ok" | "missing" {
+  return facts.products[key]?.available ? "ok" : "missing"
+}
+
 export function buildProductMetadata(p: ProductEntry): Metadata {
   const url = absoluteUrl(p.path)
   return {
