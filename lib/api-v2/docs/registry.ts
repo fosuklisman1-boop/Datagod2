@@ -77,7 +77,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Overview",
     group: "start",
     intro:
-      "The Datagod Developer API lets approved partners work with their Datagod account from their own software: check your wallet balance and account role, buy data bundles, buy airtime, pay utility bills, buy results checker vouchers (WASSCE, BECE and NOVDEC) and register customers for AFA. SMS is not part of this release. Every request is made over HTTPS to " +
+      "The Datagod Developer API lets approved partners work with their Datagod account from their own software: check your wallet balance and account role, buy data bundles, buy airtime, pay utility bills, buy results checker vouchers (WASSCE, BECE and NOVDEC) and register customers for AFA, and send SMS to your customers with SMS credits. Every request is made over HTTPS to " +
       V2_BASE_URL +
       ", is authenticated with an API key, and returns JSON in a single consistent envelope. Version 1 of the API keeps working unchanged for existing integrations; v2 runs beside it.",
     endpoints: [],
@@ -87,7 +87,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Authentication",
     group: "start",
     intro:
-      "Send your API key on every request. The preferred form is the Authorization header containing the raw key. Two equivalent forms are also accepted: Authorization: Bearer <key>, and the X-API-Key header. If more than one is sent, Authorization wins. A missing, malformed or unknown key returns 401. The key's type decides which endpoints it can call: a standard key calls the data, wallet, account, results checker and AFA endpoints, and a commission key calls the airtime and utility bill endpoints. A key of the wrong type returns 403.",
+      "Send your API key on every request. The preferred form is the Authorization header containing the raw key. Two equivalent forms are also accepted: Authorization: Bearer <key>, and the X-API-Key header. If more than one is sent, Authorization wins. A missing, malformed or unknown key returns 401. The key's type decides which endpoints it can call: a standard key calls the data, wallet, account, results checker and AFA endpoints, a commission key calls the airtime and utility bill endpoints, and an SMS key calls the SMS endpoints (it spends SMS credits, not your wallet). A key of the wrong type returns 403.",
     steps: [
       "Log in to your Datagod account with a role that is allowed to use the API (the allowed roles are set by Datagod and can change).",
       "Open Dashboard, then Developer API.",
@@ -114,7 +114,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Key types",
     group: "start",
     intro:
-      "Each key has a type and works only with that type's endpoint group; calling another group returns 403. Standard keys unlock data, wallet, orders, the results checker and AFA registration. Commission Services keys unlock airtime and utility bill payments (the Commission endpoints, such as POST /airtime/purchase and POST /utilities/pay). SMS keys unlock the SMS endpoints and are generated separately from the SMS dashboard. A key is also either live (real wallet, real orders) or test (sandbox). A key shows as pending, active or revoked; only active keys can call the API, and revoking a key disables it rather than deleting it.",
+      "Each key has a type and works only with that type's endpoint group; calling another group returns 403. Standard keys unlock data, wallet, orders, the results checker and AFA registration. Commission Services keys unlock airtime and utility bill payments (the Commission endpoints, such as POST /airtime/purchase and POST /utilities/pay). SMS keys unlock the SMS endpoints (they spend SMS credits, not your wallet) and are generated on the same Developer API page when your account has SMS enabled. A key is also either live (real wallet, real orders) or test (sandbox). A key shows as pending, active or revoked; only active keys can call the API, and revoking a key disables it rather than deleting it.",
     endpoints: [],
   },
   {
@@ -138,7 +138,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Idempotency",
     group: "start",
     intro:
-      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Airtime and utility bill payments follow the stricter claim rules in Idempotency and references (airtime and bills): a reference is required and a request that is still unconfirmed is never run a second time. Results checker purchases and AFA registrations follow the same claim rules (see Idempotency and references (results checker and AFA)): a replay returns the existing order, and for the results checker the same PINs, with no second charge; their references are unique within your account. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
+      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Airtime and utility bill payments follow the stricter claim rules in Idempotency and references (airtime and bills): a reference is required and a request that is still unconfirmed is never run a second time. Results checker purchases and AFA registrations follow the same claim rules (see Idempotency and references (results checker and AFA)): a replay returns the existing order, and for the results checker the same PINs, with no second charge; their references are unique within your account. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. SMS sends follow the same claim rules (see Idempotency and references (SMS)): a replay returns the stored send summary with nothing sent again, and SMS references are their own namespace. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
     endpoints: [],
   },
   {
@@ -146,7 +146,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Sandbox",
     group: "start",
     intro:
-      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime and bill orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. A test standard key buys results checker vouchers with fake TEST- PINs against the sandbox wallet and registers AFA customers without anything being registered. Sandbox references are unique per account across all order types (data, airtime, bills and the rest), while live references are unique per order type, so a reference reused for a different order type can conflict in the sandbox only: use a distinct prefix per order type. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
+      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime and bill orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. A test standard key buys results checker vouchers with fake TEST- PINs against the sandbox wallet and registers AFA customers without anything being registered. A test SMS key sends nothing and spends no credits (see SMS sandbox). Sandbox references are unique per account across all order types (data, airtime, bills and the rest), while live references are unique per order type, so a reference reused for a different order type can conflict in the sandbox only: use a distinct prefix per order type. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
     endpoints: [],
   },
 ]
@@ -1382,6 +1382,318 @@ const RESULTS_SECTIONS: V2DocSection[] = [
   },
 ]
 
+// ---------------------------------------------------------------- Bulk SMS (SMS key)
+//
+// Client-safe like the blocks above: sms.ts / sms-rules.ts pull in node crypto, so the strings below are
+// literal copies. registry.test.ts imports the real constants, handlers and mappers and asserts there is
+// no drift.
+
+const SMS_MAX_RECIPIENTS_DOC = 5000
+const SMS_BATCH_SIZE_DOC = 500
+const SMS_PAGE_SIZE_DOC = 25
+const SMS_PENDING_TAIL_DOC =
+  "Do not send this again under a new reference. Check GET /sms/campaigns and GET /sms/balance, or contact support quoting the reference"
+const SMS_FILTER_STATUSES_TEXT = "queued, sending, sent, partial, failed, blocked, held, scheduled"
+
+const MSG_SMS_MESSAGE = "message must be a string between 3 and 1000 characters"
+const MSG_SMS_RECIPIENTS = `recipients must be a non-empty array of strings, at most ${SMS_MAX_RECIPIENTS_DOC} unique numbers`
+const MSG_SMS_SENDER_SHAPE = "sender_id must be a non-empty string"
+const MSG_SMS_SCHEDULE_FORMAT = "Send a valid date and time with a timezone (ISO 8601, e.g. 2026-10-12T14:30:00Z)"
+const MSG_SMS_SCHEDULE_SOON = "Pick a time at least 2 minutes from now"
+const MSG_SMS_SCHEDULE_FAR = "You can schedule up to 30 days ahead"
+const MSG_SMS_BLOCKED = "BLOCKED: This message contains content we can't send."
+const MSG_SMS_POLICY = "POLICY_REJECTED: This send was not accepted by the sending policy."
+const MSG_SMS_NOT_ENABLED = "SMS_NOT_ENABLED: SMS isn't enabled for this account"
+const MSG_SMS_IN_PROGRESS = `REQUEST_IN_PROGRESS: a request with this reference is still being processed; its outcome is not confirmed yet. ${SMS_PENDING_TAIL_DOC}`
+const MSG_SMS_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is not confirmed yet. ${SMS_PENDING_TAIL_DOC}`
+const MSG_SMS_OUTCOME_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this send is not confirmed yet, so credits may have been reserved. ${SMS_PENDING_TAIL_DOC}`
+const MSG_SMS_CLAIM_UNAVAILABLE = "UNAVAILABLE: could not reserve this reference; nothing was sent or charged. Retry with the same reference"
+const MSG_SMS_CAMPAIGN_MISSING = "Campaign not found"
+const MSG_SMS_PAGE = "page must be a whole number from 1 to 999999"
+const MSG_SMS_STATUS_FILTER = `status must be one of: ${SMS_FILTER_STATUSES_TEXT}`
+
+/** The engine's no-charge answers, as the API words them: "CODE: message". */
+const SMS_ENGINE_ERRORS: { status: number; message: string }[] = [
+  { status: 400, message: "INVALID_SENDER_ID: sender_id is not available for this account" },
+  { status: 400, message: MSG_SMS_BLOCKED },
+  { status: 400, message: MSG_SMS_POLICY },
+  { status: 400, message: "EMPTY_MESSAGE: message is empty after preparation" },
+  { status: 400, message: `TOO_MANY_RECIPIENTS: At most ${SMS_MAX_RECIPIENTS_DOC} recipients per send` },
+  { status: 400, message: "NO_VALID_RECIPIENTS: None of the recipients is a valid phone number" },
+  { status: 402, message: "INSUFFICIENT_CREDITS: Not enough SMS credits for this send" },
+  { status: 403, message: "NOT_ACTIVATED: SMS is not activated for this account" },
+  { status: 403, message: "SUSPENDED: SMS is suspended for this account" },
+  {
+    status: 429,
+    message:
+      "SEND_IN_PROGRESS: Another send from your account is still being processed. Retry this same request with the same reference in a few seconds",
+  },
+  { status: 500, message: "SEND_FAILED: The send could not be queued and no credits were kept. Retry with the same reference" },
+  { status: 503, message: "SMS_DISABLED: SMS is temporarily unavailable. Please try again later." },
+]
+
+const SMS_SEND_EXAMPLE = {
+  campaign_id: "1042",
+  status: "queued",
+  total: 2,
+  batches: 1,
+  segments: 1,
+  credits_reserved: 2,
+  invalid_skipped: 0,
+  partial: false,
+  stopped_reason: null,
+  held: false,
+  scheduled: false,
+  scheduled_for: null,
+}
+
+const SMS_CAMPAIGN_EXAMPLE = {
+  campaign_id: "1042",
+  status: "sent",
+  sender_id: "ACMEBRAND",
+  recipient_count: 2,
+  segments: 1,
+  credits_reserved: 2,
+  credits_used: 2,
+  scheduled_for: null,
+  created_at: TS,
+  completed_at: TS,
+}
+
+const SMS_CAMPAIGN_DETAIL_EXAMPLE = {
+  ...SMS_CAMPAIGN_EXAMPLE,
+  delivery: { delivered: 1, failed: 1, pending: 0, refunded: 1 },
+  recipients: [
+    { phone: "+233244000001", status: "delivered", refunded: false },
+    { phone: "+233244000002", status: "failed", refunded: true },
+  ],
+}
+
+const SMS_SANDBOX_NOTE = "A test key never sends a message and spends no credits: the response carries sandbox: true. See SMS sandbox."
+
+const SMS_SEND_ENDPOINT: V2Endpoint = {
+  id: "sms-send",
+  group: "sms",
+  method: "POST",
+  path: "/sms/send",
+  keyType: "sms",
+  rateLimit: `${DEFAULT_LIMITS.purchase} requests per minute (purchase group)`,
+  summary:
+    "Sends one message to up to 5000 recipients and spends SMS credits (not your wallet). Safe to retry with the same reference. Test keys send nothing.",
+  params: [
+    { name: "reference", type: "string", required: true, description: "Your own unique id for this send: 3 to 100 characters, letters, digits and - _ . : only. Required: it makes retries safe." },
+    { name: "message", type: "string", required: true, description: "The message text, 3 to 1000 characters. How many segments (and so credits) it uses is decided by Datagod." },
+    { name: "recipients", type: "string[]", required: true, description: `Ghana mobile numbers (0244000001, 233244000001, +233244000001 or the 9-digit form), 1 to ${SMS_MAX_RECIPIENTS_DOC} unique numbers. Duplicates are ignored; a number that is not valid is skipped and reported in invalid_skipped.` },
+    { name: "sender_id", type: "string", required: false, description: "A sender ID your account owns (see GET /sms/senders). Leave it out to use your default sender, or your first active one; if you have none, Datagod's platform sender is used when it is available." },
+    { name: "scheduled_at", type: "string", required: false, description: "Send later: an ISO 8601 date and time with a timezone, from 2 minutes to 30 days ahead, such as 2026-12-01T09:00:00Z. Leave it out to send now." },
+  ],
+  requestExample: {
+    reference: "SMS-2026-0001",
+    message: "Hello from Acme: your order is ready for pickup.",
+    recipients: ["0244000001", "0244000002"],
+    sender_id: "ACMEBRAND",
+  },
+  successExample: { success: true, data: { send: SMS_SEND_EXAMPLE }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    { status: 400, message: MSG_BODY_OBJECT },
+    { status: 400, message: "Unexpected field" },
+    { status: 400, message: MSG_REFERENCE },
+    { status: 400, message: MSG_SMS_MESSAGE },
+    { status: 400, message: MSG_SMS_RECIPIENTS },
+    { status: 400, message: MSG_SMS_SENDER_SHAPE },
+    { status: 400, message: MSG_SMS_SCHEDULE_FORMAT },
+    { status: 400, message: MSG_SMS_SCHEDULE_SOON },
+    { status: 400, message: MSG_SMS_SCHEDULE_FAR },
+    { status: 403, message: MSG_SMS_NOT_ENABLED },
+    { status: 409, message: MSG_REFERENCE_REUSED },
+    { status: 409, message: MSG_SMS_IN_PROGRESS },
+    { status: 409, message: MSG_SMS_PRIOR_UNKNOWN },
+    { status: 500, message: MSG_SMS_OUTCOME_UNKNOWN },
+    ...SMS_ENGINE_ERRORS,
+    ...standardAccessErrors("sms"),
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+    { status: 503, message: MSG_SMS_CLAIM_UNAVAILABLE },
+  ],
+  notes: [
+    "A new send returns HTTP 201 with { send }. send.status is queued (accepted and being delivered), scheduled (accepted for scheduled_at) or held (accepted but held for review before it goes out). credits_reserved is what the send cost in SMS credits; you never send a price.",
+    "Resending the same reference with the same request is safe: it returns HTTP 200 with { send, replayed: true } (the stored summary, no new send, no second charge). Reusing a reference for a different request returns 409 REFERENCE_REUSED. The request is compared by message, recipients, sender_id and scheduled_at; the reference itself is not part of the comparison.",
+    `Large sends are split into batches of ${SMS_BATCH_SIZE_DOC} recipients and delivered one after another. send.batches says how many were queued. campaign_id is the id of the FIRST batch only, and GET /sms/campaigns/{campaign_id} describes that first batch only (up to ${SMS_BATCH_SIZE_DOC} recipients); later batches are not addressable by id, but GET /sms/campaigns lists every batch.`,
+    "partial: true means the send stopped part-way, typically on INSUFFICIENT_CREDITS, after one or more batches had already been accepted. stopped_reason says why. The batches that were accepted were charged and will be delivered; the rest were not charged. total counts only what was accepted: do not resend those numbers under a new reference, send only the remainder.",
+    "held: true means the send was accepted but is held for review; its credits are reserved while it is reviewed, and its status in GET /sms/campaigns shows held until a decision is made. scheduled: true means it will go out at scheduled_for; scheduled_for is null otherwise.",
+    "invalid_skipped counts numbers that were not valid phone numbers; they are not sent and not charged. A send in which no number is valid returns 400 NO_VALID_RECIPIENTS.",
+    "The reference is claimed before anything is sent. 409 REQUEST_IN_PROGRESS and 409 OUTCOME_UNKNOWN mean an earlier request with this reference is not confirmed yet: never send again under a new reference. Check GET /sms/campaigns and GET /sms/balance, or contact support quoting the reference. 500 OUTCOME_UNKNOWN means credits may have been reserved; the reference is locked to that outcome and is never run a second time automatically.",
+    "A 400, 402, 403, 429 or 503 from the sending rules means nothing was sent or charged and the reference is free again. 429 SEND_IN_PROGRESS means another send from your account is still being accepted: retry the same request with the same reference in a few seconds. BLOCKED and POLICY_REJECTED carry a plain reason in their message.",
+    "Message text and phone numbers are never written to logs or alerts on Datagod's side and never appear in error messages.",
+    SMS_SANDBOX_NOTE,
+  ],
+}
+
+const SMS_BALANCE_ENDPOINT: V2Endpoint = {
+  id: "sms-balance",
+  group: "sms",
+  method: "GET",
+  path: "/sms/balance",
+  keyType: "sms",
+  rateLimit: `${DEFAULT_LIMITS.balance} requests per minute (balance group)`,
+  summary: "Returns your SMS credit balance. SMS credits are separate from your wallet.",
+  params: [],
+  requestExample: null,
+  successExample: {
+    success: true,
+    data: { balance: { credits: 480, pending_credits: 0, status: "active" } },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [{ status: 403, message: MSG_SMS_NOT_ENABLED }, ...standardAccessErrors("sms"), { status: 503, message: MSG_CATALOG_UNAVAILABLE }],
+  notes: [
+    "credits is what you can spend now. pending_credits is credits you have paid for that are not usable yet. status is inactive, active or suspended (or unknown if it cannot be read); only an active account can send.",
+    "Top up SMS credits from the SMS dashboard. The API does not charge your wallet for SMS.",
+    "With a test key the balance is fixed at 1000 credits and the response carries sandbox: true.",
+  ],
+}
+
+const SMS_SENDERS_ENDPOINT: V2Endpoint = {
+  id: "sms-senders",
+  group: "sms",
+  method: "GET",
+  path: "/sms/senders",
+  keyType: "sms",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Lists the sender IDs on your account and which one is the default.",
+  params: [],
+  requestExample: null,
+  successExample: {
+    success: true,
+    data: { senders: [{ sender_id: "ACMEBRAND", status: "active", is_default: true, created_at: TS }] },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [{ status: 403, message: MSG_SMS_NOT_ENABLED }, ...standardAccessErrors("sms"), { status: 503, message: MSG_CATALOG_UNAVAILABLE }],
+  notes: [
+    "status is pending, active, paused, rejected or revoked. Only an active sender can be used to send; only an active sender can be the default (is_default).",
+    "Sender IDs are requested and managed in the SMS dashboard, not through the API.",
+    "With a test key the list holds one sender, SANDBOX, and the response carries sandbox: true.",
+  ],
+}
+
+const SMS_CAMPAIGNS_ENDPOINT: V2Endpoint = {
+  id: "sms-campaigns",
+  group: "sms",
+  method: "GET",
+  path: "/sms/campaigns",
+  keyType: "sms",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Lists your sends (campaigns), newest first, one page at a time.",
+  params: [
+    { name: "page", type: "integer", required: false, description: "Page number, from 1 (the default) to 999999." },
+    { name: "status", type: "string", required: false, description: `Only campaigns with this status: ${SMS_FILTER_STATUSES_TEXT}. A cancelled campaign shows status cancelled in the results but cannot be used as a filter.` },
+  ],
+  requestExample: null,
+  successExample: {
+    success: true,
+    data: { campaigns: [SMS_CAMPAIGN_EXAMPLE], page: 1, page_size: SMS_PAGE_SIZE_DOC, total: 1, has_more: false },
+    meta: { timestamp: TS, version: "2" },
+  },
+  errors: [
+    { status: 400, message: MSG_SMS_PAGE },
+    { status: 400, message: MSG_SMS_STATUS_FILTER },
+    ...standardAccessErrors("sms"),
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+  ],
+  notes: [
+    `Each page holds ${SMS_PAGE_SIZE_DOC} campaigns (page_size). has_more is true when a later page exists; total is the number of campaigns that match.`,
+    `A send of more than ${SMS_BATCH_SIZE_DOC} recipients appears as one campaign per batch. The campaign_id returned by POST /sms/send is the first of them.`,
+    "status is queued, sending, sent, partial, failed, blocked, held, scheduled or cancelled (unknown if it cannot be read). The message text is not returned.",
+    "An account with no SMS account yet returns an empty list rather than an error. With a test key the list is always empty and the response carries sandbox: true.",
+  ],
+}
+
+const SMS_CAMPAIGN_ENDPOINT: V2Endpoint = {
+  id: "sms-campaign-detail",
+  group: "sms",
+  method: "GET",
+  path: "/sms/campaigns/{campaign_id}",
+  keyType: "sms",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Returns one campaign with its delivery counts and per-recipient status.",
+  params: [{ name: "campaign_id", type: "string", required: true, description: "The campaign_id from POST /sms/send or GET /sms/campaigns (path parameter)." }],
+  requestExample: null,
+  successExample: { success: true, data: { campaign: SMS_CAMPAIGN_DETAIL_EXAMPLE }, meta: { timestamp: TS, version: "2" } },
+  errors: [{ status: 404, message: MSG_SMS_CAMPAIGN_MISSING }, ...standardAccessErrors("sms"), { status: 503, message: MSG_CATALOG_UNAVAILABLE }],
+  notes: [
+    `For a send of more than ${SMS_BATCH_SIZE_DOC} recipients the campaign_id from POST /sms/send is the FIRST batch, so this endpoint covers that batch only (up to ${SMS_BATCH_SIZE_DOC} recipients). Use GET /sms/campaigns to see the other batches.`,
+    "Each recipient has a status of delivered, failed, sent (handed to the network, not yet confirmed) or pending, and refunded: true when the credit for that message was returned. delivery totals the same counts.",
+    "Recipient numbers are returned only to the account that owns the campaign. A campaign that does not exist, is malformed or belongs to another account all return the same 404.",
+    "With a test key this always returns 404, because a test send creates no campaign.",
+  ],
+}
+
+const SMS_SECTIONS: V2DocSection[] = [
+  {
+    id: "sms-overview",
+    label: "SMS: keys and credits",
+    group: "sms",
+    intro:
+      "The SMS endpoints need an SMS key (prefix dg2_sms_live_ or dg2_sms_test_), generated on the Developer API page by an account that has SMS enabled. A standard or commission key cannot call them, and an SMS key cannot call the other endpoints; the wrong type returns 403. SMS sends spend SMS credits, not your wallet: top up credits in the SMS dashboard and read the balance with GET /sms/balance. A send that needs more credits than you have returns 402 INSUFFICIENT_CREDITS and nothing is sent.",
+    callouts: [
+      {
+        tone: "info",
+        title: "Credits, not wallet",
+        body: "Wallet balance and SMS credits are two separate balances. GET /wallet/balance never shows SMS credits, and GET /sms/balance never shows your wallet.",
+      },
+    ],
+    endpoints: [],
+  },
+  {
+    id: "sms-send",
+    label: "Send SMS",
+    group: "sms",
+    intro: "Send a message to one or many recipients, now or at a scheduled time. Sends are safe to retry with the same reference.",
+    endpoints: [SMS_SEND_ENDPOINT],
+  },
+  {
+    id: "sms-balance",
+    label: "SMS balance",
+    group: "sms",
+    intro: "Read your SMS credit balance.",
+    endpoints: [SMS_BALANCE_ENDPOINT],
+  },
+  {
+    id: "sms-senders",
+    label: "Sender IDs",
+    group: "sms",
+    intro: "See which sender IDs you can send from.",
+    endpoints: [SMS_SENDERS_ENDPOINT],
+  },
+  {
+    id: "sms-campaigns",
+    label: "Campaigns",
+    group: "sms",
+    intro: "List your sends, or open one to see how each recipient's message went.",
+    endpoints: [SMS_CAMPAIGNS_ENDPOINT, SMS_CAMPAIGN_ENDPOINT],
+  },
+  {
+    id: "sms-idempotency",
+    label: "Idempotency and references (SMS)",
+    group: "sms",
+    intro:
+      "Every send needs a reference that you choose: 3 to 100 characters, letters, digits and - _ . : only, unique to the send on your side. Datagod reserves it before anything is sent, and a request ends in one of four ways. A new request is sent once and returns HTTP 201. The same reference with the same request returns HTTP 200 with replayed: true and the stored summary, with nothing sent or charged again. The same reference with a different request returns 409 REFERENCE_REUSED. A reference whose earlier request is not confirmed yet returns 409 REQUEST_IN_PROGRESS while it is running, or 409 OUTCOME_UNKNOWN once it has been unconfirmed for more than 10 minutes or ended without a clear result. If the reference cannot be reserved at all you get 503 and nothing was sent; retry with the same reference. SMS has no order lookup by reference: after an unknown outcome, check GET /sms/campaigns and GET /sms/balance, and contact support quoting the reference. Never send again under a new reference to fix an unknown outcome; that is how recipients get the message twice. SMS references are their own namespace: a data order and an SMS send can use the same string.",
+    steps: [
+      "Create one reference per send and store it before you send the request.",
+      "On a timeout or a network error, resend the same request with the same reference: you get the stored summary back, never a second send.",
+      "On 409 REQUEST_IN_PROGRESS, 409 OUTCOME_UNKNOWN or 500 OUTCOME_UNKNOWN, never resend under a new reference. Check GET /sms/campaigns and GET /sms/balance; if it stays unclear, contact support quoting the reference.",
+      "On a 400, 402, 403, 429 or 503 listed for the send, nothing was sent or charged, so you can fix the problem and send again, with the same reference.",
+    ],
+    endpoints: [],
+  },
+  {
+    id: "sms-sandbox",
+    label: "SMS sandbox",
+    group: "sms",
+    intro:
+      "A test SMS key (prefix dg2_sms_test_) is active immediately and needs no approval. The SMS sandbox is stateless: nothing is sent, no credits are spent and nothing is stored. POST /sms/send checks your request exactly like a live send (the same 400 errors) and answers 201 with { send, sandbox: true } where campaign_id is null, credits_reserved equals the number of recipients, and scheduled follows scheduled_at; there is no replay in the sandbox, so the same reference can be sent again and is never compared. GET /sms/balance always shows 1000 credits, GET /sms/senders lists one active default sender, SANDBOX, GET /sms/campaigns is always an empty list, and GET /sms/campaigns/{campaign_id} always returns 404. Every sandbox response carries sandbox: true except that 404.",
+    endpoints: [],
+  },
+]
+
 export const v2DocsRegistry: V2DocSection[] = [
   ...START_SECTIONS,
   {
@@ -1401,4 +1713,5 @@ export const v2DocsRegistry: V2DocSection[] = [
   ...DATA_SECTIONS,
   ...COMMISSION_SECTIONS,
   ...RESULTS_SECTIONS,
+  ...SMS_SECTIONS,
 ]

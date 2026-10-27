@@ -65,6 +65,8 @@ import {
 import { CLAIM_STALE_MS } from "../idempotency"
 import * as resultsMod from "../endpoints/results"
 import * as afaMod from "../endpoints/afa"
+import * as smsMod from "../endpoints/sms"
+import * as smsRules from "../sms-rules"
 import {
   GH_REGIONS,
   parseExamBoard,
@@ -1542,7 +1544,7 @@ describe("v2DocsRegistry results checker and AFA endpoints", () => {
     expect(all).not.toMatch(/(not part of|arriving|coming|later releases?|soon)[^.]*(results checkers?|AFA)/i)
     expect(prose("overview").intro).toMatch(/results checker/i)
     expect(prose("overview").intro).toMatch(/AFA/)
-    expect(prose("overview").intro).toMatch(/SMS[^.]*not part of this release/i)
+    expect(prose("overview").intro).toMatch(/SMS/)
     expect(prose("authentication").intro).toMatch(/standard key[^.]*results checker[^.]*AFA/i)
     expect(prose("key-types").intro).toMatch(/Standard keys unlock[^.]*results checker[^.]*AFA/i)
   })
@@ -1550,5 +1552,242 @@ describe("v2DocsRegistry results checker and AFA endpoints", () => {
   it("does not leak internals in the results and AFA docs", () => {
     const all = JSON.stringify(v2DocsRegistry.filter((s) => s.group === "results"))
     expect(all).not.toMatch(/api_v2_idempotency|purchaseResultsCheckerVouchers|submitAfaOrder|supabase|results_checker_orders|afa_orders|deduct_wallet/i)
+  })
+})
+
+// ---------------------------------------------------------------- SMS group
+
+describe("v2DocsRegistry SMS endpoints", () => {
+  type Ep = (typeof endpoints)[number]
+  const find = (sig: string): Ep => endpoints.find((x) => `${x.method} ${x.path}` === sig)!
+  const prose = (id: string) => v2DocsRegistry.find((s) => s.id === id)!
+  const text = (s: { intro?: string; steps?: string[]; callouts?: { body: string; title?: string }[] }) =>
+    [s.intro ?? "", ...(s.steps ?? []), ...(s.callouts ?? []).flatMap((c) => [c.title ?? "", c.body])].join(" ")
+  const SMS = {
+    send: "POST /sms/send",
+    balance: "GET /sms/balance",
+    senders: "GET /sms/senders",
+    campaigns: "GET /sms/campaigns",
+    campaign: "GET /sms/campaigns/{campaign_id}",
+  }
+  const sigs = Object.values(SMS)
+  const ACCESS_STATUSES = [401, 403, 429, 503]
+  const docStatuses = (sig: string) => [...new Set(find(sig).errors.map((e) => e.status))].sort()
+  const docMsgs = (sig: string) => find(sig).errors.map((e) => e.message)
+  const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {})
+  const LIVE = { keyId: "k", userId: "u", role: "dealer", keyType: "sms", environment: "live", firstName: null } as any
+  const TEST = { ...LIVE, environment: "test" } as any
+  const ACCOUNT = { id: "acc-1", user_id: "u", unit_balance: 480, status: "active", default_sender_id: "s1" } as any
+  const NOW = new Date("2026-10-27T10:00:00Z")
+  const goodBody = { reference: "SMS-2026-0001", message: "Hello from Acme", recipients: ["0244000001", "0244000002"], sender_id: "ACMEBRAND" }
+  const ENGINE_OK = { ok: true, batches: 1, totalQueued: 2, segments: 1, creditsReserved: 2, invalidSkipped: 0, sendLogId: 1042 }
+
+  const deps = (over: Record<string, unknown> = {}): any => ({
+    claim: async () => ({ kind: "claimed", claimId: "c1" }),
+    complete: async () => true,
+    release: async () => true,
+    markUnknown: async () => true,
+    alert: async () => {},
+    getOrCreateAccount: async () => ACCOUNT,
+    lookupAccount: async () => ACCOUNT,
+    resolveSender: async () => "ACMEBRAND",
+    shopTokens: async () => ({}),
+    engine: async () => ENGINE_OK,
+    listCampaigns: async () => ({ rows: [], total: 0, page: 1, pageSize: smsMod.SMS_PAGE_SIZE }),
+    getCampaign: async () => null,
+    listSenders: async () => [],
+    pendingUnits: async () => 0,
+    now: () => NOW.getTime(),
+    ...over,
+  })
+  const boom = async () => {
+    throw new Error("db")
+  }
+
+  it("documents the five endpoints with key type sms in the sms group", () => {
+    for (const sig of sigs) {
+      const e = find(sig)
+      expect(e, sig).toBeDefined()
+      expect(e.keyType).toBe("sms")
+      expect(e.group).toBe("sms")
+      expect(e.notes.length).toBeGreaterThan(0)
+      expect(Object.keys(e.successExample)).toEqual(["success", "data", "meta"])
+    }
+    expect(sigs).toHaveLength(5)
+    expect(prose("sms-send").endpoints.map((e) => `${e.method} ${e.path}`)).toEqual([SMS.send])
+    expect(prose("sms-campaigns").endpoints.map((e) => `${e.method} ${e.path}`)).toEqual([SMS.campaigns, SMS.campaign])
+  })
+
+  it("success examples have exactly the shapes the mappers produce", () => {
+    const d = (sig: string) => (find(sig).successExample as { data: any }).data
+    const send = d(SMS.send).send
+    expect(smsRules.mapSendSummary(ENGINE_OK as any)).toEqual(send)
+    expect(d(SMS.balance).balance).toEqual(smsRules.mapBalance({ unit_balance: 480, status: "active" } as any, 0))
+    const s0 = d(SMS.senders).senders[0]
+    expect(smsRules.mapSenders([{ id: "s1", sender_id: "ACMEBRAND", local_status: "active", created_at: s0.created_at }], "s1")).toEqual([s0])
+    const camp = d(SMS.campaigns).campaigns[0]
+    expect(Object.keys(smsRules.mapCampaign({})).sort()).toEqual(Object.keys(camp).sort())
+    expect(d(SMS.campaigns).page_size).toBe(smsMod.SMS_PAGE_SIZE)
+    const detail = d(SMS.campaign).campaign
+    expect(Object.keys(smsRules.mapCampaignDetail({})).sort()).toEqual(Object.keys(detail).sort())
+    expect(Object.keys(detail.recipients[0]).sort()).toEqual(["phone", "refunded", "status"])
+    expect(detail.recipients.every((r: any) => /^\+233\d{9}$/.test(r.phone))).toBe(true)
+  })
+
+  it("the send request example parses with the real parser and the documented limits are the real ones", () => {
+    expect(smsRules.parseSmsSendBody(find(SMS.send).requestExample, NOW).ok).toBe(true)
+    expect(JSON.stringify(find(SMS.send).params)).toContain(String(smsRules.SMS_MAX_RECIPIENTS))
+    expect(smsMod.SMS_BATCH_SIZE).toBe(500)
+    expect(smsMod.SMS_PAGE_SIZE).toBe(25)
+    expect(find(SMS.send).notes.join(" ")).toContain(String(smsMod.SMS_BATCH_SIZE))
+  })
+
+  it("every documented send message is the real one (parser, schedule, engine mapping, handler constants)", () => {
+    const sendMsgs = docMsgs(SMS.send)
+    const body = (o: unknown) => {
+      const r = smsRules.parseSmsSendBody(o, NOW)
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(sendMsgs, r.error).toContain(r.error)
+    }
+    body(null)
+    body({ ...goodBody, price: 1 })
+    body({ ...goodBody, reference: "x" })
+    body({ ...goodBody, message: "hi" })
+    body({ ...goodBody, recipients: [] })
+    body({ ...goodBody, sender_id: " " })
+    body({ ...goodBody, scheduled_at: "tomorrow" })
+    body({ ...goodBody, scheduled_at: "2026-10-27T10:00:30Z" })
+    body({ ...goodBody, scheduled_at: "2027-12-01T10:00:00Z" })
+    for (const err of ["INSUFFICIENT_CREDITS", "NOT_ACTIVATED", "SUSPENDED", "INVALID_SENDER_ID", "BLOCKED", "POLICY_REJECTED", "SMS_DISABLED", "SEND_IN_PROGRESS", "EMPTY_MESSAGE", "TOO_MANY_RECIPIENTS", "NO_VALID_RECIPIENTS", "ENQUEUE_FAILED"]) {
+      const r = smsRules.smsErrorResponse({ ok: false, error: err })
+      expect(sendMsgs, err).toContain(`${r.code}: ${r.message}`)
+    }
+    for (const m of [smsMod.MSG_SMS_NOT_ENABLED, smsMod.MSG_SMS_IN_PROGRESS, smsMod.MSG_SMS_PRIOR_UNKNOWN, smsMod.MSG_SMS_OUTCOME_UNKNOWN, smsMod.MSG_SMS_CLAIM_UNAVAILABLE, MSG_REFERENCE_REUSED, MSG_CATALOG_UNAVAILABLE]) {
+      expect(sendMsgs).toContain(m)
+    }
+    expect(docMsgs(SMS.campaign)).toContain(smsMod.MSG_SMS_NOT_FOUND)
+    expect(docMsgs(SMS.balance)).toContain(smsMod.MSG_SMS_NOT_ENABLED)
+    expect(docMsgs(SMS.senders)).toContain(smsMod.MSG_SMS_NOT_ENABLED)
+    for (const sig of sigs) expect(docMsgs(sig)).toContain(msgWrongKeyType("sms"))
+  })
+
+  it("list endpoint messages are the real validation messages", async () => {
+    const page = await smsMod.handleSmsCampaigns(deps())({ page: "0" }, LIVE)
+    const status = await smsMod.handleSmsCampaigns(deps())({ status: "bogus" }, LIVE)
+    expect(docMsgs(SMS.campaigns)).toContain(page.error!.message)
+    expect(docMsgs(SMS.campaigns)).toContain(status.error!.message)
+  })
+
+  it("send: documented statuses == statuses the handler produces", async () => {
+    const spy = quiet()
+    const produced = new Set<number>(ACCESS_STATUSES)
+    const run = async (over: Record<string, unknown>, b: unknown = goodBody, ctx: object = LIVE) => {
+      const r = await smsMod.handleSmsSend(deps(over))(b, ctx as any)
+      if (r.error) produced.add(r.status)
+    }
+    await run({}, null)
+    for (const kind of ["conflict", "in_progress", "unknown", "error"]) await run({ claim: async () => ({ kind }) })
+    await run({ getOrCreateAccount: async () => null })
+    await run({ getOrCreateAccount: boom })
+    await run({ resolveSender: boom })
+    await run({ shopTokens: boom })
+    await run({ engine: boom })
+    for (const error of ["INSUFFICIENT_CREDITS", "NOT_ACTIVATED", "INVALID_SENDER_ID", "SEND_IN_PROGRESS", "ENQUEUE_FAILED", "SMS_DISABLED", "BLOCKED", "WEIRD"]) {
+      await run({ engine: async () => ({ ok: false, error }) })
+    }
+    spy.mockRestore()
+    expect(docStatuses(SMS.send)).toEqual([...produced].sort())
+  })
+
+  it("balance, senders, campaigns, campaign: documented statuses == statuses the handlers produce", async () => {
+    const collect = async (runs: (() => Promise<{ error?: unknown; status: number }>)[]) => {
+      const produced = new Set<number>(ACCESS_STATUSES)
+      for (const r of runs) {
+        const res = await r()
+        if (res.error) produced.add(res.status)
+      }
+      return [...produced].sort()
+    }
+    expect(docStatuses(SMS.balance)).toEqual(
+      await collect([() => smsMod.handleSmsBalance(deps({ lookupAccount: async () => null }))(LIVE), () => smsMod.handleSmsBalance(deps({ pendingUnits: boom }))(LIVE)])
+    )
+    expect(docStatuses(SMS.senders)).toEqual(
+      await collect([() => smsMod.handleSmsSenders(deps({ lookupAccount: async () => null }))(LIVE), () => smsMod.handleSmsSenders(deps({ listSenders: boom }))(LIVE)])
+    )
+    expect(docStatuses(SMS.campaigns)).toEqual(
+      await collect([
+        () => smsMod.handleSmsCampaigns(deps())({ page: "x" }, LIVE),
+        () => smsMod.handleSmsCampaigns(deps())({ status: "x" }, LIVE),
+        () => smsMod.handleSmsCampaigns(deps({ listCampaigns: boom }))({}, LIVE),
+      ])
+    )
+    expect(docStatuses(SMS.campaign)).toEqual(
+      await collect([() => smsMod.handleSmsCampaign(deps())("1", LIVE), () => smsMod.handleSmsCampaign(deps({ getCampaign: boom }))("1", LIVE)])
+    )
+  })
+
+  it("states the multi-batch rule: campaign_id is the FIRST batch, detail covers that batch only, up to 500 recipients", () => {
+    const n = find(SMS.send).notes.join(" ")
+    expect(n).toMatch(/campaign_id is the id of the FIRST batch/)
+    expect(n).toMatch(/first batch only \(up to 500 recipients\)/)
+    expect(find(SMS.campaign).notes.join(" ")).toMatch(/FIRST batch[^.]*that batch only[^.]*500 recipients/)
+  })
+
+  it("states created, replay, held, scheduled and partial behaviour", () => {
+    const n = find(SMS.send).notes.join(" ")
+    expect(n).toMatch(/HTTP 201 with \{ send \}/)
+    expect(n).toMatch(/HTTP 200 with \{ send, replayed: true \}/)
+    for (const w of ["held", "scheduled", "partial", "stopped_reason", "invalid_skipped", "REFERENCE_REUSED", "OUTCOME_UNKNOWN"]) expect(n).toContain(w)
+  })
+
+  it("the hash claim in the docs matches smsHash: reference excluded, sender included", () => {
+    const a = smsRules.parseSmsSendBody(goodBody, NOW)
+    const b = smsRules.parseSmsSendBody({ ...goodBody, reference: "OTHER-REF" }, NOW)
+    const c = smsRules.parseSmsSendBody({ ...goodBody, sender_id: "OTHERBRAND" }, NOW)
+    if (!a.ok || !b.ok || !c.ok) throw new Error("parse")
+    expect(smsRules.smsHash(a.value)).toBe(smsRules.smsHash(b.value))
+    expect(smsRules.smsHash(a.value)).not.toBe(smsRules.smsHash(c.value))
+    expect(find(SMS.send).notes.join(" ")).toMatch(/message, recipients, sender_id and scheduled_at; the reference itself is not part/)
+  })
+
+  it("documents the sandbox exactly as the handlers behave", async () => {
+    const sb = text(prose("sms-sandbox"))
+    const sent = await smsMod.handleSmsSend(deps())(goodBody, TEST)
+    expect(sent.status).toBe(201)
+    expect((sent.data as any).sandbox).toBe(true)
+    expect((sent.data as any).send.campaign_id).toBeNull()
+    const again = await smsMod.handleSmsSend(deps())(goodBody, TEST)
+    expect((again.data as any).replayed).toBeUndefined()
+    const bal = await smsMod.handleSmsBalance(deps())(TEST)
+    expect((bal.data as any).balance.credits).toBe(1000)
+    expect(sb).toContain("1000 credits")
+    const snd = await smsMod.handleSmsSenders(deps())(TEST)
+    expect((snd.data as any).senders[0].sender_id).toBe("SANDBOX")
+    expect(sb).toContain("SANDBOX")
+    const list = await smsMod.handleSmsCampaigns(deps())({}, TEST)
+    expect((list.data as any).campaigns).toEqual([])
+    expect((await smsMod.handleSmsCampaign(deps())("1", TEST)).status).toBe(404)
+    expect(sb).toMatch(/empty list/)
+    expect(sb).toMatch(/always returns 404/)
+    expect(sb).toMatch(/no replay/)
+    expect(sb).toMatch(/stateless/)
+  })
+
+  it("start prose covers SMS and the auth note says credits, not wallet", () => {
+    expect(prose("overview").intro).toMatch(/send SMS/i)
+    expect(prose("overview").intro).not.toMatch(/SMS[^.]*not part of this release/i)
+    expect(prose("authentication").intro).toMatch(/SMS key[^.]*SMS endpoints/i)
+    expect(prose("key-types").intro).toMatch(/SMS keys unlock the SMS endpoints/)
+    expect(prose("key-types").intro).not.toMatch(/generated separately from the SMS dashboard/)
+    expect(prose("sandbox").intro).toMatch(/SMS/)
+    expect(prose("idempotency").intro).toMatch(/SMS/)
+    expect(text(prose("sms-overview"))).toMatch(/SMS credits, not your wallet/)
+    expect(text(prose("sms-idempotency"))).toMatch(/REFERENCE_REUSED[\s\S]*REQUEST_IN_PROGRESS[\s\S]*OUTCOME_UNKNOWN/)
+  })
+
+  it("uses fake data only and leaks no internals", () => {
+    const all = JSON.stringify(v2DocsRegistry.filter((s) => s.group === "sms"))
+    expect(all).not.toMatch(/api_v2_idempotency|enqueueSendBatched|sms_send_logs|sms_accounts|supabase|unit_balance|sendLogId/i)
+    for (const p of all.match(/(\+233|0)\d{9}/g) ?? []) expect(p).toMatch(/^(\+23324400000|024400000)\d$/)
   })
 })

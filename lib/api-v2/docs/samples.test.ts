@@ -66,3 +66,27 @@ describe("buildSamples", () => {
     expect(s.curl).toContain("http://localhost:3000/api/v2/account/role")
   })
 })
+
+describe("buildSamples for the SMS group", () => {
+  const ep = () => v2DocsRegistry.flatMap((s) => s.endpoints).find((e) => e.path === "/sms/send")!
+
+  it("uses an SMS key placeholder and the full body in all four languages", () => {
+    const s = buildSamples(ep())
+    for (const lang of ["curl", "node", "php", "python"] as const) {
+      expect(s[lang]).toContain("dg2_sms_live_your_api_key")
+      expect(s[lang]).toContain("https://www.datagod.store/api/v2/sms/send")
+      expect(s[lang]).toContain("SMS-2026-0001")
+      expect(s[lang]).toContain("0244000001")
+    }
+  })
+
+  it("builds body-less samples for the GET endpoints", () => {
+    const bal = v2DocsRegistry.flatMap((x) => x.endpoints).find((e) => e.path === "/sms/balance")!
+    expect(buildSamples(bal).curl).not.toContain("-d")
+    expect(buildSamples(bal).curl).toContain("dg2_sms_live_your_api_key")
+  })
+
+  it("an explicit placeholder still wins", () => {
+    expect(buildSamples(ep(), { keyPlaceholder: "k" }).curl).toContain('"Authorization: k"')
+  })
+})

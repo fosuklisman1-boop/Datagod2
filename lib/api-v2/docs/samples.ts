@@ -15,7 +15,7 @@ export function buildSamples(
   opts: { baseUrl?: string; keyPlaceholder?: string } = {}
 ): Record<DocLang, string> {
   const base = opts.baseUrl ?? V2_BASE_URL
-  const key = opts.keyPlaceholder ?? "dg2_live_your_api_key"
+  const key = opts.keyPlaceholder ?? (ep.keyType === "sms" ? "dg2_sms_live_your_api_key" : "dg2_live_your_api_key")
   const url = `${base}${ep.path}`
   const hasBody = ep.method === "POST" && ep.requestExample !== null
   const json = hasBody ? JSON.stringify(ep.requestExample, null, 2) : ""
