@@ -1773,6 +1773,20 @@ describe("v2DocsRegistry SMS endpoints", () => {
     expect(sb).toMatch(/always returns 404/)
     expect(sb).toMatch(/no replay/)
     expect(sb).toMatch(/stateless/)
+    // The sandbox does not check recipients, sender ownership or credits (live would answer 400 NO_VALID_RECIPIENTS).
+    const allInvalid = await smsMod.handleSmsSend(deps())({ ...goodBody, recipients: ["abc", "12345"] }, TEST)
+    expect(allInvalid.status).toBe(201)
+    expect(sb).toMatch(/does NOT check recipient validity, sender ownership or credits/)
+    expect(sb).toContain("NO_VALID_RECIPIENTS")
+  })
+
+  it("documents the partial-send accounting honestly", () => {
+    const notes = find(SMS.send).notes.join(" ")
+    expect(notes).toMatch(/first batches batches of 500/)
+    expect(notes).toMatch(/still occupy a position/)
+    expect(notes).toMatch(/Do not blindly re-send the whole list/)
+    expect(notes).toMatch(/total counts only the valid numbers/)
+    expect(notes).not.toMatch(/do not resend those numbers/)
   })
 
   it("start prose covers SMS and the auth note says credits, not wallet", () => {
