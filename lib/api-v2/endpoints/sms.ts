@@ -9,6 +9,7 @@
  * BEFORE the engine is called. Live send order (each step short-circuits):
  *   parse body (no I/O) -> claim
  *     replay => 200 { send, replayed: true } | conflict 409 | in_progress 409 | unknown 409 | error 503
+ *   -> schedule lead (< 2 min => release, 400; deferred from parsing so replays never see it)
  *   -> account (none => release, 403) -> sender (none => undefined, the engine decides) -> template tokens
  *   -> engine: ok:true => complete the claim, 201 { send }
  *              returned no-charge error => release, mapped 400/402/403/429/503
@@ -201,7 +202,7 @@ export function handleSmsSend(deps: SmsDeps) {
     const parsed = parseSmsSendBody(body, new Date(deps.now()))
     if (!parsed.ok) return fail(400, parsed.error)
     const input = parsed.value
-    if (ctx.environment === "test") return sandboxSend(input)
+    if (ctx.environment === "test") return input.scheduleLeadError ? fail(400, input.scheduleLeadError) : sandboxSend(input)
     return liveSend(deps, input, ctx)
   }
 }
@@ -252,6 +253,14 @@ async function liveSend(deps: SmsDeps, input: SmsSendInput, ctx: V2Context): Pro
       return fail(503, MSG_SMS_CLAIM_UNAVAILABLE)
   }
   const claimId = outcome.claimId
+
+  // The minimum schedule lead is checked only for a FRESH send: a retry of an already-claimed scheduled
+  // send must be answered (replay / 409) even when its time has since come close or passed. Nothing has
+  // been reserved yet, so the claim is released.
+  if (input.scheduleLeadError) {
+    await safeRelease(deps, claimId, ctx.userId)
+    return fail(400, input.scheduleLeadError)
+  }
 
   // Everything until the engine call is read-only: any failure frees the reference (nothing reserved).
   let account: SmsAccount | null

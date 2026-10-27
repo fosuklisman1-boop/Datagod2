@@ -14,7 +14,7 @@
 
 import { parseReference } from "./data-orders"
 import { requestHash, type EngineErrorClass, type ErrorResponse } from "./commission"
-import { checkSchedule } from "@/lib/sms/schedule"
+import { checkSchedule, MIN_SCHEDULE_MS } from "@/lib/sms/schedule"
 import type { BatchedSendResult } from "@/lib/sms/send-service"
 import type { SmsAccount } from "@/lib/sms/account-service"
 
@@ -85,6 +85,13 @@ export interface SmsSendInput {
   normalizedRecipients: string[]
   senderId: string | null
   scheduledFor: Date | null
+  /**
+   * The 2-minute minimum-lead failure message, or null. Deferred on purpose: the lead depends on the
+   * clock, so a retry of an already-claimed scheduled send must reach the claim (replay / 409) before
+   * this is looked at. The caller enforces it only after a FRESH claim (and releases the claim then).
+   * Format and the 30-day upper bound are still rejected at parse time.
+   */
+  scheduleLeadError: string | null
 }
 
 export function parseSmsSendBody(body: unknown, now: Date = new Date()): { ok: true; value: SmsSendInput } | Fail {
@@ -128,10 +135,20 @@ export function parseSmsSendBody(body: unknown, now: Date = new Date()): { ok: t
   }
 
   let scheduledFor: Date | null = null
+  let scheduleLeadError: string | null = null
   if (body.scheduled_at !== undefined && body.scheduled_at !== null) {
     const sched = checkSchedule(body.scheduled_at, now)
-    if (!sched.ok) return { ok: false, error: sched.message }
-    scheduledFor = sched.at
+    if (sched.ok) {
+      scheduledFor = sched.at
+    } else {
+      // Re-check as if the instant were exactly the minimum lead away: that validates the format and
+      // yields the instant. Then decide whether the strict failure was the lead (deferred) or not.
+      const raw = typeof body.scheduled_at === "string" ? Date.parse(body.scheduled_at.trim()) : NaN
+      const lenient = Number.isFinite(raw) ? checkSchedule(body.scheduled_at, new Date(raw - MIN_SCHEDULE_MS)) : sched
+      if (!lenient.ok || lenient.at.getTime() - now.getTime() >= MIN_SCHEDULE_MS) return { ok: false, error: sched.message }
+      scheduledFor = lenient.at
+      scheduleLeadError = sched.message
+    }
   }
 
   return {
@@ -144,6 +161,7 @@ export function parseSmsSendBody(body: unknown, now: Date = new Date()): { ok: t
       normalizedRecipients: [...keys].sort(),
       senderId,
       scheduledFor,
+      scheduleLeadError,
     },
   }
 }

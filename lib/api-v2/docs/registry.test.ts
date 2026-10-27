@@ -1656,7 +1656,9 @@ describe("v2DocsRegistry SMS endpoints", () => {
     body({ ...goodBody, recipients: [] })
     body({ ...goodBody, sender_id: " " })
     body({ ...goodBody, scheduled_at: "tomorrow" })
-    body({ ...goodBody, scheduled_at: "2026-10-27T10:00:30Z" })
+    const soon = smsRules.parseSmsSendBody({ ...goodBody, scheduled_at: "2026-10-27T10:00:30Z" }, NOW)
+    expect(soon.ok && soon.value.scheduleLeadError).toBeTruthy()
+    if (soon.ok) expect(sendMsgs).toContain(soon.value.scheduleLeadError)
     body({ ...goodBody, scheduled_at: "2027-12-01T10:00:00Z" })
     for (const err of ["INSUFFICIENT_CREDITS", "NOT_ACTIVATED", "SUSPENDED", "INVALID_SENDER_ID", "BLOCKED", "POLICY_REJECTED", "SMS_DISABLED", "SEND_IN_PROGRESS", "EMPTY_MESSAGE", "TOO_MANY_RECIPIENTS", "NO_VALID_RECIPIENTS"]) {
       const r = smsRules.smsErrorResponse({ ok: false, error: err })

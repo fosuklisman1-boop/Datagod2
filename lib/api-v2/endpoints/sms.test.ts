@@ -275,6 +275,46 @@ describe("POST /sms/send (live)", () => {
 // ---------------------------------------------------------------- send: replay / claims
 
 describe("POST /sms/send: reference handling", () => {
+  it("a retry of a scheduled send replays even after the scheduled time has passed (no lead-time check)", async () => {
+    const { deps } = makeDeps()
+    const b = body({ scheduled_at: new Date(NOW_MS + 5 * 60_000).toISOString() })
+    expect((await handleSmsSend(deps)(b, LIVE)).status).toBe(201)
+    deps.now = () => NOW_MS + 60 * 60_000
+    const again = await handleSmsSend(deps)(b, LIVE)
+    expect(again.status).toBe(200)
+    expect(data(again).replayed).toBe(true)
+    expect(deps.engine).toHaveBeenCalledTimes(1)
+  })
+
+  it("a past-time retry meets in_progress / unknown / conflict claims, not a 400", async () => {
+    const at = new Date(NOW_MS - 60 * 60_000).toISOString()
+    for (const [kind, status] of [["in_progress", 409], ["unknown", 409], ["conflict", 409]] as const) {
+      const { deps } = makeDeps()
+      deps.claim = vi.fn(async () => ({ kind }) as any)
+      const r = await handleSmsSend(deps)(body({ scheduled_at: at }), LIVE)
+      expect(r.status, kind).toBe(status)
+      expect(deps.engine).not.toHaveBeenCalled()
+    }
+  })
+
+  it("a fresh send with a 1 minute lead is 400, the claim is released and nothing is sent", async () => {
+    const { deps, table } = makeDeps()
+    const r = await handleSmsSend(deps)(body({ scheduled_at: new Date(NOW_MS + 60_000).toISOString() }), LIVE)
+    expect(r.status).toBe(400)
+    expect(r.error?.message).toBe("Pick a time at least 2 minutes from now")
+    expect(deps.release).toHaveBeenCalledTimes(1)
+    expect(deps.engine).not.toHaveBeenCalled()
+    expect(deps.getOrCreateAccount).not.toHaveBeenCalled()
+    expect(table.rows.size).toBe(0)
+  })
+
+  it("the sandbox still enforces the minimum lead", async () => {
+    const { deps } = makeDeps()
+    const r = await handleSmsSend(deps)(body({ scheduled_at: new Date(NOW_MS + 60_000).toISOString() }), TEST)
+    expect(r.status).toBe(400)
+    expect(r.error?.message).toBe("Pick a time at least 2 minutes from now")
+  })
+
   it("a repeat of the same request replays the stored summary with replayed:true and never re-runs the engine", async () => {
     const { deps } = makeDeps()
     await handleSmsSend(deps)(body(), LIVE)
