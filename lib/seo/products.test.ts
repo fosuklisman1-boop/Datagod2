@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { PRODUCTS, getProduct, type ProductKey } from "./products"
-import { BILLER_KEYS } from "@/lib/bills/billers"
+import { BILLER_KEYS, BILLERS } from "@/lib/bills/billers"
 
 const REFUND = "If an order fails, you get your money back."
 const SPEED = "Usually delivered within minutes."
@@ -65,6 +65,28 @@ describe("product registry", () => {
 
   it("never hardcodes a USSD short code", () => {
     for (const p of PRODUCTS) expect(allText(p), p.key).not.toMatch(/\*\d{2,4}[*#]/)
+  })
+
+  it("never names individually switchable parts in hub / shared copy", () => {
+    // Pages render the live list from facts.parts; static copy must stay true when one part is off.
+    const NETWORKS = /MTN|Telecel|AT |AT\)|AirtelTigo/
+    const BOARDS = /WASSCE|BECE|NovDec/i
+    const billerNames = [...Object.values(BILLERS).map((b) => b.label), "ECG", "Ghana Water", "DSTV", "GOtv", "StarTimes", "Telecel Broadband"]
+    const generic: ProductKey[] = ["airtime", "utility-bills", "results-checker", "bulk-sms", "join", "ussd", "whatsapp", "developers"]
+    for (const key of generic) {
+      const text = allText(getProduct(key))
+      expect(text, `${key} names a network`).not.toMatch(NETWORKS)
+      expect(text, `${key} names an exam board`).not.toMatch(BOARDS)
+      for (const b of billerNames) expect(text.includes(b), `${key} names biller ${b}`).toBe(false)
+    }
+  })
+
+  it("never claims every shop already has a USSD code", () => {
+    for (const p of PRODUCTS) expect(allText(p), p.key).not.toMatch(/(has|gets) its own (USSD )?(shop )?code/i)
+  })
+
+  it("lists USSD as an AFA channel", () => {
+    expect(getProduct("afa-registration").channels).toContain("ussd")
   })
 
   it("uses the agreed sitemap priorities", () => {

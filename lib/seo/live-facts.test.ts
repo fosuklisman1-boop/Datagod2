@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest"
-import { buildLiveFacts, FALLBACK_FACTS, formatCedis, networkOf, type RawFacts } from "./live-facts"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import {
+  buildLiveFacts, FALLBACK_FACTS, formatCedis, networkOf, readSmsPricePerCredit, loadRawFacts,
+  resolveLiveFacts, PartialFactsError, type RawFacts,
+} from "./live-facts"
 import { resolveBillsConfig } from "@/lib/bills/config"
 import { PRODUCTS } from "./products"
 
@@ -170,13 +174,167 @@ describe("buildLiveFacts — other products", () => {
   })
 })
 
-describe("FALLBACK_FACTS", () => {
-  it("is all available except ussd, with every price null and no ussd codes", () => {
+describe("FALLBACK_FACTS (every read failed)", () => {
+  it("keeps data, join, whatsapp and bulk-sms on; switches everything else off; no prices", () => {
+    const on = new Set(["mtn-data", "telecel-data", "at-data", "join", "whatsapp", "bulk-sms"])
     for (const p of PRODUCTS) {
-      expect(FALLBACK_FACTS.products[p.key].available, p.key).toBe(p.key !== "ussd")
+      expect(FALLBACK_FACTS.products[p.key].available, p.key).toBe(on.has(p.key))
       expect(FALLBACK_FACTS.products[p.key].fromPrice, p.key).toBeNull()
     }
     expect(FALLBACK_FACTS.ussd).toEqual({ main: null, shop: null })
+  })
+
+  it("packages: null (read failed) → data pages on without prices", () => {
+    const f = buildLiveFacts(raw({ packages: null }))
+    for (const k of ["mtn-data", "telecel-data", "at-data"] as const) {
+      expect(f.products[k], k).toMatchObject({ available: true, fromPrice: null })
+    }
+  })
+})
+
+// ── Fake Supabase client (repo pattern: minimal hand-rolled fake) ─────────
+type Result = { data: unknown; error: unknown }
+type Handler = (q: { table: string; eqs: Array<[string, unknown]>; select: string }) => Result
+
+function fakeDb(handlers: Record<string, Handler>) {
+  const calls: Array<{ table: string; eqs: Array<[string, unknown]>; select: string }> = []
+  const client = {
+    from(table: string) {
+      const q = { table, eqs: [] as Array<[string, unknown]>, select: "" }
+      calls.push(q)
+      const run = (): Promise<Result> => {
+        const h = handlers[table]
+        return Promise.resolve(h ? h(q) : { data: null, error: { message: `no handler for ${table}` } })
+      }
+      const builder: any = {
+        select(cols: string) { q.select = cols; return builder },
+        eq(col: string, v: unknown) { q.eqs.push([col, v]); return builder },
+        in() { return builder },
+        limit() { return builder },
+        maybeSingle: run,
+        single: run,
+        then(res: (r: Result) => unknown, rej?: (e: unknown) => unknown) { return run().then(res, rej) },
+      }
+      return builder
+    },
+  }
+  return { db: client as unknown as SupabaseClient, calls }
+}
+
+const keyOf = (q: { eqs: Array<[string, unknown]> }) => q.eqs.find(([c]) => c === "key")?.[1]
+
+function healthyHandlers(): Record<string, Handler> {
+  return {
+    packages: () => ({ data: [{ network: "MTN", price: 4, is_available: true }], error: null }),
+    afa_registration_prices: () => ({ data: { price: "45.00" }, error: null }),
+    admin_settings: (q) => {
+      const k = String(keyOf(q))
+      if (k === "utility_bills_config") return { data: { value: { enabled: true, billers: { dstv: { enabled: true, min: 5, max: 100 } } } }, error: null }
+      if (k.startsWith("results_checker_enabled_")) return { data: { value: { enabled: true } }, error: null }
+      if (k.startsWith("results_checker_price_")) return { data: { value: { price: "20" } }, error: null }
+      return { data: null, error: null }
+    },
+    tenant_global_settings: () => ({ data: { value: { amount: 0.035 } }, error: null }),
+    api_v2_config: () => ({ data: { enabled: true }, error: null }),
+    app_settings: () => ({ data: { value: { main: "*920#", shop: null } }, error: null }),
+  }
+}
+
+const deps = {
+  isAirtimeEnabled: async (n: string) => n !== "Telecel",
+  getAirtimeLimits: async () => ({ min: 2, max: 500 }),
+}
+
+describe("readSmsPricePerCredit", () => {
+  it("reads .amount from tenant_global_settings", async () => {
+    const { db, calls } = fakeDb({ tenant_global_settings: () => ({ data: { value: { amount: 0.025 } }, error: null }) })
+    expect(await readSmsPricePerCredit(db)).toBe(0.025)
+    expect(calls[0].table).toBe("tenant_global_settings")
+    expect(keyOf(calls[0])).toBe("sms_price_per_credit")
+  })
+  it("returns null (not a default) when the row is missing or invalid", async () => {
+    expect(await readSmsPricePerCredit(fakeDb({ tenant_global_settings: () => ({ data: null, error: null }) }).db)).toBeNull()
+    expect(await readSmsPricePerCredit(fakeDb({ tenant_global_settings: () => ({ data: { value: { amount: 0 } }, error: null }) }).db)).toBeNull()
+    expect(await readSmsPricePerCredit(fakeDb({ tenant_global_settings: () => ({ data: { value: { amount: "x" } }, error: null }) }).db)).toBeNull()
+  })
+  it("throws on a read error", async () => {
+    await expect(readSmsPricePerCredit(fakeDb({ tenant_global_settings: () => ({ data: null, error: { message: "boom" } }) }).db)).rejects.toThrow()
+  })
+})
+
+describe("loadRawFacts", () => {
+  it("reads every source and reports no failures when healthy", async () => {
+    const { db, calls } = fakeDb(healthyHandlers())
+    const { raw: r, failed } = await loadRawFacts(db, deps)
+    expect(failed).toEqual([])
+    const f = buildLiveFacts(r)
+    expect(f.products["mtn-data"]).toMatchObject({ available: true, fromPrice: 4 })
+    expect(f.products["afa-registration"]).toMatchObject({ available: true, fromPrice: 45 })
+    expect(f.products.airtime).toEqual({ available: true, fromPrice: 2, parts: ["MTN", "AT"] })
+    expect(f.products["pay-dstv"].available).toBe(true)
+    expect(f.products["results-checker"]).toMatchObject({ available: true, fromPrice: 20 })
+    expect(f.products["bulk-sms"].fromPrice).toBe(0.035)
+    expect(f.products.developers.available).toBe(true)
+    expect(f.products.ussd.available).toBe(true)
+    // packages filtered by is_available in SQL
+    const pkg = calls.find((c) => c.table === "packages")!
+    expect(pkg.eqs).toContainEqual(["is_available", true])
+    expect(pkg.select).toBe("network, price, is_available")
+  })
+
+  it("fails each switchable source closed, independently", async () => {
+    const err = () => ({ data: null, error: { message: "boom" } })
+    const h = healthyHandlers()
+    const { db } = fakeDb({
+      ...h,
+      afa_registration_prices: err,
+      api_v2_config: err,
+      app_settings: err,
+      admin_settings: (q) => (String(keyOf(q)) === "utility_bills_config" || String(keyOf(q)).startsWith("results_") ? err() : h.admin_settings(q)),
+    })
+    const { raw: r, failed } = await loadRawFacts(db, deps)
+    expect(failed.sort()).toEqual(["afa", "api-v2", "bills", "results", "ussd"])
+    const f = buildLiveFacts(r)
+    expect(f.products["afa-registration"].available).toBe(false)
+    expect(f.products.developers.available).toBe(false)
+    expect(f.products.ussd.available).toBe(false)
+    expect(f.ussd).toEqual({ main: null, shop: null })
+    expect(f.products["utility-bills"].available).toBe(false)
+    expect(f.products["pay-dstv"].available).toBe(false)
+    expect(f.products["results-checker"].available).toBe(false)
+    // untouched sources still live
+    expect(f.products["mtn-data"]).toMatchObject({ available: true, fromPrice: 4 })
+    expect(f.products.airtime.available).toBe(true)
+  })
+
+  it("packages / sms / airtime failures: data on without prices, bulk-sms on without price, airtime off", async () => {
+    const err = () => ({ data: null, error: { message: "boom" } })
+    const { db } = fakeDb({ ...healthyHandlers(), packages: err, tenant_global_settings: err })
+    const { raw: r, failed } = await loadRawFacts(db, {
+      isAirtimeEnabled: async () => { throw new Error("down") },
+      getAirtimeLimits: async () => ({ min: 1, max: 500 }),
+    })
+    expect(failed.sort()).toEqual(["airtime", "packages", "sms"])
+    const f = buildLiveFacts(r)
+    for (const k of ["mtn-data", "telecel-data", "at-data"] as const) expect(f.products[k]).toMatchObject({ available: true, fromPrice: null })
+    expect(f.products["bulk-sms"]).toMatchObject({ available: true, fromPrice: null })
+    expect(f.products.airtime.available).toBe(false)
+  })
+})
+
+describe("resolveLiveFacts", () => {
+  it("passes a complete result through", async () => {
+    const full = buildLiveFacts(raw())
+    expect(await resolveLiveFacts(async () => full)).toBe(full)
+  })
+  it("builds facts from the partial raw carried by PartialFactsError", async () => {
+    const partial = raw({ apiV2Enabled: false })
+    const f = await resolveLiveFacts(async () => { throw new PartialFactsError(partial, ["api-v2"]) })
+    expect(f.products.developers.available).toBe(false)
+    expect(f.products["mtn-data"]).toBeDefined()
+  })
+  it("returns FALLBACK_FACTS on any other error", async () => {
+    expect(await resolveLiveFacts(async () => { throw new Error("cache down") })).toBe(FALLBACK_FACTS)
   })
 })
 
@@ -189,5 +347,11 @@ describe("formatCedis", () => {
     expect(formatCedis(0.025)).toBe("GH₵0.025")
     expect(formatCedis(0.5)).toBe("GH₵0.50")
     expect(formatCedis(0.04)).toBe("GH₵0.04")
+  })
+  it("returns an empty string for non-finite or non-positive input", () => {
+    expect(formatCedis(0)).toBe("")
+    expect(formatCedis(-2)).toBe("")
+    expect(formatCedis(NaN)).toBe("")
+    expect(formatCedis(Infinity)).toBe("")
   })
 })
