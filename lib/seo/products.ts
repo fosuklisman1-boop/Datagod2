@@ -195,7 +195,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "Airtime Top-Up",
     h1: "Buy airtime online in Ghana",
     title: "Buy Airtime Online in Ghana | DATAGOD",
-    description: "Top up airtime online in Ghana for yourself or anyone else. Pay with MoMo or card through Paystack and send airtime to any number. Usually delivered in minutes.",
+    description: "Top up airtime online in Ghana for yourself or anyone. Pay with MoMo or card through Paystack and send airtime to any number. Usually delivered within minutes.",
     group: "airtime",
     summary: "Send airtime to any number in Ghana on the networks listed on this page. Choose the amount, enter the number, pay with MoMo or card, and the airtime is credited to that line.",
     bullets: [
