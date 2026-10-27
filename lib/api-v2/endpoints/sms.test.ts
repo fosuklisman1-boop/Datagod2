@@ -352,14 +352,27 @@ describe("POST /sms/send: failures before the engine release the reference", () 
     expect(deps.engine).not.toHaveBeenCalled()
   })
 
-  it("no usable sender => 400 INVALID_SENDER_ID, released, engine untouched", async () => {
+  it("no resolvable sender => the engine is still called with senderId undefined (v1 parity: platform sender fallback), hash uses the input sender or null", async () => {
+    const { deps } = makeDeps()
+    deps.resolveSender.mockResolvedValueOnce(null)
+    const r = await handleSmsSend(deps)(body(), LIVE)
+    expect(r.status).toBe(201)
+    expect(deps.engine).toHaveBeenCalledTimes(1)
+    expect(deps.engine.mock.calls[0][0].senderId).toBeUndefined()
+    const parsed = parseSmsSendBody(body(), new Date(NOW_MS))
+    if (!parsed.ok) throw new Error("parse")
+    expect(deps.claim.mock.calls[0][0].requestHash).toBe(smsHash(parsed.value))
+    expect(parsed.value.senderId).toBeNull()
+  })
+
+  it("an engine INVALID_SENDER_ID (no sender, or a requested one the account does not own) is a mapped 400 and frees the reference", async () => {
     const { deps, table } = makeDeps()
     deps.resolveSender.mockResolvedValueOnce(null)
+    deps.engine.mockResolvedValueOnce({ ok: false, error: "INVALID_SENDER_ID" })
     const r = await handleSmsSend(deps)(body(), LIVE)
     expect(r.status).toBe(400)
     expect(r.error?.message).toMatch(/^INVALID_SENDER_ID:/)
     expect(table.rows.size).toBe(0)
-    expect(deps.engine).not.toHaveBeenCalled()
   })
 
   it("sender resolver or token lookup throws => 503, released, engine untouched", async () => {

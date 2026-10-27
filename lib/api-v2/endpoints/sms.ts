@@ -9,7 +9,7 @@
  * BEFORE the engine is called. Live send order (each step short-circuits):
  *   parse body (no I/O) -> claim
  *     replay => 200 { send, replayed: true } | conflict 409 | in_progress 409 | unknown 409 | error 503
- *   -> account (none => release, 403) -> sender (none => release, 400) -> template tokens
+ *   -> account (none => release, 403) -> sender (none => undefined, the engine decides) -> template tokens
  *   -> engine: ok:true => complete the claim, 201 { send }
  *              returned no-charge error => release, mapped 400/402/403/429/503
  *              a throw / unrecognised shape => mark unknown + urgent alert, 500 OUTCOME_UNKNOWN
@@ -56,7 +56,8 @@ export interface SmsEngineParams {
   message: string
   recipients: string[]
   tokens: ShopTokens
-  senderId: string
+  /** undefined when nothing resolved: the engine then uses the platform sender or answers INVALID_SENDER_ID (v1 parity). */
+  senderId: string | undefined
   scheduledFor?: Date
 }
 
@@ -109,7 +110,6 @@ export const MSG_SMS_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier
 export const MSG_SMS_OUTCOME_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this send is not confirmed yet, so credits may have been reserved. ${SMS_PENDING_TAIL}`
 export const MSG_SMS_CLAIM_UNAVAILABLE =
   "UNAVAILABLE: could not reserve this reference; nothing was sent or charged. Retry with the same reference"
-export const MSG_SMS_NO_SENDER = "INVALID_SENDER_ID: no active sender_id is available for this account; pass a sender_id from GET /sms/senders"
 
 const LOG_COMPLETE_FAILED = "[API v2] sms: claim not finalised after a successful send (reads as unknown later)"
 const LOG_RELEASE_FAILED = "[API v2] sms: claim release failed (reference stays blocked)"
@@ -273,10 +273,8 @@ async function liveSend(deps: SmsDeps, input: SmsSendInput, ctx: V2Context): Pro
     await safeRelease(deps, claimId, ctx.userId)
     return fail(503, MSG_UNAVAILABLE)
   }
-  if (!senderId) {
-    await safeRelease(deps, claimId, ctx.userId)
-    return fail(400, MSG_SMS_NO_SENDER)
-  }
+  // No resolvable sender is NOT refused here: like v1, pass undefined and let the engine fall back to
+  // the platform sender or answer INVALID_SENDER_ID itself (mapped, no-charge, frees the reference).
 
   let tokens: ShopTokens
   try {
@@ -295,7 +293,7 @@ async function liveSend(deps: SmsDeps, input: SmsSendInput, ctx: V2Context): Pro
       message: input.message,
       recipients: input.recipients,
       tokens,
-      senderId,
+      senderId: senderId ?? undefined,
       ...(input.scheduledFor ? { scheduledFor: input.scheduledFor } : {}),
     })
   } catch {
