@@ -248,7 +248,7 @@ export function HeroCarousel() {
       <Body>A simple REST API for data bundles, airtime, AFA, results checkers and SMS — get your API key from the dashboard and start building.</Body>
       <div className="mt-10 space-y-4">
         <Link href="/auth/signup" className={PILL.primary}>Get Started</Link>
-        <Link href="/dashboard/developer" className={PILL.outline}>View Docs</Link>
+        <Link href="/developers" className={PILL.outline}>View Docs</Link>
       </div>
     </div>,
 

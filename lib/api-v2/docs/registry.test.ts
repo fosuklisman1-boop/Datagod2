@@ -201,7 +201,7 @@ describe("v2DocsRegistry data endpoints", () => {
   const limitRe = (n: number, g: string) => new RegExp(`${n} requests per minute \\(${g} group\\)`)
 
   it("keeps the base URL unchanged", () => {
-    expect(V2_BASE_URL).toBe("https://www.datagod.store/api/v2")
+    expect(V2_BASE_URL).toBe("https://api.datagod.store/v2")
   })
 
   it("documents all five endpoints with rate-limit groups taken from limits.ts", () => {

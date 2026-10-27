@@ -33,9 +33,9 @@ describe("buildSamples", () => {
   it("builds a body-less curl for GET", () => {
     const s = buildSamples(getEndpoint())
     // The api. host rewrite ships in plan 8; until then v2 lives under /api/v2 on www.
-    expect(V2_BASE_URL).toBe("https://www.datagod.store/api/v2")
+    expect(V2_BASE_URL).toBe("https://api.datagod.store/v2")
     expect(s.curl).toContain('-H "Authorization: dg2_live_your_api_key"')
-    expect(s.curl).toContain("https://www.datagod.store/api/v2/account/role")
+    expect(s.curl).toContain("https://api.datagod.store/v2/account/role")
     expect(s.curl).not.toContain("-d")
     expect(Object.keys(s).sort()).toEqual(["curl", "node", "php", "python"])
   })
@@ -45,7 +45,7 @@ describe("buildSamples", () => {
     for (const lang of ["curl", "node", "php", "python"] as const) {
       expect(s[lang]).toContain('"reference": "ord_123"')
       expect(s[lang]).toContain("Content-Type")
-      expect(s[lang]).toContain("https://www.datagod.store/api/v2/data/purchase")
+      expect(s[lang]).toContain("https://api.datagod.store/v2/data/purchase")
     }
     expect(s.node).toContain("fetch(")
     expect(s.php).toContain("curl_init")
@@ -74,7 +74,7 @@ describe("buildSamples for the SMS group", () => {
     const s = buildSamples(ep())
     for (const lang of ["curl", "node", "php", "python"] as const) {
       expect(s[lang]).toContain("dg2_sms_live_your_api_key")
-      expect(s[lang]).toContain("https://www.datagod.store/api/v2/sms/send")
+      expect(s[lang]).toContain("https://api.datagod.store/v2/sms/send")
       expect(s[lang]).toContain("SMS-2026-0001")
       expect(s[lang]).toContain("0244000001")
     }

@@ -5,6 +5,7 @@ import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
+import { apiHostRewrite } from "@/lib/api-v2/host"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -74,6 +75,16 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.hostname = `www.${ROOT_DOMAIN}`
     return NextResponse.redirect(url, 308)
+  }
+
+  // ── Developer API host ───────────────────────────────────────────────────
+  // https://api.<root>/v2/* is served by the /api/v2/* route handlers. Rewrite (not
+  // redirect) so API clients never see a hop; the /api/v2 path on the main host keeps working.
+  const apiRewrite = apiHostRewrite(request.headers.get("host"), path, ROOT_DOMAIN)
+  if (apiRewrite) {
+    const url = request.nextUrl.clone()
+    url.pathname = apiRewrite
+    return NextResponse.rewrite(url)
   }
 
   // ── Subdomain storefront rewrite ────────────────────────────────────────────
