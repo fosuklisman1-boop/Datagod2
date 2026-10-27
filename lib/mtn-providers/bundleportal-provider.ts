@@ -42,13 +42,11 @@ export async function getActiveMtnRoute(): Promise<"mtn" | "mtn_2" | "mtn_3"> {
  * Map our internal network + BigTime flag + configured MTN route to Bundle
  * Portal's own `network` value.
  *
- * The literal "bigtime" (used pre-v2) is hard-rejected by v2: "Network must
- * be one of: mtn, mtn_1, mtn_2, mtn_3, telecel, ishare, airteltigo". We were
- * initially told by Bundle Portal that "airteltigo" routes to BigTime stock
- * and "ishare" to the regular product — but a live BigTime order sent with
- * "airteltigo" on 2026-09-26 showed up as regular iShare on Bundle Portal's
- * own dashboard (confirmed directly by the user), so the mapping is reversed
- * from that initial guidance: "ishare" is BigTime, "airteltigo" is regular.
+ * BigTime is sent as the literal "bigtime" (admin decision 2026-10-27).
+ * History: v2 previously hard-rejected it ("Network must be one of: mtn,
+ * mtn_1, mtn_2, mtn_3, telecel, ishare, airteltigo") and BigTime went out as
+ * "ishare"; a BigTime order sent as "airteltigo" on 2026-09-26 landed as
+ * regular iShare, which is why regular AT stays "airteltigo".
  */
 export function mapNetworkToBundlePortal(
   network: "MTN" | "Telecel" | "AirtelTigo",
@@ -57,7 +55,7 @@ export function mapNetworkToBundlePortal(
 ): string {
   if (network === "MTN") return mtnRoute
   if (network === "Telecel") return "telecel"
-  return isBigTime ? "ishare" : "airteltigo"
+  return isBigTime ? "bigtime" : "airteltigo"
 }
 
 /** Maps Bundle Portal's order status values to this app's canonical status set. */

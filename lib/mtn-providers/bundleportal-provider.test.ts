@@ -43,8 +43,8 @@ describe("mapNetworkToBundlePortal", () => {
     expect(mapNetworkToBundlePortal("Telecel", false, "mtn")).toBe("telecel")
     expect(mapNetworkToBundlePortal("Telecel", true, "mtn_3")).toBe("telecel")
   })
-  it("maps AirtelTigo to ishare (BigTime) or airteltigo (regular) — a live BigTime order sent as \"airteltigo\" showed up as regular iShare on Bundle Portal's own dashboard, reversing their initial guidance", () => {
-    expect(mapNetworkToBundlePortal("AirtelTigo", true, "mtn")).toBe("ishare")
+  it("maps AirtelTigo to bigtime (BigTime) or airteltigo (regular)", () => {
+    expect(mapNetworkToBundlePortal("AirtelTigo", true, "mtn")).toBe("bigtime")
     expect(mapNetworkToBundlePortal("AirtelTigo", false, "mtn")).toBe("airteltigo")
     expect(mapNetworkToBundlePortal("AirtelTigo", undefined, "mtn")).toBe("airteltigo")
   })
