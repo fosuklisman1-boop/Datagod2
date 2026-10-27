@@ -7,6 +7,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DocsPage } from "@/components/developer/docs/DocsPage"
+import { PostmanButtons } from "@/components/developer/docs/PostmanButtons"
 import { InlineCode } from "@/components/developer/docs/RichText"
 import { V2KeysPanel } from "@/components/developer/V2KeysPanel"
 import { LegacyV1Section } from "@/components/developer/LegacyV1Section"
@@ -74,7 +75,7 @@ export default function DeveloperPage() {
           </TabsContent>
 
           <TabsContent value="docs" className="mt-4">
-            <DocsPage sections={v2DocsRegistry} compact stickyTop={stickyTop} />
+            <DocsPage sections={v2DocsRegistry} compact stickyTop={stickyTop} top={<PostmanButtons />} />
           </TabsContent>
         </Tabs>
 
