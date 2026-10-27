@@ -6,14 +6,21 @@ import { Button } from "@/components/ui/button"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
 import { supabaseAdmin } from "@/lib/supabase"
 import { isPageHidden } from "@/lib/custom-domains"
+import { getProduct, SPEED_LINE } from "@/lib/seo/products"
+import { formatCedis, getLiveFacts } from "@/lib/seo/live-facts"
+import { buildProductJsonLd } from "@/lib/seo/json-ld"
+import { isMainSiteRequest } from "@/lib/seo/site"
+import { JsonLd } from "@/components/seo/json-ld-script"
+import { FaqSection } from "@/components/seo/faq-section"
+import { RelatedProducts } from "@/components/seo/related-products"
 
 export const metadata: Metadata = {
   alternates: { canonical: "https://www.datagod.store/results-checker" },
   title: "Check WASSCE, BECE & NOVDEC Results Online | DATAGOD",
-  description: "Buy WASSCE, BECE, and NOVDEC results-checker voucher PINs instantly, or let DATAGOD check your results for you if you don't have a voucher. Instant delivery.",
+  description: "Buy WASSCE, BECE and NOVDEC results checker voucher PINs online, or let DATAGOD check your results for you if you don't have a voucher. Pay with MoMo or card.",
   openGraph: {
     title: "Check WASSCE, BECE & NOVDEC Results Online",
-    description: "Buy results-checker voucher PINs instantly, or have DATAGOD check your results for you.",
+    description: "Buy results-checker voucher PINs online, or have DATAGOD check your results for you.",
     type: "website",
     url: "https://www.datagod.store/results-checker",
   },
@@ -56,7 +63,10 @@ async function getBoardPricing() {
 }
 
 export default async function ResultsCheckerPage() {
-  const { serviceEnabled, boards } = await getBoardPricing()
+  const [{ serviceEnabled, boards }, facts, mainSite] = await Promise.all([getBoardPricing(), getLiveFacts(), isMainSiteRequest()])
+  const product = getProduct("results-checker")
+  const rc = facts.products["results-checker"]
+  const voucherFrom = rc.fromPrice != null ? formatCedis(rc.fromPrice) : ""
   // Server Component — reads the same x-domain-hidden-pages header
   // app/layout.tsx parses for the client-side DomainBranding context,
   // since useDomainBranding() (a hook) isn't available here.
@@ -66,6 +76,7 @@ export default async function ResultsCheckerPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {mainSite && <JsonLd data={buildProductJsonLd(product, rc)} />}
       <div className="max-w-4xl mx-auto px-4 py-16 sm:py-24">
         <div className="text-center max-w-2xl mx-auto">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-primary">
@@ -75,8 +86,24 @@ export default async function ResultsCheckerPage() {
             Check your WASSCE, BECE & NOVDEC results
           </h1>
           <p className="mt-4 text-muted-foreground text-lg leading-relaxed">
-            Buy a voucher PIN instantly, or if you don't have one, let DATAGOD check your results for you.
+            Buy a voucher PIN online, or if you don't have one, let DATAGOD check your results for you.
           </p>
+          {(voucherFrom || rc.parts.length > 0) && (
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              {voucherFrom && (
+                <span className="font-display text-xl font-bold text-foreground">Vouchers from {voucherFrom}</span>
+              )}
+              {rc.parts.length > 0 && (
+                <ul className="flex flex-wrap justify-center gap-2" aria-label="Exams">
+                  {rc.parts.map((board) => (
+                    <li key={board} className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+                      {board}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
             {!isPageHidden("guest_purchase", hiddenPages) && (
               <GuestPurchaseButton variant="primary" className="w-full sm:w-auto" />
@@ -95,7 +122,7 @@ export default async function ResultsCheckerPage() {
               <FileCheck2 className="h-[18px] w-[18px] text-primary" />
             </div>
             <h3 className="font-display font-semibold text-foreground mb-1">Buy a voucher</h3>
-            <p className="text-sm text-muted-foreground">Get a fresh PIN and serial number delivered instantly — use it yourself, whenever you're ready.</p>
+            <p className="text-sm text-muted-foreground">Get a fresh PIN and serial number to use yourself, whenever you're ready. {SPEED_LINE}</p>
           </div>
           <div className="rounded-xl border border-white/60 dark:border-white/5 bg-card p-5 clay">
             <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg border border-primary/25 bg-primary/10">
@@ -125,6 +152,10 @@ export default async function ResultsCheckerPage() {
             <span>Results checking is temporarily unavailable — check back soon.</span>
           </div>
         )}
+
+        <FaqSection faqs={product.faqs} />
+
+        {mainSite && <RelatedProducts keys={product.related} facts={facts} />}
 
         <div className="mt-8 text-center text-sm text-muted-foreground">
           <Link href="/" className="text-primary hover:underline">Back to Home</Link>

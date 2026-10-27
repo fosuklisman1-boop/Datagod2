@@ -18,6 +18,20 @@ import { HeroCarousel } from "@/components/home/HeroCarousel"
 import { PublicDeliveryStatus } from "@/components/dashboard/delivery-estimate"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPageHidden } from "@/lib/custom-domains"
+import type { HomeLinkKey, HomeServiceLinks } from "@/lib/seo/home-links"
+
+/** Whole-card link with a visible focus ring; a plain div when `href` is unset. */
+function CardLink({ href, className, children }: { href?: string; className: string; children: React.ReactNode }) {
+  if (!href) return <div className={className}>{children}</div>
+  return (
+    <Link
+      href={href}
+      className={`${className} block transition-colors hover:border-[#1b388b]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b388b] focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+    >
+      {children}
+    </Link>
+  )
+}
 
 function Step({
   number,
@@ -314,16 +328,17 @@ function MockProfitMargin() {
 // `color` = icon-badge pastel pair (bg/text), cycled per card so the grid
 // reads as a varied set of products rather than one flat brand-colored wall
 // — matches the reference's per-card accent-color pattern.
+// `link` = key into the serviceLinks prop (lib/seo/home-links.ts); unlinked when absent.
 const TOP_SERVICES = [
-  { icon: Database, title: "Data Bundles", desc: "High-speed MTN, Telecel & AT data bundles at the best rates, delivered in seconds.", tag: null, color: "bg-emerald-100 text-emerald-600" },
-  { icon: Zap, title: "Airtime Topup", desc: "Instant airtime recharge for any network, paid straight from your wallet.", tag: null, color: "bg-blue-100 text-blue-600" },
-  { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers instantly — no queues, no paperwork.", tag: null, color: "bg-purple-100 text-purple-600" },
-  { icon: Receipt, title: "Utility Bills", desc: "Pay ECG prepaid, Ghana Water, DSTV, GOtv, StarTimes & Telecel Broadband instantly from your wallet.", tag: "NEW", color: "bg-orange-100 text-orange-600" },
-  { icon: FileCheck2, title: "Results Checker", desc: "WASSCE, BECE & NovDec PINs delivered instantly so you can check your own results.", tag: null, color: "bg-amber-100 text-amber-600" },
-  { icon: Search, title: "Results Check Service", desc: "No PIN to spare? We check your results for you and send them by email & WhatsApp.", tag: null, color: "bg-cyan-100 text-cyan-600" },
-  { icon: Send, title: "Bulk SMS", desc: "Send OTPs, alerts and campaigns with your own sender ID, address book & templates.", tag: null, color: "bg-rose-100 text-rose-600" },
-  { icon: Store, title: "Reseller Shops", desc: "Launch your own branded storefront and set your own profit margins.", tag: "RESELL", color: "bg-indigo-100 text-indigo-600" },
-  { icon: Users, title: "Sub-Agent Program", desc: "Recruit sellers under your shop and earn commission on everything they sell.", tag: null, color: "bg-teal-100 text-teal-600" },
+  { icon: Database, title: "Data Bundles", desc: "High-speed MTN, Telecel & AT data bundles at the best rates, delivered in seconds.", tag: null, color: "bg-emerald-100 text-emerald-600", link: "data" },
+  { icon: Zap, title: "Airtime Topup", desc: "Instant airtime recharge for any network, paid straight from your wallet.", tag: null, color: "bg-blue-100 text-blue-600", link: "airtime" },
+  { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers instantly — no queues, no paperwork.", tag: null, color: "bg-purple-100 text-purple-600", link: "afa" },
+  { icon: Receipt, title: "Utility Bills", desc: "Pay ECG prepaid, Ghana Water, DSTV, GOtv, StarTimes & Telecel Broadband instantly from your wallet.", tag: "NEW", color: "bg-orange-100 text-orange-600", link: "bills" },
+  { icon: FileCheck2, title: "Results Checker", desc: "WASSCE, BECE & NovDec PINs delivered instantly so you can check your own results.", tag: null, color: "bg-amber-100 text-amber-600", link: "results" },
+  { icon: Search, title: "Results Check Service", desc: "No PIN to spare? We check your results for you and send them by email & WhatsApp.", tag: null, color: "bg-cyan-100 text-cyan-600", link: "results-service" },
+  { icon: Send, title: "Bulk SMS", desc: "Send OTPs, alerts and campaigns with your own sender ID, address book & templates.", tag: null, color: "bg-rose-100 text-rose-600", link: "bulk-sms" },
+  { icon: Store, title: "Reseller Shops", desc: "Launch your own branded storefront and set your own profit margins.", tag: "RESELL", color: "bg-indigo-100 text-indigo-600", link: "shops" },
+  { icon: Users, title: "Sub-Agent Program", desc: "Recruit sellers under your shop and earn commission on everything they sell.", tag: null, color: "bg-teal-100 text-teal-600", link: "sub-agents" },
 ] as const
 
 // Real, upcoming roadmap items — not live yet. Kept visually distinct (own
@@ -333,14 +348,14 @@ const COMING_SOON = [
   { icon: Monitor, title: "Website & App Development", desc: "Custom websites, online stores and mobile apps for businesses across Ghana — built and kept running by our team." },
 ] as const
 
-const WHY_CHOOSE = [
+const WHY_CHOOSE: ReadonlyArray<{ icon: typeof Rocket; title: string; desc: string; color: string; link?: HomeLinkKey }> = [
   { icon: Rocket, title: "Ultra-Fast Delivery", desc: "Data and airtime orders are processed and delivered in seconds, not minutes.", color: "bg-orange-100 text-orange-600" },
   { icon: Cpu, title: "AI Assistants Everywhere", desc: "One AI, tuned for every surface — web, WhatsApp, your shop storefront, and your dashboard.", color: "bg-violet-100 text-violet-600" },
   { icon: ShieldCheck, title: "Secure Wallet Payments", desc: "Pay from your wallet through Paystack-secured checkout, with a clear transaction trail.", color: "bg-emerald-100 text-emerald-600" },
-  { icon: Globe, title: "Order From Anywhere", desc: "Web storefront, WhatsApp bot, or USSD with no internet needed — or install DATAGOD as an app.", color: "bg-sky-100 text-sky-600" },
-  { icon: Code2, title: "Developer API", desc: "Integrate automated data and airtime purchases directly into your own app or system.", color: "bg-indigo-100 text-indigo-600" },
+  { icon: Globe, title: "Order From Anywhere", desc: "Web storefront, WhatsApp bot, or USSD with no internet needed — or install DATAGOD as an app.", color: "bg-sky-100 text-sky-600", link: "anywhere" },
+  { icon: Code2, title: "Developer API", desc: "Integrate automated data and airtime purchases directly into your own app or system.", color: "bg-indigo-100 text-indigo-600", link: "developers" },
   { icon: Banknote, title: "Instant Withdrawals", desc: "Cash out your reseller profits to Mobile Money or bank, with verified, tracked payouts.", color: "bg-rose-100 text-rose-600" },
-] as const
+]
 
 // Factual answers to real, already-documented platform behavior — no
 // invented policies or numbers.
@@ -368,7 +383,7 @@ interface SubscriptionPlan {
   duration_days: number
 }
 
-export default function HomeClient() {
+export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeServiceLinks }) {
   const domainBranding = useDomainBranding()
   // DATAGOD's own logo on the main site; a custom domain without its own logo
   // gets the neutral placeholder, never DATAGOD branding.
@@ -507,14 +522,24 @@ export default function HomeClient() {
             </p>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            {TOP_SERVICES.map(({ icon: Icon, title, desc, tag, color }) => (
-              <div key={title} className="clay p-4 sm:p-6">
+            {TOP_SERVICES.map(({ icon: Icon, title, desc, tag, color, link }) => (
+              <CardLink key={title} href={serviceLinks[link]} className="clay p-4 sm:p-6">
                 <div className={`mb-4 grid h-12 w-12 place-items-center clay-icon ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
                 <h3 className="mb-1.5 flex items-center gap-2 font-display font-bold text-foreground">{title}{tag && <span className="rounded-full border border-[#1b388b]/30 px-1.5 py-0.5 font-mono text-[8px] text-[#1b388b]">{tag}</span>}</h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
-              </div>
+              </CardLink>
             ))}
           </div>
+          {serviceLinks.all && (
+            <div className="mt-8 flex justify-center">
+              <Link
+                href={serviceLinks.all}
+                className="inline-flex items-center gap-2 rounded-full border border-[#1b388b]/30 px-5 py-2.5 text-sm font-semibold text-[#1b388b] transition-colors hover:bg-[#1b388b]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b388b] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                See all services <ArrowRight className="h-4 w-4" aria-hidden />
+              </Link>
+            </div>
+          )}
 
           {/* Roadmap — kept visually separate (dashed, muted) so it's never
               mistaken for something buyable today. */}
@@ -649,12 +674,12 @@ export default function HomeClient() {
             </p>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
-            {WHY_CHOOSE.map(({ icon: Icon, title, desc, color }) => (
-              <div key={title} className="clay p-5 sm:p-6">
+            {WHY_CHOOSE.map(({ icon: Icon, title, desc, color, link }) => (
+              <CardLink key={title} href={link ? serviceLinks[link] : undefined} className="clay p-5 sm:p-6">
                 <div className={`mb-4 grid h-12 w-12 place-items-center clay-icon ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
                 <h3 className="mb-1.5 font-display font-bold text-foreground">{title}</h3>
                 <p className="text-sm text-muted-foreground">{desc}</p>
-              </div>
+              </CardLink>
             ))}
           </div>
         </div>

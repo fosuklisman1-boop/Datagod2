@@ -4,6 +4,13 @@ import { MessageCircle, Package, Zap, FileCheck2, ArrowRight } from "lucide-reac
 import { Button } from "@/components/ui/button"
 import { supabaseAdmin } from "@/lib/supabase"
 import { ghanaSignificant } from "@/lib/phone-format"
+import { getProduct, SPEED_LINE } from "@/lib/seo/products"
+import { getLiveFacts } from "@/lib/seo/live-facts"
+import { buildProductJsonLd } from "@/lib/seo/json-ld"
+import { isMainSiteRequest } from "@/lib/seo/site"
+import { JsonLd } from "@/components/seo/json-ld-script"
+import { FaqSection } from "@/components/seo/faq-section"
+import { RelatedProducts } from "@/components/seo/related-products"
 
 export const metadata: Metadata = {
   alternates: { canonical: "https://www.datagod.store/whatsapp" },
@@ -49,10 +56,13 @@ const steps = [
 ]
 
 export default async function WhatsAppOrderingPage() {
-  const mainLink = waLink(await getMainBotNumber(), "Hi, I'd like to buy data")
+  const [botNumber, facts, mainSite] = await Promise.all([getMainBotNumber(), getLiveFacts(), isMainSiteRequest()])
+  const mainLink = waLink(botNumber, "Hi, I'd like to buy data")
+  const product = getProduct("whatsapp")
 
   return (
     <div className="min-h-screen bg-background">
+      {mainSite && <JsonLd data={buildProductJsonLd(product, facts.products.whatsapp)} />}
       <div className="max-w-4xl mx-auto px-4 py-16 sm:py-24">
         <div className="text-center max-w-2xl mx-auto">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-primary">
@@ -62,7 +72,7 @@ export default async function WhatsAppOrderingPage() {
             Buy data & airtime on WhatsApp
           </h1>
           <p className="mt-4 text-muted-foreground text-lg leading-relaxed">
-            No app to install. Message us, pick a bundle, and approve the payment prompt — done in seconds.
+            No app to install. Message us, pick a bundle, and approve the payment prompt. {SPEED_LINE}
           </p>
           <div className="mt-8 flex justify-center">
             {mainLink ? (
@@ -102,6 +112,10 @@ export default async function WhatsAppOrderingPage() {
             Results-checker vouchers and services are available the same way — just tell us what you need in the chat.
           </p>
         </div>
+
+        <FaqSection faqs={product.faqs} />
+
+        {mainSite && <RelatedProducts keys={product.related} facts={facts} />}
 
         <div className="mt-8 text-center text-sm text-muted-foreground">
           <Link href="/" className="text-primary hover:underline">Back to Home</Link>

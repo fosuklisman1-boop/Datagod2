@@ -45,6 +45,13 @@ const BASE_METADATA: Omit<Metadata, "title" | "description" | "openGraph" | "twi
     "buy data online",
     "data bundles Ghana",
     "instant data delivery",
+    "AFA registration Ghana",
+    "pay DSTV online Ghana",
+    "ECG prepaid online",
+    "WASSCE results checker",
+    "bulk SMS Ghana",
+    "data reseller Ghana",
+    "data bundle API Ghana",
   ],
   manifest: "/manifest.json",
   appleWebApp: {

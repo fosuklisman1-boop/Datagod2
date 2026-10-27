@@ -32,8 +32,17 @@ export function isMainSiteHost(host: string | null, rootDomain: string = default
   return false
 }
 
+/**
+ * Server-only: false on a custom domain / shop host (middleware sets
+ * x-domain-site-name there). For pages that also serve those hosts and must
+ * leave out Datagod-only extras (JSON-LD, links to main-site product pages).
+ */
+export async function isMainSiteRequest(): Promise<boolean> {
+  const h = await headers()
+  return !h.get("x-domain-site-name")
+}
+
 /** Server-only: 404 when the request is on a custom domain / shop host. */
 export async function assertMainSite(): Promise<void> {
-  const h = await headers()
-  if (h.get("x-domain-site-name")) notFound()
+  if (!(await isMainSiteRequest())) notFound()
 }

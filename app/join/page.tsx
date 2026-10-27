@@ -3,6 +3,13 @@ import Link from "next/link"
 import { Store, Wallet, Users, Banknote, MessageCircle, ArrowRight, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { supabaseAdmin } from "@/lib/supabase"
+import { getProduct } from "@/lib/seo/products"
+import { getLiveFacts } from "@/lib/seo/live-facts"
+import { buildProductJsonLd } from "@/lib/seo/json-ld"
+import { isMainSiteRequest } from "@/lib/seo/site"
+import { JsonLd } from "@/components/seo/json-ld-script"
+import { FaqSection } from "@/components/seo/faq-section"
+import { RelatedProducts } from "@/components/seo/related-products"
 
 // This exact URL was already declared canonical in app/sitemap.ts's staticRoutes
 // before this file existed — app/join only had the invite-gated [code] route, so
@@ -36,7 +43,8 @@ async function getWhatsAppShopFee(): Promise<number | null> {
 }
 
 export default async function JoinPage() {
-  const whatsappFee = await getWhatsAppShopFee()
+  const [whatsappFee, facts, mainSite] = await Promise.all([getWhatsAppShopFee(), getLiveFacts(), isMainSiteRequest()])
+  const product = getProduct("join")
 
   const benefits = [
     { icon: Store, title: "Your own storefront", desc: "A white-label shop with your own name, logo and prices — shareable as your own link." },
@@ -48,6 +56,7 @@ export default async function JoinPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {mainSite && <JsonLd data={buildProductJsonLd(product, facts.products.join)} />}
       <div className="max-w-4xl mx-auto px-4 py-16 sm:py-24">
         <div className="text-center max-w-2xl mx-auto">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-primary">
@@ -108,6 +117,10 @@ export default async function JoinPage() {
         <p className="mt-10 text-center text-sm text-muted-foreground">
           Already got an invite link from another agent? Use the link they shared with you to join under their network instead.
         </p>
+
+        <FaqSection faqs={product.faqs} />
+
+        {mainSite && <RelatedProducts keys={product.related} facts={facts} />}
 
         <div className="mt-8 text-center text-sm text-muted-foreground">
           <Link href="/" className="text-primary hover:underline">Back to Home</Link>
