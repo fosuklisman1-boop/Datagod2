@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  applyOrderFilters, bundleCanRetry, bundleRefundDecision, DATA_ORDERS_TABLE, fetchBundleLedgerByOrders, fetchLedgerOrderIds, isStuckClaim,
+  applyOrderFilters, bundleCanDispatch, bundleCanRetry, bundleRefundDecision, DATA_ORDERS_TABLE, fetchBundleLedgerByOrders, fetchLedgerOrderIds, isStuckClaim,
   ORDER_STATUSES, parseOrderFilters,
 } from "@/lib/standard-bundles/admin"
 import type { LedgerFact } from "@/lib/bills/admin"
@@ -92,6 +92,7 @@ export async function GET(request: NextRequest) {
         stuck_claim: ledgerOk && isCandidate && !ledger.has(o.id) && isStuckClaim(o, now),
         has_ledger: ledgerOk && isCandidate ? ledger.has(o.id) : null,
         refund: decision,
+        can_dispatch: ledgerOk && isCandidate && bundleCanDispatch(o, ledger.has(o.id) ? 1 : 0, now),
         can_retry: retryOk && retryCandidates.includes(o) && bundleCanRetry(o, ledgerMap.get(o.id) ?? []),
       }
     })

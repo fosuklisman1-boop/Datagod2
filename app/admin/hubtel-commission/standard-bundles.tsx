@@ -148,7 +148,7 @@ type OrderRow = {
   amount: number; paid_amount?: number | null; status: string; payment_status: string; hubtel_client_reference: string | null; commission: number | null
   failure_reason: string | null; notes: string | null; created_at: string; updated_at: string
   channel?: string; channel_label?: string | null; shop_name?: string | null; buyer_phone?: string | null
-  purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo; can_retry?: boolean
+  purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo; can_retry?: boolean; can_dispatch?: boolean
 }
 
 export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; onReviewQueue: () => void }) {
@@ -208,6 +208,20 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
       const j = await authed("/api/admin/standard-bundles/retry", { method: "POST", body: JSON.stringify({ orderId: r.id }) })
       setBanner({ ok: !!j.ok, text: `${r.reference_code}: ${j.message}` })
       if (j.ok) toast.success(j.message ?? "Retried"); else toast.error(j.message ?? "Not sent")
+    } catch (e) {
+      // Non-2xx (409 conflict, 500 could not restore) carries the server's message: show it persistently.
+      setBanner({ ok: false, text: `${r.reference_code}: ${errMsg(e)}` }); toast.error(errMsg(e))
+    } finally { inFlight.current = false; setBusy(null); await load(offset) }
+  }
+
+  async function dispatch(r: OrderRow) {
+    if (inFlight.current) return
+    if (!window.confirm("Send this paid order to Hubtel now? It never reached Hubtel. The customer's data is only sent if Hubtel accepts it.")) return
+    inFlight.current = true; setBusy(`dispatch-${r.id}`)
+    try {
+      const j = await authed("/api/admin/standard-bundles/dispatch", { method: "POST", body: JSON.stringify({ orderId: r.id }) })
+      setBanner({ ok: !!j.ok, text: `${r.reference_code}: ${j.message}` })
+      if (j.ok) toast.success(j.message ?? "Dispatched"); else toast.error(j.message ?? "Not sent")
     } catch (e) {
       // Non-2xx (409 conflict, 500 could not restore) carries the server's message: show it persistently.
       setBanner({ ok: false, text: `${r.reference_code}: ${errMsg(e)}` }); toast.error(errMsg(e))
@@ -329,6 +343,11 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
               <div className="flex flex-wrap gap-2 lg:w-56 lg:justify-end">
                 {r.status === "processing" && r.hubtel_client_reference && (
                   <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => sync(r)}>{busy === `sync-${r.id}` ? "Syncing..." : "Sync"}</Button>
+                )}
+                {r.can_dispatch && (
+                  <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => dispatch(r)}>
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `dispatch-${r.id}` ? "Sending..." : "Send to Hubtel"}
+                  </Button>
                 )}
                 {r.can_retry && (
                   <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => retry(r)}>

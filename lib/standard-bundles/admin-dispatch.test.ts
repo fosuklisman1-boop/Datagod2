@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { executeBundleRetry, type BundleRetryDeps, type BundleRetryOrder } from "./admin-dispatch"
+import { executeBundleDispatch, executeBundleRetry, type BundleDispatchDeps, type BundleDispatchOrder, type BundleRetryDeps, type BundleRetryOrder } from "./admin-dispatch"
 import type { LedgerFact } from "@/lib/bills/admin"
 
 const NOW = Date.parse("2026-10-13T12:00:00Z")
@@ -152,5 +152,115 @@ describe("executeBundleRetry", () => {
     const { d, revertReasons } = makeRetry({ order: failedOrder({ failure_reason: null }), reread: async () => null })
     await executeBundleRetry(d, "o1")
     expect(revertReasons).toEqual([null])
+  })
+})
+
+describe("executeBundleDispatch", () => {
+  const ago = (ms: number) => new Date(NOW - ms).toISOString()
+  const unsent = (o: Partial<BundleDispatchOrder> = {}): BundleDispatchOrder => ({
+    id: "o1", reference_code: "BND-1", status: "pending", payment_status: "paid", hubtel_client_reference: null, notes: null, updated_at: ago(10 * 60_000), ...o,
+  })
+  const row = (o: Partial<LedgerFact> = {}): LedgerFact => ({ client_reference: "RX", state: "failed", refund_claimed_at: null, resolved_by: null, created_at: "", ...o })
+
+  function make(o: {
+    order?: BundleDispatchOrder | null; ledgers?: Array<LedgerFact[] | "throw">; release?: number; restore?: number; sent?: string
+  } = {}) {
+    const calls: string[] = []
+    const ledgers = [...(o.ledgers ?? [[]])]
+    let order = o.order === undefined ? unsent() : o.order
+    const d: BundleDispatchDeps = {
+      getOrder: async () => order,
+      getLedger: async () => { const l = ledgers.length > 1 ? ledgers.shift()! : ledgers[0]; if (l === "throw") throw new Error("db down"); return l },
+      // Like the real guarded update: the row becomes pending with a FRESH updated_at.
+      releaseStuckClaim: async () => { calls.push("release"); if ((o.release ?? 1) > 0 && order) order = { ...order, status: "pending", updated_at: new Date(NOW).toISOString() }; return o.release ?? 1 },
+      restoreProcessing: async (_i, ref) => { calls.push("restore:" + ref); return o.restore ?? 1 },
+      dispatch: async () => { calls.push("dispatch"); return o.sent ?? "processing" },
+      alert: async (_m, urgent) => { calls.push(urgent ? "alert:urgent" : "alert") },
+      now: () => NOW,
+    }
+    return { d, calls }
+  }
+  const stuck = (o: Partial<BundleDispatchOrder> = {}) => unsent({ status: "processing", notes: "Dispatching", updated_at: ago(6 * 60_000), ...o })
+
+  it("dispatches a paid pending order that never reached Hubtel", async () => {
+    const { d, calls } = make()
+    expect(await executeBundleDispatch(d, "o1")).toMatchObject({ ok: true, status: 200, orderStatus: "processing" })
+    expect(calls).toEqual(["dispatch"])
+  })
+  it("404 when missing; 503 when the ledger cannot be read", async () => {
+    expect((await executeBundleDispatch(make({ order: null }).d, "o1")).status).toBe(404)
+    const { d, calls } = make({ ledgers: ["throw"] })
+    expect((await executeBundleDispatch(d, "o1")).status).toBe(503)
+    expect(calls).toEqual([])
+  })
+  it("409 when ANY ledger row exists, even a failed one (that is Retry's job)", async () => {
+    for (const ledger of [[row()], [row({ state: "pending" })], [row({ state: "fulfilled" })]]) {
+      const { d, calls } = make({ ledgers: [ledger] })
+      expect((await executeBundleDispatch(d, "o1")).status).toBe(409)
+      expect(calls).toEqual([])
+    }
+  })
+  it("409 unless paid + pending + no Hubtel reference", async () => {
+    for (const o of [unsent({ status: "failed" }), unsent({ status: "processing" }), unsent({ status: "completed" }), unsent({ payment_status: "unpaid" }), unsent({ hubtel_client_reference: "HX" }), unsent({ status: "refunding" })]) {
+      const { d, calls } = make({ order: o })
+      expect((await executeBundleDispatch(d, "o1")).status).toBe(409)
+      expect(calls).toEqual([])
+    }
+  })
+  it("409 for an order updated inside the grace window (it may be mid-dispatch)", async () => {
+    const { d, calls } = make({ order: unsent({ updated_at: ago(30_000) }) })
+    expect(await executeBundleDispatch(d, "o1")).toMatchObject({ status: 409, message: expect.stringMatching(/moments ago/) })
+    expect(calls).toEqual([])
+  })
+  it("409 when the updated_at is unparseable", async () => {
+    const { d, calls } = make({ order: unsent({ updated_at: "garbage" }) })
+    expect((await executeBundleDispatch(d, "o1")).status).toBe(409)
+    expect(calls).toEqual([])
+  })
+  it("a stuck claim is released, the ledger re-read empty, then dispatched", async () => {
+    const { d, calls } = make({ order: stuck(), ledgers: [[], []] })
+    expect(await executeBundleDispatch(d, "o1")).toMatchObject({ ok: true, released: true, orderStatus: "processing" })
+    expect(calls).toEqual(["release", "dispatch"])
+  })
+  it("a young dispatch claim is not releasable", async () => {
+    const { d, calls } = make({ order: stuck({ updated_at: ago(60_000) }) })
+    expect((await executeBundleDispatch(d, "o1")).status).toBe(409)
+    expect(calls).toEqual([])
+  })
+  it("409 when the release changes 0 rows", async () => {
+    const { d, calls } = make({ order: stuck(), release: 0 })
+    expect(await executeBundleDispatch(d, "o1")).toMatchObject({ status: 409, message: "Claim is no longer stuck" })
+    expect(calls).toEqual(["release"])
+  })
+  it("a Hubtel row appearing after the release puts the order back to processing and does not dispatch", async () => {
+    const { d, calls } = make({ order: stuck(), ledgers: [[], [row({ state: "pending", client_reference: "RZ" })]] })
+    expect(await executeBundleDispatch(d, "o1")).toMatchObject({ ok: false, status: 409 })
+    expect(calls).toEqual(["release", "restore:RZ", "alert"])
+  })
+  it("an unreadable ledger after the release restores processing too", async () => {
+    const { d, calls } = make({ order: stuck(), ledgers: [[], "throw"] })
+    expect((await executeBundleDispatch(d, "o1")).status).toBe(409)
+    expect(calls).toEqual(["release", "restore:null", "alert"])
+  })
+  it("500 + urgent alert when the restore also fails", async () => {
+    const { d, calls } = make({ order: stuck(), ledgers: [[], [row({ state: "pending" })]], restore: 0 })
+    expect((await executeBundleDispatch(d, "o1")).status).toBe(500)
+    expect(calls).toEqual(["release", "restore:RX", "alert:urgent"])
+  })
+  it("reports an order Hubtel failed straight away as not ok", async () => {
+    const { d } = make({ sent: "failed" })
+    expect(await executeBundleDispatch(d, "o1")).toMatchObject({ ok: false, status: 200, orderStatus: "failed", message: expect.stringMatching(/did not go through/) })
+  })
+  it("409 when, after a release, the order was claimed by someone else", async () => {
+    const { d, calls } = make({ order: stuck(), ledgers: [[], []] })
+    const orig = d.getOrder
+    let reads = 0
+    d.getOrder = async id => { reads++; const o = await orig(id); return reads >= 2 && o ? { ...o, status: "processing" } : o }
+    expect((await executeBundleDispatch(d, "o1")).status).toBe(409)
+    expect(calls).toEqual(["release"])
+  })
+  it("reports a still-pending result as not ok", async () => {
+    const { d } = make({ sent: "pending" })
+    expect(await executeBundleDispatch(d, "o1")).toMatchObject({ ok: false, status: 200, orderStatus: "pending" })
   })
 })

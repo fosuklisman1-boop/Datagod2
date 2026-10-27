@@ -107,6 +107,15 @@ export async function fetchBundleLedgerByOrders(db: SupabaseClient, orderIds: st
   return out
 }
 
+/**
+ * Whether an admin may dispatch this order: paid, never sent (no Hubtel reference, NO ledger row of any state), and either
+ * pending past the grace window (it may be mid-dispatch before that) or a stuck dispatch claim. Orders with failed ledger
+ * rows belong to Retry; any other ledger row belongs to the Hubtel review queue.
+ */
+export const bundleCanDispatch = (o: RefundFacts, ledgerRows: number, now: number = Date.now()): boolean =>
+  ledgerRows === 0 && o.payment_status === "paid" && !o.hubtel_client_reference &&
+  (isStuckClaim(o, now) || (o.status === "pending" && now - Date.parse(o.updated_at) >= UNSENT_GRACE_MS))
+
 /** Whether an admin may retry this order: paid, failed, and every Hubtel attempt failed by Hubtel itself (see retryDecision). */
 export const bundleCanRetry = (o: { status: string; payment_status: string }, ledger: LedgerFact[]): boolean =>
   o.status === "failed" && o.payment_status === "paid" && retryDecision(o, ledger).ok
