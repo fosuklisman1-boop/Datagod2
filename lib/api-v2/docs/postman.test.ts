@@ -15,7 +15,7 @@ interface PmItem {
   event?: { listen: string; script: { exec: string[] } }[]
 }
 
-const collection = buildPostmanCollection(v2DocsRegistry, V2_BASE_URL) as {
+const collection = buildPostmanCollection(v2DocsRegistry, V2_BASE_URL) as unknown as {
   info: { name: string; schema: string; description?: string }
   variable: { key: string; value: string }[]
   item: PmItem[]
