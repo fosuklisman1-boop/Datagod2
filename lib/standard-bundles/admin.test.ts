@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import {
-  bundleCanRetry, bundleRefundDecision, executeBundleRefund, fetchBundleLedgerByOrders, isStuckClaim, parseOrderFilters, refundAmountOf, refundMessageOf, releaseStuckClaimRow, STUCK_CLAIM_MS, UNSENT_GRACE_MS,
+  bundleCanDispatch, bundleCanRetry, bundleRefundDecision, executeBundleRefund, fetchBundleLedgerByOrders, isStuckClaim, parseOrderFilters, refundAmountOf, refundMessageOf, releaseStuckClaimRow, STUCK_CLAIM_MS, UNSENT_GRACE_MS,
   type BundleRefundDeps, type RefundOrder,
 } from "./admin"
 import type { LedgerFact } from "@/lib/bills/admin"
@@ -90,6 +90,23 @@ describe("fetchBundleLedgerByOrders", () => {
   it("throws on a DB error", async () => {
     const chain: any = { select: () => chain, eq: () => chain, in: () => chain, order: () => Promise.resolve({ data: null, error: new Error("db down") }) }
     await expect(fetchBundleLedgerByOrders({ from: () => chain } as any, ["o1"])).rejects.toThrow("db down")
+  })
+})
+
+describe("bundleCanDispatch", () => {
+  it("is true for a paid pending order with no reference, no ledger and an age past the grace window", () => {
+    expect(bundleCanDispatch(facts(), 0, NOW)).toBe(true)
+  })
+  it("is true for a stuck claim, false for a young one", () => {
+    expect(bundleCanDispatch(facts({ status: "processing", notes: "Dispatching", updated_at: ago(STUCK_CLAIM_MS + 1000) }), 0, NOW)).toBe(true)
+    expect(bundleCanDispatch(facts({ status: "processing", notes: "Dispatching", updated_at: ago(60_000) }), 0, NOW)).toBe(false)
+  })
+  it("is false with any ledger row, a reference, inside the grace window, unpaid, or in another status", () => {
+    expect(bundleCanDispatch(facts(), 1, NOW)).toBe(false)
+    expect(bundleCanDispatch(facts({ hubtel_client_reference: "HX" }), 0, NOW)).toBe(false)
+    expect(bundleCanDispatch(facts({ updated_at: ago(UNSENT_GRACE_MS - 1000) }), 0, NOW)).toBe(false)
+    expect(bundleCanDispatch(facts({ payment_status: "unpaid" }), 0, NOW)).toBe(false)
+    for (const status of ["failed", "completed", "refunded", "refunding", "processing"]) expect(bundleCanDispatch(facts({ status }), 0, NOW)).toBe(false)
   })
 })
 
