@@ -153,10 +153,10 @@ function Hero({ p, f, isBuy }: { p: ProductEntry; f: ProductFacts; isBuy: boolea
             <div className="text-xs uppercase tracking-wider text-muted-foreground">Prices start at</div>
             <div className="mt-1 font-display text-3xl font-bold text-foreground">From {price}</div>
           </div>
-        ) : p.group === "bills" ? (
+        ) : p.biller ? (
           <div className="font-display text-xl font-semibold text-foreground">You choose how much to pay</div>
         ) : null}
-        <div className={`${price || p.group === "bills" ? "mt-5" : ""} flex items-start gap-3 text-sm text-foreground`}>
+        <div className={`${price || p.biller ? "mt-5" : ""} flex items-start gap-3 text-sm text-foreground`}>
           <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
           <span>{SPEED_LINE}</span>
         </div>
