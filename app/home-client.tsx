@@ -332,7 +332,7 @@ function MockProfitMargin() {
 const TOP_SERVICES = [
   { icon: Database, title: "Data Bundles", desc: "High-speed MTN, Telecel & AT data bundles at the best rates, usually delivered within minutes.", tag: null, color: "bg-emerald-100 text-emerald-600", link: "data" },
   { icon: Zap, title: "Airtime Topup", desc: "Airtime recharge for any network, paid straight from your wallet.", tag: null, color: "bg-blue-100 text-blue-600", link: "airtime" },
-  { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers without queues — no paperwork, no paperwork.", tag: null, color: "bg-purple-100 text-purple-600", link: "afa" },
+  { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers without queues or paperwork.", tag: null, color: "bg-purple-100 text-purple-600", link: "afa" },
   { icon: Receipt, title: "Utility Bills", desc: "Pay ECG prepaid, Ghana Water, DSTV, GOtv, StarTimes & Telecel Broadband from your wallet.", tag: "NEW", color: "bg-orange-100 text-orange-600", link: "bills" },
   { icon: FileCheck2, title: "Results Checker", desc: "WASSCE, BECE & NovDec PINs delivered within minutes so you can check your own results.", tag: null, color: "bg-amber-100 text-amber-600", link: "results" },
   { icon: Search, title: "Results Check Service", desc: "No PIN to spare? We check your results for you and send them by email & WhatsApp.", tag: null, color: "bg-cyan-100 text-cyan-600", link: "results-service" },
