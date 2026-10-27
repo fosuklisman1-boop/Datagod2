@@ -214,7 +214,7 @@ function canonicalJson(v: unknown): string {
 }
 
 /** sha256 hex of a key-sorted canonical JSON of {kind, ...canonical}. */
-export function requestHash(kind: "airtime" | "bill", canonical: object): string {
+export function requestHash(kind: "airtime" | "bill" | "results" | "afa", canonical: object): string {
   return createHash("sha256").update(canonicalJson({ kind, request: canonical })).digest("hex")
 }
 
