@@ -137,7 +137,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const title = `${domainSiteName} - Buy ${serviceLabels.charAt(0).toUpperCase() + serviceLabels.slice(1)} Online`
   const description = `Get instant ${serviceLabels} from ${domainSiteName}. Fast delivery, secure payment.`
   const domainLogo = headersList.get("x-domain-logo")
-  const image = domainLogo || "https://www.datagod.store/og-image.png"
+  // No domain logo -> no preview image at all (never show DATAGOD branding on a custom domain).
   // A custom domain's browser-tab icon must be its own logo, not DATAGOD's —
   // BASE_METADATA.icons is the DATAGOD-brand fallback, only right when this
   // domain hasn't uploaded a logo of its own.
@@ -156,13 +156,13 @@ export async function generateMetadata(): Promise<Metadata> {
       siteName: domainSiteName,
       title,
       description,
-      images: [{ url: image, width: 1200, height: 630, alt: domainSiteName, type: "image/png" }],
+      ...(domainLogo ? { images: [{ url: domainLogo, width: 1200, height: 630, alt: domainSiteName, type: "image/png" }] } : {}),
     },
     twitter: {
-      card: "summary_large_image",
+      card: domainLogo ? "summary_large_image" : "summary",
       title,
       description,
-      images: [image],
+      ...(domainLogo ? { images: [domainLogo] } : {}),
     },
   }
 }

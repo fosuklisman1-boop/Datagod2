@@ -46,12 +46,22 @@ export function validateUssdCodesInput(
   return { ok: true, value: { main, shop } }
 }
 
-export async function getPublicUssdCodes(db: SupabaseClient): Promise<PublicUssdCodes> {
+/** Throws on a DB error. Use where a silent empty result would be harmful (admin editor). */
+export async function readPublicUssdCodes(db: SupabaseClient): Promise<PublicUssdCodes> {
   const { data, error } = await db
     .from("app_settings")
     .select("value")
     .eq("key", PUBLIC_USSD_SETTING_KEY)
     .maybeSingle()
-  if (error) return { main: null, shop: null }
+  if (error) throw new Error(`Failed to read public USSD codes: ${error.message}`)
   return parseUssdCodes(data?.value)
+}
+
+/** Public-site reader: a DB error degrades to "no codes shown". */
+export async function getPublicUssdCodes(db: SupabaseClient): Promise<PublicUssdCodes> {
+  try {
+    return await readPublicUssdCodes(db)
+  } catch {
+    return { main: null, shop: null }
+  }
 }

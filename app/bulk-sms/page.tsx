@@ -24,6 +24,12 @@ export const metadata: Metadata = {
     type: "website",
     url: "https://www.datagod.store/bulk-sms",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Bulk SMS Ghana | Send Campaigns with Your Own Sender ID",
+    description: "Prepaid bulk SMS with your own sender ID, address book, and templates. No monthly contract.",
+    images: ["/og-image.png"],
+  },
 }
 
 // Activation fee and welcome credits mirror the exact tenant_global_settings
@@ -56,7 +62,7 @@ const FEATURES = [
   { icon: Hash, title: "Your own sender ID", desc: "Messages arrive from your business name, not a shared shortcode, once your sender ID is approved." },
   { icon: BookUser, title: "Address book", desc: "Import and organize your contacts into lists for targeted campaigns." },
   { icon: LayoutTemplate, title: "Message templates", desc: "Save and reuse templates for recurring announcements and promos." },
-  { icon: Send, title: "Prepaid credits", desc: "Top up units and send — no monthly contract or minimum spend." },
+  { icon: Send, title: "Prepaid credits", desc: "Top up units and send — no monthly contract." },
 ]
 
 const USE_CASES = [
@@ -105,7 +111,7 @@ export default async function BulkSmsPage() {
               Send SMS campaigns from your own sender ID
             </h1>
             <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
-              Prepaid bulk SMS for businesses in Ghana — your own sender ID, address book, and templates. Pay only for what you send.
+              Prepaid bulk SMS for businesses in Ghana — your own sender ID, address book, and templates.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
@@ -246,7 +252,7 @@ export default async function BulkSmsPage() {
           </section>
         )}
 
-        <FaqSection faqs={p.faqs} />
+        {mainSite && <FaqSection faqs={p.faqs} />}
 
         {mainSite && <RelatedProducts keys={p.related} facts={facts} />}
 

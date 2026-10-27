@@ -59,6 +59,16 @@ describe("product registry", () => {
     for (const p of PRODUCTS) expect(allText(p), p.key).not.toMatch(BANNED)
   })
 
+  it("keeps at-data copy neutral about switchable AT sub-products", () => {
+    expect(allText(getProduct("at-data"))).not.toMatch(/ishare|bigtime/i)
+  })
+
+  it("never implies direct checkout on the website (wallet is funded, then spent)", () => {
+    for (const p of PRODUCTS) {
+      for (const b of p.bullets) expect(b, `${p.key}: ${b}`).not.toMatch(/^Pay with MoMo or card through Paystack/)
+    }
+  })
+
   it("mentions MoMo or Paystack payment on every entry", () => {
     for (const p of PRODUCTS) expect(allText(p), p.key).toMatch(/MoMo|Mobile Money|Paystack/)
   })

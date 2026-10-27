@@ -28,6 +28,9 @@ export function buildProductMetadata(p: ProductEntry): Metadata {
       description: p.description,
       images: [OG_IMAGE],
     },
+    // Next replaces `twitter` only when the child sets it; without this the
+    // root layout's "Instant mobile data..." copy would be inherited.
+    twitter: { card: "summary_large_image", title: p.title, description: p.description, images: [OG_IMAGE] },
   }
 }
 

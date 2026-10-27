@@ -1,5 +1,26 @@
 import { describe, it, expect } from "vitest"
-import { parseUssdCodes, validateUssdCodesInput } from "./ussd-codes"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { parseUssdCodes, validateUssdCodesInput, readPublicUssdCodes, getPublicUssdCodes } from "./ussd-codes"
+
+function fakeDb(result: { data: unknown; error: unknown }): SupabaseClient {
+  const chain = { select: () => chain, eq: () => chain, maybeSingle: async () => result }
+  return { from: () => chain } as unknown as SupabaseClient
+}
+
+describe("readPublicUssdCodes", () => {
+  it("returns parsed codes on success", async () => {
+    const db = fakeDb({ data: { value: '{"main":"*920#","shop":null}' }, error: null })
+    expect(await readPublicUssdCodes(db)).toEqual({ main: "*920#", shop: null })
+  })
+  it("throws on a DB error (so the admin GET can 500)", async () => {
+    const db = fakeDb({ data: null, error: { message: "boom" } })
+    await expect(readPublicUssdCodes(db)).rejects.toBeTruthy()
+  })
+  it("getPublicUssdCodes still swallows errors to nulls", async () => {
+    const db = fakeDb({ data: null, error: { message: "boom" } })
+    expect(await getPublicUssdCodes(db)).toEqual({ main: null, shop: null })
+  })
+})
 
 const ok = (main: unknown, shop: unknown = "") => validateUssdCodesInput({ main, shop })
 

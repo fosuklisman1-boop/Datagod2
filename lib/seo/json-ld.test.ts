@@ -107,6 +107,16 @@ describe("buildProductMetadata", () => {
     expect(og.description).toBe(p.description)
     expect(og.images).toEqual(["/og-image.png"])
   })
+
+  it("sets its own Twitter card so the root's 'Instant ...' copy is not inherited", () => {
+    const p = getProduct("airtime")
+    const tw = buildProductMetadata(p).twitter as Record<string, unknown>
+    expect(tw.card).toBe("summary_large_image")
+    expect(tw.title).toBe(p.title)
+    expect(tw.description).toBe(p.description)
+    expect(String(tw.title) + String(tw.description)).not.toMatch(/Instant/)
+    expect(tw.images).toEqual(["/og-image.png"])
+  })
 })
 
 describe("page helpers", () => {

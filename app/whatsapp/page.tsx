@@ -22,6 +22,12 @@ export const metadata: Metadata = {
     type: "website",
     url: "https://www.datagod.store/whatsapp",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Order Data & Airtime via WhatsApp",
+    description: "Buy data bundles, airtime, and results-checker vouchers by chatting with DATAGOD on WhatsApp.",
+    images: ["/og-image.png"],
+  },
 }
 
 // Main bot number is an admin setting; refresh it at most every 5 minutes.
@@ -113,7 +119,7 @@ export default async function WhatsAppOrderingPage() {
           </p>
         </div>
 
-        <FaqSection faqs={product.faqs} />
+        {mainSite && <FaqSection faqs={product.faqs} />}
 
         {mainSite && <RelatedProducts keys={product.related} facts={facts} />}
 

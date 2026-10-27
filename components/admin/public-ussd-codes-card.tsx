@@ -19,6 +19,7 @@ export default function PublicUssdCodesCard() {
   const [shop, setShop] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     ;(async () => {
@@ -29,6 +30,7 @@ export default function PublicUssdCodesCard() {
           const { codes } = await res.json()
           setMain(codes?.main ?? "")
           setShop(codes?.shop ?? "")
+          setLoaded(true)
         } else {
           toast.error("Failed to load public USSD codes")
         }
@@ -65,7 +67,7 @@ export default function PublicUssdCodesCard() {
   }
 
   return (
-    <Card>
+    <Card className="mb-6 border-border">
       <CardHeader>
         <CardTitle>Public USSD codes (shown on website)</CardTitle>
         <CardDescription>
@@ -87,7 +89,7 @@ export default function PublicUssdCodesCard() {
                 <Input id="public-ussd-shop" value={shop} onChange={e => setShop(e.target.value)} placeholder="*920*SHOPCODE#" maxLength={30} />
               </div>
             </div>
-            <Button onClick={save} disabled={saving}>
+            <Button onClick={save} disabled={saving || !loaded}>
               {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
               Save
             </Button>

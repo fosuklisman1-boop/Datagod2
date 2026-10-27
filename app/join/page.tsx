@@ -26,6 +26,12 @@ export const metadata: Metadata = {
     type: "website",
     url: "https://www.datagod.store/join",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Become a DATAGOD Agent | Sell Data & Airtime, Keep the Profit",
+    description: "Open your own DATAGOD storefront, buy at wholesale prices, and keep the profit on every sale.",
+    images: ["/og-image.png"],
+  },
 }
 
 // Revalidate periodically so the WhatsApp bot fee below reflects whatever an
@@ -118,7 +124,7 @@ export default async function JoinPage() {
           Already got an invite link from another agent? Use the link they shared with you to join under their network instead.
         </p>
 
-        <FaqSection faqs={product.faqs} />
+        {mainSite && <FaqSection faqs={product.faqs} />}
 
         {mainSite && <RelatedProducts keys={product.related} facts={facts} />}
 

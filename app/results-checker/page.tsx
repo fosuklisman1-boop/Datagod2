@@ -24,6 +24,12 @@ export const metadata: Metadata = {
     type: "website",
     url: "https://www.datagod.store/results-checker",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Check WASSCE, BECE & NOVDEC Results Online",
+    description: "Buy results-checker voucher PINs online, or have DATAGOD check your results for you.",
+    images: ["/og-image.png"],
+  },
 }
 
 // Live pricing pulled from the same admin_settings keys the signed-in dashboard
@@ -153,7 +159,7 @@ export default async function ResultsCheckerPage() {
           </div>
         )}
 
-        <FaqSection faqs={product.faqs} />
+        {mainSite && <FaqSection faqs={product.faqs} />}
 
         {mainSite && <RelatedProducts keys={product.related} facts={facts} />}
 

@@ -224,7 +224,7 @@ function HowToOrder({ p, facts }: { p: ProductEntry; facts: LiveFacts }) {
         key: ch,
         icon: Globe,
         title: "On the website",
-        body: "Create a free account or log in, choose what you want, and pay with MoMo or card through Paystack. You can track every order from your dashboard.",
+        body: "Create a free account or log in, fund your wallet with MoMo or card through Paystack, then choose what you want and pay from your wallet. You can track every order from your dashboard.",
         link: null as { href: string; label: string } | null,
       }
     }
@@ -237,16 +237,15 @@ function HowToOrder({ p, facts }: { p: ProductEntry; facts: LiveFacts }) {
         link: p.key !== "whatsapp" ? { href: "/whatsapp", label: "How WhatsApp ordering works" } : null,
       }
     }
+    if (!main) return null // no public code configured: don't tell people to dial one
     return {
       key: ch,
       icon: Phone,
       title: "By USSD, no internet needed",
-      body: main
-        ? `Dial ${main} on any phone, follow the menu and confirm the MoMo payment prompt.`
-        : "Dial the DATAGOD USSD code on any phone, follow the menu and confirm the MoMo payment prompt.",
+      body: `Dial ${main} on any phone, follow the menu and confirm the MoMo payment prompt.`,
       link: p.key !== "ussd" && facts.products.ussd?.available ? { href: "/ussd", label: "More about USSD ordering" } : null,
     }
-  })
+  }).filter((s): s is NonNullable<typeof s> => s !== null)
 
   return (
     <section aria-labelledby="how-heading" className="mt-16">

@@ -49,7 +49,7 @@ export interface ProductEntry {
 export const REFUND_LINE = "If an order fails, you get your money back."
 export const SPEED_LINE = "Usually delivered within minutes."
 
-const PAY_LINE = "Pay with Mobile Money (MoMo) or card through Paystack, or from your DATAGOD wallet."
+const PAY_LINE = "Fund your DATAGOD wallet with Mobile Money (MoMo) or card through Paystack, then pay from your wallet."
 
 const refundFaq = (question = "What happens if my order fails?", extra = ""): Faq => ({
   question,
@@ -83,7 +83,7 @@ function dataEntry(
       `A range of ${label} data bundle sizes, from small to large`,
       "Send data to any number, including your own",
       o.extraBullet,
-      "Pay with MoMo or card through Paystack, or from your wallet",
+      "Fund your wallet with MoMo or card through Paystack",
       "Order on the web, on WhatsApp, or by USSD with no internet",
     ],
     channels: ["web", "whatsapp", "ussd"],
@@ -123,7 +123,7 @@ function billerEntry(
       "We show the account name so you can confirm before you pay",
       "You choose how much to pay",
       ...o.extraBullets,
-      "Pay with MoMo or card through Paystack, or from your wallet",
+      "Fund your wallet with MoMo or card through Paystack",
     ],
     channels: ["web"],
     faqs: [
@@ -176,13 +176,13 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "AT Data Bundles",
     h1: "Buy AT data bundles in Ghana",
     title: "Buy AT (AirtelTigo) Data Bundles in Ghana | DATAGOD",
-    description: "Buy AT (AirtelTigo) iShare and BigTime data bundles in Ghana with MoMo or card. Order on the web, WhatsApp or USSD. Usually delivered within minutes.",
-    summary: "Buy AT (AirtelTigo) data bundles, including iShare and BigTime bundles, for yourself or anyone in Ghana. Pick a bundle, enter the AT number, pay with MoMo or card, and the data is sent to that number.",
-    extraBullet: "Both AT iShare and AT BigTime bundles are available",
+    description: "Buy AT (AirtelTigo) data bundles in Ghana with MoMo or card. Order on the web, WhatsApp or USSD, and the data is sent to the AT number you choose.",
+    summary: "Buy AT (AirtelTigo) data bundles for yourself or anyone in Ghana. Pick a bundle, enter the AT number, pay with MoMo or card, and the data is sent to that number.",
+    extraBullet: "AT data bundles for any AT number in Ghana",
     extraFaqs: [
       {
-        question: "What is the difference between AT iShare and BigTime?",
-        answer: "They are two kinds of AT data bundles with different sizes and prices. Both are sent to an AT number; pick whichever bundle suits you when you order.",
+        question: "Can I buy AT data bundles for someone else?",
+        answer: "Yes. Enter that person's AT number when you order and the bundle is sent to them. The bundles on offer are shown on this page.",
       },
     ],
     related: ["mtn-data", "telecel-data", "airtime", "join"],
@@ -202,7 +202,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
       "Airtime for every network listed on this page",
       "You choose the amount",
       "Top up your own line or send to family and friends",
-      "Pay with MoMo or card through Paystack, or from your wallet",
+      "Fund your wallet with MoMo or card through Paystack",
       "Order on the web, on WhatsApp, or by USSD with no internet",
     ],
     channels: ["web", "whatsapp", "ussd"],
@@ -237,7 +237,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
       "No paperwork to carry around: fill in a short online form with Ghana Card details",
       "Also available by USSD, with no internet needed",
       "One fixed price, shown before you pay",
-      "Pay with MoMo or card through Paystack, or from your wallet",
+      "Fund your wallet with MoMo or card through Paystack",
       "Resellers can offer AFA registration from their own shop",
     ],
     channels: ["web", "ussd"],
@@ -273,7 +273,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
       "Every biller we currently support is listed on this page",
       "We show the account name so you can confirm before you pay",
       "You choose how much to pay",
-      "Pay with MoMo or card through Paystack, or from your wallet",
+      "Fund your wallet with MoMo or card through Paystack",
       "Track every payment from your order history",
     ],
     channels: ["web"],
@@ -405,7 +405,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
       "Results checker vouchers for every WAEC exam listed on this page",
       "Results check service: we check the results and send them by email and WhatsApp",
       "Buy one voucher or many at once",
-      "Pay with MoMo or card through Paystack, or from your wallet",
+      "Fund your wallet with MoMo or card through Paystack",
       "Order on the web, on WhatsApp, or by USSD with no internet",
     ],
     channels: ["web", "whatsapp", "ussd"],

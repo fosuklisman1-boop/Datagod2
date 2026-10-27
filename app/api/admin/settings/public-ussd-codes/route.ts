@@ -2,14 +2,18 @@ import { NextRequest, NextResponse } from "next/server"
 import { revalidateTag } from "next/cache"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
-import { getPublicUssdCodes, validateUssdCodesInput, PUBLIC_USSD_SETTING_KEY } from "@/lib/seo/ussd-codes"
+import { readPublicUssdCodes, validateUssdCodesInput, PUBLIC_USSD_SETTING_KEY } from "@/lib/seo/ussd-codes"
 
 export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse!
 
-  const codes = await getPublicUssdCodes(supabase)
-  return NextResponse.json({ codes })
+  try {
+    const codes = await readPublicUssdCodes(supabase)
+    return NextResponse.json({ codes })
+  } catch {
+    return NextResponse.json({ error: "Failed to load USSD codes" }, { status: 500 })
+  }
 }
 
 export async function POST(request: NextRequest) {
