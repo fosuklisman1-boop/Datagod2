@@ -26,6 +26,7 @@ const LOAD_FAILED = "Failed to load your API keys"
 export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (state: DashboardAccessState) => void }) {
   const [keys, setKeys] = useState<V2KeySummary[]>([])
   const [access, setAccess] = useState<AccessSummary | null>(null)
+  const [smsAvailable, setSmsAvailable] = useState(false)
   const [loading, setLoading] = useState(true)
   // Set when the last load failed. Fail closed: no generate controls are rendered while it is set.
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -47,6 +48,7 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
       }
       setKeys(Array.isArray(data.keys) ? (data.keys as V2KeySummary[]) : [])
       setAccess(a)
+      setSmsAvailable(data.smsAvailable === true)
       setLoadError(null)
     } catch {
       toast.error(LOAD_FAILED)
@@ -132,6 +134,7 @@ export function V2KeysPanel({ onAccessStateChange }: { onAccessStateChange?: (st
           keys={keys}
           access={access}
           loading={loading}
+          smsAvailable={smsAvailable}
           busySlot={busySlot}
           onGenerate={(t, e) => void generate(t, e)}
           onRevoke={(k) => void revoke(k)}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { accessSummary, canIssue, isIssuableType, type AccessSummary } from "@/lib/api-v2/key-issue"
 import type { Environment } from "@/lib/api-v2/keys"
+import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { createKey, getAdminClient, getConfig } from "@/lib/api-v2/store"
 
 // Service-role client; callers are authenticated via their session bearer token.
@@ -42,12 +43,25 @@ async function callerAccess(userId: string): Promise<AccessSummary> {
   return accessSummary({ role, suspended, enabled: config.enabled, allowedRoles: config.allowed_roles })
 }
 
+/**
+ * Whether the caller already has an SMS account, by a READ-ONLY lookup (a GET must never create one).
+ * Any failure reads as "not available": the dashboard then simply does not offer the SMS key.
+ */
+async function callerSmsAvailable(userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await client.from("sms_accounts").select("id").eq("user_id", userId).maybeSingle()
+    return !error && Boolean(data)
+  } catch {
+    return false
+  }
+}
+
 /** GET /api/user/v2-keys - list the caller's non-revoked v2 keys plus whether they may generate. */
 export async function GET(request: NextRequest) {
   const sessionUser = await getSessionUser(request)
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const [{ data: keys, error }, access] = await Promise.all([
+  const [{ data: keys, error }, access, smsAvailable] = await Promise.all([
     client
       .from("api_v2_keys")
       .select("id, key_type, environment, status, key_prefix, last_used_at, created_at")
@@ -55,10 +69,11 @@ export async function GET(request: NextRequest) {
       .in("status", ["pending", "active"])
       .order("created_at", { ascending: false }),
     callerAccess(sessionUser.id),
+    callerSmsAvailable(sessionUser.id),
   ])
 
   if (error) return NextResponse.json({ error: "Failed to fetch API keys" }, { status: 500 })
-  return NextResponse.json({ keys, access })
+  return NextResponse.json({ keys, access, smsAvailable })
 }
 
 /** POST /api/user/v2-keys - issue a key. The full key is returned once. */
@@ -94,13 +109,19 @@ export async function POST(request: NextRequest) {
   const suspended = Boolean(userRow?.is_suspended)
 
   const config = await getConfig(client)
-  const decision = canIssue({
-    enabled: config.enabled,
-    type: keyType,
-    role,
-    allowedRoles: config.allowed_roles,
-    suspended,
-  })
+  const base = { enabled: config.enabled, type: keyType, role, allowedRoles: config.allowed_roles, suspended }
+  let decision = canIssue({ ...base, hasSmsAccess: true })
+  // SMS access is resolved (and the SMS account created, as v1 does) ONLY for an sms request that
+  // already passed every other check, then the decision is re-made with the real answer.
+  if (decision.ok && keyType === "sms") {
+    let hasSmsAccess = false
+    try {
+      hasSmsAccess = (await getOrCreateAccountForUser(sessionUser.id)) !== null
+    } catch {
+      hasSmsAccess = false
+    }
+    decision = canIssue({ ...base, hasSmsAccess })
+  }
   if (!decision.ok || !isIssuableType(keyType)) {
     const d = decision.ok ? { status: 400, message: "Invalid key_type" } : decision
     return NextResponse.json({ error: d.message }, { status: d.status })

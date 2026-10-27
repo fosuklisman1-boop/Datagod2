@@ -3,6 +3,7 @@ import {
   mergeKeys,
   filterKeys,
   statusCounts,
+  keyTypeLabel,
   limitFormValues,
   validateLimitForm,
   type ConsoleKey,
@@ -167,5 +168,13 @@ describe("limit form", () => {
   it("accepts valid values", () => {
     const r = validateLimitForm({ purchase: "25", bulk: "1", balance: "10000", status: " 30 " })
     expect(r).toEqual({ ok: true, value: { purchase: 25, bulk: 1, balance: 10000, status: 30 } })
+  })
+})
+
+describe("admin console handles sms keys", () => {
+  it("merges an sms key and labels it SMS", () => {
+    const out = mergeKeys([], [v2({ id: "v2-sms", key_type: "sms" })])
+    expect(out[0]).toMatchObject({ source: "v2", keyType: "sms" })
+    expect(keyTypeLabel(out[0])).toBe("SMS")
   })
 })

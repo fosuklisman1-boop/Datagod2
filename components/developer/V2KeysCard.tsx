@@ -5,7 +5,7 @@ import { Coins, Loader2, MessageSquareText, RotateCw, Wallet } from "lucide-reac
 import { Callout } from "@/components/developer/docs/Callout"
 import { Button } from "@/components/ui/button"
 import type { Environment, KeyType } from "@/lib/api-v2/keys"
-import type { AccessReason, AccessSummary } from "@/lib/api-v2/key-issue"
+import { offersSmsKey, type AccessReason, type AccessSummary } from "@/lib/api-v2/key-issue"
 import type { V2KeySummary } from "@/lib/api-v2/key-slots"
 import { V2KeyBlock, type KeyTypeMeta } from "./V2KeyBlock"
 
@@ -25,6 +25,14 @@ const KEY_TYPES: KeyTypeMeta[] = [
     icon: Coins,
   },
 ]
+
+const SMS_KEY_TYPE: KeyTypeMeta = {
+  type: "sms",
+  title: "SMS key",
+  description: "Bulk SMS: send messages, check your SMS credit balance, sender IDs and campaigns. Sends spend SMS credits, not your wallet.",
+  prefix: "dg2_sms_test_ / dg2_sms_live_",
+  icon: MessageSquareText,
+}
 
 const DENIED: Record<Exclude<AccessReason, "ok">, { title: string; body: string }> = {
   disabled: {
@@ -82,36 +90,19 @@ export function KeysExplainer() {
   )
 }
 
-function SmsComingSoon() {
-  return (
-    <section aria-label="SMS keys" className="min-w-0 rounded-2xl border border-dashed border-border bg-card/60 p-4 sm:p-5">
-      <header className="flex items-start gap-3 opacity-80">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground"><MessageSquareText className="size-5" aria-hidden /></span>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-bold text-foreground">SMS key</h3>
-            <span className="rounded-full border border-border bg-muted px-2.5 py-0.5 text-[11px] font-semibold text-muted-foreground">Coming soon</span>
-          </div>
-          <p className="text-xs leading-5 text-muted-foreground">
-            A separate key for the SMS endpoints. SMS keys arrive in a later release and will be generated from the SMS dashboard; there is nothing to set up yet.
-          </p>
-        </div>
-      </header>
-    </section>
-  )
-}
-
 export interface V2KeysCardProps {
   keys: V2KeySummary[]
   access: AccessSummary | null
   loading?: boolean
+  /** From the access GET: the account has an SMS account, so the SMS key type may be offered. */
+  smsAvailable?: boolean
   busySlot: string | null
   onGenerate: (type: KeyType, env: Environment) => void
   onRevoke: (key: V2KeySummary) => void
 }
 
 /** Presentational: everything comes in through props so it can be previewed without the network. */
-export function V2KeysCard({ keys, access, loading, busySlot, onGenerate, onRevoke }: V2KeysCardProps) {
+export function V2KeysCard({ keys, access, loading, smsAvailable, busySlot, onGenerate, onRevoke }: V2KeysCardProps) {
   if (loading || !access) {
     return (
       <div className="flex items-center justify-center gap-2 rounded-2xl border border-white/60 bg-card p-10 text-sm text-muted-foreground clay dark:border-white/5">
@@ -122,8 +113,9 @@ export function V2KeysCard({ keys, access, loading, busySlot, onGenerate, onRevo
 
   const handlers = { canGenerate: access.canGenerate, busySlot, onGenerate, onRevoke }
   const usable = keys.filter((k) => k.status === "pending" || k.status === "active")
-  // When generation is unavailable, only show key types the user still holds keys for (so they can revoke them).
-  const types = access.canGenerate ? KEY_TYPES : KEY_TYPES.filter((m) => usable.some((k) => k.key_type === m.type))
+  // A type is shown when it can be generated, or when the user still holds a key of it (so it can be revoked).
+  const canOffer = (t: KeyType) => (t === "sms" ? offersSmsKey(access.canGenerate, smsAvailable) : access.canGenerate)
+  const types = [...KEY_TYPES, SMS_KEY_TYPE].filter((m) => canOffer(m.type) || usable.some((k) => k.key_type === m.type))
 
   return (
     <div className="space-y-4">
@@ -135,7 +127,6 @@ export function V2KeysCard({ keys, access, loading, busySlot, onGenerate, onRevo
           ))}
         </div>
       )}
-      {access.canGenerate && <SmsComingSoon />}
     </div>
   )
 }

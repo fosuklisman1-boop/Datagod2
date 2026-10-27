@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { accessSummary, canIssue, legacyDefaultOpen } from "./key-issue"
+import { accessSummary, canIssue, isIssuableType, legacyDefaultOpen, offersSmsKey } from "./key-issue"
 
 const allowedRoles = ["dealer", "admin"]
 
@@ -38,9 +38,31 @@ describe("canIssue", () => {
     expect(r).toMatchObject({ ok: false, status: 403 })
   })
 
-  it("rejects sms keys with 400 and the not-available message", () => {
-    const r = canIssue({ ...on, type: "sms", role: "dealer" })
-    expect(r).toEqual({ ok: false, status: 400, message: "SMS keys are not available yet" })
+  it("allows an sms key when the account has SMS access", () => {
+    expect(canIssue({ ...on, type: "sms", role: "dealer", hasSmsAccess: true })).toEqual({ ok: true })
+  })
+
+  it("rejects an sms key with 403 when the account has no SMS access (or the flag is missing: fail closed)", () => {
+    const msg = "SMS isn't enabled for this account type"
+    expect(canIssue({ ...on, type: "sms", role: "dealer", hasSmsAccess: false })).toEqual({ ok: false, status: 403, message: msg })
+    expect(canIssue({ ...on, type: "sms", role: "dealer" })).toEqual({ ok: false, status: 403, message: msg })
+  })
+
+  it("only consults hasSmsAccess for sms (standard/commission unaffected)", () => {
+    expect(canIssue({ ...on, type: "standard", role: "dealer", hasSmsAccess: false })).toEqual({ ok: true })
+    expect(canIssue({ ...on, type: "commission", role: "dealer", hasSmsAccess: false })).toEqual({ ok: true })
+  })
+
+  it("sms still obeys enabled, suspension and role before the access check", () => {
+    expect(canIssue({ ...on, enabled: false, type: "sms", role: "dealer", hasSmsAccess: true })).toMatchObject({ status: 503 })
+    expect(canIssue({ ...on, type: "sms", role: "dealer", suspended: true, hasSmsAccess: true })).toMatchObject({ status: 403, message: "This account is suspended" })
+    expect(canIssue({ ...on, type: "sms", role: "user", hasSmsAccess: true })).toMatchObject({ status: 403, message: "Your account is not eligible for API keys" })
+  })
+
+  it("isIssuableType accepts sms and still rejects unknown types", () => {
+    expect(isIssuableType("sms")).toBe(true)
+    expect(isIssuableType("standard")).toBe(true)
+    expect(isIssuableType("bogus")).toBe(false)
   })
 
   it("rejects an unknown type with 400", () => {
@@ -119,5 +141,14 @@ describe("legacyDefaultOpen", () => {
     expect(legacyDefaultOpen("ok")).toBe(false)
     expect(legacyDefaultOpen("suspended")).toBe(false)
     expect(legacyDefaultOpen("role_not_allowed")).toBe(false)
+  })
+})
+
+describe("offersSmsKey", () => {
+  it("offers SMS only when generation is open and the access GET reported smsAvailable", () => {
+    expect(offersSmsKey(true, true)).toBe(true)
+    expect(offersSmsKey(true, false)).toBe(false)
+    expect(offersSmsKey(true, undefined)).toBe(false)
+    expect(offersSmsKey(false, true)).toBe(false)
   })
 })
