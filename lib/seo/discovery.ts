@@ -51,7 +51,7 @@ export function buildLlmsTxt(facts: LiveFacts): string {
 
   // Ways to order
   lines.push("## Ways to order", "")
-  lines.push(`- Web: browse everything at ${absoluteUrl("/services")} and pay with Mobile Money or card.`)
+  lines.push(`- Web: browse everything at ${absoluteUrl("/services")} and fund your wallet with Mobile Money or card.`)
   if (isAvailable(facts, getProduct("whatsapp"))) {
     lines.push(`- WhatsApp: chat with DATAGOD to order data, airtime and results checkers (${absoluteUrl("/whatsapp")}).`)
   }
@@ -84,7 +84,7 @@ export function buildLlmsTxt(facts: LiveFacts): string {
     "",
     `- ${REFUND_LINE}`,
     `- ${SPEED_LINE}`,
-    "- Pay with Mobile Money (MoMo) or card through Paystack, or from your DATAGOD wallet.",
+    "- Fund your DATAGOD wallet with Mobile Money (MoMo) or card through Paystack, then pay from your wallet.",
   )
 
   return lines.join("\n") + "\n"

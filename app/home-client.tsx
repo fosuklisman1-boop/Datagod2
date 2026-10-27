@@ -330,11 +330,11 @@ function MockProfitMargin() {
 // — matches the reference's per-card accent-color pattern.
 // `link` = key into the serviceLinks prop (lib/seo/home-links.ts); unlinked when absent.
 const TOP_SERVICES = [
-  { icon: Database, title: "Data Bundles", desc: "High-speed MTN, Telecel & AT data bundles at the best rates, delivered in seconds.", tag: null, color: "bg-emerald-100 text-emerald-600", link: "data" },
-  { icon: Zap, title: "Airtime Topup", desc: "Instant airtime recharge for any network, paid straight from your wallet.", tag: null, color: "bg-blue-100 text-blue-600", link: "airtime" },
-  { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers instantly — no queues, no paperwork.", tag: null, color: "bg-purple-100 text-purple-600", link: "afa" },
-  { icon: Receipt, title: "Utility Bills", desc: "Pay ECG prepaid, Ghana Water, DSTV, GOtv, StarTimes & Telecel Broadband instantly from your wallet.", tag: "NEW", color: "bg-orange-100 text-orange-600", link: "bills" },
-  { icon: FileCheck2, title: "Results Checker", desc: "WASSCE, BECE & NovDec PINs delivered instantly so you can check your own results.", tag: null, color: "bg-amber-100 text-amber-600", link: "results" },
+  { icon: Database, title: "Data Bundles", desc: "High-speed MTN, Telecel & AT data bundles at the best rates, usually delivered within minutes.", tag: null, color: "bg-emerald-100 text-emerald-600", link: "data" },
+  { icon: Zap, title: "Airtime Topup", desc: "Airtime recharge for any network, paid straight from your wallet.", tag: null, color: "bg-blue-100 text-blue-600", link: "airtime" },
+  { icon: UserPlus, title: "AFA Registration", desc: "Register AFA / iShare numbers without queues — no paperwork, no paperwork.", tag: null, color: "bg-purple-100 text-purple-600", link: "afa" },
+  { icon: Receipt, title: "Utility Bills", desc: "Pay ECG prepaid, Ghana Water, DSTV, GOtv, StarTimes & Telecel Broadband from your wallet.", tag: "NEW", color: "bg-orange-100 text-orange-600", link: "bills" },
+  { icon: FileCheck2, title: "Results Checker", desc: "WASSCE, BECE & NovDec PINs delivered within minutes so you can check your own results.", tag: null, color: "bg-amber-100 text-amber-600", link: "results" },
   { icon: Search, title: "Results Check Service", desc: "No PIN to spare? We check your results for you and send them by email & WhatsApp.", tag: null, color: "bg-cyan-100 text-cyan-600", link: "results-service" },
   { icon: Send, title: "Bulk SMS", desc: "Send OTPs, alerts and campaigns with your own sender ID, address book & templates.", tag: null, color: "bg-rose-100 text-rose-600", link: "bulk-sms" },
   { icon: Store, title: "Reseller Shops", desc: "Launch your own branded storefront and set your own profit margins.", tag: "RESELL", color: "bg-indigo-100 text-indigo-600", link: "shops" },
@@ -349,23 +349,23 @@ const COMING_SOON = [
 ] as const
 
 const WHY_CHOOSE: ReadonlyArray<{ icon: typeof Rocket; title: string; desc: string; color: string; link?: HomeLinkKey }> = [
-  { icon: Rocket, title: "Ultra-Fast Delivery", desc: "Data and airtime orders are processed and delivered in seconds, not minutes.", color: "bg-orange-100 text-orange-600" },
+  { icon: Rocket, title: "Fast Delivery", desc: "Data and airtime orders are usually delivered within minutes.", color: "bg-orange-100 text-orange-600" },
   { icon: Cpu, title: "AI Assistants Everywhere", desc: "One AI, tuned for every surface — web, WhatsApp, your shop storefront, and your dashboard.", color: "bg-violet-100 text-violet-600" },
   { icon: ShieldCheck, title: "Secure Wallet Payments", desc: "Pay from your wallet through Paystack-secured checkout, with a clear transaction trail.", color: "bg-emerald-100 text-emerald-600" },
   { icon: Globe, title: "Order From Anywhere", desc: "Web storefront, WhatsApp bot, or USSD with no internet needed — or install DATAGOD as an app.", color: "bg-sky-100 text-sky-600", link: "anywhere" },
   { icon: Code2, title: "Developer API", desc: "Integrate automated data and airtime purchases directly into your own app or system.", color: "bg-indigo-100 text-indigo-600", link: "developers" },
-  { icon: Banknote, title: "Instant Withdrawals", desc: "Cash out your reseller profits to Mobile Money or bank, with verified, tracked payouts.", color: "bg-rose-100 text-rose-600" },
+  { icon: Banknote, title: "Tracked Withdrawals", desc: "Cash out your reseller profits to Mobile Money or bank, with verified, tracked payouts.", color: "bg-rose-100 text-rose-600" },
 ]
 
 // Factual answers to real, already-documented platform behavior — no
 // invented policies or numbers.
 const FAQ_ITEMS = [
-  { q: "How fast is delivery?", a: "Most data and airtime orders are delivered within seconds of payment confirming — our average is around 8 seconds. During very high traffic it can take a few minutes." },
+  { q: "How fast is delivery?", a: "Usually delivered within minutes. During very high traffic it can take a little longer." },
   { q: "How do I pay?", a: "Guests pay per order via Paystack (card or Mobile Money). Account holders can also load a wallet once and buy repeatedly without going through Paystack each time." },
   { q: "What happens if I enter the wrong number?", a: "Data and airtime deliveries to an incorrect recipient number cannot be reversed — always double-check the number before confirming your order." },
   { q: "Can I resell data and earn?", a: "Yes. Upgrade to an Agent or Dealer plan, open your own branded shop, set your own profit margin on top of the base price, and withdraw your earnings to Mobile Money or bank." },
   { q: "Do I need an account to buy?", a: "No — you can buy directly from any reseller's shop link as a guest, no account required. An account is only needed to use a wallet, track order history in one place, or open your own shop." },
-  { q: "How do I get support?", a: "Chat with us on WhatsApp for instant help, or file and track a complaint from your dashboard if you have an account." },
+  { q: "How do I get support?", a: "Chat with us on WhatsApp for quick help, or file and track a complaint from your dashboard if you have an account." },
 ] as const
 
 interface PublicPackage {
@@ -440,7 +440,7 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
             "@type": "WebSite",
             name: domainBranding.siteName || "DATAGOD",
             url: "https://www.datagod.store",
-            description: "Buy affordable data packages from multiple networks with instant delivery",
+            description: "Buy affordable data packages from multiple networks, usually delivered within minutes",
             potentialAction: {
               "@type": "SearchAction",
               target: {
@@ -489,7 +489,7 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
             Ghana&apos;s All-In-One Mobile Data &amp; Reseller Platform
           </h2>
           <p className="mt-6 text-lg sm:text-xl leading-relaxed text-muted-foreground">
-            Buy data bundles, airtime, AFA registrations, results checkers and bulk SMS. Fund your wallet, open your own shop, or integrate via our Developer API — all in one place. Instant delivery, always.
+            Buy data bundles, airtime, AFA registrations, results checkers and bulk SMS. Fund your wallet, open your own shop, or integrate via our Developer API — all in one place. Usually delivered within minutes.
           </p>
         </div>
       </section>
@@ -642,13 +642,13 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
           <div className="text-center mb-12">
             <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Wallet</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-3">Pay With Your Wallet</h2>
-            <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">Load credit once, then buy instantly — no card details needed every time.</p>
+            <p className="text-muted-foreground max-w-xl mx-auto text-sm sm:text-base">Load credit once, then buy in a few taps — no card details needed every time.</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             {[
               { icon: CreditCard, title: "Top Up", desc: "Fund your wallet via Paystack — card or Mobile Money." },
               { icon: Wallet, title: "Store Balance", desc: "Your balance is ready whenever you want to buy." },
-              { icon: Zap, title: "Buy Instantly", desc: "Pick a package and confirm — no checkout, no delay." },
+              { icon: Zap, title: "Buy in Taps", desc: "Pick a package and confirm — no checkout every time." },
             ].map(({ icon: Icon, title, desc }, i) => (
               <div key={title} className="clay p-5 sm:p-6">
                 <div className="mb-4 flex items-center gap-2">
@@ -692,7 +692,7 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
             <span className="inline-block mb-3 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">Bulk SMS</span>
             <h2 className="font-display text-2xl sm:text-4xl font-bold text-foreground mb-4">Send SMS to your customers — at scale</h2>
             <p className="text-muted-foreground mb-6">
-              OTPs, alerts, and marketing campaigns — sent in seconds, from your own sender ID.
+              OTPs, alerts, and marketing campaigns — sent from your own sender ID.
             </p>
             <ul className="space-y-3 mb-6">
               {["Your own approved sender ID", "Address book & reusable templates", "OTPs, alerts, and bulk campaigns", "Delivery reports for every send"].map((item) => (
@@ -842,8 +842,8 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
                   <Step
                     number={6}
                     icon={<CheckCircle2 className="w-4 h-4" />}
-                    title="Instant Delivery"
-                    description="Your data is delivered to the entered number within seconds. Use the Track Order tab on the shop to check your order status anytime."
+                    title="Fast Delivery"
+                    description="Your data is usually delivered to the entered number within minutes. Use the Track Order tab on the shop to check your order status anytime."
                     mockup={<MockSuccess />}
                   />
                 </div>
@@ -867,14 +867,14 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
                     number={2}
                     icon={<Wallet className="w-4 h-4" />}
                     title="Top Up Your Wallet"
-                    description="Go to Dashboard → Wallet → Top Up. Pay via Paystack to load credit into your DATAGOD wallet instantly. A small platform fee applies."
+                    description="Go to Dashboard → Wallet → Top Up. Pay via Paystack to load credit into your DATAGOD wallet. A small platform fee applies."
                     mockup={<MockWallet />}
                   />
                   <Step
                     number={3}
                     icon={<Package className="w-4 h-4" />}
                     title="Buy Data Bundles"
-                    description="Go to Buy Data, choose your network (MTN, Telecel, AT-iShare, AT-BigTime), pick a package, enter the recipient's number, and confirm. The cost is deducted from your wallet instantly."
+                    description="Go to Buy Data, choose your network (MTN, Telecel, AT-iShare, AT-BigTime), pick a package, enter the recipient's number, and confirm. The cost is deducted from your wallet."
                     mockup={<MockNetworkPicker />}
                   />
                 </div>
@@ -883,13 +883,13 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
                     number={4}
                     icon={<Zap className="w-4 h-4" />}
                     title="Buy Airtime"
-                    description="Go to Buy Airtime, select the network, enter the amount and recipient number. Airtime is sent instantly and the amount is deducted from your wallet."
+                    description="Go to Buy Airtime, select the network, enter the amount and recipient number. Airtime is usually delivered within minutes and the amount is deducted from your wallet."
                   />
                   <Step
                     number={5}
                     icon={<GraduationCap className="w-4 h-4" />}
                     title="Get Results Checker Vouchers"
-                    description="Go to Results Checker, choose your exam type (WAEC, BECE, etc.), and purchase. Your PIN and serial number are delivered instantly — use them on the exam body's official website."
+                    description="Go to Results Checker, choose your exam type (WAEC, BECE, etc.), and purchase. Your PIN and serial number are usually delivered within minutes — use them on the exam body's official website."
                     mockup={<MockVoucher />}
                   />
                   <Step

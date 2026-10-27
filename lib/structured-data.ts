@@ -27,7 +27,7 @@ export const generateHomepageSchema = () => ({
   "@type": "WebSite",
   name: "DATAGOD",
   url: "https://www.datagod.store",
-  description: "Buy affordable data packages from multiple networks with instant delivery",
+  description: "Buy affordable data packages from multiple networks usually delivered within minutes",
   potentialAction: {
     "@type": "SearchAction",
     target: {

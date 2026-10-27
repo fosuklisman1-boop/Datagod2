@@ -69,6 +69,21 @@ describe("product registry", () => {
     }
   })
 
+  it("never says web customers pay directly via Paystack (wallet is funded, then spent)", () => {
+    const DIRECT = /pay with momo or card through paystack/i
+    // Storefront guests genuinely pay directly, so that one FAQ is exempt.
+    const GUEST_FAQ = "Do my customers need an account?"
+    for (const p of PRODUCTS) {
+      expect(p.description, `${p.key} description`).not.toMatch(DIRECT)
+      expect(p.description, `${p.key} description`).not.toMatch(/pay with momo or card/i)
+      expect(p.summary, `${p.key} summary`).not.toMatch(/pay with momo or card/i)
+      if (p.channels.length === 1 && p.channels[0] === "web") {
+        const text = [p.name, p.h1, p.title, p.description, p.summary, ...p.bullets, ...p.faqs.filter((f) => f.question !== GUEST_FAQ).flatMap((f) => [f.question, f.answer])].join("\n")
+        expect(text, p.key).not.toMatch(DIRECT)
+      }
+    }
+  })
+
   it("mentions MoMo or Paystack payment on every entry", () => {
     for (const p of PRODUCTS) expect(allText(p), p.key).toMatch(/MoMo|Mobile Money|Paystack/)
   })

@@ -44,7 +44,7 @@ const BASE_METADATA: Omit<Metadata, "title" | "description" | "openGraph" | "twi
     "Telecel bundles",
     "buy data online",
     "data bundles Ghana",
-    "instant data delivery",
+    "fast data delivery",
     "AFA registration Ghana",
     "pay DSTV online Ghana",
     "ECG prepaid online",
@@ -103,15 +103,15 @@ export async function generateMetadata(): Promise<Metadata> {
   if (services.length === 0 || !domainSiteName) {
     return {
       ...BASE_METADATA,
-      title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
-      description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks in Ghana. Fast delivery, secure payment, 24/7 support.",
+      title: "DATAGOD - Buy Affordable Data Packages & Airtime | Fast Delivery",
+      description: "Get mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks in Ghana. Usually delivered within minutes. Secure payment, 24/7 support.",
       openGraph: {
         type: "website",
         locale: "en_US",
         url: "https://www.datagod.store",
         siteName: "DATAGOD",
-        title: "DATAGOD - Buy Affordable Data Packages & Airtime | Instant Delivery",
-        description: "Get instant mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks. Fast delivery, secure payment.",
+        title: "DATAGOD - Buy Affordable Data Packages & Airtime | Fast Delivery",
+        description: "Get mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks. Usually delivered within minutes. Secure payment.",
         images: [
           {
             url: "https://www.datagod.store/og-image.png",
@@ -127,7 +127,7 @@ export async function generateMetadata(): Promise<Metadata> {
         site: "@datagodstore",
         creator: "@datagodstore",
         title: "DATAGOD - Buy Data Packages & Airtime Online",
-        description: "Instant mobile data, airtime, and digital services for Ghana. Fast delivery, secure payment.",
+        description: "Mobile data, airtime, and digital services for Ghana. Usually delivered within minutes. Secure payment.",
         images: ["https://www.datagod.store/og-image.png"],
       },
     }
@@ -135,7 +135,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
   const serviceLabels = joinServiceLabels(services.map(s => SERVICE_LABELS[s]))
   const title = `${domainSiteName} - Buy ${serviceLabels.charAt(0).toUpperCase() + serviceLabels.slice(1)} Online`
-  const description = `Get instant ${serviceLabels} from ${domainSiteName}. Fast delivery, secure payment.`
+  const description = `Get ${serviceLabels} from ${domainSiteName}. Usually delivered within minutes. Secure payment.`
   const domainLogo = headersList.get("x-domain-logo")
   // No domain logo -> no preview image at all (never show DATAGOD branding on a custom domain).
   // A custom domain's browser-tab icon must be its own logo, not DATAGOD's —

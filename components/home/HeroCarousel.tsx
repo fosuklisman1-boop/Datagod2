@@ -94,7 +94,7 @@ export function HeroCarousel() {
     <div key="welcome">
       <Eyebrow>Welcome to</Eyebrow>
       <Heading>{wordmark}</Heading>
-      <Body>Ghana&apos;s all-in-one platform for mobile data, airtime, utility bills, AFA, Results Checkers, bulk SMS and business growth. Instant delivery, always.</Body>
+      <Body>Ghana&apos;s all-in-one platform for mobile data, airtime, utility bills, AFA, Results Checkers, bulk SMS and business growth. Usually delivered within minutes.</Body>
       <div className="mt-10 space-y-4">
         <Link href="/auth/login" className={PILL.primary}>Sign In</Link>
         <Link href="/auth/signup" className={PILL.muted}>Create Account</Link>
@@ -127,8 +127,8 @@ export function HeroCarousel() {
 
     <div key="data">
       <Eyebrow>Data Bundles</Eyebrow>
-      <Heading>Instant data for MTN, Telecel &amp; AT</Heading>
-      <Body>Affordable bundles on every network — including AT iShare and BigTime — delivered in seconds, straight from your wallet.</Body>
+      <Heading>Fast data for MTN, Telecel &amp; AT</Heading>
+      <Body>Affordable bundles on every network — including AT iShare and BigTime — usually delivered within minutes, straight from your wallet.</Body>
       <div className="mt-10 space-y-4">
         <Link href="/auth/signup" className={PILL.primary}>Buy Data</Link>
         {guestUrl && (
@@ -140,7 +140,7 @@ export function HeroCarousel() {
     <div key="airtime">
       <Eyebrow>Airtime Top-Up</Eyebrow>
       <Heading>Top up airtime on any network</Heading>
-      <Body>Send airtime to any MTN, Telecel or AT number in seconds — for yourself or your customers.</Body>
+      <Body>Send airtime to any MTN, Telecel or AT number from your wallet — for yourself or your customers.</Body>
       <div className="mt-10 space-y-4">
         <Link href="/auth/signup" className={PILL.primary}>Buy Airtime</Link>
         {guestUrl && (
@@ -152,7 +152,7 @@ export function HeroCarousel() {
     ...(billers.length > 0 ? [
       <div key="bills">
         <Eyebrow>Utility Bills</Eyebrow>
-        <Heading>Pay ECG, water &amp; TV bills in seconds</Heading>
+        <Heading>Pay ECG, water &amp; TV bills without the queue</Heading>
         <Body>Top up ECG prepaid, pay Ghana Water and renew DSTV, GOtv or StarTimes straight from your wallet — no queues, no vendor.</Body>
         <div className="mt-8 grid grid-cols-3 gap-3">
           {billers.map((b) => (
@@ -179,7 +179,7 @@ export function HeroCarousel() {
     <div key="results">
       <Eyebrow>Results Checker</Eyebrow>
       <Heading>WASSCE, BECE &amp; NovDec results</Heading>
-      <Body>Buy checker vouchers delivered instantly — or, if you don&apos;t have one, let us check your results for you and send them by email and WhatsApp.</Body>
+      <Body>Buy checker vouchers delivered within minutes — or, if you don&apos;t have one, let us check your results for you and send them by email and WhatsApp.</Body>
       <div className="mt-10 space-y-4">
         <Link href="/results-checker" className={PILL.primary}>Get a Checker Voucher</Link>
         <Link href="/auth/signup" className={PILL.outline}>Check My Results For Me</Link>

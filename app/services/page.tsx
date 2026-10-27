@@ -12,7 +12,7 @@ import { JsonLd } from "@/components/seo/json-ld-script"
 
 const TITLE = "All DATAGOD Services: Data, Airtime, Bills & More | DATAGOD"
 const DESCRIPTION =
-  "Everything DATAGOD offers in Ghana in one place: data bundles, airtime, bill payments, results checkers and tools for resellers. Pay with MoMo or card."
+  "Everything DATAGOD offers in Ghana: data bundles, airtime, bill payments, results checkers and reseller tools. Fund your wallet with MoMo or card."
 
 const CARD = "rounded-xl border border-white/60 dark:border-white/5 bg-card clay"
 
@@ -62,8 +62,8 @@ export default async function ServicesPage() {
             All DATAGOD services
           </h1>
           <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
-            Buy data, airtime and more for yourself or anyone in Ghana, or start your own reselling business. Pay with
-            Mobile Money (MoMo) or card through Paystack, or from your DATAGOD wallet.
+            Buy data, airtime and more for yourself or anyone in Ghana, or start your own reselling business. Fund
+            your DATAGOD wallet with Mobile Money (MoMo) or card through Paystack, then pay from your wallet.
           </p>
           <div className="mt-6 flex flex-col gap-2 text-sm text-foreground">
             <span className="flex items-start gap-3">

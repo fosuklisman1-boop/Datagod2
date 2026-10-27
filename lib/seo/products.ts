@@ -146,8 +146,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "MTN Data Bundles",
     h1: "Buy MTN data bundles in Ghana",
     title: "Buy MTN Data Bundles Online in Ghana | DATAGOD",
-    description: "Buy cheap MTN data bundles in Ghana with MoMo or card. Send data to any MTN number on the web, WhatsApp or USSD. Usually delivered within minutes.",
-    summary: "Buy MTN data bundles for yourself or anyone in Ghana. Pick a bundle, enter the MTN number, pay with MoMo or card, and the data is sent to that number.",
+    description: "Buy cheap MTN data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD. Usually delivered within minutes.",
+    summary: "Buy MTN data bundles for yourself or anyone in Ghana. Pick a bundle, enter the MTN number, pay from your wallet (funded with MoMo or card), and the data is sent to that number.",
     extraBullet: "Works on MTN numbers starting 024, 025, 053, 054, 055 and 059",
     extraFaqs: [
       {
@@ -161,8 +161,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "Telecel Data Bundles",
     h1: "Buy Telecel data bundles in Ghana",
     title: "Buy Telecel Data Bundles Online in Ghana | DATAGOD",
-    description: "Buy cheap Telecel data bundles in Ghana with MoMo or card. Send data to any Telecel number on the web, WhatsApp or USSD. Usually delivered within minutes.",
-    summary: "Buy Telecel (formerly Vodafone) data bundles for yourself or anyone in Ghana. Pick a bundle, enter the Telecel number, pay with MoMo or card, and the data is sent to that number.",
+    description: "Buy cheap Telecel data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD. Usually delivered within minutes.",
+    summary: "Buy Telecel (formerly Vodafone) data bundles for yourself or anyone in Ghana. Pick a bundle, enter the Telecel number, pay from your wallet (funded with MoMo or card), and the data is sent to that number.",
     extraBullet: "Works on Telecel numbers starting 020 and 050",
     extraFaqs: [
       {
@@ -176,8 +176,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "AT Data Bundles",
     h1: "Buy AT data bundles in Ghana",
     title: "Buy AT (AirtelTigo) Data Bundles in Ghana | DATAGOD",
-    description: "Buy AT (AirtelTigo) data bundles in Ghana with MoMo or card. Order on the web, WhatsApp or USSD, and the data is sent to the AT number you choose.",
-    summary: "Buy AT (AirtelTigo) data bundles for yourself or anyone in Ghana. Pick a bundle, enter the AT number, pay with MoMo or card, and the data is sent to that number.",
+    description: "Buy AT (AirtelTigo) data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD. Sent to the AT number you choose.",
+    summary: "Buy AT (AirtelTigo) data bundles for yourself or anyone in Ghana. Pick a bundle, enter the AT number, pay from your wallet (funded with MoMo or card), and the data is sent to that number.",
     extraBullet: "AT data bundles for any AT number in Ghana",
     extraFaqs: [
       {
@@ -195,9 +195,9 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "Airtime Top-Up",
     h1: "Buy airtime online in Ghana",
     title: "Buy Airtime Online in Ghana | DATAGOD",
-    description: "Top up airtime online in Ghana for yourself or anyone. Pay with MoMo or card through Paystack and send airtime to any number. Usually delivered within minutes.",
+    description: "Top up airtime online in Ghana for yourself or anyone. Fund your wallet with MoMo or card, then send airtime to any number. Usually delivered within minutes.",
     group: "airtime",
-    summary: "Send airtime to any number in Ghana on the networks listed on this page. Choose the amount, enter the number, pay with MoMo or card, and the airtime is credited to that line.",
+    summary: "Send airtime to any number in Ghana on the networks listed on this page. Choose the amount, enter the number, pay from your wallet (funded with MoMo or card), and the airtime is credited to that line.",
     bullets: [
       "Airtime for every network listed on this page",
       "You choose the amount",
@@ -229,9 +229,9 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "MTN AFA Registration",
     h1: "MTN AFA registration online",
     title: "MTN AFA Registration Online in Ghana | DATAGOD",
-    description: "Register MTN AFA numbers online in Ghana without queues or paperwork. Submit the details, pay with MoMo or card, and we handle the registration for you.",
+    description: "Register MTN AFA numbers online in Ghana without queues or paperwork. Submit the details, pay from your wallet, and we handle the registration for you.",
     group: "data",
-    summary: "Register numbers for MTN AFA online, without standing in a queue. Fill in a short form with the person's Ghana Card details, pay with MoMo or card, and we process the registration for you.",
+    summary: "Register numbers for MTN AFA online, without standing in a queue. Fill in a short form with the person's Ghana Card details, pay from your wallet (funded with MoMo or card), and we process the registration for you.",
     bullets: [
       "Register AFA numbers without queues",
       "No paperwork to carry around: fill in a short online form with Ghana Card details",
@@ -266,9 +266,9 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "Utility Bill Payments",
     h1: "Pay your utility bills online",
     title: "Pay Utility Bills Online in Ghana | DATAGOD",
-    description: "Pay your utility bills online in Ghana with MoMo or card through Paystack. Enter your meter, smartcard or account number and confirm the name before you pay.",
+    description: "Pay your utility bills online in Ghana from your DATAGOD wallet, funded with MoMo or card. Enter your meter, smartcard or account number and confirm the name.",
     group: "bills",
-    summary: "Pay your bills in one place. Enter the meter, smartcard or account number, check the name on the account, choose the amount and pay with MoMo or card.",
+    summary: "Pay your bills in one place. Enter the meter, smartcard or account number, check the name on the account, choose the amount and pay from your wallet (funded with MoMo or card).",
     bullets: [
       "Every biller we currently support is listed on this page",
       "We show the account name so you can confirm before you pay",
@@ -298,8 +298,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "ECG Prepaid & Postpaid",
     h1: "Buy ECG prepaid credit and pay ECG bills online",
     title: "Buy ECG Prepaid Credit Online in Ghana | DATAGOD",
-    description: "Buy ECG prepaid electricity credit or pay an ECG postpaid bill online in Ghana. Use your meter number and the phone linked to it, then pay with MoMo or card.",
-    summary: "Top up your ECG prepaid meter or pay an ECG postpaid bill from your phone. Enter the phone number linked to the meter, pick the meter, choose the amount and pay with MoMo or card.",
+    description: "Buy ECG prepaid electricity credit or pay an ECG postpaid bill online in Ghana. Use your meter number and phone linked to it, and pay from your wallet.",
+    summary: "Top up your ECG prepaid meter or pay an ECG postpaid bill from your phone. Enter the phone number linked to the meter, pick the meter, choose the amount and pay from your wallet (funded with MoMo or card).",
     needs: "phone number registered with ECG and your meter number",
     extraBullets: ["Works for ECG prepaid and postpaid accounts"],
     extraFaqs: [
@@ -314,8 +314,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "Ghana Water",
     h1: "Pay your Ghana Water bill online",
     title: "Pay Ghana Water Bill Online | DATAGOD",
-    description: "Pay your Ghana Water bill online with MoMo or card. Enter your meter number, check the account name and amount due, then pay what you choose. Fast and simple.",
-    summary: "Pay your Ghana Water bill without going to an office. Enter your meter number, phone number and email, check the name and amount due, choose how much to pay and pay with MoMo or card.",
+    description: "Pay your Ghana Water bill online from your wallet, funded with MoMo or card. Enter your meter number, check the account name and amount due, then pay.",
+    summary: "Pay your Ghana Water bill without going to an office. Enter your meter number, phone number and email, check the name and amount due, choose how much to pay and pay from your wallet (funded with MoMo or card).",
     needs: "Ghana Water meter number, your phone number and an email address",
     extraBullets: ["See the amount due before you pay"],
     extraFaqs: [
@@ -330,8 +330,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "DSTV",
     h1: "Pay your DSTV subscription online",
     title: "Pay DSTV Subscription Online in Ghana | DATAGOD",
-    description: "Renew or top up your DSTV subscription online in Ghana. Enter your smartcard number, confirm the account name and pay with MoMo or card through Paystack.",
-    summary: "Renew your DSTV subscription from your phone. Enter your smartcard number, check the name on the account, choose the amount and pay with MoMo or card.",
+    description: "Renew or top up your DSTV subscription online in Ghana. Enter your smartcard number, confirm the account name and pay from your wallet funded with MoMo or card.",
+    summary: "Renew your DSTV subscription from your phone. Enter your smartcard number, check the name on the account, choose the amount and pay from your wallet (funded with MoMo or card).",
     needs: "DSTV smartcard number",
     extraBullets: ["Renew from home, no office visit needed"],
     extraFaqs: [
@@ -346,8 +346,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "GOtv",
     h1: "Pay your GOtv subscription online",
     title: "Pay GOtv Subscription Online in Ghana | DATAGOD",
-    description: "Renew or top up your GOtv subscription online in Ghana. Enter your smartcard (IUC) number, confirm the account name and pay with MoMo or card through Paystack.",
-    summary: "Renew your GOtv subscription from your phone. Enter your smartcard (IUC) number, check the name on the account, choose the amount and pay with MoMo or card.",
+    description: "Renew or top up your GOtv subscription online in Ghana. Enter your smartcard (IUC) number, confirm the account name and pay from your DATAGOD wallet.",
+    summary: "Renew your GOtv subscription from your phone. Enter your smartcard (IUC) number, check the name on the account, choose the amount and pay from your wallet (funded with MoMo or card).",
     needs: "GOtv smartcard (IUC) number",
     extraBullets: ["Renew from home, no office visit needed"],
     extraFaqs: [
@@ -362,8 +362,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "StarTimes TV",
     h1: "Pay your StarTimes subscription online",
     title: "Pay StarTimes Subscription Online | DATAGOD",
-    description: "Renew your StarTimes TV subscription online in Ghana. Enter your StarTimes account or smartcard number, confirm the name and pay with MoMo or card.",
-    summary: "Renew your StarTimes TV subscription from your phone. Enter your StarTimes account number, check the name on the account, choose the amount and pay with MoMo or card.",
+    description: "Renew your StarTimes TV subscription online in Ghana. Enter your StarTimes account or smartcard number, confirm the name and pay from your DATAGOD wallet.",
+    summary: "Renew your StarTimes TV subscription from your phone. Enter your StarTimes account number, check the name on the account, choose the amount and pay from your wallet (funded with MoMo or card).",
     needs: "StarTimes account or smartcard number",
     extraBullets: ["Works for StarTimes TV accounts in Ghana"],
     extraFaqs: [
@@ -378,8 +378,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "Telecel Broadband",
     h1: "Pay your Telecel Broadband bill online",
     title: "Pay Telecel Broadband Bill Online | DATAGOD",
-    description: "Pay your Telecel Broadband (fixed internet) bill online in Ghana. Enter your landline and broadband account number, then pay with MoMo or card via Paystack.",
-    summary: "Pay for your Telecel Broadband home or office internet from your phone. Enter the 10-digit landline and the broadband account number, check the account, choose the amount and pay with MoMo or card.",
+    description: "Pay your Telecel Broadband (fixed internet) bill online in Ghana. Enter your landline and broadband account number, then pay from your DATAGOD wallet.",
+    summary: "Pay for your Telecel Broadband home or office internet from your phone. Enter the 10-digit landline and the broadband account number, check the account, choose the amount and pay from your wallet (funded with MoMo or card).",
     needs: "10-digit landline number and your broadband account number",
     extraBullets: ["For Telecel fixed broadband (formerly Vodafone Broadband)"],
     extraFaqs: [
@@ -398,7 +398,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "WAEC Results Checker",
     h1: "Buy WAEC results checker PINs online",
     title: "Buy WAEC Results Checker PINs Online | DATAGOD",
-    description: "Buy WAEC results checker vouchers in Ghana with MoMo or card, or let us check your results and send them to you. Order on the web, WhatsApp or USSD.",
+    description: "Buy WAEC results checker vouchers in Ghana from your wallet, or let us check your results and send them to you. Order on the web, WhatsApp or USSD.",
     group: "education",
     summary: "Buy a WAEC results checker voucher (serial number and PIN) to check exam results. No time? Use our results check service and we check the results for you and send them to you.",
     bullets: [
@@ -434,15 +434,15 @@ export const PRODUCTS: readonly ProductEntry[] = [
     name: "Bulk SMS",
     h1: "Bulk SMS for businesses in Ghana",
     title: "Bulk SMS Ghana - Send With Your Own Sender ID | DATAGOD",
-    description: "Send bulk SMS in Ghana with your own sender ID, contact lists and saved templates. Buy prepaid SMS credits with MoMo or card. No monthly contract.",
+    description: "Send bulk SMS in Ghana with your own sender ID, contact lists and saved templates. Buy prepaid SMS credits from your wallet. No monthly contract.",
     group: "business",
-    summary: "Send SMS campaigns, alerts and reminders to your customers, members or parents. Buy prepaid SMS credits with MoMo or card, load your contacts, and send from your own approved sender ID.",
+    summary: "Send SMS campaigns, alerts and reminders to your customers, members or parents. Buy prepaid SMS credits from your wallet (funded with MoMo or card), load your contacts, and send from your own approved sender ID.",
     bullets: [
       "Send from your own sender ID once it is approved",
       "Address book, contact lists and saved templates",
       "Prepaid credits with no monthly contract",
       "Good for schools, churches, shops and any business",
-      "Buy credits with MoMo or card through Paystack",
+      "Fund your wallet with MoMo or card through Paystack",
     ],
     channels: ["web"],
     faqs: [
@@ -555,7 +555,10 @@ export const PRODUCTS: readonly ProductEntry[] = [
         question: "Do I need internet to use the USSD code?",
         answer: "No. USSD works on any phone with network signal, including basic phones, without data or an app.",
       },
-      payFaq("How do I pay on USSD?", "On USSD you confirm the payment with a MoMo prompt on your phone."),
+      {
+        question: "How do I pay on USSD?",
+        answer: "On USSD you confirm the payment with a MoMo prompt on your phone.",
+      },
       speedFaq("How fast do USSD orders arrive?"),
       refundFaq(),
       {
@@ -588,7 +591,10 @@ export const PRODUCTS: readonly ProductEntry[] = [
         question: "How do I order on WhatsApp?",
         answer: "Send a message to the DATAGOD WhatsApp number, tell it what you want and the number to send it to, then approve the MoMo payment prompt.",
       },
-      payFaq("How do I pay on WhatsApp?", "The bot always asks which MoMo number to charge before it sends a payment prompt."),
+      {
+        question: "How do I pay on WhatsApp?",
+        answer: "You pay with MoMo. The bot always asks which MoMo number to charge before it sends a payment prompt.",
+      },
       speedFaq("How fast are WhatsApp orders delivered?"),
       refundFaq(),
     ],

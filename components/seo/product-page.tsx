@@ -281,7 +281,7 @@ function HowToOrder({ p, facts }: { p: ProductEntry; facts: LiveFacts }) {
 function TrustStrip() {
   const items = [
     { icon: ShieldCheck, text: REFUND_LINE, link: null as { href: string; label: string } | null },
-    { icon: CreditCard, text: "Secure payment with Mobile Money (MoMo) or card through Paystack.", link: null },
+    { icon: CreditCard, text: "Fund your wallet securely with Mobile Money (MoMo) or card through Paystack.", link: null },
     { icon: Headset, text: "Need help? Our support team is on WhatsApp.", link: { href: "/whatsapp", label: "Contact support" } },
   ]
   return (
