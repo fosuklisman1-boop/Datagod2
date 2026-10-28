@@ -1,8 +1,8 @@
 /**
- * Cron worker: re-checks Paystack reversals AND Paystack MoMo payouts parked in `processing` and lets
+ * Cron worker: re-checks Paystack reversals, Paystack MoMo payouts AND Moolre MoMo payouts parked in `processing` and lets
  * reconcileRefund settle them. reconcileRefund settles ONLY on an explicit success (-> completed) or failure
  * (-> compensate); pending / unknown / needs-attention just re-mark processing. This adds no new write paths.
- * Not covered: `awaiting_otp` (needs an admin OTP), `reserved`, and Moolre.
+ * Not covered: `awaiting_otp` (needs an admin OTP) and `reserved`.
  */
 import { isLookupableRefundId } from "./gateways/paystack"
 import { RefundError, reconcileRefund, type RefundDeps, type StoredRefund } from "./service"
@@ -23,11 +23,12 @@ export interface ReconcileRunResult {
 /**
  * Reversals are looked up by the numeric Paystack refund id (gateway_ref). Payouts are looked up by the transfer
  * reference = our refund id (see paystack-payout checkStatus), so their gateway_ref (TRF_ code or null) is irrelevant.
+ * Moolre payouts are likewise looked up by externalref = our refund id (see moolre checkStatus).
  */
 function isProcessable(row: StoredRefund): boolean {
   if (row.status !== "processing") return false
   if (row.gateway === "paystack") return isLookupableRefundId(row.gateway_ref)
-  return row.gateway === "paystack_payout"
+  return row.gateway === "paystack_payout" || row.gateway === "moolre"
 }
 
 export async function reconcileProcessingPaystackRefunds(deps: RefundDeps, rows: StoredRefund[], now: number = Date.now()): Promise<ReconcileRunResult> {
