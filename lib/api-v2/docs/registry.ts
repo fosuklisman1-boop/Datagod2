@@ -76,7 +76,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Overview",
     group: "start",
     intro:
-      "The Datagod Developer API lets approved partners work with their Datagod account from their own software: check your wallet balance and account role, buy data bundles, buy airtime, pay utility bills, buy results checker vouchers (WASSCE, BECE and NOVDEC) and register customers for AFA, and send SMS to your customers with SMS credits. Every request is made over HTTPS to " +
+      "The Datagod Developer API lets approved partners work with their Datagod account from their own software: check your wallet balance and account role, buy data bundles, buy airtime, pay utility bills, buy Standard Bundles, buy results checker vouchers (WASSCE, BECE and NOVDEC) and register customers for AFA, and send SMS to your customers with SMS credits. Every request is made over HTTPS to " +
       V2_BASE_URL +
       ", is authenticated with an API key, and returns JSON in a single consistent envelope. Version 1 of the API keeps working unchanged for existing integrations; v2 runs beside it.",
     endpoints: [],
@@ -86,7 +86,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Authentication",
     group: "start",
     intro:
-      "Send your API key on every request. The preferred form is the Authorization header containing the raw key. Two equivalent forms are also accepted: Authorization: Bearer <key>, and the X-API-Key header. If more than one is sent, Authorization wins. A missing, malformed or unknown key returns 401. The key's type decides which endpoints it can call: a standard key calls the data, wallet, account, results checker and AFA endpoints, a commission key calls the airtime and utility bill endpoints, and an SMS key calls the SMS endpoints (it spends SMS credits, not your wallet). A key of the wrong type returns 403.",
+      "Send your API key on every request. The preferred form is the Authorization header containing the raw key. Two equivalent forms are also accepted: Authorization: Bearer <key>, and the X-API-Key header. If more than one is sent, Authorization wins. A missing, malformed or unknown key returns 401. The key's type decides which endpoints it can call: a standard key calls the data, wallet, account, results checker and AFA endpoints, a commission key calls the airtime, utility bill and Standard Bundles endpoints, and an SMS key calls the SMS endpoints (it spends SMS credits, not your wallet). A key of the wrong type returns 403.",
     steps: [
       "Log in to your Datagod account with a role that is allowed to use the API (the allowed roles are set by Datagod and can change).",
       "Open Dashboard, then Developer API.",
@@ -113,7 +113,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Key types",
     group: "start",
     intro:
-      "Each key has a type and works only with that type's endpoint group; calling another group returns 403. Standard keys unlock data, wallet, orders, the results checker and AFA registration. Commission Services keys unlock airtime and utility bill payments (the Commission endpoints, such as POST /airtime/purchase and POST /utilities/pay). SMS keys unlock the SMS endpoints (they spend SMS credits, not your wallet) and are generated on the same Developer API page when your account has SMS enabled. A key is also either live (real wallet, real orders) or test (sandbox). A key shows as pending, active or revoked; only active keys can call the API, and revoking a key disables it rather than deleting it.",
+      "Each key has a type and works only with that type's endpoint group; calling another group returns 403. Standard keys unlock data, wallet, orders, the results checker and AFA registration. Commission Services keys unlock airtime, utility bill payments and Standard Bundles (the Commission endpoints, such as POST /airtime/purchase, POST /utilities/pay and POST /bundles/purchase). SMS keys unlock the SMS endpoints (they spend SMS credits, not your wallet) and are generated on the same Developer API page when your account has SMS enabled. A key is also either live (real wallet, real orders) or test (sandbox). A key shows as pending, active or revoked; only active keys can call the API, and revoking a key disables it rather than deleting it.",
     endpoints: [],
   },
   {
@@ -137,7 +137,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Idempotency",
     group: "start",
     intro:
-      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Airtime and utility bill payments follow the stricter claim rules in Idempotency and references (airtime and bills): a reference is required and a request that is still unconfirmed is never run a second time. Results checker purchases and AFA registrations follow the same claim rules (see Idempotency and references (results checker and AFA)): a replay returns the existing order, and for the results checker the same PINs, with no second charge; their references are unique within your account. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. SMS sends follow the same claim rules (see Idempotency and references (SMS)): a replay returns the stored send summary with nothing sent again, and SMS references are their own namespace. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
+      "Every purchase endpoint takes a reference that you choose and that must be unique to the order on your side. Sending the same reference with the same request returns the existing order and charges nothing a second time, so it is always safe to retry after a timeout. Reusing a reference for a different order returns 409. Airtime and utility bill payments follow the stricter claim rules in Idempotency and references (airtime and bills), and Standard Bundle purchases follow the same rules (see Standard Bundles): a reference is required and a request that is still unconfirmed is never run a second time. Results checker purchases and AFA registrations follow the same claim rules (see Idempotency and references (results checker and AFA)): a replay returns the existing order, and for the results checker the same PINs, with no second charge; their references are unique within your account. Live data order references share one namespace with orders placed through version 1 of the API: sending a v1 order's reference with the same network, size and recipient returns that order as a replay, and different content returns 409. SMS sends follow the same claim rules (see Idempotency and references (SMS)): a replay returns the stored send summary with nothing sent again, and SMS references are their own namespace. To check on an order, poll its order endpoint; Datagod does not send webhooks.",
     endpoints: [],
   },
   {
@@ -145,7 +145,7 @@ const START_SECTIONS: V2DocSection[] = [
     label: "Sandbox",
     group: "start",
     intro:
-      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime and bill orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. A test standard key buys results checker vouchers with fake TEST- PINs against the sandbox wallet and registers AFA customers without anything being registered. A test SMS key sends nothing and spends no credits (see SMS sandbox). Sandbox references are unique per account across all order types (data, airtime, bills and the rest), while live references are unique per order type, so a reference reused for a different order type can conflict in the sandbox only: use a distinct prefix per order type. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
+      "Test keys (prefix dg2_test_) run against a sandbox: they never touch your real wallet or place real orders. Balance calls return a separate sandbox balance with sandbox: true, so you can build and verify your integration end to end before switching to a live key (prefix dg2_live_). The same holds for commission keys: a test commission key places airtime, bill and Standard Bundle orders against the sandbox wallet and never calls a provider, a sandbox verify_token from POST /utilities/lookup works only with test keys and a live verify_token only with live keys (any other pairing returns 400), and a sandbox replay behaves like a live one. A test standard key buys results checker vouchers with fake TEST- PINs against the sandbox wallet and registers AFA customers without anything being registered. A test SMS key sends nothing and spends no credits (see SMS sandbox). Sandbox references are unique per account across all order types (data, airtime, bills and the rest), while live references are unique per order type, so a reference reused for a different order type can conflict in the sandbox only: use a distinct prefix per order type. Test keys are active immediately and need no approval, so you can start building straight away; live keys start as pending and work only after Datagod approves them. Test and live keys are revoked independently, and each environment has its own rate-limit counters.",
     endpoints: [],
   },
 ]
@@ -950,6 +950,252 @@ const COMMISSION_SECTIONS: V2DocSection[] = [
   },
 ]
 
+// ---------------------------------------------------------------- Standard Bundles (commission key)
+//
+// Client-safe like the commission block above: bundles.ts and endpoints/bundles.ts pull in node crypto and
+// server modules, so the strings below are literal copies. registry.test.ts imports the real constants,
+// handlers and parsers and asserts there is no drift.
+
+const MSG_BUNDLE_NETWORK = "network must be one of: MTN, Telecel, AT"
+const MSG_BUNDLE_TOKEN = "bundle_token is invalid"
+const BUNDLE_PENDING_TAIL =
+  "Do not place this order again under a new reference. Poll GET /bundles/orders/{reference}, whose claim.state reports it, or contact support quoting the reference"
+const MSG_BND_IN_PROGRESS = `REQUEST_IN_PROGRESS: a request with this reference is still being processed; its outcome is not confirmed yet. ${BUNDLE_PENDING_TAIL}`
+const MSG_BND_PRIOR_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of an earlier request with this reference is not confirmed yet. ${BUNDLE_PENDING_TAIL}`
+const MSG_BND_UNKNOWN = `OUTCOME_UNKNOWN: the outcome of this purchase is not confirmed yet. ${BUNDLE_PENDING_TAIL}`
+const MSG_BND_NOT_AVAILABLE = "NOT_AVAILABLE: standard bundles are not available on the API right now"
+const MSG_BND_TOKEN_EXPIRED =
+  "BUNDLE_TOKEN_EXPIRED: the bundle_token is invalid or expired; nothing was charged. Fetch the catalog again with GET /bundles/catalog"
+const MSG_BND_FOR_NUMBER =
+  "BUNDLE_UNAVAILABLE_FOR_NUMBER: this bundle is not offered for that number right now; nothing was charged. Fetch the catalog again with GET /bundles/catalog"
+const MSG_BND_UNAVAILABLE = "UNAVAILABLE: standard bundles are temporarily unavailable; nothing was charged"
+const MSG_BND_INSUFFICIENT = "INSUFFICIENT_BALANCE: wallet balance is too low; nothing was charged"
+const MSG_BND_INVALID_REQUEST = "INVALID_REQUEST: the request was refused; nothing was charged"
+const MSG_BND_NETWORK_MISMATCH = "NETWORK_MISMATCH: the recipient number does not belong to this bundle's network; nothing was charged"
+const MSG_BND_PRICE_CHANGED =
+  "PRICE_CHANGED: expected 5.50, current 5.00 (face_amount 5.50, customer_cashback 0.50). Review the price and resend with expected_pay"
+const MSG_BND_SBX_ON_LIVE =
+  "INVALID_TOKEN: this is a sandbox bundle_token; a live key needs a token from GET /bundles/catalog made with a live key"
+const MSG_BND_TOKEN_ON_TEST =
+  "INVALID_TOKEN: a test key needs a sandbox bundle_token from GET /bundles/catalog made with a test key"
+const MSG_BND_CATALOG_UNAVAILABLE = "UNAVAILABLE: the bundle catalog is temporarily unavailable"
+const MSG_BND_SBX_INSUFFICIENT = "INSUFFICIENT_BALANCE: test balance is too low; required 5.00"
+
+const BUNDLE_ORDER_EXAMPLE = {
+  reference: "BND-2026-0001",
+  network: "MTN",
+  bundle: "1GB",
+  recipient: "0244000001",
+  face_amount: 5.5,
+  paid_amount: 5,
+  cashback: 0.5,
+  status: "processing",
+  created_at: TS,
+}
+
+const BUNDLE_CATALOG_EXAMPLE = {
+  network: "MTN",
+  token_valid_seconds: 600,
+  categories: [
+    {
+      name: "Data",
+      bundles: [
+        { bundle_token: "<signed token from the catalog>", display: "1GB", face_amount: 5.5, pay_amount: 5, customer_cashback: 0.5 },
+        { bundle_token: "<signed token from the catalog>", display: "5GB", face_amount: 24, pay_amount: 23.5, customer_cashback: 0.5 },
+      ],
+    },
+  ],
+}
+
+const BUNDLE_STATUS_NOTE =
+  "status is one of pending, processing, completed, failed or refunded, and it can change after the purchase returns: delivery happens at the network, so expect processing first and poll until it is completed, failed or refunded. failed means the bundle was not delivered; if you were charged and your wallet was not refunded, contact support quoting the reference."
+
+const BUNDLE_CATALOG_ENDPOINT: V2Endpoint = {
+  id: "bundles-catalog",
+  group: "commission",
+  method: "GET",
+  path: "/bundles/catalog",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary:
+    "Lists the Standard Bundles you can buy on one network, with the price for your account and a signed bundle_token for each. Test keys get a fixed sandbox catalog.",
+  params: [{ name: "network", type: "string", required: true, description: "Query parameter. One of MTN, Telecel, AT or AirtelTigo (case-insensitive; AirtelTigo is the same network as AT)." }],
+  requestExample: null,
+  successExample: { success: true, data: BUNDLE_CATALOG_EXAMPLE, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    { status: 400, message: MSG_BUNDLE_NETWORK },
+    ...standardAccessErrors("commission"),
+    { status: 403, message: MSG_BND_NOT_AVAILABLE },
+    { status: 503, message: MSG_BND_CATALOG_UNAVAILABLE },
+  ],
+  notes: [
+    "Each bundle has a bundle_token, a display name, a face_amount (what the bundle costs before any cashback) and a pay_amount (what your wallet is charged, after the cashback you earn; customer_cashback is the difference). Prices depend on your account and can change, so read them from every catalog response.",
+    "A bundle_token is signed by Datagod and is valid for token_valid_seconds (10 minutes). Send it back exactly as you received it; do not edit, parse or store it. When it expires, fetch the catalog again.",
+    "Bundles are grouped by category (for example Data or Daily). Not every bundle is offered to every number: a purchase for a number that is not offered the bundle is refused with 409 BUNDLE_UNAVAILABLE_FOR_NUMBER and nothing is charged.",
+    "Standard Bundles are switched on and off by Datagod. While they are off, every call returns 403 NOT_AVAILABLE and nothing is charged.",
+    "With a test key the catalog is a small fixed list whose tokens start with sbx_, and the response carries sandbox: true.",
+  ],
+}
+
+const BUNDLE_PURCHASE_ENDPOINT: V2Endpoint = {
+  id: "bundles-purchase",
+  group: "commission",
+  method: "POST",
+  path: "/bundles/purchase",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.purchase} requests per minute (purchase group)`,
+  summary: "Buys one Standard Bundle for one recipient and charges your wallet. Test keys use a sandbox wallet and nothing is delivered.",
+  params: [
+    { name: "bundle_token", type: "string", required: true, description: "The bundle_token of the bundle you chose, exactly as GET /bundles/catalog returned it. It decides the network, the bundle and the face price." },
+    { name: "recipient", type: "string", required: true, description: "Ghana mobile number in any of the forms 0244000001, 233244000001 or +233244000001. It must belong to the bundle's network." },
+    { name: "reference", type: "string", required: true, description: "Your own unique id for this order: 3 to 100 characters, letters, digits and - _ . : only. Required: it makes retries safe." },
+    { name: "expected_pay", type: "number", required: false, description: "The pay_amount you were shown for this bundle. Positive, up to 10000, at most 2 decimals. If the real price differs, the purchase is refused with 409 PRICE_CHANGED and nothing is charged." },
+  ],
+  requestExample: { bundle_token: "<bundle_token from GET /bundles/catalog>", recipient: "0244000001", reference: "BND-2026-0001", expected_pay: 5 },
+  successExample: { success: true, data: { order: BUNDLE_ORDER_EXAMPLE }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    { status: 400, message: MSG_BODY_OBJECT },
+    { status: 400, message: "Unexpected field" },
+    { status: 400, message: MSG_BUNDLE_TOKEN },
+    { status: 400, message: MSG_RECIPIENT },
+    { status: 400, message: MSG_REFERENCE },
+    { status: 400, message: MSG_EXPECTED_PAY },
+    { status: 400, message: MSG_BND_NETWORK_MISMATCH },
+    { status: 400, message: MSG_BND_INVALID_REQUEST },
+    { status: 400, message: MSG_BND_SBX_ON_LIVE },
+    { status: 400, message: MSG_BND_TOKEN_ON_TEST },
+    { status: 402, message: MSG_BND_INSUFFICIENT },
+    { status: 402, message: MSG_BND_SBX_INSUFFICIENT },
+    { status: 409, message: MSG_REFERENCE_REUSED },
+    { status: 409, message: MSG_BND_IN_PROGRESS },
+    { status: 409, message: MSG_BND_PRIOR_UNKNOWN },
+    { status: 409, message: MSG_BND_TOKEN_EXPIRED },
+    { status: 409, message: MSG_BND_FOR_NUMBER },
+    { status: 409, message: MSG_BND_PRICE_CHANGED },
+    { status: 500, message: MSG_BND_UNKNOWN },
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 500, message: MSG_SANDBOX_NOT_PLACED },
+    ...standardAccessErrors("commission"),
+    { status: 403, message: MSG_BND_NOT_AVAILABLE },
+    { status: 403, message: MSG_PHONE_GATE },
+    { status: 503, message: MSG_BND_UNAVAILABLE },
+    { status: 503, message: MSG_CLAIM_UNAVAILABLE },
+  ],
+  notes: [
+    "A new order returns HTTP 201 with the order. " + BUNDLE_STATUS_NOTE,
+    "The network, the bundle and its face price all come from the bundle_token. Never send a price or a network: fields such as price, amount, face_amount, pay_amount, cashback, status, user_id and network are rejected with 400 Unexpected field. To guard against a price change, send expected_pay with the pay_amount you were shown.",
+    "An expired token, a bundle that is no longer offered for that number, a changed price, a wallet that is too low and a switched-off service are all refused before anything is charged, and the reference is released, so you can fetch the catalog again and retry with the same reference.",
+    replayNote("order"),
+    "The reference is claimed before anything is charged. 409 REQUEST_IN_PROGRESS and 409 OUTCOME_UNKNOWN mean an earlier request with this reference is not confirmed yet: never place the order again under a new reference. Poll GET /bundles/orders/{reference} and read claim.state, or contact support quoting the reference.",
+    "500 OUTCOME_UNKNOWN means this request may or may not have charged you. The reference is locked to that outcome and is never run a second time automatically. Do not retry under a new reference.",
+    "A 503 with UNAVAILABLE means nothing was charged; retry with the same reference.",
+    "Live purchases require the phone number on your Datagod account to be verified. Until it is, a live key gets 403 PHONE_NOT_VERIFIED and nothing is charged; verify the number in the dashboard. Replays of an existing order are not blocked by this check.",
+    "A test key uses a separate sandbox wallet and a sandbox bundle_token from the test catalog: the response carries sandbox: true, nothing is delivered, the order is charged at face value with no cashback, and a replay works the same way. A sandbox token on a live key, or a live token on a test key, returns 400 INVALID_TOKEN.",
+  ],
+}
+
+const BUNDLE_LIST_ENDPOINT: V2Endpoint = {
+  id: "bundles-orders",
+  group: "commission",
+  method: "GET",
+  path: "/bundles/orders",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Lists your most recent Standard Bundle orders under the references you chose.",
+  params: [],
+  requestExample: null,
+  successExample: { success: true, data: { orders: [BUNDLE_ORDER_EXAMPLE] }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    ...standardAccessErrors("commission"),
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+    { status: 503, message: MSG_CATALOG_UNAVAILABLE },
+  ],
+  notes: [
+    "Returns up to 30 orders. Only orders that were placed successfully are listed; a request that is still unconfirmed shows up through GET /bundles/orders/{reference} instead.",
+    "Each order has the same shape as in POST /bundles/purchase. " + BUNDLE_STATUS_NOTE,
+    "With a test key the list is your sandbox orders and the response carries sandbox: true.",
+  ],
+}
+
+const BUNDLE_ORDER_ENDPOINT: V2Endpoint = {
+  id: "bundles-order-lookup",
+  group: "commission",
+  method: "GET",
+  path: "/bundles/orders/{reference}",
+  keyType: "commission",
+  rateLimit: `${DEFAULT_LIMITS.status} requests per minute (status group)`,
+  summary: "Returns one Standard Bundle order by the reference you chose, or tells you that your request is still unconfirmed.",
+  params: [{ name: "reference", type: "string", required: true, description: "The reference you sent with POST /bundles/purchase (path parameter)." }],
+  requestExample: null,
+  successExample: { success: true, data: { order: BUNDLE_ORDER_EXAMPLE, claim: null }, meta: { timestamp: TS, version: "2" } },
+  errors: [
+    { status: 404, message: MSG_ORDER_MISSING },
+    ...standardAccessErrors("commission"),
+    { status: 500, message: MSG_SANDBOX_UNAVAILABLE },
+  ],
+  notes: [
+    `A found Standard Bundle order returns HTTP 200 with { order, claim: null }. ${BUNDLE_STATUS_NOTE}`,
+    "If your own request with this reference is still unconfirmed, the answer is HTTP 200 with order: null and claim: { reference, state }, where claim.state is in_progress (still being processed) or outcome_unknown (not confirmed). An in_progress request older than 10 minutes reads outcome_unknown. Never place the order again under a new reference; keep polling this endpoint, or contact support quoting the reference.",
+    "A reference that does not exist, is malformed, or belongs to another account all return the same identical 404, so references cannot be probed. A 404 never proves nothing was charged after an unknown outcome; see Standard Bundles.",
+    "With a test key this reads your sandbox orders and the response carries sandbox: true.",
+  ],
+}
+
+const BUNDLE_SECTIONS: V2DocSection[] = [
+  {
+    id: "bundles-overview",
+    label: "Standard Bundles",
+    group: "commission",
+    intro:
+      "Standard Bundles are the data bundles Datagod delivers through its Standard Bundles service (the same bundles as the Standard Bundles page in your dashboard). They use a Commission Services key and are paid from your wallet. You choose a bundle from the live catalog, then buy it with the bundle_token the catalog gave you. Every purchase needs a reference that you choose: 3 to 100 characters, letters, digits and - _ . : only, unique to the order on your side. Datagod reserves it before anything is charged, so the same rules as airtime and bills apply (see Idempotency and references (airtime and bills)): a new request is charged once and returns HTTP 201; the same reference with the same request returns HTTP 200 with replayed: true and the existing order; the same reference for a different bundle or recipient returns 409 REFERENCE_REUSED; a reference whose earlier request is not confirmed returns 409 REQUEST_IN_PROGRESS or 409 OUTCOME_UNKNOWN and must never be placed again under a new reference. Live references are unique per order type within your account, but sandbox references are unique per account across all order types, so use a distinct prefix such as BND-.",
+    steps: [
+      "GET /bundles/catalog?network=MTN (or Telecel, AT): read the bundles, their pay_amount and their bundle_token.",
+      "POST /bundles/purchase: send the bundle_token, the recipient, your own reference and, optionally, expected_pay set to the pay_amount you were shown. The order returns HTTP 201.",
+      "Poll GET /bundles/orders/{reference} until the status is completed, failed or refunded.",
+      "If anything is unclear (a timeout, a 500 OUTCOME_UNKNOWN), read the reference back with GET /bundles/orders/{reference} before doing anything else.",
+    ],
+    callouts: [
+      {
+        tone: "info",
+        title: "Tokens expire after 10 minutes",
+        body: "A bundle_token is valid for token_valid_seconds from the catalog response. If it has expired the purchase is refused with 409 BUNDLE_TOKEN_EXPIRED and nothing is charged: fetch the catalog again and resend with the same reference.",
+      },
+      {
+        tone: "info",
+        title: "The price changed (409 PRICE_CHANGED)",
+        body: "If you send expected_pay and the real price differs, the purchase is refused with 409 PRICE_CHANGED and nothing is charged. The message shows the current price; resend with the new expected_pay.",
+      },
+      {
+        tone: "warning",
+        title: "A 404 is not proof that nothing was charged",
+        body: "After an unknown outcome, never place the order again under a new reference. The order lookup answers HTTP 200 with order: null and claim.state for your own unconfirmed request, and a plain 404 only when the reference was never used by your account.",
+      },
+    ],
+    endpoints: [],
+  },
+  {
+    id: "bundles-catalog",
+    label: "Bundle catalog",
+    group: "commission",
+    intro: "See the bundles you can buy on a network, what each costs you, and the signed token to buy it with.",
+    endpoints: [BUNDLE_CATALOG_ENDPOINT],
+  },
+  {
+    id: "bundles-purchase",
+    label: "Buy a bundle",
+    group: "commission",
+    intro: "Buy a Standard Bundle for a Ghana mobile number. Orders are paid from your wallet and are safe to retry with the same reference.",
+    endpoints: [BUNDLE_PURCHASE_ENDPOINT],
+  },
+  {
+    id: "bundles-orders",
+    label: "Bundle orders",
+    group: "commission",
+    intro: "List your Standard Bundle orders, or look one up by reference to follow it to completion.",
+    endpoints: [BUNDLE_LIST_ENDPOINT, BUNDLE_ORDER_ENDPOINT],
+  },
+]
+
 // ---------------------------------------------------------------- Results checker and AFA (standard key)
 //
 // Client-safe like the commission block above: results.ts / afa.ts / standard-orders.ts pull in node
@@ -1710,6 +1956,7 @@ export const v2DocsRegistry: V2DocSection[] = [
   },
   ...DATA_SECTIONS,
   ...COMMISSION_SECTIONS,
+  ...BUNDLE_SECTIONS,
   ...RESULTS_SECTIONS,
   ...SMS_SECTIONS,
 ]
