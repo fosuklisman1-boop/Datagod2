@@ -31,7 +31,7 @@ function raw(over: Partial<RawFacts> = {}): RawFacts {
     ],
     smsPricePerCredit: 0.04,
     apiV2Enabled: true,
-    ussd: { main: "*920#", shop: "*920*SHOPCODE#" },
+    ussd: { main: "*920#", shop: "*426*203#" },
     ...over,
   }
 }
@@ -151,9 +151,9 @@ describe("buildLiveFacts — other products", () => {
   })
 
   it("ussd.main null → ussd unavailable", () => {
-    const f = buildLiveFacts(raw({ ussd: { main: null, shop: "*920*SHOPCODE#" } }))
+    const f = buildLiveFacts(raw({ ussd: { main: null, shop: "*426*203#" } }))
     expect(f.products.ussd.available).toBe(false)
-    expect(f.ussd).toEqual({ main: null, shop: "*920*SHOPCODE#" })
+    expect(f.ussd).toEqual({ main: null, shop: "*426*203#" })
     expect(buildLiveFacts(raw()).products.ussd.available).toBe(true)
   })
 
@@ -209,6 +209,7 @@ function fakeDb(handlers: Record<string, Handler>) {
       const builder: any = {
         select(cols: string) { q.select = cols; return builder },
         eq(col: string, v: unknown) { q.eqs.push([col, v]); return builder },
+        is(col: string, v: unknown) { q.eqs.push([col, v]); return builder },
         in() { return builder },
         limit() { return builder },
         maybeSingle: run,
@@ -236,7 +237,10 @@ function healthyHandlers(): Record<string, Handler> {
     },
     tenant_global_settings: () => ({ data: { value: { amount: 0.035 } }, error: null }),
     api_v2_config: () => ({ data: { enabled: true }, error: null }),
-    app_settings: () => ({ data: { value: { main: "*920#", shop: null } }, error: null }),
+    app_settings: (q) =>
+      keyOf(q) === null
+        ? { data: { ussd_shop_dial_code: "*426*203#" }, error: null }
+        : { data: { value: { main: "*920#" } }, error: null },
   }
 }
 
@@ -276,6 +280,7 @@ describe("loadRawFacts", () => {
     expect(f.products["bulk-sms"].fromPrice).toBe(0.035)
     expect(f.products.developers.available).toBe(true)
     expect(f.products.ussd.available).toBe(true)
+    expect(f.ussd).toEqual({ main: "*920#", shop: "*426*203#" })
     // packages filtered by is_available in SQL
     const pkg = calls.find((c) => c.table === "packages")!
     expect(pkg.eqs).toContainEqual(["is_available", true])

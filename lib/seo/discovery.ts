@@ -56,8 +56,11 @@ export function buildLlmsTxt(facts: LiveFacts): string {
     lines.push(`- WhatsApp: chat with DATAGOD to order data, airtime and results checkers (${absoluteUrl("/whatsapp")}).`)
   }
   if (facts.ussd.main) {
-    let ussd = `- USSD: dial ${facts.ussd.main} on any phone, with no internet needed (${absoluteUrl("/ussd")}). Reseller shops can also have their own shop code`
-    ussd += facts.ussd.shop ? `, in the format ${facts.ussd.shop}.` : "."
+    let ussd = `- USSD: dial ${facts.ussd.main} on any phone, with no internet needed (${absoluteUrl("/ussd")}).`
+    // The shop code is 4 digits typed at the "Enter shop code:" prompt, never appended to the dial string.
+    ussd += facts.ussd.shop
+      ? ` To buy from a DATAGOD reseller, dial ${facts.ussd.shop} and enter the seller's 4-digit shop code when asked.`
+      : " DATAGOD resellers can also give you a 4-digit shop code to buy from them on USSD."
     lines.push(ussd)
   }
   lines.push("")

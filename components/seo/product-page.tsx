@@ -270,8 +270,9 @@ function HowToOrder({ p, facts }: { p: ProductEntry; facts: LiveFacts }) {
       </ol>
       {p.key === "ussd" && shop && (
         <p className="mt-4 text-sm text-muted-foreground">
-          Buying from a DATAGOD reseller? Dial their shop code, in the format{" "}
-          <span className="font-mono font-medium text-foreground">{shop}</span>. Your seller gives you their own code.
+          Buying from a DATAGOD reseller? Dial{" "}
+          <span className="font-mono font-medium text-foreground">{shop}</span>, then enter your seller&apos;s 4-digit
+          shop code when asked. Your seller gives you their code.
         </p>
       )}
     </section>

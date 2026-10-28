@@ -71,9 +71,15 @@ describe("buildLlmsTxt", () => {
 
   it("omits USSD when there is no main code and shows it when set", () => {
     expect(buildLlmsTxt(facts())).not.toMatch(/USSD/)
-    const t = buildLlmsTxt(facts({ ussd: { main: "*920#", shop: "*920*SHOPCODE#" } }))
+    const t = buildLlmsTxt(facts({ ussd: { main: "*920#", shop: "*426*203#" } }))
     expect(t).toContain("*920#")
-    expect(t).toContain("*920*SHOPCODE#")
+    expect(t).toContain("dial *426*203# and enter the seller's 4-digit shop code when asked")
+  })
+
+  it("explains the 4-digit shop code without a dial code when none is set", () => {
+    const t = buildLlmsTxt(facts({ ussd: { main: "*920#", shop: null } }))
+    expect(t).toContain("4-digit shop code")
+    expect(t).not.toMatch(/SHOPCODE|in the format/)
   })
 
   it("omits developers unless available", () => {

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { revalidateTag } from "next/cache"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { ghanaSignificant } from "@/lib/phone-format"
 
@@ -387,6 +388,9 @@ export async function PUT(request: NextRequest) {
 
       result = data
     }
+
+    // The public /ussd page and /llms.txt show the shop dial code (lib/seo/live-facts.ts).
+    if (body.ussd_shop_dial_code !== undefined) revalidateTag("seo-live-facts")
 
     return NextResponse.json({
       success: true,

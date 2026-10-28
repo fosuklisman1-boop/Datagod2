@@ -13,7 +13,7 @@ import { supabaseAdmin } from "@/lib/supabase"
 import { isAirtimeEnabled, getAirtimeLimits } from "@/lib/airtime-pricing"
 import { getBillsConfig, type BillsConfig } from "@/lib/bills/config"
 import { BILLERS, type BillerKey } from "@/lib/bills/billers"
-import { parseUssdCodes, PUBLIC_USSD_SETTING_KEY, type PublicUssdCodes } from "./ussd-codes"
+import { readPublicUssdCodes, type PublicUssdCodes } from "./ussd-codes"
 import type { ProductKey } from "./products"
 
 export interface ProductFacts {
@@ -291,12 +291,8 @@ export async function loadRawFacts(
       if (error) throw error
       return (data as { enabled?: unknown } | null)?.enabled === true
     }),
-    // Direct read (same row as getPublicUssdCodes) for the same reason.
-    source("ussd", FAILED_RAW.ussd, async () => {
-      const { data, error } = await db.from("app_settings").select("value").eq("key", PUBLIC_USSD_SETTING_KEY).maybeSingle()
-      if (error) throw error
-      return parseUssdCodes((data as { value?: unknown } | null)?.value)
-    }),
+    // readPublicUssdCodes (not getPublicUssdCodes) for the same reason: it throws on error.
+    source("ussd", FAILED_RAW.ussd, () => readPublicUssdCodes(db)),
   ])
 
   return {
