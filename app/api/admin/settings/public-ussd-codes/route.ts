@@ -37,6 +37,6 @@ export async function POST(request: NextRequest) {
   if (error) return NextResponse.json({ error: "Failed to update USSD codes" }, { status: 500 })
 
   revalidateTag("seo-live-facts")
-  console.log(`[public-ussd-codes] Updated: main=${result.value.main ?? "-"} shop=${result.value.shop ?? "-"}`)
+  console.log(`[public-ussd-codes] Updated: main=${result.value.main ?? "-"}`)
   return NextResponse.json({ success: true, codes: result.value })
 }

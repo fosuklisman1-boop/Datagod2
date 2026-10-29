@@ -74,6 +74,7 @@ function makeDeps(over: { prefixEnabled?: boolean } = {}) {
     prefixConfig: vi.fn(async () => ({ enabled: over.prefixEnabled ?? true, map: DEFAULT_NETWORK_PREFIXES })),
     verifyMtn: vi.fn(async (locals: string[]) => new Map<string, boolean | null>(locals.map((l) => [l, true]))),
     phoneGate: vi.fn(async (_u: string) => ({ allowed: true })),
+    mtnBlocking: vi.fn(async () => true),
     schedule: vi.fn(),
     scheduleBatch: vi.fn(),
     clock: { ms: 0 },
@@ -91,6 +92,7 @@ function allFns(d: Deps) {
     d.prefixConfig,
     d.verifyMtn,
     d.phoneGate,
+    d.mtnBlocking,
     d.schedule,
     d.scheduleBatch,
   ] as Array<ReturnType<typeof vi.fn>>
@@ -393,6 +395,24 @@ describe("purchase (live) money path", () => {
     expectNoMoney(d)
   })
 
+  it("NOT registered but the admin blocking toggle is off -> placed (201), toggle asked once", async () => {
+    const d = makeDeps()
+    d.verifyMtn.mockResolvedValue(new Map([["0249990417", false]]))
+    d.mtnBlocking.mockResolvedValue(false)
+    const r = await purchaseHandler(d)(body({ recipient: "0249990417" }), LIVE)
+    expect(r.status).toBe(201)
+    expect(d.mtnBlocking).toHaveBeenCalledTimes(1)
+    expect(d.store.placeV2Order).toHaveBeenCalledTimes(1)
+  })
+
+  it("a throwing blocking-toggle read fails open (placed)", async () => {
+    const d = makeDeps()
+    d.verifyMtn.mockResolvedValue(new Map([["0249990417", false]]))
+    d.mtnBlocking.mockRejectedValue(new Error("db down"))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990417" }), LIVE)
+    expect(r.status).toBe(201)
+  })
+
   it("MTN check unavailable (null verdict) FAILS OPEN per the customer-verification guard contract: order placed, fulfillment-time hold is the backstop", async () => {
     const d = makeDeps()
     d.verifyMtn.mockResolvedValue(new Map([["0249990418", null]]))
@@ -654,6 +674,24 @@ describe("bulk (live)", () => {
       local: "0249990433",
     })
     expect(JSON.stringify(res.skipped)).not.toContain("0249990431")
+  })
+
+  it("unregistered MTN items are placed, not skipped, when the blocking toggle is off", async () => {
+    const d = makeDeps()
+    d.verifyMtn.mockImplementation(
+      async (locals: string[]) => new Map<string, boolean | null>(locals.map((l) => [l, l !== "0249990431"]))
+    )
+    d.mtnBlocking.mockResolvedValue(false)
+    const r = await bulkHandler(d)({ orders: [item(0), item(1)] }, LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r).skipped).toEqual([])
+    expect(d.store.placeV2Order.mock.calls.map((c) => c[0].reference)).toEqual(["BULK-0", "BULK-1"])
+  })
+
+  it("bulk never asks the blocking toggle when every verdict is positive", async () => {
+    const d = makeDeps()
+    await bulkHandler(d)({ orders: [item(0)] }, LIVE)
+    expect(d.mtnBlocking).not.toHaveBeenCalled()
   })
 
   it("an all-replayed batch charges nothing and needs no balance read", async () => {

@@ -7,6 +7,7 @@ import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, creat
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
 import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint, calculateResultsCheckPrice } from "@/lib/results-checker-service"
@@ -51,6 +52,10 @@ vi.mock("@/lib/paystack", () => ({
 }))
 vi.mock("@/lib/ussd/resolve-email", () => ({ resolveEmail: vi.fn() }))
 vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn() }))
+vi.mock("@/lib/mtn-providers/customer-verification", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/mtn-providers/customer-verification")>("@/lib/mtn-providers/customer-verification")),
+  isRecipientBlocked: vi.fn(async () => false),
+}))
 vi.mock("@/lib/whatsapp-bot/shop-prefs", () => ({
   getShopPref: vi.fn().mockResolvedValue(null),
   setShopPref: vi.fn(),
@@ -287,6 +292,31 @@ describe("shopWaRouter", () => {
     await shopWaRouter(phone, "CODE998", "wamid.IN2")
 
     expect(lastReplyTo(phone)).toContain("currently unavailable")
+  })
+
+  it("re-prompts for a different recipient when the MTN number is blocked (admin toggle on)", async () => {
+    const phone = "233241000099"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "sc91", shopId: "s91", shopName: "Kofi Shop", parentShopId: null,
+      status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(getCanonicalShopName).mockResolvedValue("Kofi Shop")
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "p1", size: "1GB", price: 5 }])
+    vi.mocked(isRecipientBlocked).mockResolvedValueOnce(true)
+
+    await shopWaRouter(phone, "CODE124", "b1")
+    await shopWaRouter(phone, "1", "b2") // Data
+    await shopWaRouter(phone, "1", "b3") // MTN
+    await shopWaRouter(phone, "1", "b4") // 1GB -> ENTER_RECIPIENT
+    await shopWaRouter(phone, "0244000111", "b5")
+    expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244000111")
+    expect(lastReplyTo(phone)).toContain("not verified for data")
+    expect(lastReplyTo(phone)).not.toContain("MoMo number")
+
+    // Still on the recipient step: a different (unblocked) number moves on.
+    await shopWaRouter(phone, "0244000112", "b6")
+    expect(lastReplyTo(phone)).toContain("MoMo number")
   })
 
   // ── Full state machine (happy path) ─────────────────────────────────────────

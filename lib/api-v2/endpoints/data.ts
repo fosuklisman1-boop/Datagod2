@@ -93,6 +93,12 @@ export interface DataDeps {
    */
   verifyMtn(locals: string[]): Promise<Map<string, boolean | null>>
   /**
+   * Whether a false verdict blocks (the admin "block unverified numbers"
+   * toggle). Asked only when some verdict is false; a throw counts as off
+   * (fail open). verify-number reports the verdict regardless.
+   */
+  mtnBlocking(): Promise<boolean>
+  /**
    * Account-holder phone gate (lib/phone-verify-guard checkPhoneVerified,
    * fail closed). Live purchase/bulk only, after replay classification and
    * before any MTN check or placement. A throw counts as blocked.
@@ -218,6 +224,14 @@ async function safeVerify(deps: DataDeps, locals: string[]): Promise<Map<string,
   }
 }
 
+async function safeBlocking(deps: DataDeps): Promise<boolean> {
+  try {
+    return (await deps.mtnBlocking()) === true
+  } catch {
+    return false
+  }
+}
+
 /** Unpriced rows (price null/0/negative/non-numeric) are never listed or sold. */
 function usable(rows: PackageRow[]): PackageRow[] {
   return rows.filter((r) => {
@@ -335,10 +349,11 @@ async function livePurchase(deps: DataDeps, input: PurchaseInput, ctx: V2Context
   if (!v.ok) return v.result
   const p = v.priced
 
-  // 4. MTN whitelist: an explicit "not registered" blocks with no charge.
+  // 4. MTN whitelist: an explicit "not registered" blocks with no charge
+  //    while the admin blocking toggle is on.
   if (input.network === "MTN") {
     const verdicts = await safeVerify(deps, [input.local])
-    if (verdicts.get(input.local) === false) return fail(409, MSG_NOT_REGISTERED)
+    if (verdicts.get(input.local) === false && (await safeBlocking(deps))) return fail(409, MSG_NOT_REGISTERED)
   }
 
   // 5. Atomic placement.
@@ -500,11 +515,12 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
     ),
   ]
   const verdicts = await safeVerify(deps, mtnLocals)
+  const blocking = [...verdicts.values()].includes(false) && (await safeBlocking(deps))
   const skipped: Array<{ reference: string; reason: "NOT_REGISTERED" }> = []
   const toPlace = new Set<Slot>()
   for (const s of slots) {
     if (s.kind !== "new") continue
-    if (s.p.input.network === "MTN" && verdicts.get(s.p.input.local) === false) {
+    if (blocking && s.p.input.network === "MTN" && verdicts.get(s.p.input.local) === false) {
       skipped.push({ reference: s.p.input.reference, reason: "NOT_REGISTERED" })
     } else {
       toPlace.add(s)

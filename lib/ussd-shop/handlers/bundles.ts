@@ -10,6 +10,7 @@ import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { isRecipientBlocked, RECIPIENT_BLOCKED_PROMPT } from "@/lib/mtn-providers/customer-verification"
 import { fetchShopBundles, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder } from "@/lib/shop-commerce/orders"
 import { getCanonicalShopName } from "@/lib/shop-commerce/shop-code"
@@ -169,6 +170,11 @@ export async function handleEnterRecipient(
     if (!check.ok) {
       return cont(`${check.message}\n\nEnter recipient number:\n0. Back`)
     }
+  }
+
+  // MTN number verification hard block (admin toggle): ask for another number. Outages never block.
+  if (await isRecipientBlocked(session.network, local)) {
+    return cont(RECIPIENT_BLOCKED_PROMPT)
   }
 
   await setSession(sessionId, { ...session, step: 'CONFIRM', recipientPhone: local })

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { aiTools, executeToolCall } from "@/lib/ai-tools"
+import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
 
 vi.mock("@/lib/shop-commerce/shop-code", () => ({
   resolveShopCode: vi.fn(),
@@ -19,6 +20,10 @@ vi.mock("@/lib/whatsapp-bot/shop-session", () => ({
 }))
 vi.mock("@/lib/network-prefix-config", () => ({
   getPrefixValidationConfig: vi.fn(),
+}))
+vi.mock("@/lib/mtn-providers/customer-verification", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/mtn-providers/customer-verification")>("@/lib/mtn-providers/customer-verification")),
+  isRecipientBlocked: vi.fn(async () => false),
 }))
 // Keep the pure helpers (detectAirtimeNetwork, airtimeNetworkKey, splitInclusive)
 // real — no DB dependency, deterministic — and only mock the async
@@ -326,6 +331,20 @@ describe("executeToolCall place_shop_order", () => {
       bundlePrice: 25,
       recipientPhone: "0244123456",
     })
+  })
+
+  it("refuses to stage a data order for a blocked MTN recipient (admin toggle on)", async () => {
+    vi.mocked(fetchShopBundles).mockResolvedValue([{ id: "pkg-5gb", size: "5", price: 25 }])
+    vi.mocked(isRecipientBlocked).mockResolvedValueOnce(true)
+
+    const result = await executeToolCall("place_shop_order", {
+      service: "data", network: "MTN", size: "5",
+      recipient_phone: "0244123456", payment_phone: "0244000000",
+    }, baseCtx) as Record<string, unknown>
+
+    expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244123456")
+    expect(result.error).toBe("recipient_not_verified")
+    expect(setSession).not.toHaveBeenCalled()
   })
 
   it("stages an airtime order at AIRTIME_CONFIRM, auto-detecting the network from the recipient", async () => {

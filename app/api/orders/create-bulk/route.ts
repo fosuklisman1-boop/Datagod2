@@ -11,6 +11,7 @@ import {
 } from "@/lib/mtn-fulfillment"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { verifyRecipientsForOrder, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { supabaseAdmin } from "@/lib/supabase" // Need admin client for checking settings if not already available, but usage below checks 'supabase' which is user client?
 // create-bulk uses `supabase` created with serviceRoleKey which IS admin privileges.
 // But `isAutoFulfillmentEnabled` helper in purchase uses `supabaseAdmin`.
@@ -116,6 +117,24 @@ export async function POST(request: NextRequest) {
     const phoneGuard = await checkPhoneVerified(supabase, userId)
     if (!phoneGuard.allowed) {
       return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
+    }
+
+    // MTN number verification hard block (admin toggle): reject the WHOLE batch,
+    // nothing charged. The bulk form removes these before submitting; this is
+    // the backstop for stale clients. Outages never block.
+    if (network.trim().toUpperCase() === "MTN") {
+      const { blocked } = await verifyRecipientsForOrder(orders.map((o: BulkOrderData) => o.phone_number))
+      if (blocked.length > 0) {
+        console.warn(`[BULK-ORDERS] ⛔ ${blocked.length} unverified MTN number(s) blocked`)
+        return NextResponse.json(
+          {
+            error: `${blocked.length} number(s) are not verified for MTN data. Remove them and resubmit.`,
+            code: NOT_VERIFIED_CODE,
+            blocked_numbers: blocked,
+          },
+          { status: 409 }
+        )
+      }
     }
 
     // Fetch user role for price calculation
