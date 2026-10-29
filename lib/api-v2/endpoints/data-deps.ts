@@ -77,6 +77,10 @@ export function realDataDeps(): DataDeps {
     },
     prefixConfig: async () => (await import("@/lib/network-prefix-config")).getPrefixValidationConfig(),
     verifyMtn: realVerifyMtn,
+    mtnBlocking: async () => {
+      const cv = await import("@/lib/mtn-providers/customer-verification")
+      return cv.isBlockingOn(await cv.getCustomerVerificationSettings())
+    },
     phoneGate: (userId) => realPhoneGate(client, userId),
     sandbox: {
       getOrder: async (userId, reference) =>
