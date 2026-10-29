@@ -939,6 +939,16 @@ export default function MTNSettingsPage() {
     finally { setSavingCustVerify(false) }
   }
 
+  // The selected list's order is the check order (first asked first).
+  const moveCustVerifyProvider = (index: number, delta: -1 | 1) => {
+    const target = index + delta
+    if (target < 0 || target >= custVerifyProviders.length) return
+    const next = [...custVerifyProviders]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    setCustVerifyProviders(next)
+    saveCustomerVerificationSetting(custVerifyEnabled, next)
+  }
+
   const toggleCustVerifyProvider = (name: string) => {
     const next = custVerifyProviders.includes(name)
       ? custVerifyProviders.filter(p => p !== name)
@@ -1719,6 +1729,25 @@ export default function MTNSettingsPage() {
                     </label>
                   ))}
                 </div>
+                {custVerifyProviders.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">
+                      Check order: the first provider is asked first. A number it doesn&apos;t approve, or a check that fails, moves on to the next.
+                    </p>
+                    {custVerifyProviders.map((p, i) => (
+                      <div key={p} className="flex items-center gap-2 p-2 rounded-lg border border-white/60 dark:border-white/5 bg-card clay">
+                        <span className="text-xs text-muted-foreground w-5 text-center shrink-0">{i + 1}</span>
+                        <span className="flex-1 text-sm font-medium">{PROVIDER_LABELS[p] ?? p}</span>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label={`Move ${p} up`} onClick={() => moveCustVerifyProvider(i, -1)} disabled={savingCustVerify || i === 0}>
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label={`Move ${p} down`} onClick={() => moveCustVerifyProvider(i, 1)} disabled={savingCustVerify || i === custVerifyProviders.length - 1}>
+                          <ArrowDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2">
                   <div>
                     <p className="text-sm font-medium text-foreground">Block unverified numbers</p>
@@ -1752,8 +1781,8 @@ export default function MTNSettingsPage() {
                           : promiseUnbacked
                           ? <><strong>WARNING:</strong> checking against {custVerifyProviders.join(", ")}, but the MTN Whitelist Verification gate above is OFF — customers who proceed past an "unverified" warning won't actually be held/retried, so the promise shown to them won't be kept. Turn on the whitelist gate above, or turn this off.</>
                           : custVerifyBlock
-                          ? <><strong>ON, BLOCKING:</strong> checking against {custVerifyProviders.join(", ")}. Numbers they reject can&apos;t be ordered on any channel. MTN only.</>
-                          : <><strong>ON:</strong> checking against {custVerifyProviders.join(", ")}. MTN only.</>}
+                          ? <><strong>ON, BLOCKING:</strong> checking against {custVerifyProviders.join(" → ")}. Numbers they reject can&apos;t be ordered on any channel. MTN only.</>
+                          : <><strong>ON:</strong> checking against {custVerifyProviders.join(" → ")}. MTN only.</>}
                       </AlertDescription>
                     </Alert>
                   )
