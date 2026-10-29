@@ -82,6 +82,7 @@ export default function MTNSettingsPage() {
 
   const [custVerifyEnabled, setCustVerifyEnabled] = useState(false)
   const [custVerifyProviders, setCustVerifyProviders] = useState<string[]>([])
+  const [custVerifyBlock, setCustVerifyBlock] = useState(false)
   const [custVerifyAvailable, setCustVerifyAvailable] = useState<Array<{ name: string; configured: boolean }>>([])
   const [loadingCustVerify, setLoadingCustVerify] = useState(true)
   const [savingCustVerify, setSavingCustVerify] = useState(false)
@@ -911,13 +912,14 @@ export default function MTNSettingsPage() {
         const d = await res.json()
         setCustVerifyEnabled(d.settings?.enabled ?? false)
         setCustVerifyProviders(d.settings?.providers ?? [])
+        setCustVerifyBlock(d.settings?.block_unverified ?? false)
         setCustVerifyAvailable(d.availableProviders ?? [])
       }
     } catch (e) { console.error("Error loading customer verification setting:", e) }
     finally { setLoadingCustVerify(false) }
   }
 
-  const saveCustomerVerificationSetting = async (enabled: boolean, providers: string[]) => {
+  const saveCustomerVerificationSetting = async (enabled: boolean, providers: string[], blockUnverified = custVerifyBlock) => {
     try {
       setSavingCustVerify(true)
       const { data: { session } } = await supabase.auth.getSession()
@@ -925,12 +927,13 @@ export default function MTNSettingsPage() {
       const res = await fetch("/api/admin/settings/customer-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ enabled, providers }),
+        body: JSON.stringify({ enabled, providers, block_unverified: blockUnverified }),
       })
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Failed") }
       const d = await res.json()
       setCustVerifyEnabled(d.settings.enabled)
       setCustVerifyProviders(d.settings.providers)
+      setCustVerifyBlock(d.settings.block_unverified === true)
       toast.success("Customer verification settings saved")
     } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
     finally { setSavingCustVerify(false) }
@@ -1716,6 +1719,19 @@ export default function MTNSettingsPage() {
                     </label>
                   ))}
                 </div>
+                <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Block unverified numbers</p>
+                    <p className="text-xs text-muted-foreground">
+                      Customers can&apos;t order for an MTN number the selected providers reject. No &quot;proceed anyway&quot;. Provider outages never block.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={custVerifyBlock}
+                    onCheckedChange={(checked) => saveCustomerVerificationSetting(custVerifyEnabled, custVerifyProviders, checked)}
+                    disabled={savingCustVerify || loadingCustVerify || !custVerifyEnabled || custVerifyProviders.length === 0}
+                  />
+                </div>
                 {(() => {
                   const meaningfullyOn = custVerifyEnabled && custVerifyProviders.length > 0
                   const promiseUnbacked = meaningfullyOn && !whitelistEnabled
@@ -1735,6 +1751,8 @@ export default function MTNSettingsPage() {
                           ? <><strong>ON, but no providers selected:</strong> every number is treated as verified until you pick at least one provider above.</>
                           : promiseUnbacked
                           ? <><strong>WARNING:</strong> checking against {custVerifyProviders.join(", ")}, but the MTN Whitelist Verification gate above is OFF — customers who proceed past an "unverified" warning won't actually be held/retried, so the promise shown to them won't be kept. Turn on the whitelist gate above, or turn this off.</>
+                          : custVerifyBlock
+                          ? <><strong>ON, BLOCKING:</strong> checking against {custVerifyProviders.join(", ")}. Numbers they reject can&apos;t be ordered on any channel. MTN only.</>
                           : <><strong>ON:</strong> checking against {custVerifyProviders.join(", ")}. MTN only.</>}
                       </AlertDescription>
                     </Alert>

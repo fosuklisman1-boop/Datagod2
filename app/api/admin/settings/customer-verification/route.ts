@@ -26,12 +26,15 @@ export async function POST(request: NextRequest) {
   if (!isAdmin) return errorResponse!
 
   try {
-    const { enabled, providers } = await request.json()
+    const { enabled, providers, block_unverified } = await request.json()
     if (typeof enabled !== "boolean") {
       return NextResponse.json({ error: "'enabled' must be a boolean" }, { status: 400 })
     }
     if (!Array.isArray(providers)) {
       return NextResponse.json({ error: "'providers' must be an array" }, { status: 400 })
+    }
+    if (block_unverified !== undefined && typeof block_unverified !== "boolean") {
+      return NextResponse.json({ error: "'block_unverified' must be a boolean" }, { status: 400 })
     }
 
     let validatedProviders: string[] = []
@@ -43,12 +46,14 @@ export async function POST(request: NextRequest) {
       validatedProviders = validation.providers
     }
 
-    const newValue = { enabled, providers: validatedProviders }
+    // Omitted = keep what's stored, so an older client toggling `enabled` never clears it.
+    const blockUnverified = block_unverified ?? (await getCustomerVerificationSettings()).block_unverified === true
+    const newValue = { enabled, providers: validatedProviders, block_unverified: blockUnverified }
     const { error } = await supabase.from("admin_settings").upsert(
       {
         key: SETTING_KEY,
         value: newValue,
-        description: "Independent, customer-facing live phone-verification preview shown at checkout — separate from the internal fulfillment-time whitelist gate (mtn_whitelist_enabled).",
+        description: "Independent, customer-facing live phone-verification preview shown at checkout — separate from the internal fulfillment-time whitelist gate (mtn_whitelist_enabled). block_unverified turns the warning into a hard block for numbers the selected providers reject.",
         updated_at: new Date().toISOString(),
         updated_by: adminId,
       },
@@ -56,7 +61,7 @@ export async function POST(request: NextRequest) {
     )
     if (error) throw error
 
-    console.log(`[CUSTOMER-VERIFICATION-SETTING] set enabled=${enabled} providers=${validatedProviders.join(",")} by admin ${adminId}`)
+    console.log(`[CUSTOMER-VERIFICATION-SETTING] set enabled=${enabled} block_unverified=${blockUnverified} providers=${validatedProviders.join(",")} by admin ${adminId}`)
     return NextResponse.json({ success: true, settings: newValue })
   } catch (error) {
     console.error("[CUSTOMER-VERIFICATION-SETTING] POST error:", error)
