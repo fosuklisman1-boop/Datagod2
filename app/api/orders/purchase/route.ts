@@ -14,6 +14,7 @@ import {
 } from "@/lib/mtn-fulfillment"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { isRecipientBlocked, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -129,6 +130,12 @@ export async function POST(request: NextRequest) {
       if (!phoneGuard.allowed) {
         return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
       }
+    }
+
+    // MTN number verification hard block (admin toggle) — before the wallet is touched.
+    if (await isRecipientBlocked(network, phoneNumber)) {
+      console.warn(`[PURCHASE] ⛔ Unverified MTN number blocked: ${String(phoneNumber).slice(0, 12)}`)
+      return NextResponse.json({ error: NOT_VERIFIED_MESSAGE, code: NOT_VERIFIED_CODE }, { status: 409 })
     }
 
     // If email still missing, fetch from users table
