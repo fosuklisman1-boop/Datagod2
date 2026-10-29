@@ -151,6 +151,27 @@ shows that list with the same copy button.
 - WhatsApp `bots.test.ts` / `shop-router.test.ts`: blocked re-prompts; off
   proceeds.
 
+## As built (2026-10-29), differences from the design above
+
+- **API v2 bulk** keeps its existing per-item behaviour: with blocking on,
+  unregistered MTN items are skipped (`skipped`, `NOT_REGISTERED`, not
+  charged) and the rest are placed, the same "remove unverified and submit the
+  rest" outcome as the dashboard. With blocking off they are placed. No new v2
+  response fields; `verify-number` still reports the raw verdict.
+- **USSD and WhatsApp** re-prompt for a different recipient instead of ending
+  the session. Covered: Hubtel USSD (main and shop data), legacy USSD (main
+  and shop), the WhatsApp main bot (it reuses the legacy USSD recipient
+  handler), the WhatsApp shop bot, and both AI ordering tools
+  (`place_shop_order`, `place_whatsapp_order`), which stage orders without the
+  typed-recipient step.
+- No new warning was added to the WhatsApp or legacy USSD flows while blocking
+  is off (they had none before).
+- `/api/verify-phone-live` now reports a number as unverified only on a
+  positive reject. An outage reads as verified, matching the order gate, so a
+  provider outage never forces numbers out of a bulk order.
+- The shop and dashboard purchase checks run after auth / Turnstile so
+  anonymous requests can't trigger provider lookups.
+
 ## Out of scope
 
 - Telecel / AT numbers.
