@@ -389,8 +389,15 @@ export async function PUT(request: NextRequest) {
       result = data
     }
 
-    // The public /ussd page and /llms.txt show the shop dial code (lib/seo/live-facts.ts).
-    if (body.ussd_shop_dial_code !== undefined) revalidateTag("seo-live-facts")
+    // The public /ussd page and /llms.txt show the shop dial code, and the public price pages
+    // show the per-network price adjustments (lib/seo/live-facts.ts).
+    if (
+      body.ussd_shop_dial_code !== undefined ||
+      body.price_adjustment_mtn !== undefined ||
+      body.price_adjustment_telecel !== undefined ||
+      body.price_adjustment_at_ishare !== undefined ||
+      body.price_adjustment_at_bigtime !== undefined
+    ) revalidateTag("seo-live-facts")
 
     return NextResponse.json({
       success: true,
