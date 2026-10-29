@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { buildSitemapEntries, buildLlmsTxt } from "./discovery"
 import { buildLiveFacts, FAILED_RAW, type LiveFacts, type RawFacts } from "./live-facts"
 import { REFUND_LINE, SPEED_LINE } from "./products"
+import type { Guide } from "./guides"
 
 const NOW = new Date("2026-10-27T00:00:00Z")
 
@@ -103,5 +104,45 @@ describe("buildLlmsTxt", () => {
 
   it("never says instant", () => {
     expect(buildLlmsTxt(facts({ apiV2Enabled: true, ussd: { main: "*920#", shop: null } })).toLowerCase()).not.toContain("instant")
+  })
+})
+
+describe("guides in discovery", () => {
+  const guide = (slug: string, published: boolean): Guide => ({
+    slug,
+    title: "T | DATAGOD",
+    description: "d",
+    h1: "H",
+    published,
+    sections: [],
+    faqs: [],
+    related: [],
+    updated: "2026-10-28",
+  })
+
+  it("lists the hub and published guides in the sitemap", () => {
+    const urls = buildSitemapEntries(facts(), NOW, [guide("a-guide", true), guide("hidden", false)].filter((g) => g.published)).map((e) => e.url)
+    expect(urls).toContain("https://www.datagod.store/guides")
+    expect(urls).toContain("https://www.datagod.store/guides/a-guide")
+    expect(urls).not.toContain("https://www.datagod.store/guides/hidden")
+  })
+
+  it("omits the hub when no guide is published", () => {
+    const urls = buildSitemapEntries(facts(), NOW, []).map((e) => e.url)
+    expect(urls.some((u) => u.includes("/guides"))).toBe(false)
+  })
+
+  it("defaults to the real published guides", () => {
+    const urls = buildSitemapEntries(facts(), NOW).map((e) => e.url)
+    expect(urls).toContain("https://www.datagod.store/guides/buy-data-with-momo")
+    expect(urls).not.toContain("https://www.datagod.store/guides/check-data-balance")
+  })
+
+  it("lists guides in llms.txt only when published", () => {
+    const t = buildLlmsTxt(facts(), [guide("a-guide", true)])
+    expect(t).toContain("## Guides")
+    expect(t).toContain("https://www.datagod.store/guides/a-guide")
+    expect(buildLlmsTxt(facts(), [])).not.toContain("## Guides")
+    expect(buildLlmsTxt(facts())).not.toContain("check-data-balance")
   })
 })

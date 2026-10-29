@@ -51,15 +51,15 @@ export const SPEED_LINE = "Usually delivered within minutes."
 
 const PAY_LINE = "Fund your DATAGOD wallet with Mobile Money (MoMo) or card through Paystack, then pay from your wallet."
 
-const refundFaq = (question = "What happens if my order fails?", extra = ""): Faq => ({
+export const refundFaq = (question = "What happens if my order fails?", extra = ""): Faq => ({
   question,
   answer: `${REFUND_LINE}${extra ? ` ${extra}` : ""}`,
 })
-const speedFaq = (question: string, extra = ""): Faq => ({
+export const speedFaq = (question: string, extra = ""): Faq => ({
   question,
   answer: `${SPEED_LINE}${extra ? ` ${extra}` : ""}`,
 })
-const payFaq = (question = "How do I pay?", extra = ""): Faq => ({
+export const payFaq = (question = "How do I pay?", extra = ""): Faq => ({
   question,
   answer: `${PAY_LINE}${extra ? ` ${extra}` : ""}`,
 })

@@ -7,12 +7,13 @@ import type { MetadataRoute } from "next"
 import { absoluteUrl } from "./site"
 import { PRODUCTS, getProduct, REFUND_LINE, SPEED_LINE, type ProductEntry } from "./products"
 import { formatCedis, type LiveFacts } from "./live-facts"
+import { publishedGuides, type Guide } from "./guides"
 
 type Entry = MetadataRoute.Sitemap[number]
 
 const isAvailable = (facts: LiveFacts, p: ProductEntry): boolean => facts.products[p.key]?.available === true
 
-export function buildSitemapEntries(facts: LiveFacts, now: Date): MetadataRoute.Sitemap {
+export function buildSitemapEntries(facts: LiveFacts, now: Date, guides: readonly Guide[] = publishedGuides()): MetadataRoute.Sitemap {
   const entry = (path: string, priority: number, changeFrequency: Entry["changeFrequency"]): Entry => ({
     url: absoluteUrl(path),
     lastModified: now,
@@ -24,6 +25,12 @@ export function buildSitemapEntries(facts: LiveFacts, now: Date): MetadataRoute.
     entry("/", 1, "daily"),
     entry("/services", 0.9, "weekly"),
     ...PRODUCTS.filter((p) => isAvailable(facts, p)).map((p) => entry(p.path, p.priority, "weekly")),
+    ...(guides.length > 0
+      ? [
+          entry("/guides", 0.6, "weekly"),
+          ...guides.map((g) => entry(`/guides/${g.slug}`, 0.6, "monthly")),
+        ]
+      : []),
     entry("/vouchers", 0.5, "monthly"),
     entry("/ai", 0.6, "monthly"),
     entry("/terms", 0.3, "yearly"),
@@ -40,7 +47,7 @@ function productLine(p: ProductEntry, facts: LiveFacts): string {
   return `- [${p.name}](${absoluteUrl(p.path)}): ${summary}.${price ? ` From ${price}.` : ""}`
 }
 
-export function buildLlmsTxt(facts: LiveFacts): string {
+export function buildLlmsTxt(facts: LiveFacts, guides: readonly Guide[] = publishedGuides()): string {
   const lines: string[] = ["# DATAGOD", "", `> ${SUMMARY_LINE}`, ""]
 
   // Products: everything customers buy. Business tools and channels have their own sections.
@@ -80,6 +87,10 @@ export function buildLlmsTxt(facts: LiveFacts): string {
   const dev = getProduct("developers")
   if (isAvailable(facts, dev)) {
     lines.push("## For developers", "", `- [${dev.name}](${absoluteUrl(dev.path)}): sell data and airtime from your own app or website with simple API calls.`, "")
+  }
+
+  if (guides.length > 0) {
+    lines.push("## Guides", "", ...guides.map((g) => `- [${g.h1}](${absoluteUrl(`/guides/${g.slug}`)}): ${g.description}`), "")
   }
 
   lines.push(

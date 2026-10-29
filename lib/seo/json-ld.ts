@@ -116,3 +116,21 @@ export function productCrumbs(p: ProductEntry): Crumb[] {
 export function buildProductJsonLd(p: ProductEntry, f: ProductFacts, groups: readonly PriceGroup[] = []): object[] {
   return [buildServiceJsonLd(p, f, groups),buildFaqJsonLd(p.faqs), buildBreadcrumbJsonLd(productCrumbs(p))]
 }
+
+export interface ArticleInput { slug: string; h1: string; description: string; updated: string }
+
+/** Article for a guide; dateModified is the guide's `updated` date. */
+export function buildArticleJsonLd(g: ArticleInput): object {
+  const url = absoluteUrl(`/guides/${g.slug}`)
+  return {
+    "@context": CONTEXT,
+    "@type": "Article",
+    headline: g.h1,
+    description: g.description,
+    url,
+    mainEntityOfPage: url,
+    dateModified: g.updated,
+    author: DATAGOD_ORGANIZATION,
+    publisher: DATAGOD_ORGANIZATION,
+  }
+}

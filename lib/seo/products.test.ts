@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest"
 import { PRODUCTS, getProduct, type ProductKey } from "./products"
 import { BILLER_KEYS, BILLERS } from "@/lib/bills/billers"
+import { BANNED_COPY, metaProblems } from "./copy-rules"
 
 const REFUND = "If an order fails, you get your money back."
 const SPEED = "Usually delivered within minutes."
-const BANNED = /instant|in seconds|automatic(ally)? refund/i
+const BANNED = BANNED_COPY
 
 function allText(p: (typeof PRODUCTS)[number]): string {
   return [p.name, p.h1, p.title, p.description, p.summary, ...p.bullets, ...p.faqs.flatMap((f) => [f.question, f.answer])].join("\n")
@@ -52,10 +53,7 @@ describe("product registry", () => {
 
   it("keeps titles <= 60 chars ending in | DATAGOD and descriptions 120-160 chars", () => {
     for (const p of PRODUCTS) {
-      expect(p.title.length, `${p.key} title: ${p.title}`).toBeLessThanOrEqual(60)
-      expect(p.title.endsWith("| DATAGOD"), p.key).toBe(true)
-      expect(p.description.length, `${p.key} description (${p.description.length})`).toBeGreaterThanOrEqual(120)
-      expect(p.description.length, `${p.key} description (${p.description.length})`).toBeLessThanOrEqual(160)
+      expect(metaProblems(p.title, p.description), p.key).toEqual([])
     }
   })
 
