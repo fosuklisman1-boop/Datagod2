@@ -7,11 +7,14 @@ const DashboardAIChatWidget = dynamic(
   { ssr: false }
 )
 
+import { ReviewPromptCard } from "@/components/dashboard/review-prompt-card"
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
       <DashboardAIChatWidget />
+      <ReviewPromptCard />
     </>
   )
 }
