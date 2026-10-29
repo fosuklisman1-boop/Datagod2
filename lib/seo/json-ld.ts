@@ -8,6 +8,7 @@
 import { absoluteUrl, SITE_URL } from "./site"
 import type { Faq, ProductEntry } from "./products"
 import type { ProductFacts } from "./live-facts"
+import type { PriceGroup } from "./data-prices"
 
 const CONTEXT = "https://schema.org"
 
@@ -23,9 +24,38 @@ export const DATAGOD_ORGANIZATION = {
   logo: absoluteUrl("/favicon-v2.jpeg"),
 } as const
 
-export function buildServiceJsonLd(p: ProductEntry, f: ProductFacts): object {
+/** AggregateOffer over every listed price, or null when there are none. */
+function aggregateOffer(groups: readonly PriceGroup[], url: string): object | null {
+  const prices = groups.flatMap((g) => g.rows.map((r) => r.price)).filter((n) => Number.isFinite(n) && n > 0)
+  if (prices.length === 0) return null
+  return {
+    "@type": "AggregateOffer",
+    lowPrice: offerPrice(Math.min(...prices)),
+    highPrice: offerPrice(Math.max(...prices)),
+    offerCount: prices.length,
+    priceCurrency: "GHS",
+    availability: "https://schema.org/InStock",
+    url,
+  }
+}
+
+export function buildServiceJsonLd(p: ProductEntry, f: ProductFacts, groups: readonly PriceGroup[] = []): object {
   const url = absoluteUrl(p.path)
   const hasPrice = typeof f.fromPrice === "number" && Number.isFinite(f.fromPrice) && f.fromPrice > 0
+  const aggregate = p.group === "data" ? aggregateOffer(groups, url) : null
+  if (aggregate) {
+    return {
+      "@context": CONTEXT,
+      "@type": "Service",
+      name: p.name,
+      description: p.description,
+      url,
+      serviceType: p.name,
+      provider: DATAGOD_ORGANIZATION,
+      areaServed: { "@type": "Country", name: "Ghana" },
+      offers: aggregate,
+    }
+  }
   return {
     "@context": CONTEXT,
     "@type": "Service",
@@ -83,6 +113,6 @@ export function productCrumbs(p: ProductEntry): Crumb[] {
   ]
 }
 
-export function buildProductJsonLd(p: ProductEntry, f: ProductFacts): object[] {
-  return [buildServiceJsonLd(p, f), buildFaqJsonLd(p.faqs), buildBreadcrumbJsonLd(productCrumbs(p))]
+export function buildProductJsonLd(p: ProductEntry, f: ProductFacts, groups: readonly PriceGroup[] = []): object[] {
+  return [buildServiceJsonLd(p, f, groups),buildFaqJsonLd(p.faqs), buildBreadcrumbJsonLd(productCrumbs(p))]
 }

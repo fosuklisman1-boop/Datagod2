@@ -145,8 +145,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
   dataEntry("mtn-data", "MTN", {
     name: "MTN Data Bundles",
     h1: "Buy MTN data bundles in Ghana",
-    title: "Buy MTN Data Bundles Online in Ghana | DATAGOD",
-    description: "Buy cheap MTN data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD. Usually delivered within minutes.",
+    title: "MTN Data Prices Today - Cheap MTN Data in Ghana | DATAGOD",
+    description: "See today's MTN data bundle prices in Ghana and buy cheap MTN data from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD.",
     summary: "Buy MTN data bundles for yourself or anyone in Ghana. Pick a bundle, enter the MTN number, pay from your wallet (funded with MoMo or card), and the data is sent to that number.",
     extraBullet: "Works on MTN numbers starting 024, 025, 053, 054, 055 and 059",
     extraFaqs: [
@@ -160,8 +160,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
   dataEntry("telecel-data", "Telecel", {
     name: "Telecel Data Bundles",
     h1: "Buy Telecel data bundles in Ghana",
-    title: "Buy Telecel Data Bundles Online in Ghana | DATAGOD",
-    description: "Buy cheap Telecel data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD. Usually delivered within minutes.",
+    title: "Telecel Data Prices Today - Cheap Data in Ghana | DATAGOD",
+    description: "See today's Telecel data bundle prices in Ghana and buy cheap Telecel data from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD.",
     summary: "Buy Telecel (formerly Vodafone) data bundles for yourself or anyone in Ghana. Pick a bundle, enter the Telecel number, pay from your wallet (funded with MoMo or card), and the data is sent to that number.",
     extraBullet: "Works on Telecel numbers starting 020 and 050",
     extraFaqs: [
@@ -175,8 +175,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
   dataEntry("at-data", "AT", {
     name: "AT Data Bundles",
     h1: "Buy AT data bundles in Ghana",
-    title: "Buy AT (AirtelTigo) Data Bundles in Ghana | DATAGOD",
-    description: "Buy AT (AirtelTigo) data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD. Sent to the AT number you choose.",
+    title: "AT Data Prices Today - Cheap AT Data in Ghana | DATAGOD",
+    description: "See today's AT (AirtelTigo) data bundle prices in Ghana and buy cheap AT data from your DATAGOD wallet, paid with MoMo or card. Order on web, WhatsApp or USSD.",
     summary: "Buy AT (AirtelTigo) data bundles for yourself or anyone in Ghana. Pick a bundle, enter the AT number, pay from your wallet (funded with MoMo or card), and the data is sent to that number.",
     extraBullet: "AT data bundles for any AT number in Ghana",
     extraFaqs: [

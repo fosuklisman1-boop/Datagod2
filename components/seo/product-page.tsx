@@ -23,6 +23,8 @@ import { buildProductMetadata, liveBillerEntries, pageAvailability } from "@/lib
 import { JsonLd } from "./json-ld-script"
 import { FaqSection } from "./faq-section"
 import { RelatedProducts } from "./related-products"
+import { BuyButton } from "./buy-button"
+import { PriceTable } from "./price-table"
 
 const GROUP_LABEL: Record<ProductGroup, string> = {
   data: "Data bundles",
@@ -66,7 +68,7 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
 
   return (
     <div className="min-h-screen bg-background">
-      <JsonLd data={buildProductJsonLd(p, f)} />
+      <JsonLd data={buildProductJsonLd(p, f, p.network ? facts.prices[p.network] : [])} />
       <div className="mx-auto max-w-6xl px-4 py-10 sm:py-16">
         <nav aria-label="Breadcrumb" className="mb-8 text-sm text-muted-foreground">
           <ol className="flex flex-wrap items-center gap-1">
@@ -88,6 +90,10 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
         </nav>
 
         <Hero p={p} f={f} isBuy={isBuy} ussdMain={p.key === "ussd" ? facts.ussd.main : null} />
+
+        {(key === "mtn-data" || key === "telecel-data" || key === "at-data") && p.network && (
+          <PriceTable name={p.name} groups={facts.prices[p.network]} loadedAt={facts.loadedAt} />
+        )}
 
         <section aria-labelledby="bullets-heading" className="mt-16">
           <h2 id="bullets-heading" className="font-display text-2xl sm:text-3xl font-bold text-foreground">
@@ -134,11 +140,15 @@ function Hero({ p, f, isBuy, ussdMain }: { p: ProductEntry; f: ProductFacts; isB
         <h1 className="mt-4 font-display text-3xl font-bold text-foreground text-balance sm:text-5xl">{p.h1}</h1>
         <p className="mt-4 text-lg leading-relaxed text-muted-foreground">{p.summary}</p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
-            <Link href="/auth/signup">
-              {isBuy ? "Buy now" : "Get started"} <ArrowRight className="h-4 w-4" aria-hidden />
-            </Link>
-          </Button>
+          {p.group === "data" ? (
+            <BuyButton />
+          ) : (
+            <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
+              <Link href="/auth/signup">
+                {isBuy ? "Buy now" : "Get started"} <ArrowRight className="h-4 w-4" aria-hidden />
+              </Link>
+            </Button>
+          )}
         </div>
         <p className="mt-4 text-sm text-muted-foreground">
           Already have an account?{" "}
