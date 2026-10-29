@@ -15,7 +15,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { toast } from "sonner"
-import { Download, CheckCircle, AlertCircle } from "lucide-react"
+import { Download, CheckCircle, AlertCircle, Copy, X } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
@@ -70,6 +70,12 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
     ordersToSubmit: ValidationResult["orders"]
     networkLabel: string
   } | null>(null)
+  // Admin "block unverified numbers" toggle (from /api/verify-phone-live): unverified
+  // numbers can only be removed, never submitted ("Proceed with all" is hidden).
+  const [verifyBlocking, setVerifyBlocking] = useState(false)
+  // Numbers left out of the last submission for failing verification, kept so the
+  // user can copy them after the dialog closes.
+  const [removedUnverified, setRemovedUnverified] = useState<string[] | null>(null)
   const excelFileInput = useRef<HTMLInputElement | null>(null)
 
   // Load packages from database on mount
@@ -269,9 +275,10 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
   // real 100-per-request limit. Failures default a phone to "verified" (the
   // same fail-open the endpoint itself uses) so a flaky check never blocks
   // an otherwise-valid order.
-  const verifyPhonesLive = async (phones: string[]): Promise<Map<string, boolean>> => {
+  const verifyPhonesLive = async (phones: string[]): Promise<{ verifiedMap: Map<string, boolean>; blocking: boolean }> => {
     const CHUNK_SIZE = 100
     const verifiedMap = new Map<string, boolean>()
+    let blocking = false
     for (let i = 0; i < phones.length; i += CHUNK_SIZE) {
       const chunk = phones.slice(i, i + CHUNK_SIZE)
       try {
@@ -284,12 +291,22 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
           const data = await res.json()
           const chunkResults: Array<{ phone: string; verified: boolean }> = data.results ?? []
           chunkResults.forEach(r => verifiedMap.set(r.phone, r.verified))
+          if (data.blocking === true) blocking = true
         }
       } catch (err) {
         console.warn("[BULK-ORDERS] Live verification check failed for a chunk, leaving unverified entries as verified:", err)
       }
     }
-    return verifiedMap
+    return { verifiedMap, blocking }
+  }
+
+  const copyNumbers = async (phones: string[]) => {
+    try {
+      await navigator.clipboard.writeText(phones.join("\n"))
+      toast.success(`Copied ${phones.length} number(s)`)
+    } catch {
+      toast.error("Couldn't copy. Select the numbers and copy them manually")
+    }
   }
 
   const handleValidate = async () => {
@@ -304,6 +321,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
     }
 
     setIsValidating(true)
+    setRemovedUnverified(null)
     try {
       const results = parseAndValidate(textInput)
       const selectedNetworkLabel = networks.find(n => n.id === selectedNetwork)?.label
@@ -312,20 +330,26 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
       // Verified at validate time (not submit time) so "Place order" can go
       // straight through and only interrupt with a warning when it actually
       // needs to.
+      let blocking = false
       if (selectedNetworkLabel?.toUpperCase() === "MTN" && validOrders.length > 0) {
-        const verifiedMap = await verifyPhonesLive(validOrders.map(o => o.phone))
+        const verification = await verifyPhonesLive(validOrders.map(o => o.phone))
+        const verifiedMap = verification.verifiedMap
+        blocking = verification.blocking
         results.orders = results.orders.map(o =>
           o.status === "valid" ? { ...o, verified: verifiedMap.get(o.phone) ?? true } : o
         )
       }
 
+      setVerifyBlocking(blocking)
       setValidationResults(results)
 
       const unverifiedCount = results.orders.filter(o => o.status === "valid" && o.verified === false).length
       if (results.invalid > 0) {
         toast.warning(`Validation complete. ${results.valid} valid, ${results.invalid} invalid`)
       } else if (unverifiedCount > 0) {
-        toast.warning(`${unverifiedCount} number(s) not yet verified`)
+        toast.warning(blocking
+          ? `${unverifiedCount} number(s) not verified and can't be ordered`
+          : `${unverifiedCount} number(s) not yet verified`)
       } else {
         toast.success(`Validation successful! ${results.valid} valid orders ready to place`)
       }
@@ -468,7 +492,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
     }
   }
 
-  const submitBulkOrders = async (ordersToSubmit: ValidationResult["orders"], networkLabel: string) => {
+  const submitBulkOrders = async (ordersToSubmit: ValidationResult["orders"], networkLabel: string, removedPhones: string[] = []) => {
     setIsSubmitting(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -494,10 +518,16 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
 
       const data = await response.json()
       if (!response.ok) {
+        // Server-side block (stale verification): keep the numbers it refused copyable.
+        if (Array.isArray(data.blocked_numbers) && data.blocked_numbers.length > 0) {
+          setRemovedUnverified(data.blocked_numbers)
+          setBatchVerifyWarning(null)
+        }
         throw new Error(data.error || "Failed to submit orders")
       }
 
       toast.success(`Successfully created ${data.count} orders!`)
+      setRemovedUnverified(removedPhones.length > 0 ? [...new Set(removedPhones)] : null)
       setBatchVerifyWarning(null)
       setValidationResults(null)
       setTextInput("")
@@ -700,6 +730,21 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
           {loading ? "Loading..." : isValidating ? "Validating..." : "Validate"}
         </Button>
 
+        {removedUnverified && removedUnverified.length > 0 && (
+          <div className="space-y-2 rounded-2xl border border-warning/30 bg-warning/5 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-bold text-warning">Not ordered: {removedUnverified.length} unverified number(s)</p>
+                <p className="text-xs text-muted-foreground">These failed MTN verification and were left out. Copy them to retry later.</p>
+              </div>
+              <button type="button" onClick={() => setRemovedUnverified(null)} aria-label="Dismiss" className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <UnverifiedNumberList phones={removedUnverified} onCopy={copyNumbers} />
+          </div>
+        )}
+
         {/* Validation Results -- compact list, not a table. Keeps the
             invalid-row reason (why it failed) even though the reference's
             compact style doesn't show one. Summary (total cost, wallet
@@ -809,12 +854,16 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
         <Dialog open={!!batchVerifyWarning} onOpenChange={(open) => { if (!open) setBatchVerifyWarning(null) }}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{batchVerifyWarning?.unverifiedPhones.length} number(s) not yet verified</DialogTitle>
+              <DialogTitle>
+                {new Set(batchVerifyWarning?.unverifiedPhones ?? []).size} number(s) {verifyBlocking ? "can't be ordered" : "not yet verified"}
+              </DialogTitle>
               <DialogDescription>
-                The following numbers haven&apos;t been verified yet: {[...new Set(batchVerifyWarning?.unverifiedPhones ?? [])].join(", ")}.
-                Orders for these may be delayed until they clear — they&apos;ll still be delivered automatically once verified.
+                {verifyBlocking
+                  ? "These numbers failed MTN verification and will be removed. The rest of your order can still go through."
+                  : <>These numbers haven&apos;t been verified yet. Orders for them may be delayed until they clear, but they&apos;ll still be delivered automatically once verified.</>}
               </DialogDescription>
             </DialogHeader>
+            <UnverifiedNumberList phones={[...new Set(batchVerifyWarning?.unverifiedPhones ?? [])]} onCopy={copyNumbers} />
             <DialogFooter className="flex-col sm:flex-row gap-2">
               <Button variant="outline" onClick={() => setBatchVerifyWarning(null)} disabled={isSubmitting}>
                 Cancel
@@ -831,24 +880,42 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
                   const filtered = batchVerifyWarning.ordersToSubmit.filter(
                     o => !batchVerifyWarning.unverifiedPhones.includes(o.phone)
                   )
-                  submitBulkOrders(filtered, batchVerifyWarning.networkLabel)
+                  submitBulkOrders(filtered, batchVerifyWarning.networkLabel, batchVerifyWarning.unverifiedPhones)
                 }}
               >
                 {isSubmitting ? "Processing..." : "Remove unverified & submit rest"}
               </Button>
-              <Button
-                disabled={isSubmitting || !batchVerifyWarning}
-                onClick={() => {
-                  if (!batchVerifyWarning) return
-                  submitBulkOrders(batchVerifyWarning.ordersToSubmit, batchVerifyWarning.networkLabel)
-                }}
-              >
-                {isSubmitting ? "Processing..." : "Proceed with all"}
-              </Button>
+              {!verifyBlocking && (
+                <Button
+                  disabled={isSubmitting || !batchVerifyWarning}
+                  onClick={() => {
+                    if (!batchVerifyWarning) return
+                    submitBulkOrders(batchVerifyWarning.ordersToSubmit, batchVerifyWarning.networkLabel)
+                  }}
+                >
+                  {isSubmitting ? "Processing..." : "Proceed with all"}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </CardContent>
     </Card>
+  )
+}
+
+/** Deduped list of unverified numbers, one per line, with a copy-all button. */
+function UnverifiedNumberList({ phones, onCopy }: { phones: string[]; onCopy: (phones: string[]) => void }) {
+  if (phones.length === 0) return null
+  return (
+    <div className="space-y-2">
+      <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/40 p-2 text-xs font-mono select-all">
+        {phones.join("\n")}
+      </pre>
+      <Button type="button" variant="outline" size="sm" onClick={() => onCopy(phones)}>
+        <Copy className="mr-2 h-3.5 w-3.5" />
+        Copy numbers
+      </Button>
+    </div>
   )
 }

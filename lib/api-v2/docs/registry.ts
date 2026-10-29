@@ -312,7 +312,7 @@ const PURCHASE_ENDPOINT: V2Endpoint = {
     "Never send a price. The price is set by Datagod from your account's role and charged atomically with the order; price, amount, package, status and similar fields are rejected with 400 Unexpected field.",
     "Resending the same reference with the same network, size and recipient is safe: it returns HTTP 200 with replayed: true and the existing order, and you are not charged a second time. Reusing a reference for different content returns 409.",
     "Live purchases require the phone number on your Datagod account to be verified. Until it is, a live key gets 403 PHONE_NOT_VERIFIED; verify the number in the dashboard. Replays of an existing order are not blocked by this check.",
-    "An MTN recipient that is not registered for MTN data is rejected with 409 RECIPIENT_NOT_REGISTERED and nothing is charged. If the registration check itself is unavailable the order is accepted.",
+    "While Datagod's number blocking is on, an MTN recipient that is not registered for MTN data is rejected with 409 RECIPIENT_NOT_REGISTERED and nothing is charged; while it is off the order is accepted and delivered once the number clears. If the registration check itself is unavailable the order is accepted.",
     "The recipient number must belong to the chosen network, otherwise 400 NETWORK_MISMATCH.",
     "A test key uses a separate sandbox wallet: the response carries sandbox: true, no real order is placed and your real wallet is untouched.",
   ],
@@ -364,7 +364,7 @@ const BULK_ENDPOINT: V2Endpoint = {
   notes: [
     "The whole batch is validated first: one bad item (invalid field, unavailable package, wrong-network number, duplicate or conflicting reference) rejects the entire request with 400 or 409, names the item as orders[i], and nothing is charged. See Bulk orders.",
     "A successful request returns HTTP 200 with a results array (placed, replayed or failed per reference), a skipped array and total_charged. HTTP 200 does not mean every item was placed; always read each item's status.",
-    "Unregistered MTN numbers are skipped, not failed: they appear in skipped with reason NOT_REGISTERED and nothing is charged for them.",
+    "While Datagod's number blocking is on, unregistered MTN numbers are skipped, not failed: they appear in skipped with reason NOT_REGISTERED and nothing is charged for them. While it is off they are placed like any other item.",
     "The wallet must cover every item that will be placed (402 otherwise, nothing charged). Live bulk purchases require a verified account phone number (403 PHONE_NOT_VERIFIED).",
     `Orders are placed one after another and a request stops starting new placements after ${BULK_DEADLINE_TEXT}. Items not reached come back failed with ${MSG_NOT_ATTEMPTED}; resend the same batch and the placed ones are replayed without a second charge.`,
     `A failed item carries an error value: INSUFFICIENT_BALANCE (the wallet ran short during the batch), REFERENCE_REUSED (the reference was taken by a different order in the meantime), FAILED (the order could not be placed) or ${MSG_NOT_ATTEMPTED} (the deadline was reached before it started). Resending the same batch is safe for all of them: an item that was in fact placed comes back replayed and is never charged twice.`,
@@ -394,7 +394,7 @@ const VERIFY_ENDPOINT: V2Endpoint = {
     ...standardAccessErrors(),
   ],
   notes: [
-    "checked: true means the number was looked up; allowed: false means an MTN number that is not registered for data, which a purchase would reject with no charge.",
+    "checked: true means the number was looked up; allowed: false means an MTN number that is not registered for data, which a purchase rejects with no charge while Datagod's number blocking is on.",
     "checked: false (allowed: true) means no check was made: either the network is not MTN, or the registration check was unavailable. Treat it as permitted.",
     "A test key never contacts a provider: it always returns allowed: true, checked: false and sandbox: true.",
   ],
@@ -468,7 +468,7 @@ const DATA_SECTIONS: V2DocSection[] = [
     label: "Bulk orders",
     group: "data",
     intro:
-      "A bulk request takes 1 to 100 orders. Datagod validates the whole batch first: if any item is invalid, names an unavailable package, has a number that does not match its network, or reuses a reference for different content, the whole request is rejected with the failing orders[i] position and nothing is charged. Once validation passes, MTN numbers that are not registered are skipped (listed in skipped with reason NOT_REGISTERED, never charged) and the rest are placed one at a time, so the result can be partial: read each item in results (placed, replayed or failed) and total_charged. A failed item carries an error value (INSUFFICIENT_BALANCE, REFERENCE_REUSED, FAILED or NOT_ATTEMPTED); the bulk endpoint notes explain each one.",
+      "A bulk request takes 1 to 100 orders. Datagod validates the whole batch first: if any item is invalid, names an unavailable package, has a number that does not match its network, or reuses a reference for different content, the whole request is rejected with the failing orders[i] position and nothing is charged. Once validation passes, MTN numbers that are not registered are skipped while Datagod's number blocking is on (listed in skipped with reason NOT_REGISTERED, never charged) and the rest are placed one at a time, so the result can be partial: read each item in results (placed, replayed or failed) and total_charged. A failed item carries an error value (INSUFFICIENT_BALANCE, REFERENCE_REUSED, FAILED or NOT_ATTEMPTED); the bulk endpoint notes explain each one.",
     callouts: [
       {
         tone: "info",

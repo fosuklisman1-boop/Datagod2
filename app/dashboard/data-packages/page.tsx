@@ -65,6 +65,8 @@ function DataPackagesPageInner() {
   const purchaseDismissedRef = useRef(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<Package | null>(null)
   const [verifyWarningOpen, setVerifyWarningOpen] = useState(false)
+  // Admin "block unverified numbers" toggle: no "Proceed anyway", only "Change number".
+  const [verifyBlocking, setVerifyBlocking] = useState(false)
   const [pendingPhoneNumber, setPendingPhoneNumber] = useState<string | null>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   // Whether the beneficiary gets an order-confirmation SMS -- this is real,
@@ -260,6 +262,7 @@ function DataPackagesPageInner() {
             setPurchasing(null)
             setPurchaseModal(null)
             setPendingPhoneNumber(phoneNumber)
+            setVerifyBlocking(verifyData.blocking === true)
             setVerifyWarningOpen(true)
             return
           }
@@ -687,20 +690,24 @@ function DataPackagesPageInner() {
         <Dialog open={verifyWarningOpen} onOpenChange={(open) => { if (!open) { setVerifyWarningOpen(false); setPendingPhoneNumber(null) } }}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Number not yet verified</DialogTitle>
+              <DialogTitle>{verifyBlocking ? "Number can't be used" : "Number not yet verified"}</DialogTitle>
               <DialogDescription>
-                This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until it clears — you&apos;ll receive it automatically once verified.
+                {verifyBlocking
+                  ? "This MTN number is not verified for data and can't be ordered. Please use a different number."
+                  : <>This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until it clears — you&apos;ll receive it automatically once verified.</>}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingPhoneNumber(null); setPurchaseModal({ state: "phone" }) }}>Change number</Button>
-              <Button disabled={purchasing !== null} onClick={handleProceedAfterVerifyWarning}>
-                {purchasing !== null ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
-                ) : (
-                  "Proceed anyway"
-                )}
-              </Button>
+              {!verifyBlocking && (
+                <Button disabled={purchasing !== null} onClick={handleProceedAfterVerifyWarning}>
+                  {purchasing !== null ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+                  ) : (
+                    "Proceed anyway"
+                  )}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

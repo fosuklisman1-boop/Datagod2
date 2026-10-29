@@ -1635,6 +1635,11 @@ export async function executeToolCall(
             const check = validateNetworkPrefix(network, recipient, prefixMap)
             if (!check.ok) return { error: "prefix_mismatch", message: check.message }
           }
+          // MTN number verification hard block (admin toggle), same gate as the typed-recipient step.
+          const { isRecipientBlocked, NOT_VERIFIED_MESSAGE } = await import("@/lib/mtn-providers/customer-verification")
+          if (await isRecipientBlocked(network, recipient)) {
+            return { error: "recipient_not_verified", message: `${NOT_VERIFIED_MESSAGE} Ask the customer for a different recipient number.` }
+          }
           const { fetchShopBundles } = await import("@/lib/shop-commerce/pricing")
           const bundles = await fetchShopBundles(shop.shopId, network, shop.parentShopId ?? undefined)
           const match = bundles.find(b => b.size.toLowerCase() === size.toLowerCase())
@@ -1874,6 +1879,12 @@ export async function executeToolCall(
           if (!prefixCheck.ok) {
             return { error: "network_mismatch", message: prefixCheck.message }
           }
+        }
+
+        // MTN number verification hard block (admin toggle), same gate as the typed-recipient step.
+        const { isRecipientBlocked, NOT_VERIFIED_MESSAGE } = await import("@/lib/mtn-providers/customer-verification")
+        if (await isRecipientBlocked(canonicalNetwork, localRecipient)) {
+          return { error: "recipient_not_verified", message: `${NOT_VERIFIED_MESSAGE} Ask the customer for a different recipient number.` }
         }
 
         // Normalise the requested size to a GB number for matching ('500MB' → 0.5).

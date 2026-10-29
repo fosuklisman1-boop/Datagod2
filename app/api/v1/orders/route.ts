@@ -193,6 +193,23 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // MTN number verification, BEFORE placement so a blocked number is never
+  // charged. Bounded (5 s inside the helper) because this sits on a
+  // synchronous, external-facing response path; outages never block.
+  let verificationWarning = false
+  if (sanitizedNetwork.trim().toLowerCase() === "mtn") {
+    const { verifyRecipientsForOrder, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } = await import("@/lib/mtn-providers/customer-verification")
+    const verifyPhone = normalizePhoneNumber(cleanRecipient)
+    const verification = await verifyRecipientsForOrder([verifyPhone])
+    if (verification.blocked.length > 0) {
+      return NextResponse.json(
+        { success: false, error: NOT_VERIFIED_MESSAGE, error_code: NOT_VERIFIED_CODE },
+        { status: 409 }
+      )
+    }
+    verificationWarning = verification.verdicts.get(verifyPhone) === false
+  }
+
   // --- 2 & 3 & 5. Atomic Order Placement ---
   const description = `API Data Purchase: ${sanitizedNetwork.toUpperCase()} ${volumeGb}GB (${cleanRecipient})`
 
@@ -304,38 +321,6 @@ export async function POST(request: NextRequest) {
           console.error("[API v1] Non-MTN fulfillment trigger error:", err)
         }
       })()
-    }
-  }
-
-  // NOTE: unlike the async fulfillment blocks above, this runs synchronously and its result is included in the response below.
-  let verificationWarning = false
-  if (normalizedNetwork === "mtn") {
-    try {
-      const { checkCustomerFacingVerification } = await import("@/lib/mtn-providers/customer-verification")
-      // Bounded — this check now sits on a synchronous, external-facing response
-      // path (unlike every other consumer of this shared function, which is
-      // fire-and-forget or browser-side with its own spinner). Two of the four
-      // whitelist providers have no fetch timeout of their own, so without this
-      // bound a hung provider could stall this response indefinitely, risking
-      // the dealer's own client timing out and retrying an already-created,
-      // already-charged order into a duplicate.
-      const VERIFICATION_TIMEOUT_MS = 5000
-      let timeoutId: ReturnType<typeof setTimeout>
-      const timeout = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error("verification check timed out")), VERIFICATION_TIMEOUT_MS)
-      })
-      try {
-        const [result] = await Promise.race([
-          checkCustomerFacingVerification([normalizedRecipientPhone]),
-          timeout,
-        ])
-        verificationWarning = result ? !result.verified : false
-      } finally {
-        clearTimeout(timeoutId!)
-      }
-    } catch (err) {
-      console.error("[API v1] Live verification check error (failing open):", err)
-      verificationWarning = false
     }
   }
 

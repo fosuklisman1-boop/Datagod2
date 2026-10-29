@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { checkCustomerFacingVerification } from "@/lib/mtn-providers/customer-verification"
+import { verifyRecipientsForOrder } from "@/lib/mtn-providers/customer-verification"
 
 const MAX_PHONES = 100
 
@@ -42,11 +42,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const results = await checkCustomerFacingVerification(phones)
-    return NextResponse.json({ results })
+    // Only a positive reject reads as unverified; an unchecked number
+    // (provider outage/timeout) is shown as verified, matching the order gate.
+    const { verdicts, blocking } = await verifyRecipientsForOrder(phones)
+    const results = phones.map(phone => ({ phone, verified: verdicts.get(phone) !== false }))
+    return NextResponse.json({ results, blocking })
   } catch (error) {
     // Fail open — a broken verification check must never block checkout.
     console.error("[VERIFY-PHONE-LIVE] Error, failing open:", error)
-    return NextResponse.json({ results: phones.map(phone => ({ phone, verified: true })) })
+    return NextResponse.json({ results: phones.map(phone => ({ phone, verified: true })), blocking: false })
   }
 }

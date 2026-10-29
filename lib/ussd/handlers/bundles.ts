@@ -14,6 +14,7 @@ import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import { getJoinCommunityLink } from "../../app-settings"
 import { validateNetworkPrefix } from "../../phone-format"
 import { getPrefixValidationConfig } from "../../network-prefix-config"
+import { isRecipientBlocked, RECIPIENT_BLOCKED_PROMPT } from "@/lib/mtn-providers/customer-verification"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 
 const supabase = createClient(
@@ -254,6 +255,11 @@ export async function handleEnterRecipient(
     if (!check.ok) {
       return cont(`${check.message}\n\nEnter recipient number:\n0. Back`)
     }
+  }
+
+  // MTN number verification hard block (admin toggle): ask for another number. Outages never block.
+  if (await isRecipientBlocked(session.network, local)) {
+    return cont(RECIPIENT_BLOCKED_PROMPT)
   }
 
   await setSession(sessionId, { ...session, step: 'CONFIRM', recipientPhone: local })

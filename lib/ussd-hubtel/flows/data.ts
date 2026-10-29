@@ -3,10 +3,10 @@
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { priceForTier } from "../catalog"
 import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } from "../menus"
-import { enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
+import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { HubtelReply, HubtelSession } from "../types"
-import { confirmNote } from "../confirm-note"
+import { confirmNote, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
 
 const NETWORK = { label: "Select network" }
 const PACKAGE = { label: "Select package" }
@@ -70,6 +70,7 @@ async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
     },
     confirm: async local => {
       const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, verify: true, estimate: "network" })
+      if (note === RECIPIENT_BLOCKED_NOTE) return blockedRecipientScreen(ctx, "ENTER_RECIPIENT")
       return goto(ctx, { step: "CONFIRM", recipientPhone: local, confirmNote: note }, confirmText({ ...session, recipientPhone: local }, note), CONFIRM)
     },
   })

@@ -28,7 +28,7 @@ describe("GET /api/admin/settings/customer-verification", () => {
     const res = await GET(req)
     const body = await res.json()
     expect(res.status).toBe(200)
-    expect(body.settings).toEqual({ enabled: false, providers: [] })
+    expect(body.settings).toEqual({ enabled: false, providers: [], block_unverified: false })
     expect(Array.isArray(body.availableProviders)).toBe(true)
     expect(body.availableProviders.length).toBeGreaterThan(0)
   })
@@ -67,8 +67,41 @@ describe("POST /api/admin/settings/customer-verification", () => {
     const res = await POST(req)
     const body = await res.json()
     expect(res.status).toBe(200)
-    expect(body.settings).toEqual({ enabled: true, providers: [] })
+    expect(body.settings).toEqual({ enabled: true, providers: [], block_unverified: false })
     expect(upsertMock).toHaveBeenCalled()
+  })
+
+  it("rejects a non-boolean block_unverified value", async () => {
+    const req = new NextRequest("http://localhost/api/admin/settings/customer-verification", {
+      method: "POST",
+      body: JSON.stringify({ enabled: true, providers: [], block_unverified: "yes" }),
+    })
+    const res = await POST(req)
+    expect(res.status).toBe(400)
+  })
+
+  it("saves block_unverified when given", async () => {
+    const req = new NextRequest("http://localhost/api/admin/settings/customer-verification", {
+      method: "POST",
+      body: JSON.stringify({ enabled: true, providers: [], block_unverified: true }),
+    })
+    const res = await POST(req)
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.settings).toEqual({ enabled: true, providers: [], block_unverified: true })
+    expect((upsertMock.mock.calls[0] as any)[0].value).toEqual({ enabled: true, providers: [], block_unverified: true })
+  })
+
+  it("keeps the stored block_unverified when the field is omitted", async () => {
+    maybeSingleMock.mockResolvedValueOnce({ data: { value: { enabled: true, providers: [], block_unverified: true } }, error: null } as any)
+    const req = new NextRequest("http://localhost/api/admin/settings/customer-verification", {
+      method: "POST",
+      body: JSON.stringify({ enabled: false, providers: [] }),
+    })
+    const res = await POST(req)
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.settings.block_unverified).toBe(true)
   })
 
   it("returns 500 when upsert fails", async () => {
