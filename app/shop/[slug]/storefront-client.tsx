@@ -174,6 +174,8 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
   })
   const [submitting, setSubmitting] = useState(false)
   const [verifyWarningOpen, setVerifyWarningOpen] = useState(false)
+  // Admin "block unverified numbers" toggle: no "Proceed anyway", only "Change number".
+  const [verifyBlocking, setVerifyBlocking] = useState(false)
   const [pendingNormalizedPhone, setPendingNormalizedPhone] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true) // default true until status loads
@@ -938,6 +940,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
           if (verifiedResult === false) {
             setSubmitting(false)
             setPendingNormalizedPhone(normalizedPhone)
+            setVerifyBlocking(verifyData.blocking === true)
             setVerifyWarningOpen(true)
             return
           }
@@ -2027,13 +2030,15 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
 
                 {verifyWarningOpen && (
                   <div className="px-5 pb-6 pt-2 space-y-4">
-                    <h3 className="text-lg font-bold text-foreground">Number not yet verified</h3>
+                    <h3 className="text-lg font-bold text-foreground">{verifyBlocking ? "Number can't be used" : "Number not yet verified"}</h3>
                     <p className="text-sm text-muted-foreground">
-                      This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until the number is confirmed — you&apos;ll receive your data automatically once that happens.
+                      {verifyBlocking
+                        ? "This MTN number is not verified for data and can't be ordered. Please use a different number."
+                        : <>This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until the number is confirmed — you&apos;ll receive your data automatically once that happens.</>}
                     </p>
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingNormalizedPhone(null) }}>Change number</Button>
-                      <Button disabled={submitting} onClick={handleProceedAfterVerifyWarning}>
+                      {!verifyBlocking && <Button disabled={submitting} onClick={handleProceedAfterVerifyWarning}>
                         {submitting ? (
                           <>
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -2042,7 +2047,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                         ) : (
                           "Proceed anyway"
                         )}
-                      </Button>
+                      </Button>}
                     </div>
                   </div>
                 )}
