@@ -8,10 +8,11 @@ const NOW = new Date("2026-10-27T00:00:00Z")
 function facts(over: Partial<RawFacts> = {}): LiveFacts {
   return buildLiveFacts({
     ...FAILED_RAW,
+    priceAdjustments: { price_adjustment_mtn: 0, price_adjustment_telecel: 0, price_adjustment_at_ishare: 0, price_adjustment_at_bigtime: 0 },
     packages: [
-      { network: "MTN", price: 3.5, is_available: true },
-      { network: "Telecel", price: 5, is_available: true },
-      { network: "AT-iShare", price: 4, is_available: true },
+      { network: "MTN", size: "1GB", price: 3.5, is_available: true },
+      { network: "Telecel", size: "1GB", price: 5, is_available: true },
+      { network: "AT-iShare", size: "1GB", price: 4, is_available: true },
     ],
     airtimeEnabled: { MTN: true, Telecel: true, AT: true },
     airtimeMin: 1,

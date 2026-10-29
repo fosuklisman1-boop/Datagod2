@@ -1,6 +1,6 @@
 import { supabase } from "./supabase"
 
-interface PriceAdjustments {
+export interface PriceAdjustments {
   price_adjustment_mtn: number
   price_adjustment_telecel: number
   price_adjustment_at_ishare: number

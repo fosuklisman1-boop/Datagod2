@@ -15,6 +15,8 @@ import { getBillsConfig, type BillsConfig } from "@/lib/bills/config"
 import { BILLERS, type BillerKey } from "@/lib/bills/billers"
 import { readPublicUssdCodes, type PublicUssdCodes } from "./ussd-codes"
 import type { ProductKey } from "./products"
+import { buildPriceGroups, networkOf, type PriceGroups } from "./data-prices"
+import type { PriceAdjustments } from "@/lib/price-adjustment-service"
 
 export interface ProductFacts {
   available: boolean
@@ -23,14 +25,23 @@ export interface ProductFacts {
   parts: string[]
 }
 
-export type LiveFacts = { products: Record<ProductKey, ProductFacts>; ussd: PublicUssdCodes }
+export type LiveFacts = {
+  products: Record<ProductKey, ProductFacts>
+  ussd: PublicUssdCodes
+  /** adjusted customer price lists per network (empty when prices are unavailable) */
+  prices: PriceGroups
+  /** ISO timestamp of when these facts were built */
+  loadedAt: string
+}
 
 type Net = "MTN" | "Telecel" | "AT"
 type Board = "WASSCE" | "BECE" | "NOVDEC"
 
 export interface RawFacts {
   /** null = the packages read failed (data pages stay on, no prices) */
-  packages: Array<{ network: string; price: number | string | null; is_available: boolean | null }> | null
+  packages: Array<{ network: string; size?: string | null; price: number | string | null; is_available: boolean | null }> | null
+  /** null = the singleton app_settings adjustments read failed (no prices) */
+  priceAdjustments: PriceAdjustments | null
   airtimeEnabled: Record<Net, boolean>
   airtimeMin: number
   afaPrice: number | null
@@ -65,19 +76,7 @@ const BILLER_SHORT: Record<BillerKey, string> = {
   telecel_broadband: "Telecel Broadband",
 }
 
-/**
- * packages.network values seen in code: "MTN", "Telecel", "AirtelTigo",
- * "AT-iShare" / "AT - iShare" / "AT - ISHARE", "AT-BigTime" / "AT - BigTime".
- * Every AT sub-product counts for at-data.
- */
-export function networkOf(network: string): Net | null {
-  const n = String(network ?? "").trim().toLowerCase()
-  if (!n) return null
-  if (n.startsWith("mtn")) return "MTN"
-  if (n.startsWith("telecel")) return "Telecel"
-  if (n.startsWith("at") || n.startsWith("airteltigo") || n.startsWith("ishare")) return "AT"
-  return null
-}
+export { networkOf }
 
 /** Finite, strictly positive number or null. Accepts numeric strings. */
 function positive(v: unknown): number | null {
@@ -90,24 +89,22 @@ function positive(v: unknown): number | null {
 const minOf = (xs: number[]): number | null => (xs.length ? Math.min(...xs) : null)
 const fact = (available: boolean, fromPrice: number | null = null, parts: string[] = []): ProductFacts => ({ available, fromPrice, parts })
 
-export function buildLiveFacts(raw: RawFacts): LiveFacts {
+export function buildLiveFacts(raw: RawFacts, loadedAt: string = new Date().toISOString()): LiveFacts {
   const products = {} as Record<ProductKey, ProductFacts>
 
-  // Data — per network, lowest available positive price.
-  // packages === null means the catalog read failed: keep data pages on, without prices.
-  if (raw.packages === null) {
-    for (const net of NETS) products[DATA_KEY[net]] = fact(true, null, [net])
-  }
-  const prices: Record<Net, number[]> = { MTN: [], Telecel: [], AT: [] }
-  for (const row of raw.packages ?? []) {
-    if (row?.is_available !== true) continue
-    const net = networkOf(row.network)
-    const price = positive(row.price)
-    if (net && price !== null) prices[net].push(price)
-  }
+  // Data — per network, lowest available positive ADJUSTED price (what customers pay).
+  // packages or priceAdjustments === null means a read failed: keep data pages on,
+  // without prices and with empty price groups.
+  const priced = raw.packages !== null && raw.priceAdjustments !== null
+  const groups: PriceGroups = priced
+    ? buildPriceGroups(raw.packages!, raw.priceAdjustments!)
+    : { MTN: [], Telecel: [], AT: [] }
   for (const net of NETS) {
-    if (raw.packages === null) break
-    const from = minOf(prices[net])
+    if (raw.packages === null || raw.priceAdjustments === null) {
+      products[DATA_KEY[net]] = fact(true, null, [net])
+      continue
+    }
+    const from = minOf(groups[net].flatMap((g) => g.rows.map((r) => r.price)))
     products[DATA_KEY[net]] = fact(from !== null, from, from !== null ? [net] : [])
   }
 
@@ -147,7 +144,7 @@ export function buildLiveFacts(raw: RawFacts): LiveFacts {
   products.developers = fact(raw.apiV2Enabled === true)
   products.ussd = fact(raw.ussd?.main != null)
 
-  return { products, ussd: { main: raw.ussd?.main ?? null, shop: raw.ussd?.shop ?? null } }
+  return { products, ussd: { main: raw.ussd?.main ?? null, shop: raw.ussd?.shop ?? null }, prices: groups, loadedAt }
 }
 
 /**
@@ -157,6 +154,7 @@ export function buildLiveFacts(raw: RawFacts): LiveFacts {
  */
 export const FAILED_RAW: RawFacts = {
   packages: null,
+  priceAdjustments: null,
   airtimeEnabled: { MTN: false, Telecel: false, AT: false },
   airtimeMin: 0,
   afaPrice: null,
@@ -244,15 +242,38 @@ export async function loadRawFacts(
     }
   }
 
-  const [packages, afaPrice, airtime, bills, results, smsPricePerCredit, apiV2Enabled, ussd] = await Promise.all([
+  const [packages, priceAdjustments, afaPrice, airtime, bills, results, smsPricePerCredit, apiV2Enabled, ussd] = await Promise.all([
     source("packages", FAILED_RAW.packages, async () => {
       const { data, error } = await db
         .from("packages")
-        .select("network, price, is_available")
+        .select("network, size, price, is_available")
         .eq("is_available", true)
         .limit(2000)
       if (error) throw error
       return (data ?? []) as NonNullable<RawFacts["packages"]>
+    }),
+    // Singleton app_settings row (key IS NULL) — the same one the dashboard adjusts
+    // prices from. Direct read: getPriceAdjustments() swallows errors into zeros,
+    // which would cache unadjusted prices for an hour. A null column means 0%.
+    source("price-adjust", FAILED_RAW.priceAdjustments, async (): Promise<PriceAdjustments | null> => {
+      const { data, error } = await db
+        .from("app_settings")
+        .select("price_adjustment_mtn, price_adjustment_telecel, price_adjustment_at_ishare, price_adjustment_at_bigtime")
+        .is("key", null)
+        .maybeSingle()
+      if (error) throw error
+      if (!data) throw new Error("app_settings singleton row missing")
+      const d = data as Record<keyof PriceAdjustments, unknown>
+      const pct = (v: unknown) => {
+        const n = Number(v ?? 0)
+        return Number.isFinite(n) ? n : 0
+      }
+      return {
+        price_adjustment_mtn: pct(d.price_adjustment_mtn),
+        price_adjustment_telecel: pct(d.price_adjustment_telecel),
+        price_adjustment_at_ishare: pct(d.price_adjustment_at_ishare),
+        price_adjustment_at_bigtime: pct(d.price_adjustment_at_bigtime),
+      }
     }),
     source("afa", FAILED_RAW.afaPrice, async () => {
       // Same row app/api/afa/price/route.ts shows at checkout.
@@ -298,6 +319,7 @@ export async function loadRawFacts(
   return {
     raw: {
       packages,
+      priceAdjustments,
       airtimeEnabled: airtime.enabled,
       airtimeMin: airtime.min,
       afaPrice,

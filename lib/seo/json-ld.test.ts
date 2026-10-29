@@ -123,7 +123,8 @@ describe("page helpers", () => {
   const allOn = () => {
     const f = buildLiveFacts({
       ...FAILED_RAW,
-      packages: [{ network: "MTN", price: 4, is_available: true }],
+      priceAdjustments: { price_adjustment_mtn: 0, price_adjustment_telecel: 0, price_adjustment_at_ishare: 0, price_adjustment_at_bigtime: 0 },
+      packages: [{ network: "MTN", size: "1GB", price: 4, is_available: true }],
       bills: resolveBillsConfig({
         enabled: true,
         billers: {
