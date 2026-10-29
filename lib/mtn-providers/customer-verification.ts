@@ -25,9 +25,11 @@ export const SETTING_KEY = "customer_verification_settings"
 export type CustomerVerificationSettings = {
   enabled: boolean
   providers: string[]
+  /** When on, a number the selected providers positively reject can't be ordered (not just warned). */
+  block_unverified?: boolean
 }
 
-const DEFAULT_SETTINGS: CustomerVerificationSettings = { enabled: false, providers: [] }
+const DEFAULT_SETTINGS: CustomerVerificationSettings = { enabled: false, providers: [], block_unverified: false }
 
 export async function getCustomerVerificationSettings(): Promise<CustomerVerificationSettings> {
   try {
@@ -41,7 +43,7 @@ export async function getCustomerVerificationSettings(): Promise<CustomerVerific
     if (!value || typeof value.enabled !== "boolean" || !Array.isArray(value.providers)) {
       return DEFAULT_SETTINGS
     }
-    return { enabled: value.enabled, providers: value.providers }
+    return { enabled: value.enabled, providers: value.providers, block_unverified: value.block_unverified === true }
   } catch {
     return DEFAULT_SETTINGS
   }
@@ -111,4 +113,117 @@ export async function checkCustomerFacingVerification(
   }
 
   return phones.map(phone => ({ phone, verified: verifiedSet.has(phone) }))
+}
+
+// ── Order-time verdicts + blocking ────────────────────────────────────────────
+
+export const NOT_VERIFIED_MESSAGE =
+  "This MTN number is not verified for data and can't be ordered. Please use a different number."
+export const NOT_VERIFIED_CODE = "NUMBER_NOT_VERIFIED"
+
+export function isBlockingOn(s: CustomerVerificationSettings): boolean {
+  return s.enabled && s.block_unverified === true && s.providers.length > 0
+}
+
+export interface VerdictIo {
+  settings(): Promise<CustomerVerificationSettings>
+  registry: WhitelistEntry[]
+  /** The shared guard (checkCustomerFacingVerification); receives the WRAPPED registry. */
+  check(phones: string[], registry: WhitelistEntry[], settings: CustomerVerificationSettings): Promise<Array<{ phone: string; verified: boolean }>>
+  timeoutMs: number
+}
+
+/** Error class name only: provider errors can carry phone numbers. */
+function errName(err: unknown): string {
+  return err instanceof Error && /^[A-Za-z0-9_]{1,40}$/.test(err.name) ? err.name : "UnknownError"
+}
+
+/**
+ * Per-number verdict: true verified, false POSITIVELY rejected, null unchecked.
+ * Contract: FAIL OPEN. Feature off, no configured provider, an error or a
+ * timeout yields null for every number; only a positive negative yields false.
+ *
+ * Outage detection without editing the shared guard: the guard reports
+ * verified:false when every provider's checkBatch THREW (it treats a throw
+ * as "no approval"). Each registry entry is wrapped to count answers; the
+ * guard sends every still-unverified number to every provider in turn, so a
+ * verified:false is only trusted when at least one provider ANSWERED.
+ * Otherwise the number is unchecked (null).
+ * Never throws; logs a fixed string with the error class name only.
+ */
+export async function resolveVerdicts(phones: string[], io: VerdictIo): Promise<Map<string, boolean | null>> {
+  const unchecked = () => new Map<string, boolean | null>(phones.map((l) => [l, null]))
+  if (phones.length === 0) return new Map()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const settings = await io.settings()
+    if (!settings.enabled || settings.providers.length === 0) return unchecked()
+    if (!io.registry.some((p) => settings.providers.includes(p.name) && p.configured())) return unchecked()
+    let answered = 0
+    const wrapped: WhitelistEntry[] = io.registry.map((p) => ({
+      ...p,
+      checkBatch: async (msisdns: string[]) => {
+        const r = await p.checkBatch(msisdns)
+        answered++
+        return r
+      },
+    }))
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("timeout")), io.timeoutMs)
+    })
+    const results = await Promise.race([io.check(phones, wrapped, settings), timeout])
+    const out = unchecked()
+    for (const r of results) {
+      if (!out.has(r.phone)) continue
+      if (r.verified === true) out.set(r.phone, true)
+      else if (answered > 0) out.set(r.phone, false)
+      // else: every provider threw -> outage -> stays null (unchecked)
+    }
+    return out
+  } catch (err) {
+    console.error("[CUSTOMER-VERIFICATION] verification unavailable (failing open):", errName(err))
+    return unchecked()
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+export type OrderVerification = {
+  verdicts: Map<string, boolean | null>
+  /** The admin "block unverified numbers" toggle is in effect. */
+  blocking: boolean
+  /** Deduped numbers that must not be ordered (empty unless blocking). */
+  blocked: string[]
+}
+
+/**
+ * The order-time gate every ordering surface shares. Only a positive reject
+ * blocks, and only with the toggle on; outages and timeouts never block (the
+ * fulfillment-time hold stays the backstop). Never throws.
+ * `registry`/`settings` are injectable for tests.
+ */
+export async function verifyRecipientsForOrder(
+  phones: string[],
+  opts: { timeoutMs?: number; registry?: WhitelistEntry[]; settings?: CustomerVerificationSettings } = {}
+): Promise<OrderVerification> {
+  try {
+    const settings = opts.settings ?? await getCustomerVerificationSettings()
+    const verdicts = await resolveVerdicts(phones, {
+      settings: async () => settings,
+      registry: opts.registry ?? WHITELIST_REGISTRY,
+      check: (p, reg, s) => checkCustomerFacingVerification(p, reg, s),
+      timeoutMs: opts.timeoutMs ?? (phones.length > 1 ? 10_000 : 5_000),
+    })
+    const blocking = isBlockingOn(settings)
+    const blocked = blocking ? [...new Set(phones)].filter(p => verdicts.get(p) === false) : []
+    return { verdicts, blocking, blocked }
+  } catch {
+    return { verdicts: new Map(phones.map(p => [p, null])), blocking: false, blocked: [] }
+  }
+}
+
+/** Single-recipient convenience: true only for an MTN number the gate blocks. */
+export async function isRecipientBlocked(network: string | null | undefined, phone: string): Promise<boolean> {
+  if ((network ?? "").trim().toUpperCase() !== "MTN") return false
+  return (await verifyRecipientsForOrder([phone])).blocked.length > 0
 }
