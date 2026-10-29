@@ -108,6 +108,15 @@ export function buildLiveFacts(raw: RawFacts, loadedAt: string = new Date().toIS
     products[DATA_KEY[net]] = fact(from !== null, from, from !== null ? [net] : [])
   }
 
+  // Cheapest-data comparison: live while any network has a price row.
+  const allPrices = NETS.flatMap((n) => groups[n].flatMap((g) => g.rows.map((r) => r.price)))
+  const cheapestFrom = minOf(allPrices)
+  products["cheapest-data"] = fact(
+    allPrices.length > 0,
+    cheapestFrom,
+    NETS.filter((n) => groups[n].some((g) => g.rows.length > 0)),
+  )
+
   // Airtime
   const airtimeNets = NETS.filter((n) => raw.airtimeEnabled?.[n] === true)
   products.airtime = fact(airtimeNets.length > 0, positive(raw.airtimeMin), airtimeNets)

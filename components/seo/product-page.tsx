@@ -25,6 +25,7 @@ import { FaqSection } from "./faq-section"
 import { RelatedProducts } from "./related-products"
 import { BuyButton } from "./buy-button"
 import { PriceTable } from "./price-table"
+import { Comparison } from "./comparison"
 
 const GROUP_LABEL: Record<ProductGroup, string> = {
   data: "Data bundles",
@@ -94,6 +95,8 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
         {(key === "mtn-data" || key === "telecel-data" || key === "at-data") && p.network && (
           <PriceTable name={p.name} groups={facts.prices[p.network]} loadedAt={facts.loadedAt} />
         )}
+
+        {key === "cheapest-data" && <Comparison prices={facts.prices} loadedAt={facts.loadedAt} />}
 
         <section aria-labelledby="bullets-heading" className="mt-16">
           <h2 id="bullets-heading" className="font-display text-2xl sm:text-3xl font-bold text-foreground">

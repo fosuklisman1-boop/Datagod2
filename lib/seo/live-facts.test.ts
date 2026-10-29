@@ -116,6 +116,21 @@ describe("buildLiveFacts — adjusted prices and groups", () => {
     expect(f.prices.MTN[0].rows[0]).toMatchObject({ size: "1GB", price: 4.4 })
   })
 
+  it("cheapest-data is available when any network has a price row, otherwise dark", () => {
+    const on = buildLiveFacts(raw({
+      priceAdjustments: ZERO_ADJ,
+      packages: [{ network: "Telecel", size: "1GB", price: 5, is_available: true }],
+    }))
+    expect(on.products["cheapest-data"]).toMatchObject({ available: true, fromPrice: 5 })
+    const off = buildLiveFacts(raw({
+      priceAdjustments: ZERO_ADJ,
+      packages: [{ network: "Telecel", size: "1GB", price: 5, is_available: false }],
+    }))
+    expect(off.products["cheapest-data"].available).toBe(false)
+    const failed = buildLiveFacts(raw({ priceAdjustments: null, packages: [] }))
+    expect(failed.products["cheapest-data"].available).toBe(false)
+  })
+
   it("priceAdjustments null → data pages on, no prices, empty groups", () => {
     const f = buildLiveFacts(raw({
       priceAdjustments: null,

@@ -13,7 +13,7 @@
 import type { BillerKey } from "@/lib/bills/billers"
 
 export type ProductKey =
-  | "mtn-data" | "telecel-data" | "at-data" | "airtime" | "afa-registration"
+  | "mtn-data" | "telecel-data" | "at-data" | "cheapest-data" | "airtime" | "afa-registration"
   | "utility-bills" | "ecg-prepaid" | "ghana-water" | "pay-dstv" | "pay-gotv" | "startimes" | "telecel-broadband"
   | "results-checker" | "bulk-sms" | "join" | "ussd" | "whatsapp" | "developers"
 
@@ -187,6 +187,41 @@ export const PRODUCTS: readonly ProductEntry[] = [
     ],
     related: ["mtn-data", "telecel-data", "airtime", "join"],
   }),
+
+  {
+    key: "cheapest-data",
+    path: "/cheapest-data-ghana",
+    name: "Cheapest Data Bundles",
+    h1: "Cheapest data bundles in Ghana today",
+    title: "Cheapest Data Bundles in Ghana Today | DATAGOD",
+    description: "Compare today's data bundle prices across MTN, Telecel and AT on DATAGOD and see the lowest price per GB. Fund your wallet with MoMo or card, then order.",
+    group: "data",
+    summary: "See our current data bundle prices side by side, with the lowest price per GB for each network. Prices come straight from our live price list, so what you see here is what you pay.",
+    bullets: [
+      "Our live prices for each network side by side",
+      "Lowest price per GB shown for every network",
+      "Prices for the same bundle size lined up so they are easy to compare",
+      "Send data to any number, including your own",
+      "Fund your wallet with MoMo or card through Paystack",
+    ],
+    channels: ["web"],
+    faqs: [
+      speedFaq("How fast is data delivered?", "You can track every order from your dashboard or order history."),
+      refundFaq(),
+      payFaq(),
+      {
+        question: "How is the price per GB worked out?",
+        answer: "We divide the price of a bundle by its size in GB. Bundles that are not sold by size, such as time-based bundles, are left out of the per-GB figure.",
+      },
+      {
+        question: "Why is a size missing for some networks?",
+        answer: "A dash means we do not currently offer that exact bundle size on that network. See the network page for everything that is on offer.",
+      },
+    ],
+    related: ["mtn-data", "telecel-data", "at-data", "airtime"],
+    priority: 0.9,
+    hasOwnPage: true,
+  },
 
   // ── Airtime ─────────────────────────────────────────────────────────
   {

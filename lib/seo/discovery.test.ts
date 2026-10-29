@@ -45,6 +45,13 @@ describe("buildSitemapEntries", () => {
     expect(entries[0]).toMatchObject({ priority: 1, changeFrequency: "daily" })
   })
 
+  it("includes /cheapest-data-ghana only when some network has prices", () => {
+    const on = buildSitemapEntries(facts(), NOW).map((e) => e.url)
+    const off = buildSitemapEntries(facts({ packages: [] }), NOW).map((e) => e.url)
+    expect(on).toContain("https://www.datagod.store/cheapest-data-ghana")
+    expect(off).not.toContain("https://www.datagod.store/cheapest-data-ghana")
+  })
+
   it("gates /developers on availability", () => {
     const off = buildSitemapEntries(facts(), NOW).map((e) => e.url)
     const on = buildSitemapEntries(facts({ apiV2Enabled: true }), NOW).map((e) => e.url)
@@ -68,6 +75,11 @@ describe("buildLlmsTxt", () => {
     expect(t).not.toContain("..")
     expect(t.endsWith("\n")).toBe(true)
     expect(t.endsWith("\n\n")).toBe(false)
+  })
+
+  it("lists the comparison page only when available", () => {
+    expect(buildLlmsTxt(facts())).toContain("(https://www.datagod.store/cheapest-data-ghana)")
+    expect(buildLlmsTxt(facts({ packages: [] }))).not.toContain("cheapest-data-ghana")
   })
 
   it("omits USSD when there is no main code and shows it when set", () => {
