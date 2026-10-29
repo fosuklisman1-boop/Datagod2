@@ -525,6 +525,12 @@ export function bundleOrderHandler(deps: BundlesV2Deps) {
       claim = null
     }
     if (!claim) return notFound()
+    // An unknown claim that kept the engine's order (e.g. the purchase succeeded but the claim could not be
+    // finalised): when the owner-scoped live row says it was PAID, the money moved, so show the order.
+    if (claim.status === "unknown" && claim.orderRef) {
+      const paid = await safeOrderRead(deps, ctx.userId, claim.orderRef)
+      if (paid && paid.payment_status === "paid") return ok(200, { order: mapBundleOrder(paid, ref.reference), claim: null })
+    }
     // The caller's own claim that is still running or ambiguous: say so (never a 404, which reads as "never created").
     const pending = mapClaimState(claim, ref.reference, deps.now())
     if (pending) return ok(200, { order: null, claim: pending })

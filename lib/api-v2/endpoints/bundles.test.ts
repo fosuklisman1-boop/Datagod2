@@ -645,8 +645,28 @@ describe("bundleOrderHandler", () => {
     const running = await bundleOrderHandler(deps)("BND-001", LIVE)
     expect(running.data).toEqual({ order: null, claim: { reference: "BND-001", state: "in_progress" } })
     deps.getClaim.mockResolvedValueOnce({ orderRef: "SB-AAA111", status: "unknown", response: null })
+    deps.getOrderByCode.mockResolvedValueOnce(liveRow({ payment_status: "unpaid" }))
     const unknown = await bundleOrderHandler(deps)("BND-001", LIVE)
     expect(unknown.data).toEqual({ order: null, claim: { reference: "BND-001", state: "outcome_unknown" } })
+  })
+
+  it("an unknown claim whose engine order is PAID shows the order (the money moved), else still claim.state", async () => {
+    const { deps } = makeDeps()
+    deps.getClaim.mockResolvedValue({ orderRef: "SB-AAA111", status: "unknown", response: null })
+    deps.getOrderByCode.mockResolvedValueOnce(liveRow({ payment_status: "paid", status: "processing" }))
+    const paid = await bundleOrderHandler(deps)("BND-001", LIVE)
+    expect(paid.status).toBe(200)
+    expect((paid.data as any).claim).toBeNull()
+    expect(Object.keys((paid.data as any).order).sort()).toEqual(ORDER_KEYS)
+    expect((paid.data as any).order.reference).toBe("BND-001")
+    expect(deps.getOrderByCode).toHaveBeenCalledWith("user-1", "SB-AAA111")
+    for (const live of [liveRow({ payment_status: "unpaid" }), liveRow({ payment_status: null }), null]) {
+      deps.getOrderByCode.mockResolvedValueOnce(live)
+      const r = await bundleOrderHandler(deps)("BND-001", LIVE)
+      expect(r.data).toEqual({ order: null, claim: { reference: "BND-001", state: "outcome_unknown" } })
+    }
+    deps.getOrderByCode.mockRejectedValueOnce(new Error("db"))
+    expect((await bundleOrderHandler(deps)("BND-001", LIVE)).data).toEqual({ order: null, claim: { reference: "BND-001", state: "outcome_unknown" } })
   })
 
   it("a done claim returns the stored order with the live status", async () => {
