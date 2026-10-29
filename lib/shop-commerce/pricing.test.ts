@@ -47,6 +47,7 @@ function makeChain(result: { data: unknown; error?: unknown }) {
     eq: () => chain,
     in: () => chain,
     order: () => chain,
+    limit: () => chain,
     single: () => Promise.resolve(result),
     maybeSingle: () => Promise.resolve(result),
     then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
@@ -148,6 +149,29 @@ describe("fetchShopBundles", () => {
 // The confirm-time re-verification path — this is the anti stale-session-price-
 // manipulation guard, so it gets its own coverage independent of fetchShopBundles.
 describe("verifyBundlePrice", () => {
+  it("regular shop with DUPLICATE shop_packages rows for the package: still verifies (latest row), not 'no longer available'", async () => {
+    // Real PostgREST: .maybeSingle() over 2+ rows is an error with data null, unless the query is limited to 1.
+    const calls: Array<[string, ...unknown[]]> = []
+    const dupChain: any = {
+      select: () => dupChain,
+      eq: () => dupChain,
+      order: (...a: unknown[]) => { calls.push(["order", ...a]); return dupChain },
+      limit: (n: number) => { calls.push(["limit", n]); return dupChain },
+      maybeSingle: () => Promise.resolve(
+        calls.some(c => c[0] === "limit" && c[1] === 1)
+          ? { data: { profit_margin: 3, packages: { price: 10, dealer_price: 8, is_available: true } }, error: null }
+          : { data: null, error: { code: "PGRST116", message: "multiple rows" } }
+      ),
+    }
+    const base = fakeClient({ user_shops: { data: { user_id: "u1" } }, users: { data: { role: "dealer" } } })
+    const client = { from: (t: string) => (t === "shop_packages" ? dupChain : base.from(t)) } as any
+
+    const result = await verifyBundlePrice("s1", "p1", undefined, client)
+
+    expect(result).toEqual({ verifiedPrice: 11, profitAmount: 3, parentProfitAmount: 0 })
+    expect(calls).toContainEqual(["order", "updated_at", { ascending: false }])
+  })
+
   it("regular shop: valid package → verifiedPrice from dealer basePrice + profit_margin", async () => {
     const client = fakeClient({
       user_shops: { data: { user_id: "u1" } },
