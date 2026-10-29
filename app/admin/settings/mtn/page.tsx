@@ -1737,7 +1737,7 @@ export default function MTNSettingsPage() {
                     {custVerifyProviders.map((p, i) => (
                       <div key={p} className="flex items-center gap-2 p-2 rounded-lg border border-white/60 dark:border-white/5 bg-card clay">
                         <span className="text-xs text-muted-foreground w-5 text-center shrink-0">{i + 1}</span>
-                        <span className="flex-1 text-sm font-medium">{PROVIDER_LABELS[p] ?? p}</span>
+                        <span className="flex-1 text-sm font-medium">{(PROVIDER_LABELS as Record<string, string>)[p] ?? p}</span>
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label={`Move ${p} up`} onClick={() => moveCustVerifyProvider(i, -1)} disabled={savingCustVerify || i === 0}>
                           <ArrowUp className="h-3.5 w-3.5" />
                         </Button>
