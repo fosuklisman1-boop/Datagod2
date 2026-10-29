@@ -302,7 +302,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       .eq("is_available", true)
 
     if (!packagesError && parentPackages) {
-      const subAgentPackages = parentPackages.map((pkg: any) => ({
+      // One row per package: shop_packages is UNIQUE(shop_id, package_id)
+      // (migration 0141), so a parent's duplicate rows must not fail the insert.
+      const uniqueParentPackages = [...new Map(parentPackages.map((pkg: any) => [pkg.package_id, pkg])).values()]
+      const subAgentPackages = uniqueParentPackages.map((pkg: any) => ({
         shop_id: newShop.id,
         package_id: pkg.package_id,
         // Sub-agent starts with 0 margin, they can set their own later

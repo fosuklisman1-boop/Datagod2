@@ -562,6 +562,16 @@ export async function POST(request: NextRequest) {
 
             if (!createError && newShopPkg) {
               finalShopPackageId = newShopPkg.id
+            } else if ((createError as { code?: string } | null)?.code === "23505") {
+              // A concurrent order created it first (UNIQUE(shop_id, package_id)): use that row.
+              const { data: raced } = await supabase
+                .from("shop_packages")
+                .select("id")
+                .eq("shop_id", shop_id)
+                .eq("package_id", package_id)
+                .limit(1)
+                .maybeSingle()
+              if (raced) finalShopPackageId = raced.id
             } else {
               console.warn("[SHOP-ORDER] Could not create shop_packages entry for sub-agent")
               // Continue without mapping - order creation might fail if FK is enforced
