@@ -526,12 +526,16 @@ export async function POST(request: NextRequest) {
         // We need to find the corresponding shop_packages entry or create one
         if (shop_package_id && package_id) {
           // Try to find if there's a shop_packages entry for this package
+          // limit(1): shop_packages has no UNIQUE(shop_id, package_id), and a bare
+          // .single() over duplicates errors, which made this insert yet another copy.
           const { data: shopPkg } = await supabase
             .from("shop_packages")
             .select("id")
             .eq("shop_id", shop_id)
             .eq("package_id", package_id)
-            .single()
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
 
           if (shopPkg) {
             // Use the existing shop_packages ID

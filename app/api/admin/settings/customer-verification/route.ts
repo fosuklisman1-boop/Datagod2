@@ -39,7 +39,8 @@ export async function POST(request: NextRequest) {
 
     let validatedProviders: string[] = []
     if (providers.length > 0) {
-      const validation = validateProviderSelection(providers)
+      // Order matters here: it's the order the providers are asked in.
+      const validation = validateProviderSelection(providers, undefined, { keepOrder: true })
       if (!validation.valid) {
         return NextResponse.json({ error: validation.error }, { status: 400 })
       }

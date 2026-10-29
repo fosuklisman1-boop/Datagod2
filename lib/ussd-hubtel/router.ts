@@ -54,8 +54,11 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     botMenus: () => loadBotMenuGate(supabase),
     verifyRecipient: async phone => {
       const v = await verifyRecipientsForOrder([phone])
+      const verdict = v.verdicts.get(phone)
+      // Diagnostic only (no phone): what the confirm screen will show and why.
+      console.info(`[HUBTEL-VERIFY] verdict=${verdict} blocking=${v.blocking} -> ${v.blocked.length > 0 ? "blocked" : verdict === false ? "warn" : "ok"}`)
       if (v.blocked.length > 0) return "blocked"
-      return v.verdicts.get(phone) !== false
+      return verdict !== false
     },
     deliveryEstimate: async channel => confirmScreenText(await getCachedChannelEstimate(supabase, channel)),
   }

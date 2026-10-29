@@ -130,6 +130,9 @@ export async function fetchShopBundles(
       .select("package_id, profit_margin")
       .eq("shop_id", shopId)
       .eq("is_available", true)
+      // Ascending so a duplicate package's LATEST row wins in profitMap below,
+      // matching verifyBundlePrice's pick.
+      .order("updated_at", { ascending: true })
       .then(r => r.data),
     shopOwnerIsDealer(shopId, client),
   ])
@@ -213,6 +216,11 @@ export async function verifyBundlePrice(
         .eq("shop_id", shopId)
         .eq("package_id", bundleId)
         .eq("is_available", true)
+        // shop_packages has no UNIQUE(shop_id, package_id): a package added twice
+        // made a bare .maybeSingle() error (data null), so every confirm said
+        // "no longer available". Take the latest row, the one fetchShopBundles prices with.
+        .order("updated_at", { ascending: false })
+        .limit(1)
         .maybeSingle()
         .then(r => r.data),
       shopOwnerIsDealer(shopId, client),

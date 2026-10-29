@@ -356,3 +356,55 @@ describe("isRecipientBlocked", () => {
     expect(await isRecipientBlocked("MTN", "0559999999")).toBe(false)
   })
 })
+
+describe("provider order and failures", () => {
+  function recording(name: string, allowed: Set<string>, log: string[], opts: { fail?: boolean } = {}): WhitelistEntry {
+    const run = async (msisdns: string[]) => {
+      log.push(`${name}:${msisdns.join(",")}`)
+      if (opts.fail) throw new Error(`${name} down`)
+      return msisdns.map(m => ({ msisdn: m, allowed: allowed.has(m) }))
+    }
+    // checkBatch fails OPEN (like the real providers); checkBatchStrict throws.
+    return {
+      name,
+      configured: () => true,
+      check: async (m) => ({ allowed: allowed.has(m), provider: name }),
+      checkBatch: async (m) => (opts.fail ? m.map(x => ({ msisdn: x, allowed: true })) : run(m)),
+      checkBatchStrict: run,
+    }
+  }
+
+  it("asks providers in the admin's order, not registry order", async () => {
+    const log: string[] = []
+    const registry = [recording("xpress", new Set(), log), recording("agentportalgh", new Set(["0551111111"]), log)]
+    const result = await checkCustomerFacingVerification(
+      ["0551111111", "0552222222"], registry, { enabled: true, providers: ["agentportalgh", "xpress"] }
+    )
+    expect(log).toEqual(["agentportalgh:0551111111,0552222222", "xpress:0552222222"])
+    expect(result).toEqual([{ phone: "0551111111", verified: true }, { phone: "0552222222", verified: false }])
+  })
+
+  it("a failing first provider is NOT treated as approval: the next provider is asked", async () => {
+    const log: string[] = []
+    const registry = [recording("agentportalgh", new Set(), log, { fail: true }), recording("xpress", new Set(), log)]
+    const result = await checkCustomerFacingVerification(
+      ["0559999999"], registry, { enabled: true, providers: ["agentportalgh", "xpress"] }
+    )
+    expect(log).toEqual(["agentportalgh:0559999999", "xpress:0559999999"])
+    expect(result).toEqual([{ phone: "0559999999", verified: false }])
+  })
+
+  it("order verdicts: first provider failed + second rejected -> blocked; all failed -> unchecked (never blocked)", async () => {
+    const on = { enabled: true, providers: ["agentportalgh", "xpress"], block_unverified: true }
+    const log: string[] = []
+    const rejectAfterFail = [recording("agentportalgh", new Set(), log, { fail: true }), recording("xpress", new Set(), log)]
+    expect((await verifyRecipientsForOrder(["0559999999"], { registry: rejectAfterFail, settings: on })).blocked).toEqual(["0559999999"])
+
+    const allFail = [recording("agentportalgh", new Set(), log, { fail: true }), recording("xpress", new Set(), log, { fail: true })]
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await verifyRecipientsForOrder(["0559999999"], { registry: allFail, settings: on })
+    spy.mockRestore()
+    expect(r.blocked).toEqual([])
+    expect(r.verdicts.get("0559999999")).toBeNull()
+  })
+})

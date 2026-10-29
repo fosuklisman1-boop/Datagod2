@@ -50,8 +50,9 @@ export async function getCustomerVerificationSettings(): Promise<CustomerVerific
 }
 
 /**
- * Checks each phone against every admin-selected, registry-configured
- * provider — verified as soon as any one approves. Uses each provider's
+ * Checks each phone against the admin-selected, registry-configured
+ * providers IN THE ADMIN'S ORDER — verified as soon as any one approves; a
+ * number a provider rejects, or a provider that fails, moves on to the next. Uses each provider's
  * batch endpoint where available (one HTTP call for most providers, not
  * one per phone — Apex Prime has no native batch endpoint and loops
  * internally, a pre-existing constraint of that provider's integration)
@@ -75,9 +76,11 @@ export async function checkCustomerFacingVerification(
     return phones.map(phone => ({ phone, verified: true }))
   }
 
-  const configured = registry.filter(
-    p => resolvedSettings.providers.includes(p.name) && p.configured()
-  )
+  // The admin's order is the check order: ask the first selected provider, and
+  // only move to the next for numbers it didn't approve (or when it failed).
+  const configured = resolvedSettings.providers
+    .map(name => registry.find(p => p.name === name))
+    .filter((p): p is WhitelistEntry => !!p && p.configured())
   if (configured.length === 0) {
     return phones.map(phone => ({ phone, verified: true }))
   }
@@ -92,7 +95,9 @@ export async function checkCustomerFacingVerification(
   for (const provider of configured) {
     if (remaining.length === 0) break
     try {
-      const batchResults = await provider.checkBatch(remaining)
+      // Strict: a provider failure throws (caught below) instead of failing open
+      // to "allowed", so the next provider still gets asked.
+      const batchResults = await (provider.checkBatchStrict ?? provider.checkBatch)(remaining)
       // Match by normalized form, not exact string equality — some providers
       // (e.g. AgentPortalGH) echo back a differently-formatted number than
       // what was sent (e.g. 233551234567 for an input of 0551234567), which
@@ -165,10 +170,11 @@ export async function resolveVerdicts(phones: string[], io: VerdictIo): Promise<
     const wrapped: WhitelistEntry[] = io.registry.map((p) => ({
       ...p,
       checkBatch: async (msisdns: string[]) => {
-        const r = await p.checkBatch(msisdns)
+        const r = await (p.checkBatchStrict ?? p.checkBatch)(msisdns)
         answered++
         return r
       },
+      checkBatchStrict: undefined,
     }))
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error("timeout")), io.timeoutMs)
