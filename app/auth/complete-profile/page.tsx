@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { CheckCircle2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { readFirstTouchFromBrowser } from "@/lib/signup-source"
 
 const DEFAULT_TERMS = `Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service. Please read them carefully before creating an account or making any purchase.
 
@@ -292,6 +293,8 @@ export default function CompleteProfilePage() {
           firstName: formData.firstName,
           lastName: formData.lastName,
           phoneNumber: formData.phoneNumber,
+          // Server sanitizes it and writes it only while users.signup_source is null.
+          signupSource: readFirstTouchFromBrowser(),
         }),
       })
 

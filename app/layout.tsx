@@ -15,6 +15,7 @@ import { BackgroundSyncRegister } from "@/components/background-sync-register";
 import { PushNotificationRegister } from "@/components/push-notification-register";
 import { PushOptInBanner } from "@/components/push-opt-in-banner";
 import { MaintenanceScreen } from "@/components/maintenance-screen";
+import { FirstTouchCapture } from "@/components/first-touch-capture";
 import { generateOrganizationSchema, generateHomepageSchema, generateLocalBusinessSchema, generateSiteNavigationSchema } from "@/lib/structured-data";
 
 // Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
@@ -297,6 +298,7 @@ export default async function RootLayout({
                 <PushOptInBanner />
                 <ChristmasThemeProvider />
                 <InactivityLogoutProvider />
+                <FirstTouchCapture />
                 {children}
                 <Toaster />
               </AuthProvider>

@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
+import { sanitizeSignupSource } from "@/lib/signup-source"
 
 export async function POST(request: NextRequest) {
   // Apply rate limiting: 5 signups per hour per IP
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { email, firstName, lastName, phoneNumber } = await request.json()
+    const { email, firstName, lastName, phoneNumber, signupSource } = await request.json()
 
     // Create a service role client on the server
     const supabaseServiceRole = createClient(
@@ -153,6 +154,24 @@ export async function POST(request: NextRequest) {
         { error: error.message },
         { status: 400 }
       )
+    }
+
+    // Sign-up attribution (first touch): best-effort, write-once, never blocks
+    // sign-up (also safe before migration 0141 adds the column). Email sign-ups
+    // carry it in auth metadata; the OAuth complete-profile page sends it in the body.
+    const source =
+      sanitizeSignupSource(tokenUser.user.user_metadata?.signup_source) ?? sanitizeSignupSource(signupSource)
+    if (source) {
+      try {
+        const { error: sourceError } = await supabaseServiceRole
+          .from("users")
+          .update({ signup_source: source })
+          .eq("id", userId)
+          .is("signup_source", null)
+        if (sourceError) console.warn("[SIGNUP] signup_source not saved:", sourceError.code || "error")
+      } catch {
+        console.warn("[SIGNUP] signup_source not saved: exception")
+      }
     }
 
     // Cross-account velocity tracking. The per-IP signup rate limit (5/hr) at

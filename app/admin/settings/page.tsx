@@ -20,6 +20,7 @@ import AirtimeSettingsCard from "@/components/admin/airtime-settings-card"
 import NetworkPrefixSettingsCard from "@/components/admin/network-prefix-settings-card"
 import PublicUssdCodesCard from "@/components/admin/public-ussd-codes-card"
 import GoogleReviewUrlCard from "@/components/admin/google-review-url-card"
+import SignupSourcesCard from "@/components/admin/signup-sources-card"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 
 export default function AdminSettingsPage() {
@@ -1221,6 +1222,8 @@ export default function AdminSettingsPage() {
         <PublicUssdCodesCard />
 
         <GoogleReviewUrlCard />
+
+        <SignupSourcesCard />
 
         {/* USSD Settings */}
         <Card className="mb-6 border-border bg-success/10">
