@@ -186,8 +186,11 @@ migration + review gate.
    covering **every sign-up path** (email sign-up and the Google/OAuth
    complete-profile path). The admin card reads `users.signup_source` through
    an admin-only route. This touches auth code and the schema → fresh
-   reviewer mandatory (review gates). The column is never client-writable
-   after creation (it must not become a way to write arbitrary profile data).
+   reviewer mandatory (review gates). Under the existing grant model (0060)
+   a user can update their own `users` row, so they could overwrite their own
+   `signup_source`; accepted, because it is self-reported attribution only,
+   never used for money or permissions, sanitized on read and rendered as
+   escaped text. Server writes are write-once (only when the column is null).
 4. **First-touch capture** runs on main-site pages except `/dashboard/*`,
    `/admin/*` and `/auth/*` (a landing on those records nothing).
 5. **"Completed order"** = the signed-in user has at least one row with status
