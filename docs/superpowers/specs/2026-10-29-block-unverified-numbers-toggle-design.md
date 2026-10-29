@@ -36,8 +36,12 @@ surface.
    selected provider answered and none approved. Setting off, no configured
    provider, every provider erroring, or a timeout → the order proceeds
    (fulfillment-time hold remains the backstop).
-2. **Bulk = reject whole batch.** Nothing is placed or charged; the response
-   lists the unverified numbers.
+2. **Bulk = reject whole batch on the server; remove-and-submit in the UI.**
+   The create-bulk route never places a batch containing a blocked number
+   (409, nothing charged, `blocked_numbers` listed). The dashboard bulk form
+   avoids hitting that: with blocking on it hides "Proceed with all", leaving
+   only "Remove unverified & submit rest" or "Cancel", and shows the removed
+   numbers with a copy button (see section 4).
 3. **API v2 follows the toggle.** With the toggle off, v2 stops returning 409
    and instead reports the number as unverified (warning only), matching v1.
    Rollout note: admins must switch the toggle on to keep v2's current
@@ -101,12 +105,38 @@ customer an early, friendly stop. Messages never echo provider error text.
 
 ### 4. Front-end
 
-`/api/verify-phone-live` response adds `blocking: boolean`. In
-`app/shop/[slug]/storefront-client.tsx`, `app/dashboard/data-packages/page.tsx`
-and `components/bulk-orders-form.tsx`: when `blocking` and a number is
-unverified, replace the "proceed anyway" dialog with a hard-stop message (bulk:
-list the offending numbers). Also handle the new 409 `NUMBER_NOT_VERIFIED` from
-the create routes (covers races / stale clients).
+`/api/verify-phone-live` response adds `blocking: boolean`. Every web surface
+also handles the new 409 `NUMBER_NOT_VERIFIED` from the create routes (covers
+races / stale clients).
+
+**Single orders** (`app/shop/[slug]/storefront-client.tsx`,
+`app/dashboard/data-packages/page.tsx`): when `blocking` and the number is
+unverified, replace the "proceed anyway" dialog with a hard-stop message asking
+for a different number.
+
+**Bulk orders** (`components/bulk-orders-form.tsx`, batch verification warning
+dialog). Today the dialog offers *Cancel*, *Remove unverified & submit rest*
+and *Proceed with all*. When `blocking` is true:
+
+- **Proceed with all** is hidden. Only *Cancel* and *Remove unverified & submit
+  rest* remain.
+- The dialog copy changes from "may be delayed" to "can't be ordered: these
+  numbers failed verification and will be removed".
+- The unverified numbers are shown as a list (deduped, one per line) with a
+  **Copy numbers** button that copies them to the clipboard, newline-separated,
+  so the user can keep them for later.
+- After *Remove unverified & submit rest* succeeds, the result view keeps a
+  "Removed (not verified)" section listing those numbers with the same
+  **Copy numbers** button, so they're still available after the dialog closes.
+- If every number is unverified, the submit button stays disabled (existing
+  behaviour) and only *Cancel* and *Copy numbers* are usable.
+
+When `blocking` is false the dialog is unchanged (all three buttons, no forced
+removal); the copy button is shown in both modes since it's harmless.
+
+The server-side batch rejection (section 3) remains as the backstop: a client
+that skips removal still gets a 409 listing `blocked_numbers`, and the form
+shows that list with the same copy button.
 
 ### 5. Tests
 
