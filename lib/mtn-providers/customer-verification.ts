@@ -120,6 +120,8 @@ export async function checkCustomerFacingVerification(
 export const NOT_VERIFIED_MESSAGE =
   "This MTN number is not verified for data and can't be ordered. Please use a different number."
 export const NOT_VERIFIED_CODE = "NUMBER_NOT_VERIFIED"
+/** USSD / WhatsApp re-prompt when a typed recipient is blocked. */
+export const RECIPIENT_BLOCKED_PROMPT = "This MTN number is not verified for data.\nEnter a different number:\n\n0. Back"
 
 export function isBlockingOn(s: CustomerVerificationSettings): boolean {
   return s.enabled && s.block_unverified === true && s.providers.length > 0

@@ -2,6 +2,8 @@
 // The one extra line a data confirm screen may carry above "1. Pay now":
 //   1. MTN recipient not verified -> the same warning the storefront / data packages page shows
 //      (the order still goes through; delivery may wait until the number is confirmed);
+//      With the admin blocking toggle on, a rejected number gets RECIPIENT_BLOCKED_NOTE instead and the
+//      caller re-prompts for another number (see blockedRecipientScreen);
 //   2. otherwise, the live delivery estimate ("Delivery: ~3 min") for the order's channel.
 // Both lookups are optional deps, run in parallel, and time out to "nothing to say": a slow or broken check
 // never delays or blocks a purchase. The result is stored on the session, so re-showing the screen is free.
@@ -9,6 +11,7 @@ import { channelForNetwork, type DeliveryChannel } from "@/lib/delivery-estimate
 import type { FlowCtx } from "./flow-kit"
 
 export const UNVERIFIED_NOTE = "Not yet verified: delivery may be delayed."
+export const RECIPIENT_BLOCKED_NOTE = "Number not verified for MTN data. Enter a different number."
 export const NOTE_TIMEOUT_MS = 2500
 
 function within<T>(p: Promise<T>, fallback: T, ms = NOTE_TIMEOUT_MS): Promise<T> {
@@ -33,6 +36,7 @@ export async function confirmNote(ctx: FlowCtx, opts: {
       verifyRecipient && opts.verify && isMtn(network) ? within(verifyRecipient(opts.recipientLocal), true) : Promise.resolve(true),
       deliveryEstimate && channel ? within(deliveryEstimate(channel), null) : Promise.resolve(null),
     ])
+    if (verified === "blocked") return RECIPIENT_BLOCKED_NOTE
     return verified === false ? UNVERIFIED_NOTE : estimate
   } catch {
     return null

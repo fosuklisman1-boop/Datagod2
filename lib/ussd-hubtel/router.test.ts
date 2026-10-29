@@ -572,6 +572,15 @@ describe("hubtelRouter: MTN number verification warning on the data confirm scre
     expect(checked).toHaveLength(1)
     expect(store.get("S1")?.step).toBe("CONFIRM")
   })
+  it("a blocked number (admin blocking toggle on) re-prompts for a different number instead of confirming", async () => {
+    const { deps, store } = makeDeps({ verifyRecipient: async () => "blocked", deliveryEstimate: async () => "Delivery: ~3 min" })
+    await walkTo("ENTER_RECIPIENT", deps)
+    const r = await hubtelRouter(req({ Message: "0244123456" }), deps)
+    expect(r.Message).toContain("Number not verified for MTN data. Enter a different number.")
+    expect(r.Message).not.toContain("Confirm your order?")
+    expect(store.get("S1")?.step).toBe("ENTER_RECIPIENT")
+    expect(store.get("S1")?.otherRecipient).toBe(true)
+  })
   it("a verified number gets the delivery estimate as before", async () => {
     const { deps } = makeDeps({ verifyRecipient: async () => true, deliveryEstimate: async () => "Delivery: ~3 min" })
     await walkTo("ENTER_RECIPIENT", deps)

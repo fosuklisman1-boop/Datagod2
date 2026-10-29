@@ -45,9 +45,10 @@ export interface RouterDeps {
   deliveryEstimate?(channel: DeliveryChannel): Promise<string | null>
   /**
    * Live customer-facing number verification (same check as the storefront / data packages page). Optional;
-   * false = not yet verified (warn, still sellable). Must fail open; callers also time it out.
+   * false = not yet verified (warn, still sellable); "blocked" = rejected while the admin blocking toggle is on
+   * (not sellable). Must fail open; callers also time it out.
    */
-  verifyRecipient?(phoneLocal: string): Promise<boolean>
+  verifyRecipient?(phoneLocal: string): Promise<boolean | "blocked">
 }
 
 export interface FlowCtx {

@@ -217,6 +217,12 @@ describe("shop data: MTN number verification warning", () => {
     const r = await toConfirm(deps)
     expect(r.Message).toBe("Ama Data Hub\nMTN 5GB\nTo: 0244123456\nAmount: GHS 12.00\nNot yet verified: delivery may be delayed.\n\nConfirm your order?\n1. Confirm\n0. Cancel")
   })
+  it("a blocked number re-prompts for a different number", async () => {
+    const { deps } = shopDeps({ verifyRecipient: async () => "blocked" })
+    const r = await toConfirm(deps)
+    expect(r.Message).toContain("Number not verified for MTN data. Enter a different number.")
+    expect(r.Message).not.toContain("Confirm your order?")
+  })
   it("verified numbers are unchanged", async () => {
     const { deps } = shopDeps({ verifyRecipient: async () => true })
     expect((await toConfirm(deps)).Message).not.toContain("verified")
