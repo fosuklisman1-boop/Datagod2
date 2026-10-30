@@ -14,10 +14,35 @@ export const DEFAULT_REFERENCE_NUMBERS: Record<BundleNetwork, string> = {
 }
 
 export interface NetworkSetting { enabled: boolean; hiddenCategories: string[]; referenceNumber: string }
-export interface BundlesConfig { enabled: boolean; networks: Record<BundleNetwork, NetworkSetting> }
-export interface BundlesPatch { enabled?: boolean; networks?: Partial<Record<BundleNetwork, NetworkSetting>> }
+export interface SpecialSetting { enabled: boolean; multiples: number[]; unitAmount: number }
+export interface BundlesConfig { enabled: boolean; networks: Record<BundleNetwork, NetworkSetting>; special: SpecialSetting }
+// `special` is replaced whole by the config RPC (top-level shallow merge), so a patch always carries all three fields.
+export interface BundlesPatch { enabled?: boolean; networks?: Partial<Record<BundleNetwork, NetworkSetting>>; special?: SpecialSetting }
+
+export const SPECIAL_MAX_MULTIPLES = 10
+export const SPECIAL_MAX_MULTIPLE = 50
+export const DEFAULT_SPECIAL: SpecialSetting = { enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3 }
 
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v)
+
+/** Distinct integers 1..50, at most 10, returned sorted. Null when the shape is invalid. */
+function cleanMultiples(v: unknown): number[] | null {
+  if (!Array.isArray(v)) return null
+  if (!v.every((n) => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= SPECIAL_MAX_MULTIPLE)) return null
+  const out = [...new Set(v as number[])].sort((a, b) => a - b)
+  return out.length >= 1 && out.length <= SPECIAL_MAX_MULTIPLES ? out : null
+}
+
+/** Positive, finite, at most 2 decimal places. */
+const validUnitAmount = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 && Math.abs(Math.round(v * 100) - v * 100) < 1e-9
+
+function cleanSpecial(v: unknown): SpecialSetting | null {
+  if (!isObj(v) || typeof v.enabled !== "boolean") return null
+  const multiples = cleanMultiples(v.multiples)
+  if (!multiples || !validUnitAmount(v.unitAmount)) return null
+  return { enabled: v.enabled, multiples, unitAmount: v.unitAmount }
+}
 
 const REFERENCE_RE = /^233\d{9}$/
 export const isValidReferenceNumber = (v: unknown): v is string =>
@@ -38,12 +63,13 @@ export function resolveBundlesConfig(raw: unknown): BundlesConfig {
       referenceNumber: isValidReferenceNumber(s.referenceNumber) ? s.referenceNumber : DEFAULT_REFERENCE_NUMBERS[n],
     }
   }
-  return { enabled: r.enabled === true, networks }
+  const special = cleanSpecial(r.special) ?? { ...DEFAULT_SPECIAL, multiples: [...DEFAULT_SPECIAL.multiples] }
+  return { enabled: r.enabled === true, networks, special }
 }
 
 export function validateBundlesPatch(body: unknown): { ok: true; patch: BundlesPatch } | { ok: false; error: string } {
   if (!isObj(body)) return { ok: false, error: "Body must be an object" }
-  const allowed = new Set(["enabled", "networks"])
+  const allowed = new Set(["enabled", "networks", "special"])
   for (const k of Object.keys(body)) if (!allowed.has(k)) return { ok: false, error: `Unknown field ${k}` }
   const patch: BundlesPatch = {}
   if ("enabled" in body) {
@@ -65,6 +91,18 @@ export function validateBundlesPatch(body: unknown): { ok: true; patch: BundlesP
       out[k as BundleNetwork] = { enabled: v.enabled, hiddenCategories: [...v.hiddenCategories], referenceNumber: v.referenceNumber }
     }
     patch.networks = out
+  }
+  if ("special" in body) {
+    const s = body.special
+    if (!isObj(s)) return { ok: false, error: "special must be an object" }
+    for (const k of Object.keys(s)) if (!["enabled", "multiples", "unitAmount"].includes(k)) return { ok: false, error: `special: unknown field ${k}` }
+    if (typeof s.enabled !== "boolean") return { ok: false, error: "special: enabled must be true or false" }
+    const multiples = cleanMultiples(s.multiples)
+    if (!multiples) {
+      return { ok: false, error: `special: multiples must be 1 to ${SPECIAL_MAX_MULTIPLES} whole numbers between 1 and ${SPECIAL_MAX_MULTIPLE}` }
+    }
+    if (!validUnitAmount(s.unitAmount)) return { ok: false, error: "special: unit amount must be more than 0 with at most 2 decimal places" }
+    patch.special = { enabled: s.enabled, multiples, unitAmount: s.unitAmount }
   }
   return { ok: true, patch }
 }

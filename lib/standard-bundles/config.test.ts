@@ -52,6 +52,62 @@ describe("bundles config", () => {
     expect(validateBundlesPatch({ networks: { MTN: ns({ enabled: "true" }) } }).ok).toBe(false)
     expect(validateBundlesPatch([]).ok).toBe(false)
   })
+  describe("special bundles", () => {
+    const DEF = { enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3 }
+    it("defaults to dark with the default multiples", () => {
+      expect(resolveBundlesConfig(null).special).toEqual(DEF)
+      expect(resolveBundlesConfig({ enabled: true }).special).toEqual(DEF)
+    })
+    it("resolves a valid special, sorted and deduped", () => {
+      const c = resolveBundlesConfig({ special: { enabled: true, multiples: [10, 3, 3, 5], unitAmount: 2.5 } })
+      expect(c.special).toEqual({ enabled: true, multiples: [3, 5, 10], unitAmount: 2.5 })
+    })
+    it("invalid special resolves to disabled defaults", () => {
+      const bad: any[] = [
+        "x", [], { enabled: true },
+        { enabled: true, multiples: [], unitAmount: 3 },
+        { enabled: true, multiples: [0], unitAmount: 3 },
+        { enabled: true, multiples: [51], unitAmount: 3 },
+        { enabled: true, multiples: [1.5], unitAmount: 3 },
+        { enabled: true, multiples: ["3"], unitAmount: 3 },
+        { enabled: true, multiples: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], unitAmount: 3 },
+        { enabled: true, multiples: [3], unitAmount: 0 },
+        { enabled: true, multiples: [3], unitAmount: -1 },
+        { enabled: true, multiples: [3], unitAmount: 1.234 },
+        { enabled: true, multiples: [3], unitAmount: "3" },
+        { enabled: true, multiples: [3], unitAmount: NaN },
+        { enabled: "true", multiples: [3], unitAmount: 3 },
+      ]
+      for (const special of bad) expect(resolveBundlesConfig({ special }).special).toEqual(DEF)
+    })
+    it("does not change the existing fields", () => {
+      const c = resolveBundlesConfig({ enabled: true, special: { enabled: true, multiples: [3], unitAmount: 3 } })
+      expect(c.enabled).toBe(true)
+      expect(c.networks.MTN.referenceNumber).toBe("233246912184")
+    })
+    it("validates special patches", () => {
+      const ok = validateBundlesPatch({ special: { enabled: true, multiples: [15, 3, 5, 3], unitAmount: 3 } })
+      expect(ok).toEqual({ ok: true, patch: { special: { enabled: true, multiples: [3, 5, 15], unitAmount: 3 } } })
+      expect(validateBundlesPatch({ enabled: true, special: { enabled: false, multiples: [3], unitAmount: 3.5 } }).ok).toBe(true)
+      expect(validateBundlesPatch({ special: { enabled: true, multiples: Array.from({ length: 10 }, (_, i) => i + 1), unitAmount: 3 } }).ok).toBe(true)
+      expect(validateBundlesPatch({ special: { enabled: true, multiples: [50], unitAmount: 0.01 } }).ok).toBe(true)
+      const bad: any[] = [
+        null, [], { enabled: true, multiples: [3] }, { multiples: [3], unitAmount: 3 }, { enabled: 1, multiples: [3], unitAmount: 3 },
+        { enabled: true, multiples: [], unitAmount: 3 }, { enabled: true, multiples: "3,5", unitAmount: 3 },
+        { enabled: true, multiples: [0], unitAmount: 3 }, { enabled: true, multiples: [51], unitAmount: 3 },
+        { enabled: true, multiples: [2.5], unitAmount: 3 },
+        { enabled: true, multiples: Array.from({ length: 11 }, (_, i) => i + 1), unitAmount: 3 },
+        { enabled: true, multiples: [3], unitAmount: 0 }, { enabled: true, multiples: [3], unitAmount: 1.001 },
+        { enabled: true, multiples: [3], unitAmount: "3" }, { enabled: true, multiples: [3], unitAmount: Infinity },
+        { enabled: true, multiples: [3], unitAmount: 3, extra: 1 },
+      ]
+      for (const special of bad) expect(validateBundlesPatch({ special }).ok).toBe(false)
+    })
+    it("existing patch shapes still validate unchanged", () => {
+      expect(validateBundlesPatch({ enabled: true })).toEqual({ ok: true, patch: { enabled: true } })
+      expect(validateBundlesPatch({ nope: 1 }).ok).toBe(false)
+    })
+  })
   it("setBundlesConfig calls the RPC with the validated patch", async () => {
     const calls: any[] = []
     const db = { rpc: async (fn: string, args: any) => { calls.push({ fn, args }); return { data: { enabled: true }, error: null } } } as any

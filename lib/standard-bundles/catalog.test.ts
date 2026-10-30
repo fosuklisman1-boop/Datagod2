@@ -11,6 +11,7 @@ const cfg = (over: Partial<BundlesConfig["networks"]["MTN"]> = {}, enabled = tru
     TELECEL: { enabled: false, hiddenCategories: [], referenceNumber: "233200000000" },
     AT: { enabled: true, hiddenCategories: [], referenceNumber: "233260000000" },
   },
+  special: { enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3 },
 })
 
 const ITEMS = [
