@@ -1,4 +1,7 @@
-/** Pure size helpers for Special Bundles. No server imports, so client components can use them too. */
+/** Pure helpers for Special Bundles. No server imports, so client components can use them too. */
+
+/** Special Bundles: MTN, dashboard only. Each plan is N × the unit bundle (the GHS 3 non-expiry one). */
+export const SPECIAL_CATEGORY = "Special Bundles"
 
 const SIZE_RE = /(?<![\d.])(\d+(?:\.\d+)?)\s*(MB|GB)(?![a-z])/i
 

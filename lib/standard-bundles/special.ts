@@ -2,12 +2,9 @@ import { getCatalog, peekCatalogBundles, type CatalogDeps, type CatalogResult, t
 import type { BundleNetwork, CatalogBundle } from "./categories"
 import type { BundlesConfig } from "./config"
 import { signBundleToken, signSpecialToken } from "./token"
-import { formatSpecialGb, parseBundleMb } from "./special-format"
+import { formatSpecialGb, parseBundleMb, SPECIAL_CATEGORY } from "./special-format"
 
-export { formatSpecialGb, parseBundleMb }
-
-/** Special Bundles: MTN, dashboard only. Each plan is N × the unit bundle (the GHS 3 non-expiry one). */
-export const SPECIAL_CATEGORY = "Special Bundles"
+export { formatSpecialGb, parseBundleMb, SPECIAL_CATEGORY }
 
 export interface SpecialUnit { bundle: CatalogBundle; mb: number }
 export type SpecialEntry = SignedBundle & { special: { n: number; unitAmount: number; unitDisplay: string } }

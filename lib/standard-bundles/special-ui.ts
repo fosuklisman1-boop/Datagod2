@@ -34,6 +34,9 @@ export function specialBreakdown(s: SpecialInfo): string {
   return `${s.n} × ${s.unitDisplay}`
 }
 
+/** Shown under the category pills while "Special Bundles" is selected. */
+export const SPECIAL_BLURB = "Low Cost Non Expiry Bundles, special for you"
+
 export const PART_DELIVERED_LABEL = "Part delivered — we're on it"
 
 /** One status for a Special group: all completed → Completed; any failed (or refunded) → part delivered; else Processing. */

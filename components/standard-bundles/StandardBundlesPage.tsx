@@ -10,29 +10,23 @@ import {
   bundleStatusLabel, findSameBundle, isCatalogStale, parsePrefixRules, type PrefixRules,
 } from "@/lib/standard-bundles/ui-helpers"
 import { NETWORK_SERVICE } from "@/lib/standard-bundles/categories"
-import { quoteForDisplay } from "@/lib/cashback/display"
+import { SPECIAL_CATEGORY } from "@/lib/standard-bundles/special-format"
+import {
+  bundleCardPrice, groupBundleOrders, SPECIAL_BLURB, type BundleOrderRow, type SpecialInfo,
+} from "@/lib/standard-bundles/special-ui"
 import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
 import { BundleBuySheet, type PickedBundle } from "./BundleBuySheet"
 import { useBundlesAvailability } from "./use-bundles-availability"
 
 type Network = "MTN" | "TELECEL" | "AT"
-interface Bundle { value: string; display: string; amount: number; category: string; token: string }
+/** `special` is present only on Special Bundles entries (MTN, dashboard). */
+interface Bundle { value: string; display: string; amount: number; category: string; token: string; special?: SpecialInfo }
 interface Category { name: string; bundles: Bundle[] }
 /** A loaded catalog is always tagged with the network it was fetched for. */
 interface Catalog { network: Network; categories: Category[]; fetchedAt: number }
 
 const BUNDLE_GONE_MESSAGE = "Prices refreshed — that bundle is no longer offered. Please pick again."
-interface BundleOrder {
-  id: string
-  reference_code: string
-  network: string
-  beneficiary_phone: string
-  bundle_display: string
-  amount: number
-  status: string
-  payment_status: string
-  created_at: string
-}
+type BundleOrder = BundleOrderRow
 
 const STATUS_CLASSES: Record<string, string> = {
   pending: "bg-warning/10 text-warning",
@@ -207,7 +201,10 @@ export function StandardBundlesPage() {
       setOpening(null)
     }
     const label = networks.find(n => n.network === net)?.label ?? net
-    setPicked({ token: chosen.token, display: chosen.display, amount: chosen.amount, network: net, networkLabel: label, category: category || undefined })
+    setPicked({
+      token: chosen.token, display: chosen.display, amount: chosen.amount, network: net, networkLabel: label, category: category || undefined,
+      ...(chosen.special ? { special: chosen.special } : {}),
+    })
   }
 
   const onStale = async (message: string) => {
@@ -317,6 +314,9 @@ export function StandardBundlesPage() {
                   ))}
                 </div>
               )}
+              {category === SPECIAL_CATEGORY && categories.some(c => c.name === SPECIAL_CATEGORY) && (
+                <p className="-mt-2 text-xs text-muted-foreground">{SPECIAL_BLURB}</p>
+              )}
 
               {notice && (
                 <div role="status" className="rounded-2xl bg-warning/10 px-4 py-3 text-sm font-medium text-warning">{notice}</div>
@@ -338,7 +338,8 @@ export function StandardBundlesPage() {
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5" aria-busy={loadingCatalog}>
                   {visible.map(b => {
-                    const q = activeNetwork ? quoteForDisplay(b.amount, rates.services[NETWORK_SERVICE[activeNetwork]]) : null
+                    // Special: n × the per-unit display price (server rounding); normal: quoteForDisplay(amount) as before.
+                    const q = activeNetwork ? bundleCardPrice(b, rates.services[NETWORK_SERVICE[activeNetwork]]) : null
                     const m = activeNetwork ? TILE_META[activeNetwork] : TILE_META.MTN
                     const logo = logoFor(m.logoKeys)
                     const busy = opening === b.token
@@ -355,8 +356,8 @@ export function StandardBundlesPage() {
                           </div>
                           <div className="mt-4 text-center">
                             <p className="break-words text-2xl font-extrabold leading-tight">{b.display}</p>
-                            <p className="mt-1 text-lg font-bold">{cedi(q?.applied ? q.pay : b.amount)}</p>
-                            {q?.applied && <p className="text-sm font-medium line-through opacity-60">{cedi(b.amount)}</p>}
+                            <p className="mt-1 text-lg font-bold">{cedi(q ? q.pay : b.amount)}</p>
+                            {q?.applied && <p className="text-sm font-medium line-through opacity-60">{cedi(q.face)}</p>}
                           </div>
                         </div>
                         <button
@@ -393,18 +394,24 @@ export function StandardBundlesPage() {
                 </div>
               ) : (
                 <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
-                  {orders.map(o => {
-                    const s = bundleStatusLabel(o.status, o.payment_status)
+                  {groupBundleOrders(orders).map(line => {
+                    // A Special group (one purchase, N child orders) shows as one line with a combined status.
+                    const v = line.kind === "special"
+                      ? { key: `group:${line.groupId}`, title: line.title, phone: line.beneficiary_phone, at: line.created_at, amount: line.amount, s: line.status }
+                      : {
+                          key: line.order.id, title: `${line.order.network} ${line.order.bundle_display}`, phone: line.order.beneficiary_phone,
+                          at: line.order.created_at, amount: Number(line.order.amount), s: bundleStatusLabel(line.order.status, line.order.payment_status),
+                        }
                     return (
-                      <div key={o.id} className="flex items-center gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
+                      <div key={v.key} className="flex items-center gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">{o.network} {o.bundle_display}</p>
-                          <p className="truncate font-mono text-xs text-muted-foreground">{o.beneficiary_phone}</p>
-                          <p className="text-xs text-muted-foreground">{new Date(o.created_at).toLocaleString()}</p>
+                          <p className="truncate text-sm font-semibold text-foreground">{v.title}</p>
+                          <p className="truncate font-mono text-xs text-muted-foreground">{v.phone}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(v.at).toLocaleString()}</p>
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className="text-sm font-bold text-foreground">{cedi(Number(o.amount))}</p>
-                          <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_CLASSES[s.tone] || "bg-muted text-muted-foreground"}`}>{s.label}</span>
+                          <p className="text-sm font-bold text-foreground">{cedi(v.amount)}</p>
+                          <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_CLASSES[v.s.tone] || "bg-muted text-muted-foreground"}`}>{v.s.label}</span>
                         </div>
                       </div>
                     )
