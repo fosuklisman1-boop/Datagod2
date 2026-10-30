@@ -53,14 +53,25 @@ describe("bundles config", () => {
     expect(validateBundlesPatch([]).ok).toBe(false)
   })
   describe("special bundles", () => {
-    const DEF = { enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3 }
-    it("defaults to dark with the default multiples", () => {
+    const UV = "RACT_Data_GHC_3_Others"
+    const DEF = { enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3, unitValue: UV }
+    it("defaults to dark with the default multiples and unit value", () => {
       expect(resolveBundlesConfig(null).special).toEqual(DEF)
       expect(resolveBundlesConfig({ enabled: true }).special).toEqual(DEF)
     })
     it("resolves a valid special, sorted and deduped", () => {
+      const c = resolveBundlesConfig({ special: { enabled: true, multiples: [10, 3, 3, 5], unitAmount: 2.5, unitValue: "db-Data_x9" } })
+      expect(c.special).toEqual({ enabled: true, multiples: [3, 5, 10], unitAmount: 2.5, unitValue: "db-Data_x9" })
+    })
+    it("a stored special without unitValue gets the default unit value", () => {
       const c = resolveBundlesConfig({ special: { enabled: true, multiples: [10, 3, 3, 5], unitAmount: 2.5 } })
-      expect(c.special).toEqual({ enabled: true, multiples: [3, 5, 10], unitAmount: 2.5 })
+      expect(c.special).toEqual({ enabled: true, multiples: [3, 5, 10], unitAmount: 2.5, unitValue: UV })
+    })
+    it("an invalid unitValue resolves to disabled defaults", () => {
+      for (const unitValue of ["", " ", "a b", "x".repeat(81), "RACT.Data", "ü", 3, null]) {
+        expect(resolveBundlesConfig({ special: { enabled: true, multiples: [3], unitAmount: 3, unitValue } }).special).toEqual(DEF)
+      }
+      expect(resolveBundlesConfig({ special: { enabled: true, multiples: [3], unitAmount: 3, unitValue: "x".repeat(80) } }).special.enabled).toBe(true)
     })
     it("invalid special resolves to disabled defaults", () => {
       const bad: any[] = [
@@ -86,11 +97,16 @@ describe("bundles config", () => {
       expect(c.networks.MTN.referenceNumber).toBe("233246912184")
     })
     it("validates special patches", () => {
-      const ok = validateBundlesPatch({ special: { enabled: true, multiples: [15, 3, 5, 3], unitAmount: 3 } })
-      expect(ok).toEqual({ ok: true, patch: { special: { enabled: true, multiples: [3, 5, 15], unitAmount: 3 } } })
-      expect(validateBundlesPatch({ enabled: true, special: { enabled: false, multiples: [3], unitAmount: 3.5 } }).ok).toBe(true)
-      expect(validateBundlesPatch({ special: { enabled: true, multiples: Array.from({ length: 10 }, (_, i) => i + 1), unitAmount: 3 } }).ok).toBe(true)
-      expect(validateBundlesPatch({ special: { enabled: true, multiples: [50], unitAmount: 0.01 } }).ok).toBe(true)
+      const ok = validateBundlesPatch({ special: { enabled: true, multiples: [15, 3, 5, 3], unitAmount: 3, unitValue: UV } })
+      expect(ok).toEqual({ ok: true, patch: { special: { enabled: true, multiples: [3, 5, 15], unitAmount: 3, unitValue: UV } } })
+      expect(validateBundlesPatch({ enabled: true, special: { enabled: false, multiples: [3], unitAmount: 3.5, unitValue: UV } }).ok).toBe(true)
+      expect(validateBundlesPatch({ special: { enabled: true, multiples: Array.from({ length: 10 }, (_, i) => i + 1), unitAmount: 3, unitValue: UV } }).ok).toBe(true)
+      expect(validateBundlesPatch({ special: { enabled: true, multiples: [50], unitAmount: 0.01, unitValue: "x".repeat(80) } }).ok).toBe(true)
+      // unitValue is required in a patch (the RPC replaces `special` whole) and must be [A-Za-z0-9_-]{1,80}.
+      for (const unitValue of [undefined, "", " ", "a b", "x".repeat(81), "RACT.Data", "ü", 3, null]) {
+        const r = validateBundlesPatch({ special: { enabled: true, multiples: [3], unitAmount: 3, ...(unitValue === undefined ? {} : { unitValue }) } })
+        expect(r.ok).toBe(false)
+      }
       const bad: any[] = [
         null, [], { enabled: true, multiples: [3] }, { multiples: [3], unitAmount: 3 }, { enabled: 1, multiples: [3], unitAmount: 3 },
         { enabled: true, multiples: [], unitAmount: 3 }, { enabled: true, multiples: "3,5", unitAmount: 3 },
@@ -102,6 +118,11 @@ describe("bundles config", () => {
         { enabled: true, multiples: [3], unitAmount: 3, extra: 1 },
       ]
       for (const special of bad) expect(validateBundlesPatch({ special }).ok).toBe(false)
+      // Same cases with a valid unitValue: still refused for their original reason.
+      for (const special of bad) {
+        const withUv = special && typeof special === "object" && !Array.isArray(special) ? { ...special, unitValue: UV } : special
+        expect(validateBundlesPatch({ special: withUv }).ok).toBe(false)
+      }
     })
     it("existing patch shapes still validate unchanged", () => {
       expect(validateBundlesPatch({ enabled: true })).toEqual({ ok: true, patch: { enabled: true } })

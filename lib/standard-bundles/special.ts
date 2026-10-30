@@ -5,7 +5,6 @@ import { signBundleToken, signSpecialToken } from "./token"
 
 /** Special Bundles: MTN, dashboard only. Each plan is N × the unit bundle (the GHS 3 non-expiry one). */
 export const SPECIAL_CATEGORY = "Special Bundles"
-export const SPECIAL_UNIT_RE = /non.?expir|flexi/i
 
 export interface SpecialUnit { bundle: CatalogBundle; mb: number }
 export type SpecialEntry = SignedBundle & { special: { n: number; unitAmount: number; unitDisplay: string } }
@@ -29,17 +28,18 @@ export function parseBundleMb(display: string, value: string): number | null {
 const cents = (n: number) => Math.round(n * 100)
 
 /**
- * The unit: amount equals unitAmount (to the cent), category or display says non-expiry/Flexi, and the
- * size parses. Several matches: largest size, then smallest value string. None: null.
+ * The unit: the catalog item whose Value equals the admin-set `unitValue` exactly AND whose amount equals
+ * `unitAmount` (to the cent), with a parseable size. (MTN Values repeat across amounts, e.g. Flexi.)
+ * Duplicates of the same value and amount: largest size wins. None: null.
  */
-export function findSpecialUnit(bundles: CatalogBundle[], unitAmount: number): SpecialUnit | null {
+export function findSpecialUnit(bundles: CatalogBundle[], unitAmount: number, unitValue: string): SpecialUnit | null {
+  if (!unitValue) return null
   let best: SpecialUnit | null = null
   for (const bundle of bundles) {
-    if (cents(bundle.amount) !== cents(unitAmount)) continue
-    if (!SPECIAL_UNIT_RE.test(bundle.category) && !SPECIAL_UNIT_RE.test(bundle.display)) continue
+    if (bundle.value !== unitValue || cents(bundle.amount) !== cents(unitAmount)) continue
     const mb = parseBundleMb(bundle.display, bundle.value)
     if (mb === null) continue
-    if (!best || mb > best.mb || (mb === best.mb && bundle.value < best.bundle.value)) best = { bundle, mb }
+    if (!best || mb > best.mb) best = { bundle, mb }
   }
   return best
 }
@@ -79,7 +79,7 @@ export async function getDashboardCatalog(d: CatalogDeps, network: BundleNetwork
   try { cfg = await once.getBundlesConfig() } catch { return res }
   if (!cfg.special?.enabled) return res
 
-  const unit = findSpecialUnit(peekCatalogBundles("MTN") ?? [], cfg.special.unitAmount)
+  const unit = findSpecialUnit(peekCatalogBundles("MTN") ?? [], cfg.special.unitAmount, cfg.special.unitValue)
   if (!unit) return res
   const entries = buildSpecialEntries(unit, cfg.special.multiples, d.secret, d.now())
   return { ok: true, categories: [{ name: SPECIAL_CATEGORY, bundles: entries }, ...res.categories] }

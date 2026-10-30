@@ -42,46 +42,43 @@ describe("parseBundleMb", () => {
 })
 
 describe("findSpecialUnit", () => {
-  it("null when nothing matches amount, rule and size", () => {
-    expect(findSpecialUnit([], 3)).toBeNull()
-    expect(findSpecialUnit([b({ display: "406MB Non Expiry", amount: 5 })], 3)).toBeNull() // wrong amount
-    expect(findSpecialUnit([b({ display: "406MB" })], 3)).toBeNull() // no non-expiry/flexi marker
-    expect(findSpecialUnit([b({ display: "Non Expiry" })], 3)).toBeNull() // no parseable size
+  const UV = "RACT_Data_GHC_3_Others"
+  const mtnLive = () => parseCatalog("MTN", (fixture as any).MTN.Data as HubtelQueryItem[])
+
+  it("live 2026-10-13 fixture: the default unit value finds the 406.89MB GHS 3 unit", () => {
+    expect(findSpecialUnit(mtnLive(), 3, UV)).toEqual({
+      bundle: { value: UV, display: "406.89MB", amount: 3, category: "Data" },
+      mb: 406.89,
+    })
   })
-  it("matches on category or display (non-expiry / non expiry / nonexpiry / flexi)", () => {
-    expect(findSpecialUnit([b({ display: "406.89MB", category: "No Expiry" })], 3)).toBeNull()
-    expect(findSpecialUnit([b({ display: "406.89MB", category: "Non-Expiry" })], 3)?.mb).toBe(406.89)
-    expect(findSpecialUnit([b({ display: "Non Expiry 406.89MB" })], 3)?.mb).toBe(406.89)
-    expect(findSpecialUnit([b({ display: "NonExpiry 406.89MB" })], 3)?.mb).toBe(406.89)
-    expect(findSpecialUnit([b({ display: "Flexi 406.89MB" })], 3)?.mb).toBe(406.89)
+  it("a wrong value returns null", () => {
+    expect(findSpecialUnit(mtnLive(), 3, "RACT_Data_GHC_4_Others")).toBeNull()
+    expect(findSpecialUnit(mtnLive(), 3, "ract_data_ghc_3_others")).toBeNull() // exact match, case-sensitive
+    expect(findSpecialUnit(mtnLive(), 3, "")).toBeNull()
   })
-  it("does not match on the value alone (rule is category or display)", () => {
-    expect(findSpecialUnit([b({ display: "406.89MB", value: "RACT_Data_Flexi_Bundle" })], 3)).toBeNull()
+  it("a matching value with a different amount returns null", () => {
+    expect(findSpecialUnit(mtnLive(), 4, UV)).toBeNull()
+    expect(findSpecialUnit([b({ value: UV, display: "400MB", amount: 3.01 })], 3, UV)).toBeNull()
   })
-  it("several matching: largest size wins, then smallest value string", () => {
-    const pick = findSpecialUnit([
-      b({ value: "c", display: "Flexi 300MB" }),
-      b({ value: "b", display: "Flexi 406.89MB" }),
-      b({ value: "a", display: "Flexi 406.89MB" }),
-      b({ value: "z", display: "Flexi 1GB", amount: 3.01 }),
-    ], 3)
-    expect(pick?.bundle.value).toBe("a")
-    expect(pick?.mb).toBe(406.89)
+  it("matching value and amount but no parseable size returns null", () => {
+    expect(findSpecialUnit([b({ value: UV, display: "Non Expiry" })], 3, UV)).toBeNull()
   })
-  it("is order-independent", () => {
-    const items = [b({ value: "b", display: "Flexi 400MB" }), b({ value: "a", display: "Flexi 400MB" })]
-    expect(findSpecialUnit(items, 3)?.bundle.value).toBe("a")
-    expect(findSpecialUnit([...items].reverse(), 3)?.bundle.value).toBe("a")
+  it("no non-expiry/flexi rule: category and display wording are irrelevant", () => {
+    expect(findSpecialUnit([b({ value: "x", display: "Flexi 406.89MB", category: "Non-Expiry" })], 3, UV)).toBeNull()
+    expect(findSpecialUnit([b({ value: UV, display: "406.89MB", category: "Video" })], 3, UV)?.mb).toBe(406.89)
+  })
+  it("repeated Value (MTN Flexi) is told apart by amount", () => {
+    const flexi = mtnLive().filter((x) => x.value === "RACT_Data_Flexi_Bundle")
+    expect(findSpecialUnit(flexi, 40, "RACT_Data_Flexi_Bundle")?.mb).toBe(2780)
+  })
+  it("duplicates of the same value and amount: largest size wins, order-independent", () => {
+    const items = [b({ value: UV, display: "300MB" }), b({ value: UV, display: "406.89MB" })]
+    expect(findSpecialUnit(items, 3, UV)?.mb).toBe(406.89)
+    expect(findSpecialUnit([...items].reverse(), 3, UV)?.mb).toBe(406.89)
   })
   it("compares amounts to the cent", () => {
-    expect(findSpecialUnit([b({ display: "Flexi 400MB", amount: 1.5 })], 1.5)?.mb).toBe(400)
-    expect(findSpecialUnit([b({ display: "Flexi 400MB", amount: 1.51 })], 1.5)).toBeNull()
-  })
-  it("live 2026-10-13 fixture: the GHS 3 MTN item does NOT satisfy the rule (see task-2 report concern)", () => {
-    const mtn = parseCatalog("MTN", (fixture as any).MTN.Data as HubtelQueryItem[])
-    const ghs3 = mtn.find((x) => x.amount === 3)
-    expect(ghs3).toEqual({ value: "RACT_Data_GHC_3_Others", display: "406.89MB", amount: 3, category: "Data" })
-    expect(findSpecialUnit(mtn, 3)).toBeNull()
+    expect(findSpecialUnit([b({ value: UV, display: "400MB", amount: 1.5 })], 1.5, UV)?.mb).toBe(400)
+    expect(findSpecialUnit([b({ value: UV, display: "400MB", amount: 1.51 })], 1.5, UV)).toBeNull()
   })
 })
 
@@ -133,7 +130,7 @@ const cfg = (special: Partial<BundlesConfig["special"]> = {}): BundlesConfig => 
     TELECEL: { enabled: true, hiddenCategories: [], referenceNumber: "233200000000" },
     AT: { enabled: true, hiddenCategories: [], referenceNumber: "233260000000" },
   },
-  special: { enabled: false, multiples: [3, 5], unitAmount: 3, ...special },
+  special: { enabled: false, multiples: [3, 5], unitAmount: 3, unitValue: "x_Data_NE", ...special },
 })
 
 const ITEMS = [
@@ -183,9 +180,12 @@ describe("getDashboardCatalog", () => {
     }
   })
   it("switch on but no unit found: unchanged", async () => {
-    const d = deps(cfg({ enabled: true, unitAmount: 4 }))
-    const plain = await getCatalog(d, "MTN")
-    expect(await getDashboardCatalog(d, "MTN")).toEqual(plain)
+    for (const special of [{ enabled: true, unitAmount: 4 }, { enabled: true, unitValue: "x_Data_1" }, { enabled: true, unitValue: "nope" }]) {
+      __resetCatalogCache()
+      const d = deps(cfg(special))
+      const plain = await getCatalog(d, "MTN")
+      expect(await getDashboardCatalog(d, "MTN")).toEqual(plain)
+    }
   })
   it("unit is found even when its category is hidden from the normal list", async () => {
     const c = cfg({ enabled: true })
