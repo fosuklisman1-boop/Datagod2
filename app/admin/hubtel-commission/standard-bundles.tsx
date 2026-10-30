@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner"
 import { RefreshCw, Search } from "lucide-react"
 import { BUNDLE_NETWORKS, type BundleNetwork } from "@/lib/standard-bundles/categories"
-import { isValidReferenceNumber, type BundlesConfig } from "@/lib/standard-bundles/config"
+import { isValidReferenceNumber, validateBundlesPatch, type BundlesConfig } from "@/lib/standard-bundles/config"
 
 export type Authed = (path: string, init?: RequestInit) => Promise<any>
 
@@ -131,10 +131,55 @@ export function BundlesSettingsCard({ authed }: { authed: Authed }) {
                 )
               })}
             </div>
+            <SpecialBundlesSection special={cfg.special} busy={busy} onSave={save} />
           </>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+// Special Bundles (MTN): the dashboard-only "N x the unit bundle" category. Ships off.
+// The config RPC replaces `special` whole, so every save sends all three fields.
+function SpecialBundlesSection({ special, busy, onSave }: {
+  special: BundlesConfig["special"]; busy: boolean; onSave: (patch: object, okMsg?: string) => Promise<void>
+}) {
+  const [multiples, setMultiples] = useState(special.multiples.join(", "))
+  const [unit, setUnit] = useState(String(special.unitAmount))
+  // Re-sync the drafts whenever the saved config changes.
+  useEffect(() => { setMultiples(special.multiples.join(", ")); setUnit(String(special.unitAmount)) }, [special])
+
+  const parts = multiples.split(",").map(s => s.trim()).filter(Boolean)
+  const parsedMultiples = parts.map(p => (/^\d+$/.test(p) ? Number(p) : NaN))
+  const parsedUnit = unit.trim() === "" ? NaN : Number(unit)
+  const draft = { enabled: special.enabled, multiples: parsedMultiples, unitAmount: parsedUnit }
+  const check = validateBundlesPatch({ special: draft })
+  const dirty = !check.ok || JSON.stringify(check.patch.special) !== JSON.stringify(special)
+
+  return (
+    <div className="space-y-3 rounded-xl border p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-medium">Special Bundles (MTN)</div>
+          <div className="text-xs text-muted-foreground">Dashboard only. A &quot;Special Bundles&quot; category of multiples of the unit bundle, shown first for MTN.</div>
+        </div>
+        <Switch aria-label="Special Bundles enabled" checked={special.enabled} disabled={busy}
+          onCheckedChange={v => onSave({ special: { enabled: v, multiples: special.multiples, unitAmount: special.unitAmount } }, v ? "Special Bundles on" : "Special Bundles off")} />
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[2fr_1fr_auto] lg:items-end">
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">Multiples (comma separated, 1 to 10 whole numbers from 1 to 50)</div>
+          <Input aria-label="Special Bundles multiples" value={multiples} inputMode="numeric" onChange={e => setMultiples(e.target.value)} />
+        </div>
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">Unit amount (GHS)</div>
+          <Input aria-label="Special Bundles unit amount" value={unit} inputMode="decimal" onChange={e => setUnit(e.target.value)} />
+        </div>
+        <Button disabled={busy || !check.ok || !dirty}
+          onClick={() => { if (check.ok && check.patch.special) void onSave({ special: check.patch.special }, "Special Bundles saved") }}>Save</Button>
+      </div>
+      {!check.ok && <div className="text-xs text-red-600">{check.error}</div>}
+    </div>
   )
 }
 
