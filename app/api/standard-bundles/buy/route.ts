@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { getBundlesRuntime, pickOrder } from "@/lib/standard-bundles/runtime"
 import { buyBundle } from "@/lib/standard-bundles/service"
+import { buySpecial } from "@/lib/standard-bundles/special-service"
+import { buildSpecialDeps } from "@/lib/standard-bundles/special-runtime"
+import { isSpecialTokenSigned } from "@/lib/standard-bundles/token"
 import { authenticate, readJson } from "@/lib/bills/route-auth"
 
 // A request must always die well before the 5-minute stuck-claim threshold.
@@ -29,6 +32,16 @@ export async function POST(request: NextRequest) {
     const ep = body.expectedPay
     const expectedPay = typeof ep === "number" && Number.isFinite(ep) ? ep
       : typeof ep === "string" && /^\d+(\.\d+)?$/.test(ep.trim()) ? Number(ep.trim()) : undefined
+
+    // Special Bundles: a token carrying the special MAC goes to buySpecial (which verifies it in full, freshness
+    // included, after its replay lookup). Every other token takes the normal path below, unchanged.
+    if (isSpecialTokenSigned(token, deps.secret)) {
+      const s = await buySpecial(buildSpecialDeps(deps, db, after), auth.userId, { token, phone, idempotencyKey, expectedPay })
+      if (!s.ok) {
+        return NextResponse.json({ success: false, error: s.error, ...(s.quote ? { quote: s.quote } : {}) }, { status: s.status })
+      }
+      return NextResponse.json({ success: true, order: pickOrder(s.order), special: s.special })
+    }
 
     const result = await buyBundle(deps, auth.userId, { token, phone, idempotencyKey, expectedPay })
     if (!result.ok) {
