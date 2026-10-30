@@ -371,7 +371,7 @@ describe("buySpecial — RPC outcomes", () => {
     m.d.listSpecialGroup = async () => { throw new Error("db down") }
     const r = await buy(m)
     expect(r.ok && r.special).toEqual({ groupId: "g1", n: 3 })
-    expect(m.calls.alerts).toEqual(["Special group g1: could not list units after payment; check /admin/standard-bundles and send any pending ones"])
+    expect(m.calls.alerts).toEqual(["Special group g1: could not list units after payment; check Admin > Hubtel Commission > Standard Bundles tab and send any pending ones"])
     expect(m.calls.urgent).toEqual([true])
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1"])
@@ -392,6 +392,22 @@ describe("buySpecial — RPC outcomes", () => {
     expect(m.calls.urgent).toEqual([true])
     expect(m.tasks).toHaveLength(0)
   })
+  it("the outcome-uncertain alert also says to send the group's pending units if it committed", async () => {
+    const m = make(); m.setRpcMode("throw_none")
+    await buy(m)
+    expect(m.calls.alerts).toHaveLength(1)
+    expect(m.calls.alerts[0]).toContain("check wallet")
+    expect(m.calls.alerts[0]).toContain("if the group committed, send its pending units from Admin > Hubtel Commission > Standard Bundles")
+  })
+  it("RPC not deployed (unavailable) => plain 503, no alert, nothing charged, nothing scheduled", async () => {
+    const m = make()
+    m.d.createSpecialOrders = async () => ({ ok: false, error: "unavailable" })
+    const r = await buy(m)
+    expect(r).toEqual({ ok: false, status: 503, error: "Special Bundles are not available right now" })
+    expect(m.calls.alerts).toEqual([])
+    expect(m.debits).toEqual([])
+    expect(m.tasks).toHaveLength(0)
+  })
 })
 
 describe("buySpecial — dispatch isolation", () => {
@@ -406,6 +422,26 @@ describe("buySpecial — dispatch isolation", () => {
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2", "o3"])
     expect(m.orders.map(o => o.status)).toEqual(["processing", "pending", "processing"])
+    // A child left unsent is an URGENT alert naming the group and unit i/N.
+    const i = m.calls.alerts.findIndex(a => a.startsWith("Special group g1: unit 2/3"))
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(m.calls.urgent[i]).toBe(true)
+    expect(m.calls.alerts[i]).toContain("Admin > Hubtel Commission > Standard Bundles tab")
+    expect(m.calls.alerts.some(a => a.includes("unit 1/3") || a.includes("unit 3/3"))).toBe(false)
+  })
+  it("a child Hubtel fails outright (status failed) is an URGENT alert naming unit i/N", async () => {
+    const m = make()
+    const purchase = m.d.purchase
+    m.d.purchase = async (i) => {
+      if (i.orderId === "o3") { m.calls.purchase.push(i); return { client_reference: "CR-o3", state: "failed" } as HubtelCsTx }
+      return purchase(i)
+    }
+    await buy(m)
+    await m.runTasks()
+    // (dispatchBundleOrder reports "failed" from the ledger state; the Hubtel adapter writes the row in prod.)
+    const i =m.calls.alerts.findIndex(a => a.startsWith("Special group g1: unit 3/3"))
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(m.calls.urgent[i]).toBe(true)
   })
   it("child 2's re-read throwing (an exception out of the loop body) does not stop children 1 and 3, and leaves a trace", async () => {
     const m = make()
@@ -416,6 +452,9 @@ describe("buySpecial — dispatch isolation", () => {
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o3"])
     expect(m.calls.alerts.some(a => a.includes("SB-O2") || a.includes("o2"))).toBe(true)
+    const i = m.calls.alerts.findIndex(a => a.startsWith("Special group g1: unit 2/3"))
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(m.calls.urgent[i]).toBe(true)
   })
   it("time budget: past 240s since the loop started, the rest are not sent and ONE urgent alert names k of n", async () => {
     const m = make()
@@ -429,7 +468,7 @@ describe("buySpecial — dispatch isolation", () => {
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2"])
     expect(m.orders.map(o => o.status)).toEqual(["processing", "processing", "pending", "pending", "pending"])
-    expect(m.calls.alerts).toEqual(["Special group g1: 3 of 5 units not sent (time budget); retry them from /admin/standard-bundles"])
+    expect(m.calls.alerts).toEqual(["Special group g1: 3 of 5 units not sent (time budget); send them from Admin > Hubtel Commission > Standard Bundles tab"])
     expect(m.calls.urgent).toEqual([true])
   })
   it("time budget is measured from the request start, not the after() task start", async () => {
@@ -445,7 +484,7 @@ describe("buySpecial — dispatch isolation", () => {
     expect(r.ok).toBe(true)
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2"])
-    expect(m.calls.alerts).toEqual(["Special group g1: 1 of 3 units not sent (time budget); retry them from /admin/standard-bundles"])
+    expect(m.calls.alerts).toEqual(["Special group g1: 1 of 3 units not sent (time budget); send them from Admin > Hubtel Commission > Standard Bundles tab"])
     expect(m.calls.urgent).toEqual([true])
   })
   it("time budget: exactly 240s elapsed still dispatches (strictly more than 240s stops)", async () => {

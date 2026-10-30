@@ -322,5 +322,4 @@ COMMIT;
 --     -- false, false, true
 --   SELECT pg_get_function_identity_arguments(oid) FROM pg_proc WHERE proname = 'create_special_bundle_orders';
 --     -- exactly one row: p_user uuid, p_group_key text, p_n integer, p_rows jsonb, p_total numeric
---     -- false, false, true
 --   SELECT count(*) FROM hubtel_data_orders WHERE special_group_id IS NOT NULL;   -- 0 until the switch is on

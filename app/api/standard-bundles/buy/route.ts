@@ -10,6 +10,10 @@ import { authenticate, readJson } from "@/lib/bills/route-auth"
 
 // 300s: room for the Special dispatch loop, which stops itself after a 240s budget (special-service.ts). A normal
 // buy only gains headroom.
+// COUPLED to STUCK_CLAIM_MS (300s, lib/standard-bundles/admin.ts): a "Dispatching…" claim older than that is treated
+// as dead and can be released/refunded by an admin. Still safe at equal values, because a claim is always written
+// AFTER the request starts, so a live request's claim is always younger than maxDuration. Margin is zero: never
+// raise maxDuration above STUCK_CLAIM_MS (or lower STUCK_CLAIM_MS) without moving the other.
 export const maxDuration = 300
 
 export async function POST(request: NextRequest) {

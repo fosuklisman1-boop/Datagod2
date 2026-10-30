@@ -14,6 +14,9 @@ export function buildSpecialDeps(base: BundlesDeps, db: SupabaseClient, schedule
       })
       if (error) {
         const m = String((error as { message?: unknown }).message ?? "")
+        const code = String((error as { code?: unknown }).code ?? "")
+        // Function not found (0141 not applied): PostgREST PGRST202 / Postgres 42883. Definite: nothing ran, nothing charged.
+        if (code === "PGRST202" || code === "42883") return { ok: false, error: "unavailable" }
         if (m === "INSUFFICIENT_FUNDS") return { ok: false, error: "insufficient" }
         if (m === "BAD_INPUT") {
           const detail = (error as { details?: unknown }).details

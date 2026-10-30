@@ -6,7 +6,12 @@ export const DATA_ORDERS_TABLE = "hubtel_data_orders"
 export const ORDER_STATUSES = ["pending", "processing", "completed", "failed", "refunded"] as const
 /** A pending+paid order younger than this may still be mid-dispatch, so it cannot be refunded as "never sent". */
 export const UNSENT_GRACE_MS = 60_000
-/** A dispatch claim older than this with no Hubtel ledger row never reached Hubtel (the ledger row is written before the POST). */
+/**
+ * A dispatch claim older than this with no Hubtel ledger row never reached Hubtel (the ledger row is written before the POST).
+ * COUPLED to the buy route's `maxDuration = 300` (app/api/standard-bundles/buy/route.ts): it must stay >= maxDuration, so a
+ * request still alive can never have its claim judged stuck. Equal today (zero margin, safe because the claim is written
+ * after the request starts). Change both together.
+ */
 export const STUCK_CLAIM_MS = 300_000
 
 export interface OrderFilters {

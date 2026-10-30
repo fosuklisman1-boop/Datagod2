@@ -42,6 +42,14 @@ describe("buildSpecialDeps", () => {
     await expect(buildSpecialDeps(base, fakeDb({ error: { message: "timeout" } }).db, () => {}).createSpecialOrders(ARGS)).rejects.toThrow()
     await expect(buildSpecialDeps(base, fakeDb({ data: { group_id: "g" } }).db, () => {}).createSpecialOrders(ARGS)).rejects.toThrow()
   })
+  it("function not found (42883 / PGRST202, 0141 not applied) => unavailable, never 'outcome unknown'", async () => {
+    for (const error of [
+      { code: "PGRST202", message: "Could not find the function public.create_special_bundle_orders(...) in the schema cache" },
+      { code: "42883", message: "function public.create_special_bundle_orders(uuid, text, integer, jsonb, numeric) does not exist" },
+    ]) {
+      expect(await buildSpecialDeps(base, fakeDb({ error }).db, () => {}).createSpecialOrders(ARGS)).toEqual({ ok: false, error: "unavailable" })
+    }
+  })
   it("listSpecialGroup filters by the user AND the group, ordered by special_index", async () => {
     const { db, seen } = fakeDb({}, [{ id: "a" }])
     const d = buildSpecialDeps(base, db, () => {})

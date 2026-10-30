@@ -28,10 +28,11 @@ export interface SpecialUnitRow {
 export interface SpecialRpcArgs { userId: string; groupKey: string; n: number; rows: SpecialUnitRow[]; total: number }
 export type SpecialRpcResult =
   | { ok: true; groupId: string; orderIds: string[]; replay: boolean }
-  | { ok: false; error: "insufficient" | "bad_input"; detail?: string }
+  /** unavailable = the RPC does not exist (migration 0141 not applied): nothing ran, nothing charged. */
+  | { ok: false; error: "insufficient" | "bad_input" | "unavailable"; detail?: string }
 
 export interface SpecialDeps extends BundlesDeps {
-  /** create_special_bundle_orders. Maps INSUFFICIENT_FUNDS / BAD_INPUT; THROWS on anything else (outcome unknown). */
+  /** create_special_bundle_orders. Maps INSUFFICIENT_FUNDS / BAD_INPUT / function-not-found; THROWS on anything else (outcome unknown). */
   createSpecialOrders(a: SpecialRpcArgs): Promise<SpecialRpcResult>
   /** The user's children of one group, ordered by special_index. */
   listSpecialGroup(userId: string, groupId: string): Promise<SpecialChildRow[]>
@@ -45,6 +46,9 @@ export type SpecialBuyResult =
 
 export const SPECIAL_PRICE_CHANGED = "Price changed. Please try again."
 const UNAVAILABLE = "Bundles unavailable right now"
+export const SPECIAL_UNAVAILABLE = "Special Bundles are not available right now"
+/** Where admins handle Special children (there is no /admin/standard-bundles page). */
+const ADMIN_PLACE = "Admin > Hubtel Commission > Standard Bundles tab"
 /** The sequential dispatch loop stops starting new children after this long (the route allows 300s). */
 export const DISPATCH_BUDGET_MS = 240_000
 const KEY_USED ="This request was already used for another purchase. Please try again."
@@ -136,11 +140,12 @@ export async function buySpecial(d: SpecialDeps, userId: string, input: BuyInput
     let first: SpecialChildRow | null = null
     try { first = (await d.findOrderByIdempotencyKey(userId, `${key}:1`)) as SpecialChildRow | null } catch { first = null }
     if (first?.special_group_id) return committed(d, userId, first.special_group_id, n, null, first.id, startedAt)
-    await safeAlert(d, `Special bundle purchase outcome uncertain: user ${userId}, ${n} x ${s.unit.display}, GHS ${total} — check wallet`, true)
+    await safeAlert(d, `Special bundle purchase outcome uncertain: user ${userId}, ${n} x ${s.unit.display}, GHS ${total} — check wallet; if the group committed, send its pending units from Admin > Hubtel Commission > Standard Bundles tab`, true)
     return fail(500, "We could not confirm your payment. Please check your wallet before retrying.")
   }
   if (!r.ok) {
     if (r.error === "insufficient") return fail(402, INSUFFICIENT)
+    if (r.error === "unavailable") return fail(503, SPECIAL_UNAVAILABLE) // RPC missing: definite, uncharged, no alert
     console.error("[bundles] special RPC refused input:", r.detail ?? "")
     return fail(400, "Could not place this order. You were not charged — please try again.")
   }
@@ -165,9 +170,9 @@ async function committed(
   if (!orderIds && children.length < n) {
     // The ids came only from a re-read that failed or came back short: some children may be unknown here.
     if (ids.length === 0 && firstId) ids = [firstId]
-    await safeAlert(d, `Special group ${groupId}: could not list units after payment; check /admin/standard-bundles and send any pending ones`, true)
+    await safeAlert(d, `Special group ${groupId}: could not list units after payment; check ${ADMIN_PLACE} and send any pending ones`, true)
   }
-  scheduleDispatch(d, groupId, ids, startedAt)
+  scheduleDispatch(d, groupId, ids, n, startedAt)
   if (children.length === 0) {
     // Paid and scheduled; only the summary read failed. Never report a paid purchase as an error.
     // n = the validated n paid for (the RPC created exactly n children), not the possibly partial id list.
@@ -185,8 +190,12 @@ async function replayGroup(d: SpecialDeps, userId: string, groupId: string, firs
   return { ok: true, replay: true, special: { groupId, n: children.length }, order: summarize(groupId, children) }
 }
 
-/** `startedAt`: buySpecial's entry time, so the 240s budget includes the pre-response work. */
-function scheduleDispatch(d: SpecialDeps, groupId: string, ids: string[], startedAt: number): void {
+/**
+ * `startedAt`: buySpecial's entry time, so the 240s budget includes the pre-response work. `n`: the group size paid for.
+ * Every child failure in the loop (missing row, exception, or a child left failed / unsent) is an URGENT alert naming
+ * the group and unit i/N: a Special purchase is one customer payment.
+ */
+function scheduleDispatch(d: SpecialDeps, groupId: string, ids: string[], n: number, startedAt: number): void {
   const task = async () => {
     const start = startedAt
     for (let i = 0; i < ids.length; i++) {
@@ -195,21 +204,26 @@ function scheduleDispatch(d: SpecialDeps, groupId: string, ids: string[], starte
       if (d.now() - start > DISPATCH_BUDGET_MS) {
         const k = ids.length - i
         console.error("[bundles] special dispatch time budget exceeded:", groupId, `${k}/${ids.length} not sent`)
-        await safeAlert(d, `Special group ${groupId}: ${k} of ${ids.length} units not sent (time budget); retry them from /admin/standard-bundles`, true)
+        await safeAlert(d, `Special group ${groupId}: ${k} of ${ids.length} units not sent (time budget); send them from ${ADMIN_PLACE}`, true)
         return
       }
-      // One child failing never stops the others; every failure leaves a log line and an admin alert.
+      let unit = `${i + 1}/${n}`
+      // One child failing never stops the others; every failure leaves a log line and an URGENT admin alert.
       try {
-        const row = await d.getOrder(id)
+        const row = (await d.getOrder(id)) as SpecialChildRow | null
         if (!row) {
           console.error("[bundles] special child missing:", id)
-          await safeAlert(d, `Special bundle group ${groupId}: child order ${id} not found for dispatch. Check it in Standard Bundles.`)
+          await safeAlert(d, `Special group ${groupId}: unit ${unit} (order ${id}) not found for dispatch; check it in ${ADMIN_PLACE}`, true)
           continue
         }
-        await dispatchBundleOrder(d, row)
+        if (row.special_index) unit = `${row.special_index}/${n}`
+        const status = await dispatchBundleOrder(d, row)
+        if (status === "failed" || status === "pending") {
+          await safeAlert(d, `Special group ${groupId}: unit ${unit} (${row.reference_code}) ${status === "failed" ? "failed" : "paid but not sent"}; retry, send or refund it in ${ADMIN_PLACE}`, true)
+        }
       } catch (e) {
         console.error("[bundles] special child dispatch error:", id, msg(e))
-        await safeAlert(d, `Special bundle group ${groupId}: child order ${id} dispatch error (${msg(e)}). It is paid; check it in Standard Bundles.`)
+        await safeAlert(d, `Special group ${groupId}: unit ${unit} (order ${id}) dispatch error (${msg(e)}). It is paid; check it in ${ADMIN_PLACE}`, true)
       }
     }
   }
@@ -217,7 +231,7 @@ function scheduleDispatch(d: SpecialDeps, groupId: string, ids: string[], starte
     d.schedule(task)
   } catch (e) {
     console.error("[bundles] special dispatch could not be scheduled:", msg(e))
-    void safeAlert(d, `Special bundle group ${groupId}: PAID but dispatch could not be scheduled (${ids.length} children left pending). Dispatch them from Standard Bundles.`, true)
+    void safeAlert(d, `Special bundle group ${groupId}: PAID but dispatch could not be scheduled (${ids.length} children left pending). Send them from ${ADMIN_PLACE}.`, true)
   }
 }
 
