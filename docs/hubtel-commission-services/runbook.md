@@ -514,3 +514,71 @@ Follow-ups:
 - WhatsApp airtime (main + shop): bring it under the storefront OTP switch AND add the per-number MoMo prompt cap (`momodirect_phone`, 3/h), as Network Plans / Pay Bills have (the airtime gap above).
 - Offer the new items through AI ordering, and add them to the AI `start_ordering_bot` first menu.
 - Margin report: cashback airtime from WhatsApp lives in `airtime_orders`, so it shows under Dashboard / Storefront, not Bots (same as Plans 2 and 3). Totals are correct.
+
+## Special Bundles (MTN, dashboard wallet only)
+
+A "Special Bundles" category, listed first for MTN on `/dashboard/standard-bundles`: N × one cheap non-expiry unit bundle (default Hubtel value `RACT_Data_GHC_3_Others`, 406.89MB at GHS 3). One purchase = ONE wallet debit (one `transactions` row, reference `SPECIAL-<group id>`) + N ordinary child rows in `hubtel_data_orders` linked by `special_group_id`, numbered `special_index` 1..N. Each child is dispatched one after another by the normal `dispatchBundleOrder` (same claim, ledger, status check and alerts as a single order). Price = N × the per-unit cashback price (cashback floored per unit), so the card, the buy sheet and the debit always agree. Ships OFF (`standard_bundles_config.special.enabled = false`). Storefront, API, USSD and WhatsApp are not affected.
+
+### 0. Apply migration 0141 FIRST (before enabling; the code tolerates it missing)
+`migrations/0141_special_bundles.sql` is additive: two nullable columns, a CHECK, a partial UNIQUE index and the service-role-only RPC `create_special_bundle_orders`. Follow the prod change protocol (precheck → self-rolling-back dry run → user OK → apply → verify).
+
+Pre-checks (read-only):
+- `SELECT count(*) FROM hubtel_data_orders;` — note it. `ADD CONSTRAINT ... CHECK` scans the whole table under the migration's `lock_timeout = 5s` / `statement_timeout = 120s`; a large table means run it at a quiet hour.
+- `SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.hubtel_data_orders'::regclass AND NOT tgisinternal;` — only `trg_00_refund_status_guard`. Anything else: read it before applying (the RPC inserts N rows).
+- `SELECT count(*) FROM pg_proc WHERE proname = 'create_special_bundle_orders';` — `0` (no earlier draft or overload).
+- `SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='hubtel_data_orders' AND column_name IN ('special_group_id','special_index');` — `0`.
+- `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'hubtel_data_orders_channel_check';` includes `'dashboard'`; `SELECT count(*) FROM pg_proc WHERE proname = 'deduct_wallet' AND prosecdef;` — `1`.
+
+Dry run (rolls itself back): `migrations/0141_special_bundles.selftest.sql`. Build the run string in CODE exactly as `runString()` in `lib/standard-bundles/special-migration.test.ts` does (the migration minus ONLY its final `COMMIT;` line, then the self-test from the column-0 `DO` line on) and assert it has no `COMMIT` and no bare `END;` before sending it (the 0130 lesson). It needs an **admin user with a wallet balance of at least GHS 3.00** (it picks the admin with the largest balance; it never edits a balance directly). It PASSES only when the error text starts with `SELFTEST_OK`; any `FAIL ...` is a failure. Everything — columns, function, debits, rows — is rolled back; send `ROLLBACK;` if the session stays open.
+
+Apply, then post-checks (read-only):
+- Columns: `special_group_id uuid YES`, `special_index smallint YES` (information_schema query above).
+- CHECK `hubtel_data_orders_special_check` exists; index: `SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_hubtel_data_orders_special_child';` (UNIQUE on `(special_group_id, special_index) WHERE special_group_id IS NOT NULL`).
+- ONE signature: `SELECT pg_get_function_identity_arguments(oid) FROM pg_proc WHERE proname = 'create_special_bundle_orders';` → exactly one row `p_user uuid, p_group_key text, p_n integer, p_rows jsonb, p_total numeric`.
+- `SELECT p.prosecdef, p.proconfig FROM pg_proc p WHERE p.proname = 'create_special_bundle_orders';` → `true`, `{search_path=public}`.
+- Only service_role executes: `has_function_privilege('anon'|'authenticated'|'service_role', 'public.create_special_bundle_orders(uuid,text,integer,jsonb,numeric)', 'EXECUTE')` → `false`, `false`, `true`.
+- `SELECT count(*) FROM hubtel_data_orders WHERE special_group_id IS NOT NULL;` → `0` until the switch is on.
+
+### 1. Enable
+Pre-reqs: Standard Bundles master + MTN network ON, Hubtel enabled with `data_mtn` ON (Phase 2b).
+1. Before turning it on, check the dashboard UI with a headless screenshot at **500px** and at **desktop width** (the Special pill, the blurb "Low Cost Non Expiry Bundles, special for you", the cards at N × unit price, the buy sheet breakdown, the grouped My orders line). Use a preview / local build with the switch on in a non-prod config, or turn it on briefly and screenshot as an admin.
+2. `/admin/hubtel-commission` → Standard Bundles → card **"Special Bundles (MTN)"**:
+   - Hubtel unit value: `RACT_Data_GHC_3_Others`
+   - Unit amount: `3`
+   - Multiples: `3, 5, 8, 10, 15` (each 1..20; at most 10 values). Save, then flip the switch on.
+   If the live MTN catalog has no bundle with exactly that value AND that amount, the Special category simply does not appear (no error) — re-check the value against the live catalog.
+
+### 2. Supervised live test (one purchase)
+Buy **Special 3×** (GHS 9.00 face, less cashback if on) from an admin's wallet to a test number you hold. Expect:
+- the card shows ~**1.22GB** (3 × 406.89MB) and the buy sheet "3 × 406.89MB";
+- **one** wallet debit (one `transactions` row, `source = 'standard_bundle'`, `reference_id = 'SPECIAL-<group id>'`, amount = 3 × the per-unit pay);
+- **three** child orders in one group: `SELECT id, reference_code, special_index, status, payment_status, amount, paid_amount FROM hubtel_data_orders WHERE special_group_id = '<id>' ORDER BY special_index;` — all `paid`, each going `completed` with a Hubtel ledger row and commission;
+- the handset really receives ~407MB per unit, ~1.22GB in all (check the MTN balance on the test number: this confirms the unit is the non-expiry 406.89MB bundle);
+- **My orders** shows ONE line "Special 1.22GB (3 × 406.89MB)" with status Completed;
+- `/admin/hubtel-commission` → Standard Bundles orders shows three rows with badges **Special 1/3, 2/3, 3/3**; clicking a badge filters the list to that group ("Clear" removes the filter).
+Then try a double-tap / retry of the same purchase: still one debit, one group.
+
+### 3. Partial failure (admin review)
+Some units delivered, some not: My orders shows **"Part delivered — we're on it"** (all failed: **"Not delivered — we're on it"**; all refunded: **"Refunded"**). Handle each child on its own from the Standard Bundles orders tab — click its Special badge to see the whole group:
+- `failed` with only Hubtel-failed attempts → **Retry** (as for any single order);
+- never sent (`pending` + paid, older than 60 s) or a stuck claim → **Send to Hubtel**, or **Refund (never sent)** (refunds the child's `paid_amount` with reference `data-refund-<child id>`, never twice);
+- reached Hubtel → Hubtel review queue.
+Retry and refund work per child exactly as for normal orders; nothing group-level exists.
+
+URGENT alerts (SMS with email fallback, category `bills_review`):
+- **"Special group <id>: k of n units not sent (time budget); retry them from /admin/standard-bundles"** — the dispatch loop stops after 240 s (route maxDuration 300 s). The last k children are paid and `pending`; after 60 s they show **Send to Hubtel** — send them (or refund them).
+- **"Special group <id>: could not list units after payment; check /admin/standard-bundles and send any pending ones"** — the debit committed but the server could not read the group back; only the ids it knew were dispatched. Filter by the group and send/refund any child still `pending` + paid.
+- Others (non-urgent): "child order <id> not found for dispatch", "child order <id> dispatch error (...). It is paid", and "PAID but dispatch could not be scheduled (n children left pending)" (urgent) — same handling: find the child, send or refund it.
+
+### 4. Known limits
+- An idempotency key already used for a Special group and then reused with a NORMAL bundle token creates a normal order (the normal path looks up only the bare key; the client mints a new key per purchase, so this needs a crafted request).
+- Children still waiting in the dispatch loop show as **Send to Hubtel** / refundable in admin after the 60 s grace. The claim and status guards make a concurrent admin action safe, but do not hand-dispatch a group that is less than ~5 minutes old unless an alert says so.
+- The admin order line and the My orders line show the FACE amount (N × Hubtel price), like normal orders; what was charged is `paid_amount` (admin "Paid" line) and the one wallet debit.
+- A replayed buy (same key) returns the earlier group as it stands and does NOT re-dispatch it; stuck children are an admin job (section 3).
+- My orders shows at most 50 orders; a group cut by that limit is topped up with a second read. If that read fails, the line shows only the children it saw (smaller size/amount, and its status covers only those).
+- The admin "i/N" N is a live count of the group's rows; if that count fails the badge shows "Special i".
+- The checkout UI was not screenshot-tested by the implementers: do step 1.1 before enabling.
+
+### 5. Rollback
+- Switch **"Special Bundles (MTN)"** off: the category disappears and new Special buys are refused (the buy re-checks the switch). Groups already paid keep dispatching / stay manageable per child.
+- Code rollback: redeploy the previous build. Migration 0141 is additive (nullable columns, a CHECK, an index, a function) and is safe to leave in place; no data migration to undo.
