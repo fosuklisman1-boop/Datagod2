@@ -25,12 +25,8 @@
   - Each child's `paid_amount` is the per-unit cashback price: `quoteCashback`, floored per unit, with the same dashboard channel and buyer role that `quoteBundle` uses today.
   - Total = N × unit pay. The client sends `expectedPay` = that total. A mismatch returns 409 "Price changed. Please try again." and charges nothing.
   - The UI shows N × the per-unit display price, never `quoteForDisplay(N × amount)`, so its rounding matches the server's.
-- **Unit rule.** An MTN catalog item is the unit when:
-  - its amount equals `unitAmount`;
-  - its category or display matches /non.?expir|flexi/i;
-  - its size is parseable as MB or GB from the display or value.
-
-  If several items match, pick the largest size, then the smallest value string, so the choice is deterministic. If none match, the Special category is absent.
+- **Unit rule (ruling 2026-10-30, replaces the regex rule).** The unit is the MTN catalog item whose Hubtel `value` equals the admin-set `special.unitValue` (default `RACT_Data_GHC_3_Others`, live 406.89MB at GHS 3), whose amount equals `unitAmount` to the cent, and whose size parses. If none match, the Special category is absent. `findSpecialUnit(bundles, unitAmount, unitValue)`.
+- **Buy re-checks (ruling).** The special token does not encode config. At buy, re-check `special.enabled`, that `n` is in the current `multiples`, that the live unit still matches `unitValue` and `unitAmount`, and verify the nested unit token. Special is independent of the Data category's "hidden" setting: its own switch governs it, so the buy path must not apply the hidden-category refusal to Special.
 - **Special entries:**
   - `display` = N × the unit's MB, shown in GB to 2 dp (3 × 406.8MB → "1.22GB");
   - `amount` = N × the unit amount;
