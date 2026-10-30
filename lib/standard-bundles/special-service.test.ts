@@ -356,6 +356,35 @@ describe("buySpecial — RPC outcomes", () => {
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2", "o3"])
   })
+  it("group re-read fails after a normal RPC success: every RPC child id still dispatched, no alert needed", async () => {
+    const m = make()
+    m.d.listSpecialGroup = async () => { throw new Error("db down") }
+    const r = await buy(m)
+    expect(r.ok && r.special).toEqual({ groupId: "g1", n: 3 })
+    expect(m.tasks).toHaveLength(1)
+    await m.runTasks()
+    expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2", "o3"])
+    expect(m.calls.alerts).toEqual([])
+  })
+  it("RPC threw, group committed, group re-read fails: child 1 dispatched + ONE urgent alert (others unknown)", async () => {
+    const m = make(); m.setRpcMode("throw_committed")
+    m.d.listSpecialGroup = async () => { throw new Error("db down") }
+    const r = await buy(m)
+    expect(r.ok && r.special).toEqual({ groupId: "g1", n: 3 })
+    expect(m.calls.alerts).toEqual(["Special group g1: could not list units after payment; check /admin/standard-bundles and send any pending ones"])
+    expect(m.calls.urgent).toEqual([true])
+    await m.runTasks()
+    expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1"])
+  })
+  it("RPC threw, group committed, group re-read returns nothing: same fallback + urgent alert", async () => {
+    const m = make(); m.setRpcMode("throw_committed")
+    m.d.listSpecialGroup = async () => []
+    const r = await buy(m)
+    expect(r.ok).toBe(true)
+    expect(m.calls.urgent).toEqual([true])
+    await m.runTasks()
+    expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1"])
+  })
   it("RPC threw and no group exists => 500 + urgent alert, key kept", async () => {
     const m = make(); m.setRpcMode("throw_none")
     const r = await buy(m)
@@ -401,6 +430,22 @@ describe("buySpecial — dispatch isolation", () => {
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2"])
     expect(m.orders.map(o => o.status)).toEqual(["processing", "processing", "pending", "pending", "pending"])
     expect(m.calls.alerts).toEqual(["Special group g1: 3 of 5 units not sent (time budget); retry them from /admin/standard-bundles"])
+    expect(m.calls.urgent).toEqual([true])
+  })
+  it("time budget is measured from the request start, not the after() task start", async () => {
+    const m = make()
+    const purchase = m.d.purchase
+    const query = m.d.query
+    let clock = T0
+    m.d.now = () => clock
+    // Pre-response work (the live re-query) takes 200s; each purchase 30s: child 1 at 200s, child 2 at 230s, child 3 at 260s => stop.
+    m.d.query = async (...a) => { clock += 200_000; return query(...a) }
+    m.d.purchase = async (i) => { clock += 30_000; return purchase(i) }
+    const r = await buy(m)
+    expect(r.ok).toBe(true)
+    await m.runTasks()
+    expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2"])
+    expect(m.calls.alerts).toEqual(["Special group g1: 1 of 3 units not sent (time budget); retry them from /admin/standard-bundles"])
     expect(m.calls.urgent).toEqual([true])
   })
   it("time budget: exactly 240s elapsed still dispatches (strictly more than 240s stops)", async () => {

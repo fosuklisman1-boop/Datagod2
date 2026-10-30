@@ -61,6 +61,8 @@ function ignoreHidden(cfg: BundlesConfig): BundlesConfig {
 }
 
 export async function buySpecial(d: SpecialDeps, userId: string, input: BuyInput): Promise<SpecialBuyResult> {
+  // The dispatch time budget is measured from here, so pre-response work counts against the route's maxDuration.
+  const startedAt = d.now()
   // 1. Key, channel (dashboard only), user; then the replay, before any token or config check.
   if (!isValidIdempotencyKey(input?.idempotencyKey)) return fail(400, "Invalid request, please try again")
   if (input.channel !== undefined && input.channel !== "dashboard") return fail(400, "Invalid request, please try again")
@@ -133,7 +135,7 @@ export async function buySpecial(d: SpecialDeps, userId: string, input: BuyInput
     // Outcome unknown: believe only the database.
     let first: SpecialChildRow | null = null
     try { first = (await d.findOrderByIdempotencyKey(userId, `${key}:1`)) as SpecialChildRow | null } catch { first = null }
-    if (first?.special_group_id) return committed(d, userId, first.special_group_id, n, null)
+    if (first?.special_group_id) return committed(d, userId, first.special_group_id, n, null, first.id, startedAt)
     await safeAlert(d, `Special bundle purchase outcome uncertain: user ${userId}, ${n} x ${s.unit.display}, GHS ${total} — check wallet`, true)
     return fail(500, "We could not confirm your payment. Please check your wallet before retrying.")
   }
@@ -144,20 +146,32 @@ export async function buySpecial(d: SpecialDeps, userId: string, input: BuyInput
   }
   // Lost a same-key race inside the RPC: the earlier call owns the group and its dispatch.
   if (r.replay) return replayGroup(d, userId, r.groupId, null)
-  return committed(d, userId, r.groupId, n, r.orderIds)
+  return committed(d, userId, r.groupId, n, r.orderIds, null, startedAt)
 }
 
-/** The group is paid: schedule its children's dispatch, then answer with the group summary. */
-async function committed(d: SpecialDeps, userId: string, groupId: string, n: number, orderIds: string[] | null): Promise<SpecialBuyResult> {
+/**
+ * The group is paid: schedule its children's dispatch, then answer with the group summary.
+ * `orderIds` are the RPC's ids (null when the RPC threw and the group was found by key; `firstId` is then child 1).
+ * Never a silent no-op: dispatch every id we know, and if some may be unknown, alert URGENTLY.
+ */
+async function committed(
+  d: SpecialDeps, userId: string, groupId: string, n: number, orderIds: string[] | null, firstId: string | null, startedAt: number,
+): Promise<SpecialBuyResult> {
   let children: SpecialChildRow[] = []
   try { children = await d.listSpecialGroup(userId, groupId) } catch (e) {
     console.error("[bundles] special group read failed:", msg(e))
   }
-  const ids = orderIds ?? children.map(c => c.id)
-  scheduleDispatch(d, groupId, ids)
+  let ids = orderIds ?? children.map(c => c.id)
+  if (!orderIds && children.length < n) {
+    // The ids came only from a re-read that failed or came back short: some children may be unknown here.
+    if (ids.length === 0 && firstId) ids = [firstId]
+    await safeAlert(d, `Special group ${groupId}: could not list units after payment; check /admin/standard-bundles and send any pending ones`, true)
+  }
+  scheduleDispatch(d, groupId, ids, startedAt)
   if (children.length === 0) {
     // Paid and scheduled; only the summary read failed. Never report a paid purchase as an error.
-    return { ok: true, replay: false, special: { groupId, n: ids.length || n }, order: placeholder(groupId) }
+    // n = the validated n paid for (the RPC created exactly n children), not the possibly partial id list.
+    return { ok: true, replay: false, special: { groupId, n }, order: placeholder(groupId) }
   }
   return { ok: true, replay: false, special: { groupId, n: children.length }, order: summarize(groupId, children) }
 }
@@ -171,9 +185,10 @@ async function replayGroup(d: SpecialDeps, userId: string, groupId: string, firs
   return { ok: true, replay: true, special: { groupId, n: children.length }, order: summarize(groupId, children) }
 }
 
-function scheduleDispatch(d: SpecialDeps, groupId: string, ids: string[]): void {
+/** `startedAt`: buySpecial's entry time, so the 240s budget includes the pre-response work. */
+function scheduleDispatch(d: SpecialDeps, groupId: string, ids: string[], startedAt: number): void {
   const task = async () => {
-    const start = d.now()
+    const start = startedAt
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i]
       // Time budget (route maxDuration 300s): past 240s, stop and hand the rest to an admin, never a silent cut-off.
