@@ -6,7 +6,8 @@ import { describe, it, expect } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
 
-const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8")
+// CRLF -> LF: the repo checks migrations out with CRLF, and `--.*$` would not strip a comment ending in "\r".
+const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
 const MIGRATION = read("0141_special_bundles.sql")
 const SELFTEST = read("0141_special_bundles.selftest.sql")
 const SIG = "public.create_special_bundle_orders(uuid, text, jsonb, numeric)"
