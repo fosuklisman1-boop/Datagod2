@@ -65,6 +65,16 @@ export function signSpecialToken(p: SpecialTokenInput, secret: string): string {
   return `${body}.${macWith(SPECIAL_DOMAIN, body, secret)}`
 }
 
+/**
+ * Route branch only: the token carries a valid special MAC and type tag, fresh or not. It picks buySpecial (which
+ * still runs verifySpecialToken in full) so an expired special token can still reach its replay lookup. A normal
+ * bundle token never passes: it is signed under a different MAC domain.
+ */
+export function isSpecialTokenSigned(token: string, secret: string): boolean {
+  const v = openToken(SPECIAL_DOMAIN, token, secret)
+  return !!v && v.type === SPECIAL_TYPE
+}
+
 /** MTN only. The embedded unit token must verify on its own, with the same issuedAt. */
 export function verifySpecialToken(token: string, secret: string, now: number): VerifiedSpecial | null {
   const v = openToken(SPECIAL_DOMAIN, token, secret)

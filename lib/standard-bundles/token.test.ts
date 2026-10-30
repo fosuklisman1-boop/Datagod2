@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  signBundleToken, verifyBundleToken, signSpecialToken, verifySpecialToken, BUNDLE_TOKEN_TTL_MS, type VerifiedBundle,
+  signBundleToken, verifyBundleToken, signSpecialToken, verifySpecialToken, isSpecialTokenSigned, BUNDLE_TOKEN_TTL_MS, type VerifiedBundle,
 } from "./token"
 import { signBillToken } from "@/lib/bills/token"
 
@@ -114,5 +114,23 @@ describe("special token", () => {
   it("rejects a unit token issued at a different time than the special token", () => {
     const ut = signBundleToken({ ...unit, issuedAt: T0 - 1000 }, S)
     expect(verifySpecialToken(signSpecialToken({ unitToken: ut, n: 3, issuedAt: T0 }, S), S, T0)).toBeNull()
+  })
+})
+
+describe("isSpecialTokenSigned (route branch: MAC + type only, no freshness)", () => {
+  const unit: VerifiedBundle = { network: "MTN", value: "RACT_Data_GHC_3_Others", amount: 3, display: "406.89MB", category: "Data", issuedAt: T0 }
+  const special = () => signSpecialToken({ unitToken: signBundleToken(unit, S), n: 3, issuedAt: T0 }, S)
+  it("true for a special token, even an expired one", () => {
+    expect(isSpecialTokenSigned(special(), S)).toBe(true)
+  })
+  it("false for a normal bundle token, a foreign secret, tampering, empty secret and garbage", () => {
+    expect(isSpecialTokenSigned(signBundleToken(unit, S), S)).toBe(false)
+    expect(isSpecialTokenSigned(special(), "other")).toBe(false)
+    const [, sig] = special().split(".")
+    const forged = Buffer.from(JSON.stringify({ type: "special", unitToken: "x", n: 50, issuedAt: T0 })).toString("base64url")
+    expect(isSpecialTokenSigned(`${forged}.${sig}`, S)).toBe(false)
+    expect(isSpecialTokenSigned(special(), "")).toBe(false)
+    expect(isSpecialTokenSigned("abc", S)).toBe(false)
+    expect(isSpecialTokenSigned(undefined as any, S)).toBe(false)
   })
 })
