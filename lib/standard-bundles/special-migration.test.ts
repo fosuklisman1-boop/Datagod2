@@ -10,7 +10,7 @@ import { join } from "path"
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
 const MIGRATION = read("0141_special_bundles.sql")
 const SELFTEST = read("0141_special_bundles.selftest.sql")
-const SIG = "public.create_special_bundle_orders(uuid, text, jsonb, numeric)"
+const SIG = "public.create_special_bundle_orders(uuid, text, integer, jsonb, numeric)"
 
 /** SQL with `--` comments removed (comments mention the forbidden words on purpose). */
 const code = (sql: string) => sql.split("\n").map(l => l.replace(/--.*$/, "")).join("\n")
@@ -52,7 +52,11 @@ describe("0141 migration text", () => {
   it("is SECURITY DEFINER with a pinned search_path, executable by service_role only", () => {
     const head = MIGRATION.match(/CREATE OR REPLACE FUNCTION public\.create_special_bundle_orders\(([\s\S]*?)AS \$fn\$/)
     expect(head).not.toBeNull()
-    expect(head![1]).toMatch(/p_user\s+uuid,\s*p_group_key\s+text,\s*p_rows\s+jsonb,\s*p_total\s+numeric/)
+    expect(head![1]).toMatch(/p_user\s+uuid,\s*p_group_key\s+text,\s*p_n\s+integer,\s*p_rows\s+jsonb,\s*p_total\s+numeric/)
+    // the pre-p_n draft signature is dropped idempotently, before the CREATE
+    const drop = MIGRATION.indexOf("DROP FUNCTION IF EXISTS public.create_special_bundle_orders(uuid, text, jsonb, numeric);")
+    expect(drop).toBeGreaterThan(-1)
+    expect(drop).toBeLessThan(MIGRATION.indexOf("CREATE OR REPLACE FUNCTION public.create_special_bundle_orders("))
     expect(head![1]).toMatch(/RETURNS jsonb/)
     expect(head![1]).toMatch(/SECURITY DEFINER/)
     expect(head![1]).toMatch(/SET search_path = public/)
@@ -91,7 +95,10 @@ describe("0141 migration text", () => {
     const b = rpcBody()
     expect(b).toMatch(/RAISE EXCEPTION 'INSUFFICIENT_FUNDS'/)
     expect(b).toMatch(/RAISE EXCEPTION 'BAD_INPUT'/)
-    expect(b).toMatch(/v_n < 1 OR v_n > 50/)
+    expect(b).toMatch(/p_n IS NULL OR p_n < 1 OR p_n > 50/)
+    expect(b).toMatch(/v_n := jsonb_array_length\(p_rows\);\s*IF v_n <> p_n THEN/)
+    expect(b).toMatch(/v_paid <> v_amount - COALESCE\(\(v_unit ->> 'cashback_amount'\)::numeric, 0\)/)
+    expect(b).toMatch(/v_num <> round\(v_num, 2\)/)
     expect(b).toMatch(/'MTN'/)
     expect(b).toMatch(/'data_mtn'/)
     expect(b).toMatch(/\^233\[0-9\]\{9\}\$/)
@@ -109,7 +116,9 @@ describe("0141 run string (migration + self-test)", () => {
   })
 
   it("self-test covers happy path, replay, short wallet, bad total, n bounds and the grants", () => {
-    for (const label of ["happy", "replay", "short_wallet", "bad_total", "n_zero", "n_51", "deny_anon", "deny_authenticated"]) {
+    for (const label of ["happy", "replay", "short_wallet", "bad_total", "n_zero", "n_51", "n_mismatch", "paid_not_face_minus_cashback",
+                         "three_dp_cashback", "three_dp_shop_share", "negative_shop_share", "key_used_by_normal_order",
+                         "deny_anon", "deny_authenticated"]) {
       expect(SELFTEST).toContain(label)
     }
   })

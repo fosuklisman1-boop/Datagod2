@@ -24,12 +24,14 @@
 -- The same-key replay is covered sequentially (a second call after the first, in the same transaction).
 --
 -- Scenarios (labels): catalog, grants, deny_anon / deny_authenticated (real call under SET LOCAL ROLE),
--- happy (N=3), replay (same key, and same key with another payload), second_group (new key), pair_check,
--- short_wallet, bad_total_* (over / under / face / null), n_zero, n_51, and the other BAD_INPUT shapes,
--- bad_key, null_user, final balance.
+-- happy (N=3), replay (same key, and same key with another payload), second_group (new key),
+-- no_cashback_group (paid = amount, cashback null), pair_check, short_wallet, bad_total_* (over / under /
+-- face / null), n_zero, n_51, n_null, n_mismatch_* (p_n vs row count), paid_not_face_minus_cashback,
+-- paid_no_cashback, three_dp_cashback, three_dp_shop_share, negative_shop_share, the other BAD_INPUT
+-- shapes, key_used_by_normal_order, bad_key, null_user, final balance.
 --
 -- Picks the admin (public.users.role = 'admin', joined to auth.users and public.wallets) with the largest
--- wallet balance; it must be >= 2.00 so the happy paths never edit a balance directly. Test phone
+-- wallet balance; it must be >= 3.00 so the happy paths never edit a balance directly. Test phone
 -- 233249990141 (unique to this selftest). Amounts: unit face 0.50, pay 0.45, cashback 0.05.
 --
 -- Types: transactions.reference_id is TEXT; wallets.balance / total_spent and order amounts are numeric;
@@ -37,7 +39,7 @@
 
 DO $selftest$
 DECLARE
-  v_sig   CONSTANT text := 'public.create_special_bundle_orders(uuid,text,jsonb,numeric)';
+  v_sig   CONSTANT text := 'public.create_special_bundle_orders(uuid,text,integer,jsonb,numeric)';
   v_phone CONSTANT text := '233249990141';
   v_unit  jsonb;
   v_user  uuid;
@@ -47,7 +49,10 @@ DECLARE
   v_spent numeric;
   v_key1  text := 'selftest-' || gen_random_uuid()::text;
   v_key2  text := 'selftest-' || gen_random_uuid()::text;
+  v_key3  text := 'selftest-' || gen_random_uuid()::text;
+  v_key4  text := 'selftest-' || gen_random_uuid()::text;
   v_keyx  text;
+  v_pn    int;
   v_res   jsonb;
   v_res2  jsonb;
   v_group uuid;
@@ -74,8 +79,8 @@ BEGIN
   IF v_user IS NULL THEN
     RAISE EXCEPTION 'FAIL setup: no admin with a wallet';
   END IF;
-  IF v_bal0 < 2.00 THEN
-    RAISE EXCEPTION 'FAIL setup: largest admin wallet balance % is below 2.00', v_bal0;
+  IF v_bal0 < 3.00 THEN
+    RAISE EXCEPTION 'FAIL setup: largest admin wallet balance % is below 3.00', v_bal0;
   END IF;
 
   v_unit := jsonb_build_object(
@@ -101,6 +106,10 @@ BEGIN
   SELECT count(*) INTO v_n FROM pg_proc p
    WHERE p.oid = v_sig::regprocedure AND p.prosecdef AND p.proconfig @> ARRAY['search_path=public'];
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL catalog: function is not SECURITY DEFINER with search_path=public'; END IF;
+  -- only the p_n signature exists (the pre-p_n draft is dropped)
+  SELECT count(*) INTO v_n FROM pg_proc p
+   WHERE p.proname = 'create_special_bundle_orders' AND p.pronamespace = 'public'::regnamespace;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL catalog: % create_special_bundle_orders overloads', v_n; END IF;
 
   -- grants: service_role only ------------------------------------------------
   IF has_function_privilege('anon', v_sig, 'EXECUTE') THEN RAISE EXCEPTION 'FAIL grants: anon can execute'; END IF;
@@ -118,7 +127,7 @@ BEGIN
     BEGIN
       EXECUTE format('SET LOCAL ROLE %I', v_role);
       v_seen := current_user;
-      PERFORM public.create_special_bundle_orders(v_user, 'selftest-' || gen_random_uuid()::text,
+      PERFORM public.create_special_bundle_orders(v_user, 'selftest-' || gen_random_uuid()::text, 1,
                                                   jsonb_build_array(v_unit), 0.45);
       v_called := true;
     EXCEPTION WHEN insufficient_privilege THEN
@@ -138,7 +147,7 @@ BEGIN
   -- 1. happy: N=3, one debit of 1.35, three pending+paid children --------------
   <<happy_case>>
   BEGIN
-    v_res := public.create_special_bundle_orders(v_user, v_key1,
+    v_res := public.create_special_bundle_orders(v_user, v_key1, 3,
                (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.35);
   END happy_case;
   IF (v_res->>'replay')::boolean IS DISTINCT FROM false THEN RAISE EXCEPTION 'FAIL happy: replay flag %', v_res; END IF;
@@ -177,14 +186,14 @@ BEGIN
   IF v_n <> 3 THEN RAISE EXCEPTION 'FAIL happy: special_index is not 1..3'; END IF;
 
   -- 2. replay: same key => same group and ids, no second debit ------------------
-  v_res2 := public.create_special_bundle_orders(v_user, v_key1,
+  v_res2 := public.create_special_bundle_orders(v_user, v_key1, 3,
               (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.35);
   IF (v_res2->>'replay')::boolean IS DISTINCT FROM true OR v_res2->'group_id' <> v_res->'group_id'
      OR v_res2->'order_ids' <> v_res->'order_ids' THEN
     RAISE EXCEPTION 'FAIL replay: % vs %', v_res2, v_res;
   END IF;
   -- replay with a different (even invalid) payload still returns the group and never charges
-  v_res2 := public.create_special_bundle_orders(v_user, v_key1, '[]'::jsonb, 0);
+  v_res2 := public.create_special_bundle_orders(v_user, v_key1, 0, '[]'::jsonb, 0);
   IF (v_res2->>'replay')::boolean IS DISTINCT FROM true OR v_res2->'order_ids' <> v_res->'order_ids' THEN
     RAISE EXCEPTION 'FAIL replay_other_payload: %', v_res2;
   END IF;
@@ -196,13 +205,25 @@ BEGIN
   IF v_n <> 3 THEN RAISE EXCEPTION 'FAIL replay: % children', v_n; END IF;
 
   -- 3. second_group: a different key buys again while funds allow ---------------
-  v_res2 := public.create_special_bundle_orders(v_user, v_key2, jsonb_build_array(v_unit), 0.45);
+  v_res2 := public.create_special_bundle_orders(v_user, v_key2, 1, jsonb_build_array(v_unit), 0.45);
   IF (v_res2->>'replay')::boolean IS DISTINCT FROM false OR v_res2->'group_id' = v_res->'group_id'
      OR jsonb_array_length(v_res2->'order_ids') <> 1 THEN
     RAISE EXCEPTION 'FAIL second_group: %', v_res2;
   END IF;
   SELECT balance INTO v_bal FROM public.wallets WHERE user_id = v_user;
   IF v_bal <> v_bal0 - 1.80 THEN RAISE EXCEPTION 'FAIL second_group: balance % expected %', v_bal, v_bal0 - 1.80; END IF;
+
+  -- no_cashback_group: no cashback (null) => paid_amount = amount is accepted and charged at face
+  v_res2 := public.create_special_bundle_orders(v_user, v_key3, 1,
+              jsonb_build_array(v_unit || '{"paid_amount":0.50,"cashback_amount":null}'::jsonb), 0.50);
+  IF (v_res2->>'replay')::boolean IS DISTINCT FROM false OR jsonb_array_length(v_res2->'order_ids') <> 1 THEN
+    RAISE EXCEPTION 'FAIL no_cashback_group: %', v_res2;
+  END IF;
+  SELECT count(*) INTO v_n FROM public.hubtel_data_orders
+   WHERE id = (v_res2->'order_ids'->>0)::uuid AND paid_amount = 0.50 AND amount = 0.50 AND cashback_amount IS NULL;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL no_cashback_group: child row'; END IF;
+  SELECT balance INTO v_bal FROM public.wallets WHERE user_id = v_user;
+  IF v_bal <> v_bal0 - 2.30 THEN RAISE EXCEPTION 'FAIL no_cashback_group: balance % expected %', v_bal, v_bal0 - 2.30; END IF;
 
   -- pair_check: a child cannot lose its index (CHECK hubtel_data_orders_special_check)
   v_got := NULL;
@@ -221,42 +242,58 @@ BEGIN
   v_price := ceil((v_bal + 1) * 100 / 50) / 100.0;
   IF v_price >= 1000000 THEN RAISE EXCEPTION 'FAIL setup: balance too large for the short_wallet case'; END IF;
 
-  FOR v_case, v_rows, v_total, v_err IN
+  -- Columns: case, p_n, p_rows, p_total, expected error.
+  FOR v_case, v_pn, v_rows, v_total, v_err IN
     SELECT * FROM (VALUES
-      ('short_wallet',
+      ('short_wallet', 50,
          (SELECT jsonb_agg(v_unit || jsonb_build_object('amount', v_price, 'paid_amount', v_price, 'cashback_amount', 0))
             FROM generate_series(1, 50)),
          v_price * 50, 'INSUFFICIENT_FUNDS'),
-      ('bad_total_over',  (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.36::numeric, 'BAD_INPUT'),
-      ('bad_total_under', (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.34::numeric, 'BAD_INPUT'),
-      ('bad_total_face',  (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.50::numeric, 'BAD_INPUT'),
-      ('bad_total_null',  (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), NULL::numeric, 'BAD_INPUT'),
-      ('n_zero',          '[]'::jsonb, 0::numeric, 'BAD_INPUT'),
-      ('n_51',            (SELECT jsonb_agg(v_unit) FROM generate_series(1, 51)), 22.95::numeric, 'BAD_INPUT'),
-      ('rows_not_array',  v_unit, 0.45::numeric, 'BAD_INPUT'),
-      ('row_not_object',  jsonb_build_array(v_unit, '1'::jsonb), 0.90::numeric, 'BAD_INPUT'),
-      ('phone_mismatch',  jsonb_build_array(v_unit, v_unit || '{"beneficiary_phone":"233249990142"}'::jsonb), 0.90::numeric, 'BAD_INPUT'),
-      ('paid_mismatch',   jsonb_build_array(v_unit, v_unit || '{"paid_amount":0.40}'::jsonb), 0.85::numeric, 'BAD_INPUT'),
-      ('bad_phone',       jsonb_build_array(v_unit || '{"beneficiary_phone":"0249990141"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
-      ('not_mtn',         jsonb_build_array(v_unit || '{"network":"TELECEL","service_key":"data_telecel"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
-      ('wrong_service',   jsonb_build_array(v_unit || '{"service_key":"data_at"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
-      ('three_dp_amount', jsonb_build_array(v_unit || '{"amount":0.505}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
-      ('three_dp_paid',   jsonb_build_array(v_unit || '{"paid_amount":0.445}'::jsonb), 0.445::numeric, 'BAD_INPUT'),
-      ('zero_paid',       jsonb_build_array(v_unit || '{"paid_amount":0}'::jsonb), 0::numeric, 'BAD_INPUT'),
-      ('negative_amount', jsonb_build_array(v_unit || '{"amount":-0.50}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
-      ('paid_above_face', jsonb_build_array(v_unit || '{"paid_amount":0.60}'::jsonb), 0.60::numeric, 'BAD_INPUT'),
-      ('amount_as_text',  jsonb_build_array(v_unit || '{"amount":"0.50"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
-      ('missing_display', jsonb_build_array(v_unit - 'bundle_display'), 0.45::numeric, 'BAD_INPUT'),
-      ('unknown_field',   jsonb_build_array(v_unit || '{"status":"completed"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
-      ('negative_cashback', jsonb_build_array(v_unit || '{"cashback_amount":-1}'::jsonb), 0.45::numeric, 'BAD_INPUT')
-    ) AS t(c, rws, tot, want)
+      ('bad_total_over',  3, (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.36::numeric, 'BAD_INPUT'),
+      ('bad_total_under', 3, (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.34::numeric, 'BAD_INPUT'),
+      ('bad_total_face',  3, (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.50::numeric, 'BAD_INPUT'),
+      ('bad_total_null',  3, (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), NULL::numeric, 'BAD_INPUT'),
+      ('n_zero',          0, '[]'::jsonb, 0::numeric, 'BAD_INPUT'),
+      ('n_51',           51, (SELECT jsonb_agg(v_unit) FROM generate_series(1, 51)), 22.95::numeric, 'BAD_INPUT'),
+      ('n_null',  NULL::int, (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.35::numeric, 'BAD_INPUT'),
+      -- n_mismatch: p_n disagrees with the row count, even when the total matches the rows
+      ('n_mismatch_fewer_rows', 3, (SELECT jsonb_agg(v_unit) FROM generate_series(1, 2)), 0.90::numeric, 'BAD_INPUT'),
+      ('n_mismatch_more_rows',  2, (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 1.35::numeric, 'BAD_INPUT'),
+      ('rows_not_array',  1, v_unit, 0.45::numeric, 'BAD_INPUT'),
+      ('row_not_object',  2, jsonb_build_array(v_unit, '1'::jsonb), 0.90::numeric, 'BAD_INPUT'),
+      ('phone_mismatch',  2, jsonb_build_array(v_unit, v_unit || '{"beneficiary_phone":"233249990142"}'::jsonb), 0.90::numeric, 'BAD_INPUT'),
+      ('paid_mismatch',   2, jsonb_build_array(v_unit, v_unit || '{"paid_amount":0.40}'::jsonb), 0.85::numeric, 'BAD_INPUT'),
+      ('bad_phone',       1, jsonb_build_array(v_unit || '{"beneficiary_phone":"0249990141"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('not_mtn',         1, jsonb_build_array(v_unit || '{"network":"TELECEL","service_key":"data_telecel"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('wrong_service',   1, jsonb_build_array(v_unit || '{"service_key":"data_at"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('three_dp_amount', 1, jsonb_build_array(v_unit || '{"amount":0.505}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('three_dp_paid',   1, jsonb_build_array(v_unit || '{"paid_amount":0.445}'::jsonb), 0.445::numeric, 'BAD_INPUT'),
+      ('zero_paid',       1, jsonb_build_array(v_unit || '{"paid_amount":0}'::jsonb), 0::numeric, 'BAD_INPUT'),
+      ('negative_amount', 1, jsonb_build_array(v_unit || '{"amount":-0.50}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('paid_above_face', 1, jsonb_build_array(v_unit || '{"paid_amount":0.60}'::jsonb), 0.60::numeric, 'BAD_INPUT'),
+      ('amount_as_text',  1, jsonb_build_array(v_unit || '{"amount":"0.50"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('missing_display', 1, jsonb_build_array(v_unit - 'bundle_display'), 0.45::numeric, 'BAD_INPUT'),
+      ('unknown_field',   1, jsonb_build_array(v_unit || '{"status":"completed"}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('negative_cashback', 1, jsonb_build_array(v_unit || '{"cashback_amount":-1}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      -- paid_not_face_minus_cashback: under- and over-charge against face 0.50 - cashback 0.05 = 0.45
+      ('paid_not_face_minus_cashback_under', 1, jsonb_build_array(v_unit || '{"paid_amount":0.44}'::jsonb), 0.44::numeric, 'BAD_INPUT'),
+      ('paid_not_face_minus_cashback_over',  1, jsonb_build_array(v_unit || '{"paid_amount":0.46}'::jsonb), 0.46::numeric, 'BAD_INPUT'),
+      ('paid_not_face_minus_cashback_3',     3, (SELECT jsonb_agg(v_unit || '{"paid_amount":0.40}'::jsonb) FROM generate_series(1, 3)), 1.20::numeric, 'BAD_INPUT'),
+      -- paid_no_cashback: cashback absent / null => paid must equal face
+      ('paid_no_cashback_null',   1, jsonb_build_array(v_unit || '{"cashback_amount":null}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('paid_no_cashback_absent', 1, jsonb_build_array(v_unit - 'cashback_amount'), 0.45::numeric, 'BAD_INPUT'),
+      ('three_dp_cashback',   1, jsonb_build_array(v_unit || '{"cashback_amount":0.051}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('three_dp_cashback_consistent', 1, jsonb_build_array(v_unit || '{"cashback_amount":0.055,"paid_amount":0.445}'::jsonb), 0.445::numeric, 'BAD_INPUT'),
+      ('three_dp_shop_share', 1, jsonb_build_array(v_unit || '{"shop_share_amount":0.005}'::jsonb), 0.45::numeric, 'BAD_INPUT'),
+      ('negative_shop_share', 1, jsonb_build_array(v_unit || '{"shop_share_amount":-0.01}'::jsonb), 0.45::numeric, 'BAD_INPUT')
+    ) AS t(c, pn, rws, tot, want)
   LOOP
     v_keyx := 'selftest-' || gen_random_uuid()::text;
     SELECT balance INTO v_bal FROM public.wallets WHERE user_id = v_user;
     v_res2 := NULL;
     <<refusal>>
     BEGIN
-      v_res2 := public.create_special_bundle_orders(v_user, v_keyx, v_rows, v_total);
+      v_res2 := public.create_special_bundle_orders(v_user, v_keyx, v_pn, v_rows, v_total);
       v_got := 'NO_ERROR';
     EXCEPTION WHEN OTHERS THEN
       v_got := SQLERRM;
@@ -272,11 +309,32 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- key_used_by_normal_order: a plain (non-Special) dashboard row already holds key:1 => BAD_INPUT, no debit
+  INSERT INTO public.hubtel_data_orders (reference_code, user_id, network, service_key, beneficiary_phone,
+                                         bundle_value, bundle_display, bundle_category, amount, idempotency_key)
+  VALUES ('SB-SELFTEST' || upper(substr(md5(v_key4), 1, 8)), v_user, 'MTN', 'data_mtn', v_phone,
+          'selftest-0141', '406.8MB', 'Non Expiry', 0.50, v_key4 || ':1');
+  SELECT balance INTO v_bal FROM public.wallets WHERE user_id = v_user;
+  v_got := NULL;
+  <<key_used_by_normal_order>>
+  BEGIN
+    PERFORM public.create_special_bundle_orders(v_user, v_key4, 1, jsonb_build_array(v_unit), 0.45);
+    v_got := 'NO_ERROR';
+  EXCEPTION WHEN OTHERS THEN
+    v_got := SQLERRM;
+  END key_used_by_normal_order;
+  IF v_got IS DISTINCT FROM 'BAD_INPUT' THEN RAISE EXCEPTION 'FAIL key_used_by_normal_order: got %', v_got; END IF;
+  IF (SELECT balance FROM public.wallets WHERE user_id = v_user) <> v_bal THEN
+    RAISE EXCEPTION 'FAIL key_used_by_normal_order: balance moved';
+  END IF;
+  SELECT count(*) INTO v_n FROM public.hubtel_data_orders WHERE user_id = v_user AND idempotency_key LIKE v_key4 || ':%';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL key_used_by_normal_order: % rows for the key', v_n; END IF;
+
   -- bad_key / null_user -------------------------------------------------------
   FOREACH v_keyx IN ARRAY ARRAY['short', 'has:colon-123', 'has space 123', repeat('a', 65)] LOOP
     <<bad_key>>
     BEGIN
-      PERFORM public.create_special_bundle_orders(v_user, v_keyx, jsonb_build_array(v_unit), 0.45);
+      PERFORM public.create_special_bundle_orders(v_user, v_keyx, 1, jsonb_build_array(v_unit), 0.45);
       v_got := 'NO_ERROR';
     EXCEPTION WHEN OTHERS THEN
       v_got := SQLERRM;
@@ -285,17 +343,17 @@ BEGIN
   END LOOP;
   <<null_user>>
   BEGIN
-    PERFORM public.create_special_bundle_orders(NULL, 'selftest-' || gen_random_uuid()::text, jsonb_build_array(v_unit), 0.45);
+    PERFORM public.create_special_bundle_orders(NULL, 'selftest-' || gen_random_uuid()::text, 1, jsonb_build_array(v_unit), 0.45);
     v_got := 'NO_ERROR';
   EXCEPTION WHEN OTHERS THEN
     v_got := SQLERRM;
   END null_user;
   IF v_got <> 'BAD_INPUT' THEN RAISE EXCEPTION 'FAIL null_user: got %', v_got; END IF;
 
-  -- final: exactly the two good debits happened ---------------------------------
+  -- final: exactly the three good debits happened (1.35 + 0.45 + 0.50) -----------
   SELECT balance, COALESCE(total_spent, 0) INTO v_bal, v_spent FROM public.wallets WHERE user_id = v_user;
-  IF v_bal <> v_bal0 - 1.80 OR v_spent <> v_spent0 + 1.80 THEN
-    RAISE EXCEPTION 'FAIL final: balance % spent % (expected % / %)', v_bal, v_spent, v_bal0 - 1.80, v_spent0 + 1.80;
+  IF v_bal <> v_bal0 - 2.30 OR v_spent <> v_spent0 + 2.30 THEN
+    RAISE EXCEPTION 'FAIL final: balance % spent % (expected % / %)', v_bal, v_spent, v_bal0 - 2.30, v_spent0 + 2.30;
   END IF;
 
   -- Always roll back. -------------------------------------------------------

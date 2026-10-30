@@ -11,19 +11,23 @@
 --                       special row is always channel 'dashboard' + network 'MTN';
 --                       UNIQUE INDEX uq_hubtel_data_orders_special_child (special_group_id, special_index)
 --                       WHERE special_group_id IS NOT NULL (also the lookup index for a group).
---   create_special_bundle_orders(p_user, p_group_key, p_rows, p_total)  atomic debit + insert, replay-aware.
+--   create_special_bundle_orders(p_user, p_group_key, p_n, p_rows, p_total)  atomic debit + insert,
+--   replay-aware. Signature (uuid, text, integer, jsonb, numeric).
 --
 -- RPC contract
 --   p_group_key  the client's idempotencyKey, same rule as isValidIdempotencyKey: ^[A-Za-z0-9-]{8,64}$.
 --                Child i gets idempotency_key = p_group_key || ':' || i. A normal dashboard key can never
 --                contain ':', so the 0118 UNIQUE (user_id, idempotency_key) cannot clash with a normal order.
---   p_rows       jsonb array of N (1..50) IDENTICAL unit objects (a Special plan is N x the same unit). Keys:
+--   p_n          the plan multiple, 1..50; jsonb_array_length(p_rows) must equal it.
+--   p_rows       jsonb array of N IDENTICAL unit objects (a Special plan is N x the same unit). Keys:
 --                  required  network ('MTN'), service_key ('data_mtn'), beneficiary_phone (^233[0-9]{9}$),
 --                            bundle_value, bundle_display, bundle_category (non-empty strings),
 --                            amount (face, Hubtel price), paid_amount (wallet charge per unit)
---                            -- both numbers > 0, at most 2 decimals, < 1,000,000, paid_amount <= amount
---                  optional  cashback_amount, shop_share_amount (0..amount), cashback_rate, cashback_share
---                            (0..100), expected_commission (0..999999), cashback_provider (string) -- or null
+--                            -- both numbers > 0, at most 2 decimals, < 1,000,000, and exactly
+--                            paid_amount = amount - COALESCE(cashback_amount, 0)
+--                  optional  cashback_amount, shop_share_amount (0..amount, at most 2 decimals), cashback_rate,
+--                            cashback_share (0..100), expected_commission (0..999999), cashback_provider
+--                            (string) -- or null
 --                Any other key, a non-object element, or rows that differ => BAD_INPUT.
 --                The RPC sets channel, user_id, status, payment_status, idempotency_key, reference_code
 --                ('SB-' + 12 hex, same shape as runtime.newReference), special_group_id and special_index.
@@ -99,9 +103,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_hubtel_data_orders_special_child
   WHERE special_group_id IS NOT NULL;
 
 -- 2. Atomic one-debit, N-children purchase.
+-- An earlier draft had no p_n (uuid, text, jsonb, numeric). It was never applied, but drop it if present so
+-- only the p_n signature exists and no stale grant survives.
+DROP FUNCTION IF EXISTS public.create_special_bundle_orders(uuid, text, jsonb, numeric);
+
 CREATE OR REPLACE FUNCTION public.create_special_bundle_orders(
   p_user      uuid,
   p_group_key text,
+  p_n         integer,
   p_rows      jsonb,
   p_total     numeric
 )
@@ -158,9 +167,12 @@ BEGIN
   IF p_rows IS NULL OR jsonb_typeof(p_rows) <> 'array' THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'rows must be an array';
   END IF;
+  IF p_n IS NULL OR p_n < 1 OR p_n > 50 THEN
+    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'n must be 1..50';
+  END IF;
   v_n := jsonb_array_length(p_rows);
-  IF v_n < 1 OR v_n > 50 THEN
-    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'row count must be 1..50';
+  IF v_n <> p_n THEN
+    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'row count must equal n';
   END IF;
 
   v_unit := p_rows -> 0;
@@ -213,7 +225,7 @@ BEGIN
       END IF;
       v_num := (v_unit ->> v_key)::numeric;
       IF v_num < 0
-         OR (v_key IN ('cashback_amount','shop_share_amount') AND v_num > v_amount)
+         OR (v_key IN ('cashback_amount','shop_share_amount') AND (v_num > v_amount OR v_num <> round(v_num, 2)))
          OR (v_key IN ('cashback_rate','cashback_share') AND v_num > 100)
          OR (v_key = 'expected_commission' AND v_num >= 1000000) THEN
         RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = v_key || ' out of range';
@@ -222,6 +234,12 @@ BEGIN
   END LOOP;
   IF v_unit ? 'cashback_provider' AND jsonb_typeof(v_unit -> 'cashback_provider') NOT IN ('string','null') THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'cashback_provider must be a string';
+  END IF;
+
+  -- Price invariant (quoteCashback: payAmount = face - customerCashback), exact numeric: a caller bug can
+  -- never under- or over-charge. No cashback (absent or null) => paid_amount must equal amount.
+  IF v_paid <> v_amount - COALESCE((v_unit ->> 'cashback_amount')::numeric, 0) THEN
+    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'paid_amount must equal amount - cashback_amount';
   END IF;
 
   v_sum := v_paid * v_n;
@@ -285,8 +303,8 @@ BEGIN
 END
 $fn$;
 
-REVOKE ALL ON FUNCTION public.create_special_bundle_orders(uuid, text, jsonb, numeric) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.create_special_bundle_orders(uuid, text, jsonb, numeric) TO service_role;
+REVOKE ALL ON FUNCTION public.create_special_bundle_orders(uuid, text, integer, jsonb, numeric) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_special_bundle_orders(uuid, text, integer, jsonb, numeric) TO service_role;
 
 COMMIT;
 
@@ -298,8 +316,11 @@ COMMIT;
 --   SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_hubtel_data_orders_special_child';
 --   SELECT p.prosecdef, p.proconfig FROM pg_proc p WHERE p.proname = 'create_special_bundle_orders';
 --     -- true, {search_path=public}
---   SELECT has_function_privilege('anon', 'public.create_special_bundle_orders(uuid,text,jsonb,numeric)', 'EXECUTE'),
---          has_function_privilege('authenticated', 'public.create_special_bundle_orders(uuid,text,jsonb,numeric)', 'EXECUTE'),
---          has_function_privilege('service_role', 'public.create_special_bundle_orders(uuid,text,jsonb,numeric)', 'EXECUTE');
+--   SELECT has_function_privilege('anon', 'public.create_special_bundle_orders(uuid,text,integer,jsonb,numeric)', 'EXECUTE'),
+--          has_function_privilege('authenticated', 'public.create_special_bundle_orders(uuid,text,integer,jsonb,numeric)', 'EXECUTE'),
+--          has_function_privilege('service_role', 'public.create_special_bundle_orders(uuid,text,integer,jsonb,numeric)', 'EXECUTE');
+--     -- false, false, true
+--   SELECT pg_get_function_identity_arguments(oid) FROM pg_proc WHERE proname = 'create_special_bundle_orders';
+--     -- exactly one row: p_user uuid, p_group_key text, p_n integer, p_rows jsonb, p_total numeric
 --     -- false, false, true
 --   SELECT count(*) FROM hubtel_data_orders WHERE special_group_id IS NOT NULL;   -- 0 until the switch is on
