@@ -545,8 +545,10 @@ Pre-reqs: Standard Bundles master + MTN network ON, Hubtel enabled with `data_mt
 2. `/admin/hubtel-commission` → Standard Bundles → card **"Special Bundles (MTN)"**:
    - Hubtel unit value: `RACT_Data_GHC_3_Others`
    - Unit amount: `3`
-   - Multiples: `3, 5, 8, 10, 15` (each 1..20; at most 10 values). Save, then flip the switch on.
+   - Multiples: **start with `3` ONLY**. Save, then flip the switch on.
    If the live MTN catalog has no bundle with exactly that value AND that amount, the Special category simply does not appear (no error) — re-check the value against the live catalog.
+   If someone buys before 0141 is applied, the buy answers a plain 503 "Special Bundles are not available right now" (RPC not found: nothing charged, no alert). Apply 0141.
+3. **Gate before any multiple above 3:** only after the supervised 3× test (section 2) shows **all 3 children `completed`** AND about **1.22GB** on the handset, widen the multiples to `3, 5, 8, 10, 15` (each 1..20; at most 10 values). Reason: children 2..N send the same bundle value, amount and destination to Hubtel seconds apart; if Hubtel/MTN dedupes or rate-limits identical requests, every larger group would end "Part delivered". If any of the 3 children fails, keep multiples at `3` (or switch off) and investigate before widening.
 
 ### 2. Supervised live test (one purchase)
 Buy **Special 3×** (GHS 9.00 face, less cashback if on) from an admin's wallet to a test number you hold. Expect:
@@ -555,8 +557,9 @@ Buy **Special 3×** (GHS 9.00 face, less cashback if on) from an admin's wallet 
 - **three** child orders in one group: `SELECT id, reference_code, special_index, status, payment_status, amount, paid_amount FROM hubtel_data_orders WHERE special_group_id = '<id>' ORDER BY special_index;` — all `paid`, each going `completed` with a Hubtel ledger row and commission;
 - the handset really receives ~407MB per unit, ~1.22GB in all (check the MTN balance on the test number: this confirms the unit is the non-expiry 406.89MB bundle);
 - **My orders** shows ONE line "Special 1.22GB (3 × 406.89MB)" with status Completed;
-- `/admin/hubtel-commission` → Standard Bundles orders shows three rows with badges **Special 1/3, 2/3, 3/3**; clicking a badge filters the list to that group ("Clear" removes the filter).
+- Admin > Hubtel Commission > Standard Bundles tab shows three rows with badges **Special 1/3, 2/3, 3/3**; clicking a badge filters the list to that group ("Clear" removes the filter).
 Then try a double-tap / retry of the same purchase: still one debit, one group.
+**Pass = all 3 children `completed` AND ~1.22GB on the handset.** Only then widen the multiples (section 1, step 3).
 
 ### 3. Partial failure (admin review)
 Some units delivered, some not: My orders shows **"Part delivered — we're on it"** (all failed: **"Not delivered — we're on it"**; all refunded: **"Refunded"**). Handle each child on its own from the Standard Bundles orders tab — click its Special badge to see the whole group:
@@ -564,15 +567,22 @@ Some units delivered, some not: My orders shows **"Part delivered — we're on i
 - never sent (`pending` + paid, older than 60 s) or a stuck claim → **Send to Hubtel**, or **Refund (never sent)** (refunds the child's `paid_amount` with reference `data-refund-<child id>`, never twice);
 - reached Hubtel → Hubtel review queue.
 Retry and refund work per child exactly as for normal orders; nothing group-level exists.
+Customer notifications are **per unit**: the existing "failed" and "refunded" in-app notifications fire once per child, so one Special purchase with 3 failed units gives the customer 3 near-identical messages, each quoting the unit size (406.89MB), not the group.
 
-URGENT alerts (SMS with email fallback, category `bills_review`):
-- **"Special group <id>: k of n units not sent (time budget); retry them from /admin/standard-bundles"** — the dispatch loop stops after 240 s (route maxDuration 300 s). The last k children are paid and `pending`; after 60 s they show **Send to Hubtel** — send them (or refund them).
-- **"Special group <id>: could not list units after payment; check /admin/standard-bundles and send any pending ones"** — the debit committed but the server could not read the group back; only the ids it knew were dispatched. Filter by the group and send/refund any child still `pending` + paid.
-- Others (non-urgent): "child order <id> not found for dispatch", "child order <id> dispatch error (...). It is paid", and "PAID but dispatch could not be scheduled (n children left pending)" (urgent) — same handling: find the child, send or refund it.
+URGENT alerts (SMS with email fallback, category `bills_review`). Every one points at **Admin > Hubtel Commission > Standard Bundles tab**:
+- **"Special group <id>: k of n units not sent (time budget); send them from Admin > Hubtel Commission > Standard Bundles tab"** — the dispatch loop stops after 240 s (route maxDuration 300 s). The last k children are paid and `pending`; after 60 s they show **Send to Hubtel** — send them (or refund them).
+- **"Special group <id>: could not list units after payment; check Admin > Hubtel Commission > Standard Bundles tab and send any pending ones"** — the debit committed but the server could not read the group back; only the ids it knew were dispatched. Filter by the group and send/refund any child still `pending` + paid.
+- **"Special group <id>: unit i/N (<ref>) failed | paid but not sent | not found for dispatch | dispatch error (...)"** — one child went wrong inside the dispatch loop; the others carried on. Retry / send / refund that child. (Hubtel's own per-order alerts may also arrive for the same child.)
+- **"Special bundle group <id>: PAID but dispatch could not be scheduled (n children left pending)"** — send or refund each child.
+- **"Special bundle purchase outcome uncertain: user …, n x …, GHS … — check wallet; if the group committed, send its pending units from Admin > Hubtel Commission > Standard Bundles tab"** — the RPC errored and the group could not be found. Look for a `transactions` row `reference_id LIKE 'SPECIAL-%'` for that user at that time; if one exists, filter by its group (`SPECIAL-<group id>`) and send its pending children. A later retry with the same key replays the group but does NOT dispatch it.
+- **"Special group <id>: k paid units not sent; send them from Admin > Hubtel Commission > Standard Bundles"** — from the stuck-children watch (below).
+
+Stuck-children watch (backstop for a function killed mid-loop). The existing cron `/api/cron/expire-stale-bot-orders` (every 10 min) also runs `lib/standard-bundles/special-watch.ts`. It is READ-ONLY on orders: it finds Special children that are `pending` + paid with no Hubtel reference and `created_at` older than 5 minutes, and sends ONE urgent alert per group, at most once every 6 hours per group (stamps in `admin_settings` key `last_special_stuck_alerts`). Before 0141 it skips silently. It never changes the bot sweep or that cron's response status (the response gains a `specialWatch` field). A watch failure is logged as `[SPECIAL-WATCH]`.
 
 ### 4. Known limits
 - An idempotency key already used for a Special group and then reused with a NORMAL bundle token creates a normal order (the normal path looks up only the bare key; the client mints a new key per purchase, so this needs a crafted request).
 - Children still waiting in the dispatch loop show as **Send to Hubtel** / refundable in admin after the 60 s grace. The claim and status guards make a concurrent admin action safe, but do not hand-dispatch a group that is less than ~5 minutes old unless an alert says so.
+- **maxDuration ↔ STUCK_CLAIM_MS coupling.** The buy route runs up to `maxDuration = 300` s (for the Special loop); a "Dispatching…" claim older than `STUCK_CLAIM_MS` = 300 s (`lib/standard-bundles/admin.ts`) is treated as dead and can be released/refunded. Equal values are safe only because a claim is always written after the request starts, so a live request's claim is always younger than 300 s. The margin is zero: never raise `maxDuration` or lower `STUCK_CLAIM_MS` without moving the other. This also applies to normal Standard Bundle buys (same route).
 - The admin order line and the My orders line show the FACE amount (N × Hubtel price), like normal orders; what was charged is `paid_amount` (admin "Paid" line) and the one wallet debit.
 - A replayed buy (same key) returns the earlier group as it stands and does NOT re-dispatch it; stuck children are an admin job (section 3).
 - My orders shows at most 50 orders; a group cut by that limit is topped up with a second read. If that read fails, the line shows only the children it saw (smaller size/amount, and its status covers only those).
