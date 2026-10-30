@@ -104,6 +104,64 @@ describe("getBundlesAvailability", () => {
   })
 })
 
+/** A db whose successive awaited queries answer from `answers` in order, recording each query's calls. */
+function seqDb(answers: { data?: any; error?: any }[]) {
+  const queries: { fn: string; args: any[] }[][] = []
+  const db: any = {
+    from: () => {
+      const calls: { fn: string; args: any[] }[] = []
+      queries.push(calls)
+      const r = answers[queries.length - 1] ?? { data: [] }
+      const chain: any = new Proxy({}, {
+        get(_t, prop: string) {
+          if (prop === "then") return (res: any) => res({ data: r.data ?? null, error: r.error ?? null })
+          return (...args: any[]) => { calls.push({ fn: prop, args }); return chain }
+        },
+      })
+      return chain
+    },
+  }
+  return { db, queries }
+}
+
+describe("listUserDataOrders — Special groups", () => {
+  const kid = (id: string, g: string | null, i: number | null) => ({ id, special_group_id: g, special_index: i })
+
+  it("no extra query when the page is not full or the last row is not a Special child", async () => {
+    const short = seqDb([{ data: [kid("a", "g", 1)] }])
+    expect(await listUserDataOrders(short.db, "u1")).toHaveLength(1)
+    expect(short.queries).toHaveLength(1)
+    const full = Array.from({ length: 50 }, (_, k) => kid(`o${k}`, null, null))
+    const plain = seqDb([{ data: full }])
+    expect(await listUserDataOrders(plain.db, "u1")).toHaveLength(50)
+    expect(plain.queries).toHaveLength(1)
+  })
+
+  it("a full page ending in a Special child fetches that group's other children (caller-scoped) and appends the missing ones", async () => {
+    const page = [...Array.from({ length: 48 }, (_, k) => kid(`o${k}`, null, null)), kid("c1", "G", 1), kid("c2", "G", 2)]
+    const { db, queries } = seqDb([{ data: page }, { data: [kid("c1", "G", 1), kid("c2", "G", 2), kid("c3", "G", 3)] }])
+    const rows = await listUserDataOrders(db, "u1")
+    expect(rows.map((r: any) => r.id).slice(-3)).toEqual(["c1", "c2", "c3"])
+    expect(rows).toHaveLength(51)
+    const q2 = queries[1]
+    expect(q2.find(c => c.fn === "eq")!.args).toEqual(["user_id", "u1"])
+    expect(q2.find(c => c.fn === "eq" && c.args[0] === "special_group_id")!.args).toEqual(["special_group_id", "G"])
+    expect(q2.find(c => c.fn === "select")!.args[0]).toBe(queries[0].find(c => c.fn === "select")!.args[0])
+  })
+
+  it("the group top-up failing still returns the page", async () => {
+    const page = [...Array.from({ length: 49 }, (_, k) => kid(`o${k}`, null, null)), kid("c1", "G", 1)]
+    const { db } = seqDb([{ data: page }, { error: { message: "boom" } }])
+    expect(await listUserDataOrders(db, "u1")).toHaveLength(50)
+  })
+
+  it("before migration 0141 (column missing, 42703) it falls back to the old columns", async () => {
+    const { db, queries } = seqDb([{ error: { code: "42703", message: "column special_group_id does not exist" } }, { data: [{ id: "o1" }] }])
+    expect(await listUserDataOrders(db, "u1")).toEqual([{ id: "o1" }])
+    expect(queries[1].find(c => c.fn === "select")!.args[0]).not.toContain("special_")
+  })
+})
+
 describe("listUserDataOrders / pickOrder", () => {
   it("filters by caller, newest first, limit 50, explicit columns without secrets", async () => {
     const { db, calls } = fakeDb({ data: [{ id: "o1" }] })
@@ -114,6 +172,13 @@ describe("listUserDataOrders / pickOrder", () => {
     const cols = calls.find(c => c.fn === "select")!.args[0] as string
     for (const bad of ["*", "notes", "user_id", "idempotency_key", "hubtel_client_reference"]) expect(cols).not.toContain(bad)
     await expect(listUserDataOrders(fakeDb({ error: { message: "x" } }).db, "u1")).rejects.toBeTruthy()
+  })
+  it("selects special_group_id + special_index so the page can group Special children", async () => {
+    const { db, calls } = fakeDb({ data: [] })
+    await listUserDataOrders(db, "u1")
+    const cols = calls.find(c => c.fn === "select")!.args[0] as string
+    expect(cols).toContain("special_group_id")
+    expect(cols).toContain("special_index")
   })
   it("pickOrder returns only the allow-listed fields", () => {
     const row: any = { id: "i", reference_code: "SB-1", network: "MTN", bundle_display: "1GB", amount: 5, beneficiary_phone: "233240000000", status: "failed", payment_status: "paid", created_at: "t", notes: "raw hubtel", user_id: "u", idempotency_key: "k" }

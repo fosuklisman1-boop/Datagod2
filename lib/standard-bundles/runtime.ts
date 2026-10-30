@@ -108,14 +108,34 @@ export async function getBundlesAvailability(
   }
 }
 
-const ORDER_COLUMNS =
+const BASE_ORDER_COLUMNS =
   "id, reference_code, network, beneficiary_phone, bundle_display, bundle_category, amount, status, payment_status, failure_reason, created_at, updated_at"
+/** Plus the Special Bundles group columns (migration 0141), so the page can show a group as one line. */
+const ORDER_COLUMNS = `${BASE_ORDER_COLUMNS}, special_group_id, special_index`
+const ORDERS_LIMIT = 50
 
-/** The caller's own orders only (user_id is always filtered), newest first, max 50. */
+type OrderListRow = { id: string; special_group_id?: string | null }
+
+/**
+ * The caller's own orders only (user_id is always filtered), newest first, max 50. When the page is full and ends
+ * in a Special child, that group's other children (cut off by the limit) are appended so the group shows whole.
+ * Before 0141 is applied (undefined column) it falls back to the old columns.
+ */
 export async function listUserDataOrders(db: SupabaseClient, userId: string) {
-  const { data, error } = await db.from(TABLE).select(ORDER_COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(50)
-  if (error) throw error
-  return data ?? []
+  const page = (cols: string) =>
+    db.from(TABLE).select(cols).eq("user_id", userId).order("created_at", { ascending: false }).limit(ORDERS_LIMIT)
+  let res = await page(ORDER_COLUMNS)
+  if (res.error && (res.error as { code?: string }).code === "42703") res = await page(BASE_ORDER_COLUMNS)
+  if (res.error) throw res.error
+  const rows = (res.data ?? []) as unknown as OrderListRow[]
+
+  const tailGroup = rows.length >= ORDERS_LIMIT ? rows[rows.length - 1]?.special_group_id : null
+  if (!tailGroup) return rows
+  const { data, error } = await db.from(TABLE).select(ORDER_COLUMNS).eq("user_id", userId).eq("special_group_id", tailGroup)
+    .order("special_index", { ascending: true })
+  if (error || !data) return rows // the page itself is still good
+  const seen = new Set(rows.map(r => r.id))
+  return [...rows, ...(data as unknown as OrderListRow[]).filter(r => !seen.has(r.id))]
 }
 
 /** Explicit allow-list for buy responses: never the raw row (notes can hold raw provider error text). */
