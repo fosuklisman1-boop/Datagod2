@@ -147,6 +147,21 @@ describe("listUserDataOrders — Special groups", () => {
     expect(q2.find(c => c.fn === "eq")!.args).toEqual(["user_id", "u1"])
     expect(q2.find(c => c.fn === "eq" && c.args[0] === "special_group_id")!.args).toEqual(["special_group_id", "G"])
     expect(q2.find(c => c.fn === "select")!.args[0]).toBe(queries[0].find(c => c.fn === "select")!.args[0])
+    expect(q2.find(c => c.fn === "limit")!.args).toEqual([50])
+  })
+
+  it("a non-42703 error on the new-columns select is re-thrown (no fallback query)", async () => {
+    const err = { code: "57014", message: "statement timeout" }
+    const { db, queries } = seqDb([{ error: err }, { data: [{ id: "o1" }] }])
+    await expect(listUserDataOrders(db, "u1")).rejects.toBe(err)
+    expect(queries).toHaveLength(1)
+  })
+
+  it("a 42703 whose fallback retry also fails throws the retry error", async () => {
+    const retryErr = { code: "57014", message: "statement timeout" }
+    const { db, queries } = seqDb([{ error: { code: "42703", message: "column special_group_id does not exist" } }, { error: retryErr }])
+    await expect(listUserDataOrders(db, "u1")).rejects.toBe(retryErr)
+    expect(queries).toHaveLength(2)
   })
 
   it("the group top-up failing still returns the page", async () => {

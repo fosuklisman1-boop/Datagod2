@@ -68,16 +68,26 @@ describe("specialGroupStatus", () => {
   it("all completed => Completed", () => {
     expect(specialGroupStatus(["completed", "completed", "completed"])).toEqual({ label: "Completed", tone: "completed" })
   })
-  it("any failed => Part delivered — we're on it", () => {
+  it("some completed and some failed => Part delivered — we're on it", () => {
+    expect(specialGroupStatus(["completed", "failed", "failed"]).label).toBe("Part delivered — we're on it")
     expect(specialGroupStatus(["completed", "failed", "processing"]).label).toBe("Part delivered — we're on it")
-    expect(specialGroupStatus(["failed", "failed"]).label).toBe("Part delivered — we're on it")
   })
-  it("a refunded child counts as not delivered too", () => {
+  it("some completed and some refunded => Part delivered — we're on it", () => {
     expect(specialGroupStatus(["completed", "refunded"]).label).toBe("Part delivered — we're on it")
+    expect(specialGroupStatus(["completed", "failed", "refunded"]).label).toBe("Part delivered — we're on it")
   })
-  it("otherwise => Processing", () => {
+  it("all failed, none delivered => Not delivered — we're on it", () => {
+    expect(specialGroupStatus(["failed", "failed"]).label).toBe("Not delivered — we're on it")
+    expect(specialGroupStatus(["failed"]).label).toBe("Not delivered — we're on it")
+  })
+  it("all refunded => Refunded", () => {
+    expect(specialGroupStatus(["refunded", "refunded", "refunded"]).label).toBe("Refunded")
+  })
+  it("otherwise => Processing (incl. failed/refunded mixes with nothing delivered, and in-flight children)", () => {
     expect(specialGroupStatus(["completed", "processing"])).toEqual({ label: "Processing", tone: "processing" })
     expect(specialGroupStatus(["pending", "pending"])).toEqual({ label: "Processing", tone: "processing" })
+    expect(specialGroupStatus(["failed", "processing"]).label).toBe("Processing")
+    expect(specialGroupStatus(["failed", "refunded"]).label).toBe("Processing")
     expect(specialGroupStatus([])).toEqual({ label: "Processing", tone: "processing" })
   })
 })

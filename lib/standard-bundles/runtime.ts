@@ -132,7 +132,7 @@ export async function listUserDataOrders(db: SupabaseClient, userId: string) {
   const tailGroup = rows.length >= ORDERS_LIMIT ? rows[rows.length - 1]?.special_group_id : null
   if (!tailGroup) return rows
   const { data, error } = await db.from(TABLE).select(ORDER_COLUMNS).eq("user_id", userId).eq("special_group_id", tailGroup)
-    .order("special_index", { ascending: true })
+    .order("special_index", { ascending: true }).limit(50) // a group is at most 50 children (0141 CHECK on special_index)
   if (error || !data) return rows // the page itself is still good
   const seen = new Set(rows.map(r => r.id))
   return [...rows, ...(data as unknown as OrderListRow[]).filter(r => !seen.has(r.id))]

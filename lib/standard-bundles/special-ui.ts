@@ -39,10 +39,21 @@ export const SPECIAL_BLURB = "Low Cost Non Expiry Bundles, special for you"
 
 export const PART_DELIVERED_LABEL = "Part delivered — we're on it"
 
-/** One status for a Special group: all completed → Completed; any failed (or refunded) → part delivered; else Processing. */
+export const NOT_DELIVERED_LABEL = "Not delivered — we're on it"
+
+/**
+ * One status for a Special group (ruling 2026-10-30):
+ * all completed → Completed; all failed → Not delivered; all refunded → Refunded;
+ * some completed + some failed/refunded → Part delivered; anything else → Processing.
+ */
 export function specialGroupStatus(statuses: string[]): { label: string; tone: string } {
-  if (statuses.length > 0 && statuses.every(s => s === "completed")) return { label: "Completed", tone: "completed" }
-  if (statuses.some(s => s === "failed" || s === "refunded")) return { label: PART_DELIVERED_LABEL, tone: "pending" }
+  const all = (s: string) => statuses.length > 0 && statuses.every(x => x === s)
+  if (all("completed")) return { label: "Completed", tone: "completed" }
+  if (all("failed")) return { label: NOT_DELIVERED_LABEL, tone: "pending" }
+  if (all("refunded")) return { label: "Refunded", tone: "refunded" }
+  if (statuses.includes("completed") && statuses.some(s => s === "failed" || s === "refunded")) {
+    return { label: PART_DELIVERED_LABEL, tone: "pending" }
+  }
   return { label: "Processing", tone: "processing" }
 }
 
