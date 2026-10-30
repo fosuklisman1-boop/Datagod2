@@ -9,7 +9,13 @@ export const UNSENT_GRACE_MS = 60_000
 /** A dispatch claim older than this with no Hubtel ledger row never reached Hubtel (the ledger row is written before the POST). */
 export const STUCK_CLAIM_MS = 300_000
 
-export interface OrderFilters { q?: string; status?: string; network?: string; from?: string; to?: string; channel?: "dashboard" | "storefront" | "api" | "bots" }
+export interface OrderFilters {
+  q?: string; status?: string; network?: string; from?: string; to?: string; channel?: "dashboard" | "storefront" | "api" | "bots"
+  /** Special Bundles group (special_group_id, migration 0141). */
+  group?: string
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Validates every query-string value; unknown values are dropped rather than passed to the database. */
 export function parseOrderFilters(sp: URLSearchParams): OrderFilters {
@@ -25,7 +31,48 @@ export function parseOrderFilters(sp: URLSearchParams): OrderFilters {
     from: dateOk(sp.get("from")),
     to: dateOk(sp.get("to")),
     channel: ["dashboard", "storefront", "api", "bots"].includes(sp.get("channel") ?? "") ? (sp.get("channel") as "dashboard" | "storefront" | "api" | "bots") : undefined,
+    group: UUID_RE.test(sp.get("group") ?? "") ? (sp.get("group") as string).toLowerCase() : undefined,
   }
+}
+
+// Explicit admin list columns; never select idempotency_key.
+export const ADMIN_ORDER_COLUMNS_BASE =
+  "id, reference_code, user_id, channel, network, service_key, beneficiary_phone, bundle_value, bundle_display, bundle_category, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at, shop_id, buyer_name, buyer_phone, buyer_email, payment_fee_amount, bot_surface"
+/** Plus the Special Bundles group columns (migration 0141). */
+export const ADMIN_ORDER_COLUMNS = `${ADMIN_ORDER_COLUMNS_BASE}, special_group_id, special_index`
+
+/**
+ * Run the admin page query with the Special columns. Before 0141 is applied (SQLSTATE 42703, undefined column):
+ * with a group filter no group can exist, so null (= an empty page); otherwise retry once with the base columns.
+ * Any other error is returned unchanged for the caller to throw.
+ */
+export async function selectOrdersPage<R extends { error: unknown }>(run: (cols: string) => PromiseLike<R>, f: OrderFilters): Promise<R | null> {
+  const res = await run(ADMIN_ORDER_COLUMNS)
+  if ((res.error as { code?: string } | null)?.code !== "42703") return res
+  if (f.group) return null
+  return run(ADMIN_ORDER_COLUMNS_BASE)
+}
+
+/** "Special 2/3" for a Special child (N = the group's child count; "Special 2" when unknown), else null. */
+export function specialBadgeLabel(o: { special_group_id?: string | null; special_index?: number | null }, size: number | undefined): string | null {
+  if (!o.special_group_id || !o.special_index) return null
+  return size ? `Special ${o.special_index}/${size}` : `Special ${o.special_index}`
+}
+
+/**
+ * Child count per Special group on an admin page: one head count per distinct group (a page holds at most 100 rows,
+ * so at most 100 small indexed counts). A failed count is left out, so its badge shows "Special i" without N.
+ */
+export async function fetchSpecialGroupSizes(db: SupabaseClient, groupIds: (string | null | undefined)[]): Promise<Map<string, number>> {
+  const ids = [...new Set(groupIds.filter((g): g is string => !!g))]
+  const out = new Map<string, number>()
+  await Promise.all(ids.map(async g => {
+    try {
+      const { count, error } = await db.from(DATA_ORDERS_TABLE).select("id", { count: "exact", head: true }).eq("special_group_id", g)
+      if (!error && typeof count === "number") out.set(g, count)
+    } catch { /* left out: badge shows i only */ }
+  }))
+  return out
 }
 
 export function applyOrderFilters<T>(query: T, f: OrderFilters, qAlt?: string): T {
@@ -33,6 +80,7 @@ export function applyOrderFilters<T>(query: T, f: OrderFilters, qAlt?: string): 
   if (f.status) q = q.eq("status", f.status)
   if (f.network) q = q.eq("network", f.network)
   if (f.channel) q = q.eq("channel", f.channel)
+  if (f.group) q = q.eq("special_group_id", f.group)
   if (f.from) q = q.gte("created_at", `${f.from}T00:00:00.000Z`)
   if (f.to) q = q.lte("created_at", `${f.to}T23:59:59.999Z`)
   if (f.q) {

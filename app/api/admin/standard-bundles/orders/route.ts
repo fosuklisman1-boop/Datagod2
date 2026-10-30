@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   applyOrderFilters, bundleCanDispatch, bundleCanRetry, bundleRefundDecision, DATA_ORDERS_TABLE, fetchBundleLedgerByOrders, fetchLedgerOrderIds, isStuckClaim,
-  ORDER_STATUSES, parseOrderFilters,
+  fetchSpecialGroupSizes, ORDER_STATUSES, parseOrderFilters, selectOrdersPage, specialBadgeLabel,
 } from "@/lib/standard-bundles/admin"
 import type { LedgerFact } from "@/lib/bills/admin"
 import { clampPage, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
@@ -9,10 +9,6 @@ import { botChannelLabel } from "@/lib/cashback/bot-labels"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 
 export const dynamic = "force-dynamic"
-
-// Explicit columns; never select idempotency_key.
-const COLUMNS =
-  "id, reference_code, user_id, channel, network, service_key, beneficiary_phone, bundle_value, bundle_display, bundle_category, amount, paid_amount, status, payment_status, hubtel_client_reference, commission, failure_reason, notes, created_at, updated_at, shop_id, buyer_name, buyer_phone, buyer_email, payment_fee_amount, bot_surface"
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request)
@@ -23,8 +19,11 @@ export async function GET(request: NextRequest) {
   const { limit, offset } = clampPage(sp)
   try {
     const { db } = getHubtelCsRuntime()
-    let page = await applyOrderFilters(db.from(DATA_ORDERS_TABLE).select(COLUMNS, { count: "exact" }), f, qAlt)
-      .order("created_at", { ascending: false }).order("id", { ascending: true }).range(offset, offset + limit - 1)
+    const selected = await selectOrdersPage(cols => applyOrderFilters(db.from(DATA_ORDERS_TABLE).select(cols, { count: "exact" }), f, qAlt)
+      .order("created_at", { ascending: false }).order("id", { ascending: true }).range(offset, offset + limit - 1), f)
+    // Group filter before migration 0141: no Special group can exist yet.
+    if (selected === null) return NextResponse.json({ rows: [], total: 0, stats: null })
+    let page = selected
     if (page.error && ((page.error as any).code === "PGRST103" || (page as any).status === 416)) {
       const c = await applyOrderFilters(db.from(DATA_ORDERS_TABLE).select("id", { count: "exact", head: true }), f, qAlt)
       if (c.error) throw c.error
@@ -75,6 +74,9 @@ export async function GET(request: NextRequest) {
     let retryOk = true
     try { ledgerMap = await fetchBundleLedgerByOrders(db, retryCandidates.map(o => o.id)) } catch { retryOk = false }
 
+    // Special Bundles: N per group for the "Special i/N" badge (fail-soft: badge shows "Special i").
+    const groupSizes = await fetchSpecialGroupSizes(db, orders.map(o => o.special_group_id))
+
     const now = Date.now()
     const rows = orders.map(o => {
       const isCandidate = candidates.includes(o)
@@ -89,6 +91,7 @@ export async function GET(request: NextRequest) {
           : ([u?.first_name, u?.last_name].filter(Boolean).join(" ").trim() || u?.email || "Unknown"),
         channel_label: o.channel === "bots" ? botChannelLabel(o.bot_surface) : null,
         shop_name: o.shop_id ? (shops.get(o.shop_id) ?? "Unknown shop") : null,
+        special_label: specialBadgeLabel(o, o.special_group_id ? groupSizes.get(o.special_group_id) : undefined),
         stuck_claim: ledgerOk && isCandidate && !ledger.has(o.id) && isStuckClaim(o, now),
         has_ledger: ledgerOk && isCandidate ? ledger.has(o.id) : null,
         refund: decision,

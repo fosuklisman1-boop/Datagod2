@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 import {
+  ADMIN_ORDER_COLUMNS, ADMIN_ORDER_COLUMNS_BASE, applyOrderFilters, fetchSpecialGroupSizes, selectOrdersPage, specialBadgeLabel,
   bundleCanDispatch, bundleCanRetry, bundleRefundDecision, executeBundleRefund, fetchBundleLedgerByOrders, isStuckClaim, parseOrderFilters, refundAmountOf, refundMessageOf, releaseStuckClaimRow, STUCK_CLAIM_MS, UNSENT_GRACE_MS,
   type BundleRefundDeps, type RefundOrder,
 } from "./admin"
@@ -19,6 +20,102 @@ describe("parseOrderFilters", () => {
   })
   it("accepts valid status and network", () => {
     expect(parseOrderFilters(new URLSearchParams("status=failed&network=AT"))).toMatchObject({ status: "failed", network: "AT" })
+  })
+  it("accepts a Special group id only when it is a UUID (lower-cased)", () => {
+    const g = "0F8FAD5B-D9CB-469F-A165-70867728950E"
+    expect(parseOrderFilters(new URLSearchParams(`group=${g}`)).group).toBe(g.toLowerCase())
+    for (const bad of ["x", "1,2", "0f8fad5b-d9cb-469f-a165-70867728950e)", "' or 1=1", ""]) {
+      expect(parseOrderFilters(new URLSearchParams(`group=${encodeURIComponent(bad)}`)).group).toBeUndefined()
+    }
+  })
+})
+
+describe("applyOrderFilters — Special group", () => {
+  const rec = () => {
+    const calls: string[] = []
+    const q: any = new Proxy({}, { get: (_t, p: string) => (...a: any[]) => { calls.push(`${p}:${a.join("=")}`); return q } })
+    return { q, calls }
+  }
+  it("filters on special_group_id when a group is given, and not otherwise", () => {
+    const a = rec()
+    applyOrderFilters(a.q, { group: "0f8fad5b-d9cb-469f-a165-70867728950e" })
+    expect(a.calls).toEqual(["eq:special_group_id=0f8fad5b-d9cb-469f-a165-70867728950e"])
+    const b = rec()
+    applyOrderFilters(b.q, { status: "failed" })
+    expect(b.calls).toEqual(["eq:status=failed"])
+  })
+})
+
+describe("specialBadgeLabel", () => {
+  it("Special i/N, or Special i when the size is unknown; null for a normal order", () => {
+    expect(specialBadgeLabel({ special_group_id: "g", special_index: 2 }, 3)).toBe("Special 2/3")
+    expect(specialBadgeLabel({ special_group_id: "g", special_index: 2 }, undefined)).toBe("Special 2")
+    expect(specialBadgeLabel({ special_group_id: null, special_index: null }, 3)).toBeNull()
+    expect(specialBadgeLabel({}, undefined)).toBeNull()
+  })
+})
+
+describe("selectOrdersPage (pre-0141 fallback)", () => {
+  const ok = { data: [{ id: "o1" }], error: null, count: 1 }
+  const missing = { data: null, error: { code: "42703", message: "column special_group_id does not exist" }, count: null }
+  it("selects the Special columns first", async () => {
+    const cols: string[] = []
+    expect(await selectOrdersPage(async c => { cols.push(c); return ok }, {})).toBe(ok)
+    expect(cols).toEqual([ADMIN_ORDER_COLUMNS])
+    expect(ADMIN_ORDER_COLUMNS).toContain("special_group_id, special_index")
+    expect(ADMIN_ORDER_COLUMNS).not.toContain("idempotency_key")
+  })
+  it("42703 without a group filter retries once with the base columns", async () => {
+    const cols: string[] = []
+    const res = await selectOrdersPage(async c => { cols.push(c); return cols.length === 1 ? missing : ok }, {})
+    expect(res).toBe(ok)
+    expect(cols).toEqual([ADMIN_ORDER_COLUMNS, ADMIN_ORDER_COLUMNS_BASE])
+    expect(ADMIN_ORDER_COLUMNS_BASE).not.toContain("special_")
+  })
+  it("42703 with a group filter means no group can exist yet: null (empty page), no retry", async () => {
+    const cols: string[] = []
+    expect(await selectOrdersPage(async c => { cols.push(c); return missing }, { group: "0f8fad5b-d9cb-469f-a165-70867728950e" })).toBeNull()
+    expect(cols).toHaveLength(1)
+  })
+  it("any other error is returned as is (the route throws it)", async () => {
+    const other = { data: null, error: { code: "57014", message: "timeout" }, count: null }
+    const cols: string[] = []
+    expect(await selectOrdersPage(async c => { cols.push(c); return other }, {})).toBe(other)
+    expect(cols).toHaveLength(1)
+  })
+})
+
+describe("fetchSpecialGroupSizes", () => {
+  function countDb(counts: Record<string, number | Error>) {
+    const seen: string[] = []
+    const db: any = {
+      from: (t: string) => {
+        let g = ""
+        const chain: any = {
+          select: (_c: string, o: any) => { expect(t).toBe("hubtel_data_orders"); expect(o).toEqual({ count: "exact", head: true }); return chain },
+          eq: (c: string, v: string) => { expect(c).toBe("special_group_id"); g = v; seen.push(v); return chain },
+          then: (res: any) => {
+            const c = counts[g]
+            return res(c instanceof Error ? { count: null, error: c } : { count: c, error: null })
+          },
+        }
+        return chain
+      },
+    }
+    return { db, seen }
+  }
+  it("one head count per distinct group; failures are left out (badge shows i only)", async () => {
+    const { db, seen } = countDb({ A: 3, B: new Error("boom"), C: 15 })
+    const m = await fetchSpecialGroupSizes(db, ["A", "A", "B", "C", null, undefined])
+    expect([...seen].sort()).toEqual(["A", "B", "C"])
+    expect(m.get("A")).toBe(3)
+    expect(m.has("B")).toBe(false)
+    expect(m.get("C")).toBe(15)
+  })
+  it("no groups -> no queries", async () => {
+    const { db, seen } = countDb({})
+    expect((await fetchSpecialGroupSizes(db, [])).size).toBe(0)
+    expect(seen).toEqual([])
   })
 })
 
