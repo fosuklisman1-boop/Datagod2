@@ -282,8 +282,9 @@ export function StandardBundlesPage() {
                     </button>
                   )
                 })}
-                {/* Telecel Broadband: not sold as a Standard Bundle yet (bills: Pay Bills). */}
-                <div className="flex flex-col items-center gap-1.5 rounded-2xl border-2 border-transparent bg-card p-3 opacity-60 clay sm:p-4" aria-disabled="true">
+                {/* Telecel Broadband: not sold as a Standard Bundle yet (bills: Pay Bills). Not a tab: role=presentation
+                    so the Network tablist owns only tabs (layout unchanged). */}
+                <div className="flex flex-col items-center gap-1.5 rounded-2xl border-2 border-transparent bg-card p-3 opacity-60 clay sm:p-4" role="presentation">
                   {logoFor(TILE_META.TELECEL.logoKeys) ? (
                     <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-card">
                       <img src={logoFor(TILE_META.TELECEL.logoKeys)} alt="Telecel Broadband" className="h-full w-full object-contain" />
