@@ -34,7 +34,13 @@ vi.mock("@/lib/standard-bundles/special-service", async importOriginal => ({
 const SECRET = "s".repeat(40)
 const T0 = 1_800_000_000_000
 
-import { POST } from "./route"
+import { POST, maxDuration } from "./route"
+
+describe("route config", () => {
+  it("maxDuration 300: room for the Special dispatch loop's 240s budget", () => {
+    expect(maxDuration).toBe(300)
+  })
+})
 import { signBundleToken, signSpecialToken, BUNDLE_TOKEN_TTL_MS } from "@/lib/standard-bundles/token"
 
 const KEY = "0f8fad5b-d9cb-469f-a165-70867728950e"

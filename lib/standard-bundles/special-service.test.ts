@@ -228,6 +228,10 @@ describe("buySpecial — re-checks (each refused before the RPC)", () => {
     const m = make(); m.cfg.special.multiples = [5, 8]
     await refused(m, await buy(m), 409, PRICES_REFRESHED)
   })
+  it("n above the cap of 20 => 409 even if the config lists it", async () => {
+    const m = make(); m.cfg.special.multiples = [21]
+    await refused(m, await buy(m, { token: specialTok(21), expectedPay: 63 }, 21), 409, PRICES_REFRESHED)
+  })
   it("admin changed the unit value => 409", async () => {
     const m = make(); m.cfg.special.unitValue = "RACT_Data_GHC_5_Others"
     await refused(m, await buy(m), 409, PRICES_REFRESHED)
@@ -383,6 +387,32 @@ describe("buySpecial — dispatch isolation", () => {
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o3"])
     expect(m.calls.alerts.some(a => a.includes("SB-O2") || a.includes("o2"))).toBe(true)
+  })
+  it("time budget: past 240s since the loop started, the rest are not sent and ONE urgent alert names k of n", async () => {
+    const m = make()
+    const purchase = m.d.purchase
+    let clock = T0
+    m.d.now = () => clock
+    // Each Hubtel purchase takes 130s: child 1 at 0s, child 2 at 130s, child 3 at 260s (> 240s) => stop.
+    m.d.purchase = async (i) => { clock += 130_000; return purchase(i) }
+    const r = await buy(m, { token: specialTok(5), expectedPay: 15 }, 5)
+    expect(r.ok).toBe(true)
+    await m.runTasks()
+    expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2"])
+    expect(m.orders.map(o => o.status)).toEqual(["processing", "processing", "pending", "pending", "pending"])
+    expect(m.calls.alerts).toEqual(["Special group g1: 3 of 5 units not sent (time budget); retry them from /admin/standard-bundles"])
+    expect(m.calls.urgent).toEqual([true])
+  })
+  it("time budget: exactly 240s elapsed still dispatches (strictly more than 240s stops)", async () => {
+    const m = make()
+    const purchase = m.d.purchase
+    let clock = T0
+    m.d.now = () => clock
+    m.d.purchase = async (i) => { clock += 120_000; return purchase(i) }
+    await buy(m)
+    await m.runTasks()
+    expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2", "o3"])
+    expect(m.calls.alerts).toEqual([])
   })
   it("after() unavailable => success still returned (paid) and an urgent alert", async () => {
     const m = make()

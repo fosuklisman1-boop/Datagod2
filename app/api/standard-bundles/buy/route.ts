@@ -8,8 +8,9 @@ import { buildSpecialDeps } from "@/lib/standard-bundles/special-runtime"
 import { isSpecialTokenSigned } from "@/lib/standard-bundles/token"
 import { authenticate, readJson } from "@/lib/bills/route-auth"
 
-// A request must always die well before the 5-minute stuck-claim threshold.
-export const maxDuration = 60
+// 300s: room for the Special dispatch loop, which stops itself after a 240s budget (special-service.ts). A normal
+// buy only gains headroom.
+export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
   try {

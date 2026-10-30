@@ -1,5 +1,5 @@
 import { samePrice } from "@/lib/cashback/quote"
-import type { BundlesConfig } from "./config"
+import { SPECIAL_MAX_MULTIPLE, type BundlesConfig } from "./config"
 import {
   dispatchBundleOrder, INSUFFICIENT, isValidIdempotencyKey, prepareBundlePurchase, PRICES_REFRESHED, quoteBundle,
   type BundlesDeps, type BuyInput, type DataOrderRow, type PriceQuote,
@@ -45,7 +45,9 @@ export type SpecialBuyResult =
 
 export const SPECIAL_PRICE_CHANGED = "Price changed. Please try again."
 const UNAVAILABLE = "Bundles unavailable right now"
-const KEY_USED = "This request was already used for another purchase. Please try again."
+/** The sequential dispatch loop stops starting new children after this long (the route allows 300s). */
+export const DISPATCH_BUDGET_MS = 240_000
+const KEY_USED ="This request was already used for another purchase. Please try again."
 
 const fail = (status: number, error: string): { ok: false; status: number; error: string } => ({ ok: false, status, error })
 const cents = (n: number) => Math.round(n * 100)
@@ -86,7 +88,7 @@ export async function buySpecial(d: SpecialDeps, userId: string, input: BuyInput
   try { cfg = await d.getBundlesConfig() } catch { return fail(503, UNAVAILABLE) }
   const sp = cfg.special
   if (!sp?.enabled || s.unit.network !== "MTN") return fail(403, "Special Bundles are not available")
-  if (!sp.multiples.includes(s.n)) return fail(409, PRICES_REFRESHED)
+  if (s.n > SPECIAL_MAX_MULTIPLE || !sp.multiples.includes(s.n)) return fail(409, PRICES_REFRESHED)
   // 4. The unit is still the configured one (value exact, amount to the cent).
   if (s.unit.value !== sp.unitValue || cents(s.unit.amount) !== cents(sp.unitAmount)) return fail(409, PRICES_REFRESHED)
 
@@ -171,7 +173,16 @@ async function replayGroup(d: SpecialDeps, userId: string, groupId: string, firs
 
 function scheduleDispatch(d: SpecialDeps, groupId: string, ids: string[]): void {
   const task = async () => {
-    for (const id of ids) {
+    const start = d.now()
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i]
+      // Time budget (route maxDuration 300s): past 240s, stop and hand the rest to an admin, never a silent cut-off.
+      if (d.now() - start > DISPATCH_BUDGET_MS) {
+        const k = ids.length - i
+        console.error("[bundles] special dispatch time budget exceeded:", groupId, `${k}/${ids.length} not sent`)
+        await safeAlert(d, `Special group ${groupId}: ${k} of ${ids.length} units not sent (time budget); retry them from /admin/standard-bundles`, true)
+        return
+      }
       // One child failing never stops the others; every failure leaves a log line and an admin alert.
       try {
         const row = await d.getOrder(id)

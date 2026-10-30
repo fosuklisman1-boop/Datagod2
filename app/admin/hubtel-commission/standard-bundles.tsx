@@ -171,7 +171,7 @@ function SpecialBundlesSection({ special, busy, onSave }: {
       </div>
       <div className="grid gap-3 lg:grid-cols-[2fr_1fr_2fr_auto] lg:items-end">
         <div>
-          <div className="mb-1 text-xs text-muted-foreground">Multiples (comma separated, 1 to 10 whole numbers from 1 to 50)</div>
+          <div className="mb-1 text-xs text-muted-foreground">Multiples (comma separated, 1 to 10 whole numbers from 1 to 20)</div>
           <Input aria-label="Special Bundles multiples" value={multiples} inputMode="numeric" onChange={e => setMultiples(e.target.value)} />
         </div>
         <div>

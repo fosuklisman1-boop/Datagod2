@@ -78,7 +78,8 @@ describe("bundles config", () => {
         "x", [], { enabled: true },
         { enabled: true, multiples: [], unitAmount: 3 },
         { enabled: true, multiples: [0], unitAmount: 3 },
-        { enabled: true, multiples: [51], unitAmount: 3 },
+        { enabled: true, multiples: [21], unitAmount: 3 },
+        { enabled: true, multiples: [3, 50], unitAmount: 3 },
         { enabled: true, multiples: [1.5], unitAmount: 3 },
         { enabled: true, multiples: ["3"], unitAmount: 3 },
         { enabled: true, multiples: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], unitAmount: 3 },
@@ -101,7 +102,11 @@ describe("bundles config", () => {
       expect(ok).toEqual({ ok: true, patch: { special: { enabled: true, multiples: [3, 5, 15], unitAmount: 3, unitValue: UV } } })
       expect(validateBundlesPatch({ enabled: true, special: { enabled: false, multiples: [3], unitAmount: 3.5, unitValue: UV } }).ok).toBe(true)
       expect(validateBundlesPatch({ special: { enabled: true, multiples: Array.from({ length: 10 }, (_, i) => i + 1), unitAmount: 3, unitValue: UV } }).ok).toBe(true)
-      expect(validateBundlesPatch({ special: { enabled: true, multiples: [50], unitAmount: 0.01, unitValue: "x".repeat(80) } }).ok).toBe(true)
+      // Cap is 20 (dispatch time budget ruling); the 0141 RPC keeps 1..50 as the outer bound.
+      expect(validateBundlesPatch({ special: { enabled: true, multiples: [20], unitAmount: 0.01, unitValue: "x".repeat(80) } }).ok).toBe(true)
+      expect(validateBundlesPatch({ special: { enabled: true, multiples: [21], unitAmount: 3, unitValue: UV } }).ok).toBe(false)
+      expect(validateBundlesPatch({ special: { enabled: true, multiples: [50], unitAmount: 3, unitValue: UV } }).ok).toBe(false)
+      expect(resolveBundlesConfig({ special: { enabled: true, multiples: [20], unitAmount: 3, unitValue: UV } }).special.multiples).toEqual([20])
       // unitValue is required in a patch (the RPC replaces `special` whole) and must be [A-Za-z0-9_-]{1,80}.
       for (const unitValue of [undefined, "", " ", "a b", "x".repeat(81), "RACT.Data", "ü", 3, null]) {
         const r = validateBundlesPatch({ special: { enabled: true, multiples: [3], unitAmount: 3, ...(unitValue === undefined ? {} : { unitValue }) } })

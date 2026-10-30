@@ -98,12 +98,12 @@ describe("special token", () => {
     expect(verifySpecialToken("abc", S, T0)).toBeNull()
     expect(verifySpecialToken(undefined as any, S, T0)).toBeNull()
   })
-  it("rejects n outside 1..50 or non-integer", () => {
+  it("rejects n outside 1..20 or non-integer", () => {
     const ut = signBundleToken(unit, S)
-    for (const n of [0, 51, 2.5, -1, NaN]) {
+    for (const n of [0, 21, 50, 51, 2.5, -1, NaN]) {
       expect(verifySpecialToken(signSpecialToken({ unitToken: ut, n, issuedAt: T0 }, S), S, T0)).toBeNull()
     }
-    expect(verifySpecialToken(signSpecialToken({ unitToken: ut, n: 50, issuedAt: T0 }, S), S, T0)).not.toBeNull()
+    expect(verifySpecialToken(signSpecialToken({ unitToken: ut, n: 20, issuedAt: T0 }, S), S, T0)).not.toBeNull()
   })
   it("rejects an invalid, foreign-secret or non-MTN unit token", () => {
     expect(verifySpecialToken(signSpecialToken({ unitToken: "junk", n: 3, issuedAt: T0 }, S), S, T0)).toBeNull()

@@ -21,7 +21,8 @@ export interface BundlesConfig { enabled: boolean; networks: Record<BundleNetwor
 export interface BundlesPatch { enabled?: boolean; networks?: Partial<Record<BundleNetwork, NetworkSetting>>; special?: SpecialSetting }
 
 export const SPECIAL_MAX_MULTIPLES = 10
-export const SPECIAL_MAX_MULTIPLE = 50
+// 20, not the 0141 RPC's outer bound of 50: N children are dispatched one after another inside a 240s budget.
+export const SPECIAL_MAX_MULTIPLE = 20
 export const SPECIAL_MAX_UNIT_VALUE_LENGTH = 80
 export const DEFAULT_SPECIAL_UNIT_VALUE = "RACT_Data_GHC_3_Others"
 export const DEFAULT_SPECIAL: SpecialSetting = {
@@ -34,7 +35,7 @@ const validUnitValue = (v: unknown): v is string =>
 
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v)
 
-/** Distinct integers 1..50, at most 10, returned sorted. Null when the shape is invalid. */
+/** Distinct integers 1..SPECIAL_MAX_MULTIPLE (20), at most 10, returned sorted. Null when the shape is invalid. */
 function cleanMultiples(v: unknown): number[] | null {
   if (!Array.isArray(v)) return null
   if (!v.every((n) => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= SPECIAL_MAX_MULTIPLE)) return null
