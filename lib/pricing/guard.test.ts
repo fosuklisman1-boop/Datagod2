@@ -35,16 +35,41 @@ const ALLOWED = new Set([
   "app/dashboard/data-packages/page.tsx",
   // The admin view lists dealer_price as a field; the price choices use the resolver.
   "lib/ai-tools.ts",
+  // Mobile app: cannot import the resolver (separate package). Its prices come from /api/user/package-prices;
+  // the dealer rule is only the display fallback when that call fails, and purchases are re-priced server-side.
+  "mobile/src/lib/datagod.ts",
 ])
 
 // A copy of the rule looks like `dealer_price && ... > 0 ? ... dealer_price` or `dealer_price ?? price`.
+// It is single-line: match it against `collapse(contents)` so a ternary split over several lines is caught.
 export const RULE = /dealer_price[^\n]{0,80}(>\s*0|\?\?)[^\n]{0,80}(dealer_price|\bprice\b)/
+
+/** File contents with every run of whitespace (newlines included) collapsed to one space. */
+export const collapse = (text: string) => text.replace(/\s+/g, " ")
+
+// Candidate files. Pathspec `*` matches across "/", but "dir/**/*.ts" still needs one more "/", so the
+// top-level files of each directory need their own "dir/*.ts" entry.
+const PATHSPECS = [
+  "app/*.ts", "app/*.tsx", "app/**/*.ts", "app/**/*.tsx",
+  "lib/*.ts", "lib/**/*.ts",
+  "components/*.tsx", "components/**/*.tsx",
+  "mobile/**/*.ts", "mobile/**/*.tsx",
+]
 
 describe("price rule regex", () => {
   it("matches the common forms of the rule", () => {
     expect(RULE.test("pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : pkg.price")).toBe(true)
     expect(RULE.test("const p = dealer_price ?? price")).toBe(true)
     expect(RULE.test("Number(row.dealer_price) > 0 ? Number(row.dealer_price) : Number(row.price)")).toBe(true)
+  })
+  it("matches a rule split over several lines once collapsed", () => {
+    const sample = `price: userRole === "dealer" && pkg.dealer_price && pkg.dealer_price > 0
+            ? pkg.dealer_price
+            : pkg.price,`
+    const sample2 = `const p = pkg.dealer_price
+      ?? pkg.price`
+    expect(RULE.test(collapse(sample))).toBe(true)
+    expect(RULE.test(collapse(sample2))).toBe(true)
   })
   it("does not match a plain column list", () => {
     expect(RULE.test('.select("id, price, dealer_price")')).toBe(false)
@@ -55,7 +80,7 @@ describe("price rule lives only in lib/pricing/package-price.ts", () => {
   it("no other file re-implements the dealer/role price choice", () => {
     // git grep only lists candidate files; contents are read from the working tree.
     const out = execSync(
-      `git grep -l "dealer_price" -- "app/**/*.ts" "app/**/*.tsx" "lib/**/*.ts" "components/**/*.tsx" ":!*.test.ts" ":!*.test.tsx"`,
+      `git grep -l "dealer_price" -- ${PATHSPECS.map((p) => `"${p}"`).join(" ")} ":!*.test.ts" ":!*.test.tsx"`,
       { encoding: "utf8" },
     )
     const offenders = out
@@ -63,7 +88,7 @@ describe("price rule lives only in lib/pricing/package-price.ts", () => {
       .filter(Boolean)
       .filter((f) => {
         if (ALLOWED.has(f)) return false
-        return RULE.test(readFileSync(f, "utf8"))
+        return RULE.test(collapse(readFileSync(f, "utf8")))
       })
     expect(offenders).toEqual([])
   })
