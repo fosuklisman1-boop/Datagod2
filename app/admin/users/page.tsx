@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { CustomPricesDialog } from "@/components/admin/CustomPricesDialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Format large numbers with K/M suffix
@@ -42,6 +43,7 @@ interface User {
   customerCount?: number
   subAgentCount?: number
   is_suspended?: boolean
+  pricing_mode?: string
 }
 
 interface UserStats {
@@ -118,6 +120,7 @@ export default function AdminUsersPage() {
   const [isUpdatingUser, setIsUpdatingUser] = useState(false)
   const [editEmail, setEditEmail] = useState("")
   const [editPhone, setEditPhone] = useState("")
+  const [customPricesUser, setCustomPricesUser] = useState<{ id: string; label: string } | null>(null)
 
   useEffect(() => {
     if (selectedUser) {
@@ -132,7 +135,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     filterUsers()
-  }, [users, searchTerm])
+  }, [users, searchTerm, downloadRoleFilter])
 
   const checkAdminAccess = async () => {
     try {
@@ -182,13 +185,15 @@ export default function AdminUsersPage() {
   }
 
   const filterUsers = () => {
+    // "Custom pricing only" narrows the table itself; the other options only affect downloads.
+    const base = downloadRoleFilter === "custom_pricing" ? users.filter((u) => u.pricing_mode === "custom") : users
     if (!searchTerm.trim()) {
-      setFilteredUsers(users)
+      setFilteredUsers(base)
       return
     }
 
     const searchLower = searchTerm.toLowerCase()
-    const filtered = users.filter((user) => {
+    const filtered = base.filter((user) => {
       const emailMatch = user.email.toLowerCase().includes(searchLower)
       const phoneMatch = user.phoneNumber?.toLowerCase().includes(searchLower)
       const shopNameMatch = user.shop?.shop_name?.toLowerCase().includes(searchLower)
@@ -401,6 +406,7 @@ export default function AdminUsersPage() {
   // Get users filtered by download role filter
   const getUsersForDownload = () => {
     if (downloadRoleFilter === "all") return filteredUsers
+    if (downloadRoleFilter === "custom_pricing") return filteredUsers.filter(user => user.pricing_mode === "custom")
     return filteredUsers.filter(user => user.role === downloadRoleFilter)
   }
 
@@ -499,6 +505,7 @@ export default function AdminUsersPage() {
                   <SelectItem value="shop_owner">Shop Owners</SelectItem>
                   <SelectItem value="sub_agent">Sub Agents</SelectItem>
                   <SelectItem value="admin">Admins</SelectItem>
+                  <SelectItem value="custom_pricing">Custom pricing only</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -583,6 +590,7 @@ export default function AdminUsersPage() {
                           <Badge className={user.role === "admin" ? "bg-destructive" : "bg-primary"}>
                             {user.role}
                           </Badge>
+                          {user.pricing_mode === "custom" && <Badge variant="outline">Custom pricing</Badge>}
                           {user.is_suspended && (
                             <Badge className="bg-destructive text-primary-foreground mt-1">
                               Suspended
@@ -639,6 +647,13 @@ export default function AdminUsersPage() {
                             className="text-destructive hover:text-destructive hover:bg-destructive/10"
                           >
                             <AlertCircle className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setCustomPricesUser({ id: user.id, label: user.email ?? user.id })}
+                          >
+                            Custom prices
                           </Button>
                         </td>
                       </tr>
@@ -994,6 +1009,14 @@ export default function AdminUsersPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        <CustomPricesDialog
+          userId={customPricesUser?.id ?? null}
+          userLabel={customPricesUser?.label ?? ""}
+          open={!!customPricesUser}
+          onOpenChange={(o) => { if (!o) setCustomPricesUser(null) }}
+          onSaved={(mode) => setUsers((list) => list.map((u) => (u.id === customPricesUser?.id ? { ...u, pricing_mode: mode } : u)))}
+        />
 
         {/* Balance Management Dialog */}
         <Dialog open={showBalanceDialog} onOpenChange={setShowBalanceDialog}>

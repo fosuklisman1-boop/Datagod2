@@ -131,7 +131,7 @@ export async function GET(req: NextRequest) {
     // Get user profiles with phone numbers and roles - paginated
     let userProfiles: any[] = []
     try {
-      userProfiles = await fetchAllRecords("users", "id, phone_number, role, is_suspended")
+      userProfiles = await fetchAllRecords("users", "id, phone_number, role, is_suspended, pricing_mode")
     } catch (profilesError: any) {
       console.error("Error fetching user profiles:", profilesError)
       return NextResponse.json({ error: profilesError.message }, { status: 400 })
@@ -162,6 +162,7 @@ export async function GET(req: NextRequest) {
             customerCount: 0,
             subAgentCount: 0,
             is_suspended: profile?.is_suspended || false,
+            pricing_mode: profile?.pricing_mode ?? "role",
           }
         }
 
@@ -209,6 +210,7 @@ export async function GET(req: NextRequest) {
           customerCount: customerCount,
           subAgentCount: subAgentCount,
           is_suspended: profile?.is_suspended || false,
+          pricing_mode: profile?.pricing_mode ?? "role",
         }
       })
     )
