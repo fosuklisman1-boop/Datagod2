@@ -174,16 +174,21 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     resolveCaller: async () => ({ effectivePriceTier: "sub_agent", subAgentParentShopId: "shop-1", userId: "u1" }),
     fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 9 }], total: 1 }),
   }
-  // One row per table: users is read as the parent (a dealer in custom mode, pkg-1 at 6).
+  // One row per table: users is read as the parent (a dealer in custom mode, pkg-1 at 6). The parent's catalog row
+  // is a list (subAgentCosts reads it as one); its stored parent_price (7) is a stale snapshot and never read.
+  const catalogRow = (over: Record<string, unknown> = {}) => [{
+    package_id: "pkg-1", wholesale_margin: 1, parent_price: 7,
+    packages: { id: "pkg-1", size: "5", network: "MTN", price: 10, dealer_price: 8, is_available: true }, ...over,
+  }]
   const subAgentRows = (over: Record<string, unknown> = {}) => ({
-    sub_agent_catalog: { parent_price: 9, wholesale_margin: 1 },
+    sub_agent_catalog: catalogRow(),
     user_shops: { user_id: "parent-1" },
     users: { role: "dealer", pricing_mode: "custom" },
     user_package_prices: [{ package_id: "pkg-1", price: 6 }],
     ...over,
   })
   const subAgentPkg = { id: "pkg-1", price: 10, dealer_price: 8, is_available: true }
-  it("sub_agent tier: charges the parent's catalog price and credits wholesale + the parent's saving", async () => {
+  it("sub_agent tier: charges the parent's live cost (dealer 8 + margin 1, not the stale 7) and credits wholesale + saving", async () => {
     const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows() })
     const { deps } = makeDeps(subAgentCaller, sup)
     await walkTo("CONFIRM", deps)
@@ -202,13 +207,39 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
   })
   it("sub_agent tier: refuses a negative wholesale margin and creates nothing", async () => {
-    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows({ sub_agent_catalog: { parent_price: 9, wholesale_margin: -1 } }) })
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows({ sub_agent_catalog: catalogRow({ wholesale_margin: -1 }) }) })
     const { deps } = makeDeps(subAgentCaller, sup)
     await walkTo("CONFIRM", deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("release")
     expect(r.Message).toMatch(/no longer available/i)
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+  it("sub_agent tier: refuses and creates nothing when the parent has no active row for the package", async () => {
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows({ sub_agent_catalog: [] }) })
+    const { deps } = makeDeps(subAgentCaller, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toMatch(/no longer available/i)
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+  it("sub_agent tier: refuses and creates nothing when the parent's catalog cannot be read", async () => {
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows(), readError: ["sub_agent_catalog"] })
+    const { deps } = makeDeps(subAgentCaller, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toMatch(/prices are temporarily unavailable/i)
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+  it("sub_agent tier: a non-dealer parent's live cost uses price (10 + 1), credited the margin only", async () => {
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows({ users: { role: "agent" } }) })
+    const { deps } = makeDeps({ ...subAgentCaller, fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 11 }], total: 1 }) }, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("AddToCart")
+    expect(sup.inserts["ussd_orders"][0]).toMatchObject({ amount: 11, parent_profit_amount: 1 })
   })
   it("marks the order failed and releases if hubtel_transactions cannot be written", async () => {
     const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true }, txError: true })

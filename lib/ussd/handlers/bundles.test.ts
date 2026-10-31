@@ -58,7 +58,6 @@ function customUser() {
     users: { one: { pricing_mode: "custom" } },
     user_package_prices: { list: [{ package_id: "p1", price: 6 }] },
     app_settings: { one: { paystack_fee_percentage: 3 } },
-    sub_agent_catalog: { one: { parent_price: 9, wholesale_margin: 1 }, list: [{ parent_price: 9, packages: { id: "p1", size: "1" } }] },
   }
 }
 
@@ -96,47 +95,97 @@ describe("USSD custom prices", () => {
     expect(chargeMobileMoney).not.toHaveBeenCalled()
   })
 
-  it("(c) sub_agent tier ignores custom prices and uses the parent's catalog price", async () => {
-    const { bundles } = await fetchBundles("MTN", 0, "sub_agent", "shop-1", "u1")
-    expect(bundles[0].price).toBe(9)
+  // Sub-agent tier: cost = the parent's live role price + the parent's ACTIVE wholesale margin (subAgentCosts).
+  // The fake returns one row per table: users is the parent here. The stored parent_price (9) is stale.
+  const catalogRow = (over: Record<string, unknown> = {}) =>
+    ({ package_id: "p1", wholesale_margin: 2, parent_price: 9, packages: { ...PKG, network: "MTN" }, ...over })
+  const parentIs = (user: Record<string, unknown>, rows: unknown[] = [catalogRow()]) => {
+    h.state.tables.user_shops = { one: { user_id: "parent-1" } }
+    h.state.tables.users = { one: user }
+    h.state.tables.sub_agent_catalog = { list: rows }
+  }
+  const subAgent = (price: number) => session({ effectivePriceTier: "sub_agent", subAgentParentShopId: "shop-1", bundlePrice: price })
 
-    await handleConfirm("1", "S1", session({ effectivePriceTier: "sub_agent", subAgentParentShopId: "shop-1", bundlePrice: 9 }))
+  it("(c) sub_agent tier: a stale parent_price is ignored; live dealer price 8 + margin 2 = 10, parent credited 2", async () => {
+    parentIs({ role: "dealer" })
+    const { bundles } = await fetchBundles("MTN", 0, "sub_agent", "shop-1", "u1")
+    expect(bundles).toEqual([{ id: "p1", size: "1", price: 10 }])
+
+    await handleConfirm("1", "S1", subAgent(10))
     const row = h.state.inserts["ussd_orders"][0]
-    expect(row.amount).toBeCloseTo(9.27, 2)
-    expect(row.parent_profit_amount).toBe(1)
+    expect(row.amount).toBeCloseTo(10.3, 2)
+    expect(row.parent_profit_amount).toBe(2)
   })
 
-  const subAgent = () => session({ effectivePriceTier: "sub_agent", subAgentParentShopId: "shop-1", bundlePrice: 9 })
-  // The fake returns one row per table: users is the parent here (a dealer in custom mode, p1 at 6).
-  const parentOnCustom = () => {
-    h.state.tables.user_shops = { one: { user_id: "parent-1" } }
-    h.state.tables.users = { one: { role: "dealer", pricing_mode: "custom" } }
-  }
+  it("(c2) sub_agent tier: a non-dealer parent's cost uses price (10 + 2)", async () => {
+    parentIs({ role: "agent" })
+    expect((await fetchBundles("MTN", 0, "sub_agent", "shop-1", "u1")).bundles[0].price).toBe(12)
+    await handleConfirm("1", "S1", subAgent(12))
+    expect(h.state.inserts["ussd_orders"][0]).toMatchObject({ parent_profit_amount: 2 })
+  })
+
+  it("(c3) sub_agent tier: a confirm at the old snapshot price is refused as a price change", async () => {
+    parentIs({ role: "dealer" })
+    const r: any = await handleConfirm("1", "S1", subAgent(9))
+    expect(JSON.stringify(r)).toContain("Price changed to GHS 10.00")
+    expect(h.state.inserts["ussd_orders"]).toBeUndefined()
+  })
 
   it("(d) sub_agent tier credits the parent wholesale margin + the parent's saving; the price does not change", async () => {
-    parentOnCustom()
-    await handleConfirm("1", "S1", subAgent())
+    parentIs({ role: "dealer", pricing_mode: "custom" })
+    await handleConfirm("1", "S1", subAgent(10))
     const row = h.state.inserts["ussd_orders"][0]
-    expect(row.amount).toBeCloseTo(9.27, 2) // parent_price 9 + 3% fee, unchanged
-    expect(row.parent_profit_amount).toBe(3) // wholesale 1 + (parent dealer price 8 - parent custom 6)
+    expect(row.amount).toBeCloseTo(10.3, 2) // dealer 8 + margin 2, + 3% fee: unchanged by the parent's custom price
+    expect(row.parent_profit_amount).toBe(4) // wholesale 2 + (parent dealer price 8 - parent custom 6)
   })
 
   it("(e) sub_agent tier refuses when the parent's prices cannot be read, with no order and no charge", async () => {
-    parentOnCustom()
+    parentIs({ role: "dealer", pricing_mode: "custom" })
     h.state.tables.user_shops = { one: null, error: { message: "boom" } }
-    const r: any = await handleConfirm("1", "S1", subAgent())
+    const r: any = await handleConfirm("1", "S1", subAgent(10))
     expect(JSON.stringify(r)).toContain(MSG_PRICES_UNAVAILABLE)
     expect(h.state.inserts["ussd_orders"]).toBeUndefined()
     expect(h.after).not.toHaveBeenCalled()
     expect(chargeMobileMoney).not.toHaveBeenCalled()
   })
 
+  it("(e2) sub_agent tier refuses when the parent's catalog cannot be read; the menu lists nothing", async () => {
+    parentIs({ role: "dealer" })
+    h.state.tables.sub_agent_catalog = { list: undefined, error: { message: "boom" } }
+    expect(await fetchBundles("MTN", 0, "sub_agent", "shop-1", "u1")).toEqual({ bundles: [], total: 0 })
+    const r: any = await handleConfirm("1", "S1", subAgent(10))
+    expect(JSON.stringify(r)).toContain(MSG_PRICES_UNAVAILABLE)
+    expect(h.state.inserts["ussd_orders"]).toBeUndefined()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
   it("(f) sub_agent tier refuses a negative wholesale margin, with no order and no charge", async () => {
-    h.state.tables.sub_agent_catalog = { one: { parent_price: 9, wholesale_margin: -1 } }
-    const r: any = await handleConfirm("1", "S1", subAgent())
+    parentIs({ role: "dealer" }, [catalogRow({ wholesale_margin: -1 })])
+    expect((await fetchBundles("MTN", 0, "sub_agent", "shop-1", "u1")).bundles).toEqual([])
+    const r: any = await handleConfirm("1", "S1", subAgent(7))
     expect(JSON.stringify(r)).toMatch(/no longer available/i)
     expect(h.state.inserts["ussd_orders"]).toBeUndefined()
     expect(h.after).not.toHaveBeenCalled()
     expect(chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("(g) sub_agent tier: no active parent row hides the package and refuses it (no fallback to the package price)", async () => {
+    parentIs({ role: "dealer" }, [])
+    expect(await fetchBundles("MTN", 0, "sub_agent", "shop-1", "u1")).toEqual({ bundles: [], total: 0 })
+    const r: any = await handleConfirm("1", "S1", subAgent(10))
+    expect(JSON.stringify(r)).toMatch(/no longer available/i)
+    expect(h.state.inserts["ussd_orders"]).toBeUndefined()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("(h) sub_agent menu sorts by live price, then id, and pages after sorting", async () => {
+    const rows = [7, 3, 5, 1, 6, 2, 4].map((n) =>
+      catalogRow({ package_id: `p${n}`, wholesale_margin: 0, packages: { id: `p${n}`, size: String(n), network: "MTN", price: 10 - n, dealer_price: null, is_available: true } }))
+    parentIs({ role: "agent" }, rows)
+    const first = await fetchBundles("MTN", 0, "sub_agent", "shop-1", "u1")
+    expect(first.total).toBe(7)
+    expect(first.bundles.map(b => b.id)).toEqual(["p7", "p6", "p5", "p4", "p3"])
+    const second = await fetchBundles("MTN", 1, "sub_agent", "shop-1", "u1")
+    expect(second.bundles.map(b => [b.id, b.price])).toEqual([["p2", 8], ["p1", 9]])
   })
 })

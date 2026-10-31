@@ -1,8 +1,8 @@
 // lib/ussd-hubtel/flows/data.ts
 // Main-mode data bundles. Moved from router.ts (Plan 2 Task 1) with identical behaviour.
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
-import { getCustomPrices, MSG_PRICES_UNAVAILABLE, type CustomPrices } from "@/lib/pricing/package-price"
-import { marginsValid, shopOwnerPricing } from "@/lib/shop-commerce/pricing"
+import { getCustomPrices, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
+import { subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 import { priceForTier } from "../catalog"
 import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } from "../menus"
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
@@ -90,18 +90,12 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (!pkg || !pkg.is_available) return finish(ctx, "Package no longer available. Please try again.")
 
   const tier = session.effectivePriceTier ?? "regular"
-  let catalogRow: { parent_price: number | string; wholesale_margin: number | string } | null = null
+  // sub_agent: the parent's live offer (role price + active wholesale margin; parent credited wholesale + saving).
+  // Unreadable = refuse; not offered (no active parent row, negative margin) = refuse. Nothing is created.
+  let offer: SubAgentOffer | null = null
   if (tier === "sub_agent" && session.subAgentParentShopId) {
-    const { data } = await deps.supabase.from("sub_agent_catalog").select("parent_price, wholesale_margin")
-      .eq("shop_id", session.subAgentParentShopId).eq("package_id", session.bundleId!).single()
-    catalogRow = data
-  }
-  // The parent's pricing, for their saving on top of the wholesale margin. Unreadable = refuse (nothing created).
-  let parent: { isDealer: boolean; custom: CustomPrices } | undefined
-  if (catalogRow) {
-    if (!marginsValid(Number(catalogRow.wholesale_margin))) return finish(ctx, "Package no longer available. Please try again.")
     try {
-      parent = await shopOwnerPricing(session.subAgentParentShopId!, deps.supabase as Parameters<typeof shopOwnerPricing>[1])
+      offer = await subAgentCost(session.subAgentParentShopId, session.bundleId!, deps.supabase as Parameters<typeof subAgentCost>[2])
     } catch {
       return finish(ctx, MSG_PRICES_UNAVAILABLE)
     }
@@ -112,7 +106,9 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   } catch {
     return finish(ctx, MSG_PRICES_UNAVAILABLE)
   }
-  const { price, parentProfit } = priceForTier(pkg, tier, catalogRow, custom, parent)
+  const priced = priceForTier(pkg, tier, offer, custom)
+  if (!priced) return finish(ctx, "Package no longer available. Please try again.")
+  const { price, parentProfit } = priced
   if (Math.abs(price - session.bundlePrice!) > 0.01) {
     return finish(ctx, `Price changed to GHS ${price.toFixed(2)}. Please restart your order.`)
   }

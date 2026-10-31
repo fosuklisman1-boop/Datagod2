@@ -1,7 +1,7 @@
 // lib/ussd-hubtel/catalog.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { effectivePrice, NO_CUSTOM_PRICES, ownerSaving, type CustomPrices } from "@/lib/pricing/package-price"
-import { parentProfitFromCatalog } from "@/lib/shop-commerce/pricing"
+import { effectivePrice, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
+import type { SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
 import { toLocalPhone } from "./protocol"
 
@@ -28,24 +28,18 @@ export function decideTier(
 
 /**
  * Mirrors the price verification in lib/ussd/handlers/bundles.ts handleConfirm.
- * sub_agent tier: the price is the parent's catalog price (the sub-agent's own custom prices never apply), and
- * the parent earns wholesale margin + the parent's saving (parent role price - parent cost), as on the storefront.
- * `parent` is the parent shop owner's pricing (shopOwnerPricing); omitted = no saving.
+ * sub_agent tier: `offer` is the parent's live offer (subAgentCost): the price is the parent's role price + active
+ * wholesale margin (the sub-agent's own custom prices never apply), and the parent earns wholesale margin + saving.
+ * No offer (the parent does not offer the package) = null: refuse.
  */
 export function priceForTier(
   pkg: { id?: string; price: number | string; dealer_price?: number | string | null },
   tier: string,
-  catalogRow?: { parent_price: number | string; wholesale_margin: number | string } | null,
-  custom: CustomPrices = NO_CUSTOM_PRICES,
-  parent: { isDealer: boolean; custom: CustomPrices } = { isDealer: false, custom: NO_CUSTOM_PRICES }
-): { price: number; parentProfit: number | null } {
+  offer?: Pick<SubAgentOffer, "cost" | "parentProfit"> | null,
+  custom: CustomPrices = NO_CUSTOM_PRICES
+): { price: number; parentProfit: number | null } | null {
   if (tier === "sub_agent") {
-    if (!catalogRow) return { price: Number(pkg.price), parentProfit: null }
-    const saving = ownerSaving({ ...pkg, id: pkg.id ?? "" }, parent.isDealer, parent.custom)
-    return {
-      price: Number(catalogRow.parent_price),
-      parentProfit: parentProfitFromCatalog(Number(catalogRow.wholesale_margin), saving),
-    }
+    return offer ? { price: offer.cost, parentProfit: offer.parentProfit } : null
   }
   return { price: effectivePrice({ ...pkg, id: pkg.id ?? "" }, tier === "dealer", custom), parentProfit: null }
 }

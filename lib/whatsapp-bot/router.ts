@@ -1,6 +1,7 @@
 // lib/whatsapp-bot/router.ts
 import { createClient } from "@supabase/supabase-js"
 import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
+import { subAgentBundles } from "@/lib/shop-commerce/pricing"
 import { getWaSession, setWaSession, deleteWaSession, extendWaSession } from "./session"
 import { USSDSession, UzoResponse, BundleOption } from "@/lib/ussd/types"
 import { handleMain, mainMenuVisibility } from "@/lib/ussd/handlers/main"
@@ -90,20 +91,11 @@ async function loadAllBundlesWa(
   parentShopId?: string,
   userId?: string,
 ): Promise<BundleOption[]> {
+  // Sub-agents: the parent's actively offered packages at the parent's LIVE cost (role price + current wholesale
+  // margin; stored parent_price is not trusted), cheapest first. Display: a read failure lists nothing; the confirm
+  // step (handleConfirm) re-prices and refuses.
   if (priceTier === 'sub_agent' && parentShopId) {
-    const { data } = await supabase
-      .from("sub_agent_catalog")
-      .select("package_id, parent_price, packages!inner(id, size, network, is_available)")
-      .eq("shop_id", parentShopId)
-      .eq("packages.network", network)
-      .eq("packages.is_available", true)
-      .order("parent_price", { ascending: true })
-      .order("package_id", { ascending: true })
-    return (data ?? []).map((r: any) => ({
-      id: r.packages.id,
-      size: String(r.packages.size),
-      price: Number(r.parent_price),
-    }))
+    return subAgentBundles(parentShopId, network, supabase).catch(() => [] as BundleOption[])
   }
   const { data } = await supabase
     .from("packages")

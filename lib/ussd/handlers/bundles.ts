@@ -1,8 +1,8 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
-import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES, MSG_PRICES_UNAVAILABLE, ownerSaving } from "@/lib/pricing/package-price"
-import { marginsValid, parentProfitFromCatalog, shopOwnerPricing } from "@/lib/shop-commerce/pricing"
+import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
+import { subAgentBundles, subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, waWalletShort } from "../menus"
 import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
@@ -40,25 +40,12 @@ export async function fetchBundles(
   parentShopId?: string,
   userId?: string
 ): Promise<{ bundles: BundleOption[]; total: number }> {
-  // Sub-agents see only packages their parent has catalogued, at parent_price
+  // Sub-agents see only packages their parent actively offers, at the parent's LIVE cost (role price + current
+  // wholesale margin; the stored parent_price is not trusted). Priced and sorted in code, then paged.
+  // Display: a read failure lists nothing; handleConfirm re-prices and refuses on failure.
   if (priceTier === 'sub_agent' && parentShopId) {
-    const { data, count } = await supabase
-      .from("sub_agent_catalog")
-      .select("package_id, parent_price, packages!inner(id, size, network, is_available)", { count: 'exact' })
-      .eq("shop_id", parentShopId)
-      .eq("packages.network", network)
-      .eq("packages.is_available", true)
-      .order("parent_price", { ascending: true })
-      .order("package_id", { ascending: true })
-      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
-
-    const bundles: BundleOption[] = (data ?? []).map((row: any) => ({
-      id: row.packages.id,
-      size: row.packages.size,
-      price: Number(row.parent_price),
-    }))
-
-    return { bundles, total: count ?? 0 }
+    const all = await subAgentBundles(parentShopId, network, supabase).catch(() => [] as BundleOption[])
+    return { bundles: all.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE), total: all.length }
   }
 
   // Regular / dealer — query packages table directly
@@ -333,30 +320,21 @@ export async function handleConfirm(
   let parentProfitAmount: number | null = null
 
   if (priceTier === 'sub_agent' && session.subAgentParentShopId) {
-    const { data: catalogRow } = await supabase
-      .from("sub_agent_catalog")
-      .select("parent_price, wholesale_margin")
-      .eq("shop_id", session.subAgentParentShopId)
-      .eq("package_id", bundleId!)
-      .single()
-    verifiedPrice = catalogRow ? Number(catalogRow.parent_price) : Number(pkg.price)
-    if (catalogRow) {
-      // The sub-agent pays the parent's catalog price (their own custom prices never apply). The parent earns
-      // wholesale margin + their saving (parent role price - parent cost), as on the storefront.
-      const wholesale = Number(catalogRow.wholesale_margin)
-      if (!marginsValid(wholesale)) {
-        await setSession(sessionId, { step: 'MAIN', dialingPhone })
-        return end('Package no longer available. Please try again.')
-      }
-      let parent
-      try {
-        parent = await shopOwnerPricing(session.subAgentParentShopId)
-      } catch {
-        await setSession(sessionId, { step: 'MAIN', dialingPhone })
-        return end(MSG_PRICES_UNAVAILABLE)
-      }
-      parentProfitAmount = parentProfitFromCatalog(wholesale, ownerSaving(pkg, parent.isDealer, parent.custom))
+    // The sub-agent pays the parent's live cost (parent role price + active wholesale margin; their own custom
+    // prices never apply). The parent earns wholesale margin + their saving. Not offered: refuse.
+    let offer: SubAgentOffer | null
+    try {
+      offer = await subAgentCost(session.subAgentParentShopId, bundleId!, supabase)
+    } catch {
+      await setSession(sessionId, { step: 'MAIN', dialingPhone })
+      return end(MSG_PRICES_UNAVAILABLE)
     }
+    if (!offer) {
+      await setSession(sessionId, { step: 'MAIN', dialingPhone })
+      return end('Package no longer available. Please try again.')
+    }
+    verifiedPrice = offer.cost
+    parentProfitAmount = offer.parentProfit
   } else {
     let custom
     try {
