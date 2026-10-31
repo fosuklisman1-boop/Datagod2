@@ -15,6 +15,7 @@ import {
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -190,10 +191,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
     }
 
-    // Determine correct price based on role
-    let validatedPrice = packageData.price
-    if (userRole === "dealer" && packageData.dealer_price && packageData.dealer_price > 0) {
-      validatedPrice = packageData.dealer_price
+    // Role price, or the user's custom price when an admin has put them on custom pricing.
+    // A failed custom-price read refuses the purchase (nothing debited): never charge a possibly wrong price.
+    let validatedPrice: number
+    try {
+      const custom = await getCustomPrices(supabaseAdmin, userId)
+      validatedPrice = effectivePrice({ id: packageId, ...packageData }, userRole === "dealer", custom)
+    } catch (e) {
+      if (e instanceof CustomPriceReadError) {
+        return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
+      }
+      throw e
     }
 
     // Force server-side verified size to prevent injection/manipulation
