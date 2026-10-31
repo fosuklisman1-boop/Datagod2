@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { basePrice, fetchShopBundles, sizeToMb, verifyBundlePrice } from "./pricing"
+import { basePrice, directShopPricing, fetchShopBundles, parentProfitFromCatalog, sizeToMb, verifyBundlePrice } from "./pricing"
 
 describe("basePrice", () => {
   it("uses dealer_price for dealers when set", () => {
@@ -337,5 +337,65 @@ describe("custom prices (owner saving)", () => {
       packages: { data: [{ id: "p1", size: "1GB", price: 10, dealer_price: 8 }] },
     })
     expect((await fetchShopBundles("s1", "MTN", undefined, client))[0].price).toBe(10)
+  })
+})
+
+describe("shopOwnerPricing reads (via verifyBundlePrice)", () => {
+  const SHOP_PKG = { data: { profit_margin: 2, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } }
+
+  it("no users row: not a dealer, role mode (real PostgREST .single() would error here; .maybeSingle() does not)", async () => {
+    const usersChain: any = {
+      select: () => usersChain,
+      eq: () => usersChain,
+      single: () => Promise.resolve({ data: null, error: { code: "PGRST116", message: "0 rows" } }),
+      maybeSingle: () => Promise.resolve({ data: null, error: null }),
+    }
+    const base = fakeClient({ user_shops: { data: { user_id: "u1" } }, shop_packages: SHOP_PKG })
+    const client = { from: (t: string) => (t === "users" ? usersChain : base.from(t)) } as any
+    expect(await verifyBundlePrice("s1", "p1", undefined, client)).toEqual({ verifiedPrice: 12, profitAmount: 2, parentProfitAmount: 0 })
+  })
+
+  it("user_shops read error: refuse (null)", async () => {
+    const client = fakeClient({
+      user_shops: { data: null, error: { message: "boom" } },
+      users: { data: { role: "dealer" } },
+      shop_packages: SHOP_PKG,
+    })
+    expect(await verifyBundlePrice("s1", "p1", undefined, client)).toBeNull()
+  })
+
+  it("no user_shops row: default pricing (not a dealer, no custom prices)", async () => {
+    const client = fakeClient({ user_shops: { data: null }, shop_packages: SHOP_PKG })
+    expect(await verifyBundlePrice("s1", "p1", undefined, client)).toEqual({ verifiedPrice: 12, profitAmount: 2, parentProfitAmount: 0 })
+  })
+
+  it("profits are rounded to 2 decimals", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "u1" } },
+      users: { data: { role: "dealer", pricing_mode: "custom" } },
+      user_package_prices: { data: [{ package_id: "p1", price: 7.8 }] },
+      shop_packages: { data: { profit_margin: 0.1, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
+    })
+    // margin 0.1 + saving 0.2 is 0.30000000000000004 unrounded
+    expect((await verifyBundlePrice("s1", "p1", undefined, client))!.profitAmount).toBe(0.3)
+  })
+})
+
+describe("directShopPricing / parentProfitFromCatalog (storefront route arithmetic)", () => {
+  it("direct shop: total = role + margin, profit = margin + saving", () => {
+    expect(directShopPricing({ rolePrice: 8, margin: 2, saving: 2 })).toEqual({ basePrice: 8, totalPrice: 10, profit: 4 })
+  })
+  it("direct shop: no custom price (saving 0) gives the old values", () => {
+    expect(directShopPricing({ rolePrice: 8, margin: 2, saving: 0 })).toEqual({ basePrice: 8, totalPrice: 10, profit: 2 })
+    expect(directShopPricing({ rolePrice: 8, margin: -1, saving: 0 })).toEqual({ basePrice: 8, totalPrice: 7, profit: -1 })
+  })
+  it("direct shop: custom price above role is not clamped", () => {
+    expect(directShopPricing({ rolePrice: 10, margin: 2, saving: -5 })).toEqual({ basePrice: 10, totalPrice: 12, profit: -3 })
+  })
+  it("old-model parent profit = wholesale + saving, rounded; saving 0 gives the old value", () => {
+    expect(parentProfitFromCatalog(1, 2)).toBe(3)
+    expect(parentProfitFromCatalog(1, 0)).toBe(1)
+    expect(parentProfitFromCatalog(-1, 0)).toBe(-1)
+    expect(parentProfitFromCatalog(0.1, 0.2)).toBe(0.3)
   })
 })

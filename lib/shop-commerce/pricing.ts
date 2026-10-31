@@ -72,19 +72,21 @@ export async function shopOwnerPricing(
   client: SupabaseClientLike = supabase
 ): Promise<{ isDealer: boolean; custom: CustomPrices }> {
   // public.users by id, not a user_shops embed: see shopOwnerIsDealer.
-  const { data: shop } = await client
+  // maybeSingle: a missing row is not an error (default pricing, as before); a failed read is,
+  // because then we cannot know whether a custom price applies, so refuse rather than drop the saving.
+  const { data: shop, error: shopError } = await client
     .from("user_shops")
     .select("user_id")
     .eq("id", shopId)
-    .single()
+    .maybeSingle()
+  if (shopError) throw new CustomPriceReadError()
   if (!shop?.user_id) return { isDealer: false, custom: NO_CUSTOM_PRICES }
 
   const { data: user, error } = await client
     .from("users")
     .select("role, pricing_mode")
     .eq("id", shop.user_id)
-    .single()
-  // Without the user row we cannot know the pricing mode: refuse rather than drop the saving.
+    .maybeSingle()
   if (error) throw new CustomPriceReadError()
   const isDealer = user?.role === 'dealer' || user?.role === 'admin'
   // pricing_mode was selected, so a missing value means role mode (null), never "not loaded".
@@ -93,6 +95,25 @@ export async function shopOwnerPricing(
     user ? { id: shop.user_id, pricing_mode: user.pricing_mode ?? null } : null
   )
   return { isDealer, custom }
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * Direct shop arithmetic (shared by verifyBundlePrice and the web storefront route).
+ * The selling price stays role price + margin; the owner's profit is margin + saving, rounded, never clamped.
+ */
+export function directShopPricing({ rolePrice, margin, saving }: { rolePrice: number; margin: number; saving: number }): {
+  basePrice: number
+  totalPrice: number
+  profit: number
+} {
+  return { basePrice: rolePrice, totalPrice: rolePrice + margin, profit: round2(margin + saving) }
+}
+
+/** Old-model (sub_agent_catalog) parent profit: wholesale margin + the parent's saving, rounded, never clamped. */
+export function parentProfitFromCatalog(wholesale: number, saving: number): number {
+  return round2(wholesale + saving)
 }
 
 /** shopOwnerPricing, but null when custom prices cannot be read (the caller refuses). Other errors propagate. */
@@ -261,7 +282,7 @@ export async function verifyBundlePrice(
       const pkg = (catalogRow as any).packages
       profitAmount = Number(catalogRow.sub_agent_profit_margin)
       const wholesale = Number(catalogRow.wholesale_margin)
-      parentProfitAmount = wholesale + ownerSaving(pkg, parent.isDealer, parent.custom)
+      parentProfitAmount = parentProfitFromCatalog(wholesale, ownerSaving(pkg, parent.isDealer, parent.custom))
       verifiedPrice = basePrice(pkg, parent.isDealer) + wholesale + profitAmount
     }
   } else {
@@ -289,8 +310,13 @@ export async function verifyBundlePrice(
 
     const pkg = (shopPkg as any).packages
     const margin = Number(shopPkg.profit_margin)
-    profitAmount = margin + ownerSaving(pkg, owner.isDealer, owner.custom)
-    verifiedPrice = basePrice(pkg, owner.isDealer) + margin
+    const direct = directShopPricing({
+      rolePrice: basePrice(pkg, owner.isDealer),
+      margin,
+      saving: ownerSaving(pkg, owner.isDealer, owner.custom),
+    })
+    profitAmount = direct.profit
+    verifiedPrice = direct.totalPrice
   }
 
   return { verifiedPrice, profitAmount, parentProfitAmount }

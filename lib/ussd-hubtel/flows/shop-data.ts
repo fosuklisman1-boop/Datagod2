@@ -104,9 +104,10 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (!verified) return finish(ctx, "Package no longer available. Please try again.")
   const { verifiedPrice, profitAmount, parentProfitAmount } = verified
   // Fail closed: a price or profit snapshot that is not a usable number never reaches the order.
+  // A profit may be negative (owner's custom price above role + margin); crediting skips profit <= 0.
   const sane = Number.isFinite(verifiedPrice) && verifiedPrice > 0
-    && Number.isFinite(profitAmount) && profitAmount >= 0
-    && Number.isFinite(parentProfitAmount) && parentProfitAmount >= 0
+    && Number.isFinite(profitAmount)
+    && Number.isFinite(parentProfitAmount)
   if (!sane) {
     console.error("[HUBTEL-SHOP-DATA] Unusable verified price/profit snapshot; refusing order. session:", req.SessionId)
     return finish(ctx, "Package no longer available. Please try again.")
