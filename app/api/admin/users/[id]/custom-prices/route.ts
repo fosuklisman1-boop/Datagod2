@@ -12,7 +12,7 @@ type Ctx = { params: Promise<{ id: string }> }
 /** A user's pricing mode and every available data package with their custom price (admin only). */
 export async function GET(req: NextRequest, { params }: Ctx) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(req)
-  if (!isAdmin) return errorResponse ?? NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  if (!isAdmin || errorResponse) return errorResponse ?? NextResponse.json({ error: "Forbidden" }, { status: 403 })
   const { id } = await params
   if (!isUuid(id)) return NextResponse.json({ error: "Invalid user id" }, { status: 400 })
   const db = supabase()
@@ -21,18 +21,26 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   if (userErr) return NextResponse.json({ error: "Failed to load user" }, { status: 500 })
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
-  const [pkgs, prices] = await Promise.all([
-    db.from("packages").select("id, network, size, price, dealer_price, is_available").eq("is_available", true).order("network").order("size"),
-    db.from("user_package_prices").select("package_id, price").eq("user_id", id),
-  ])
-  if (pkgs.error || prices.error) return NextResponse.json({ error: "Failed to load prices" }, { status: 500 })
-
+  const prices = await db.from("user_package_prices").select("package_id, price").eq("user_id", id)
+  if (prices.error) return NextResponse.json({ error: "Failed to load prices" }, { status: 500 })
   const custom = new Map((prices.data ?? []).map((r: any) => [String(r.package_id), Number(r.price)]))
-  // Same dealer rule the dashboard purchase path uses for this user.
+
+  // Available packages, plus any package the user still has a custom price for even if it is now
+  // unavailable, so an admin can see and clear it (it would apply again if the package were re-enabled).
+  const cols = "id, network, size, price, dealer_price, is_available"
+  const [avail, stale] = await Promise.all([
+    db.from("packages").select(cols).eq("is_available", true).order("network").order("size"),
+    custom.size
+      ? db.from("packages").select(cols).in("id", [...custom.keys()]).eq("is_available", false).order("network").order("size")
+      : Promise.resolve({ data: [] as any[], error: null }),
+  ])
+  if (avail.error || stale.error) return NextResponse.json({ error: "Failed to load prices" }, { status: 500 })
+
+  // role_price follows the direct charge-point rule (role === "dealer"). Shop code counts admins as dealers too.
   const isDealer = user.role === "dealer"
   return NextResponse.json({
     user: { id: user.id, role: user.role, pricing_mode: user.pricing_mode ?? "role" },
-    packages: (pkgs.data ?? []).map((p: any) => ({
+    packages: [...(avail.data ?? []), ...(stale.data ?? [])].map((p: any) => ({
       id: p.id,
       network: p.network,
       size: p.size,
@@ -40,6 +48,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
       dealer_price: p.dealer_price == null ? null : Number(p.dealer_price),
       role_price: rolePrice(p, isDealer),
       custom_price: custom.get(String(p.id)) ?? null,
+      is_available: p.is_available !== false,
     })),
   })
 }
@@ -47,7 +56,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 /** Set the pricing mode and/or custom prices in one transaction (set_user_custom_prices RPC, audited). */
 export async function PUT(req: NextRequest, { params }: Ctx) {
   const { isAdmin, userId: adminId, errorResponse } = await verifyAdminAccess(req)
-  if (!isAdmin) return errorResponse ?? NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  if (!isAdmin || errorResponse) return errorResponse ?? NextResponse.json({ error: "Forbidden" }, { status: 403 })
   // The CRON_SECRET bypass has no userId; every change needs a real admin for the audit log.
   if (!adminId) return NextResponse.json({ error: "Admin session required" }, { status: 403 })
   const { id } = await params
@@ -69,8 +78,9 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     p_prices: parsed.value.prices,
   })
   if (error) {
-    if (String(error.message).includes("BAD_INPUT")) {
-      return NextResponse.json({ error: (error as any).details || "Invalid input" }, { status: 400 })
+    if ((error as any).code === "P0001" && error.message === "BAD_INPUT") {
+      const detail = (error as any).details || "Invalid input"
+      return NextResponse.json({ error: detail }, { status: detail === "user not found" ? 404 : 400 })
     }
     console.error("[CUSTOM-PRICES] save failed:", error.message)
     return NextResponse.json({ error: "Failed to save prices" }, { status: 500 })

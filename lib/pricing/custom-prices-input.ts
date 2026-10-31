@@ -9,8 +9,8 @@ const MAX_ROWS = 500
 
 export const isUuid = (v: unknown): v is string => typeof v === "string" && UUID.test(v)
 
-/** Float-safe "at most 2 decimals" (1.1 * 100 is 110.00000000000001, so compare with a tolerance). */
-const hasAtMost2Decimals = (p: number) => Math.abs(p * 100 - Math.round(p * 100)) < 1e-6
+/** Exact 2-decimal check, same as the RPC (1.1 * 100 is 110.00000000000001, but round(110.0000..)/100 === 1.1). */
+const hasAtMost2Decimals = (p: number) => Math.round(p * 100) / 100 === p
 
 /** Same rules as the set_user_custom_prices RPC, checked up front so the admin gets per-row errors. */
 export function parseCustomPricesBody(

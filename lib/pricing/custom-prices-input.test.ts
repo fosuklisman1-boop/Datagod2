@@ -22,8 +22,12 @@ describe("parseCustomPricesBody", () => {
   it.each([1.1, 2.3, 0.29, 4.35, 10000, 0.01])("accepts %s (float-safe 2 decimals)", (price) => {
     expect(parseCustomPricesBody({ prices: [{ package_id: P1, price }] }).ok).toBe(true)
   })
-  it.each([1.234, 0.001, 5.555])("rejects %s (more than 2 decimals)", (price) => {
+  it.each([1.234, 0.001, 5.555, 1.000000001, 1e-9])("rejects %s (more than 2 decimals)", (price) => {
     expect(parseCustomPricesBody({ prices: [{ package_id: P1, price }] }).ok).toBe(false)
+  })
+  it("rejects case-only duplicate packages", () => {
+    const lo = "abcdef01-1111-4111-8111-111111111111"
+    expect(parseCustomPricesBody({ prices: [{ package_id: lo, price: 1 }, { package_id: lo.toUpperCase(), price: 2 }] }).ok).toBe(false)
   })
   it("rejects a duplicate package", () => expect(parseCustomPricesBody({ prices: [{ package_id: P1, price: 1 }, { package_id: P1, price: 2 }] }).ok).toBe(false))
   it("rejects more than 500 rows", () => expect(parseCustomPricesBody({ prices: Array.from({ length: 501 }, () => ({ package_id: P1, price: 1 })) }).ok).toBe(false))
