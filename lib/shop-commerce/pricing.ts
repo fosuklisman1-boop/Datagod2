@@ -119,6 +119,19 @@ export function parentProfitFromCatalog(wholesale: number, saving: number): numb
  * Every margin finite and >= 0. Negative margins are refused on every channel, so a negative profit can
  * only come from an owner's custom price above their role price (Datagod still receives role + margin).
  */
+/**
+ * The sub-agent's own margin on an old-model sub_agent_catalog row. Legacy own-shop rows stored the sub-agent's
+ * margin in wholesale_margin (the sub-agent-catalog POST still writes it there), so an own-shop row falls back to it.
+ * On a parent's row wholesale_margin is the PARENT's margin and is never the sub-agent's.
+ */
+export function catalogSubAgentMargin(
+  row: { shop_id?: string | null; sub_agent_profit_margin?: number | string | null; wholesale_margin?: number | string | null },
+  subAgentShopId: string
+): number {
+  if (row.shop_id === subAgentShopId) return Number(row.sub_agent_profit_margin ?? row.wholesale_margin ?? 0)
+  return Number(row.sub_agent_profit_margin || 0)
+}
+
 export function marginsValid(...margins: number[]): boolean {
   return margins.every(m => Number.isFinite(m) && m >= 0)
 }

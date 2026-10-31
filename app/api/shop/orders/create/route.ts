@@ -15,7 +15,7 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, ownerSaving, rolePrice, type CustomPrices } from "@/lib/pricing/package-price"
-import { directShopPricing, marginsValid, shopOwnerPricing, subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
+import { catalogSubAgentMargin, directShopPricing, marginsValid, shopOwnerPricing, subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -322,7 +322,9 @@ export async function POST(request: NextRequest) {
       // Sub-agent: the row (sub_agent_shop_packages, or an old-model sub_agent_catalog row) names the package and
       // the sub-agent's margin. The cost is ALWAYS the parent's live offer (subAgentCost: parent role price + the
       // parent's active wholesale margin); stored parent_price and own-shop wholesale margins are never trusted.
-      const isStockPurchase = body.is_stock_purchase === true
+      // Only a verified dashboard stock purchase (Bearer + sub-agent shop) zeroes the sub-agent margin;
+      // an anonymous storefront body flag must not let a customer pay cost.
+      const isStockPurchase = isAuthenticatedDashboardCall
       let subMargin: number
       const { data: subAgentPkg, error: subAgentPkgError } = await supabase
         .from("sub_agent_shop_packages")
@@ -341,7 +343,7 @@ export async function POST(request: NextRequest) {
         // Fallback to sub_agent_catalog
         const { data: catalogEntry } = await supabase
           .from("sub_agent_catalog")
-          .select("shop_id, sub_agent_profit_margin, package_id, package:packages(id, size, is_available)")
+          .select("shop_id, sub_agent_profit_margin, wholesale_margin, package_id, package:packages(id, size, is_available)")
           .eq("id", shop_package_id)
           .eq("is_active", true)
           // The row must belong to this sub-agent's parent's catalog OR the sub-agent's own shop:
@@ -363,7 +365,7 @@ export async function POST(request: NextRequest) {
         verifiedSize = (catalogEntry.package as any)?.size || ""
         // Sub-agent profit on "Buy Stock" is 0; customer orders through the sub-agent shop carry the
         // sub-agent's configured margin.
-        subMargin = isStockPurchase ? 0 : Number(catalogEntry.sub_agent_profit_margin || 0)
+        subMargin = isStockPurchase ? 0 : catalogSubAgentMargin(catalogEntry, shop_id)
       }
 
       // Negative margins are refused on every channel (a negative profit may only come from a custom price).

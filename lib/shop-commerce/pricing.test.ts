@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { CustomPriceReadError } from "@/lib/pricing/package-price"
-import { basePrice, catalogWholesaleMargin, subAgentBundles, subAgentCosts, directShopPricing, fetchShopBundles, marginsValid, parentProfitFromCatalog, sizeToMb, verifyBundlePrice } from "./pricing"
+import { basePrice, catalogWholesaleMargin, catalogSubAgentMargin, subAgentBundles, subAgentCosts, directShopPricing, fetchShopBundles, marginsValid, parentProfitFromCatalog, sizeToMb, verifyBundlePrice } from "./pricing"
 
 describe("basePrice", () => {
   it("uses dealer_price for dealers when set", () => {
@@ -588,5 +588,21 @@ describe("subAgentBundles (USSD / WhatsApp sub_agent menus)", () => {
       { id: "b", size: "1", price: 11 },
       { id: "c", size: "1", price: 20 },
     ])
+  })
+})
+
+describe("catalogSubAgentMargin", () => {
+  it("own-shop legacy row: falls back to wholesale_margin (where the sub-agent's margin was stored)", () => {
+    expect(catalogSubAgentMargin({ shop_id: "sub", sub_agent_profit_margin: null, wholesale_margin: 1.5 }, "sub")).toBe(1.5)
+  })
+  it("own-shop row with sub_agent_profit_margin set uses it", () => {
+    expect(catalogSubAgentMargin({ shop_id: "sub", sub_agent_profit_margin: 2, wholesale_margin: 1.5 }, "sub")).toBe(2)
+  })
+  it("parent row: wholesale_margin is the parent's, never the sub-agent's", () => {
+    expect(catalogSubAgentMargin({ shop_id: "parent", sub_agent_profit_margin: null, wholesale_margin: 1.5 }, "sub")).toBe(0)
+    expect(catalogSubAgentMargin({ shop_id: "parent", sub_agent_profit_margin: 1, wholesale_margin: 1.5 }, "sub")).toBe(1)
+  })
+  it("missing everything is 0", () => {
+    expect(catalogSubAgentMargin({ shop_id: "sub" }, "sub")).toBe(0)
   })
 })

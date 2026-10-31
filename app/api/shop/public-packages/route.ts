@@ -4,7 +4,7 @@ import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
-import { marginsValid, subAgentCosts } from "@/lib/shop-commerce/pricing"
+import { catalogSubAgentMargin, marginsValid, subAgentCosts } from "@/lib/shop-commerce/pricing"
 
 // Force dynamic rendering
 export const dynamic = "force-dynamic"
@@ -158,7 +158,9 @@ export async function GET(request: NextRequest) {
             .select(`
               id,
               package_id,
+              shop_id,
               sub_agent_profit_margin,
+              wholesale_margin,
               is_active,
               package:packages (
                 id,
@@ -179,8 +181,8 @@ export async function GET(request: NextRequest) {
           }
 
           // Own-shop rows: the cost uses the PARENT's active row (an own-shop wholesale_margin is never used),
-          // and the sub-agent margin as the order route reads it.
-          packages = await priceRows(catalogItems || [], (item: any) => Number(item.sub_agent_profit_margin || 0))
+          // and the sub-agent margin as the order route reads it (legacy rows keep it in wholesale_margin).
+          packages = await priceRows(catalogItems || [], (item: any) => catalogSubAgentMargin(item, shop.id))
         }
       } catch (e) {
         if (!(e instanceof CustomPriceReadError)) throw e
