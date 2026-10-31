@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { CustomPriceReadError } from "@/lib/pricing/package-price"
+import { subAgentCosts, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
 // Force dynamic rendering - env vars read at runtime, not build time
 export const dynamic = "force-dynamic"
@@ -104,67 +106,55 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Failed to fetch catalog", details: catalogError.message }, { status: 500 })
     }
 
-    // If this is a sub-agent, get parent's margins from their catalog
-    let parentMargins: Record<string, number> = {}
+    // Sub-agent: only what the parent offers right now, at the parent's LIVE cost (subAgentCosts: the parent's role
+    // price + the parent's active wholesale margin), as the storefront and the order route price it. A row for a
+    // package the parent no longer offers is left out (shop-pricing lists only parent-packages, which hides it too,
+    // and POST/PUT update an existing row by package, so nothing is duplicated if the parent offers it again).
     if (shop.parent_shop_id) {
-      // Get parent's catalog entries (what parent charges for these packages)
-      const { data: parentCatalog } = await supabase
-        .from("sub_agent_catalog")
-        .select("package_id, wholesale_margin")
-        .eq("shop_id", shop.parent_shop_id)
-        .eq("is_active", true)
-
-      if (parentCatalog && parentCatalog.length > 0) {
-        parentMargins = (parentCatalog || []).reduce((acc: any, item: any) => {
-          acc[item.package_id] = item.wholesale_margin
-          return acc
-        }, {})
-      } else {
-        // Fallback to shop_packages
-        const { data: parentShopPkgs } = await supabase
-          .from("shop_packages")
-          .select("package_id, profit_margin")
-          .eq("shop_id", shop.parent_shop_id)
-          .eq("is_available", true)
-
-        if (parentShopPkgs && parentShopPkgs.length > 0) {
-          parentMargins = (parentShopPkgs || []).reduce((acc: any, item: any) => {
-            acc[item.package_id] = item.profit_margin
-            return acc
-          }, {})
-        }
+      let offers
+      try {
+        offers = await subAgentCosts(
+          shop.parent_shop_id,
+          (catalog || []).map((item: any) => String(item.package_id)),
+          supabase as Parameters<typeof subAgentCosts>[2]
+        )
+      } catch (e) {
+        if (!(e instanceof CustomPriceReadError)) throw e
+        console.error("Error reading the parent's catalog or pricing for sub-agent shop", shop.id)
+        return NextResponse.json({ error: "Failed to fetch catalog" }, { status: 500 })
       }
+
+      const subAgentCatalog = (catalog || [])
+        .map((item: any) => ({ item, offer: offers.costs.get(String(item.package_id)) }))
+        .filter(({ offer }: { offer: SubAgentOffer | null | undefined }) => !!offer)
+        .map(({ item, offer }: { item: any; offer: SubAgentOffer }) => {
+          // Use sub_agent_profit_margin if available, fallback to wholesale_margin for backwards compatibility
+          const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
+            ? Number(item.sub_agent_profit_margin)
+            : Number(item.wholesale_margin || 0)
+          return {
+            ...item,
+            is_active: item.is_active !== undefined ? item.is_active : true,
+            // parent_price: what this sub-agent pays the parent, live (the stored column is not trusted)
+            parent_price: offer.cost,
+            // selling_price: what this sub-agent's customers pay
+            selling_price: Math.round((offer.cost + subAgentMargin) * 100) / 100,
+            // profit_margin: the sub-agent's own margin
+            profit_margin: subAgentMargin,
+            is_dealer: offers.parent.isDealer,
+          }
+        })
+
+      return NextResponse.json({ catalog: subAgentCatalog, is_dealer: offers.parent.isDealer })
     }
 
-    // Fetch parent shop owner's role if it's a sub-agent
-    let isParentDealer = false;
-    if (shop.parent_shop_id) {
-      const { data: parentShop } = await supabase
-        .from("user_shops")
-        .select("user_id")
-        .eq("id", shop.parent_shop_id)
-        .single();
-
-      if (parentShop) {
-        const { data: parentUser } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", parentShop.user_id)
-          .single();
-
-        isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
-      }
-    } else {
-      // If not a sub-agent, check this user's own role (they are the parent)
-      const { data: userData } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-      isParentDealer = userData?.role === 'dealer' || userData?.role === 'admin';
-    }
-
-    const isDealer = isParentDealer; // Rename for logic compatibility
+    // Parent (no parent_shop_id): their own catalog, shown at their role price + their wholesale margin.
+    const { data: userData } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    const isDealer = userData?.role === 'dealer' || userData?.role === 'admin';
 
     // Transform to include calculated prices
     const catalogWithPrices = (catalog || []).map((item: any) => {
@@ -172,16 +162,13 @@ export async function GET(request: NextRequest) {
       const pkgPrice = item.package?.price || 0
       const dealerPrice = item.package?.dealer_price
 
-      // Use dynamic base price based on parent's current role
-      const adminPrice = (isParentDealer && dealerPrice && dealerPrice > 0)
+      // Use dynamic base price based on this user's current role
+      const adminPrice = (isDealer && dealerPrice && dealerPrice > 0)
         ? dealerPrice
         : pkgPrice;
 
-      // Calculate the actual cost to this user
-      // If sub-agent: cost = adminPrice + parent's margin
-      // If parent: cost = adminPrice
-      const parentMargin = shop.parent_shop_id ? (parentMargins[item.package_id] || 0) : 0;
-      const parentPrice = adminPrice + parentMargin;
+      // A parent's cost is the role price (no parent margin above them)
+      const parentPrice = adminPrice;
 
       // Use sub_agent_profit_margin if available, fallback to wholesale_margin for backwards compatibility
       const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
@@ -194,9 +181,7 @@ export async function GET(request: NextRequest) {
         ...item,
         // Ensure these fields are present
         is_active: item.is_active !== undefined ? item.is_active : true,
-        // parent_price: what the parent (this user) charges their sub-agent (base cost)
-        // Wait, for this user (the dealer), the base cost is his dealer price.
-        // The wholesale price he offers to his sub-agents is dealer price + wholesale_margin.
+        // parent_price: the base cost (this user's role price)
         parent_price: parentPrice,
         // selling_price: what the sub-agent will pay this user
         selling_price: sellingPrice,
