@@ -292,6 +292,8 @@ export async function POST(request: NextRequest) {
     let verifiedProfitMargin: number
     let verifiedTotalPrice: number
     let verifiedSize: string = ""
+    // The package actually priced, from the verified row. Never the client's package_id.
+    let verifiedPackageId: string
 
     // Check if this is a sub-agent shop
     const { data: shopData, error: shopError } = await supabase
@@ -326,6 +328,7 @@ export async function POST(request: NextRequest) {
         if ((subAgentPkg.packages as any)?.is_available === false) {
           return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
         }
+        verifiedPackageId = String(subAgentPkg.package_id)
         verifiedBasePrice = subAgentPkg.parent_price
         verifiedProfitMargin = subAgentPkg.sub_agent_profit_margin || 0
         verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
@@ -333,7 +336,7 @@ export async function POST(request: NextRequest) {
         // Fallback to sub_agent_catalog
         const { data: catalogEntry } = await supabase
           .from("sub_agent_catalog")
-          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(id, size, price, dealer_price, is_available)")
+          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package_id, package:packages(id, size, price, dealer_price, is_available)")
           .eq("id", shop_package_id)
           .single()
 
@@ -360,6 +363,7 @@ export async function POST(request: NextRequest) {
           }
 
           const pkg = (catalogEntry.package as any)
+          verifiedPackageId = String(catalogEntry.package_id)
           // Role price: the selling price never includes the parent's custom price.
           const adminPrice = pkg ? rolePrice(pkg, isParentDealer) : 0
 
@@ -400,7 +404,7 @@ export async function POST(request: NextRequest) {
       // match an order could be priced from another shop's catalog entry.
       const { data: shopPkg, error: shopPkgError } = await supabase
         .from("shop_packages")
-        .select("profit_margin, packages(id, size, price, dealer_price, is_available)")
+        .select("profit_margin, package_id, packages(id, size, price, dealer_price, is_available)")
         .eq("id", shop_package_id)
         .eq("shop_id", shop_id)
         .single()
@@ -414,6 +418,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
       }
 
+      verifiedPackageId = String(shopPkg.package_id)
       const pkg = (shopPkg.packages as any) ?? { id: "", price: 0 }
       verifiedSize = pkg.size || ""
 
@@ -423,6 +428,13 @@ export async function POST(request: NextRequest) {
       const margin = Number(shopPkg.profit_margin || 0)
       verifiedProfitMargin = margin + ownerSaving(pkg, owner.isDealer, owner.custom)
       verifiedTotalPrice = verifiedBasePrice + margin
+    }
+
+    // The client's package_id must name the package priced through shop_package_id. A mismatch is
+    // most likely a stale page, so no admin alert; every later use takes verifiedPackageId.
+    if (package_id != null && package_id !== "" && String(package_id) !== verifiedPackageId) {
+      console.warn(`[SHOP-ORDER] package_id mismatch: client ${package_id}, verified ${verifiedPackageId}, shop ${shop_id}`)
+      return NextResponse.json({ error: "Invalid package" }, { status: 400 })
     }
 
     // Force server-side verified size to prevent injection/manipulation
@@ -526,7 +538,7 @@ export async function POST(request: NextRequest) {
 
         // For sub-agents, shop_package_id might be from sub_agent_shop_packages
         // We need to find the corresponding shop_packages entry or create one
-        if (shop_package_id && package_id) {
+        if (shop_package_id && verifiedPackageId) {
           // Try to find if there's a shop_packages entry for this package
           // limit(1): shop_packages has no UNIQUE(shop_id, package_id), and a bare
           // .single() over duplicates errors, which made this insert yet another copy.
@@ -534,7 +546,7 @@ export async function POST(request: NextRequest) {
             .from("shop_packages")
             .select("id")
             .eq("shop_id", shop_id)
-            .eq("package_id", package_id)
+            .eq("package_id", verifiedPackageId)
             .order("updated_at", { ascending: false })
             .limit(1)
             .maybeSingle()
@@ -555,7 +567,7 @@ export async function POST(request: NextRequest) {
               .from("shop_packages")
               .insert([{
                 shop_id,
-                package_id,
+                package_id: verifiedPackageId,
                 profit_margin: subAgentPkg?.sub_agent_profit_margin || 0,
                 is_available: true
               }])
@@ -574,7 +586,7 @@ export async function POST(request: NextRequest) {
         // Calculate parent's profit: the wholesale_margin from sub_agent_catalog
         // Parent profit = wholesale_margin (what parent charges above admin price)
         // NOT base_price - admin_price (that's the sub-agent's total margin)
-        console.log(`[SHOP-ORDER] Looking up catalog for parent_shop_id=${parent_shop_id}, package_id=${package_id}`)
+        console.log(`[SHOP-ORDER] Looking up catalog for parent_shop_id=${parent_shop_id}, package_id=${verifiedPackageId}`)
 
         // Parent's pricing (dealer flag and custom prices) for the profit calculation.
         // The surrounding catch swallows errors, so refuse here when custom prices can't be read.
@@ -591,7 +603,7 @@ export async function POST(request: NextRequest) {
           .from("sub_agent_catalog")
           .select("wholesale_margin, parent_price, package:packages(id, price, dealer_price)")
           .eq("shop_id", parent_shop_id)
-          .eq("package_id", package_id)
+          .eq("package_id", verifiedPackageId)
           .single()
 
         if (catalogEntry) {
@@ -699,7 +711,7 @@ export async function POST(request: NextRequest) {
           customer_phone,
           customer_name: customer_name || "Guest",
           shop_package_id: finalShopPackageId,
-          package_id,
+          package_id: verifiedPackageId,
           network,
           volume_gb: finalVolumeGb,
           base_price: finalBasePrice,
