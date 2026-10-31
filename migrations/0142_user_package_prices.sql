@@ -10,7 +10,9 @@
 --     p_prices  jsonb array of {"package_id": uuid, "price": number|null}; null deletes that custom price.
 --               NULL or [] = no price changes.
 --     Writes one admin_audit_log row per actual change. Returns {"changed": <int>}.
---     Errors: RAISE EXCEPTION 'BAD_INPUT' (detail says why) and nothing is written.
+--     Errors: RAISE EXCEPTION 'BAD_INPUT' (detail says why) and nothing is written. Cases: missing admin/user,
+--     unknown admin, unknown user, bad mode, prices not an array, bad item shape, package_id not a uuid,
+--     unknown package, package listed twice, price not a number or out of range / more than 2 decimals.
 
 BEGIN;
 
@@ -18,7 +20,7 @@ ALTER TABLE public.users ADD COLUMN IF NOT EXISTS pricing_mode text NOT NULL DEF
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_pricing_mode_check') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_pricing_mode_check' AND conrelid = 'public.users'::regclass) THEN
     ALTER TABLE public.users ADD CONSTRAINT users_pricing_mode_check CHECK (pricing_mode IN ('role', 'custom'));
   END IF;
 END $$;
@@ -77,12 +79,17 @@ DECLARE
   v_old_mode text;
   v_item     jsonb;
   v_pkg      uuid;
-  v_new      numeric(10,2);
+  v_new      numeric;
   v_old      numeric(10,2);
   v_changed  integer := 0;
+  v_seen     uuid[] := ARRAY[]::uuid[];
 BEGIN
   IF p_admin IS NULL OR p_user IS NULL THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'admin and user are required';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = p_admin) THEN
+    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'unknown admin';
   END IF;
 
   -- Lock the user row: concurrent saves for one user run one after the other.
@@ -113,13 +120,21 @@ BEGIN
       IF jsonb_typeof(v_item) <> 'object' OR NOT (v_item ? 'package_id') OR NOT (v_item ? 'price') THEN
         RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'each price needs package_id and price';
       END IF;
+      IF jsonb_typeof(v_item->'package_id') <> 'string'
+         OR v_item->>'package_id' !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN
+        RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'package_id must be a uuid';
+      END IF;
       v_pkg := (v_item->>'package_id')::uuid;
+      IF v_pkg = ANY (v_seen) THEN
+        RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'package listed twice';
+      END IF;
+      v_seen := v_seen || v_pkg;
       IF NOT EXISTS (SELECT 1 FROM public.packages WHERE id = v_pkg) THEN
         RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'unknown package';
       END IF;
 
+      v_old := NULL;
       SELECT price INTO v_old FROM public.user_package_prices WHERE user_id = p_user AND package_id = v_pkg;
-      IF NOT FOUND THEN v_old := NULL; END IF;
 
       IF jsonb_typeof(v_item->'price') = 'null' THEN
         IF v_old IS NOT NULL THEN

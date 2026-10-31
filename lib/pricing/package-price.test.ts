@@ -38,11 +38,12 @@ describe("ownerSaving", () => {
   it("is role price minus custom price", () => expect(ownerSaving(pkg, true, new Map([["p1", 7]]))).toBe(1))
   it("is 0 with no custom price", () => expect(ownerSaving(pkg, true, NO_CUSTOM_PRICES)).toBe(0))
   it("is negative when the custom price is above the role price", () => expect(ownerSaving(pkg, false, new Map([["p1", 12]]))).toBe(-2))
+  it("is +0, never -0, when prices are equal", () => expect(Object.is(ownerSaving(pkg, false, new Map([["p1", 10.001]])), 0)).toBe(true))
   it("rounds to pesewas", () => expect(ownerSaving({ id: "p1", price: 10.1, dealer_price: null }, false, new Map([["p1", 9.9]]))).toBe(0.2))
 })
 
 // Minimal PostgREST-shaped fake: users -> single(); user_package_prices -> thenable.
-function client(opts: { mode?: string | null; userError?: boolean; rows?: unknown[]; pricesError?: boolean }) {
+function client(opts: { throwUser?: boolean; throwPrices?: boolean; mode?: string | null; userError?: boolean; rows?: unknown[]; pricesError?: boolean }) {
   const calls: string[] = []
   return {
     calls,
@@ -51,14 +52,17 @@ function client(opts: { mode?: string | null; userError?: boolean; rows?: unknow
       const chain: any = {
         select: () => chain,
         eq: () => chain,
-        maybeSingle: () =>
-          Promise.resolve(
+        limit: () => chain,
+        maybeSingle: () => {
+          if (opts.throwUser) throw new Error("net")
+          return Promise.resolve(
             opts.userError
               ? { data: null, error: { message: "boom" } }
               : { data: opts.mode === null ? null : { pricing_mode: opts.mode ?? "role" }, error: null }
-          ),
+          )
+        },
         then: (res: any, rej: any) =>
-          Promise.resolve(opts.pricesError ? { data: null, error: { message: "boom" } } : { data: opts.rows ?? [], error: null }).then(res, rej),
+          opts.throwPrices ? Promise.reject(new Error("net")).then(res, rej) : Promise.resolve(opts.pricesError ? { data: null, error: { message: "boom" } } : { data: opts.rows ?? [], error: null }).then(res, rej),
       }
       return chain
     },
@@ -96,7 +100,27 @@ describe("getCustomPrices", () => {
   })
 })
 
+describe("client exceptions", () => {
+  it("getCustomPrices rejects when the user read throws", async () => {
+    await expect(getCustomPrices(client({ throwUser: true }) as any, "u1")).rejects.toBeInstanceOf(CustomPriceReadError)
+  })
+  it("getCustomPrices rejects when the price read throws", async () => {
+    await expect(getCustomPrices(client({ mode: "custom", throwPrices: true }) as any, "u1")).rejects.toBeInstanceOf(CustomPriceReadError)
+  })
+})
+
 describe("customPricesForUser", () => {
+  it("reads the mode when it was not loaded (undefined)", async () => {
+    const c = client({ mode: "custom", rows: [{ package_id: "p1", price: 4 }] })
+    const m = await customPricesForUser(c as any, { id: "u1" })
+    expect(m.get("p1")).toBe(4)
+    expect(c.calls).toEqual(["users", "user_package_prices"])
+  })
+  it("null mode means role mode", async () => {
+    const c = client({})
+    expect((await customPricesForUser(c as any, { id: "u1", pricing_mode: null })).size).toBe(0)
+    expect(c.calls).toEqual([])
+  })
   it("skips the users read when the mode is already known", async () => {
     const c = client({ rows: [{ package_id: "p1", price: 4 }] })
     const m = await customPricesForUser(c as any, { id: "u1", pricing_mode: "custom" })

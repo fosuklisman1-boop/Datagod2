@@ -36,6 +36,16 @@ describe("0142_user_package_prices.sql", () => {
     expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.set_user_custom_prices\(uuid, uuid, text, jsonb\) TO service_role/)
   })
 
+  it("validates inputs with BAD_INPUT before writing", () => {
+    expect(sql).toMatch(/v_new\s+numeric;/)
+    expect(sql).toMatch(/\[0-9a-fA-F\]\{8\}-\[0-9a-fA-F\]\{4\}-\[0-9a-fA-F\]\{4\}-\[0-9a-fA-F\]\{4\}-\[0-9a-fA-F\]\{12\}/)
+    expect(sql).toMatch(/package_id must be a uuid/)
+    expect(sql).toMatch(/SELECT 1 FROM auth\.users WHERE id = p_admin/)
+    expect(sql).toMatch(/unknown admin/)
+    expect(sql).toMatch(/package listed twice/)
+    expect(sql).toMatch(/conrelid = 'public\.users'::regclass/)
+  })
+
   it("is one transaction", () => {
     expect(sql.trim().startsWith("--")).toBe(true)
     expect(sql).toMatch(/^BEGIN;$/m)

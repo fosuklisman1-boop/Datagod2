@@ -44,7 +44,7 @@ export function effectivePrice(pkg: PricedPackage, isDealer: boolean, custom: Cu
  * Shops sell at role price + margin; the owner's profit is margin + ownerSaving.
  */
 export function ownerSaving(pkg: PricedPackage, isDealer: boolean, custom: CustomPrices): number {
-  return round2(rolePrice(pkg, isDealer) - effectivePrice(pkg, isDealer, custom))
+  return round2(rolePrice(pkg, isDealer) - effectivePrice(pkg, isDealer, custom)) || 0
 }
 
 /** Minimal client shape (the service-role Supabase client satisfies it). */
@@ -53,7 +53,7 @@ type ClientLike = { from(table: string): any }
 async function readPrices(client: ClientLike, userId: string): Promise<CustomPrices> {
   let res: { data: unknown; error: unknown }
   try {
-    res = await client.from("user_package_prices").select("package_id, price").eq("user_id", userId)
+    res = await client.from("user_package_prices").select("package_id, price").eq("user_id", userId).limit(5000)
   } catch {
     throw new CustomPriceReadError()
   }
@@ -72,7 +72,10 @@ export async function customPricesForUser(
   client: ClientLike,
   user: { id: string; pricing_mode?: string | null } | null | undefined
 ): Promise<CustomPrices> {
-  if (!user?.id || user.pricing_mode !== "custom") return NO_CUSTOM_PRICES
+  if (!user?.id) return NO_CUSTOM_PRICES
+  // undefined = the caller did not load the mode: read it. null / 'role' = role mode.
+  if (user.pricing_mode === undefined) return getCustomPrices(client, user.id)
+  if (user.pricing_mode !== "custom") return NO_CUSTOM_PRICES
   return readPrices(client, user.id)
 }
 
