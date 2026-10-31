@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { customPricesForUser, effectivePrice } from "@/lib/pricing/package-price"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
         // Check if the user has 'dealer' role
         const { data: userData, error: userError } = await supabase
             .from("users")
-            .select("role")
+            .select("role, pricing_mode")
             .eq("id", user.id)
             .single()
 
@@ -48,13 +49,20 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
         }
 
-        // Transform packages: use dealer_price as the price
+        // This route prices dealers and admins as dealers; a custom price replaces that role price.
+        let custom
+        try {
+            custom = await customPricesForUser(supabase, { id: user.id, pricing_mode: userData.pricing_mode ?? null })
+        } catch {
+            return NextResponse.json({ error: "Prices are temporarily unavailable" }, { status: 503 })
+        }
+
+        // Transform packages: use the resolved price as the price
         const dealerPackages = (packages || []).map((pkg: any) => ({
             id: pkg.id,
             network: pkg.network,
             size: pkg.size,
-            // Use dealer_price if set, otherwise fall back to regular price
-            price: pkg.dealer_price ?? pkg.price,
+            price: effectivePrice(pkg, true, custom),
             original_price: pkg.price,
             dealer_price: pkg.dealer_price,
             description: pkg.description,

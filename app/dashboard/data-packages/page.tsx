@@ -179,11 +179,22 @@ function DataPackagesPageInner() {
       }
 
       let processedPackages = data || []
-      if (userRole === "dealer") {
-        processedPackages = processedPackages.map((pkg: any) => ({
-          ...pkg,
-          price: pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : pkg.price
-        }))
+      const dealerFallback = (pkgs: any[]) =>
+        pkgs.map((pkg: any) => ({ ...pkg, price: pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : pkg.price }))
+      // Server-resolved prices (role or custom) so the shown price is what /api/orders/purchase charges.
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = session?.access_token
+          ? await fetch("/api/user/package-prices", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" })
+          : null
+        if (res?.ok) {
+          const { prices } = await res.json()
+          processedPackages = processedPackages.map((pkg: any) => (prices[pkg.id] != null ? { ...pkg, price: prices[pkg.id] } : pkg))
+        } else if (userRole === "dealer") {
+          processedPackages = dealerFallback(processedPackages)
+        }
+      } catch {
+        if (userRole === "dealer") processedPackages = dealerFallback(processedPackages)
       }
 
       const adjustedPackages = await applyPriceAdjustmentsToPackages(processedPackages)
