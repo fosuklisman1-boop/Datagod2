@@ -330,7 +330,7 @@ async function loadCustom(deps: DataDeps, ctx: V2Context): Promise<CustomPrices 
   }
 }
 
-/** Package + role price + prefix, shared by live and sandbox. */
+/** Package + effective (custom or role) price + prefix, shared by live and sandbox. */
 async function priceAndValidate(
   deps: DataDeps,
   input: PurchaseInput,

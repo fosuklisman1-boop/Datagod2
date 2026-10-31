@@ -52,3 +52,38 @@ describe("0142_user_package_prices.sql", () => {
     expect(sql).toMatch(/^COMMIT;$/m)
   })
 })
+
+describe("0142 place_api_v2_order redefinition", () => {
+  const fnOf = (text: string) => {
+    const start = text.indexOf("CREATE OR REPLACE FUNCTION public.place_api_v2_order(")
+    const endMarker = "TO service_role;"
+    const end = text.indexOf(endMarker, start)
+    return text.slice(start, end + endMarker.length)
+  }
+  const sql130 = readFileSync(join(process.cwd(), "migrations", "0130_api_v2_orders.sql"), "utf8")
+  const EXISTS_CLAUSE = `
+        OR EXISTS (SELECT 1 FROM public.users u
+                   JOIN public.user_package_prices upp ON upp.user_id = u.id
+                   WHERE u.id = p_user_id AND u.pricing_mode = 'custom'
+                     AND upp.package_id = p.id AND upp.price = p_price))`
+
+  it("redefines the function and accepts a custom price", () => {
+    expect(sql).toContain("CREATE OR REPLACE FUNCTION public.place_api_v2_order")
+    expect(sql).toMatch(/u\.pricing_mode = 'custom'/)
+    expect(sql).toMatch(/upp\.package_id = p\.id AND upp\.price = p_price/)
+  })
+
+  it("is identical to 0130 apart from the custom-price clause (no copy drift)", () => {
+    const a = fnOf(sql130)
+    const b = fnOf(sql)
+    expect(b).toContain(EXISTS_CLAUSE)
+    const restored = b
+      .replace(EXISTS_CLAUSE, ")")
+    expect(restored).toBe(a)
+  })
+
+  it("keeps exactly one transaction", () => {
+    expect(sql.match(/^BEGIN;/gm)).toHaveLength(1)
+    expect(sql.match(/^COMMIT;/gm)).toHaveLength(1)
+  })
+})
