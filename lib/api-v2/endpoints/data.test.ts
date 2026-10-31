@@ -3,6 +3,7 @@ import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import type { PackageRow } from "../data-orders"
 import type { OrderRow, PlaceParams, PlaceResult } from "../order-store"
 import type { V2Context } from "../handler"
+import { CustomPriceReadError } from "@/lib/pricing/package-price"
 import {
   purchaseHandler,
   bulkHandler,
@@ -75,6 +76,7 @@ function makeDeps(over: { prefixEnabled?: boolean } = {}) {
     verifyMtn: vi.fn(async (locals: string[]) => new Map<string, boolean | null>(locals.map((l) => [l, true]))),
     phoneGate: vi.fn(async (_u: string) => ({ allowed: true })),
     mtnBlocking: vi.fn(async () => true),
+    customPrices: vi.fn(async (_u: string) => new Map<string, number>() as ReadonlyMap<string, number>),
     schedule: vi.fn(),
     scheduleBatch: vi.fn(),
     clock: { ms: 0 },
@@ -93,6 +95,7 @@ function allFns(d: Deps) {
     d.verifyMtn,
     d.phoneGate,
     d.mtnBlocking,
+    d.customPrices,
     d.schedule,
     d.scheduleBatch,
   ] as Array<ReturnType<typeof vi.fn>>
@@ -1193,5 +1196,52 @@ describe("packages", () => {
     const r = await listPackagesHandler(d)({}, LIVE)
     expect(data(r).packages).toHaveLength(4)
     for (const p of data(r).packages) expect(Object.keys(p).sort()).toEqual(["network", "price", "size_gb"])
+  })
+})
+
+describe("custom prices", () => {
+  it("live purchase charges the user's custom price", async () => {
+    const d = makeDeps()
+    d.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    await purchaseHandler(d)(body({ recipient: "0249990490", reference: "REF-CP1" }), LIVE)
+    expect(d.store.placeV2Order.mock.calls[0][0]).toMatchObject({ price: 3.25, packageId: "p-mtn-1" })
+    expect(d.customPrices).toHaveBeenCalledWith(LIVE.userId)
+  })
+
+  it("live purchase answers 503 and places nothing when custom prices cannot be read", async () => {
+    const d = makeDeps()
+    d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    const r = await purchaseHandler(d)(body({ recipient: "0249990491", reference: "REF-CP2" }), LIVE)
+    expect(r.error?.status).toBe(503)
+    expectNoMoney(d)
+  })
+
+  it("bulk prices each new order with the custom price", async () => {
+    const d = makeDeps()
+    d.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    await bulkHandler(d)({ orders: [body({ recipient: "0249990492", reference: "REF-CP3" })] }, LIVE)
+    expect(d.store.placeV2Order.mock.calls[0][0]).toMatchObject({ price: 3.25 })
+  })
+
+  it("bulk answers 503 and places nothing when custom prices cannot be read", async () => {
+    const d = makeDeps()
+    d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    const r = await bulkHandler(d)({ orders: [body({ recipient: "0249990493", reference: "REF-CP4" })] }, LIVE)
+    expect(r.error?.status).toBe(503)
+    expectNoMoney(d)
+  })
+
+  it("GET packages lists the custom price", async () => {
+    const d = makeDeps()
+    d.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    const r = await listPackagesHandler(d)({}, LIVE)
+    expect((r.data as any).packages.find((p: any) => p.network === "MTN" && p.size_gb === 1).price).toBe(3.25)
+  })
+
+  it("GET packages answers 503 when custom prices cannot be read", async () => {
+    const d = makeDeps()
+    d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    const r = await listPackagesHandler(d)({}, LIVE)
+    expect(r.error?.status).toBe(503)
   })
 })

@@ -15,6 +15,7 @@ import {
 // Static: after() must be registered synchronously while the request scope is
 // still live (a dynamic import resolves later, possibly after the response).
 import { after } from "next/server"
+import { getCustomPrices } from "@/lib/pricing/package-price"
 import { BULK_DISPATCH_CONCURRENCY, scheduleFulfillment, scheduleFulfillmentBatch } from "../fulfillment"
 import type { DataDeps, SandboxOrderLike } from "./data"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -82,6 +83,7 @@ export function realDataDeps(): DataDeps {
       return cv.isBlockingOn(await cv.getCustomerVerificationSettings())
     },
     phoneGate: (userId) => realPhoneGate(client, userId),
+    customPrices: (userId) => getCustomPrices(client, userId),
     sandbox: {
       getOrder: async (userId, reference) =>
         ((await (await import("@/lib/sandbox")).getSandboxOrder(userId, reference)) as SandboxOrderLike | null),
