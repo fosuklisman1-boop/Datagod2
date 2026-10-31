@@ -167,3 +167,7 @@ Where this section and the text above disagree, this section is what shipped.
 - **New endpoint.** `GET /api/user/package-prices` returns `{ pricing_mode, prices, custom_ids }`. The dashboard never applies the per-network display adjustment to a custom price.
 - **Admin view.** The admin GET also lists unavailable packages that carry a custom price, so they can be cleared.
 - **Deploy order.** Apply migration 0142 BEFORE deploying the code. Otherwise every custom-price read fails and charge paths refuse with 503, and the Admin -> Users list fails because it selects `pricing_mode`.
+
+## Intended business behaviour (not bugs)
+
+- A sub-agent's buying price (`sub_agent_shop_packages.parent_price`) is set through the sub-agent catalog and is not checked against Datagod's cost. This is intended business logic and is out of scope for this feature; custom prices do not change it.
