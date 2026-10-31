@@ -1,6 +1,8 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
+import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
+import { subAgentBundles, subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, waWalletShort } from "../menus"
 import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
@@ -35,27 +37,15 @@ export async function fetchBundles(
   network: string,
   page: number,
   priceTier: string,
-  parentShopId?: string
+  parentShopId?: string,
+  userId?: string
 ): Promise<{ bundles: BundleOption[]; total: number }> {
-  // Sub-agents see only packages their parent has catalogued, at parent_price
+  // Sub-agents see only packages their parent actively offers, at the parent's LIVE cost (role price + current
+  // wholesale margin; the stored parent_price is not trusted). Priced and sorted in code, then paged.
+  // Display: a read failure lists nothing; handleConfirm re-prices and refuses on failure.
   if (priceTier === 'sub_agent' && parentShopId) {
-    const { data, count } = await supabase
-      .from("sub_agent_catalog")
-      .select("package_id, parent_price, packages!inner(id, size, network, is_available)", { count: 'exact' })
-      .eq("shop_id", parentShopId)
-      .eq("packages.network", network)
-      .eq("packages.is_available", true)
-      .order("parent_price", { ascending: true })
-      .order("package_id", { ascending: true })
-      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
-
-    const bundles: BundleOption[] = (data ?? []).map((row: any) => ({
-      id: row.packages.id,
-      size: row.packages.size,
-      price: Number(row.parent_price),
-    }))
-
-    return { bundles, total: count ?? 0 }
+    const all = await subAgentBundles(parentShopId, network, supabase).catch(() => [] as BundleOption[])
+    return { bundles: all.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE), total: all.length }
   }
 
   // Regular / dealer — query packages table directly
@@ -68,14 +58,13 @@ export async function fetchBundles(
     .order("id", { ascending: true })
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
-  const bundles: BundleOption[] = (data ?? []).map((row: any) => {
-    const useDealer = priceTier === 'dealer' && row.dealer_price && Number(row.dealer_price) > 0
-    return {
-      id: row.id,
-      size: row.size,
-      price: useDealer ? Number(row.dealer_price) : Number(row.price),
-    }
-  })
+  // Display: a failed read shows role prices; handleConfirm re-prices and refuses on failure.
+  const custom = await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
+  const bundles: BundleOption[] = (data ?? []).map((row: any) => ({
+    id: row.id,
+    size: row.size,
+    price: effectivePrice(row, priceTier === 'dealer', custom),
+  }))
 
   return { bundles, total: count ?? 0 }
 }
@@ -146,7 +135,7 @@ export async function handleSelectNetwork(
     }
   }
 
-  const { bundles, total } = await fetchBundles(net.dbName, 0, effectivePriceTier, subAgentParentShopId)
+  const { bundles, total } = await fetchBundles(net.dbName, 0, effectivePriceTier, subAgentParentShopId, userRow?.id)
   if (bundles.length === 0) {
     return cont(`No ${networkNickname(net.dbName)} packages available.\n\n${networkMenu()}`)
   }
@@ -189,7 +178,7 @@ export async function handleSelectBundle(
   // the bundle selection must agree on the same bundle count. Trusting session.bundleCache
   // causes a mismatch when the cache is stale (page advances but cache holds old data).
   const { bundles, total } = await fetchBundles(
-    session.network!, page, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId
+    session.network!, page, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId, session.userId
   )
 
   const moreIndex = offset + bundles.length + 1
@@ -197,7 +186,7 @@ export async function handleSelectBundle(
 
   if (chosen === moreIndex && offset + bundles.length < total) {
     const nextPage = page + 1
-    const { bundles: nextBundles, total: newTotal } = await fetchBundles(session.network!, nextPage, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId)
+    const { bundles: nextBundles, total: newTotal } = await fetchBundles(session.network!, nextPage, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId, session.userId)
     await setSession(sessionId, {
       ...session,
       bundlePage: nextPage,
@@ -310,7 +299,7 @@ export async function handleConfirm(
   // Validate price still matches DB (security: prevent stale session attacks)
   const { data: pkg } = await supabase
     .from("packages")
-    .select("price, dealer_price, is_available")
+    .select("id, price, dealer_price, is_available")
     .eq("id", bundleId!)
     .single()
 
@@ -331,17 +320,30 @@ export async function handleConfirm(
   let parentProfitAmount: number | null = null
 
   if (priceTier === 'sub_agent' && session.subAgentParentShopId) {
-    const { data: catalogRow } = await supabase
-      .from("sub_agent_catalog")
-      .select("parent_price, wholesale_margin")
-      .eq("shop_id", session.subAgentParentShopId)
-      .eq("package_id", bundleId!)
-      .single()
-    verifiedPrice = catalogRow ? Number(catalogRow.parent_price) : Number(pkg.price)
-    parentProfitAmount = catalogRow ? Number(catalogRow.wholesale_margin) : null
+    // The sub-agent pays the parent's live cost (parent role price + active wholesale margin; their own custom
+    // prices never apply). The parent earns wholesale margin + their saving. Not offered: refuse.
+    let offer: SubAgentOffer | null
+    try {
+      offer = await subAgentCost(session.subAgentParentShopId, bundleId!, supabase)
+    } catch {
+      await setSession(sessionId, { step: 'MAIN', dialingPhone })
+      return end(MSG_PRICES_UNAVAILABLE)
+    }
+    if (!offer) {
+      await setSession(sessionId, { step: 'MAIN', dialingPhone })
+      return end('Package no longer available. Please try again.')
+    }
+    verifiedPrice = offer.cost
+    parentProfitAmount = offer.parentProfit
   } else {
-    const useDealer = priceTier === 'dealer' && pkg.dealer_price && Number(pkg.dealer_price) > 0
-    verifiedPrice = useDealer ? Number(pkg.dealer_price) : Number(pkg.price)
+    let custom
+    try {
+      custom = await getCustomPrices(supabase, session.userId)
+    } catch {
+      await setSession(sessionId, { step: 'MAIN', dialingPhone })
+      return end(MSG_PRICES_UNAVAILABLE)
+    }
+    verifiedPrice = effectivePrice(pkg, priceTier === 'dealer', custom)
   }
 
   const fee = Math.round(verifiedPrice * feePercent * 100) / 100

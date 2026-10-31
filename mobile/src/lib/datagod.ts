@@ -70,35 +70,61 @@ export function verifyPayment(reference: string) {
 
 // ── Packages & orders ─────────────────────────────────────────────────────────
 
-// Same source as the web dashboard: anon-readable packages table, with
-// dealer_price substituted for dealers.
-export async function listPackages(): Promise<DataPackage[]> {
-  const { data: auth } = await supabase.auth.getUser()
-  let role = "user"
-  if (auth.user) {
-    const { data: userRow } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", auth.user.id)
-      .single()
-    role = userRow?.role || "user"
-  }
+interface UserPackagePrices {
+  pricing_mode?: string
+  prices: Record<string, number>
+  custom_ids?: string[]
+}
 
+// Same source as the web dashboard: the anon-readable packages table, priced by
+// GET /api/user/package-prices (the signed-in user's role or custom price, the
+// one /api/orders/purchase charges). If that call fails, fall back to the role
+// price (dealer_price substituted for dealers), as before.
+export async function listPackages(): Promise<DataPackage[]> {
   const { data, error } = await supabase
     .from("packages")
     .select("*, dealer_price")
     .eq("is_available", true)
     .order("network, size")
   if (error) throw error
+  const pkgs = (data ?? []) as DataPackage[]
 
-  let pkgs = (data ?? []) as DataPackage[]
-  if (role === "dealer") {
-    pkgs = pkgs.map((p) => ({
-      ...p,
-      price: p.dealer_price && p.dealer_price > 0 ? p.dealer_price : p.price,
-    }))
+  let prices: Record<string, unknown> | null = null
+  try {
+    const body = await apiFetch<UserPackagePrices>("/api/user/package-prices")
+    if (body?.prices && typeof body.prices === "object") prices = body.prices
+  } catch {
+    // Fall back to role prices below.
   }
-  return pkgs
+  const resolved = (p: DataPackage): number | null => {
+    const v = prices?.[p.id]
+    return v != null && Number.isFinite(Number(v)) ? Number(v) : null
+  }
+  if (prices && pkgs.every((p) => resolved(p) !== null)) {
+    return pkgs.map((p) => ({ ...p, price: resolved(p)! }))
+  }
+  // Prices unavailable (or a package missing from them): role price for what is not resolved.
+  const role = await currentRole()
+  return pkgs.map((p) => {
+    const r = resolved(p)
+    return r !== null ? { ...p, price: r } : rolePriced(p, role)
+  })
+}
+
+async function currentRole(): Promise<string> {
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) return "user"
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", auth.user.id)
+    .single()
+  return userRow?.role || "user"
+}
+
+// Display fallback only (the server re-prices every purchase).
+function rolePriced(p: DataPackage, role: string): DataPackage {
+  return role === "dealer" && p.dealer_price && p.dealer_price > 0 ? { ...p, price: p.dealer_price } : p
 }
 
 export function purchaseData(pkg: DataPackage, phoneNumber: string) {

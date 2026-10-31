@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { rolePrice } from "@/lib/pricing/package-price"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -48,13 +49,16 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
         }
 
-        // Transform packages: use dealer_price as the price
+        // Buy-stock (app/dashboard/buy-stock) orders through /api/shop/orders/create against the dealer's own
+        // shop, which prices it at the ROLE price + margin and raises a fraud alert when the page asks for less.
+        // So this route shows the role price (dealers and admins priced as dealers), never the custom price:
+        // a dealer's custom-price saving is credited as shop profit by the create route, not shown here.
+        // rolePrice also keeps the fix for a zero dealer price, which the old nullish fallback showed as a free bundle.
         const dealerPackages = (packages || []).map((pkg: any) => ({
             id: pkg.id,
             network: pkg.network,
             size: pkg.size,
-            // Use dealer_price if set, otherwise fall back to regular price
-            price: pkg.dealer_price ?? pkg.price,
+            price: rolePrice(pkg, true),
             original_price: pkg.price,
             dealer_price: pkg.dealer_price,
             description: pkg.description,

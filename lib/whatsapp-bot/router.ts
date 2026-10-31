@@ -1,5 +1,7 @@
 // lib/whatsapp-bot/router.ts
 import { createClient } from "@supabase/supabase-js"
+import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
+import { subAgentBundles } from "@/lib/shop-commerce/pricing"
 import { getWaSession, setWaSession, deleteWaSession, extendWaSession } from "./session"
 import { USSDSession, UzoResponse, BundleOption } from "@/lib/ussd/types"
 import { handleMain, mainMenuVisibility } from "@/lib/ussd/handlers/main"
@@ -87,21 +89,13 @@ async function loadAllBundlesWa(
   network: string,
   priceTier: string,
   parentShopId?: string,
+  userId?: string,
 ): Promise<BundleOption[]> {
+  // Sub-agents: the parent's actively offered packages at the parent's LIVE cost (role price + current wholesale
+  // margin; stored parent_price is not trusted), cheapest first. Display: a read failure lists nothing; the confirm
+  // step (handleConfirm) re-prices and refuses.
   if (priceTier === 'sub_agent' && parentShopId) {
-    const { data } = await supabase
-      .from("sub_agent_catalog")
-      .select("package_id, parent_price, packages!inner(id, size, network, is_available)")
-      .eq("shop_id", parentShopId)
-      .eq("packages.network", network)
-      .eq("packages.is_available", true)
-      .order("parent_price", { ascending: true })
-      .order("package_id", { ascending: true })
-    return (data ?? []).map((r: any) => ({
-      id: r.packages.id,
-      size: String(r.packages.size),
-      price: Number(r.parent_price),
-    }))
+    return subAgentBundles(parentShopId, network, supabase).catch(() => [] as BundleOption[])
   }
   const { data } = await supabase
     .from("packages")
@@ -110,14 +104,12 @@ async function loadAllBundlesWa(
     .eq("is_available", true)
     .order("price", { ascending: true })
     .order("id", { ascending: true })
+  // Display: a failed read shows role prices; the confirm step (handleConfirm) re-prices and refuses on failure.
+  const custom = await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
   return (data ?? []).map((r: any) => ({
     id: r.id,
     size: String(r.size),
-    price: Number(
-      priceTier === 'dealer' && r.dealer_price && Number(r.dealer_price) > 0
-        ? r.dealer_price
-        : r.price
-    ),
+    price: effectivePrice(r, priceTier === 'dealer', custom),
   }))
 }
 
@@ -141,6 +133,7 @@ async function handleSelectBundleWa(
     session.network ?? '',
     session.effectivePriceTier ?? 'regular',
     session.subAgentParentShopId,
+    session.userId,
   )
   if (isNaN(chosen) || chosen < 1 || chosen > allBundles.length) {
     return { message: bundleMenuWa(allBundles), ussdServiceOp: 2 }
@@ -184,7 +177,7 @@ async function naturalToDigit(step: string, input: string, session: USSDSession)
     return null
   }
   if (step === "SELECT_BUNDLE") {
-    const bundles = await loadAllBundlesWa(session.network ?? "", session.effectivePriceTier ?? "regular", session.subAgentParentShopId)
+    const bundles = await loadAllBundlesWa(session.network ?? "", session.effectivePriceTier ?? "regular", session.subAgentParentShopId, session.userId)
     if (!bundles.length) return null
     let idx = -1
     const gb = lc.match(/(\d+(?:\.\d+)?)gb/)
@@ -320,7 +313,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         const s2 = await getWaSession(sessionId)
         if (s2?.step === 'SELECT_BUNDLE' && s2.network) {
           // WhatsApp: show all bundles at once — no 5-per-page pagination needed
-          const allBundles = await loadAllBundlesWa(s2.network, s2.effectivePriceTier ?? 'regular', s2.subAgentParentShopId)
+          const allBundles = await loadAllBundlesWa(s2.network, s2.effectivePriceTier ?? 'regular', s2.subAgentParentShopId, s2.userId)
           overrideMessage = bundleMenuWa(allBundles)
           await setWaSession(sessionId, { ...s2, bundleCache: allBundles, bundleTotal: allBundles.length })
         }

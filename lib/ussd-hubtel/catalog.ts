@@ -1,5 +1,7 @@
 // lib/ussd-hubtel/catalog.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { effectivePrice, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
+import type { SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
 import { toLocalPhone } from "./protocol"
 
@@ -24,20 +26,22 @@ export function decideTier(
   return { tier: "regular" }
 }
 
-/** Mirrors the price verification in lib/ussd/handlers/bundles.ts handleConfirm. */
+/**
+ * Mirrors the price verification in lib/ussd/handlers/bundles.ts handleConfirm.
+ * sub_agent tier: `offer` is the parent's live offer (subAgentCost): the price is the parent's role price + active
+ * wholesale margin (the sub-agent's own custom prices never apply), and the parent earns wholesale margin + saving.
+ * No offer (the parent does not offer the package) = null: refuse.
+ */
 export function priceForTier(
-  pkg: { price: number | string; dealer_price?: number | string | null },
+  pkg: { id?: string; price: number | string; dealer_price?: number | string | null },
   tier: string,
-  catalogRow?: { parent_price: number | string; wholesale_margin: number | string } | null
-): { price: number; parentProfit: number | null } {
+  offer?: Pick<SubAgentOffer, "cost" | "parentProfit"> | null,
+  custom: CustomPrices = NO_CUSTOM_PRICES
+): { price: number; parentProfit: number | null } | null {
   if (tier === "sub_agent") {
-    return {
-      price: catalogRow ? Number(catalogRow.parent_price) : Number(pkg.price),
-      parentProfit: catalogRow ? Number(catalogRow.wholesale_margin) : null,
-    }
+    return offer ? { price: offer.cost, parentProfit: offer.parentProfit } : null
   }
-  const useDealer = tier === "dealer" && pkg.dealer_price && Number(pkg.dealer_price) > 0
-  return { price: useDealer ? Number(pkg.dealer_price) : Number(pkg.price), parentProfit: null }
+  return { price: effectivePrice({ ...pkg, id: pkg.id ?? "" }, tier === "dealer", custom), parentProfit: null }
 }
 
 export async function resolveCaller(supabase: SupabaseClient, dialingPhone: string): Promise<CallerContext> {

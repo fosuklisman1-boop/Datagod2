@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
+import { marginsValid, subAgentCosts } from "@/lib/shop-commerce/pricing"
 
 // Force dynamic rendering
 export const dynamic = "force-dynamic"
@@ -84,36 +86,37 @@ export async function GET(request: NextRequest) {
 
     // Check if this is a sub-agent (has parent_shop_id)
     if (shop.parent_shop_id) {
-      // Get parent shop owner's role
-      const { data: parentShop } = await supabase
-        .from("user_shops")
-        .select("id, user_id")
-        .eq("id", shop.parent_shop_id)
-        .single();
-
-      let isParentDealer = false;
-      let parentMargins: Record<string, number> = {};
-      if (parentShop) {
-        const { data: parentUser } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", parentShop.user_id)
-          .single();
-        isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
-
-        // Get parent's margins from their sub_agent_catalog
-        const { data: parentCatalog } = await supabase
-          .from("sub_agent_catalog")
-          .select("package_id, wholesale_margin")
-          .eq("shop_id", parentShop.id)
-          .eq("is_active", true);
-
-        if (parentCatalog) {
-          parentMargins = parentCatalog.reduce((acc: any, item: any) => {
-            acc[item.package_id] = item.wholesale_margin || 0;
-            return acc;
-          }, {});
-        }
+      // Sub-agent prices: the parent's LIVE cost (subAgentCosts: parent role price + the parent's active
+      // wholesale margin) + the sub-agent's margin, exactly what app/api/shop/orders/create charges. Stored
+      // parent_price snapshots are not trusted. Packages the parent no longer offers are hidden.
+      const priceRows = async (rows: any[], subMarginOf: (item: any) => number) => {
+        const { costs } = await subAgentCosts(
+          shop.parent_shop_id,
+          rows.map((item: any) => String(item.package_id)),
+          supabase as Parameters<typeof subAgentCosts>[2]
+        )
+        return rows
+          .filter((item: any) => item.package?.is_available)
+          .map((item: any) => ({ item, offer: costs.get(String(item.package_id)), subAgentMargin: subMarginOf(item) }))
+          .filter(({ offer, subAgentMargin }) => !!offer && marginsValid(subAgentMargin))
+          .map(({ item, offer, subAgentMargin }) => {
+            const parentPrice = offer!.cost
+            return {
+              id: item.id,
+              package_id: item.package.id,
+              profit_margin: subAgentMargin,
+              parent_price: parentPrice,
+              is_available: item.is_active,
+              packages: {
+                id: item.package.id,
+                network: item.package.network,
+                size: item.package.size,
+                price: parentPrice,
+                description: item.package.description
+              },
+              selling_price: Math.round((parentPrice + subAgentMargin) * 100) / 100
+            }
+          })
       }
 
       // Sub-agent: get packages from sub_agent_shop_packages table (their own inventory)
@@ -123,7 +126,6 @@ export async function GET(request: NextRequest) {
         .select(`
           id,
           package_id,
-          parent_price,
           sub_agent_profit_margin,
           is_active,
           package:packages (
@@ -145,110 +147,45 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
       }
 
-      // If sub_agent_shop_packages table exists and has data, use it
-      if (!shopPkgsError && shopPkgs && shopPkgs.length > 0) {
-        // Transform catalog items using stored parent_price
-        packages = shopPkgs
-          .filter((item: any) => item.package?.is_available)
-          .map((item: any) => {
-            const pkgPrice = item.package.price || 0;
-            const pkgDealerPrice = item.package.dealer_price;
-
-            const adminPrice = (isParentDealer && pkgDealerPrice && pkgDealerPrice > 0)
-              ? pkgDealerPrice
-              : pkgPrice;
-
-            const parentMargin = parentMargins[item.package_id] || 0;
-            // Use stored parent_price if available (source of truth), otherwise calculate
-            const parentPrice = (item.parent_price !== undefined && item.parent_price !== null)
-              ? Number(item.parent_price)
-              : (adminPrice + parentMargin);
-
-            const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
-              ? Number(item.sub_agent_profit_margin)
-              : 0;
-            const sellingPrice = parentPrice + subAgentMargin;
-
-            return {
-              id: item.id,
-              package_id: item.package.id,
-              profit_margin: subAgentMargin,
-              parent_price: parentPrice,
-              is_available: item.is_active,
-              packages: {
-                id: item.package.id,
-                network: item.package.network,
-                size: item.package.size,
-                price: parentPrice,
-                description: item.package.description
-              },
-              selling_price: sellingPrice
-            }
-          })
-      } else {
-        // Fall back to sub_agent_catalog for backwards compatibility
-        const { data: catalogItems, error: catalogError } = await supabase
-          .from("sub_agent_catalog")
-          .select(`
-            id,
-            package_id,
-            parent_price,
-            sub_agent_profit_margin,
-            wholesale_margin,
-            is_active,
-            package:packages (
+      try {
+        // If sub_agent_shop_packages table exists and has data, use it
+        if (!shopPkgsError && shopPkgs && shopPkgs.length > 0) {
+          packages = await priceRows(shopPkgs, (item: any) => Number(item.sub_agent_profit_margin || 0))
+        } else {
+          // Fall back to sub_agent_catalog for backwards compatibility
+          const { data: catalogItems, error: catalogError } = await supabase
+            .from("sub_agent_catalog")
+            .select(`
               id,
-              network,
-              size,
-              price,
-              dealer_price,
-              description,
-              is_available
-            )
-          `)
-          .eq("shop_id", shop.id)
-          .eq("is_active", true)
+              package_id,
+              sub_agent_profit_margin,
+              is_active,
+              package:packages (
+                id,
+                network,
+                size,
+                price,
+                dealer_price,
+                description,
+                is_available
+              )
+            `)
+            .eq("shop_id", shop.id)
+            .eq("is_active", true)
 
-        if (catalogError) {
-          console.error("Error fetching sub-agent catalog:", catalogError)
-          return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
+          if (catalogError) {
+            console.error("Error fetching sub-agent catalog:", catalogError)
+            return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
+          }
+
+          // Own-shop rows: the cost uses the PARENT's active row (an own-shop wholesale_margin is never used),
+          // and the sub-agent margin as the order route reads it.
+          packages = await priceRows(catalogItems || [], (item: any) => Number(item.sub_agent_profit_margin || 0))
         }
-
-        // Transform using stored parent_price
-        packages = (catalogItems || [])
-          .filter((item: any) => item.package?.is_available)
-          .map((item: any) => {
-            const pkgPrice = item.package.price || 0;
-            const pkgDealerPrice = item.package.dealer_price;
-
-            const adminPrice = (isParentDealer && pkgDealerPrice && pkgDealerPrice > 0)
-              ? pkgDealerPrice
-              : pkgPrice;
-
-            const parentMargin = parentMargins[item.package_id] || 0;
-            const parentPrice = adminPrice + parentMargin;
-
-            const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
-              ? Number(item.sub_agent_profit_margin)
-              : (item.wholesale_margin || 0);
-            const sellingPrice = parentPrice + subAgentMargin;
-
-            return {
-              id: item.id,
-              package_id: item.package.id,
-              profit_margin: subAgentMargin,
-              parent_price: parentPrice,
-              is_available: item.is_active,
-              packages: {
-                id: item.package.id,
-                network: item.package.network,
-                size: item.package.size,
-                price: parentPrice,
-                description: item.package.description
-              },
-              selling_price: sellingPrice
-            }
-          })
+      } catch (e) {
+        if (!(e instanceof CustomPriceReadError)) throw e
+        console.error("[PUBLIC-API] Could not read the parent's catalog or pricing")
+        return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
       }
 
     } else {

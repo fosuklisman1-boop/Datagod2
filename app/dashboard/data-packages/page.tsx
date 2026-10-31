@@ -18,6 +18,8 @@ import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
+import { applyAdjustmentsExceptCustom } from "@/lib/pricing/adjust-except-custom"
+import { fetchUserPackagePrices, MSG_STANDARD_PRICES_FALLBACK, resolveDisplayPrices, STANDARD_PRICES_TOAST_ID } from "@/lib/pricing/user-package-prices"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
 import { toast } from "sonner"
@@ -178,15 +180,17 @@ function DataPackagesPageInner() {
         return
       }
 
-      let processedPackages = data || []
-      if (userRole === "dealer") {
-        processedPackages = processedPackages.map((pkg: any) => ({
-          ...pkg,
-          price: pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : pkg.price
-        }))
+      // Server-resolved prices (role or custom), with the role price as the fallback when they cannot be loaded.
+      // Custom prices are exact and never marked up; for the rest the per-network display adjustment below is
+      // applied as before (purchase itself charges the unadjusted price).
+      const { data: { session } } = await supabase.auth.getSession()
+      const resolved = await fetchUserPackagePrices(session?.access_token)
+      const { packages: processedPackages, customIds, fallback } = resolveDisplayPrices(data || [], resolved, userRole === "dealer")
+      if (fallback && session?.access_token) {
+        toast.warning(MSG_STANDARD_PRICES_FALLBACK, { id: STANDARD_PRICES_TOAST_ID })
       }
 
-      const adjustedPackages = await applyPriceAdjustmentsToPackages(processedPackages)
+      const adjustedPackages = await applyAdjustmentsExceptCustom(processedPackages, customIds, applyPriceAdjustmentsToPackages)
       setPackages(adjustedPackages)
     } catch (error) {
       console.error("Error loading packages:", error)

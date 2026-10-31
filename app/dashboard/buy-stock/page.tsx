@@ -167,7 +167,7 @@ export default function BuyStockPage() {
               package_id: pkg.id,
               network: pkg.network,
               size: pkg.size,
-              parent_price: (isDealer && pkg.dealer_price && pkg.dealer_price > 0) ? pkg.dealer_price : pkg.price,
+              parent_price: pkg.price,
               description: pkg.description
             }
           }))
