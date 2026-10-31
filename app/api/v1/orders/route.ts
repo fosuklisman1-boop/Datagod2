@@ -5,6 +5,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { createMTNOrder, saveMTNTracking, normalizePhoneNumber, isAutoFulfillmentEnabled as isMTNAutoEnabled } from "@/lib/mtn-fulfillment"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { CustomPriceReadError, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
 import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
 
 const supabase = createClient(
@@ -170,7 +171,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Package ${network} ${volume_gb}GB not found or unavailable in our database.` }, { status: 400 })
   }
 
-  const orderPrice = user.role === "dealer" && pkg.dealer_price > 0 ? Number(pkg.dealer_price) : Number(pkg.price)
+  let orderPrice: number
+  try {
+    orderPrice = effectivePrice(pkg, user.role === "dealer", await getCustomPrices(supabase, user.id))
+  } catch (e) {
+    if (e instanceof CustomPriceReadError) {
+      return NextResponse.json({ success: false, error: "Prices are temporarily unavailable. Please retry." }, { status: 503 })
+    }
+    throw e
+  }
 
   // Sandbox: same validation and real catalog pricing above, but stop here
   // -- no real order row, no RPC, no provider dispatch, no wallet touched.
