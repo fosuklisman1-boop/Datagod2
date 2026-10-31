@@ -18,6 +18,7 @@ import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
+import { applyAdjustmentsExceptCustom } from "@/lib/pricing/adjust-except-custom"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
 import { toast } from "sonner"
@@ -181,14 +182,17 @@ function DataPackagesPageInner() {
       let processedPackages = data || []
       const dealerFallback = (pkgs: any[]) =>
         pkgs.map((pkg: any) => ({ ...pkg, price: pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : pkg.price }))
-      // Server-resolved prices (role or custom) so the shown price is what /api/orders/purchase charges.
+      // Server-resolved prices (role or custom). Custom prices are exact and never marked up; for the rest the
+      // per-network display adjustment below is applied as before (purchase itself charges the unadjusted price).
+      let customIds: string[] = []
       try {
         const { data: { session } } = await supabase.auth.getSession()
         const res = session?.access_token
           ? await fetch("/api/user/package-prices", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" })
           : null
         if (res?.ok) {
-          const { prices } = await res.json()
+          const { prices, custom_ids } = await res.json()
+          customIds = Array.isArray(custom_ids) ? custom_ids.map(String) : []
           processedPackages = processedPackages.map((pkg: any) => (prices[pkg.id] != null ? { ...pkg, price: prices[pkg.id] } : pkg))
         } else if (userRole === "dealer") {
           processedPackages = dealerFallback(processedPackages)
@@ -197,7 +201,7 @@ function DataPackagesPageInner() {
         if (userRole === "dealer") processedPackages = dealerFallback(processedPackages)
       }
 
-      const adjustedPackages = await applyPriceAdjustmentsToPackages(processedPackages)
+      const adjustedPackages = await applyAdjustmentsExceptCustom(processedPackages, customIds, applyPriceAdjustmentsToPackages)
       setPackages(adjustedPackages)
     } catch (error) {
       console.error("Error loading packages:", error)
