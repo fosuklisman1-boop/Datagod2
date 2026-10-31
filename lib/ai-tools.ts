@@ -1302,7 +1302,10 @@ export async function executeToolCall(
         }
 
         // Display only: a failed read shows role prices.
-        const custom = await getCustomPrices(supabaseAdmin, ctx.userId).catch(() => NO_CUSTOM_PRICES)
+        // Sub-agents pay the parent's catalog price, so custom prices do not apply to them.
+        const custom = ctx.userRole === "sub_agent"
+          ? NO_CUSTOM_PRICES
+          : await getCustomPrices(supabaseAdmin, ctx.userId).catch(() => NO_CUSTOM_PRICES)
         return sanitize(rows.map((p: Record<string, unknown>) => ({
           id: p.id,
           network: p.network,

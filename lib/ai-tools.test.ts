@@ -14,6 +14,7 @@ vi.mock("@/lib/shop-commerce/pricing", () => ({
   fetchShopBundles: vi.fn(),
   shopOwnerIsDealer: vi.fn(),
 }))
+vi.mock("@/lib/whatsapp-bot/session", () => ({ getWaSession: vi.fn(), setWaSession: vi.fn() }))
 vi.mock("@/lib/whatsapp-bot/shop-session", () => ({
   getSession: vi.fn(),
   setSession: vi.fn(),
@@ -54,6 +55,8 @@ vi.mock("@/lib/results-checker-service", () => ({
 const fakeSupabase = vi.hoisted(() => ({
   shopCode: "AB12CD" as string | null,
   airtimeMarkup: "0" as string | null,
+  // Generic tables for the custom-price tests: { one: single/maybeSingle row, list: awaited rows, error }.
+  tables: {} as Record<string, { one?: unknown; list?: unknown[]; error?: unknown }>,
 }))
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
@@ -78,6 +81,18 @@ vi.mock("@supabase/supabase-js", () => ({
           }),
         }
       }
+      const t = fakeSupabase.tables[table]
+      if (t) {
+        const err = t.error ?? null
+        const b: any = {
+          select: () => b, eq: () => b, is: () => b, ilike: () => b, gte: () => b, in: () => b, order: () => b,
+          single: () => Promise.resolve({ data: t.one ?? null, error: err }),
+          maybeSingle: () => Promise.resolve({ data: t.one ?? null, error: err }),
+          limit: () => Promise.resolve({ data: t.list ?? [], error: err }),
+          then: (res: any, rej: any) => Promise.resolve({ data: t.list ?? [], error: err }).then(res, rej),
+        }
+        return b
+      }
       throw new Error(`ai-tools.test.ts fake supabase client: unexpected table "${table}"`)
     },
   }),
@@ -91,6 +106,7 @@ import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate, splitInclusive } from "@/lib/airtime-pricing"
 import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice } from "@/lib/results-checker-service"
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
+import { getWaSession, setWaSession } from "@/lib/whatsapp-bot/session"
 
 // vitest.config.ts doesn't set clearMocks/resetMocks — without a reset, mock
 // call history AND custom implementations from one `it` leak into the next.
@@ -99,6 +115,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   fakeSupabase.shopCode = "AB12CD"
   fakeSupabase.airtimeMarkup = "0"
+  fakeSupabase.tables = {}
 })
 
 // Wires getShopPref + the fake ussd_shop_codes row + resolveShopCode so
@@ -539,5 +556,66 @@ describe("executeToolCall place_shop_order", () => {
     expect(result.error).toBe("no_shop")
     expect(getSession).not.toHaveBeenCalled()
     expect(setSession).not.toHaveBeenCalled()
+  })
+})
+
+
+describe("custom prices in AI tools", () => {
+  const PKGS = [
+    { id: "p1", network: "MTN", size: "1", price: 10, dealer_price: 8 },
+    { id: "p2", network: "MTN", size: "2", price: 20, dealer_price: 16 },
+  ]
+
+  it("get_available_packages shows the custom price to a custom user", async () => {
+    fakeSupabase.tables = {
+      packages: { list: PKGS },
+      users: { one: { pricing_mode: "custom" } },
+      user_package_prices: { list: [{ package_id: "p1", price: 6 }] },
+    }
+    const r = await executeToolCall("get_available_packages", {}, { baseUrl: "x", userId: "u1", userRole: "dealer" }) as any[]
+    expect(r.find(p => p.id === "p1").price).toBe(6)
+    expect(r.find(p => p.id === "p2").price).toBe(16)
+  })
+
+  it("get_available_packages ignores custom prices for a sub_agent", async () => {
+    fakeSupabase.tables = {
+      packages: { list: PKGS },
+      users: { one: { pricing_mode: "custom" } },
+      user_package_prices: { list: [{ package_id: "p1", price: 6 }] },
+    }
+    const r = await executeToolCall("get_available_packages", {}, { baseUrl: "x", userId: "u1", userRole: "sub_agent" }) as any[]
+    expect(r.find(p => p.id === "p1").price).toBe(10)
+  })
+
+  describe("place_whatsapp_order seeding", () => {
+    const input = { network: "MTN", size: "1", recipient_phone: "0244123456" }
+    const ctx = { baseUrl: "x", phone: "233559919037", userId: "u1" }
+    const seed = (over: Record<string, any> = {}) => {
+      vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
+      fakeSupabase.tables = {
+        app_settings: { one: { ussd_price_tier: "regular" } },
+        packages: { list: [PKGS[0]] },
+        ussd_orders: { list: [] },
+        wallets: { one: { balance: 100 } },
+        users: { one: { role: "dealer", pricing_mode: "custom" } },
+        user_package_prices: { list: [{ package_id: "p1", price: 6 }] },
+        ...over,
+      }
+    }
+
+    it("seeds bundlePrice at the custom price", async () => {
+      seed()
+      const r = await executeToolCall("place_whatsapp_order", input, ctx) as any
+      expect(r.staged).toBe(true)
+      expect(r.price).toBe(6)
+      expect(vi.mocked(setWaSession)).toHaveBeenCalledWith("233559919037", expect.objectContaining({ step: "CONFIRM", bundlePrice: 6, bundleId: "p1" }))
+    })
+
+    it("returns prices_unavailable and seeds nothing when the custom price read fails", async () => {
+      seed({ users: { one: { role: "dealer" }, error: { message: "boom" } } })
+      const r = await executeToolCall("place_whatsapp_order", input, ctx) as any
+      expect(r.error).toBe("prices_unavailable")
+      expect(vi.mocked(setWaSession)).not.toHaveBeenCalled()
+    })
   })
 })

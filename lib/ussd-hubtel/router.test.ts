@@ -145,6 +145,21 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     expect(r.Message).toMatch(/price changed/i)
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
   })
+  it("confirms at the custom price for a custom user", async () => {
+    const sup = fakeSupabase({
+      pkg: { id: "pkg-1", price: 10, dealer_price: null, is_available: true },
+      rows: { users: { pricing_mode: "custom" }, user_package_prices: [{ package_id: "pkg-1", price: 6 }] },
+    })
+    const { deps } = makeDeps({
+      resolveCaller: async () => ({ effectivePriceTier: "regular", userId: "u1" }),
+      fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 6 }], total: 1 }),
+    }, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("AddToCart")
+    expect(r.Item).toMatchObject({ Price: 6 })
+    expect(sup.inserts["ussd_orders"][0]).toMatchObject({ amount: 6, package_id: "pkg-1" })
+  })
   it("refuses and creates nothing when custom prices cannot be read", async () => {
     const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true }, readError: ["users"] })
     const { deps } = makeDeps({ resolveCaller: async () => ({ effectivePriceTier: "regular", userId: "u1" }) }, sup)
