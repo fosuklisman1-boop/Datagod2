@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest"
 import { runV2, type V2Context } from "./handler"
 import { generateV2Key, hashV2Key } from "./keys"
+import { createMemoryLimiter } from "./fallback-limiter"
+import { resolveLimit } from "./limits"
 
 const OPTS = { requiredType: "standard" as const, group: "status" as const, endpoint: "/api/v2/account/role" }
 
@@ -299,5 +301,52 @@ describe("runV2 failClosedWhenLimiterDegraded", () => {
     const r2 = await runV2(makeDeps({ allowed: false, degraded: true }), FC, handler, input(validKey()))
     expect(r2.status).toBe(429)
     expect(handler).not.toHaveBeenCalled()
+  })
+})
+
+describe("runV2 fallbackLimitWhenDegraded", () => {
+  const FB = { ...OPTS, fallbackLimitWhenDegraded: true }
+  const withFallback = (over: Parameters<typeof makeDeps>[0] = {}) => ({
+    ...makeDeps(over),
+    fallbackLimiter: createMemoryLimiter(),
+  })
+
+  it("runs the handler up to the key's limit, then 429s without running it", async () => {
+    const deps = withFallback({ degraded: true })
+    const handler = vi.fn(ok)
+    // Default status-group limit for OPTS.
+    const max = resolveLimit(OPTS.group, null)
+    for (let i = 0; i < max; i++) {
+      expect((await runV2(deps, FB, handler, input(validKey()))).status).toBe(200)
+    }
+    const r = await runV2(deps, FB, handler, input(validKey()))
+    expect(r.status).toBe(429)
+    expect(handler).toHaveBeenCalledTimes(max)
+  })
+
+  it("fails closed (503) when degraded and no fallback limiter is wired", async () => {
+    const handler = vi.fn(ok)
+    const r = await runV2(makeDeps({ degraded: true }), FB, handler, input(validKey()))
+    expect(r.status).toBe(503)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("does not use the fallback when the shared limiter is healthy", async () => {
+    const deps = withFallback({ degraded: false })
+    const hit = vi.spyOn(deps.fallbackLimiter, "hit")
+    const r = await runV2(deps, FB, vi.fn(ok), input(validKey()))
+    expect(r.status).toBe(200)
+    expect(hit).not.toHaveBeenCalled()
+  })
+})
+
+describe("createMemoryLimiter", () => {
+  it("counts per key and resets after the window", () => {
+    const l = createMemoryLimiter()
+    expect(l.hit("a", 2, 1000, 0)).toBe(true)
+    expect(l.hit("a", 2, 1000, 10)).toBe(true)
+    expect(l.hit("a", 2, 1000, 20)).toBe(false)
+    expect(l.hit("b", 2, 1000, 20)).toBe(true)
+    expect(l.hit("a", 2, 1000, 1000)).toBe(true)
   })
 })

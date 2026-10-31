@@ -4,6 +4,7 @@ import { extractKey, decideAccess, MSG_UNAUTHORIZED, MSG_RATE_LIMITED, MSG_UNAVA
 import { errorBody, successBody, v2Response, type V2ErrorStatus } from "./envelope"
 import { hashV2Key, parseV2Key, type Environment, type KeyType } from "./keys"
 import { resolveLimit, type LimitGroup } from "./limits"
+import { v2FallbackLimiter, type FallbackLimiter } from "./fallback-limiter"
 import {
   findKeyByHash,
   getAdminClient,
@@ -30,6 +31,12 @@ export interface V2Options {
   endpoint: string
   /** Purchase endpoints set this: a degraded rate limiter returns 503 instead of letting the request through. */
   failClosedWhenLimiterDegraded?: boolean
+  /**
+   * For endpoints that must keep working without Redis but still need a cap: when the shared
+   * limiter is degraded, the key's own limit is enforced by an in-process limiter (429 past it).
+   * Without a fallback limiter in deps the request fails closed (503).
+   */
+  fallbackLimitWhenDegraded?: boolean
 }
 
 export interface V2HandlerResult {
@@ -56,6 +63,8 @@ export interface V2Deps {
     userId?: string
   ): Promise<{ allowed: boolean; remaining: number; resetAt: number; degraded?: boolean }>
   now(): Date
+  /** In-process limiter used by `fallbackLimitWhenDegraded`. */
+  fallbackLimiter?: FallbackLimiter
 }
 
 export interface V2Input {
@@ -111,17 +120,20 @@ export async function runV2(
   if (!row) return unauthorized()
 
   // degraded => allowed here (read-only endpoints); purchase endpoints must add their own fallback cap.
-  const limit = await deps.rateLimit(
-    input.request,
-    `v2_${row.key_type}_${row.environment}_${opts.group}`,
-    resolveLimit(opts.group, row.rate_limits),
-    60000,
-    row.user_id
-  )
+  const bucket = `v2_${row.key_type}_${row.environment}_${opts.group}`
+  const max = resolveLimit(opts.group, row.rate_limits)
+  const limit = await deps.rateLimit(input.request, bucket, max, 60000, row.user_id)
   if (!limit.allowed) return fail(429, MSG_RATE_LIMITED)
   // Purchase endpoints fail closed: a degraded limiter (store unreachable, fallback cap) must not let money move.
   // Not logged and last_used not touched, same as the 429 above.
   if (opts.failClosedWhenLimiterDegraded && limit.degraded) return fail(503, MSG_UNAVAILABLE)
+  // Endpoints that must work without Redis: cap each key in-process instead of failing closed.
+  if (opts.fallbackLimitWhenDegraded && limit.degraded) {
+    if (!deps.fallbackLimiter) return fail(503, MSG_UNAVAILABLE)
+    if (!deps.fallbackLimiter.hit(`${bucket}:${row.id}`, max, 60000, deps.now().getTime())) {
+      return fail(429, MSG_RATE_LIMITED)
+    }
+  }
 
   const [user, config] = await Promise.all([deps.store.getUserForKey(row.user_id), deps.store.getConfig()])
   if (!user) return unauthorized()
@@ -201,6 +213,7 @@ export function withV2(
       },
       rateLimit: applyRateLimit,
       now: () => new Date(),
+      fallbackLimiter: v2FallbackLimiter,
     }
     try {
       const out = await runV2(deps, opts, handler, { headers: req.headers, method: req.method, request: req })

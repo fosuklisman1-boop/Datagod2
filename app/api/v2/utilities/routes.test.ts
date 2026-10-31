@@ -19,9 +19,14 @@ async function load(path: string) {
 }
 
 describe("POST /api/v2/utilities/lookup", () => {
-  it("does not depend on Upstash Redis: no fail-closed on a degraded limiter", async () => {
+  it("does not depend on Upstash Redis: in-process cap instead of fail-closed on a degraded limiter", async () => {
     const route = await load("./lookup/route")
-    expect(route.opts).toEqual({ requiredType: "commission", group: "purchase", endpoint: "/api/v2/utilities/lookup" })
+    expect(route.opts).toEqual({
+      requiredType: "commission",
+      group: "purchase",
+      endpoint: "/api/v2/utilities/lookup",
+      fallbackLimitWhenDegraded: true,
+    })
     expect(route.opts.failClosedWhenLimiterDegraded).toBeUndefined()
   })
 })
