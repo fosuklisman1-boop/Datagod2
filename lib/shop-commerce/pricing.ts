@@ -141,6 +141,104 @@ export function catalogWholesaleMargin(
   return Number(row.wholesale_margin ?? 0)
 }
 
+export type OwnerPricing = { isDealer: boolean; custom: CustomPrices }
+
+/** A package a parent offers their sub-agents, priced live. */
+export type SubAgentOffer = {
+  /** What the sub-agent pays: the parent's role price + the parent's ACTIVE wholesale margin. */
+  cost: number
+  wholesale: number
+  /** What the parent is credited: wholesale margin + the parent's saving (custom price). */
+  parentProfit: number
+  pkg: { id: string; size: string; network: string; price: number | string; dealer_price: number | string | null }
+}
+
+/**
+ * THE sub-agent cost rule (every sub-agent channel uses it). Per package id: the live offer, or null when the
+ * parent has no active, available catalog row for it, or the margin is negative (not offered: hide and refuse).
+ * Stored parent_price snapshots (sub_agent_catalog / sub_agent_shop_packages) are never read: they go stale when
+ * a package price, the parent's role or the margin changes.
+ *
+ * packageIds null = every package the parent offers (optionally on one network).
+ * Throws CustomPriceReadError when the catalog or the parent's pricing cannot be read.
+ */
+export async function subAgentCosts(
+  parentShopId: string,
+  packageIds: readonly string[] | null,
+  client: SupabaseClientLike = supabase,
+  opts: { network?: string } = {}
+): Promise<{ parent: OwnerPricing; costs: Map<string, SubAgentOffer | null> }> {
+  const wanted = packageIds ? new Set(packageIds.map(String)) : null
+
+  const readCatalog = async (): Promise<any[]> => {
+    if (wanted && wanted.size === 0) return []
+    let q = client
+      .from("sub_agent_catalog")
+      .select("package_id, wholesale_margin, packages!inner(id, size, network, price, dealer_price, is_available)")
+      .eq("shop_id", parentShopId)
+      .eq("is_active", true)
+      .eq("packages.is_available", true)
+    if (opts.network) q = q.eq("packages.network", opts.network)
+    if (wanted) q = q.in("package_id", [...wanted])
+    let res: { data: unknown; error: unknown }
+    try {
+      res = await q.limit(1000)
+    } catch {
+      throw new CustomPriceReadError("Could not read the parent's sub-agent catalog")
+    }
+    if (res.error || !Array.isArray(res.data)) throw new CustomPriceReadError("Could not read the parent's sub-agent catalog")
+    return res.data
+  }
+
+  const [parent, rows] = await Promise.all([shopOwnerPricing(parentShopId, client), readCatalog()])
+
+  const costs = new Map<string, SubAgentOffer | null>()
+  for (const row of rows) {
+    const id = String(row.package_id)
+    const pkg = Array.isArray(row.packages) ? row.packages[0] : row.packages
+    if (!pkg || pkg.is_available === false) continue
+    if (wanted && !wanted.has(id)) continue
+    if (opts.network && pkg.network !== opts.network) continue
+    const wholesale = Number(row.wholesale_margin ?? 0)
+    if (!marginsValid(wholesale)) continue
+    const priced = { ...pkg, id }
+    costs.set(id, {
+      cost: round2(rolePrice(priced, parent.isDealer) + wholesale),
+      wholesale,
+      parentProfit: parentProfitFromCatalog(wholesale, ownerSaving(priced, parent.isDealer, parent.custom)),
+      pkg: { id, size: pkg.size, network: pkg.network, price: pkg.price, dealer_price: pkg.dealer_price ?? null },
+    })
+  }
+  for (const id of wanted ?? []) if (!costs.has(id)) costs.set(id, null)
+  return { parent, costs }
+}
+
+/** subAgentCosts for one package; null = not offered. Throws CustomPriceReadError like subAgentCosts. */
+export async function subAgentCost(
+  parentShopId: string,
+  packageId: string,
+  client: SupabaseClientLike = supabase
+): Promise<SubAgentOffer | null> {
+  const { costs } = await subAgentCosts(parentShopId, [String(packageId)], client)
+  return costs.get(String(packageId)) ?? null
+}
+
+/**
+ * The sub_agent tier menu (USSD, Hubtel, WhatsApp): the parent's offered packages on a network at live cost,
+ * cheapest first, then by package id. Throws CustomPriceReadError like subAgentCosts.
+ */
+export async function subAgentBundles(
+  parentShopId: string,
+  network: string,
+  client: SupabaseClientLike = supabase
+): Promise<ShopBundleOption[]> {
+  const { costs } = await subAgentCosts(parentShopId, null, client, { network })
+  return [...costs.values()]
+    .filter((o): o is SubAgentOffer => o !== null)
+    .map(o => ({ id: o.pkg.id, size: String(o.pkg.size), price: o.cost }))
+    .sort((a, b) => a.price - b.price || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
 /** shopOwnerPricing, but null when custom prices cannot be read (the caller refuses). Other errors propagate. */
 async function shopOwnerPricingOrNull(
   shopId: string,
@@ -165,61 +263,50 @@ export async function fetchShopBundles(
   client: SupabaseClientLike = supabase
 ): Promise<ShopBundleOption[]> {
   if (parentShopId) {
-    const isDealer = await shopOwnerIsDealer(parentShopId, client)
+    // Sub-agent prices are the parent's LIVE cost (subAgentCosts) + the sub-agent's margin. A package the
+    // parent no longer offers is hidden. Display: a read failure lists nothing (confirm refuses anyway).
+    let offers: Map<string, SubAgentOffer | null>
+    const listed = (rows: Array<{ package_id: string; sub_agent_profit_margin: number | string | null }>) =>
+      rows
+        .map(r => ({ offer: offers.get(String(r.package_id)), margin: Number(r.sub_agent_profit_margin ?? 0) }))
+        .filter((x): x is { offer: SubAgentOffer; margin: number } =>
+          !!x.offer && x.offer.pkg.network === network && marginsValid(x.margin))
+        .map(({ offer, margin }) => ({ id: offer.pkg.id, size: offer.pkg.size, price: round2(offer.cost + margin) }))
+        .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
 
-    // New model: sub-agent has their own package list with parent_price already set
+    // New model: sub-agent has their own package list (its stored parent_price is not trusted)
     const { data: sapRows } = await client
       .from("sub_agent_shop_packages")
-      .select("package_id, parent_price, sub_agent_profit_margin")
+      .select("package_id, sub_agent_profit_margin")
       .eq("shop_id", shopId)
       .eq("is_active", true)
 
     if (sapRows?.length) {
-      const { data: pkgRows } = await client
-        .from("packages")
-        .select("id, size")
-        .in("id", sapRows.map(r => r.package_id))
-        .eq("network", network)
-        .eq("is_available", true)
-
-      if (pkgRows?.length) {
-        const sapMap = Object.fromEntries(sapRows.map(r => [r.package_id, r]))
-        return pkgRows
-          .map(pkg => ({
-            id: pkg.id,
-            size: pkg.size,
-            price: Number(sapMap[pkg.id].parent_price) + Number(sapMap[pkg.id].sub_agent_profit_margin),
-          }))
-          .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
+      try {
+        offers = (await subAgentCosts(parentShopId, sapRows.map(r => String(r.package_id)), client)).costs
+      } catch (e) {
+        if (e instanceof CustomPriceReadError) return []
+        throw e
       }
+      const bundles = listed(sapRows)
+      if (bundles.length) return bundles
     }
 
     // Old model fallback: use parent's sub_agent_catalog
     const { data: catalogRows } = await client
       .from("sub_agent_catalog")
-      .select("package_id, wholesale_margin, sub_agent_profit_margin")
+      .select("package_id, sub_agent_profit_margin")
       .eq("shop_id", parentShopId)
       .eq("is_active", true)
 
     if (!catalogRows?.length) return []
-
-    const { data: pkgRows } = await client
-      .from("packages")
-      .select("id, size, price, dealer_price")
-      .in("id", catalogRows.map(r => r.package_id))
-      .eq("network", network)
-      .eq("is_available", true)
-
-    if (!pkgRows?.length) return []
-
-    const catMap = Object.fromEntries(catalogRows.map(r => [r.package_id, r]))
-    return pkgRows
-      .map(pkg => ({
-        id: pkg.id,
-        size: pkg.size,
-        price: basePrice(pkg, isDealer) + Number(catMap[pkg.id].wholesale_margin) + Number(catMap[pkg.id].sub_agent_profit_margin),
-      }))
-      .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
+    try {
+      offers = (await subAgentCosts(parentShopId, catalogRows.map(r => String(r.package_id)), client)).costs
+    } catch (e) {
+      if (e instanceof CustomPriceReadError) return []
+      throw e
+    }
+    return listed(catalogRows)
   }
 
   const [spRows, isDealer] = await Promise.all([
@@ -273,13 +360,20 @@ export async function verifyBundlePrice(
   let parentProfitAmount = 0
 
   if (parentShopId) {
-    const parent = await shopOwnerPricingOrNull(parentShopId, client)
-    if (!parent) return null
+    // The parent's live cost and profit for this package (subAgentCosts). Not offered or unreadable: refuse.
+    let offer: SubAgentOffer | null
+    try {
+      offer = await subAgentCost(parentShopId, bundleId, client)
+    } catch (e) {
+      if (e instanceof CustomPriceReadError) return null
+      throw e
+    }
+    if (!offer) return null
 
-    // New model: sub_agent_shop_packages
+    // New model: sub_agent_shop_packages (its stored parent_price is not trusted)
     const { data: sapRow } = await client
       .from("sub_agent_shop_packages")
-      .select("parent_price, sub_agent_profit_margin, packages!inner(id, price, dealer_price, is_available)")
+      .select("sub_agent_profit_margin, packages!inner(id, is_available)")
       .eq("shop_id", shopId)
       .eq("package_id", bundleId)
       .eq("is_active", true)
@@ -287,15 +381,11 @@ export async function verifyBundlePrice(
 
     if (sapRow && (sapRow as any).packages?.is_available) {
       profitAmount = Number(sapRow.sub_agent_profit_margin)
-      if (!marginsValid(profitAmount)) return null
-      const parentCost = effectivePrice((sapRow as any).packages, parent.isDealer, parent.custom)
-      parentProfitAmount = round2(Math.max(0, Number(sapRow.parent_price) - parentCost))
-      verifiedPrice = Number(sapRow.parent_price) + profitAmount
     } else {
-      // Old model fallback: sub_agent_catalog
+      // Old model fallback: the parent's sub_agent_catalog row carries the sub-agent margin
       const { data: catalogRow } = await client
         .from("sub_agent_catalog")
-        .select("wholesale_margin, sub_agent_profit_margin, packages!inner(id, price, dealer_price, is_available)")
+        .select("sub_agent_profit_margin, packages!inner(id, is_available)")
         .eq("shop_id", parentShopId)
         .eq("package_id", bundleId)
         .eq("is_active", true)
@@ -304,14 +394,11 @@ export async function verifyBundlePrice(
       if (!catalogRow || !(catalogRow as any).packages?.is_available) {
         return null
       }
-
-      const pkg = (catalogRow as any).packages
       profitAmount = Number(catalogRow.sub_agent_profit_margin)
-      const wholesale = Number(catalogRow.wholesale_margin)
-      if (!marginsValid(wholesale, profitAmount)) return null
-      parentProfitAmount = parentProfitFromCatalog(wholesale, ownerSaving(pkg, parent.isDealer, parent.custom))
-      verifiedPrice = basePrice(pkg, parent.isDealer) + wholesale + profitAmount
     }
+    if (!marginsValid(profitAmount)) return null
+    parentProfitAmount = offer.parentProfit
+    verifiedPrice = round2(offer.cost + profitAmount)
   } else {
     const [shopPkg, owner] = await Promise.all([
       client
