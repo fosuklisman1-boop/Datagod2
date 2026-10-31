@@ -20,7 +20,7 @@ import { supabase } from "@/lib/supabase"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
 import { applyAdjustmentsExceptCustom } from "@/lib/pricing/adjust-except-custom"
-import { fetchUserPackagePrices, resolveDisplayPrices } from "@/lib/pricing/user-package-prices"
+import { fetchUserPackagePrices, MSG_STANDARD_PRICES_FALLBACK, resolveDisplayPrices, STANDARD_PRICES_TOAST_ID } from "@/lib/pricing/user-package-prices"
 import {
   Dialog,
   DialogContent,
@@ -135,7 +135,10 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
         // dealer rule as the fallback when they cannot be loaded. Custom prices are exact and never adjusted;
         // the per-network display adjustment applies to the rest as on the data packages page.
         const resolved = await fetchUserPackagePrices(session?.access_token)
-        const { packages: priced, customIds } = resolveDisplayPrices(data, resolved, userRole === "dealer")
+        const { packages: priced, customIds, fallback } = resolveDisplayPrices(data, resolved, userRole === "dealer")
+        if (fallback && session?.access_token) {
+          toast.warning(MSG_STANDARD_PRICES_FALLBACK, { id: STANDARD_PRICES_TOAST_ID })
+        }
         const adjustedData = await applyAdjustmentsExceptCustom(priced, customIds, applyPriceAdjustmentsToPackages)
 
         // Transform data to match our format

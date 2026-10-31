@@ -163,7 +163,7 @@ Where this section and the text above disagree, this section is what shipped.
   - The storefront uses the server-verified package id and scopes catalog lookups to the right shop.
   - A negative profit, which can only come from a custom price above the role price, is never credited or debited.
 - **Sub-agent tier.** Sub-agents on the sub_agent tier keep paying the parent's catalog price.
-- **Display-only pages.** These pages show the role price on purpose, because the selling price is role price + margin: public-packages, invites, dealer-price-list, sub-agent-catalog, parent-packages, shop-pricing and the sub-agent-catalog page.
+- **Display-only pages.** These pages show the role price on purpose, because the selling price is role price + margin: public-packages, invites, dealer-price-list, sub-agent-catalog, parent-packages, shop-pricing, the sub-agent-catalog page, and dealer-packages (buy-stock orders against the dealer's own shop, which the create route prices at role price + margin; the saving is credited as shop profit).
 - **New endpoint.** `GET /api/user/package-prices` returns `{ pricing_mode, prices, custom_ids }`. The dashboard never applies the per-network display adjustment to a custom price.
 - **Admin view.** The admin GET also lists unavailable packages that carry a custom price, so they can be cleared.
 - **Deploy order.** Apply migration 0142 BEFORE deploying the code. Otherwise every custom-price read fails and charge paths refuse with 503, and the Admin -> Users list fails because it selects `pricing_mode`.

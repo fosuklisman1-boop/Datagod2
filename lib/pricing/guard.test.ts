@@ -31,8 +31,6 @@ const ALLOWED = new Set([
   "app/api/shop/parent-packages/route.ts",
   "app/dashboard/shop-pricing/page.tsx",
   "app/dashboard/sub-agent-catalog/page.tsx",
-  // Dealer fallback display only; the resolved price comes from the resolver.
-  "app/dashboard/data-packages/page.tsx",
   // The admin view lists dealer_price as a field; the price choices use the resolver.
   "lib/ai-tools.ts",
   // Mobile app: cannot import the resolver (separate package). Its prices come from /api/user/package-prices;

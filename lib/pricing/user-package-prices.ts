@@ -6,6 +6,8 @@ export type UserPackagePrices = { prices: Record<string, number>; custom_ids: st
 
 /** Shown when the resolved prices could not be loaded and role prices are displayed instead. */
 export const MSG_STANDARD_PRICES_FALLBACK = "Showing standard prices; your latest prices could not be loaded."
+/** Shared toast id: the data packages page and the bulk form inside it show the notice once, not twice. */
+export const STANDARD_PRICES_TOAST_ID = "standard-prices-fallback"
 
 /** Validates the endpoint's JSON body. null when it is not the expected shape. */
 export function parseUserPackagePrices(body: unknown): UserPackagePrices | null {

@@ -155,7 +155,8 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
             )}
             {role === "sub_agent" && (
               <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-                Sub-agents buying through their parent&apos;s catalog still pay the parent&apos;s price.
+                Custom prices apply to this sub-agent&apos;s dashboard and API orders. USSD and WhatsApp orders go
+                through the parent&apos;s catalog and use the parent&apos;s price.
               </p>
             )}
 
