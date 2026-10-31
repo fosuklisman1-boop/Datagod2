@@ -16,7 +16,7 @@ export const POST = withV2(
     requiredType: "commission",
     group: "purchase",
     endpoint: "/api/v2/utilities/pay",
-    failClosedWhenLimiterDegraded: true,
+    fallbackLimitWhenDegraded: true,
   },
   async (req, ctx) => billPayHandler(realBillsDeps())(await readJsonBody(req), ctx)
 )

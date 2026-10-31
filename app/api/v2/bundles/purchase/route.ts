@@ -13,7 +13,7 @@ export const POST = withV2(
     requiredType: "commission",
     group: "purchase",
     endpoint: "/api/v2/bundles/purchase",
-    failClosedWhenLimiterDegraded: true,
+    fallbackLimitWhenDegraded: true,
   },
   async (req, ctx) => purchaseBundleHandler(realBundleDeps())(await readJsonBody(req), ctx)
 )

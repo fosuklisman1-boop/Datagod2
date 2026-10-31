@@ -29,12 +29,11 @@ export interface V2Options {
   requiredType: KeyType
   group: LimitGroup
   endpoint: string
-  /** Purchase endpoints set this: a degraded rate limiter returns 503 instead of letting the request through. */
-  failClosedWhenLimiterDegraded?: boolean
   /**
-   * For endpoints that must keep working without Redis but still need a cap: when the shared
-   * limiter is degraded, the key's own limit is enforced by an in-process limiter (429 past it).
-   * Without a fallback limiter in deps the request fails closed (503).
+   * Purchase and lookup endpoints set this. Redis being missing or down never blocks them: when the
+   * shared limiter is degraded, the key's own limit is enforced by an in-process limiter (429 past it)
+   * instead of letting requests through uncapped. Without a fallback limiter in deps the request
+   * fails closed (503); withV2 always wires one.
    */
   fallbackLimitWhenDegraded?: boolean
 }
@@ -119,15 +118,13 @@ export async function runV2(
   const row = await deps.store.findKeyByHash(hashV2Key(raw))
   if (!row) return unauthorized()
 
-  // degraded => allowed here (read-only endpoints); purchase endpoints must add their own fallback cap.
+  // degraded => allowed here (read-only endpoints); purchase endpoints use the in-process fallback cap below.
   const bucket = `v2_${row.key_type}_${row.environment}_${opts.group}`
   const max = resolveLimit(opts.group, row.rate_limits)
   const limit = await deps.rateLimit(input.request, bucket, max, 60000, row.user_id)
   if (!limit.allowed) return fail(429, MSG_RATE_LIMITED)
-  // Purchase endpoints fail closed: a degraded limiter (store unreachable, fallback cap) must not let money move.
-  // Not logged and last_used not touched, same as the 429 above.
-  if (opts.failClosedWhenLimiterDegraded && limit.degraded) return fail(503, MSG_UNAVAILABLE)
-  // Endpoints that must work without Redis: cap each key in-process instead of failing closed.
+  // Redis missing or down must not block anything, and must not leave money endpoints uncapped:
+  // cap each key in-process instead. Not logged and last_used not touched, same as the 429 above.
   if (opts.fallbackLimitWhenDegraded && limit.degraded) {
     if (!deps.fallbackLimiter) return fail(503, MSG_UNAVAILABLE)
     if (!deps.fallbackLimiter.hit(`${bucket}:${row.id}`, max, 60000, deps.now().getTime())) {

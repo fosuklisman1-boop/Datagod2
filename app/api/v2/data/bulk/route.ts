@@ -15,7 +15,7 @@ export const POST = withV2(
     requiredType: "standard",
     group: "bulk",
     endpoint: "/api/v2/data/bulk",
-    failClosedWhenLimiterDegraded: true,
+    fallbackLimitWhenDegraded: true,
   },
   async (req, ctx) => bulkHandler(realDataDeps())(await readJsonBody(req), ctx)
 )

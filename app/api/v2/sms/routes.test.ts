@@ -49,13 +49,13 @@ beforeEach(() => {
 })
 
 describe("POST /api/v2/sms/send", () => {
-  it("is an sms-key, purchase-group, fail-closed route with the full 300 s budget", async () => {
+  it("is an sms-key, purchase-group route (in-process cap when Redis is degraded) with the full 300 s budget", async () => {
     const { mod, route } = await load("./send/route")
     expect(route.opts).toEqual({
       requiredType: "sms",
       group: "purchase",
       endpoint: "/api/v2/sms/send",
-      failClosedWhenLimiterDegraded: true,
+      fallbackLimitWhenDegraded: true,
     })
     expect(mod.maxDuration).toBe(300)
     expect(mod.dynamic).toBe("force-dynamic")

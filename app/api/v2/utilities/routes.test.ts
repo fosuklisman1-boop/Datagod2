@@ -27,13 +27,12 @@ describe("POST /api/v2/utilities/lookup", () => {
       endpoint: "/api/v2/utilities/lookup",
       fallbackLimitWhenDegraded: true,
     })
-    expect(route.opts.failClosedWhenLimiterDegraded).toBeUndefined()
   })
 })
 
 describe("POST /api/v2/utilities/pay", () => {
-  it("still fails closed on a degraded limiter (money path)", async () => {
+  it("does not depend on Upstash Redis either: in-process cap on a degraded limiter", async () => {
     const route = await load("./pay/route")
-    expect(route.opts.failClosedWhenLimiterDegraded).toBe(true)
+    expect(route.opts.fallbackLimitWhenDegraded).toBe(true)
   })
 })

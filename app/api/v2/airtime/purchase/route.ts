@@ -14,7 +14,7 @@ export const POST = withV2(
     requiredType: "commission",
     group: "purchase",
     endpoint: "/api/v2/airtime/purchase",
-    failClosedWhenLimiterDegraded: true,
+    fallbackLimitWhenDegraded: true,
   },
   async (req, ctx) => purchaseAirtimeHandler(realAirtimeDeps())(await readJsonBody(req), ctx)
 )

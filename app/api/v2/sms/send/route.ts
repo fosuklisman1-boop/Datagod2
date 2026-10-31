@@ -14,7 +14,7 @@ export const POST = withV2(
     requiredType: "sms",
     group: "purchase",
     endpoint: "/api/v2/sms/send",
-    failClosedWhenLimiterDegraded: true,
+    fallbackLimitWhenDegraded: true,
   },
   async (req, ctx) => handleSmsSend(realSmsDeps())(await readJsonBody(req), ctx)
 )

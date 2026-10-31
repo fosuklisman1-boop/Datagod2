@@ -261,49 +261,6 @@ describe("runV2", () => {
   })
 })
 
-describe("runV2 failClosedWhenLimiterDegraded", () => {
-  const FC = { ...OPTS, failClosedWhenLimiterDegraded: true }
-
-  it("returns 503 without running the handler or writing a log row when the limiter is degraded", async () => {
-    const deps = makeDeps({ degraded: true })
-    const handler = vi.fn(ok)
-    const r = await runV2(deps, FC, handler, input(validKey()))
-    expect(r.status).toBe(503)
-    expect(r.body).toMatchObject({ success: false, error: { code: 503, message: "This API is currently unavailable" } })
-    expect(handler).not.toHaveBeenCalled()
-    expect(deps.store.logRequest).not.toHaveBeenCalled()
-    expect(deps.store.touchLastUsed).not.toHaveBeenCalled()
-    expect(deps.store.getUserForKey).not.toHaveBeenCalled()
-  })
-
-  it("runs the handler when the option is false and the limiter is degraded (existing behaviour)", async () => {
-    const handler = vi.fn(ok)
-    const r = await runV2(makeDeps({ degraded: true }), OPTS, handler, input(validKey()))
-    expect(r.status).toBe(200)
-    expect(handler).toHaveBeenCalledTimes(1)
-    const r2 = await runV2(makeDeps({ degraded: true }), { ...OPTS, failClosedWhenLimiterDegraded: false }, handler, input(validKey()))
-    expect(r2.status).toBe(200)
-  })
-
-  it("runs the handler when the option is true and the limiter is healthy", async () => {
-    const handler = vi.fn(ok)
-    const r = await runV2(makeDeps({ degraded: false }), FC, handler, input(validKey()))
-    expect(r.status).toBe(200)
-    expect(handler).toHaveBeenCalledTimes(1)
-    const r2 = await runV2(makeDeps(), FC, handler, input(validKey()))
-    expect(r2.status).toBe(200)
-  })
-
-  it("a denied result is still 429 even when degraded", async () => {
-    const handler = vi.fn(ok)
-    const r = await runV2(makeDeps({ allowed: false }), FC, handler, input(validKey()))
-    expect(r.status).toBe(429)
-    const r2 = await runV2(makeDeps({ allowed: false, degraded: true }), FC, handler, input(validKey()))
-    expect(r2.status).toBe(429)
-    expect(handler).not.toHaveBeenCalled()
-  })
-})
-
 describe("runV2 fallbackLimitWhenDegraded", () => {
   const FB = { ...OPTS, fallbackLimitWhenDegraded: true }
   const withFallback = (over: Parameters<typeof makeDeps>[0] = {}) => ({
@@ -328,6 +285,20 @@ describe("runV2 fallbackLimitWhenDegraded", () => {
     const handler = vi.fn(ok)
     const r = await runV2(makeDeps({ degraded: true }), FB, handler, input(validKey()))
     expect(r.status).toBe(503)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("runs the handler without the option when the limiter is degraded (read-only routes)", async () => {
+    const handler = vi.fn(ok)
+    const r = await runV2(makeDeps({ degraded: true }), OPTS, handler, input(validKey()))
+    expect(r.status).toBe(200)
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  it("a denied result from the shared limiter is still 429", async () => {
+    const handler = vi.fn(ok)
+    const r = await runV2(withFallback({ allowed: false, degraded: true }), FB, handler, input(validKey()))
+    expect(r.status).toBe(429)
     expect(handler).not.toHaveBeenCalled()
   })
 

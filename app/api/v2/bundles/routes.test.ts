@@ -61,13 +61,13 @@ describe("GET /api/v2/bundles/catalog", () => {
 })
 
 describe("POST /api/v2/bundles/purchase", () => {
-  it("is a commission-key, purchase-group, fail-closed route with the full 300 s budget", async () => {
+  it("is a commission-key, purchase-group route (in-process cap when Redis is degraded) with the full 300 s budget", async () => {
     const { mod, route } = await load("./purchase/route")
     expect(route.opts).toEqual({
       requiredType: "commission",
       group: "purchase",
       endpoint: "/api/v2/bundles/purchase",
-      failClosedWhenLimiterDegraded: true,
+      fallbackLimitWhenDegraded: true,
     })
     expect(mod.maxDuration).toBe(300)
     expect(mod.dynamic).toBe("force-dynamic")

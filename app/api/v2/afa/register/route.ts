@@ -15,7 +15,7 @@ export const POST = withV2(
     requiredType: "standard",
     group: "purchase",
     endpoint: "/api/v2/afa/register",
-    failClosedWhenLimiterDegraded: true,
+    fallbackLimitWhenDegraded: true,
   },
   async (req, ctx) => registerAfaHandler(realAfaDeps())(await readJsonBody(req), ctx)
 )

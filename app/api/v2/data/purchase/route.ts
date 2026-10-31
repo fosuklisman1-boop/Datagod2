@@ -14,7 +14,7 @@ export const POST = withV2(
     requiredType: "standard",
     group: "purchase",
     endpoint: "/api/v2/data/purchase",
-    failClosedWhenLimiterDegraded: true,
+    fallbackLimitWhenDegraded: true,
   },
   async (req, ctx) => purchaseHandler(realDataDeps())(await readJsonBody(req), ctx)
 )
