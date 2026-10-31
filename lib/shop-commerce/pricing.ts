@@ -261,7 +261,7 @@ export async function verifyBundlePrice(
       const pkg = (catalogRow as any).packages
       profitAmount = Number(catalogRow.sub_agent_profit_margin)
       const wholesale = Number(catalogRow.wholesale_margin)
-      parentProfitAmount = Math.max(0, wholesale + ownerSaving(pkg, parent.isDealer, parent.custom))
+      parentProfitAmount = wholesale + ownerSaving(pkg, parent.isDealer, parent.custom)
       verifiedPrice = basePrice(pkg, parent.isDealer) + wholesale + profitAmount
     }
   } else {
@@ -289,7 +289,7 @@ export async function verifyBundlePrice(
 
     const pkg = (shopPkg as any).packages
     const margin = Number(shopPkg.profit_margin)
-    profitAmount = Math.max(0, margin + ownerSaving(pkg, owner.isDealer, owner.custom))
+    profitAmount = margin + ownerSaving(pkg, owner.isDealer, owner.custom)
     verifiedPrice = basePrice(pkg, owner.isDealer) + margin
   }
 
