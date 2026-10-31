@@ -3,7 +3,6 @@ import { ShopBundleOption } from "@/lib/ussd-shop/types"
 import {
   CustomPriceReadError,
   customPricesForUser,
-  effectivePrice,
   NO_CUSTOM_PRICES,
   ownerSaving,
   rolePrice,
