@@ -19,6 +19,8 @@ import { Download, CheckCircle, AlertCircle, Copy, X } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
+import { applyAdjustmentsExceptCustom } from "@/lib/pricing/adjust-except-custom"
+import { fetchUserPackagePrices, resolveDisplayPrices } from "@/lib/pricing/user-package-prices"
 import {
   Dialog,
   DialogContent,
@@ -60,7 +62,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
   const [textInput, setTextInput] = useState("")
   const [isValidating, setIsValidating] = useState(false)
   const [validationResults, setValidationResults] = useState<ValidationResult | null>(null)
-  const [packages, setPackages] = useState<Array<{ network: string; size: number; price: number }>>([])
+  const [packages, setPackages] = useState<Array<{ id: string; network: string; size: number; price: number }>>([])
   const [networks, setNetworks] = useState<Array<{ id: string; label: string }>>([])
   const [loading, setLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -129,16 +131,19 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
       if (error) throw error
 
       if (data) {
-        // Apply price adjustments based on network settings
-        const adjustedData = await applyPriceAdjustmentsToPackages(data)
+        // Server-resolved prices (role or custom), the same ones /api/orders/create-bulk charges, with the
+        // dealer rule as the fallback when they cannot be loaded. Custom prices are exact and never adjusted;
+        // the per-network display adjustment applies to the rest as on the data packages page.
+        const resolved = await fetchUserPackagePrices(session?.access_token)
+        const { packages: priced, customIds } = resolveDisplayPrices(data, resolved, userRole === "dealer")
+        const adjustedData = await applyAdjustmentsExceptCustom(priced, customIds, applyPriceAdjustmentsToPackages)
 
         // Transform data to match our format
         const transformedPackages = adjustedData.map((pkg: any) => ({
+          id: String(pkg.id),
           network: pkg.network,
           size: parseFloat(pkg.size),
-          price: userRole === "dealer" && pkg.dealer_price && pkg.dealer_price > 0
-            ? pkg.dealer_price
-            : pkg.price,
+          price: Number(pkg.price),
         }))
 
         setPackages(transformedPackages)
