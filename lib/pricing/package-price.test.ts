@@ -43,7 +43,7 @@ describe("ownerSaving", () => {
 })
 
 // Minimal PostgREST-shaped fake: users -> single(); user_package_prices -> thenable.
-function client(opts: { throwUser?: boolean; throwPrices?: boolean; mode?: string | null; userError?: boolean; rows?: unknown[]; pricesError?: boolean }) {
+function client(opts: { noModeField?: boolean; throwUser?: boolean; throwPrices?: boolean; mode?: string | null; userError?: boolean; rows?: unknown[]; pricesError?: boolean }) {
   const calls: string[] = []
   return {
     calls,
@@ -58,7 +58,7 @@ function client(opts: { throwUser?: boolean; throwPrices?: boolean; mode?: strin
           return Promise.resolve(
             opts.userError
               ? { data: null, error: { message: "boom" } }
-              : { data: opts.mode === null ? null : { pricing_mode: opts.mode ?? "role" }, error: null }
+              : { data: opts.noModeField ? {} : opts.mode === null ? null : { pricing_mode: opts.mode ?? "role" }, error: null }
           )
         },
         then: (res: any, rej: any) =>
@@ -70,6 +70,11 @@ function client(opts: { throwUser?: boolean; throwPrices?: boolean; mode?: strin
 }
 
 describe("getCustomPrices", () => {
+  it("treats a user row without pricing_mode as role mode (no re-read loop)", async () => {
+    const c = client({ noModeField: true, rows: [{ package_id: "p1", price: 5 }] })
+    expect((await getCustomPrices(c as any, "u1")).size).toBe(0)
+    expect(c.calls).toEqual(["users"])
+  })
   it("returns nothing for no user", async () => {
     const c = client({})
     expect((await getCustomPrices(c as any, null)).size).toBe(0)

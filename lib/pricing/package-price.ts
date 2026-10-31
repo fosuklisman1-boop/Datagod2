@@ -93,7 +93,7 @@ export async function getCustomPrices(client: ClientLike, userId: string | null 
     throw new CustomPriceReadError()
   }
   if (res.error) throw new CustomPriceReadError()
-  return customPricesForUser(client, res.data ? { id: userId, pricing_mode: res.data.pricing_mode } : null)
+  return customPricesForUser(client, res.data ? { id: userId, pricing_mode: res.data.pricing_mode ?? null } : null)
 }
 
 /** Charge-path message when custom prices cannot be read. Nothing has been charged. */
