@@ -15,7 +15,7 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, ownerSaving, rolePrice, type CustomPrices } from "@/lib/pricing/package-price"
-import { directShopPricing, parentProfitFromCatalog, shopOwnerPricing } from "@/lib/shop-commerce/pricing"
+import { catalogWholesaleMargin, directShopPricing, marginsValid, parentProfitFromCatalog, shopOwnerPricing } from "@/lib/shop-commerce/pricing"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -328,6 +328,11 @@ export async function POST(request: NextRequest) {
         if ((subAgentPkg.packages as any)?.is_available === false) {
           return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
         }
+        // Negative margins are refused on every channel (a negative profit may only come from a custom price).
+        if (!marginsValid(Number(subAgentPkg.sub_agent_profit_margin || 0))) {
+          console.warn(`[SHOP-ORDER] ❌ Negative sub-agent margin on ${shop_package_id}, shop ${shop_id}`)
+          return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+        }
         verifiedPackageId = String(subAgentPkg.package_id)
         verifiedBasePrice = subAgentPkg.parent_price
         verifiedProfitMargin = subAgentPkg.sub_agent_profit_margin || 0
@@ -336,11 +341,13 @@ export async function POST(request: NextRequest) {
         // Fallback to sub_agent_catalog
         const { data: catalogEntry } = await supabase
           .from("sub_agent_catalog")
-          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package_id, package:packages(id, size, price, dealer_price, is_available)")
+          .select("shop_id, parent_price, sub_agent_profit_margin, wholesale_margin, package_id, package:packages(id, size, price, dealer_price, is_available)")
           .eq("id", shop_package_id)
+          .eq("is_active", true)
           // The row must belong to this sub-agent's parent's catalog OR the sub-agent's own shop:
           // app/api/shop/public-packages lists old-model sub_agent_catalog rows keyed to the
           // sub-agent's own shop_id, so both are legitimate. Any other shop's row is refused.
+          // An own-shop row's wholesale_margin is never trusted (sub-agents can write it); see below.
           .in("shop_id", [shop_id, shopData.parent_shop_id])
           .single()
 
@@ -373,17 +380,36 @@ export async function POST(request: NextRequest) {
 
           verifiedSize = pkg?.size || ""
 
-          const margin = catalogEntry.wholesale_margin ?? 0
+          // Own-shop rows take the PARENT's active wholesale margin for this package (as public-packages
+          // displays them); a parent's own row keeps its margin. No active parent row: refuse.
+          let parentRow: { wholesale_margin: number | null } | null = null
+          if (catalogEntry.shop_id === shop_id) {
+            const { data } = await supabase
+              .from("sub_agent_catalog")
+              .select("wholesale_margin")
+              .eq("shop_id", shopData.parent_shop_id)
+              .eq("package_id", catalogEntry.package_id)
+              .eq("is_active", true)
+              .limit(1)
+              .maybeSingle()
+            parentRow = data
+          }
+          const margin = catalogWholesaleMargin(catalogEntry, shop_id, parentRow)
+          const isStockPurchase = body.is_stock_purchase === true
+          const subMargin = Number(catalogEntry.sub_agent_profit_margin || 0)
+          // Negative margins are refused on every channel (a negative profit may only come from a custom price).
+          if (margin === null || !marginsValid(margin, ...(isStockPurchase ? [] : [subMargin]))) {
+            console.warn(`[SHOP-ORDER] ❌ No usable wholesale/sub-agent margin for catalog row ${shop_package_id}, shop ${shop_id}`)
+            return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+          }
           verifiedBasePrice = adminPrice + margin
           // Sub-agent profit on "Buy Stock" is 0, but for customer orders via sub-agent shop, 
           // we must respect the sub-agent's configured margin if present in catalog
-          // Check if this is a stock purchase (restocking)
-          const isStockPurchase = body.is_stock_purchase === true
-
+          // (isStockPurchase above: a restocking order)
           if (isStockPurchase) {
             verifiedProfitMargin = 0
           } else {
-            verifiedProfitMargin = catalogEntry.sub_agent_profit_margin || 0
+            verifiedProfitMargin = subMargin
           }
           verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
         } else {
@@ -425,12 +451,18 @@ export async function POST(request: NextRequest) {
       verifiedPackageId = String(shopPkg.package_id)
       const pkg = (shopPkg.packages as any) ?? { id: "", price: 0 }
       verifiedSize = pkg.size || ""
+      const shopMargin = Number(shopPkg.profit_margin || 0)
+      // Negative margins are refused on every channel (a negative profit may only come from a custom price).
+      if (!marginsValid(shopMargin)) {
+        console.warn(`[SHOP-ORDER] ❌ Negative shop margin on ${shop_package_id}, shop ${shop_id}`)
+        return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+      }
 
       // Selling price stays role price + margin; the owner's custom price only raises their profit.
       // An owner buying from their own storefront pays as a customer and is credited margin + saving.
       const direct = directShopPricing({
         rolePrice: rolePrice(pkg, owner.isDealer),
-        margin: Number(shopPkg.profit_margin || 0),
+        margin: shopMargin,
         saving: ownerSaving(pkg, owner.isDealer, owner.custom),
       })
       verifiedBasePrice = direct.basePrice
@@ -605,6 +637,12 @@ export async function POST(request: NextRequest) {
           .single()
 
         if (catalogEntry) {
+          const parentWholesale = Number(catalogEntry.wholesale_margin || 0)
+          if (!marginsValid(parentWholesale)) {
+            console.warn(`[SHOP-ORDER] ❌ Negative parent wholesale margin, parent shop ${parent_shop_id}`)
+            return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+          }
+
           // Parent's pricing (dealer flag and custom prices), read only when the profit uses it.
           // The surrounding catch swallows errors, so refuse here when custom prices can't be read.
           let parent: { isDealer: boolean; custom: CustomPrices }
@@ -622,7 +660,7 @@ export async function POST(request: NextRequest) {
 
           // Parent profit = wholesale margin + the parent's saving from their custom price (not clamped:
           // a negative margin stays negative, as before, so the platform still receives its price).
-          parent_profit_amount = parentProfitFromCatalog(Number(catalogEntry.wholesale_margin || 0), parentSaving)
+          parent_profit_amount = parentProfitFromCatalog(parentWholesale, parentSaving)
 
           // Double check: if parent_price is stored, it should be adminCost + wholesale_margin
           console.log(`[SHOP-ORDER] Sub-agent parent profit: ${parent_profit_amount} (margin ${catalogEntry.wholesale_margin || 0} + saving ${parentSaving}) based on Admin Cost(${adminCost})`)

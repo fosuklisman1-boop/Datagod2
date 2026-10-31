@@ -116,6 +116,31 @@ export function parentProfitFromCatalog(wholesale: number, saving: number): numb
   return round2(wholesale + saving)
 }
 
+/**
+ * Every margin finite and >= 0. Negative margins are refused on every channel, so a negative profit can
+ * only come from an owner's custom price above their role price (Datagod still receives role + margin).
+ */
+export function marginsValid(...margins: number[]): boolean {
+  return margins.every(m => Number.isFinite(m) && m >= 0)
+}
+
+/**
+ * Which wholesale margin applies to an old-model sub_agent_catalog row matched by the storefront.
+ * A parent's own row: its wholesale_margin. A row keyed to the sub-agent's OWN shop (sub-agents can
+ * write those through RLS): the parent's active row for the same package, as public-packages displays it
+ * (parentMargins[package_id]); null when the parent has no such row (refuse).
+ */
+export function catalogWholesaleMargin(
+  row: { shop_id: string; wholesale_margin: number | string | null | undefined },
+  subAgentShopId: string,
+  parentRow: { wholesale_margin: number | string | null | undefined } | null | undefined
+): number | null {
+  if (row.shop_id === subAgentShopId) {
+    return parentRow ? Number(parentRow.wholesale_margin ?? 0) : null
+  }
+  return Number(row.wholesale_margin ?? 0)
+}
+
 /** shopOwnerPricing, but null when custom prices cannot be read (the caller refuses). Other errors propagate. */
 async function shopOwnerPricingOrNull(
   shopId: string,
@@ -262,8 +287,9 @@ export async function verifyBundlePrice(
 
     if (sapRow && (sapRow as any).packages?.is_available) {
       profitAmount = Number(sapRow.sub_agent_profit_margin)
+      if (!marginsValid(profitAmount)) return null
       const parentCost = effectivePrice((sapRow as any).packages, parent.isDealer, parent.custom)
-      parentProfitAmount = Math.max(0, Number(sapRow.parent_price) - parentCost)
+      parentProfitAmount = round2(Math.max(0, Number(sapRow.parent_price) - parentCost))
       verifiedPrice = Number(sapRow.parent_price) + profitAmount
     } else {
       // Old model fallback: sub_agent_catalog
@@ -282,6 +308,7 @@ export async function verifyBundlePrice(
       const pkg = (catalogRow as any).packages
       profitAmount = Number(catalogRow.sub_agent_profit_margin)
       const wholesale = Number(catalogRow.wholesale_margin)
+      if (!marginsValid(wholesale, profitAmount)) return null
       parentProfitAmount = parentProfitFromCatalog(wholesale, ownerSaving(pkg, parent.isDealer, parent.custom))
       verifiedPrice = basePrice(pkg, parent.isDealer) + wholesale + profitAmount
     }
@@ -310,6 +337,7 @@ export async function verifyBundlePrice(
 
     const pkg = (shopPkg as any).packages
     const margin = Number(shopPkg.profit_margin)
+    if (!marginsValid(margin)) return null
     const direct = directShopPricing({
       rolePrice: basePrice(pkg, owner.isDealer),
       margin,

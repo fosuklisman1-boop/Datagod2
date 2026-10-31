@@ -104,7 +104,9 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (!verified) return finish(ctx, "Package no longer available. Please try again.")
   const { verifiedPrice, profitAmount, parentProfitAmount } = verified
   // Fail closed: a price or profit snapshot that is not a usable number never reaches the order.
-  // A profit may be negative (owner's custom price above role + margin); crediting skips profit <= 0.
+  // A profit may be negative, but only from an owner's custom price above their role price: negative
+  // margins are refused upstream (verifyBundlePrice returns null), so Datagod still receives role + margin.
+  // Crediting skips profit <= 0.
   const sane = Number.isFinite(verifiedPrice) && verifiedPrice > 0
     && Number.isFinite(profitAmount)
     && Number.isFinite(parentProfitAmount)

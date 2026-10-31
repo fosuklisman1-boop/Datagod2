@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { basePrice, directShopPricing, fetchShopBundles, parentProfitFromCatalog, sizeToMb, verifyBundlePrice } from "./pricing"
+import { basePrice, catalogWholesaleMargin, directShopPricing, fetchShopBundles, marginsValid, parentProfitFromCatalog, sizeToMb, verifyBundlePrice } from "./pricing"
 
 describe("basePrice", () => {
   it("uses dealer_price for dealers when set", () => {
@@ -278,7 +278,7 @@ describe("custom prices (owner saving)", () => {
     expect(await verifyBundlePrice("sub", "p1", "parentShop", client)).toEqual({ verifiedPrice: 10, profitAmount: 1, parentProfitAmount: 3 })
   })
 
-  it("profit = margin + saving, unclamped, when the custom price is above the role price", async () => {
+  it("a custom price above the role price with valid margins still sells, at a negative profit", async () => {
     const client = fakeClient({
       user_shops: { data: { user_id: "u1" } },
       users: { data: { role: "user", pricing_mode: "custom" } },
@@ -289,24 +289,24 @@ describe("custom prices (owner saving)", () => {
     expect(await verifyBundlePrice("s1", "p1", undefined, client)).toEqual({ verifiedPrice: 12, profitAmount: -3, parentProfitAmount: 0 })
   })
 
-  it("regression: a negative wholesale margin with no custom price gives exactly the old values", async () => {
+  it("a negative wholesale margin is refused (null)", async () => {
     const client = fakeClient({
       user_shops: { data: { user_id: "parent" } },
       users: { data: { role: "dealer" } },
       sub_agent_shop_packages: { data: null },
       sub_agent_catalog: { data: { wholesale_margin: -1, sub_agent_profit_margin: 2, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
     })
-    // old code: verifiedPrice 8 + (-1) + 2 = 9, parentProfitAmount -1 (not clamped)
-    expect(await verifyBundlePrice("sub", "p1", "parentShop", client)).toEqual({ verifiedPrice: 9, profitAmount: 2, parentProfitAmount: -1 })
+    // would underprice the role price: refused, so a negative profit can only come from a custom price
+    expect(await verifyBundlePrice("sub", "p1", "parentShop", client)).toBeNull()
   })
 
-  it("regression: a negative shop margin with no custom price gives exactly the old values", async () => {
+  it("a negative shop margin is refused (null)", async () => {
     const client = fakeClient({
       user_shops: { data: { user_id: "u1" } },
       users: { data: { role: "dealer" } },
       shop_packages: { data: { profit_margin: -1, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
     })
-    expect(await verifyBundlePrice("s1", "p1", undefined, client)).toEqual({ verifiedPrice: 7, profitAmount: -1, parentProfitAmount: 0 })
+    expect(await verifyBundlePrice("s1", "p1", undefined, client)).toBeNull()
   })
 
   it("returns null (refuse) when the owner's custom prices cannot be read", async () => {
@@ -397,5 +397,63 @@ describe("directShopPricing / parentProfitFromCatalog (storefront route arithmet
     expect(parentProfitFromCatalog(1, 0)).toBe(1)
     expect(parentProfitFromCatalog(-1, 0)).toBe(-1)
     expect(parentProfitFromCatalog(0.1, 0.2)).toBe(0.3)
+  })
+})
+
+describe("negative margins are refused on every path", () => {
+  it("new model: a negative sub_agent_profit_margin -> null", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "parent" } },
+      users: { data: { role: "dealer" } },
+      sub_agent_shop_packages: { data: { parent_price: 9, sub_agent_profit_margin: -1, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
+    })
+    expect(await verifyBundlePrice("sub", "p1", "parentShop", client)).toBeNull()
+  })
+  it("old model: a negative sub_agent_profit_margin -> null", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "parent" } },
+      users: { data: { role: "dealer" } },
+      sub_agent_shop_packages: { data: null },
+      sub_agent_catalog: { data: { wholesale_margin: 1, sub_agent_profit_margin: -2, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
+    })
+    expect(await verifyBundlePrice("sub", "p1", "parentShop", client)).toBeNull()
+  })
+  it("new model: parent profit is rounded to 2 decimals", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "parent" } },
+      users: { data: { role: "dealer", pricing_mode: "custom" } },
+      user_package_prices: { data: [{ package_id: "p1", price: 9.1 }] },
+      sub_agent_shop_packages: { data: { parent_price: 9.3, sub_agent_profit_margin: 1, packages: { id: "p1", price: 10, dealer_price: 9.5, is_available: true } } },
+    })
+    // 9.3 - 9.1 is 0.20000000000000107 unrounded
+    expect((await verifyBundlePrice("sub", "p1", "parentShop", client))!.parentProfitAmount).toBe(0.2)
+  })
+})
+
+describe("marginsValid", () => {
+  it("accepts finite margins >= 0", () => {
+    expect(marginsValid(0, 1.5, 2)).toBe(true)
+    expect(marginsValid()).toBe(true)
+  })
+  it("rejects negative or non-finite margins", () => {
+    expect(marginsValid(1, -0.01)).toBe(false)
+    expect(marginsValid(NaN)).toBe(false)
+    expect(marginsValid(Infinity)).toBe(false)
+  })
+})
+
+describe("catalogWholesaleMargin (old-model storefront row)", () => {
+  it("a parent's own row uses its own wholesale margin", () => {
+    expect(catalogWholesaleMargin({ shop_id: "parent", wholesale_margin: 1 }, "sub", null)).toBe(1)
+  })
+  it("a sub-agent's own-shop row with a negative wholesale margin does not lower the price: the parent's margin is used", () => {
+    expect(catalogWholesaleMargin({ shop_id: "sub", wholesale_margin: -5 }, "sub", { wholesale_margin: 1 })).toBe(1)
+  })
+  it("a sub-agent's own-shop row with no active parent row -> null (refuse)", () => {
+    expect(catalogWholesaleMargin({ shop_id: "sub", wholesale_margin: 1 }, "sub", null)).toBeNull()
+  })
+  it("a missing margin counts as 0, as before", () => {
+    expect(catalogWholesaleMargin({ shop_id: "parent", wholesale_margin: null }, "sub", null)).toBe(0)
+    expect(catalogWholesaleMargin({ shop_id: "sub", wholesale_margin: 3 }, "sub", { wholesale_margin: null })).toBe(0)
   })
 })
