@@ -9,12 +9,15 @@ export const dynamic = "force-dynamic"
 // 5-minute stuck-dispatch threshold.
 export const maxDuration = 60
 
+// A lookup moves no money, so it does not fail closed when the rate limiter is
+// degraded (Upstash Redis missing or down): it must keep working without Redis.
+// It still shares the purchase-group limit with /utilities/pay when Redis is up.
+// /utilities/pay stays fail-closed.
 export const POST = withV2(
   {
     requiredType: "commission",
     group: "purchase",
     endpoint: "/api/v2/utilities/lookup",
-    failClosedWhenLimiterDegraded: true,
   },
   async (req, ctx) => billLookupHandler(realBillsDeps())(await readJsonBody(req), ctx)
 )
