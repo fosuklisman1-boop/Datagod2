@@ -157,12 +157,13 @@ Where this section and the text above disagree, this section is what shipped.
 - **Shop rules.** Selling prices are unchanged.
   - Owner profit = margin + saving, with no clamp, rounded to 2 decimals.
   - Old-model parent profit = wholesale margin + saving.
-  - New-model library parent profit = max(0, parent_price − the parent's effective price).
+  - New-model parent profit = wholesale margin + saving, as the old model (see "Live sub-agent cost" below).
   - Negative margins are refused on every channel.
   - A sub-agent's own-shop old-model catalog rows use the parent's active wholesale margin.
   - The storefront uses the server-verified package id and scopes catalog lookups to the right shop.
   - A negative profit, which can only come from a custom price above the role price, is never credited or debited.
-- **Sub-agent tier.** Sub-agents on the sub_agent tier keep paying the parent's catalog price.
+- **Sub-agent tier.** Sub-agents on the sub_agent tier keep paying the parent's catalog price (role price + wholesale margin, computed live; see below). Their own custom prices never apply.
+- **Live sub-agent cost.** A sub-agent's cost is computed live on every channel as the parent's role price + the parent's current ACTIVE `sub_agent_catalog.wholesale_margin` (`subAgentCosts` in `lib/shop-commerce/pricing.ts`); the parent is credited wholesale margin + saving. Stored `parent_price` columns (`sub_agent_catalog`, `sub_agent_shop_packages`) are still written but no longer trusted for pricing. A package with no active parent row is hidden and refused.
 - **Display-only pages.** These pages show the role price on purpose, because the selling price is role price + margin: public-packages, invites, dealer-price-list, sub-agent-catalog, parent-packages, shop-pricing, the sub-agent-catalog page, and dealer-packages (buy-stock orders against the dealer's own shop, which the create route prices at role price + margin; the saving is credited as shop profit).
 - **New endpoint.** `GET /api/user/package-prices` returns `{ pricing_mode, prices, custom_ids }`. The dashboard never applies the per-network display adjustment to a custom price.
 - **Admin view.** The admin GET also lists unavailable packages that carry a custom price, so they can be cleared.
@@ -170,4 +171,4 @@ Where this section and the text above disagree, this section is what shipped.
 
 ## Intended business behaviour (not bugs)
 
-- A sub-agent's buying price (`sub_agent_shop_packages.parent_price`) is set through the sub-agent catalog and is not checked against Datagod's cost. This is intended business logic and is out of scope for this feature; custom prices do not change it.
+- A sub-agent's buying price is the parent's role price + the parent's wholesale margin, set by the parent through the sub-agent catalog. The stored `sub_agent_shop_packages.parent_price` is no longer read for pricing (see "Live sub-agent cost"); custom prices do not change the sub-agent's price.
