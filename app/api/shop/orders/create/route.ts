@@ -338,6 +338,7 @@ export async function POST(request: NextRequest) {
           .from("sub_agent_catalog")
           .select("parent_price, sub_agent_profit_margin, wholesale_margin, package_id, package:packages(id, size, price, dealer_price, is_available)")
           .eq("id", shop_package_id)
+          .eq("shop_id", shopData.parent_shop_id) // must be this sub-agent's parent's catalog
           .single()
 
         if (catalogEntry && (catalogEntry.package as any)?.is_available === false) {
@@ -561,6 +562,7 @@ export async function POST(request: NextRequest) {
               .from("sub_agent_shop_packages")
               .select("sub_agent_profit_margin")
               .eq("id", shop_package_id)
+              .eq("shop_id", shop_id) // must belong to this sub-agent shop
               .single()
 
             const { data: newShopPkg, error: createError } = await supabase
