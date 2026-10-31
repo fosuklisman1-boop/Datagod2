@@ -1,5 +1,6 @@
 // lib/pricing/user-package-prices.ts
 // Client-side reading of GET /api/user/package-prices (display only; order routes re-price on the server).
+import { applyAdjustmentsExceptCustom } from "./adjust-except-custom"
 import { rolePrice, type PricedPackage } from "./package-price"
 
 export type UserPackagePrices = { prices: Record<string, number>; custom_ids: string[] }
@@ -62,4 +63,25 @@ export function resolveDisplayPrices<T extends PricedPackage>(
     customIds: resolved.custom_ids,
     fallback: false,
   }
+}
+
+/**
+ * Bulk order form pricing: resolveDisplayPrices, then the per-network display adjustment ONLY where the shown
+ * price is the plain `price` (a non-dealer's role price, or a dealer's when dealer_price is unset or 0).
+ * Dealer prices and custom prices are shown unadjusted, exactly what /api/orders/create-bulk charges.
+ * Same rules on the fallback path.
+ */
+export async function priceBulkFormPackages<T extends PricedPackage>(
+  packages: T[],
+  resolved: UserPackagePrices | null,
+  isDealer: boolean,
+  adjust: (pkgs: Array<T & { price: number }>) => Promise<Array<T & { price: number }>>
+): Promise<{ packages: Array<T & { price: number }>; fallback: boolean }> {
+  const { packages: priced, customIds, fallback } = resolveDisplayPrices(packages, resolved, isDealer)
+  const custom = new Set(customIds.map(String))
+  const unadjusted = packages
+    // The role price is dealer_price exactly when the user is a dealer and dealer_price > 0 (see rolePrice).
+    .filter((p) => custom.has(String(p.id)) || (isDealer && Number(p.dealer_price) > 0))
+    .map((p) => String(p.id))
+  return { packages: await applyAdjustmentsExceptCustom(priced, unadjusted, adjust), fallback }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { fetchUserPackagePrices, parseUserPackagePrices, resolveDisplayPrices } from "./user-package-prices"
+import { fetchUserPackagePrices, parseUserPackagePrices, priceBulkFormPackages, resolveDisplayPrices } from "./user-package-prices"
 
 const pkgs = [
   { id: "a", network: "MTN", price: 10, dealer_price: 8 },
@@ -58,5 +58,29 @@ describe("fetchUserPackagePrices", () => {
     expect(await fetchUserPackagePrices("tok", bad)).toBeNull()
     const boom = vi.fn(async () => { throw new Error("net") }) as unknown as typeof fetch
     expect(await fetchUserPackagePrices("tok", boom)).toBeNull()
+  })
+})
+
+describe("priceBulkFormPackages (adjustment only on the plain price)", () => {
+  const markup = async <P extends { price: number }>(ps: P[]) => ps.map((p) => ({ ...p, price: p.price * 2 }))
+  const server = (prices: Record<string, number>, custom_ids: string[] = []) => ({ prices, custom_ids })
+
+  it("dealer: raw dealer_price; a package with no dealer price gets the adjusted price", async () => {
+    const r = await priceBulkFormPackages(pkgs, server({ a: 8, b: 5, c: 3 }), true, markup)
+    expect(r.packages.map((p) => p.price)).toEqual([8, 10, 6])
+  })
+  it("non-dealer: adjusted price", async () => {
+    const r = await priceBulkFormPackages(pkgs, server({ a: 10, b: 5, c: 3 }), false, markup)
+    expect(r.packages.map((p) => p.price)).toEqual([20, 10, 6])
+  })
+  it("custom: raw custom price, for dealers and non-dealers", async () => {
+    expect((await priceBulkFormPackages(pkgs, server({ a: 6, b: 5, c: 3 }, ["a"]), false, markup)).packages.map((p) => p.price)).toEqual([6, 10, 6])
+    expect((await priceBulkFormPackages(pkgs, server({ a: 8, b: 4, c: 3 }, ["b"]), true, markup)).packages.map((p) => p.price)).toEqual([8, 4, 6])
+  })
+  it("fallback path: same rules", async () => {
+    const dealer = await priceBulkFormPackages(pkgs, null, true, markup)
+    expect(dealer.packages.map((p) => p.price)).toEqual([8, 10, 6])
+    expect(dealer.fallback).toBe(true)
+    expect((await priceBulkFormPackages(pkgs, null, false, markup)).packages.map((p) => p.price)).toEqual([20, 10, 6])
   })
 })

@@ -19,8 +19,7 @@ import { Download, CheckCircle, AlertCircle, Copy, X } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
-import { applyAdjustmentsExceptCustom } from "@/lib/pricing/adjust-except-custom"
-import { fetchUserPackagePrices, MSG_STANDARD_PRICES_FALLBACK, resolveDisplayPrices, STANDARD_PRICES_TOAST_ID } from "@/lib/pricing/user-package-prices"
+import { fetchUserPackagePrices, MSG_STANDARD_PRICES_FALLBACK, priceBulkFormPackages, STANDARD_PRICES_TOAST_ID } from "@/lib/pricing/user-package-prices"
 import {
   Dialog,
   DialogContent,
@@ -132,14 +131,15 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
 
       if (data) {
         // Server-resolved prices (role or custom), the same ones /api/orders/create-bulk charges, with the
-        // dealer rule as the fallback when they cannot be loaded. Custom prices are exact and never adjusted;
-        // the per-network display adjustment applies to the rest as on the data packages page.
+        // dealer rule as the fallback when they cannot be loaded. As before, the per-network display adjustment
+        // applies only to the plain price: dealer prices and custom prices are shown unadjusted.
         const resolved = await fetchUserPackagePrices(session?.access_token)
-        const { packages: priced, customIds, fallback } = resolveDisplayPrices(data, resolved, userRole === "dealer")
+        const { packages: adjustedData, fallback } = await priceBulkFormPackages(
+          data, resolved, userRole === "dealer", applyPriceAdjustmentsToPackages
+        )
         if (fallback && session?.access_token) {
           toast.warning(MSG_STANDARD_PRICES_FALLBACK, { id: STANDARD_PRICES_TOAST_ID })
         }
-        const adjustedData = await applyAdjustmentsExceptCustom(priced, customIds, applyPriceAdjustmentsToPackages)
 
         // Transform data to match our format
         const transformedPackages = adjustedData.map((pkg: any) => ({
