@@ -1,6 +1,7 @@
 // lib/ussd-hubtel/catalog.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { effectivePrice, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
+import { effectivePrice, NO_CUSTOM_PRICES, ownerSaving, type CustomPrices } from "@/lib/pricing/package-price"
+import { parentProfitFromCatalog } from "@/lib/shop-commerce/pricing"
 
 import { toLocalPhone } from "./protocol"
 
@@ -25,17 +26,25 @@ export function decideTier(
   return { tier: "regular" }
 }
 
-/** Mirrors the price verification in lib/ussd/handlers/bundles.ts handleConfirm. */
+/**
+ * Mirrors the price verification in lib/ussd/handlers/bundles.ts handleConfirm.
+ * sub_agent tier: the price is the parent's catalog price (the sub-agent's own custom prices never apply), and
+ * the parent earns wholesale margin + the parent's saving (parent role price - parent cost), as on the storefront.
+ * `parent` is the parent shop owner's pricing (shopOwnerPricing); omitted = no saving.
+ */
 export function priceForTier(
   pkg: { id?: string; price: number | string; dealer_price?: number | string | null },
   tier: string,
   catalogRow?: { parent_price: number | string; wholesale_margin: number | string } | null,
-  custom: CustomPrices = NO_CUSTOM_PRICES
+  custom: CustomPrices = NO_CUSTOM_PRICES,
+  parent: { isDealer: boolean; custom: CustomPrices } = { isDealer: false, custom: NO_CUSTOM_PRICES }
 ): { price: number; parentProfit: number | null } {
   if (tier === "sub_agent") {
+    if (!catalogRow) return { price: Number(pkg.price), parentProfit: null }
+    const saving = ownerSaving({ ...pkg, id: pkg.id ?? "" }, parent.isDealer, parent.custom)
     return {
-      price: catalogRow ? Number(catalogRow.parent_price) : Number(pkg.price),
-      parentProfit: catalogRow ? Number(catalogRow.wholesale_margin) : null,
+      price: Number(catalogRow.parent_price),
+      parentProfit: parentProfitFromCatalog(Number(catalogRow.wholesale_margin), saving),
     }
   }
   return { price: effectivePrice({ ...pkg, id: pkg.id ?? "" }, tier === "dealer", custom), parentProfit: null }

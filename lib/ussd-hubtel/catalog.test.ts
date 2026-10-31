@@ -83,3 +83,23 @@ describe("priceForTier with custom prices", () => {
     expect(priceForTier(pkg, "dealer").price).toBe(8)
   })
 })
+
+describe("priceForTier: sub_agent parent profit", () => {
+  const pkg = { id: "p1", price: 10, dealer_price: 8 }
+  const row = { parent_price: 9, wholesale_margin: 1 }
+  it("adds the parent's saving (role price - custom price) to the wholesale margin", () => {
+    const parent = { isDealer: true, custom: new Map([["p1", 6]]) }
+    expect(priceForTier(pkg, "sub_agent", row, undefined, parent)).toEqual({ price: 9, parentProfit: 3 })
+  })
+  it("uses the parent's role (non-dealer parent saves against price)", () => {
+    const parent = { isDealer: false, custom: new Map([["p1", 6]]) }
+    expect(priceForTier(pkg, "sub_agent", row, undefined, parent).parentProfit).toBe(5)
+  })
+  it("a parent without a custom price earns the wholesale margin only", () => {
+    expect(priceForTier(pkg, "sub_agent", row, undefined, { isDealer: true, custom: new Map() }).parentProfit).toBe(1)
+  })
+  it("the sub-agent's own custom prices never change the price or the parent's profit", () => {
+    const parent = { isDealer: true, custom: new Map<string, number>() }
+    expect(priceForTier(pkg, "sub_agent", row, new Map([["p1", 2]]), parent)).toEqual({ price: 9, parentProfit: 1 })
+  })
+})

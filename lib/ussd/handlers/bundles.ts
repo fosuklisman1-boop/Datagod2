@@ -1,7 +1,8 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
-import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
+import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES, MSG_PRICES_UNAVAILABLE, ownerSaving } from "@/lib/pricing/package-price"
+import { marginsValid, parentProfitFromCatalog, shopOwnerPricing } from "@/lib/shop-commerce/pricing"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, waWalletShort } from "../menus"
 import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
@@ -339,7 +340,23 @@ export async function handleConfirm(
       .eq("package_id", bundleId!)
       .single()
     verifiedPrice = catalogRow ? Number(catalogRow.parent_price) : Number(pkg.price)
-    parentProfitAmount = catalogRow ? Number(catalogRow.wholesale_margin) : null
+    if (catalogRow) {
+      // The sub-agent pays the parent's catalog price (their own custom prices never apply). The parent earns
+      // wholesale margin + their saving (parent role price - parent cost), as on the storefront.
+      const wholesale = Number(catalogRow.wholesale_margin)
+      if (!marginsValid(wholesale)) {
+        await setSession(sessionId, { step: 'MAIN', dialingPhone })
+        return end('Package no longer available. Please try again.')
+      }
+      let parent
+      try {
+        parent = await shopOwnerPricing(session.subAgentParentShopId)
+      } catch {
+        await setSession(sessionId, { step: 'MAIN', dialingPhone })
+        return end(MSG_PRICES_UNAVAILABLE)
+      }
+      parentProfitAmount = parentProfitFromCatalog(wholesale, ownerSaving(pkg, parent.isDealer, parent.custom))
+    }
   } else {
     let custom
     try {

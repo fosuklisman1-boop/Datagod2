@@ -105,4 +105,38 @@ describe("USSD custom prices", () => {
     expect(row.amount).toBeCloseTo(9.27, 2)
     expect(row.parent_profit_amount).toBe(1)
   })
+
+  const subAgent = () => session({ effectivePriceTier: "sub_agent", subAgentParentShopId: "shop-1", bundlePrice: 9 })
+  // The fake returns one row per table: users is the parent here (a dealer in custom mode, p1 at 6).
+  const parentOnCustom = () => {
+    h.state.tables.user_shops = { one: { user_id: "parent-1" } }
+    h.state.tables.users = { one: { role: "dealer", pricing_mode: "custom" } }
+  }
+
+  it("(d) sub_agent tier credits the parent wholesale margin + the parent's saving; the price does not change", async () => {
+    parentOnCustom()
+    await handleConfirm("1", "S1", subAgent())
+    const row = h.state.inserts["ussd_orders"][0]
+    expect(row.amount).toBeCloseTo(9.27, 2) // parent_price 9 + 3% fee, unchanged
+    expect(row.parent_profit_amount).toBe(3) // wholesale 1 + (parent dealer price 8 - parent custom 6)
+  })
+
+  it("(e) sub_agent tier refuses when the parent's prices cannot be read, with no order and no charge", async () => {
+    parentOnCustom()
+    h.state.tables.user_shops = { one: null, error: { message: "boom" } }
+    const r: any = await handleConfirm("1", "S1", subAgent())
+    expect(JSON.stringify(r)).toContain(MSG_PRICES_UNAVAILABLE)
+    expect(h.state.inserts["ussd_orders"]).toBeUndefined()
+    expect(h.after).not.toHaveBeenCalled()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("(f) sub_agent tier refuses a negative wholesale margin, with no order and no charge", async () => {
+    h.state.tables.sub_agent_catalog = { one: { parent_price: 9, wholesale_margin: -1 } }
+    const r: any = await handleConfirm("1", "S1", subAgent())
+    expect(JSON.stringify(r)).toMatch(/no longer available/i)
+    expect(h.state.inserts["ussd_orders"]).toBeUndefined()
+    expect(h.after).not.toHaveBeenCalled()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+  })
 })
