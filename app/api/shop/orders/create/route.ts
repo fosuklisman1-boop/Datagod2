@@ -14,6 +14,8 @@ import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-ot
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, ownerSaving, rolePrice, type CustomPrices } from "@/lib/pricing/package-price"
+import { shopOwnerPricing } from "@/lib/shop-commerce/pricing"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -331,7 +333,7 @@ export async function POST(request: NextRequest) {
         // Fallback to sub_agent_catalog
         const { data: catalogEntry } = await supabase
           .from("sub_agent_catalog")
-          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(size, price, dealer_price, is_available)")
+          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(id, size, price, dealer_price, is_available)")
           .eq("id", shop_package_id)
           .single()
 
@@ -358,9 +360,8 @@ export async function POST(request: NextRequest) {
           }
 
           const pkg = (catalogEntry.package as any)
-          const adminPrice = (isParentDealer && pkg?.dealer_price && pkg?.dealer_price > 0)
-            ? pkg.dealer_price
-            : (pkg?.price || 0)
+          // Role price: the selling price never includes the parent's custom price.
+          const adminPrice = pkg ? rolePrice(pkg, isParentDealer) : 0
 
           verifiedSize = pkg?.size || ""
 
@@ -385,21 +386,21 @@ export async function POST(request: NextRequest) {
     } else {
       // Regular shop: verify from shop_packages
 
-      // Check if shop owner is a dealer
-      const { data: userData } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", shopData?.user_id)
-        .single()
-
-      const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
-
+      // Shop owner's pricing: dealer flag (dealer/admin) and custom prices
+      let owner: { isDealer: boolean; custom: CustomPrices }
+      try {
+        owner = await shopOwnerPricing(shop_id, supabase)
+      } catch (e) {
+        if (!(e instanceof CustomPriceReadError)) throw e
+        console.error("[SHOP-ORDER] ❌ Could not read shop owner's custom prices")
+        return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
+      }
 
       // Integrity: the package must belong to THIS shop. Without the shop_id
       // match an order could be priced from another shop's catalog entry.
       const { data: shopPkg, error: shopPkgError } = await supabase
         .from("shop_packages")
-        .select("profit_margin, packages(size, price, dealer_price, is_available)")
+        .select("profit_margin, packages(id, size, price, dealer_price, is_available)")
         .eq("id", shop_package_id)
         .eq("shop_id", shop_id)
         .single()
@@ -413,14 +414,15 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
       }
 
-      const pkgPrice = (shopPkg.packages as any)?.price || 0
-      const dealerPrice = (shopPkg.packages as any)?.dealer_price
-      verifiedSize = (shopPkg.packages as any)?.size || ""
+      const pkg = (shopPkg.packages as any) ?? { id: "", price: 0 }
+      verifiedSize = pkg.size || ""
 
-      // If dealer, use dealer_price as base cost
-      verifiedBasePrice = isDealer && dealerPrice && dealerPrice > 0 ? dealerPrice : pkgPrice
-      verifiedProfitMargin = shopPkg.profit_margin || 0
-      verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
+      // Selling price stays role price + margin; the owner's custom price only raises their profit.
+      // Holds for the owner's own stock purchase too: they pay role + margin and earn margin + saving.
+      verifiedBasePrice = rolePrice(pkg, owner.isDealer)
+      const margin = Number(shopPkg.profit_margin || 0)
+      verifiedProfitMargin = margin + ownerSaving(pkg, owner.isDealer, owner.custom)
+      verifiedTotalPrice = verifiedBasePrice + margin
     }
 
     // Force server-side verified size to prevent injection/manipulation
@@ -574,40 +576,35 @@ export async function POST(request: NextRequest) {
         // NOT base_price - admin_price (that's the sub-agent's total margin)
         console.log(`[SHOP-ORDER] Looking up catalog for parent_shop_id=${parent_shop_id}, package_id=${package_id}`)
 
-        // Check if parent is a dealer for profit calculation
-        const { data: parentShop } = await supabase
-          .from("user_shops")
-          .select("user_id")
-          .eq("id", parent_shop_id)
-          .single()
-
-        let isParentDealer = false
-        if (parentShop) {
-          const { data: parentUser } = await supabase
-            .from("users")
-            .select("role")
-            .eq("id", parentShop.user_id)
-            .single()
-          isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin'
+        // Parent's pricing (dealer flag and custom prices) for the profit calculation.
+        // The surrounding catch swallows errors, so refuse here when custom prices can't be read.
+        let parent: { isDealer: boolean; custom: CustomPrices }
+        try {
+          parent = await shopOwnerPricing(parent_shop_id!, supabase)
+        } catch (e) {
+          if (!(e instanceof CustomPriceReadError)) throw e
+          console.error("[SHOP-ORDER] ❌ Could not read parent shop owner's custom prices")
+          return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
         }
 
         const { data: catalogEntry, error: catalogError } = await supabase
           .from("sub_agent_catalog")
-          .select("wholesale_margin, parent_price, package:packages(price, dealer_price)")
+          .select("wholesale_margin, parent_price, package:packages(id, price, dealer_price)")
           .eq("shop_id", parent_shop_id)
           .eq("package_id", package_id)
           .single()
 
         if (catalogEntry) {
           const pkg = (catalogEntry.package as any)
-          const adminCost = (isParentDealer && pkg?.dealer_price && pkg?.dealer_price > 0)
-            ? pkg.dealer_price
-            : (pkg?.price || 0)
+          const adminCost = pkg ? rolePrice(pkg, parent.isDealer) : 0
+          const parentSaving = pkg ? ownerSaving(pkg, parent.isDealer, parent.custom) : 0
 
-          parent_profit_amount = catalogEntry.wholesale_margin || 0
+          // Parent profit = wholesale margin + the parent's saving from their custom price (not clamped:
+          // a negative margin stays negative, as before, so the platform still receives its price).
+          parent_profit_amount = Number(catalogEntry.wholesale_margin || 0) + parentSaving
 
           // Double check: if parent_price is stored, it should be adminCost + wholesale_margin
-          console.log(`[SHOP-ORDER] Sub-agent parent profit: Parent Margin(${parent_profit_amount}) based on Admin Cost(${adminCost})`)
+          console.log(`[SHOP-ORDER] Sub-agent parent profit: ${parent_profit_amount} (margin ${catalogEntry.wholesale_margin || 0} + saving ${parentSaving}) based on Admin Cost(${adminCost})`)
         } else {
           parent_profit_amount = 0
           console.warn(`[SHOP-ORDER] No catalog entry found for parent profit calculation`)
