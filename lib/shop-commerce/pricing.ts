@@ -1,5 +1,14 @@
 import { createClient } from "@supabase/supabase-js"
 import { ShopBundleOption } from "@/lib/ussd-shop/types"
+import {
+  CustomPriceReadError,
+  customPricesForUser,
+  effectivePrice,
+  NO_CUSTOM_PRICES,
+  ownerSaving,
+  rolePrice,
+  type CustomPrices,
+} from "@/lib/pricing/package-price"
 
 // Channel-agnostic shop bundle pricing. Extracted verbatim from
 // lib/ussd-shop/handlers/bundles.ts so both the USSD shop and the WhatsApp
@@ -54,10 +63,53 @@ export async function shopOwnerIsDealer(
   return user?.role === 'dealer' || user?.role === 'admin'
 }
 
+/**
+ * The shop owner's pricing: dealer flag (dealer/admin, exactly as shopOwnerIsDealer) and custom prices.
+ * Throws CustomPriceReadError when the owner's pricing mode or custom prices cannot be read.
+ */
+export async function shopOwnerPricing(
+  shopId: string,
+  client: SupabaseClientLike = supabase
+): Promise<{ isDealer: boolean; custom: CustomPrices }> {
+  // public.users by id, not a user_shops embed: see shopOwnerIsDealer.
+  const { data: shop } = await client
+    .from("user_shops")
+    .select("user_id")
+    .eq("id", shopId)
+    .single()
+  if (!shop?.user_id) return { isDealer: false, custom: NO_CUSTOM_PRICES }
+
+  const { data: user, error } = await client
+    .from("users")
+    .select("role, pricing_mode")
+    .eq("id", shop.user_id)
+    .single()
+  // Without the user row we cannot know the pricing mode: refuse rather than drop the saving.
+  if (error) throw new CustomPriceReadError()
+  const isDealer = user?.role === 'dealer' || user?.role === 'admin'
+  // pricing_mode was selected, so a missing value means role mode (null), never "not loaded".
+  const custom = await customPricesForUser(
+    client,
+    user ? { id: shop.user_id, pricing_mode: user.pricing_mode ?? null } : null
+  )
+  return { isDealer, custom }
+}
+
+/** shopOwnerPricing, but null when custom prices cannot be read (the caller refuses). Other errors propagate. */
+async function shopOwnerPricingOrNull(
+  shopId: string,
+  client: SupabaseClientLike
+): Promise<{ isDealer: boolean; custom: CustomPrices } | null> {
+  try {
+    return await shopOwnerPricing(shopId, client)
+  } catch (e) {
+    if (e instanceof CustomPriceReadError) return null
+    throw e
+  }
+}
+
 export function basePrice(pkg: { price: number; dealer_price?: number | null }, isDealer: boolean): number {
-  return isDealer && pkg.dealer_price && Number(pkg.dealer_price) > 0
-    ? Number(pkg.dealer_price)
-    : Number(pkg.price)
+  return rolePrice({ id: "", ...pkg }, isDealer)
 }
 
 export async function fetchShopBundles(
@@ -169,17 +221,19 @@ export async function verifyBundlePrice(
   parentShopId?: string,
   client: SupabaseClientLike = supabase
 ): Promise<{ verifiedPrice: number; profitAmount: number; parentProfitAmount: number } | null> {
+  // Selling prices stay role price + margin; an owner's custom price only raises that owner's profit.
   let verifiedPrice: number
   let profitAmount: number
   let parentProfitAmount = 0
 
   if (parentShopId) {
-    const parentIsDealer = await shopOwnerIsDealer(parentShopId, client)
+    const parent = await shopOwnerPricingOrNull(parentShopId, client)
+    if (!parent) return null
 
     // New model: sub_agent_shop_packages
     const { data: sapRow } = await client
       .from("sub_agent_shop_packages")
-      .select("parent_price, sub_agent_profit_margin, packages!inner(price, dealer_price, is_available)")
+      .select("parent_price, sub_agent_profit_margin, packages!inner(id, price, dealer_price, is_available)")
       .eq("shop_id", shopId)
       .eq("package_id", bundleId)
       .eq("is_active", true)
@@ -187,14 +241,14 @@ export async function verifyBundlePrice(
 
     if (sapRow && (sapRow as any).packages?.is_available) {
       profitAmount = Number(sapRow.sub_agent_profit_margin)
-      const bp = basePrice((sapRow as any).packages, parentIsDealer)
-      parentProfitAmount = Math.max(0, Number(sapRow.parent_price) - bp)
+      const parentCost = effectivePrice((sapRow as any).packages, parent.isDealer, parent.custom)
+      parentProfitAmount = Math.max(0, Number(sapRow.parent_price) - parentCost)
       verifiedPrice = Number(sapRow.parent_price) + profitAmount
     } else {
       // Old model fallback: sub_agent_catalog
       const { data: catalogRow } = await client
         .from("sub_agent_catalog")
-        .select("wholesale_margin, sub_agent_profit_margin, packages!inner(price, dealer_price, is_available)")
+        .select("wholesale_margin, sub_agent_profit_margin, packages!inner(id, price, dealer_price, is_available)")
         .eq("shop_id", parentShopId)
         .eq("package_id", bundleId)
         .eq("is_active", true)
@@ -204,15 +258,17 @@ export async function verifyBundlePrice(
         return null
       }
 
+      const pkg = (catalogRow as any).packages
       profitAmount = Number(catalogRow.sub_agent_profit_margin)
-      parentProfitAmount = Number(catalogRow.wholesale_margin)
-      verifiedPrice = basePrice((catalogRow as any).packages, parentIsDealer) + parentProfitAmount + profitAmount
+      const wholesale = Number(catalogRow.wholesale_margin)
+      parentProfitAmount = Math.max(0, wholesale + ownerSaving(pkg, parent.isDealer, parent.custom))
+      verifiedPrice = basePrice(pkg, parent.isDealer) + wholesale + profitAmount
     }
   } else {
-    const [shopPkg, shopIsDealer] = await Promise.all([
+    const [shopPkg, owner] = await Promise.all([
       client
         .from("shop_packages")
-        .select("profit_margin, packages!inner(price, dealer_price, is_available)")
+        .select("profit_margin, packages!inner(id, price, dealer_price, is_available)")
         .eq("shop_id", shopId)
         .eq("package_id", bundleId)
         .eq("is_available", true)
@@ -223,15 +279,18 @@ export async function verifyBundlePrice(
         .limit(1)
         .maybeSingle()
         .then(r => r.data),
-      shopOwnerIsDealer(shopId, client),
+      shopOwnerPricingOrNull(shopId, client),
     ])
 
+    if (!owner) return null
     if (!shopPkg || !(shopPkg as any).packages?.is_available) {
       return null
     }
 
-    profitAmount = Number(shopPkg.profit_margin)
-    verifiedPrice = basePrice((shopPkg as any).packages, shopIsDealer) + profitAmount
+    const pkg = (shopPkg as any).packages
+    const margin = Number(shopPkg.profit_margin)
+    profitAmount = Math.max(0, margin + ownerSaving(pkg, owner.isDealer, owner.custom))
+    verifiedPrice = basePrice(pkg, owner.isDealer) + margin
   }
 
   return { verifiedPrice, profitAmount, parentProfitAmount }

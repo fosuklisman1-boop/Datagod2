@@ -243,3 +243,78 @@ describe("verifyBundlePrice", () => {
     expect(result).toBeNull()
   })
 })
+
+describe("custom prices (owner saving)", () => {
+  it("regular shop: selling price unchanged, profit includes the owner's saving", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "u1" } },
+      users: { data: { role: "dealer", pricing_mode: "custom" } },
+      user_package_prices: { data: [{ package_id: "p1", price: 6 }] },
+      shop_packages: { data: { profit_margin: 2, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
+    })
+    // role (dealer) 8 + margin 2 = 10 selling; saving 8 - 6 = 2 -> profit 4
+    expect(await verifyBundlePrice("s1", "p1", undefined, client)).toEqual({ verifiedPrice: 10, profitAmount: 4, parentProfitAmount: 0 })
+  })
+
+  it("sub-agent new model: parent profit = parent_price - parent's custom cost", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "parent" } },
+      users: { data: { role: "dealer", pricing_mode: "custom" } },
+      user_package_prices: { data: [{ package_id: "p1", price: 6 }] },
+      sub_agent_shop_packages: { data: { parent_price: 9, sub_agent_profit_margin: 1, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
+    })
+    expect(await verifyBundlePrice("sub", "p1", "parentShop", client)).toEqual({ verifiedPrice: 10, profitAmount: 1, parentProfitAmount: 3 })
+  })
+
+  it("sub-agent old model: parent profit = wholesale + saving, selling price unchanged", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "parent" } },
+      users: { data: { role: "dealer", pricing_mode: "custom" } },
+      user_package_prices: { data: [{ package_id: "p1", price: 6 }] },
+      sub_agent_shop_packages: { data: null },
+      sub_agent_catalog: { data: { wholesale_margin: 1, sub_agent_profit_margin: 1, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
+    })
+    // selling 8 + 1 + 1 = 10; parent profit 1 + (8 - 6) = 3
+    expect(await verifyBundlePrice("sub", "p1", "parentShop", client)).toEqual({ verifiedPrice: 10, profitAmount: 1, parentProfitAmount: 3 })
+  })
+
+  it("profit never goes below 0 when the custom price is above the role price", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "u1" } },
+      users: { data: { role: "user", pricing_mode: "custom" } },
+      user_package_prices: { data: [{ package_id: "p1", price: 15 }] },
+      shop_packages: { data: { profit_margin: 2, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
+    })
+    expect((await verifyBundlePrice("s1", "p1", undefined, client))!.profitAmount).toBe(0)
+  })
+
+  it("returns null (refuse) when the owner's custom prices cannot be read", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "u1" } },
+      users: { data: { role: "dealer", pricing_mode: "custom" } },
+      user_package_prices: { data: null, error: { message: "boom" } },
+      shop_packages: { data: { profit_margin: 2, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
+    })
+    expect(await verifyBundlePrice("s1", "p1", undefined, client)).toBeNull()
+  })
+
+  it("returns null (refuse) when the owner's pricing mode cannot be read", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "u1" } },
+      users: { data: null, error: { message: "boom" } },
+      shop_packages: { data: { profit_margin: 2, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } },
+    })
+    expect(await verifyBundlePrice("s1", "p1", undefined, client)).toBeNull()
+  })
+
+  it("fetchShopBundles selling prices are unchanged by custom prices", async () => {
+    const client = fakeClient({
+      user_shops: { data: { user_id: "u1" } },
+      users: { data: { role: "dealer", pricing_mode: "custom" } },
+      user_package_prices: { data: [{ package_id: "p1", price: 6 }] },
+      shop_packages: { data: [{ package_id: "p1", profit_margin: 2 }] },
+      packages: { data: [{ id: "p1", size: "1GB", price: 10, dealer_price: 8 }] },
+    })
+    expect((await fetchShopBundles("s1", "MTN", undefined, client))[0].price).toBe(10)
+  })
+})
