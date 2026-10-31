@@ -39,6 +39,6 @@ describe("warningFor", () => {
     expect(warningFor(r, "5.5")).toBeNull()
   })
   it("warns below dealer", () => expect(warningFor(r, "4")).toMatch(/Below the dealer/))
-  it("warns above role price", () => expect(warningFor(r, "7")).toMatch(/Above/))
+  it("warns above role price", () => expect(warningFor(r, "7")).toMatch(/they pay more than normal/))
   it("ignores null dealer price", () => expect(warningFor(row("a", { dealer_price: null }), "1")).toBeNull())
 })

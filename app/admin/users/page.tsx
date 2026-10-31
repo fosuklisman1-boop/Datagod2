@@ -120,6 +120,7 @@ export default function AdminUsersPage() {
   const [isUpdatingUser, setIsUpdatingUser] = useState(false)
   const [editEmail, setEditEmail] = useState("")
   const [editPhone, setEditPhone] = useState("")
+  const [pricingFilter, setPricingFilter] = useState<"all" | "custom">("all")
   const [customPricesUser, setCustomPricesUser] = useState<{ id: string; label: string } | null>(null)
 
   useEffect(() => {
@@ -135,7 +136,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     filterUsers()
-  }, [users, searchTerm, downloadRoleFilter])
+  }, [users, searchTerm, pricingFilter])
 
   const checkAdminAccess = async () => {
     try {
@@ -185,8 +186,7 @@ export default function AdminUsersPage() {
   }
 
   const filterUsers = () => {
-    // "Custom pricing only" narrows the table itself; the other options only affect downloads.
-    const base = downloadRoleFilter === "custom_pricing" ? users.filter((u) => u.pricing_mode === "custom") : users
+    const base = pricingFilter === "custom" ? users.filter((u) => u.pricing_mode === "custom") : users
     if (!searchTerm.trim()) {
       setFilteredUsers(base)
       return
@@ -406,7 +406,6 @@ export default function AdminUsersPage() {
   // Get users filtered by download role filter
   const getUsersForDownload = () => {
     if (downloadRoleFilter === "all") return filteredUsers
-    if (downloadRoleFilter === "custom_pricing") return filteredUsers.filter(user => user.pricing_mode === "custom")
     return filteredUsers.filter(user => user.role === downloadRoleFilter)
   }
 
@@ -505,7 +504,6 @@ export default function AdminUsersPage() {
                   <SelectItem value="shop_owner">Shop Owners</SelectItem>
                   <SelectItem value="sub_agent">Sub Agents</SelectItem>
                   <SelectItem value="admin">Admins</SelectItem>
-                  <SelectItem value="custom_pricing">Custom pricing only</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -547,12 +545,21 @@ export default function AdminUsersPage() {
                 <CardTitle>All Users ({formatCount(filteredUsers.length)})</CardTitle>
                 <CardDescription>Manage user roles, balances, and account status</CardDescription>
               </div>
-              <div className="w-full sm:w-64">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <Select value={pricingFilter} onValueChange={(v) => setPricingFilter(v as "all" | "custom")}>
+                  <SelectTrigger className="w-full sm:w-[160px] text-sm" aria-label="Pricing filter">
+                    <SelectValue placeholder="Pricing" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Pricing: All</SelectItem>
+                    <SelectItem value="custom">Pricing: Custom pricing</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Input
                   placeholder="Search by email, phone or shop..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="border-border focus:border-success/30 text-sm px-2 py-2"
+                  className="border-border focus:border-success/30 text-sm px-2 py-2 sm:w-64"
                 />
               </div>
             </div>

@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { computeChanges, warningFor, type CustomPriceRow } from "@/lib/pricing/custom-prices-dialog"
 
 type Mode = "role" | "custom"
@@ -26,6 +27,8 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({})
   const [showInvalid, setShowInvalid] = useState(false)
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const [loadedFor, setLoadedFor] = useState<string | null>(null)
 
   const authHeaders = async (): Promise<Record<string, string>> => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -38,10 +41,12 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
     setLoading(true)
     setServerErrors({})
     setShowInvalid(false)
+    setTouched({})
+    setLoadedFor(null)
     ;(async () => {
       try {
         const res = await fetch(`/api/admin/users/${userId}/custom-prices`, { headers: await authHeaders(), cache: "no-store" })
-        const json = await res.json()
+        const json = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(json.error || "Failed to load prices")
         if (cancelled) return
         setRole(json.user.role)
@@ -49,6 +54,7 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
         setSavedMode(json.user.pricing_mode)
         setRows(json.packages)
         setInputs(Object.fromEntries(json.packages.map((p: CustomPriceRow) => [p.id, p.custom_price == null ? "" : p.custom_price.toFixed(2)])))
+        setLoadedFor(userId)
       } catch (e) {
         if (cancelled) return
         toast.error(e instanceof Error ? e.message : "Failed to load prices")
@@ -115,7 +121,7 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => { if (!saving) onOpenChange(o) }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Custom prices: {userLabel}</DialogTitle>
@@ -124,26 +130,23 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
           </DialogDescription>
         </DialogHeader>
 
-        {loading ? (
+        {loading || loadedFor !== userId ? (
           <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
         ) : (
           <div className="space-y-5">
+            <fieldset disabled={saving} className="space-y-5 min-w-0 border-0 p-0 m-0">
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm font-medium">Pricing</span>
-              <div className="inline-flex rounded-md border p-0.5" role="radiogroup" aria-label="Pricing mode">
-                {(["role", "custom"] as Mode[]).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    role="radio"
-                    aria-checked={mode === m}
-                    onClick={() => setMode(m)}
-                    className={`rounded px-3 py-1 text-sm ${mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-                  >
-                    {m === "role" ? "Role price" : "Custom price"}
-                  </button>
-                ))}
-              </div>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={mode}
+                onValueChange={(v) => { if (v === "role" || v === "custom") setMode(v) }}
+                aria-label="Pricing mode"
+              >
+                <ToggleGroupItem value="role" className="px-3 text-sm">Role price</ToggleGroupItem>
+                <ToggleGroupItem value="custom" className="px-3 text-sm">Custom price</ToggleGroupItem>
+              </ToggleGroup>
             </div>
             {mode === "role" && (
               <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
@@ -160,7 +163,7 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
               <section key={network} className="space-y-2">
                 <h3 className="text-sm font-semibold">{network}</h3>
                 {list.map((r) => {
-                  const inlineError = serverErrors[r.id] ?? (showInvalid ? invalid[r.id] : undefined)
+                  const inlineError = serverErrors[r.id] ?? (showInvalid || touched[r.id] ? invalid[r.id] : undefined)
                   const warn = inlineError ? null : warningFor(r, inputs[r.id] ?? "")
                   const unavailable = r.is_available === false
                   return (
@@ -176,8 +179,10 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
                       <Input
                         inputMode="decimal"
                         placeholder="—"
-                        aria-label={`${network} ${r.size}GB custom price`}
+                        aria-label={`${network} ${r.size}GB${unavailable ? " (unavailable)" : ""} custom price`}
                         aria-invalid={!!inlineError}
+                        aria-describedby={inlineError || warn ? `msg-${r.id}` : undefined}
+                        onBlur={() => setTouched((s) => ({ ...s, [r.id]: true }))}
                         value={inputs[r.id] ?? ""}
                         onChange={(e) => {
                           const v = e.target.value
@@ -190,11 +195,18 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
                           })
                         }}
                       />
-                      <Button type="button" variant="ghost" size="sm" disabled={!inputs[r.id]} onClick={() => setInputs((s) => ({ ...s, [r.id]: "" }))}>
+                      <Button type="button" variant="ghost" size="sm" disabled={!inputs[r.id]} onClick={() => {
+                        setInputs((s) => ({ ...s, [r.id]: "" }))
+                        setServerErrors((s) => {
+                          const rest = { ...s }
+                          delete rest[r.id]
+                          return rest
+                        })
+                      }}>
                         Clear
                       </Button>
                       {(inlineError || warn) && (
-                        <p className={`col-span-4 text-xs ${inlineError ? "text-destructive" : "text-warning"}`}>{inlineError ?? warn}</p>
+                        <p id={`msg-${r.id}`} className={`col-span-4 text-xs ${inlineError ? "text-destructive" : "text-warning"}`}>{inlineError ?? warn}</p>
                       )}
                     </div>
                   )
@@ -206,6 +218,7 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
               <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
             </div>
+            </fieldset>
           </div>
         )}
       </DialogContent>

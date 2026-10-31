@@ -58,6 +58,6 @@ export function warningFor(r: CustomPriceRow, raw: string): string | null {
   if (!parsed.ok || parsed.value === null) return null
   const v = parsed.value
   if (r.dealer_price != null && r.dealer_price > 0 && v < r.dealer_price) return "Below the dealer price: may be below cost"
-  if (v > r.role_price) return "Above this user's role price: reduces their shop profit"
+  if (v > r.role_price) return "Above this user's role price: they pay more than normal"
   return null
 }
