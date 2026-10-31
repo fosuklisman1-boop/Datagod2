@@ -1,7 +1,7 @@
 # Per-user custom data bundle prices: design
 
 Date: 2026-10-31
-Status: approved design, awaiting implementation plan
+Status: implemented; see "Changes during implementation" for where the shipped behaviour differs from the original design
 
 ## Goal
 
@@ -123,7 +123,7 @@ If `cost > role` (a custom price above the role price), the profit formula lower
   - Switching to Custom with no custom prices saved is allowed; the user then pays role prices everywhere until prices are added.
   - The users list shows a "Custom pricing" badge on users in Custom mode, and the list can be filtered by it.
   - The dialog warns, without blocking, about a price below the dealer price ("may be below cost") and a price above the user's role price ("reduces this user's shop profit").
-- The dialog sits behind a feature flag (`custom_prices_enabled` in admin settings) until rollout step 3 is done.
+- There is no feature flag (see "Changes during implementation").
 
 ## Errors
 
@@ -145,3 +145,25 @@ If `cost > role` (a custom price above the role price), the profit formula lower
 1. Add the migration and resolver, then move every charge point onto `rolePrice`/`effectivePrice` with no custom prices present. Existing tests must pass unchanged, since behaviour does not change.
 2. Add the admin API, audit log and dialog, with the dialog hidden behind the flag.
 3. Switch on custom-price lookups at the charge points group by group, each group with its tests. When every group is done, turn on the flag.
+
+## Changes during implementation
+
+Where this section and the text above disagree, this section is what shipped.
+
+- **Audit log.** Audit rows go to the existing `admin_audit_log`, with actions `pricing_mode_set`, `custom_price_set` and `custom_price_removed`. There is no separate audit table.
+- **No global feature flag.** The `custom_prices_enabled` flag was dropped. `pricing_mode` defaults to `role`, so nothing changes for any user until an admin switches them, and the feature ships as one release.
+- **RPC hardening.** `set_user_custom_prices` validates its input: each price is an unconstrained numeric with at most 2 decimals, package ids are uuids, the admin and the user must both exist, and a package may appear only once in a request. Every failure raises `BAD_INPUT`.
+- **API v2 database check.** Migration 0142 also redefines `public.place_api_v2_order` from 0130, with one extra clause, so live API v2 accepts a user's custom price when they are in custom mode. This is needed because the RPC re-checks the submitted price against the package's normal and dealer prices, and would otherwise reject a custom price. A migration test guards against drift between the two function bodies. 0130 now carries a header note that it is superseded.
+- **Shop rules.** Selling prices are unchanged.
+  - Owner profit = margin + saving, with no clamp, rounded to 2 decimals.
+  - Old-model parent profit = wholesale margin + saving.
+  - New-model library parent profit = max(0, parent_price − the parent's effective price).
+  - Negative margins are refused on every channel.
+  - A sub-agent's own-shop old-model catalog rows use the parent's active wholesale margin.
+  - The storefront uses the server-verified package id and scopes catalog lookups to the right shop.
+  - A negative profit, which can only come from a custom price above the role price, is never credited or debited.
+- **Sub-agent tier.** Sub-agents on the sub_agent tier keep paying the parent's catalog price.
+- **Display-only pages.** These pages show the role price on purpose, because the selling price is role price + margin: public-packages, invites, dealer-price-list, sub-agent-catalog, parent-packages, shop-pricing and the sub-agent-catalog page.
+- **New endpoint.** `GET /api/user/package-prices` returns `{ pricing_mode, prices, custom_ids }`. The dashboard never applies the per-network display adjustment to a custom price.
+- **Admin view.** The admin GET also lists unavailable packages that carry a custom price, so they can be cleared.
+- **Deploy order.** Apply migration 0142 BEFORE deploying the code. Otherwise every custom-price read fails and charge paths refuse with 503, and the Admin -> Users list fails because it selects `pricing_mode`.

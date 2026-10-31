@@ -5,7 +5,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { createMTNOrder, saveMTNTracking, normalizePhoneNumber, isAutoFulfillmentEnabled as isMTNAutoEnabled } from "@/lib/mtn-fulfillment"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { CustomPriceReadError, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
 import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
 
 const supabase = createClient(
@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
     orderPrice = effectivePrice(pkg, user.role === "dealer", await getCustomPrices(supabase, user.id))
   } catch (e) {
     if (e instanceof CustomPriceReadError) {
-      return NextResponse.json({ success: false, error: "Prices are temporarily unavailable. Please retry." }, { status: 503 })
+      return NextResponse.json({ success: false, error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
     }
     throw e
   }

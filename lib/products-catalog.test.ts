@@ -11,6 +11,7 @@ const h = vi.hoisted(() => {
     afaPriceRow: { price: "50.00" } as { price: string } | null,
     pricingMode: "role" as string,
     customRows: [] as { package_id: string; price: number }[],
+    usersFail: false,
   }
   const fake = {
     from: (table: string) => {
@@ -33,7 +34,7 @@ const h = vi.hoisted(() => {
         }
       }
       if (table === "users") {
-        return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { pricing_mode: state.pricingMode }, error: null }) }) }) }
+        return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve(state.usersFail ? { data: null, error: { message: "boom" } } : { data: { pricing_mode: state.pricingMode }, error: null }) }) }) }
       }
       if (table === "user_package_prices") {
         // the resolver reads .select().eq().limit()
@@ -72,6 +73,7 @@ beforeEach(() => {
   h.state.afaPriceRow = { price: "50.00" }
   h.state.pricingMode = "role"
   h.state.customRows = []
+  h.state.usersFail = false
 })
 
 describe("buildProductsCatalog", () => {
@@ -84,6 +86,13 @@ describe("buildProductsCatalog", () => {
   })
 
   it("custom prices are ignored in role mode", async () => {
+    h.state.customRows = [{ package_id: "p1", price: 4.25 }]
+    const res = await buildProductsCatalog("dealer", "u1")
+    expect(res.data_bundles.find((b) => b.network === "MTN" && b.size_gb === "1")!.price).toBe(5.8)
+  })
+
+  it("falls back to role prices when the users read fails", async () => {
+    h.state.usersFail = true
     h.state.customRows = [{ package_id: "p1", price: 4.25 }]
     const res = await buildProductsCatalog("dealer", "u1")
     expect(res.data_bundles.find((b) => b.network === "MTN" && b.size_gb === "1")!.price).toBe(5.8)
