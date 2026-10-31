@@ -179,7 +179,7 @@ export async function POST(request: NextRequest) {
     // Get the package to validate price and size
     const { data: packageData, error: packageError } = await supabaseAdmin
       .from("packages")
-      .select("size, price, dealer_price, is_available")
+      .select("id, size, price, dealer_price, is_available")
       .eq("id", packageId)
       .single()
 
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
     let validatedPrice: number
     try {
       const custom = await getCustomPrices(supabaseAdmin, userId)
-      validatedPrice = effectivePrice({ id: packageId, ...packageData }, userRole === "dealer", custom)
+      validatedPrice = effectivePrice(packageData, userRole === "dealer", custom)
     } catch (e) {
       if (e instanceof CustomPriceReadError) {
         return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
