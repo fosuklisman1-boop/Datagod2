@@ -145,6 +145,16 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     expect(r.Message).toMatch(/price changed/i)
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
   })
+  it("refuses and creates nothing when custom prices cannot be read", async () => {
+    const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true }, readError: ["users"] })
+    const { deps } = makeDeps({ resolveCaller: async () => ({ effectivePriceTier: "regular", userId: "u1" }) }, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Type).not.toBe("AddToCart")
+    expect(r.Message).toMatch(/prices are temporarily unavailable/i)
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
   it("marks the order failed and releases if hubtel_transactions cannot be written", async () => {
     const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true }, txError: true })
     const { deps } = makeDeps({}, sup)

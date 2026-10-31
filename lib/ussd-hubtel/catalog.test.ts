@@ -69,3 +69,17 @@ describe("priceForTier", () => {
     expect(priceForTier(pkg, "sub_agent", null)).toEqual({ price: 10, parentProfit: null })
   })
 })
+
+describe("priceForTier with custom prices", () => {
+  const pkg = { id: "p1", price: 10, dealer_price: 8 }
+  it("custom price wins on the dealer and regular tiers", () => {
+    expect(priceForTier(pkg, "dealer", null, new Map([["p1", 6]])).price).toBe(6)
+    expect(priceForTier(pkg, "regular", null, new Map([["p1", 6]])).price).toBe(6)
+  })
+  it("sub_agent tier keeps the parent's catalog price", () => {
+    expect(priceForTier(pkg, "sub_agent", { parent_price: 9, wholesale_margin: 1 }, new Map([["p1", 6]])).price).toBe(9)
+  })
+  it("no custom prices = unchanged", () => {
+    expect(priceForTier(pkg, "dealer").price).toBe(8)
+  })
+})

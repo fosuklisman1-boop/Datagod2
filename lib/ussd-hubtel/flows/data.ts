@@ -1,6 +1,7 @@
 // lib/ussd-hubtel/flows/data.ts
 // Main-mode data bundles. Moved from router.ts (Plan 2 Task 1) with identical behaviour.
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
+import { getCustomPrices, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
 import { priceForTier } from "../catalog"
 import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } from "../menus"
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
@@ -28,7 +29,7 @@ async function selectNetwork(ctx: FlowCtx): Promise<HubtelReply> {
   if (!net) return say(ctx, networkMenuText(), "SELECT_NETWORK", NETWORK)
 
   const caller = await deps.resolveCaller(session.dialingPhone)
-  const { bundles, total } = await deps.fetchBundles(net.dbName, 0, caller.effectivePriceTier, caller.subAgentParentShopId)
+  const { bundles, total } = await deps.fetchBundles(net.dbName, 0, caller.effectivePriceTier, caller.subAgentParentShopId, caller.userId)
   if (bundles.length === 0) return say(ctx, `No ${net.label} packages available.\n` + networkMenuText(), "SELECT_NETWORK", NETWORK)
   return goto(ctx, {
     step: "SELECT_BUNDLE", network: net.dbName, bundlePage: 0,
@@ -43,12 +44,12 @@ async function selectBundle(ctx: FlowCtx): Promise<HubtelReply> {
   const offset = page * deps.pageSize
   const tier = session.effectivePriceTier ?? "regular"
   // Re-fetch the current page: trusting a cached page goes stale when pages advance.
-  const { bundles, total } = await deps.fetchBundles(session.network!, page, tier, session.subAgentParentShopId)
+  const { bundles, total } = await deps.fetchBundles(session.network!, page, tier, session.subAgentParentShopId, session.userId)
   const chosen = parseInt(input, 10)
 
   if (chosen === offset + bundles.length + 1 && offset + bundles.length < total) {
     const next = page + 1
-    const nextPage = await deps.fetchBundles(session.network!, next, tier, session.subAgentParentShopId)
+    const nextPage = await deps.fetchBundles(session.network!, next, tier, session.subAgentParentShopId, session.userId)
     return goto(ctx, { step: "SELECT_BUNDLE", bundlePage: next }, bundleMenuText(nextPage.bundles, next, nextPage.total, deps.pageSize), PACKAGE)
   }
 
@@ -65,7 +66,7 @@ async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
     step: "ENTER_RECIPIENT",
     back: async () => {
       const page = session.bundlePage ?? 0
-      const { bundles, total } = await deps.fetchBundles(session.network!, page, session.effectivePriceTier ?? "regular", session.subAgentParentShopId)
+      const { bundles, total } = await deps.fetchBundles(session.network!, page, session.effectivePriceTier ?? "regular", session.subAgentParentShopId, session.userId)
       return goto(ctx, { step: "SELECT_BUNDLE" }, bundleMenuText(bundles, page, total, deps.pageSize), PACKAGE)
     },
     confirm: async local => {
@@ -84,7 +85,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
 
-  const { data: pkg } = await deps.supabase.from("packages").select("price, dealer_price, is_available").eq("id", session.bundleId!).single()
+  const { data: pkg } = await deps.supabase.from("packages").select("id, price, dealer_price, is_available").eq("id", session.bundleId!).single()
   if (!pkg || !pkg.is_available) return finish(ctx, "Package no longer available. Please try again.")
 
   const tier = session.effectivePriceTier ?? "regular"
@@ -94,7 +95,13 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
       .eq("shop_id", session.subAgentParentShopId).eq("package_id", session.bundleId!).single()
     catalogRow = data
   }
-  const { price, parentProfit } = priceForTier(pkg, tier, catalogRow)
+  let custom
+  try {
+    custom = await getCustomPrices(deps.supabase, session.userId)
+  } catch {
+    return finish(ctx, MSG_PRICES_UNAVAILABLE)
+  }
+  const { price, parentProfit } = priceForTier(pkg, tier, catalogRow, custom)
   if (Math.abs(price - session.bundlePrice!) > 0.01) {
     return finish(ctx, `Price changed to GHS ${price.toFixed(2)}. Please restart your order.`)
   }

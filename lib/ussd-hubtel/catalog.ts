@@ -1,5 +1,6 @@
 // lib/ussd-hubtel/catalog.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { effectivePrice, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
 
 import { toLocalPhone } from "./protocol"
 
@@ -26,9 +27,10 @@ export function decideTier(
 
 /** Mirrors the price verification in lib/ussd/handlers/bundles.ts handleConfirm. */
 export function priceForTier(
-  pkg: { price: number | string; dealer_price?: number | string | null },
+  pkg: { id?: string; price: number | string; dealer_price?: number | string | null },
   tier: string,
-  catalogRow?: { parent_price: number | string; wholesale_margin: number | string } | null
+  catalogRow?: { parent_price: number | string; wholesale_margin: number | string } | null,
+  custom: CustomPrices = NO_CUSTOM_PRICES
 ): { price: number; parentProfit: number | null } {
   if (tier === "sub_agent") {
     return {
@@ -36,8 +38,7 @@ export function priceForTier(
       parentProfit: catalogRow ? Number(catalogRow.wholesale_margin) : null,
     }
   }
-  const useDealer = tier === "dealer" && pkg.dealer_price && Number(pkg.dealer_price) > 0
-  return { price: useDealer ? Number(pkg.dealer_price) : Number(pkg.price), parentProfit: null }
+  return { price: effectivePrice({ ...pkg, id: pkg.id ?? "" }, tier === "dealer", custom), parentProfit: null }
 }
 
 export async function resolveCaller(supabase: SupabaseClient, dialingPhone: string): Promise<CallerContext> {

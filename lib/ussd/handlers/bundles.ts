@@ -1,6 +1,7 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
+import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, waWalletShort } from "../menus"
 import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
@@ -35,7 +36,8 @@ export async function fetchBundles(
   network: string,
   page: number,
   priceTier: string,
-  parentShopId?: string
+  parentShopId?: string,
+  userId?: string
 ): Promise<{ bundles: BundleOption[]; total: number }> {
   // Sub-agents see only packages their parent has catalogued, at parent_price
   if (priceTier === 'sub_agent' && parentShopId) {
@@ -68,14 +70,13 @@ export async function fetchBundles(
     .order("id", { ascending: true })
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
-  const bundles: BundleOption[] = (data ?? []).map((row: any) => {
-    const useDealer = priceTier === 'dealer' && row.dealer_price && Number(row.dealer_price) > 0
-    return {
-      id: row.id,
-      size: row.size,
-      price: useDealer ? Number(row.dealer_price) : Number(row.price),
-    }
-  })
+  // Display: a failed read shows role prices; handleConfirm re-prices and refuses on failure.
+  const custom = await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
+  const bundles: BundleOption[] = (data ?? []).map((row: any) => ({
+    id: row.id,
+    size: row.size,
+    price: effectivePrice(row, priceTier === 'dealer', custom),
+  }))
 
   return { bundles, total: count ?? 0 }
 }
@@ -146,7 +147,7 @@ export async function handleSelectNetwork(
     }
   }
 
-  const { bundles, total } = await fetchBundles(net.dbName, 0, effectivePriceTier, subAgentParentShopId)
+  const { bundles, total } = await fetchBundles(net.dbName, 0, effectivePriceTier, subAgentParentShopId, userRow?.id)
   if (bundles.length === 0) {
     return cont(`No ${networkNickname(net.dbName)} packages available.\n\n${networkMenu()}`)
   }
@@ -189,7 +190,7 @@ export async function handleSelectBundle(
   // the bundle selection must agree on the same bundle count. Trusting session.bundleCache
   // causes a mismatch when the cache is stale (page advances but cache holds old data).
   const { bundles, total } = await fetchBundles(
-    session.network!, page, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId
+    session.network!, page, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId, session.userId
   )
 
   const moreIndex = offset + bundles.length + 1
@@ -197,7 +198,7 @@ export async function handleSelectBundle(
 
   if (chosen === moreIndex && offset + bundles.length < total) {
     const nextPage = page + 1
-    const { bundles: nextBundles, total: newTotal } = await fetchBundles(session.network!, nextPage, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId)
+    const { bundles: nextBundles, total: newTotal } = await fetchBundles(session.network!, nextPage, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId, session.userId)
     await setSession(sessionId, {
       ...session,
       bundlePage: nextPage,
@@ -310,7 +311,7 @@ export async function handleConfirm(
   // Validate price still matches DB (security: prevent stale session attacks)
   const { data: pkg } = await supabase
     .from("packages")
-    .select("price, dealer_price, is_available")
+    .select("id, price, dealer_price, is_available")
     .eq("id", bundleId!)
     .single()
 
@@ -340,8 +341,14 @@ export async function handleConfirm(
     verifiedPrice = catalogRow ? Number(catalogRow.parent_price) : Number(pkg.price)
     parentProfitAmount = catalogRow ? Number(catalogRow.wholesale_margin) : null
   } else {
-    const useDealer = priceTier === 'dealer' && pkg.dealer_price && Number(pkg.dealer_price) > 0
-    verifiedPrice = useDealer ? Number(pkg.dealer_price) : Number(pkg.price)
+    let custom
+    try {
+      custom = await getCustomPrices(supabase, session.userId)
+    } catch {
+      await setSession(sessionId, { step: 'MAIN', dialingPhone })
+      return end(MSG_PRICES_UNAVAILABLE)
+    }
+    verifiedPrice = effectivePrice(pkg, priceTier === 'dealer', custom)
   }
 
   const fee = Math.round(verifiedPrice * feePercent * 100) / 100

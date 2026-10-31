@@ -21,7 +21,7 @@ export interface RouterDeps {
   supabase: SupabaseClient
   getConfig(): Promise<HubtelUssdConfig>
   sessions: HubtelSessionStore
-  fetchBundles: (network: string, page: number, tier: string, parentShopId?: string) => Promise<{ bundles: BundleOption[]; total: number }>
+  fetchBundles: (network: string, page: number, tier: string, parentShopId?: string, userId?: string) => Promise<{ bundles: BundleOption[]; total: number }>
   resolveCaller: (phone: string) => Promise<CallerContext>
   isDataBlocked: (msisdn: string) => Promise<boolean>
   getPrefixConfig: () => Promise<PrefixValidationConfig>
