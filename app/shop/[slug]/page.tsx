@@ -1,4 +1,5 @@
-import { shopService } from "@/lib/shop-service"
+import { notFound, permanentRedirect } from "next/navigation"
+import { lookupShop, resolveShopAlias } from "@/lib/shop-commerce/shop-lookup"
 import { loadStorefrontSummary } from "@/lib/shop-commerce/storefront-summary"
 import { buildShopItemListJsonLd } from "@/lib/shop-commerce/price-table"
 import { shopCanonicalBase, shopRequestContext } from "@/lib/seo/shop-canonical"
@@ -28,11 +29,31 @@ export default async function ShopPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
-  const shop = await shopService.getShopBySlug(slug).catch(() => null)
+  const { shop, failed } = await lookupShop(slug)
 
-  if (!shop) {
+  if (failed) {
+    // The lookup errored (not "no such shop"): never 404 a real shop over a
+    // database hiccup. Leave it to the client storefront's own fetch.
     return <ShopStorefront initialLogoUrl={null} initialShopName={null} />
   }
+
+  if (!shop) {
+    // A rotated/old slug: send it to the shop's current address (this used to
+    // happen client-side after a 200 "Store not found"). Otherwise a real 404.
+    const alias = await resolveShopAlias(slug)
+    if (alias) {
+      const { domainConfig } = await shopRequestContext()
+      permanentRedirect(shopCanonicalBase(alias, domainConfig?.domain))
+    }
+    notFound()
+  }
+
+  // A blocked shop can't take orders (the order route answers 503). The
+  // storefront had no customer-facing "blocked" message (it rendered normally
+  // and its metadata already said "Shop Not Found", noindex), so it 404s.
+  // Its order-status / confirmation subpages keep working for customers who
+  // already paid.
+  if (shop.is_blocked) notFound()
 
   const [summary, { domainConfig }] = await Promise.all([
     loadStorefrontSummary(slug),

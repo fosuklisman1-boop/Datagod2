@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
-import { shopService } from '@/lib/shop-service'
+import { notFound } from 'next/navigation'
+import { lookupShop, resolveShopAlias } from '@/lib/shop-commerce/shop-lookup'
 import { SERVICE_LABELS, joinServiceLabels } from '@/lib/custom-domains'
 import { shopCanonicalBase, shopRequestContext } from '@/lib/seo/shop-canonical'
 import { shopIconUrl, shopPreviewDescription, shopPreviewImage } from '@/lib/shop-link-preview'
@@ -17,7 +18,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>
 }): Promise<Metadata> {
   const { slug } = await params
-  const shop = await shopService.getShopBySlug(slug).catch(() => null)
+  const { shop } = await lookupShop(slug)
 
   if (!shop || shop.is_blocked) {
     return {
@@ -83,9 +84,16 @@ export async function generateMetadata({
 
 export default async function ShopLayout({
   children,
+  params,
 }: {
   children: React.ReactNode
   params: Promise<{ slug: string }>
 }) {
+  // Unknown shop: 404 for every storefront path, not a 200 "Store not found".
+  // A lookup error is not "unknown", and a rotated slug is left to the page,
+  // which redirects it. Blocked shops are handled by the pages (see page.tsx).
+  const { slug } = await params
+  const { shop, failed } = await lookupShop(slug)
+  if (!shop && !failed && !(await resolveShopAlias(slug))) notFound()
   return <ShopClientWrapper>{children}</ShopClientWrapper>
 }

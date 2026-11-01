@@ -7,6 +7,7 @@ import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 import { apiHostRewrite } from "@/lib/api-v2/host"
 import { REQUEST_PATH_HEADER, SITE_KIND_HEADER, classifySiteKind } from "@/lib/seo/site-kind"
+import { legacyHostRedirect } from "@/lib/seo/host-redirect"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -76,6 +77,17 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.hostname = `www.${ROOT_DOMAIN}`
     return NextResponse.redirect(url, 308)
+  }
+
+  // ── app./admin. hosts ────────────────────────────────────────────────────
+  // These reserved subdomains served the whole main site as duplicate hosts.
+  // 308 them to the same path on www (see lib/seo/host-redirect.ts for what is
+  // kept). The query string is preserved.
+  const legacyTarget = legacyHostRedirect(request.headers.get("host"), path, ROOT_DOMAIN)
+  if (legacyTarget) {
+    const target = new URL(legacyTarget)
+    target.search = request.nextUrl.search
+    return NextResponse.redirect(target, 308)
   }
 
   // ── Developer API host ───────────────────────────────────────────────────
