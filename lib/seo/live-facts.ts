@@ -15,6 +15,9 @@ import { getBillsConfig, type BillsConfig } from "@/lib/bills/config"
 import { BILLERS, type BillerKey } from "@/lib/bills/billers"
 import { readPublicUssdCodes, type PublicUssdCodes } from "./ussd-codes"
 import type { ProductKey } from "./products"
+import { buildPriceTables, networkOf, type DataPriceTables, type RawPackageRow } from "./data-prices"
+
+export { networkOf }
 
 export interface ProductFacts {
   available: boolean
@@ -23,14 +26,19 @@ export interface ProductFacts {
   parts: string[]
 }
 
-export type LiveFacts = { products: Record<ProductKey, ProductFacts>; ussd: PublicUssdCodes }
+export type LiveFacts = {
+  products: Record<ProductKey, ProductFacts>
+  ussd: PublicUssdCodes
+  /** Public data price tables per network (packages.price); null when the packages read failed. */
+  dataPrices: DataPriceTables | null
+}
 
 type Net = "MTN" | "Telecel" | "AT"
 type Board = "WASSCE" | "BECE" | "NOVDEC"
 
 export interface RawFacts {
   /** null = the packages read failed (data pages stay on, no prices) */
-  packages: Array<{ network: string; price: number | string | null; is_available: boolean | null }> | null
+  packages: RawPackageRow[] | null
   airtimeEnabled: Record<Net, boolean>
   airtimeMin: number
   afaPrice: number | null
@@ -63,20 +71,6 @@ const BILLER_SHORT: Record<BillerKey, string> = {
   gotv: "GOtv",
   startimes: "StarTimes",
   telecel_broadband: "Telecel Broadband",
-}
-
-/**
- * packages.network values seen in code: "MTN", "Telecel", "AirtelTigo",
- * "AT-iShare" / "AT - iShare" / "AT - ISHARE", "AT-BigTime" / "AT - BigTime".
- * Every AT sub-product counts for at-data.
- */
-export function networkOf(network: string): Net | null {
-  const n = String(network ?? "").trim().toLowerCase()
-  if (!n) return null
-  if (n.startsWith("mtn")) return "MTN"
-  if (n.startsWith("telecel")) return "Telecel"
-  if (n.startsWith("at") || n.startsWith("airteltigo") || n.startsWith("ishare")) return "AT"
-  return null
 }
 
 /** Finite, strictly positive number or null. Accepts numeric strings. */
@@ -147,7 +141,11 @@ export function buildLiveFacts(raw: RawFacts): LiveFacts {
   products.developers = fact(raw.apiV2Enabled === true)
   products.ussd = fact(raw.ussd?.main != null)
 
-  return { products, ussd: { main: raw.ussd?.main ?? null, shop: raw.ussd?.shop ?? null } }
+  return {
+    products,
+    ussd: { main: raw.ussd?.main ?? null, shop: raw.ussd?.shop ?? null },
+    dataPrices: raw.packages === null ? null : buildPriceTables(raw.packages),
+  }
 }
 
 /**
@@ -248,7 +246,7 @@ export async function loadRawFacts(
     source("packages", FAILED_RAW.packages, async () => {
       const { data, error } = await db
         .from("packages")
-        .select("network, price, is_available")
+        .select("network, size, price, is_available, description")
         .eq("is_available", true)
         .limit(2000)
       if (error) throw error
@@ -326,7 +324,9 @@ async function loadCompleteLiveFacts(): Promise<LiveFacts> {
   return buildLiveFacts(raw)
 }
 
-const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts"], {
+// "v2": the cached shape gained dataPrices; a new key so an entry cached by an
+// older deploy (without it) is never served.
+const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts", "v2"], {
   revalidate: 3600,
   tags: ["seo-live-facts"],
 })

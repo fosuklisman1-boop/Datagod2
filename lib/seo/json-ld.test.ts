@@ -3,6 +3,7 @@ import { buildProductJsonLd, offerPrice } from "./json-ld"
 import { buildProductMetadata, availableEntries, liveBillerEntries, pageAvailability } from "./page-meta"
 import { getProduct, PRODUCTS, type ProductKey } from "./products"
 import { buildLiveFacts, FAILED_RAW, type ProductFacts } from "./live-facts"
+import { buildPriceTables, rowLabel } from "./data-prices"
 import { resolveBillsConfig } from "@/lib/bills/config"
 
 const facts = (fromPrice: number | null, parts: string[] = []): ProductFacts => ({ available: true, fromPrice, parts })
@@ -78,6 +79,32 @@ describe("buildProductJsonLd", () => {
     const nodes = buildProductJsonLd(mtn, facts(null)) as Node[]
     expect(nodes.map((n) => n["@type"])).toEqual(["Service", "FAQPage", "BreadcrumbList"])
     for (const n of nodes) expect(n["@context"]).toBe("https://schema.org")
+  })
+})
+
+describe("Service OfferCatalog", () => {
+  const tables = buildPriceTables([
+    { network: "AT - iShare", size: "1", price: 4.8, is_available: true },
+    { network: "AT - BigTime", size: "20", price: 60, is_available: true, description: "No expiry" },
+    { network: "AT - iShare", size: "2", price: "9", is_available: true },
+  ])
+  const at = getProduct("at-data")
+
+  it("has one GHS Offer per table row, matching the rows' labels and prices in order", () => {
+    const service = byType(buildProductJsonLd(at, facts(4.8), tables.AT), "Service")
+    const catalog = service.hasOfferCatalog
+    expect(catalog["@type"]).toBe("OfferCatalog")
+    expect(catalog.itemListElement).toHaveLength(tables.AT.length)
+    expect(catalog.itemListElement.map((o: Node) => o.name)).toEqual(tables.AT.map(rowLabel))
+    expect(catalog.itemListElement.map((o: Node) => o.price)).toEqual(tables.AT.map((r) => offerPrice(r.price)))
+    for (const o of catalog.itemListElement) {
+      expect(o).toMatchObject({ "@type": "Offer", priceCurrency: "GHS", url: "https://www.datagod.store/at-data" })
+    }
+  })
+
+  it("is left out when there are no rows (no table)", () => {
+    expect("hasOfferCatalog" in byType(buildProductJsonLd(at, facts(4.8)), "Service")).toBe(false)
+    expect("hasOfferCatalog" in byType(buildProductJsonLd(at, facts(4.8), []), "Service")).toBe(false)
   })
 })
 

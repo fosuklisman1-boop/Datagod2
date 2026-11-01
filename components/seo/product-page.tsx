@@ -23,6 +23,7 @@ import { buildProductMetadata, liveBillerEntries, pageAvailability } from "@/lib
 import { JsonLd } from "./json-ld-script"
 import { FaqSection } from "./faq-section"
 import { RelatedProducts } from "./related-products"
+import { CompareNetworks, DataNetworkCopy, DataPriceTable } from "./data-network-sections"
 
 const GROUP_LABEL: Record<ProductGroup, string> = {
   data: "Data bundles",
@@ -63,10 +64,13 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
 
   const isBuy = p.group === "data" || p.group === "airtime" || p.group === "bills" || p.group === "education"
   const crumbs = productCrumbs(p)
+  // Network data pages: the live price table rows (empty when the packages read failed).
+  const net = p.group === "data" ? p.network : undefined
+  const priceRows = net ? (facts.dataPrices?.[net] ?? []) : []
 
   return (
     <div className="min-h-screen bg-background">
-      <JsonLd data={buildProductJsonLd(p, f)} />
+      <JsonLd data={buildProductJsonLd(p, f, priceRows)} />
       <div className="mx-auto max-w-6xl px-4 py-10 sm:py-16">
         <nav aria-label="Breadcrumb" className="mb-8 text-sm text-muted-foreground">
           <ol className="flex flex-wrap items-center gap-1">
@@ -89,6 +93,8 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
 
         <Hero p={p} f={f} isBuy={isBuy} ussdMain={p.key === "ussd" ? facts.ussd.main : null} />
 
+        {net && <DataPriceTable network={net} rows={priceRows} />}
+
         <section aria-labelledby="bullets-heading" className="mt-16">
           <h2 id="bullets-heading" className="font-display text-2xl sm:text-3xl font-bold text-foreground">
             What you get
@@ -104,6 +110,10 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
         </section>
 
         {key === "utility-bills" && <BillerCards facts={facts} />}
+
+        {net && <DataNetworkCopy network={net} rows={priceRows} />}
+
+        {net && <CompareNetworks current={key} facts={facts} />}
 
         <HowToOrder p={p} facts={facts} />
 

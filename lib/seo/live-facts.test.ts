@@ -284,7 +284,8 @@ describe("loadRawFacts", () => {
     // packages filtered by is_available in SQL
     const pkg = calls.find((c) => c.table === "packages")!
     expect(pkg.eqs).toContainEqual(["is_available", true])
-    expect(pkg.select).toBe("network, price, is_available")
+    expect(pkg.select).toBe("network, size, price, is_available, description")
+    expect(pkg.select).not.toContain("dealer_price")
   })
 
   it("fails each switchable source closed, independently", async () => {

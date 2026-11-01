@@ -1,6 +1,7 @@
 /**
  * JSON-LD for public product pages: Service (+ Offer when a live "from" price
- * is known), FAQPage and BreadcrumbList. Pure.
+ * is known, + OfferCatalog on data pages with a price table), FAQPage and
+ * BreadcrumbList. Pure.
  *
  * Never emits ratings or reviews: DATAGOD has no verified review data, and
  * fabricated AggregateRating markup is a Google structured-data violation.
@@ -8,6 +9,7 @@
 import { absoluteUrl, SITE_URL } from "./site"
 import type { Faq, ProductEntry } from "./products"
 import type { ProductFacts } from "./live-facts"
+import { rowLabel, type PriceRow } from "./data-prices"
 
 const CONTEXT = "https://schema.org"
 
@@ -23,8 +25,31 @@ export const DATAGOD_ORGANIZATION = {
   logo: absoluteUrl("/favicon-v2.jpeg"),
 } as const
 
-export function buildServiceJsonLd(p: ProductEntry, f: ProductFacts): object {
+/**
+ * OfferCatalog over the same rows the page's price table shows: one GHS Offer
+ * per row, at packages.price. null when there are no rows (no table, no catalog).
+ */
+export function buildOfferCatalog(p: ProductEntry, rows: readonly PriceRow[]): object | null {
+  const valid = rows.filter((r) => typeof r.price === "number" && Number.isFinite(r.price) && r.price > 0)
+  if (valid.length === 0) return null
   const url = absoluteUrl(p.path)
+  return {
+    "@type": "OfferCatalog",
+    name: `${p.name} prices`,
+    itemListElement: valid.map((r) => ({
+      "@type": "Offer",
+      name: rowLabel(r),
+      price: offerPrice(r.price),
+      priceCurrency: "GHS",
+      availability: "https://schema.org/InStock",
+      url,
+    })),
+  }
+}
+
+export function buildServiceJsonLd(p: ProductEntry, f: ProductFacts, rows: readonly PriceRow[] = []): object {
+  const url = absoluteUrl(p.path)
+  const catalog = buildOfferCatalog(p, rows)
   const hasPrice = typeof f.fromPrice === "number" && Number.isFinite(f.fromPrice) && f.fromPrice > 0
   return {
     "@context": CONTEXT,
@@ -44,6 +69,7 @@ export function buildServiceJsonLd(p: ProductEntry, f: ProductFacts): object {
         url,
       },
     }),
+    ...(catalog && { hasOfferCatalog: catalog }),
   }
 }
 
@@ -83,6 +109,7 @@ export function productCrumbs(p: ProductEntry): Crumb[] {
   ]
 }
 
-export function buildProductJsonLd(p: ProductEntry, f: ProductFacts): object[] {
-  return [buildServiceJsonLd(p, f), buildFaqJsonLd(p.faqs), buildBreadcrumbJsonLd(productCrumbs(p))]
+/** `rows`: the page's live price-table rows (data pages only); adds a Service OfferCatalog. */
+export function buildProductJsonLd(p: ProductEntry, f: ProductFacts, rows: readonly PriceRow[] = []): object[] {
+  return [buildServiceJsonLd(p, f, rows), buildFaqJsonLd(p.faqs), buildBreadcrumbJsonLd(productCrumbs(p))]
 }
