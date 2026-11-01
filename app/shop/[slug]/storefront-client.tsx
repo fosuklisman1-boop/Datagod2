@@ -65,8 +65,11 @@ import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
-import { AIChatWidget } from "@/components/shop/AIChatWidget"
+import dynamic from "next/dynamic"
 import { StorefrontServicesCarousel, type StorefrontCarouselSlide } from "@/components/shop/StorefrontServicesCarousel"
+
+// Chat widget pulls in react-markdown: load it client-only, after hydration.
+const AIChatWidget = dynamic(() => import("@/components/shop/AIChatWidget").then((m) => m.AIChatWidget), { ssr: false })
 
 // Real public brand colors for the 3 Ghana MoMo providers -- used to tint the
 // checkout sheet by the package's data network, not the shop's own branding.

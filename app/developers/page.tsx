@@ -1,4 +1,5 @@
 import Link from "next/link"
+import Image from "next/image"
 import type { Metadata } from "next"
 import { KeyRound } from "lucide-react"
 import { DocsPage } from "@/components/developer/docs/DocsPage"
@@ -48,7 +49,7 @@ export default async function DevelopersPage() {
         <div className="mx-auto flex h-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex min-w-0 items-center gap-2.5" aria-label="DATAGOD home">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icons/icon-512x512.png" alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+            <Image src="/icons/icon-512x512.png" alt="" width={36} height={36} className="h-9 w-9 shrink-0 rounded-full object-cover" />
             <span className="truncate text-base font-bold tracking-tight text-foreground">DATAGOD</span>
             <span className="hidden rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold text-primary sm:inline">Developers</span>
           </Link>

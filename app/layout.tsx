@@ -263,21 +263,10 @@ export default async function RootLayout({
             `,
           }}
         />
-        {/* Paystack Script */}
-        <script nonce={nonce} src="https://js.paystack.co/v1/inline.js" async></script>
-        {/* Service Worker Registration - inline for PWA detection */}
-        <script
-          nonce={nonce}
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js');
-                });
-              }
-            `,
-          }}
-        />
+        {/* No global Paystack inline.js: every payment flow redirects to Paystack's
+            hosted checkout or charges MoMo server-side. The only PaystackPop user,
+            components/paystack-inline-modal.tsx, loads the script itself before use.
+            The service worker is registered once, by <ServiceWorkerRegister/>. */}
       </head>
       <body className={`${dmSans.variable} ${inter.variable} ${jetbrains.variable} font-sans`}>
         {maintenanceMode ? (

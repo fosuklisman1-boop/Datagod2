@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { BrandLogo, DEFAULT_LOGO } from "@/components/home/BrandLogo"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -13,7 +14,7 @@ import {
   Rocket, ShieldCheck, Facebook, Twitter, Instagram, Receipt, Monitor, Gem, HelpCircle, Headset,
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
-import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
+import { HomeAIChatWidget } from "@/components/home/AIChatWidgetLazy"
 import { HeroCarousel } from "@/components/home/HeroCarousel"
 import { PublicDeliveryStatus } from "@/components/dashboard/delivery-estimate"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
@@ -393,7 +394,8 @@ export default function HomeClient({
   const domainBranding = useDomainBranding()
   // DATAGOD's own logo on the main site; a custom domain without its own logo
   // gets the neutral placeholder, never DATAGOD branding.
-  const logoSrc = domainBranding.logoUrl || (domainBranding.siteName ? null : "/icons/icon-512x512.png")
+  // BrandLogo serves the DATAGOD logo resized through next/image.
+  const logoSrc = domainBranding.logoUrl || (domainBranding.siteName ? null : DEFAULT_LOGO)
 
   const [plans, setPlans] = useState<SubscriptionPlan[]>([])
   const [openFaq, setOpenFaq] = useState<number | null>(null)
@@ -421,7 +423,7 @@ export default function HomeClient({
       <nav style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 1rem)" }} className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 rounded-b-[1.75rem] bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/70 clay-bar">
         <div className="flex items-center gap-3">
           {logoSrc ? (
-            <img src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-9 w-9 rounded-full object-cover" />
+            <BrandLogo src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} size={36} className="h-9 w-9 rounded-full object-cover" priority />
           ) : (
             <div aria-hidden className="h-7 w-7 rounded-lg bg-gradient-to-br from-[#1b388b] to-brand-accent" />
           )}
@@ -1102,7 +1104,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
             <div>
               <div className="flex items-center gap-2 mb-3">
                 {logoSrc ? (
-                  <img src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-8 w-8 rounded-full object-cover" />
+                  <BrandLogo src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} size={32} className="h-8 w-8 rounded-full object-cover" />
                 ) : (
                   <div aria-hidden className="h-5 w-5 rounded bg-gradient-to-br from-[#1b388b] to-brand-accent" />
                 )}
