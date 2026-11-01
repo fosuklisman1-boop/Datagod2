@@ -20,12 +20,16 @@ const isAvailable = (facts: LiveFacts, p: ProductEntry): boolean => facts.produc
 export const STATIC_PAGE_UPDATED: Record<string, string> = {
   "/": "2026-11-01",
   "/services": "2026-10-27",
-  "/vouchers": "2026-10-27",
   "/ai": "2026-10-27",
   "/terms": "2026-11-01",
   "/privacy": "2026-11-01",
 }
 
+/**
+ * Not listed: /vouchers (a client-rendered PIN lookup form for existing
+ * customers: no content to rank, and the server HTML is an empty shell).
+ * /ai stays: it is server-rendered with its own copy and canonical.
+ */
 export function buildSitemapEntries(facts: LiveFacts): MetadataRoute.Sitemap {
   const entry = (path: string, updated: string, priority: number, changeFrequency: Entry["changeFrequency"]): Entry => ({
     url: absoluteUrl(path),
@@ -40,7 +44,6 @@ export function buildSitemapEntries(facts: LiveFacts): MetadataRoute.Sitemap {
     page("/", 1, "daily"),
     page("/services", 0.9, "weekly"),
     ...PRODUCTS.filter((p) => isAvailable(facts, p)).map((p) => entry(p.path, p.updated, p.priority, "weekly")),
-    page("/vouchers", 0.5, "monthly"),
     page("/ai", 0.6, "monthly"),
     page("/terms", 0.3, "yearly"),
     page("/privacy", 0.3, "yearly"),

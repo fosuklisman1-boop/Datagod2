@@ -42,6 +42,12 @@ describe("buildSitemapEntries", () => {
     expect(entries[0]).toMatchObject({ priority: 1, changeFrequency: "daily" })
   })
 
+  it("leaves out the client-only /vouchers lookup and keeps the server-rendered /ai page", () => {
+    const urls = buildSitemapEntries(facts()).map((e) => e.url)
+    expect(urls).not.toContain("https://www.datagod.store/vouchers")
+    expect(urls).toContain("https://www.datagod.store/ai")
+  })
+
   it("gates /developers on availability", () => {
     const off = buildSitemapEntries(facts()).map((e) => e.url)
     const on = buildSitemapEntries(facts({ apiV2Enabled: true })).map((e) => e.url)
