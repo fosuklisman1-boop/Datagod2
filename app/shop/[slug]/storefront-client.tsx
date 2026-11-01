@@ -13,7 +13,6 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService, shopOrderService, networkLogoService } from "@/lib/shop-service"
 import { shopOrigin } from "@/lib/shop-url"
-import { generateProductSchema } from "@/lib/structured-data"
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
@@ -120,9 +119,14 @@ interface ShopStorefrontProps {
   // component's own client-side fetch to complete first.
   initialLogoUrl: string | null
   initialShopName: string | null
+  // Server-rendered summary (shop info, price table, contact) from page.tsx.
+  // Shown in place of the loading screen, so it is in the server HTML for
+  // crawlers and no-JS visitors, and replaced by the interactive UI below
+  // once this component's own data has loaded (never both at once).
+  serverSummary?: React.ReactNode
 }
 
-export default function ShopStorefront({ initialLogoUrl, initialShopName }: ShopStorefrontProps) {
+export default function ShopStorefront({ initialLogoUrl, initialShopName, serverSummary }: ShopStorefrontProps) {
   const params = useParams()
   const router = useRouter()
   const shopSlug = params.slug as string
@@ -1014,6 +1018,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
   // (server-fetched in page.tsx) when known, falling back to the platform's
   // for a shop that doesn't have one set, or one not found yet.
   if (loading) {
+    if (serverSummary) return <>{serverSummary}</>
     return (
       <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="text-center">
@@ -1129,58 +1134,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
 
   return (
     <div className="min-h-screen bg-card" style={{ "--shop-accent": accentColor } as React.CSSProperties}>
-      {/* Breadcrumb Schema */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          // shop_name is shop-owner-controlled input embedded in raw HTML — escape "<"
-          // so a literal "</script>" in the name can't break out of the tag.
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "BreadcrumbList",
-            itemListElement: [
-              {
-                "@type": "ListItem",
-                position: "1",
-                name: "Home",
-                item: "https://www.datagod.store",
-              },
-              {
-                "@type": "ListItem",
-                position: "2",
-                name: "Shop",
-                item: "https://www.datagod.store/shop",
-              },
-              {
-                "@type": "ListItem",
-                position: "3",
-                name: shop?.shop_name || shop?.name || "Shop",
-                item: shop?.subdomain ? shopOrigin(shop.subdomain, shop?.linked_custom_domain) : `https://www.datagod.store/shop/${shopSlug}`,
-              },
-            ],
-          }).replace(/</g, "\\u003c"),
-        }}
-      />
-      {/* Product Schema — one entry per package currently listed for this shop */}
-      {packages.length > 0 && (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(
-              packages.map((shopPkg) => {
-                const pkg = shopPkg.packages
-                return generateProductSchema(
-                  `${pkg.size}GB ${pkg.network} Data Bundle`,
-                  pkg.price + shopPkg.profit_margin,
-                  shop?.subdomain ? shopOrigin(shop.subdomain, shop?.linked_custom_domain) : `https://www.datagod.store/shop/${shopSlug}`,
-                  "GHS",
-                  pkg.description || undefined
-                )
-              })
-            ).replace(/</g, "\\u003c"),
-          }}
-        />
-      )}
+      {/* Breadcrumb and Product JSON-LD are rendered on the server by page.tsx. */}
       {/* Navigation Bar */}
       <nav className="bg-card rounded-b-[1.75rem] clay-bar sticky top-0 z-40" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">

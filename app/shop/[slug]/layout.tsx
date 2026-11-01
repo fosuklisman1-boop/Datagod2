@@ -1,17 +1,9 @@
 import type { Metadata } from 'next'
-import { headers } from 'next/headers'
 import { shopService } from '@/lib/shop-service'
-import { resolveCustomDomain } from '@/lib/custom-domain-lookup'
-import { SERVICE_LABELS, joinServiceLabels, normalizeDomainHost } from '@/lib/custom-domains'
+import { SERVICE_LABELS, joinServiceLabels } from '@/lib/custom-domains'
+import { shopCanonicalBase, shopRequestContext } from '@/lib/seo/shop-canonical'
 import { shopIconUrl, shopPreviewDescription, shopPreviewImage } from '@/lib/shop-link-preview'
 import ShopClientWrapper from './shop-client-wrapper'
-
-// Mirrors the ROOT_DOMAIN used by middleware.ts and app/sitemap.ts. Not
-// imported from lib/shop-url.ts's shopOrigin() because that file is a
-// "use client" module — Next.js proxies every export of a client module for
-// server consumption, so a plain utility function from it can't be safely
-// called here in a server-only generateMetadata().
-const ROOT_DOMAIN = (process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'datagod.store').toLowerCase()
 
 // Without this, every storefront (potentially thousands of shop subdomains)
 // inherited the root layout's metadata verbatim — same title, same
@@ -35,19 +27,9 @@ export async function generateMetadata({
   }
 
   // Resolve the custom domain (if any) by the ACTUAL request host, not
-  // shop.linked_custom_domain -- that field only covers a domain directly
-  // linked to one shop (get_linked_custom_domain), not a wildcard-mode
-  // domain (any active shop's subdomain reachable under it), which is how
-  // middleware itself decides whether this request is custom-domain-scoped.
-  const headersList = await headers()
-  const requestHost = normalizeDomainHost(headersList.get('host'))
-  const domainConfig = requestHost ? await resolveCustomDomain(requestHost).catch(() => null) : null
-
-  // Some shops predate the subdomain backfill and have no subdomain yet —
-  // same fallback as app/sitemap.ts, so canonical and sitemap never disagree.
-  const canonicalUrl = shop.subdomain
-    ? `https://${shop.subdomain}.${domainConfig?.domain || ROOT_DOMAIN}`
-    : `https://www.${ROOT_DOMAIN}/shop/${shop.shop_slug}`
+  // shop.linked_custom_domain (see lib/seo/shop-canonical.ts).
+  const { domainConfig } = await shopRequestContext()
+  const canonicalUrl = shopCanonicalBase(shop, domainConfig?.domain)
 
   // A shop reached through a custom domain restricted to a subset of
   // services (see lib/custom-domains.ts) must never advertise a service it
