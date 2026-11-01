@@ -18,12 +18,71 @@ export function offerPrice(n: number): string {
   return n < 1 ? n.toFixed(3) : n.toFixed(2)
 }
 
+/** Stable node ids: the site-wide Organization / WebSite nodes and every reference to them. */
+export const ORG_ID = `${SITE_URL}/#org`
+export const WEBSITE_ID = `${SITE_URL}/#website`
+
+const LOGO = absoluteUrl("/favicon-v2.jpeg")
+
+/**
+ * The organization as referenced from page-level nodes (Service.provider).
+ * Same @id as the full node in buildSiteJsonLd(), so Google merges them.
+ */
 export const DATAGOD_ORGANIZATION = {
   "@type": "Organization",
+  "@id": ORG_ID,
   name: "DATAGOD",
   url: SITE_URL,
-  logo: absoluteUrl("/favicon-v2.jpeg"),
+  logo: LOGO,
 } as const
+
+const SAME_AS = [
+  "https://web.facebook.com/datagod.store",
+  "https://twitter.com/datagodstore",
+  "https://www.instagram.com/datagodstore",
+] as const
+
+/**
+ * Support contact: the defaults app/api/support-config/route.ts already serves
+ * (and the onboarding support step links to). Keep in step with those.
+ */
+const SUPPORT_EMAIL = "datagod.store@gmail.com"
+const SUPPORT_PHONE = "+233559919037"
+
+/**
+ * Site-wide JSON-LD for the root layout, main host only: ONE Organization and
+ * ONE WebSite (publisher -> the Organization). No SearchAction (the site has
+ * no search results page), no SiteNavigationElement, and no LocalBusiness:
+ * re-add LocalBusiness only with a real street address and phone that match
+ * the Google Business Profile.
+ */
+export function buildSiteJsonLd(): object[] {
+  return [
+    {
+      "@context": CONTEXT,
+      ...DATAGOD_ORGANIZATION,
+      description: "Data bundles, airtime, bill payments, results checkers and bulk SMS in Ghana.",
+      sameAs: [...SAME_AS],
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: SUPPORT_EMAIL,
+        telephone: SUPPORT_PHONE,
+        areaServed: "GH",
+        availableLanguage: ["en"],
+      },
+    },
+    {
+      "@context": CONTEXT,
+      "@type": "WebSite",
+      "@id": WEBSITE_ID,
+      name: "DATAGOD",
+      url: SITE_URL,
+      inLanguage: "en-GH",
+      publisher: { "@id": ORG_ID },
+    },
+  ]
+}
 
 /**
  * OfferCatalog over the same rows the page's price table shows: one GHS Offer

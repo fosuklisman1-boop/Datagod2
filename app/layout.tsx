@@ -16,7 +16,8 @@ import { PushNotificationRegister } from "@/components/push-notification-registe
 import { PushOptInBanner } from "@/components/push-opt-in-banner";
 import { MaintenanceScreen } from "@/components/maintenance-screen";
 import { HTML_LANG, ROOT_DESCRIPTION, ROOT_LOCALE, ROOT_TITLE, siteVerification } from "@/lib/seo/root-meta";
-import { generateOrganizationSchema, generateHomepageSchema, generateLocalBusinessSchema, generateSiteNavigationSchema } from "@/lib/structured-data";
+import { buildSiteJsonLd } from "@/lib/seo/json-ld";
+import { isMainSiteRequest } from "@/lib/seo/site";
 
 // Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -209,34 +210,19 @@ export default async function RootLayout({
   // tries to reach the backend while it's down. Toggle via the MAINTENANCE_MODE
   // env var (set to "true"); requires a redeploy to take effect on Vercel.
   const maintenanceMode = process.env.MAINTENANCE_MODE === "true";
+  const mainSite = await isMainSiteRequest();
 
   return (
     <html lang={HTML_LANG} suppressHydrationWarning>
       <head>
-        {/* Organization Schema */}
-        <script
-          nonce={nonce}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateOrganizationSchema()) }}
-        />
-        {/* WebSite + SearchAction Schema — enables Google's sitelinks searchbox */}
-        <script
-          nonce={nonce}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateHomepageSchema()) }}
-        />
-        {/* LocalBusiness Schema — signals Ghana-local relevance for local-intent searches */}
-        <script
-          nonce={nonce}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateLocalBusinessSchema()) }}
-        />
-        {/* SiteNavigationElement Schema — a best-effort signal for sitelinks selection, not a guarantee */}
-        <script
-          nonce={nonce}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateSiteNavigationSchema()) }}
-        />
+        {/* Site-wide Organization + WebSite JSON-LD: main host only, never on shop subdomains or custom domains. */}
+        {mainSite && (
+          <script
+            nonce={nonce}
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(buildSiteJsonLd()).replace(/</g, "\\u003c") }}
+          />
+        )}
         {/* iOS splash screens — auto-generated for all current Apple device sizes */}
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-2048-2732.jpg" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-1668-2388.jpg" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { buildProductJsonLd, offerPrice } from "./json-ld"
+import { buildProductJsonLd, buildSiteJsonLd, DATAGOD_ORGANIZATION, ORG_ID, offerPrice } from "./json-ld"
 import { buildProductMetadata, availableEntries, liveBillerEntries, pageAvailability } from "./page-meta"
 import { getProduct, PRODUCTS, type ProductKey } from "./products"
 import { buildLiveFacts, FAILED_RAW, type ProductFacts } from "./live-facts"
@@ -192,5 +192,38 @@ describe("pageAvailability", () => {
     const facts = buildLiveFacts(FAILED_RAW)
     facts.products.ussd = { ...facts.products.ussd, available: true }
     expect(pageAvailability("ussd", facts)).toBe("ok")
+  })
+})
+
+describe("buildSiteJsonLd", () => {
+  const nodes = buildSiteJsonLd() as Node[]
+
+  it("has exactly one Organization and one WebSite, nothing else", () => {
+    expect(nodes.map((n) => n["@type"]).sort()).toEqual(["Organization", "WebSite"])
+  })
+
+  it("Organization: #org id, url, logo, sameAs, real contact only", () => {
+    const org = byType(nodes, "Organization")
+    expect(org["@id"]).toBe("https://www.datagod.store/#org")
+    expect(org["@id"]).toBe(ORG_ID)
+    expect(org.url).toBe("https://www.datagod.store")
+    expect(org.logo).toBe("https://www.datagod.store/favicon-v2.jpeg")
+    expect(org.sameAs.length).toBeGreaterThan(0)
+    expect(org.contactPoint.email || org.contactPoint.telephone).toBeTruthy()
+    expect(org.address).toBeUndefined()
+  })
+
+  it("WebSite: #website id, publisher -> org, no SearchAction", () => {
+    const site = byType(nodes, "WebSite")
+    expect(site["@id"]).toBe("https://www.datagod.store/#website")
+    expect(site.publisher).toEqual({ "@id": ORG_ID })
+    expect(site.potentialAction).toBeUndefined()
+    expect(JSON.stringify(nodes)).not.toMatch(/SearchAction|query_input|SiteNavigationElement|LocalBusiness/)
+  })
+
+  it("the Service provider references the same organization @id", () => {
+    const service = byType(buildProductJsonLd(getProduct("mtn-data"), facts(3.5)), "Service")
+    expect(service.provider["@id"]).toBe(ORG_ID)
+    expect(DATAGOD_ORGANIZATION["@id"]).toBe(ORG_ID)
   })
 })

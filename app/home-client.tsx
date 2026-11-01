@@ -417,32 +417,6 @@ export default function HomeClient({
 
   return (
     <div className="min-h-screen clay-surface">
-      {/* Organization + Website Schema */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          // domainBranding.siteName is admin-only input, but JSON.stringify does
-          // not escape "</script>" — the .replace neutralizes a literal
-          // "</script>" breakout attempt without altering how the JSON parses
-          // (a standard, safe technique: < is a valid JSON escape for "<").
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            name: domainBranding.siteName || "DATAGOD",
-            url: "https://www.datagod.store",
-            description: "Buy affordable data packages from multiple networks, usually delivered within minutes",
-            potentialAction: {
-              "@type": "SearchAction",
-              target: {
-                "@type": "EntryPoint",
-                urlTemplate: "https://www.datagod.store/shop?search={search_term_string}",
-              },
-              query_input: "required name=search_term_string",
-            },
-          }).replace(/</g, "\\u003c"),
-        }}
-      />
-
       {/* Navigation */}
       <nav style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 1rem)" }} className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 rounded-b-[1.75rem] bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/70 clay-bar">
         <div className="flex items-center gap-3">
