@@ -8,7 +8,7 @@ import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } fro
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { HubtelReply, HubtelSession } from "../types"
-import { confirmNote, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
+import { confirmNote, recipientBlockedAtPay, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
 
 const NETWORK = { label: "Select network" }
 const PACKAGE = { label: "Select package" }
@@ -85,6 +85,12 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
 
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
+
+  // Hard block before payment: the confirm screen's check may have timed out (fail open there).
+  if (await recipientBlockedAtPay(ctx, session.network, session.recipientPhone)) {
+    console.warn("[HUBTEL-CONFIRM] Unverified MTN recipient blocked at pay")
+    return blockedRecipientScreen(ctx, "ENTER_RECIPIENT")
+  }
 
   const { data: pkg } = await deps.supabase.from("packages").select("id, price, dealer_price, is_available").eq("id", session.bundleId!).single()
   if (!pkg || !pkg.is_available) return finish(ctx, "Package no longer available. Please try again.")

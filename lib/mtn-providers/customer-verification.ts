@@ -19,6 +19,7 @@
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 import { WHITELIST_REGISTRY, type WhitelistEntry } from "./provider-whitelist"
+import { getCachedVerdicts, setCachedVerdicts } from "./verdict-cache"
 
 export const SETTING_KEY = "customer_verification_settings"
 
@@ -216,12 +217,23 @@ export async function verifyRecipientsForOrder(
 ): Promise<OrderVerification> {
   try {
     const settings = opts.settings ?? await getCustomerVerificationSettings()
-    const verdicts = await resolveVerdicts(phones, {
+    // Definite verdicts from a recent check (possibly one that finished after an
+    // earlier USSD screen gave up waiting) answer instantly; only the rest are checked.
+    const cacheOn = settings.enabled && !opts.registry
+    const cached = cacheOn ? await getCachedVerdicts(phones, settings.providers) : new Map<string, boolean>()
+    const toCheck = [...new Set(phones)].filter(p => !cached.has(p))
+    const fresh = await resolveVerdicts(toCheck, {
       settings: async () => settings,
       registry: opts.registry ?? WHITELIST_REGISTRY,
       check: (p, reg, s) => checkCustomerFacingVerification(p, reg, s),
-      timeoutMs: opts.timeoutMs ?? (phones.length > 1 ? 10_000 : 5_000),
+      timeoutMs: opts.timeoutMs ?? (toCheck.length > 1 ? 10_000 : 5_000),
     })
+    if (cacheOn) {
+      const definite = new Map<string, boolean>()
+      for (const [p, v] of fresh) if (v !== null) definite.set(p, v)
+      await setCachedVerdicts(definite, settings.providers)
+    }
+    const verdicts = new Map<string, boolean | null>(phones.map(p => [p, cached.get(p) ?? fresh.get(p) ?? null]))
     const blocking = isBlockingOn(settings)
     const blocked = blocking ? [...new Set(phones)].filter(p => verdicts.get(p) === false) : []
     return { verdicts, blocking, blocked }

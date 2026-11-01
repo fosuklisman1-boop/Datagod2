@@ -8,7 +8,7 @@ import {
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import { backToProduct, shopMenuReply } from "./shop"
-import { confirmNote, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
+import { confirmNote, recipientBlockedAtPay, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
 import type { HubtelReply, HubtelSession } from "../types"
 
 const NETWORK = { label: "Select network" }
@@ -98,6 +98,12 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
 
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
+
+  // Hard block before payment: the confirm screen's check may have timed out (fail open there).
+  if (await recipientBlockedAtPay(ctx, session.network, session.recipientPhone)) {
+    console.warn("[HUBTEL-SHOP-DATA] Unverified MTN recipient blocked at pay")
+    return blockedRecipientScreen(ctx, "SHOP_DATA_RECIPIENT")
+  }
 
   // Re-verify the shop price and the profit split straight from the DB (stale-session guard).
   const verified = await deps.shop.verifyBundlePrice(session.shopId!, session.bundleId!, session.parentShopId)
