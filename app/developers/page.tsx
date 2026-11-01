@@ -12,9 +12,17 @@ const DESCRIPTION =
 export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
-  alternates: { canonical: "/developers" },
-  openGraph: { title: TITLE, description: DESCRIPTION, url: "/developers", type: "website", siteName: "DATAGOD" },
-  twitter: { card: "summary", title: TITLE, description: DESCRIPTION },
+  alternates: { canonical: "https://www.datagod.store/developers" },
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "https://www.datagod.store/developers",
+    type: "website",
+    siteName: "DATAGOD",
+    locale: "en_GH",
+    images: ["/og-image.png"],
+  },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: ["/og-image.png"] },
 }
 
 /** Height in px of the sticky site header below (h-[64px], px not rem: globals.css scales the root font size on small screens). Passed to DocsPage so its bars sit under it. */

@@ -15,6 +15,7 @@ import { BackgroundSyncRegister } from "@/components/background-sync-register";
 import { PushNotificationRegister } from "@/components/push-notification-register";
 import { PushOptInBanner } from "@/components/push-opt-in-banner";
 import { MaintenanceScreen } from "@/components/maintenance-screen";
+import { HTML_LANG, ROOT_DESCRIPTION, ROOT_LOCALE, ROOT_TITLE, siteVerification } from "@/lib/seo/root-meta";
 import { generateOrganizationSchema, generateHomepageSchema, generateLocalBusinessSchema, generateSiteNavigationSchema } from "@/lib/structured-data";
 
 // Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
@@ -101,23 +102,27 @@ export async function generateMetadata(): Promise<Metadata> {
   const domainSiteName = headersList.get("x-domain-site-name")
 
   if (services.length === 0 || !domainSiteName) {
+    // Search-console verification is for www.datagod.store only, so it is
+    // emitted on the main site and only when the env var is set.
+    const verification = siteVerification()
     return {
       ...BASE_METADATA,
-      title: "DATAGOD - Buy Affordable Data Packages & Airtime | Fast Delivery",
-      description: "Get mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks in Ghana. Usually delivered within minutes. Secure payment, 24/7 support.",
+      title: ROOT_TITLE,
+      description: ROOT_DESCRIPTION,
+      ...(verification && { verification }),
       openGraph: {
         type: "website",
-        locale: "en_US",
+        locale: ROOT_LOCALE,
         url: "https://www.datagod.store",
         siteName: "DATAGOD",
-        title: "DATAGOD - Buy Affordable Data Packages & Airtime | Fast Delivery",
-        description: "Get mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks. Usually delivered within minutes. Secure payment.",
+        title: ROOT_TITLE,
+        description: ROOT_DESCRIPTION,
         images: [
           {
             url: "https://www.datagod.store/og-image.png",
             width: 1200,
             height: 630,
-            alt: "DATAGOD - Affordable Data Packages & Airtime",
+            alt: "DATAGOD - Buy MTN, Telecel & AT data bundles in Ghana",
             type: "image/png",
           },
         ],
@@ -126,8 +131,8 @@ export async function generateMetadata(): Promise<Metadata> {
         card: "summary_large_image",
         site: "@datagodstore",
         creator: "@datagodstore",
-        title: "DATAGOD - Buy Data Packages & Airtime Online",
-        description: "Mobile data, airtime, and digital services for Ghana. Usually delivered within minutes. Secure payment.",
+        title: ROOT_TITLE,
+        description: ROOT_DESCRIPTION,
         images: ["https://www.datagod.store/og-image.png"],
       },
     }
@@ -152,7 +157,7 @@ export async function generateMetadata(): Promise<Metadata> {
     description,
     openGraph: {
       type: "website",
-      locale: "en_US",
+      locale: ROOT_LOCALE,
       siteName: domainSiteName,
       title,
       description,
@@ -206,7 +211,7 @@ export default async function RootLayout({
   const maintenanceMode = process.env.MAINTENANCE_MODE === "true";
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={HTML_LANG} suppressHydrationWarning>
       <head>
         {/* Organization Schema */}
         <script
