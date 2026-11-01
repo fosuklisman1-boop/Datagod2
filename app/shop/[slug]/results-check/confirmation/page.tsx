@@ -200,7 +200,7 @@ export default function ResultsCheckConfirmationPage() {
           Back to Store
         </Button>
 
-        <p className="text-center text-xs text-muted-foreground">Powered by DATAGOD · Secure Transaction</p>
+        <p className="text-center text-xs text-muted-foreground">Secure Transaction</p>
       </div>
     </div>
   )

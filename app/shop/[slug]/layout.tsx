@@ -42,15 +42,12 @@ export async function generateMetadata({
     : null
   const serviceLabelCapitalized = serviceLabel ? serviceLabel.charAt(0).toUpperCase() + serviceLabel.slice(1) : null
 
-  // A shop reached through its own custom domain is deliberately
-  // white-labeled -- the whole point of attaching one's own domain is to not
-  // reveal the underlying platform, so "Powered by DATAGOD" only appears on
-  // the plain <shop>.datagod.store subdomain.
-  const poweredBySuffix = domainConfig ? '' : ' | Powered by DATAGOD'
-
+  // Shop titles carry only the shop's own name (no platform branding), on both
+  // <shop>.datagod.store and custom domains: shop customers should not be
+  // pointed at the platform, where base prices are lower than the shop's.
   const title = serviceLabelCapitalized
-    ? `${shop.shop_name} - Buy ${serviceLabelCapitalized} Online${poweredBySuffix}`
-    : `${shop.shop_name} - Buy Data & Airtime Online${poweredBySuffix}`
+    ? `${shop.shop_name} - Buy ${serviceLabelCapitalized} Online`
+    : `${shop.shop_name} - Buy Data & Airtime Online`
   const description = shopPreviewDescription(
     shop,
     serviceLabel
