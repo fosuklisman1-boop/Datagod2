@@ -223,6 +223,14 @@ describe("shop data: MTN number verification warning", () => {
     expect(r.Message).toContain("Number not verified for MTN data. Enter a different number.")
     expect(r.Message).not.toContain("Confirm your order?")
   })
+  it("blocks at '1. Confirm' when the check only answers after the confirm screen", async () => {
+    let calls = 0
+    const { deps } = shopDeps({ verifyRecipient: async () => (++calls === 1 ? true : "blocked") })
+    expect((await toConfirm(deps)).Message).toContain("Confirm your order?")
+    const pay = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(pay.Type).not.toBe("AddToCart")
+    expect(pay.Message).toContain("Number not verified for MTN data. Enter a different number.")
+  })
   it("verified numbers are unchanged", async () => {
     const { deps } = shopDeps({ verifyRecipient: async () => true })
     expect((await toConfirm(deps)).Message).not.toContain("verified")

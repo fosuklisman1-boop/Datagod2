@@ -581,6 +581,37 @@ describe("hubtelRouter: MTN number verification warning on the data confirm scre
     expect(store.get("S1")?.step).toBe("ENTER_RECIPIENT")
     expect(store.get("S1")?.otherRecipient).toBe(true)
   })
+  it("blocks at '1. Pay now' when the check only answers after the confirm screen (no AddToCart, re-prompt)", async () => {
+    let calls = 0
+    const { deps, store } = makeDeps({
+      // Recipient step: check not back yet (fails open). Pay step: blocked.
+      verifyRecipient: async () => (++calls === 1 ? true : "blocked"),
+      deliveryEstimate: async () => "Delivery: ~3 min",
+    })
+    await walkTo("ENTER_RECIPIENT", deps)
+    const confirmScreen = await hubtelRouter(req({ Message: "0244123456" }), deps)
+    expect(confirmScreen.Message).toContain("Confirm your order?")
+    const pay = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(pay.Type).not.toBe("AddToCart")
+    expect(pay.Message).toContain("Number not verified for MTN data. Enter a different number.")
+    expect(store.get("S1")?.step).toBe("ENTER_RECIPIENT")
+    expect(calls).toBe(2)
+  })
+  it("a check that outlives the confirm screen keeps running via deps.defer", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    try {
+      const deferred: Array<() => Promise<unknown>> = []
+      const { deps } = makeDeps({ verifyRecipient: () => new Promise<boolean>(() => {}) })
+      deps.defer = task => { deferred.push(task) }
+      await walkTo("ENTER_RECIPIENT", deps)
+      const pending = hubtelRouter(req({ Message: "0244123456" }), deps)
+      await vi.advanceTimersByTimeAsync(3000)
+      expect((await pending).Message).toContain("Confirm your order?")
+      expect(deferred).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it("a verified number gets the delivery estimate as before", async () => {
     const { deps } = makeDeps({ verifyRecipient: async () => true, deliveryEstimate: async () => "Delivery: ~3 min" })
     await walkTo("ENTER_RECIPIENT", deps)
