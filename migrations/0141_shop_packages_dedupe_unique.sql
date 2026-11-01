@@ -14,11 +14,10 @@
 --   select conrelid::regclass as tbl, conname
 --   from pg_constraint where confrelid = 'public.shop_packages'::regclass and contype = 'f';
 
-begin;
-
-create temporary table shop_packages_dedupe on commit drop as
-select id, keeper_id
-from (
+-- One statement (no temp table / explicit transaction): the Supabase SQL
+-- editor runs statements separately, so this stays atomic on its own. The
+-- foreign key is checked at the end of the statement, after orders moved.
+with ranked as (
   select
     id,
     first_value(id) over (
@@ -29,20 +28,21 @@ from (
                id desc
     ) as keeper_id
   from public.shop_packages
-) ranked
-where id <> keeper_id;
-
--- Orders keep pointing at the same shop + package, just the surviving row.
-update public.shop_orders o
-set shop_package_id = d.keeper_id
-from shop_packages_dedupe d
-where o.shop_package_id = d.id;
-
+),
+dupes as (
+  select id, keeper_id from ranked where id <> keeper_id
+),
+moved as (
+  -- Orders keep pointing at the same shop + package, just the surviving row.
+  update public.shop_orders o
+  set shop_package_id = d.keeper_id
+  from dupes d
+  where o.shop_package_id = d.id
+  returning o.id
+)
 delete from public.shop_packages p
-using shop_packages_dedupe d
+using dupes d
 where p.id = d.id;
 
 create unique index if not exists shop_packages_shop_id_package_id_key
   on public.shop_packages (shop_id, package_id);
-
-commit;
