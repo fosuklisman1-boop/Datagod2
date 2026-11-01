@@ -12,22 +12,38 @@ type Entry = MetadataRoute.Sitemap[number]
 
 const isAvailable = (facts: LiveFacts, p: ProductEntry): boolean => facts.products[p.key]?.available === true
 
-export function buildSitemapEntries(facts: LiveFacts, now: Date): MetadataRoute.Sitemap {
-  const entry = (path: string, priority: number, changeFrequency: Entry["changeFrequency"]): Entry => ({
+/**
+ * lastmod for the pages outside the product registry: the date their content
+ * last changed. Bump by hand with the content (never `new Date()`, which made
+ * every URL look changed on every crawl and taught Google to ignore lastmod).
+ */
+export const STATIC_PAGE_UPDATED: Record<string, string> = {
+  "/": "2026-11-01",
+  "/services": "2026-10-27",
+  "/vouchers": "2026-10-27",
+  "/ai": "2026-10-27",
+  "/terms": "2026-11-01",
+  "/privacy": "2026-11-01",
+}
+
+export function buildSitemapEntries(facts: LiveFacts): MetadataRoute.Sitemap {
+  const entry = (path: string, updated: string, priority: number, changeFrequency: Entry["changeFrequency"]): Entry => ({
     url: absoluteUrl(path),
-    lastModified: now,
+    lastModified: updated,
     changeFrequency,
     priority,
   })
+  const page = (path: string, priority: number, changeFrequency: Entry["changeFrequency"]): Entry =>
+    entry(path, STATIC_PAGE_UPDATED[path], priority, changeFrequency)
 
   return [
-    entry("/", 1, "daily"),
-    entry("/services", 0.9, "weekly"),
-    ...PRODUCTS.filter((p) => isAvailable(facts, p)).map((p) => entry(p.path, p.priority, "weekly")),
-    entry("/vouchers", 0.5, "monthly"),
-    entry("/ai", 0.6, "monthly"),
-    entry("/terms", 0.3, "yearly"),
-    entry("/privacy", 0.3, "yearly"),
+    page("/", 1, "daily"),
+    page("/services", 0.9, "weekly"),
+    ...PRODUCTS.filter((p) => isAvailable(facts, p)).map((p) => entry(p.path, p.updated, p.priority, "weekly")),
+    page("/vouchers", 0.5, "monthly"),
+    page("/ai", 0.6, "monthly"),
+    page("/terms", 0.3, "yearly"),
+    page("/privacy", 0.3, "yearly"),
   ]
 }
 

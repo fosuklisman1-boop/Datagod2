@@ -153,3 +153,13 @@ describe("findProduct / findProductByPath", () => {
     expect(findProductByPath(null)).toBeUndefined()
   })
 })
+
+describe("updated (sitemap lastmod)", () => {
+  it("every entry has a valid YYYY-MM-DD date", async () => {
+    const { PRODUCTS } = await import("./products")
+    for (const p of PRODUCTS) {
+      expect(p.updated, p.key).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      expect(Number.isNaN(Date.parse(p.updated)), p.key).toBe(false)
+    }
+  })
+})

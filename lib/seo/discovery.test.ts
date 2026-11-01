@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { buildSitemapEntries, buildLlmsTxt } from "./discovery"
+import { buildSitemapEntries, buildLlmsTxt, STATIC_PAGE_UPDATED } from "./discovery"
 import { buildLiveFacts, FAILED_RAW, type LiveFacts, type RawFacts } from "./live-facts"
-import { REFUND_LINE, SPEED_LINE } from "./products"
-
-const NOW = new Date("2026-10-27T00:00:00Z")
+import { getProduct, REFUND_LINE, SPEED_LINE } from "./products"
 
 function facts(over: Partial<RawFacts> = {}): LiveFacts {
   return buildLiveFacts({
@@ -21,20 +19,20 @@ function facts(over: Partial<RawFacts> = {}): LiveFacts {
 
 describe("buildSitemapEntries", () => {
   it("has no shop URLs and only the www host", () => {
-    const urls = buildSitemapEntries(facts(), NOW).map((e) => e.url)
+    const urls = buildSitemapEntries(facts()).map((e) => e.url)
     expect(urls.some((u) => u.includes("/shop/"))).toBe(false)
     expect(urls.every((u) => u === "https://www.datagod.store" || u.startsWith("https://www.datagod.store/"))).toBe(true)
   })
 
   it("omits utility bills and billers when bills are off", () => {
-    const urls = buildSitemapEntries(facts(), NOW).map((e) => e.url)
+    const urls = buildSitemapEntries(facts()).map((e) => e.url)
     for (const p of ["/utility-bills", "/ecg-prepaid", "/ghana-water", "/pay-dstv", "/pay-gotv", "/startimes", "/telecel-broadband"]) {
       expect(urls).not.toContain(`https://www.datagod.store${p}`)
     }
   })
 
   it("has unique URLs and includes /services, home and legal pages", () => {
-    const entries = buildSitemapEntries(facts(), NOW)
+    const entries = buildSitemapEntries(facts())
     const urls = entries.map((e) => e.url)
     expect(new Set(urls).size).toBe(urls.length)
     expect(urls).toContain("https://www.datagod.store/services")
@@ -45,14 +43,26 @@ describe("buildSitemapEntries", () => {
   })
 
   it("gates /developers on availability", () => {
-    const off = buildSitemapEntries(facts(), NOW).map((e) => e.url)
-    const on = buildSitemapEntries(facts({ apiV2Enabled: true }), NOW).map((e) => e.url)
+    const off = buildSitemapEntries(facts()).map((e) => e.url)
+    const on = buildSitemapEntries(facts({ apiV2Enabled: true })).map((e) => e.url)
     expect(off).not.toContain("https://www.datagod.store/developers")
     expect(on).toContain("https://www.datagod.store/developers")
   })
 
-  it("uses now as lastModified", () => {
-    for (const e of buildSitemapEntries(facts(), NOW)) expect(e.lastModified).toBe(NOW)
+  it("uses stable content dates as lastModified, never the current time", () => {
+    const a = buildSitemapEntries(facts())
+    for (const e of a) expect(e.lastModified, e.url).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    // same input, same output: lastmod only changes when someone bumps a date
+    expect(buildSitemapEntries(facts())).toEqual(a)
+  })
+
+  it("takes a product's lastModified from its registry entry", () => {
+    const byUrl = new Map(buildSitemapEntries(facts()).map((e) => [e.url, e.lastModified]))
+    for (const key of ["mtn-data", "airtime"] as const) {
+      const p = getProduct(key)
+      expect(byUrl.get(`https://www.datagod.store${p.path}`)).toBe(p.updated)
+    }
+    expect(byUrl.get("https://www.datagod.store")).toBe(STATIC_PAGE_UPDATED["/"])
   })
 })
 

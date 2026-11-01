@@ -12,5 +12,5 @@ export const revalidate = 3600
 // auth-gated and disallowed in robots.ts).
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   if (!(await isMainSiteRequest())) return []
-  return buildSitemapEntries(await getLiveFacts(), new Date())
+  return buildSitemapEntries(await getLiveFacts())
 }

@@ -44,6 +44,12 @@ export interface ProductEntry {
   network?: "MTN" | "Telecel" | "AT"
   /** false for existing hand-built pages (join, results-checker, bulk-sms, whatsapp, developers) */
   hasOwnPage: boolean
+  /**
+   * Date (YYYY-MM-DD) the page's content last changed: the sitemap lastmod.
+   * Bump it when you change this entry's copy or its page template, never
+   * automatically, so lastmod only moves when the content does.
+   */
+  updated: string
 }
 
 export const REFUND_LINE = "If an order fails, you get your money back."
@@ -101,6 +107,7 @@ function dataEntry(
     priority: 0.9,
     network,
     hasOwnPage: true,
+    updated: "2026-11-01",
   }
 }
 
@@ -137,6 +144,7 @@ function billerEntry(
     priority: 0.7,
     biller,
     hasOwnPage: true,
+    updated: "2026-10-27",
   }
 }
 
@@ -222,6 +230,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["mtn-data", "telecel-data", "at-data", "ussd", "join"],
     priority: 0.8,
     hasOwnPage: true,
+    updated: "2026-10-27",
   },
   {
     key: "afa-registration",
@@ -257,6 +266,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["mtn-data", "airtime", "join"],
     priority: 0.8,
     hasOwnPage: true,
+    updated: "2026-10-27",
   },
 
   // ── Bills ───────────────────────────────────────────────────────────
@@ -293,6 +303,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["ecg-prepaid", "ghana-water", "pay-dstv", "pay-gotv", "startimes", "telecel-broadband"],
     priority: 0.8,
     hasOwnPage: true,
+    updated: "2026-10-27",
   },
   billerEntry("ecg-prepaid", "ecg", {
     name: "ECG Prepaid & Postpaid",
@@ -425,6 +436,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["mtn-data", "airtime", "whatsapp", "ussd"],
     priority: 0.8,
     hasOwnPage: false,
+    updated: "2026-10-27",
   },
 
   // ── Business ────────────────────────────────────────────────────────
@@ -461,6 +473,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["developers", "join", "whatsapp"],
     priority: 0.8,
     hasOwnPage: false,
+    updated: "2026-10-27",
   },
   {
     key: "join",
@@ -502,6 +515,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["mtn-data", "airtime", "ussd", "whatsapp", "developers"],
     priority: 0.8,
     hasOwnPage: false,
+    updated: "2026-11-01",
   },
   {
     key: "developers",
@@ -531,6 +545,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["bulk-sms", "join", "mtn-data"],
     priority: 0.6,
     hasOwnPage: false,
+    updated: "2026-10-27",
   },
 
   // ── Channels ────────────────────────────────────────────────────────
@@ -569,6 +584,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["whatsapp", "mtn-data", "airtime", "join"],
     priority: 0.6,
     hasOwnPage: true,
+    updated: "2026-10-28",
   },
   {
     key: "whatsapp",
@@ -601,6 +617,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["ussd", "mtn-data", "airtime", "results-checker"],
     priority: 0.6,
     hasOwnPage: false,
+    updated: "2026-10-27",
   },
 ]
 
