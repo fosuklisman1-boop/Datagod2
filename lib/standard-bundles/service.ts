@@ -195,8 +195,9 @@ export async function prepareBundlePurchase(
 /**
  * Instant-cashback quote for a wallet (dashboard / api) bundle purchase, gated on that channel's surface switch. Any
  * config or tier read failure => not applied (standard price), never a blocked purchase.
+ * Exported so the Special buy (special-service.ts) prices each unit with exactly this function.
  */
-async function quoteBundle(d: BundlesDeps, userId: string, serviceKey: string, face: number, channel: WalletChannel): Promise<CashbackQuote> {
+export async function quoteBundle(d: BundlesDeps, userId: string, serviceKey: string, face: number, channel: WalletChannel): Promise<CashbackQuote> {
   const none: CashbackQuote = {
     applied: false, faceAmount: face, rate: 0, share: 0, commission: 0, customerCashback: 0, shopShare: 0,
     payAmount: face, datagodKeeps: 0, provider: "hubtel",

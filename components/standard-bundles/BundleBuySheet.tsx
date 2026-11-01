@@ -11,7 +11,8 @@ import {
 } from "@/lib/standard-bundles/ui-helpers"
 import { newUuid } from "@/lib/standard-bundles/uuid"
 import { NETWORK_SERVICE } from "@/lib/standard-bundles/categories"
-import { bundleReceiveLabel, parsePriceChange, priceLabel, quoteForDisplay, type RatesResponse } from "@/lib/cashback/display"
+import { bundleReceiveLabel, parsePriceChange, priceLabel, type RatesResponse } from "@/lib/cashback/display"
+import { bundleCardPrice, specialBreakdown, type SpecialInfo } from "@/lib/standard-bundles/special-ui"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
 
 export interface PickedBundle {
@@ -22,6 +23,8 @@ export interface PickedBundle {
   networkLabel: string
   /** Catalog category ("Midnight Bundles"), shown in "You receive". */
   category?: string
+  /** Special Bundles only: N × the unit bundle. */
+  special?: SpecialInfo
 }
 
 type Step = "input" | "done"
@@ -80,9 +83,13 @@ export function BundleBuySheet({
   const buyingRef = useRef(false)
 
   const phoneError = validateBundleRecipient(bundle.network, phone, prefixRules)
-  const quote = quoteForDisplay(bundle.amount, rates.services[NETWORK_SERVICE[bundle.network]])
+  // Special: n × the per-unit display price (matches the server's per-unit rounding); normal: quoteForDisplay(amount).
+  const quote = bundleCardPrice(bundle, rates.services[NETWORK_SERVICE[bundle.network]])
   const cashbackOn = serverPrice ? serverPrice.cashback > 0 : quote.applied
-  const payShown = serverPrice ? serverPrice.pay : quote.applied ? quote.pay : bundle.amount
+  const payShown = serverPrice ? serverPrice.pay : quote.pay
+  const face = quote.face
+  /** "1.22GB (3 × 406.89MB)" for Special, else the display as before. */
+  const sizeLabel = bundle.special ? `${bundle.display} (${specialBreakdown(bundle.special)})` : bundle.display
   const lowBalance = balance !== null && payShown > balance
 
   const buy = async () => {
@@ -145,8 +152,8 @@ export function BundleBuySheet({
         className="mx-auto max-h-[92dvh] overflow-y-auto rounded-t-3xl border-0 bg-card p-5 pb-8 sm:max-w-xl"
       >
         <SheetHeader className="space-y-1 p-0 pr-10 text-left">
-          <SheetTitle className="text-base font-bold">{bundle.networkLabel} {bundle.display}</SheetTitle>
-          <SheetDescription className="text-xs">Pay with your wallet · {cashbackOn ? priceLabel(bundle.amount, { pay: payShown, cashback: bundle.amount - payShown, applied: true }) : money(payShown)}</SheetDescription>
+          <SheetTitle className="text-base font-bold">{bundle.networkLabel} {sizeLabel}</SheetTitle>
+          <SheetDescription className="text-xs">Pay with your wallet · {cashbackOn ? priceLabel(face, { pay: payShown, cashback: face - payShown, applied: true }) : money(payShown)}</SheetDescription>
         </SheetHeader>
 
         <div className="mt-5 space-y-4">
@@ -181,10 +188,10 @@ export function BundleBuySheet({
 
               <div className="space-y-2 rounded-2xl border border-white/60 dark:border-white/5 bg-background p-4 text-sm clay-sm">
                 {cashbackOn ? (
-                  <PriceSummary pay={payShown} receive={bundleReceiveLabel(bundle.category, bundle.display)} balance={balance} />
+                  <PriceSummary pay={payShown} receive={bundleReceiveLabel(bundle.category, sizeLabel)} balance={balance} />
                 ) : (
                   <>
-                    <Row k="Bundle" v={`${bundle.networkLabel} ${bundle.display}`} />
+                    <Row k="Bundle" v={`${bundle.networkLabel} ${sizeLabel}`} />
                     <Row k="Price" v={money(payShown)} />
                     {balance !== null && <Row k="Wallet balance" v={money(balance)} />}
                   </>
@@ -226,7 +233,7 @@ export function BundleBuySheet({
                 <h3 className="text-lg font-bold text-foreground">{doneStatus === "completed" ? "Delivered" : "Processing"}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {doneStatus === "completed"
-                    ? `${bundle.display} has been sent to ${phone.trim()}.`
+                    ? `${sizeLabel} has been sent to ${phone.trim()}.`
                     : "Processing — we'll notify you when it completes."}
                 </p>
                 {reference && <p className="mt-2 font-mono text-xs text-muted-foreground">Ref: {reference}</p>}

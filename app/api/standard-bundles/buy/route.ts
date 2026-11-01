@@ -1,12 +1,20 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { getBundlesRuntime, pickOrder } from "@/lib/standard-bundles/runtime"
 import { buyBundle } from "@/lib/standard-bundles/service"
+import { buySpecial } from "@/lib/standard-bundles/special-service"
+import { buildSpecialDeps } from "@/lib/standard-bundles/special-runtime"
+import { isSpecialTokenSigned } from "@/lib/standard-bundles/token"
 import { authenticate, readJson } from "@/lib/bills/route-auth"
 
-// A request must always die well before the 5-minute stuck-claim threshold.
-export const maxDuration = 60
+// 300s: room for the Special dispatch loop, which stops itself after a 240s budget (special-service.ts). A normal
+// buy only gains headroom.
+// COUPLED to STUCK_CLAIM_MS (300s, lib/standard-bundles/admin.ts): a "Dispatching…" claim older than that is treated
+// as dead and can be released/refunded by an admin. Still safe at equal values, because a claim is always written
+// AFTER the request starts, so a live request's claim is always younger than maxDuration. Margin is zero: never
+// raise maxDuration above STUCK_CLAIM_MS (or lower STUCK_CLAIM_MS) without moving the other.
+export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,6 +37,16 @@ export async function POST(request: NextRequest) {
     const ep = body.expectedPay
     const expectedPay = typeof ep === "number" && Number.isFinite(ep) ? ep
       : typeof ep === "string" && /^\d+(\.\d+)?$/.test(ep.trim()) ? Number(ep.trim()) : undefined
+
+    // Special Bundles: a token carrying the special MAC goes to buySpecial (which verifies it in full, freshness
+    // included, after its replay lookup). Every other token takes the normal path below, unchanged.
+    if (isSpecialTokenSigned(token, deps.secret)) {
+      const s = await buySpecial(buildSpecialDeps(deps, db, after), auth.userId, { token, phone, idempotencyKey, expectedPay })
+      if (!s.ok) {
+        return NextResponse.json({ success: false, error: s.error, ...(s.quote ? { quote: s.quote } : {}) }, { status: s.status })
+      }
+      return NextResponse.json({ success: true, order: pickOrder(s.order), special: s.special })
+    }
 
     const result = await buyBundle(deps, auth.userId, { token, phone, idempotencyKey, expectedPay })
     if (!result.ok) {
