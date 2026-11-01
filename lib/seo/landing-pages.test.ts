@@ -330,3 +330,33 @@ describe("become-a-data-reseller", () => {
     expect(join.faqs.map((f) => f.question)).not.toEqual(expect.arrayContaining(e.faqs.map((f) => f.question)))
   })
 })
+
+describe("at-ishare-data", () => {
+  const e = getLanding("at-ishare-data")
+
+  it("shows only the AT iShare rows, whatever the network spelling", () => {
+    const f = facts({
+      packages: [
+        ...PACKAGES,
+        { network: "AT-iShare", size: "2", price: 7, is_available: true },
+        { network: "AT - ISHARE", size: "3", price: 10, is_available: true, description: "No expiry" },
+      ],
+    })
+    const rows = landingRows(e, f.dataPrices)
+    expect(rows.map((r) => `${r.type}|${r.size}|${r.price}`)).toEqual(["iShare|1GB|4", "iShare|2GB|7", "iShare|3GB|10"])
+  })
+
+  it("is off when no iShare row is on sale, failed when the read failed", () => {
+    expect(landingAvailability(e, facts())).toBe("ok")
+    expect(landingAvailability(e, facts({ packages: PACKAGES.filter((p) => !/ishare/i.test(p.network)) }))).toBe("off")
+    expect(landingAvailability(e, facts({ packages: null }, ["packages"]))).toBe("failed")
+  })
+
+  it("sits under the AT data page in the breadcrumb, and its catalog is iShare only", () => {
+    const rows = landingRows(e, facts().dataPrices)
+    const crumbs = landingCrumbs(e, PRODUCTS.find((p) => p.key === e.parent))
+    expect(crumbs.map((c) => c.path)).toEqual(["/", "/services", "/at-data", "/at-ishare-data"])
+    const [catalog] = buildLandingJsonLd(e, rows, crumbs) as any[]
+    expect(catalog.itemListElement.map((o: any) => o.name)).toEqual(["AT iShare 1GB"])
+  })
+})

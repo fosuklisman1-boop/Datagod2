@@ -25,7 +25,11 @@ import { PAY_LINE, REFUND_LINE, SPEED_LINE, type Faq, type ProductKey } from "./
 import type { FactSource, LiveFacts } from "./live-facts"
 import { DATA_NETS, type DataNet, type DataPriceTables, type PriceRow } from "./data-prices"
 
-export type LandingKey = "data-bundle-prices" | "non-expiry-data-bundles" | "become-a-data-reseller"
+export type LandingKey =
+  | "data-bundle-prices"
+  | "non-expiry-data-bundles"
+  | "become-a-data-reseller"
+  | "at-ishare-data"
 
 /**
  * - "prices":     every public data row, one table per network
@@ -324,6 +328,72 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
     relatedProducts: ["join", "mtn-data", "telecel-data", "at-data", "ussd"],
     footerLabel: "Become a data reseller",
     priority: 0.8,
+    updated: "2026-11-01",
+  },
+  {
+    key: "at-ishare-data",
+    path: "/at-ishare-data",
+    name: "AT iShare Data Bundles",
+    h1: "AT iShare data bundles",
+    title: "AT iShare Data Bundles: Prices in Ghana | DATAGOD",
+    description:
+      "Buy AT iShare data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Live iShare prices, sent to the AT number you choose.",
+    lede:
+      "AT iShare bundles are one of the AT data products DATAGOD sells. Pick an iShare bundle from the table, enter the AT number it should go to and pay from your wallet. The table lists only the iShare bundles on sale right now, with the price you pay for each.",
+    kind: "at-type",
+    atType: "iShare",
+    source: "packages",
+    parent: "at-data",
+    sections: [
+      {
+        heading: "How AT iShare bundles work on DATAGOD",
+        paragraphs: [
+          "iShare is AT's data-sharing service: the bundle you choose is shared onto the AT number you enter, which can be your own line or someone else's. You do not need an AT line yourself to buy, only the number the data should go to.",
+          "AT numbers start with 026, 027, 056 or 057. Check the number twice before you pay, because data shared to the wrong line cannot be taken back.",
+          "Our catalogue lists iShare separately from AT's other data products, so every row here is an iShare bundle. Where a row's description records how long the bundle lasts, the validity appears next to the size.",
+        ],
+      },
+      {
+        heading: "Choosing an iShare bundle",
+        paragraphs: [
+          "The table runs from the smallest iShare bundle to the largest. Think about how much the person on the receiving line uses: a few messages a day needs far less than streaming or working online, and buying a smaller bundle more often avoids paying for data that goes unused.",
+          "Comparing with other AT data? The AT data page lists every AT bundle we sell, grouped by type, so you can see the iShare rows next to the rest.",
+        ],
+      },
+      {
+        heading: "Paying and tracking your order",
+        paragraphs: [
+          "Fund your DATAGOD wallet with Mobile Money (MoMo) or a card through Paystack, then buy iShare bundles from that balance. One MoMo approval tops up the wallet and each bundle after that is paid from your balance, which makes it easy to share data to several numbers in one sitting.",
+          "Every order appears in your order history with its status, so you can see when the data has been shared. If something looks wrong, our support team is on WhatsApp.",
+        ],
+      },
+      {
+        heading: "Selling AT iShare data",
+        paragraphs: [
+          "Resellers can add AT iShare bundles to their DATAGOD shop, set a selling price above their cost and let customers order from the shop link. Our reseller guide explains how margins, sub-agents and withdrawals work.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        question: "What is AT iShare?",
+        answer: "It is AT's data-sharing service. When you buy an iShare bundle on DATAGOD, the data is shared onto the AT number you enter.",
+      },
+      {
+        question: "Can I buy iShare data for another person?",
+        answer: "Yes. Enter their AT number when you order. Make sure it is an AT number, starting 026, 027, 056 or 057.",
+      },
+      speedFaq("How fast is AT iShare data delivered?", "You can track every order from your order history."),
+      refundFaq(),
+      payFaq(),
+      {
+        question: "Why can't I see the iShare bundle I want?",
+        answer: "The table only lists iShare bundles on sale right now. A size that is out of stock drops off until it is back.",
+      },
+    ],
+    relatedProducts: ["at-data", "mtn-data", "telecel-data", "join"],
+    footerLabel: "AT iShare data",
+    priority: 0.7,
     updated: "2026-11-01",
   },
 ]
