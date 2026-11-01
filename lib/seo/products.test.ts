@@ -140,3 +140,16 @@ describe("product registry", () => {
     expect(() => getProduct("nope" as ProductKey)).toThrow()
   })
 })
+
+describe("findProduct / findProductByPath", () => {
+  it("finds registry entries and nothing else", async () => {
+    const { findProduct, findProductByPath } = await import("./products")
+    expect(findProduct("mtn-data")?.path).toBe("/mtn-data")
+    expect(findProduct("retired-product")).toBeUndefined()
+    expect(findProductByPath("/pay-dstv")?.key).toBe("pay-dstv")
+    expect(findProductByPath("/pay-dstv/")?.key).toBe("pay-dstv")
+    expect(findProductByPath("/")).toBeUndefined()
+    expect(findProductByPath("/shop/kofi")).toBeUndefined()
+    expect(findProductByPath(null)).toBeUndefined()
+  })
+})

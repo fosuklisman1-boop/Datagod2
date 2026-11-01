@@ -1,6 +1,7 @@
 /**
- * JSON-LD for public product pages: Service (+ Offer when a live "from" price
- * is known, + OfferCatalog on data pages with a price table), FAQPage and
+ * JSON-LD for public product pages: Service (+ Offer when the product is on and
+ * a live "from" price is known, + OfferCatalog on data pages with a price
+ * table), FAQPage and
  * BreadcrumbList. Pure.
  *
  * Never emits ratings or reviews: DATAGOD has no verified review data, and
@@ -108,8 +109,9 @@ export function buildOfferCatalog(p: ProductEntry, rows: readonly PriceRow[]): o
 
 export function buildServiceJsonLd(p: ProductEntry, f: ProductFacts, rows: readonly PriceRow[] = []): object {
   const url = absoluteUrl(p.path)
-  const catalog = buildOfferCatalog(p, rows)
-  const hasPrice = typeof f.fromPrice === "number" && Number.isFinite(f.fromPrice) && f.fromPrice > 0
+  // A product that is switched off has nothing on offer: no Offer, no OfferCatalog.
+  const catalog = f.available ? buildOfferCatalog(p, rows) : null
+  const hasPrice = f.available && typeof f.fromPrice === "number" && Number.isFinite(f.fromPrice) && f.fromPrice > 0
   return {
     "@context": CONTEXT,
     "@type": "Service",

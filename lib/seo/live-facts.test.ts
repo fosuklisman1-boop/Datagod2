@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import {
   buildLiveFacts, FALLBACK_FACTS, formatCedis, networkOf, readSmsPricePerCredit, loadRawFacts,
-  resolveLiveFacts, PartialFactsError, type RawFacts,
+  resolveLiveFacts, PartialFactsError, productFactsLoaded, FACT_SOURCES, PRODUCT_SOURCE, LiveFactsUnavailableError,
+  type RawFacts,
 } from "./live-facts"
 import { resolveBillsConfig } from "@/lib/bills/config"
 import { PRODUCTS } from "./products"
@@ -305,6 +306,13 @@ describe("loadRawFacts", () => {
     expect(f.products.developers.available).toBe(false)
     expect(f.products.ussd.available).toBe(false)
     expect(f.ussd).toEqual({ main: null, shop: null })
+    // ...and with the failure list, those are "unknown", not "off"
+    const known = buildLiveFacts(r, failed)
+    expect(known.failedSources.sort()).toEqual(["afa", "api-v2", "bills", "results", "ussd"])
+    for (const k of ["afa-registration", "developers", "ussd", "utility-bills", "pay-dstv", "results-checker"] as const) {
+      expect(productFactsLoaded(k, known), k).toBe(false)
+    }
+    for (const k of ["mtn-data", "airtime", "join", "whatsapp", "bulk-sms"] as const) expect(productFactsLoaded(k, known), k).toBe(true)
     expect(f.products["utility-bills"].available).toBe(false)
     expect(f.products["pay-dstv"].available).toBe(false)
     expect(f.products["results-checker"].available).toBe(false)
@@ -338,9 +346,43 @@ describe("resolveLiveFacts", () => {
     const f = await resolveLiveFacts(async () => { throw new PartialFactsError(partial, ["api-v2"]) })
     expect(f.products.developers.available).toBe(false)
     expect(f.products["mtn-data"]).toBeDefined()
+    // the failed source travels with the result, so /developers is "unknown", not "off"
+    expect(f.failedSources).toEqual(["api-v2"])
+    expect(productFactsLoaded("developers", f)).toBe(false)
+    expect(productFactsLoaded("mtn-data", f)).toBe(true)
   })
   it("returns FALLBACK_FACTS on any other error", async () => {
     expect(await resolveLiveFacts(async () => { throw new Error("cache down") })).toBe(FALLBACK_FACTS)
+  })
+})
+
+describe("failed vs off", () => {
+  it("a complete read has no failed sources: an off product is really off", () => {
+    const f = buildLiveFacts(raw({ apiV2Enabled: false, bills: null }))
+    expect(f.failedSources).toEqual([])
+    expect(f.products.developers.available).toBe(false)
+    expect(productFactsLoaded("developers", f)).toBe(true)
+    expect(productFactsLoaded("pay-dstv", f)).toBe(true)
+  })
+
+  it("FALLBACK_FACTS marks every source failed, so only always-on products count as loaded", () => {
+    expect([...FALLBACK_FACTS.failedSources].sort()).toEqual([...FACT_SOURCES].sort())
+    for (const p of PRODUCTS) expect(productFactsLoaded(p.key, FALLBACK_FACTS), p.key).toBe(PRODUCT_SOURCE[p.key] === null)
+  })
+
+  it("ignores unknown source names", () => {
+    expect(buildLiveFacts(raw(), ["nope", "ussd"]).failedSources).toEqual(["ussd"])
+  })
+
+  it("maps every registry product to a source (or null)", () => {
+    for (const p of PRODUCTS) expect(PRODUCT_SOURCE[p.key], p.key).not.toBeUndefined()
+  })
+
+  it("LiveFactsUnavailableError names the product and sources", () => {
+    const e = new LiveFactsUnavailableError("pay-dstv", ["bills"])
+    expect(e.name).toBe("LiveFactsUnavailableError")
+    expect(e.message).toContain("pay-dstv")
+    expect(e.message).toContain("bills")
   })
 })
 

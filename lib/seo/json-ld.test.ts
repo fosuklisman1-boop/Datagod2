@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { buildProductJsonLd, buildSiteJsonLd, DATAGOD_ORGANIZATION, ORG_ID, offerPrice } from "./json-ld"
 import { buildProductMetadata, availableEntries, liveBillerEntries, pageAvailability } from "./page-meta"
 import { getProduct, PRODUCTS, type ProductKey } from "./products"
-import { buildLiveFacts, FAILED_RAW, type ProductFacts } from "./live-facts"
+import { buildLiveFacts, FAILED_RAW, FALLBACK_FACTS, type ProductFacts } from "./live-facts"
 import { buildPriceTables, rowLabel } from "./data-prices"
 import { resolveBillsConfig } from "@/lib/bills/config"
 
@@ -183,15 +183,39 @@ describe("page helpers", () => {
 })
 
 describe("pageAvailability", () => {
-  it("is missing for a dark product (fail-closed facts)", () => {
+  it("is off for a product that is really switched off (complete read)", () => {
     const facts = buildLiveFacts(FAILED_RAW)
-    expect(pageAvailability("ussd", facts)).toBe("missing")
-    expect(pageAvailability("pay-dstv", facts)).toBe("missing")
+    expect(pageAvailability("ussd", facts)).toBe("off")
+    expect(pageAvailability("pay-dstv", facts)).toBe("off")
   })
   it("is ok when the product is available", () => {
     const facts = buildLiveFacts(FAILED_RAW)
     facts.products.ussd = { ...facts.products.ussd, available: true }
     expect(pageAvailability("ussd", facts)).toBe("ok")
+  })
+  it("is failed when the product's source could not be read, even if fail-open says available", () => {
+    const facts = buildLiveFacts(FAILED_RAW, ["bills", "packages"])
+    expect(pageAvailability("pay-dstv", facts)).toBe("failed")
+    expect(pageAvailability("utility-bills", facts)).toBe("failed")
+    expect(facts.products["mtn-data"].available).toBe(true)
+    expect(pageAvailability("mtn-data", facts)).toBe("failed")
+    // other products are judged on their own source
+    expect(pageAvailability("ussd", facts)).toBe("off")
+  })
+  it("every source failed (FALLBACK_FACTS): every template page is failed, never off", () => {
+    for (const p of PRODUCTS.filter((x) => x.hasOwnPage)) expect(pageAvailability(p.key, FALLBACK_FACTS), p.key).toBe("failed")
+  })
+})
+
+describe("buildProductJsonLd for an off product", () => {
+  it("has no Offer and no OfferCatalog, even with a known price and rows", () => {
+    const mtn = getProduct("mtn-data")
+    const rows = buildPriceTables([{ network: "MTN", size: "1", price: 5, is_available: true }]).MTN
+    const off: ProductFacts = { available: false, fromPrice: 5, parts: [] }
+    const service = byType(buildProductJsonLd(mtn, off, rows), "Service")
+    expect(service.offers).toBeUndefined()
+    expect(service.hasOfferCatalog).toBeUndefined()
+    expect(service.name).toBe(mtn.name)
   })
 })
 

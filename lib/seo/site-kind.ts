@@ -76,3 +76,10 @@ export function isMainSiteFromHeaders(
   if (kind) return kind === "main"
   return !h.domainSiteName && isMainHostName(h.host, rootDomain)
 }
+
+/**
+ * The request pathname as middleware saw it (before any shop rewrite). The
+ * root layout reads it to know which product page it is wrapping; layouts
+ * get no pathname from Next.
+ */
+export const REQUEST_PATH_HEADER = "x-request-path"

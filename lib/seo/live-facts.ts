@@ -5,8 +5,14 @@
  * "seo-live-facts" tag. Each source is read independently and fails closed
  * (see FAILED_RAW): switches go off, prices go null, the data catalog stays
  * on. A result with any failed source is never cached, so a DB blip neither
- * 500s a page nor advertises a dark product for an hour.
+ * 500s the site nor advertises a dark product for an hour.
+ *
+ * The result also lists which sources failed (failedSources), so a product
+ * page can tell "the admin switched this off" (render it, 200) apart from
+ * "we could not read whether it is on" (answer 5xx so crawlers retry); see
+ * productFactsLoaded().
  */
+import { cache } from "react"
 import { unstable_cache } from "next/cache"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { supabaseAdmin } from "@/lib/supabase"
@@ -26,11 +32,63 @@ export interface ProductFacts {
   parts: string[]
 }
 
+/** One independently-read source of live facts (see loadRawFacts). */
+export type FactSource = "packages" | "afa" | "airtime" | "bills" | "results" | "sms" | "api-v2" | "ussd"
+
+export const FACT_SOURCES: readonly FactSource[] = ["packages", "afa", "airtime", "bills", "results", "sms", "api-v2", "ussd"]
+
 export type LiveFacts = {
   products: Record<ProductKey, ProductFacts>
   ussd: PublicUssdCodes
   /** Public data price tables per network (packages.price); null when the packages read failed. */
   dataPrices: DataPriceTables | null
+  /**
+   * Sources whose read failed for this result. Their products carry fail-closed
+   * values, so `available: false` there means "unknown", not "switched off".
+   */
+  failedSources: FactSource[]
+}
+
+/**
+ * The source each product's own facts (availability, from-price) come from;
+ * null for products that are always on and have no price.
+ */
+export const PRODUCT_SOURCE: Record<ProductKey, FactSource | null> = {
+  "mtn-data": "packages",
+  "telecel-data": "packages",
+  "at-data": "packages",
+  airtime: "airtime",
+  "afa-registration": "afa",
+  "utility-bills": "bills",
+  "ecg-prepaid": "bills",
+  "ghana-water": "bills",
+  "pay-dstv": "bills",
+  "pay-gotv": "bills",
+  startimes: "bills",
+  "telecel-broadband": "bills",
+  "results-checker": "results",
+  "bulk-sms": "sms",
+  developers: "api-v2",
+  ussd: "ussd",
+  join: null,
+  whatsapp: null,
+}
+
+/** False when the source behind this product's facts failed to load (its facts are fail-closed guesses). */
+export function productFactsLoaded(key: ProductKey, facts: LiveFacts): boolean {
+  const src = PRODUCT_SOURCE[key]
+  return src === null || !(facts.failedSources ?? []).includes(src)
+}
+
+/**
+ * Thrown by a product page whose facts could not be read. Not caught by the
+ * page, so Next answers 500 and nothing is cached; see components/seo/product-page.tsx.
+ */
+export class LiveFactsUnavailableError extends Error {
+  constructor(readonly key: ProductKey, readonly failedSources: readonly FactSource[]) {
+    super(`seo live facts unavailable for ${key} (failed: ${failedSources.join(", ") || "unknown"})`)
+    this.name = "LiveFactsUnavailableError"
+  }
 }
 
 type Net = "MTN" | "Telecel" | "AT"
@@ -84,7 +142,8 @@ function positive(v: unknown): number | null {
 const minOf = (xs: number[]): number | null => (xs.length ? Math.min(...xs) : null)
 const fact = (available: boolean, fromPrice: number | null = null, parts: string[] = []): ProductFacts => ({ available, fromPrice, parts })
 
-export function buildLiveFacts(raw: RawFacts): LiveFacts {
+/** `failed`: names of sources whose read failed (unknown names are ignored). */
+export function buildLiveFacts(raw: RawFacts, failed: readonly string[] = []): LiveFacts {
   const products = {} as Record<ProductKey, ProductFacts>
 
   // Data — per network, lowest available positive price.
@@ -145,6 +204,7 @@ export function buildLiveFacts(raw: RawFacts): LiveFacts {
     products,
     ussd: { main: raw.ussd?.main ?? null, shop: raw.ussd?.shop ?? null },
     dataPrices: raw.packages === null ? null : buildPriceTables(raw.packages),
+    failedSources: FACT_SOURCES.filter((src) => failed.includes(src)),
   }
 }
 
@@ -169,7 +229,7 @@ export const FAILED_RAW: RawFacts = {
  * "Every read failed": data pages on (no prices); bills, results, AFA,
  * airtime, developers and USSD off; join, whatsapp and bulk-sms on.
  */
-export const FALLBACK_FACTS: LiveFacts = buildLiveFacts(FAILED_RAW)
+export const FALLBACK_FACTS: LiveFacts = buildLiveFacts(FAILED_RAW, FACT_SOURCES)
 
 /**
  * "GH₵3.50" for amounts >= 1; below 1 keep up to 3 decimals, trimming
@@ -231,9 +291,9 @@ const DEFAULT_DEPS: LoaderDeps = { isAirtimeEnabled, getAirtimeLimits }
 export async function loadRawFacts(
   db: Db,
   deps: LoaderDeps = DEFAULT_DEPS,
-): Promise<{ raw: RawFacts; failed: string[] }> {
-  const failed: string[] = []
-  async function source<T>(name: string, fallback: T, read: () => Promise<T>): Promise<T> {
+): Promise<{ raw: RawFacts; failed: FactSource[] }> {
+  const failed: FactSource[] = []
+  async function source<T>(name: FactSource, fallback: T, read: () => Promise<T>): Promise<T> {
     try {
       return await read()
     } catch {
@@ -324,9 +384,9 @@ async function loadCompleteLiveFacts(): Promise<LiveFacts> {
   return buildLiveFacts(raw)
 }
 
-// "v2": the cached shape gained dataPrices; a new key so an entry cached by an
-// older deploy (without it) is never served.
-const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts", "v2"], {
+// "v3": the cached shape gained failedSources (v2: dataPrices); a new key so an
+// entry cached by an older deploy (without it) is never served.
+const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts", "v3"], {
   revalidate: 3600,
   tags: ["seo-live-facts"],
 })
@@ -340,11 +400,16 @@ export async function resolveLiveFacts(load: () => Promise<LiveFacts>): Promise<
     const pe = e as Partial<PartialFactsError> | null
     if (pe?.name === "PartialFactsError" && pe.raw && Array.isArray(pe.failed)) {
       console.error("[seo-live-facts] partial read, not cached; failed sources:", pe.failed.join(", "))
-      return buildLiveFacts(pe.raw)
+      return buildLiveFacts(pe.raw, pe.failed)
     }
     console.error("[seo-live-facts] falling back to defaults:", e instanceof Error ? e.message : "unknown error")
     return FALLBACK_FACTS
   }
 }
 
-export const getLiveFacts = (): Promise<LiveFacts> => resolveLiveFacts(cachedLiveFacts)
+/**
+ * React cache(): one read per request, so the root layout's product-page gate,
+ * generateMetadata and the page all see the same result (a partial result is
+ * not in the data cache, so separate calls could otherwise disagree).
+ */
+export const getLiveFacts = cache((): Promise<LiveFacts> => resolveLiveFacts(cachedLiveFacts))

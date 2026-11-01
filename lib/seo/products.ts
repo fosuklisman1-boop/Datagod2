@@ -606,6 +606,18 @@ export const PRODUCTS: readonly ProductEntry[] = [
 
 const BY_KEY = new Map<ProductKey, ProductEntry>(PRODUCTS.map((p) => [p.key, p]))
 
+/** The registry entry for `key`, or undefined when it is not (or no longer) in the registry. */
+export function findProduct(key: string): ProductEntry | undefined {
+  return BY_KEY.get(key as ProductKey)
+}
+
+/** The registry entry whose page lives at `path` ("/mtn-data", trailing slash ignored), if any. */
+export function findProductByPath(path: string | null | undefined): ProductEntry | undefined {
+  if (!path) return undefined
+  const p = path.length > 1 ? path.replace(/\/+$/, "") : path
+  return PRODUCTS.find((e) => e.path === p)
+}
+
 export function getProduct(key: ProductKey): ProductEntry {
   const p = BY_KEY.get(key)
   if (!p) throw new Error(`Unknown product key: ${key}`)

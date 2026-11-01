@@ -6,7 +6,7 @@ import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 import { apiHostRewrite } from "@/lib/api-v2/host"
-import { SITE_KIND_HEADER, classifySiteKind } from "@/lib/seo/site-kind"
+import { REQUEST_PATH_HEADER, SITE_KIND_HEADER, classifySiteKind } from "@/lib/seo/site-kind"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -231,6 +231,8 @@ export async function middleware(request: NextRequest) {
     const h = new Headers(request.headers)
     h.set("x-nonce", nonce)
     h.set(SITE_KIND_HEADER, siteKind)
+    // Lets the root layout answer 5xx for a product page whose live facts failed (lib/seo/product-status.ts).
+    h.set(REQUEST_PATH_HEADER, path)
     // Always clear any inherited/client-supplied x-domain-* headers first, then
     // re-set them only when genuinely resolved below. Without this, a request
     // to the main site that happens to carry a client-supplied x-domain-services

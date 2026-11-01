@@ -18,6 +18,7 @@ import { MaintenanceScreen } from "@/components/maintenance-screen";
 import { HTML_LANG, ROOT_DESCRIPTION, ROOT_LOCALE, ROOT_TITLE, siteVerification } from "@/lib/seo/root-meta";
 import { buildSiteJsonLd } from "@/lib/seo/json-ld";
 import { isMainSiteRequest } from "@/lib/seo/site";
+import { assertProductFactsLoaded } from "@/lib/seo/product-status";
 
 // Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -211,6 +212,10 @@ export default async function RootLayout({
   // env var (set to "true"); requires a redeploy to take effect on Vercel.
   const maintenanceMode = process.env.MAINTENANCE_MODE === "true";
   const mainSite = await isMainSiteRequest();
+  // A product page whose live facts failed to load must answer 5xx, not a
+  // streamed 200 (see lib/seo/product-status.ts). Thrown here, outside the
+  // app/loading.tsx Suspense boundary, so Next turns it into a 500.
+  if (!maintenanceMode) await assertProductFactsLoaded();
 
   return (
     <html lang={HTML_LANG} suppressHydrationWarning>
