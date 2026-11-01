@@ -3,8 +3,10 @@ import { loadStorefrontSummary } from "@/lib/shop-commerce/storefront-summary"
 import { buildShopItemListJsonLd } from "@/lib/shop-commerce/price-table"
 import { shopCanonicalBase, shopRequestContext } from "@/lib/seo/shop-canonical"
 import { SITE_URL } from "@/lib/seo/site"
+import { showsPoweredByFooter } from "@/lib/seo/site-kind"
 import ShopStorefront from "./storefront-client"
 import { StorefrontSummary } from "./storefront-summary"
+import { PoweredByFooter } from "./powered-by-footer"
 
 function JsonLd({ data }: { data: unknown }) {
   return (
@@ -61,6 +63,8 @@ export default async function ShopPage({
         }
       : null
 
+  const showPoweredBy = showsPoweredByFooter(siteKind)
+
   return (
     <>
       {breadcrumb && <JsonLd data={breadcrumb} />}
@@ -68,6 +72,7 @@ export default async function ShopPage({
       <ShopStorefront
         initialLogoUrl={shop.logo_url ?? null}
         initialShopName={shop.shop_name ?? null}
+        showPoweredBy={showPoweredBy}
         serverSummary={
           <StorefrontSummary
             shopName={shop.shop_name}
@@ -77,6 +82,7 @@ export default async function ShopPage({
             showPrices={sellsData}
             whatsappLink={summary?.whatsappLink ?? null}
             accentColor={shop.custom_color}
+            footer={showPoweredBy ? <PoweredByFooter /> : null}
           />
         }
       />

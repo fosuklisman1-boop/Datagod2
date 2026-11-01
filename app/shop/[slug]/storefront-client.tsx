@@ -67,6 +67,7 @@ import { toast } from "sonner"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
 import { StorefrontServicesCarousel, type StorefrontCarouselSlide } from "@/components/shop/StorefrontServicesCarousel"
+import { PoweredByFooter } from "./powered-by-footer"
 
 // Real public brand colors for the 3 Ghana MoMo providers -- used to tint the
 // checkout sheet by the package's data network, not the shop's own branding.
@@ -124,9 +125,12 @@ interface ShopStorefrontProps {
   // crawlers and no-JS visitors, and replaced by the interactive UI below
   // once this component's own data has loaded (never both at once).
   serverSummary?: React.ReactNode
+  // "Powered by DATAGOD" footer: <shop>.datagod.store only, decided on the
+  // server from x-site-kind (custom domains are white-labelled).
+  showPoweredBy?: boolean
 }
 
-export default function ShopStorefront({ initialLogoUrl, initialShopName, serverSummary }: ShopStorefrontProps) {
+export default function ShopStorefront({ initialLogoUrl, initialShopName, serverSummary, showPoweredBy = false }: ShopStorefrontProps) {
   const params = useParams()
   const router = useRouter()
   const shopSlug = params.slug as string
@@ -1731,6 +1735,8 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
           </div>
         </div>
       </div>
+
+      {showPoweredBy && <PoweredByFooter />}
 
       {/* Floating WhatsApp button — persistent across tabs, same real
           shopSettings.whatsapp_link the hero used to bury a text button for. */}

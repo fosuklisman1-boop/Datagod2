@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { classifySiteKind, isMainHostName, isMainSiteFromHeaders, parseSiteKind } from "./site-kind"
+import { classifySiteKind, isMainHostName, isMainSiteFromHeaders, parseSiteKind, showsPoweredByFooter } from "./site-kind"
 
 const none = { shopSubdomain: null, customDomain: false }
 
@@ -64,5 +64,15 @@ describe("isMainHostName", () => {
   it("is the plain host check", () => {
     expect(isMainHostName("www.datagod.store")).toBe(true)
     expect(isMainHostName("myshop.datagod.store")).toBe(false)
+  })
+})
+
+describe("showsPoweredByFooter", () => {
+  it("shows on shop subdomains", () => {
+    expect(showsPoweredByFooter("shop")).toBe(true)
+    expect(showsPoweredByFooter(" SHOP ")).toBe(true)
+  })
+  it.each(["custom", "main", null, undefined, "", "bogus"])("hides for %s", (kind) => {
+    expect(showsPoweredByFooter(kind)).toBe(false)
   })
 })

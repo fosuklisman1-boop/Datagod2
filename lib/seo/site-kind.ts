@@ -83,3 +83,12 @@ export function isMainSiteFromHeaders(
  * get no pathname from Next.
  */
 export const REQUEST_PATH_HEADER = "x-request-path"
+
+/**
+ * The "Powered by DATAGOD" storefront footer goes only on <shop>.datagod.store
+ * subdomains. Custom domains are white-labelled, and an unknown kind (a
+ * request middleware did not classify) fails closed.
+ */
+export function showsPoweredByFooter(kind: string | null | undefined): boolean {
+  return parseSiteKind(kind) === "shop"
+}
