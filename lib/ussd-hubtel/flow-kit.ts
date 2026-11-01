@@ -49,6 +49,12 @@ export interface RouterDeps {
    * (not sellable). Must fail open; callers also time it out.
    */
   verifyRecipient?(phoneLocal: string): Promise<boolean | "blocked">
+  /**
+   * Keep a task running after the reply is sent (Next.js after()). Used so a recipient check that
+   * outlives the confirm screen's short wait still finishes and caches its verdict for the pay step.
+   * Optional: without it the task is simply left to run detached.
+   */
+  defer?(task: () => Promise<unknown>): void
 }
 
 export interface FlowCtx {
