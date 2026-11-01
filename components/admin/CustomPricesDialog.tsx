@@ -6,16 +6,18 @@ import { Loader2, Save, Info, AlertCircle } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { computeChanges, warningFor, type CustomPriceRow } from "@/lib/pricing/custom-prices-dialog"
+import { bulkPreview, computeChanges, warningFor, type BulkBase, type BulkMode, type CustomPriceRow } from "@/lib/pricing/custom-prices-dialog"
 
 type Mode = "role" | "custom"
 type SubTab = "manual" | "bulk"
-type BulkMode = "per_gb" | "discount"
+const ALL = "all"
 
 // Same look as the Data Bundles tab of /dashboard/shop-pricing: segmented tabs, network
 // buttons with counts, a card per package, and a Bulk tab with a preview table. Unlike the
 // shop page, nothing is saved per card: Bulk only fills the inputs, and one Save sends
-// every change in a single request (the route validates the batch as a whole).
+// every change in a single request (the route validates the batch as a whole). Bulk mirrors the
+// admin Packages bulk tool: all networks or one, a per-GB rate or a signed % adjustment of a
+// chosen base, select all/none, and clearing custom prices in bulk.
 export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSaved }: {
   userId: string | null
   userLabel: string
@@ -37,6 +39,7 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
   const [subTab, setSubTab] = useState<SubTab>("manual")
   const [network, setNetwork] = useState("")
   const [bulkMode, setBulkMode] = useState<BulkMode>("per_gb")
+  const [bulkBase, setBulkBase] = useState<BulkBase>("role")
   const [bulkRate, setBulkRate] = useState("")
   const [bulkNetwork, setBulkNetwork] = useState("")
   const [bulkSelected, setBulkSelected] = useState<Record<string, boolean>>({})
@@ -70,7 +73,7 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
         setInputs(Object.fromEntries(json.packages.map((p: CustomPriceRow) => [p.id, p.custom_price == null ? "" : p.custom_price.toFixed(2)])))
         const first = json.packages[0]?.network ?? ""
         setNetwork(first)
-        setBulkNetwork(first)
+        setBulkNetwork(ALL)
         setLoadedFor(userId)
       } catch (e) {
         if (cancelled) return
@@ -106,30 +109,42 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
     })
   }
 
-  const bulkPreview = useMemo(() => {
-    const rate = parseFloat(bulkRate)
-    if (!isFinite(rate) || rate <= 0) return []
-    return rows
-      .filter((r) => r.network === bulkNetwork)
-      .map((r) => {
-        const sizeGb = parseFloat(String(r.size)) || 0
-        const next = bulkMode === "per_gb" ? rate * sizeGb : r.role_price * (1 - rate / 100)
-        const newPrice = Math.round(next * 100) / 100
-        const current = (inputs[r.id] ?? "").trim()
-        return { r, current, newPrice, valid: newPrice > 0, warn: newPrice > 0 ? warningFor(r, newPrice.toFixed(2)) : null }
-      })
-  }, [rows, inputs, bulkRate, bulkMode, bulkNetwork])
+  const bulkScope = useMemo(() => rows.filter((r) => bulkNetwork === ALL || r.network === bulkNetwork), [rows, bulkNetwork])
+  const preview = useMemo(() => {
+    const out = bulkPreview(rows, inputs, { mode: bulkMode, value: bulkRate, base: bulkBase, network: bulkNetwork })
+    return out ? new Map(out.map((p) => [p.row.id, p])) : null
+  }, [rows, inputs, bulkMode, bulkRate, bulkBase, bulkNetwork])
+  const isPicked = (id: string) => bulkSelected[id] !== false
+  const pickedRows = bulkScope.filter((r) => isPicked(r.id))
+  const allPicked = bulkScope.length > 0 && pickedRows.length === bulkScope.length
+  const fillable = preview ? pickedRows.filter((r) => preview.get(r.id)?.newPrice != null) : []
+
+  const setAllPicked = (on: boolean) =>
+    setBulkSelected((s) => ({ ...s, ...Object.fromEntries(bulkScope.map((r) => [r.id, on])) }))
+
+  const finishBulk = (message: string) => {
+    if (bulkNetwork !== ALL) setNetwork(bulkNetwork)
+    setSubTab("manual")
+    toast.success(message)
+  }
 
   const applyBulk = () => {
-    const picked = bulkPreview.filter((p) => p.valid && bulkSelected[p.r.id] !== false)
-    if (picked.length === 0) {
+    if (!preview || fillable.length === 0) {
       toast.error("Nothing to apply")
       return
     }
-    setInputs((s) => ({ ...s, ...Object.fromEntries(picked.map((p) => [p.r.id, p.newPrice.toFixed(2)])) }))
-    setNetwork(bulkNetwork)
-    setSubTab("manual")
-    toast.success(`Filled ${picked.length} price${picked.length === 1 ? "" : "s"}. Review, then Save.`)
+    setInputs((s) => ({ ...s, ...Object.fromEntries(fillable.map((r) => [r.id, preview.get(r.id)!.newPrice!.toFixed(2)])) }))
+    finishBulk(`Filled ${fillable.length} price${fillable.length === 1 ? "" : "s"}. Review, then Save.`)
+  }
+
+  const clearBulk = () => {
+    const withPrice = pickedRows.filter((r) => (inputs[r.id] ?? "").trim() !== "")
+    if (withPrice.length === 0) {
+      toast.error("None of the selected packages has a custom price")
+      return
+    }
+    setInputs((s) => ({ ...s, ...Object.fromEntries(withPrice.map((r) => [r.id, ""])) }))
+    finishBulk(`Cleared ${withPrice.length} price${withPrice.length === 1 ? "" : "s"}. Review, then Save.`)
   }
 
   const save = async () => {
@@ -188,7 +203,7 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!saving) onOpenChange(o) }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto p-0 gap-0 sm:max-w-3xl">
-        <div className="space-y-4 p-5 sm:p-6">
+        <div className="min-w-0 space-y-4 p-5 sm:p-6">
           <DialogHeader>
             <DialogTitle>Custom prices: {userLabel}</DialogTitle>
             <DialogDescription>
@@ -323,43 +338,59 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
                     <p className="text-sm font-bold text-foreground">Bulk Pricing</p>
                     <div className="inline-flex gap-1 rounded-full bg-muted p-1">
                       <button type="button" onClick={() => setBulkMode("per_gb")} className={`rounded-full px-3 py-1.5 text-xs font-bold ${bulkMode === "per_gb" ? "bg-[#1b388b] text-white" : "text-muted-foreground"}`}>Rate per GB (GHS)</button>
-                      <button type="button" onClick={() => setBulkMode("discount")} className={`rounded-full px-3 py-1.5 text-xs font-bold ${bulkMode === "discount" ? "bg-[#1b388b] text-white" : "text-muted-foreground"}`}>Discount (%)</button>
+                      <button type="button" onClick={() => setBulkMode("percent")} className={`rounded-full px-3 py-1.5 text-xs font-bold ${bulkMode === "percent" ? "bg-[#1b388b] text-white" : "text-muted-foreground"}`}>Adjust (%)</button>
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {bulkMode === "per_gb"
-                      ? "Sets a price per GB, e.g. 4 means 1GB → GHS 4.00, 2GB → GHS 8.00."
-                      : "Takes this percentage off each package's role price, e.g. 10 means a GHS 10.00 bundle → GHS 9.00."}
-                    {" "}Applying fills the prices for review; nothing is saved until you press Save.
+                      ? "Sets each price to size × rate, e.g. 4 means 1GB → GHS 4.00, 2GB → GHS 8.00."
+                      : "Moves the chosen base by this percentage: -10 is 10% less, +5 is 5% more."}
+                    {" "}Apply fills the prices for review; nothing is saved until you press Save.
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <select
                       value={bulkNetwork}
                       onChange={(e) => setBulkNetwork(e.target.value)}
                       aria-label="Network"
                       className="rounded-xl border border-white/60 dark:border-white/5 bg-background px-3 py-2.5 text-sm font-bold clay-inset"
                     >
+                      <option value={ALL}>All networks</option>
                       {networks.map((n) => <option key={n} value={n}>{n}</option>)}
                     </select>
-                    <div className="flex flex-1 items-center gap-1 rounded-xl border border-white/60 dark:border-white/5 bg-card px-3 py-2.5 clay">
+                    {bulkMode === "percent" && (
+                      <select
+                        value={bulkBase}
+                        onChange={(e) => setBulkBase(e.target.value as BulkBase)}
+                        aria-label="Adjust from"
+                        className="rounded-xl border border-white/60 dark:border-white/5 bg-background px-3 py-2.5 text-sm font-bold clay-inset"
+                      >
+                        <option value="role">of role price</option>
+                        <option value="dealer">of dealer price</option>
+                        <option value="custom">of current custom price</option>
+                      </select>
+                    )}
+                    <div className="flex min-w-[8rem] flex-1 items-center gap-1 rounded-xl border border-white/60 dark:border-white/5 bg-card px-3 py-2.5 clay">
                       <span className="text-xs font-semibold text-muted-foreground">{bulkMode === "per_gb" ? "GHS/GB" : "%"}</span>
                       <input
                         inputMode="decimal"
                         value={bulkRate}
                         onChange={(e) => setBulkRate(e.target.value)}
-                        placeholder="0"
-                        aria-label={bulkMode === "per_gb" ? "Rate per GB" : "Discount percent"}
+                        placeholder={bulkMode === "per_gb" ? "0.00" : "-10"}
+                        aria-label={bulkMode === "per_gb" ? "Rate per GB" : "Percent adjustment"}
                         className="w-full bg-transparent text-sm font-bold focus:outline-none"
                       />
                     </div>
                   </div>
 
-                  {bulkPreview.length > 0 && (
+                  {bulkScope.length > 0 && (
                     <div className="overflow-x-auto rounded-xl border border-white/60 dark:border-white/5 bg-card clay">
                       <table className="w-full text-xs">
                         <thead className="border-b border-border">
                           <tr className="text-left text-muted-foreground">
-                            <th className="p-2"><span className="sr-only">Include</span></th>
+                            <th className="p-2">
+                              <input type="checkbox" aria-label="Select all" checked={allPicked} onChange={(e) => setAllPicked(e.target.checked)} />
+                            </th>
+                            {bulkNetwork === ALL && <th className="p-2">Network</th>}
                             <th className="p-2">Size</th>
                             <th className="p-2">Role</th>
                             <th className="p-2">Current</th>
@@ -368,36 +399,50 @@ export function CustomPricesDialog({ userId, userLabel, open, onOpenChange, onSa
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {bulkPreview.map((p) => (
-                            <tr key={p.r.id}>
-                              <td className="p-2">
-                                <input
-                                  type="checkbox"
-                                  aria-label={`Include ${p.r.size}GB`}
-                                  checked={p.valid && bulkSelected[p.r.id] !== false}
-                                  disabled={!p.valid}
-                                  onChange={(e) => setBulkSelected((s) => ({ ...s, [p.r.id]: e.target.checked }))}
-                                />
-                              </td>
-                              <td className="p-2 font-bold">{p.r.size}GB</td>
-                              <td className="p-2">GH₵{p.r.role_price.toFixed(2)}</td>
-                              <td className="p-2">{p.current ? `GH₵${Number(p.current).toFixed(2)}` : "—"}</td>
-                              <td className="p-2 font-semibold">{p.valid ? `GH₵${p.newPrice.toFixed(2)}` : "—"}</td>
-                              <td className="p-2">
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${!p.valid ? "bg-destructive/15 text-destructive" : p.warn ? "bg-warning/15 text-warning" : "bg-success/15 text-success"}`}>
-                                  {!p.valid ? "Invalid" : p.warn ? (p.warn.startsWith("Below") ? "Below dealer" : "Above role") : "Will fill"}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
+                          {bulkScope.map((r) => {
+                            const p = preview?.get(r.id)
+                            const current = (inputs[r.id] ?? "").trim()
+                            const status = !preview
+                              ? null
+                              : p?.newPrice == null
+                                ? { label: p?.reason ?? "Skipped", cls: "bg-destructive/15 text-destructive" }
+                                : p.warn
+                                  ? { label: p.warn.startsWith("Below") ? "Below dealer" : "Above role", cls: "bg-warning/15 text-warning" }
+                                  : { label: "Will fill", cls: "bg-success/15 text-success" }
+                            return (
+                              <tr key={r.id} className={isPicked(r.id) ? "" : "opacity-50"}>
+                                <td className="p-2">
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`Include ${r.network} ${r.size}GB`}
+                                    checked={isPicked(r.id)}
+                                    onChange={(e) => setBulkSelected((s) => ({ ...s, [r.id]: e.target.checked }))}
+                                  />
+                                </td>
+                                {bulkNetwork === ALL && <td className="p-2 whitespace-nowrap">{r.network}</td>}
+                                <td className="p-2 font-bold">{r.size}GB</td>
+                                <td className="p-2">GH₵{r.role_price.toFixed(2)}</td>
+                                <td className="p-2">{current && isFinite(Number(current)) ? `GH₵${Number(current).toFixed(2)}` : "—"}</td>
+                                <td className="p-2 font-semibold">{p?.newPrice != null ? `GH₵${p.newPrice.toFixed(2)}` : "—"}</td>
+                                <td className="p-2">
+                                  {status && <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${status.cls}`}>{status.label}</span>}
+                                </td>
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
                   )}
 
-                  <Button type="button" onClick={applyBulk} disabled={bulkPreview.length === 0} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
-                    Apply to prices
-                  </Button>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button type="button" onClick={applyBulk} disabled={fillable.length === 0} className="flex-1 rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+                      Apply to {fillable.length || ""} price{fillable.length === 1 ? "" : "s"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={clearBulk} disabled={pickedRows.length === 0} className="rounded-2xl">
+                      Clear selected
+                    </Button>
+                  </div>
                 </div>
               )}
             </fieldset>

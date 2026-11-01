@@ -61,3 +61,61 @@ export function warningFor(r: CustomPriceRow, raw: string): string | null {
   if (v > r.role_price) return "Above this user's role price: they pay more than normal"
   return null
 }
+
+export type BulkMode = "per_gb" | "percent"
+/** What a percentage adjusts: the user's role price, the dealer price, or their current custom price. */
+export type BulkBase = "role" | "dealer" | "custom"
+
+export interface BulkPreviewRow {
+  row: CustomPriceRow
+  /** The price currently in the input (null = blank / not a number). */
+  current: number | null
+  /** The price Apply would fill, or null when this row can't be filled (see reason). */
+  newPrice: number | null
+  reason?: string
+  warn: string | null
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * Bulk tab of the custom prices dialog. per_gb: price = size (GB) x rate. percent: a signed
+ * adjustment of the chosen base (-10 = 10% off, +5 = 5% more). null while the value isn't usable.
+ * Nothing here saves: Apply only fills the inputs, and the normal Save validates the batch.
+ */
+export function bulkPreview(
+  rows: CustomPriceRow[],
+  inputs: Record<string, string>,
+  opts: { mode: BulkMode; value: string; base: BulkBase; network: string | "all" },
+): BulkPreviewRow[] | null {
+  const raw = (opts.value ?? "").trim()
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(raw)) return null
+  const v = Number(raw)
+  if (!Number.isFinite(v)) return null
+  if (opts.mode === "per_gb" && v <= 0) return null
+  if (opts.mode === "percent" && (v <= -100 || v === 0)) return null
+
+  return rows
+    .filter((r) => opts.network === "all" || r.network === opts.network)
+    .map((r) => {
+      const parsedCurrent = parsePriceInput(inputs[r.id] ?? "")
+      const current = parsedCurrent.ok ? parsedCurrent.value : null
+      let next: number
+      if (opts.mode === "per_gb") {
+        next = (parseFloat(String(r.size)) || 0) * v
+      } else {
+        const base =
+          opts.base === "role" ? r.role_price
+          : opts.base === "dealer" ? (r.dealer_price != null && r.dealer_price > 0 ? r.dealer_price : null)
+          : current
+        if (base == null) {
+          return { row: r, current, newPrice: null, reason: opts.base === "dealer" ? "No dealer price" : "No custom price", warn: null }
+        }
+        next = base * (1 + v / 100)
+      }
+      const newPrice = round2(next)
+      const check = parsePriceInput(newPrice.toFixed(2))
+      if (!check.ok || check.value === null) return { row: r, current, newPrice: null, reason: "Out of range", warn: null }
+      return { row: r, current, newPrice, warn: warningFor(r, newPrice.toFixed(2)) }
+    })
+}
