@@ -16,20 +16,28 @@ import { RelatedProducts } from "@/components/seo/related-products"
 // "/join" itself 404'd while being submitted to Google as an indexable page. This
 // file is that page: a real, public "become an agent" landing page at the slug
 // the sitemap already promised.
+// Title / H1 from the product registry ("join"), so the page, sitemap and
+// llms.txt agree.
+const JOIN = getProduct("join")
+const DESCRIPTION = "Become a data reseller or agent in Ghana: open your own DATAGOD shop, buy data and airtime at wholesale prices, set your prices and withdraw profit to MoMo."
+
 export const metadata: Metadata = {
   alternates: { canonical: "https://www.datagod.store/join" },
-  title: "Become a DATAGOD Agent | Sell Data & Airtime, Keep the Profit",
-  description: "Open your own DATAGOD storefront, buy data and airtime at wholesale prices, set your own prices, and withdraw your profit to Mobile Money. Free to start.",
+  title: JOIN.title,
+  description: DESCRIPTION,
   openGraph: {
-    title: "Become a DATAGOD Agent | Sell Data & Airtime, Keep the Profit",
-    description: "Open your own DATAGOD storefront, buy at wholesale prices, and keep the profit on every sale.",
+    title: JOIN.title,
+    description: DESCRIPTION,
     type: "website",
+    siteName: "DATAGOD",
+    locale: "en_GH",
     url: "https://www.datagod.store/join",
+    images: ["/og-image.png"],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Become a DATAGOD Agent | Sell Data & Airtime, Keep the Profit",
-    description: "Open your own DATAGOD storefront, buy at wholesale prices, and keep the profit on every sale.",
+    title: JOIN.title,
+    description: DESCRIPTION,
     images: ["/og-image.png"],
   },
 }
@@ -69,8 +77,11 @@ export default async function JoinPage() {
             Become an agent
           </span>
           <h1 className="mt-4 font-display text-3xl sm:text-5xl font-bold text-foreground text-balance">
-            Sell data & airtime. Keep the profit.
+            {JOIN.h1}
           </h1>
+          <p className="mt-3 font-display text-xl sm:text-2xl font-semibold text-foreground">
+            Open your shop. Sell data &amp; airtime. Keep the profit.
+          </p>
           <p className="mt-4 text-muted-foreground text-lg leading-relaxed">
             Open a free DATAGOD storefront, buy MTN, Telecel and AT bundles at wholesale prices, and sell them at whatever price you choose.
           </p>
