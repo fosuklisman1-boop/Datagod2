@@ -1,5 +1,6 @@
 import { headers } from "next/headers"
 import { notFound } from "next/navigation"
+import { SITE_KIND_HEADER, isMainHostName, isMainSiteFromHeaders } from "./site-kind"
 
 export const SITE_URL = "https://www.datagod.store"
 
@@ -8,41 +9,41 @@ export function absoluteUrl(path: string): string {
   return p === "/" ? SITE_URL : `${SITE_URL}${p}`
 }
 
-function defaultRootDomain(): string {
-  return (process.env.NEXT_PUBLIC_ROOT_DOMAIN || "datagod.store").toLowerCase()
-}
-
 /**
- * True when the request host is the DATAGOD marketing site (root, www, local
- * dev, preview deployments). False for shop subdomains, reserved app/admin/api
- * subdomains, custom domains, and empty hosts.
+ * True when the request is on the DATAGOD marketing site (root, www, local
+ * dev, preview deployments). False for shop subdomains, reserved
+ * app/admin/api subdomains, custom domains, and empty hosts.
+ *
+ * `siteKind` is the x-site-kind header middleware set for this request; when
+ * it is present it decides. Without it this falls back to the host check.
  */
-export function isMainSiteHost(host: string | null, rootDomain: string = defaultRootDomain()): boolean {
-  if (!host) return false
-  const h = host.trim().toLowerCase().replace(/:\d+$/, "")
-  if (!h) return false
-
-  if (h === "localhost" || h === "127.0.0.1") return true
-  if (h.endsWith(".vercel.app")) return true
-
-  const root = rootDomain.toLowerCase()
-  if (h === root || h === `www.${root}`) return true
-
-  // Anything else (shop subdomain, app./admin./api., foreign custom domain)
-  return false
+export function isMainSiteHost(
+  host: string | null,
+  rootDomain?: string,
+  siteKind?: string | null,
+): boolean {
+  return isMainSiteFromHeaders({ siteKind, host }, rootDomain)
 }
 
 /**
- * Server-only: false on a custom domain / shop host (middleware sets
- * x-domain-site-name there). For pages that also serve those hosts and must
- * leave out Datagod-only extras (JSON-LD, links to main-site product pages).
+ * Server-only: true only on the main DATAGOD host. Reads middleware's
+ * x-site-kind header (main | shop | custom); falls back to the Host header
+ * plus x-domain-site-name when middleware did not handle the request. For
+ * pages that also serve shop / custom hosts and must leave out Datagod-only
+ * extras (JSON-LD, links to main-site product pages).
  */
 export async function isMainSiteRequest(): Promise<boolean> {
   const h = await headers()
-  return !h.get("x-domain-site-name")
+  return isMainSiteFromHeaders({
+    siteKind: h.get(SITE_KIND_HEADER),
+    host: h.get("host"),
+    domainSiteName: h.get("x-domain-site-name"),
+  })
 }
 
-/** Server-only: 404 when the request is on a custom domain / shop host. */
+/** Server-only: 404 when the request is not on the main host. */
 export async function assertMainSite(): Promise<void> {
   if (!(await isMainSiteRequest())) notFound()
 }
+
+export { isMainHostName }

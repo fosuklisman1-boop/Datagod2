@@ -1,6 +1,5 @@
 import type { MetadataRoute } from "next"
-import { headers } from "next/headers"
-import { isMainSiteHost } from "@/lib/seo/site"
+import { isMainSiteRequest } from "@/lib/seo/site"
 import { getLiveFacts } from "@/lib/seo/live-facts"
 import { buildSitemapEntries } from "@/lib/seo/discovery"
 
@@ -12,7 +11,6 @@ export const revalidate = 3600
 // deliberately NOT listed. /auth/* and /dashboard are excluded too (noindex or
 // auth-gated and disallowed in robots.ts).
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const host = (await headers()).get("host")
-  if (!isMainSiteHost(host)) return []
+  if (!(await isMainSiteRequest())) return []
   return buildSitemapEntries(await getLiveFacts(), new Date())
 }

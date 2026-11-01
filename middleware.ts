@@ -6,6 +6,7 @@ import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 import { apiHostRewrite } from "@/lib/api-v2/host"
+import { SITE_KIND_HEADER, classifySiteKind } from "@/lib/seo/site-kind"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -84,7 +85,9 @@ export async function middleware(request: NextRequest) {
   if (apiRewrite) {
     const url = request.nextUrl.clone()
     url.pathname = apiRewrite
-    return NextResponse.rewrite(url)
+    const apiHeaders = new Headers(request.headers)
+    apiHeaders.set(SITE_KIND_HEADER, classifySiteKind(request.headers.get("host"), { shopSubdomain: null, customDomain: false }, ROOT_DOMAIN))
+    return NextResponse.rewrite(url, { request: { headers: apiHeaders } })
   }
 
   // ── Subdomain storefront rewrite ────────────────────────────────────────────
@@ -210,11 +213,24 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // ── Host kind ──────────────────────────────────────────────────────────────
+  // One signal for "which kind of host is this" (main | shop | custom), read by
+  // lib/seo/site.ts (isMainSiteRequest / isMainSiteHost). Set on every request
+  // that passes through below, overwriting any client-supplied value.
+  // x-domain-site-name alone can't answer this: it is only set for custom
+  // domains, not for <shop>.<root> subdomains.
+  const siteKind = classifySiteKind(
+    request.headers.get("host"),
+    { shopSubdomain, customDomain: !!customDomainConfig },
+    ROOT_DOMAIN,
+  )
+
   // Builds request headers that include the nonce for the layout server component,
   // plus the resolved custom-domain branding (if any) for app/layout.tsx to read.
   const buildRequestHeaders = () => {
     const h = new Headers(request.headers)
     h.set("x-nonce", nonce)
+    h.set(SITE_KIND_HEADER, siteKind)
     // Always clear any inherited/client-supplied x-domain-* headers first, then
     // re-set them only when genuinely resolved below. Without this, a request
     // to the main site that happens to carry a client-supplied x-domain-services
