@@ -50,8 +50,12 @@ export async function landingPageMetadata(key: LandingKey): Promise<Metadata> {
 }
 
 export interface LandingExtras {
-  /** The dashboard Standard Bundles sell Telecel with the No Expiry category visible (non-expiry page). */
-  standardNoExpiry?: boolean
+  /**
+   * Whether the dashboard Standard Bundles sell Telecel with the No Expiry
+   * category visible (non-expiry page). Called only after the main-site check
+   * and the availability check, so it never runs for a 404 or a 5xx.
+   */
+  standardNoExpiry?: () => Promise<boolean>
 }
 
 /** Shared template for every landing page (main site only). */
@@ -62,7 +66,8 @@ export async function renderLandingPage(key: LandingKey, extras: LandingExtras =
   // An off page has nothing on sale: no tables, no OfferCatalog.
   const rows = off ? [] : landingRows(e, facts.dataPrices)
   const groups = rowsByNetwork(rows)
-  const sections = landingSections(e, { rows: rows.length, standardNoExpiry: extras.standardNoExpiry === true })
+  const standardNoExpiry = extras.standardNoExpiry ? await extras.standardNoExpiry() : false
+  const sections = landingSections(e, { rows: rows.length, standardNoExpiry })
   const others = availableLandings(facts).filter((o) => o.key !== e.key)
   const liveNetPages = (Object.keys(NET_PRODUCT) as DataNet[]).filter((n) => facts.products[NET_PRODUCT[n]]?.available === true)
 
@@ -161,7 +166,7 @@ export async function renderLandingPage(key: LandingKey, extras: LandingExtras =
           </section>
         ))}
 
-        {e.kind === "non-expiry" && extras.standardNoExpiry === true && (
+        {e.kind === "non-expiry" && standardNoExpiry && (
           <p className="mt-4 max-w-3xl text-sm text-muted-foreground">
             <Link href="/auth/login?redirect=/dashboard/standard-bundles" className="font-medium text-primary hover:underline">
               Log in to open Standard Bundles

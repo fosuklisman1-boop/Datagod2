@@ -25,7 +25,7 @@ import { PAY_LINE, REFUND_LINE, SPEED_LINE, type Faq, type ProductKey } from "./
 import type { FactSource, LiveFacts } from "./live-facts"
 import { DATA_NETS, type DataNet, type DataPriceTables, type PriceRow } from "./data-prices"
 
-export type LandingKey = "data-bundle-prices"
+export type LandingKey = "data-bundle-prices" | "non-expiry-data-bundles"
 
 /**
  * - "prices":     every public data row, one table per network
@@ -164,6 +164,77 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
     relatedProducts: ["mtn-data", "telecel-data", "at-data", "join"],
     footerLabel: "Data bundle prices",
     priority: 0.8,
+    updated: "2026-11-01",
+  },
+  {
+    key: "non-expiry-data-bundles",
+    path: "/non-expiry-data-bundles",
+    name: "Non-Expiry Data Bundles",
+    h1: "Non-expiry data bundles in Ghana",
+    title: "Non-Expiry Data Bundles in Ghana | DATAGOD",
+    description:
+      "See which data bundles on DATAGOD don't expire, network by network, with live prices. Pay from your wallet, funded with MoMo or card.",
+    lede:
+      "A non-expiry data bundle stays on your line until you use it up, instead of running out after a set number of days. This page lists every data bundle DATAGOD sells right now whose catalogue description says it does not expire, with the price you pay from your wallet.",
+    kind: "non-expiry",
+    source: "packages",
+    sections: [
+      {
+        heading: "What a non-expiry bundle is",
+        paragraphs: [
+          "Most data bundles in Ghana come with a validity: a daily, weekly or monthly window after which any data left over is lost. A non-expiry bundle has no such window. The data stays available until you have used all of it, so a bundle bought today can still be in use weeks later.",
+          "That suits people who only go online now and then: a phone kept mainly for calls, a second SIM, a parent who checks WhatsApp in the evening, or a student between semesters. If you use a lot of data every day you will finish most bundles long before they expire, so compare sizes and prices across all bundles too.",
+          "The network's own terms for each bundle still apply, so read the bundle details in the dashboard before you confirm an order.",
+        ],
+      },
+      {
+        heading: "Which DATAGOD bundles don't expire",
+        paragraphs: [
+          {
+            when: "has-rows",
+            text: "The tables on this page show only bundles whose description in our catalogue says no expiry. Each table is one network, sorted from the smallest size to the largest, and the price is the standard price you pay from your DATAGOD wallet. When a bundle sells out it drops off the table until it is back.",
+          },
+          {
+            when: "no-rows",
+            text: "Right now no bundle in our catalogue is described as no-expiry, so there is no table on this page. Rather than guess from a bundle's name, we wait until its description says so. The network pages list every bundle on sale, with its validity wherever our catalogue records one.",
+          },
+          "A bundle without a validity listed is not automatically non-expiry. If you need data that lasts, buy from the rows marked No expiry, or check the validity shown in the dashboard before you pay.",
+          {
+            when: "standard-no-expiry",
+            text: "Logged-in customers can also buy Telecel bundles from Standard Bundles in the DATAGOD dashboard. That section lists bundles from Telecel's own catalogue grouped by category, and Telecel bundles sold without an expiry date sit under the No Expiry category. The price of each one is shown in the dashboard before you pay.",
+          },
+        ],
+      },
+      {
+        heading: "How to buy a non-expiry bundle",
+        paragraphs: [
+          `Create a free DATAGOD account or log in, fund your wallet with Mobile Money (MoMo) or a card through Paystack, then pick the bundle and enter the number it should go to. The bundle has to match that number's network. ${PREFIXES}`,
+          "Every order is saved in your order history, so you can see when it was delivered. Reselling? Bundles that don't expire are worth offering to customers who dislike losing unused data, and you can add them to your DATAGOD shop at your own price.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        question: "What is a non-expiry data bundle?",
+        answer:
+          "A bundle with no validity window: the data stays on the line until it is used up, instead of being lost after a set number of days.",
+      },
+      {
+        question: "Which networks have non-expiry bundles on DATAGOD?",
+        answer:
+          "The networks with a table on this page. We only list a bundle here when its description in our catalogue says no expiry, and the list changes as bundles go in and out of stock.",
+      },
+      {
+        question: "Do non-expiry bundles ever run out?",
+        answer: "They run out when you have used all the data. The network's own terms for the bundle still apply.",
+      },
+      speedFaq("How fast is a non-expiry bundle delivered?", "You can track every order from your order history."),
+      refundFaq(),
+      payFaq(),
+    ],
+    relatedProducts: ["mtn-data", "telecel-data", "at-data"],
+    footerLabel: "Non-expiry data",
+    priority: 0.7,
     updated: "2026-11-01",
   },
 ]

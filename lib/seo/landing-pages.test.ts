@@ -256,3 +256,44 @@ describe("availableLandings", () => {
     expect(availableLandings(FALLBACK_FACTS).map((e) => e.key)).not.toContain("data-bundle-prices")
   })
 })
+
+describe("non-expiry-data-bundles", () => {
+  const e = getLanding("non-expiry-data-bundles")
+
+  it("shows only available rows whose description says no expiry", () => {
+    const rows = landingRows(e, facts().dataPrices)
+    expect(rows.map((r) => `${r.network}|${r.size}|${r.validity}`)).toEqual(["Telecel|5GB|No expiry", "Telecel|10GB|No expiry"])
+    // the unavailable MTN "No expiry" row and rows without a stated validity never show
+    expect(rows.some((r) => r.network === "MTN")).toBe(false)
+  })
+
+  it("stays ok (honest empty state) with no such rows, and fails only when the read failed", () => {
+    const none = facts({ packages: [{ network: "MTN", size: "1", price: 5, is_available: true, description: "30 days" }] })
+    expect(landingRows(e, none.dataPrices)).toEqual([])
+    expect(landingAvailability(e, none)).toBe("ok")
+    expect(landingAvailability(e, facts({ packages: [] }))).toBe("ok")
+    expect(landingAvailability(e, facts({ packages: null }, ["packages"]))).toBe("failed")
+  })
+
+  it("says there are none, instead of claiming bundles, when there are no rows", () => {
+    const empty = landingSections(e, { rows: 0, standardNoExpiry: false }).flatMap((s) => s.paragraphs).join("\n")
+    expect(empty).toMatch(/no bundle in our catalogue is described as no-expiry/i)
+    expect(empty).not.toMatch(/The tables on this page show/)
+    expect(empty).not.toMatch(/Standard Bundles/)
+    const some = landingSections(e, { rows: 2, standardNoExpiry: false }).flatMap((s) => s.paragraphs).join("\n")
+    expect(some).toMatch(/The tables on this page show/)
+    expect(some).not.toMatch(/no bundle in our catalogue/i)
+  })
+
+  it("mentions the dashboard Standard Bundles No Expiry category only when it is on sale", () => {
+    const on = landingSections(e, { rows: 0, standardNoExpiry: true }).flatMap((s) => s.paragraphs).join("\n")
+    expect(on).toMatch(/Standard Bundles/)
+    expect(on).toMatch(/No Expiry category/)
+  })
+
+  it("builds its OfferCatalog from the no-expiry rows only", () => {
+    const rows = landingRows(e, facts().dataPrices)
+    const [catalog] = buildLandingJsonLd(e, rows, landingCrumbs(e)) as any[]
+    expect(catalog.itemListElement.map((o: any) => o.name)).toEqual(["Telecel 5GB (No expiry)", "Telecel 10GB (No expiry)"])
+  })
+})
