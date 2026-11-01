@@ -55,7 +55,7 @@ export interface ProductEntry {
 export const REFUND_LINE = "If an order fails, you get your money back."
 export const SPEED_LINE = "Usually delivered within minutes."
 
-const PAY_LINE = "Fund your DATAGOD wallet with Mobile Money (MoMo) or card through Paystack, then pay from your wallet."
+export const PAY_LINE = "Fund your DATAGOD wallet with Mobile Money (MoMo) or card through Paystack, then pay from your wallet."
 
 const refundFaq = (question = "What happens if my order fails?", extra = ""): Faq => ({
   question,

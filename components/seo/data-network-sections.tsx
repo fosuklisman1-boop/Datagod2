@@ -1,3 +1,4 @@
+import type React from "react"
 import Link from "next/link"
 import { ArrowRight } from "lucide-react"
 import { formatCedis, type LiveFacts } from "@/lib/seo/live-facts"
@@ -10,20 +11,38 @@ const CARD = "rounded-xl border border-white/60 dark:border-white/5 bg-card clay
 
 const DATA_KEYS: readonly ProductKey[] = ["mtn-data", "telecel-data", "at-data"]
 
-/** Crawlable price table for one network; renders nothing when there are no rows (e.g. the read failed). */
-export function DataPriceTable({ network, rows }: { network: DataNet; rows: readonly PriceRow[] }) {
+/**
+ * Crawlable price table for one network; renders nothing when there are no rows (e.g. the read failed).
+ * `heading` / `headingId` / `caption` / `children` let a page show several tables (the landing pages,
+ * lib/seo/landing-pages.ts); the network pages use the defaults.
+ */
+export function DataPriceTable({
+  network,
+  rows,
+  heading,
+  headingId = "prices-heading",
+  caption,
+  children,
+}: {
+  network: DataNet
+  rows: readonly PriceRow[]
+  heading?: string
+  headingId?: string
+  caption?: string
+  children?: React.ReactNode
+}) {
   if (rows.length === 0) return null
   const copy = DATA_PAGE_COPY[network]
   const cols = tableColumns(rows)
   return (
-    <section aria-labelledby="prices-heading" className="mt-16">
-      <h2 id="prices-heading" className="font-display text-2xl sm:text-3xl font-bold text-foreground">
-        {copy.tableHeading}
+    <section aria-labelledby={headingId} className="mt-16">
+      <h2 id={headingId} className="font-display text-2xl sm:text-3xl font-bold text-foreground">
+        {heading ?? copy.tableHeading}
       </h2>
       <div className={`${CARD} mt-6 overflow-x-auto`}>
         <table className="w-full text-left text-sm">
           <caption className="sr-only">
-            {network} data bundles on sale now, with the price you pay from your DATAGOD wallet in Ghana cedis
+            {caption ?? `${network} data bundles on sale now, with the price you pay from your DATAGOD wallet in Ghana cedis`}
           </caption>
           <thead className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
@@ -48,6 +67,7 @@ export function DataPriceTable({ network, rows }: { network: DataNet; rows: read
       <p className="mt-3 text-sm text-muted-foreground">
         Standard prices from your wallet. Create a free account or log in to buy.
       </p>
+      {children}
     </section>
   )
 }

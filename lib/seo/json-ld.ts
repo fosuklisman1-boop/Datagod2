@@ -11,6 +11,7 @@ import { absoluteUrl, SITE_URL } from "./site"
 import type { Faq, ProductEntry } from "./products"
 import type { ProductFacts } from "./live-facts"
 import { rowLabel, type PriceRow } from "./data-prices"
+import type { LandingEntry } from "./landing-pages"
 
 const CONTEXT = "https://schema.org"
 
@@ -89,7 +90,7 @@ export function buildSiteJsonLd(): object[] {
  * OfferCatalog over the same rows the page's price table shows: one GHS Offer
  * per row, at packages.price. null when there are no rows (no table, no catalog).
  */
-export function buildOfferCatalog(p: ProductEntry, rows: readonly PriceRow[]): object | null {
+export function buildOfferCatalog(p: Pick<ProductEntry, "name" | "path">, rows: readonly PriceRow[]): object | null {
   const valid = rows.filter((r) => typeof r.price === "number" && Number.isFinite(r.price) && r.price > 0)
   if (valid.length === 0) return null
   const url = absoluteUrl(p.path)
@@ -173,4 +174,42 @@ export function productCrumbs(p: ProductEntry): Crumb[] {
 /** `rows`: the page's live price-table rows (data pages only); adds a Service OfferCatalog. */
 export function buildProductJsonLd(p: ProductEntry, f: ProductFacts, rows: readonly PriceRow[] = []): object[] {
   return [buildServiceJsonLd(p, f, rows), buildFaqJsonLd(p.faqs), buildBreadcrumbJsonLd(productCrumbs(p))]
+}
+
+// ── Landing pages (lib/seo/landing-pages.ts) ──────────────────────────
+
+/** Home -> Services -> [parent product page] -> landing page. */
+export function landingCrumbs(e: Pick<LandingEntry, "name" | "path">, parent?: Pick<ProductEntry, "name" | "path">): Crumb[] {
+  return [
+    { name: "Home", path: "/" },
+    { name: "Services", path: "/services" },
+    ...(parent ? [{ name: parent.name, path: parent.path }] : []),
+    { name: e.name, path: e.path },
+  ]
+}
+
+/**
+ * Stand-alone OfferCatalog for a landing page's price tables: the same rows the
+ * page shows, one GHS Offer per row at packages.price, each sold by DATAGOD.
+ * null when there are no rows (no table, no catalog).
+ */
+export function buildLandingOfferCatalog(e: Pick<LandingEntry, "name" | "path">, rows: readonly PriceRow[]): object | null {
+  const catalog = buildOfferCatalog(e, rows) as { itemListElement: object[] } | null
+  if (!catalog) return null
+  return {
+    "@context": CONTEXT,
+    ...catalog,
+    url: absoluteUrl(e.path),
+    itemListElement: catalog.itemListElement.map((o) => ({ ...o, seller: { "@id": ORG_ID } })),
+  }
+}
+
+/** [OfferCatalog when there are rows], FAQPage and BreadcrumbList, all from what the page shows. */
+export function buildLandingJsonLd(
+  e: Pick<LandingEntry, "name" | "path" | "faqs">,
+  rows: readonly PriceRow[],
+  crumbs: readonly Crumb[],
+): object[] {
+  const catalog = buildLandingOfferCatalog(e, rows)
+  return [...(catalog ? [catalog] : []), buildFaqJsonLd(e.faqs), buildBreadcrumbJsonLd(crumbs)]
 }

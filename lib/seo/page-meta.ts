@@ -24,7 +24,8 @@ export function pageAvailability(key: ProductKey, facts: LiveFacts): PageAvailab
   return facts.products[key]?.available ? "ok" : "off"
 }
 
-export function buildProductMetadata(p: ProductEntry): Metadata {
+/** Also used by the landing pages (lib/seo/landing-pages.ts), which carry the same three fields. */
+export function buildProductMetadata(p: Pick<ProductEntry, "path" | "title" | "description">): Metadata {
   const url = absoluteUrl(p.path)
   return {
     title: p.title,

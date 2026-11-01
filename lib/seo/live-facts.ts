@@ -81,11 +81,13 @@ export function productFactsLoaded(key: ProductKey, facts: LiveFacts): boolean {
 }
 
 /**
- * Thrown by a product page whose facts could not be read. Not caught by the
- * page, so Next answers 500 and nothing is cached; see components/seo/product-page.tsx.
+ * Thrown by a product (or landing) page whose facts could not be read. Not
+ * caught by the page, so Next answers 500 and nothing is cached; see
+ * components/seo/product-page.tsx and components/seo/landing-page.tsx.
+ * `key` is a ProductKey or a LandingKey (lib/seo/landing-pages.ts).
  */
 export class LiveFactsUnavailableError extends Error {
-  constructor(readonly key: ProductKey, readonly failedSources: readonly FactSource[]) {
+  constructor(readonly key: string, readonly failedSources: readonly FactSource[]) {
     super(`seo live facts unavailable for ${key} (failed: ${failedSources.join(", ") || "unknown"})`)
     this.name = "LiveFactsUnavailableError"
   }

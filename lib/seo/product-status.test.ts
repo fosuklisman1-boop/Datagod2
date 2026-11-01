@@ -45,6 +45,14 @@ describe("assertProductFactsLoaded (root-layout status gate)", () => {
     }
   })
 
+  it("throws for a landing page when its packages read failed, passes when it is off", async () => {
+    state.headers = main("/data-bundle-prices")
+    state.facts = FALLBACK_FACTS
+    await expect(assertProductFactsLoaded()).rejects.toThrow(/data-bundle-prices/)
+    state.facts = buildLiveFacts({ ...FAILED_RAW, packages: [] })
+    await expect(assertProductFactsLoaded()).resolves.toBeUndefined()
+  })
+
   it("passes off the main host (product pages 404 there anyway)", async () => {
     state.facts = FALLBACK_FACTS
     state.headers = { host: "kofi.datagod.store", "x-site-kind": "shop", "x-request-path": "/mtn-data" }
