@@ -51,6 +51,11 @@ export function fakeSupabase(opts: FakeSupabaseOpts = {}) {
         select() { return b }, eq() { return b }, is() { return b }, not() { return b }, in() { return b },
         single: () => read(table),
         maybeSingle: () => read(table),
+        // The custom-price resolver reads user_package_prices as a list: .select().eq().limit(n).
+        limit: async () => {
+          const r = await read(table)
+          return { data: r.error ? null : (r.data ?? []), error: r.error }
+        },
         insert(rows: any) {
           const list = ([] as any[]).concat(rows)
           ;(inserts[table] ??= []).push(...list)

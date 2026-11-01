@@ -1,5 +1,8 @@
 -- 0130_api_v2_orders.sql
 --
+-- NOTE: place_api_v2_order below is superseded by 0142_user_package_prices.sql.
+-- Re-applying 0130 after 0142 would drop custom-price support.
+--
 -- Lets Developer API v2 keys place data orders. v2 orders go into the
 -- EXISTING api_orders table so fulfillment, status sync, refunds, order
 -- health and delivery notifications keep seeing them unchanged. v1 is NOT

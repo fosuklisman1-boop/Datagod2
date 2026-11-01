@@ -159,6 +159,14 @@ describe("shop data: confirm -> AddToCart", () => {
       expect(sup.inserts["ussd_shop_orders"]).toBeUndefined()
     }
   })
+  it("a negative profit (owner's custom price above role + margin) is a valid sale: order created with the snapshot", async () => {
+    const sup = fakeSupabase({ pkg: OK_PKG })
+    const { deps } = shopDeps({ shop: fakeShop({ verifyBundlePrice: async () => ({ verifiedPrice: 12, profitAmount: -3, parentProfitAmount: -1 }) }) }, sup)
+    await toConfirm(deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("AddToCart")
+    expect(sup.inserts["ussd_shop_orders"][0]).toMatchObject({ amount: 12, profit_amount: -3, parent_profit_amount: -1 })
+  })
   it("package withdrawn from the shop since the confirm screen: release, no order", async () => {
     const sup = fakeSupabase({ pkg: OK_PKG })
     const { deps } = shopDeps({ shop: fakeShop({ verifyBundlePrice: async () => null }) }, sup)
