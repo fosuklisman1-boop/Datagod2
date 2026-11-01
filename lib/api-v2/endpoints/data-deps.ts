@@ -33,17 +33,12 @@ function errName(err: unknown): string {
 async function realVerifyMtn(locals: string[]): Promise<Map<string, boolean | null>> {
   try {
     const cv = await import("@/lib/mtn-providers/customer-verification")
-    const { WHITELIST_REGISTRY } = await import("@/lib/mtn-providers/provider-whitelist")
-    // Settings read once and handed to the guard so both see the same snapshot.
-    const settings = await cv.getCustomerVerificationSettings()
-    return await cv.resolveVerdicts(locals, {
-      settings: async () => settings,
-      registry: WHITELIST_REGISTRY,
-      check: (phones, registry, s) => cv.checkCustomerFacingVerification(phones, registry, s),
-      // v1 bounds the single check at 5 s; a bulk batch gets 10 s, which keeps
-      // the bulk request well inside its BULK_DEADLINE_MS placement deadline.
-      timeoutMs: locals.length > 1 ? 10_000 : 5_000,
-    })
+    // The shared order gate: same verdicts as resolveMtnVerdicts, plus the verdict
+    // cache every other ordering endpoint uses (a verified number is never re-checked).
+    // v1 bounds the single check at 5 s; a bulk batch gets 10 s, which keeps
+    // the bulk request well inside its BULK_DEADLINE_MS placement deadline.
+    const { verdicts } = await cv.verifyRecipientsForOrder(locals, { timeoutMs: locals.length > 1 ? 10_000 : 5_000 })
+    return verdicts
   } catch (err) {
     console.error("[API v2] MTN verification unavailable (failing open):", errName(err))
     return new Map(locals.map((l) => [l, null]))
