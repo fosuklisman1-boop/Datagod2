@@ -24,6 +24,8 @@ import { buildProductMetadata, liveBillerEntries, pageAvailability } from "@/lib
 import { JsonLd } from "./json-ld-script"
 import { FaqSection } from "./faq-section"
 import { RelatedProducts } from "./related-products"
+import { RelatedGuides } from "./related-guides"
+import { landingsForProduct } from "@/lib/seo/landing-pages"
 import { CompareNetworks, DataNetworkCopy, DataPriceTable } from "./data-network-sections"
 
 const GROUP_LABEL: Record<ProductGroup, string> = {
@@ -144,6 +146,8 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
         <FaqSection faqs={p.faqs} />
 
         <RelatedProducts keys={p.related} facts={facts} />
+
+        <RelatedGuides entries={landingsForProduct(key, facts)} />
 
         <div className="mt-16 text-center text-sm text-muted-foreground">
           <Link href="/" className="text-primary hover:underline">Back to Home</Link>

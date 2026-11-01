@@ -11,6 +11,7 @@ import type { LiveFacts } from "./live-facts"
 import { getProduct, type ProductKey } from "./products"
 import { availableEntries } from "./page-meta"
 import { cheapestRows } from "./data-prices"
+import { availableLandings } from "./landing-pages"
 
 export type HomeLinkKey =
   | "data" | "airtime" | "afa" | "bills" | "results" | "results-service"
@@ -61,12 +62,20 @@ const FOOTER: ReadonlyArray<[ProductKey, string]> = [
   ["utility-bills", "Utility bills"],
   ["results-checker", "Results checker"],
   ["afa-registration", "MTN AFA registration"],
-  ["join", "Become an agent"],
+  // "Open a reseller shop": the "Become a data reseller" anchor goes to the guide (/become-a-data-reseller).
+  ["join", "Open a reseller shop"],
 ]
 
+/**
+ * Footer "Buy online" block: the live product pages above, then the live
+ * landing pages (lib/seo/landing-pages.ts, registry order, footerLabel).
+ */
 export function homeFooterLinks(facts: LiveFacts, isMainSite: boolean): HomeLink[] {
   if (!isMainSite) return []
-  return FOOTER.filter(([k]) => facts.products[k]?.available === true).map(([k, label]) => ({ label, href: getProduct(k).path }))
+  return [
+    ...FOOTER.filter(([k]) => facts.products[k]?.available === true).map(([k, label]) => ({ label, href: getProduct(k).path })),
+    ...availableLandings(facts).map((e) => ({ label: e.footerLabel, href: e.path })),
+  ]
 }
 
 export interface PopularPackage {

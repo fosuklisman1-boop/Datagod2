@@ -8,6 +8,7 @@ import {
   landingCopyText,
   landingRows,
   landingSections,
+  landingsForProduct,
   rowsByNetwork,
   type LandingEntry,
   type LandingKey,
@@ -399,5 +400,36 @@ describe("landing pages link each other and share no copy", () => {
   it("lists every other live landing page from each page (availableLandings minus itself)", () => {
     const live = availableLandings(facts()).map((e) => e.key)
     expect(live).toEqual(LANDING_PAGES.map((e) => e.key))
+  })
+})
+
+describe("landingsForProduct (product pages' related guides row)", () => {
+  it("links each product page back to the live landing pages that link it", () => {
+    const f = facts()
+    expect(landingsForProduct("at-data", f).map((e) => e.key)).toEqual([
+      "data-bundle-prices",
+      "non-expiry-data-bundles",
+      "become-a-data-reseller",
+      "at-ishare-data",
+      "at-bigtime-data",
+    ])
+    expect(landingsForProduct("join", f).map((e) => e.key)).toEqual([
+      "data-bundle-prices",
+      "become-a-data-reseller",
+      "at-ishare-data",
+      "at-bigtime-data",
+    ])
+    expect(landingsForProduct("airtime", f)).toEqual([])
+  })
+
+  it("never links an off or failed landing page", () => {
+    expect(landingsForProduct("at-data", FALLBACK_FACTS).map((e) => e.key)).toEqual(["become-a-data-reseller"])
+  })
+
+  it("every landing page is linked back from each product page it links", () => {
+    const f = facts()
+    for (const e of LANDING_PAGES) {
+      for (const k of e.relatedProducts) expect(landingsForProduct(k, f).map((x) => x.key), `${k} -> ${e.key}`).toContain(e.key)
+    }
   })
 })

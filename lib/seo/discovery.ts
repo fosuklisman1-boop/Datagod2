@@ -7,6 +7,7 @@ import type { MetadataRoute } from "next"
 import { absoluteUrl } from "./site"
 import { PRODUCTS, getProduct, REFUND_LINE, SPEED_LINE, type ProductEntry } from "./products"
 import { formatCedis, type LiveFacts } from "./live-facts"
+import { availableLandings } from "./landing-pages"
 
 type Entry = MetadataRoute.Sitemap[number]
 
@@ -19,7 +20,7 @@ const isAvailable = (facts: LiveFacts, p: ProductEntry): boolean => facts.produc
  */
 export const STATIC_PAGE_UPDATED: Record<string, string> = {
   "/": "2026-11-01",
-  "/services": "2026-10-27",
+  "/services": "2026-11-01",
   "/ai": "2026-10-27",
   "/terms": "2026-11-01",
   "/privacy": "2026-11-01",
@@ -44,6 +45,8 @@ export function buildSitemapEntries(facts: LiveFacts): MetadataRoute.Sitemap {
     page("/", 1, "daily"),
     page("/services", 0.9, "weekly"),
     ...PRODUCTS.filter((p) => isAvailable(facts, p)).map((p) => entry(p.path, p.updated, p.priority, "weekly")),
+    // Landing pages (lib/seo/landing-pages.ts): only "ok" ones, never an off or failed one.
+    ...availableLandings(facts).map((e) => entry(e.path, e.updated, e.priority, "weekly")),
     page("/ai", 0.6, "monthly"),
     page("/terms", 0.3, "yearly"),
     page("/privacy", 0.3, "yearly"),
@@ -67,6 +70,17 @@ export function buildLlmsTxt(facts: LiveFacts): string {
     (p) => isAvailable(facts, p) && (p.group === "data" || p.group === "airtime" || p.group === "bills" || p.group === "education" || p.key === "bulk-sms"),
   )
   lines.push("## Products", "", ...products.map((p) => productLine(p, facts)), "")
+
+  // Guides and price lists (landing pages that are live right now)
+  const guides = availableLandings(facts)
+  if (guides.length > 0) {
+    lines.push(
+      "## Guides and price lists",
+      "",
+      ...guides.map((e) => `- [${e.name}](${absoluteUrl(e.path)}): ${e.description.trim().replace(/\.+$/, "")}.`),
+      "",
+    )
+  }
 
   // Ways to order
   lines.push("## Ways to order", "")

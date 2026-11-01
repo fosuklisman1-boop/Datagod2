@@ -66,7 +66,8 @@ describe("homeDataNetworkLinks", () => {
 })
 
 describe("homeFooterLinks", () => {
-  it("links every live product page, ending with Become an agent", () => {
+  it("links every live product page, then the live landing pages", () => {
+    // factsWith() has no price rows (packages read failed), so only the reseller guide is live.
     expect(homeFooterLinks(factsWith(ALL_ON), true)).toEqual([
       { label: "MTN data", href: "/mtn-data" },
       { label: "Telecel data", href: "/telecel-data" },
@@ -75,12 +76,31 @@ describe("homeFooterLinks", () => {
       { label: "Utility bills", href: "/utility-bills" },
       { label: "Results checker", href: "/results-checker" },
       { label: "MTN AFA registration", href: "/afa-registration" },
-      { label: "Become an agent", href: "/join" },
+      { label: "Open a reseller shop", href: "/join" },
+      { label: "Become a data reseller", href: "/become-a-data-reseller" },
+    ])
+  })
+  it("links the price-list landing pages while their rows are on sale", () => {
+    const f = buildLiveFacts({
+      ...FAILED_RAW,
+      packages: [
+        { network: "MTN", size: "1", price: 5, is_available: true },
+        { network: "Telecel", size: "5", price: 20, is_available: true, description: "No expiry" },
+        { network: "AT - iShare", size: "1", price: 4, is_available: true },
+      ],
+    })
+    const landing = homeFooterLinks(f, true).filter((l) => !["/mtn-data", "/telecel-data", "/at-data", "/join"].includes(l.href))
+    expect(landing).toEqual([
+      { label: "Data bundle prices", href: "/data-bundle-prices" },
+      { label: "Non-expiry data", href: "/non-expiry-data-bundles" },
+      { label: "Become a data reseller", href: "/become-a-data-reseller" },
+      { label: "AT iShare data", href: "/at-ishare-data" },
     ])
   })
   it("never links a switched-off product, and nothing off the main site", () => {
     const hrefs = homeFooterLinks(factsWith(["mtn-data", "join"]), true).map((l) => l.href)
-    expect(hrefs).toEqual(["/mtn-data", "/join"])
+    expect(hrefs).toEqual(["/mtn-data", "/join", "/become-a-data-reseller"])
+    expect(homeFooterLinks(factsWith(["mtn-data"]), true).map((l) => l.href)).toEqual(["/mtn-data"])
     expect(homeFooterLinks(factsWith(ALL_ON), false)).toEqual([])
   })
 })

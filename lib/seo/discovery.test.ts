@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { buildSitemapEntries, buildLlmsTxt, STATIC_PAGE_UPDATED } from "./discovery"
 import { buildLiveFacts, FAILED_RAW, type LiveFacts, type RawFacts } from "./live-facts"
 import { getProduct, REFUND_LINE, SPEED_LINE } from "./products"
+import { getLanding } from "./landing-pages"
 
 function facts(over: Partial<RawFacts> = {}): LiveFacts {
   return buildLiveFacts({
@@ -69,6 +70,42 @@ describe("buildSitemapEntries", () => {
       expect(byUrl.get(`https://www.datagod.store${p.path}`)).toBe(p.updated)
     }
     expect(byUrl.get("https://www.datagod.store")).toBe(STATIC_PAGE_UPDATED["/"])
+  })
+})
+
+describe("landing pages in the sitemap and llms.txt", () => {
+  const withRows = () =>
+    facts({
+      packages: [
+        { network: "MTN", size: "1", price: 3.5, is_available: true },
+        { network: "AT - BigTime", size: "20", price: 60, is_available: true },
+      ],
+    })
+
+  it("lists live landing pages with their registry lastmod and leaves off / failed ones out", () => {
+    const byUrl = new Map(buildSitemapEntries(withRows()).map((e) => [e.url, e]))
+    const prices = getLanding("data-bundle-prices")
+    expect(byUrl.get("https://www.datagod.store/data-bundle-prices")).toMatchObject({ lastModified: prices.updated, priority: prices.priority })
+    expect(byUrl.has("https://www.datagod.store/at-bigtime-data")).toBe(true)
+    expect(byUrl.has("https://www.datagod.store/non-expiry-data-bundles")).toBe(true)
+    expect(byUrl.has("https://www.datagod.store/become-a-data-reseller")).toBe(true)
+    // no iShare rows -> off -> not in the sitemap
+    expect(byUrl.has("https://www.datagod.store/at-ishare-data")).toBe(false)
+
+    const failed = buildSitemapEntries(buildLiveFacts(FAILED_RAW, ["packages"])).map((e) => e.url)
+    for (const path of ["/data-bundle-prices", "/non-expiry-data-bundles", "/at-ishare-data", "/at-bigtime-data"]) {
+      expect(failed).not.toContain(`https://www.datagod.store${path}`)
+    }
+    expect(failed).toContain("https://www.datagod.store/become-a-data-reseller")
+  })
+
+  it("adds a guides section to llms.txt with the live landing pages only", () => {
+    const t = buildLlmsTxt(withRows())
+    expect(t).toContain("## Guides and price lists")
+    expect(t).toContain("[Data Bundle Prices](https://www.datagod.store/data-bundle-prices): ")
+    expect(t).toContain("(https://www.datagod.store/at-bigtime-data)")
+    expect(t).not.toContain("/at-ishare-data")
+    expect(t).not.toContain("..")
   })
 })
 

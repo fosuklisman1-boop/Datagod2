@@ -10,6 +10,8 @@ import { isMainSiteRequest } from "@/lib/seo/site"
 import { JsonLd } from "@/components/seo/json-ld-script"
 import { FaqSection } from "@/components/seo/faq-section"
 import { RelatedProducts } from "@/components/seo/related-products"
+import { RelatedGuides } from "@/components/seo/related-guides"
+import { landingsForProduct } from "@/lib/seo/landing-pages"
 
 // This exact URL was already declared canonical in app/sitemap.ts's staticRoutes
 // before this file existed — app/join only had the invite-gated [code] route, so
@@ -149,6 +151,8 @@ export default async function JoinPage() {
         {mainSite && <FaqSection faqs={product.faqs} />}
 
         {mainSite && <RelatedProducts keys={product.related} facts={facts} />}
+
+        {mainSite && <RelatedGuides entries={landingsForProduct("join", facts)} />}
 
         <div className="mt-8 text-center text-sm text-muted-foreground">
           <Link href="/" className="text-primary hover:underline">Back to Home</Link>
