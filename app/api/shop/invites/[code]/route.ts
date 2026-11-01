@@ -303,7 +303,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     if (!packagesError && parentPackages) {
       // One row per package: shop_packages is UNIQUE(shop_id, package_id)
-      // (migration 0142), so a parent's duplicate rows must not fail the insert.
+      // (migration 0144), so a parent's duplicate rows must not fail the insert.
       const uniqueParentPackages = [...new Map(parentPackages.map((pkg: any) => [pkg.package_id, pkg])).values()]
       const subAgentPackages = uniqueParentPackages.map((pkg: any) => ({
         shop_id: newShop.id,

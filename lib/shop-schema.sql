@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS shop_packages (
   is_available BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
-  UNIQUE (shop_id, package_id) -- migrations/0142_shop_packages_dedupe_unique.sql
+  UNIQUE (shop_id, package_id) -- migrations/0144_shop_packages_dedupe_unique.sql
 );
 
 -- 3. Shop Orders Table (Customer purchases)
