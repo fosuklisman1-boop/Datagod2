@@ -2,11 +2,8 @@ import { shopService } from "@/lib/shop-service"
 import { loadStorefrontSummary } from "@/lib/shop-commerce/storefront-summary"
 import { buildShopItemListJsonLd } from "@/lib/shop-commerce/price-table"
 import { shopCanonicalBase, shopRequestContext } from "@/lib/seo/shop-canonical"
-import { SITE_URL } from "@/lib/seo/site"
-import { showsPoweredByFooter } from "@/lib/seo/site-kind"
 import ShopStorefront from "./storefront-client"
 import { StorefrontSummary } from "./storefront-summary"
-import { PoweredByFooter } from "./powered-by-footer"
 
 function JsonLd({ data }: { data: unknown }) {
   return (
@@ -37,7 +34,7 @@ export default async function ShopPage({
     return <ShopStorefront initialLogoUrl={null} initialShopName={null} />
   }
 
-  const [summary, { domainConfig, siteKind }] = await Promise.all([
+  const [summary, { domainConfig }] = await Promise.all([
     loadStorefrontSummary(slug),
     shopRequestContext(),
   ])
@@ -49,30 +46,16 @@ export default async function ShopPage({
     summary && sellsData
       ? buildShopItemListJsonLd({ shopName: shop.shop_name, url, table: summary.table, orderingEnabled: summary.orderingEnabled })
       : null
-  // The breadcrumb's first crumb is the DATAGOD homepage, so it only goes on
-  // <shop>.datagod.store; custom domains are white-labelled.
-  const breadcrumb =
-    siteKind === "shop"
-      ? {
-          "@context": "https://schema.org",
-          "@type": "BreadcrumbList",
-          itemListElement: [
-            { "@type": "ListItem", position: 1, name: "Home", item: SITE_URL },
-            { "@type": "ListItem", position: 2, name: shop.shop_name, item: url },
-          ],
-        }
-      : null
-
-  const showPoweredBy = showsPoweredByFooter(siteKind)
+  // No BreadcrumbList: its only parent crumb would be the DATAGOD homepage,
+  // and storefronts must not point their customers at the main site (whose
+  // prices are below the shop's). A one-crumb breadcrumb says nothing.
 
   return (
     <>
-      {breadcrumb && <JsonLd data={breadcrumb} />}
       {itemList && <JsonLd data={itemList} />}
       <ShopStorefront
         initialLogoUrl={shop.logo_url ?? null}
         initialShopName={shop.shop_name ?? null}
-        showPoweredBy={showPoweredBy}
         serverSummary={
           <StorefrontSummary
             shopName={shop.shop_name}
@@ -82,7 +65,6 @@ export default async function ShopPage({
             showPrices={sellsData}
             whatsappLink={summary?.whatsappLink ?? null}
             accentColor={shop.custom_color}
-            footer={showPoweredBy ? <PoweredByFooter /> : null}
           />
         }
       />
