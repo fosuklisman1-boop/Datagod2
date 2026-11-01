@@ -31,6 +31,15 @@ describe("product registry", () => {
     }
   })
 
+  it("links every sibling product page in the same group", () => {
+    for (const p of PRODUCTS) {
+      for (const sib of PRODUCTS) {
+        if (sib.group !== p.group || sib.key === p.key) continue
+        expect(p.related, `${p.key} should link ${sib.key}`).toContain(sib.key)
+      }
+    }
+  })
+
   it("has exactly one entry per biller key", () => {
     for (const b of BILLER_KEYS) {
       expect(PRODUCTS.filter((p) => p.biller === b), b).toHaveLength(1)

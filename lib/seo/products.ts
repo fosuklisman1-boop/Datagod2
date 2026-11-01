@@ -178,7 +178,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Yes. Vodafone Ghana is now Telecel, and the same numbers (020 and 050) work. Buy Telecel data here for any of those numbers.",
       },
     ],
-    related: ["mtn-data", "at-data", "airtime", "telecel-broadband", "join"],
+    related: ["mtn-data", "at-data", "afa-registration", "airtime", "telecel-broadband", "join"],
   }),
   dataEntry("at-data", "AT", {
     name: "AT Data Bundles",
@@ -193,7 +193,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Yes. Enter that person's AT number when you order and the bundle is sent to them. The bundles on offer are shown on this page.",
       },
     ],
-    related: ["mtn-data", "telecel-data", "airtime", "join"],
+    related: ["mtn-data", "telecel-data", "afa-registration", "airtime", "join"],
   }),
 
   // ── Airtime ─────────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "The full name, phone number, Ghana Card number (for example GHA-123456789-0) and location. Make sure the details match the Ghana Card before you submit.",
       },
     ],
-    related: ["mtn-data", "airtime", "join"],
+    related: ["mtn-data", "telecel-data", "at-data", "airtime", "join"],
     priority: 0.8,
     hasOwnPage: true,
     updated: "2026-10-27",
@@ -319,7 +319,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "ECG links meters to the phone number used to register them. We use that number to find your meters, then you pick the one you want to pay for.",
       },
     ],
-    related: ["utility-bills", "ghana-water", "pay-dstv", "airtime"],
+    related: ["utility-bills", "ghana-water", "pay-dstv", "pay-gotv", "startimes", "telecel-broadband", "airtime"],
   }),
   billerEntry("ghana-water", "ghana_water", {
     name: "Ghana Water",
@@ -335,7 +335,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Ghana Water requires an email address for every online payment, so we ask for one at checkout.",
       },
     ],
-    related: ["utility-bills", "ecg-prepaid", "pay-dstv"],
+    related: ["utility-bills", "ecg-prepaid", "pay-dstv", "pay-gotv", "startimes", "telecel-broadband"],
   }),
   billerEntry("pay-dstv", "dstv", {
     name: "DSTV",
@@ -351,7 +351,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "It is printed on the smartcard inside your decoder, and it also shows on your TV screen in the decoder's information menu.",
       },
     ],
-    related: ["utility-bills", "pay-gotv", "startimes", "ecg-prepaid"],
+    related: ["utility-bills", "pay-gotv", "startimes", "ecg-prepaid", "ghana-water", "telecel-broadband"],
   }),
   billerEntry("pay-gotv", "gotv", {
     name: "GOtv",
@@ -367,7 +367,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "It is on the sticker under or behind your GOtv decoder, and it also shows on your TV screen in the decoder's information menu.",
       },
     ],
-    related: ["utility-bills", "pay-dstv", "startimes", "ecg-prepaid"],
+    related: ["utility-bills", "pay-dstv", "startimes", "ecg-prepaid", "ghana-water", "telecel-broadband"],
   }),
   billerEntry("startimes", "startimes", {
     name: "StarTimes TV",
@@ -383,7 +383,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "It is the smartcard or account number on your StarTimes decoder or card, and on any StarTimes payment receipt.",
       },
     ],
-    related: ["utility-bills", "pay-dstv", "pay-gotv"],
+    related: ["utility-bills", "pay-dstv", "pay-gotv", "ecg-prepaid", "ghana-water", "telecel-broadband"],
   }),
   billerEntry("telecel-broadband", "telecel_broadband", {
     name: "Telecel Broadband",
@@ -399,7 +399,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "It is on your Telecel Broadband bill or welcome pack. It usually starts with a letter, for example P0444101.",
       },
     ],
-    related: ["utility-bills", "telecel-data", "ecg-prepaid"],
+    related: ["utility-bills", "telecel-data", "ecg-prepaid", "ghana-water", "pay-dstv", "pay-gotv", "startimes"],
   }),
 
   // ── Education ───────────────────────────────────────────────────────
@@ -512,7 +512,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Your profit builds up in your shop balance and you can withdraw it to Mobile Money from your dashboard.",
       },
     ],
-    related: ["mtn-data", "airtime", "ussd", "whatsapp", "developers"],
+    related: ["mtn-data", "airtime", "bulk-sms", "developers", "ussd", "whatsapp"],
     priority: 0.8,
     hasOwnPage: false,
     updated: "2026-11-01",

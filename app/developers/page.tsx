@@ -4,6 +4,10 @@ import { KeyRound } from "lucide-react"
 import { DocsPage } from "@/components/developer/docs/DocsPage"
 import { PostmanButtons } from "@/components/developer/docs/PostmanButtons"
 import { v2DocsRegistry, V2_BASE_URL } from "@/lib/api-v2/docs/registry"
+import { getProduct } from "@/lib/seo/products"
+import { getLiveFacts } from "@/lib/seo/live-facts"
+import { isMainSiteRequest } from "@/lib/seo/site"
+import { RelatedProducts } from "@/components/seo/related-products"
 
 const TITLE = "Developer API | DATAGOD"
 const DESCRIPTION =
@@ -28,7 +32,9 @@ export const metadata: Metadata = {
 /** Height in px of the sticky site header below (h-[64px], px not rem: globals.css scales the root font size on small screens). Passed to DocsPage so its bars sit under it. */
 const HEADER_PX = 64
 
-export default function DevelopersPage() {
+export default async function DevelopersPage() {
+  // Related row (sibling product pages), main site only, like /join and /bulk-sms.
+  const [facts, mainSite] = await Promise.all([getLiveFacts(), isMainSiteRequest()])
   return (
     <div className="min-h-screen bg-muted/40">
       {/*
@@ -91,6 +97,11 @@ export default function DevelopersPage() {
 
       <main className="px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
         <DocsPage sections={v2DocsRegistry} compact stickyTop={HEADER_PX} />
+        {mainSite && (
+          <div className="mx-auto max-w-6xl">
+            <RelatedProducts keys={getProduct("developers").related} facts={facts} />
+          </div>
+        )}
       </main>
     </div>
   )
