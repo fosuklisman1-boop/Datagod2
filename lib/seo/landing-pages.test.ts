@@ -360,3 +360,44 @@ describe("at-ishare-data", () => {
     expect(catalog.itemListElement.map((o: any) => o.name)).toEqual(["AT iShare 1GB"])
   })
 })
+
+describe("at-bigtime-data", () => {
+  const e = getLanding("at-bigtime-data")
+
+  it("shows only the AT BigTime rows", () => {
+    const f = facts({ packages: [...PACKAGES, { network: "AT-BigTime", size: "50", price: 120, is_available: true }] })
+    expect(landingRows(e, f.dataPrices).map((r) => `${r.type}|${r.size}|${r.price}`)).toEqual(["BigTime|20GB|60", "BigTime|50GB|120"])
+  })
+
+  it("is off when no BigTime row is on sale, failed when the read failed", () => {
+    expect(landingAvailability(e, facts())).toBe("ok")
+    expect(landingAvailability(e, facts({ packages: PACKAGES.filter((p) => !/bigtime/i.test(p.network)) }))).toBe("off")
+    expect(landingAvailability(e, facts({ packages: null }, ["packages"]))).toBe("failed")
+  })
+
+  it("is independent of iShare: either AT page can be on while the other is off", () => {
+    const ishareOnly = facts({ packages: PACKAGES.filter((p) => !/bigtime/i.test(p.network)) })
+    expect(landingAvailability(getLanding("at-ishare-data"), ishareOnly)).toBe("ok")
+    expect(landingAvailability(e, ishareOnly)).toBe("off")
+  })
+})
+
+describe("landing pages link each other and share no copy", () => {
+  it("shares no paragraph between pages", () => {
+    const seen = new Map<string, string>()
+    for (const e of LANDING_PAGES) {
+      for (const s of e.sections) {
+        for (const p of s.paragraphs) {
+          const t = typeof p === "string" ? p : p.text
+          expect(seen.get(t), `${e.key} repeats ${seen.get(t)}: ${t}`).toBeUndefined()
+          seen.set(t, e.key)
+        }
+      }
+    }
+  })
+
+  it("lists every other live landing page from each page (availableLandings minus itself)", () => {
+    const live = availableLandings(facts()).map((e) => e.key)
+    expect(live).toEqual(LANDING_PAGES.map((e) => e.key))
+  })
+})

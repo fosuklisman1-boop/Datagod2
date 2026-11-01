@@ -30,6 +30,7 @@ export type LandingKey =
   | "non-expiry-data-bundles"
   | "become-a-data-reseller"
   | "at-ishare-data"
+  | "at-bigtime-data"
 
 /**
  * - "prices":     every public data row, one table per network
@@ -393,6 +394,71 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
     ],
     relatedProducts: ["at-data", "mtn-data", "telecel-data", "join"],
     footerLabel: "AT iShare data",
+    priority: 0.7,
+    updated: "2026-11-01",
+  },
+  {
+    key: "at-bigtime-data",
+    path: "/at-bigtime-data",
+    name: "AT BigTime Data Bundles",
+    h1: "AT BigTime data bundles",
+    title: "AT BigTime Data Bundles: Prices in Ghana | DATAGOD",
+    description:
+      "See the AT BigTime data bundles DATAGOD sells in Ghana, with live prices. Pay from your wallet, funded with MoMo or card, and send to any AT number.",
+    lede:
+      "AT BigTime is a separate AT data product with its own sizes and prices. This page lists the BigTime bundles DATAGOD sells right now, with the price you pay from your wallet, so you can compare them before you buy.",
+    kind: "at-type",
+    atType: "BigTime",
+    source: "packages",
+    parent: "at-data",
+    sections: [
+      {
+        heading: "About AT BigTime bundles",
+        paragraphs: [
+          "BigTime packages sit next to AT's other data products in our catalogue but are sold as a product of their own, so the table on this page shows BigTime rows only, from the smallest BigTime bundle on sale to the largest.",
+          "Where a BigTime row's description records its validity, it is shown beside the size. If no validity is listed, check the bundle details in the dashboard before you confirm rather than assuming how long it lasts.",
+        ],
+      },
+      {
+        heading: "BigTime or another AT bundle?",
+        paragraphs: [
+          "If you are deciding between BigTime and other AT data, compare the same size across both. The AT data page shows every AT bundle we sell, grouped by type, so the BigTime rows sit next to the rest. Pick the bundle that matches how much data the line will use before it would run out.",
+          "BigTime bundles go to AT numbers only, and AT numbers start with 026, 027, 056 or 057. An MTN or Telecel number cannot receive them, so check the network first.",
+        ],
+      },
+      {
+        heading: "How to buy AT BigTime data",
+        paragraphs: [
+          "Create a free DATAGOD account or log in. Top up your wallet with Mobile Money (MoMo) or a card through Paystack, choose a BigTime bundle, type the AT number and pay from your balance. The same wallet covers your own line and any family or friends you buy for.",
+          "Each order shows in your order history with its status, so you know when the bundle has gone through. If you need help with an order, our support team is on WhatsApp.",
+        ],
+      },
+      {
+        heading: "Selling BigTime to your customers",
+        paragraphs: [
+          "If you run a DATAGOD shop, BigTime bundles can sit in it next to the other bundles you sell. You choose the selling price, keep the margin above your cost, and your customers order from your shop link. Our reseller guide covers the details.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        question: "What is AT BigTime?",
+        answer: "A separate AT data product with its own bundle sizes and prices. The BigTime bundles we sell right now are in the table on this page.",
+      },
+      {
+        question: "Is BigTime the same as iShare?",
+        answer: "No. They are separate AT products in our catalogue, each with its own sizes and prices. The AT data page lists both, grouped by type.",
+      },
+      {
+        question: "Can I send BigTime data to any network?",
+        answer: "No. BigTime bundles are AT bundles, so they only go to AT numbers.",
+      },
+      speedFaq("How fast is AT BigTime data delivered?", "You can track every order from your order history."),
+      refundFaq(),
+      payFaq(),
+    ],
+    relatedProducts: ["at-data", "mtn-data", "telecel-data", "join"],
+    footerLabel: "AT BigTime data",
     priority: 0.7,
     updated: "2026-11-01",
   },
