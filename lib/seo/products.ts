@@ -479,8 +479,11 @@ export const PRODUCTS: readonly ProductEntry[] = [
     key: "join",
     path: "/join",
     name: "Reseller Shops & Sub-Agents",
-    h1: "Become a data reseller or agent in Ghana",
-    title: "Become a Data Reseller in Ghana – Open Your Shop | DATAGOD",
+    // The "become a data reseller" search is answered by the guide at
+    // /become-a-data-reseller (lib/seo/landing-pages.ts); /join is the sign-up
+    // page, so its title and H1 take the "open your shop / sign up" angle.
+    h1: "Sign up as a DATAGOD agent and open your shop",
+    title: "Sign Up as an Agent – Open Your Reseller Shop | DATAGOD",
     description: "Open your own branded DATAGOD shop, sell data, airtime and more at your own prices, recruit sub-agents and withdraw your profit to MoMo in Ghana.",
     group: "business",
     summary: "Become a DATAGOD agent and run your own data and airtime business. You get a branded online shop, set your own prices, invite sub-agents to sell under you, and withdraw your profit to Mobile Money.",

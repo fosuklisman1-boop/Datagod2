@@ -25,7 +25,7 @@ import { PAY_LINE, REFUND_LINE, SPEED_LINE, type Faq, type ProductKey } from "./
 import type { FactSource, LiveFacts } from "./live-facts"
 import { DATA_NETS, type DataNet, type DataPriceTables, type PriceRow } from "./data-prices"
 
-export type LandingKey = "data-bundle-prices" | "non-expiry-data-bundles"
+export type LandingKey = "data-bundle-prices" | "non-expiry-data-bundles" | "become-a-data-reseller"
 
 /**
  * - "prices":     every public data row, one table per network
@@ -235,6 +235,95 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
     relatedProducts: ["mtn-data", "telecel-data", "at-data"],
     footerLabel: "Non-expiry data",
     priority: 0.7,
+    updated: "2026-11-01",
+  },
+  {
+    key: "become-a-data-reseller",
+    path: "/become-a-data-reseller",
+    name: "Become a Data Reseller",
+    h1: "Become a data reseller in Ghana – start a data business",
+    title: "Become a Data Reseller in Ghana: Start a Business | DATAGOD",
+    description:
+      "How to start a data reselling business in Ghana with DATAGOD: open a shop, set your margin, share your link, add sub-agents and withdraw profit to MoMo.",
+    lede:
+      "Reselling data means buying bundles at one price and selling them at a little more to people who already know you. This guide explains how that works on DATAGOD, from opening a shop and setting your margin to recruiting sub-agents and withdrawing your profit, so you know what to expect before you sign up.",
+    kind: "reseller",
+    source: null,
+    steps: [
+      { title: "Create your account", body: "Sign up for a free DATAGOD account. The same account runs your wallet, your orders and your shop." },
+      {
+        title: "Open your shop",
+        body: "Create your shop from the dashboard and give it a name and logo. New shops are reviewed by the DATAGOD team before they go live on your shop link.",
+      },
+      {
+        title: "Set your margin",
+        body: "Enter a selling price for each bundle. Your cost price is shown beside it and your price cannot go below it; the difference is your profit on each sale.",
+      },
+      {
+        title: "Share your shop link",
+        body: "Post your link on WhatsApp, social media or flyers. Customers buy as guests and pay with MoMo or card, with no account needed.",
+      },
+      {
+        title: "Get paid",
+        body: "Profit from your sales builds up in your shop balance, and you withdraw it to Mobile Money or a bank account from the dashboard.",
+      },
+    ],
+    sections: [
+      {
+        heading: "What a data reseller does",
+        paragraphs: [
+          "Your customers are usually people who would rather message someone they know than buy data themselves: friends, classmates, co-workers, church members or a whole neighbourhood. You do not buy bundles in advance for your shop. When a customer orders and pays through your shop link, the bundle is sent to their number and your margin is recorded in your shop balance.",
+        ],
+      },
+      {
+        heading: "How your profit is worked out",
+        paragraphs: [
+          "Every bundle has a cost price, what DATAGOD charges your shop for it, and a selling price, which you choose. For a normal account the cost price is the standard price on our data bundle price list; accounts upgraded to dealer pay dealer prices, a lower cost per bundle. You can price bundles one by one or update a whole network at once.",
+          "We cannot promise any level of sales or income. What you earn depends on your prices and on how many people buy from you, and customers do compare, so pick prices they will accept.",
+        ],
+      },
+      {
+        heading: "Growing with sub-agents",
+        paragraphs: [
+          "Once your shop is running you can bring in sub-agents: resellers who sell under your shop. Send them an invite link, or let them request to join from your shop and approve them. In your sub-agent catalog you set the price your sub-agents pay for each bundle; they add their own margin for their customers, and the difference between your cost and their price is your profit on their sales. Sub-agents cannot recruit sub-agents of their own.",
+          "Not every customer has data to open a link. A shop can activate a 4-digit USSD shop code so customers can buy from you on any phone, and add a WhatsApp ordering bot from the dashboard.",
+        ],
+      },
+      {
+        heading: "Getting paid",
+        paragraphs: [
+          "Withdrawals go from your shop balance to Mobile Money (MoMo) or a bank account. The withdrawal fee and minimum amount are shown before you confirm, and the account name is checked so the money reaches the right person. A new shop waits a short period before its first withdrawal and there is a gap between withdrawals; the dashboard tells you when you can request the next one. Your profit log lists every earning and withdrawal with a running balance.",
+          "Ready? Our join page takes you through creating your account and opening your shop.",
+        ],
+      },
+    ],
+    faqs: [
+      {
+        question: "Do I need money to start reselling data?",
+        answer:
+          "You do not buy bundles in advance for your shop: your customers pay when they order from your shop link. Optional extras, such as a WhatsApp ordering bot, show their fee in the dashboard before you pay.",
+      },
+      {
+        question: "How much can I earn?",
+        answer:
+          "That depends on the prices you set and how many people buy from you, so we cannot promise any amount. Your profit on each sale is your selling price minus your cost price, and every earning is listed in your profit log.",
+      },
+      {
+        question: "How do I withdraw my profit?",
+        answer:
+          "Request a withdrawal from your shop balance to Mobile Money or a bank account. The fee and the minimum amount are shown before you confirm.",
+      },
+      {
+        question: "Can I resell under someone else's shop?",
+        answer:
+          "Yes. If another reseller sends you an invite link, use it to join as their sub-agent. You then buy at the price they set for you and sell to your own customers at your own price.",
+      },
+      speedFaq("How fast do my customers get their data?", "Customers can track their order from your shop."),
+      refundFaq("What if a customer's order fails?"),
+    ],
+    relatedProducts: ["join", "mtn-data", "telecel-data", "at-data", "ussd"],
+    footerLabel: "Become a data reseller",
+    priority: 0.8,
     updated: "2026-11-01",
   },
 ]

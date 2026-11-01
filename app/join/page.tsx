@@ -19,7 +19,8 @@ import { RelatedProducts } from "@/components/seo/related-products"
 // Title / H1 from the product registry ("join"), so the page, sitemap and
 // llms.txt agree.
 const JOIN = getProduct("join")
-const DESCRIPTION = "Become a data reseller or agent in Ghana: open your own DATAGOD shop, buy data and airtime at wholesale prices, set your prices and withdraw profit to MoMo."
+// Sign-up angle: the "become a data reseller" guide lives at /become-a-data-reseller.
+const DESCRIPTION = "Sign up as a DATAGOD agent and open your reseller shop: your own shop link and prices, sub-agents under you, and profit withdrawals to MoMo."
 
 export const metadata: Metadata = {
   alternates: { canonical: "https://www.datagod.store/join" },
@@ -134,6 +135,16 @@ export default async function JoinPage() {
         <p className="mt-10 text-center text-sm text-muted-foreground">
           Already got an invite link from another agent? Use the link they shared with you to join under their network instead.
         </p>
+
+        {mainSite && (
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            New to reselling?{" "}
+            <Link href="/become-a-data-reseller" className="font-medium text-primary hover:underline">
+              Read how a data reselling business works
+            </Link>
+            , from setting your margin to getting paid.
+          </p>
+        )}
 
         {mainSite && <FaqSection faqs={product.faqs} />}
 

@@ -111,7 +111,7 @@ describe("landing page registry", () => {
       const t = allText(e)
       expect(t, e.key).not.toMatch(/GH₵|GHS|cedis? ?\d|\d+(\.\d+)? ?(GB|MB)\b/i)
       expect(t, e.key).not.toMatch(/\*\d{2,4}[*#]/)
-      expect(t, e.key).not.toMatch(/rating|review|\bstars?\b|\d+ ?%|percent/i)
+      expect(t, e.key).not.toMatch(/\bratings?\b|\brated\b|\breviews?\b|\bstars?\b|\d+ ?%|percent/i)
       // The only numbers allowed are phone prefixes (0 + 2 digits) and the 4-digit shop code.
       for (const n of t.replace(/4-digit/g, "").match(/\d+/g) ?? []) expect(n, `${e.key}: ${n}`).toMatch(/^0\d\d$/)
     }
@@ -295,5 +295,38 @@ describe("non-expiry-data-bundles", () => {
     const rows = landingRows(e, facts().dataPrices)
     const [catalog] = buildLandingJsonLd(e, rows, landingCrumbs(e)) as any[]
     expect(catalog.itemListElement.map((o: any) => o.name)).toEqual(["Telecel 5GB (No expiry)", "Telecel 10GB (No expiry)"])
+  })
+})
+
+describe("become-a-data-reseller", () => {
+  const e = getLanding("become-a-data-reseller")
+  const join = PRODUCTS.find((p) => p.key === "join")!
+
+  it("has no table, no OfferCatalog and no live data source", () => {
+    expect(e.source).toBeNull()
+    expect(landingRows(e, facts().dataPrices)).toEqual([])
+    const nodes = buildLandingJsonLd(e, [], landingCrumbs(e)) as any[]
+    expect(nodes.map((n) => n["@type"])).toEqual(["FAQPage", "BreadcrumbList"])
+  })
+
+  it("is ok whatever the packages read did (it shows no prices)", () => {
+    expect(landingAvailability(e, facts())).toBe("ok")
+    expect(landingAvailability(e, FALLBACK_FACTS)).toBe("ok")
+  })
+
+  it("walks through shop, margin, link and payout, and links /join", () => {
+    expect(e.steps?.map((s) => s.title)).toEqual(["Create your account", "Open your shop", "Set your margin", "Share your shop link", "Get paid"])
+    expect(e.relatedProducts[0]).toBe("join")
+    const t = allText(e)
+    for (const topic of [/sub-agent/i, /withdraw/i, /cost price/i, /reviewed/i, /Mobile Money/]) expect(t).toMatch(topic)
+    expect(t).toMatch(/cannot promise any/)
+  })
+
+  it("does not compete with /join for the same title, H1 or description", () => {
+    expect(join.title).not.toMatch(/become a data reseller/i)
+    expect(join.h1).not.toMatch(/become a data reseller/i)
+    expect(e.title).toMatch(/become a data reseller/i)
+    expect(e.h1.toLowerCase()).not.toBe(join.h1.toLowerCase())
+    expect(join.faqs.map((f) => f.question)).not.toEqual(expect.arrayContaining(e.faqs.map((f) => f.question)))
   })
 })
