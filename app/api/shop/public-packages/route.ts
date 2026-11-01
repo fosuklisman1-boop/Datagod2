@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     // so the API and the server HTML always show the same prices.
     const loaded = await loadPublicShopPackages(supabase, shop)
     if (!loaded.ok) {
-      return NextResponse.json({ error: loaded.error }, { status: 500 })
+      return NextResponse.json({ error: loaded.error }, { status: loaded.status })
     }
     const packages = loaded.packages
 

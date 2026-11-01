@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { CustomPricesDialog } from "@/components/admin/CustomPricesDialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Format large numbers with K/M suffix
@@ -42,6 +43,7 @@ interface User {
   customerCount?: number
   subAgentCount?: number
   is_suspended?: boolean
+  pricing_mode?: string
 }
 
 interface UserStats {
@@ -118,6 +120,8 @@ export default function AdminUsersPage() {
   const [isUpdatingUser, setIsUpdatingUser] = useState(false)
   const [editEmail, setEditEmail] = useState("")
   const [editPhone, setEditPhone] = useState("")
+  const [pricingFilter, setPricingFilter] = useState<"all" | "custom">("all")
+  const [customPricesUser, setCustomPricesUser] = useState<{ id: string; label: string } | null>(null)
 
   useEffect(() => {
     if (selectedUser) {
@@ -132,7 +136,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     filterUsers()
-  }, [users, searchTerm])
+  }, [users, searchTerm, pricingFilter])
 
   const checkAdminAccess = async () => {
     try {
@@ -182,13 +186,14 @@ export default function AdminUsersPage() {
   }
 
   const filterUsers = () => {
+    const base = pricingFilter === "custom" ? users.filter((u) => u.pricing_mode === "custom") : users
     if (!searchTerm.trim()) {
-      setFilteredUsers(users)
+      setFilteredUsers(base)
       return
     }
 
     const searchLower = searchTerm.toLowerCase()
-    const filtered = users.filter((user) => {
+    const filtered = base.filter((user) => {
       const emailMatch = user.email.toLowerCase().includes(searchLower)
       const phoneMatch = user.phoneNumber?.toLowerCase().includes(searchLower)
       const shopNameMatch = user.shop?.shop_name?.toLowerCase().includes(searchLower)
@@ -540,12 +545,21 @@ export default function AdminUsersPage() {
                 <CardTitle>All Users ({formatCount(filteredUsers.length)})</CardTitle>
                 <CardDescription>Manage user roles, balances, and account status</CardDescription>
               </div>
-              <div className="w-full sm:w-64">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <Select value={pricingFilter} onValueChange={(v) => setPricingFilter(v as "all" | "custom")}>
+                  <SelectTrigger className="w-full sm:w-[160px] text-sm" aria-label="Pricing filter">
+                    <SelectValue placeholder="Pricing" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Pricing: All</SelectItem>
+                    <SelectItem value="custom">Pricing: Custom pricing</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Input
                   placeholder="Search by email, phone or shop..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="border-border focus:border-success/30 text-sm px-2 py-2"
+                  className="border-border focus:border-success/30 text-sm px-2 py-2 sm:w-64"
                 />
               </div>
             </div>
@@ -583,6 +597,7 @@ export default function AdminUsersPage() {
                           <Badge className={user.role === "admin" ? "bg-destructive" : "bg-primary"}>
                             {user.role}
                           </Badge>
+                          {user.pricing_mode === "custom" && <Badge variant="outline">Custom pricing</Badge>}
                           {user.is_suspended && (
                             <Badge className="bg-destructive text-primary-foreground mt-1">
                               Suspended
@@ -639,6 +654,13 @@ export default function AdminUsersPage() {
                             className="text-destructive hover:text-destructive hover:bg-destructive/10"
                           >
                             <AlertCircle className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setCustomPricesUser({ id: user.id, label: user.email ?? user.id })}
+                          >
+                            Custom prices
                           </Button>
                         </td>
                       </tr>
@@ -994,6 +1016,14 @@ export default function AdminUsersPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        <CustomPricesDialog
+          userId={customPricesUser?.id ?? null}
+          userLabel={customPricesUser?.label ?? ""}
+          open={!!customPricesUser}
+          onOpenChange={(o) => { if (!o) setCustomPricesUser(null) }}
+          onSaved={(mode) => setUsers((list) => list.map((u) => (u.id === customPricesUser?.id ? { ...u, pricing_mode: mode } : u)))}
+        />
 
         {/* Balance Management Dialog */}
         <Dialog open={showBalanceDialog} onOpenChange={setShowBalanceDialog}>

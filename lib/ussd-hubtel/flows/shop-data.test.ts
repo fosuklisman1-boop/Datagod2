@@ -159,6 +159,14 @@ describe("shop data: confirm -> AddToCart", () => {
       expect(sup.inserts["ussd_shop_orders"]).toBeUndefined()
     }
   })
+  it("a negative profit (owner's custom price above role + margin) is a valid sale: order created with the snapshot", async () => {
+    const sup = fakeSupabase({ pkg: OK_PKG })
+    const { deps } = shopDeps({ shop: fakeShop({ verifyBundlePrice: async () => ({ verifiedPrice: 12, profitAmount: -3, parentProfitAmount: -1 }) }) }, sup)
+    await toConfirm(deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("AddToCart")
+    expect(sup.inserts["ussd_shop_orders"][0]).toMatchObject({ amount: 12, profit_amount: -3, parent_profit_amount: -1 })
+  })
   it("package withdrawn from the shop since the confirm screen: release, no order", async () => {
     const sup = fakeSupabase({ pkg: OK_PKG })
     const { deps } = shopDeps({ shop: fakeShop({ verifyBundlePrice: async () => null }) }, sup)
@@ -222,6 +230,14 @@ describe("shop data: MTN number verification warning", () => {
     const r = await toConfirm(deps)
     expect(r.Message).toContain("Number not verified for MTN data. Enter a different number.")
     expect(r.Message).not.toContain("Confirm your order?")
+  })
+  it("blocks at '1. Confirm' when the check only answers after the confirm screen", async () => {
+    let calls = 0
+    const { deps } = shopDeps({ verifyRecipient: async () => (++calls === 1 ? true : "blocked") })
+    expect((await toConfirm(deps)).Message).toContain("Confirm your order?")
+    const pay = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(pay.Type).not.toBe("AddToCart")
+    expect(pay.Message).toContain("Number not verified for MTN data. Enter a different number.")
   })
   it("verified numbers are unchanged", async () => {
     const { deps } = shopDeps({ verifyRecipient: async () => true })

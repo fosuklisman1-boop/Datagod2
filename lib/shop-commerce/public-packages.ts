@@ -1,24 +1,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, rolePrice } from "@/lib/pricing/package-price"
+import { catalogSubAgentMargin, marginsValid, subAgentCosts } from "./pricing"
 
 // Server-only: the package list (and selling prices) a public storefront shows.
-// Moved verbatim out of app/api/shop/public-packages/route.ts so the
-// storefront API and the server-rendered price table in
-// app/shop/[slug]/page.tsx share ONE pricing code path: the server HTML and the
-// interactive client (which reads the API) can never disagree.
+// Moved out of app/api/shop/public-packages/route.ts so the storefront API and
+// the server-rendered price table in app/shop/[slug]/page.tsx share ONE pricing
+// code path: the server HTML and the interactive client (which reads the API)
+// can never disagree. The pricing is main's (#27, live sub-agent pricing).
 //
-// `exactPriceIds` lists the rows whose selling_price is computed exactly the way
-// app/api/shop/orders/create/route.ts verifies it at order time:
-//  - regular shops (shop_packages): base (dealer or retail) + profit_margin, same
-//    as the order route.
-//  - sub-agent rows from sub_agent_shop_packages WITH a stored parent_price: the
-//    order route charges parent_price + sub_agent_profit_margin, same as here.
-// Not exact (left out):
-//  - sub_agent_shop_packages rows with no stored parent_price: here the parent
-//    price is recomputed, but the order route reads the (null) column.
-//  - the legacy sub_agent_catalog fallback: here the parent margin comes from the
-//    PARENT shop's catalog and a null sub-agent margin falls back to
-//    wholesale_margin; the order route uses the row's own wholesale_margin and
-//    treats a null sub-agent margin as 0.
+// `exactPriceIds` lists the rows whose selling_price equals what
+// app/api/shop/orders/create/route.ts charges for that row (shop_package_id = row id):
+//  - sub-agent rows (sub_agent_shop_packages, and old-model sub_agent_catalog rows
+//    keyed to the sub-agent's own shop): both sides take the cost from the same
+//    live helper (subAgentCosts: the parent's role price + the parent's ACTIVE
+//    wholesale margin), the same sub-agent margin (Number(sub_agent_profit_margin || 0),
+//    or catalogSubAgentMargin for catalog rows), refuse negative margins and
+//    packages the parent no longer offers, and round the sum to 2 dp. Rows that
+//    would be refused are not listed at all, so every listed sub-agent row is exact.
+//  - regular shops (shop_packages): the order route charges rolePrice(owner role) +
+//    Number(profit_margin || 0) and refuses a negative margin; a row is exact only
+//    when that recomputation equals the listed selling_price, the margin is valid,
+//    and the owner's role was actually read (a failed read lists retail prices,
+//    while the order route would charge the dealer price or refuse).
 
 export interface PublicShopRef {
   id: string
@@ -28,7 +31,9 @@ export interface PublicShopRef {
 
 export type PublicPackagesResult =
   | { ok: true; packages: any[]; exactPriceIds: Set<string> }
-  | { ok: false; error: string }
+  | { ok: false; status: 500 | 503; error: string }
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 export async function loadPublicShopPackages(
   supabase: SupabaseClient,
@@ -37,47 +42,52 @@ export async function loadPublicShopPackages(
   const exactPriceIds = new Set<string>()
 
   // Fetch user role to check for dealer pricing
-  const { data: userData } = await supabase
+  const { data: userData, error: userError } = await supabase
     .from("users")
     .select("role")
     .eq("id", shop.user_id)
     .single()
   const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
+  // No row (PGRST116) prices at retail on both sides; any other read failure is unknown.
+  const roleKnown = !userError || userError.code === 'PGRST116'
 
   let packages: any[] = []
 
   // Check if this is a sub-agent (has parent_shop_id)
   if (shop.parent_shop_id) {
-    // Get parent shop owner's role
-    const { data: parentShop } = await supabase
-      .from("user_shops")
-      .select("id, user_id")
-      .eq("id", shop.parent_shop_id)
-      .single();
-
-    let isParentDealer = false;
-    let parentMargins: Record<string, number> = {};
-    if (parentShop) {
-      const { data: parentUser } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", parentShop.user_id)
-        .single();
-      isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
-
-      // Get parent's margins from their sub_agent_catalog
-      const { data: parentCatalog } = await supabase
-        .from("sub_agent_catalog")
-        .select("package_id, wholesale_margin")
-        .eq("shop_id", parentShop.id)
-        .eq("is_active", true);
-
-      if (parentCatalog) {
-        parentMargins = parentCatalog.reduce((acc: any, item: any) => {
-          acc[item.package_id] = item.wholesale_margin || 0;
-          return acc;
-        }, {});
-      }
+    const parentShopId = shop.parent_shop_id
+    // Sub-agent prices: the parent's LIVE cost (subAgentCosts: parent role price + the parent's active
+    // wholesale margin) + the sub-agent's margin, exactly what app/api/shop/orders/create charges. Stored
+    // parent_price snapshots are not trusted. Packages the parent no longer offers are hidden.
+    const priceRows = async (rows: any[], subMarginOf: (item: any) => number) => {
+      const { costs } = await subAgentCosts(
+        parentShopId,
+        rows.map((item: any) => String(item.package_id)),
+        supabase as Parameters<typeof subAgentCosts>[2]
+      )
+      return rows
+        .filter((item: any) => item.package?.is_available)
+        .map((item: any) => ({ item, offer: costs.get(String(item.package_id)), subAgentMargin: subMarginOf(item) }))
+        .filter(({ offer, subAgentMargin }) => !!offer && marginsValid(subAgentMargin))
+        .map(({ item, offer, subAgentMargin }) => {
+          const parentPrice = offer!.cost
+          exactPriceIds.add(String(item.id))
+          return {
+            id: item.id,
+            package_id: item.package.id,
+            profit_margin: subAgentMargin,
+            parent_price: parentPrice,
+            is_available: item.is_active,
+            packages: {
+              id: item.package.id,
+              network: item.package.network,
+              size: item.package.size,
+              price: parentPrice,
+              description: item.package.description
+            },
+            selling_price: round2(parentPrice + subAgentMargin)
+          }
+        })
     }
 
     // Sub-agent: get packages from sub_agent_shop_packages table (their own inventory)
@@ -87,7 +97,6 @@ export async function loadPublicShopPackages(
       .select(`
         id,
         package_id,
-        parent_price,
         sub_agent_profit_margin,
         is_active,
         package:packages (
@@ -106,116 +115,50 @@ export async function loadPublicShopPackages(
     if (shopPkgsError && shopPkgsError.code !== 'PGRST116') {
       // If not "relation does not exist", it's a real error
       console.error("Error fetching sub-agent shop packages:", shopPkgsError)
-      return { ok: false, error: "Failed to fetch packages" }
+      return { ok: false, status: 500, error: "Failed to fetch packages" }
     }
 
-    // If sub_agent_shop_packages table exists and has data, use it
-    if (!shopPkgsError && shopPkgs && shopPkgs.length > 0) {
-      // Transform catalog items using stored parent_price
-      packages = shopPkgs
-        .filter((item: any) => item.package?.is_available)
-        .map((item: any) => {
-          const pkgPrice = item.package.price || 0;
-          const pkgDealerPrice = item.package.dealer_price;
-
-          const adminPrice = (isParentDealer && pkgDealerPrice && pkgDealerPrice > 0)
-            ? pkgDealerPrice
-            : pkgPrice;
-
-          const parentMargin = parentMargins[item.package_id] || 0;
-          // Use stored parent_price if available (source of truth), otherwise calculate
-          const hasStoredParentPrice = item.parent_price !== undefined && item.parent_price !== null
-          const parentPrice = hasStoredParentPrice
-            ? Number(item.parent_price)
-            : (adminPrice + parentMargin);
-
-          const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
-            ? Number(item.sub_agent_profit_margin)
-            : 0;
-          const sellingPrice = parentPrice + subAgentMargin;
-
-          if (hasStoredParentPrice) exactPriceIds.add(String(item.id))
-
-          return {
-            id: item.id,
-            package_id: item.package.id,
-            profit_margin: subAgentMargin,
-            parent_price: parentPrice,
-            is_available: item.is_active,
-            packages: {
-              id: item.package.id,
-              network: item.package.network,
-              size: item.package.size,
-              price: parentPrice,
-              description: item.package.description
-            },
-            selling_price: sellingPrice
-          }
-        })
-    } else {
-      // Fall back to sub_agent_catalog for backwards compatibility
-      const { data: catalogItems, error: catalogError } = await supabase
-        .from("sub_agent_catalog")
-        .select(`
-          id,
-          package_id,
-          parent_price,
-          sub_agent_profit_margin,
-          wholesale_margin,
-          is_active,
-          package:packages (
+    try {
+      // If sub_agent_shop_packages table exists and has data, use it
+      if (!shopPkgsError && shopPkgs && shopPkgs.length > 0) {
+        packages = await priceRows(shopPkgs, (item: any) => Number(item.sub_agent_profit_margin || 0))
+      } else {
+        // Fall back to sub_agent_catalog for backwards compatibility
+        const { data: catalogItems, error: catalogError } = await supabase
+          .from("sub_agent_catalog")
+          .select(`
             id,
-            network,
-            size,
-            price,
-            dealer_price,
-            description,
-            is_available
-          )
-        `)
-        .eq("shop_id", shop.id)
-        .eq("is_active", true)
+            package_id,
+            shop_id,
+            sub_agent_profit_margin,
+            wholesale_margin,
+            is_active,
+            package:packages (
+              id,
+              network,
+              size,
+              price,
+              dealer_price,
+              description,
+              is_available
+            )
+          `)
+          .eq("shop_id", shop.id)
+          .eq("is_active", true)
 
-      if (catalogError) {
-        console.error("Error fetching sub-agent catalog:", catalogError)
-        return { ok: false, error: "Failed to fetch packages" }
+        if (catalogError) {
+          console.error("Error fetching sub-agent catalog:", catalogError)
+          return { ok: false, status: 500, error: "Failed to fetch packages" }
+        }
+
+        // Own-shop rows: the cost uses the PARENT's active row (an own-shop wholesale_margin is never used),
+        // and the sub-agent margin as the order route reads it (legacy rows keep it in wholesale_margin).
+        packages = await priceRows(catalogItems || [], (item: any) => catalogSubAgentMargin(item, shop.id))
       }
-
-      // Transform using stored parent_price
-      packages = (catalogItems || [])
-        .filter((item: any) => item.package?.is_available)
-        .map((item: any) => {
-          const pkgPrice = item.package.price || 0;
-          const pkgDealerPrice = item.package.dealer_price;
-
-          const adminPrice = (isParentDealer && pkgDealerPrice && pkgDealerPrice > 0)
-            ? pkgDealerPrice
-            : pkgPrice;
-
-          const parentMargin = parentMargins[item.package_id] || 0;
-          const parentPrice = adminPrice + parentMargin;
-
-          const subAgentMargin = item.sub_agent_profit_margin !== undefined && item.sub_agent_profit_margin !== null
-            ? Number(item.sub_agent_profit_margin)
-            : (item.wholesale_margin || 0);
-          const sellingPrice = parentPrice + subAgentMargin;
-
-          return {
-            id: item.id,
-            package_id: item.package.id,
-            profit_margin: subAgentMargin,
-            parent_price: parentPrice,
-            is_available: item.is_active,
-            packages: {
-              id: item.package.id,
-              network: item.package.network,
-              size: item.package.size,
-              price: parentPrice,
-              description: item.package.description
-            },
-            selling_price: sellingPrice
-          }
-        })
+    } catch (e) {
+      if (!(e instanceof CustomPriceReadError)) throw e
+      console.error("[PUBLIC-API] Could not read the parent's catalog or pricing")
+      return { ok: false, status: 503, error: MSG_PRICES_UNAVAILABLE }
     }
 
   } else {
@@ -243,7 +186,7 @@ export async function loadPublicShopPackages(
 
     if (pkgError) {
       console.error("Error fetching shop packages:", pkgError)
-      return { ok: false, error: "Failed to fetch packages" }
+      return { ok: false, status: 500, error: "Failed to fetch packages" }
     }
 
     // Filter out disabled admin packages
@@ -253,8 +196,14 @@ export async function loadPublicShopPackages(
         const basePrice = (isDealer && item.packages.dealer_price > 0)
           ? item.packages.dealer_price
           : item.packages.price;
+        const sellingPrice = basePrice + item.profit_margin
 
-        exactPriceIds.add(String(item.id))
+        // What the order route charges for this row: rolePrice + margin (negative margins refused).
+        const margin = Number(item.profit_margin || 0)
+        if (roleKnown && item.packages && marginsValid(margin)) {
+          const charged = rolePrice(item.packages, isDealer) + margin
+          if (Math.abs(Number(sellingPrice) - charged) < 0.005) exactPriceIds.add(String(item.id))
+        }
 
         return {
           ...item,
@@ -262,7 +211,7 @@ export async function loadPublicShopPackages(
             ...item.packages,
             price: basePrice
           },
-          selling_price: basePrice + item.profit_margin
+          selling_price: sellingPrice
         }
       })
   }

@@ -39,7 +39,7 @@ describe("buildShopPriceTable", () => {
     expect(t.networks[0].rows.map((r) => r.price)).toEqual([5, null])
   })
 
-  it("is unpriced when no row can be guaranteed (e.g. a legacy sub-agent catalog shop)", () => {
+  it("is unpriced when no row can be guaranteed to match checkout", () => {
     const t = buildShopPriceTable([pkg("a", "MTN", "1", 5)], new Set())
     expect(t.priced).toBe(false)
     expect(t.networks[0].rows[0]).toMatchObject({ label: "1GB", price: null })

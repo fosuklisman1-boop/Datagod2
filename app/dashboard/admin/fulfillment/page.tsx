@@ -257,6 +257,7 @@ export default function AdminFulfillmentPage() {
       "Attempts",
       "Error",
       "Created At",
+      "Last Updated",
       "Fulfilled At",
     ]
     const rows = data.map((f) => [
@@ -267,6 +268,7 @@ export default function AdminFulfillmentPage() {
       `${f.attempt_number}/${f.max_attempts}`,
       f.error_message || "-",
       new Date(f.created_at).toLocaleString(),
+      f.updated_at ? new Date(f.updated_at).toLocaleString() : "-",
       f.fulfilled_at ? new Date(f.fulfilled_at).toLocaleString() : "-",
     ])
 
@@ -424,6 +426,7 @@ export default function AdminFulfillmentPage() {
                       <th className="text-left py-3 px-4 font-semibold">Phone</th>
                       <th className="text-left py-3 px-4 font-semibold">Attempts</th>
                       <th className="text-left py-3 px-4 font-semibold">Created</th>
+                      <th className="text-left py-3 px-4 font-semibold">Last Updated</th>
                       <th className="text-left py-3 px-4 font-semibold">Error</th>
                       <th className="text-left py-3 px-4 font-semibold">Action</th>
                     </tr>
@@ -450,6 +453,11 @@ export default function AdminFulfillmentPage() {
                         </td>
                         <td className="py-3 px-4 text-xs">
                           {new Date(fulfillment.created_at).toLocaleString()}
+                        </td>
+                        <td className="py-3 px-4 text-xs">
+                          {fulfillment.updated_at
+                            ? new Date(fulfillment.updated_at).toLocaleString()
+                            : "-"}
                         </td>
                         <td className="py-3 px-4 text-xs">
                           {fulfillment.error_message ? (

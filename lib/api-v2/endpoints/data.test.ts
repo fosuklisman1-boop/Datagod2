@@ -3,6 +3,7 @@ import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import type { PackageRow } from "../data-orders"
 import type { OrderRow, PlaceParams, PlaceResult } from "../order-store"
 import type { V2Context } from "../handler"
+import { CustomPriceReadError } from "@/lib/pricing/package-price"
 import {
   purchaseHandler,
   bulkHandler,
@@ -75,6 +76,7 @@ function makeDeps(over: { prefixEnabled?: boolean } = {}) {
     verifyMtn: vi.fn(async (locals: string[]) => new Map<string, boolean | null>(locals.map((l) => [l, true]))),
     phoneGate: vi.fn(async (_u: string) => ({ allowed: true })),
     mtnBlocking: vi.fn(async () => true),
+    customPrices: vi.fn(async (_u: string) => new Map<string, number>() as ReadonlyMap<string, number>),
     schedule: vi.fn(),
     scheduleBatch: vi.fn(),
     clock: { ms: 0 },
@@ -93,6 +95,7 @@ function allFns(d: Deps) {
     d.verifyMtn,
     d.phoneGate,
     d.mtnBlocking,
+    d.customPrices,
     d.schedule,
     d.scheduleBatch,
   ] as Array<ReturnType<typeof vi.fn>>
@@ -1193,5 +1196,107 @@ describe("packages", () => {
     const r = await listPackagesHandler(d)({}, LIVE)
     expect(data(r).packages).toHaveLength(4)
     for (const p of data(r).packages) expect(Object.keys(p).sort()).toEqual(["network", "price", "size_gb"])
+  })
+})
+
+describe("custom prices", () => {
+  it("live purchase charges the user's custom price", async () => {
+    const d = makeDeps()
+    d.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990490", reference: "REF-CP1" }), LIVE)
+    expect(r.status).toBe(201)
+    expect(data(r).order.price).toBe(3.25)
+    expect(d.store.placeV2Order.mock.calls[0][0]).toMatchObject({ price: 3.25, packageId: "p-mtn-1" })
+    expect(d.customPrices).toHaveBeenCalledWith(LIVE.userId)
+  })
+
+  it("live purchase answers 503 and places nothing when custom prices cannot be read", async () => {
+    const d = makeDeps()
+    d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    const r = await purchaseHandler(d)(body({ recipient: "0249990491", reference: "REF-CP2" }), LIVE)
+    expect(r.error?.status).toBe(503)
+    expectNoMoney(d)
+  })
+
+  it("bulk prices each new order with the custom price", async () => {
+    const d = makeDeps()
+    d.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    await bulkHandler(d)({ orders: [body({ recipient: "0249990492", reference: "REF-CP3" })] }, LIVE)
+    expect(d.store.placeV2Order.mock.calls[0][0]).toMatchObject({ price: 3.25 })
+  })
+
+  it("bulk answers 503 and places nothing when custom prices cannot be read", async () => {
+    const d = makeDeps()
+    d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    const r = await bulkHandler(d)({ orders: [body({ recipient: "0249990493", reference: "REF-CP4" })] }, LIVE)
+    expect(r.error?.status).toBe(503)
+    expectNoMoney(d)
+  })
+
+  it("GET packages lists the custom price", async () => {
+    const d = makeDeps()
+    d.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    const r = await listPackagesHandler(d)({}, LIVE)
+    expect((r.data as any).packages.find((p: any) => p.network === "MTN" && p.size_gb === 1).price).toBe(3.25)
+    expect((r.data as any).packages.find((p: any) => p.network === "MTN" && p.size_gb === 2).price).toBe(18)
+  })
+
+  it("a non-dealer user is charged the custom price too", async () => {
+    const d = makeDeps()
+    d.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990494", reference: "REF-CP5" }), LIVE_USER)
+    expect(r.status).toBe(201)
+    expect(d.store.placeV2Order.mock.calls[0][0]).toMatchObject({ price: 3.25, packageId: "p-mtn-1" })
+  })
+
+  it("live replay needs no custom prices: a read failure does not matter", async () => {
+    const d = makeDeps()
+    d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    d.store.getOrderByReference.mockResolvedValue(row({ recipient_phone: "0249990404", status: "completed" }))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990404" }), LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r).replayed).toBe(true)
+    expect(d.customPrices).not.toHaveBeenCalled()
+    expectNoMoney(d)
+  })
+
+  it("an all-replayed bulk batch needs no custom prices", async () => {
+    const d = makeDeps()
+    d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    d.store.getOrdersByReferences.mockResolvedValue(
+      new Map([["REF-CP6", row({ api_reference: "REF-CP6", recipient_phone: "0249990495" })]])
+    )
+    const r = await bulkHandler(d)({ orders: [body({ recipient: "0249990495", reference: "REF-CP6" })] }, LIVE)
+    expect(r.status).toBe(200)
+    expect(data(r).results).toEqual([expect.objectContaining({ reference: "REF-CP6", status: "replayed" })])
+    expect(d.customPrices).not.toHaveBeenCalled()
+    expectNoMoney(d)
+  })
+
+  it("sandbox purchase is priced with the custom price", async () => {
+    const d = makeDeps()
+    d.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990496", reference: "REF-CP7" }), TEST)
+    expect(r.status).toBe(201)
+    expect(d.sandbox.place).toHaveBeenCalledTimes(1)
+    expect(d.sandbox.place.mock.calls[0][0]).toMatchObject({
+      price: 3.25,
+      orderFields: { price: 3.25 },
+    })
+  })
+
+  it("sandbox purchase answers 503 and does not place when custom prices cannot be read", async () => {
+    const d = makeDeps()
+    d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    const r = await purchaseHandler(d)(body({ recipient: "0249990497", reference: "REF-CP8" }), TEST)
+    expect(r.error?.status).toBe(503)
+    expect(d.sandbox.place).not.toHaveBeenCalled()
+  })
+
+  it("GET packages answers 503 when custom prices cannot be read", async () => {
+    const d = makeDeps()
+    d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    const r = await listPackagesHandler(d)({}, LIVE)
+    expect(r.error?.status).toBe(503)
   })
 })

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
+import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
 import type { WaShopSession } from "@/lib/whatsapp-bot/shop-types"
 
 const supabaseAdmin = createClient(
@@ -1300,11 +1301,16 @@ export async function executeToolCall(
           }))
         }
 
+        // Display only: a failed read shows role prices.
+        // Sub-agents pay the parent's catalog price, so custom prices do not apply to them.
+        const custom = ctx.userRole === "sub_agent"
+          ? NO_CUSTOM_PRICES
+          : await getCustomPrices(supabaseAdmin, ctx.userId).catch(() => NO_CUSTOM_PRICES)
         return sanitize(rows.map((p: Record<string, unknown>) => ({
           id: p.id,
           network: p.network,
           size: p.size,
-          price: isDealer && p.dealer_price && Number(p.dealer_price) > 0 ? p.dealer_price : p.price,
+          price: effectivePrice(p as any, isDealer, custom),
         })))
       }
 
@@ -1945,9 +1951,12 @@ export async function executeToolCall(
         if (!pkg) {
           return { error: "package_not_found", message: `No active ${canonicalNetwork} bundle matches that size. Call get_available_packages and offer the customer one of the sizes it lists.` }
         }
-        const tierPrice = effectivePriceTier === "dealer" && pkg.dealer_price && Number(pkg.dealer_price) > 0
-          ? Number(pkg.dealer_price)
-          : Number(pkg.price)
+        let tierPrice: number
+        try {
+          tierPrice = effectivePrice(pkg, effectivePriceTier === "dealer", await getCustomPrices(supabaseAdmin, resolvedUserId))
+        } catch {
+          return { error: "prices_unavailable", message: "Prices are temporarily unavailable. Ask the customer to try again shortly." }
+        }
 
         // Light idempotency: if an identical order is already awaiting payment from the
         // last ~90s, don't seed another. (The real anti-double-charge guard is the existing

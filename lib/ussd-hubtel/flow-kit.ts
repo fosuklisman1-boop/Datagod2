@@ -21,7 +21,7 @@ export interface RouterDeps {
   supabase: SupabaseClient
   getConfig(): Promise<HubtelUssdConfig>
   sessions: HubtelSessionStore
-  fetchBundles: (network: string, page: number, tier: string, parentShopId?: string) => Promise<{ bundles: BundleOption[]; total: number }>
+  fetchBundles: (network: string, page: number, tier: string, parentShopId?: string, userId?: string) => Promise<{ bundles: BundleOption[]; total: number }>
   resolveCaller: (phone: string) => Promise<CallerContext>
   isDataBlocked: (msisdn: string) => Promise<boolean>
   getPrefixConfig: () => Promise<PrefixValidationConfig>
@@ -49,6 +49,12 @@ export interface RouterDeps {
    * (not sellable). Must fail open; callers also time it out.
    */
   verifyRecipient?(phoneLocal: string): Promise<boolean | "blocked">
+  /**
+   * Keep a task running after the reply is sent (Next.js after()). Used so a recipient check that
+   * outlives the confirm screen's short wait still finishes and caches its verdict for the pay step.
+   * Optional: without it the task is simply left to run detached.
+   */
+  defer?(task: () => Promise<unknown>): void
 }
 
 export interface FlowCtx {

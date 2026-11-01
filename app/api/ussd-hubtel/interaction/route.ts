@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   console.log("[HUBTEL] Incoming:", { sid: req.SessionId, type: req.Type, platform: req.Platform, seq: req.Sequence, inputLen: req.Message.length })
   const receivedAt = new Date()
-  const deps = defaultRouterDeps(supabase)
+  const deps = { ...defaultRouterDeps(supabase), defer: (task: () => Promise<unknown>) => runAfterResponse(async () => { await task() }) }
   const tracked = trackSessionStore(deps.sessions)
   let reply: HubtelReply
   try {
