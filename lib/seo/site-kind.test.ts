@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { classifySiteKind, isMainHostName, isMainSiteFromHeaders, parseSiteKind } from "./site-kind"
+import { classifySiteKind, isMainHostName, isMainSiteFromHeaders, parseSiteKind, shouldNoindexRequest } from "./site-kind"
 
 const none = { shopSubdomain: null, customDomain: false }
 
@@ -64,5 +64,22 @@ describe("isMainHostName", () => {
   it("is the plain host check", () => {
     expect(isMainHostName("www.datagod.store")).toBe(true)
     expect(isMainHostName("myshop.datagod.store")).toBe(false)
+  })
+})
+
+describe("shouldNoindexRequest", () => {
+  it("noindexes every non-main host", () => {
+    expect(shouldNoindexRequest("shop", "/")).toBe(true)
+    expect(shouldNoindexRequest("custom", "/")).toBe(true)
+    expect(shouldNoindexRequest("custom", "/mtn-data")).toBe(true)
+  })
+  it("noindexes /shop paths on the main host", () => {
+    expect(shouldNoindexRequest("main", "/shop/kings")).toBe(true)
+    expect(shouldNoindexRequest("main", "/shop")).toBe(true)
+  })
+  it("leaves the main site indexable", () => {
+    expect(shouldNoindexRequest("main", "/")).toBe(false)
+    expect(shouldNoindexRequest("main", "/mtn-data")).toBe(false)
+    expect(shouldNoindexRequest("main", "/shopping-guide")).toBe(false)
   })
 })

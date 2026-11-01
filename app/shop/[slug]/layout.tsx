@@ -61,6 +61,8 @@ export async function generateMetadata({
     ...(iconUrl ? { icons: { icon: iconUrl, apple: iconUrl, shortcut: iconUrl } } : {}),
     title,
     description,
+    // Shops are kept out of search indexes (main-site SEO focus); middleware also sends X-Robots-Tag.
+    robots: { index: false, follow: true },
     alternates: { canonical: canonicalUrl },
     openGraph: {
       type: 'website',

@@ -6,7 +6,7 @@ import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 import { apiHostRewrite } from "@/lib/api-v2/host"
-import { REQUEST_PATH_HEADER, SITE_KIND_HEADER, classifySiteKind } from "@/lib/seo/site-kind"
+import { REQUEST_PATH_HEADER, SHOP_ROBOTS_TAG, SITE_KIND_HEADER, classifySiteKind, shouldNoindexRequest } from "@/lib/seo/site-kind"
 import { legacyHostRedirect } from "@/lib/seo/host-redirect"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
@@ -366,6 +366,8 @@ export async function middleware(request: NextRequest) {
   ].join("; ")
 
   response.headers.set("Content-Security-Policy", csp)
+  // Shops (and every non-main host) stay out of search indexes so data-bundle searches land on the main site.
+  if (shouldNoindexRequest(siteKind, path)) response.headers.set("X-Robots-Tag", SHOP_ROBOTS_TAG)
   // Isolates the top-level window from cross-origin pop-ups (e.g. XS-Leaks).
   // 'same-origin-allow-popups' keeps Paystack's checkout pop-up working.
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")

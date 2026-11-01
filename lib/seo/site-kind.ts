@@ -83,3 +83,17 @@ export function isMainSiteFromHeaders(
  * get no pathname from Next.
  */
 export const REQUEST_PATH_HEADER = "x-request-path"
+
+/**
+ * Reseller shops (shop subdomains, custom domains, and /shop/* paths on the
+ * main host) are kept out of search indexes so data-bundle searches go to the
+ * main site. Middleware turns this into an `X-Robots-Tag: noindex` header,
+ * which overrides any page-level robots meta. Reserved app./admin./api. hosts
+ * are "custom" and so are noindexed too.
+ */
+export function shouldNoindexRequest(siteKind: SiteKind, path: string): boolean {
+  if (siteKind !== "main") return true
+  return path === "/shop" || path.startsWith("/shop/")
+}
+
+export const SHOP_ROBOTS_TAG = "noindex, follow"
