@@ -3,8 +3,8 @@ import { NextRequest } from "next/server"
 
 vi.mock("@/lib/admin-auth", () => ({ verifyAdminAccess: vi.fn(async () => ({ isAdmin: true, userId: "admin-1" })) }))
 
-const upsert = vi.fn(async (_rows: unknown, _opts: unknown) => ({ error: null as unknown }))
-const del = vi.fn(async (_c: string, _keys: string[]) => ({ error: null as unknown }))
+const upsert = vi.fn<(rows: unknown, opts: unknown) => Promise<{ error: unknown }>>(async () => ({ error: null }))
+const del = vi.fn<(col: string, keys: string[]) => Promise<{ error: unknown }>>(async () => ({ error: null }))
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
     from: () => ({
