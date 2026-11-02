@@ -13,10 +13,13 @@ import { POST as RAW_POST } from "./route"
 const POST = async (body: unknown, id = USER_ID) =>
   (await RAW_POST(new NextRequest(`http://x/api/admin/users/${id}/phone-verified`, { method: "POST", body: JSON.stringify(body) }), { params: Promise.resolve({ id }) }))!
 
-const fake = (user: unknown = { id: USER_ID, phone_number: "0244000000", phone_verified: false }) =>
+const fake = (user: unknown = { id: USER_ID, phone_number: "0244000000", phone_verified: false }, holders: unknown[] = []) =>
   createFakeDb({
     tables: {
-      users: (q: FakeQuery) => (q.kind === "update" ? { data: null, error: null } : { data: user, error: null }),
+      users: (q: FakeQuery) =>
+        q.kind === "update" ? { data: null, error: null }
+        : q.op("in") ? { data: holders, error: null }
+        : { data: user, error: null },
       admin_audit_log: () => ({ data: null, error: null }),
     },
   })
@@ -54,6 +57,27 @@ describe("POST /api/admin/users/[id]/phone-verified", () => {
       old_value: { phone_verified: false, phone_number: "0244000000" },
       new_value: { phone_verified: true, phone_number: "0244000000" },
     }])
+  })
+
+  it("refuses to verify a number another account already has verified (any format), naming that account", async () => {
+    h.fake = fake(undefined, [{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", email: "other@x.com", phone_number: "233244000000" }])
+    const res = await POST({ verified: true })
+    expect(res.status).toBe(409)
+    const { error } = await res.json()
+    expect(error).toContain("other@x.com")
+    expect(error).toMatch(/refund/i)
+    const lookup = h.fake.ofTable("users").find((q) => q.op("in"))!
+    expect(lookup.op("in")).toEqual(["in", "phone_number", expect.arrayContaining(["0244000000", "233244000000", "+233244000000", "244000000"])])
+    expect(lookup.ops).toContainEqual(["eq", "phone_verified", true])
+    expect(lookup.ops).toContainEqual(["neq", "id", USER_ID])
+    expect(h.fake.ofTable("users").filter((q) => q.kind === "update")).toHaveLength(0)
+    expect(h.fake.ofTable("admin_audit_log")).toHaveLength(0)
+  })
+
+  it("un-verifying does not check other accounts", async () => {
+    h.fake = fake({ id: USER_ID, phone_number: "0244000000", phone_verified: true }, [{ id: "x", email: "other@x.com" }])
+    expect((await POST({ verified: false })).status).toBe(200)
+    expect(h.fake.ofTable("users").filter((q) => q.op("in"))).toHaveLength(0)
   })
 
   it("un-verifies, is a no-op when unchanged, and refuses to verify without a number", async () => {

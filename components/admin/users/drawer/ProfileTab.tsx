@@ -206,8 +206,14 @@ export function ProfileTab({ profile, onChanged, actions }: {
         onOpenChange={(o) => !o && setConfirm(null)}
         title={profile.phoneVerified ? "Mark phone unverified?" : "Mark phone verified?"}
         description={profile.phoneVerified
-          ? <p><strong>{profile.phoneNumber}</strong> will need to be verified again. Orders, withdrawals and other gated actions are blocked until it is (after any grace period left).</p>
-          : <p><strong>{profile.phoneNumber}</strong> is marked verified without an OTP. Only do this if you have confirmed the number belongs to this user.</p>}
+          ? <>
+              <p><strong>{profile.phoneNumber}</strong> will need to be verified again. Orders, withdrawals and other gated actions are blocked until it is (after any grace period left).</p>
+              <p>Refunds for USSD and storefront orders on this number will no longer be paid to this account.</p>
+            </>
+          : <>
+              <p><strong>{profile.phoneNumber}</strong> is marked verified without an OTP. Only do this if you have confirmed the number belongs to this user.</p>
+              <p>Refunds for USSD and storefront orders placed with this number will be paid into this user&apos;s wallet. It is refused if another account already has this number verified.</p>
+            </>}
         confirmLabel={profile.phoneVerified ? "Mark unverified" : "Mark verified"}
         destructive={profile.phoneVerified}
         onConfirm={() => run(async () => {
