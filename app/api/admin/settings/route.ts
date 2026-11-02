@@ -178,6 +178,7 @@ export async function PUT(request: NextRequest) {
       'ussd_shop_activation_fee',
       'whatsapp_shop_activation_fee',
       'storefront_show_ussd_card',
+      'sub_agent_open_join_enabled',
     ]
 
     // Auto-stamp terms_last_updated when any terms section changes
@@ -253,6 +254,13 @@ export async function PUT(request: NextRequest) {
           { status: 400 }
         )
       }
+    }
+
+    if (updates.sub_agent_open_join_enabled !== undefined && typeof updates.sub_agent_open_join_enabled !== "boolean") {
+      return NextResponse.json(
+        { error: "sub_agent_open_join_enabled must be true or false" },
+        { status: 400 }
+      )
     }
 
     // Validate signup_default_role if present

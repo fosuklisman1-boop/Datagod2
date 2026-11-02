@@ -32,6 +32,7 @@ const SAFE_APP_COLUMNS = [
   "ussd_shop_activation_fee",
   "whatsapp_shop_activation_fee",
   "storefront_show_ussd_card",
+  "sub_agent_open_join_enabled",
 ] as const
 
 export async function GET() {
