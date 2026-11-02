@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner"
 import { RefreshCw, Search } from "lucide-react"
 import { BUNDLE_NETWORKS, type BundleNetwork } from "@/lib/standard-bundles/categories"
-import { isValidReferenceNumber, type BundlesConfig } from "@/lib/standard-bundles/config"
+import { isValidReferenceNumber, validateBundlesPatch, type BundlesConfig } from "@/lib/standard-bundles/config"
 
 export type Authed = (path: string, init?: RequestInit) => Promise<any>
 
@@ -131,10 +131,63 @@ export function BundlesSettingsCard({ authed }: { authed: Authed }) {
                 )
               })}
             </div>
+            <SpecialBundlesSection special={cfg.special} busy={busy} onSave={save} />
           </>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+// Special Bundles (MTN): the dashboard-only "N x the unit bundle" category. Ships off.
+// The config RPC replaces `special` whole, so every save sends all four fields.
+function SpecialBundlesSection({ special, busy, onSave }: {
+  special: BundlesConfig["special"]; busy: boolean; onSave: (patch: object, okMsg?: string) => Promise<void>
+}) {
+  const [multiples, setMultiples] = useState(special.multiples.join(", "))
+  const [unit, setUnit] = useState(String(special.unitAmount))
+  const [unitValue, setUnitValue] = useState(special.unitValue)
+  // Re-sync the drafts whenever the saved config changes.
+  useEffect(() => {
+    setMultiples(special.multiples.join(", ")); setUnit(String(special.unitAmount)); setUnitValue(special.unitValue)
+  }, [special])
+
+  const parts = multiples.split(",").map(s => s.trim()).filter(Boolean)
+  const parsedMultiples = parts.map(p => (/^\d+$/.test(p) ? Number(p) : NaN))
+  const parsedUnit = unit.trim() === "" ? NaN : Number(unit)
+  const draft = { enabled: special.enabled, multiples: parsedMultiples, unitAmount: parsedUnit, unitValue: unitValue.trim() }
+  const check = validateBundlesPatch({ special: draft })
+  const dirty = !check.ok || JSON.stringify(check.patch.special) !== JSON.stringify(special)
+
+  return (
+    <div className="space-y-3 rounded-xl border p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-medium">Special Bundles (MTN)</div>
+          <div className="text-xs text-muted-foreground">Dashboard only. A &quot;Special Bundles&quot; category of multiples of the unit bundle, shown first for MTN.</div>
+        </div>
+        <Switch aria-label="Special Bundles enabled" checked={special.enabled} disabled={busy}
+          onCheckedChange={v => onSave({ special: { ...special, enabled: v } }, v ? "Special Bundles on" : "Special Bundles off")} />
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[2fr_1fr_2fr_auto] lg:items-end">
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">Multiples (comma separated, 1 to 10 whole numbers from 1 to 20)</div>
+          <Input aria-label="Special Bundles multiples" value={multiples} inputMode="numeric" onChange={e => setMultiples(e.target.value)} />
+        </div>
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">Unit amount (GHS)</div>
+          <Input aria-label="Special Bundles unit amount" value={unit} inputMode="decimal" onChange={e => setUnit(e.target.value)} />
+        </div>
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">Hubtel unit value (exact catalog Value)</div>
+          <Input aria-label="Special Bundles Hubtel unit value" value={unitValue} autoComplete="off" spellCheck={false}
+            className="font-mono" onChange={e => setUnitValue(e.target.value)} />
+        </div>
+        <Button disabled={busy || !check.ok || !dirty}
+          onClick={() => { if (check.ok && check.patch.special) void onSave({ special: check.patch.special }, "Special Bundles saved") }}>Save</Button>
+      </div>
+      {!check.ok && <div className="text-xs text-red-600">{check.error}</div>}
+    </div>
   )
 }
 
@@ -149,6 +202,8 @@ type OrderRow = {
   failure_reason: string | null; notes: string | null; created_at: string; updated_at: string
   channel?: string; channel_label?: string | null; shop_name?: string | null; buyer_phone?: string | null
   purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo; can_retry?: boolean; can_dispatch?: boolean
+  /** Special Bundles child: group id + "Special i/N" (null for normal orders / before migration 0141). */
+  special_group_id?: string | null; special_label?: string | null
 }
 
 export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; onReviewQueue: () => void }) {
@@ -164,6 +219,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
   const [channel, setChannel] = useState("all")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
+  const [group, setGroup] = useState<{ id: string; ref: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const inFlight = useRef(false)
   const seq = useRef(0)
@@ -181,6 +237,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
     if (channel !== "all") p.set("channel", channel)
     if (from) p.set("from", from)
     if (to) p.set("to", to)
+    if (group) p.set("group", group.id)
     try {
       const j = await authed(`/api/admin/standard-bundles/orders?${p}`)
       if (id !== seq.current) return
@@ -188,7 +245,7 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
     } catch (e) {
       if (id === seq.current) toast.error(`Standard Bundles: ${errMsg(e)}`)
     } finally { if (id === seq.current) setLoading(false) }
-  }, [authed, q, status, network, channel, from, to])
+  }, [authed, q, status, network, channel, from, to, group])
   useEffect(() => { void load(0) }, [load])
 
   async function sync(r: OrderRow) {
@@ -296,6 +353,13 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
           </Select>
           <Input type="date" aria-label="From date" value={from} onChange={e => setFrom(e.target.value)} />
           <Input type="date" aria-label="To date" value={to} onChange={e => setTo(e.target.value)} />
+          {group && (
+            <div className="flex flex-wrap items-center gap-2 text-sm lg:col-span-full">
+              <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">Special group</span>
+              <span className="text-muted-foreground">Showing every unit of the Special purchase that includes <span className="font-mono">{group.ref}</span></span>
+              <Button size="sm" variant="ghost" onClick={() => setGroup(null)}>Clear</Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -318,6 +382,21 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
             <div key={r.id} className="flex flex-col gap-3 rounded-xl border bg-card p-4 lg:flex-row lg:items-center lg:gap-6">
               <div className="lg:w-56">
                 <div className="font-medium">{NETWORK_LABEL[r.network]} {r.bundle_display}</div>
+                {r.special_label && r.special_group_id && (
+                  <button type="button" title="Show every unit of this Special purchase"
+                    aria-label={`${r.special_label}: show the whole Special group`}
+                    className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20 disabled:opacity-60"
+                    disabled={group?.id === r.special_group_id}
+                    onClick={() => {
+                      const id = r.special_group_id
+                      if (!id) return
+                      // Clear the other filters so every unit of the group shows.
+                      setQ(""); setQInput(""); setStatus("all"); setNetwork("all"); setChannel("all"); setFrom(""); setTo("")
+                      setGroup({ id, ref: r.reference_code })
+                    }}>
+                    {r.special_label}
+                  </button>
+                )}
                 <div className="text-xs text-muted-foreground">{r.bundle_category} · {r.purchaser}</div>
                 <div className="text-xs text-muted-foreground">
                   {r.channel === "storefront" ? `Storefront · ${r.shop_name ?? "Unknown shop"}${r.buyer_phone ? ` · ${r.buyer_phone}` : ""}` : r.channel === "bots" ? (r.channel_label ?? "Bot") : r.channel === "api" ? "API" : "Dashboard"}

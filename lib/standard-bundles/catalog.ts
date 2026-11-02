@@ -30,6 +30,12 @@ const cache = new Map<BundleNetwork, { bundles: CatalogBundle[]; fetchedAt: numb
 
 export function __resetCatalogCache(): void { cache.clear() }
 
+/** The full parsed catalog last fetched by getCatalog (before hidden categories), or null. Read-only copy. */
+export function peekCatalogBundles(network: BundleNetwork): CatalogBundle[] | null {
+  const entry = cache.get(network)
+  return entry ? entry.bundles.map((b) => ({ ...b })) : null
+}
+
 export async function getCatalog(d: CatalogDeps, network: BundleNetwork): Promise<CatalogResult> {
   if (!d.secret) return fail(503, UNAVAILABLE)
   let cfg: BundlesConfig

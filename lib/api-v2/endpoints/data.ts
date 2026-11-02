@@ -21,6 +21,7 @@
  */
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import type { PrefixValidationConfig } from "@/lib/network-prefix-config"
+import { NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
 import type { V2Context, V2HandlerResult } from "../handler"
 import type { V2ErrorStatus } from "../envelope"
 import {
@@ -92,6 +93,14 @@ export interface DataDeps {
    * open, like v1; the fulfillment-time hold stays the backstop).
    */
   verifyMtn(locals: string[]): Promise<Map<string, boolean | null>>
+  /**
+   * Whether a false verdict blocks (the admin "block unverified numbers"
+   * toggle). Asked only when some verdict is false; a throw counts as off
+   * (fail open). verify-number reports the verdict regardless.
+   */
+  mtnBlocking(): Promise<boolean>
+  /** The caller's custom prices (empty unless they are on custom pricing). Throws CustomPriceReadError on a read failure. */
+  customPrices(userId: string): Promise<CustomPrices>
   /**
    * Account-holder phone gate (lib/phone-verify-guard checkPhoneVerified,
    * fail closed). Live purchase/bulk only, after replay classification and
@@ -218,6 +227,14 @@ async function safeVerify(deps: DataDeps, locals: string[]): Promise<Map<string,
   }
 }
 
+async function safeBlocking(deps: DataDeps): Promise<boolean> {
+  try {
+    return (await deps.mtnBlocking()) === true
+  } catch {
+    return false
+  }
+}
+
 /** Unpriced rows (price null/0/negative/non-numeric) are never listed or sold. */
 function usable(rows: PackageRow[]): PackageRow[] {
   return rows.filter((r) => {
@@ -304,7 +321,16 @@ export function purchaseHandler(deps: DataDeps) {
   }
 }
 
-/** Package + role price + prefix, shared by live and sandbox. */
+/** null = the read failed; the caller answers 503 and places nothing. */
+async function loadCustom(deps: DataDeps, ctx: V2Context): Promise<CustomPrices | null> {
+  try {
+    return await deps.customPrices(ctx.userId)
+  } catch {
+    return null
+  }
+}
+
+/** Package + effective (custom or role) price + prefix, shared by live and sandbox. */
 async function priceAndValidate(
   deps: DataDeps,
   input: PurchaseInput,
@@ -314,7 +340,9 @@ async function priceAndValidate(
   if (!rows) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
   const pkg = findPackage(usable(rows), input.dbNetwork, input.gb)
   if (!pkg) return { ok: false, result: fail(404, MSG_PACKAGE_NOT_FOUND) }
-  const price = priceForRole(ctx.role, pkg)
+  const custom = await loadCustom(deps, ctx)
+  if (!custom) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
+  const price = priceForRole(ctx.role, pkg, custom)
   if (!prefixOk(await deps.prefixConfig(), input)) return { ok: false, result: fail(400, MSG_NETWORK_MISMATCH) }
   return { ok: true, priced: { input, pkg, price } }
 }
@@ -335,10 +363,11 @@ async function livePurchase(deps: DataDeps, input: PurchaseInput, ctx: V2Context
   if (!v.ok) return v.result
   const p = v.priced
 
-  // 4. MTN whitelist: an explicit "not registered" blocks with no charge.
+  // 4. MTN whitelist: an explicit "not registered" blocks with no charge
+  //    while the admin blocking toggle is on.
   if (input.network === "MTN") {
     const verdicts = await safeVerify(deps, [input.local])
-    if (verdicts.get(input.local) === false) return fail(409, MSG_NOT_REGISTERED)
+    if (verdicts.get(input.local) === false && (await safeBlocking(deps))) return fail(409, MSG_NOT_REGISTERED)
   }
 
   // 5. Atomic placement.
@@ -428,11 +457,15 @@ async function priceNewItems(
   const hasNew = classified.some((c) => c.kind === "new")
   let packages: PackageRow[] = []
   let cfg: PrefixValidationConfig | null = null
+  let custom: CustomPrices = NO_CUSTOM_PRICES
   if (hasNew) {
     const rows = await deps.store.listAvailablePackages()
     if (!rows) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
     packages = usable(rows)
     cfg = await deps.prefixConfig()
+    const c = await loadCustom(deps, ctx)
+    if (!c) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
+    custom = c
   }
   const slots: Slot[] = []
   for (const c of classified) {
@@ -443,7 +476,7 @@ async function priceNewItems(
     const pkg = findPackage(packages, c.input.dbNetwork, c.input.gb)
     if (!pkg) return { ok: false, result: fail(400, `orders[${c.index}]: ${MSG_PACKAGE_NOT_FOUND}`) }
     if (!prefixOk(cfg!, c.input)) return { ok: false, result: fail(400, `orders[${c.index}]: ${MSG_NETWORK_MISMATCH}`) }
-    slots.push({ kind: "new", p: { input: c.input, pkg, price: priceForRole(ctx.role, pkg) } })
+    slots.push({ kind: "new", p: { input: c.input, pkg, price: priceForRole(ctx.role, pkg, custom) } })
   }
   return { ok: true, slots }
 }
@@ -500,11 +533,12 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
     ),
   ]
   const verdicts = await safeVerify(deps, mtnLocals)
+  const blocking = [...verdicts.values()].includes(false) && (await safeBlocking(deps))
   const skipped: Array<{ reference: string; reason: "NOT_REGISTERED" }> = []
   const toPlace = new Set<Slot>()
   for (const s of slots) {
     if (s.kind !== "new") continue
-    if (s.p.input.network === "MTN" && verdicts.get(s.p.input.local) === false) {
+    if (blocking && s.p.input.network === "MTN" && verdicts.get(s.p.input.local) === false) {
       skipped.push({ reference: s.p.input.reference, reason: "NOT_REGISTERED" })
     } else {
       toPlace.add(s)
@@ -688,6 +722,8 @@ export function listPackagesHandler(deps: DataDeps) {
 
     const rows = await deps.store.listAvailablePackages(dbNetwork)
     if (!rows) return fail(503, MSG_UNAVAILABLE)
+    const custom = await loadCustom(deps, ctx)
+    if (!custom) return fail(503, MSG_UNAVAILABLE)
     const packages: Array<{ network: string; size_gb: number; price: number }> = []
     for (const r of usable(rows)) {
       const net = parseNetwork(r.network)
@@ -695,7 +731,7 @@ export function listPackagesHandler(deps: DataDeps) {
       if (typeof r.size !== "string" || !/^[0-9]+(\.[0-9]+)?$/.test(r.size)) continue
       const size = Number(r.size)
       if (gb !== undefined && size !== gb) continue
-      packages.push({ network: net.network, size_gb: size, price: cents(priceForRole(ctx.role, r)) / 100 })
+      packages.push({ network: net.network, size_gb: size, price: cents(priceForRole(ctx.role, r, custom)) / 100 })
     }
     packages.sort((a, b) => (a.network !== b.network ? (a.network < b.network ? -1 : 1) : a.size_gb - b.size_gb))
     return ok(200, { packages })

@@ -28,7 +28,7 @@ import { SHOP_DATA_STEPS, startShopData } from "./flows/shop-data"
 import { SHOP_RC_STEPS, startShopRc } from "./flows/shop-rc"
 import { SHOP_ENTRY_STEPS, recoverShopCodeEntry, shopMenuFor, shopMenuReply, startShopSession } from "./flows/shop"
 import { confirmScreenText } from "@/lib/delivery-estimate/compute"
-import { checkCustomerFacingVerification } from "@/lib/mtn-providers/customer-verification"
+import { verifyRecipientsForOrder } from "@/lib/mtn-providers/customer-verification"
 import { getCachedChannelEstimate } from "@/lib/delivery-estimate/query"
 import type { HubtelReply, HubtelRequest } from "./types"
 
@@ -52,7 +52,16 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     networkPlans: defaultNetworkPlansServices(),
     payBills: defaultPayBillsServices(),
     botMenus: () => loadBotMenuGate(supabase),
-    verifyRecipient: async phone => (await checkCustomerFacingVerification([phone]))[0]?.verified !== false,
+    verifyRecipient: async phone => {
+      // Generous bound: screens cap their own wait, and a check that outlives a screen finishes in
+      // the background (deps.defer) and caches its verdict for the pay step.
+      const v = await verifyRecipientsForOrder([phone], { timeoutMs: 12_000 })
+      const verdict = v.verdicts.get(phone)
+      // Diagnostic only (no phone): what the confirm screen will show and why.
+      console.info(`[HUBTEL-VERIFY] verdict=${verdict} blocking=${v.blocking} -> ${v.blocked.length > 0 ? "blocked" : verdict === false ? "warn" : "ok"}`)
+      if (v.blocked.length > 0) return "blocked"
+      return verdict !== false
+    },
     deliveryEstimate: async channel => confirmScreenText(await getCachedChannelEstimate(supabase, channel)),
   }
 }

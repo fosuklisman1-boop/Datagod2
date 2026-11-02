@@ -18,6 +18,8 @@ import { BulkOrdersForm } from "@/components/bulk-orders-form"
 import { networkLogoService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { applyPriceAdjustmentsToPackages } from "@/lib/price-adjustment-service"
+import { applyAdjustmentsExceptCustom } from "@/lib/pricing/adjust-except-custom"
+import { fetchUserPackagePrices, MSG_STANDARD_PRICES_FALLBACK, resolveDisplayPrices, STANDARD_PRICES_TOAST_ID } from "@/lib/pricing/user-package-prices"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { DEFAULT_NETWORK_PREFIXES, type NetworkPrefixMap } from "@/lib/phone-format"
 import { toast } from "sonner"
@@ -65,6 +67,8 @@ function DataPackagesPageInner() {
   const purchaseDismissedRef = useRef(false)
   const [selectedPackageForPurchase, setSelectedPackageForPurchase] = useState<Package | null>(null)
   const [verifyWarningOpen, setVerifyWarningOpen] = useState(false)
+  // Admin "block unverified numbers" toggle: no "Proceed anyway", only "Change number".
+  const [verifyBlocking, setVerifyBlocking] = useState(false)
   const [pendingPhoneNumber, setPendingPhoneNumber] = useState<string | null>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   // Whether the beneficiary gets an order-confirmation SMS -- this is real,
@@ -176,15 +180,17 @@ function DataPackagesPageInner() {
         return
       }
 
-      let processedPackages = data || []
-      if (userRole === "dealer") {
-        processedPackages = processedPackages.map((pkg: any) => ({
-          ...pkg,
-          price: pkg.dealer_price && pkg.dealer_price > 0 ? pkg.dealer_price : pkg.price
-        }))
+      // Server-resolved prices (role or custom), with the role price as the fallback when they cannot be loaded.
+      // Custom prices are exact and never marked up; for the rest the per-network display adjustment below is
+      // applied as before (purchase itself charges the unadjusted price).
+      const { data: { session } } = await supabase.auth.getSession()
+      const resolved = await fetchUserPackagePrices(session?.access_token)
+      const { packages: processedPackages, customIds, fallback } = resolveDisplayPrices(data || [], resolved, userRole === "dealer")
+      if (fallback && session?.access_token) {
+        toast.warning(MSG_STANDARD_PRICES_FALLBACK, { id: STANDARD_PRICES_TOAST_ID })
       }
 
-      const adjustedPackages = await applyPriceAdjustmentsToPackages(processedPackages)
+      const adjustedPackages = await applyAdjustmentsExceptCustom(processedPackages, customIds, applyPriceAdjustmentsToPackages)
       setPackages(adjustedPackages)
     } catch (error) {
       console.error("Error loading packages:", error)
@@ -260,6 +266,7 @@ function DataPackagesPageInner() {
             setPurchasing(null)
             setPurchaseModal(null)
             setPendingPhoneNumber(phoneNumber)
+            setVerifyBlocking(verifyData.blocking === true)
             setVerifyWarningOpen(true)
             return
           }
@@ -687,20 +694,24 @@ function DataPackagesPageInner() {
         <Dialog open={verifyWarningOpen} onOpenChange={(open) => { if (!open) { setVerifyWarningOpen(false); setPendingPhoneNumber(null) } }}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Number not yet verified</DialogTitle>
+              <DialogTitle>{verifyBlocking ? "Number can't be used" : "Number not yet verified"}</DialogTitle>
               <DialogDescription>
-                This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until it clears — you&apos;ll receive it automatically once verified.
+                {verifyBlocking
+                  ? "This MTN number is not verified for data and can't be ordered. Please use a different number."
+                  : <>This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until it clears — you&apos;ll receive it automatically once verified.</>}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="outline" onClick={() => { setVerifyWarningOpen(false); setPendingPhoneNumber(null); setPurchaseModal({ state: "phone" }) }}>Change number</Button>
-              <Button disabled={purchasing !== null} onClick={handleProceedAfterVerifyWarning}>
-                {purchasing !== null ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
-                ) : (
-                  "Proceed anyway"
-                )}
-              </Button>
+              {!verifyBlocking && (
+                <Button disabled={purchasing !== null} onClick={handleProceedAfterVerifyWarning}>
+                  {purchasing !== null ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+                  ) : (
+                    "Proceed anyway"
+                  )}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

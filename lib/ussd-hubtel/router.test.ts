@@ -145,6 +145,102 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     expect(r.Message).toMatch(/price changed/i)
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
   })
+  it("confirms at the custom price for a custom user", async () => {
+    const sup = fakeSupabase({
+      pkg: { id: "pkg-1", price: 10, dealer_price: null, is_available: true },
+      rows: { users: { pricing_mode: "custom" }, user_package_prices: [{ package_id: "pkg-1", price: 6 }] },
+    })
+    const { deps } = makeDeps({
+      resolveCaller: async () => ({ effectivePriceTier: "regular", userId: "u1" }),
+      fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 6 }], total: 1 }),
+    }, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("AddToCart")
+    expect(r.Item).toMatchObject({ Price: 6 })
+    expect(sup.inserts["ussd_orders"][0]).toMatchObject({ amount: 6, package_id: "pkg-1" })
+  })
+  it("refuses and creates nothing when custom prices cannot be read", async () => {
+    const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true }, readError: ["users"] })
+    const { deps } = makeDeps({ resolveCaller: async () => ({ effectivePriceTier: "regular", userId: "u1" }) }, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Type).not.toBe("AddToCart")
+    expect(r.Message).toMatch(/prices are temporarily unavailable/i)
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+  const subAgentCaller = {
+    resolveCaller: async () => ({ effectivePriceTier: "sub_agent", subAgentParentShopId: "shop-1", userId: "u1" }),
+    fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 9 }], total: 1 }),
+  }
+  // One row per table: users is read as the parent (a dealer in custom mode, pkg-1 at 6). The parent's catalog row
+  // is a list (subAgentCosts reads it as one); its stored parent_price (7) is a stale snapshot and never read.
+  const catalogRow = (over: Record<string, unknown> = {}) => [{
+    package_id: "pkg-1", wholesale_margin: 1, parent_price: 7,
+    packages: { id: "pkg-1", size: "5", network: "MTN", price: 10, dealer_price: 8, is_available: true }, ...over,
+  }]
+  const subAgentRows = (over: Record<string, unknown> = {}) => ({
+    sub_agent_catalog: catalogRow(),
+    user_shops: { user_id: "parent-1" },
+    users: { role: "dealer", pricing_mode: "custom" },
+    user_package_prices: [{ package_id: "pkg-1", price: 6 }],
+    ...over,
+  })
+  const subAgentPkg = { id: "pkg-1", price: 10, dealer_price: 8, is_available: true }
+  it("sub_agent tier: charges the parent's live cost (dealer 8 + margin 1, not the stale 7) and credits wholesale + saving", async () => {
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows() })
+    const { deps } = makeDeps(subAgentCaller, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("AddToCart")
+    expect(r.Item).toMatchObject({ Price: 9 })
+    expect(sup.inserts["ussd_orders"][0]).toMatchObject({ amount: 9, price_tier: "sub_agent", parent_shop_id: "shop-1", parent_profit_amount: 3 })
+  })
+  it("sub_agent tier: refuses and creates nothing when the parent's prices cannot be read", async () => {
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows(), readError: ["user_shops"] })
+    const { deps } = makeDeps(subAgentCaller, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toMatch(/prices are temporarily unavailable/i)
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+  it("sub_agent tier: refuses a negative wholesale margin and creates nothing", async () => {
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows({ sub_agent_catalog: catalogRow({ wholesale_margin: -1 }) }) })
+    const { deps } = makeDeps(subAgentCaller, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toMatch(/no longer available/i)
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+  it("sub_agent tier: refuses and creates nothing when the parent has no active row for the package", async () => {
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows({ sub_agent_catalog: [] }) })
+    const { deps } = makeDeps(subAgentCaller, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toMatch(/no longer available/i)
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+  it("sub_agent tier: refuses and creates nothing when the parent's catalog cannot be read", async () => {
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows(), readError: ["sub_agent_catalog"] })
+    const { deps } = makeDeps(subAgentCaller, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("release")
+    expect(r.Message).toMatch(/prices are temporarily unavailable/i)
+    expect(sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+  it("sub_agent tier: a non-dealer parent's live cost uses price (10 + 1), credited the margin only", async () => {
+    const sup = fakeSupabase({ pkg: subAgentPkg, rows: subAgentRows({ users: { role: "agent" } }) })
+    const { deps } = makeDeps({ ...subAgentCaller, fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 11 }], total: 1 }) }, sup)
+    await walkTo("CONFIRM", deps)
+    const r = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(r.Type).toBe("AddToCart")
+    expect(sup.inserts["ussd_orders"][0]).toMatchObject({ amount: 11, parent_profit_amount: 1 })
+  })
   it("marks the order failed and releases if hubtel_transactions cannot be written", async () => {
     const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true }, txError: true })
     const { deps } = makeDeps({}, sup)
@@ -571,6 +667,46 @@ describe("hubtelRouter: MTN number verification warning on the data confirm scre
     expect(again.Message).toContain("Not yet verified")
     expect(checked).toHaveLength(1)
     expect(store.get("S1")?.step).toBe("CONFIRM")
+  })
+  it("a blocked number (admin blocking toggle on) re-prompts for a different number instead of confirming", async () => {
+    const { deps, store } = makeDeps({ verifyRecipient: async () => "blocked", deliveryEstimate: async () => "Delivery: ~3 min" })
+    await walkTo("ENTER_RECIPIENT", deps)
+    const r = await hubtelRouter(req({ Message: "0244123456" }), deps)
+    expect(r.Message).toContain("Number not verified for MTN data. Enter a different number.")
+    expect(r.Message).not.toContain("Confirm your order?")
+    expect(store.get("S1")?.step).toBe("ENTER_RECIPIENT")
+    expect(store.get("S1")?.otherRecipient).toBe(true)
+  })
+  it("blocks at '1. Pay now' when the check only answers after the confirm screen (no AddToCart, re-prompt)", async () => {
+    let calls = 0
+    const { deps, store } = makeDeps({
+      // Recipient step: check not back yet (fails open). Pay step: blocked.
+      verifyRecipient: async () => (++calls === 1 ? true : "blocked"),
+      deliveryEstimate: async () => "Delivery: ~3 min",
+    })
+    await walkTo("ENTER_RECIPIENT", deps)
+    const confirmScreen = await hubtelRouter(req({ Message: "0244123456" }), deps)
+    expect(confirmScreen.Message).toContain("Confirm your order?")
+    const pay = await hubtelRouter(req({ Message: "1" }), deps)
+    expect(pay.Type).not.toBe("AddToCart")
+    expect(pay.Message).toContain("Number not verified for MTN data. Enter a different number.")
+    expect(store.get("S1")?.step).toBe("ENTER_RECIPIENT")
+    expect(calls).toBe(2)
+  })
+  it("a check that outlives the confirm screen keeps running via deps.defer", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    try {
+      const deferred: Array<() => Promise<unknown>> = []
+      const { deps } = makeDeps({ verifyRecipient: () => new Promise<boolean>(() => {}) })
+      deps.defer = task => { deferred.push(task) }
+      await walkTo("ENTER_RECIPIENT", deps)
+      const pending = hubtelRouter(req({ Message: "0244123456" }), deps)
+      await vi.advanceTimersByTimeAsync(3000)
+      expect((await pending).Message).toContain("Confirm your order?")
+      expect(deferred).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
   it("a verified number gets the delivery estimate as before", async () => {
     const { deps } = makeDeps({ verifyRecipient: async () => true, deliveryEstimate: async () => "Delivery: ~3 min" })

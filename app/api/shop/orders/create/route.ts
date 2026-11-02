@@ -13,6 +13,9 @@ import { checkEmailQuality } from "@/lib/email-heuristics"
 import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { isRecipientBlocked, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, ownerSaving, rolePrice, type CustomPrices } from "@/lib/pricing/package-price"
+import { catalogSubAgentMargin, directShopPricing, marginsValid, shopOwnerPricing, subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -289,6 +292,8 @@ export async function POST(request: NextRequest) {
     let verifiedProfitMargin: number
     let verifiedTotalPrice: number
     let verifiedSize: string = ""
+    // The package actually priced, from the verified row. Never the client's package_id.
+    let verifiedPackageId: string
 
     // Check if this is a sub-agent shop
     const { data: shopData, error: shopError } = await supabase
@@ -310,11 +315,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Sub-agent orders: what the parent is credited, from the same live offer that prices the order.
+    let subAgentParentProfit: number | null = null
+
     if (shopData?.parent_shop_id) {
-      // Sub-agent: verify from sub_agent_shop_packages or sub_agent_catalog
+      // Sub-agent: the row (sub_agent_shop_packages, or an old-model sub_agent_catalog row) names the package and
+      // the sub-agent's margin. The cost is ALWAYS the parent's live offer (subAgentCost: parent role price + the
+      // parent's active wholesale margin); stored parent_price and own-shop wholesale margins are never trusted.
+      // Only a verified dashboard stock purchase (Bearer + sub-agent shop) zeroes the sub-agent margin;
+      // an anonymous storefront body flag must not let a customer pay cost.
+      const isStockPurchase = isAuthenticatedDashboardCall
+      let subMargin: number
       const { data: subAgentPkg, error: subAgentPkgError } = await supabase
         .from("sub_agent_shop_packages")
-        .select("parent_price, sub_agent_profit_margin, package_id, packages(is_available)")
+        .select("sub_agent_profit_margin, package_id, packages(is_available)")
         .eq("id", shop_package_id)
         .eq("shop_id", shop_id) // package must belong to this sub-agent shop
         .single()
@@ -323,82 +337,78 @@ export async function POST(request: NextRequest) {
         if ((subAgentPkg.packages as any)?.is_available === false) {
           return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
         }
-        verifiedBasePrice = subAgentPkg.parent_price
-        verifiedProfitMargin = subAgentPkg.sub_agent_profit_margin || 0
-        verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
+        verifiedPackageId = String(subAgentPkg.package_id)
+        subMargin = Number(subAgentPkg.sub_agent_profit_margin || 0)
       } else {
         // Fallback to sub_agent_catalog
         const { data: catalogEntry } = await supabase
           .from("sub_agent_catalog")
-          .select("parent_price, sub_agent_profit_margin, wholesale_margin, package:packages(size, price, dealer_price, is_available)")
+          .select("shop_id, sub_agent_profit_margin, wholesale_margin, package_id, package:packages(id, size, is_available)")
           .eq("id", shop_package_id)
+          .eq("is_active", true)
+          // The row must belong to this sub-agent's parent's catalog OR the sub-agent's own shop:
+          // app/api/shop/public-packages lists old-model sub_agent_catalog rows keyed to the
+          // sub-agent's own shop_id, so both are legitimate. Any other shop's row is refused.
+          // An own-shop row's wholesale_margin is never trusted (sub-agents can write it): the cost below
+          // always uses the parent's active row.
+          .in("shop_id", [shop_id, shopData.parent_shop_id])
           .single()
 
-        if (catalogEntry && (catalogEntry.package as any)?.is_available === false) {
-          return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
-        }
-
-        if (catalogEntry) {
-          // Check if parent is a dealer
-          const { data: parentShop } = await supabase
-            .from("user_shops")
-            .select("user_id")
-            .eq("id", shopData.parent_shop_id)
-            .single()
-
-          let isParentDealer = false
-          if (parentShop) {
-            const { data: parentUser } = await supabase
-              .from("users")
-              .select("role")
-              .eq("id", parentShop.user_id)
-              .single()
-            isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin'
-          }
-
-          const pkg = (catalogEntry.package as any)
-          const adminPrice = (isParentDealer && pkg?.dealer_price && pkg?.dealer_price > 0)
-            ? pkg.dealer_price
-            : (pkg?.price || 0)
-
-          verifiedSize = pkg?.size || ""
-
-          const margin = catalogEntry.wholesale_margin ?? 0
-          verifiedBasePrice = adminPrice + margin
-          // Sub-agent profit on "Buy Stock" is 0, but for customer orders via sub-agent shop, 
-          // we must respect the sub-agent's configured margin if present in catalog
-          // Check if this is a stock purchase (restocking)
-          const isStockPurchase = body.is_stock_purchase === true
-
-          if (isStockPurchase) {
-            verifiedProfitMargin = 0
-          } else {
-            verifiedProfitMargin = catalogEntry.sub_agent_profit_margin || 0
-          }
-          verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
-        } else {
+        if (!catalogEntry) {
           console.error("[SHOP-ORDER] ❌ Could not verify sub-agent package price")
           return NextResponse.json({ error: "Invalid package" }, { status: 400 })
         }
+        if ((catalogEntry.package as any)?.is_available === false) {
+          return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
+        }
+        verifiedPackageId = String(catalogEntry.package_id)
+        verifiedSize = (catalogEntry.package as any)?.size || ""
+        // Sub-agent profit on "Buy Stock" is 0; customer orders through the sub-agent shop carry the
+        // sub-agent's configured margin.
+        subMargin = isStockPurchase ? 0 : catalogSubAgentMargin(catalogEntry, shop_id)
       }
+
+      // Negative margins are refused on every channel (a negative profit may only come from a custom price).
+      if (!marginsValid(subMargin)) {
+        console.warn(`[SHOP-ORDER] ❌ Negative sub-agent margin on ${shop_package_id}, shop ${shop_id}`)
+        return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+      }
+
+      let offer: SubAgentOffer | null
+      try {
+        offer = await subAgentCost(shopData.parent_shop_id, verifiedPackageId, supabase)
+      } catch (e) {
+        if (!(e instanceof CustomPriceReadError)) throw e
+        console.error("[SHOP-ORDER] ❌ Could not read the parent's catalog or custom prices")
+        return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
+      }
+      if (!offer) {
+        // No active parent row (or a negative wholesale margin): the parent no longer offers this package.
+        console.warn(`[SHOP-ORDER] ❌ Parent ${shopData.parent_shop_id} does not offer package ${verifiedPackageId}`)
+        return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
+      }
+      verifiedBasePrice = offer.cost
+      verifiedProfitMargin = subMargin
+      verifiedTotalPrice = Math.round((verifiedBasePrice + verifiedProfitMargin) * 100) / 100
+      subAgentParentProfit = offer.parentProfit
     } else {
       // Regular shop: verify from shop_packages
 
-      // Check if shop owner is a dealer
-      const { data: userData } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", shopData?.user_id)
-        .single()
-
-      const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
-
+      // Shop owner's pricing: dealer flag (dealer/admin) and custom prices
+      let owner: { isDealer: boolean; custom: CustomPrices }
+      try {
+        owner = await shopOwnerPricing(shop_id, supabase)
+      } catch (e) {
+        if (!(e instanceof CustomPriceReadError)) throw e
+        console.error("[SHOP-ORDER] ❌ Could not read shop owner's custom prices")
+        return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
+      }
 
       // Integrity: the package must belong to THIS shop. Without the shop_id
       // match an order could be priced from another shop's catalog entry.
       const { data: shopPkg, error: shopPkgError } = await supabase
         .from("shop_packages")
-        .select("profit_margin, packages(size, price, dealer_price, is_available)")
+        .select("profit_margin, package_id, packages(id, size, price, dealer_price, is_available)")
         .eq("id", shop_package_id)
         .eq("shop_id", shop_id)
         .single()
@@ -412,14 +422,33 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "This package is no longer available" }, { status: 400 })
       }
 
-      const pkgPrice = (shopPkg.packages as any)?.price || 0
-      const dealerPrice = (shopPkg.packages as any)?.dealer_price
-      verifiedSize = (shopPkg.packages as any)?.size || ""
+      verifiedPackageId = String(shopPkg.package_id)
+      const pkg = (shopPkg.packages as any) ?? { id: "", price: 0 }
+      verifiedSize = pkg.size || ""
+      const shopMargin = Number(shopPkg.profit_margin || 0)
+      // Negative margins are refused on every channel (a negative profit may only come from a custom price).
+      if (!marginsValid(shopMargin)) {
+        console.warn(`[SHOP-ORDER] ❌ Negative shop margin on ${shop_package_id}, shop ${shop_id}`)
+        return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+      }
 
-      // If dealer, use dealer_price as base cost
-      verifiedBasePrice = isDealer && dealerPrice && dealerPrice > 0 ? dealerPrice : pkgPrice
-      verifiedProfitMargin = shopPkg.profit_margin || 0
-      verifiedTotalPrice = verifiedBasePrice + verifiedProfitMargin
+      // Selling price stays role price + margin; the owner's custom price only raises their profit.
+      // An owner buying from their own storefront pays as a customer and is credited margin + saving.
+      const direct = directShopPricing({
+        rolePrice: rolePrice(pkg, owner.isDealer),
+        margin: shopMargin,
+        saving: ownerSaving(pkg, owner.isDealer, owner.custom),
+      })
+      verifiedBasePrice = direct.basePrice
+      verifiedProfitMargin = direct.profit
+      verifiedTotalPrice = direct.totalPrice
+    }
+
+    // The client's package_id must name the package priced through shop_package_id. A mismatch is
+    // most likely a stale page, so no admin alert; every later use takes verifiedPackageId.
+    if (package_id != null && package_id !== "" && String(package_id) !== verifiedPackageId) {
+      console.warn(`[SHOP-ORDER] package_id mismatch: client ${package_id}, verified ${verifiedPackageId}, shop ${shop_id}`)
+      return NextResponse.json({ error: "Invalid package" }, { status: 400 })
     }
 
     // Force server-side verified size to prevent injection/manipulation
@@ -484,6 +513,13 @@ export async function POST(request: NextRequest) {
     // This prevents inflated customer revenue from abandoned orders
     // See: Paystack webhook and wallet/debit route for customer tracking
 
+    // MTN number verification hard block (admin "block unverified numbers"
+    // toggle). Before any order row or payment exists; outages never block.
+    if (await isRecipientBlocked(network, normalizedPhone)) {
+      console.warn(`[SHOP-ORDER] ⛔ Unverified MTN number blocked for shop ${shop_id}`)
+      return NextResponse.json({ error: NOT_VERIFIED_MESSAGE, code: NOT_VERIFIED_CODE }, { status: 409 })
+    }
+
     // Check if phone number is blacklisted
     let phoneQueue = "default"
     let orderStatus = "pending"
@@ -516,14 +552,18 @@ export async function POST(request: NextRequest) {
 
         // For sub-agents, shop_package_id might be from sub_agent_shop_packages
         // We need to find the corresponding shop_packages entry or create one
-        if (shop_package_id && package_id) {
+        if (shop_package_id && verifiedPackageId) {
           // Try to find if there's a shop_packages entry for this package
+          // limit(1): shop_packages has no UNIQUE(shop_id, package_id), and a bare
+          // .single() over duplicates errors, which made this insert yet another copy.
           const { data: shopPkg } = await supabase
             .from("shop_packages")
             .select("id")
             .eq("shop_id", shop_id)
-            .eq("package_id", package_id)
-            .single()
+            .eq("package_id", verifiedPackageId)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
 
           if (shopPkg) {
             // Use the existing shop_packages ID
@@ -535,13 +575,14 @@ export async function POST(request: NextRequest) {
               .from("sub_agent_shop_packages")
               .select("sub_agent_profit_margin")
               .eq("id", shop_package_id)
+              .eq("shop_id", shop_id) // must belong to this sub-agent shop
               .single()
 
             const { data: newShopPkg, error: createError } = await supabase
               .from("shop_packages")
               .insert([{
                 shop_id,
-                package_id,
+                package_id: verifiedPackageId,
                 profit_margin: subAgentPkg?.sub_agent_profit_margin || 0,
                 is_available: true
               }])
@@ -550,6 +591,16 @@ export async function POST(request: NextRequest) {
 
             if (!createError && newShopPkg) {
               finalShopPackageId = newShopPkg.id
+            } else if ((createError as { code?: string } | null)?.code === "23505") {
+              // A concurrent order created it first (UNIQUE(shop_id, package_id)): use that row.
+              const { data: raced } = await supabase
+                .from("shop_packages")
+                .select("id")
+                .eq("shop_id", shop_id)
+                .eq("package_id", package_id)
+                .limit(1)
+                .maybeSingle()
+              if (raced) finalShopPackageId = raced.id
             } else {
               console.warn("[SHOP-ORDER] Could not create shop_packages entry for sub-agent")
               // Continue without mapping - order creation might fail if FK is enforced
@@ -557,49 +608,10 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Calculate parent's profit: the wholesale_margin from sub_agent_catalog
-        // Parent profit = wholesale_margin (what parent charges above admin price)
-        // NOT base_price - admin_price (that's the sub-agent's total margin)
-        console.log(`[SHOP-ORDER] Looking up catalog for parent_shop_id=${parent_shop_id}, package_id=${package_id}`)
-
-        // Check if parent is a dealer for profit calculation
-        const { data: parentShop } = await supabase
-          .from("user_shops")
-          .select("user_id")
-          .eq("id", parent_shop_id)
-          .single()
-
-        let isParentDealer = false
-        if (parentShop) {
-          const { data: parentUser } = await supabase
-            .from("users")
-            .select("role")
-            .eq("id", parentShop.user_id)
-            .single()
-          isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin'
-        }
-
-        const { data: catalogEntry, error: catalogError } = await supabase
-          .from("sub_agent_catalog")
-          .select("wholesale_margin, parent_price, package:packages(price, dealer_price)")
-          .eq("shop_id", parent_shop_id)
-          .eq("package_id", package_id)
-          .single()
-
-        if (catalogEntry) {
-          const pkg = (catalogEntry.package as any)
-          const adminCost = (isParentDealer && pkg?.dealer_price && pkg?.dealer_price > 0)
-            ? pkg.dealer_price
-            : (pkg?.price || 0)
-
-          parent_profit_amount = catalogEntry.wholesale_margin || 0
-
-          // Double check: if parent_price is stored, it should be adminCost + wholesale_margin
-          console.log(`[SHOP-ORDER] Sub-agent parent profit: Parent Margin(${parent_profit_amount}) based on Admin Cost(${adminCost})`)
-        } else {
-          parent_profit_amount = 0
-          console.warn(`[SHOP-ORDER] No catalog entry found for parent profit calculation`)
-        }
+        // Parent profit = the parent's active wholesale margin + the parent's saving (custom price), from the
+        // same live offer that priced this order (subAgentCost above). Not clamped: a negative value can only
+        // come from a parent custom price above their role price, and is never credited.
+        parent_profit_amount = subAgentParentProfit ?? 0
 
         console.log(`[SHOP-ORDER] Sub-agent sale detected. Parent shop: ${parent_shop_id}, Parent profit: ${parent_profit_amount}`)
       }
@@ -690,7 +702,7 @@ export async function POST(request: NextRequest) {
           customer_phone,
           customer_name: customer_name || "Guest",
           shop_package_id: finalShopPackageId,
-          package_id,
+          package_id: verifiedPackageId,
           network,
           volume_gb: finalVolumeGb,
           base_price: finalBasePrice,

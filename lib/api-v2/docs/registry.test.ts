@@ -809,7 +809,7 @@ describe("v2DocsRegistry commission endpoints (airtime and utility bills)", () =
   })
 
   it("updates the Start prose: commission keys unlock airtime and bills, nothing says they are coming later", () => {
-    expect(prose("key-types").intro).toMatch(/Commission Services keys unlock airtime and utility bill/)
+    expect(prose("key-types").intro).toMatch(/Commission Services keys unlock airtime, utility bill payments and Standard Bundles/)
     const auth = prose("authentication")
     expect(text(auth)).toMatch(/commission/i)
     expect(text(auth)).toMatch(/airtime/i)

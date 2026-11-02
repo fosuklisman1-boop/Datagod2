@@ -7,9 +7,11 @@ vi.mock("@/lib/rate-limiter", () => ({
 }))
 
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({
-  checkCustomerFacingVerification: vi.fn(async (phones: string[]) =>
-    phones.map(phone => ({ phone, verified: phone !== "0559999999" }))
-  ),
+  verifyRecipientsForOrder: vi.fn(async (phones: string[]) => ({
+    verdicts: new Map(phones.map(p => [p, p === "0558888888" ? null : p !== "0559999999"])),
+    blocking: true,
+    blocked: phones.filter(p => p === "0559999999"),
+  })),
 }))
 
 function makeRequest(body: unknown) {
@@ -32,6 +34,13 @@ describe("POST /api/verify-phone-live", () => {
       { phone: "0551111111", verified: true },
       { phone: "0559999999", verified: false },
     ])
+    expect(body.blocking).toBe(true)
+  })
+
+  it("reports an unchecked number (outage/timeout) as verified so it is never blocked", async () => {
+    const res = await POST(makeRequest({ phones: ["0558888888"] }))
+    const body = await res.json()
+    expect(body.results).toEqual([{ phone: "0558888888", verified: true }])
   })
 
   it("rejects a missing phones array with 400", async () => {
@@ -62,8 +71,9 @@ describe("POST /api/verify-phone-live", () => {
   })
 
   it("fails open (200, all verified) when the check function throws", async () => {
-    const { checkCustomerFacingVerification } = await import("@/lib/mtn-providers/customer-verification")
-    ;(checkCustomerFacingVerification as any).mockRejectedValueOnce(new Error("db down"))
+    const { verifyRecipientsForOrder } = await import("@/lib/mtn-providers/customer-verification")
+    ;(verifyRecipientsForOrder as any).mockRejectedValueOnce(new Error("db down"))
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     const res = await POST(makeRequest({ phones: ["0551111111", "0552222222"] }))
     const body = await res.json()
     expect(res.status).toBe(200)
@@ -71,5 +81,7 @@ describe("POST /api/verify-phone-live", () => {
       { phone: "0551111111", verified: true },
       { phone: "0552222222", verified: true },
     ])
+    expect(body.blocking).toBe(false)
+    spy.mockRestore()
   })
 })

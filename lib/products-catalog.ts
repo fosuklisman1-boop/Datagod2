@@ -1,6 +1,7 @@
 // lib/products-catalog.ts
 import { createClient } from "@supabase/supabase-js"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
+import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
 import { isExamBoardEnabled, calculateRCPrice, type ExamBoard } from "@/lib/results-checker-service"
 
 const supabase = createClient(
@@ -28,11 +29,13 @@ export interface ProductsCatalogResponse {
  * pricing all live in admin_settings (or afa_registration_prices), not the
  * `packages` table, so each section reads its own source.
  */
-export async function buildProductsCatalog(role: string): Promise<ProductsCatalogResponse> {
+export async function buildProductsCatalog(role: string, userId?: string): Promise<ProductsCatalogResponse> {
   const isDealer = role === "dealer"
+  // Display only: on a read failure show role prices (the order endpoint re-prices and refuses on failure).
+  const custom = await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
 
   const [dataBundles, airtime, resultsChecker, afa] = await Promise.all([
-    buildDataBundles(isDealer),
+    buildDataBundles(isDealer, custom),
     buildAirtime(isDealer),
     buildResultsChecker(),
     buildAfa(),
@@ -41,10 +44,10 @@ export async function buildProductsCatalog(role: string): Promise<ProductsCatalo
   return { data_bundles: dataBundles, airtime, results_checker: resultsChecker, afa }
 }
 
-async function buildDataBundles(isDealer: boolean): Promise<ProductsCatalogResponse["data_bundles"]> {
+async function buildDataBundles(isDealer: boolean, custom: CustomPrices): Promise<ProductsCatalogResponse["data_bundles"]> {
   const { data, error } = await supabase
     .from("packages")
-    .select("network, size, price, dealer_price")
+    .select("id, network, size, price, dealer_price")
     .eq("is_available", true)
 
   if (error) {
@@ -56,7 +59,7 @@ async function buildDataBundles(isDealer: boolean): Promise<ProductsCatalogRespo
   return data.map((row: any) => ({
     network: row.network,
     size_gb: row.size,
-    price: isDealer && Number(row.dealer_price) > 0 ? Number(row.dealer_price) : Number(row.price),
+    price: effectivePrice(row, isDealer, custom),
   }))
 }
 

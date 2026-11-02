@@ -1,4 +1,9 @@
-import { checkCustomerFacingVerification, getCustomerVerificationSettings } from "./customer-verification"
+import {
+  checkCustomerFacingVerification,
+  getCustomerVerificationSettings,
+  isRecipientBlocked,
+  verifyRecipientsForOrder,
+} from "./customer-verification"
 import type { WhitelistEntry } from "./provider-whitelist"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
@@ -203,14 +208,14 @@ describe("getCustomerVerificationSettings", () => {
       select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
     })
     const settings = await getCustomerVerificationSettings()
-    expect(settings).toEqual({ enabled: false, providers: [] })
+    expect(settings).toEqual({ enabled: false, providers: [], block_unverified: false })
   })
 
   it("defaults to disabled when the read throws", async () => {
     const { supabaseAdmin } = await import("@/lib/supabase")
     ;(supabaseAdmin.from as any).mockImplementation(() => { throw new Error("db down") })
     const settings = await getCustomerVerificationSettings()
-    expect(settings).toEqual({ enabled: false, providers: [] })
+    expect(settings).toEqual({ enabled: false, providers: [], block_unverified: false })
   })
 
   it("returns the stored setting when present", async () => {
@@ -226,7 +231,7 @@ describe("getCustomerVerificationSettings", () => {
       }),
     })
     const settings = await getCustomerVerificationSettings()
-    expect(settings).toEqual({ enabled: true, providers: ["xpress", "apexprime"] })
+    expect(settings).toEqual({ enabled: true, providers: ["xpress", "apexprime"], block_unverified: false })
   })
 
   it("defaults to disabled when the stored value is malformed (providers not an array)", async () => {
@@ -242,7 +247,7 @@ describe("getCustomerVerificationSettings", () => {
       }),
     })
     const settings = await getCustomerVerificationSettings()
-    expect(settings).toEqual({ enabled: false, providers: [] })
+    expect(settings).toEqual({ enabled: false, providers: [], block_unverified: false })
   })
 
   it("defaults to disabled when the stored value is missing the providers field", async () => {
@@ -258,6 +263,148 @@ describe("getCustomerVerificationSettings", () => {
       }),
     })
     const settings = await getCustomerVerificationSettings()
-    expect(settings).toEqual({ enabled: false, providers: [] })
+    expect(settings).toEqual({ enabled: false, providers: [], block_unverified: false })
+  })
+})
+
+function mockSettingRow(value: unknown) {
+  return import("@/lib/supabase").then(({ supabaseAdmin }) => {
+    ;(supabaseAdmin.from as any).mockReturnValue({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { value }, error: null }) }) }),
+    })
+  })
+}
+
+describe("getCustomerVerificationSettings block_unverified", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("reads block_unverified:true from the stored setting", async () => {
+    await mockSettingRow({ enabled: true, providers: ["xpress"], block_unverified: true })
+    expect(await getCustomerVerificationSettings()).toEqual({ enabled: true, providers: ["xpress"], block_unverified: true })
+  })
+
+  it("treats a non-boolean block_unverified as false", async () => {
+    await mockSettingRow({ enabled: true, providers: ["xpress"], block_unverified: "yes" })
+    expect((await getCustomerVerificationSettings()).block_unverified).toBe(false)
+  })
+})
+
+describe("verifyRecipientsForOrder", () => {
+  const on = { enabled: true, providers: ["xpress"], block_unverified: true }
+  const registry = [fakeEntry("xpress", new Set(["0551111111"]))]
+
+  it("blocks a number the selected provider rejects when blocking is on", async () => {
+    const r = await verifyRecipientsForOrder(["0551111111", "0559999999"], { registry, settings: on })
+    expect(r.blocking).toBe(true)
+    expect(r.blocked).toEqual(["0559999999"])
+    expect(r.verdicts.get("0551111111")).toBe(true)
+    expect(r.verdicts.get("0559999999")).toBe(false)
+  })
+
+  it("lists a repeated rejected number once", async () => {
+    const r = await verifyRecipientsForOrder(["0559999999", "0559999999"], { registry, settings: on })
+    expect(r.blocked).toEqual(["0559999999"])
+  })
+
+  it("reports the rejection but blocks nothing when block_unverified is off", async () => {
+    const r = await verifyRecipientsForOrder(["0559999999"], { registry, settings: { ...on, block_unverified: false } })
+    expect(r.blocking).toBe(false)
+    expect(r.blocked).toEqual([])
+    expect(r.verdicts.get("0559999999")).toBe(false)
+  })
+
+  it("never blocks when every provider throws (outage)", async () => {
+    const broken: WhitelistEntry = { ...fakeEntry("xpress", new Set()), checkBatch: async () => { throw new Error("down") } }
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await verifyRecipientsForOrder(["0559999999"], { registry: [broken], settings: on })
+    spy.mockRestore()
+    expect(r.blocked).toEqual([])
+    expect(r.verdicts.get("0559999999")).toBeNull()
+  })
+
+  it("never blocks when the check times out", async () => {
+    const hung: WhitelistEntry = { ...fakeEntry("xpress", new Set()), checkBatch: () => new Promise(() => {}) }
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await verifyRecipientsForOrder(["0559999999"], { registry: [hung], settings: on, timeoutMs: 20 })
+    spy.mockRestore()
+    expect(r.blocked).toEqual([])
+    expect(r.verdicts.get("0559999999")).toBeNull()
+  })
+
+  it("never blocks when the feature itself is disabled", async () => {
+    const r = await verifyRecipientsForOrder(["0559999999"], { registry, settings: { ...on, enabled: false } })
+    expect(r.blocking).toBe(false)
+    expect(r.blocked).toEqual([])
+  })
+})
+
+describe("isRecipientBlocked", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("is false for a non-MTN network without reading settings", async () => {
+    const { supabaseAdmin } = await import("@/lib/supabase")
+    expect(await isRecipientBlocked("Telecel", "0201111111")).toBe(false)
+    expect(supabaseAdmin.from).not.toHaveBeenCalled()
+  })
+
+  it("is false for MTN when no real provider is configured (fails open)", async () => {
+    await mockSettingRow({ enabled: true, providers: ["xpress"], block_unverified: true })
+    expect(await isRecipientBlocked("MTN", "0559999999")).toBe(false)
+  })
+})
+
+describe("provider order and failures", () => {
+  function recording(name: string, allowed: Set<string>, log: string[], opts: { fail?: boolean } = {}): WhitelistEntry {
+    const run = async (msisdns: string[]) => {
+      log.push(`${name}:${msisdns.join(",")}`)
+      if (opts.fail) throw new Error(`${name} down`)
+      return msisdns.map(m => ({ msisdn: m, allowed: allowed.has(m) }))
+    }
+    // checkBatch fails OPEN (like the real providers); checkBatchStrict throws.
+    return {
+      name,
+      configured: () => true,
+      check: async (m) => ({ allowed: allowed.has(m), provider: name }),
+      checkBatch: async (m) => (opts.fail ? m.map(x => ({ msisdn: x, allowed: true })) : run(m)),
+      checkBatchStrict: run,
+    }
+  }
+
+  it("asks providers in the admin's order, not registry order", async () => {
+    const log: string[] = []
+    const registry = [recording("xpress", new Set(), log), recording("agentportalgh", new Set(["0551111111"]), log)]
+    const result = await checkCustomerFacingVerification(
+      ["0551111111", "0552222222"], registry, { enabled: true, providers: ["agentportalgh", "xpress"] }
+    )
+    expect(log).toEqual(["agentportalgh:0551111111,0552222222", "xpress:0552222222"])
+    expect(result).toEqual([{ phone: "0551111111", verified: true }, { phone: "0552222222", verified: false }])
+  })
+
+  it("a failing first provider is NOT treated as approval: the next provider is asked", async () => {
+    const log: string[] = []
+    const registry = [recording("agentportalgh", new Set(), log, { fail: true }), recording("xpress", new Set(), log)]
+    const result = await checkCustomerFacingVerification(
+      ["0559999999"], registry, { enabled: true, providers: ["agentportalgh", "xpress"] }
+    )
+    expect(log).toEqual(["agentportalgh:0559999999", "xpress:0559999999"])
+    expect(result).toEqual([{ phone: "0559999999", verified: false }])
+  })
+
+  it("order verdicts: first provider failed + second rejected -> blocked; all failed -> unchecked (never blocked)", async () => {
+    const on = { enabled: true, providers: ["agentportalgh", "xpress"], block_unverified: true }
+    const log: string[] = []
+    const rejectAfterFail = [recording("agentportalgh", new Set(), log, { fail: true }), recording("xpress", new Set(), log)]
+    expect((await verifyRecipientsForOrder(["0559999999"], { registry: rejectAfterFail, settings: on })).blocked).toEqual(["0559999999"])
+
+    const allFail = [recording("agentportalgh", new Set(), log, { fail: true }), recording("xpress", new Set(), log, { fail: true })]
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await verifyRecipientsForOrder(["0559999999"], { registry: allFail, settings: on })
+    spy.mockRestore()
+    expect(r.blocked).toEqual([])
+    expect(r.verdicts.get("0559999999")).toBeNull()
   })
 })

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { getBundlesRuntime } from "@/lib/standard-bundles/runtime"
-import { getCatalog } from "@/lib/standard-bundles/catalog"
+import { getDashboardCatalog } from "@/lib/standard-bundles/special"
 import { BUNDLE_NETWORKS, type BundleNetwork } from "@/lib/standard-bundles/categories"
 import { authenticate } from "@/lib/bills/route-auth"
 
@@ -18,7 +18,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "network must be MTN, TELECEL or AT" }, { status: 400 })
     }
     const { deps } = getBundlesRuntime()
-    const result = await getCatalog(deps, network as BundleNetwork)
+    // Dashboard only: adds the MTN Special Bundles category when its switch is on.
+    const result = await getDashboardCatalog(deps, network as BundleNetwork)
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
     return NextResponse.json({ categories: result.categories })
   } catch (e) {

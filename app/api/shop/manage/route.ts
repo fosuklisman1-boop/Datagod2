@@ -166,17 +166,34 @@ export async function POST(request: NextRequest) {
     const ownErr = await assertOwnsShop(shopId, user.id)
     if (ownErr) return NextResponse.json({ error: ownErr }, { status: ownErr.includes("permission") ? 403 : 500 })
 
-    const { data, error } = await supabaseAdmin
+    // Re-adding a package the shop already has updates that row instead of
+    // inserting a duplicate (shop_packages has no UNIQUE(shop_id, package_id);
+    // duplicates broke USSD/WhatsApp confirm with "no longer available").
+    const { data: existing } = await supabaseAdmin
       .from("shop_packages")
-      .insert([{
-        shop_id: shopId,
-        package_id: packageId,
-        profit_margin: profitMargin,
-        custom_name: typeof customName === "string" ? customName : null,
-        is_available: true,
-      }])
-      .select()
-      .single()
+      .select("id")
+      .eq("shop_id", shopId)
+      .eq("package_id", packageId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const fields = {
+      profit_margin: profitMargin,
+      custom_name: typeof customName === "string" ? customName : null,
+      is_available: true,
+    }
+    const { data, error } = existing
+      ? await supabaseAdmin
+          .from("shop_packages")
+          .update({ ...fields, updated_at: new Date().toISOString() })
+          .eq("id", existing.id)
+          .select()
+          .single()
+      : await supabaseAdmin
+          .from("shop_packages")
+          .insert([{ shop_id: shopId, package_id: packageId, ...fields }])
+          .select()
+          .single()
     if (error) {
       console.error("[SHOP-MANAGE] add_package failed:", error.message)
       return NextResponse.json({ error: "Failed to add package" }, { status: 500 })

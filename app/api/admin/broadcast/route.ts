@@ -5,6 +5,22 @@ import { enqueueRecipients, drainBroadcasts } from "@/lib/broadcast-drain"
 import { resolveRecipients } from "@/lib/sms/recipients"
 import { personalize } from "@/lib/sms/personalize"
 import { parseSmsProvider, providerColumnMissingMessage } from "@/lib/sms/provider-pick"
+import { loadShopBuyerAudience, parseSinceDays, renderShopTokens } from "@/lib/sms/shop-buyers"
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Resolving and enqueueing a very large audience (paged reads + 500-row insert
+// chunks) can take a while; the send itself is drained by the cron in batches.
+export const maxDuration = 300
+
+/**
+ * Upper bound on one broadcast's audience. Sending is queued (broadcast_recipients)
+ * and drained in batches, so this only bounds the enqueue work done in this request.
+ * Was 5,000, which blocked real audiences larger than that.
+ */
+const MAX_BROADCAST_RECIPIENTS = 100_000
+const capError = (what: string) =>
+    `cannot target more than ${MAX_BROADCAST_RECIPIENTS.toLocaleString("en-US")} ${what} at once`
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -30,6 +46,10 @@ export async function POST(req: NextRequest) {
             //   { type: 'specific',    users: [{id,email,phone,name}] }
             //   { type: 'group',       groupId: string }   ← address-book group (M5)
             //   { type: 'shop_owners' }                    ← everyone with a user_shops row
+            //   { type: 'shop_buyers', shopIds: string[] | 'all', sinceDays?: 30|90|180 }
+            //                                              ← payers + recipients of paid shop data orders,
+            //                                                each under their latest shop; SMS only.
+            //                                                [ShopName]/[ShopLink] are filled per recipient.
             // Optional (group): mergeFields:boolean (default true) personalises
             // [FirstName]/[LastName]/[Phone] per recipient.
 
@@ -56,14 +76,26 @@ export async function POST(req: NextRequest) {
             if (!recipients || typeof recipients !== "object") {
                 return NextResponse.json({ error: "recipients is required" }, { status: 400 })
             }
-            if (recipients.type !== "roles" && recipients.type !== "specific" && recipients.type !== "group" && recipients.type !== "shop_owners") {
-                return NextResponse.json({ error: "recipients.type must be 'roles', 'specific', 'group', or 'shop_owners'" }, { status: 400 })
+            if (!["roles", "specific", "group", "shop_owners", "shop_buyers"].includes(recipients.type)) {
+                return NextResponse.json({ error: "recipients.type must be 'roles', 'specific', 'group', 'shop_owners' or 'shop_buyers'" }, { status: 400 })
+            }
+            if (recipients.type === "shop_buyers") {
+                if (channels.length !== 1 || channels[0] !== "sms") {
+                    return NextResponse.json({ error: "Shop buyers can only be sent SMS" }, { status: 400 })
+                }
+                const ids = recipients.shopIds
+                if (ids !== "all" && (!Array.isArray(ids) || ids.length === 0 || !ids.every((id: unknown) => typeof id === "string" && UUID_RE.test(id)))) {
+                    return NextResponse.json({ error: "recipients.shopIds must be 'all' or a non-empty list of shop ids" }, { status: 400 })
+                }
+                if (parseSinceDays(recipients.sinceDays) === "invalid") {
+                    return NextResponse.json({ error: "recipients.sinceDays must be 30, 90 or 180 (or omitted for all time)" }, { status: 400 })
+                }
             }
             if (recipients.type === "specific" && (!Array.isArray(recipients.users) || recipients.users.length === 0)) {
                 return NextResponse.json({ error: "recipients.users is required for specific targeting" }, { status: 400 })
             }
-            if (recipients.type === "specific" && recipients.users.length > 5000) {
-                return NextResponse.json({ error: "cannot target more than 5000 specific users at once" }, { status: 400 })
+            if (recipients.type === "specific" && recipients.users.length > MAX_BROADCAST_RECIPIENTS) {
+                return NextResponse.json({ error: capError("specific users") }, { status: 400 })
             }
             if (recipients.type === "roles" && (!Array.isArray(recipients.roles) || recipients.roles.length === 0)) {
                 return NextResponse.json({ error: "recipients.roles is required for role targeting" }, { status: 400 })
@@ -92,8 +124,8 @@ export async function POST(req: NextRequest) {
                 if (resolved.contacts.length === 0) {
                     return NextResponse.json({ error: "The selected group has no sendable contacts (all invalid or opted out)" }, { status: 400 })
                 }
-                if (resolved.contacts.length > 5000) {
-                    return NextResponse.json({ error: "cannot target more than 5000 contacts at once" }, { status: 400 })
+                if (resolved.contacts.length > MAX_BROADCAST_RECIPIENTS) {
+                    return NextResponse.json({ error: capError("contacts") }, { status: 400 })
                 }
                 resolvedUsers = resolved.contacts.map((c) => ({
                     phone: c.phone,
@@ -103,6 +135,31 @@ export async function POST(req: NextRequest) {
                         : undefined,
                 }))
                 targetGroupLabel = [`group:${recipients.groupId}`]
+            } else if (recipients.type === "shop_buyers") {
+                let audience
+                try {
+                    audience = await loadShopBuyerAudience(supabase, {
+                        shopIds: recipients.shopIds,
+                        sinceDays: parseSinceDays(recipients.sinceDays) as Exclude<ReturnType<typeof parseSinceDays>, "invalid">,
+                    })
+                } catch (e: any) {
+                    const missing = e?.code === "PGRST202" || e?.code === "42883" || e?.code === "42P01"
+                    return NextResponse.json(
+                        { error: missing ? "Shop buyers isn't set up yet: run migration 0145 in Supabase." : `Failed to resolve shop buyers: ${e?.message || e}` },
+                        { status: missing ? 503 : 400 },
+                    )
+                }
+                if (audience.length === 0) {
+                    return NextResponse.json({ error: "No buyers found for the selected shops" }, { status: 400 })
+                }
+                if (audience.length > MAX_BROADCAST_RECIPIENTS) {
+                    return NextResponse.json({ error: capError("shop buyers") }, { status: 400 })
+                }
+                resolvedUsers = audience.map(({ phone, shop }) => ({
+                    phone,
+                    renderedMessage: renderShopTokens(message, { shopName: shop.name, shopLink: shop.link, phone }),
+                }))
+                targetGroupLabel = ["shop_buyers"]
             } else if (recipients.type === "shop_owners") {
                 // Every distinct user who owns a shop (user_shops row) — dealers and
                 // sub-agents alike. Paginated: 1195 shop owners already exceeds
@@ -139,8 +196,8 @@ export async function POST(req: NextRequest) {
                 if (owners.length === 0) {
                     return NextResponse.json({ error: "No shop owners found" }, { status: 400 })
                 }
-                if (owners.length > 5000) {
-                    return NextResponse.json({ error: "cannot target more than 5000 shop owners at once" }, { status: 400 })
+                if (owners.length > MAX_BROADCAST_RECIPIENTS) {
+                    return NextResponse.json({ error: capError("shop owners") }, { status: 400 })
                 }
                 resolvedUsers = owners
                 targetGroupLabel = ["shop_owners"]
@@ -183,7 +240,7 @@ export async function POST(req: NextRequest) {
             // Persist the full recipient list so the cron can finish the send.
             // Group and shop-owner audiences are enqueued as pre-resolved "specific"
             // recipients.
-            const preResolved = recipients.type === "group" || recipients.type === "shop_owners"
+            const preResolved = recipients.type === "group" || recipients.type === "shop_owners" || recipients.type === "shop_buyers"
             const enqueued = await enqueueRecipients(supabase, broadcastId, {
                 targetType: preResolved ? "specific" : recipients.type,
                 roles: recipients.roles,

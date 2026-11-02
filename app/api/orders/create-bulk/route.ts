@@ -11,6 +11,8 @@ import {
 } from "@/lib/mtn-fulfillment"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { verifyRecipientsForOrder, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
 import { supabaseAdmin } from "@/lib/supabase" // Need admin client for checking settings if not already available, but usage below checks 'supabase' which is user client?
 // create-bulk uses `supabase` created with serviceRoleKey which IS admin privileges.
 // But `isAutoFulfillmentEnabled` helper in purchase uses `supabaseAdmin`.
@@ -118,6 +120,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
     }
 
+    // MTN number verification hard block (admin toggle): reject the WHOLE batch,
+    // nothing charged. The bulk form removes these before submitting; this is
+    // the backstop for stale clients. Outages never block.
+    if (network.trim().toUpperCase() === "MTN") {
+      const { blocked } = await verifyRecipientsForOrder(orders.map((o: BulkOrderData) => o.phone_number))
+      if (blocked.length > 0) {
+        console.warn(`[BULK-ORDERS] ⛔ ${blocked.length} unverified MTN number(s) blocked`)
+        return NextResponse.json(
+          {
+            error: `${blocked.length} number(s) are not verified for MTN data. Remove them and resubmit.`,
+            code: NOT_VERIFIED_CODE,
+            blocked_numbers: blocked,
+          },
+          { status: 409 }
+        )
+      }
+    }
+
     // Fetch user role for price calculation
     const { data: userData } = await supabase
       .from("users")
@@ -126,10 +146,20 @@ export async function POST(request: NextRequest) {
       .single()
     const userRole = userData?.role || "user"
 
+    let custom: Awaited<ReturnType<typeof getCustomPrices>>
+    try {
+      custom = await getCustomPrices(supabase, userId)
+    } catch (e) {
+      if (e instanceof CustomPriceReadError) {
+        return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
+      }
+      throw e
+    }
+
     // Fetch packages for verification
     const { data: packages } = await supabase
       .from("packages")
-      .select("network, size, price, dealer_price")
+      .select("id, network, size, price, dealer_price")
       .eq("is_available", true)
       .eq("network", network)
 
@@ -154,9 +184,7 @@ export async function POST(request: NextRequest) {
 
       let verifiedPrice = order.price
       if (pkg) {
-        verifiedPrice = (userRole === "dealer" && pkg.dealer_price && pkg.dealer_price > 0)
-          ? pkg.dealer_price
-          : pkg.price
+        verifiedPrice = effectivePrice(pkg, userRole === "dealer", custom)
       } else {
         console.warn(`[BULK-ORDERS] SECURITY ALERT: Could not find package for ${network} ${order.volume_gb}GB`)
         throw new Error(`Invalid package size: ${order.volume_gb}GB for ${network}`)

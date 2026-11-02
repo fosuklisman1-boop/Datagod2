@@ -18,6 +18,14 @@ export type WhitelistResult = {
   reason?: string
 }
 
+/** Strict mode: a provider failure is "no answer" (throws) instead of fail-open "allowed". */
+class WhitelistCheckFailed extends Error {
+  constructor(provider: string) {
+    super(`${provider} whitelist check failed`)
+    this.name = "WhitelistCheckFailed"
+  }
+}
+
 // ── Per-provider implementations ──────────────────────────────────────────────
 
 async function checkXpress(msisdn: string): Promise<WhitelistResult> {
@@ -36,7 +44,8 @@ async function checkXpress(msisdn: string): Promise<WhitelistResult> {
 }
 
 async function checkXpressBatch(
-  msisdns: string[]
+  msisdns: string[],
+  strict = false
 ): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
   const results: Array<{ msisdn: string; allowed: boolean; reason?: string }> = []
   for (let i = 0; i < msisdns.length; i += 1000) {
@@ -47,10 +56,12 @@ async function checkXpressBatch(
         headers: { "X-API-Key": process.env.XPRESS_KEY!, "Content-Type": "application/json" },
         body: JSON.stringify({ msisdns: chunk }),
       })
-      if (!res.ok) { chunk.forEach(m => results.push({ msisdn: m, allowed: true })); continue }
+      if (!res.ok) throw new WhitelistCheckFailed("xpress")
       const data = await res.json()
-      results.push(...(data.results ?? chunk.map((m: string) => ({ msisdn: m, allowed: true }))))
-    } catch {
+      if (!Array.isArray(data.results)) throw new WhitelistCheckFailed("xpress")
+      results.push(...data.results)
+    } catch (err) {
+      if (strict) throw err instanceof WhitelistCheckFailed ? err : new WhitelistCheckFailed("xpress")
       chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
     }
   }
@@ -73,7 +84,8 @@ async function checkCodecraft(msisdn: string): Promise<WhitelistResult> {
 }
 
 async function checkCodecraftBatch(
-  msisdns: string[]
+  msisdns: string[],
+  strict = false
 ): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
   const results: Array<{ msisdn: string; allowed: boolean; reason?: string }> = []
   for (let i = 0; i < msisdns.length; i += 100) {
@@ -84,14 +96,20 @@ async function checkCodecraftBatch(
         headers: { "x-api-key": process.env.CODECRAFT_API_KEY!, "Content-Type": "application/json" },
         body: JSON.stringify({ phone_numbers: chunk }),
       })
-      if (!res.ok) { chunk.forEach(m => results.push({ msisdn: m, allowed: true })); continue }
+      if (!res.ok) {
+        if (strict) throw new WhitelistCheckFailed("codecraft")
+        chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
+        continue
+      }
       const data = await res.json()
+      if (strict && !Array.isArray(data.data?.results)) throw new WhitelistCheckFailed("codecraft")
       results.push(...(data.data?.results ?? []).map((r: { phone_number: string; verified: boolean; message?: string }) => ({
         msisdn: r.phone_number,
         allowed: r.verified === true,
         reason: r.message,
       })))
-    } catch {
+    } catch (err) {
+      if (strict) throw err instanceof WhitelistCheckFailed ? err : new WhitelistCheckFailed("codecraft")
       chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
     }
   }
@@ -118,7 +136,8 @@ async function checkAgentPortalGH(msisdn: string): Promise<WhitelistResult> {
 }
 
 async function checkAgentPortalGHBatch(
-  msisdns: string[]
+  msisdns: string[],
+  strict = false
 ): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
   const results: Array<{ msisdn: string; allowed: boolean; reason?: string }> = []
   const { AgentPortalGHProvider } = await import("./agentportalgh-provider")
@@ -137,9 +156,11 @@ async function checkAgentPortalGHBatch(
           reason: r.reason,
         })))
       } else {
+        if (strict) throw new WhitelistCheckFailed("agentportalgh")
         chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
       }
-    } catch {
+    } catch (err) {
+      if (strict) throw err instanceof WhitelistCheckFailed ? err : new WhitelistCheckFailed("agentportalgh")
       chunk.forEach(m => results.push({ msisdn: m, allowed: true }))
     }
   }
@@ -157,7 +178,8 @@ async function checkBundlePortal(msisdn: string): Promise<WhitelistResult> {
 }
 
 async function checkBundlePortalBatch(
-  msisdns: string[]
+  msisdns: string[],
+  strict = false
 ): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
   // No native batch endpoint on Bundle Portal's side — verify sequentially,
   // matching Apex Prime's approach (checkApexPrimeBatch below).
@@ -169,6 +191,7 @@ async function checkBundlePortalBatch(
       const data = await provider.verifyNumber(msisdn, "mtn")
       results.push({ msisdn, allowed: data?.data?.allowed === true, reason: data?.data?.allowlist_message })
     } catch {
+      if (strict) throw new WhitelistCheckFailed("bundleportal")
       results.push({ msisdn, allowed: true })
     }
   }
@@ -197,7 +220,8 @@ async function checkApexPrime(msisdn: string): Promise<WhitelistResult> {
 }
 
 async function checkApexPrimeBatch(
-  msisdns: string[]
+  msisdns: string[],
+  strict = false
 ): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
   // No native batch endpoint on Apex Prime's side — verify sequentially.
   // Their docs describe verify-number as instant, so this is acceptable for
@@ -210,6 +234,7 @@ async function checkApexPrimeBatch(
       const data = await provider.verifyNumber(msisdn, "MTN")
       results.push({ msisdn, allowed: isApexPrimeOrderable(data), reason: data?.message })
     } catch {
+      if (strict) throw new WhitelistCheckFailed("apexprime")
       results.push({ msisdn, allowed: true })
     }
   }
@@ -225,6 +250,13 @@ export type WhitelistEntry = {
   configured: () => boolean
   check: (msisdn: string) => Promise<WhitelistResult>
   checkBatch: (msisdns: string[]) => Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>>
+  /**
+   * Same check, but a provider failure (network error, bad status, empty or
+   * malformed response) THROWS instead of failing open to "allowed", so the
+   * customer-facing check can move on to the next provider. Optional: entries
+   * without it fall back to checkBatch.
+   */
+  checkBatchStrict?: (msisdns: string[]) => Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>>
 }
 
 export const WHITELIST_REGISTRY: WhitelistEntry[] = [
@@ -232,31 +264,36 @@ export const WHITELIST_REGISTRY: WhitelistEntry[] = [
     name: "xpress",
     configured: () => !!process.env.XPRESS_KEY,
     check: checkXpress,
-    checkBatch: checkXpressBatch,
+    checkBatch: (m) => checkXpressBatch(m),
+    checkBatchStrict: (m) => checkXpressBatch(m, true),
   },
   {
     name: "codecraft",
     configured: () => !!process.env.CODECRAFT_API_KEY,
     check: checkCodecraft,
-    checkBatch: checkCodecraftBatch,
+    checkBatch: (m) => checkCodecraftBatch(m),
+    checkBatchStrict: (m) => checkCodecraftBatch(m, true),
   },
   {
     name: "agentportalgh",
     configured: () => !!process.env.AGENTPORTALGH_API_KEY,
     check: checkAgentPortalGH,
-    checkBatch: checkAgentPortalGHBatch,
+    checkBatch: (m) => checkAgentPortalGHBatch(m),
+    checkBatchStrict: (m) => checkAgentPortalGHBatch(m, true),
   },
   {
     name: "apexprime",
     configured: () => !!process.env.APEXPRIME_API_KEY,
     check: checkApexPrime,
-    checkBatch: checkApexPrimeBatch,
+    checkBatch: (m) => checkApexPrimeBatch(m),
+    checkBatchStrict: (m) => checkApexPrimeBatch(m, true),
   },
   {
     name: "bundleportal",
     configured: () => !!process.env.BUNDLEPORTAL_API_KEY,
     check: checkBundlePortal,
-    checkBatch: checkBundlePortalBatch,
+    checkBatch: (m) => checkBundlePortalBatch(m),
+    checkBatchStrict: (m) => checkBundlePortalBatch(m, true),
   },
   // Add future whitelist providers here ↓
 ]
@@ -399,7 +436,8 @@ export function listWhitelistProviders(
  */
 export function validateProviderSelection(
   names: string[],
-  registry: WhitelistEntry[] = WHITELIST_REGISTRY
+  registry: WhitelistEntry[] = WHITELIST_REGISTRY,
+  opts: { keepOrder?: boolean } = {}
 ): { valid: true; providers: string[] } | { valid: false; error: string } {
   if (names.length === 0) return { valid: false, error: "At least one provider must be selected" }
   const unknown = names.filter(n => !registry.some(p => p.name === n))
@@ -407,6 +445,8 @@ export function validateProviderSelection(
   const configuredNames = new Set(registry.filter(p => p.configured()).map(p => p.name))
   const unconfigured = names.filter(n => !configuredNames.has(n))
   if (unconfigured.length > 0) return { valid: false, error: `Provider(s) not configured: ${unconfigured.join(", ")}` }
+  // keepOrder: the admin's order is meaningful (e.g. which provider to ask first).
+  if (opts.keepOrder) return { valid: true, providers: Array.from(new Set(names)) }
   const selected = new Set(names)
   return { valid: true, providers: registry.filter(p => selected.has(p.name)).map(p => p.name) }
 }

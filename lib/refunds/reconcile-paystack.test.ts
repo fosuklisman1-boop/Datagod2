@@ -7,6 +7,10 @@ vi.mock("@/lib/paystack-transfer", () => ({
   createRecipient: vi.fn(), initiateTransfer: vi.fn(), finalizeTransfer: vi.fn(), mapNetworkToPaystackBankCode: vi.fn(),
   getTransferStatus: (...a: unknown[]) => getTransferStatus(...a),
 }))
+const getMoolreTransferStatus = vi.fn()
+vi.mock("@/lib/moolre-transfer", () => ({
+  initiateTransfer: vi.fn(), getTransferStatus: (...a: unknown[]) => getMoolreTransferStatus(...a),
+}))
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({}) }))
 
 import { MAX_PER_RUN, reconcileProcessingPaystackRefunds } from "./reconcile-paystack"
@@ -205,14 +209,15 @@ describe("reconcileProcessingPaystackRefunds on Paystack payouts", () => {
     expect(r.stale24h).toBe(1)
     expect(errSpy().mock.calls.some((c) => c[0] === "[REFUND-CRON] needs attention: oldpo")).toBe(true)
   })
-  it("skips reversal with non-numeric ref, awaiting_otp / reserved payouts and moolre rows", async () => {
+  it("skips reversal with non-numeric ref, awaiting_otp / reserved payouts and non-processing moolre rows", async () => {
     const { deps } = setup()
     const r = await reconcileProcessingPaystackRefunds(deps, [
-      row({ gateway_ref: "TRF_abc" }), payout({ status: "awaiting_otp" }), payout({ status: "reserved" }), row({ gateway: "moolre", gateway_ref: "123" }),
+      row({ gateway_ref: "TRF_abc" }), payout({ status: "awaiting_otp" }), payout({ status: "reserved" }), row({ gateway: "moolre", gateway_ref: "123", status: "reserved" }),
     ], NOW)
     expect(r).toMatchObject({ checked: 0, skipped: 4 })
     expect(fetchRefund).not.toHaveBeenCalled()
     expect(getTransferStatus).not.toHaveBeenCalled()
+    expect(getMoolreTransferStatus).not.toHaveBeenCalled()
   })
   it("SETTLE_FAILED on a payout is logged with the refund id and the loop continues", async () => {
     getTransferStatus.mockResolvedValue({ status: "success", rawStatus: "success", transferCode: "TRF_x" })
@@ -222,4 +227,34 @@ describe("reconcileProcessingPaystackRefunds on Paystack payouts", () => {
     expect(r).toMatchObject({ checked: 2, errors: 1, completed: 1 })
     expect(errSpy().mock.calls.some((c) => String(c[0]).includes("SETTLE_FAILED") && String(c[0]).includes("badpo"))).toBe(true)
   })
+})
+
+const moolre = (o: Partial<StoredRefund> = {}) => row({ id: "mo1", gateway: "moolre", gateway_ref: "MTX1", destination_phone: "0241234567", ...o })
+
+describe("reconcileProcessingPaystackRefunds on Moolre payouts", () => {
+  it("txstatus 1 -> completed via complete_order_refund, looked up by refund id", async () => {
+    getMoolreTransferStatus.mockResolvedValue({ txstatus: 1, transactionId: "MTX1", externalref: "mo1" })
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [moolre()], NOW)
+    expect(r).toMatchObject({ checked: 1, completed: 1, failed: 0 })
+    expect(getMoolreTransferStatus).toHaveBeenCalledWith("mo1")
+    expect(calls.map((c) => c.name)).toEqual(["complete_order_refund"])
+    expect(deps.notify).toHaveBeenCalledTimes(1)
+  })
+  it("txstatus 2 -> failed (compensated), no notify", async () => {
+    getMoolreTransferStatus.mockResolvedValue({ txstatus: 2, transactionId: "MTX1", externalref: "mo1" })
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [moolre()], NOW)
+    expect(r).toMatchObject({ checked: 1, failed: 1, completed: 0 })
+    expect(calls.map((c) => c.name)).toEqual(["fail_order_refund"])
+    expect(deps.notify).not.toHaveBeenCalled()
+  })
+  it.each([[{ txstatus: 0, transactionId: "MTX1", externalref: "mo1" }], [{ txstatus: 3, transactionId: "", externalref: "mo1" }], [null]])(
+    "pending / unknown / unreachable (%o) leaves the row processing, never compensates", async (res) => {
+      getMoolreTransferStatus.mockResolvedValue(res)
+      const { deps, calls } = setup()
+      const r = await reconcileProcessingPaystackRefunds(deps, [moolre()], NOW)
+      expect(r).toMatchObject({ checked: 1, stillProcessing: 1, completed: 0, failed: 0 })
+      expect(calls.map((c) => c.name)).toEqual(["mark_refund_processing"])
+    })
 })

@@ -561,6 +561,7 @@ export default function MTNFulfillmentLogsPage() {
                           <TableHead>Phone</TableHead>
                           <TableHead>Size</TableHead>
                           <TableHead>Created</TableHead>
+                          <TableHead>Last Updated</TableHead>
                           <TableHead>Message</TableHead>
                           <TableHead>Retries</TableHead>
                           <TableHead>Actions</TableHead>
@@ -597,6 +598,9 @@ export default function MTNFulfillmentLogsPage() {
                             <TableCell>{log.size_gb}GB</TableCell>
                             <TableCell className="text-sm">
                               {formatDate(log.created_at)}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {log.updated_at ? formatDate(log.updated_at) : "-"}
                             </TableCell>
                             <TableCell className="max-w-[200px] truncate">
                               {log.external_message || log.api_response_payload?.message || "-"}

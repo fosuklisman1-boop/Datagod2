@@ -1,4 +1,5 @@
-import { checkWhitelistBatch, listWhitelistProviders, validateProviderSelection, unionProviders, isApexPrimeOrderable, type WhitelistEntry } from "./provider-whitelist"
+import { checkWhitelistBatch, listWhitelistProviders, validateProviderSelection, unionProviders, isApexPrimeOrderable, WHITELIST_REGISTRY, type WhitelistEntry } from "./provider-whitelist"
+import { describe, it, expect, vi, afterEach } from "vitest"
 
 function fakeEntry(name: string, allowedSet: Set<string>, configured = true): WhitelistEntry {
   return {
@@ -141,5 +142,54 @@ describe("isApexPrimeOrderable", () => {
   it("blocks on a null/undefined response", () => {
     expect(isApexPrimeOrderable(null)).toBe(false)
     expect(isApexPrimeOrderable(undefined)).toBe(false)
+  })
+})
+
+describe("checkBatchStrict (customer-facing check)", () => {
+  const xpress = () => WHITELIST_REGISTRY.find(p => p.name === "xpress")!
+  const codecraft = () => WHITELIST_REGISTRY.find(p => p.name === "codecraft")!
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("xpress: a bad status throws in strict mode but still fails open in checkBatch", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({}) })))
+    await expect(xpress().checkBatchStrict!(["0551111111"])).rejects.toThrow(/xpress/)
+    expect(await xpress().checkBatch(["0551111111"])).toEqual([{ msisdn: "0551111111", allowed: true }])
+  })
+
+  it("xpress: a network error or a malformed body throws in strict mode", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("ECONNRESET") }))
+    await expect(xpress().checkBatchStrict!(["0551111111"])).rejects.toThrow()
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ nope: 1 }) })))
+    await expect(xpress().checkBatchStrict!(["0551111111"])).rejects.toThrow()
+  })
+
+  it("xpress: a real answer comes back unchanged in strict mode", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ results: [{ msisdn: "0551111111", allowed: false }] }) })))
+    expect(await xpress().checkBatchStrict!(["0551111111"])).toEqual([{ msisdn: "0551111111", allowed: false }])
+  })
+
+  it("codecraft: bad status / missing results throw in strict mode", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({}) })))
+    await expect(codecraft().checkBatchStrict!(["0551111111"])).rejects.toThrow(/codecraft/)
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ data: {} }) })))
+    await expect(codecraft().checkBatchStrict!(["0551111111"])).rejects.toThrow(/codecraft/)
+  })
+
+  it("every registry provider offers a strict variant", () => {
+    for (const p of WHITELIST_REGISTRY) expect(typeof p.checkBatchStrict).toBe("function")
+  })
+})
+
+describe("validateProviderSelection keepOrder", () => {
+  const reg = WHITELIST_REGISTRY.map(p => ({ ...p, configured: () => true }))
+  it("keeps the admin's order (deduped) when asked", () => {
+    expect(validateProviderSelection(["agentportalgh", "xpress", "agentportalgh"], reg, { keepOrder: true }))
+      .toEqual({ valid: true, providers: ["agentportalgh", "xpress"] })
+  })
+  it("still normalizes to registry order by default", () => {
+    expect(validateProviderSelection(["agentportalgh", "xpress"], reg)).toEqual({ valid: true, providers: ["xpress", "agentportalgh"] })
   })
 })

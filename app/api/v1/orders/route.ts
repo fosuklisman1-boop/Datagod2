@@ -5,6 +5,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { createMTNOrder, saveMTNTracking, normalizePhoneNumber, isAutoFulfillmentEnabled as isMTNAutoEnabled } from "@/lib/mtn-fulfillment"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
 import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
 
 const supabase = createClient(
@@ -170,7 +171,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Package ${network} ${volume_gb}GB not found or unavailable in our database.` }, { status: 400 })
   }
 
-  const orderPrice = user.role === "dealer" && pkg.dealer_price > 0 ? Number(pkg.dealer_price) : Number(pkg.price)
+  let orderPrice: number
+  try {
+    orderPrice = effectivePrice(pkg, user.role === "dealer", await getCustomPrices(supabase, user.id))
+  } catch (e) {
+    if (e instanceof CustomPriceReadError) {
+      return NextResponse.json({ success: false, error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
+    }
+    throw e
+  }
 
   // Sandbox: same validation and real catalog pricing above, but stop here
   // -- no real order row, no RPC, no provider dispatch, no wallet touched.
@@ -191,6 +200,23 @@ export async function POST(request: NextRequest) {
       { success: true, message: "Order placed successfully (sandbox)", order: { ...result.order, sandbox: true }, new_balance: result.newBalance },
       { status: 201 }
     )
+  }
+
+  // MTN number verification, BEFORE placement so a blocked number is never
+  // charged. Bounded (5 s inside the helper) because this sits on a
+  // synchronous, external-facing response path; outages never block.
+  let verificationWarning = false
+  if (sanitizedNetwork.trim().toLowerCase() === "mtn") {
+    const { verifyRecipientsForOrder, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } = await import("@/lib/mtn-providers/customer-verification")
+    const verifyPhone = normalizePhoneNumber(cleanRecipient)
+    const verification = await verifyRecipientsForOrder([verifyPhone])
+    if (verification.blocked.length > 0) {
+      return NextResponse.json(
+        { success: false, error: NOT_VERIFIED_MESSAGE, error_code: NOT_VERIFIED_CODE },
+        { status: 409 }
+      )
+    }
+    verificationWarning = verification.verdicts.get(verifyPhone) === false
   }
 
   // --- 2 & 3 & 5. Atomic Order Placement ---
@@ -304,38 +330,6 @@ export async function POST(request: NextRequest) {
           console.error("[API v1] Non-MTN fulfillment trigger error:", err)
         }
       })()
-    }
-  }
-
-  // NOTE: unlike the async fulfillment blocks above, this runs synchronously and its result is included in the response below.
-  let verificationWarning = false
-  if (normalizedNetwork === "mtn") {
-    try {
-      const { checkCustomerFacingVerification } = await import("@/lib/mtn-providers/customer-verification")
-      // Bounded — this check now sits on a synchronous, external-facing response
-      // path (unlike every other consumer of this shared function, which is
-      // fire-and-forget or browser-side with its own spinner). Two of the four
-      // whitelist providers have no fetch timeout of their own, so without this
-      // bound a hung provider could stall this response indefinitely, risking
-      // the dealer's own client timing out and retrying an already-created,
-      // already-charged order into a duplicate.
-      const VERIFICATION_TIMEOUT_MS = 5000
-      let timeoutId: ReturnType<typeof setTimeout>
-      const timeout = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error("verification check timed out")), VERIFICATION_TIMEOUT_MS)
-      })
-      try {
-        const [result] = await Promise.race([
-          checkCustomerFacingVerification([normalizedRecipientPhone]),
-          timeout,
-        ])
-        verificationWarning = result ? !result.verified : false
-      } finally {
-        clearTimeout(timeoutId!)
-      }
-    } catch (err) {
-      console.error("[API v1] Live verification check error (failing open):", err)
-      verificationWarning = false
     }
   }
 

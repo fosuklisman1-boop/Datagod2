@@ -20,7 +20,7 @@ const KEY_TYPES: KeyTypeMeta[] = [
   {
     type: "commission",
     title: "Commission key",
-    description: "Commission Services: airtime and utility bill payments. Each key works only with its own endpoint group.",
+    description: "Commission Services: airtime, utility bill payments and Standard Bundles. Each key works only with its own endpoint group.",
     prefix: "dg2_cs_test_ / dg2_cs_live_",
     icon: Coins,
   },

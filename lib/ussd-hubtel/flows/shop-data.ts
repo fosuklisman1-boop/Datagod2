@@ -5,10 +5,10 @@ import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import {
   bundleMenuText, confirmMenuText, shopHeader, shopNetworkLabel, shopNetworkMenuText,
 } from "../menus"
-import { enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
+import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import { backToProduct, shopMenuReply } from "./shop"
-import { confirmNote } from "../confirm-note"
+import { confirmNote, recipientBlockedAtPay, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
 import type { HubtelReply, HubtelSession } from "../types"
 
 const NETWORK = { label: "Select network" }
@@ -85,6 +85,7 @@ async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
     },
     confirm: async local => {
       const note = await confirmNote(ctx, { network: session.network, recipientLocal: local, verify: true, estimate: "network" })
+      if (note === RECIPIENT_BLOCKED_NOTE) return blockedRecipientScreen(ctx, "SHOP_DATA_RECIPIENT")
       return goto(ctx, { step: "SHOP_DATA_CONFIRM", recipientPhone: local, confirmNote: note }, confirmText({ ...session, recipientPhone: local, confirmNote: note }), CONFIRM)
     },
   })
@@ -98,14 +99,23 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
 
+  // Hard block before payment: the confirm screen's check may have timed out (fail open there).
+  if (await recipientBlockedAtPay(ctx, session.network, session.recipientPhone)) {
+    console.warn("[HUBTEL-SHOP-DATA] Unverified MTN recipient blocked at pay")
+    return blockedRecipientScreen(ctx, "SHOP_DATA_RECIPIENT")
+  }
+
   // Re-verify the shop price and the profit split straight from the DB (stale-session guard).
   const verified = await deps.shop.verifyBundlePrice(session.shopId!, session.bundleId!, session.parentShopId)
   if (!verified) return finish(ctx, "Package no longer available. Please try again.")
   const { verifiedPrice, profitAmount, parentProfitAmount } = verified
   // Fail closed: a price or profit snapshot that is not a usable number never reaches the order.
+  // A profit may be negative, but only from an owner's custom price above their role price: negative
+  // margins are refused upstream (verifyBundlePrice returns null), so Datagod still receives role + margin.
+  // Crediting skips profit <= 0.
   const sane = Number.isFinite(verifiedPrice) && verifiedPrice > 0
-    && Number.isFinite(profitAmount) && profitAmount >= 0
-    && Number.isFinite(parentProfitAmount) && parentProfitAmount >= 0
+    && Number.isFinite(profitAmount)
+    && Number.isFinite(parentProfitAmount)
   if (!sane) {
     console.error("[HUBTEL-SHOP-DATA] Unusable verified price/profit snapshot; refusing order. session:", req.SessionId)
     return finish(ctx, "Package no longer available. Please try again.")

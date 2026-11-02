@@ -8,7 +8,7 @@
 
 import type { SupabaseLike } from "./store"
 
-export type ClaimKind = "airtime" | "bill" | "results" | "afa" | "sms"
+export type ClaimKind = "airtime" | "bill" | "results" | "afa" | "sms" | "bundle"
 
 export type ClaimOutcome =
   | { kind: "claimed"; claimId: string }

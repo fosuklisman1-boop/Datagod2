@@ -58,14 +58,29 @@ describe("priceForTier", () => {
   const pkg = { price: 10, dealer_price: 8 }
   it("regular uses price", () => expect(priceForTier(pkg, "regular")).toEqual({ price: 10, parentProfit: null }))
   it("dealer uses dealer_price when set and > 0", () => {
-    expect(priceForTier(pkg, "dealer").price).toBe(8)
-    expect(priceForTier({ price: 10, dealer_price: 0 }, "dealer").price).toBe(10)
-    expect(priceForTier({ price: 10, dealer_price: null }, "dealer").price).toBe(10)
+    expect(priceForTier(pkg, "dealer")!.price).toBe(8)
+    expect(priceForTier({ price: 10, dealer_price: 0 }, "dealer")!.price).toBe(10)
+    expect(priceForTier({ price: 10, dealer_price: null }, "dealer")!.price).toBe(10)
   })
-  it("sub_agent uses the catalog parent_price and wholesale_margin", () => {
-    expect(priceForTier(pkg, "sub_agent", { parent_price: "9", wholesale_margin: "1.5" })).toEqual({ price: 9, parentProfit: 1.5 })
+  it("sub_agent uses the parent's live offer (cost and parent profit)", () => {
+    expect(priceForTier(pkg, "sub_agent", { cost: 10, parentProfit: 2 })).toEqual({ price: 10, parentProfit: 2 })
   })
-  it("sub_agent without a catalog row falls back to package price", () => {
-    expect(priceForTier(pkg, "sub_agent", null)).toEqual({ price: 10, parentProfit: null })
+  it("sub_agent without an offer (the parent does not offer it) is refused: null, never the package price", () => {
+    expect(priceForTier(pkg, "sub_agent", null)).toBeNull()
+    expect(priceForTier(pkg, "sub_agent")).toBeNull()
+  })
+})
+
+describe("priceForTier with custom prices", () => {
+  const pkg = { id: "p1", price: 10, dealer_price: 8 }
+  it("custom price wins on the dealer and regular tiers", () => {
+    expect(priceForTier(pkg, "dealer", null, new Map([["p1", 6]]))!.price).toBe(6)
+    expect(priceForTier(pkg, "regular", null, new Map([["p1", 6]]))!.price).toBe(6)
+  })
+  it("the sub-agent's own custom prices never change the sub_agent price or the parent's profit", () => {
+    expect(priceForTier(pkg, "sub_agent", { cost: 10, parentProfit: 2 }, new Map([["p1", 2]]))).toEqual({ price: 10, parentProfit: 2 })
+  })
+  it("no custom prices = unchanged", () => {
+    expect(priceForTier(pkg, "dealer")!.price).toBe(8)
   })
 })

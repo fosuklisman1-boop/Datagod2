@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
   let catalog
   try {
-    catalog = await buildProductsCatalog(user.role)
+    catalog = await buildProductsCatalog(user.role, user.id)
   } catch (err) {
     console.error("[API v1] Failed to build products catalog:", err)
     const durationMs = Date.now() - start

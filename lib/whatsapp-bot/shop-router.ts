@@ -25,6 +25,7 @@ import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
+import { isRecipientBlocked, RECIPIENT_BLOCKED_PROMPT } from "@/lib/mtn-providers/customer-verification"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import {
   detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits,
@@ -711,6 +712,12 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             reply = `${check.message}\n\nEnter recipient number:\n0. Back`
             break
           }
+        }
+
+        // MTN number verification hard block (admin toggle). Outages never block.
+        if (await isRecipientBlocked(session.network, local)) {
+          reply = RECIPIENT_BLOCKED_PROMPT
+          break
         }
 
         session.step = 'ENTER_PAYMENT_PHONE'
