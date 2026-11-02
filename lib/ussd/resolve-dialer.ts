@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { getDealerRateTier } from "@/lib/sub-agents/dealer-rates"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,6 +11,7 @@ export interface DialerInfo {
   role?: string
   balance?: number   // wallet balance (only set for registered dialers)
   email?: string     // real account email (NOT the synthetic Paystack fallback)
+  rateTier?: "customer" | "dealer" // dealer-rate decision (sub-agents can have dealer rates turned off per shop)
 }
 
 function toLocal(phone: string): string {
@@ -39,10 +41,17 @@ export async function resolveDialer(dialingPhone: string): Promise<DialerInfo> {
     .eq("user_id", u.id)
     .maybeSingle()
 
+  // Only sub-agents need the extra shop read; a failed read charges the customer rate (shown before payment).
+  let rateTier: "customer" | "dealer" = u.role === "dealer" ? "dealer" : "customer"
+  if (u.role === "sub_agent") {
+    try { rateTier = await getDealerRateTier(supabase, u.id) } catch { rateTier = "customer" }
+  }
+
   return {
     userId: u.id,
     role: u.role ?? undefined,
     balance: w ? Number(w.balance) : 0,
     email: u.email ?? undefined,
+    rateTier,
   }
 }

@@ -10,6 +10,7 @@ import { setSession } from "../session"
 import { networkNickname } from "../network-labels"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
+import { dialerGetsDealerRate } from "../../sub-agents/dealer-rates"
 import { liveWalletBalance } from "../wallet-balance"
 import { chargeMobileMoney } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
@@ -80,9 +81,8 @@ function toLocal(phone: string): string {
   return phone
 }
 
-async function dialerFeeRate(network: string, dialerRole?: string): Promise<number> {
-  const isDealer = dialerRole === "dealer" || dialerRole === "sub_agent"
-  return airtimeBaseFeeRate(network, isDealer)
+async function dialerFeeRate(network: string, dialer: { role?: string; rateTier?: "customer" | "dealer" }): Promise<number> {
+  return airtimeBaseFeeRate(network, dialerGetsDealerRate(dialer))
 }
 
 // ── AIRTIME_ENTER_RECIPIENT ───────────────────────────────────────────────────
@@ -199,7 +199,7 @@ export async function handleAirtimeEnterAmount(
   }
 
   // Not applied: today's fee pricing, unchanged.
-  const rate = await dialerFeeRate(network, dialer.role)
+  const rate = await dialerFeeRate(network, dialer)
   const { fee, toDeliver } = splitInclusive(amount, rate)
 
   await setSession(sessionId, {
@@ -279,7 +279,7 @@ export async function handleAirtimeConfirm(
     fee = 0
     toDeliver = amount
   } else {
-    const rate = await dialerFeeRate(network, dialer.role)
+    const rate = await dialerFeeRate(network, dialer)
     ;({ fee, toDeliver } = splitInclusive(amount, rate))
   }
   // MoMo charge = the row's total_paid as inserted. With cashback the wallet pays the quote's base

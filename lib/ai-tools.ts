@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
 import type { WaShopSession } from "@/lib/whatsapp-bot/shop-types"
+import { dialerGetsDealerRate } from "@/lib/sub-agents/dealer-rates"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1800,7 +1801,7 @@ export async function executeToolCall(
           // number; we mirror it here only for an accurate confirm-screen "they receive" figure.
           const { resolveDialer } = await import("@/lib/ussd/resolve-dialer")
           const dialer = await resolveDialer(localSender)
-          const isDealer = dialer.role === "dealer" || dialer.role === "sub_agent"
+          const isDealer = dialerGetsDealerRate(dialer)
           const rate = await airtimeBaseFeeRate(airtimeNetwork, isDealer)
           const { fee, toDeliver } = splitInclusive(amount, rate)
           await setWaSession(phone, {

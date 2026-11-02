@@ -10,6 +10,7 @@ import { toLocalPhone } from "../protocol"
 import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { HubtelReply } from "../types"
 import { samePrice } from "@/lib/cashback/quote"
+import { dialerGetsDealerRate } from "@/lib/sub-agents/dealer-rates"
 import {
   airtimeAmountText, cashbackAirtimeColumns, cashbackAirtimeConfirmText, cashbackPromptApplies, usableCashbackQuote,
 } from "./airtime-cashback"
@@ -40,7 +41,7 @@ export function airtimeConfirmText(label: string, recipient: string, pay: number
   )
 }
 
-const isDealerRole = (role?: string) => role === "dealer" || role === "sub_agent"
+const isDealerRole = dialerGetsDealerRate
 
 export async function startAirtime(ctx: FlowCtx): Promise<HubtelReply> {
   return goto(ctx, { step: "AIRTIME_ENTER_RECIPIENT" }, airtimeRecipientPromptText(), RECIPIENT)
@@ -111,7 +112,7 @@ async function enterAmount(ctx: FlowCtx): Promise<HubtelReply> {
   }
 
   // Not applied: today's fee pricing, unchanged.
-  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer.role))
+  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer))
   const { fee, toDeliver } = splitInclusive(amount, rate)
   if (!(toDeliver > 0)) return invalid()
 
@@ -176,7 +177,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   }
 
   // Not applied: today's fee pricing, unchanged.
-  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer.role))
+  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer))
   const { fee, toDeliver } = splitInclusive(amount, rate)
   // Fail closed: a NaN/undefined on either side must never pass the drift check.
   const shown = session.airtimeToDeliver

@@ -212,6 +212,8 @@ describe("cashback wiring", () => {
   const usersDb = (role: string | null, error: any = null): any => ({
     from: (t: string) => t === "users"
       ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: role === null ? null : { role }, error }) }) }) }
+      : t === "user_shops"
+      ? { select: () => ({ eq: () => ({ limit: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) }
       : cfgChain({ enabled: true, surfaces: { dashboard: true } }),
   })
   it("getBuyerTier: dealer and sub_agent => dealer; anything else => customer; read error throws", async () => {

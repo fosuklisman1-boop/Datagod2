@@ -10,6 +10,7 @@ const h = vi.hoisted(() => {
       airtime_max_amount: { amount: 500 },
     } as Record<string, any>,
     userRole: "user",
+    dealerRatesEnabled: true,
     recentOrder: null as any,
     deductError: null as null | string,
     deductResult: [{ new_balance: 88, old_balance: 100, new_total_spent: 12 }] as any,
@@ -47,7 +48,12 @@ const h = vi.hoisted(() => {
       }
       if (table === "users") {
         return {
-          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: { role: state.userRole }, error: null }) }) }),
+          select: () => ({
+            eq: () => ({
+              single: () => Promise.resolve({ data: { role: state.userRole }, error: null }),
+              maybeSingle: () => Promise.resolve({ data: { role: state.userRole }, error: null }),
+            }),
+          }),
         }
       }
       if (table === "airtime_orders") {
@@ -94,7 +100,13 @@ const h = vi.hoisted(() => {
             return Promise.resolve({ data: null, error: null })
           },
           update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
-          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+          select: () => ({
+            eq: () => ({
+              single: () => Promise.resolve({ data: null, error: null }),
+              // getDealerRateTier: the sub-agent's own shop row
+              limit: () => ({ maybeSingle: () => Promise.resolve({ data: { dealer_rates_enabled: state.dealerRatesEnabled }, error: null }) }),
+            }),
+          }),
         }
       }
       throw new Error(`Unexpected table: ${table}`)
@@ -202,6 +214,7 @@ beforeEach(() => {
     airtime_max_amount: { amount: 500 },
   }
   h.state.userRole = "user"
+  h.state.dealerRatesEnabled = true
   h.state.recentOrder = null
   h.state.deductError = null
   h.state.deductResult = [{ new_balance: 88, old_balance: 100, new_total_spent: 12 }]
@@ -383,6 +396,22 @@ describe("purchaseAirtime — instant cashback", () => {
     h.state.userRole = "sub_agent"
     await buy()
     expect(h.state.deductCalls[0].p_amount).toBe(9.81)
+  })
+
+  it("a sub_agent with dealer rates off pays the customer fee and customer cashback share", async () => {
+    h.state.userRole = "sub_agent"
+    h.state.dealerRatesEnabled = false
+
+    // legacy fee path: customer fee key (5%), never the dealer key
+    await buy()
+    expect(h.state.keysRead.filter((k) => k.startsWith("airtime_fee_"))).toEqual(["airtime_fee_mtn_customer"])
+
+    // cashback path: customer share (25), customer pay amount
+    h.state.orderInserts = []; h.state.deductCalls = []
+    h.state.settings.commission_cashback_config = CASHBACK_CFG
+    await buy()
+    expect(h.state.deductCalls[0].p_amount).toBe(9.91)
+    expect(h.state.orderInserts[0]).toMatchObject({ cashback_amount: 0.09, cashback_share: 25 })
   })
 
   it("expectedPay matching the quote proceeds", async () => {
