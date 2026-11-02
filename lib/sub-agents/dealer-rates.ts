@@ -4,11 +4,12 @@ export type DealerRateTier = "customer" | "dealer"
 
 /**
  * Dealer base fee rate for a resolved USSD/WhatsApp dialer? Uses the dialer's resolved rateTier; a dialer
- * without one falls back to the role (dealer/sub_agent), which is what every caller did before.
+ * without one fails closed: only the dealer role gets the dealer rate. A sub-agent needs a resolved rateTier
+ * (resolveDialer always sets it), so dropping it can never silently restore the dealer rate.
  */
 export function dialerGetsDealerRate(d: { role?: string; rateTier?: DealerRateTier }): boolean {
   if (d.rateTier) return d.rateTier === "dealer"
-  return d.role === "dealer" || d.role === "sub_agent"
+  return d.role === "dealer"
 }
 
 /** Postgres undefined_column, or PostgREST's "column not in schema cache". */

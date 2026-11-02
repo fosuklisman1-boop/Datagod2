@@ -98,11 +98,24 @@ describe("airtime: amount (review focus #3)", () => {
     expect(r.Message).toContain("1. Pay now\n2. Cancel")
     expect(store.get("S1")).toMatchObject({ step: "AIRTIME_CONFIRM", airtimeAmount: 10, airtimeFee: 0.48, airtimeToDeliver: 9.52 })
   })
-  it("dealers and sub-agents get the dealer fee rate", async () => {
+  it("dealers and sub-agents with dealer rates on get the dealer fee rate", async () => {
+    const feeRate = vi.fn(async () => 5)
+    const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => ({ userId: "u1", role: "sub_agent", rateTier: "dealer" }) })
+    await toConfirm(deps)
+    expect(feeRate).toHaveBeenCalledWith("MTN", true)
+  })
+  it("a sub-agent with dealer rates off gets the customer fee rate", async () => {
+    const feeRate = vi.fn(async () => 5)
+    const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => ({ userId: "u1", role: "sub_agent", rateTier: "customer" }) })
+    await toConfirm(deps)
+    expect(feeRate).toHaveBeenCalledWith("MTN", false)
+    expect(feeRate).not.toHaveBeenCalledWith("MTN", true)
+  })
+  it("a sub-agent with no resolved rate tier fails closed to the customer fee rate", async () => {
     const feeRate = vi.fn(async () => 5)
     const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => ({ userId: "u1", role: "sub_agent" }) })
     await toConfirm(deps)
-    expect(feeRate).toHaveBeenCalledWith("MTN", true)
+    expect(feeRate).toHaveBeenCalledWith("MTN", false)
   })
 })
 

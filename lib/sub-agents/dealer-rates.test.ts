@@ -1,5 +1,19 @@
 import { describe, it, expect } from "vitest"
-import { getDealerRateTier } from "./dealer-rates"
+import { getDealerRateTier, dialerGetsDealerRate } from "./dealer-rates"
+
+describe("dialerGetsDealerRate", () => {
+  it("uses the resolved rateTier when present", () => {
+    expect(dialerGetsDealerRate({ role: "sub_agent", rateTier: "dealer" })).toBe(true)
+    expect(dialerGetsDealerRate({ role: "sub_agent", rateTier: "customer" })).toBe(false)
+    expect(dialerGetsDealerRate({ role: "dealer", rateTier: "customer" })).toBe(false)
+  })
+  it("without a rateTier only the dealer role is dealer (fails closed for sub_agent)", () => {
+    expect(dialerGetsDealerRate({ role: "dealer" })).toBe(true)
+    expect(dialerGetsDealerRate({ role: "sub_agent" })).toBe(false)
+    expect(dialerGetsDealerRate({ role: "user" })).toBe(false)
+    expect(dialerGetsDealerRate({})).toBe(false)
+  })
+})
 
 type Res = { data: any; error: any }
 

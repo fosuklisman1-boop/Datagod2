@@ -171,6 +171,20 @@ describe("main USSD airtime: legacy (no cashback) is byte-identical", () => {
     })
   })
 
+  it("a sub-agent with dealer rates off is quoted the customer fee; with rates on, the dealer fee", async () => {
+    h.state.feeRate.dealer = 2
+    const s = { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any
+    h.state.dialer = { userId: "u1", role: "sub_agent", rateTier: "customer", balance: 0 }
+    await handleAirtimeEnterAmount("10.50", "s1", s, "ussd")
+    expect(lastSession()).toMatchObject({ airtimeFee: 0.5, airtimeToDeliver: 10 }) // 5% customer rate
+    h.state.dialer = { userId: "u1", role: "sub_agent", rateTier: "dealer", balance: 0 }
+    await handleAirtimeEnterAmount("10.50", "s1", s, "ussd")
+    expect(lastSession().airtimeFee).toBeLessThan(0.5) // 2% dealer rate
+    h.state.dialer = { userId: "u1", role: "sub_agent", balance: 0 } // no resolved tier: fails closed
+    await handleAirtimeEnterAmount("10.50", "s1", s, "ussd")
+    expect(lastSession()).toMatchObject({ airtimeFee: 0.5, airtimeToDeliver: 10 })
+  })
+
   it("invalid amount re-prompts", async () => {
     const r = await handleAirtimeEnterAmount("abc", "s1", { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any, "ussd")
     expect(r.message).toBe("Enter a valid amount.\nYellow Plans Airtime\nEnter amount to pay\n(GHS 1 - 500):\n\n0. Back")

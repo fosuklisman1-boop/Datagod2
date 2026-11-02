@@ -39,6 +39,7 @@ vi.mock("@/lib/airtime-pricing", async () => {
     airtimeBaseFeeRate: vi.fn(),
   }
 })
+vi.mock("@/lib/ussd/resolve-dialer", () => ({ resolveDialer: vi.fn() }))
 vi.mock("@/lib/results-checker-service", () => ({
   isExamBoardEnabled: vi.fn(),
   getAvailableCount: vi.fn(),
@@ -585,6 +586,32 @@ describe("custom prices in AI tools", () => {
     }
     const r = await executeToolCall("get_available_packages", {}, { baseUrl: "x", userId: "u1", userRole: "sub_agent" }) as any[]
     expect(r.find(p => p.id === "p1").price).toBe(10)
+  })
+
+  describe("place_whatsapp_order airtime fee tier", () => {
+    const input = { service: "airtime", network: "MTN", recipient_phone: "0244123456", amount: "10" }
+    const ctx = { baseUrl: "x", phone: "233559919037", userId: "u1" }
+    const run = async (dialer: Record<string, unknown>) => {
+      const { resolveDialer } = await import("@/lib/ussd/resolve-dialer")
+      vi.mocked(resolveDialer).mockResolvedValue({ userId: "u1", ...dialer } as any)
+      vi.mocked(getWaSession).mockResolvedValue(null)
+      vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
+      vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
+      vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
+      vi.mocked(airtimeBaseFeeRate).mockClear()
+      fakeSupabase.tables = { airtime_orders: { list: [] } }
+      await executeToolCall("place_whatsapp_order", input, ctx)
+      return vi.mocked(airtimeBaseFeeRate)
+    }
+    it("sub_agent with dealer rates on is quoted the dealer rate", async () => {
+      expect(await run({ role: "sub_agent", rateTier: "dealer" })).toHaveBeenCalledWith("MTN", true)
+    })
+    it("sub_agent with dealer rates off is quoted the customer rate", async () => {
+      expect(await run({ role: "sub_agent", rateTier: "customer" })).toHaveBeenCalledWith("MTN", false)
+    })
+    it("sub_agent with no resolved tier fails closed to the customer rate", async () => {
+      expect(await run({ role: "sub_agent" })).toHaveBeenCalledWith("MTN", false)
+    })
   })
 
   describe("place_whatsapp_order seeding", () => {
