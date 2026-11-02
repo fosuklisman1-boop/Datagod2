@@ -1,6 +1,10 @@
 import { POST } from "./route"
 import { NextRequest } from "next/server"
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { revalidateTag } from "next/cache"
+
+// revalidateTag throws outside a Next request context, so stub it.
+vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }))
 
 vi.mock("@/lib/admin-auth", () => ({
   verifyAdminAccess: vi.fn(async () => ({ isAdmin: true, userId: "admin-1" })),
@@ -120,6 +124,7 @@ describe("POST /api/admin/packages/bulk-update-price", () => {
         { id: PKG2, data: { price: 11 } },
       ])
     )
+    expect(revalidateTag).toHaveBeenCalledWith("seo-live-facts")
   })
 
   it("skips a package whose computed price would be non-positive, without failing the batch", async () => {
@@ -135,6 +140,7 @@ describe("POST /api/admin/packages/bulk-update-price", () => {
     expect(body.skipped).toHaveLength(2)
     expect(body.skipped[0].skip_reason).toBe("non_positive_price")
     expect(h.state.updateCalls).toHaveLength(0)
+    expect(revalidateTag).not.toHaveBeenCalled()
   })
 
   it("writes a best-effort admin_audit_log row", async () => {
