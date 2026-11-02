@@ -7,7 +7,7 @@ export type Result = { data: unknown; error: { message: string; code?: string; d
 export interface FakeQuery {
   table: string
   /** "select" unless insert/update/delete was called. */
-  kind: "select" | "insert" | "update" | "delete"
+  kind: "select" | "insert" | "update" | "delete" | "upsert"
   columns: string | null
   count: string | null
   head: boolean
@@ -51,6 +51,7 @@ export function createFakeDb(opts: FakeDbOptions = {}) {
       insert: (rows: unknown) => { q.kind = "insert"; q.payload = rows; return chain },
       update: (vals: unknown) => { q.kind = "update"; q.payload = vals; return chain },
       delete: () => { q.kind = "delete"; return chain },
+      upsert: (rows: unknown, o?: unknown) => { q.kind = "upsert"; q.payload = rows; q.ops.push(["upsertOptions", o]); return chain },
       maybeSingle: () => { q.ops.push(["maybeSingle"]); return run() },
       single: () => { q.ops.push(["single"]); return run() },
       then: (res: (r: Result) => unknown, rej?: (e: unknown) => unknown) => run().then(res, rej),

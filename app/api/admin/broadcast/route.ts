@@ -1,10 +1,10 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { enqueueRecipients, drainBroadcasts } from "@/lib/broadcast-drain"
+import { BROADCAST_LIMITS, startBroadcast } from "@/lib/broadcast-start"
 import { resolveRecipients } from "@/lib/sms/recipients"
 import { personalize } from "@/lib/sms/personalize"
-import { parseSmsProvider, providerColumnMissingMessage } from "@/lib/sms/provider-pick"
+import { parseSmsProvider } from "@/lib/sms/provider-pick"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -37,14 +37,14 @@ export async function POST(req: NextRequest) {
             if (subjectRequired && (!subject || typeof subject !== "string" || subject.trim().length === 0)) {
                 return NextResponse.json({ error: "subject is required for email/push channels" }, { status: 400 })
             }
-            if (typeof subject === "string" && subject.length > 200) {
-                return NextResponse.json({ error: "subject must be 200 characters or fewer" }, { status: 400 })
+            if (typeof subject === "string" && subject.length > BROADCAST_LIMITS.subjectMax) {
+                return NextResponse.json({ error: `subject must be ${BROADCAST_LIMITS.subjectMax} characters or fewer` }, { status: 400 })
             }
             if (!message || typeof message !== "string" || message.trim().length === 0) {
                 return NextResponse.json({ error: "message is required" }, { status: 400 })
             }
-            if (message.length > 5000) {
-                return NextResponse.json({ error: "message must be 5000 characters or fewer" }, { status: 400 })
+            if (message.length > BROADCAST_LIMITS.messageMax) {
+                return NextResponse.json({ error: `message must be ${BROADCAST_LIMITS.messageMax} characters or fewer` }, { status: 400 })
             }
             if (!Array.isArray(channels) || channels.length === 0) {
                 return NextResponse.json({ error: "at least one channel is required" }, { status: 400 })
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
             if (recipients.type === "specific" && (!Array.isArray(recipients.users) || recipients.users.length === 0)) {
                 return NextResponse.json({ error: "recipients.users is required for specific targeting" }, { status: 400 })
             }
-            if (recipients.type === "specific" && recipients.users.length > 5000) {
+            if (recipients.type === "specific" && recipients.users.length > BROADCAST_LIMITS.recipientsMax) {
                 return NextResponse.json({ error: "cannot target more than 5000 specific users at once" }, { status: 400 })
             }
             if (recipients.type === "roles" && (!Array.isArray(recipients.roles) || recipients.roles.length === 0)) {
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
                 if (resolved.contacts.length === 0) {
                     return NextResponse.json({ error: "The selected group has no sendable contacts (all invalid or opted out)" }, { status: 400 })
                 }
-                if (resolved.contacts.length > 5000) {
+                if (resolved.contacts.length > BROADCAST_LIMITS.recipientsMax) {
                     return NextResponse.json({ error: "cannot target more than 5000 contacts at once" }, { status: 400 })
                 }
                 resolvedUsers = resolved.contacts.map((c) => ({
@@ -139,69 +139,29 @@ export async function POST(req: NextRequest) {
                 if (owners.length === 0) {
                     return NextResponse.json({ error: "No shop owners found" }, { status: 400 })
                 }
-                if (owners.length > 5000) {
+                if (owners.length > BROADCAST_LIMITS.recipientsMax) {
                     return NextResponse.json({ error: "cannot target more than 5000 shop owners at once" }, { status: 400 })
                 }
                 resolvedUsers = owners
                 targetGroupLabel = ["shop_owners"]
             }
 
-            const { data: broadcastLog, error: logError } = await supabase
-                .from("broadcast_logs")
-                .insert({
-                    admin_id: callerId,
-                    channels: channels,
-                    target_type: recipients.type,
-                    target_group: targetGroupLabel,
-                    subject: (typeof subject === "string" ? subject : ""),
-                    message: message,
-                    status: "processing",
-                    // Only written for an explicit pick on an SMS broadcast, so ordinary
-                    // broadcasts never touch the column (works before the migration).
-                    ...((smsProvider === "moolre" || smsProvider === "hubtel") && channels.includes("sms")
-                        ? { sms_provider: smsProvider }
-                        : {}),
-                    results: {
-                        total: 0,
-                        sms: { sent: 0, failed: 0, pending: 0 },
-                        email: { sent: 0, failed: 0, pending: 0 },
-                        push: { sent: 0, failed: 0 },
-                        whatsapp: { sent: 0, failed: 0 },
-                    },
-                })
-                .select()
-                .single()
-
-            if (logError) {
-                const missing = providerColumnMissingMessage(logError, smsProvider)
-                if (missing) return NextResponse.json({ error: missing }, { status: 409 })
-                throw logError
-            }
-
-            const broadcastId = broadcastLog.id
-
-            // Persist the full recipient list so the cron can finish the send.
-            // Group and shop-owner audiences are enqueued as pre-resolved "specific"
-            // recipients.
+            // Group and shop-owner audiences are enqueued as pre-resolved "specific" recipients.
             const preResolved = recipients.type === "group" || recipients.type === "shop_owners"
-            const enqueued = await enqueueRecipients(supabase, broadcastId, {
-                targetType: preResolved ? "specific" : recipients.type,
-                roles: recipients.roles,
-                specificUsers: preResolved ? resolvedUsers : recipients.users,
+            const started = await startBroadcast(supabase, {
+                adminId: callerId,
+                channels,
+                targetType: recipients.type,
+                targetGroup: targetGroupLabel,
+                subject: typeof subject === "string" ? subject : "",
+                message,
+                smsProvider,
+                recipients: preResolved || recipients.type === "specific"
+                    ? { targetType: "specific", users: (preResolved ? resolvedUsers : recipients.users) ?? [] }
+                    : { targetType: "roles", roles: recipients.roles },
             })
-
-            if (enqueued === 0) {
-                await supabase.from("broadcast_logs").update({ status: "completed" }).eq("id", broadcastId)
-                return NextResponse.json({ error: "No recipients matched the selected criteria" }, { status: 400 })
-            }
-
-            // Set the real total, then send the first batch synchronously so the
-            // admin sees immediate progress. Anything left over is handled by the
-            // drain-broadcasts cron — including if the tab closes right now.
-            await supabase.rpc("recompute_broadcast_results", { bid: broadcastId, max_attempts: 3 })
-            await drainBroadcasts(supabase, { broadcastId, maxRecipients: 30 }).catch((e) => {
-                console.error("[BROADCAST-API] first drain failed (cron will retry):", e)
-            })
+            if (!started.ok) return NextResponse.json({ error: started.error }, { status: started.status })
+            const { broadcastId, total: enqueued } = started
 
             return NextResponse.json({ success: true, broadcastId, total: enqueued })
         }
