@@ -3,8 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
-import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
-import { catalogSubAgentMargin, marginsValid, subAgentCosts } from "@/lib/shop-commerce/pricing"
+import { loadPublicShopPackages } from "@/lib/shop-commerce/public-packages"
 
 // Force dynamic rendering
 export const dynamic = "force-dynamic"
@@ -74,168 +73,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
-    // Fetch user role to check for dealer pricing
-    const { data: userData } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", shop.user_id)
-      .single()
-    const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
-
-    let packages: any[] = []
-
-    // Check if this is a sub-agent (has parent_shop_id)
-    if (shop.parent_shop_id) {
-      // Sub-agent prices: the parent's LIVE cost (subAgentCosts: parent role price + the parent's active
-      // wholesale margin) + the sub-agent's margin, exactly what app/api/shop/orders/create charges. Stored
-      // parent_price snapshots are not trusted. Packages the parent no longer offers are hidden.
-      const priceRows = async (rows: any[], subMarginOf: (item: any) => number) => {
-        const { costs } = await subAgentCosts(
-          shop.parent_shop_id,
-          rows.map((item: any) => String(item.package_id)),
-          supabase as Parameters<typeof subAgentCosts>[2]
-        )
-        return rows
-          .filter((item: any) => item.package?.is_available)
-          .map((item: any) => ({ item, offer: costs.get(String(item.package_id)), subAgentMargin: subMarginOf(item) }))
-          .filter(({ offer, subAgentMargin }) => !!offer && marginsValid(subAgentMargin))
-          .map(({ item, offer, subAgentMargin }) => {
-            const parentPrice = offer!.cost
-            return {
-              id: item.id,
-              package_id: item.package.id,
-              profit_margin: subAgentMargin,
-              parent_price: parentPrice,
-              is_available: item.is_active,
-              packages: {
-                id: item.package.id,
-                network: item.package.network,
-                size: item.package.size,
-                price: parentPrice,
-                description: item.package.description
-              },
-              selling_price: Math.round((parentPrice + subAgentMargin) * 100) / 100
-            }
-          })
-      }
-
-      // Sub-agent: get packages from sub_agent_shop_packages table (their own inventory)
-      // Fall back to sub_agent_catalog for backwards compatibility
-      const { data: shopPkgs, error: shopPkgsError } = await supabase
-        .from("sub_agent_shop_packages")
-        .select(`
-          id,
-          package_id,
-          sub_agent_profit_margin,
-          is_active,
-          package:packages (
-            id,
-            network,
-            size,
-            price,
-            dealer_price,
-            description,
-            is_available
-          )
-        `)
-        .eq("shop_id", shop.id)
-        .eq("is_active", true)
-
-      if (shopPkgsError && shopPkgsError.code !== 'PGRST116') {
-        // If not "relation does not exist", it's a real error
-        console.error("Error fetching sub-agent shop packages:", shopPkgsError)
-        return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
-      }
-
-      try {
-        // If sub_agent_shop_packages table exists and has data, use it
-        if (!shopPkgsError && shopPkgs && shopPkgs.length > 0) {
-          packages = await priceRows(shopPkgs, (item: any) => Number(item.sub_agent_profit_margin || 0))
-        } else {
-          // Fall back to sub_agent_catalog for backwards compatibility
-          const { data: catalogItems, error: catalogError } = await supabase
-            .from("sub_agent_catalog")
-            .select(`
-              id,
-              package_id,
-              shop_id,
-              sub_agent_profit_margin,
-              wholesale_margin,
-              is_active,
-              package:packages (
-                id,
-                network,
-                size,
-                price,
-                dealer_price,
-                description,
-                is_available
-              )
-            `)
-            .eq("shop_id", shop.id)
-            .eq("is_active", true)
-
-          if (catalogError) {
-            console.error("Error fetching sub-agent catalog:", catalogError)
-            return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
-          }
-
-          // Own-shop rows: the cost uses the PARENT's active row (an own-shop wholesale_margin is never used),
-          // and the sub-agent margin as the order route reads it (legacy rows keep it in wholesale_margin).
-          packages = await priceRows(catalogItems || [], (item: any) => catalogSubAgentMargin(item, shop.id))
-        }
-      } catch (e) {
-        if (!(e instanceof CustomPriceReadError)) throw e
-        console.error("[PUBLIC-API] Could not read the parent's catalog or pricing")
-        return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
-      }
-
-    } else {
-      // Regular shop owner: get packages from shop_packages
-      const { data: shopPackages, error: pkgError } = await supabase
-        .from("shop_packages")
-        .select(`
-          id,
-          package_id,
-          profit_margin,
-          is_available,
-          custom_name,
-          packages (
-            id,
-            network,
-            size,
-            price,
-            dealer_price,
-            description,
-            is_available
-          )
-        `)
-        .eq("shop_id", shop.id)
-        .eq("is_available", true)
-
-      if (pkgError) {
-        console.error("Error fetching shop packages:", pkgError)
-        return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
-      }
-
-      // Filter out disabled admin packages
-      packages = (shopPackages || [])
-        .filter((item: any) => item.packages?.is_available !== false)
-        .map((item: any) => {
-          const basePrice = (isDealer && item.packages.dealer_price > 0)
-            ? item.packages.dealer_price
-            : item.packages.price;
-
-          return {
-            ...item,
-            packages: {
-              ...item.packages,
-              price: basePrice
-            },
-            selling_price: basePrice + item.profit_margin
-          }
-        })
+    // Same loader the server-rendered storefront uses (app/shop/[slug]/page.tsx),
+    // so the API and the server HTML always show the same prices.
+    const loaded = await loadPublicShopPackages(supabase, shop)
+    if (!loaded.ok) {
+      return NextResponse.json({ error: loaded.error }, { status: loaded.status })
     }
+    const packages = loaded.packages
 
     // Get global ordering status
     // Use select("*") to match the working debug endpoint and avoid any column selection issues

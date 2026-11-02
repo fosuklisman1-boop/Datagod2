@@ -44,12 +44,18 @@ export interface ProductEntry {
   network?: "MTN" | "Telecel" | "AT"
   /** false for existing hand-built pages (join, results-checker, bulk-sms, whatsapp, developers) */
   hasOwnPage: boolean
+  /**
+   * Date (YYYY-MM-DD) the page's content last changed: the sitemap lastmod.
+   * Bump it when you change this entry's copy or its page template, never
+   * automatically, so lastmod only moves when the content does.
+   */
+  updated: string
 }
 
 export const REFUND_LINE = "If an order fails, you get your money back."
 export const SPEED_LINE = "Usually delivered within minutes."
 
-const PAY_LINE = "Fund your DATAGOD wallet with Mobile Money (MoMo) or card through Paystack, then pay from your wallet."
+export const PAY_LINE = "Fund your DATAGOD wallet with Mobile Money (MoMo) or card through Paystack, then pay from your wallet."
 
 const refundFaq = (question = "What happens if my order fails?", extra = ""): Faq => ({
   question,
@@ -101,6 +107,7 @@ function dataEntry(
     priority: 0.9,
     network,
     hasOwnPage: true,
+    updated: "2026-11-01",
   }
 }
 
@@ -137,6 +144,7 @@ function billerEntry(
     priority: 0.7,
     biller,
     hasOwnPage: true,
+    updated: "2026-10-27",
   }
 }
 
@@ -170,7 +178,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Yes. Vodafone Ghana is now Telecel, and the same numbers (020 and 050) work. Buy Telecel data here for any of those numbers.",
       },
     ],
-    related: ["mtn-data", "at-data", "airtime", "telecel-broadband", "join"],
+    related: ["mtn-data", "at-data", "afa-registration", "airtime", "telecel-broadband", "join"],
   }),
   dataEntry("at-data", "AT", {
     name: "AT Data Bundles",
@@ -185,7 +193,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Yes. Enter that person's AT number when you order and the bundle is sent to them. The bundles on offer are shown on this page.",
       },
     ],
-    related: ["mtn-data", "telecel-data", "airtime", "join"],
+    related: ["mtn-data", "telecel-data", "afa-registration", "airtime", "join"],
   }),
 
   // ── Airtime ─────────────────────────────────────────────────────────
@@ -222,6 +230,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["mtn-data", "telecel-data", "at-data", "ussd", "join"],
     priority: 0.8,
     hasOwnPage: true,
+    updated: "2026-10-27",
   },
   {
     key: "afa-registration",
@@ -254,9 +263,10 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "The full name, phone number, Ghana Card number (for example GHA-123456789-0) and location. Make sure the details match the Ghana Card before you submit.",
       },
     ],
-    related: ["mtn-data", "airtime", "join"],
+    related: ["mtn-data", "telecel-data", "at-data", "airtime", "join"],
     priority: 0.8,
     hasOwnPage: true,
+    updated: "2026-10-27",
   },
 
   // ── Bills ───────────────────────────────────────────────────────────
@@ -293,6 +303,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["ecg-prepaid", "ghana-water", "pay-dstv", "pay-gotv", "startimes", "telecel-broadband"],
     priority: 0.8,
     hasOwnPage: true,
+    updated: "2026-10-27",
   },
   billerEntry("ecg-prepaid", "ecg", {
     name: "ECG Prepaid & Postpaid",
@@ -308,7 +319,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "ECG links meters to the phone number used to register them. We use that number to find your meters, then you pick the one you want to pay for.",
       },
     ],
-    related: ["utility-bills", "ghana-water", "pay-dstv", "airtime"],
+    related: ["utility-bills", "ghana-water", "pay-dstv", "pay-gotv", "startimes", "telecel-broadband", "airtime"],
   }),
   billerEntry("ghana-water", "ghana_water", {
     name: "Ghana Water",
@@ -324,7 +335,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Ghana Water requires an email address for every online payment, so we ask for one at checkout.",
       },
     ],
-    related: ["utility-bills", "ecg-prepaid", "pay-dstv"],
+    related: ["utility-bills", "ecg-prepaid", "pay-dstv", "pay-gotv", "startimes", "telecel-broadband"],
   }),
   billerEntry("pay-dstv", "dstv", {
     name: "DSTV",
@@ -340,7 +351,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "It is printed on the smartcard inside your decoder, and it also shows on your TV screen in the decoder's information menu.",
       },
     ],
-    related: ["utility-bills", "pay-gotv", "startimes", "ecg-prepaid"],
+    related: ["utility-bills", "pay-gotv", "startimes", "ecg-prepaid", "ghana-water", "telecel-broadband"],
   }),
   billerEntry("pay-gotv", "gotv", {
     name: "GOtv",
@@ -356,7 +367,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "It is on the sticker under or behind your GOtv decoder, and it also shows on your TV screen in the decoder's information menu.",
       },
     ],
-    related: ["utility-bills", "pay-dstv", "startimes", "ecg-prepaid"],
+    related: ["utility-bills", "pay-dstv", "startimes", "ecg-prepaid", "ghana-water", "telecel-broadband"],
   }),
   billerEntry("startimes", "startimes", {
     name: "StarTimes TV",
@@ -372,7 +383,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "It is the smartcard or account number on your StarTimes decoder or card, and on any StarTimes payment receipt.",
       },
     ],
-    related: ["utility-bills", "pay-dstv", "pay-gotv"],
+    related: ["utility-bills", "pay-dstv", "pay-gotv", "ecg-prepaid", "ghana-water", "telecel-broadband"],
   }),
   billerEntry("telecel-broadband", "telecel_broadband", {
     name: "Telecel Broadband",
@@ -388,7 +399,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "It is on your Telecel Broadband bill or welcome pack. It usually starts with a letter, for example P0444101.",
       },
     ],
-    related: ["utility-bills", "telecel-data", "ecg-prepaid"],
+    related: ["utility-bills", "telecel-data", "ecg-prepaid", "ghana-water", "pay-dstv", "pay-gotv", "startimes"],
   }),
 
   // ── Education ───────────────────────────────────────────────────────
@@ -425,6 +436,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["mtn-data", "airtime", "whatsapp", "ussd"],
     priority: 0.8,
     hasOwnPage: false,
+    updated: "2026-10-27",
   },
 
   // ── Business ────────────────────────────────────────────────────────
@@ -461,13 +473,17 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["developers", "join", "whatsapp"],
     priority: 0.8,
     hasOwnPage: false,
+    updated: "2026-10-27",
   },
   {
     key: "join",
     path: "/join",
     name: "Reseller Shops & Sub-Agents",
-    h1: "Start your own data reselling business",
-    title: "Become a DATAGOD Agent - Open Your Data Shop | DATAGOD",
+    // The "become a data reseller" search is answered by the guide at
+    // /become-a-data-reseller (lib/seo/landing-pages.ts); /join is the sign-up
+    // page, so its title and H1 take the "open your shop / sign up" angle.
+    h1: "Sign up as a DATAGOD agent and open your shop",
+    title: "Sign Up as an Agent – Open Your Reseller Shop | DATAGOD",
     description: "Open your own branded DATAGOD shop, sell data, airtime and more at your own prices, recruit sub-agents and withdraw your profit to MoMo in Ghana.",
     group: "business",
     summary: "Become a DATAGOD agent and run your own data and airtime business. You get a branded online shop, set your own prices, invite sub-agents to sell under you, and withdraw your profit to Mobile Money.",
@@ -499,9 +515,10 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Your profit builds up in your shop balance and you can withdraw it to Mobile Money from your dashboard.",
       },
     ],
-    related: ["mtn-data", "airtime", "ussd", "whatsapp", "developers"],
+    related: ["mtn-data", "airtime", "bulk-sms", "developers", "ussd", "whatsapp"],
     priority: 0.8,
     hasOwnPage: false,
+    updated: "2026-11-01",
   },
   {
     key: "developers",
@@ -531,6 +548,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["bulk-sms", "join", "mtn-data"],
     priority: 0.6,
     hasOwnPage: false,
+    updated: "2026-10-27",
   },
 
   // ── Channels ────────────────────────────────────────────────────────
@@ -569,6 +587,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["whatsapp", "mtn-data", "airtime", "join"],
     priority: 0.6,
     hasOwnPage: true,
+    updated: "2026-10-28",
   },
   {
     key: "whatsapp",
@@ -601,10 +620,23 @@ export const PRODUCTS: readonly ProductEntry[] = [
     related: ["ussd", "mtn-data", "airtime", "results-checker"],
     priority: 0.6,
     hasOwnPage: false,
+    updated: "2026-10-27",
   },
 ]
 
 const BY_KEY = new Map<ProductKey, ProductEntry>(PRODUCTS.map((p) => [p.key, p]))
+
+/** The registry entry for `key`, or undefined when it is not (or no longer) in the registry. */
+export function findProduct(key: string): ProductEntry | undefined {
+  return BY_KEY.get(key as ProductKey)
+}
+
+/** The registry entry whose page lives at `path` ("/mtn-data", trailing slash ignored), if any. */
+export function findProductByPath(path: string | null | undefined): ProductEntry | undefined {
+  if (!path) return undefined
+  const p = path.length > 1 ? path.replace(/\/+$/, "") : path
+  return PRODUCTS.find((e) => e.path === p)
+}
 
 export function getProduct(key: ProductKey): ProductEntry {
   const p = BY_KEY.get(key)

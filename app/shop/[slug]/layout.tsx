@@ -1,17 +1,10 @@
 import type { Metadata } from 'next'
-import { headers } from 'next/headers'
-import { shopService } from '@/lib/shop-service'
-import { resolveCustomDomain } from '@/lib/custom-domain-lookup'
-import { SERVICE_LABELS, joinServiceLabels, normalizeDomainHost } from '@/lib/custom-domains'
+import { notFound } from 'next/navigation'
+import { lookupShop, resolveShopAlias } from '@/lib/shop-commerce/shop-lookup'
+import { SERVICE_LABELS, joinServiceLabels } from '@/lib/custom-domains'
+import { shopCanonicalBase, shopRequestContext } from '@/lib/seo/shop-canonical'
 import { shopIconUrl, shopPreviewDescription, shopPreviewImage } from '@/lib/shop-link-preview'
 import ShopClientWrapper from './shop-client-wrapper'
-
-// Mirrors the ROOT_DOMAIN used by middleware.ts and app/sitemap.ts. Not
-// imported from lib/shop-url.ts's shopOrigin() because that file is a
-// "use client" module — Next.js proxies every export of a client module for
-// server consumption, so a plain utility function from it can't be safely
-// called here in a server-only generateMetadata().
-const ROOT_DOMAIN = (process.env.NEXT_PUBLIC_ROOT_DOMAIN || 'datagod.store').toLowerCase()
 
 // Without this, every storefront (potentially thousands of shop subdomains)
 // inherited the root layout's metadata verbatim — same title, same
@@ -25,7 +18,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>
 }): Promise<Metadata> {
   const { slug } = await params
-  const shop = await shopService.getShopBySlug(slug).catch(() => null)
+  const { shop } = await lookupShop(slug)
 
   if (!shop || shop.is_blocked) {
     return {
@@ -35,19 +28,9 @@ export async function generateMetadata({
   }
 
   // Resolve the custom domain (if any) by the ACTUAL request host, not
-  // shop.linked_custom_domain -- that field only covers a domain directly
-  // linked to one shop (get_linked_custom_domain), not a wildcard-mode
-  // domain (any active shop's subdomain reachable under it), which is how
-  // middleware itself decides whether this request is custom-domain-scoped.
-  const headersList = await headers()
-  const requestHost = normalizeDomainHost(headersList.get('host'))
-  const domainConfig = requestHost ? await resolveCustomDomain(requestHost).catch(() => null) : null
-
-  // Some shops predate the subdomain backfill and have no subdomain yet —
-  // same fallback as app/sitemap.ts, so canonical and sitemap never disagree.
-  const canonicalUrl = shop.subdomain
-    ? `https://${shop.subdomain}.${domainConfig?.domain || ROOT_DOMAIN}`
-    : `https://www.${ROOT_DOMAIN}/shop/${shop.shop_slug}`
+  // shop.linked_custom_domain (see lib/seo/shop-canonical.ts).
+  const { domainConfig } = await shopRequestContext()
+  const canonicalUrl = shopCanonicalBase(shop, domainConfig?.domain)
 
   // A shop reached through a custom domain restricted to a subset of
   // services (see lib/custom-domains.ts) must never advertise a service it
@@ -59,15 +42,12 @@ export async function generateMetadata({
     : null
   const serviceLabelCapitalized = serviceLabel ? serviceLabel.charAt(0).toUpperCase() + serviceLabel.slice(1) : null
 
-  // A shop reached through its own custom domain is deliberately
-  // white-labeled -- the whole point of attaching one's own domain is to not
-  // reveal the underlying platform, so "Powered by DATAGOD" only appears on
-  // the plain <shop>.datagod.store subdomain.
-  const poweredBySuffix = domainConfig ? '' : ' | Powered by DATAGOD'
-
+  // Shop titles carry only the shop's own name (no platform branding), on both
+  // <shop>.datagod.store and custom domains: shop customers should not be
+  // pointed at the platform, where base prices are lower than the shop's.
   const title = serviceLabelCapitalized
-    ? `${shop.shop_name} - Buy ${serviceLabelCapitalized} Online${poweredBySuffix}`
-    : `${shop.shop_name} - Buy Data & Airtime Online${poweredBySuffix}`
+    ? `${shop.shop_name} - Buy ${serviceLabelCapitalized} Online`
+    : `${shop.shop_name} - Buy Data & Airtime Online`
   const description = shopPreviewDescription(
     shop,
     serviceLabel
@@ -81,6 +61,8 @@ export async function generateMetadata({
     ...(iconUrl ? { icons: { icon: iconUrl, apple: iconUrl, shortcut: iconUrl } } : {}),
     title,
     description,
+    // Shops are kept out of search indexes (main-site SEO focus); middleware also sends X-Robots-Tag.
+    robots: { index: false, follow: true },
     alternates: { canonical: canonicalUrl },
     openGraph: {
       type: 'website',
@@ -101,9 +83,16 @@ export async function generateMetadata({
 
 export default async function ShopLayout({
   children,
+  params,
 }: {
   children: React.ReactNode
   params: Promise<{ slug: string }>
 }) {
+  // Unknown shop: 404 for every storefront path, not a 200 "Store not found".
+  // A lookup error is not "unknown", and a rotated slug is left to the page,
+  // which redirects it. Blocked shops are handled by the pages (see page.tsx).
+  const { slug } = await params
+  const { shop, failed } = await lookupShop(slug)
+  if (!shop && !failed && !(await resolveShopAlias(slug))) notFound()
   return <ShopClientWrapper>{children}</ShopClientWrapper>
 }

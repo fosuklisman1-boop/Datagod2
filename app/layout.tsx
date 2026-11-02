@@ -15,7 +15,10 @@ import { BackgroundSyncRegister } from "@/components/background-sync-register";
 import { PushNotificationRegister } from "@/components/push-notification-register";
 import { PushOptInBanner } from "@/components/push-opt-in-banner";
 import { MaintenanceScreen } from "@/components/maintenance-screen";
-import { generateOrganizationSchema, generateHomepageSchema, generateLocalBusinessSchema, generateSiteNavigationSchema } from "@/lib/structured-data";
+import { HTML_LANG, ROOT_DESCRIPTION, ROOT_LOCALE, ROOT_TITLE, siteVerification } from "@/lib/seo/root-meta";
+import { buildSiteJsonLd } from "@/lib/seo/json-ld";
+import { isMainSiteRequest } from "@/lib/seo/site";
+import { assertProductFactsLoaded } from "@/lib/seo/product-status";
 
 // Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -101,23 +104,27 @@ export async function generateMetadata(): Promise<Metadata> {
   const domainSiteName = headersList.get("x-domain-site-name")
 
   if (services.length === 0 || !domainSiteName) {
+    // Search-console verification is for www.datagod.store only, so it is
+    // emitted on the main site and only when the env var is set.
+    const verification = siteVerification()
     return {
       ...BASE_METADATA,
-      title: "DATAGOD - Buy Affordable Data Packages & Airtime | Fast Delivery",
-      description: "Get mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks in Ghana. Usually delivered within minutes. Secure payment, 24/7 support.",
+      title: ROOT_TITLE,
+      description: ROOT_DESCRIPTION,
+      ...(verification && { verification }),
       openGraph: {
         type: "website",
-        locale: "en_US",
+        locale: ROOT_LOCALE,
         url: "https://www.datagod.store",
         siteName: "DATAGOD",
-        title: "DATAGOD - Buy Affordable Data Packages & Airtime | Fast Delivery",
-        description: "Get mobile data packages, airtime, and digital services for MTN, Telecel, AT, and other networks. Usually delivered within minutes. Secure payment.",
+        title: ROOT_TITLE,
+        description: ROOT_DESCRIPTION,
         images: [
           {
             url: "https://www.datagod.store/og-image.png",
             width: 1200,
             height: 630,
-            alt: "DATAGOD - Affordable Data Packages & Airtime",
+            alt: "DATAGOD - Buy MTN, Telecel & AT data bundles in Ghana",
             type: "image/png",
           },
         ],
@@ -126,8 +133,8 @@ export async function generateMetadata(): Promise<Metadata> {
         card: "summary_large_image",
         site: "@datagodstore",
         creator: "@datagodstore",
-        title: "DATAGOD - Buy Data Packages & Airtime Online",
-        description: "Mobile data, airtime, and digital services for Ghana. Usually delivered within minutes. Secure payment.",
+        title: ROOT_TITLE,
+        description: ROOT_DESCRIPTION,
         images: ["https://www.datagod.store/og-image.png"],
       },
     }
@@ -152,7 +159,7 @@ export async function generateMetadata(): Promise<Metadata> {
     description,
     openGraph: {
       type: "website",
-      locale: "en_US",
+      locale: ROOT_LOCALE,
       siteName: domainSiteName,
       title,
       description,
@@ -204,34 +211,23 @@ export default async function RootLayout({
   // tries to reach the backend while it's down. Toggle via the MAINTENANCE_MODE
   // env var (set to "true"); requires a redeploy to take effect on Vercel.
   const maintenanceMode = process.env.MAINTENANCE_MODE === "true";
+  const mainSite = await isMainSiteRequest();
+  // A product page whose live facts failed to load must answer 5xx, not a
+  // streamed 200 (see lib/seo/product-status.ts). Thrown here, outside the
+  // app/loading.tsx Suspense boundary, so Next turns it into a 500.
+  if (!maintenanceMode) await assertProductFactsLoaded();
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={HTML_LANG} suppressHydrationWarning>
       <head>
-        {/* Organization Schema */}
-        <script
-          nonce={nonce}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateOrganizationSchema()) }}
-        />
-        {/* WebSite + SearchAction Schema — enables Google's sitelinks searchbox */}
-        <script
-          nonce={nonce}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateHomepageSchema()) }}
-        />
-        {/* LocalBusiness Schema — signals Ghana-local relevance for local-intent searches */}
-        <script
-          nonce={nonce}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateLocalBusinessSchema()) }}
-        />
-        {/* SiteNavigationElement Schema — a best-effort signal for sitelinks selection, not a guarantee */}
-        <script
-          nonce={nonce}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(generateSiteNavigationSchema()) }}
-        />
+        {/* Site-wide Organization + WebSite JSON-LD: main host only, never on shop subdomains or custom domains. */}
+        {mainSite && (
+          <script
+            nonce={nonce}
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(buildSiteJsonLd()).replace(/</g, "\\u003c") }}
+          />
+        )}
         {/* iOS splash screens — auto-generated for all current Apple device sizes */}
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-2048-2732.jpg" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-1668-2388.jpg" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
@@ -267,21 +263,10 @@ export default async function RootLayout({
             `,
           }}
         />
-        {/* Paystack Script */}
-        <script nonce={nonce} src="https://js.paystack.co/v1/inline.js" async></script>
-        {/* Service Worker Registration - inline for PWA detection */}
-        <script
-          nonce={nonce}
-          dangerouslySetInnerHTML={{
-            __html: `
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js');
-                });
-              }
-            `,
-          }}
-        />
+        {/* No global Paystack inline.js: every payment flow redirects to Paystack's
+            hosted checkout or charges MoMo server-side. The only PaystackPop user,
+            components/paystack-inline-modal.tsx, loads the script itself before use.
+            The service worker is registered once, by <ServiceWorkerRegister/>. */}
       </head>
       <body className={`${dmSans.variable} ${inter.variable} ${jetbrains.variable} font-sans`}>
         {maintenanceMode ? (

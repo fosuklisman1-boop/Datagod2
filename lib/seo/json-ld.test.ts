@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest"
-import { buildProductJsonLd, offerPrice } from "./json-ld"
+import { buildProductJsonLd, buildSiteJsonLd, DATAGOD_ORGANIZATION, ORG_ID, offerPrice } from "./json-ld"
 import { buildProductMetadata, availableEntries, liveBillerEntries, pageAvailability } from "./page-meta"
 import { getProduct, PRODUCTS, type ProductKey } from "./products"
-import { buildLiveFacts, FAILED_RAW, type ProductFacts } from "./live-facts"
+import { buildLiveFacts, FAILED_RAW, FALLBACK_FACTS, type ProductFacts } from "./live-facts"
+import { buildPriceTables, rowLabel } from "./data-prices"
 import { resolveBillsConfig } from "@/lib/bills/config"
 
 const facts = (fromPrice: number | null, parts: string[] = []): ProductFacts => ({ available: true, fromPrice, parts })
@@ -81,6 +82,32 @@ describe("buildProductJsonLd", () => {
   })
 })
 
+describe("Service OfferCatalog", () => {
+  const tables = buildPriceTables([
+    { network: "AT - iShare", size: "1", price: 4.8, is_available: true },
+    { network: "AT - BigTime", size: "20", price: 60, is_available: true, description: "No expiry" },
+    { network: "AT - iShare", size: "2", price: "9", is_available: true },
+  ])
+  const at = getProduct("at-data")
+
+  it("has one GHS Offer per table row, matching the rows' labels and prices in order", () => {
+    const service = byType(buildProductJsonLd(at, facts(4.8), tables.AT), "Service")
+    const catalog = service.hasOfferCatalog
+    expect(catalog["@type"]).toBe("OfferCatalog")
+    expect(catalog.itemListElement).toHaveLength(tables.AT.length)
+    expect(catalog.itemListElement.map((o: Node) => o.name)).toEqual(tables.AT.map(rowLabel))
+    expect(catalog.itemListElement.map((o: Node) => o.price)).toEqual(tables.AT.map((r) => offerPrice(r.price)))
+    for (const o of catalog.itemListElement) {
+      expect(o).toMatchObject({ "@type": "Offer", priceCurrency: "GHS", url: "https://www.datagod.store/at-data" })
+    }
+  })
+
+  it("is left out when there are no rows (no table)", () => {
+    expect("hasOfferCatalog" in byType(buildProductJsonLd(at, facts(4.8)), "Service")).toBe(false)
+    expect("hasOfferCatalog" in byType(buildProductJsonLd(at, facts(4.8), []), "Service")).toBe(false)
+  })
+})
+
 describe("offerPrice", () => {
   it("uses 2 decimals from 1 cedi and 3 below", () => {
     expect(offerPrice(3.5)).toBe("3.50")
@@ -156,14 +183,71 @@ describe("page helpers", () => {
 })
 
 describe("pageAvailability", () => {
-  it("is missing for a dark product (fail-closed facts)", () => {
+  it("is off for a product that is really switched off (complete read)", () => {
     const facts = buildLiveFacts(FAILED_RAW)
-    expect(pageAvailability("ussd", facts)).toBe("missing")
-    expect(pageAvailability("pay-dstv", facts)).toBe("missing")
+    expect(pageAvailability("ussd", facts)).toBe("off")
+    expect(pageAvailability("pay-dstv", facts)).toBe("off")
   })
   it("is ok when the product is available", () => {
     const facts = buildLiveFacts(FAILED_RAW)
     facts.products.ussd = { ...facts.products.ussd, available: true }
     expect(pageAvailability("ussd", facts)).toBe("ok")
+  })
+  it("is failed when the product's source could not be read, even if fail-open says available", () => {
+    const facts = buildLiveFacts(FAILED_RAW, ["bills", "packages"])
+    expect(pageAvailability("pay-dstv", facts)).toBe("failed")
+    expect(pageAvailability("utility-bills", facts)).toBe("failed")
+    expect(facts.products["mtn-data"].available).toBe(true)
+    expect(pageAvailability("mtn-data", facts)).toBe("failed")
+    // other products are judged on their own source
+    expect(pageAvailability("ussd", facts)).toBe("off")
+  })
+  it("every source failed (FALLBACK_FACTS): every template page is failed, never off", () => {
+    for (const p of PRODUCTS.filter((x) => x.hasOwnPage)) expect(pageAvailability(p.key, FALLBACK_FACTS), p.key).toBe("failed")
+  })
+})
+
+describe("buildProductJsonLd for an off product", () => {
+  it("has no Offer and no OfferCatalog, even with a known price and rows", () => {
+    const mtn = getProduct("mtn-data")
+    const rows = buildPriceTables([{ network: "MTN", size: "1", price: 5, is_available: true }]).MTN
+    const off: ProductFacts = { available: false, fromPrice: 5, parts: [] }
+    const service = byType(buildProductJsonLd(mtn, off, rows), "Service")
+    expect(service.offers).toBeUndefined()
+    expect(service.hasOfferCatalog).toBeUndefined()
+    expect(service.name).toBe(mtn.name)
+  })
+})
+
+describe("buildSiteJsonLd", () => {
+  const nodes = buildSiteJsonLd() as Node[]
+
+  it("has exactly one Organization and one WebSite, nothing else", () => {
+    expect(nodes.map((n) => n["@type"]).sort()).toEqual(["Organization", "WebSite"])
+  })
+
+  it("Organization: #org id, url, logo, sameAs, real contact only", () => {
+    const org = byType(nodes, "Organization")
+    expect(org["@id"]).toBe("https://www.datagod.store/#org")
+    expect(org["@id"]).toBe(ORG_ID)
+    expect(org.url).toBe("https://www.datagod.store")
+    expect(org.logo).toBe("https://www.datagod.store/favicon-v2.jpeg")
+    expect(org.sameAs.length).toBeGreaterThan(0)
+    expect(org.contactPoint.email || org.contactPoint.telephone).toBeTruthy()
+    expect(org.address).toBeUndefined()
+  })
+
+  it("WebSite: #website id, publisher -> org, no SearchAction", () => {
+    const site = byType(nodes, "WebSite")
+    expect(site["@id"]).toBe("https://www.datagod.store/#website")
+    expect(site.publisher).toEqual({ "@id": ORG_ID })
+    expect(site.potentialAction).toBeUndefined()
+    expect(JSON.stringify(nodes)).not.toMatch(/SearchAction|query_input|SiteNavigationElement|LocalBusiness/)
+  })
+
+  it("the Service provider references the same organization @id", () => {
+    const service = byType(buildProductJsonLd(getProduct("mtn-data"), facts(3.5)), "Service")
+    expect(service.provider["@id"]).toBe(ORG_ID)
+    expect(DATAGOD_ORGANIZATION["@id"]).toBe(ORG_ID)
   })
 })

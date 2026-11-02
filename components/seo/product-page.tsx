@@ -3,6 +3,7 @@ import type { JSX } from "react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import {
+  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   ChevronRight,
@@ -16,13 +17,16 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { assertMainSite } from "@/lib/seo/site"
-import { getProduct, REFUND_LINE, SPEED_LINE, type ProductEntry, type ProductGroup, type ProductKey } from "@/lib/seo/products"
-import { formatCedis, getLiveFacts, type LiveFacts, type ProductFacts } from "@/lib/seo/live-facts"
+import { findProduct, REFUND_LINE, SPEED_LINE, type ProductEntry, type ProductGroup, type ProductKey } from "@/lib/seo/products"
+import { formatCedis, getLiveFacts, LiveFactsUnavailableError, type LiveFacts, type ProductFacts } from "@/lib/seo/live-facts"
 import { buildProductJsonLd, productCrumbs } from "@/lib/seo/json-ld"
 import { buildProductMetadata, liveBillerEntries, pageAvailability } from "@/lib/seo/page-meta"
 import { JsonLd } from "./json-ld-script"
 import { FaqSection } from "./faq-section"
 import { RelatedProducts } from "./related-products"
+import { RelatedGuides } from "./related-guides"
+import { landingsForProduct } from "@/lib/seo/landing-pages"
+import { CompareNetworks, DataNetworkCopy, DataPriceTable } from "./data-network-sections"
 
 const GROUP_LABEL: Record<ProductGroup, string> = {
   data: "Data bundles",
@@ -44,29 +48,53 @@ const PARTS_LABEL: Record<ProductGroup, string> = {
 
 const CARD = "rounded-xl border border-white/60 dark:border-white/5 bg-card clay"
 
-/** Product page metadata; custom domains / shop hosts get noindex instead. */
-export async function productPageMetadata(key: ProductKey): Promise<Metadata> {
-  // 404s on custom domains / shop hosts, and for dark products, before any
-  // metadata (canonical) is emitted. Runs before the root loading.tsx streams.
+/**
+ * Availability policy for a registry product page (H3):
+ *  - not in the registry (retired for good): 404
+ *  - facts failed to load (on/off unknown): throw -> 5xx, never cached
+ *  - switched off by the admin: 200 with a "temporarily unavailable" notice
+ *  - on: the normal page
+ *
+ * Why the status is decided in the root layout too: app/loading.tsx wraps
+ * every page in Suspense, so by the time this page (or its streamed
+ * metadata) runs, Next has already sent a 200 shell; a throw here only shows
+ * the error boundary. The root layout sits outside that boundary, so
+ * assertProductFactsLoaded() (lib/seo/product-status.ts) throws there for a
+ * full page load and Next answers 500. The throws below cover client-side
+ * navigation, where the root layout is not re-rendered.
+ */
+async function resolveProductPage(key: ProductKey): Promise<{ p: ProductEntry; facts: LiveFacts; off: boolean }> {
+  // 404s on custom domains / shop hosts before any metadata (canonical) is emitted.
   await assertMainSite()
-  if (pageAvailability(key, await getLiveFacts()) === "missing") notFound()
-  return buildProductMetadata(getProduct(key))
+  const p = findProduct(key)
+  if (!p) notFound()
+  const facts = await getLiveFacts()
+  const availability = pageAvailability(key, facts)
+  if (availability === "failed") throw new LiveFactsUnavailableError(key, facts.failedSources)
+  return { p, facts, off: availability === "off" }
+}
+
+/** Product page metadata (main host only; 404 elsewhere). */
+export async function productPageMetadata(key: ProductKey): Promise<Metadata> {
+  const { p } = await resolveProductPage(key)
+  return buildProductMetadata(p)
 }
 
 /** Shared template for every registry-driven product page (main site only). */
 export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
-  await assertMainSite()
-  const p = getProduct(key)
-  const facts = await getLiveFacts()
+  const { p, facts, off } = await resolveProductPage(key)
   const f = facts.products[key]
-  if (pageAvailability(key, facts) === "missing") notFound()
 
   const isBuy = p.group === "data" || p.group === "airtime" || p.group === "bills" || p.group === "education"
   const crumbs = productCrumbs(p)
+  // Network data pages: the live price table rows (empty when the packages read failed).
+  const net = p.group === "data" ? p.network : undefined
+  // An off product has nothing on sale: no price rows (and so no OfferCatalog).
+  const priceRows = net && !off ? (facts.dataPrices?.[net] ?? []) : []
 
   return (
     <div className="min-h-screen bg-background">
-      <JsonLd data={buildProductJsonLd(p, f)} />
+      <JsonLd data={buildProductJsonLd(p, f, priceRows)} />
       <div className="mx-auto max-w-6xl px-4 py-10 sm:py-16">
         <nav aria-label="Breadcrumb" className="mb-8 text-sm text-muted-foreground">
           <ol className="flex flex-wrap items-center gap-1">
@@ -87,7 +115,9 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
           </ol>
         </nav>
 
-        <Hero p={p} f={f} isBuy={isBuy} ussdMain={p.key === "ussd" ? facts.ussd.main : null} />
+        <Hero p={p} f={f} isBuy={isBuy} off={off} ussdMain={p.key === "ussd" ? facts.ussd.main : null} />
+
+        {net && !off && <DataPriceTable network={net} rows={priceRows} />}
 
         <section aria-labelledby="bullets-heading" className="mt-16">
           <h2 id="bullets-heading" className="font-display text-2xl sm:text-3xl font-bold text-foreground">
@@ -105,6 +135,10 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
 
         {key === "utility-bills" && <BillerCards facts={facts} />}
 
+        {net && <DataNetworkCopy network={net} rows={priceRows} />}
+
+        {net && <CompareNetworks current={key} facts={facts} />}
+
         <HowToOrder p={p} facts={facts} />
 
         <TrustStrip />
@@ -112,6 +146,8 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
         <FaqSection faqs={p.faqs} />
 
         <RelatedProducts keys={p.related} facts={facts} />
+
+        <RelatedGuides entries={landingsForProduct(key, facts)} />
 
         <div className="mt-16 text-center text-sm text-muted-foreground">
           <Link href="/" className="text-primary hover:underline">Back to Home</Link>
@@ -123,8 +159,8 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
   )
 }
 
-function Hero({ p, f, isBuy, ussdMain }: { p: ProductEntry; f: ProductFacts; isBuy: boolean; ussdMain: string | null }) {
-  const price = f.fromPrice != null ? formatCedis(f.fromPrice) : ""
+function Hero({ p, f, isBuy, off, ussdMain }: { p: ProductEntry; f: ProductFacts; isBuy: boolean; off: boolean; ussdMain: string | null }) {
+  const price = !off && f.fromPrice != null ? formatCedis(f.fromPrice) : ""
   return (
     <section className="grid grid-cols-1 items-start gap-8 lg:grid-cols-2 lg:gap-12">
       <div>
@@ -133,19 +169,37 @@ function Hero({ p, f, isBuy, ussdMain }: { p: ProductEntry; f: ProductFacts; isB
         </span>
         <h1 className="mt-4 font-display text-3xl font-bold text-foreground text-balance sm:text-5xl">{p.h1}</h1>
         <p className="mt-4 text-lg leading-relaxed text-muted-foreground">{p.summary}</p>
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
-            <Link href="/auth/signup">
-              {isBuy ? "Buy now" : "Get started"} <ArrowRight className="h-4 w-4" aria-hidden />
-            </Link>
-          </Button>
-        </div>
-        <p className="mt-4 text-sm text-muted-foreground">
-          Already have an account?{" "}
-          <Link href="/auth/login" className="font-medium text-primary hover:underline">
-            Log in
-          </Link>
-        </p>
+        {off ? (
+          <div role="status" className="mt-8 flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-foreground">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden />
+            <div>
+              <p className="font-semibold">{p.name} is temporarily unavailable.</p>
+              <p className="mt-1 text-muted-foreground">
+                We have paused it for now. Please check back soon, or{" "}
+                <Link href="/services" className="font-medium text-primary hover:underline">
+                  see our other services
+                </Link>
+                .
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
+                <Link href="/auth/signup">
+                  {isBuy ? "Buy now" : "Get started"} <ArrowRight className="h-4 w-4" aria-hidden />
+                </Link>
+              </Button>
+            </div>
+            <p className="mt-4 text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <Link href="/auth/login" className="font-medium text-primary hover:underline">
+                Log in
+              </Link>
+            </p>
+          </>
+        )}
       </div>
 
       <div className={`${CARD} p-6`}>
