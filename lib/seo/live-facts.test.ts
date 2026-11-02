@@ -85,8 +85,8 @@ describe("buildLiveFacts — data", () => {
   it("ignores null, non-numeric and zero prices (no NaN, no 0)", () => {
     const f = buildLiveFacts(raw({
       packages: [
-        { network: "AT-iShare", size: "1GB", price: null, is_available: true },
-        { network: "AT-iShare", size: "2GB", price: "abc", is_available: true },
+        { network: "AT - iShare", size: "1GB", price: null, is_available: true },
+        { network: "AT - iShare", size: "2GB", price: "abc", is_available: true },
         { network: "AT - BigTime", size: "1GB", price: 0, is_available: true },
         { network: "AT - BigTime", size: "2GB", price: "4.20", is_available: true },
       ],
@@ -114,6 +114,20 @@ describe("buildLiveFacts — adjusted prices and groups", () => {
     }))
     expect(f.products["mtn-data"]).toMatchObject({ available: true, fromPrice: 4.4 })
     expect(f.prices.MTN[0].rows[0]).toMatchObject({ size: "1GB", price: 4.4 })
+  })
+
+  it("cheapest-data is available for bare-number sizes, dark when no row yields a per-GB figure", () => {
+    const bare = buildLiveFacts(raw({
+      priceAdjustments: ZERO_ADJ,
+      packages: [{ network: "MTN", size: "1", price: 5, is_available: true }],
+    }))
+    expect(bare.products["cheapest-data"]).toMatchObject({ available: true, fromPrice: 5 })
+    const unparseable = buildLiveFacts(raw({
+      priceAdjustments: ZERO_ADJ,
+      packages: [{ network: "MTN", size: "Unlimited", price: 50, is_available: true }],
+    }))
+    expect(unparseable.products["mtn-data"].available).toBe(true)
+    expect(unparseable.products["cheapest-data"].available).toBe(false)
   })
 
   it("cheapest-data is available when any network has a price row, otherwise dark", () => {

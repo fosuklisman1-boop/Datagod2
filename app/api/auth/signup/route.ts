@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Sign-up attribution (first touch): best-effort, write-once, never blocks
-    // sign-up (also safe before migration 0141 adds the column). Email sign-ups
+    // sign-up (also safe before migration 0146 adds the column). Email sign-ups
     // carry it in auth metadata; the OAuth complete-profile page sends it in the body.
     const source =
       sanitizeSignupSource(tokenUser.user.user_metadata?.signup_source) ?? sanitizeSignupSource(signupSource)

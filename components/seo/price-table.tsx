@@ -31,7 +31,7 @@ function Table({ group, caption }: { group: PriceGroup; caption: string | null }
         <tbody>
           {group.rows.map((r) => (
             <tr key={r.size} className="border-b border-border/60 last:border-0">
-              <th scope="row" className="py-2.5 pr-4 font-medium text-foreground">{r.size}</th>
+              <th scope="row" className="py-2.5 pr-4 font-medium text-foreground">{r.label}</th>
               <td className="py-2.5 pr-4 text-right font-semibold text-primary">{formatCedis(r.price)}</td>
               <td className="py-2.5 text-right text-muted-foreground">{r.perGb !== null ? formatCedis(r.perGb) : "—"}</td>
             </tr>

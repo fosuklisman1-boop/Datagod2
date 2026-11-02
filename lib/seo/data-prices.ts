@@ -24,17 +24,40 @@ export function networkOf(network: string): "MTN" | "Telecel" | "AT" | null {
   return null
 }
 
-export type PriceRow = { size: string; price: number; gb: number | null; perGb: number | null }
+/**
+ * The exact packages.network values the customer dashboard shows
+ * (app/dashboard/data-packages/page.tsx NETWORK_META). Public price rows are
+ * restricted to these, so a public page never lists what the dashboard hides.
+ */
+export const DASHBOARD_NETWORKS = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"] as const
+
+export type PriceRow = {
+  /** the stored packages.size, trimmed */
+  size: string
+  /** display label: bare "1" -> "1GB", "500MB" stays, unparseable -> the stored string */
+  label: string
+  price: number
+  gb: number | null
+  perGb: number | null
+}
 export type PriceGroup = { network: string; rows: PriceRow[] }
 export type PriceGroups = Record<"MTN" | "Telecel" | "AT", PriceGroup[]>
 
-/** "1GB"→1, "1.5 gb"→1.5, "500MB"→0.5 (1000 MB = 1 GB); anything else null. */
-export function parseSizeGb(size: string | null | undefined): number | null {
-  const m = /^\s*(\d+(?:\.\d+)?)\s*(gb|mb)\s*$/i.exec(String(size ?? ""))
+const SIZE_RE = /^\s*(\d+(?:\.\d+)?)\s*(gb|mb)?\s*$/i
+
+/** Parses a stored size. No unit means GB (the platform stores "1", "2", ...). */
+function parseSize(size: string | null | undefined): { gb: number; label: string } | null {
+  const m = SIZE_RE.exec(String(size ?? ""))
   if (!m) return null
   const n = Number(m[1])
   if (!Number.isFinite(n) || n <= 0) return null
-  return m[2].toLowerCase() === "gb" ? n : n / 1000
+  const mb = m[2]?.toLowerCase() === "mb"
+  return { gb: mb ? n / 1000 : n, label: `${n}${mb ? "MB" : "GB"}` }
+}
+
+/** "1"->1, "1GB"->1, "1.5 gb"->1.5, "500MB"->0.5 (1000 MB = 1 GB); anything else null. */
+export function parseSizeGb(size: string | null | undefined): number | null {
+  return parseSize(size)?.gb ?? null
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -43,8 +66,8 @@ export function buildPriceGroups(
   rows: Array<{ network: string; size?: string | null; price: number | string | null; is_available: boolean | null }>,
   adjustments: PriceAdjustments,
 ): PriceGroups {
-  // network value -> size -> cheapest adjusted price
-  const byNetwork: Record<"MTN" | "Telecel" | "AT", Map<string, Map<string, number>>> = {
+  // network value -> normalised size -> cheapest adjusted price (with the stored size)
+  const byNetwork: Record<"MTN" | "Telecel" | "AT", Map<string, Map<string, { size: string; price: number }>>> = {
     MTN: new Map(),
     Telecel: new Map(),
     AT: new Map(),
@@ -52,6 +75,7 @@ export function buildPriceGroups(
 
   for (const row of rows) {
     if (row?.is_available !== true) continue
+    if (!(DASHBOARD_NETWORKS as readonly string[]).includes(row.network)) continue
     const net = networkOf(row.network)
     if (!net) continue
     const size = String(row.size ?? "").trim()
@@ -62,10 +86,12 @@ export function buildPriceGroups(
     const price = applyPriceAdjustment(base, getAdjustmentForNetwork(row.network, adjustments))
     if (!Number.isFinite(price) || price <= 0) continue
 
-    const sizes = byNetwork[net].get(row.network) ?? new Map<string, number>()
+    const sizes = byNetwork[net].get(row.network) ?? new Map<string, { size: string; price: number }>()
     byNetwork[net].set(row.network, sizes)
-    const prev = sizes.get(size)
-    if (prev === undefined || price < prev) sizes.set(size, price)
+    const parsed = parseSize(size)
+    const key = parsed ? `gb:${parsed.gb}` : `s:${size.toLowerCase()}`
+    const prev = sizes.get(key)
+    if (prev === undefined || price < prev.price) sizes.set(key, { size, price })
   }
 
   const out: PriceGroups = { MTN: [], Telecel: [], AT: [] }
@@ -74,10 +100,11 @@ export function buildPriceGroups(
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([network, sizes]) => ({
         network,
-        rows: [...sizes.entries()]
-          .map(([size, price]): PriceRow => {
-            const gb = parseSizeGb(size)
-            return { size, price, gb, perGb: gb !== null ? round2(price / gb) : null }
+        rows: [...sizes.values()]
+          .map(({ size, price }): PriceRow => {
+            const parsed = parseSize(size)
+            const gb = parsed?.gb ?? null
+            return { size, label: parsed?.label ?? size, price, gb, perGb: gb !== null ? round2(price / gb) : null }
           })
           .sort((a, b) => {
             if (a.gb === null && b.gb === null) return a.price - b.price

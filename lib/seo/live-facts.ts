@@ -16,6 +16,7 @@ import { BILLERS, type BillerKey } from "@/lib/bills/billers"
 import { readPublicUssdCodes, type PublicUssdCodes } from "./ussd-codes"
 import type { ProductKey } from "./products"
 import { buildPriceGroups, networkOf, type PriceGroups } from "./data-prices"
+import { buildComparison } from "./compare"
 import type { PriceAdjustments } from "@/lib/price-adjustment-service"
 
 export interface ProductFacts {
@@ -92,7 +93,7 @@ const fact = (available: boolean, fromPrice: number | null = null, parts: string
 export function buildLiveFacts(raw: RawFacts, loadedAt: string = new Date().toISOString()): LiveFacts {
   const products = {} as Record<ProductKey, ProductFacts>
 
-  // Data — per network, lowest available positive ADJUSTED price (what customers pay).
+  // Data — per network, lowest available positive ADJUSTED price (the price shown on the customer dashboard).
   // packages or priceAdjustments === null means a read failed: keep data pages on,
   // without prices and with empty price groups.
   const priced = raw.packages !== null && raw.priceAdjustments !== null
@@ -108,11 +109,13 @@ export function buildLiveFacts(raw: RawFacts, loadedAt: string = new Date().toIS
     products[DATA_KEY[net]] = fact(from !== null, from, from !== null ? [net] : [])
   }
 
-  // Cheapest-data comparison: live while any network has a price row.
+  // Cheapest-data comparison: live only when the comparison has something to show
+  // (a best per-GB figure or an exact-size row), so the page can never go live empty.
   const allPrices = NETS.flatMap((n) => groups[n].flatMap((g) => g.rows.map((r) => r.price)))
   const cheapestFrom = minOf(allPrices)
+  const cmp = buildComparison(groups)
   products["cheapest-data"] = fact(
-    allPrices.length > 0,
+    cmp.best.length > 0 || cmp.sizes.length > 0,
     cheapestFrom,
     NETS.filter((n) => groups[n].some((g) => g.rows.length > 0)),
   )
@@ -357,7 +360,7 @@ async function loadCompleteLiveFacts(): Promise<LiveFacts> {
   return buildLiveFacts(raw)
 }
 
-const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts"], {
+const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts-v2"], {
   revalidate: 3600,
   tags: ["seo-live-facts"],
 })

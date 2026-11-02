@@ -10,7 +10,7 @@ export const COMPARE_NETWORKS: readonly Net[] = ["MTN", "Telecel", "AT"]
 export const COMPARE_SIZES = [1, 2, 5, 10] as const
 
 export interface Comparison {
-  best: Array<{ network: Net; perGb: number; size: string; price: number }>
+  best: Array<{ network: Net; perGb: number; size: string; label: string; price: number }>
   sizes: Array<{ gb: 1 | 2 | 5 | 10; cells: Record<Net, number | null> }>
 }
 
@@ -24,7 +24,7 @@ export function buildComparison(prices: PriceGroups): Comparison {
       if (r.perGb === null) continue
       if (top === null || r.perGb < (top.perGb as number) || (r.perGb === top.perGb && r.price < top.price)) top = r
     }
-    if (top) best.push({ network, perGb: top.perGb as number, size: top.size, price: top.price })
+    if (top) best.push({ network, perGb: top.perGb as number, size: top.size, label: top.label, price: top.price })
   }
 
   const sizes: Comparison["sizes"] = []

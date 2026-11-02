@@ -22,6 +22,19 @@ describe("validateReviewUrl", () => {
     expect(validateReviewUrl("https://g.page/" + "a".repeat(500)).ok).toBe(false)
     expect(validateReviewUrl(5).ok).toBe(false)
   })
+  it("rejects look-alike hosts, credentials, ports and host-in-query", () => {
+    for (const u of [
+      "https://g.page.evil.com/x",
+      "https://g.page@evil.com/",
+      "https://x@g.page/",
+      "https://x:y@g.page/",
+      "https://g.page:8443/",
+      "https://evil.com/?x=g.page",
+    ]) {
+      expect(validateReviewUrl(u).ok, u).toBe(false)
+    }
+    expect(validateReviewUrl("https://g.page:443/r/abc").ok).toBe(true)
+  })
   it("rejects exactly 501 chars", () => {
     const u = "https://g.page/" + "a".repeat(501 - "https://g.page/".length)
     expect(u.length).toBe(501)

@@ -36,7 +36,7 @@ describe("buildProductJsonLd", () => {
 
   it("emits an AggregateOffer across all price rows when groups are non-empty", () => {
     const groups = [
-      { network: "MTN", rows: [{ size: "1GB", price: 5.5, gb: 1, perGb: 5.5 }, { size: "2GB", price: 20, gb: 2, perGb: 10 }] },
+      { network: "MTN", rows: [{ size: "1GB", label: "1GB", price: 5.5, gb: 1, perGb: 5.5 }, { size: "2GB", label: "2GB", price: 20, gb: 2, perGb: 10 }] },
     ]
     const service = byType(buildProductJsonLd(mtn, facts(5.5), groups), "Service")
     expect(service.offers["@type"]).toBe("AggregateOffer")
@@ -48,8 +48,8 @@ describe("buildProductJsonLd", () => {
 
   it("counts offers across several groups", () => {
     const groups = [
-      { network: "AT-iShare", rows: [{ size: "1GB", price: 4, gb: 1, perGb: 4 }] },
-      { network: "AT-BigTime", rows: [{ size: "5GB", price: 18, gb: 5, perGb: 3.6 }] },
+      { network: "AT - iShare", rows: [{ size: "1GB", label: "1GB", price: 4, gb: 1, perGb: 4 }] },
+      { network: "AT - BigTime", rows: [{ size: "5GB", label: "5GB", price: 18, gb: 5, perGb: 3.6 }] },
     ]
     const service = byType(buildProductJsonLd(getProduct("at-data"), facts(4), groups), "Service")
     expect(service.offers.offerCount).toBe(2)

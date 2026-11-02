@@ -56,7 +56,7 @@ export function ReviewPromptCard() {
       <div className="flex items-start gap-3">
         <Star className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">Enjoying Datagod?</p>
+          <p className="text-sm font-semibold">Enjoying DATAGOD? Leave us a Google review</p>
           <p className="mt-1 text-sm text-muted-foreground">A quick Google review helps other people find us.</p>
           <div className="mt-3 flex items-center gap-2">
             <a

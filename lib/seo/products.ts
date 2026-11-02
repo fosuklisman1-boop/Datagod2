@@ -196,7 +196,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
     title: "Cheapest Data Bundles in Ghana Today | DATAGOD",
     description: "Compare today's data bundle prices across MTN, Telecel and AT on DATAGOD and see the lowest price per GB. Fund your wallet with MoMo or card, then order.",
     group: "data",
-    summary: "See our current data bundle prices side by side, with the lowest price per GB for each network. Prices come straight from our live price list, so what you see here is what you pay.",
+    summary: "See our current data bundle prices side by side, with the lowest price per GB for each network. Prices come straight from our live price list.",
     bullets: [
       "Our live prices for each network side by side",
       "Lowest price per GB shown for every network",

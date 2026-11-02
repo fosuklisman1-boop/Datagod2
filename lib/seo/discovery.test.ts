@@ -13,7 +13,7 @@ function facts(over: Partial<RawFacts> = {}): LiveFacts {
     packages: [
       { network: "MTN", size: "1GB", price: 3.5, is_available: true },
       { network: "Telecel", size: "1GB", price: 5, is_available: true },
-      { network: "AT-iShare", size: "1GB", price: 4, is_available: true },
+      { network: "AT - iShare", size: "1GB", price: 4, is_available: true },
     ],
     airtimeEnabled: { MTN: true, Telecel: true, AT: true },
     airtimeMin: 1,

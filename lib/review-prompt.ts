@@ -7,7 +7,13 @@ const SNOOZE_DAYS = 30
 function isAllowed(s: string): boolean {
   try {
     const u = new URL(s)
-    return u.protocol === "https:" && ALLOWED_HOSTS.includes(u.hostname)
+    return (
+      u.protocol === "https:" &&
+      ALLOWED_HOSTS.includes(u.hostname) &&
+      u.username === "" &&
+      u.password === "" &&
+      u.port === ""
+    )
   } catch {
     return false
   }

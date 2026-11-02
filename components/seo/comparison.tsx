@@ -39,7 +39,7 @@ export function Comparison({ prices, loadedAt }: { prices: PriceGroups; loadedAt
               <div className="text-xs uppercase tracking-wider text-muted-foreground">{NETWORK_LABEL[b.network]} lowest price per GB</div>
               <div className="mt-1 font-display text-3xl font-bold text-primary">{formatCedis(b.perGb)}</div>
               <div className="mt-1 text-sm text-muted-foreground">
-                {b.size} for {formatCedis(b.price)}
+                {b.label} for {formatCedis(b.price)}
               </div>
             </li>
           ))}
