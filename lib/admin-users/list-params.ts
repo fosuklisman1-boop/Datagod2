@@ -52,12 +52,23 @@ export const DEFAULT_FILTERS: UsersListFilters = {
 export type ParseResult = { ok: true; params: UsersListParams } | { ok: false; errors: string[] }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+/** Years outside this range are rejected: 9999-12-31 would make the exclusive upper bound year 10000. */
+export const MIN_YEAR = 1970
+export const MAX_YEAR = 2999
 
-/** A real calendar date in YYYY-MM-DD form (rejects 2026-02-30). */
+/** A real calendar date in YYYY-MM-DD form (rejects 2026-02-30), year MIN_YEAR..MAX_YEAR. */
 export function isIsoDate(s: string): boolean {
   if (!DATE_RE.test(s)) return false
+  const year = Number(s.slice(0, 4))
+  if (year < MIN_YEAR || year > MAX_YEAR) return false
   const d = new Date(`${s}T00:00:00Z`)
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+
+/** A reversed range (from after to) is swapped, not dropped: the admin meant the days between them. */
+export function normaliseDateRange<T extends { from: string | null; to: string | null }>(r: T): T {
+  if (r.from && r.to && r.from > r.to) return { ...r, from: r.to, to: r.from }
+  return r
 }
 
 /** Trim, drop control characters, collapse whitespace, cap length. Empty -> null. */
@@ -184,16 +195,15 @@ export function readListParamsFromUrl(sp: URLSearchParams): UsersListParams {
     const one = new URLSearchParams({ [k]: v })
     if (parseUsersListParams(one).ok) clean.set(k, v)
   }
-  const r = parseUsersListParams(clean)
-  // Only from > to can still fail once each key is valid alone: drop the range.
-  if (!r.ok) {
-    clean.delete("from")
-    clean.delete("to")
-    const again = parseUsersListParams(clean)
-    if (again.ok) return again.params
-    return { ...DEFAULT_FILTERS, page: 1, pageSize: DEFAULT_PAGE_SIZE }
+  // Only from > to can still fail once each key is valid alone: swap the two dates.
+  const from = clean.get("from")
+  const to = clean.get("to")
+  if (from && to && from > to) {
+    clean.set("from", to)
+    clean.set("to", from)
   }
-  return r.params
+  const r = parseUsersListParams(clean)
+  return r.ok ? r.params : { ...DEFAULT_FILTERS, page: 1, pageSize: DEFAULT_PAGE_SIZE }
 }
 
 /**
@@ -341,6 +351,13 @@ export interface UsersListResponse {
   total: number
   page: number
   pageSize: number
+}
+
+/** GET /api/admin/users/export response. */
+export interface UsersExportResponse {
+  users: AdminUserListItem[]
+  /** Opaque; pass back as ?cursor= for the next chunk. null when the export is complete. */
+  nextCursor: string | null
 }
 
 /** Shape check for the RPC's jsonb result; throws on anything unexpected. */

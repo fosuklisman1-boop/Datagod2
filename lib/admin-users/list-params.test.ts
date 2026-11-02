@@ -8,6 +8,7 @@ import {
   listParamsToSearchParams,
   mapRowToUser,
   nextDay,
+  normaliseDateRange,
   normaliseSearch,
   parseRpcResult,
   parseUsersListParams,
@@ -89,6 +90,13 @@ describe("parseUsersListParams", () => {
     expect(ok("from=2026-03-01&to=2026-03-01")).toMatchObject({ from: "2026-03-01", to: "2026-03-01" })
   })
 
+  it("rejects years outside 1970..2999 so the end-of-day bound stays a valid timestamp", () => {
+    expect(errs("to=9999-12-31")).toEqual(["to must be a date (YYYY-MM-DD)"])
+    expect(errs("from=0001-01-01")).toEqual(["from must be a date (YYYY-MM-DD)"])
+    expect(ok("to=2999-12-31").to).toBe("2999-12-31")
+    expect(toRpcArgs(ok("to=2999-12-31")).p_created_to).toBe("3000-01-01T00:00:00Z")
+  })
+
   it("validates page and clamps pageSize", () => {
     expect(ok("page=2").page).toBe(2)
     expect(errs("page=0")[0]).toMatch(/page must be an integer/)
@@ -121,6 +129,15 @@ describe("normaliseSearch", () => {
     // admin_list_users escapes \ % _ itself; escaping here too would double-escape.
     expect(normaliseSearch("50%_off\\")).toBe("50%_off\\")
     expect(toRpcArgs({ ...ok(""), q: "a%b_c" }).p_search).toBe("a%b_c")
+  })
+})
+
+describe("normaliseDateRange", () => {
+  it("swaps a reversed range and leaves everything else alone", () => {
+    expect(normaliseDateRange({ from: "2026-05-01", to: "2026-04-01" })).toEqual({ from: "2026-04-01", to: "2026-05-01" })
+    expect(normaliseDateRange({ from: "2026-04-01", to: "2026-05-01" })).toEqual({ from: "2026-04-01", to: "2026-05-01" })
+    expect(normaliseDateRange({ from: "2026-04-01", to: null })).toEqual({ from: "2026-04-01", to: null })
+    expect(normaliseDateRange({ from: null, to: null })).toEqual({ from: null, to: null })
   })
 })
 
@@ -171,8 +188,13 @@ describe("URL round trip", () => {
   })
 
   it("the page's lenient reader drops only the bad keys", () => {
-    const p = readListParamsFromUrl(new URLSearchParams("role=boss&sort=email&page=zero&suspended=true&from=2026-05-01&to=2026-04-01"))
-    expect(p).toMatchObject({ role: null, sort: "email", page: 1, suspended: true, from: null, to: null })
+    const p = readListParamsFromUrl(new URLSearchParams("role=boss&sort=email&page=zero&suspended=true&to=9999-01-01"))
+    expect(p).toMatchObject({ role: null, sort: "email", page: 1, suspended: true, to: null })
+  })
+
+  it("the page's lenient reader swaps a reversed date range instead of dropping it", () => {
+    const p = readListParamsFromUrl(new URLSearchParams("from=2026-05-01&to=2026-04-01&role=dealer"))
+    expect(p).toMatchObject({ from: "2026-04-01", to: "2026-05-01", role: "dealer" })
   })
 })
 

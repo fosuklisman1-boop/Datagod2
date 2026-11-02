@@ -28,7 +28,7 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 import { GET as RAW_GET } from "./route"
 
 const U = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-const GET = async () => (await RAW_GET(new NextRequest(`http://x/api/admin/users/${U}/stats`), { params: Promise.resolve({ id: U }) }))!
+const GET = async (id = U) => (await RAW_GET(new NextRequest(`http://x/api/admin/users/${id}/stats`), { params: Promise.resolve({ id }) }))!
 const STATS = {
   userId: U,
   wallet: { balance: 10, totalTopUps: 30, totalSpent: 15, transactionCount: 6 },
@@ -47,6 +47,14 @@ describe("GET /api/admin/users/[id]/stats", () => {
   it("returns the auth error for non-admins", async () => {
     h.state.isAdmin = false
     expect((await GET()).status).toBe(403)
+    expect(h.state.calls).toHaveLength(0)
+  })
+
+  it("400s on an id that is not a uuid, without calling the RPC", async () => {
+    for (const bad of ["not-a-uuid", "", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa", "1 or 1=1"]) {
+      const res = await GET(bad)
+      expect(res.status, bad).toBe(400)
+    }
     expect(h.state.calls).toHaveLength(0)
   })
 

@@ -5,6 +5,8 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /** PostgREST "function not found in the schema cache" (e.g. migration 0145 not applied yet). */
 const FUNCTION_NOT_FOUND = "PGRST202"
 
@@ -26,6 +28,9 @@ export async function GET(
 
   try {
     const { id: userId } = await params
+    if (!UUID_RE.test(userId)) {
+      return NextResponse.json({ error: "Invalid user id" }, { status: 400 })
+    }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
