@@ -115,7 +115,12 @@ export function UsersTable({
               <tr
                 key={user.id}
                 data-user-id={user.id}
-                className={`hover:bg-muted backdrop-blur transition-colors ${selectedIds.has(user.id) ? "bg-primary/5" : ""}`}
+                // Clicking a row opens the user drawer; clicks on its buttons and checkbox keep their own action.
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("button, a, input, label, [role=checkbox]")) return
+                  onView(user)
+                }}
+                className={`cursor-pointer hover:bg-muted backdrop-blur transition-colors ${selectedIds.has(user.id) ? "bg-primary/5" : ""}`}
               >
                 <td className="px-3 py-4">
                   <Checkbox
@@ -160,7 +165,7 @@ export function UsersTable({
                     variant="outline"
                     onClick={() => onView(user)}
                     className="text-success hover:text-success hover:bg-success/10"
-                    title="Details & statistics"
+                    title="Open user details"
                   >
                     <Eye className="w-4 h-4" />
                   </Button>

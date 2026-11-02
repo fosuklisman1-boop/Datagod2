@@ -7,10 +7,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { AlertCircle, Loader2, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { adminUserService } from "@/lib/admin-service"
-import type { AdminUser } from "./types"
+import type { AccountTarget } from "./types"
 
 interface AccountActionsDialogProps {
-  user: AdminUser | null
+  user: AccountTarget | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onChanged: () => void

@@ -1,6 +1,7 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,21 +23,23 @@ import {
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { createParamsTracker } from "@/lib/admin-users/params-tracker"
 import { removeIds, setSelected, setSelectedMany } from "@/lib/admin-users/selection"
-import { formatCount, type AdminUser } from "@/components/admin/users/types"
+import { formatCount, type AdminUser, type DialogUser } from "@/components/admin/users/types"
 import { UsersFilters, hasActiveFilters } from "@/components/admin/users/UsersFilters"
 import { UsersPagination, UsersTable } from "@/components/admin/users/UsersTable"
 import { UsersDownloads } from "@/components/admin/users/UsersDownloads"
-import { UserDetailsDialog } from "@/components/admin/users/UserDetailsDialog"
 import { BalanceDialog } from "@/components/admin/users/BalanceDialog"
 import { ChangePasswordDialog } from "@/components/admin/users/ChangePasswordDialog"
 import { AccountActionsDialog } from "@/components/admin/users/AccountActionsDialog"
 
 const SEARCH_DEBOUNCE_MS = 300
 
+// The drawer's code is only fetched when a user is first opened; its tabs fetch their data when shown.
+const UserDrawer = dynamic(() => import("@/components/admin/users/drawer/UserDrawer"), { ssr: false })
+
 /** Default direction when a column is first clicked: text A→Z, numbers and dates biggest/newest first. */
 const firstDir = (s: UserSort) => (s === "email" ? "asc" : "desc")
 
-type DialogKind = "details" | "balance" | "password" | "actions"
+type DialogKind = "balance" | "password" | "actions"
 
 export default function AdminUsersPage() {
   // useSearchParams needs a Suspense boundary in the App Router.
@@ -75,9 +78,13 @@ function AdminUsersPageInner() {
   // Selected rows by id. Kept across pages; cleared when the filters change. (Bulk actions build on this.)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
 
-  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null)
-  // Independent flags: change-password opens on top of the details dialog, as before.
-  const [openDialogs, setOpenDialogs] = useState<Record<DialogKind, boolean>>({ details: false, balance: false, password: false, actions: false })
+  const [selectedUser, setSelectedUser] = useState<DialogUser | null>(null)
+  // Independent flags: these dialogs open on top of the user drawer.
+  const [openDialogs, setOpenDialogs] = useState<Record<DialogKind, boolean>>({ balance: false, password: false, actions: false })
+  // The user drawer: which user, whether it is open, and a token that makes it reload after a dialog changed the user.
+  const [drawerUserId, setDrawerUserId] = useState<string | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerRefresh, setDrawerRefresh] = useState(0)
   const setDialogOpen = (kind: DialogKind, open: boolean) => setOpenDialogs((d) => ({ ...d, [kind]: open }))
   const [customPricesUser, setCustomPricesUser] = useState<{ id: string; label: string } | null>(null)
 
@@ -210,9 +217,18 @@ function AdminUsersPageInner() {
   const toggleAllOnPage = (selected: boolean) => setSelectedIds((prev) => setSelectedMany(prev, users.map((u) => u.id), selected))
   const forgetDeletedUser = (userId: string) => setSelectedIds((prev) => removeIds(prev, [userId]) as Set<string>)
 
-  const openFor = (kind: DialogKind) => (user: AdminUser) => {
-    setSelectedUser(user)
+  const openFor = (kind: DialogKind) => (user: DialogUser) => {
+    setSelectedUser({ id: user.id, email: user.email, walletBalance: user.walletBalance, is_suspended: user.is_suspended })
     setDialogOpen(kind, true)
+  }
+  const openDrawer = (user: AdminUser) => {
+    setDrawerUserId(user.id)
+    setDrawerOpen(true)
+  }
+  /** A dialog changed a user: reload the list and the drawer. */
+  const userChanged = () => {
+    loadUsers()
+    setDrawerRefresh((n) => n + 1)
   }
   const dialogProps = (kind: DialogKind) => ({
     user: selectedUser,
@@ -277,7 +293,7 @@ function AdminUsersPageInner() {
               selectedIds={selectedIds}
               onToggleSelected={toggleSelected}
               onToggleAllOnPage={toggleAllOnPage}
-              onView={openFor("details")}
+              onView={openDrawer}
               onBalance={openFor("balance")}
               onAccountActions={openFor("actions")}
               onCustomPrices={(user) => setCustomPricesUser({ id: user.id, label: user.email ?? user.id })}
@@ -292,23 +308,41 @@ function AdminUsersPageInner() {
           </CardContent>
         </Card>
 
-        <UserDetailsDialog
-          {...dialogProps("details")}
-          onChanged={loadUsers}
-          onChangePassword={() => setDialogOpen("password", true)}
-        />
+        {drawerUserId && (
+          <UserDrawer
+            userId={drawerUserId}
+            open={drawerOpen}
+            onOpenChange={setDrawerOpen}
+            refreshToken={drawerRefresh}
+            onChanged={loadUsers}
+            onAdjustWallet={openFor("balance")}
+            onChangePassword={openFor("password")}
+            onAccountActions={openFor("actions")}
+            onCustomPrices={(user) => setCustomPricesUser({ id: user.id, label: user.email || user.id })}
+          />
+        )}
 
         <CustomPricesDialog
           userId={customPricesUser?.id ?? null}
           userLabel={customPricesUser?.label ?? ""}
           open={!!customPricesUser}
           onOpenChange={(o) => { if (!o) setCustomPricesUser(null) }}
-          onSaved={(mode) => setUsers((list) => list.map((u) => (u.id === customPricesUser?.id ? { ...u, pricing_mode: mode } : u)))}
+          onSaved={(mode) => {
+            setUsers((list) => list.map((u) => (u.id === customPricesUser?.id ? { ...u, pricing_mode: mode } : u)))
+            setDrawerRefresh((n) => n + 1)
+          }}
         />
 
-        <BalanceDialog {...dialogProps("balance")} onChanged={loadUsers} />
+        <BalanceDialog {...dialogProps("balance")} onChanged={userChanged} />
         <ChangePasswordDialog {...dialogProps("password")} />
-        <AccountActionsDialog {...dialogProps("actions")} onChanged={loadUsers} onDeleted={forgetDeletedUser} />
+        <AccountActionsDialog
+          {...dialogProps("actions")}
+          onChanged={userChanged}
+          onDeleted={(userId) => {
+            forgetDeletedUser(userId)
+            setDrawerOpen(false)
+          }}
+        />
       </div>
     </DashboardLayout>
   )

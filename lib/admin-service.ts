@@ -8,6 +8,7 @@ import {
   type UsersListResponse,
 } from "./admin-users/list-params"
 import { exportAllUsers } from "./admin-users/export-client"
+import { adminJson } from "./admin-users/drawer-client"
 
 // Admin Package Management
 export const adminPackageService = {
@@ -371,35 +372,35 @@ export const adminUserService = {
     }
   },
 
-  // Update user balance (credit/debit)
-  async updateUserBalance(userId: string, amount: number, type: "credit" | "debit") {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
+  // Credit or debit a user's wallet, with a reason. expectedBalance is the balance the admin confirmed;
+  // the server refuses (409) if it has changed. Atomic and audited (admin_wallet_adjust, migrations/0146).
+  async updateUserBalance(
+    userId: string,
+    amount: number,
+    type: "credit" | "debit",
+    reason: string,
+    expectedBalance?: number,
+  ): Promise<{ balance: number; balanceBefore: number; transactionId: string | null; referenceId: string | null }> {
+    const data = await adminJson<{ data: { balance: number; balanceBefore: number; transactionId: string | null; referenceId: string | null } }>(
+      "/api/admin/update-balance",
+      { method: "POST", body: { userId, amount, type, reason, expectedBalance } },
+    )
+    return data.data
+  },
 
-      if (!session?.access_token) {
-        throw new Error("No authentication token available")
-      }
+  // Sign the user out of every device (deletes their auth sessions). Audited.
+  async forceLogout(userId: string): Promise<{ sessionsRevoked: number; audited: boolean }> {
+    return adminJson(`/api/admin/users/${userId}/force-logout`, { method: "POST", body: {} })
+  },
 
-      const response = await fetch("/api/admin/update-balance", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ userId, amount, type }),
-      })
+  // Email the user the app's password reset link. Audited.
+  async sendPasswordReset(userId: string): Promise<{ email: string; expiresInMinutes: number; audited: boolean }> {
+    return adminJson(`/api/admin/users/${userId}/password-reset`, { method: "POST", body: {} })
+  },
 
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to update balance")
-      }
-
-      return data.data
-    } catch (error: any) {
-      console.error("Error in updateUserBalance:", error)
-      throw error
-    }
+  // Mark the user's phone number verified or unverified (users.phone_verified). Audited.
+  async setPhoneVerified(userId: string, verified: boolean): Promise<{ phoneVerified: boolean; changed: boolean; audited: boolean }> {
+    return adminJson(`/api/admin/users/${userId}/phone-verified`, { method: "POST", body: { verified } })
   },
 
   // Toggle user suspension status

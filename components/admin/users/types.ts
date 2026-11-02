@@ -3,52 +3,18 @@ import type { AdminUserListItem } from "@/lib/admin-users/list-params"
 /** A row of the admin users list. `id` (the auth user id) is the stable row key. */
 export type AdminUser = AdminUserListItem
 
-export interface UserStats {
-  userId: string
-  wallet: {
-    balance: number
-    totalTopUps: number
-    totalSpent: number
-    transactionCount: number
-  }
-  orders: {
-    total: number
-    completed: number
-    failed: number
-    pending: number
-  }
-  shop: {
-    shopId: string
-    shopName: string
-    shopSlug: string
-    createdAt: string
-    totalOrders: number
-    paidOrders: number
-    completedOrders: number
-    totalSales: number
-    totalProfit: number
-    availableBalance: number
-    withdrawnAmount: number
-    pendingProfit: number
-    creditedProfit: number
-    profitRecords: number
-  } | null
-  withdrawals: {
-    history: Array<{
-      id: string
-      amount: number
-      feeAmount: number
-      netAmount: number
-      status: string
-      method: string
-      createdAt: string
-      referenceCode: string
-    }>
-    totalWithdrawn: number
-    pendingCount: number
-    completedCount: number
-  }
+/** The fields the per-user dialogs need. A list row (AdminUser) and the drawer's profile both provide them. */
+export interface UserRef {
+  id: string
+  email: string
 }
+export interface WalletTarget extends UserRef {
+  walletBalance: number
+}
+export interface AccountTarget extends UserRef {
+  is_suspended: boolean
+}
+export type DialogUser = WalletTarget & AccountTarget
 
 // Format large numbers with K/M suffix
 export const formatCount = (num: number): string => {

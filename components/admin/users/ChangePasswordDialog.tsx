@@ -8,10 +8,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { toast } from "sonner"
 import { adminUserService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
-import type { AdminUser } from "./types"
+import type { UserRef } from "./types"
 
 interface ChangePasswordDialogProps {
-  user: AdminUser | null
+  user: UserRef | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }
