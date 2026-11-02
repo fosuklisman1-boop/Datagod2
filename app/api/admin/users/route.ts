@@ -1,16 +1,40 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import {
+  mapRowToUser,
+  parseRpcResult,
+  parseUsersListParams,
+  toRpcArgs,
+  type UsersListResponse,
+} from "@/lib/admin-users/list-params"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+/**
+ * GET /api/admin/users
+ *
+ * Query: q, role, suspended, hasShop, pricingMode, from, to (YYYY-MM-DD, inclusive),
+ *        sort (created_at|balance|email|shop_balance|last_sign_in_at), dir (asc|desc),
+ *        page (1-based), pageSize (1..200, default 50).
+ * 200: { users, total, page, pageSize }   400: { error, details }
+ *
+ * One call to public.admin_list_users (migrations/0145) does the filtering,
+ * sorting, paging and joins in the database. Callers that need every match page
+ * through this endpoint (the users page export does, 200 at a time).
+ */
 export async function GET(req: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(req)
   if (!isAdmin) return errorResponse
 
+  const parsed = parseUsersListParams(req.nextUrl.searchParams)
+  if (!parsed.ok) {
+    return NextResponse.json({ error: "Invalid query", details: parsed.errors }, { status: 400 })
+  }
+  const params = parsed.params
+
   try {
-    // Create admin client with service role
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
         autoRefreshToken: false,
@@ -18,204 +42,20 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    // Get all users using admin API with pagination
-    let allUsers: any[] = []
-    let page = 1
-    let hasMore = true
-
-    while (hasMore) {
-      const { data: pageUsers, error: usersError } = await adminClient.auth.admin.listUsers({
-        perPage: 100,
-        page: page,
-      })
-
-      if (usersError) {
-        console.error("Error fetching users:", usersError)
-        return NextResponse.json({ error: usersError.message }, { status: 400 })
-      }
-
-      const pageData = pageUsers?.users || []
-      if (pageData.length === 0) {
-        hasMore = false
-      } else {
-        allUsers = [...allUsers, ...pageData]
-        page++
-      }
+    const { data, error } = await adminClient.rpc("admin_list_users", toRpcArgs(params))
+    if (error) {
+      console.error("[ADMIN-USERS] admin_list_users failed:", error.message)
+      return NextResponse.json({ error: error.message || "Failed to load users" }, { status: 500 })
     }
 
-    const users = allUsers
-
-    // Get shops info - paginated
-    let shops: any[] = []
-    try {
-      shops = await fetchAllRecords("user_shops", "id, user_id, shop_name, created_at", (q) => q.order("created_at", { ascending: false }))
-    } catch (shopsError: any) {
-      console.error("Error fetching shops:", shopsError)
-      return NextResponse.json({ error: shopsError.message }, { status: 400 })
+    const { total, rows } = parseRpcResult(data)
+    const body: UsersListResponse = {
+      users: rows.map(mapRowToUser),
+      total,
+      page: params.page,
+      pageSize: params.pageSize,
     }
-
-    // Helper function to fetch all records in batches
-    async function fetchAllRecords(table: string, selectFields: string, additionalFilters?: (query: any) => any) {
-      let allRecords: any[] = []
-      let offset = 0
-      const batchSize = 1000
-      let hasMore = true
-
-      while (hasMore) {
-        let query = adminClient
-          .from(table)
-          .select(selectFields)
-          .range(offset, offset + batchSize - 1)
-
-        if (additionalFilters) {
-          query = additionalFilters(query)
-        }
-
-        const { data, error } = await query
-
-        if (error) throw error
-
-        if (data && data.length > 0) {
-          allRecords = allRecords.concat(data)
-          offset += batchSize
-          hasMore = data.length === batchSize
-        } else {
-          hasMore = false
-        }
-      }
-
-      return allRecords
-    }
-
-    // Get wallets info - paginated
-    let wallets: any[] = []
-    try {
-      wallets = await fetchAllRecords("wallets", "user_id, balance")
-    } catch (walletsError: any) {
-      console.error("Error fetching wallets:", walletsError)
-      return NextResponse.json({ error: walletsError.message }, { status: 400 })
-    }
-
-    // Get customer counts per shop - paginated
-    let customerCounts: any[] = []
-    try {
-      customerCounts = await fetchAllRecords("shop_customers", "shop_id, id")
-    } catch (customerError: any) {
-      console.error("Error fetching customer counts:", customerError)
-      return NextResponse.json({ error: customerError.message }, { status: 400 })
-    }
-
-    // Group customer counts by shop_id
-    const customerCountMap = new Map<string, number>()
-    customerCounts?.forEach((record: any) => {
-      const count = customerCountMap.get(record.shop_id) || 0
-      customerCountMap.set(record.shop_id, count + 1)
-    })
-
-    // Get sub-agent counts per parent shop - paginated
-    let subAgentCounts: any[] = []
-    try {
-      subAgentCounts = await fetchAllRecords("user_shops", "parent_shop_id, id", (q) => q.not("parent_shop_id", "is", null))
-    } catch (subAgentError: any) {
-      console.error("Error fetching sub-agent counts:", subAgentError)
-      // Don't fail - just continue without sub-agent counts
-    }
-
-    // Group sub-agent counts by parent_shop_id
-    const subAgentCountMap = new Map<string, number>()
-    subAgentCounts?.forEach((record: any) => {
-      const count = subAgentCountMap.get(record.parent_shop_id) || 0
-      subAgentCountMap.set(record.parent_shop_id, count + 1)
-    })
-
-    // Get user profiles with phone numbers and roles - paginated
-    let userProfiles: any[] = []
-    try {
-      userProfiles = await fetchAllRecords("users", "id, phone_number, role, is_suspended, pricing_mode")
-    } catch (profilesError: any) {
-      console.error("Error fetching user profiles:", profilesError)
-      return NextResponse.json({ error: profilesError.message }, { status: 400 })
-    }
-
-    // Combine user and shop data with balance from shop_available_balance table
-    const usersWithInfo = await Promise.all(
-      users.map(async (authUser: any) => {
-        const shop = shops?.find((s: any) => s.user_id === authUser.id)
-        const wallet = wallets?.find((w: any) => w.user_id === authUser.id)
-        const profile = userProfiles?.find((p: any) => p.id === authUser.id)
-        const walletBalance = wallet?.balance || 0
-        const phoneNumber = profile?.phone_number || ""
-        // DB is the source of truth for role
-        const role = profile?.role || "user"
-
-        if (!shop?.id) {
-          return {
-            id: authUser.id,
-            email: authUser.email,
-            phoneNumber: phoneNumber,
-            created_at: authUser.created_at,
-            shop: null,
-            walletBalance: walletBalance,
-            shopBalance: 0,
-            balance: walletBalance, // For backwards compatibility
-            role: role,
-            customerCount: 0,
-            subAgentCount: 0,
-            is_suspended: profile?.is_suspended || false,
-            pricing_mode: profile?.pricing_mode ?? "role",
-          }
-        }
-
-        // Get available balance from shop_available_balance table (same as shop dashboard)
-        let { data: balanceData, error: balanceError } = await adminClient
-          .from("shop_available_balance")
-          .select("available_balance")
-          .eq("shop_id", shop.id)
-          .single()
-
-        // If no balance record exists, create one with zero balance
-        if (balanceError?.code === "PGRST116" || !balanceData) {
-          const { data: newBalanceData, error: insertError } = await adminClient
-            .from("shop_available_balance")
-            .insert([{
-              shop_id: shop.id,
-              available_balance: 0,
-              pending_profit: 0,
-              credited_profit: 0,
-              withdrawn_profit: 0,
-              total_profit: 0
-            }])
-            .select("available_balance")
-            .single()
-
-          if (!insertError && newBalanceData) {
-            balanceData = newBalanceData
-          }
-        }
-
-        const shopBalance = balanceData?.available_balance || 0
-        const customerCount = customerCountMap.get(shop.id) || 0
-        const subAgentCount = subAgentCountMap.get(shop.id) || 0
-
-        return {
-          id: authUser.id,
-          email: authUser.email,
-          phoneNumber: phoneNumber,
-          created_at: authUser.created_at,
-          shop: shop,
-          walletBalance: walletBalance,
-          shopBalance: shopBalance,
-          balance: walletBalance + shopBalance, // Total balance for backwards compatibility
-          role: role,
-          customerCount: customerCount,
-          subAgentCount: subAgentCount,
-          is_suspended: profile?.is_suspended || false,
-          pricing_mode: profile?.pricing_mode ?? "role",
-        }
-      })
-    )
-
-    return NextResponse.json(usersWithInfo)
+    return NextResponse.json(body)
   } catch (error: any) {
     console.error("API error:", error)
     return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 })

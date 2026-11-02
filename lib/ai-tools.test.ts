@@ -168,6 +168,24 @@ describe("USSD shop tools: sessions retired (spec 2026-10-14)", () => {
     expect(String(result.error)).toMatch(/Unknown action/)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+  it("list_users asks the paged users API for just `limit` rows and maps its fields", async () => {
+    const fetchSpy = vi.fn(async (_url: string) => new Response(JSON.stringify({
+      users: [{ id: "u1", first_name: "Ama", last_name: "B", email: "a@x.com", phoneNumber: "0244000000", role: "dealer",
+        is_suspended: true, walletBalance: 12.5, shopBalance: 3, balance: 15.5 }],
+      total: 900, page: 1, pageSize: 5,
+    }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await executeToolCall(
+      "list_users", { limit: 5 },
+      { baseUrl: "http://localhost:3000", jwtToken: "t", userId: "admin1", userRole: "admin" } as any,
+    )
+    const big = await executeToolCall("list_users", { limit: 5000 }, { baseUrl: "http://localhost:3000", jwtToken: "t", userId: "admin1", userRole: "admin" } as any)
+    vi.unstubAllGlobals()
+    expect(fetchSpy.mock.calls[0][0]).toBe("http://localhost:3000/api/admin/users?page=1&pageSize=5")
+    expect(fetchSpy.mock.calls[1][0]).toBe("http://localhost:3000/api/admin/users?page=1&pageSize=200")
+    expect(result).toEqual([{ id: "u1", name: "Ama B", email: "a@x.com", phone: "0244000000", role: "dealer", suspended: true, balance: 12.5 }])
+    expect(big).toHaveLength(1)
+  })
   it("manage_my_ussd_shop rejects buy_sessions without calling any API", async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal("fetch", fetchSpy)

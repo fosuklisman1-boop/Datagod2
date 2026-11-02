@@ -260,11 +260,11 @@ const bulkManualFulfillTool: Anthropic.Tool = {
 
 const listUsersTool: Anthropic.Tool = {
   name: "list_users",
-  description: "Admin only: list platform users with their wallet balances and suspension status. Use get_user_info for a single lookup by phone/email.",
+  description: "Admin only: list the most recently registered platform users with their wallet balances and suspension status. Use get_user_info for a single lookup by phone/email.",
   input_schema: {
     type: "object" as const,
     properties: {
-      limit: { type: "number", description: "Max users to return (default 20)" },
+      limit: { type: "number", description: "Max users to return (default 20, max 200)" },
     },
     required: [],
   },
@@ -2448,20 +2448,22 @@ export async function executeToolCall(
       }
 
       case "list_users": {
-        const res = await fetch(`${ctx.baseUrl}/api/admin/users`, {
+        // The list API is paged (newest signups first); ask for just the rows we need.
+        const limit = Math.min(Math.max(Math.trunc(Number(input.limit ?? 20)) || 20, 1), 200)
+        const res = await fetch(`${ctx.baseUrl}/api/admin/users?page=1&pageSize=${limit}`, {
           headers: { Authorization: `Bearer ${ctx.jwtToken}` },
         })
         const data = await res.json()
         if (!res.ok) return { error: data.error ?? "Failed to fetch users" }
-        const users = (data.users ?? data ?? []).slice(0, Number(input.limit ?? 20))
+        const users = (data.users ?? data ?? []).slice(0, limit)
         return sanitize(users.map((u: Record<string, unknown>) => ({
           id: u.id,
           name: `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim(),
           email: u.email,
-          phone: u.phone_number,
+          phone: u.phoneNumber ?? u.phone_number,
           role: u.role,
           suspended: u.is_suspended,
-          balance: u.wallet_balance ?? u.balance,
+          balance: u.walletBalance ?? u.wallet_balance ?? u.balance,
         })))
       }
 

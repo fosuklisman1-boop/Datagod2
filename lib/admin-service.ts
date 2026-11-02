@@ -1,5 +1,14 @@
 import { supabase } from "./supabase"
 import { refreshUserSession } from "./session-refresh"
+import {
+  MAX_PAGE_SIZE,
+  listParamsToSearchParams,
+  type AdminUserListItem,
+  type UsersListFilters,
+  type UsersListParams,
+  type UsersListResponse,
+} from "./admin-users/list-params"
+import { collectAllPages } from "./admin-users/collect-pages"
 
 // Admin Package Management
 export const adminPackageService = {
@@ -282,25 +291,38 @@ export const adminUssdService = {
 
 // Admin User Management
 export const adminUserService = {
-  // Get all users with their shop and balance info
-  async getAllUsers() {
+  // One page of users matching the filters: { users, total, page, pageSize }
+  async listUsers(params: Partial<UsersListParams> = {}, init?: { signal?: AbortSignal }): Promise<UsersListResponse> {
+    const { data: { session } } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      throw new Error("No authentication token available")
+    }
+
+    const qs = listParamsToSearchParams(params).toString()
+    const response = await fetch(`/api/admin/users${qs ? `?${qs}` : ""}`, {
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+      },
+      signal: init?.signal,
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(body?.error || "Failed to fetch users")
+    }
+    return response.json()
+  },
+
+  // Every user matching the filters (all users with no filters), fetched 200 at a time.
+  async getAllUsers(
+    filters: Partial<UsersListFilters> = {},
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<AdminUserListItem[]> {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-
-      if (!session?.access_token) {
-        throw new Error("No authentication token available")
-      }
-
-      const response = await fetch("/api/admin/users", {
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-      })
-      if (!response.ok) {
-        throw new Error("Failed to fetch users")
-      }
-      const users = await response.json()
-      return users
+      return await collectAllPages(
+        (page) => adminUserService.listUsers({ ...filters, page, pageSize: MAX_PAGE_SIZE }),
+        { pageSize: MAX_PAGE_SIZE, onProgress },
+      )
     } catch (error: any) {
       console.error("Error in getAllUsers:", error)
       throw error
