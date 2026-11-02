@@ -5,17 +5,19 @@
 -- auth.admin.listUsers, loading every shop / wallet / profile / customer row into Node and one
 -- shop_available_balance query per shop owner.
 -- ADDITIVE. Idempotent (re-runnable). One transaction. No tables, columns or indexes are changed.
--- Must be applied BEFORE the code that calls it is deployed.
+-- Must be applied BEFORE the code that calls it is deployed. list and export also read public.admin_user_tags
+-- (0149_admin_user_notes_tags.sql) when they are called: apply 0149 before deploying the code too.
 --
 --   admin_list_users(p_search, p_role, p_suspended, p_has_shop, p_pricing_mode,
---                    p_created_from, p_created_to, p_sort, p_dir, p_limit, p_offset)
+--                    p_created_from, p_created_to, p_sort, p_dir, p_limit, p_offset, p_tag DEFAULT NULL)
 --     RETURNS jsonb {"total": <bigint>, "rows": [ {...}, ... ]}
 --       total  number of users matching the filters (ignores limit/offset; present even when the
 --              requested page is past the end, so the UI can still show "0 of N")
 --       rows   one object per user, in the requested order:
 --              id, email, phone_number, first_name, last_name, role, is_suspended, pricing_mode,
 --              created_at, last_sign_in_at, shop_id, shop_name, shop_created_at,
---              wallet_balance, shop_balance, customer_count, sub_agent_count
+--              wallet_balance, shop_balance, customer_count, sub_agent_count,
+--              tags (jsonb array of the user's admin tags, A-Z; [] when none)
 --     Sort      p_sort  created_at (default) | balance (wallet balance) | email (case-insensitive)
 --                       | shop_balance | last_sign_in_at (never-signed-in users last in both directions)
 --               p_dir   'desc' (default) | 'asc'. Ties broken by id in the same direction (stable paging).
@@ -23,7 +25,7 @@
 --     Errors    RAISE EXCEPTION 'BAD_INPUT' (detail says why) for an unknown sort, dir or pricing mode.
 --
 --   admin_export_users(p_search, p_role, p_suspended, p_has_shop, p_pricing_mode,
---                      p_created_from, p_created_to, p_after_created_at, p_after_id, p_limit)
+--                      p_created_from, p_created_to, p_after_created_at, p_after_id, p_limit, p_tag DEFAULT NULL)
 --     RETURNS jsonb {"rows": [ {...same row objects...} ], "next_cursor": {"created_at", "id"} | null}
 --     Every user matching the same filters, in a FIXED order (created_at, id) ascending, keyset-paginated:
 --     pass the previous call's next_cursor back as p_after_created_at / p_after_id (both NULL to start).
@@ -47,6 +49,14 @@
 --     Filters   NULL = no filter. p_role exact match; p_suspended / p_has_shop booleans;
 --               p_pricing_mode 'role' | 'custom'; p_created_from inclusive, p_created_to EXCLUSIVE
 --               (on auth.users.created_at).
+--     Tag       p_tag NULL = no filter; otherwise only users carrying that admin tag
+--               (public.admin_user_tags, created by 0149_admin_user_notes_tags.sql). Trimmed and lower-cased;
+--               anything that is not 1..32 of [a-z0-9-] is 'BAD_INPUT'. Applied by list and export (one EXISTS
+--               on the (user_id, tag) primary key per candidate row), not inside admin_users_filtered: that
+--               helper is plain LANGUAGE sql, whose body is checked when it is created, and the tags table only
+--               exists once 0149 has run. The plpgsql wrappers resolve the table when they are called.
+--               => list and export need 0149 applied before they are CALLED (apply every migration before
+--               deploying the code). Rows carry their tags the same way.
 --     Search    trimmed, first 100 chars, case-insensitive substring of email, phone_number or shop_name.
 --               LIKE wildcards (\ % _) in the term are escaped, so they match literally.
 --               If the term looks like a phone number (digits, optional leading +, spaces, dashes,
@@ -84,10 +94,17 @@
 -- compilation then costs ~0.9 s per call against ~0.1 s of execution (measured on a 20k-user stub in
 -- Postgres 16). work_mem = 32MB keeps the hash joins and the sort of the filtered set in memory.
 --
+-- p_tag was added (as a trailing DEFAULT NULL argument) before this migration was first deployed. The DROP
+-- FUNCTION IF EXISTS lines remove the earlier 11- and 10-argument signatures from any database the draft was
+-- applied to, so a call without p_tag cannot become ambiguous between two overloads. They drop nothing else.
+--
 -- The three RPCs are SECURITY DEFINER (they read auth.users and every user's money), pin
 -- search_path = public, pg_temp, and EXECUTE is granted to service_role only.
 
 BEGIN;
+
+DROP FUNCTION IF EXISTS public.admin_list_users(text, text, boolean, boolean, text, timestamptz, timestamptz, text, text, int, int);
+DROP FUNCTION IF EXISTS public.admin_export_users(text, text, boolean, boolean, text, timestamptz, timestamptz, timestamptz, uuid, int);
 
 CREATE OR REPLACE FUNCTION public.admin_users_search_terms(
   p_search text,
@@ -223,7 +240,8 @@ CREATE OR REPLACE FUNCTION public.admin_list_users(
   p_sort         text,
   p_dir          text,
   p_limit        int,
-  p_offset       int
+  p_offset       int,
+  p_tag          text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -239,6 +257,7 @@ DECLARE
   v_asc    boolean;
   v_limit  int  := least(greatest(coalesce(p_limit, 50), 1), 200);
   v_offset int  := greatest(coalesce(p_offset, 0), 0);
+  v_tag    text := lower(nullif(btrim(coalesce(p_tag, '')), ''));
   v_like   text;
   v_digits text;
   v_anchor boolean;
@@ -253,6 +272,9 @@ BEGIN
   IF p_pricing_mode IS NOT NULL AND p_pricing_mode NOT IN ('role', 'custom') THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'unknown pricing mode';
   END IF;
+  IF v_tag IS NOT NULL AND v_tag !~ '^[a-z0-9-]{1,32}$' THEN
+    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'bad tag';
+  END IF;
   v_asc := v_dir = 'asc';
 
   SELECT t.like_pattern, t.digits, t.anchored INTO v_like, v_digits, v_anchor
@@ -264,6 +286,8 @@ BEGIN
       v_like, v_digits, v_anchor, p_role, p_suspended, p_has_shop, p_pricing_mode,
       p_created_from, p_created_to, NULL, NULL
     ) f
+    WHERE v_tag IS NULL
+       OR EXISTS (SELECT 1 FROM public.admin_user_tags tg WHERE tg.user_id = f.id AND tg.tag = v_tag)
   ),
   ranked AS (
     SELECT b.*,
@@ -310,7 +334,9 @@ BEGIN
         'customer_count',  CASE WHEN p.shop_id IS NULL THEN 0
                              ELSE (SELECT count(*) FROM public.shop_customers c WHERE c.shop_id = p.shop_id) END,
         'sub_agent_count', CASE WHEN p.shop_id IS NULL THEN 0
-                             ELSE (SELECT count(*) FROM public.user_shops sa WHERE sa.parent_shop_id = p.shop_id) END
+                             ELSE (SELECT count(*) FROM public.user_shops sa WHERE sa.parent_shop_id = p.shop_id) END,
+        'tags',            coalesce((SELECT jsonb_agg(tg.tag ORDER BY tg.tag) FROM public.admin_user_tags tg
+                                     WHERE tg.user_id = p.id), '[]'::jsonb)
       ) ORDER BY p.rn)
       FROM page p
     ), '[]'::jsonb)
@@ -321,9 +347,9 @@ BEGIN
 END;
 $fn$;
 
-REVOKE ALL ON FUNCTION public.admin_list_users(text, text, boolean, boolean, text, timestamptz, timestamptz, text, text, int, int)
+REVOKE ALL ON FUNCTION public.admin_list_users(text, text, boolean, boolean, text, timestamptz, timestamptz, text, text, int, int, text)
   FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_list_users(text, text, boolean, boolean, text, timestamptz, timestamptz, text, text, int, int)
+GRANT EXECUTE ON FUNCTION public.admin_list_users(text, text, boolean, boolean, text, timestamptz, timestamptz, text, text, int, int, text)
   TO service_role;
 
 CREATE OR REPLACE FUNCTION public.admin_export_users(
@@ -336,7 +362,8 @@ CREATE OR REPLACE FUNCTION public.admin_export_users(
   p_created_to       timestamptz,
   p_after_created_at timestamptz,
   p_after_id         uuid,
-  p_limit            int
+  p_limit            int,
+  p_tag              text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -348,6 +375,7 @@ SET work_mem = '32MB'
 AS $fn$
 DECLARE
   v_limit  int := least(greatest(coalesce(p_limit, 5000), 1), 5000);
+  v_tag    text := lower(nullif(btrim(coalesce(p_tag, '')), ''));
   v_like   text;
   v_digits text;
   v_anchor boolean;
@@ -362,6 +390,9 @@ BEGIN
   IF p_pricing_mode IS NOT NULL AND p_pricing_mode NOT IN ('role', 'custom') THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'unknown pricing mode';
   END IF;
+  IF v_tag IS NOT NULL AND v_tag !~ '^[a-z0-9-]{1,32}$' THEN
+    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'bad tag';
+  END IF;
 
   SELECT t.like_pattern, t.digits, t.anchored INTO v_like, v_digits, v_anchor
   FROM public.admin_users_search_terms(p_search) t;
@@ -374,6 +405,8 @@ BEGIN
         v_like, v_digits, v_anchor, p_role, p_suspended, p_has_shop, p_pricing_mode,
         p_created_from, p_created_to, p_after_created_at, p_after_id
       ) f
+      WHERE v_tag IS NULL
+         OR EXISTS (SELECT 1 FROM public.admin_user_tags tg WHERE tg.user_id = f.id AND tg.tag = v_tag)
       ORDER BY f.created_key, f.id
       LIMIT v_limit
     ) f
@@ -398,7 +431,9 @@ BEGIN
       'customer_count',  CASE WHEN c.shop_id IS NULL THEN 0
                            ELSE (SELECT count(*) FROM public.shop_customers sc WHERE sc.shop_id = c.shop_id) END,
       'sub_agent_count', CASE WHEN c.shop_id IS NULL THEN 0
-                           ELSE (SELECT count(*) FROM public.user_shops sa WHERE sa.parent_shop_id = c.shop_id) END
+                           ELSE (SELECT count(*) FROM public.user_shops sa WHERE sa.parent_shop_id = c.shop_id) END,
+      'tags',            coalesce((SELECT jsonb_agg(tg.tag ORDER BY tg.tag) FROM public.admin_user_tags tg
+                                   WHERE tg.user_id = c.id), '[]'::jsonb)
     ) ORDER BY c.rn), '[]'::jsonb),
     count(*),
     (array_agg(c.created_key ORDER BY c.rn DESC))[1],
@@ -417,9 +452,9 @@ BEGIN
 END;
 $fn$;
 
-REVOKE ALL ON FUNCTION public.admin_export_users(text, text, boolean, boolean, text, timestamptz, timestamptz, timestamptz, uuid, int)
+REVOKE ALL ON FUNCTION public.admin_export_users(text, text, boolean, boolean, text, timestamptz, timestamptz, timestamptz, uuid, int, text)
   FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_export_users(text, text, boolean, boolean, text, timestamptz, timestamptz, timestamptz, uuid, int)
+GRANT EXECUTE ON FUNCTION public.admin_export_users(text, text, boolean, boolean, text, timestamptz, timestamptz, timestamptz, uuid, int, text)
   TO service_role;
 
 -- Same numbers and shape as get_user_financial_summary (optimize_admin_stats.sql); only hardened
@@ -544,4 +579,4 @@ COMMIT;
 -- Verify after apply:
 --   SELECT (public.admin_list_users(NULL,NULL,NULL,NULL,NULL,NULL,NULL,'created_at','desc',5,0))->'total';  -- = count(*) FROM auth.users
 --   SELECT public.admin_user_stats('<some user id>') = public.get_user_financial_summary('<same id>')::jsonb; -- true
---   SELECT has_function_privilege('authenticated', 'public.admin_list_users(text,text,boolean,boolean,text,timestamptz,timestamptz,text,text,int,int)', 'EXECUTE'); -- false
+--   SELECT has_function_privilege('authenticated', 'public.admin_list_users(text,text,boolean,boolean,text,timestamptz,timestamptz,text,text,int,int,text)', 'EXECUTE'); -- false

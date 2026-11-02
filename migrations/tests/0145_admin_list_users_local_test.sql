@@ -197,9 +197,27 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- END COPY
 
+-- The draft signatures (without p_tag), as an earlier apply of this migration left them: the DROPs remove them.
+CREATE FUNCTION public.admin_list_users(text, text, boolean, boolean, text, timestamptz, timestamptz, text, text, int, int)
+  RETURNS jsonb LANGUAGE sql AS $$ SELECT '{}'::jsonb $$;
+CREATE FUNCTION public.admin_export_users(text, text, boolean, boolean, text, timestamptz, timestamptz, timestamptz, uuid, int)
+  RETURNS jsonb LANGUAGE sql AS $$ SELECT '{}'::jsonb $$;
+
 \i migrations/0145_admin_list_users.sql
 -- Idempotent: a second apply succeeds.
 \i migrations/0145_admin_list_users.sql
+-- list and export read public.admin_user_tags (0149) when called.
+\i migrations/0149_admin_user_notes_tags.sql
+
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM pg_proc WHERE proname = 'admin_list_users') = 1, 'one admin_list_users overload';
+  ASSERT (SELECT count(*) FROM pg_proc WHERE proname = 'admin_export_users') = 1, 'one admin_export_users overload';
+END $$;
+
+-- Tags: A carries vip and fraud-watch, C carries vip.
+INSERT INTO public.admin_user_tags (user_id, tag) VALUES
+  ('00000000-0000-0000-0000-00000000000a', 'vip'), ('00000000-0000-0000-0000-00000000000a', 'fraud-watch'),
+  ('00000000-0000-0000-0000-00000000000c', 'vip');
 
 CREATE FUNCTION pg_temp.ids(v jsonb) RETURNS text LANGUAGE sql AS $$
   SELECT coalesce(string_agg(right(r->>'id', 1), '' ORDER BY ord), '')
@@ -207,12 +225,12 @@ CREATE FUNCTION pg_temp.ids(v jsonb) RETURNS text LANGUAGE sql AS $$
 $$;
 
 -- All ids from admin_export_users, following next_cursor; chunk = rows per call.
-CREATE FUNCTION pg_temp.export_ids(chunk int, role text DEFAULT NULL, q text DEFAULT NULL) RETURNS text LANGUAGE plpgsql AS $$
+CREATE FUNCTION pg_temp.export_ids(chunk int, role text DEFAULT NULL, q text DEFAULT NULL, tag text DEFAULT NULL) RETURNS text LANGUAGE plpgsql AS $$
 DECLARE
   v jsonb; out text := ''; c_at timestamptz; c_id uuid; calls int := 0;
 BEGIN
   LOOP
-    v := public.admin_export_users(q, role, NULL, NULL, NULL, NULL, NULL, c_at, c_id, chunk);
+    v := public.admin_export_users(q, role, NULL, NULL, NULL, NULL, NULL, c_at, c_id, chunk, tag);
     calls := calls + 1;
     out := out || pg_temp.ids(v);
     EXIT WHEN v->'next_cursor' = 'null'::jsonb;
@@ -227,9 +245,9 @@ END $$;
 CREATE FUNCTION pg_temp.l(
   q text DEFAULT NULL, role text DEFAULT NULL, susp boolean DEFAULT NULL, has_shop boolean DEFAULT NULL,
   pm text DEFAULT NULL, f timestamptz DEFAULT NULL, t timestamptz DEFAULT NULL,
-  sort text DEFAULT 'created_at', dir text DEFAULT 'desc', lim int DEFAULT 50, off int DEFAULT 0
+  sort text DEFAULT 'created_at', dir text DEFAULT 'desc', lim int DEFAULT 50, off int DEFAULT 0, tag text DEFAULT NULL
 ) RETURNS jsonb LANGUAGE sql AS $$
-  SELECT public.admin_list_users(q, role, susp, has_shop, pm, f, t, sort, dir, lim, off)
+  SELECT public.admin_list_users(q, role, susp, has_shop, pm, f, t, sort, dir, lim, off, tag)
 $$;
 
 DO $$
@@ -368,17 +386,51 @@ BEGIN
   DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-000000000009';
 
   -- grants
-  ASSERT NOT has_function_privilege('anon', 'public.admin_list_users(text,text,boolean,boolean,text,timestamptz,timestamptz,text,text,int,int)', 'EXECUTE'), 'anon list';
-  ASSERT NOT has_function_privilege('authenticated', 'public.admin_list_users(text,text,boolean,boolean,text,timestamptz,timestamptz,text,text,int,int)', 'EXECUTE'), 'authenticated list';
-  ASSERT has_function_privilege('service_role', 'public.admin_list_users(text,text,boolean,boolean,text,timestamptz,timestamptz,text,text,int,int)', 'EXECUTE'), 'service_role list';
+  ASSERT NOT has_function_privilege('anon', 'public.admin_list_users(text,text,boolean,boolean,text,timestamptz,timestamptz,text,text,int,int,text)', 'EXECUTE'), 'anon list';
+  ASSERT NOT has_function_privilege('authenticated', 'public.admin_list_users(text,text,boolean,boolean,text,timestamptz,timestamptz,text,text,int,int,text)', 'EXECUTE'), 'authenticated list';
+  ASSERT has_function_privilege('service_role', 'public.admin_list_users(text,text,boolean,boolean,text,timestamptz,timestamptz,text,text,int,int,text)', 'EXECUTE'), 'service_role list';
   ASSERT NOT has_function_privilege('authenticated', 'public.admin_user_stats(uuid)', 'EXECUTE'), 'authenticated stats';
   ASSERT NOT has_function_privilege('anon', 'public.admin_user_stats(uuid)', 'EXECUTE'), 'anon stats';
   ASSERT has_function_privilege('service_role', 'public.admin_user_stats(uuid)', 'EXECUTE'), 'service_role stats';
-  ASSERT NOT has_function_privilege('authenticated', 'public.admin_export_users(text,text,boolean,boolean,text,timestamptz,timestamptz,timestamptz,uuid,int)', 'EXECUTE'), 'authenticated export';
-  ASSERT NOT has_function_privilege('anon', 'public.admin_export_users(text,text,boolean,boolean,text,timestamptz,timestamptz,timestamptz,uuid,int)', 'EXECUTE'), 'anon export';
-  ASSERT has_function_privilege('service_role', 'public.admin_export_users(text,text,boolean,boolean,text,timestamptz,timestamptz,timestamptz,uuid,int)', 'EXECUTE'), 'service_role export';
+  ASSERT NOT has_function_privilege('authenticated', 'public.admin_export_users(text,text,boolean,boolean,text,timestamptz,timestamptz,timestamptz,uuid,int,text)', 'EXECUTE'), 'authenticated export';
+  ASSERT NOT has_function_privilege('anon', 'public.admin_export_users(text,text,boolean,boolean,text,timestamptz,timestamptz,timestamptz,uuid,int,text)', 'EXECUTE'), 'anon export';
+  ASSERT has_function_privilege('service_role', 'public.admin_export_users(text,text,boolean,boolean,text,timestamptz,timestamptz,timestamptz,uuid,int,text)', 'EXECUTE'), 'service_role export';
   ASSERT NOT has_function_privilege('authenticated', 'public.admin_users_filtered(text,text,boolean,text,boolean,boolean,text,timestamptz,timestamptz,timestamptz,uuid)', 'EXECUTE'), 'authenticated helper';
   ASSERT NOT has_function_privilege('anon', 'public.admin_users_search_terms(text)', 'EXECUTE'), 'anon helper';
+
+  -- tags: per-row array (A-Z, [] when none), filter in list and export, combined with other filters
+  v := pg_temp.l();
+  SELECT x INTO r FROM jsonb_array_elements(v->'rows') x WHERE x->>'id' LIKE '%a';
+  ASSERT r->'tags' = '["fraud-watch", "vip"]'::jsonb, format('A tags: %s', r->'tags');
+  SELECT x INTO r FROM jsonb_array_elements(v->'rows') x WHERE x->>'id' LIKE '%b';
+  ASSERT r->'tags' = '[]'::jsonb, format('B tags: %s', r->'tags');
+  v := pg_temp.l(tag => 'vip');
+  ASSERT (v->>'total')::int = 2 AND pg_temp.ids(v) = 'ca', format('tag vip: %s', v);
+  ASSERT pg_temp.ids(pg_temp.l(tag => '  VIP ')) = 'ca', 'tag is trimmed and lower-cased';
+  ASSERT (pg_temp.l(tag => 'fraud-watch')->>'total')::int = 1, 'tag fraud-watch';
+  ASSERT (pg_temp.l(tag => 'nobody-has-it')->>'total')::int = 0, 'unused tag';
+  ASSERT (pg_temp.l(tag => 'vip', role => 'sub_agent')->>'total')::int = 1, 'tag + role';
+  ASSERT (pg_temp.l(tag => '')->>'total')::int = 6, 'empty tag = no filter';
+  ASSERT (pg_temp.l(tag => 'vip', lim => 1, off => 1)->>'total')::int = 2 AND pg_temp.ids(pg_temp.l(tag => 'vip', lim => 1, off => 1)) = 'a', 'tag paging';
+  ASSERT pg_temp.export_ids(1, tag => 'vip') = 'ac', format('export tag: %s', pg_temp.export_ids(1, tag => 'vip'));
+  ASSERT pg_temp.export_ids(5000, tag => 'fraud-watch') = 'a', 'export tag one chunk';
+  v := public.admin_export_users(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 10, 'vip');
+  ASSERT v->'rows'->0->'tags' = '["fraud-watch", "vip"]'::jsonb, format('export row tags: %s', v->'rows'->0);
+  -- the 11-/10-argument calls (no p_tag) still resolve, via the default
+  ASSERT (public.admin_list_users(NULL,NULL,NULL,NULL,NULL,NULL,NULL,'created_at','desc',5,0)->>'total')::int = 6, 'list without p_tag';
+  ASSERT jsonb_array_length(public.admin_export_users(NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,10)->'rows') = 6, 'export without p_tag';
+  BEGIN
+    PERFORM pg_temp.l(tag => 'Bad Tag!');
+    RAISE EXCEPTION 'bad tag accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT; ASSERT msg = 'BAD_INPUT', msg;
+  END;
+  BEGIN
+    PERFORM public.admin_export_users(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 10, repeat('a', 33));
+    RAISE EXCEPTION 'long tag accepted';
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT; ASSERT msg = 'BAD_INPUT', msg;
+  END;
 
   -- stats for A, by hand
   v := public.admin_user_stats('00000000-0000-0000-0000-00000000000a');

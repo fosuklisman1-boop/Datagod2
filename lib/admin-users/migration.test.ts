@@ -37,8 +37,27 @@ describe("0145_admin_list_users.sql structure", () => {
     expect(sql.match(/^BEGIN;$/gm)).toHaveLength(1)
     expect(sql.match(/^COMMIT;$/gm)).toHaveLength(1)
     const code = sql.replace(/--.*$/gm, "")
-    expect(code).not.toMatch(/\b(ALTER TABLE|DROP|TRUNCATE|CREATE (UNIQUE )?INDEX)\b/i)
+    // The only DROPs remove the draft signatures without p_tag (see the header), nothing else.
+    const drops = code.match(/^DROP .*$/gm) ?? []
+    expect(drops).toEqual([
+      "DROP FUNCTION IF EXISTS public.admin_list_users(text, text, boolean, boolean, text, timestamptz, timestamptz, text, text, int, int);",
+      "DROP FUNCTION IF EXISTS public.admin_export_users(text, text, boolean, boolean, text, timestamptz, timestamptz, timestamptz, uuid, int);",
+    ])
+    const rest = code.replace(/^DROP FUNCTION IF EXISTS .*$/gm, "")
+    expect(rest).not.toMatch(/\b(ALTER TABLE|DROP|TRUNCATE|CREATE (UNIQUE )?INDEX|CREATE TABLE)\b/i)
     expect(code).not.toMatch(/\bCREATE FUNCTION\b/) // re-runnable: CREATE OR REPLACE only
+  })
+
+  it("list and export take a trailing p_tag DEFAULT NULL, validate it, filter on it and return each row's tags", () => {
+    for (const name of ["admin_list_users", "admin_export_users"]) {
+      const f = fns.get(name)!
+      expect(f.args.trim(), name).toMatch(/p_tag\s+text DEFAULT NULL$/)
+      expect(f.body, name).toMatch(/v_tag !~ '\^\[a-z0-9-\]\{1,32\}\$'/)
+      expect(f.body, name).toMatch(/v_tag IS NULL\s+OR EXISTS \(SELECT 1 FROM public\.admin_user_tags tg WHERE tg\.user_id = f\.id AND tg\.tag = v_tag\)/)
+      expect(f.body, name).toMatch(/'tags',\s+coalesce\(\(SELECT jsonb_agg\(tg\.tag ORDER BY tg\.tag\) FROM public\.admin_user_tags tg/)
+    }
+    // the inlinable helper stays free of the tags table (it only exists after 0149)
+    expect(fns.get("admin_users_filtered")!.body).not.toMatch(/admin_user_tags/)
   })
 
   it("defines exactly the expected functions", () => {
