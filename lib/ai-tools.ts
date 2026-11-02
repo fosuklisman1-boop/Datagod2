@@ -2489,13 +2489,35 @@ export async function executeToolCall(
       }
 
       case "adjust_wallet_balance": {
+        // Wallet adjustments are attributed to the acting admin (audit log), so the scheduled-task / WhatsApp
+        // bot path, which authenticates with CRON_SECRET and has no admin, is refused by the API. Say so plainly.
+        const NEEDS_ADMIN = "Wallet adjustments need a signed-in admin. Scheduled tasks and the WhatsApp bot cannot adjust wallets; ask an admin to do it from the admin users page or the admin AI chat."
+        if (process.env.CRON_SECRET && ctx.jwtToken === process.env.CRON_SECRET) {
+          return { success: false, error: NEEDS_ADMIN }
+        }
+        const userId = encodeURIComponent(String(input.user_id ?? ""))
+        // Read the live balance and send it as expectedBalance: if this call is retried after it already
+        // applied, the balance no longer matches and the server refuses instead of adjusting twice.
+        const balRes = await fetch(`${ctx.baseUrl}/api/admin/users/${userId}/transactions?page=1&pageSize=1`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const bal = await balRes.json().catch(() => null)
+        if (balRes.status === 403) return { success: false, error: NEEDS_ADMIN }
+        if (!balRes.ok) return { success: false, error: bal?.error ?? "Could not read the wallet balance" }
+        if (!bal?.wallet) return { success: false, error: "This user has no wallet" }
+        const expectedBalance = Number(bal.wallet.balance)
+
         const res = await fetch(`${ctx.baseUrl}/api/admin/update-balance`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-          body: JSON.stringify({ userId: input.user_id, amount: input.amount, type: input.type, reason: input.reason }),
+          body: JSON.stringify({ userId: input.user_id, amount: input.amount, type: input.type, reason: input.reason, expectedBalance }),
         })
-        const data = await res.json()
-        return sanitize({ success: res.ok, message: data.message ?? data.error, new_balance: data.balance ?? data.newBalance })
+        const data = await res.json().catch(() => null)
+        if (res.status === 403 && /admin session required/i.test(String(data?.error ?? ""))) {
+          return { success: false, error: NEEDS_ADMIN }
+        }
+        if (!res.ok) return sanitize({ success: false, error: data?.error ?? "Failed to adjust the wallet" })
+        return sanitize({ success: true, balance_before: data?.data?.balanceBefore ?? expectedBalance, new_balance: data?.balance ?? data?.data?.balance })
       }
 
       case "list_shops": {
