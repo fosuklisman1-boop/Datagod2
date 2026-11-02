@@ -18,7 +18,8 @@ const supabase = createClient(
  * The wallet update, the transactions row (admin_credit / admin_debit) and the admin_audit_log row
  * (wallet_credit / wallet_debit, with the reason and before/after) are written in ONE transaction by
  * public.admin_wallet_adjust (migrations/0146), with the wallet row locked; a debit below 0 is refused (409).
- * The CRON_SECRET bypass is refused: every adjustment is attributed to the acting admin.
+ * The CRON_SECRET bypass is refused: every adjustment is attributed to the acting admin, and an admin cannot
+ * adjust their own wallet (403, also enforced in the RPC).
  * Notifications (in-app, SMS, email, push) follow as before, best-effort.
  */
 export async function POST(request: NextRequest) {
@@ -33,6 +34,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error }, { status: 400 })
     }
     const { userId, amount, type, reason, expectedBalance } = parsed.value
+    if (userId === adminUserId) {
+      return NextResponse.json({ error: "You cannot adjust your own wallet; ask another admin" }, { status: 403 })
+    }
 
     const { data: result, error: rpcError } = await supabase.rpc("admin_wallet_adjust", {
       p_admin_id: adminUserId,

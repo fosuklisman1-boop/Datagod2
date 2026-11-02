@@ -197,6 +197,8 @@ export function walletAdjustError(message: string | undefined, detail?: string |
       return { status: 409, error: "This user has more than one wallet row; fix it before adjusting" }
     case "NOT_ADMIN":
       return { status: 403, error: "Admin access required" }
+    case "SELF_ADJUST":
+      return { status: 403, error: "You cannot adjust your own wallet; ask another admin" }
     case "BAD_INPUT":
       return { status: 400, error: detail || "Invalid input" }
     default:

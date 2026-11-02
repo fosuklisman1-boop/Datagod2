@@ -28,6 +28,7 @@
 --       BAD_INPUT            admin or user id missing; type not credit/debit; amount NULL, <= 0, more than
 --                            2 decimals or > 50000; reason shorter than 5 or longer than 500 characters
 --                            after trimming
+--       SELF_ADJUST          p_admin_id = p_user_id (an admin may not adjust their own wallet)
 --       NOT_ADMIN            p_admin_id is not a users row with role 'admin'
 --       WALLET_NOT_FOUND     the user has no wallet row
 --       AMBIGUOUS_WALLET     the user has more than one wallet row (refused rather than guessing which)
@@ -64,6 +65,9 @@ DECLARE
 BEGIN
   IF p_admin_id IS NULL OR p_user_id IS NULL THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'admin and user are required';
+  END IF;
+  IF p_admin_id = p_user_id THEN
+    RAISE EXCEPTION 'SELF_ADJUST' USING DETAIL = 'an admin may not adjust their own wallet';
   END IF;
   IF p_type IS NULL OR p_type NOT IN ('credit', 'debit') THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'type must be credit or debit';

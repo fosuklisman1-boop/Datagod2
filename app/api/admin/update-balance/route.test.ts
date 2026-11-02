@@ -78,6 +78,13 @@ describe("POST /api/admin/update-balance", () => {
     expect(h.fake.rpcCalls).toHaveLength(0)
   })
 
+  it("refuses an admin adjusting their own wallet", async () => {
+    const res = await POST({ ...OK, userId: ADMIN_ID })
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatch(/own wallet/)
+    expect(h.fake.rpcCalls).toHaveLength(0)
+  })
+
   it("calls admin_wallet_adjust with the admin's own id, trimmed reason and expected balance", async () => {
     const res = await POST({ ...OK, reason: "  Refund for order DG-1  " })
     expect(res.status).toBe(200)
@@ -105,7 +112,7 @@ describe("POST /api/admin/update-balance", () => {
   it("maps RPC refusals to statuses and sends no notifications", async () => {
     const cases: Array<[string, number]> = [
       ["INSUFFICIENT_BALANCE", 409], ["BALANCE_CHANGED", 409], ["AMBIGUOUS_WALLET", 409],
-      ["WALLET_NOT_FOUND", 404], ["NOT_ADMIN", 403], ["BAD_INPUT", 400], ["something else", 500],
+      ["WALLET_NOT_FOUND", 404], ["NOT_ADMIN", 403], ["SELF_ADJUST", 403], ["BAD_INPUT", 400], ["something else", 500],
     ]
     for (const [message, status] of cases) {
       h.fake = fake({ data: null, error: { message, details: "why" } })

@@ -44,6 +44,7 @@ INSERT INTO public.users (id, role) VALUES
   ('00000000-0000-0000-0000-0000000000ad', 'admin'), ('00000000-0000-0000-0000-0000000000ee', 'dealer'),
   ('00000000-0000-0000-0000-000000000001', 'user');
 INSERT INTO public.wallets (user_id, balance, total_credited, total_spent) VALUES
+  ('00000000-0000-0000-0000-0000000000ad', 3.00, 0, 0),
   ('00000000-0000-0000-0000-000000000001', 10.00, 100, 40),
   ('00000000-0000-0000-0000-000000000003', 1.00, 0, 0),
   ('00000000-0000-0000-0000-000000000003', 1.00, 0, 0),
@@ -125,7 +126,8 @@ BEGIN
       ('short reason',     A, U,  'credit', 1,              ' abcd ',          NULL,          'BAD_INPUT'),
       ('null reason',      A, U,  'credit', 1,              NULL,              NULL,          'BAD_INPUT'),
       ('long reason',      A, U,  'credit', 1,              repeat('x', 501),  NULL,          'BAD_INPUT'),
-      ('null admin',       NULL, U, 'credit', 1,            'null admin',      NULL,          'BAD_INPUT')
+      ('null admin',       NULL, U, 'credit', 1,            'null admin',      NULL,          'BAD_INPUT'),
+      ('own wallet',       A, A,  'credit', 1,              'pay myself',      NULL,          'SELF_ADJUST')
     ) AS c(label, admin_id, user_id, typ, amount, reason, expected, code)
   LOOP
     v_err := NULL;
@@ -156,6 +158,8 @@ BEGIN
   ASSERT v_n = 2, format('refusals wrote audit rows: %s', v_n);
   SELECT count(*) INTO v_n FROM public.wallets WHERE user_id = W2 AND balance <> 1;
   ASSERT v_n = 0, 'ambiguous wallets changed';
+  SELECT count(*) INTO v_n FROM public.wallets WHERE user_id = A AND balance <> 3;
+  ASSERT v_n = 0, 'admin adjusted own wallet';
 
   -- ── grants and definition ──────────────────────────────────────────────
   ASSERT NOT has_function_privilege('anon',          'public.admin_wallet_adjust(uuid,uuid,text,numeric,text,numeric)', 'EXECUTE');

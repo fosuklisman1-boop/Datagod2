@@ -95,6 +95,7 @@ describe("0146 admin_wallet_adjust", () => {
     expect(body).toMatch(/char_length\(v_reason\) < 5 OR char_length\(v_reason\) > 500/)
     expect(body).toMatch(/p_type NOT IN \('credit', 'debit'\)/)
     expect(body).toMatch(/u\.role = 'admin'/)
+    expect(body).toMatch(/IF p_admin_id = p_user_id THEN\s+RAISE EXCEPTION 'SELF_ADJUST'/)
   })
 
   it("writes the wallet, a transactions row with the existing admin types, and an audit row", () => {
