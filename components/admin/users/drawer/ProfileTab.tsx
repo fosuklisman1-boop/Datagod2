@@ -10,6 +10,7 @@ import { toast } from "sonner"
 import { adminUserService } from "@/lib/admin-service"
 import { ConfirmDialog, DuplicateWalletWarning, dateTime, ghs } from "./shared"
 import type { DrawerProfile } from "./types"
+import { ProfileSignals, TagsEditor } from "./ProfileSignals"
 
 export interface ProfileActions {
   onAdjustWallet: () => void
@@ -30,8 +31,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** Profile details, the existing edit actions, and the audited account actions. */
-export function ProfileTab({ profile, onChanged, actions }: {
+export function ProfileTab({ profile, onChanged, actions, refreshKey = 0 }: {
   profile: DrawerProfile
+  /** Bumped when the drawer reloads; the activity signals refetch with it. */
+  refreshKey?: number
   /** Something about the user changed: reload the drawer and the list. */
   onChanged: () => void
   actions: ProfileActions
@@ -121,6 +124,16 @@ export function ProfileTab({ profile, onChanged, actions }: {
           <p className="col-span-2 text-xs text-warning">This sign-in has no profile row; some actions will not work.</p>
         )}
       </div>
+
+      <section className="space-y-2 border-t pt-4">
+        <h4 className="text-sm font-semibold">Activity and risk</h4>
+        <ProfileSignals userId={profile.id} refreshKey={refreshKey} />
+      </section>
+
+      <section className="space-y-2 border-t pt-4">
+        <h4 className="text-sm font-semibold">Tags</h4>
+        <TagsEditor userId={profile.id} onChanged={onChanged} />
+      </section>
 
       <section className="space-y-3 border-t pt-4">
         <h4 className="text-sm font-semibold">Edit</h4>

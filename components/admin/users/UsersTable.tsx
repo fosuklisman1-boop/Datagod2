@@ -6,8 +6,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, Eye, Loader2, Shield } from "lucide-react"
 import type { SortDir, UserSort } from "@/lib/admin-users/list-params"
 import type { AdminUser } from "./types"
+import { PhoneMarkers, RiskFlagIcons, TagChips } from "./UserSignals"
 
-const COLUMN_COUNT = 12
+const COLUMN_COUNT = 13
 
 interface UsersTableProps {
   users: AdminUser[]
@@ -86,6 +87,7 @@ export function UsersTable({
             <Th>Sub-Agents</Th>
             <SortHeader label="Joined" column="created_at" {...sortProps} />
             <SortHeader label="Last Sign-in" column="last_sign_in_at" {...sortProps} />
+            <Th>Last Order / Flags</Th>
             <Th>Actions</Th>
           </tr>
         </thead>
@@ -129,8 +131,13 @@ export function UsersTable({
                     onCheckedChange={(c) => onToggleSelected(user.id, c === true)}
                   />
                 </td>
-                <td className="px-6 py-4 font-medium text-foreground">{user.email}</td>
-                <td className="px-6 py-4 text-sm text-muted-foreground">{user.phoneNumber || "-"}</td>
+                <td className="px-6 py-4 font-medium text-foreground">
+                  <div>{user.email}</div>
+                  {user.tags.length > 0 && <div className="mt-1"><TagChips tags={user.tags} /></div>}
+                </td>
+                <td className="px-6 py-4 text-sm text-muted-foreground whitespace-nowrap">
+                  {user.phoneNumber || "-"} {user.phoneNumber && <PhoneMarkers signals={user.signals} />}
+                </td>
                 <td className="px-6 py-4 flex flex-col gap-1">
                   <Badge className={user.role === "admin" ? "bg-destructive" : "bg-primary"}>
                     {user.role}
@@ -158,6 +165,14 @@ export function UsersTable({
                 <td className="px-6 py-4 text-sm text-muted-foreground">{new Date(user.created_at).toLocaleDateString()}</td>
                 <td className="px-6 py-4 text-sm text-muted-foreground">
                   {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString() : "Never"}
+                </td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">
+                  {user.signals ? (
+                    <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                      {user.signals.lastOrderAt ? new Date(user.signals.lastOrderAt).toLocaleDateString() : "No orders"}
+                      <RiskFlagIcons flags={user.signals.flags} />
+                    </span>
+                  ) : "—"}
                 </td>
                 <td className="px-6 py-4 flex gap-2">
                   <Button

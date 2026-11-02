@@ -28,6 +28,16 @@ export interface DrawerProfile {
   walletRows: number
 }
 
+export interface NoteItem {
+  id: string
+  user_id: string
+  author_id: string | null
+  author_email: string | null
+  body: string
+  created_at: string
+  updated_at: string
+}
+
 export interface OrderRow {
   source: OrderSource
   id: string

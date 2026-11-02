@@ -14,6 +14,7 @@ import { OrdersTab } from "./OrdersTab"
 import { WalletTab } from "./WalletTab"
 import { ShopTab } from "./ShopTab"
 import { HistoryTab } from "./HistoryTab"
+import { NotesTab } from "./NotesTab"
 import type { DrawerProfile } from "./types"
 
 const TAB_LABELS: Array<[DrawerTab, string]> = [
@@ -21,6 +22,7 @@ const TAB_LABELS: Array<[DrawerTab, string]> = [
   ["orders", "Orders"],
   ["wallet", "Wallet"],
   ["shop", "Shop"],
+  ["notes", "Notes"],
   ["history", "Admin history"],
 ]
 
@@ -136,7 +138,7 @@ function DrawerBody(props: UserDrawerProps & {
         }}
         className="p-4"
       >
-        <TabsList className="grid w-full grid-cols-5 h-auto">
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 h-auto">
           {TAB_LABELS.map(([value, label]) => (
             <TabsTrigger key={value} value={value} className="text-xs sm:text-sm px-1 whitespace-normal">{label}</TabsTrigger>
           ))}
@@ -147,6 +149,7 @@ function DrawerBody(props: UserDrawerProps & {
             {p && (
               <ProfileTab
                 profile={p}
+                refreshKey={refreshKey}
                 onChanged={changed}
                 actions={{
                   onAdjustWallet: call(props.onAdjustWallet),
@@ -176,6 +179,11 @@ function DrawerBody(props: UserDrawerProps & {
         {visited.has("shop") && (
           <TabsContent value="shop" forceMount className="mt-4 data-[state=inactive]:hidden">
             <ShopTab userId={userId} refreshKey={refreshKey} onOpenUser={props.onOpenUser} />
+          </TabsContent>
+        )}
+        {visited.has("notes") && (
+          <TabsContent value="notes" forceMount className="mt-4 data-[state=inactive]:hidden">
+            <NotesTab userId={userId} refreshKey={refreshKey} />
           </TabsContent>
         )}
         {visited.has("history") && (

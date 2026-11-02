@@ -1,7 +1,7 @@
 // Navigation stack of the admin user drawer: the user opened from the list, then any sub-agent or parent
 // opened from the Shop tab on top. Each entry remembers its own tab, so Back returns to where you were.
 
-export const DRAWER_TABS = ["profile", "orders", "wallet", "shop", "history"] as const
+export const DRAWER_TABS = ["profile", "orders", "wallet", "shop", "notes", "history"] as const
 export type DrawerTab = (typeof DRAWER_TABS)[number]
 
 export interface DrawerEntry {

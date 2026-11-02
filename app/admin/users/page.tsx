@@ -5,7 +5,6 @@ import dynamic from "next/dynamic"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { adminUserService } from "@/lib/admin-service"
 import { supabase } from "@/lib/supabase"
@@ -30,6 +29,7 @@ import { UsersDownloads } from "@/components/admin/users/UsersDownloads"
 import { BalanceDialog } from "@/components/admin/users/BalanceDialog"
 import { ChangePasswordDialog } from "@/components/admin/users/ChangePasswordDialog"
 import { AccountActionsDialog } from "@/components/admin/users/AccountActionsDialog"
+import { BulkActions } from "@/components/admin/users/BulkActions"
 
 const SEARCH_DEBOUNCE_MS = 300
 
@@ -59,8 +59,8 @@ function AdminUsersPageInner() {
   const params = useMemo(() => readListParamsFromUrl(new URLSearchParams(searchParams.toString())), [searchParams])
   const paramsKey = listParamsToSearchParams(params).toString()
   const filters: UsersListFilters = useMemo(() => {
-    const { q, role, suspended, hasShop, pricingMode, from, to, sort, dir } = params
-    return { q, role, suspended, hasShop, pricingMode, from, to, sort, dir }
+    const { q, role, suspended, hasShop, pricingMode, from, to, tag, sort, dir } = params
+    return { q, role, suspended, hasShop, pricingMode, from, to, tag, sort, dir }
   }, [params])
   const filtersKey = listParamsToSearchParams(filters).toString()
 
@@ -75,8 +75,12 @@ function AdminUsersPageInner() {
   const [searchInput, setSearchInput] = useState(params.q ?? "")
   const debouncedSearch = useDebouncedValue(searchInput, SEARCH_DEBOUNCE_MS)
 
-  // Selected rows by id. Kept across pages; cleared when the filters change. (Bulk actions build on this.)
+  // Selected rows by id. Kept across pages; cleared when the filters change. The bulk action bar acts on them.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  // "Select all matching": every user matching the current filters, resolved on the server (notifications only).
+  const [allMatching, setAllMatching] = useState(false)
+  // Emails of users seen on any page, so a bulk result can name the users it failed for.
+  const emailsRef = useRef(new Map<string, string>())
 
   const [selectedUser, setSelectedUser] = useState<DialogUser | null>(null)
   // Independent flags: these dialogs open on top of the user drawer.
@@ -136,6 +140,7 @@ function AdminUsersPageInner() {
   useEffect(() => {
     if (firstFilters.current) { firstFilters.current = false; return }
     setSelectedIds(new Set())
+    setAllMatching(false)
   }, [filtersKey])
 
   // Fetch the current page. A newer request aborts an older one, so fast typing can't show stale rows.
@@ -148,6 +153,8 @@ function AdminUsersPageInner() {
         if (ctrl.signal.aborted) return
         setLoadError(null)
         setUsers(res.users || [])
+        for (const u of res.users || []) if (u.email) emailsRef.current.set(u.id, u.email)
+        if (res.signalsUnavailable) toast.warning("Activity and risk signals could not be loaded for this page")
         setTotal(res.total || 0)
         // Past the last page (e.g. after a delete or a stale link): go to the last page that exists.
         const lastPage = Math.max(1, Math.ceil((res.total || 0) / params.pageSize))
@@ -213,8 +220,15 @@ function AdminUsersPageInner() {
     updateFilters(cleared)
   }
 
-  const toggleSelected = (id: string, selected: boolean) => setSelectedIds((prev) => setSelected(prev, id, selected))
-  const toggleAllOnPage = (selected: boolean) => setSelectedIds((prev) => setSelectedMany(prev, users.map((u) => u.id), selected))
+  // Changing the row selection by hand leaves "all matching" mode.
+  const toggleSelected = (id: string, selected: boolean) => {
+    setAllMatching(false)
+    setSelectedIds((prev) => setSelected(prev, id, selected))
+  }
+  const toggleAllOnPage = (selected: boolean) => {
+    setAllMatching(false)
+    setSelectedIds((prev) => setSelectedMany(prev, users.map((u) => u.id), selected))
+  }
   const forgetDeletedUser = (userId: string) => setSelectedIds((prev) => removeIds(prev, [userId]) as Set<string>)
 
   const openFor = (kind: DialogKind) => (user: DialogUser) => {
@@ -262,15 +276,17 @@ function AdminUsersPageInner() {
                   <CardTitle>{filtered ? "Matching Users" : "All Users"} ({formatCount(total)})</CardTitle>
                   <CardDescription>Manage user roles, balances, and account status</CardDescription>
                 </div>
-                {selectedIds.size > 0 && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-                    <span>{selectedIds.size.toLocaleString()} selected</span>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
-                      Clear
-                    </Button>
-                  </div>
-                )}
               </div>
+              <BulkActions
+                selectedIds={selectedIds}
+                allMatching={allMatching}
+                onAllMatchingChange={setAllMatching}
+                total={total}
+                filters={filters}
+                onClear={() => setSelectedIds(new Set())}
+                onDone={userChanged}
+                labelOf={(id) => emailsRef.current.get(id) ?? id}
+              />
               <UsersFilters
                 filters={filters}
                 searchInput={searchInput}

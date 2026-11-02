@@ -5,13 +5,16 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X } from "lucide-react"
+import { useEffect, useState } from "react"
 import type { UsersListFilters } from "@/lib/admin-users/list-params"
+import { SUGGESTED_TAGS, normaliseTag } from "@/lib/admin-users/notes-tags"
+import { useDebouncedValue } from "@/hooks/use-debounced-value"
 
 const boolToValue = (b: boolean | null) => (b == null ? "all" : b ? "true" : "false")
 const valueToBool = (v: string) => (v === "all" ? null : v === "true")
 
 export function hasActiveFilters(f: UsersListFilters): boolean {
-  return !!(f.q || f.role || f.suspended != null || f.hasShop != null || f.pricingMode || f.from || f.to)
+  return !!(f.q || f.role || f.suspended != null || f.hasShop != null || f.pricingMode || f.from || f.to || f.tag)
 }
 
 interface UsersFiltersProps {
@@ -75,6 +78,7 @@ export function UsersFilters({ filters, searchInput, onSearchInput, onChange, on
             <SelectItem value="custom">Pricing: Custom pricing</SelectItem>
           </SelectContent>
         </Select>
+        <TagFilter value={filters.tag} onChange={(tag) => onChange({ tag })} />
       </div>
       <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end">
         <div className="flex items-center gap-2">
@@ -107,5 +111,40 @@ export function UsersFilters({ filters, searchInput, onSearchInput, onChange, on
         )}
       </div>
     </div>
+  )
+}
+
+/** Tag filter: type any tag or pick a suggested one. Applied after a pause once the text is a valid tag (or cleared). */
+function TagFilter({ value, onChange }: { value: string | null; onChange: (tag: string | null) => void }) {
+  const [text, setText] = useState(value ?? "")
+  const debounced = useDebouncedValue(text, 300)
+  // URL changed from outside (Clear filters, back/forward): show it.
+  useEffect(() => {
+    if ((normaliseTag(text) ?? null) !== value) setText(value ?? "")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+  useEffect(() => {
+    const raw = debounced.trim()
+    const next = raw ? normaliseTag(raw) : null
+    if ((raw === "" || next) && next !== value) onChange(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced])
+  const invalid = text.trim() !== "" && !normaliseTag(text)
+  return (
+    <>
+      <Input
+        list="users-tag-suggestions"
+        placeholder="Tag (e.g. vip)"
+        value={text}
+        aria-label="Tag filter"
+        aria-invalid={invalid}
+        title={invalid ? "Tags are 1 to 32 characters: a-z, 0-9 and -" : undefined}
+        onChange={(e) => setText(e.target.value)}
+        className={`text-sm sm:w-[150px] ${invalid ? "border-destructive" : ""}`}
+      />
+      <datalist id="users-tag-suggestions">
+        {SUGGESTED_TAGS.map((t) => <option key={t} value={t} />)}
+      </datalist>
+    </>
   )
 }

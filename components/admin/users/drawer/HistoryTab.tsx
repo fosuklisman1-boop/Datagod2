@@ -18,6 +18,12 @@ const ACTION_LABELS: Record<string, string> = {
   pricing_mode_set: "Pricing mode changed",
   custom_price_set: "Custom price set",
   custom_price_removed: "Custom price removed",
+  user_role_change: "Role changed",
+  user_notify: "Notification sent",
+  user_note_create: "Note added",
+  user_note_update: "Note edited",
+  user_note_delete: "Note deleted",
+  user_tags_change: "Tags changed",
 }
 
 /** One line summarising an audit row's change. */
@@ -41,6 +47,19 @@ export function auditSummary(r: Pick<AuditRow, "action" | "old_value" | "new_val
       return `${o.price != null ? `${money(o.price)} → ` : ""}${money(n.price)}`
     case "custom_price_removed":
       return `was ${money(o.price)}`
+    case "user_role_change":
+      return `${o.role ?? "?"} → ${n.role ?? "?"}`
+    case "user_notify":
+      return `${n.title ?? ""}${Array.isArray(n.channels) ? ` (${(n.channels as string[]).join(", ")})` : ""}`
+    case "user_note_create":
+    case "user_note_update":
+      return String(n.body ?? "").slice(0, 140)
+    case "user_note_delete":
+      return String(o.body ?? "").slice(0, 140)
+    case "user_tags_change": {
+      const list = (v: unknown) => (Array.isArray(v) ? (v as string[]) : [])
+      return [list(n.added).map((t) => `+${t}`), list(n.removed).map((t) => `-${t}`)].flat().join(" ")
+    }
     default:
       return ""
   }
