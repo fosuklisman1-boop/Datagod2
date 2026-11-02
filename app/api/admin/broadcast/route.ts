@@ -6,6 +6,19 @@ import { resolveRecipients } from "@/lib/sms/recipients"
 import { personalize } from "@/lib/sms/personalize"
 import { parseSmsProvider, providerColumnMissingMessage } from "@/lib/sms/provider-pick"
 
+// Resolving and enqueueing a very large audience (paged reads + 500-row insert
+// chunks) can take a while; the send itself is drained by the cron in batches.
+export const maxDuration = 300
+
+/**
+ * Upper bound on one broadcast's audience. Sending is queued (broadcast_recipients)
+ * and drained in batches, so this only bounds the enqueue work done in this request.
+ * Was 5,000, which blocked real audiences larger than that.
+ */
+const MAX_BROADCAST_RECIPIENTS = 100_000
+const capError = (what: string) =>
+    `cannot target more than ${MAX_BROADCAST_RECIPIENTS.toLocaleString("en-US")} ${what} at once`
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -62,8 +75,8 @@ export async function POST(req: NextRequest) {
             if (recipients.type === "specific" && (!Array.isArray(recipients.users) || recipients.users.length === 0)) {
                 return NextResponse.json({ error: "recipients.users is required for specific targeting" }, { status: 400 })
             }
-            if (recipients.type === "specific" && recipients.users.length > 5000) {
-                return NextResponse.json({ error: "cannot target more than 5000 specific users at once" }, { status: 400 })
+            if (recipients.type === "specific" && recipients.users.length > MAX_BROADCAST_RECIPIENTS) {
+                return NextResponse.json({ error: capError("specific users") }, { status: 400 })
             }
             if (recipients.type === "roles" && (!Array.isArray(recipients.roles) || recipients.roles.length === 0)) {
                 return NextResponse.json({ error: "recipients.roles is required for role targeting" }, { status: 400 })
@@ -92,8 +105,8 @@ export async function POST(req: NextRequest) {
                 if (resolved.contacts.length === 0) {
                     return NextResponse.json({ error: "The selected group has no sendable contacts (all invalid or opted out)" }, { status: 400 })
                 }
-                if (resolved.contacts.length > 5000) {
-                    return NextResponse.json({ error: "cannot target more than 5000 contacts at once" }, { status: 400 })
+                if (resolved.contacts.length > MAX_BROADCAST_RECIPIENTS) {
+                    return NextResponse.json({ error: capError("contacts") }, { status: 400 })
                 }
                 resolvedUsers = resolved.contacts.map((c) => ({
                     phone: c.phone,
@@ -139,8 +152,8 @@ export async function POST(req: NextRequest) {
                 if (owners.length === 0) {
                     return NextResponse.json({ error: "No shop owners found" }, { status: 400 })
                 }
-                if (owners.length > 5000) {
-                    return NextResponse.json({ error: "cannot target more than 5000 shop owners at once" }, { status: 400 })
+                if (owners.length > MAX_BROADCAST_RECIPIENTS) {
+                    return NextResponse.json({ error: capError("shop owners") }, { status: 400 })
                 }
                 resolvedUsers = owners
                 targetGroupLabel = ["shop_owners"]
