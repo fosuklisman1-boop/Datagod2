@@ -299,15 +299,16 @@ const updateUserRoleTool: Anthropic.Tool = {
 
 const adjustWalletBalanceTool: Anthropic.Tool = {
   name: "adjust_wallet_balance",
-  description: "Admin only: manually credit or debit a user's wallet balance. Always confirm amount, direction, and user before calling.",
+  description: "Admin only: manually credit or debit a user's wallet balance, with a reason. Always confirm amount, direction, reason and user before calling. A debit that would take the balance below 0 is refused. Not available to scheduled tasks or the WhatsApp bot (it needs a signed-in admin).",
   input_schema: {
     type: "object" as const,
     properties: {
       user_id: { type: "string", description: "The user ID whose wallet to adjust" },
       amount: { type: "number", description: "Amount in GHS (positive number)" },
       type: { type: "string", enum: ["credit", "debit"], description: "credit to add funds, debit to remove funds" },
+      reason: { type: "string", description: "Why the balance is being adjusted (5-500 characters); recorded in the wallet ledger and the admin audit log" },
     },
-    required: ["user_id", "amount", "type"],
+    required: ["user_id", "amount", "type", "reason"],
   },
 }
 
@@ -2491,7 +2492,7 @@ export async function executeToolCall(
         const res = await fetch(`${ctx.baseUrl}/api/admin/update-balance`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-          body: JSON.stringify({ userId: input.user_id, amount: input.amount, type: input.type }),
+          body: JSON.stringify({ userId: input.user_id, amount: input.amount, type: input.type, reason: input.reason }),
         })
         const data = await res.json()
         return sanitize({ success: res.ok, message: data.message ?? data.error, new_balance: data.balance ?? data.newBalance })

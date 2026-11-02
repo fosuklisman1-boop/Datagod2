@@ -9,7 +9,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 export async function POST(req: NextRequest) {
   try {
     // 1. Verify admin access
-    const { isAdmin, errorResponse } = await verifyAdminAccess(req)
+    const { isAdmin, errorResponse, userId: adminId } = await verifyAdminAccess(req)
     if (!isAdmin) return errorResponse
 
     const { userId, action, reason } = await req.json()
@@ -77,6 +77,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         error: `Auth updated, but database flag failed: ${dbError.message}`
       }, { status: 500 })
+    }
+
+    // Audit trail, with the reason (the admin user drawer shows the latest suspension's reason). The CRON
+    // bypass has no admin id and admin_audit_log.admin_id is NOT NULL, so it is not audited. Best-effort.
+    if (adminId) {
+      const { error: auditError } = await adminClient.from("admin_audit_log").insert([{
+        admin_id: adminId,
+        action: isSuspending ? "user_suspend" : "user_unsuspend",
+        target_user_id: userId,
+        old_value: { is_suspended: !isSuspending },
+        new_value: { is_suspended: isSuspending, reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : null },
+      }])
+      if (auditError) console.warn("[ADMIN-SUSPEND-USER] audit insert failed:", auditError.message)
     }
 
     // 4. Send Notifications
