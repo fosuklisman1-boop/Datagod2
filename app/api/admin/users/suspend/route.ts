@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { verifyAdminAccess } from "@/lib/admin-auth"
+import { gateAdmin } from "@/lib/admin-users/route-utils"
+import { isUuid } from "@/lib/admin-users/drawer-params"
 import { sendPushToUser } from "@/lib/push-service"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -8,13 +9,16 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Verify admin access
-    const { isAdmin, errorResponse, userId: adminId } = await verifyAdminAccess(req)
-    if (!isAdmin) return errorResponse
+    // 1. Verify admin access, honouring every gate error including the rate limit (429). write: false keeps the
+    // CRON bypass working here: the AI scheduled tasks and WhatsApp admin bot suspend users through this route.
+    // Those calls have no admin id, so they are not audited (admin_audit_log.admin_id is NOT NULL).
+    const gate = await gateAdmin(req, { write: false })
+    if (!gate.ok) return gate.response
+    const adminId = gate.adminId
 
     const { userId, action, reason } = await req.json()
 
-    if (!userId || !["suspend", "unsuspend"].includes(action)) {
+    if (!isUuid(userId) || !["suspend", "unsuspend"].includes(action)) {
       return NextResponse.json(
         { error: "Valid User ID and action (suspend/unsuspend) are required" },
         { status: 400 }
