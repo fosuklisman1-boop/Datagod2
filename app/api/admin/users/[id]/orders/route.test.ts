@@ -13,8 +13,12 @@ import { GET as RAW_GET } from "./route"
 const GET = async (qs = "", id = USER_ID) =>
   (await RAW_GET(new NextRequest(`http://x/api/admin/users/${id}/orders${qs}`), { params: Promise.resolve({ id }) }))!
 const RESULT = {
-  total: 3,
-  counts: { data: 2, airtime: 1 },
+  total: 1002,
+  total_capped: true,
+  has_more: true,
+  counts: { data: 1000, airtime: 2 },
+  capped_sources: ["data"],
+  count_cap: 1000,
   rows: [{ source: "data", id: "o1", reference: null, description: "MTN 5", recipient: "0244", amount: 25, status: "completed", created_at: "2026-10-01T10:00:00Z" }],
 }
 
@@ -40,7 +44,10 @@ describe("GET /api/admin/users/[id]/orders", () => {
   it("defaults to page 1 of 20 and passes limit/offset to admin_user_orders", async () => {
     const res = await GET()
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ...RESULT, page: 1, pageSize: 20 })
+    expect(await res.json()).toEqual({
+      rows: RESULT.rows, total: 1002, totalCapped: true, hasMore: true,
+      counts: { data: 1000, airtime: 2 }, cappedSources: ["data"], countCap: 1000, page: 1, pageSize: 20,
+    })
     expect(h.fake.rpcCalls).toEqual([{
       name: "admin_user_orders",
       args: { p_user_id: USER_ID, p_source: null, p_status: null, p_limit: 20, p_offset: 0 },
@@ -57,6 +64,13 @@ describe("GET /api/admin/users/[id]/orders", () => {
       expect((await GET(qs)).status, qs).toBe(400)
     }
     expect(h.fake.rpcCalls).toHaveLength(0)
+  })
+
+  it("tolerates a sparse RPC result", async () => {
+    h.fake = createFakeDb({ rpc: () => ({ data: { rows: [], total: 0 }, error: null }) })
+    expect(await (await GET()).json()).toEqual({
+      rows: [], total: 0, totalCapped: false, hasMore: false, counts: {}, cappedSources: [], countCap: 1000, page: 1, pageSize: 20,
+    })
   })
 
   it("500s when the RPC fails", async () => {

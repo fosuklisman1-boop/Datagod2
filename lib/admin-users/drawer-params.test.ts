@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  isUnpaid, formatCappedCount,
   amountError, balanceAfter, parseAmountInput, parseOrderFilters, parsePaging, parseTxFilter,
   parseWalletAdjustBody, reasonError, walletAdjustError,
 } from "./drawer-params"
@@ -35,6 +36,20 @@ describe("filters", () => {
     expect(parseTxFilter(sp("type=admin"))).toEqual({ ok: true, value: "admin" })
     expect(parseTxFilter(sp(""))).toEqual({ ok: true, value: null })
     expect(parseTxFilter(sp("type=toString")).ok).toBe(false)
+  })
+})
+
+describe("orders tab labels", () => {
+  it("unpaid: payment taken outside the wallet that never completed", () => {
+    for (const s of ["unpaid", "pending", "pending_payment", "failed", "UNPAID"]) expect(isUnpaid(s), s).toBe(true)
+    for (const s of [null, undefined, "paid", "completed", "refunded"]) expect(isUnpaid(s), String(s)).toBe(false)
+  })
+  it("capped counts read as 1000+", () => {
+    expect(formatCappedCount(12, false)).toBe("12")
+    expect(formatCappedCount(1000, true)).toBe("1,000+")
+  })
+  it("pending_payment is a status filter", () => {
+    expect(parseOrderFilters(sp("status=pending_payment")).ok).toBe(true)
   })
 })
 

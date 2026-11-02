@@ -72,19 +72,24 @@ export function LoadState({ loading, error, onRetry, empty, children }: {
   return <>{children}</>
 }
 
-export function Pager({ page, pageSize, total, loading, onPage }: {
+/** Previous/Next paging. When `hasMore` is given it decides "Next" (for totals that are capped lower bounds). */
+export function Pager({ page, pageSize, total, loading, onPage, hasMore, totalCapped, shown }: {
   page: number; pageSize: number; total: number; loading?: boolean; onPage: (p: number) => void
+  hasMore?: boolean; totalCapped?: boolean; shown?: number
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize))
-  if (total <= pageSize && page === 1) return null
+  const next = hasMore ?? page < pages
+  if (!next && page === 1) return null
+  const first = (page - 1) * pageSize + 1
+  const last = shown !== undefined ? first + shown - 1 : Math.min(page * pageSize, total)
   return (
     <div className="flex items-center justify-between pt-3 text-xs text-muted-foreground">
       <span>
-        {total === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total.toLocaleString()}
+        {total === 0 && !shown ? 0 : first}–{last} of {total.toLocaleString()}{totalCapped ? "+" : ""}
       </span>
       <div className="flex gap-2">
         <Button size="sm" variant="outline" disabled={loading || page <= 1} onClick={() => onPage(page - 1)}>Previous</Button>
-        <Button size="sm" variant="outline" disabled={loading || page >= pages} onClick={() => onPage(page + 1)}>Next</Button>
+        <Button size="sm" variant="outline" disabled={loading || !next} onClick={() => onPage(page + 1)}>Next</Button>
       </div>
     </div>
   )

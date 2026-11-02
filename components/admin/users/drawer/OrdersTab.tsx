@@ -1,7 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { ORDER_SOURCES, ORDER_SOURCE_LABELS, ORDER_STATUSES, DRAWER_PAGE_SIZE, type OrderSource, type OrderStatus } from "@/lib/admin-users/drawer-params"
+import { Badge } from "@/components/ui/badge"
+import {
+  ORDER_SOURCES, ORDER_SOURCE_LABELS, ORDER_STATUSES, DRAWER_PAGE_SIZE, formatCappedCount, isUnpaid,
+  type OrderSource, type OrderStatus,
+} from "@/lib/admin-users/drawer-params"
 import { userApiPath } from "@/lib/admin-users/drawer-client"
 import { LoadState, Pager, StatusBadge, dateTime, ghs, useAdminGet } from "./shared"
 import type { OrdersResponse } from "./types"
@@ -17,21 +21,22 @@ export function OrdersTab({ userId }: { userId: string }) {
     userApiPath(userId, "orders", { page, pageSize: DRAWER_PAGE_SIZE, source, status }),
   )
   const allCount = data ? Object.values(data.counts).reduce<number>((a, b) => a + Number(b ?? 0), 0) : null
+  const capped = (s: OrderSource) => !!data?.cappedSources.includes(s)
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
         <select aria-label="Order type" className={selectClass} value={source}
           onChange={(e) => { setSource(e.target.value as OrderSource | ""); setPage(1) }}>
-          <option value="">All types{allCount !== null ? ` (${allCount})` : ""}</option>
+          <option value="">All types{allCount !== null ? ` (${formatCappedCount(allCount, (data?.cappedSources.length ?? 0) > 0)})` : ""}</option>
           {ORDER_SOURCES.map((s) => (
-            <option key={s} value={s}>{ORDER_SOURCE_LABELS[s]}{data ? ` (${data.counts[s] ?? 0})` : ""}</option>
+            <option key={s} value={s}>{ORDER_SOURCE_LABELS[s]}{data ? ` (${formatCappedCount(data.counts[s] ?? 0, capped(s))})` : ""}</option>
           ))}
         </select>
         <select aria-label="Order status" className={selectClass} value={status}
           onChange={(e) => { setStatus(e.target.value as OrderStatus | ""); setPage(1) }}>
           <option value="">Any status</option>
-          {ORDER_STATUSES.map((s) => <option key={s} value={s} className="capitalize">{s}</option>)}
+          {ORDER_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
         </select>
       </div>
       <LoadState loading={loading && !data} error={error} onRetry={reload}
@@ -59,13 +64,24 @@ export function OrdersTab({ userId }: { userId: string }) {
                     </p>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{ghs(o.amount)}</td>
-                  <td className="px-3 py-2"><StatusBadge status={o.status} /></td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-col items-start gap-1">
+                      <StatusBadge status={o.status} />
+                      {/* Shown, not hidden: payment never completed outside the wallet (no money taken). */}
+                      {isUnpaid(o.payment_status) && (
+                        <Badge variant="outline" className="border-warning text-warning" title={`Payment: ${o.payment_status}`}>unpaid</Badge>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {data && <Pager page={data.page} pageSize={data.pageSize} total={data.total} loading={loading} onPage={setPage} />}
+        {data && (
+          <Pager page={data.page} pageSize={data.pageSize} total={data.total} loading={loading} onPage={setPage}
+            hasMore={data.hasMore} totalCapped={data.totalCapped} shown={data.rows.length} />
+        )}
       </LoadState>
     </div>
   )

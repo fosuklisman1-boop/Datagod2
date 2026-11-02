@@ -34,10 +34,16 @@ export interface OrderRow {
   recipient: string | null
   amount: number | null
   status: string | null
+  /** The table's payment_status where payment happens outside the wallet (standard, bills, results), else null. */
+  payment_status: string | null
   created_at: string | null
 }
 export interface OrdersResponse extends Paged<OrderRow> {
+  totalCapped: boolean
+  hasMore: boolean
   counts: Partial<Record<OrderSource, number>>
+  cappedSources: OrderSource[]
+  countCap: number
 }
 
 export interface TxRow {

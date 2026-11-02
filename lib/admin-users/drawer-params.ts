@@ -65,7 +65,7 @@ export const ORDER_SOURCE_LABELS: Record<OrderSource, string> = {
 }
 
 /** Statuses the order tables use (each table uses a subset). Matched case-insensitively in SQL. */
-export const ORDER_STATUSES = ["pending", "processing", "completed", "delivered", "failed", "refunded", "cancelled"] as const
+export const ORDER_STATUSES = ["pending", "pending_payment", "processing", "completed", "delivered", "failed", "refunded", "cancelled"] as const
 export type OrderStatus = (typeof ORDER_STATUSES)[number]
 
 export function parseOrderFilters(
@@ -77,6 +77,17 @@ export function parseOrderFilters(
   if (status !== null && !(ORDER_STATUSES as readonly string[]).includes(status)) return { ok: false, error: "Unknown status" }
   return { ok: true, value: { source: source as OrderSource | null, status: status as OrderStatus | null } }
 }
+
+/**
+ * The Orders tab shows unpaid orders (labelled), rather than hiding them, so the counts stay true to the
+ * tables. An order is unpaid when its table takes payment outside the wallet (standard, bills, results
+ * checker) and that payment never completed.
+ */
+const UNPAID = new Set(["unpaid", "pending", "pending_payment", "failed"])
+export const isUnpaid = (paymentStatus: string | null | undefined) => !!paymentStatus && UNPAID.has(paymentStatus.toLowerCase())
+
+/** A per-source count from admin_user_orders, which stops counting at 1000. */
+export const formatCappedCount = (n: number, capped: boolean) => `${n.toLocaleString("en-US")}${capped ? "+" : ""}`
 
 // ── Wallet tab ───────────────────────────────────────────────────────────────
 

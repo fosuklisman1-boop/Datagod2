@@ -8,8 +8,9 @@ export const dynamic = "force-dynamic"
  * GET /api/admin/users/[id]/orders?page=1&pageSize=20&source=&status=
  *
  * The user's orders across every order table with a user_id column, newest first, from
- * public.admin_user_orders (migrations/0147): paging, the total and the per-source counts are SQL.
- * → { rows, total, counts: { <source>: n }, page, pageSize }
+ * public.admin_user_orders (migrations/0147): paging and the per-source counts are SQL. Counts stop at
+ * countCap (1000) per source; cappedSources / totalCapped say when they did, and hasMore drives "Next".
+ * → { rows, total, totalCapped, hasMore, counts: { <source>: n }, cappedSources, countCap, page, pageSize }
  */
 export async function GET(req: NextRequest, ctx: IdCtx) {
   const gate = await gateAdmin(req)
@@ -38,7 +39,11 @@ export async function GET(req: NextRequest, ctx: IdCtx) {
   return NextResponse.json({
     rows: data?.rows ?? [],
     total: Number(data?.total ?? 0),
+    totalCapped: data?.total_capped === true,
+    hasMore: data?.has_more === true,
     counts: data?.counts ?? {},
+    cappedSources: data?.capped_sources ?? [],
+    countCap: Number(data?.count_cap ?? 1000),
     page,
     pageSize,
   })
