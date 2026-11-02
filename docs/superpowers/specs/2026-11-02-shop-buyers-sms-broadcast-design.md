@@ -16,6 +16,10 @@ receive it before sending.
    most recent paid data order. It gets one SMS, with that shop's link.
 4. **Admin-managed opt-out list.** Numbers on it are always skipped, and the screen shows
    how many were excluded.
+5. **The link is the shop's Datagod subdomain:** `https://<subdomain>.datagod.store`.
+   `user_shops.subdomain` is NOT NULL and auto-assigned (migration 0055), so every shop
+   has one and no fallback is needed. Linked custom domains and `/shop/<slug>` are not
+   used.
 
 ## Context
 
@@ -37,8 +41,9 @@ receive it before sending.
   - **Excluded:** sub-agent stock purchases (`shop_orders.is_stock_purchase`, 0133).
 - **Not `shop_customers`.** It mixes airtime and results-checker buyers, and the Hubtel
   shop USSD stores the recipient there rather than the payer, so it isn't the source.
-- **Shop link:** a shop subdomain or linked custom domain if the shop has one, otherwise
-  `<APP_URL>/shop/<slug>`. The same rule the storefront and SMS tokens already use.
+- **Shop link:** `https://<user_shops.subdomain>.<NEXT_PUBLIC_ROOT_DOMAIN>`, where the
+  root domain defaults to `datagod.store`. This is `shopOrigin(subdomain)` without the
+  custom-domain argument.
 
 ## Design
 
@@ -75,7 +80,7 @@ RETURNS TABLE (shop_id uuid, buyers bigint)   -- GROUP BY over shop_buyer_audien
 ### 2. Server
 
 - **`GET /api/admin/broadcast/shop-buyers?since=all|30|90|180`** (admin only) returns
-  `{ shops: [{ shop_id, name, slug, link, buyers }], total, optedOut }`, sorted by buyers.
+  `{ shops: [{ shop_id, name, subdomain, link, buyers }], total, optedOut }`, sorted by buyers.
 - **`POST /api/admin/broadcast`** `init` takes a new audience:
 
   ```ts
@@ -94,7 +99,7 @@ RETURNS TABLE (shop_id uuid, buyers bigint)   -- GROUP BY over shop_buyer_audien
 
 - **Audience option:** a new choice, "Shop buyers".
 - **Shop picker table:**
-  - Shop name, link and buyer count.
+  - Shop name, subdomain link (e.g. `kofidata.datagod.store`) and buyer count.
   - Search, select all/none, and a time window: All time, 30, 90 or 180 days.
   - A sticky total: "4,213 buyers will receive this · 37 skipped (opted out)".
 - **Message box:**
@@ -113,7 +118,8 @@ RETURNS TABLE (shop_id uuid, buyers bigint)   -- GROUP BY over shop_buyer_audien
   - the latest shop wins;
   - stock purchases, unpaid orders, opted-out numbers and inactive shops are excluded;
   - the `p_since` window.
-- **Unit tests:** token rendering and the shop link builder.
+- **Unit tests:** token rendering and the subdomain link builder (root-domain env, no
+  custom domain).
 - **Route tests:** the new audience validation and its enqueue shape.
 - **Browser check:** the picker at phone and desktop widths.
 
