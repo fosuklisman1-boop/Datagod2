@@ -180,8 +180,13 @@ export function ProfileTab({ profile, onChanged, actions }: {
         onOpenChange={(o) => !o && setConfirm(null)}
         title="Sign this user out everywhere?"
         description={<>
-          <p>Every session of <strong>{profile.email}</strong> is ended. They can sign in again with their password.</p>
-          <p>Server requests stop working at once; a page already open may keep showing data until its token expires (up to an hour).</p>
+          <p>Every signed-in session of <strong>{profile.email}</strong> is ended. This is <strong>not</strong> a lockout:</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>they can sign straight back in with their password;</li>
+            <li>their API keys and the WhatsApp bot keep working;</li>
+            <li>a page they already have open can keep reading data for up to an hour.</li>
+          </ul>
+          <p>To lock them out, suspend the account and send a password reset.</p>
         </>}
         confirmLabel="Sign out everywhere"
         destructive

@@ -6,15 +6,19 @@ export const dynamic = "force-dynamic"
 /**
  * POST /api/admin/users/[id]/force-logout
  *
- * Signs the user out of every device. supabase-js's auth.admin.signOut(jwt, scope) needs the USER's access
- * token, which an admin does not have, so this deletes the user's rows from auth.sessions through the
+ * Ends every signed-in session of the user. supabase-js's auth.admin.signOut(jwt, scope) needs the USER's
+ * access token, which an admin does not have, so this deletes the user's rows from auth.sessions through the
  * existing service-role-only SECURITY DEFINER RPC revoke_other_user_sessions(p_uid, p_keep => NULL)
  * (migrations/0082, the same function behind the profile page's "log out other devices"). Deleting a session
- * cascades to its auth.refresh_tokens rows, so no device can refresh. An access token already issued stays
- * validly signed until it expires (the project's JWT expiry, 1 hour by default), but Supabase Auth rejects it
- * at once (getUser -> session_not_found), so every API route that authenticates with getUser refuses the user
- * immediately. Only direct PostgREST reads under RLS (which check the signature alone) keep working until
- * that token expires, and then the client cannot refresh and is signed out.
+ * cascades to its auth.refresh_tokens rows, so no device can refresh, and Supabase Auth rejects the session's
+ * access tokens at once (getUser -> session_not_found), so API routes that authenticate with getUser refuse them.
+ *
+ * It is NOT a lockout:
+ *   - the user can sign straight back in with their password;
+ *   - API keys (api_v2 / user_api_keys) and the WhatsApp bot do not use sessions and keep working;
+ *   - an access token already issued stays validly signed until it expires (JWT expiry, 1 hour by default),
+ *     so direct PostgREST reads under RLS from a page already open keep working until then.
+ * To lock a user out, suspend them (bans the auth user) and send a password reset.
  *
  * Audited as 'user_force_logout' with the number of sessions revoked. Refuses the CRON bypass.
  * → { success, sessionsRevoked, audited }
