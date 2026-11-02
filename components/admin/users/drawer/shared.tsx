@@ -140,3 +140,14 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
     </AlertDialog>
   )
 }
+
+/** Shown when a user has more than one wallet row (adjustments are refused until it is fixed). */
+export function DuplicateWalletWarning({ rows }: { rows: number }) {
+  if (rows <= 1) return null
+  return (
+    <p role="alert" className="text-xs rounded-md border border-warning bg-warning/10 text-warning p-2">
+      This user has {rows} wallet rows. The balance shown is the largest; wallet adjustments are refused until the
+      duplicates are merged.
+    </p>
+  )
+}

@@ -24,6 +24,8 @@ export interface DrawerProfile {
   emailConfirmedAt: string | null
   hasProfile: boolean
   walletBalance: number
+  /** Number of wallet rows; more than one is a data problem. */
+  walletRows: number
 }
 
 export interface OrderRow {
@@ -59,7 +61,7 @@ export interface TxRow {
   created_at: string
 }
 export interface TxResponse extends Paged<TxRow> {
-  wallet: { balance: number; totalCredited: number; totalSpent: number } | null
+  wallet: { balance: number; totalCredited: number; totalSpent: number; rows: number } | null
 }
 
 export interface AuditRow {

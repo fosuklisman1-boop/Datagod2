@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { DRAWER_PAGE_SIZE, TX_FILTERS, type TxFilter } from "@/lib/admin-users/drawer-params"
 import { userApiPath } from "@/lib/admin-users/drawer-client"
-import { LoadState, Pager, StatusBadge, dateTime, ghs, useAdminGet } from "./shared"
+import { DuplicateWalletWarning, LoadState, Pager, StatusBadge, dateTime, ghs, useAdminGet } from "./shared"
 import type { TxResponse } from "./types"
 
-const TX_FILTER_LABELS: Record<TxFilter, string> = { credit: "Credits", debit: "Debits", refund: "Refunds", admin: "Admin adjustments" }
-const CREDIT_TYPES = new Set(["credit", "refund", "admin_credit"])
+const TX_FILTER_LABELS: Record<TxFilter, string> = {
+  credit: "Credits", debit: "Debits", refund: "Refunds", admin: "Admin adjustments", clawback: "Refund clawbacks",
+}
+const CREDIT_TYPES = new Set(["credit", "refund", "admin_credit", "refund_clawback_undo"])
 
 /** Current wallet balance and the transactions ledger, newest first, 20 per page. */
 export function WalletTab({ userId, onAdjust }: { userId: string; onAdjust: (balance: number) => void }) {
@@ -21,6 +23,7 @@ export function WalletTab({ userId, onAdjust }: { userId: string; onAdjust: (bal
 
   return (
     <div className="space-y-3">
+      {data?.wallet && <DuplicateWalletWarning rows={data.wallet.rows} />}
       <div className="grid grid-cols-3 gap-2">
         <Card className="bg-primary/5 border-primary/20"><CardContent className="p-3">
           <p className="text-xs text-primary font-medium">Balance</p>
@@ -41,7 +44,7 @@ export function WalletTab({ userId, onAdjust }: { userId: string; onAdjust: (bal
           <option value="">All transactions</option>
           {(Object.keys(TX_FILTERS) as TxFilter[]).map((t) => <option key={t} value={t}>{TX_FILTER_LABELS[t]}</option>)}
         </select>
-        <Button size="sm" disabled={!data?.wallet} onClick={() => data?.wallet && onAdjust(data.wallet.balance)}>
+        <Button size="sm" disabled={!data?.wallet || data.wallet.rows > 1} onClick={() => data?.wallet && onAdjust(data.wallet.balance)}>
           Adjust wallet
         </Button>
       </div>

@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, ctx: IdCtx) {
       .select("id, email, phone_number, first_name, last_name, role, is_suspended, pricing_mode, phone_verified, phone_verify_deadline, created_at")
       .eq("id", id).maybeSingle(),
     db.auth.admin.getUserById(id),
-    db.from("wallets").select("balance").eq("user_id", id).order("balance", { ascending: false }).limit(1).maybeSingle(),
+    db.from("wallets").select("balance", { count: "exact" }).eq("user_id", id).order("balance", { ascending: false }).limit(1).maybeSingle(),
     db.from("admin_audit_log").select("new_value, created_at")
       .eq("target_user_id", id).eq("action", "user_suspend")
       .order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -59,5 +59,7 @@ export async function GET(req: NextRequest, ctx: IdCtx) {
     emailConfirmedAt: authUser?.email_confirmed_at ?? null,
     hasProfile: !!p,
     walletBalance: Number((wallet.data as { balance: unknown } | null)?.balance ?? 0),
+    // More than one wallet row is a data problem: the balance above is the larger, and adjustments are refused.
+    walletRows: wallet.count ?? (wallet.data ? 1 : 0),
   })
 }

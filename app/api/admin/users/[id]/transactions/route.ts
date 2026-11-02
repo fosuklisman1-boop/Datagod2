@@ -11,7 +11,8 @@ const TX_COLUMNS = "id, type, amount, status, description, reference_id, source,
  *
  * One page of the user's wallet ledger (public.transactions), newest first, with an exact count of the
  * matching rows, plus the wallet's current balance and running totals.
- * → { rows, total, page, pageSize, wallet: { balance, totalCredited, totalSpent } | null }
+ * → { rows, total, page, pageSize, wallet: { balance, totalCredited, totalSpent, rows } | null }
+ *   wallet.rows is the number of wallet rows the user has; more than one is a data problem.
  */
 export async function GET(req: NextRequest, ctx: IdCtx) {
   const gate = await gateAdmin(req)
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest, ctx: IdCtx) {
   if (type.value) q = q.in("type", [...TX_FILTERS[type.value]])
   const [tx, wallet] = await Promise.all([
     q.order("created_at", { ascending: false }).order("id", { ascending: false }).range(offset, to),
-    db.from("wallets").select("balance, total_credited, total_spent").eq("user_id", idp.id)
+    db.from("wallets").select("balance, total_credited, total_spent", { count: "exact" }).eq("user_id", idp.id)
       .order("balance", { ascending: false }).limit(1).maybeSingle(),
   ])
   if (tx.error || wallet.error) {
@@ -44,6 +45,9 @@ export async function GET(req: NextRequest, ctx: IdCtx) {
     total: tx.count ?? 0,
     page,
     pageSize,
-    wallet: w ? { balance: Number(w.balance ?? 0), totalCredited: Number(w.total_credited ?? 0), totalSpent: Number(w.total_spent ?? 0) } : null,
+    // rows > 1 means duplicate wallet rows: the balance shown is the larger one and adjustments are refused.
+    wallet: w
+      ? { balance: Number(w.balance ?? 0), totalCredited: Number(w.total_credited ?? 0), totalSpent: Number(w.total_spent ?? 0), rows: wallet.count ?? 1 }
+      : null,
   })
 }

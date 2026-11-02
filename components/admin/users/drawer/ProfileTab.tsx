@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { CheckCircle, KeyRound, Loader2, LogOut, Mail, Phone } from "lucide-react"
 import { toast } from "sonner"
 import { adminUserService } from "@/lib/admin-service"
-import { ConfirmDialog, dateTime, ghs } from "./shared"
+import { ConfirmDialog, DuplicateWalletWarning, dateTime, ghs } from "./shared"
 import type { DrawerProfile } from "./types"
 
 export interface ProfileActions {
@@ -86,6 +86,7 @@ export function ProfileTab({ profile, onChanged, actions }: {
 
   return (
     <div className="space-y-5">
+      <DuplicateWalletWarning rows={profile.walletRows} />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Email">{profile.email || "—"}</Field>
         <Field label="Phone">
@@ -150,7 +151,7 @@ export function ProfileTab({ profile, onChanged, actions }: {
           <Button size="sm" variant="outline" onClick={saveRole} disabled={newRole === profile.role}>Update role</Button>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={actions.onAdjustWallet}>Adjust wallet</Button>
+          <Button size="sm" variant="outline" onClick={actions.onAdjustWallet} disabled={profile.walletRows !== 1}>Adjust wallet</Button>
           <Button size="sm" variant="outline" onClick={actions.onChangePassword}>Change password</Button>
           <Button size="sm" variant="outline" onClick={actions.onCustomPrices}>Custom prices</Button>
         </div>

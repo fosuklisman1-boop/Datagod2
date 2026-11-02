@@ -17,11 +17,11 @@ const PROFILE = {
   id: USER_ID, email: "old@x.com", phone_number: "0244000000", first_name: "Ama", last_name: "M", role: "dealer",
   is_suspended: true, pricing_mode: "custom", phone_verified: true, phone_verify_deadline: null, created_at: "2026-01-01",
 }
-const fake = (o: { profile?: unknown; auth?: unknown; suspension?: unknown } = {}) =>
+const fake = (o: { profile?: unknown; auth?: unknown; suspension?: unknown; walletRows?: number } = {}) =>
   createFakeDb({
     tables: {
       users: () => ({ data: o.profile === undefined ? PROFILE : o.profile, error: null }),
-      wallets: () => ({ data: { balance: "12.50" }, error: null }),
+      wallets: () => ({ data: { balance: "12.50" }, error: null, count: o.walletRows ?? 1 }),
       admin_audit_log: () => ({ data: o.suspension === undefined ? { new_value: { reason: "chargebacks" }, created_at: "2026-10-01" } : o.suspension, error: null }),
     },
     getUserById: () => o.auth === null
@@ -52,12 +52,18 @@ describe("GET /api/admin/users/[id]/profile", () => {
       id: USER_ID, email: "new@x.com", phoneNumber: "0244000000", firstName: "Ama", lastName: "M", role: "dealer",
       pricingMode: "custom", isSuspended: true, suspension: { reason: "chargebacks", at: "2026-10-01" },
       phoneVerified: true, phoneVerifyDeadline: null, createdAt: "2025-12-31", lastSignInAt: "2026-10-30",
-      emailConfirmedAt: "2026-01-01", hasProfile: true, walletBalance: 12.5,
+      emailConfirmedAt: "2026-01-01", hasProfile: true, walletBalance: 12.5, walletRows: 1,
     })
     const audit = h.fake.ofTable("admin_audit_log")[0]
     expect(audit.op("eq")).toEqual(["eq", "target_user_id", USER_ID])
     expect(audit.ops).toContainEqual(["eq", "action", "user_suspend"])
     expect(audit.ops).toContainEqual(["limit", 1])
+  })
+
+  it("counts wallet rows (more than one is a data problem the UI warns about)", async () => {
+    h.fake = fake({ walletRows: 2 })
+    expect((await (await GET()).json()).walletRows).toBe(2)
+    expect(h.fake.ofTable("wallets")[0].count).toBe("exact")
   })
 
   it("no suspension info for a user who is not suspended", async () => {

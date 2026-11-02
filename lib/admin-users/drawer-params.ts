@@ -97,6 +97,8 @@ export const TX_FILTERS = {
   debit: ["debit"],
   refund: ["refund"],
   admin: ["admin_credit", "admin_debit"],
+  /** Shop profit clawed back from the wallet when an order is refunded, and the reversal of a clawback. */
+  clawback: ["refund_clawback", "refund_clawback_undo"],
 } as const
 export type TxFilter = keyof typeof TX_FILTERS
 

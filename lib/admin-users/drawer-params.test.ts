@@ -32,6 +32,11 @@ describe("filters", () => {
     expect(parseOrderFilters(sp("source=shop")).ok).toBe(false)
     expect(parseOrderFilters(sp("status=FAILED")).ok).toBe(false)
   })
+  it("refund clawbacks (and their undo) are a filter group", async () => {
+    const { TX_FILTERS } = await import("./drawer-params")
+    expect(parseTxFilter(sp("type=clawback"))).toEqual({ ok: true, value: "clawback" })
+    expect([...TX_FILTERS.clawback]).toEqual(["refund_clawback", "refund_clawback_undo"])
+  })
   it("transaction type groups", () => {
     expect(parseTxFilter(sp("type=admin"))).toEqual({ ok: true, value: "admin" })
     expect(parseTxFilter(sp(""))).toEqual({ ok: true, value: null })

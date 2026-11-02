@@ -14,11 +14,11 @@ const GET = async (qs = "", id = USER_ID) =>
   (await RAW_GET(new NextRequest(`http://x/api/admin/users/${id}/transactions${qs}`), { params: Promise.resolve({ id }) }))!
 const TX = [{ id: "t1", type: "admin_credit", amount: 5, status: "completed", description: "x", reference_id: "r", source: "admin_operation", balance_before: 1, balance_after: 6, created_at: "2026-10-01" }]
 
-const fake = (over: { txError?: boolean; wallet?: unknown } = {}) =>
+const fake = (over: { txError?: boolean; wallet?: unknown; walletRows?: number } = {}) =>
   createFakeDb({
     tables: {
       transactions: () => over.txError ? { data: null, error: { message: "boom" } } : { data: TX, error: null, count: 41 },
-      wallets: () => ({ data: over.wallet === undefined ? { balance: "6.00", total_credited: "10", total_spent: "4" } : over.wallet, error: null }),
+      wallets: () => ({ data: over.wallet === undefined ? { balance: "6.00", total_credited: "10", total_spent: "4" } : over.wallet, error: null, count: over.walletRows ?? (over.wallet === null ? 0 : 1) }),
     },
   })
 
@@ -47,7 +47,7 @@ describe("GET /api/admin/users/[id]/transactions", () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       rows: TX, total: 41, page: 3, pageSize: 20,
-      wallet: { balance: 6, totalCredited: 10, totalSpent: 4 },
+      wallet: { balance: 6, totalCredited: 10, totalSpent: 4, rows: 1 },
     })
     const [q] = h.fake.ofTable("transactions")
     expect(q.columns).toBe("id, type, amount, status, description, reference_id, source, balance_before, balance_after, created_at")
@@ -56,11 +56,17 @@ describe("GET /api/admin/users/[id]/transactions", () => {
     expect(q.op("order")).toEqual(["order", "created_at", { ascending: false }])
     expect(q.op("range")).toEqual(["range", 40, 59])
     expect(h.fake.ofTable("wallets")[0].columns).toBe("balance, total_credited, total_spent")
+    expect(h.fake.ofTable("wallets")[0].count).toBe("exact")
   })
 
   it("filters admin adjustments by both admin types", async () => {
     await GET("?type=admin")
     expect(h.fake.ofTable("transactions")[0].op("in")).toEqual(["in", "type", ["admin_credit", "admin_debit"]])
+  })
+
+  it("reports how many wallet rows the user has, so the UI can warn about duplicates", async () => {
+    h.fake = fake({ walletRows: 2 })
+    expect((await (await GET()).json()).wallet.rows).toBe(2)
   })
 
   it("wallet is null when the user has none; 500 on a query error", async () => {

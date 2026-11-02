@@ -148,7 +148,9 @@ export function BalanceDialog({ user, open, onOpenChange, onChanged }: BalanceDi
                 placeholder="e.g. Refund for failed order DG-123 that was not auto-refunded"
                 className="mt-1"
               />
-              <p className="text-xs text-muted-foreground mt-1">Saved in the wallet ledger and the admin audit log.</p>
+              <p className="text-xs text-warning mt-1">
+                The customer will see this reason in their wallet history. It is also saved in the admin audit log.
+              </p>
             </div>
             {touched && formError && <p className="text-sm text-destructive">{formError}</p>}
             <Button type="submit" className="w-full" disabled={balance === null || loadingBalance}>
@@ -174,7 +176,7 @@ export function BalanceDialog({ user, open, onOpenChange, onChanged }: BalanceDi
                 </div>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Reason</p>
+                <p className="text-xs text-muted-foreground">Reason (the customer will see this)</p>
                 <p className="text-sm break-words">{reason.trim()}</p>
               </div>
             </div>
