@@ -94,7 +94,7 @@ These findings shape the design. Paths are as of branch `feat/api-v2-console`.
 
 **Removing a sub-agent.** `/api/shop/sub-agents/[id]` sets `parent_shop_id` to null and `tier_level` to 1, leaving the shop active. With open signup, someone could end up with an independent active shop that no admin reviewed. The builder should check what a removed storefront joiner ends up as, and leave them closed if they would otherwise become an unreviewed main shop.
 
-**Sub-agents can set their own wholesale cost.** `POST` and `PUT /api/shop/sub-agent-catalog` store `parent_price` from the request body, and order pricing trusts it (`lib/shop-commerce/pricing.ts:188-189`, `app/api/shop/orders/create/route.ts:326-328`). A sub-agent can lower what they pay by calling the route directly. The server must derive this value. It's fixed first and ships on its own, because it's live today and open signup would expose it to anyone.
+**Sub-agent costs are live.** On `origin/main`, `subAgentCosts` in `lib/shop-commerce/pricing.ts` prices every sub-agent channel from the parent's current role price and active wholesale margin, and ignores any stored `parent_price`. Join pages and the opening check must use it too.
 
 **Normal signup verifies the phone.** The join page reuses `/api/auth/send-phone-otp` and `/api/auth/verify-phone-otp`, and the server checks the verified code when the form is submitted. A join finalizes through its own intent rather than `/api/auth/signup`, because the email link can be clicked after that route's 30-minute code window. The closed shop is `is_active=false` plus `joined_via='storefront'` and `prices_set_at IS NULL`, which reuses every channel's existing `is_active` check, and the admin queue excludes those shops.
 

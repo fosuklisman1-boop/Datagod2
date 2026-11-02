@@ -13,7 +13,9 @@
 ## Global Constraints
 
 - Build in a worktree on a new branch from `main`. `lib/auth.ts`, `lib/auth-complete.ts` and `lib/post-auth-redirect.ts` have uncommitted changes on `feat/api-v2-console`; don't assume those exist.
-- Task 1 ships on its own, not behind the switch. Everything else ships dark behind `sub_agent_open_join_enabled`, default off.
+- Everything ships dark behind `sub_agent_open_join_enabled`, default off. The exception is the private-invite rate rule in Task 4, which applies as soon as the code ships.
+- Sub-agent costs always come from `subAgentCosts` or `subAgentCost` in `lib/shop-commerce/pricing.ts`. Never read a stored `parent_price`.
+- No production access during Tasks 2-10: write migrations and selftests only. Dry run, apply, push and merge happen in Task 11 with the user's OK.
 - Use the next free migration number above the highest on `main` and in the production database; check both, because the numbers may differ.
 - Edit code with Edit/Write only, never `sed`.
 - Handles go through `shopHandleOrFilter`. Role and parent are never read from `user_metadata` or the request body.
@@ -30,30 +32,13 @@ Each line has its test in the owning task.
 2. The target shop gets blocked or becomes inactive between signup and email confirmation: no shop is created, and the person keeps a plain customer account (Task 6).
 3. The same phone is typed as `0241234567` and `241234567`: treated as one number (Task 6).
 4. Ten people join an owner with no catalog in a day: one SMS, one email (Task 7).
-5. A joiner saves a zero-profit price: allowed, and the shop opens; a negative profit is refused (Tasks 1, 8).
+5. A joiner saves a zero-profit price: allowed, and the shop opens; a row with a negative margin doesn't count as priced (Task 8).
 
 ---
 
 ### Task 1: Stop sub-agents and owners setting their own wholesale cost
 
-`POST` and `PUT /api/shop/sub-agent-catalog` store `parent_price` from the request body, and order pricing trusts it (`lib/shop-commerce/pricing.ts:188-189`, `app/api/shop/orders/create/route.ts:326-328`). Open signup would hand this to anyone.
-
-**Files:**
-- Create: `lib/shop-commerce/sub-agent-price.ts`, `lib/shop-commerce/sub-agent-price.test.ts`
-- Modify: `app/api/shop/sub-agent-catalog/route.ts:237-333,352-411`
-- Modify if the check in Step 1 requires it: new migration revoking direct writes
-
-**Interfaces:**
-- Produces: `deriveParentPrice(client, parentShopId: string, packageId: string): Promise<number | null>`, returning `basePrice(pkg, parentIsDealer) + wholesale_margin`, or `null` when the package isn't active in the parent's `sub_agent_catalog` or isn't available. `isValidMargin(value: unknown): value is number`, finite and `>= 0`.
-
-- [ ] **Step 1: Check production read-only and report before changing anything.** Count `sub_agent_shop_packages` rows where `parent_price` is below the current base price for the parent's role, and any negative margin, split by shop, without listing customer details. Then reproduce with the anon key (`reference-supabase-access`) whether a logged-in sub-agent can directly update their own row in `sub_agent_shop_packages`. Report all counts to the user. Don't change any existing rows without their OK.
-- [ ] **Step 2: Write failing tests** in `sub-agent-price.test.ts`: `deriveParentPrice` returns `base + wholesale_margin` (dealer parent uses `dealer_price`), `null` for a package outside the catalog, and `null` for an unavailable package. `isValidMargin(0)` is true; `-1`, `NaN`, `"2"` and `undefined` are false.
-- [ ] **Step 3: Run** `npx vitest run lib/shop-commerce/sub-agent-price.test.ts`. Expected: FAIL, module not found.
-- [ ] **Step 4: Implement both functions**, reusing `basePrice` and `shopOwnerIsDealer` from `lib/shop-commerce/pricing.ts`.
-- [ ] **Step 5: Change the route.** For a sub-agent shop, ignore any `parent_price` in the body, derive it, return 400 when it is `null` or the margin is invalid. `PUT` looks up the row's `package_id` first, and also re-derives when only `is_active` changes. For an owner's own `sub_agent_catalog` writes, ignore the body's `parent_price`, store `base + wholesale_margin`, and refuse a negative `wholesale_margin`. The shop-pricing and catalog pages keep working unchanged, because the fields they send are simply ignored.
-- [ ] **Step 6: If Step 1 showed direct writes work,** add a migration revoking `INSERT, UPDATE` on `sub_agent_shop_packages` from `authenticated`, and confirm with the same anon-key reproduction that they now fail.
-- [ ] **Step 7: Run** `npx vitest run lib/shop-commerce`. Expected: PASS.
-- [ ] **Step 8: Commit** with `fix(shop): derive sub-agent wholesale cost on the server`, get fresh review, and ship through the production protocol ahead of the remaining tasks.
+Retired, no work needed. Already fixed on `origin/main` by #27: `subAgentCosts` in `lib/shop-commerce/pricing.ts` prices every sub-agent channel live, never reads the stored `parent_price`, and order paths refuse negative margins through `marginsValid`. The save route still stores what it's sent, but nothing reads the value.
 
 ### Task 2: Schema, settings and column protection
 
@@ -67,11 +52,10 @@ Each line has its test in the owning task.
 - Produces `app_settings.sub_agent_open_join_enabled boolean NOT NULL DEFAULT false` on the singleton row (`.is("key", null)`), exposed read-only through `/api/public/config` and writable through admin settings.
 
 - [ ] **Step 1: Write the selftest** that rolls itself back and raises on failure: an existing sub-agent reads `dealer_rates_enabled = true`, a logged-in user can't read `sub_agent_join_intents`, and a logged-in owner can't change `is_active`, `joined_via`, `prices_set_at` or `dealer_rates_enabled` on their own shop.
-- [ ] **Step 2: Reproduce with the anon key** whether `authenticated` can update `user_shops` today. If the table grant allows it, add a `BEFORE UPDATE` trigger in the migration that rejects changes to those four columns unless the caller is `service_role`.
-- [ ] **Step 3: Write the migration and run the dry run** through the Management API. Expected: selftest passes, nothing persists.
-- [ ] **Step 4: Add the setting** to the two settings routes.
-- [ ] **Step 5: Show the user the dry-run result, get their OK, apply, verify the columns exist.**
-- [ ] **Step 6: Commit** with `feat(shop): schema for storefront sub-agent join`.
+- [ ] **Step 2: Write the migration,** numbered 0146 or the next free number, including a `BEFORE UPDATE` trigger on `user_shops` that rejects changes to those four columns when `auth.role()` is `authenticated` or `anon`. Service-role routes and migrations are unaffected. Read `migrations/0145_shop_buyers_audience.sql` for the current style.
+- [ ] **Step 3: Add the setting** to the two settings routes, with a focused test if those routes have tests.
+- [ ] **Step 4: Run** `npx tsc --noEmit`. Expected: no new errors. The migration isn't run in this task.
+- [ ] **Step 5: Commit** with `feat(shop): schema for storefront sub-agent join`.
 
 ### Task 3: One helper for dealer rates
 
@@ -174,7 +158,7 @@ New joiners verify their phone on the join page through the existing `/api/auth/
 - Produces: `openPricedShop(db, userId: string): Promise<{ status: "opened" | "already_open" | "no_prices" | "blocked"; ussdCode?: string; subdomain?: string }>`. `getShopPublicState(handle: string): Promise<"open" | "setting_up" | "missing">`.
 
 - [ ] **Step 1: Write failing tests:**
-  - `openPricedShop`: no saved rows gives `no_prices`; a zero-margin row opens (Review Focus 5); opening twice gives `already_open` without a second write; a blocked shop stays closed. An invite or main shop isn't changed.
+  - `openPricedShop`: no saved rows gives `no_prices`; only negative-margin rows, or rows the parent no longer offers per `subAgentCosts`, also give `no_prices`; a zero-margin row opens (Review Focus 5); opening twice gives `already_open` without a second write; a blocked shop stays closed. An invite or main shop isn't changed.
   - Admin `status=pending` excludes `joined_via='storefront'`, and approve refuses a closed storefront joiner.
   - Removing a storefront joiner sets `parent_shop_id=null, tier_level=1, is_active=false, joined_via=null, dealer_rates_enabled=false`, which puts them in the normal admin queue. Removing an invited sub-agent behaves as it does today.
   - `status=storefront_joiners` lists recent joiners, newest first, with their parent shop.
@@ -221,7 +205,8 @@ New joiners verify their phone on the join page through the existing `/api/auth/
 
 ### Task 11: Go-live checks
 
-- [ ] **Step 1: Run** `npm run test:run`, `npx tsc --noEmit` and a placeholder-env `next build`. Expected: only the 9 known failures.
-- [ ] **Step 2: Fresh reviewer, then merge dark.** Confirm with the switch off that storefronts still show the request form and `/join/shop/<handle>` shows the closed message.
+- [ ] **Step 1: Run** `npm run test:run`, `npx tsc --noEmit` and a placeholder-env `next build`. Expected: only the 10 failures recorded at baseline (9 order-health plus the `0142 place_api_v2_order` drift test).
+- [ ] **Step 2: With the user's OK,** run the migration's dry run through the Management API, apply it, and verify the columns exist.
+- [ ] **Step 2a: Fresh reviewer, then merge dark, with the user's OK.** Confirm with the switch off that storefronts still show the request form and `/join/shop/<handle>` shows the closed message.
 - [ ] **Step 3: Supervised test with the user, on one real shop, with the switch on:** a new email through to an open shop, a USSD dial on both menus, and a real low-value order. A logged-in customer upgrade. A no-catalog owner receives SMS, email and push. A closed shop refuses an order on every channel. A joiner gets customer rates on airtime and bills. Then switch off until the user decides.
 - [ ] **Step 4: Update memory** with a project note for this feature and any production findings from Task 1.
