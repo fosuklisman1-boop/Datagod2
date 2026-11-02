@@ -32,12 +32,27 @@ const SAFE_APP_COLUMNS = [
   "ussd_shop_activation_fee",
   "whatsapp_shop_activation_fee",
   "storefront_show_ussd_card",
-  "sub_agent_open_join_enabled",
 ] as const
+
+// Read in its OWN query: if this column is missing (code deployed before migration 0146), only this
+// flag falls back to false instead of the whole app_settings select failing and blanking every setting.
+async function readSubAgentOpenJoin(): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("app_settings")
+      .select("sub_agent_open_join_enabled")
+      .is("key", null)
+      .maybeSingle()
+    if (error) return false
+    return (data as { sub_agent_open_join_enabled?: boolean } | null)?.sub_agent_open_join_enabled === true
+  } catch {
+    return false
+  }
+}
 
 export async function GET() {
   try {
-    const [adminRes, appRes] = await Promise.all([
+    const [adminRes, appRes, openJoin] = await Promise.all([
       supabaseAdmin
         .from("admin_settings")
         .select("key, value")
@@ -47,6 +62,7 @@ export async function GET() {
         .select(SAFE_APP_COLUMNS.join(", "))
         .is("key", null)
         .maybeSingle(),
+      readSubAgentOpenJoin(),
     ])
 
     // Build admin_settings key→value map, defensively filtered to the allowlist
@@ -60,7 +76,7 @@ export async function GET() {
     return NextResponse.json(
       {
         admin_settings: adminSettings,
-        app_settings: appRes.data ?? {},
+        app_settings: { ...((appRes.data ?? {}) as Record<string, unknown>),sub_agent_open_join_enabled: openJoin },
       },
       { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60" } }
     )
