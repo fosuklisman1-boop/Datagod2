@@ -1,14 +1,13 @@
 import { supabase } from "./supabase"
 import { refreshUserSession } from "./session-refresh"
 import {
-  MAX_PAGE_SIZE,
   listParamsToSearchParams,
   type AdminUserListItem,
   type UsersListFilters,
   type UsersListParams,
   type UsersListResponse,
 } from "./admin-users/list-params"
-import { collectAllPages } from "./admin-users/collect-pages"
+import { exportAllUsers } from "./admin-users/export-client"
 
 // Admin Package Management
 export const adminPackageService = {
@@ -313,20 +312,27 @@ export const adminUserService = {
     return response.json()
   },
 
-  // Every user matching the filters (all users with no filters), fetched 200 at a time.
+  // Every user matching the filters (all users with no filters), oldest signup first, via the
+  // keyset export endpoint (5000 per request, 429s retried). Rejects with UsersExportError rather
+  // than returning a partial list.
   async getAllUsers(
     filters: Partial<UsersListFilters> = {},
-    onProgress?: (loaded: number, total: number) => void,
+    onProgress?: (loaded: number) => void,
   ): Promise<AdminUserListItem[]> {
-    try {
-      return await collectAllPages(
-        (page) => adminUserService.listUsers({ ...filters, page, pageSize: MAX_PAGE_SIZE }),
-        { pageSize: MAX_PAGE_SIZE, onProgress },
-      )
-    } catch (error: any) {
-      console.error("Error in getAllUsers:", error)
-      throw error
-    }
+    // sort/dir don't apply to the export (fixed created_at, id order)
+    const { sort: _sort, dir: _dir, ...rest } = filters
+    const qs = listParamsToSearchParams(rest)
+    return exportAllUsers<AdminUserListItem>(async (cursor) => {
+      // Fresh token per request: a long export can outlive an access token.
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("No authentication token available")
+      const sp = new URLSearchParams(qs)
+      if (cursor) sp.set("cursor", cursor)
+      const q = sp.toString()
+      return fetch(`/api/admin/users/export${q ? `?${q}` : ""}`, {
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      })
+    }, { onProgress })
   },
 
   // Update user role

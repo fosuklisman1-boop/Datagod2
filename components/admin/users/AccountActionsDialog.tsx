@@ -14,10 +14,12 @@ interface AccountActionsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onChanged: () => void
+  /** Called with the id of a user that was permanently deleted. */
+  onDeleted?: (userId: string) => void
 }
 
 /** Suspend / unsuspend, or permanently delete, a user. */
-export function AccountActionsDialog({ user, open, onOpenChange, onChanged }: AccountActionsDialogProps) {
+export function AccountActionsDialog({ user, open, onOpenChange, onChanged, onDeleted }: AccountActionsDialogProps) {
   const selectedUser = user
   const [isProcessingAction, setIsProcessingAction] = useState(false)
   const [suspensionReason, setSuspensionReason] = useState("")
@@ -33,6 +35,7 @@ export function AccountActionsDialog({ user, open, onOpenChange, onChanged }: Ac
     try {
       await adminUserService.removeUser(userId)
       toast.success("User removed successfully")
+      onDeleted?.(userId)
       onOpenChange(false)
       onChanged()
     } catch (error: any) {

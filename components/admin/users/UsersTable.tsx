@@ -12,6 +12,9 @@ const COLUMN_COUNT = 12
 interface UsersTableProps {
   users: AdminUser[]
   loading: boolean
+  /** Set when the last load failed: shown instead of (stale) rows, with a retry button. */
+  error: string | null
+  onRetry: () => void
   /** Filters or search are narrowing the list (changes the empty-state text). */
   filtered: boolean
   sort: UserSort
@@ -53,7 +56,7 @@ const Th = ({ children }: { children: React.ReactNode }) => (
 )
 
 export function UsersTable({
-  users, loading, filtered, sort, dir, onSort, selectedIds, onToggleSelected, onToggleAllOnPage,
+  users, loading, error, onRetry, filtered, sort, dir, onSort, selectedIds, onToggleSelected, onToggleAllOnPage,
   onView, onBalance, onAccountActions, onCustomPrices,
 }: UsersTableProps) {
   const selectedOnPage = users.filter((u) => selectedIds.has(u.id)).length
@@ -87,7 +90,16 @@ export function UsersTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {users.length === 0 ? (
+          {error && !loading ? (
+            <tr>
+              <td colSpan={COLUMN_COUNT} className="px-6 py-8 text-center" role="alert">
+                <p className="text-destructive font-medium">Couldn't load users: {error}</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
+                  Try again
+                </Button>
+              </td>
+            </tr>
+          ) : users.length === 0 ? (
             <tr>
               <td colSpan={COLUMN_COUNT} className="px-6 py-8 text-center text-muted-foreground">
                 {loading ? (

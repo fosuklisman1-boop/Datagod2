@@ -41,3 +41,27 @@ export function exportLabel(f: { role?: string | null; q?: string | null; suspen
   const narrowed = !!(f.q || f.suspended != null || f.hasShop != null || f.pricingMode || f.from || f.to)
   return narrowed ? `${base}_filtered` : base
 }
+
+export interface DownloadEnv {
+  document: Pick<Document, "createElement" | "body">
+  URL: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">
+  /** When to revoke the object URL (after the click has been handled). */
+  defer?: (fn: () => void) => void
+}
+
+/** Save `csv` as `filename` via a Blob object URL (no size limit like a data: URL), then revoke it. */
+export function triggerCsvDownload(filename: string, csv: string, env?: DownloadEnv): void {
+  const e: DownloadEnv = env ?? { document, URL }
+  const href = e.URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
+  const a = e.document.createElement("a")
+  a.href = href
+  a.download = filename
+  a.style.display = "none"
+  e.document.body.appendChild(a)
+  try {
+    a.click()
+  } finally {
+    e.document.body.removeChild(a)
+    ;(e.defer ?? ((fn) => setTimeout(fn, 0)))(() => e.URL.revokeObjectURL(href))
+  }
+}

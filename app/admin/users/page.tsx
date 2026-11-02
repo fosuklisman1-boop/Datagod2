@@ -20,6 +20,8 @@ import {
   type UsersListParams,
 } from "@/lib/admin-users/list-params"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
+import { createParamsTracker } from "@/lib/admin-users/params-tracker"
+import { removeIds, setSelected, setSelectedMany } from "@/lib/admin-users/selection"
 import { formatCount, type AdminUser } from "@/components/admin/users/types"
 import { UsersFilters, hasActiveFilters } from "@/components/admin/users/UsersFilters"
 import { UsersPagination, UsersTable } from "@/components/admin/users/UsersTable"
@@ -63,6 +65,7 @@ function AdminUsersPageInner() {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
 
   // Search box: typed text is applied to the URL after a pause.
@@ -78,17 +81,24 @@ function AdminUsersPageInner() {
   const setDialogOpen = (kind: DialogKind, open: boolean) => setOpenDialogs((d) => ({ ...d, [kind]: open }))
   const [customPricesUser, setCustomPricesUser] = useState<{ id: string; label: string } | null>(null)
 
-  const replaceParams = useCallback((next: UsersListParams) => {
+  // Every change is applied on top of the last params we asked for, not the URL's (router.replace is
+  // async), so the debounced search can't undo a filter clicked just before it fired.
+  const trackerRef = useRef(createParamsTracker(params))
+  useEffect(() => {
+    trackerRef.current.urlChanged(params)
+  }, [paramsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pushParams = useCallback((next: UsersListParams) => {
     const qs = listParamsToSearchParams(next).toString()
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
   }, [pathname, router])
 
-  /** Change filters/sort; goes back to page 1. */
+  /** Change filters/sort; goes back to page 1. A reversed date range is swapped. */
   const updateFilters = useCallback((patch: Partial<UsersListFilters>) => {
-    replaceParams({ ...params, ...patch, page: 1 })
-  }, [params, replaceParams])
+    pushParams(trackerRef.current.apply(patch))
+  }, [pushParams])
 
-  const goToPage = (page: number) => replaceParams({ ...params, page })
+  const goToPage = (page: number) => pushParams(trackerRef.current.apply({ page }, { keepPage: true }))
 
   const loadUsers = useCallback(() => setReloadToken((n) => n + 1), [])
 
@@ -100,7 +110,7 @@ function AdminUsersPageInner() {
   // Debounced search -> URL.
   useEffect(() => {
     const q = normaliseSearch(debouncedSearch)
-    if (q !== params.q) updateFilters({ q })
+    if (q !== trackerRef.current.current().q) updateFilters({ q })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch])
 
@@ -129,15 +139,20 @@ function AdminUsersPageInner() {
     adminUserService.listUsers(params, { signal: ctrl.signal })
       .then((res) => {
         if (ctrl.signal.aborted) return
+        setLoadError(null)
         setUsers(res.users || [])
         setTotal(res.total || 0)
         // Past the last page (e.g. after a delete or a stale link): go to the last page that exists.
         const lastPage = Math.max(1, Math.ceil((res.total || 0) / params.pageSize))
-        if ((res.users || []).length === 0 && params.page > lastPage) replaceParams({ ...params, page: lastPage })
+        if ((res.users || []).length === 0 && params.page > lastPage) goToPage(lastPage)
       })
       .catch((error) => {
         if (ctrl.signal.aborted || error?.name === "AbortError") return
         console.error("Error loading users:", error)
+        // Don't leave the previous filters' rows on screen as if they matched.
+        setUsers([])
+        setTotal(0)
+        setLoadError(error instanceof Error ? error.message : "Failed to load users")
         toast.error(error instanceof Error ? error.message : "Failed to load users")
       })
       .finally(() => {
@@ -181,33 +196,19 @@ function AdminUsersPageInner() {
   }
 
   const handleSort = (sort: UserSort) => {
-    updateFilters(params.sort === sort ? { dir: params.dir === "asc" ? "desc" : "asc" } : { sort, dir: firstDir(sort) })
+    const cur = trackerRef.current.current()
+    updateFilters(cur.sort === sort ? { dir: cur.dir === "asc" ? "desc" : "asc" } : { sort, dir: firstDir(sort) })
   }
 
   const resetFilters = () => {
     setSearchInput("")
-    replaceParams({ ...DEFAULT_FILTERS, sort: params.sort, dir: params.dir, page: 1, pageSize: params.pageSize })
+    const { sort: _sort, dir: _dir, ...cleared } = DEFAULT_FILTERS
+    updateFilters(cleared)
   }
 
-  const toggleSelected = (id: string, selected: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (selected) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  }
-
-  const toggleAllOnPage = (selected: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      for (const u of users) {
-        if (selected) next.add(u.id)
-        else next.delete(u.id)
-      }
-      return next
-    })
-  }
+  const toggleSelected = (id: string, selected: boolean) => setSelectedIds((prev) => setSelected(prev, id, selected))
+  const toggleAllOnPage = (selected: boolean) => setSelectedIds((prev) => setSelectedMany(prev, users.map((u) => u.id), selected))
+  const forgetDeletedUser = (userId: string) => setSelectedIds((prev) => removeIds(prev, [userId]) as Set<string>)
 
   const openFor = (kind: DialogKind) => (user: AdminUser) => {
     setSelectedUser(user)
@@ -267,6 +268,8 @@ function AdminUsersPageInner() {
             <UsersTable
               users={users}
               loading={loading}
+              error={loadError}
+              onRetry={loadUsers}
               filtered={filtered}
               sort={params.sort}
               dir={params.dir}
@@ -305,7 +308,7 @@ function AdminUsersPageInner() {
 
         <BalanceDialog {...dialogProps("balance")} onChanged={loadUsers} />
         <ChangePasswordDialog {...dialogProps("password")} />
-        <AccountActionsDialog {...dialogProps("actions")} onChanged={loadUsers} />
+        <AccountActionsDialog {...dialogProps("actions")} onChanged={loadUsers} onDeleted={forgetDeletedUser} />
       </div>
     </DashboardLayout>
   )
