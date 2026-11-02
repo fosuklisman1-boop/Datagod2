@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { sendPushToUser } from "@/lib/push-service"
 import { createSubAgentShop, ensureWallet } from "@/lib/sub-agents/create-shop"
 import { shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
+import { getWholesalePackages } from "@/lib/sub-agents/wholesale-packages"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -56,34 +57,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "The inviting shop is no longer active" }, { status: 410 })
     }
 
-    // Get parent shop's sub-agent catalog (to show what prices sub-agent will pay)
-    const { data: catalogItems, error: catalogError } = await supabase
-      .from("sub_agent_catalog")
-      .select(`
-        id,
-        wholesale_margin,
-        is_active,
-        package:packages (
-          id,
-          network,
-          size,
-          price,
-          dealer_price
-        )
-      `)
-      .eq("shop_id", invite.inviter_shop.id)
-      .eq("is_active", true)
-
-    // Fetch parent's role to determine correct wholesale cost
-    let isParentDealer = false;
-    if (invite.inviter_shop?.user_id) {
-      const { data: parentUser } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", invite.inviter_shop.user_id)
-        .single();
-      isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
-    }
+    // What the sub-agent will pay: the parent's live cost (subAgentCosts), shared with the open join page
+    const wholesale_packages = await getWholesalePackages(supabase, invite.inviter_shop.id)
 
     return NextResponse.json({
       success: true,
@@ -93,21 +68,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         shop_name: invite.inviter_shop.shop_name,
         shop_id: invite.inviter_shop.id
       },
-      // Show the wholesale prices (admin price + parent's wholesale margin = what sub-agent pays)
-      wholesale_packages: (catalogItems || [])
-        .filter((item: any) => item.package?.price != null)
-        .map((item: any) => {
-          const pkg = (item.package as any)
-          const adminPrice = (isParentDealer && pkg.dealer_price && pkg.dealer_price > 0)
-            ? pkg.dealer_price
-            : pkg.price;
-
-          return {
-            network: pkg.network,
-            size: pkg.size,
-            wholesale_price: adminPrice + (item.wholesale_margin || 0)
-          }
-        })
+      wholesale_packages
     })
   } catch (error) {
     console.error("Error fetching invite:", error)
