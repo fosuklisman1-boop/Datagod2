@@ -1,35 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { secureNumericCode } from "@/lib/secure-random"
+import { provisionShopCode } from "@/lib/ussd-shop/provision-code"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-
-// Self-service code provisioning -- mirrors the admin route's auto-generate
-// logic (app/api/admin/ussd-shops/route.ts) so a shop owner can go from "no
-// code yet" to "activated" in one click, instead of needing an admin to
-// create the row first.
-async function provisionShopCode(shopId: string) {
-  for (let attempt = 0; attempt < 30; attempt++) {
-    const candidate = attempt < 10 ? secureNumericCode(4) : secureNumericCode(6)
-    const { data: existing } = await supabase
-      .from("ussd_shop_codes").select("id").eq("code", candidate).maybeSingle()
-    if (existing) continue
-    const { data: created, error } = await supabase
-      .from("ussd_shop_codes")
-      .insert([{ shop_id: shopId, code: candidate, token_balance: 0 }])
-      .select("id, activation_fee_paid")
-      .single()
-    if (error) {
-      if (error.code === "23505") continue // race on the code uniqueness — retry
-      throw error
-    }
-    return created
-  }
-  throw new Error("Could not generate a unique USSD code")
-}
 
 // POST /api/dashboard/ussd-shop/activate
 export async function POST(request: NextRequest) {
@@ -48,7 +24,7 @@ export async function POST(request: NextRequest) {
 
   if (!shopCode) {
     try {
-      shopCode = await provisionShopCode(shop.id)
+      shopCode = await provisionShopCode(supabase, shop.id)
     } catch (err) {
       console.error("[USSD-ACTIVATE] Failed to provision a code:", err)
       return NextResponse.json({ error: "Could not set up your USSD code — please try again" }, { status: 500 })
