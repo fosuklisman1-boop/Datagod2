@@ -47,10 +47,11 @@ export function auditSummary(r: Pick<AuditRow, "action" | "old_value" | "new_val
 }
 
 /** admin_audit_log rows targeting this user, newest first. */
-export function HistoryTab({ userId }: { userId: string }) {
+export function HistoryTab({ userId, refreshKey = 0 }: { userId: string; refreshKey?: number }) {
   const [page, setPage] = useState(1)
   const { data, error, loading, reload } = useAdminGet<Paged<AuditRow>>(
     userApiPath(userId, "audit", { page, pageSize: DRAWER_PAGE_SIZE }),
+    refreshKey,
   )
   return (
     <LoadState loading={loading && !data} error={error} onRetry={reload}

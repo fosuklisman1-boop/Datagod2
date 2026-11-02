@@ -14,11 +14,12 @@ const TX_FILTER_LABELS: Record<TxFilter, string> = {
 const CREDIT_TYPES = new Set(["credit", "refund", "admin_credit", "refund_clawback_undo"])
 
 /** Current wallet balance and the transactions ledger, newest first, 20 per page. */
-export function WalletTab({ userId, onAdjust }: { userId: string; onAdjust: (balance: number) => void }) {
+export function WalletTab({ userId, onAdjust, refreshKey = 0 }: { userId: string; onAdjust: (balance: number) => void; refreshKey?: number }) {
   const [page, setPage] = useState(1)
   const [type, setType] = useState<TxFilter | "">("")
   const { data, error, loading, reload } = useAdminGet<TxResponse>(
     userApiPath(userId, "transactions", { page, pageSize: DRAWER_PAGE_SIZE, type }),
+    refreshKey,
   )
 
   return (

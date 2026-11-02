@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft } from "lucide-react"
 import { userApiPath } from "@/lib/admin-users/drawer-client"
+import { back, current, openRoot, push, setTab, type DrawerStack, type DrawerTab } from "@/lib/admin-users/drawer-stack"
 import { LoadState, useAdminGet } from "./shared"
 import { ProfileTab } from "./ProfileTab"
 import { OrdersTab } from "./OrdersTab"
@@ -15,14 +16,13 @@ import { ShopTab } from "./ShopTab"
 import { HistoryTab } from "./HistoryTab"
 import type { DrawerProfile } from "./types"
 
-const TABS = [
+const TAB_LABELS: Array<[DrawerTab, string]> = [
   ["profile", "Profile"],
   ["orders", "Orders"],
   ["wallet", "Wallet"],
   ["shop", "Shop"],
   ["history", "Admin history"],
-] as const
-type Tab = (typeof TABS)[number][0]
+]
 
 /** What the page's dialogs need about the user the drawer is showing. */
 export interface DrawerUserRef {
@@ -36,7 +36,7 @@ export interface UserDrawerProps {
   userId: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Bumped by the page after one of its dialogs changed this user: the drawer reloads. */
+  /** Bumped by the page after one of its dialogs changed this user: the drawer reloads its data in place. */
   refreshToken: number
   /** A change was made from inside the drawer: the page reloads its list. */
   onChanged: () => void
@@ -49,28 +49,35 @@ export interface UserDrawerProps {
 /**
  * Side drawer with a user's profile, orders, wallet ledger, shop and admin history. Nothing loads until it is
  * open, and each tab fetches its own data only the first time it is shown (then stays mounted, so switching
- * back does not refetch). Sub-agents and parent shops open in the same drawer, with a Back button.
+ * back does not refetch). Sub-agents and parent shops open on a stack in the same drawer; each stack entry keeps
+ * its tab, so Back returns to the tab you came from.
  */
 export default function UserDrawer(props: UserDrawerProps) {
-  const { open, onOpenChange } = props
-  // Users opened from the Shop tab stack on top of the one opened from the list.
-  const [stack, setStack] = useState<string[]>([])
-  useEffect(() => {
-    if (open && props.userId) setStack([props.userId])
-  }, [open, props.userId])
-  const userId = stack[stack.length - 1] ?? null
+  const { open, onOpenChange, userId } = props
+  const [stack, setStack] = useState<DrawerStack>(() => (open && userId ? openRoot(userId) : []))
+  // Reset the stack while rendering (not in an effect) when the drawer opens or is pointed at another user, so the
+  // previous user is never painted, not even for one frame.
+  const [seen, setSeen] = useState<{ open: boolean; userId: string | null }>({ open, userId })
+  if (seen.open !== open || seen.userId !== userId) {
+    setSeen({ open, userId })
+    if (open && userId) setStack(openRoot(userId))
+  }
+  const top = current(stack)
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-2xl p-0 gap-0 overflow-y-auto">
-        {open && userId && (
+        {open && top && (
           <DrawerBody
-            key={`${userId}:${props.refreshToken}`}
+            // One body per stack entry: going Back remounts the previous user's body on its saved tab.
+            key={`${stack.length}:${top.userId}`}
             {...props}
-            userId={userId}
+            userId={top.userId}
+            tab={top.tab}
+            onTab={(t) => setStack((s) => setTab(s, t))}
             canGoBack={stack.length > 1}
-            onBack={() => setStack((s) => s.slice(0, -1))}
-            onOpenUser={(id) => setStack((s) => (s[s.length - 1] === id ? s : [...s, id]))}
+            onBack={() => setStack(back)}
+            onOpenUser={(id) => setStack((s) => push(s, id))}
           />
         )}
       </SheetContent>
@@ -78,12 +85,20 @@ export default function UserDrawer(props: UserDrawerProps) {
   )
 }
 
-function DrawerBody(props: UserDrawerProps & { userId: string; canGoBack: boolean; onBack: () => void; onOpenUser: (id: string) => void }) {
-  const { userId } = props
-  const [tab, setTab] = useState<Tab>("profile")
-  const [visited, setVisited] = useState<Set<Tab>>(() => new Set(["profile"]))
-  const [reload, setReload] = useState(0)
-  const profile = useAdminGet<DrawerProfile>(userApiPath(userId, "profile"))
+function DrawerBody(props: UserDrawerProps & {
+  userId: string
+  tab: DrawerTab
+  onTab: (tab: DrawerTab) => void
+  canGoBack: boolean
+  onBack: () => void
+  onOpenUser: (id: string) => void
+}) {
+  const { userId, tab } = props
+  const [visited, setVisited] = useState<Set<DrawerTab>>(() => new Set<DrawerTab>(["profile", tab]))
+  // Bumped by changes made from inside the drawer; added to the page's refreshToken so every tab reloads in place.
+  const [localRefresh, setLocalRefresh] = useState(0)
+  const refreshKey = props.refreshToken + localRefresh
+  const profile = useAdminGet<DrawerProfile>(userApiPath(userId, "profile"), refreshKey)
   const p = profile.data
 
   const ref = (): DrawerUserRef | null =>
@@ -91,8 +106,7 @@ function DrawerBody(props: UserDrawerProps & { userId: string; canGoBack: boolea
   const call = (fn: (u: DrawerUserRef) => void) => () => { const r = ref(); if (r) fn(r) }
 
   const changed = () => {
-    profile.reload()
-    setReload((n) => n + 1)
+    setLocalRefresh((n) => n + 1)
     props.onChanged()
   }
 
@@ -116,13 +130,14 @@ function DrawerBody(props: UserDrawerProps & { userId: string; canGoBack: boolea
       <Tabs
         value={tab}
         onValueChange={(v) => {
-          setTab(v as Tab)
-          setVisited((s) => (s.has(v as Tab) ? s : new Set(s).add(v as Tab)))
+          const t = v as DrawerTab
+          props.onTab(t)
+          setVisited((s) => (s.has(t) ? s : new Set(s).add(t)))
         }}
         className="p-4"
       >
         <TabsList className="grid w-full grid-cols-5 h-auto">
-          {TABS.map(([value, label]) => (
+          {TAB_LABELS.map(([value, label]) => (
             <TabsTrigger key={value} value={value} className="text-xs sm:text-sm px-1 whitespace-normal">{label}</TabsTrigger>
           ))}
         </TabsList>
@@ -146,26 +161,26 @@ function DrawerBody(props: UserDrawerProps & { userId: string; canGoBack: boolea
         {/* Other tabs mount the first time they are opened (lazy), then stay mounted but hidden. */}
         {visited.has("orders") && (
           <TabsContent value="orders" forceMount className="mt-4 data-[state=inactive]:hidden">
-            <OrdersTab userId={userId} />
+            <OrdersTab userId={userId} refreshKey={refreshKey} />
           </TabsContent>
         )}
         {visited.has("wallet") && (
           <TabsContent value="wallet" forceMount className="mt-4 data-[state=inactive]:hidden">
             <WalletTab
-              key={reload}
               userId={userId}
+              refreshKey={refreshKey}
               onAdjust={(balance) => { const r = ref(); if (r) props.onAdjustWallet({ ...r, walletBalance: balance }) }}
             />
           </TabsContent>
         )}
         {visited.has("shop") && (
           <TabsContent value="shop" forceMount className="mt-4 data-[state=inactive]:hidden">
-            <ShopTab userId={userId} onOpenUser={props.onOpenUser} />
+            <ShopTab userId={userId} refreshKey={refreshKey} onOpenUser={props.onOpenUser} />
           </TabsContent>
         )}
         {visited.has("history") && (
           <TabsContent value="history" forceMount className="mt-4 data-[state=inactive]:hidden">
-            <HistoryTab key={reload} userId={userId} />
+            <HistoryTab userId={userId} refreshKey={refreshKey} />
           </TabsContent>
         )}
       </Tabs>

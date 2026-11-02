@@ -10,8 +10,11 @@ import {
 import { Loader2 } from "lucide-react"
 import { adminJson } from "@/lib/admin-users/drawer-client"
 
-/** GET a drawer route; refetches when `path` changes and aborts the previous request. */
-export function useAdminGet<T>(path: string | null) {
+/**
+ * GET a drawer route; refetches when `path` or `refreshKey` changes (keeping the old data on screen while it
+ * loads) and aborts the previous request.
+ */
+export function useAdminGet<T>(path: string | null, refreshKey = 0) {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -30,7 +33,7 @@ export function useAdminGet<T>(path: string | null) {
       })
       .finally(() => { if (!ctrl.signal.aborted) setLoading(false) })
     return () => ctrl.abort()
-  }, [path, nonce])
+  }, [path, nonce, refreshKey])
 
   return { data, error, loading, reload: () => setNonce((n) => n + 1) }
 }

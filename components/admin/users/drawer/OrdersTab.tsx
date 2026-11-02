@@ -13,12 +13,13 @@ import type { OrdersResponse } from "./types"
 const selectClass = "px-2 py-1.5 border border-border rounded-md bg-background text-sm"
 
 /** The user's orders across every order table, newest first, 20 per page. */
-export function OrdersTab({ userId }: { userId: string }) {
+export function OrdersTab({ userId, refreshKey = 0 }: { userId: string; refreshKey?: number }) {
   const [page, setPage] = useState(1)
   const [source, setSource] = useState<OrderSource | "">("")
   const [status, setStatus] = useState<OrderStatus | "">("")
   const { data, error, loading, reload } = useAdminGet<OrdersResponse>(
     userApiPath(userId, "orders", { page, pageSize: DRAWER_PAGE_SIZE, source, status }),
+    refreshKey,
   )
   const allCount = data ? Object.values(data.counts).reduce<number>((a, b) => a + Number(b ?? 0), 0) : null
   const capped = (s: OrderSource) => !!data?.cappedSources.includes(s)

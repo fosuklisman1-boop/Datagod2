@@ -10,10 +10,10 @@ import { LoadState, Pager, StatusBadge, dateOnly, ghs, useAdminGet } from "./sha
 import type { Paged, ShopResponse, SubAgentRow, WithdrawalRow } from "./types"
 
 /** Shop summary, sub-agents (each opens in the drawer), parent shop, and withdrawals. */
-export function ShopTab({ userId, onOpenUser }: { userId: string; onOpenUser: (userId: string) => void }) {
+export function ShopTab({ userId, onOpenUser, refreshKey = 0 }: { userId: string; onOpenUser: (userId: string) => void; refreshKey?: number }) {
   const [subPage, setSubPage] = useState(1)
   const [wdPage, setWdPage] = useState(1)
-  const summary = useAdminGet<ShopResponse>(userApiPath(userId, "shop"))
+  const summary = useAdminGet<ShopResponse>(userApiPath(userId, "shop"), refreshKey)
   // Pages after the first come from the list-only form of the route.
   const subs = useAdminGet<{ subAgents: Paged<SubAgentRow> }>(
     subPage > 1 ? userApiPath(userId, "shop", { part: "sub_agents", page: subPage, pageSize: DRAWER_PAGE_SIZE }) : null,
