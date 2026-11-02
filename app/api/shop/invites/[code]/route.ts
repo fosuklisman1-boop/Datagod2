@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendPushToUser } from "@/lib/push-service"
-import { createSubAgentShop } from "@/lib/sub-agents/create-shop"
+import { createSubAgentShop, ensureWallet } from "@/lib/sub-agents/create-shop"
 import { shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -242,25 +242,16 @@ export async function POST(request: NextRequest, { params }: Params) {
       })
 
     if (userError) {
-      console.error("Error creating user record:", userError)
+      console.error("Error creating user record:", userError.code, userError.message)
       await supabase.auth.admin.deleteUser(newUserId)
       return NextResponse.json({ error: "Failed to create account" }, { status: 500 })
     }
 
     // Create wallet for sub-agent
-    const { error: walletError } = await supabase
-      .from("wallets")
-      .insert({
-        user_id: newUserId,
-        balance: 0,
-        total_credited: 0,
-        total_spent: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-
-    if (walletError) {
-      console.error("Error creating wallet:", walletError)
+    try {
+      await ensureWallet(supabase, newUserId)
+    } catch (walletError: any) {
+      console.error("Error creating wallet:", walletError?.code, walletError?.message)
       await supabase.auth.admin.deleteUser(newUserId)
       return NextResponse.json({ error: "Failed to create account" }, { status: 500 })
     }
@@ -281,8 +272,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         via: "invite",
         dealerRatesEnabled: await shopOwnerIsDealer(invite.inviter_shop.id),
       })
-    } catch (shopError) {
-      console.error("Error creating shop:", shopError)
+    } catch (shopError: any) {
+      console.error("Error creating shop:", shopError?.code, shopError?.message)
       // Rollback: delete the created user
       await supabase.auth.admin.deleteUser(newUserId)
       return NextResponse.json(

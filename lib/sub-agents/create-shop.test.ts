@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { createSubAgentShop, makeShopSlug } from "./create-shop"
+import { createSubAgentShop, makeShopSlug, ensureWallet } from "./create-shop"
 
 type Call = { table: string; op: string; payload?: any }
 
@@ -92,6 +92,33 @@ describe("createSubAgentShop", () => {
   it("other insert errors throw", async () => {
     const { db } = fakeDb({ insertError: { code: "XX000" } })
     await expect(createSubAgentShop(db, { ...base, via: "storefront" })).rejects.toBeTruthy()
+  })
+})
+
+function walletDb(error: any) {
+  const inserts: any[] = []
+  const db: any = {
+    from: (t: string) => ({
+      insert: async (p: any) => { inserts.push({ t, p }); return { error } },
+    }),
+  }
+  return { db, inserts }
+}
+
+describe("ensureWallet", () => {
+  it("inserts a zero-balance wallet", async () => {
+    const { db, inserts } = walletDb(null)
+    await ensureWallet(db, "u1")
+    expect(inserts[0].t).toBe("wallets")
+    expect(inserts[0].p).toMatchObject({ user_id: "u1", balance: 0, total_credited: 0, total_spent: 0 })
+  })
+  it("treats a unique violation as success (wallet exists)", async () => {
+    const { db } = walletDb({ code: "23505", message: "dup" })
+    await expect(ensureWallet(db, "u1")).resolves.toBeUndefined()
+  })
+  it("throws on other errors", async () => {
+    const { db } = walletDb({ code: "XX000", message: "boom" })
+    await expect(ensureWallet(db, "u1")).rejects.toBeTruthy()
   })
 })
 

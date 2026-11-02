@@ -16,6 +16,23 @@ export class SubAgentSlugTakenError extends Error {
   }
 }
 
+/**
+ * Creates the user's wallet. A unique violation means one already exists (e.g. made by a
+ * trigger), which counts as success; any other error throws.
+ */
+export async function ensureWallet(db: any, userId: string): Promise<void> {
+  const now = new Date().toISOString()
+  const { error } = await db.from("wallets").insert({
+    user_id: userId,
+    balance: 0,
+    total_credited: 0,
+    total_spent: 0,
+    created_at: now,
+    updated_at: now,
+  })
+  if (error && error.code !== "23505") throw error
+}
+
 /** Base name slugified plus a random 4-character suffix. */
 export function makeShopSlug(name: string): string {
   const base = (name || "")
