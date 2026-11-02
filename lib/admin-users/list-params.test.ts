@@ -33,17 +33,27 @@ const errs = (qs: string): string[] => {
 describe("parseUsersListParams", () => {
   it("defaults to everyone, newest first, page 1 of 50", () => {
     expect(ok("")).toEqual({
-      q: null, role: null, suspended: null, hasShop: null, pricingMode: null, from: null, to: null,
+      q: null, role: null, suspended: null, hasShop: null, pricingMode: null, from: null, to: null, tag: null,
       sort: "created_at", dir: "desc", page: 1, pageSize: 50,
     })
   })
 
   it("reads every filter", () => {
-    expect(ok("q=ama&role=dealer&suspended=true&hasShop=false&pricingMode=custom&from=2026-01-01&to=2026-01-31&sort=shop_balance&dir=asc&page=3&pageSize=100"))
+    expect(ok("q=ama&role=dealer&suspended=true&hasShop=false&pricingMode=custom&from=2026-01-01&to=2026-01-31&tag=VIP&sort=shop_balance&dir=asc&page=3&pageSize=100"))
       .toEqual({
         q: "ama", role: "dealer", suspended: true, hasShop: false, pricingMode: "custom",
-        from: "2026-01-01", to: "2026-01-31", sort: "shop_balance", dir: "asc", page: 3, pageSize: 100,
+        from: "2026-01-01", to: "2026-01-31", tag: "vip", sort: "shop_balance", dir: "asc", page: 3, pageSize: 100,
       })
+  })
+
+  it("tag: trimmed and lower-cased, 'all' or empty is no filter, anything else outside [a-z0-9-]{1,32} is an error", () => {
+    expect(ok("tag=%20Fraud-Watch%20").tag).toBe("fraud-watch")
+    expect(ok("tag=all").tag).toBeNull()
+    expect(ok("tag=").tag).toBeNull()
+    expect(errs("tag=bad%20tag")).toEqual(["tag must be 1 to 32 characters: a-z, 0-9 and -"])
+    expect(errs(`tag=${"a".repeat(33)}`)).toHaveLength(1)
+    expect(readListParamsFromUrl(new URLSearchParams("tag=no_underscores&role=dealer"))).toMatchObject({ tag: null, role: "dealer" })
+    expect(listParamsToSearchParams({ tag: "vip" }).toString()).toBe("tag=vip")
   })
 
   it("treats empty and 'all' as no filter", () => {
@@ -164,8 +174,9 @@ describe("toRpcArgs", () => {
       .toEqual({
         p_search: "ama", p_role: "dealer", p_suspended: false, p_has_shop: true, p_pricing_mode: "custom",
         p_created_from: "2026-01-01T00:00:00Z", p_created_to: "2026-02-01T00:00:00Z",
-        p_sort: "email", p_dir: "asc", p_limit: 20, p_offset: 40,
+        p_sort: "email", p_dir: "asc", p_limit: 20, p_offset: 40, p_tag: null,
       })
+    expect(toRpcArgs(ok("tag=vip")).p_tag).toBe("vip")
   })
 
   it("passes nulls for absent filters and clamps paging defensively", () => {
@@ -211,8 +222,9 @@ describe("mapRowToUser", () => {
       id: "u1", email: "a@x.com", phoneNumber: "0244123456", created_at: "2026-01-01T00:00:00+00:00",
       shop: { id: "s1", user_id: "u1", shop_name: "Ama Data", created_at: "2026-01-02T00:00:00+00:00" },
       walletBalance: 10.5, shopBalance: 2.25, balance: 12.75, role: "dealer", customerCount: 3, subAgentCount: 1,
-      is_suspended: false, pricing_mode: "custom", first_name: "Ama", last_name: "B", last_sign_in_at: null,
+      is_suspended: false, pricing_mode: "custom", first_name: "Ama", last_name: "B", last_sign_in_at: null, tags: [],
     })
+    expect(mapRowToUser({ ...row, tags: ["fraud-watch", "vip", 3] }).tags).toEqual(["fraud-watch", "vip"])
   })
 
   it("no shop: shop null, shop balance and counts 0, balance = wallet", () => {

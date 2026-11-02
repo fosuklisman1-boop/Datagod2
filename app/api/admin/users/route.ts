@@ -8,6 +8,7 @@ import {
   toRpcArgs,
   type UsersListResponse,
 } from "@/lib/admin-users/list-params"
+import { loadUserSignals } from "@/lib/admin-users/signals-server"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -15,10 +16,15 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 /**
  * GET /api/admin/users
  *
- * Query: q, role, suspended, hasShop, pricingMode, from, to (YYYY-MM-DD, inclusive),
+ * Query: q, role, suspended, hasShop, pricingMode, from, to (YYYY-MM-DD, inclusive), tag,
  *        sort (created_at|balance|email|shop_balance|last_sign_in_at), dir (asc|desc),
  *        page (1-based), pageSize (1..200, default 50).
- * 200: { users, total, page, pageSize }   400: { error, details }
+ * 200: { users, total, page, pageSize, signalsUnavailable? }   400: { error, details }
+ *
+ * Each user carries its admin `tags` and, for the users on this page only, `signals` (last order, phone
+ * verified / blacklisted, risk flags: lib/admin-users/risk-signals.ts) from public.admin_user_signals (0149)
+ * and the blacklist, fetched in parallel after the page. If that second step fails the page is still returned,
+ * with signals null and signalsUnavailable true.
  *
  * One call to public.admin_list_users (migrations/0145) does the filtering,
  * sorting, paging and joins in the database. Callers that need every match page
@@ -49,8 +55,21 @@ export async function GET(req: NextRequest) {
     }
 
     const { total, rows } = parseRpcResult(data)
+    const users = rows.map(mapRowToUser)
+    let signalsUnavailable = false
+    if (users.length) {
+      try {
+        const signals = await loadUserSignals(adminClient, users.map((u) => ({ id: u.id, phone: u.phoneNumber || null })))
+        for (const u of users) u.signals = signals.get(u.id) ?? null
+      } catch (e: any) {
+        console.error("[ADMIN-USERS] signals failed:", e?.message ?? e)
+        signalsUnavailable = true
+        for (const u of users) u.signals = null
+      }
+    }
     const body: UsersListResponse = {
-      users: rows.map(mapRowToUser),
+      users,
+      ...(signalsUnavailable ? { signalsUnavailable } : {}),
       total,
       page: params.page,
       pageSize: params.pageSize,

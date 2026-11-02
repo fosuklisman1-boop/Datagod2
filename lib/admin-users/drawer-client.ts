@@ -11,7 +11,7 @@ export class AdminApiError extends Error {
 /** JSON request with the admin's access token; throws AdminApiError with the route's error message. */
 export async function adminJson<T>(
   path: string,
-  init: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal } = {},
+  init: { method?: "GET" | "POST" | "PATCH" | "DELETE"; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) throw new AdminApiError("Session expired. Sign in again.", 401)

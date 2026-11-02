@@ -67,8 +67,11 @@ describe("toExportRpcArgs", () => {
     expect(toExportRpcArgs(r.filters, { createdAt: "-infinity", id: ID }, 2000)).toEqual({
       p_search: "ama", p_role: null, p_suspended: false, p_has_shop: null, p_pricing_mode: null,
       p_created_from: "2026-01-01T00:00:00Z", p_created_to: "2026-02-01T00:00:00Z",
-      p_after_created_at: "-infinity", p_after_id: ID, p_limit: 2000,
+      p_after_created_at: "-infinity", p_after_id: ID, p_limit: 2000, p_tag: null,
     })
+    const t = parseExportParams(new URLSearchParams("tag=VIP"))
+    if (!t.ok) throw new Error("bad")
+    expect(toExportRpcArgs(t.filters, null, 10).p_tag).toBe("vip")
     expect(toExportRpcArgs(r.filters, null, 5000)).toMatchObject({ p_after_created_at: null, p_after_id: null })
   })
 })

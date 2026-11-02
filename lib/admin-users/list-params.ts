@@ -6,6 +6,9 @@
 // sort/dir/pricing mode, clamps limit/offset and escapes the search term, so this
 // layer is the friendly front door, not the only guard.
 
+import { normaliseTag } from "./notes-tags"
+import type { UserSignalsView } from "./risk-signals"
+
 export const USER_ROLES = ["user", "dealer", "sub_agent", "admin"] as const
 export type UserRole = (typeof USER_ROLES)[number]
 
@@ -28,6 +31,8 @@ export interface UsersListFilters {
   /** Signup date range, YYYY-MM-DD, both ends inclusive (calendar days, GMT = Ghana time). */
   from: string | null
   to: string | null
+  /** Only users carrying this admin tag (lib/admin-users/notes-tags.ts rules). */
+  tag: string | null
   sort: UserSort
   dir: SortDir
 }
@@ -45,6 +50,7 @@ export const DEFAULT_FILTERS: UsersListFilters = {
   pricingMode: null,
   from: null,
   to: null,
+  tag: null,
   sort: "created_at",
   dir: "desc",
 }
@@ -135,6 +141,13 @@ export function parseUsersListParams(sp: URLSearchParams): ParseResult {
   if (to && !isIsoDate(to)) errors.push("to must be a date (YYYY-MM-DD)")
   if (from && to && isIsoDate(from) && isIsoDate(to) && from > to) errors.push("from must not be after to")
 
+  let tag: string | null = null
+  const tagRaw = get("tag").trim()
+  if (tagRaw && tagRaw.toLowerCase() !== "all") {
+    tag = normaliseTag(tagRaw)
+    if (!tag) errors.push("tag must be 1 to 32 characters: a-z, 0-9 and -")
+  }
+
   let sort: UserSort = DEFAULT_FILTERS.sort
   const sortRaw = get("sort").trim().toLowerCase()
   if (sortRaw) {
@@ -174,6 +187,7 @@ export function parseUsersListParams(sp: URLSearchParams): ParseResult {
       pricingMode,
       from,
       to,
+      tag,
       sort,
       dir,
       page,
@@ -187,7 +201,7 @@ export function parseUsersListParams(sp: URLSearchParams): ParseResult {
  * instead of failing, so a hand-edited or stale link still opens the page.
  */
 export function readListParamsFromUrl(sp: URLSearchParams): UsersListParams {
-  const keys = ["q", "role", "suspended", "hasShop", "pricingMode", "from", "to", "sort", "dir", "page", "pageSize"]
+  const keys = ["q", "role", "suspended", "hasShop", "pricingMode", "from", "to", "tag", "sort", "dir", "page", "pageSize"]
   const clean = new URLSearchParams()
   for (const k of keys) {
     const v = sp.get(k)
@@ -219,6 +233,7 @@ export function listParamsToSearchParams(p: Partial<UsersListParams>): URLSearch
   if (p.pricingMode) sp.set("pricingMode", p.pricingMode)
   if (p.from) sp.set("from", p.from)
   if (p.to) sp.set("to", p.to)
+  if (p.tag) sp.set("tag", p.tag)
   if (p.sort && p.sort !== DEFAULT_FILTERS.sort) sp.set("sort", p.sort)
   if (p.dir && p.dir !== DEFAULT_FILTERS.dir) sp.set("dir", p.dir)
   if (p.page && p.page !== 1) sp.set("page", String(p.page))
@@ -245,6 +260,7 @@ export interface AdminListUsersArgs {
   p_dir: SortDir
   p_limit: number
   p_offset: number
+  p_tag: string | null
 }
 
 /**
@@ -267,6 +283,7 @@ export function toRpcArgs(p: UsersListParams): AdminListUsersArgs {
     p_dir: p.dir,
     p_limit: pageSize,
     p_offset: (page - 1) * pageSize,
+    p_tag: p.tag ?? null,
   }
 }
 
@@ -289,6 +306,8 @@ export interface AdminListUsersRow {
   shop_balance: number | string | null
   customer_count: number | string | null
   sub_agent_count: number | string | null
+  /** The user's admin tags, A-Z (0145 + 0149). */
+  tags?: unknown
 }
 
 /**
@@ -314,6 +333,10 @@ export interface AdminUserListItem {
   first_name: string | null
   last_name: string | null
   last_sign_in_at: string | null
+  /** Admin tags, A-Z. */
+  tags: string[]
+  /** Activity and risk signals; only on GET /api/admin/users (the current page), never in the export. */
+  signals?: UserSignalsView | null
 }
 
 const num = (v: unknown): number => {
@@ -343,6 +366,7 @@ export function mapRowToUser(r: AdminListUsersRow): AdminUserListItem {
     first_name: r.first_name ?? null,
     last_name: r.last_name ?? null,
     last_sign_in_at: r.last_sign_in_at ?? null,
+    tags: Array.isArray(r.tags) ? r.tags.filter((t): t is string => typeof t === "string") : [],
   }
 }
 
@@ -351,6 +375,8 @@ export interface UsersListResponse {
   total: number
   page: number
   pageSize: number
+  /** The page loaded but its signals could not be computed (each user's signals is null). */
+  signalsUnavailable?: boolean
 }
 
 /** GET /api/admin/users/export response. */

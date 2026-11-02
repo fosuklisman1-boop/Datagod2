@@ -77,9 +77,9 @@ export function parseExportParams(sp: URLSearchParams): ExportParseResult {
   }
 
   if (errors.length || !parsed.ok) return { ok: false, errors }
-  const { q, role, suspended, hasShop, pricingMode, sort, dir } = parsed.params
+  const { q, role, suspended, hasShop, pricingMode, tag, sort, dir } = parsed.params
   const range = normaliseDateRange({ from: parsed.params.from, to: parsed.params.to })
-  return { ok: true, filters: { q, role, suspended, hasShop, pricingMode, from: range.from, to: range.to, sort, dir }, cursor, limit }
+  return { ok: true, filters: { q, role, suspended, hasShop, pricingMode, from: range.from, to: range.to, tag, sort, dir }, cursor, limit }
 }
 
 export interface AdminExportUsersArgs {
@@ -93,6 +93,7 @@ export interface AdminExportUsersArgs {
   p_after_created_at: string | null
   p_after_id: string | null
   p_limit: number
+  p_tag: string | null
 }
 
 export function toExportRpcArgs(f: UsersListFilters, cursor: ExportCursor | null, limit: number): AdminExportUsersArgs {
@@ -107,6 +108,7 @@ export function toExportRpcArgs(f: UsersListFilters, cursor: ExportCursor | null
     p_after_created_at: cursor?.createdAt ?? null,
     p_after_id: cursor?.id ?? null,
     p_limit: Math.min(Math.max(Math.trunc(limit) || EXPORT_CHUNK_SIZE, 1), EXPORT_CHUNK_SIZE),
+    p_tag: f.tag ?? null,
   }
 }
 

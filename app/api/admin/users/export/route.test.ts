@@ -55,7 +55,7 @@ describe("GET /api/admin/users/export", () => {
     expect(res.status).toBe(200)
     expect(h.state.rpcCalls).toEqual([{ name: "admin_export_users", args: {
       p_search: null, p_role: "dealer", p_suspended: null, p_has_shop: true, p_pricing_mode: null,
-      p_created_from: null, p_created_to: null, p_after_created_at: null, p_after_id: null, p_limit: 5000,
+      p_created_from: null, p_created_to: null, p_after_created_at: null, p_after_id: null, p_limit: 5000, p_tag: null,
     } }])
     const body = await res.json()
     expect(body.users.map((u: any) => u.id)).toEqual(["a"])
