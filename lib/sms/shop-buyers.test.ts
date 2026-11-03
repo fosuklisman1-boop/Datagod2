@@ -37,8 +37,15 @@ describe("renderShopTokens", () => {
   it("never interprets $ patterns in a shop name", () => {
     expect(renderShopTokens("[ShopName]!", { shopName: "A$&B$`", shopLink: "x", phone: "y" })).toBe("A$&B$`!")
   })
+  it("fills [ShopCode], and leaves it empty when the shop has no active code", () => {
+    const msg = "Dial *920*44# then enter [ShopCode] to buy from [ShopName]"
+    expect(renderShopTokens(msg, { shopName: "Kofi Data", shopLink: "x", phone: "y", shopCode: "1234" }))
+      .toBe("Dial *920*44# then enter 1234 to buy from Kofi Data")
+    expect(renderShopTokens("[ShopCode]!", { shopName: "a", shopLink: "b", phone: "c", shopCode: null })).toBe("!")
+  })
   it("hasShopTokens", () => {
     expect(hasShopTokens("visit [ShopLink]")).toBe(true)
+    expect(hasShopTokens("enter [ShopCode]")).toBe(true)
     expect(hasShopTokens("plain")).toBe(false)
   })
 })
@@ -58,8 +65,13 @@ describe("parseSinceDays / sinceIso", () => {
   })
 })
 
-// Fake client: rpc(...).range(from,to) slices a canned result; from("user_shops") answers .in().
-function fakeClient(rpcRows: Record<string, unknown[]>, shops: Array<{ id: string; shop_name: string; subdomain: string }>) {
+// Fake client: rpc(...).range(from,to) slices a canned result; from("user_shops" | "ussd_shop_codes") answers .in().
+type CodeRow = { shop_id: string; code: string; status: string }
+function fakeClient(
+  rpcRows: Record<string, unknown[]>,
+  shops: Array<{ id: string; shop_name: string; subdomain: string }>,
+  codes: CodeRow[] = [],
+) {
   const rpcCalls: Array<{ fn: string; args: unknown; from: number; to: number }> = []
   return {
     rpcCalls,
@@ -69,9 +81,12 @@ function fakeClient(rpcRows: Record<string, unknown[]>, shops: Array<{ id: strin
         return { data: (rpcRows[fn] ?? []).slice(from, to + 1), error: null }
       },
     }),
-    from: () => ({
+    from: (table: string) => ({
       select: () => ({
-        in: async (_c: string, ids: string[]) => ({ data: shops.filter((s) => ids.includes(s.id)), error: null }),
+        in: async (_c: string, ids: string[]) => ({
+          data: table === "ussd_shop_codes" ? codes.filter((k) => ids.includes(k.shop_id)) : shops.filter((s) => ids.includes(s.id)),
+          error: null,
+        }),
       }),
     }),
   }
@@ -89,9 +104,19 @@ describe("readers", () => {
     const out = await loadShopBuyerAudience(c as never, { shopIds: ["a", "b"], sinceDays: 90 })
     expect(out).toHaveLength(2345)
     expect(c.rpcCalls.map((x) => x.from)).toEqual([0, 1000, 2000])
-    expect(out[1]).toEqual({ phone: "0240000001", shop: { id: "a", name: "Alpha", subdomain: "alpha", link: "https://alpha.datagod.store" } })
+    expect(out[1]).toEqual({ phone: "0240000001", shop: { id: "a", name: "Alpha", subdomain: "alpha", link: "https://alpha.datagod.store", code: null } })
     expect(c.rpcCalls[0].args).toMatchObject({ p_shop_ids: ["a", "b"] })
     expect((c.rpcCalls[0].args as { p_since: string }).p_since).toMatch(/^\d{4}-/)
+  })
+
+  it("attaches each shop's USSD code only while it is active", async () => {
+    const rows = [{ phone_key: "241111111", shop_id: "a" }, { phone_key: "242222222", shop_id: "b" }]
+    const c = fakeClient({ shop_buyer_audience: rows }, shops, [
+      { shop_id: "a", code: "1234", status: "active" },
+      { shop_id: "b", code: "5678", status: "suspended" },
+    ])
+    const out = await loadShopBuyerAudience(c as never, { shopIds: "all", sinceDays: null })
+    expect(out.map((r) => r.shop.code)).toEqual(["1234", null])
   })
 
   it('"all" shops sends a null filter', async () => {

@@ -4,7 +4,7 @@
 // shop_buyer_audience / shop_buyer_counts functions from migration 0145.
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-export const SHOP_TOKENS = ["[ShopName]", "[ShopLink]"] as const
+export const SHOP_TOKENS = ["[ShopName]", "[ShopLink]", "[ShopCode]"] as const
 
 /** Last 9 digits of a Ghana mobile (0XXXXXXXXX / 233… / +233…), or null when it isn't one. */
 export function phoneKey(raw: string | null | undefined): string | null {
@@ -26,13 +26,18 @@ export function hasShopTokens(message: string): boolean {
 }
 
 /**
- * Fill [ShopName], [ShopLink] and [Phone]. Function replacers, as in personalize(): a string
- * replacement would interpret $&, $` etc. inside a shop name.
+ * Fill [ShopName], [ShopLink], [ShopCode] and [Phone]. Function replacers, as in personalize(): a
+ * string replacement would interpret $&, $` etc. inside a shop name. A shop with no active USSD
+ * code renders [ShopCode] empty; the broadcast route skips those buyers when the token is used.
  */
-export function renderShopTokens(message: string, v: { shopName: string; shopLink: string; phone: string }): string {
+export function renderShopTokens(
+  message: string,
+  v: { shopName: string; shopLink: string; phone: string; shopCode?: string | null },
+): string {
   return message
     .replaceAll("[ShopName]", () => v.shopName)
     .replaceAll("[ShopLink]", () => v.shopLink)
+    .replaceAll("[ShopCode]", () => v.shopCode ?? "")
     .replaceAll("[Phone]", () => v.phone)
 }
 
@@ -55,6 +60,8 @@ export interface ShopInfo {
   name: string
   subdomain: string
   link: string
+  /** The shop's USSD shop code, only while it is active (null otherwise). */
+  code: string | null
 }
 
 /** PostgREST caps every response at 1000 rows: page set-returning RPCs with .range(). */
@@ -71,18 +78,31 @@ async function pagedRpc<T>(client: SupabaseClient, fn: string, args: Record<stri
   }
 }
 
-/** Shop names + subdomain links, read in chunks to keep the .in() URL short. */
+/** Shop names, subdomain links and active USSD codes, read in chunks to keep the .in() URL short. */
 export async function loadShops(client: SupabaseClient, ids: string[]): Promise<Map<string, ShopInfo>> {
   const out = new Map<string, ShopInfo>()
   const unique = [...new Set(ids)]
   for (let i = 0; i < unique.length; i += 200) {
-    const { data, error } = await client
-      .from("user_shops")
-      .select("id, shop_name, subdomain")
-      .in("id", unique.slice(i, i + 200))
-    if (error) throw error
-    for (const s of (data ?? []) as Array<{ id: string; shop_name: string | null; subdomain: string }>) {
-      out.set(s.id, { id: s.id, name: s.shop_name || "Shop", subdomain: s.subdomain, link: shopSubdomainLink(s.subdomain) })
+    const chunk = unique.slice(i, i + 200)
+    const [shopsRes, codesRes] = await Promise.all([
+      client.from("user_shops").select("id, shop_name, subdomain").in("id", chunk),
+      client.from("ussd_shop_codes").select("shop_id, code, status").in("shop_id", chunk),
+    ])
+    if (shopsRes.error) throw shopsRes.error
+    if (codesRes.error) throw codesRes.error
+    // Only an active code is advertised, as on the storefront: anything else fails on entry.
+    const codes = new Map<string, string>()
+    for (const k of (codesRes.data ?? []) as Array<{ shop_id: string; code: string; status: string }>) {
+      if (k.status === "active") codes.set(k.shop_id, k.code)
+    }
+    for (const s of (shopsRes.data ?? []) as Array<{ id: string; shop_name: string | null; subdomain: string }>) {
+      out.set(s.id, {
+        id: s.id,
+        name: s.shop_name || "Shop",
+        subdomain: s.subdomain,
+        link: shopSubdomainLink(s.subdomain),
+        code: codes.get(s.id) ?? null,
+      })
     }
   }
   return out

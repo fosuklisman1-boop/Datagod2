@@ -63,6 +63,35 @@ describe("POST /api/admin/broadcast — shop_buyers", () => {
     expect(logInsert.mock.calls[0][0]).toMatchObject({ target_type: "shop_buyers", target_group: ["shop_buyers"] })
   })
 
+  it("fills [ShopCode] and skips buyers whose shop has no active code", async () => {
+    loadShopBuyerAudience.mockResolvedValueOnce([
+      { phone: "0241111111", shop: { id: SHOP_A, name: "Kofi Data", subdomain: "kofidata", link: "https://kofidata.datagod.store", code: "1234" } },
+      { phone: "0552222222", shop: { id: "b", name: "No Code", subdomain: "nocode", link: "https://nocode.datagod.store", code: null } },
+    ])
+    const res = await init({ message: "Dial *920*44# and enter [ShopCode] for [ShopName]" })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ total: 1 })
+    const opts = enqueueRecipients.mock.calls[0][2] as { specificUsers: Array<{ phone: string; renderedMessage: string }> }
+    expect(opts.specificUsers).toEqual([{ phone: "0241111111", renderedMessage: "Dial *920*44# and enter 1234 for Kofi Data" }])
+  })
+
+  it("keeps code-less buyers when the message doesn't use [ShopCode]", async () => {
+    loadShopBuyerAudience.mockResolvedValueOnce([
+      { phone: "0552222222", shop: { id: "b", name: "No Code", subdomain: "nocode", link: "https://nocode.datagod.store", code: null } },
+    ])
+    expect((await init()).status).toBe(200)
+  })
+
+  it("rejects a [ShopCode] message when no selected shop has an active code", async () => {
+    loadShopBuyerAudience.mockResolvedValueOnce([
+      { phone: "0552222222", shop: { id: "b", name: "No Code", subdomain: "nocode", link: "https://nocode.datagod.store", code: null } },
+    ])
+    const res = await init({ message: "Enter [ShopCode]" })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/shop code/i)
+    expect(enqueueRecipients).not.toHaveBeenCalled()
+  })
+
   it("is SMS only", async () => {
     const res = await init({ channels: ["sms", "email"], subject: "x" })
     expect(res.status).toBe(400)

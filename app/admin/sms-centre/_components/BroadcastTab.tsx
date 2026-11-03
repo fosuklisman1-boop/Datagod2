@@ -108,7 +108,7 @@ export default function BroadcastTab() {
     () =>
       calculateSegments(
         isShopBuyers && shopSel
-          ? renderShopTokens(message, { shopName: shopSel.longestName, shopLink: shopSel.longestLink, phone: "0241234567" })
+          ? renderShopTokens(message, { shopName: shopSel.longestName, shopLink: shopSel.longestLink, shopCode: shopSel.longestCode, phone: "0241234567" })
           : message
       ),
     [message, isShopBuyers, shopSel]
@@ -121,7 +121,7 @@ export default function BroadcastTab() {
   // recipient actually receives.
   const sample = useMemo(() => {
     if (isShopBuyers && shopSel?.sampleShop && (hasShopTokens(message) || message.includes("[Phone]"))) {
-      return renderShopTokens(message, { shopName: shopSel.sampleShop.name, shopLink: shopSel.sampleShop.link, phone: "0241234567" })
+      return renderShopTokens(message, { shopName: shopSel.sampleShop.name, shopLink: shopSel.sampleShop.link, shopCode: shopSel.sampleShop.code, phone: "0241234567" })
     }
     if (audienceType === "group" && mergeFields && hasMergeTokens(message)) {
       return personalize(message, { firstName: "Ama", lastName: "Mensah", phone: "0241234567" })
@@ -445,7 +445,7 @@ export default function BroadcastTab() {
                 <Label htmlFor="message">Message body</Label>
                 {isShopBuyers && (
                   <div className="flex gap-1">
-                    {["[ShopName]", "[ShopLink]"].map((t) => (
+                    {["[ShopName]", "[ShopLink]", "[ShopCode]"].map((t) => (
                       <Button key={t} type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertToken(t)}>
                         + {t}
                       </Button>
@@ -487,7 +487,12 @@ export default function BroadcastTab() {
               <p className="text-xs text-muted-foreground">Sample personalisation shown (Ama Mensah · 0241234567).</p>
             )}
             {isShopBuyers && shopSel?.sampleShop && hasShopTokens(message) && (
-              <p className="text-xs text-muted-foreground">Shown for {shopSel.sampleShop.name}. Each buyer gets their own shop&apos;s name and link.</p>
+              <p className="text-xs text-muted-foreground">Shown for {shopSel.sampleShop.name}. Each buyer gets their own shop&apos;s name, link and code.</p>
+            )}
+            {isShopBuyers && shopSel && message.includes("[ShopCode]") && shopSel.buyersWithoutCode > 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {shopSel.buyersWithoutCode.toLocaleString("en-US")} buyers will be skipped: their shop has no active shop code.
+              </p>
             )}
           </CardContent>
         </Card>
@@ -497,7 +502,7 @@ export default function BroadcastTab() {
             <CardTitle className="text-sm">Estimate</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1 text-sm">
-            <Row label={isShopBuyers ? "Characters (longest link)" : "Characters"} value={String(isShopBuyers && shopSel ? renderShopTokens(message, { shopName: shopSel.longestName, shopLink: shopSel.longestLink, phone: "0241234567" }).length : message.length)} />
+            <Row label={isShopBuyers ? "Characters (longest link)" : "Characters"} value={String(isShopBuyers && shopSel ? renderShopTokens(message, { shopName: shopSel.longestName, shopLink: shopSel.longestLink, shopCode: shopSel.longestCode, phone: "0241234567" }).length : message.length)} />
             <Row label="Encoding" value={seg.encoding.toUpperCase()} />
             <Row label="Segments / recipient" value={String(displaySegments)} />
             <Row
