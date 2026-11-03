@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { finalizeJoinIntent } from "@/lib/sub-agents/join"
 
 /**
  * Decide where to send a user after an auth session has just been established
@@ -7,6 +8,7 @@ import { createClient } from "@supabase/supabase-js"
  * Shared by `app/auth/callback/route.ts` (OAuth / PKCE `?code=`) and
  * `app/auth/confirm/route.ts` (email link `?token_hash=`) so both behave
  * identically:
+ *  - storefront sub-agent join intent → finalizeJoinIntent's target (shop set-up, or closed)
  *  - profile already has a phone  → go to `next` (onboarded)
  *  - no phone but user_metadata carries first/last/phone (email-confirm signup)
  *    → finalize via the service-role `/api/auth/signup` (re-checks phone OTP,
@@ -29,6 +31,16 @@ export async function resolvePostAuthRedirect(opts: {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
+
+  // Storefront sub-agent join first: its intent is finalized here, never through /api/auth/signup, whose 30-minute
+  // phone-code window may have passed. A consumed intent (second click) returns the same target.
+  try {
+    const joined = await finalizeJoinIntent(supabaseAdmin, userId, { email })
+    if (joined) return joined.target
+  } catch (e: any) {
+    console.error("[AUTH] join finalize failed:", e?.code ?? "", e?.message ?? "")
+    return "/dashboard?join=error"
+  }
 
   const { data: profile } = await supabaseAdmin
     .from("users")
