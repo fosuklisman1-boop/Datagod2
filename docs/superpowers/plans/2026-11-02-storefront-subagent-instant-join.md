@@ -206,7 +206,9 @@ New joiners verify their phone on the join page through the existing `/api/auth/
 ### Task 11: Go-live checks
 
 - [ ] **Step 1: Run** `npm run test:run`, `npx tsc --noEmit` and a placeholder-env `next build`. Expected: only the 10 failures recorded at baseline (9 order-health plus the `0142 place_api_v2_order` drift test).
-- [ ] **Step 2: With the user's OK,** run the migration's dry run through the Management API, apply it, and verify the columns exist.
+- [ ] **Step 2: With the user's OK,** query live `pg_proc` for functions mentioning `sub_agent` and confirm none grants a dealer rate by role. Then run the migration's dry run through the Management API, apply it, and verify the columns exist.
+- [ ] **Step 2c: Read-only, report to the user before merging:** count shops with `is_active=false` that took orders in the last 30 days, on any channel. Task 8 gated 8 public sell routes that previously ignored `is_active`, so those shops would stop selling.
+- [ ] **Step 2b: With the user's OK,** update the Supabase signup confirmation email template so its `/auth/confirm` link ends with `&rt={{ .RedirectTo }}`. The exact link is in the Task 6 report. Without it, the join nonce never arrives and joins fall back to the normal signup path. Also confirm the Supabase redirect allow-list accepts the join redirect URL.
 - [ ] **Step 2a: Fresh reviewer, then merge dark, with the user's OK.** Confirm with the switch off that storefronts still show the request form and `/join/shop/<handle>` shows the closed message.
 - [ ] **Step 3: Supervised test with the user, on one real shop, with the switch on:** a new email through to an open shop, a USSD dial on both menus, and a real low-value order. A logged-in customer upgrade. A no-catalog owner receives SMS, email and push. A closed shop refuses an order on every channel. A joiner gets customer rates on airtime and bills. Then switch off until the user decides.
 - [ ] **Step 4: Update memory** with a project note for this feature and any production findings from Task 1.
