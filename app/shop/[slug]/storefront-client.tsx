@@ -120,9 +120,12 @@ interface ShopStorefrontProps {
   // component's own client-side fetch to complete first.
   initialLogoUrl: string | null
   initialShopName: string | null
+  // Server-computed (getShopPublicState) for a shop visitors can't load: "setting_up" is an unpriced storefront
+  // sub-agent shop, shown as "isn't open yet" instead of "not found".
+  publicState?: "open" | "setting_up" | "missing"
 }
 
-export default function ShopStorefront({ initialLogoUrl, initialShopName }: ShopStorefrontProps) {
+export default function ShopStorefront({ initialLogoUrl, initialShopName, publicState }: ShopStorefrontProps) {
   const params = useParams()
   const router = useRouter()
   const shopSlug = params.slug as string
@@ -420,7 +423,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         } catch {
           /* fall through to the normal not-found message */
         }
-        toast.error("Shop not found")
+        if (publicState !== "setting_up") toast.error("Shop not found")
         return
       }
 
@@ -1023,6 +1026,22 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
             className="w-16 h-16 rounded-lg object-cover"
           />
           <p className="text-muted-foreground">{initialShopName || "Loading store..."}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!shop && publicState === "setting_up") {
+    return (
+      <div className="min-h-screen bg-card p-4">
+        <div className="max-w-2xl lg:max-w-3xl mx-auto pt-20 lg:pt-32">
+          <Alert className="border-primary/30 bg-primary/5">
+            <AlertCircle className="h-4 w-4 text-primary" />
+            <AlertDescription className="text-foreground">
+              <span className="font-semibold">This shop isn&apos;t open yet.</span>{" "}
+              The owner is still setting it up. Please check back soon.
+            </AlertDescription>
+          </Alert>
         </div>
       </div>
     )

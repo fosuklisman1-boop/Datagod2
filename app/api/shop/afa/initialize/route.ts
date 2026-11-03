@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
       .from("user_shops")
       .select("id, afa_price")
       .or(shopHandleOrFilter(shopSlug.trim()))
+      .eq("is_active", true)
       .single()
     if (shopErr || !shopRow) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })

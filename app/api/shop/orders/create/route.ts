@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
         .from("user_shops")
         .select("id")
         .or(shopHandleOrFilter(shop_slug))
+        .eq("is_active", true)
         .single()
       if (shopErr || !shopRow) {
         console.warn(`[SHOP-ORDER] ❌ Shop not found for slug=${shop_slug}`)
@@ -298,13 +299,20 @@ export async function POST(request: NextRequest) {
     // Check if this is a sub-agent shop
     const { data: shopData, error: shopError } = await supabase
       .from("user_shops")
-      .select("parent_shop_id, user_id, is_blocked")
+      .select("parent_shop_id, user_id, is_blocked, is_active")
       .eq("id", shop_id)
       .single()
 
     if (shopError) {
       console.error("[SHOP-ORDER] Error fetching shop:", shopError)
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+
+    // A closed shop (an unpriced storefront joiner, or a shop awaiting approval) takes no orders on any path,
+    // including a dashboard stock purchase that arrives with shop_id and no slug.
+    if (shopData?.is_active !== true) {
+      console.warn("[SHOP-ORDER] ⛔ Order refused: shop is not open", shop_id)
+      return NextResponse.json({ error: "This shop isn't open yet." }, { status: 404 })
     }
 
     if (shopData?.is_blocked) {

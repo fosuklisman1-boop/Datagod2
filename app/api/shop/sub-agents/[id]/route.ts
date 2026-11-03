@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { subAgentRemovalUpdate } from "@/lib/sub-agents/open-shop"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// DELETE: remove a sub-agent from the caller's network. Only clears the
-// sub-agent's own parent_shop_id/tier_level -- never touches is_active or
-// is_blocked, which stay admin-only (/api/shop/manage explicitly blocks a
-// shop from setting those on itself; this route is the parent acting on a
-// DIFFERENT shop, scoped strictly to the parent/sub-agent relationship).
+// DELETE: remove a sub-agent from the caller's network, scoped strictly to the
+// parent/sub-agent relationship (this route is the parent acting on a
+// DIFFERENT shop). An invited sub-agent only loses parent_shop_id/tier_level,
+// as before. A storefront joiner skipped admin approval, so it is also closed
+// (is_active=false), loses joined_via and dealer rates, and lands in the normal
+// admin approval queue instead of becoming an unreviewed main shop (see
+// subAgentRemovalUpdate). is_blocked is never touched here: it stays admin-only.
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
@@ -34,7 +37,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
     const { data: subAgent, error: subAgentError } = await supabase
       .from("user_shops")
-      .select("id, shop_name, parent_shop_id")
+      .select("id, shop_name, parent_shop_id, joined_via")
       .eq("id", id)
       .single()
     if (subAgentError || !subAgent) {
@@ -46,8 +49,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
     const { error: updateError } = await supabase
       .from("user_shops")
-      .update({ parent_shop_id: null, tier_level: 1 })
+      .update(subAgentRemovalUpdate(subAgent))
       .eq("id", id)
+      .eq("parent_shop_id", shop.id)
     if (updateError) {
       console.error("[SUB-AGENTS] Failed to remove sub-agent:", updateError.message)
       return NextResponse.json({ error: "Could not remove this sub-agent. Please try again." }, { status: 500 })

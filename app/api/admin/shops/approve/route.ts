@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { notifyUserOfOutcome } from "@/lib/admin-actions"
+import { approveShop } from "@/lib/sub-agents/open-shop"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -21,32 +22,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update shop to active (only if not already active, so a double click
-    // cannot send the owner a second approval message)
-    const { data, error } = await supabase
-      .from("user_shops")
-      .update({
-        is_active: true,
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", shopId)
-      .eq("is_active", false)
-      .select("*, user_id")
+    // Activate only an inactive shop that is not a closed storefront joiner (conditional update: a double click
+    // cannot send the owner a second approval message, and a joiner never opens without prices).
+    const result = await approveShop(supabase, shopId)
 
-    if (error) {
-      console.error("Error approving shop:", error)
+    if (result.status === "opens_when_priced") {
       return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
+        { error: "This storefront sub-agent's shop opens when they set their prices. It doesn't need approval." },
+        { status: 409 }
       )
     }
 
-    if (!data || data.length === 0) {
+    if (result.status === "already_approved") {
       return NextResponse.json(
         { error: "Shop already approved" },
         { status: 409 }
       )
     }
+
+    const data = [result.shop]
 
     console.log(`Shop ${shopId} approved by admin`)
 

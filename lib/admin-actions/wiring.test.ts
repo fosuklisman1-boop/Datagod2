@@ -67,7 +67,9 @@ describe("shop approvals wiring", () => {
     const a = read("app/api/admin/shops/approve/route.ts")
     expect(a).toContain('notifyUserOfOutcome("shop", "approved"')
     expect(a).not.toContain("type: 'shop_approved'")
-    expect(a).toContain('.eq("is_active", false)')
+    // The conditional activation (no double notify) lives in approveShop, tested in lib/sub-agents/open-shop.test.ts.
+    expect(a).toContain("approveShop(supabase, shopId)")
+    expect(read("lib/sub-agents/open-shop.ts")).toContain('.eq("is_active", false)')
     const r = read("app/api/admin/shops/reject/route.ts")
     expect(r).toContain('notifyUserOfOutcome("shop", "rejected"')
     expect(r).not.toContain("type: 'shop_rejected'")

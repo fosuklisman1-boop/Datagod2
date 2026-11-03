@@ -1218,7 +1218,10 @@ async function currentShopForPhone(phone: string) {
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
   const { data: codeRow } = await supabase.from("ussd_shop_codes").select("code").eq("id", pref.shopCodeId).maybeSingle()
   if (!codeRow?.code) return null
-  return resolveShopCode(codeRow.code)
+  // The remembered shop may have closed since (inactive, blocked) or lost WhatsApp: same gate as the router's
+  // returning-customer check (lib/whatsapp-bot/shop-router.ts), so a closed shop never quotes or sells.
+  const shop = await resolveShopCode(codeRow.code)
+  return shop && shop.status === "active" && shop.whatsappActivated ? shop : null
 }
 
 // ─── executeToolCall ─────────────────────────────────────────────────────────

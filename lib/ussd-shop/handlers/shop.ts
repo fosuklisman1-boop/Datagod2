@@ -30,7 +30,10 @@ export async function handleEnterShopCode(
 
   if (!resolved || resolved.status !== 'active') {
     await setSession(sessionId, { step: 'ENTER_SHOP_CODE', dialingPhone })
-    return cont(invalidCodeMenu('Invalid code. Try again.'))
+    // 'inactive' = the shop is not open yet (an unpriced storefront joiner, a shop awaiting approval, or a code
+    // not yet activated). Blocked shops ('suspended') and unknown codes keep the generic reply.
+    const reason = resolved?.status === 'inactive' ? "This shop isn't open yet." : 'Invalid code. Try again.'
+    return cont(invalidCodeMenu(reason))
   }
 
   // Entering a shop is free: session tokens were retired (spec 2026-10-14-ussd-shop-free-sessions-design).

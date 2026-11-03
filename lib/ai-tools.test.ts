@@ -298,6 +298,29 @@ describe("executeToolCall get_shop_packages", () => {
     expect(result.error).toBe("no_shop")
     expect(fetchShopBundles).not.toHaveBeenCalled()
   })
+
+  // A remembered shop that has since closed (inactive, blocked) or lost WhatsApp must not quote or sell.
+  for (const [label, over] of [
+    ["inactive", { status: "inactive" }],
+    ["suspended", { status: "suspended" }],
+    ["not WhatsApp-activated", { whatsappActivated: false }],
+  ] as const) {
+    it(`a remembered shop that is ${label} is treated as no shop`, async () => {
+      vi.mocked(getShopPref).mockResolvedValue({ shopCodeId: "code-1" })
+      vi.mocked(resolveShopCode).mockResolvedValue(Object.assign({
+        shopCodeId: "code-1", shopId: "shop-1", shopName: "Kofi's Data Hub",
+        parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+      }, over))
+      const quote = await executeToolCall("get_shop_packages", {}, baseCtx) as Record<string, unknown>
+      expect(quote.error).toBe("no_shop")
+      const order = await executeToolCall("place_shop_order", {
+        service: "data", network: "MTN", size: "1", recipient_phone: "0244000000", payment_phone: "0244000000",
+      }, baseCtx) as Record<string, unknown>
+      expect(order.error).toBe("no_shop")
+      expect(fetchShopBundles).not.toHaveBeenCalled()
+      expect(setSession).not.toHaveBeenCalled()
+    })
+  }
 })
 
 describe("executeToolCall place_shop_order", () => {

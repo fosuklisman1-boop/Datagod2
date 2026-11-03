@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
         .from("user_shops")
         .select("id")
         .or(shopHandleOrFilter(shopSlug))
+        .eq("is_active", true)
         .single()
       if (shopErr || !shopRow) {
         console.warn(`[PAYMENT-INIT] ❌ Shop not found for slug=${shopSlug}`)
