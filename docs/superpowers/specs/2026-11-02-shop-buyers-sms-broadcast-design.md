@@ -38,7 +38,13 @@ receive it before sending.
   - **Storefront payer:** the MoMo payer is recorded in `payment_attempts.payer_phone`
     (migration 20261006) where available. It is linked to the shop order and included
     when present.
-  - **Excluded:** sub-agent stock purchases (`shop_orders.is_stock_purchase`, 0133).
+  - **Sub-agent stock purchases** (`shop_orders.is_stock_purchase`, 0133) were excluded in
+    0145 and are included since 0147: `shop_id` is the sub-agent's own shop and
+    `customer_phone` is that sub-agent's customer.
+  - **Dashboard purchases** (`orders`, since 0147): wallet-paid, so every row except
+    `refunded` counts, under the shop whose `user_id` placed it.
+  - **Owner's own number** (since 0147) never counts for their own shop, only for other
+    shops they bought from.
 - **Not `shop_customers`.** It mixes airtime and results-checker buyers, and the Hubtel
   shop USSD stores the recipient there rather than the payer, so it isn't the source.
 - **Shop link:** `https://<user_shops.subdomain>.<NEXT_PUBLIC_ROOT_DOMAIN>`, where the
@@ -116,7 +122,10 @@ RETURNS TABLE (shop_id uuid, buyers bigint)   -- GROUP BY over shop_buyer_audien
   - payer and recipient both included;
   - the same number in 0/233/+233 form collapses to one entry;
   - the latest shop wins;
-  - stock purchases, unpaid orders, opted-out numbers and inactive shops are excluded;
+  - unpaid orders, opted-out numbers and inactive shops are excluded;
+  - 0147 (`migrations/tests/0147_…_local_test.sql`): dashboard purchases and stock purchases
+    are included; refunded and shop-less dashboard orders are not; an owner's own number
+    falls back to another shop;
   - the `p_since` window.
 - **Unit tests:** token rendering and the subdomain link builder (root-domain env, no
   custom domain).
