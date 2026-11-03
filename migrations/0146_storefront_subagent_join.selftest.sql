@@ -16,8 +16,11 @@
 --
 -- Scenarios (labels): catalog, joined_via_check, existing_sub_agent_default, setting_default,
 -- intents_locked (read and write refused for authenticated and anon, real calls under SET LOCAL ROLE),
--- owner_blocked (is_active, joined_via, prices_set_at, dealer_rates_enabled), owner_allowed (an unprotected
--- column is still editable), service_unaffected.
+-- owner_no_update_grant (before any grant, an owner UPDATE is refused with privilege denied: production's base
+-- protection), then a test-only `GRANT UPDATE ON public.user_shops TO authenticated` (rolled back with the
+-- transaction, never persists) so the trigger itself is what is tested: owner_blocked (every protected column
+-- refused with the trigger's exact message), owner_allowed (an unprotected column is still editable with the
+-- grant), service_unaffected.
 --
 -- Needs at least one existing user_shops row with a user_id (the owner), preferably a sub-agent shop
 -- (parent_shop_id not null). "Owner" is simulated with SET LOCAL ROLE authenticated plus request.jwt.claims.
@@ -134,11 +137,42 @@ BEGIN
     RAISE EXCEPTION 'FAIL intents_locked: role did not revert (%)', current_user;
   END IF;
 
-  -- owner_blocked: the shop owner (authenticated, own jwt) cannot change protected columns ----------
+  -- Simulate the shop owner (authenticated, own jwt) for the owner scenarios below.
   PERFORM set_config('request.jwt.claims',
                      json_build_object('sub', v_owner::text, 'role', 'authenticated')::text, true);
   PERFORM set_config('request.jwt.claim.sub', v_owner::text, true);
   PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
+
+  -- owner_no_update_grant: production's base protection. authenticated holds only SELECT on user_shops, so
+  -- WITHOUT any grant an owner update of a protected column is refused at the privilege layer ---------------
+  v_got := NULL; v_seen := NULL;
+  <<owner_no_update_grant>>
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    v_seen := current_user;
+    UPDATE public.user_shops SET is_active = NOT COALESCE(is_active, false) WHERE id = v_shop;
+    v_got := 'NO_ERROR';
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_got := SQLERRM;
+  WHEN OTHERS THEN
+    v_got := 'OTHER: ' || SQLERRM;
+  END owner_no_update_grant;
+  RESET ROLE;
+  IF v_seen IS DISTINCT FROM 'authenticated' THEN
+    RAISE EXCEPTION 'FAIL owner_no_update_grant: could not switch role (current_user %, err %)', v_seen, v_got;
+  END IF;
+  IF v_got IS NULL OR v_got NOT LIKE 'permission denied for table user_shops%' THEN
+    RAISE EXCEPTION 'FAIL owner_no_update_grant: expected privilege denied, got % (production should give authenticated no UPDATE on user_shops)', v_got;
+  END IF;
+
+  -- TEST-ONLY GRANT. Production does not give authenticated UPDATE on user_shops, so the 0146 BEFORE UPDATE
+  -- trigger is never reached by an owner there. To prove the trigger itself (a second layer), grant UPDATE here.
+  -- This whole transaction aborts at the final RAISE, so the grant NEVER persists. (Never run this outside the
+  -- always-rolled-back transaction.) If owner rows are hidden by RLS even with the grant (no owner UPDATE
+  -- policy), owner_blocked below fails loudly with NO_ERROR rather than passing silently.
+  GRANT UPDATE ON public.user_shops TO authenticated;
+
+  -- owner_blocked: the shop owner cannot change protected columns (the trigger refuses them) -------------
 
   FOREACH v_col IN ARRAY ARRAY['is_active', 'joined_via', 'prices_set_at', 'dealer_rates_enabled',
                                'sub_agent_setup_alert_at', 'sub_agent_prices_ready_notified_at',
