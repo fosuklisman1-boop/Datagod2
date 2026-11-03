@@ -31,7 +31,7 @@ import {
 import { PillToggle } from "@/components/shop/pill-toggle"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
-import { joinShopUrl } from "@/lib/sub-agents/join-url"
+import { shareJoinUrl } from "@/lib/sub-agents/join-url"
 
 interface SubAgent {
   id: string
@@ -152,7 +152,7 @@ export default function SubAgentsPage() {
 
       const handle = shop.subdomain || shop.shop_slug
       if (!shop.parent_shop_id && handle) {
-        setJoinLink(joinShopUrl(handle))
+        setJoinLink(shareJoinUrl(handle))
         const cfg = await fetch("/api/public/config").then(r => (r.ok ? r.json() : null)).catch(() => null)
         if (cfg?.app_settings?.sub_agent_open_join_enabled !== true) {
           setJoinLinkNote("Open sign-up is switched off right now, so this link shows a 'not taking sub-agents' page.")

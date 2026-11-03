@@ -6,6 +6,7 @@ import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 import { apiHostRewrite } from "@/lib/api-v2/host"
+import { subagentsHostRedirect, SUBAGENTS_SUBDOMAIN } from "@/lib/sub-agents/join-host"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
@@ -25,7 +26,7 @@ const cookieIssuanceLimiter = cookieIssuanceRedis
   : null
 
 // Hosts/labels that are NEVER treated as a shop subdomain (they serve the main app).
-const RESERVED_SUBDOMAINS = new Set(["www", "app", "admin", "api"])
+const RESERVED_SUBDOMAINS = new Set(["www", "app", "admin", "api", SUBAGENTS_SUBDOMAIN])
 
 // Root domain the app runs under (e.g. "datagod.store"). Subdomains of this become
 // shop storefronts. Falls back to the production domain when the env var is unset.
@@ -75,6 +76,13 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.hostname = `www.${ROOT_DOMAIN}`
     return NextResponse.redirect(url, 308)
+  }
+
+  // ── Sub-agent sign-up link host ──────────────────────────────────────────
+  // https://subagents.<root>/<shop> redirects to that shop's join page on the main site.
+  const subagentsTarget = subagentsHostRedirect(request.headers.get("host"), path, ROOT_DOMAIN)
+  if (subagentsTarget) {
+    return NextResponse.redirect(subagentsTarget, 307)
   }
 
   // ── Developer API host ───────────────────────────────────────────────────
