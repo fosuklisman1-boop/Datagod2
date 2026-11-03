@@ -1,11 +1,11 @@
--- 0146_storefront_subagent_join.selftest.sql
+-- 0148_storefront_subagent_join.selftest.sql
 --
--- NOT A MIGRATION. Self-rolling-back dry run for 0146_storefront_subagent_join.sql.
+-- NOT A MIGRATION. Self-rolling-back dry run for 0148_storefront_subagent_join.sql (applied 2026-11-03 under its old number 0146).
 --
 -- IMPORTANT: build the run string by CODE (never by hand or a regex strip) and assert before sending that it
 -- contains no COMMIT and no bare `END;` statement and ends with this DO block (which always RAISEs). (The
 -- 0130 incident lesson.) Build it as:
---   1. BEGIN; followed by 0146_storefront_subagent_join.sql (the migration file has no transaction statements);
+--   1. BEGIN; followed by 0148_storefront_subagent_join.sql (the migration file has no transaction statements);
 --   2. followed by this file from the line that STARTS (column 0) with the DO keyword onward.
 -- The DO body has no bare `END;`: sub-blocks are labelled and the block closes with `END $selftest$;`.
 --

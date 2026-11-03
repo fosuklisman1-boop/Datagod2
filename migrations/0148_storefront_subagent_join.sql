@@ -1,4 +1,7 @@
--- 0146_storefront_subagent_join.sql
+-- 0148_storefront_subagent_join.sql
+--
+-- Written as 0146 and APPLIED to production as 0146 on 2026-11-03; renumbered to 0148 when main took 0146 and 0147.
+-- Code comments that say "migration 0146" about join columns mean this file.
 --
 -- Storefront visitors can sign up as sub-agents under a shop (spec: docs/superpowers/specs/ storefront sub-agent
 -- instant join). ADDITIVE. Idempotent (re-runnable).
