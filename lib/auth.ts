@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { readFirstTouchFromBrowser } from "./signup-source"
 
 export const authService = {
   async signUp(email: string, password: string, userData: any) {
@@ -24,6 +25,8 @@ export const authService = {
       const emailRedirectTo =
         typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined
 
+      const signupSource = readFirstTouchFromBrowser()
+
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -32,6 +35,7 @@ export const authService = {
             first_name: userData.first_name,
             last_name: userData.last_name,
             phone_number: userData.phone_number,
+            ...(signupSource ? { signup_source: signupSource } : {}),
           },
           ...(emailRedirectTo ? { emailRedirectTo } : {}),
         },
