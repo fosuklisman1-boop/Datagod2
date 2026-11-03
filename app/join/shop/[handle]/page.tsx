@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Store, CheckCircle, AlertCircle, Eye, EyeOff, Mail } from "lucide-react"
+import { Loader2, Store, CheckCircle, AlertCircle, Eye, EyeOff, Mail, ArrowLeft } from "lucide-react"
 import { toast } from "sonner"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
@@ -338,6 +338,12 @@ export default function JoinShopPage() {
   return (
     <div className="min-h-screen bg-card py-8 px-4 lg:py-14">
       <div className="mx-auto w-full max-w-2xl lg:max-w-6xl">
+        <Link
+          href={`/shop/${encodeURIComponent(handle)}`}
+          className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-primary"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to {shopName || "the shop"}
+        </Link>
         <div className="text-center lg:text-left mb-6 lg:mb-10">
           <Store className="w-12 h-12 text-primary mx-auto lg:mx-0 mb-4" />
           <h1 className="text-3xl lg:text-4xl font-bold text-foreground">Join as a Sub-Agent</h1>
