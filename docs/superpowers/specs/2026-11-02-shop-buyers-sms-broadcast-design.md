@@ -10,8 +10,10 @@ receive it before sending.
 ## Decisions (2026-11-02)
 
 1. **Who is a buyer:** both the payer and the recipient of every paid shop data order.
-2. **Shop buyers only.** Direct Datagod dashboard and API buyers are excluded, so every
-   recipient has a real shop link.
+2. **Shop buyers only.** Every recipient has a real shop link. *Revised 2026-11-03 (0147):*
+   a shop owner's dashboard purchases (`orders`, single + bulk) now count as buyers of that
+   owner's shop. Dealers who sell from the dashboard showed e.g. 675 customers but 3 buyers.
+   Buyers with no shop of their own are still excluded.
 3. **Latest shop only.** Each phone number belongs to exactly one shop: the shop of its
    most recent paid data order. It gets one SMS, with that shop's link.
 4. **Admin-managed opt-out list.** Numbers on it are always skipped, and the screen shows
