@@ -7,6 +7,8 @@
 --   user_shops.prices_set_at           when the sub-agent first set their own prices
 --   user_shops.dealer_rates_enabled    default true: existing sub-agents change in no way, so no backfill
 --   user_shops.sub_agent_setup_alert_at  when the "set your prices" reminder was last sent
+--   user_shops.sub_agent_prices_ready_notified_at  when waiting joiners were last told the owner's prices are set
+--   (the trigger also protects those two, plus is_blocked, block_reason, parent_shop_id and tier_level)
 --   sub_agent_join_intents             pending sign-up intent keyed by auth user; service_role only
 --   app_settings.sub_agent_open_join_enabled   singleton row (key IS NULL); default false (ships dark)
 --   trigger user_shops_protect_join_columns    a signed-in owner cannot edit is_active, joined_via,
@@ -17,7 +19,8 @@ ALTER TABLE public.user_shops
   ADD COLUMN IF NOT EXISTS joined_via text,
   ADD COLUMN IF NOT EXISTS prices_set_at timestamptz,
   ADD COLUMN IF NOT EXISTS dealer_rates_enabled boolean NOT NULL DEFAULT true,
-  ADD COLUMN IF NOT EXISTS sub_agent_setup_alert_at timestamptz;
+  ADD COLUMN IF NOT EXISTS sub_agent_setup_alert_at timestamptz,
+  ADD COLUMN IF NOT EXISTS sub_agent_prices_ready_notified_at timestamptz;
 
 DO $mig$
 BEGIN
@@ -62,6 +65,12 @@ BEGIN
     OR NEW.joined_via IS DISTINCT FROM OLD.joined_via
     OR NEW.prices_set_at IS DISTINCT FROM OLD.prices_set_at
     OR NEW.dealer_rates_enabled IS DISTINCT FROM OLD.dealer_rates_enabled
+    OR NEW.sub_agent_setup_alert_at IS DISTINCT FROM OLD.sub_agent_setup_alert_at
+    OR NEW.sub_agent_prices_ready_notified_at IS DISTINCT FROM OLD.sub_agent_prices_ready_notified_at
+    OR NEW.is_blocked IS DISTINCT FROM OLD.is_blocked
+    OR NEW.block_reason IS DISTINCT FROM OLD.block_reason
+    OR NEW.parent_shop_id IS DISTINCT FROM OLD.parent_shop_id
+    OR NEW.tier_level IS DISTINCT FROM OLD.tier_level
   ) THEN
     RAISE EXCEPTION 'protected shop columns cannot be changed by the shop owner'
       USING ERRCODE = '42501';

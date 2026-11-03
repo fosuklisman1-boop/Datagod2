@@ -22,7 +22,12 @@ const DAY = 24 * 60 * 60 * 1000
 
 /** Fake db: user_shops (owner + throttle claim), users, waiting sub-agent shops. */
 function fakeDb(opts: { alertAt?: string | null; waiting?: { user_id: string }[] } = {}) {
-  const state = { alertAt: opts.alertAt ?? null, claims: 0, now: Date.now() }
+  const state: { alertAt: string | null; readyAt: string | null; claims: number; now: number } = {
+    alertAt: opts.alertAt ?? null,
+    readyAt: null,
+    claims: 0,
+    now: Date.now(),
+  }
   const db = {
     state,
     from(table: string) {
@@ -47,14 +52,17 @@ function fakeDb(opts: { alertAt?: string | null; waiting?: { user_id: string }[]
           void cols
           return q
         },
-        update: () => {
+        update: (patch: Record<string, unknown>) => {
+          const col = Object.keys(patch)[0]
+          const key = col === "sub_agent_prices_ready_notified_at" ? "readyAt" : "alertAt"
           const q: any = {
             eq: () => q,
             or: () => q,
             select: async () => {
-              const stale = state.alertAt === null || Date.parse(state.alertAt) < state.now - DAY
+              const cur = state[key]
+              const stale = cur === null || Date.parse(cur) < state.now - DAY
               if (!stale) return { data: [], error: null }
-              state.alertAt = new Date(state.now).toISOString()
+              state[key] = new Date(state.now).toISOString()
               state.claims++
               return { data: [{ id: "p1" }], error: null }
             },
@@ -120,9 +128,29 @@ describe("notifyOwnerOfRecruit", () => {
   })
 })
 
+describe("owner push name handling", () => {
+  it("strips newlines and truncates the recruit name to 40 chars in the push", async () => {
+    subAgentCosts.mockResolvedValue({ parent: {}, costs: new Map() })
+    await notifyOwnerOfRecruit(fakeDb() as any, "p1", "A\nB" + "x".repeat(80))
+    const body = (sendPushToUser.mock.calls[0][1] as { body: string }).body
+    expect(body).not.toContain("\n")
+    expect(body).not.toContain("x".repeat(41))
+  })
+})
+
 describe("notifyWaitingSubAgents", () => {
   it("pushes to every waiting storefront sub-agent", async () => {
     const db = fakeDb({ waiting: [{ user_id: "u1" }, { user_id: "u2" }] })
+    await notifyWaitingSubAgents(db as any, "p1")
+    expect(sendPushToUser).toHaveBeenCalledTimes(2)
+  })
+
+  it("two activations within 24 hours push once; a day later pushes again", async () => {
+    const db = fakeDb({ waiting: [{ user_id: "u1" }] })
+    await notifyWaitingSubAgents(db as any, "p1")
+    await notifyWaitingSubAgents(db as any, "p1")
+    expect(sendPushToUser).toHaveBeenCalledTimes(1)
+    db.state.now += DAY + 1000
     await notifyWaitingSubAgents(db as any, "p1")
     expect(sendPushToUser).toHaveBeenCalledTimes(2)
   })

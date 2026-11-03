@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
+import { applyRateLimit } from "@/lib/rate-limiter"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { targetStatus } from "@/lib/sub-agents/join-eligibility"
 import { getWholesalePackages } from "@/lib/sub-agents/wholesale-packages"
@@ -27,7 +28,14 @@ async function readSubAgentOpenJoin(): Promise<boolean> {
 }
 
 // GET: public join page data. Returns only { status, shop_name, wholesale_packages }; only { status } when closed.
-export async function GET(_request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params }: Params) {
+  const rl = await applyRateLimit(request, "shop_join_page", 30, 60_000)
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again shortly." },
+      { status: 429, headers: { "Retry-After": "60" } }
+    )
+  }
   try {
     const { handle } = await params
     const trimmed = (handle || "").trim()

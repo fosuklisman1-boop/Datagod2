@@ -2,6 +2,7 @@ import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
 import { sendPushToUser } from "@/lib/push-service"
 import { subAgentCosts } from "@/lib/shop-commerce/pricing"
+import { cleanDisplayName } from "@/lib/sub-agents/display-name"
 
 // Loosely typed: callers pass the service-role supabase client.
 type Db = any
@@ -23,14 +24,19 @@ async function ownerHasCatalogPrices(db: Db, parentShopId: string): Promise<bool
   }
 }
 
-/** Atomically claims the owner's 24h SMS/email slot. True only for the single caller whose UPDATE returned a row. */
-async function claimAlertSlot(db: Db, parentShopId: string): Promise<boolean> {
+/** Atomically claims a 24h slot on a user_shops timestamp column. True only for the single caller whose UPDATE
+ *  returned a row. */
+async function claimSlot(
+  db: Db,
+  shopId: string,
+  column: "sub_agent_setup_alert_at" | "sub_agent_prices_ready_notified_at"
+): Promise<boolean> {
   const cutoff = new Date(Date.now() - ALERT_WINDOW_MS).toISOString()
   const { data, error } = await db
     .from("user_shops")
-    .update({ sub_agent_setup_alert_at: new Date().toISOString() })
-    .eq("id", parentShopId)
-    .or(`sub_agent_setup_alert_at.is.null,sub_agent_setup_alert_at.lt.${cutoff}`)
+    .update({ [column]: new Date().toISOString() })
+    .eq("id", shopId)
+    .or(`${column}.is.null,${column}.lt.${cutoff}`)
     .select("id")
   if (error) return false
   return Array.isArray(data) && data.length > 0
@@ -48,16 +54,17 @@ export async function notifyOwnerOfRecruit(db: Db, parentShopId: string, recruit
 
     const hasPrices = await ownerHasCatalogPrices(db, parentShopId)
 
+    const name = cleanDisplayName(recruitShopName)
     sendPushToUser(shop.user_id, {
       title: "New sub-agent",
       body: hasPrices
-        ? `${recruitShopName} just joined your network from your storefront.`
-        : `${recruitShopName} joined your network. Set your sub-agent prices so they can start selling.`,
+        ? `${name} just joined your network from your storefront.`
+        : `${name} joined your network. Set your sub-agent prices so they can start selling.`,
       data: { url: hasPrices ? "/dashboard/sub-agents" : "/dashboard/sub-agent-catalog" },
     } as Parameters<typeof sendPushToUser>[1]).catch(() => {})
 
     if (hasPrices) return
-    if (!(await claimAlertSlot(db, parentShopId))) return
+    if (!(await claimSlot(db, parentShopId, "sub_agent_setup_alert_at"))) return
 
     const { data: owner } = await db
       .from("users")
@@ -108,7 +115,9 @@ export async function notifyWaitingSubAgents(db: Db, parentShopId: string): Prom
       .eq("parent_shop_id", parentShopId)
       .eq("joined_via", "storefront")
       .is("prices_set_at", null)
-    if (error || !Array.isArray(data)) return
+    if (error || !Array.isArray(data) || data.length === 0) return
+    // At most one round of "prices ready" pushes per owner per 24 hours (toggling the catalog cannot re-spam).
+    if (!(await claimSlot(db, parentShopId, "sub_agent_prices_ready_notified_at"))) return
     await Promise.all(
       data.map((row: { user_id: string }) =>
         Promise.resolve(

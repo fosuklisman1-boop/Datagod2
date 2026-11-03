@@ -52,8 +52,9 @@ BEGIN
      AND ((column_name = 'joined_via' AND data_type = 'text' AND is_nullable = 'YES')
        OR (column_name = 'prices_set_at' AND data_type = 'timestamp with time zone' AND is_nullable = 'YES')
        OR (column_name = 'dealer_rates_enabled' AND data_type = 'boolean' AND is_nullable = 'NO')
-       OR (column_name = 'sub_agent_setup_alert_at' AND data_type = 'timestamp with time zone' AND is_nullable = 'YES'));
-  IF v_n <> 4 THEN RAISE EXCEPTION 'FAIL catalog: user_shops columns found %', v_n; END IF;
+       OR (column_name = 'sub_agent_setup_alert_at' AND data_type = 'timestamp with time zone' AND is_nullable = 'YES')
+       OR (column_name = 'sub_agent_prices_ready_notified_at' AND data_type = 'timestamp with time zone' AND is_nullable = 'YES'));
+  IF v_n <> 5 THEN RAISE EXCEPTION 'FAIL catalog: user_shops columns found %', v_n; END IF;
   SELECT count(*) INTO v_n FROM pg_trigger
    WHERE tgrelid = 'public.user_shops'::regclass AND tgname = 'user_shops_protect_join_columns' AND NOT tgisinternal;
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL catalog: protect trigger found %', v_n; END IF;
@@ -139,7 +140,9 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub', v_owner::text, true);
   PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
 
-  FOREACH v_col IN ARRAY ARRAY['is_active', 'joined_via', 'prices_set_at', 'dealer_rates_enabled'] LOOP
+  FOREACH v_col IN ARRAY ARRAY['is_active', 'joined_via', 'prices_set_at', 'dealer_rates_enabled',
+                               'sub_agent_setup_alert_at', 'sub_agent_prices_ready_notified_at',
+                               'is_blocked', 'block_reason', 'parent_shop_id', 'tier_level'] LOOP
     v_got := NULL; v_seen := NULL;
     <<owner_blocked>>
     BEGIN
@@ -151,8 +154,20 @@ BEGIN
         UPDATE public.user_shops SET joined_via = 'storefront' WHERE id = v_shop;
       ELSIF v_col = 'prices_set_at' THEN
         UPDATE public.user_shops SET prices_set_at = now() WHERE id = v_shop;
-      ELSE
+      ELSIF v_col = 'dealer_rates_enabled' THEN
         UPDATE public.user_shops SET dealer_rates_enabled = false WHERE id = v_shop;
+      ELSIF v_col = 'sub_agent_setup_alert_at' THEN
+        UPDATE public.user_shops SET sub_agent_setup_alert_at = now() WHERE id = v_shop;
+      ELSIF v_col = 'sub_agent_prices_ready_notified_at' THEN
+        UPDATE public.user_shops SET sub_agent_prices_ready_notified_at = now() WHERE id = v_shop;
+      ELSIF v_col = 'is_blocked' THEN
+        UPDATE public.user_shops SET is_blocked = NOT COALESCE(is_blocked, false) WHERE id = v_shop;
+      ELSIF v_col = 'block_reason' THEN
+        UPDATE public.user_shops SET block_reason = COALESCE(block_reason, '') || 'x' WHERE id = v_shop;
+      ELSIF v_col = 'parent_shop_id' THEN
+        UPDATE public.user_shops SET parent_shop_id = CASE WHEN parent_shop_id IS NULL THEN id ELSE NULL END WHERE id = v_shop;
+      ELSE
+        UPDATE public.user_shops SET tier_level = COALESCE(tier_level, 1) + 1 WHERE id = v_shop;
       END IF;
       v_got := 'NO_ERROR';
     EXCEPTION WHEN OTHERS THEN

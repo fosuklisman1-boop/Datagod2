@@ -188,8 +188,9 @@ export const SMSTemplates = {
     `DTGOD: You have been invited to become a sub-agent! Join here: ${inviteUrl} (Expires in 7 days)`,
 
   // Owner alert: a storefront visitor joined and the owner has no sub-agent prices yet
-  subAgentCatalogNeeded: (shopName: string) =>
-    `DTGOD: ${shopName} just joined your network but you have not set sub-agent prices yet. Set them in your dashboard so they can start selling.`,
+  // No recruit name: it is typed on a public form and this goes out from the trusted DTGOD sender.
+  subAgentCatalogNeeded: (_shopName?: string) =>
+    `DTGOD: A new sub-agent joined your network but you have not set sub-agent prices yet. Set them in your dashboard so they can start selling.`,
 
   // USSD order confirmed — sent to recipient phone
   ussdOrderConfirmed: (packageSize: string, network: string, channelLink?: string) => {

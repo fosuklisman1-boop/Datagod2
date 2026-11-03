@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { Resend } from 'resend'
+import { cleanDisplayName } from "@/lib/sub-agents/display-name"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -58,6 +59,15 @@ interface BrevoResponse {
  * Premium HTML Template Wrapper
  * Design: Dark Grid Header, Gold Accents, Clean White Card
  */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
 function wrapHtml(content: string, title: string, showHero: boolean = false): string {
   const logoUrl = `${APP_URL}/apple-touch-icon.png`
 
@@ -637,20 +647,21 @@ export const EmailTemplates = {
     `, "Invitation", true),
   }),
 
+  // shopName is typed on a public signup form: single-line, 40 chars, HTML-escaped. The subject carries no name.
   subAgentCatalogNeeded: (shopName: string, catalogUrl: string) => ({
-    subject: `${shopName} joined your network - set your sub-agent prices`,
+    subject: "A new sub-agent joined your network - set your sub-agent prices",
     html: wrapHtml(`
       <div class="text-center">
         <span class="icon-large">🤝</span>
         <h2>New sub-agent waiting</h2>
-        <p><strong>${shopName}</strong> just joined your network from your storefront.</p>
+        <p><strong>${escapeHtml(cleanDisplayName(shopName))}</strong> just joined your network from your storefront.</p>
       </div>
 
       <div class="info-card">
         <p>You have not set your sub-agent prices yet, so they cannot start selling.</p>
       </div>
 
-      <a href="${catalogUrl}" class="button-primary">Set Sub-agent Prices</a>
+      <a href="${escapeHtml(catalogUrl)}" class="button-primary">Set Sub-agent Prices</a>
     `, "Sub-agent", true),
   }),
 
