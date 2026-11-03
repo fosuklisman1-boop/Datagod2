@@ -12,14 +12,14 @@ describe("subagentsHostRedirect", () => {
     expect(subagentsHostRedirect("SubAgents.DataGod.store:443", "/Kofi-Data/", ROOT)).toBe("https://www.datagod.store/join/shop/kofi-data")
   })
 
-  it("sends the bare host and unknown deeper paths to the sub-agents landing page", () => {
-    expect(subagentsHostRedirect("subagents.datagod.store", "/", ROOT)).toBe("https://www.datagod.store/join")
-    expect(subagentsHostRedirect("subagents.datagod.store", "/a/b", ROOT)).toBe("https://www.datagod.store/join")
+  it("sends the bare host and unknown deeper paths to the 'sign-up address' message page", () => {
+    expect(subagentsHostRedirect("subagents.datagod.store", "/", ROOT)).toBe("https://www.datagod.store/join/shop")
+    expect(subagentsHostRedirect("subagents.datagod.store", "/a/b", ROOT)).toBe("https://www.datagod.store/join/shop")
   })
 
   it("strips characters a shop handle can't contain", () => {
     expect(subagentsHostRedirect("subagents.datagod.store", "/kofi%3Cscript%3E", ROOT)).toBe("https://www.datagod.store/join/shop/kofiscript")
-    expect(subagentsHostRedirect("subagents.datagod.store", "/%2F%2F", ROOT)).toBe("https://www.datagod.store/join")
+    expect(subagentsHostRedirect("subagents.datagod.store", "/%2F%2F", ROOT)).toBe("https://www.datagod.store/join/shop")
   })
 
   it("leaves static files and every other host alone", () => {

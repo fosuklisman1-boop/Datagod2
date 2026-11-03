@@ -16,8 +16,10 @@ export function subagentsHostRedirect(host: string | null | undefined, path: str
   if (/\.[^/]+$/.test(path)) return null
 
   const origin = `https://www.${root}`
+  // No shop in the address (or not a shop-shaped one): the "this is a sub-agent sign-up address" page.
+  const landing = `${origin}/join/shop`
   const segments = path.split("/").filter(Boolean)
-  if (segments.length !== 1) return `${origin}/join`
+  if (segments.length !== 1) return landing
 
   let raw = segments[0]
   try {
@@ -26,5 +28,5 @@ export function subagentsHostRedirect(host: string | null | undefined, path: str
     // Malformed escapes: sanitize the raw text instead.
   }
   const handle = sanitizeShopHandle(raw)
-  return handle ? `${origin}/join/shop/${handle}` : `${origin}/join`
+  return handle ? `${origin}/join/shop/${handle}` : landing
 }
