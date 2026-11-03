@@ -9,6 +9,22 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Its own query (same pattern as app/api/public/config/route.ts): a missing column (code deployed before
+// migration 0146) means off, not an error.
+async function readSubAgentOpenJoin(): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("sub_agent_open_join_enabled")
+      .is("key", null)
+      .maybeSingle()
+    if (error) return false
+    return (data as { sub_agent_open_join_enabled?: boolean } | null)?.sub_agent_open_join_enabled === true
+  } catch {
+    return false
+  }
+}
+
 // Customer-initiated "become a sub-agent" request. Public/guest-submittable --
 // the existing shop_invites flow only ever runs owner-first (owner generates
 // a code and shares it); this is the missing other direction. Approval (see
@@ -39,11 +55,18 @@ export async function POST(request: NextRequest) {
 
     const { data: shopRow, error: shopErr } = await supabase
       .from("user_shops")
-      .select("id, is_active")
+      .select("id, is_active, parent_shop_id")
       .or(shopHandleOrFilter(shopSlug.trim()))
       .single()
     if (shopErr || !shopRow) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+    // A sub-agent's shop can't recruit, and while open join is on people join instantly instead of asking.
+    if (shopRow.parent_shop_id) {
+      return NextResponse.json({ error: "This shop isn't accepting sub-agent requests." }, { status: 400 })
+    }
+    if (await readSubAgentOpenJoin()) {
+      return NextResponse.json({ error: "You can join this shop directly. Use the Join Now button instead." }, { status: 403 })
     }
     if (!shopRow.is_active) {
       return NextResponse.json({ error: "This shop isn't accepting sub-agent requests right now." }, { status: 400 })

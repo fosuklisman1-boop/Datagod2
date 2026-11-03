@@ -62,6 +62,7 @@ import { BillsTab } from "@/components/storefront-commission/BillsTab"
 import { BILLER_KEYS } from "@/lib/bills/billers"
 import { parseStorefrontBillers, type StorefrontBiller } from "@/lib/storefront-commission/ui-helpers"
 import { SubAgentRequestForm } from "@/components/shop/SubAgentRequestForm"
+import { joinShopUrl } from "@/lib/sub-agents/join-url"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
@@ -158,6 +159,12 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
       })()
     : ["data", "airtime", "vouchers"]
   const subAgentRecruitHidden = isPageHidden("sub_agent_recruit", domainBranding.hiddenPages)
+
+  // Instant-join switch (app_settings.sub_agent_open_join_enabled): when on, "Join Now" opens the join page on the
+  // main domain and the request form goes away. Off until the config loads, so the old form shows meanwhile.
+  const [openJoinEnabled, setOpenJoinEnabled] = useState(false)
+  // A sub-agent's own storefront never recruits, whatever the switch says.
+  const showSubAgentRecruit = !subAgentRecruitHidden && !shop?.parent_shop_id
 
   const [activeTab, setActiveTab] = useState<"home" | "about" | "track-order">("home")
   // Which service's content shows below the persistent "Choose a Service"
@@ -339,6 +346,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
     fetch("/api/public/config")
       .then(r => r.ok ? r.json() : null)
       .then(d => {
+        setOpenJoinEnabled(d?.app_settings?.sub_agent_open_join_enabled === true)
         if (d?.app_settings?.storefront_show_ussd_card === true) {
           setShowUssdCard(true)
           setUssdDialCode(d.app_settings.ussd_shop_dial_code || null)
@@ -1139,10 +1147,12 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
       cta: "Contact Us", icon: MessageCircle, gradient: "from-[#1e1b4b] to-[#4f46e5]",
       onClick: () => { if (helpWhatsAppLink) window.open(helpWhatsAppLink, "_blank"); else if (shop?.phone) window.location.href = `tel:${shop.phone}` },
     }] : []),
-    ...(!subAgentRecruitHidden ? [{
+    ...(showSubAgentRecruit ? [{
       key: "sub-agent", badge: "PARTNER", title: "Become a Sub-Agent", description: "Start your own shop under this business and earn commission.",
-      cta: "Apply Now", icon: UserPlus, gradient: "from-[#083344] to-[#0891b2]",
-      onClick: goToSubAgentForm,
+      cta: openJoinEnabled ? "Join Now" : "Apply Now", icon: UserPlus, gradient: "from-[#083344] to-[#0891b2]",
+      onClick: openJoinEnabled
+        ? () => { window.location.href = joinShopUrl(shop?.shop_slug || shopSlug) }
+        : goToSubAgentForm,
     }] : []),
   ]
 
@@ -1761,11 +1771,32 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
 
                 {/* Become a sub-agent under this shop — customer-initiated
                     request queue, reviewed by the shop owner in their dashboard. */}
-                {!subAgentRecruitHidden && (
+                {showSubAgentRecruit && (
                   <div ref={subAgentCardRef}>
                     <Card className="border-0 shadow-md">
                       <CardContent className="pt-6">
-                        <SubAgentRequestForm shopSlug={shopSlug} />
+                        {openJoinEnabled ? (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <span className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">
+                                <UserPlus className="h-4 w-4" />
+                              </span>
+                              <div>
+                                <p className="font-semibold text-foreground">Want to start your own shop?</p>
+                                <p className="text-xs text-muted-foreground">Join as a sub-agent under this shop and start selling today.</p>
+                              </div>
+                            </div>
+                            <Button
+                              asChild
+                              className="w-full text-white"
+                              style={{ backgroundColor: "var(--shop-accent)" }}
+                            >
+                              <a href={joinShopUrl(shop?.shop_slug || shopSlug)}>Join Now</a>
+                            </Button>
+                          </div>
+                        ) : (
+                          <SubAgentRequestForm shopSlug={shopSlug} />
+                        )}
                       </CardContent>
                     </Card>
                   </div>
