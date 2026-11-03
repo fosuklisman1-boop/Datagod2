@@ -10,14 +10,21 @@ const byPath = (p: string) => specs.find((s) => s.path === p)!
 
 describe("buildJobSpecs", () => {
   it("builds one spec per real vercel.json cron, none unclassified", () => {
-    expect(specs).toHaveLength(41)
-    expect(new Set(specs.map((s) => s.path)).size).toBe(41)
+    expect(specs).toHaveLength(42)
+    expect(new Set(specs.map((s) => s.path)).size).toBe(42)
     expect(specs.every((s) => ["A", "B", "C"].includes(s.batch))).toBe(true)
   })
 
-  it("batch sizes match the plan (11 / 9 / 21)", () => {
+  it("batch sizes match the plan (12 / 9 / 21)", () => {
     const n = (b: string) => specs.filter((s) => s.batch === b).length
-    expect([n("A"), n("B"), n("C")]).toEqual([11, 9, 21])
+    expect([n("A"), n("B"), n("C")]).toEqual([12, 9, 21])
+  })
+
+  it("schedules the sub-agent price reminders every 5 minutes as an overlap-safe, non-fulfillment job", () => {
+    const s = byPath("/api/cron/sub-agent-price-reminders")
+    expect(s.cron).toBe("*/5 * * * *")
+    expect(s.batch).toBe("A")
+    expect(s.fulfillment).toBe(false)
   })
 
   it("uses the dg: ownership title prefix and full URL", () => {

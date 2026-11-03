@@ -665,6 +665,36 @@ export const EmailTemplates = {
     `, "Sub-agent", true),
   }),
 
+  // Storefront joiner who has not set prices yet: stage 1 (10 min), 2 (48 h), 3 (72 h, last). No user-chosen names.
+  subAgentPriceReminder: (stage: number, link: string) => {
+    const last = stage >= 3
+    const subject = last
+      ? "Last reminder: set your prices and go live"
+      : stage === 2
+        ? "Your shop is still closed - set your prices and go live"
+        : "Set your prices and go live"
+    const lead = last
+      ? "This is your last reminder. Your sub-agent shop is still closed."
+      : stage === 2
+        ? "Your sub-agent shop is still closed."
+        : "Welcome! Your sub-agent shop is ready."
+    return {
+      subject,
+      html: wrapHtml(`
+      <div class="text-center">
+        <h2>Set your prices and go live</h2>
+        <p>${escapeHtml(lead)}</p>
+      </div>
+
+      <div class="info-card">
+        <p>Set your selling prices and your shop opens straight away, so your customers can start buying.</p>
+      </div>
+
+      <a href="${escapeHtml(link)}" class="button-primary">Set My Prices</a>
+    `, "Sub-agent", true),
+    }
+  },
+
   subscriptionExpiry1Day: (planName: string, expiryDate: string) => ({
     subject: "Subscription Expiring Soon",
     html: wrapHtml(`

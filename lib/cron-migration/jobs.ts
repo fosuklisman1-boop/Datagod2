@@ -32,6 +32,7 @@ const BATCH_A = new Set(
     "sms-delivery-sync",
     "expire-stale-airtime",
     "leaderboard-refresh",
+    "sub-agent-price-reminders", // overlap-safe: each reminder stage is claimed atomically before sending
   ].map((n) => P + n),
 )
 
