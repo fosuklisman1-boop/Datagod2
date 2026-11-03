@@ -154,6 +154,8 @@ export default function ShopPricingPage() {
   const [opening, setOpening] = useState(false)
   const [openError, setOpenError] = useState<string | null>(null)
   const [openedShop, setOpenedShop] = useState<{ ussdCode?: string; subdomain?: string } | null>(null)
+  // Set when the parent catalog request fails, so a load failure is not shown as "owner has no products".
+  const [catalogLoadFailed, setCatalogLoadFailed] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -175,9 +177,13 @@ export default function ShopPricingPage() {
       setShop(userShop)
       if (!userShop) return
 
+      setCatalogLoadFailed(false)
       const [shopPkgs, allPkgs, constraintsRes, cfgRes, afaPriceRow] = await Promise.all([
         dataPackageStore(userShop).loadShopPackages().catch(() => []),
-        dataPackageStore(userShop).loadCatalog().catch(() => []),
+        dataPackageStore(userShop).loadCatalog().catch(() => {
+          setCatalogLoadFailed(true)
+          return []
+        }),
         token ? fetch("/api/shop/airtime/constraints", { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.ok ? r.json() : null).catch(() => null) : null,
         fetch("/api/public/config").then((r) => r.ok ? r.json() : { admin_settings: {} }).catch(() => ({ admin_settings: {} })),
         supabase.from("afa_registration_prices").select("price").eq("is_active", true).eq("name", "default").maybeSingle(),
@@ -249,7 +255,8 @@ export default function ShopPricingPage() {
 
   // A storefront joiner whose shop is still closed because prices are not set yet (migration 0146).
   const closedJoiner = !!shop && shop.joined_via === "storefront" && shop.is_active !== true && !shop.prices_set_at
-  const waitingForOwner = closedJoiner && allPackages.length === 0
+  const catalogError = closedJoiner && catalogLoadFailed
+  const waitingForOwner = closedJoiner && !catalogLoadFailed && allPackages.length === 0
 
   const handleSaveAndOpen = async () => {
     setOpening(true)
@@ -574,7 +581,14 @@ export default function ShopPricingPage() {
         {closedJoiner && (
           <div className="rounded-2xl border border-[#1b388b]/20 bg-[#1b388b]/5 p-4 sm:p-5">
             <p className="text-lg font-bold text-foreground">Set your prices</p>
-            {waitingForOwner ? (
+            {catalogError ? (
+              <>
+                <p className="mt-1 text-sm text-foreground">We couldn't load the products available to you. Please try again.</p>
+                <Button onClick={loadAll} className="mt-3 rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+                  Retry
+                </Button>
+              </>
+            ) : waitingForOwner ? (
               <p className="mt-1 text-sm text-foreground">Waiting for your shop owner to add products. Check back soon.</p>
             ) : (
               <>
@@ -597,18 +611,24 @@ export default function ShopPricingPage() {
           </div>
         )}
 
-        {waitingForOwner ? null : (
+        {waitingForOwner || catalogError ? null : (
         <>
         <DashboardHeroBanner backHref="/dashboard/my-shop" title="Pricing" subtitle="Set your profit on each service. Save sections individually or everything at once." icon={Tag}>
-          <Button onClick={handleSaveAllAndGoLive} disabled={savingAll} className="shrink-0 rounded-full bg-white text-[#1b388b] hover:bg-white/90">
-            {savingAll ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />} Save All & Go Live
-          </Button>
+          {/* A closed joiner opens only through "Save and open my shop" above; this button's admin-review
+              modal and the banner below describe a flow that does not apply to them. */}
+          {!closedJoiner && (
+            <Button onClick={handleSaveAllAndGoLive} disabled={savingAll} className="shrink-0 rounded-full bg-white text-[#1b388b] hover:bg-white/90">
+              {savingAll ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />} Save All & Go Live
+            </Button>
+          )}
         </DashboardHeroBanner>
 
-        <div className="flex items-start gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-foreground">
-          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
-          <p><span className="font-bold">Heads up!</span> New prices go live automatically, but admins reserve the right to review and reject them later.</p>
-        </div>
+        {!closedJoiner && (
+          <div className="flex items-start gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-foreground">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+            <p><span className="font-bold">Heads up!</span> New prices go live automatically, but admins reserve the right to review and reject them later.</p>
+          </div>
+        )}
 
         {/* Category tabs -- no "Mashup" (not a real product) or "AFA" folded
             in a way that pretends it's the same as the others; AFA is real

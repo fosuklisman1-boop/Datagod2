@@ -4,8 +4,10 @@ import { CustomPriceReadError } from "@/lib/pricing/package-price"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 
 // A closed storefront joiner is is_active=false + joined_via='storefront' + prices_set_at IS NULL (migration 0146).
-// Every selling channel already refuses is_active=false, so "open" is a one-time latch: the first time the joiner
-// has a priced package, is_active and prices_set_at are set together. A later catalog change never closes the shop.
+// Selling channels refuse is_active=false because of the is_active filters added in this branch and the effective
+// status resolveShopCode returns (inactive/suspended, and inactive when the shop read fails). "Open" is a one-time
+// latch: the first time the joiner has a priced package, is_active and prices_set_at are set together. A later
+// catalog change never closes the shop.
 // All writes here need the service role: the 0146 trigger blocks owners from changing these columns.
 
 function serviceClient() {

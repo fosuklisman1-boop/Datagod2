@@ -124,7 +124,7 @@ export async function notifyWaitingSubAgents(db: Db, parentShopId: string): Prom
           sendPushToUser(row.user_id, {
             title: "Your prices are ready to set",
             body: "Your upline has set their sub-agent prices. Set your own prices and start selling.",
-            data: { url: "/dashboard/sub-agent-catalog" },
+            data: { url: "/dashboard/shop-pricing?setup=1" },
           } as Parameters<typeof sendPushToUser>[1])
         ).catch(() => {})
       )

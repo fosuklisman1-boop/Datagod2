@@ -145,6 +145,13 @@ describe("notifyWaitingSubAgents", () => {
     expect(sendPushToUser).toHaveBeenCalledTimes(2)
   })
 
+  it("deep-links waiting joiners to their own pricing setup page, not the owner's catalog", async () => {
+    const db = fakeDb({ waiting: [{ user_id: "u1" }] })
+    await notifyWaitingSubAgents(db as any, "p1")
+    const payload = sendPushToUser.mock.calls[0][1] as { data: { url: string } }
+    expect(payload.data.url).toBe("/dashboard/shop-pricing?setup=1")
+  })
+
   it("two activations within 24 hours push once; a day later pushes again", async () => {
     const db = fakeDb({ waiting: [{ user_id: "u1" }] })
     await notifyWaitingSubAgents(db as any, "p1")
