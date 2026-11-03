@@ -187,6 +187,10 @@ export const SMSTemplates = {
   subAgentInvitation: (inviteUrl: string) =>
     `DTGOD: You have been invited to become a sub-agent! Join here: ${inviteUrl} (Expires in 7 days)`,
 
+  // Owner alert: a storefront visitor joined and the owner has no sub-agent prices yet
+  subAgentCatalogNeeded: (shopName: string) =>
+    `DTGOD: ${shopName} just joined your network but you have not set sub-agent prices yet. Set them in your dashboard so they can start selling.`,
+
   // USSD order confirmed — sent to recipient phone
   ussdOrderConfirmed: (packageSize: string, network: string, channelLink?: string) => {
     const colour = networkColor(network)

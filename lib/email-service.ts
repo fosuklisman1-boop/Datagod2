@@ -637,6 +637,23 @@ export const EmailTemplates = {
     `, "Invitation", true),
   }),
 
+  subAgentCatalogNeeded: (shopName: string, catalogUrl: string) => ({
+    subject: `${shopName} joined your network - set your sub-agent prices`,
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🤝</span>
+        <h2>New sub-agent waiting</h2>
+        <p><strong>${shopName}</strong> just joined your network from your storefront.</p>
+      </div>
+
+      <div class="info-card">
+        <p>You have not set your sub-agent prices yet, so they cannot start selling.</p>
+      </div>
+
+      <a href="${catalogUrl}" class="button-primary">Set Sub-agent Prices</a>
+    `, "Sub-agent", true),
+  }),
+
   subscriptionExpiry1Day: (planName: string, expiryDate: string) => ({
     subject: "Subscription Expiring Soon",
     html: wrapHtml(`

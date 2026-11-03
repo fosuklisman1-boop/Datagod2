@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { CustomPriceReadError } from "@/lib/pricing/package-price"
 import { subAgentCosts, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
+import { notifyWaitingSubAgents } from "@/lib/sub-agents/notify-owner"
 
 // Force dynamic rendering - env vars read at runtime, not build time
 export const dynamic = "force-dynamic"
@@ -20,6 +21,24 @@ function getSupabaseClient() {
       persistSession: false,
     },
   })
+}
+
+/**
+ * After an OWNER saves to sub_agent_catalog: if that left exactly one active row (their first), tell the storefront
+ * joiners waiting for prices. Never throws, so a notification problem cannot fail the save.
+ */
+async function notifyIfFirstActiveCatalogRow(supabase: ReturnType<typeof getSupabaseClient>, shopId: string) {
+  try {
+    const { count, error } = await supabase
+      .from("sub_agent_catalog")
+      .select("id", { count: "exact", head: true })
+      .eq("shop_id", shopId)
+      .eq("is_active", true)
+    if (error || count !== 1) return
+    await notifyWaitingSubAgents(supabase, shopId)
+  } catch {
+    console.warn("[SUB-AGENT-CATALOG] waiting sub-agent notification failed for shop", shopId)
+  }
 }
 
 // GET: Get shop owner's sub-agent catalog
@@ -277,6 +296,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Failed to update catalog" }, { status: 500 })
       }
 
+      if (tableName === "sub_agent_catalog") await notifyIfFirstActiveCatalogRow(supabase, shop.id)
+
       return NextResponse.json({ success: true, item: updated, action: "updated" })
     }
 
@@ -305,6 +326,8 @@ export async function POST(request: NextRequest) {
       console.error("Error adding to catalog:", insertError)
       return NextResponse.json({ error: "Failed to add to catalog" }, { status: 500 })
     }
+
+    if (tableName === "sub_agent_catalog") await notifyIfFirstActiveCatalogRow(supabase, shop.id)
 
     return NextResponse.json({ success: true, item: newItem, action: "created" })
 
@@ -392,6 +415,8 @@ export async function PUT(request: NextRequest) {
       console.error("Error updating catalog:", updateError)
       return NextResponse.json({ error: "Failed to update catalog" }, { status: 500 })
     }
+
+    if (tableName === "sub_agent_catalog" && is_active === true) await notifyIfFirstActiveCatalogRow(supabase, shop.id)
 
     return NextResponse.json({ success: true, item: updated })
 
