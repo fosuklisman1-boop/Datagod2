@@ -206,9 +206,14 @@ New joiners verify their phone on the join page through the existing `/api/auth/
 ### Task 11: Go-live checks
 
 - [ ] **Step 1: Run** `npm run test:run`, `npx tsc --noEmit` and a placeholder-env `next build`. Expected: only the 10 failures recorded at baseline (9 order-health plus the `0142 place_api_v2_order` drift test).
-- [ ] **Step 2: With the user's OK,** query live `pg_proc` for functions mentioning `sub_agent` and confirm none grants a dealer rate by role. Then run the migration's dry run through the Management API, apply it, and verify the columns exist.
-- [ ] **Step 2c: Read-only, report to the user before merging:** count shops with `is_active=false` that took orders in the last 30 days, on any channel. Task 8 gated 8 public sell routes that previously ignored `is_active`, so those shops would stop selling.
-- [ ] **Step 2b: With the user's OK,** update the Supabase signup confirmation email template so its `/auth/confirm` link ends with `&rt={{ .RedirectTo }}`. The exact link is in the Task 6 report. Without it, the join nonce never arrives and joins fall back to the normal signup path. Also confirm the Supabase redirect allow-list accepts the join redirect URL.
-- [ ] **Step 2a: Fresh reviewer, then merge dark, with the user's OK.** Confirm with the switch off that storefronts still show the request form and `/join/shop/<handle>` shows the closed message.
-- [ ] **Step 3: Supervised test with the user, on one real shop, with the switch on:** a new email through to an open shop, a USSD dial on both menus, and a real low-value order. A logged-in customer upgrade. A no-catalog owner receives SMS, email and push. A closed shop refuses an order on every channel. A joiner gets customer rates on airtime and bills. Then switch off until the user decides.
-- [ ] **Step 4: Update memory** with a project note for this feature and any production findings from Task 1.
+Order matters: the migration must be applied and verified in production before any of this code reaches `main`, because Vercel auto-deploys `main` and several existing pages (invite acceptance, admin shops, the owner's sub-agents page) read 0146's columns.
+
+- [ ] **Step 2: Read-only prechecks, reported to the user:**
+  - Live `pg_proc` functions mentioning `sub_agent`: confirm none grants a dealer rate by role.
+  - `pg_constraint`/`pg_indexes` on `user_shops(user_id)`: confirm a unique constraint exists. If it doesn't, count users with more than one shop and add the constraint to 0146 before applying.
+  - Shops with `is_active=false` that took orders in the last 30 days on any channel: Task 8 gated 8 public sell routes that previously ignored `is_active`, so those shops will stop selling.
+- [ ] **Step 3: With the user's OK,** dry-run migration 0146 through the Management API, apply it, and verify the new columns, the trigger and the intents table exist.
+- [ ] **Step 4: With the user's OK,** update the Supabase signup confirmation email template so its `/auth/confirm` link ends with `&rt={{ .RedirectTo }}` (exact link in the Task 6 report), and confirm the redirect allow-list accepts the join redirect URL. Without it, joins fall back to normal signup.
+- [ ] **Step 5: Fresh reviewer, then merge to `main` dark, with the user's OK.** Check local `main` for other sessions' commits first. After deploy, confirm with the switch off that storefronts still show the request form and `/join/shop/<handle>` shows the closed message.
+- [ ] **Step 6: Supervised test with the user, on one real shop, with the switch on:** a new email through to an open shop, including screenshots of the join and pricing pages at 500px and desktop width. A USSD dial on both menus and a real low-value order. A logged-in customer upgrade. A no-catalog owner receives SMS, email and push, and a waiting joiner taps the "prices ready" push. A closed joiner tries "Save All & Go Live". A closed shop refuses an order on every channel. A joiner gets customer rates on airtime and bills. Then switch off until the user decides.
+- [ ] **Step 7: Update memory** with what shipped and any production findings.
