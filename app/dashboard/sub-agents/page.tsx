@@ -31,6 +31,7 @@ import {
 import { PillToggle } from "@/components/shop/pill-toggle"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { joinShopUrl } from "@/lib/sub-agents/join-url"
 
 interface SubAgent {
   id: string
@@ -85,6 +86,9 @@ export default function SubAgentsPage() {
   const [shopId, setShopId] = useState<string | null>(null)
   const [ownerOnDealerRates, setOwnerOnDealerRates] = useState(false)
   const [ratesBusyId, setRatesBusyId] = useState<string | null>(null)
+  // Permanent public sign-up link (/join/shop/<handle>); main shops only, since sub-agents can't recruit.
+  const [joinLink, setJoinLink] = useState<string | null>(null)
+  const [joinLinkNote, setJoinLinkNote] = useState<string | null>(null)
   const [stats, setStats] = useState({
     totalSubAgents: 0,
     totalEarningsFromSubAgents: 0,
@@ -135,7 +139,7 @@ export default function SubAgentsPage() {
       // Get user's shop
       const { data: shop, error: shopError } = await supabase
         .from("user_shops")
-        .select("id")
+        .select("id, shop_slug, subdomain, parent_shop_id, is_active, is_blocked")
         .eq("user_id", session.user.id)
         .single()
 
@@ -145,6 +149,21 @@ export default function SubAgentsPage() {
       }
 
       setShopId(shop.id)
+
+      const handle = shop.subdomain || shop.shop_slug
+      if (!shop.parent_shop_id && handle) {
+        setJoinLink(joinShopUrl(handle))
+        const cfg = await fetch("/api/public/config").then(r => (r.ok ? r.json() : null)).catch(() => null)
+        if (cfg?.app_settings?.sub_agent_open_join_enabled !== true) {
+          setJoinLinkNote("Open sign-up is switched off right now, so this link shows a 'not taking sub-agents' page.")
+        } else if (!shop.is_active || shop.is_blocked) {
+          setJoinLinkNote("Your shop isn't active, so this link won't accept sign-ups until it is.")
+        } else {
+          setJoinLinkNote(null)
+        }
+      } else {
+        setJoinLink(null)
+      }
 
       // Fetch sub-agent stats via API (uses service role to bypass RLS)
       const statsResponse = await fetch("/api/shop/sub-agent-stats", {
@@ -378,6 +397,50 @@ export default function SubAgentsPage() {
             Invite Sub-Agent
           </Button>
         </DashboardHeroBanner>
+
+        {/* Permanent sign-up link: anyone who opens it can register as a sub-agent under this shop. */}
+        {joinLink && (
+          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay space-y-3">
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                <Share2 className="h-4 w-4 text-primary" /> Your sub-agent sign-up link
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Share it anywhere, such as WhatsApp groups or your status. Anyone who opens it can register as a sub-agent under your shop. It never expires.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input readOnly value={joinLink} onFocus={e => e.currentTarget.select()} className="flex-1 font-mono text-xs" />
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(joinLink)
+                      toast.success("Sign-up link copied")
+                    } catch {
+                      toast.error("Couldn't copy. Select the link and copy it manually.")
+                    }
+                  }}
+                >
+                  <Copy className="mr-2 h-4 w-4" /> Copy
+                </Button>
+                {typeof navigator !== "undefined" && "share" in navigator && (
+                  <Button
+                    className="flex-1 sm:flex-none"
+                    onClick={() => {
+                      navigator.share({ title: "Become a sub-agent", text: "Start your own data shop under mine:", url: joinLink }).catch(() => {})
+                    }}
+                  >
+                    <Share2 className="mr-2 h-4 w-4" /> Share
+                  </Button>
+                )}
+              </div>
+            </div>
+            {joinLinkNote && <p className="text-xs text-warning">{joinLinkNote}</p>}
+          </div>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
