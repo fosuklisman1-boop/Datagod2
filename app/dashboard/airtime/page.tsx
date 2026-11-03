@@ -134,13 +134,13 @@ export default function AirtimePage() {
     setWalletBalance(walletRes.data?.balance ?? 0)
     const role = roleRes.data?.role || "user"
     setUserRole(role)
-    // Sub-agents get the dealer rate unless their own shop has dealer rates off. A failed read (e.g. the column
-    // not deployed yet) or no shop row keeps today's behaviour: dealer. Mirrors lib/sub-agents/dealer-rates.ts.
+    // Sub-agents get the dealer rate unless their own shop has dealer rates off or they have no shop at all.
+    // A failed read (e.g. the column not deployed yet) keeps today's behaviour: dealer. Mirrors lib/sub-agents/dealer-rates.ts.
     let dealerRatesOn = true
     if (role === "sub_agent") {
       const { data: ownShop, error: ownShopError } = await supabase
         .from("user_shops").select("dealer_rates_enabled").eq("user_id", session.user.id).limit(1).maybeSingle()
-      dealerRatesOn = ownShopError ? true : ownShop?.dealer_rates_enabled !== false
+      dealerRatesOn = ownShopError ? true : !!ownShop && ownShop.dealer_rates_enabled !== false
     }
     setDealerRateLabel(role === "dealer" || (role === "sub_agent" && dealerRatesOn))
     const isDealer = role === "dealer" || (role === "sub_agent" && dealerRatesOn)

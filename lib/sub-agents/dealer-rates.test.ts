@@ -68,9 +68,9 @@ describe("getDealerRateTier", () => {
     expect(await getDealerRateTier(db, "u1")).toBe("customer")
   })
 
-  it("sub_agent with no shop row is dealer, matching today", async () => {
+  it("sub_agent with no shop row is customer (joining then deleting the shop must not keep dealer rates)", async () => {
     const { db } = fakeDb({ role: "sub_agent", shop: { data: null, error: null } })
-    expect(await getDealerRateTier(db, "u1")).toBe("dealer")
+    expect(await getDealerRateTier(db, "u1")).toBe("customer")
   })
 
   it("sub_agent is dealer when the column does not exist yet (42703 / PGRST204), so a deploy before the migration changes nothing", async () => {

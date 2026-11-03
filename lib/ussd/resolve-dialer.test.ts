@@ -38,6 +38,10 @@ describe("resolveDialer rateTier", () => {
     h.shop = { data: null, error: { code: "57014", message: "timeout" } }
     expect((await resolveDialer("0244123456")).rateTier).toBe("customer")
   })
+  it("sub_agent with no shop row => customer", async () => {
+    h.shop = { data: null, error: null }
+    expect((await resolveDialer("0244123456")).rateTier).toBe("customer")
+  })
   it("sub_agent when the column is not deployed yet => dealer, as today", async () => {
     h.shop = { data: null, error: { code: "42703", message: "no column" } }
     expect((await resolveDialer("0244123456")).rateTier).toBe("dealer")

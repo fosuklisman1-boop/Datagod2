@@ -21,7 +21,8 @@ function isMissingColumn(error: { code?: string } | null): boolean {
  * The one place that decides whether an account gets dealer rates (airtime fee, cashback share, bills).
  *  - dealer role: dealer.
  *  - sub_agent: dealer, unless their own shop has dealer_rates_enabled = false.
- *    No shop row, or the column not existing yet (migration 0146 not applied), counts as dealer, as it always has.
+ *    No shop row is customer: a storefront joiner who deletes their shop must not keep dealer rates.
+ *    The column not existing yet (migration 0146 not applied) still counts as dealer, as it always has.
  *  - everyone else: customer.
  * Throws on any other read error; callers decide how to treat a failure.
  */
@@ -42,5 +43,6 @@ export async function getDealerRateTier(db: SupabaseClient, userId: string): Pro
     if (isMissingColumn(shopError)) return "dealer"
     throw shopError
   }
-  return (shop as { dealer_rates_enabled?: boolean } | null)?.dealer_rates_enabled === false ? "customer" : "dealer"
+  if (!shop) return "customer"
+  return (shop as { dealer_rates_enabled?: boolean }).dealer_rates_enabled === false ? "customer" : "dealer"
 }
