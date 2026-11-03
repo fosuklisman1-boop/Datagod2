@@ -1409,6 +1409,30 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
                     </div>
                   </div>
                 )}
+                {showSubAgentRecruit && openJoinEnabled && (
+                  <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">
+                          <UserPlus className="w-5 h-5" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-foreground">Want to start your own shop?</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Join as a sub-agent under this shop. Get your own storefront and USSD code, and set your own prices.
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        asChild
+                        className="w-full shrink-0 text-white sm:w-auto"
+                        style={{ backgroundColor: "var(--shop-accent)" }}
+                      >
+                        <a href={joinShopUrl(shop?.shop_slug || shopSlug)}>Join Now</a>
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 <div ref={serviceTabsRef}>
                   <p className="mb-2 text-center text-xs font-bold uppercase tracking-wide text-muted-foreground">Our Services</p>
                   <div className="flex gap-1.5 overflow-x-auto rounded-2xl bg-muted/60 p-1.5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" }}>
