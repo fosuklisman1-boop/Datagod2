@@ -41,9 +41,17 @@ CREATE TABLE IF NOT EXISTS public.sub_agent_join_intents (
   first_name     text,
   last_name      text,
   phone          text NOT NULL,
+  -- SHA-256 (hex) of the random nonce carried by this join's confirmation link; the raw nonce is never stored.
+  nonce_hash     text NOT NULL,
+  -- The phone_otp_verifications row that proved the phone; one proof backs at most one intent.
+  otp_verification_id uuid,
   created_at     timestamptz NOT NULL DEFAULT now(),
   consumed_at    timestamptz
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sub_agent_join_intents_otp
+  ON public.sub_agent_join_intents (otp_verification_id)
+  WHERE otp_verification_id IS NOT NULL;
 
 ALTER TABLE public.sub_agent_join_intents ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.sub_agent_join_intents FROM PUBLIC, anon, authenticated;

@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { createHash } from "node:crypto"
+
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex")
 
 const notifyOwnerOfRecruit = vi.fn(async () => {})
 const provisionShopCode = vi.fn(async () => ({ id: "code-1", activation_fee_paid: false }))
@@ -32,7 +35,7 @@ type Op = { table: string; op: string; payload?: any; filters: [string, string, 
 const UNIQUE: Record<string, string[]> = {
   users: ["id"],
   user_shops: ["id", "user_id", "shop_slug"],
-  sub_agent_join_intents: ["user_id"],
+  sub_agent_join_intents: ["user_id", "otp_verification_id"],
   wallets: ["user_id"],
 }
 
@@ -71,8 +74,13 @@ function memDb(
       for (const p of list) {
         const row = { ...p }
         if (o.table !== "sub_agent_join_intents" && o.table !== "users" && row.id === undefined) row.id = `${o.table}-${++seq}`
+        // Column defaults from migration 0146.
+        if (o.table === "sub_agent_join_intents") {
+          row.created_at ??= new Date().toISOString()
+          row.consumed_at ??= null
+        }
         for (const key of UNIQUE[o.table] || []) {
-          if (row[key] !== undefined && rows.some((r) => r[key] === row[key])) {
+          if (row[key] != null && rows.some((r) => r[key] === row[key])) {
             return { data: null, error: { code: "23505", message: `duplicate ${key}` } }
           }
         }
@@ -168,7 +176,7 @@ const MIN = 60 * 1000
 
 function anonClient(result: { data?: any; error?: any } = {}) {
   const signUp = vi.fn(async (_args: any) => ({
-    data: result.data ?? { user: { id: "new-user", identities: [{ id: "i1" }] }, session: null },
+    data: result.data ?? { user: { id: "new-user", identities: [{ id: "i1" }], created_at: new Date().toISOString() }, session: null },
     error: result.error ?? null,
   }))
   return { auth: { signUp }, signUp }
@@ -286,7 +294,14 @@ describe("startJoinIntent (logged out)", () => {
     expect(r).toEqual({ httpStatus: 200, body: { status: "confirm_email" } })
     const args = anon.signUp.mock.calls[0][0]
     expect(args.email).toBe("ama@example.com")
-    expect(args.options.emailRedirectTo).toBe("https://datagod.store/auth/callback")
+    const redirect = new URL(args.options.emailRedirectTo)
+    expect(redirect.origin + redirect.pathname).toBe("https://datagod.store/auth/callback")
+    const nonce = redirect.searchParams.get("join")!
+    expect(nonce).toMatch(/^[A-Za-z0-9_-]{32,}$/)
+    // Only the hash is stored.
+    expect(JSON.stringify(db.tables.sub_agent_join_intents)).not.toContain(nonce)
+    expect(db.tables.sub_agent_join_intents[0].nonce_hash).toBe(sha256(nonce))
+    expect(db.tables.sub_agent_join_intents[0].otp_verification_id).toBe("otp-1")
     // Never put phone/role/parent in user_metadata: the intent is the source of truth.
     expect(JSON.stringify(args.options.data ?? {})).not.toMatch(/phone|role|parent|shop/)
     expect(db.tables.sub_agent_join_intents).toEqual([
@@ -352,6 +367,40 @@ describe("startJoinIntent (logged out)", () => {
     expect(b.body).toEqual({ status: "confirm_email" })
     expect(db.tables.sub_agent_join_intents).toHaveLength(1)
     expect(db.tables.sub_agent_join_intents[0].shop_name).toBe("Ama Data")
+    // The latest confirmation email carries the nonce that now matches.
+    const latest = new URL(anon.signUp.mock.calls[1][0].options.emailRedirectTo).searchParams.get("join")!
+    expect(db.tables.sub_agent_join_intents[0].nonce_hash).toBe(sha256(latest))
+  })
+
+  it("one OTP proof cannot back a second intent for another account", async () => {
+    const db = memDb({ phone_otp_verifications: [otpRow("0241234567")] })
+    await startJoinIntent(db, { ...newJoiner(), anon: anonClient() })
+    const other = anonClient({ data: { user: { id: "second-user", identities: [{ id: "i" }], created_at: new Date().toISOString() }, session: null } })
+    const r = await startJoinIntent(db, { ...newJoiner({ email: "kofi@example.com" }), anon: other })
+    expect(r.httpStatus).toBe(400)
+    expect(r.body.error).toMatch(/verify your phone/i)
+    expect(db.tables.sub_agent_join_intents).toHaveLength(1)
+    expect(db.tables.sub_agent_join_intents[0].user_id).toBe("new-user")
+  })
+
+  it("a missing or unparseable created_at counts as not fresh", async () => {
+    for (const created_at of [undefined, "not-a-date"]) {
+      const db = memDb({ phone_otp_verifications: [otpRow("0241234567")] })
+      const anon = anonClient({ data: { user: { id: "victim", identities: [{ id: "i" }], created_at }, session: null } })
+      const r = await startJoinIntent(db, { ...newJoiner(), anon })
+      expect(r.httpStatus).toBe(409)
+      expect(db.tables.sub_agent_join_intents ?? []).toHaveLength(0)
+    }
+  })
+
+  it("non-string fields get 400 without sign-up", async () => {
+    for (const field of ["firstName", "lastName", "email", "phone", "password", "shopName"]) {
+      const db = memDb({ phone_otp_verifications: [otpRow("0241234567")] })
+      const anon = anonClient()
+      const r = await startJoinIntent(db, { ...newJoiner(), [field]: { toString: () => "Ama Data" }, anon } as any)
+      expect(r.httpStatus, field).toBe(400)
+      expect(anon.signUp).not.toHaveBeenCalled()
+    }
   })
 
   it("never attaches an intent to an older unconfirmed account someone else created", async () => {
@@ -395,11 +444,16 @@ function intentRow(over: Row = {}) {
     first_name: "Ama",
     last_name: "Mensah",
     phone: "0241234567",
+    nonce_hash: sha256(NONCE),
     created_at: new Date().toISOString(),
     consumed_at: null,
     ...over,
   }
 }
+
+const NONCE = "good-nonce-from-the-confirmation-link"
+/** What /auth/confirm (type signup) passes for a genuine join confirmation. */
+const OK = { email: "ama@example.com", nonce: NONCE, identities: ["email"] }
 
 function finalizeDb(over: { parent?: Row; settings?: Row; users?: Row[]; intent?: Row | null } = {}) {
   return memDb({
@@ -417,19 +471,63 @@ const recruitShops = (db: any) => db.tables.user_shops.filter((s: Row) => s.user
 describe("finalizeJoinIntent", () => {
   it("returns null when there is no intent", async () => {
     const db = finalizeDb({ intent: null })
-    expect(await finalizeJoinIntent(db, "new-user")).toBeNull()
+    expect(await finalizeJoinIntent(db, "new-user", OK)).toBeNull()
     expect(writes(db)).toHaveLength(0)
   })
 
   it("returns null (normal signup continues) when the intents table cannot be read", async () => {
     const db = memDb({}, { fail: (o) => (o.table === "sub_agent_join_intents" ? { code: "42P01", message: "missing" } : null) })
-    expect(await finalizeJoinIntent(db, "new-user")).toBeNull()
+    expect(await finalizeJoinIntent(db, "new-user", OK)).toBeNull()
+  })
+
+  it("no nonce, wrong nonce, expired intent or a non-email identity: null, nothing written", async () => {
+    const cases: [string, any, Row?][] = [
+      ["no nonce (e.g. OAuth callback, magic link)", { email: OK.email, identities: ["email"] }],
+      ["empty nonce", { ...OK, nonce: "" }],
+      ["wrong nonce", { ...OK, nonce: "attacker-guess" }],
+      ["extra google identity", { ...OK, identities: ["email", "google"] }],
+      ["identities unknown", { email: OK.email, nonce: NONCE }],
+      ["expired intent", OK, { created_at: new Date(Date.now() - 25 * 60 * MIN).toISOString() }],
+    ]
+    for (const [label, opts, intentOver] of cases) {
+      const db = finalizeDb({ intent: intentOver ?? {} })
+      expect(await finalizeJoinIntent(db, "new-user", opts), label).toBeNull()
+      expect(writes(db), label).toHaveLength(0)
+      expect(recruitShops(db), label).toHaveLength(0)
+    }
+    expect(provisionShopCode).not.toHaveBeenCalled()
+    expect(notifyOwnerOfRecruit).not.toHaveBeenCalled()
+  })
+
+  it("end to end: the nonce from the sign-up's redirect finalizes the join", async () => {
+    const db = memDb({
+      phone_otp_verifications: [otpRow("0241234567")],
+      app_settings: [SETTINGS],
+      user_shops: [{ ...PARENT }],
+      users: [{ id: "new-user", email: "ama@example.com", role: "user", phone_number: null }],
+      wallets: [],
+    })
+    const anon = anonClient()
+    await startJoinIntent(db, { ...newJoiner(), anon })
+    const nonce = new URL(anon.signUp.mock.calls[0][0].options.emailRedirectTo).searchParams.get("join")!
+    expect(await finalizeJoinIntent(db, "new-user", { ...OK, nonce: "x" + nonce })).toBeNull()
+    expect(await finalizeJoinIntent(db, "new-user", { ...OK, nonce })).toEqual({ target: JOIN_SETUP_TARGET })
+    expect(recruitShops(db)).toHaveLength(1)
+  })
+
+  it("an intent consumed over an hour ago no longer takes over redirects", async () => {
+    const db = finalizeDb({ intent: { consumed_at: new Date(Date.now() - 61 * MIN).toISOString() } })
+    db.tables.user_shops.push({ id: "s", user_id: "new-user", shop_slug: "s", joined_via: "storefront", parent_shop_id: PARENT.id })
+    expect(await finalizeJoinIntent(db, "new-user", OK)).toBeNull()
+    const recent = finalizeDb({ intent: { consumed_at: new Date(Date.now() - 5 * MIN).toISOString() } })
+    recent.tables.user_shops.push({ id: "s", user_id: "new-user", shop_slug: "s", joined_via: "storefront", parent_shop_id: PARENT.id })
+    expect(await finalizeJoinIntent(recent, "new-user", OK)).toEqual({ target: JOIN_SETUP_TARGET })
   })
 
   it("creates the shop, code and alert once; a second finalize returns the same target (Review Focus 1)", async () => {
     const db = finalizeDb()
-    const first = await finalizeJoinIntent(db, "new-user", { email: "ama@example.com" })
-    const second = await finalizeJoinIntent(db, "new-user", { email: "ama@example.com" })
+    const first = await finalizeJoinIntent(db, "new-user", OK)
+    const second = await finalizeJoinIntent(db, "new-user", OK)
     expect(first).toEqual({ target: JOIN_SETUP_TARGET })
     expect(second).toEqual({ target: JOIN_SETUP_TARGET })
     expect(recruitShops(db)).toHaveLength(1)
@@ -455,7 +553,7 @@ describe("finalizeJoinIntent", () => {
 
   it("writes the users row as sub_agent when no trigger row exists", async () => {
     const db = finalizeDb({ users: [] })
-    const r = await finalizeJoinIntent(db, "new-user", { email: "ama@example.com" })
+    const r = await finalizeJoinIntent(db, "new-user", OK)
     expect(r).toEqual({ target: JOIN_SETUP_TARGET })
     expect(db.tables.users).toEqual([
       expect.objectContaining({ id: "new-user", email: "ama@example.com", role: "sub_agent", phone_number: "0241234567" }),
@@ -464,7 +562,7 @@ describe("finalizeJoinIntent", () => {
 
   it("target blocked before confirmation: no shop, intent consumed, account stays user (Review Focus 2)", async () => {
     const db = finalizeDb({ parent: { is_blocked: true } })
-    const r = await finalizeJoinIntent(db, "new-user", { email: "ama@example.com" })
+    const r = await finalizeJoinIntent(db, "new-user", OK)
     expect(r).toEqual({ target: JOIN_CLOSED_TARGET })
     expect(recruitShops(db)).toHaveLength(0)
     expect(db.tables.sub_agent_join_intents[0].consumed_at).toBeTruthy()
@@ -473,13 +571,13 @@ describe("finalizeJoinIntent", () => {
     expect(notifyOwnerOfRecruit).not.toHaveBeenCalled()
     expect(db.authUpdates).toHaveLength(0)
     // Second click: same closed target, still nothing created.
-    expect(await finalizeJoinIntent(db, "new-user")).toEqual({ target: JOIN_CLOSED_TARGET })
+    expect(await finalizeJoinIntent(db, "new-user", OK)).toEqual({ target: JOIN_CLOSED_TARGET })
     expect(recruitShops(db)).toHaveLength(0)
   })
 
   it("target inactive or open join switched off: closed", async () => {
     for (const db of [finalizeDb({ parent: { is_active: false } }), finalizeDb({ settings: { key: null, sub_agent_open_join_enabled: false } })]) {
-      expect(await finalizeJoinIntent(db, "new-user")).toEqual({ target: JOIN_CLOSED_TARGET })
+      expect(await finalizeJoinIntent(db, "new-user", OK)).toEqual({ target: JOIN_CLOSED_TARGET })
       expect(recruitShops(db)).toHaveLength(0)
       expect(db.tables.users.find((u: Row) => u.id === "new-user").role).toBe("user")
     }
@@ -492,7 +590,7 @@ describe("finalizeJoinIntent", () => {
         { id: "other", role: "user", phone_number: "241234567" },
       ],
     })
-    expect(await finalizeJoinIntent(db, "new-user")).toEqual({ target: JOIN_CLOSED_TARGET })
+    expect(await finalizeJoinIntent(db, "new-user", OK)).toEqual({ target: JOIN_CLOSED_TARGET })
     expect(recruitShops(db)).toHaveLength(0)
     const u = db.tables.users.find((x: Row) => x.id === "new-user")
     expect(u.role).toBe("user")
@@ -505,10 +603,10 @@ describe("finalizeJoinIntent", () => {
     const db = memDb(base.tables, {
       fail: (o) => (o.table === "wallets" && o.op === "insert" && failWallet ? { code: "XX000", message: "boom" } : null),
     })
-    await expect(finalizeJoinIntent(db, "new-user")).rejects.toBeTruthy()
+    await expect(finalizeJoinIntent(db, "new-user", OK)).rejects.toBeTruthy()
     expect(db.tables.sub_agent_join_intents[0].consumed_at).toBeNull()
     failWallet = false
-    expect(await finalizeJoinIntent(db, "new-user")).toEqual({ target: JOIN_SETUP_TARGET })
+    expect(await finalizeJoinIntent(db, "new-user", OK)).toEqual({ target: JOIN_SETUP_TARGET })
     expect(recruitShops(db)).toHaveLength(1)
   })
 })

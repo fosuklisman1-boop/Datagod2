@@ -117,8 +117,8 @@ BEGIN
     BEGIN
       EXECUTE format('SET LOCAL ROLE %I', v_role);
       v_seen := current_user;
-      INSERT INTO public.sub_agent_join_intents (user_id, parent_shop_id, shop_name, phone)
-        VALUES (v_owner, v_shop, 'selftest', '233249990146');
+      INSERT INTO public.sub_agent_join_intents (user_id, parent_shop_id, shop_name, phone, nonce_hash)
+        VALUES (v_owner, v_shop, 'selftest', '233249990146', 'selftest');
       v_called := true;
     EXCEPTION WHEN insufficient_privilege THEN
       v_got := SQLERRM;

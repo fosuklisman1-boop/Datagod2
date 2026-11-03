@@ -5,6 +5,12 @@
 // Role and parent never come from user_metadata or the request body: the parent is resolved server-side from the
 // handle (route) or from the intent row (finalize), and the role is written here.
 // Logs carry codes and messages only: no phones, emails or passwords.
+//
+// Binding to the confirmation email: each intent stores the SHA-256 of a random nonce whose raw value only travels in
+// that sign-up's emailRedirectTo (`/auth/callback?join=<nonce>`). finalizeJoinIntent runs only from /auth/confirm for
+// a signup confirmation, only with the matching nonce, only for an email-only account and within 24 hours, so a
+// later magic link, Google sign-in or email change can never attach someone's join intent to an account.
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 import { createSubAgentShop, ensureWallet, makeShopSlug, SubAgentSlugTakenError } from "./create-shop"
 import { joinerStatus, targetStatus } from "./join-eligibility"
 import { notifyOwnerOfRecruit } from "./notify-owner"
@@ -20,6 +26,19 @@ const OTP_PROOF_WINDOW_MS = 30 * 60 * 1000
 const SLUG_ATTEMPTS = 5
 /** signUp also returns an existing unconfirmed account; one created longer ago than this wasn't made by this request. */
 const FRESH_ACCOUNT_MS = 10 * 60 * 1000
+/** An intent older than this is never finalized. */
+const INTENT_TTL_MS = 24 * 60 * 60 * 1000
+/** A consumed intent answers repeat confirmations for this long, then stops affecting redirects. */
+const CONSUMED_ANSWER_MS = 60 * 60 * 1000
+
+const sha256Hex = (s: string) => createHash("sha256").update(s).digest("hex")
+
+function nonceMatches(nonce: string | null | undefined, storedHash: unknown): boolean {
+  if (typeof nonce !== "string" || nonce === "" || typeof storedHash !== "string" || storedHash === "") return false
+  const a = Buffer.from(sha256Hex(nonce), "utf8")
+  const b = Buffer.from(storedHash, "utf8")
+  return a.length === b.length && timingSafeEqual(a, b)
+}
 
 export type TargetShop = {
   id: string
@@ -223,13 +242,17 @@ export interface StartJoinInput {
   /** Site origin for the confirmation link (`${origin}/auth/callback`). */
   origin: string
   parentShopId: string
-  firstName: string
-  lastName: string
-  email: string
-  phone: string
-  password: string
-  shopName: string
+  // Straight from the request body: each must be a string or the request gets 400.
+  firstName: unknown
+  lastName: unknown
+  email: unknown
+  phone: unknown
+  password: unknown
+  shopName: unknown
 }
+
+const providersOf = (user: any): string[] | undefined =>
+  Array.isArray(user?.identities) ? user.identities.map((i: any) => String(i?.provider ?? "")) : undefined
 
 function looksAlreadyRegistered(error: any): boolean {
   return (
@@ -244,12 +267,15 @@ function looksAlreadyRegistered(error: any): boolean {
  * the join intent. No shop, code or role change happens until the email link is clicked (finalizeJoinIntent).
  */
 export async function startJoinIntent(db: Db, input: StartJoinInput): Promise<JoinOutcome> {
-  const firstName = String(input.firstName ?? "").trim()
-  const lastName = String(input.lastName ?? "").trim()
-  const email = String(input.email ?? "").trim().toLowerCase()
-  const password = typeof input.password === "string" ? input.password : ""
+  const fields = [input.firstName, input.lastName, input.email, input.phone, input.password, input.shopName]
+  if (!fields.every((f) => typeof f === "string")) return fail(400, "Please fill in every field.")
+  const rawPhone = input.phone as string
+  const firstName = (input.firstName as string).trim()
+  const lastName = (input.lastName as string).trim()
+  const email = (input.email as string).trim().toLowerCase()
+  const password = input.password as string
   const shopName = cleanShopName(input.shopName)
-  const phone = normalizePhone(input.phone)
+  const phone = normalizePhone(rawPhone)
 
   if (!firstName || !lastName || firstName.length > 50 || lastName.length > 50) {
     return fail(400, "Enter your first and last name.")
@@ -265,7 +291,7 @@ export async function startJoinIntent(db: Db, input: StartJoinInput): Promise<Jo
   const { data: proof, error: proofErr } = await db
     .from("phone_otp_verifications")
     .select("id")
-    .in("phone", phoneVariants(input.phone))
+    .in("phone", phoneVariants(rawPhone))
     .eq("purpose", "signup")
     .eq("used", true)
     .gte("created_at", since)
@@ -286,11 +312,15 @@ export async function startJoinIntent(db: Db, input: StartJoinInput): Promise<Jo
     return fail(500, "Something went wrong. Please try again.")
   }
 
+  // The raw nonce exists only in this confirmation link; the intent stores its hash.
+  const nonce = randomBytes(32).toString("base64url")
+  const nonceHash = sha256Hex(nonce)
+
   const { data, error } = await input.anon.auth.signUp({
     email,
     password,
     options: {
-      emailRedirectTo: `${input.origin}/auth/callback`,
+      emailRedirectTo: `${input.origin}/auth/callback?join=${nonce}`,
       data: { first_name: firstName, last_name: lastName },
     },
   })
@@ -307,22 +337,42 @@ export async function startJoinIntent(db: Db, input: StartJoinInput): Promise<Jo
     return fail(409, LOGIN_TO_CONTINUE, { status: "login_required" })
   }
 
-  // An older unconfirmed account (someone's earlier normal sign-up) returns here too. Never attach a join intent,
-  // with this caller's phone and parent, to an account this request didn't just create; a repeat of our own
-  // submit already has its intent and goes through the 23505 path below.
-  const createdAt = Date.parse(user.created_at ?? "")
-  if (Number.isFinite(createdAt) && Date.now() - createdAt > FRESH_ACCOUNT_MS) {
+  // Keeps the existing intent's details and points it at the confirmation email just sent (the newest link), so a
+  // double submit can still be finalized. Only an unconsumed intent; a wrong caller learns nothing (nonce never returned).
+  const rotateNonce = async (): Promise<JoinOutcome> => {
+    const { error: rotErr } = await db
+      .from("sub_agent_join_intents")
+      .update({ nonce_hash: nonceHash })
+      .eq("user_id", user.id)
+      .is("consumed_at", null)
+    if (rotErr) {
+      logErr("intent nonce update failed", rotErr)
+      return fail(500, "Something went wrong. Please try again.")
+    }
+    return { httpStatus: 200, body: { status: "confirm_email" } }
+  }
+  const readPrior = async () => {
     const { data: prior, error: priorErr } = await db
       .from("sub_agent_join_intents")
       .select("user_id")
       .eq("user_id", user.id)
       .maybeSingle()
-    if (priorErr) {
-      logErr("intent lookup failed", priorErr)
+    if (priorErr) throw priorErr
+    return prior
+  }
+
+  // An older unconfirmed account (someone's earlier normal sign-up) returns here too. Never attach a join intent,
+  // with this caller's phone and parent, to an account this request didn't just create. A missing or unparseable
+  // created_at counts as not fresh.
+  const createdAt = Date.parse(typeof user.created_at === "string" ? user.created_at : "")
+  if (!Number.isFinite(createdAt) || Date.now() - createdAt > FRESH_ACCOUNT_MS) {
+    try {
+      if (!(await readPrior())) return fail(409, LOGIN_TO_CONTINUE, { status: "login_required" })
+    } catch (e) {
+      logErr("intent lookup failed", e)
       return fail(500, "Something went wrong. Please try again.")
     }
-    if (!prior) return fail(409, LOGIN_TO_CONTINUE, { status: "login_required" })
-    return { httpStatus: 200, body: { status: "confirm_email" } }
+    return rotateNonce()
   }
 
   const { error: intentErr } = await db.from("sub_agent_join_intents").insert({
@@ -332,16 +382,29 @@ export async function startJoinIntent(db: Db, input: StartJoinInput): Promise<Jo
     first_name: firstName,
     last_name: lastName,
     phone,
+    nonce_hash: nonceHash,
+    otp_verification_id: (proof as { id: string }).id,
   })
-  // 23505: this unconfirmed account already has an intent (double submit). Keep the first one.
-  if (intentErr && intentErr.code !== "23505") {
-    logErr("intent insert failed", intentErr)
-    return fail(500, "Something went wrong. Please try again.")
+  if (intentErr) {
+    if (intentErr.code !== "23505") {
+      logErr("intent insert failed", intentErr)
+      return fail(500, "Something went wrong. Please try again.")
+    }
+    // 23505 is either this account's own intent (double submit: keep the first) or the phone proof already backing
+    // another account's intent (one proof, one intent).
+    try {
+      if (!(await readPrior())) return fail(400, "Verify your phone number again before joining.")
+    } catch (e) {
+      logErr("intent lookup failed", e)
+      return fail(500, "Something went wrong. Please try again.")
+    }
+    const rotated = await rotateNonce()
+    if (rotated.httpStatus !== 200) return rotated
   }
 
   // Email confirmation switched off: there will be no link to click, so finalize now.
   if (data?.session) {
-    const done = await finalizeJoinIntent(db, user.id, { email })
+    const done = await finalizeJoinIntent(db, user.id, { email, nonce, identities: providersOf(user) })
     return { httpStatus: 200, body: { status: "joined", target: done?.target ?? JOIN_CLOSED_TARGET } }
   }
 
@@ -385,19 +448,29 @@ async function targetForConsumed(db: Db, userId: string): Promise<{ target: stri
   return { target: shop?.joined_via === "storefront" ? JOIN_SETUP_TARGET : JOIN_CLOSED_TARGET }
 }
 
+export interface FinalizeJoinOpts {
+  email?: string
+  /** Raw nonce from the confirmation link; finalize refuses without a match. */
+  nonce?: string | null
+  /** Identity providers of the auth user; anything but exactly email-only is refused. */
+  identities?: string[]
+}
+
 /**
- * Runs when the email link is clicked (resolvePostAuthRedirect). null when the user has no join intent. Otherwise
- * claims it once (consumed_at set conditionally), re-checks the target shop and the phone, writes the users row and
- * wallet, and creates the shop, USSD code and owner alert. A second click returns the same target.
+ * Runs when a signup confirmation link carrying a join nonce is clicked (/auth/confirm via resolvePostAuthRedirect).
+ * null when there is no intent, the nonce doesn't match, the account has a non-email identity or the intent is over
+ * 24 hours old: those never touch the account. Otherwise claims the intent once (consumed_at set conditionally),
+ * re-checks the target shop and the phone, writes the users row and wallet, and creates the shop, USSD code and
+ * owner alert. A repeat within an hour of consumption returns the same target; after that, null.
  */
 export async function finalizeJoinIntent(
   db: Db,
   userId: string,
-  opts: { email?: string } = {}
+  opts: FinalizeJoinOpts = {}
 ): Promise<{ target: string } | null> {
   const { data: intent, error } = await db
     .from("sub_agent_join_intents")
-    .select("user_id, parent_shop_id, shop_name, first_name, last_name, phone, consumed_at")
+    .select("user_id, parent_shop_id, shop_name, first_name, last_name, phone, nonce_hash, created_at, consumed_at")
     .eq("user_id", userId)
     .maybeSingle()
   if (error) {
@@ -406,12 +479,23 @@ export async function finalizeJoinIntent(
     return null
   }
   if (!intent) return null
-  if (intent.consumed_at) return targetForConsumed(db, userId)
+  if (!nonceMatches(opts.nonce, intent.nonce_hash)) return null
+  const ids = opts.identities
+  if (!Array.isArray(ids) || ids.length === 0 || ids.some((p) => p !== "email")) return null
+
+  if (intent.consumed_at) {
+    const consumedAt = Date.parse(intent.consumed_at)
+    if (!Number.isFinite(consumedAt) || Date.now() - consumedAt > CONSUMED_ANSWER_MS) return null
+    return targetForConsumed(db, userId)
+  }
+  const createdAt = Date.parse(intent.created_at)
+  if (!Number.isFinite(createdAt) || Date.now() - createdAt > INTENT_TTL_MS) return null
 
   const { data: claimed, error: claimErr } = await db
     .from("sub_agent_join_intents")
     .update({ consumed_at: new Date().toISOString() })
     .eq("user_id", userId)
+    .eq("nonce_hash", intent.nonce_hash)
     .is("consumed_at", null)
     .select("user_id")
   if (claimErr) throw claimErr
