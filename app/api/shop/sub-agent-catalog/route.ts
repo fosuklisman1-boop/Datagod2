@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { CustomPriceReadError } from "@/lib/pricing/package-price"
 import { subAgentCosts, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 import { notifyWaitingSubAgents } from "@/lib/sub-agents/notify-owner"
+import { openClosedJoinerAfterSave } from "@/lib/sub-agents/open-after-save"
 
 // Force dynamic rendering - env vars read at runtime, not build time
 export const dynamic = "force-dynamic"
@@ -251,7 +252,7 @@ export async function POST(request: NextRequest) {
     // Get user's shop
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
-      .select("id, parent_shop_id")
+      .select("id, parent_shop_id, joined_via, is_active, prices_set_at")
       .eq("user_id", user.id)
       .single()
 
@@ -297,8 +298,9 @@ export async function POST(request: NextRequest) {
       }
 
       if (tableName === "sub_agent_catalog") await notifyIfFirstActiveCatalogRow(supabase, shop.id)
+      const openedInfo = tableName === "sub_agent_shop_packages" ? await openClosedJoinerAfterSave(supabase, user.id, shop) : {}
 
-      return NextResponse.json({ success: true, item: updated, action: "updated" })
+      return NextResponse.json({ success: true, item: updated, action: "updated", ...openedInfo })
     }
 
     // Insert new - store sub_agent_profit_margin if provided
@@ -328,8 +330,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (tableName === "sub_agent_catalog") await notifyIfFirstActiveCatalogRow(supabase, shop.id)
+    const openedInfo = tableName === "sub_agent_shop_packages" ? await openClosedJoinerAfterSave(supabase, user.id, shop) : {}
 
-    return NextResponse.json({ success: true, item: newItem, action: "created" })
+    return NextResponse.json({ success: true, item: newItem, action: "created", ...openedInfo })
 
   } catch (error) {
     console.error("Error in sub-agent-catalog API:", error)
@@ -367,7 +370,7 @@ export async function PUT(request: NextRequest) {
     // Get user's shop
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
-      .select("id, parent_shop_id")
+      .select("id, parent_shop_id, joined_via, is_active, prices_set_at")
       .eq("user_id", user.id)
       .single()
 
@@ -417,8 +420,9 @@ export async function PUT(request: NextRequest) {
     }
 
     if (tableName === "sub_agent_catalog" && is_active === true) await notifyIfFirstActiveCatalogRow(supabase, shop.id)
+    const openedInfo = tableName === "sub_agent_shop_packages" ? await openClosedJoinerAfterSave(supabase, user.id, shop) : {}
 
-    return NextResponse.json({ success: true, item: updated })
+    return NextResponse.json({ success: true, item: updated, ...openedInfo })
 
   } catch (error) {
     console.error("Error in sub-agent-catalog PUT:", error)

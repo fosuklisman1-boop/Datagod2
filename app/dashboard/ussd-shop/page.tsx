@@ -79,6 +79,8 @@ export default function UssdShopPage() {
           .from("ussd_shop_codes")
           .select("id, code, status, activation_fee_paid, created_at, whatsapp_activated, whatsapp_activated_at")
           .eq("shop_id", shopRow.id)
+          .order("created_at", { ascending: true })
+          .limit(1)
           .maybeSingle(),
         fetch("/api/public/config").then(r => r.ok ? r.json() : { app_settings: {} }).catch(() => ({ app_settings: {} })),
         supabase

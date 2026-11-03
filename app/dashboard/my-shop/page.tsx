@@ -105,7 +105,7 @@ export default function ShopOverviewPage() {
         shopProfitService.getShopBalanceFromTable(userShop.id).catch(() => null),
         shopOrderService.getShopOrders(userShop.id).catch(() => []),
         fetch(`/api/shop/settings/${userShop.id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        supabase.from("ussd_shop_codes").select("id, code, activation_fee_paid").eq("shop_id", userShop.id).maybeSingle(),
+        supabase.from("ussd_shop_codes").select("id, code, activation_fee_paid").eq("shop_id", userShop.id).order("created_at", { ascending: true }).limit(1).maybeSingle(),
         fetch("/api/public/config").then((r) => (r.ok ? r.json() : { app_settings: {} })).catch(() => ({ app_settings: {} })),
         token ? supabase.from("sms_accounts").select("id").eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
       ])

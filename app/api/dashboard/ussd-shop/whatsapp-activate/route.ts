@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
   if (!shop) return NextResponse.json({ error: "Shop not found" }, { status: 404 })
 
   const { data: shopCode } = await supabase
-    .from("ussd_shop_codes").select("id").eq("shop_id", shop.id).single()
+    .from("ussd_shop_codes").select("id").eq("shop_id", shop.id).order("created_at", { ascending: true }).limit(1).maybeSingle()
   if (!shopCode) return NextResponse.json({ error: "No USSD code assigned to your shop" }, { status: 404 })
 
   const { data: settings } = await supabase

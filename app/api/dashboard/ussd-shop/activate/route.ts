@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   if (!shop) return NextResponse.json({ error: "Shop not found" }, { status: 404 })
 
   let shopCode = (await supabase
-    .from("ussd_shop_codes").select("id, activation_fee_paid").eq("shop_id", shop.id).maybeSingle()).data
+    .from("ussd_shop_codes").select("id, activation_fee_paid").eq("shop_id", shop.id).order("created_at", { ascending: true }).limit(1).maybeSingle()).data
 
   if (!shopCode) {
     try {

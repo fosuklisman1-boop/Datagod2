@@ -58,8 +58,15 @@ async function hasPricedPackage(db: any, shopId: string, parentShopId: string): 
 async function shopLinks(db: any, shop: { id: string; subdomain?: string | null }): Promise<Omit<OpenShopResult, "status">> {
   let ussdCode: string | undefined
   try {
-    const { data } = await db.from("ussd_shop_codes").select("code").eq("shop_id", shop.id).maybeSingle()
-    if (data?.code) ussdCode = String(data.code)
+    // Older joiners can have two code rows; take the oldest instead of failing on maybeSingle.
+    const { data } = await db
+      .from("ussd_shop_codes")
+      .select("code")
+      .eq("shop_id", shop.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+    const row = Array.isArray(data) ? data[0] : data
+    if (row?.code) ussdCode = String(row.code)
   } catch {
     /* the shop is open either way; the dashboard shows the code */
   }

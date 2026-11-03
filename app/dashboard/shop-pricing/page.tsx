@@ -49,15 +49,15 @@ async function subAgentFetch(method: string, body?: unknown) {
   if (!res.ok) throw new Error(data.error || "Failed to update package")
   return data
 }
-
 function dataPackageStore(shop: any) {
   if (!shop?.parent_shop_id) {
     return {
       loadShopPackages: () => shopPackageService.getShopPackages(shop.id),
       loadCatalog: () => packageService.getPackages(),
-      savePrice: async (pkg: any, existing: any, profitMargin: number) => {
+      savePrice: async (pkg: any, existing: any, profitMargin: number): Promise<any> => {
         if (existing) await shopPackageService.updatePackageProfitMargin(existing.id, profitMargin)
         else await shopPackageService.addPackageToShop(shop.id, pkg.id, profitMargin)
+        return null
       },
       setAvailability: (row: any, isAvailable: boolean) =>
         shopPackageService.togglePackageAvailability(row.id, isAvailable),
@@ -90,12 +90,12 @@ function dataPackageStore(shop: any) {
         is_available: p.active,
       }))
     },
-    savePrice: async (pkg: any, existing: any, profitMargin: number) => {
+    // Returns the save response: for a closed storefront joiner it carries opened/ussdCode/subdomain.
+    savePrice: async (pkg: any, existing: any, profitMargin: number): Promise<any> => {
       if (existing) {
-        await subAgentFetch("PUT", { catalog_id: existing.id, sub_agent_profit_margin: profitMargin, parent_price: pkg.parent_price })
-      } else {
-        await subAgentFetch("POST", { package_id: pkg.id, sub_agent_profit_margin: profitMargin, parent_price: pkg.parent_price })
+        return subAgentFetch("PUT", { catalog_id: existing.id, sub_agent_profit_margin: profitMargin, parent_price: pkg.parent_price })
       }
+      return subAgentFetch("POST", { package_id: pkg.id, sub_agent_profit_margin: profitMargin, parent_price: pkg.parent_price })
     },
     setAvailability: (row: any, isAvailable: boolean) =>
       subAgentFetch("PUT", { catalog_id: row.id, is_active: isAvailable }),
@@ -327,10 +327,11 @@ export default function ShopPricingPage() {
     const profitMargin = parseFloat((sellingPrice - base).toFixed(2))
     setSavingPackageId(pkg.id)
     try {
-      await dataPackageStore(shop).savePrice(pkg, shopPkgFor(pkg.id), profitMargin)
+      const saved = await dataPackageStore(shop).savePrice(pkg, shopPkgFor(pkg.id), profitMargin)
       const refreshed = await dataPackageStore(shop).loadShopPackages()
       setShopPackages(refreshed || [])
       toast.success(`${pkg.size}GB price saved`)
+      if (saved?.opened === true) setOpenedShop({ ussdCode: saved.ussdCode, subdomain: saved.subdomain })
     } catch (error: any) {
       toast.error(error?.message || "Failed to save price")
     } finally {
@@ -388,12 +389,15 @@ export default function ShopPricingPage() {
     }
     setApplyingBulk(true)
     try {
+      let openedBySave: any = null
       for (const row of rows) {
-        await dataPackageStore(shop).savePrice(row.pkg, shopPkgFor(row.pkg.id), row.newProfit)
+        const saved = await dataPackageStore(shop).savePrice(row.pkg, shopPkgFor(row.pkg.id), row.newProfit)
+        if (saved?.opened === true) openedBySave = saved
       }
       const refreshed = await dataPackageStore(shop).loadShopPackages()
       setShopPackages(refreshed || [])
       toast.success(`Updated ${rows.length} package${rows.length === 1 ? "" : "s"}`)
+      if (openedBySave) setOpenedShop({ ussdCode: openedBySave.ussdCode, subdomain: openedBySave.subdomain })
     } catch (error: any) {
       toast.error(error?.message || "Bulk update failed")
     } finally {
