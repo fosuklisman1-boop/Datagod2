@@ -1,11 +1,83 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { subAgentRemovalUpdate } from "@/lib/sub-agents/open-shop"
+import { canSetDealerRates } from "@/lib/sub-agents/rate-switch"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// PATCH: a dealer/admin owner turns dealer rates on or off for their OWN storefront joiner. The owner's role comes
+// from users.role by id (never metadata) and the shop from the token. Service role: migration 0146's trigger blocks
+// `authenticated` from writing dealer_rates_enabled.
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params
+    const authHeader = request.headers.get("Authorization")
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.slice(7))
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body.dealer_rates_enabled !== "boolean") {
+      return NextResponse.json({ error: "dealer_rates_enabled must be true or false" }, { status: 400 })
+    }
+
+    const { data: owner, error: ownerError } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .single()
+    if (ownerError || !owner) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const { data: shop, error: shopError } = await supabase
+      .from("user_shops")
+      .select("id")
+      .eq("user_id", user.id)
+      .single()
+    if (shopError || !shop) {
+      return NextResponse.json({ error: "Shop not found" }, { status: 404 })
+    }
+
+    const { data: subAgent, error: subAgentError } = await supabase
+      .from("user_shops")
+      .select("id, parent_shop_id, joined_via")
+      .eq("id", id)
+      .single()
+    if (subAgentError || !subAgent) {
+      return NextResponse.json({ error: "Sub-agent not found" }, { status: 404 })
+    }
+    if (subAgent.parent_shop_id !== shop.id) {
+      return NextResponse.json({ error: "This shop is not in your network" }, { status: 403 })
+    }
+    if (!canSetDealerRates(String(owner.role ?? ""), subAgent, shop.id)) {
+      return NextResponse.json({ error: "Dealer rates can only be set for sub-agents who joined from your storefront, on a dealer account" }, { status: 403 })
+    }
+
+    const { error: updateError } = await supabase
+      .from("user_shops")
+      .update({ dealer_rates_enabled: body.dealer_rates_enabled })
+      .eq("id", id)
+      .eq("parent_shop_id", shop.id)
+      .eq("joined_via", "storefront")
+    if (updateError) {
+      console.error("[SUB-AGENTS] Failed to set dealer rates:", updateError.message)
+      return NextResponse.json({ error: "Could not update dealer rates. Please try again." }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, dealer_rates_enabled: body.dealer_rates_enabled })
+  } catch (error) {
+    console.error("[SUB-AGENTS] PATCH error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
 
 // DELETE: remove a sub-agent from the caller's network, scoped strictly to the
 // parent/sub-agent relationship (this route is the parent acting on a

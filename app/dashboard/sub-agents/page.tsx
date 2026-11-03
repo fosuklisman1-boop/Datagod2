@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react"
+import { PillToggle } from "@/components/shop/pill-toggle"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 
@@ -38,6 +39,8 @@ interface SubAgent {
   is_active: boolean
   created_at: string
   tier_level: number
+  joined_via?: string | null
+  dealer_rates_enabled?: boolean
   total_orders: number
   total_sales: number
   your_earnings: number
@@ -80,6 +83,8 @@ export default function SubAgentsPage() {
   const [requests, setRequests] = useState<SubAgentRequest[]>([])
   const [reviewingId, setReviewingId] = useState<string | null>(null)
   const [shopId, setShopId] = useState<string | null>(null)
+  const [ownerOnDealerRates, setOwnerOnDealerRates] = useState(false)
+  const [ratesBusyId, setRatesBusyId] = useState<string | null>(null)
   const [stats, setStats] = useState({
     totalSubAgents: 0,
     totalEarningsFromSubAgents: 0,
@@ -151,6 +156,7 @@ export default function SubAgentsPage() {
         console.log("[SUB-AGENTS] API response:", data)
 
         setSubAgents(data.subAgents || [])
+        setOwnerOnDealerRates(data.canSetDealerRates === true)
         setStats(data.stats || {
           totalSubAgents: 0,
           activeSubAgents: 0,
@@ -229,6 +235,27 @@ export default function SubAgentsPage() {
     } finally {
       setRemovingId(null)
       setPendingRemove(null)
+    }
+  }
+
+  const setDealerRates = async (agent: SubAgent, enabled: boolean) => {
+    setRatesBusyId(agent.id)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      const res = await fetch(`/api/shop/sub-agents/${agent.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ dealer_rates_enabled: enabled })
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Failed to update dealer rates")
+      setSubAgents((prev) => prev.map((a) => (a.id === agent.id ? { ...a, dealer_rates_enabled: enabled } : a)))
+      toast.success(enabled ? `${agent.shop_name} now gets dealer rates` : `${agent.shop_name} is back on standard rates`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update dealer rates")
+    } finally {
+      setRatesBusyId(null)
     }
   }
 
@@ -458,6 +485,19 @@ export default function SubAgentsPage() {
                           <p className="text-sm text-muted-foreground">
                             /shop/{agent.shop_slug} • Joined {new Date(agent.created_at).toLocaleDateString()}
                           </p>
+                          <p className="text-xs text-muted-foreground">
+                            {agent.joined_via === "storefront" ? "Joined from storefront" : "Invited"}
+                          </p>
+                          {ownerOnDealerRates && agent.joined_via === "storefront" && (
+                            <div className="mt-2 flex items-center gap-2 text-sm text-foreground">
+                              <PillToggle
+                                checked={agent.dealer_rates_enabled === true}
+                                onChange={() => setDealerRates(agent, !(agent.dealer_rates_enabled === true))}
+                                disabled={ratesBusyId === agent.id}
+                              />
+                              Give dealer rates
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center gap-4 text-sm">
                           <div className="text-center">

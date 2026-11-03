@@ -148,6 +148,13 @@ export default function ShopPricingPage() {
   const [showGoLiveModal, setShowGoLiveModal] = useState(false)
   const [savingAll, setSavingAll] = useState(false)
 
+  // Storefront joiner setup: a closed joiner sets prices here, then opens the shop.
+  const [dialCode, setDialCode] = useState("")
+  const [activationFee, setActivationFee] = useState(0)
+  const [opening, setOpening] = useState(false)
+  const [openError, setOpenError] = useState<string | null>(null)
+  const [openedShop, setOpenedShop] = useState<{ ussdCode?: string; subdomain?: string } | null>(null)
+
   useEffect(() => {
     if (!user) return
     loadAll()
@@ -198,6 +205,10 @@ export default function ShopPricingPage() {
         at: String(userShop.airtime_markup_at ?? 0),
       })
 
+      const ussdCfg = cfgRes?.app_settings ?? {}
+      setDialCode(ussdCfg.ussd_shop_dial_code ?? "")
+      setActivationFee(Number(ussdCfg.ussd_shop_activation_fee ?? 0))
+
       const cfg = cfgRes?.admin_settings ?? {}
       setRcMaxMarkups({
         wassce: cfg.results_checker_max_markup_wassce?.max ?? 0,
@@ -235,6 +246,39 @@ export default function ShopPricingPage() {
   }
 
   const isDealer = userRole === "dealer" || userRole === "admin"
+
+  // A storefront joiner whose shop is still closed because prices are not set yet (migration 0146).
+  const closedJoiner = !!shop && shop.joined_via === "storefront" && shop.is_active !== true && !shop.prices_set_at
+  const waitingForOwner = closedJoiner && allPackages.length === 0
+
+  const handleSaveAndOpen = async () => {
+    setOpening(true)
+    setOpenError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("Please log in again")
+      const res = await fetch("/api/shop/open-after-pricing", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && (data.status === "opened" || data.status === "already_open")) {
+        setOpenedShop({ ussdCode: data.ussdCode, subdomain: data.subdomain })
+        return
+      }
+      if (data.status === "blocked" || res.status === 403) {
+        setOpenError("Your shop can't be opened right now. Please contact support.")
+      } else if (data.status === "no_prices" || res.status === 409) {
+        setOpenError("Save a price on at least one product first, then try again.")
+      } else {
+        setOpenError(data.error || "Something went wrong. Please try again.")
+      }
+    } catch (error: any) {
+      setOpenError(error?.message || "Something went wrong. Please try again.")
+    } finally {
+      setOpening(false)
+    }
+  }
 
   // Same real base-price precedence used by the old My Shop page's
   // handleAddPackage: sub-agent parent price wins, then dealer price, then
@@ -458,9 +502,103 @@ export default function ShopPricingPage() {
     )
   }
 
+  if (openedShop) {
+    const openedLink = openedShop.subdomain ? shopOrigin(openedShop.subdomain, shop.linked_custom_domain) : shopLink
+    const feeDue = activationFee > 0
+    return (
+      <DashboardLayout>
+        <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
+          <div className="space-y-4 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-6 text-center clay">
+            <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-success/10">
+              <PartyPopper className="h-7 w-7 text-success" />
+            </div>
+            <div>
+              <p className="text-lg font-bold text-foreground">Your shop is open!</p>
+              <p className="mt-1 text-sm text-muted-foreground">Customers can now buy from your storefront. Share your link to find your first customers.</p>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-2 text-left">
+              <div className="rounded-xl bg-muted/50 p-4">
+                <p className="text-xs font-semibold text-muted-foreground">Storefront link</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <code className="flex-1 truncate font-mono text-xs text-foreground">{openedLink}</code>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(openedLink); toast.success("Link copied") }}
+                    className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-semibold text-foreground"
+                  >
+                    <Copy className="h-3 w-3" /> Copy
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-[#1b388b]/5 border border-[#1b388b]/20 p-4">
+                <p className="text-xs font-semibold text-muted-foreground">Your USSD shop</p>
+                {feeDue ? (
+                  <>
+                    <p className="mt-1 text-sm text-foreground">
+                      Your USSD shop is not active yet. Activate it for GH₵{activationFee.toFixed(2)} to let customers buy by dialing.
+                    </p>
+                    <a href="/dashboard/ussd-shop" className="mt-2 inline-flex rounded-xl bg-[#1b388b] px-4 py-2 text-sm font-bold text-white hover:bg-[#1b388b]/90">
+                      Activate USSD shop
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    {dialCode && <p className="mt-1 text-lg font-bold text-[#1b388b]">{dialCode}</p>}
+                    {openedShop.ussdCode && (
+                      <p className="text-sm text-foreground">Shop code: <strong>{openedShop.ussdCode}</strong></p>
+                    )}
+                    {!dialCode && !openedShop.ussdCode && (
+                      <a href="/dashboard/ussd-shop" className="mt-1 inline-flex text-sm font-semibold text-[#1b388b] underline">See your USSD details</a>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+              <a href={openedLink} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1.5 rounded-xl border border-border px-5 py-2.5 text-sm font-bold text-foreground">
+                <ExternalLink className="h-3.5 w-3.5" /> View Storefront
+              </a>
+              <a href="/dashboard/my-shop" className="flex items-center justify-center rounded-xl bg-[#1b388b] px-5 py-2.5 text-sm font-bold text-white">Go to my shop</a>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-2xl lg:max-w-4xl space-y-5">
+        {closedJoiner && (
+          <div className="rounded-2xl border border-[#1b388b]/20 bg-[#1b388b]/5 p-4 sm:p-5">
+            <p className="text-lg font-bold text-foreground">Set your prices</p>
+            {waitingForOwner ? (
+              <p className="mt-1 text-sm text-foreground">Waiting for your shop owner to add products. Check back soon.</p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Save a price on at least one product, then open your shop. You can change prices any time.
+                </p>
+                {openError && <p className="mt-2 text-sm font-semibold text-destructive">{openError}</p>}
+                <Button
+                  onClick={handleSaveAndOpen}
+                  disabled={opening || shopPackages.length === 0}
+                  className="mt-3 w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90 sm:w-auto"
+                >
+                  {opening ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />} Save and open my shop
+                </Button>
+                {shopPackages.length === 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">Save a price on a product below to enable this button.</p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {waitingForOwner ? null : (
+        <>
         <DashboardHeroBanner backHref="/dashboard/my-shop" title="Pricing" subtitle="Set your profit on each service. Save sections individually or everything at once." icon={Tag}>
           <Button onClick={handleSaveAllAndGoLive} disabled={savingAll} className="shrink-0 rounded-full bg-white text-[#1b388b] hover:bg-white/90">
             {savingAll ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />} Save All & Go Live
@@ -758,6 +896,8 @@ export default function ShopPricingPage() {
               {savingAfa ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />} Save AFA Settings
             </Button>
           </div>
+        )}
+        </>
         )}
       </div>
 
