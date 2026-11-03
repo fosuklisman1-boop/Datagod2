@@ -78,6 +78,7 @@ function fakeDb(opts: {
 
   function query(table: string, rows: Row[], mode: "select" | "update", patch?: Row) {
     const filters: ((r: Row) => boolean)[] = []
+    const sorts: { col: string; asc: boolean }[] = []
     let limit = Infinity
     const q: any = {
       select: () => q,
@@ -88,7 +89,7 @@ function fakeDb(opts: {
       lte: (c: string, v: any) => (filters.push((r) => cmp(r[c], "lte", String(v))), q),
       in: (c: string, vs: any[]) => (filters.push((r) => vs.includes(r[c])), q),
       or: (expr: string) => (filters.push((r) => orMatches(r, expr)), q),
-      order: () => q,
+      order: (col: string, o?: { ascending?: boolean }) => (sorts.push({ col, asc: o?.ascending !== false }), q),
       limit: (n: number) => ((limit = n), q),
       then: (resolve: any, reject: any) => {
         try {
@@ -101,6 +102,13 @@ function fakeDb(opts: {
             }
             return Promise.resolve({ data: hit.map((r) => ({ id: r.id })), error: null }).then(resolve, reject)
           }
+          hit = [...hit].sort((a, b) => {
+            for (const s of sorts) {
+              if (a[s.col] === b[s.col]) continue
+              return (a[s.col] < b[s.col] ? -1 : 1) * (s.asc ? 1 : -1)
+            }
+            return 0
+          })
           return Promise.resolve({ data: hit.slice(0, limit).map((r) => ({ ...r })), error: null }).then(resolve, reject)
         } catch (e) {
           return Promise.reject(e).then(resolve, reject)
@@ -232,6 +240,31 @@ describe("runPriceReminders", () => {
     expect(res.read_errors).toBe(1)
     expect(db.claims).toEqual([])
     expect(d.sendSMS).not.toHaveBeenCalled()
+  })
+
+  it("a read error that persists past the 1-hour grace claims and skips the stage, so it cannot block the scan", async () => {
+    // Stage 1 due at 10 min; joined 2 h ago, so it has been overdue for 110 min.
+    const db = fakeDb({ shops: [joiner("a", 2 * HOUR)], users: [user("a")] })
+    const d = deps({ subAgentCosts: vi.fn(async () => { throw new Error("read failed") }) as any })
+    const res = await runPriceReminders(db, NOW, d)
+    expect(res.read_errors).toBe(1)
+    expect(res.skipped_no_catalog).toBe(1)
+    expect(res.sent).toBe(0)
+    expect(db.claims).toEqual([{ id: "a", stage: 1 }])
+    expect(d.sendSMS).not.toHaveBeenCalled()
+  })
+
+  it("scans lowest counter first, then oldest join, capped at 100", async () => {
+    const shops: Row[] = []
+    // 100 old rows already at stage 2 waiting for stage 3, plus one fresh stage-1 joiner.
+    for (let i = 0; i < 100; i++) shops.push(joiner(`old${i}`, 80 * HOUR, { price_reminders_sent: 2 }))
+    shops.push(joiner("fresh", 15 * MIN))
+    const db = fakeDb({ shops, users: [user("fresh")] })
+    const d = deps()
+    const res = await runPriceReminders(db, NOW, d)
+    expect(res.scanned).toBe(100)
+    expect(db.claims.some((c) => c.id === "fresh" && c.stage === 1)).toBe(true)
+    expect(db.claims.filter((c) => c.id.startsWith("old"))).toHaveLength(99)
   })
 
   it("a lost claim sends nothing", async () => {

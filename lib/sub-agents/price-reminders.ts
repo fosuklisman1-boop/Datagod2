@@ -8,7 +8,8 @@ import { subAgentCosts } from "@/lib/shop-commerce/pricing"
 // (prices_set_at set or is_active) or is blocked. price_reminders_sent is the last stage handled (sent OR skipped).
 // - Overdue (e.g. a job outage): only the latest due stage is sent, once; earlier ones are marked passed.
 // - Joiner can't price at a stage's time (no parent, parent offers nothing): that stage is skipped, not deferred.
-// - A catalog READ error is not "can't price": the stage is left unclaimed and retried next run.
+// - A catalog READ error is not "can't price": the stage is left unclaimed and retried next run, for up to 1 hour
+//   past its due time; after that it is skipped like "can't price" so failing rows cannot fill the scan forever.
 // - Each stage is claimed with a conditional UPDATE before sending, so overlapping runs send at most once.
 
 type Db = any
@@ -19,6 +20,8 @@ const HOUR = 60 * MIN
 export const PRICE_REMINDER_THRESHOLDS_MS = [10 * MIN, 48 * HOUR, 72 * HOUR] as const
 export const PRICE_REMINDER_LINK = "https://www.datagod.store/dashboard/shop-pricing?setup=1"
 const SCAN_LIMIT = 100
+/** How long a stage may stay unclaimed because the parent's offer cannot be read before it is skipped. */
+const READ_ERROR_GRACE_MS = HOUR
 const TYPE = "sub_agent_price_reminder"
 
 export interface PriceReminderDeps {
@@ -86,6 +89,8 @@ export async function runPriceReminders(
     .not("is_blocked", "is", true)
     .lt("price_reminders_sent", PRICE_REMINDER_THRESHOLDS_MS.length)
     .or(dueFilter(now))
+    // Lowest counter first, so a fresh joiner's 10-minute reminder is never queued behind older stages.
+    .order("price_reminders_sent", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(SCAN_LIMIT)
   if (error) throw new Error(`Could not read storefront joiners: ${error.code ?? ""} ${safeError(error.message)}`.trim())
@@ -126,10 +131,14 @@ export async function runPriceReminders(
     const stage = reminderStageDue(new Date(row.created_at), now, sent)
     if (stage === 0) continue
 
-    const offers = row.parent_shop_id ? await parentOffers(String(row.parent_shop_id)) : false
+    let offers = row.parent_shop_id ? await parentOffers(String(row.parent_shop_id)) : false
     if (offers === null) {
       result.read_errors++
-      continue
+      // Transient: leave the stage for the next run. Past the grace period the read error is treated as "can't
+      // price" and the stage is claimed and skipped, so a parent whose offer never reads cannot hold scan slots.
+      const overdueMs = now.getTime() - new Date(row.created_at).getTime() - PRICE_REMINDER_THRESHOLDS_MS[stage - 1]
+      if (overdueMs < READ_ERROR_GRACE_MS) continue
+      offers = false
     }
 
     // Claim the stage. Only the run whose UPDATE returns the row acts on it; the shop must still be closed.
