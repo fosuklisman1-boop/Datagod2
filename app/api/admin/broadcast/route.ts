@@ -155,9 +155,16 @@ export async function POST(req: NextRequest) {
                 if (audience.length > MAX_BROADCAST_RECIPIENTS) {
                     return NextResponse.json({ error: capError("shop buyers") }, { status: 400 })
                 }
+                // [ShopCode] is only worth sending with a working code: skip buyers whose shop has none active.
+                if (message.includes("[ShopCode]")) {
+                    audience = audience.filter(({ shop }) => !!shop.code)
+                    if (audience.length === 0) {
+                        return NextResponse.json({ error: "None of the selected shops has an active shop code. Remove [ShopCode] or pick other shops." }, { status: 400 })
+                    }
+                }
                 resolvedUsers = audience.map(({ phone, shop }) => ({
                     phone,
-                    renderedMessage: renderShopTokens(message, { shopName: shop.name, shopLink: shop.link, phone }),
+                    renderedMessage: renderShopTokens(message, { shopName: shop.name, shopLink: shop.link, shopCode: shop.code, phone }),
                 }))
                 targetGroupLabel = ["shop_buyers"]
             } else if (recipients.type === "shop_owners") {

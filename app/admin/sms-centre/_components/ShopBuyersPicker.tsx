@@ -15,6 +15,8 @@ export interface ShopRow {
   name: string
   subdomain: string
   link: string
+  /** Active USSD shop code, or null. */
+  code: string | null
   buyers: number
 }
 
@@ -28,9 +30,12 @@ export interface ShopBuyersSelection {
   shopCount: number
   /** Biggest selected shop: used for the preview. */
   sampleShop: ShopRow | null
-  /** Longest selected name/link: used for the worst-case SMS length. */
+  /** Longest selected name/link/code: used for the worst-case SMS length. */
   longestName: string
   longestLink: string
+  longestCode: string
+  /** Selected buyers whose shop has no active code: skipped when the message uses [ShopCode]. */
+  buyersWithoutCode: number
 }
 
 interface CountsData {
@@ -93,6 +98,8 @@ export default function ShopBuyersPicker({ onChange }: { onChange: (s: ShopBuyer
       sampleShop: chosen[0] ?? null, // shops come sorted biggest first
       longestName: longest((s) => s.name),
       longestLink: longest((s) => s.link),
+      longestCode: longest((s) => s.code ?? ""),
+      buyersWithoutCode: chosen.reduce((n, s) => n + (s.code ? 0 : s.buyers), 0),
     })
   }, [chosen, allSelected, since, total, onChange])
 
