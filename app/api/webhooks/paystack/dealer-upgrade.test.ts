@@ -36,7 +36,7 @@ const h = vi.hoisted(() => {
     auth: { admin: { updateUserById } },
   }
   const logSecurityEvent = vi.fn()
-  const notifyAdmins = vi.fn(async () => {})
+  const notifyAdmins = vi.fn(async (_message: string, _type: string, _reference?: string) => {})
   const rpc = vi.fn(async () => ({ data: null, error: null }))
   fake.rpc = rpc
   return { tables, inserts, fake, updateUserById, logSecurityEvent, notifyAdmins, rpc }
