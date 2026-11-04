@@ -3,7 +3,7 @@
 // Never calls Hubtel directly. Classification follows the plan 3 Global Constraints table:
 // "refused" is the ONLY outcome that allows falling back to another gateway, so anything
 // we cannot prove never reached Hubtel is "unknown".
-import { signRef } from "@/lib/hubtel-cs/callback"
+import { signRef, verifySig } from "@/lib/hubtel-cs/callback"
 import { failedBeforeSend } from "@/lib/ussd-hubtel/relay-handler"
 import { checkTransactionStatus, type StatusCheckResult } from "@/lib/ussd-hubtel/relay"
 
@@ -223,8 +223,8 @@ export async function checkPaymentStatus(
   }
 }
 
-/** Signed callback URL for one payment: `${NEXT_PUBLIC_APP_URL}/api/webhooks/hubtel-payments?ref=…&sig=…`. */
-export function hubtelCallbackUrl(reference: string, env: Env = process.env): string {
+/** Checks the reference, the secret and the https app URL that every signed URL is built on. */
+function signedUrlBase(reference: string, env: Env): { secret: string; base: URL } {
   if (!REF_RE.test(reference)) throw new HubtelPayInputError("invalid Hubtel reference")
   const secret = env.HUBTEL_PAYMENTS_CALLBACK_SECRET
   if (!secret || secret.length < 32) throw new Error("HUBTEL_PAYMENTS_CALLBACK_SECRET is not configured (must be at least 32 chars)")
@@ -232,8 +232,36 @@ export function hubtelCallbackUrl(reference: string, env: Env = process.env): st
   let base: URL
   try { base = new URL(app ?? "") } catch { throw new Error("NEXT_PUBLIC_APP_URL is not configured") }
   if (base.protocol !== "https:") throw new Error("NEXT_PUBLIC_APP_URL must be https")
+  return { secret, base }
+}
+
+/** Signed callback URL for one payment: `${NEXT_PUBLIC_APP_URL}/api/webhooks/hubtel-payments?ref=…&sig=…`. */
+export function hubtelCallbackUrl(reference: string, env: Env = process.env): string {
+  const { secret, base } = signedUrlBase(reference, env)
   const u = new URL("/api/webhooks/hubtel-payments", base)
   u.searchParams.set("ref", reference)
   u.searchParams.set("sig", signRef(reference, secret))
   return u.toString()
+}
+
+/** The return signature covers "return:" + ref, so a callback signature can never open the return route or vice versa. */
+const returnPayload = (reference: string) => `return:${reference}`
+
+/**
+ * Signed return (or, with `cancelled`, cancellation) URL for one hosted checkout:
+ * `${NEXT_PUBLIC_APP_URL}/api/payments/hubtel-return?ref=…&sig=…[&cancelled=1]`. The relay requires both on the app host.
+ * `cancelled` is not signed: it changes nothing about confirmation or where the customer goes.
+ */
+export function hubtelReturnUrl(reference: string, cancelled: boolean, env: Env = process.env): string {
+  const { secret, base } = signedUrlBase(reference, env)
+  const u = new URL("/api/payments/hubtel-return", base)
+  u.searchParams.set("ref", reference)
+  u.searchParams.set("sig", signRef(returnPayload(reference), secret))
+  if (cancelled) u.searchParams.set("cancelled", "1")
+  return u.toString()
+}
+
+export function verifyReturnSig(reference: string | null, sig: string | null, secret: string): boolean {
+  if (!reference || !REF_RE.test(reference)) return false
+  return verifySig(returnPayload(reference), sig, secret)
 }

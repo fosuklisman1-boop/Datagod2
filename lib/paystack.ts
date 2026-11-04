@@ -12,7 +12,7 @@ if (!PAYSTACK_SECRET_KEY) {
   console.warn("[PAYSTACK] PAYSTACK_SECRET_KEY is not set — payment APIs will be unavailable")
 }
 
-interface InitializePaymentParams {
+export interface InitializePaymentParams {
   email: string
   amount: number
   reference: string
