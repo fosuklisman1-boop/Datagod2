@@ -198,6 +198,58 @@ async function checkBundlePortalBatch(
   return results
 }
 
+async function checkKuntanii(msisdn: string): Promise<WhitelistResult> {
+  try {
+    const { toLocalGhanaPhone } = await import("./kuntanii-core")
+    const local = toLocalGhanaPhone(msisdn)
+    if (!local) return { allowed: false, provider: "kuntanii", reason: "invalid_phone_number" }
+    const { createKuntaniiClient } = await import("./kuntanii-client")
+    const res = await createKuntaniiClient().verifyBeneficiaries([local])
+    if (!res.ok) return { allowed: true, provider: "kuntanii" }
+    const r = res.data?.results?.[0]
+    if (!r) return { allowed: true, provider: "kuntanii" }
+    return { allowed: r.eligible === true, provider: "kuntanii", reason: r.reason }
+  } catch {
+    return { allowed: true, provider: "kuntanii" }
+  }
+}
+
+async function checkKuntaniiBatch(
+  msisdns: string[],
+  strict = false
+): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
+  const { toLocalGhanaPhone } = await import("./kuntanii-core")
+  const { createKuntaniiClient } = await import("./kuntanii-client")
+  const client = createKuntaniiClient()
+  const out: Array<{ msisdn: string; allowed: boolean; reason?: string }> = new Array(msisdns.length)
+  // Valid numbers only are sent; remember each one's slot in the input.
+  const valid: Array<{ idx: number; local: string }> = []
+  msisdns.forEach((m, idx) => {
+    const local = toLocalGhanaPhone(m)
+    if (local) valid.push({ idx, local })
+    else out[idx] = { msisdn: m, allowed: false, reason: "invalid_phone_number" }
+  })
+  for (let i = 0; i < valid.length; i += 100) {
+    const chunk = valid.slice(i, i + 100)
+    let rows: Array<{ eligible: boolean; reason: string } | undefined> = []
+    try {
+      const res = await client.verifyBeneficiaries(chunk.map(c => c.local))
+      if (res.ok && Array.isArray(res.data?.results)) rows = res.data.results
+    } catch {
+      // fail open for this chunk (unless strict, below)
+    }
+    if (strict && rows.length === 0) throw new WhitelistCheckFailed("kuntanii")
+    // Match by position; a missing row (failed chunk or short array) fails open.
+    chunk.forEach((c, j) => {
+      const r = rows[j]
+      out[c.idx] = r
+        ? { msisdn: msisdns[c.idx], allowed: r.eligible === true, reason: r.reason }
+        : { msisdn: msisdns[c.idx], allowed: true }
+    })
+  }
+  return out
+}
+
 // Apex Prime's own MTN Pre-Check & Approval Note (confirmed with them 2026-09-05):
 // first-time MTN numbers must clear MTN's own approval before they can receive
 // data — a number mid-approval isn't rejected, it's "awaiting_mtn_approval" and
@@ -294,6 +346,13 @@ export const WHITELIST_REGISTRY: WhitelistEntry[] = [
     check: checkBundlePortal,
     checkBatch: (m) => checkBundlePortalBatch(m),
     checkBatchStrict: (m) => checkBundlePortalBatch(m, true),
+  },
+  {
+    name: "kuntanii",
+    configured: () => !!process.env.KUNTANII_API_KEY,
+    check: checkKuntanii,
+    checkBatch: (m) => checkKuntaniiBatch(m),
+    checkBatchStrict: (m) => checkKuntaniiBatch(m, true),
   },
   // Add future whitelist providers here ↓
 ]

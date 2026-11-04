@@ -193,3 +193,103 @@ describe("validateProviderSelection keepOrder", () => {
     expect(validateProviderSelection(["agentportalgh", "xpress"], reg)).toEqual({ valid: true, providers: ["xpress", "agentportalgh"] })
   })
 })
+
+// ── Kuntanii ───────────────────────────────────────────────────────────────────
+const kuntaniiVerify = vi.fn()
+vi.mock("./kuntanii-client", () => ({
+  createKuntaniiClient: () => ({ verifyBeneficiaries: kuntaniiVerify }),
+}))
+
+function kuntaniiEntry() {
+  return WHITELIST_REGISTRY.find(e => e.name === "kuntanii")!
+}
+
+describe("kuntanii whitelist", () => {
+  afterEach(() => {
+    kuntaniiVerify.mockReset()
+    vi.unstubAllEnvs()
+  })
+
+  it("kuntanii check maps eligible → allowed", async () => {
+    kuntaniiVerify.mockResolvedValueOnce({
+      ok: true, status: 200,
+      data: { results: [{ phoneNumber: "0241234567", eligible: true, reason: "ok" }] },
+    })
+    expect(await kuntaniiEntry().check("0241234567")).toEqual({ allowed: true, provider: "kuntanii", reason: "ok" })
+
+    kuntaniiVerify.mockResolvedValueOnce({
+      ok: true, status: 200,
+      data: { results: [{ phoneNumber: "0241234567", eligible: false, reason: "blocked_number" }] },
+    })
+    expect(await kuntaniiEntry().check("0241234567")).toEqual({ allowed: false, provider: "kuntanii", reason: "blocked_number" })
+  })
+
+  it("kuntanii check fails open on client error", async () => {
+    kuntaniiVerify.mockResolvedValueOnce({ ok: false, status: 500 })
+    expect((await kuntaniiEntry().check("0241234567")).allowed).toBe(true)
+    kuntaniiVerify.mockRejectedValueOnce(new Error("boom"))
+    expect(await kuntaniiEntry().check("0241234567")).toEqual({ allowed: true, provider: "kuntanii" })
+  })
+
+  it("kuntanii check rejects invalid phone without calling the client", async () => {
+    const r = await kuntaniiEntry().check("12345")
+    expect(r).toEqual({ allowed: false, provider: "kuntanii", reason: "invalid_phone_number" })
+    expect(kuntaniiVerify).not.toHaveBeenCalled()
+  })
+
+  it("kuntanii batch chunks at 100 and matches results by position", async () => {
+    const phones = Array.from({ length: 250 }, (_, i) => `024${String(1000000 + i).padStart(7, "0")}`)
+    kuntaniiVerify.mockImplementation(async (chunk: string[]) => ({
+      ok: true, status: 200,
+      data: { results: chunk.map(p => ({ phoneNumber: p, eligible: Number(p.slice(-1)) % 2 === 0, reason: "r" })) },
+    }))
+    const out = await kuntaniiEntry().checkBatch(phones)
+    expect(kuntaniiVerify).toHaveBeenCalledTimes(3)
+    expect(kuntaniiVerify.mock.calls.map(c => c[0].length)).toEqual([100, 100, 50])
+    expect(out).toHaveLength(250)
+    out.forEach((r, i) => {
+      expect(r.msisdn).toBe(phones[i])
+      expect(r.allowed).toBe(Number(phones[i].slice(-1)) % 2 === 0)
+    })
+  })
+
+  it("kuntanii batch fails open per chunk", async () => {
+    const phones = Array.from({ length: 150 }, (_, i) => `024${String(2000000 + i).padStart(7, "0")}`)
+    kuntaniiVerify
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        data: { results: phones.slice(100).map(p => ({ phoneNumber: p, eligible: false, reason: "blocked_number" })) },
+      })
+    const out = await kuntaniiEntry().checkBatch(phones)
+    expect(out.slice(0, 100).every(r => r.allowed)).toBe(true)
+    expect(out.slice(100).every(r => !r.allowed)).toBe(true)
+  })
+
+  it("kuntanii batch: invalid numbers blocked, not sent, order and original string preserved; short array fails open", async () => {
+    kuntaniiVerify.mockResolvedValueOnce({
+      ok: true, status: 200,
+      data: { results: [{ phoneNumber: "0241111111", eligible: false, reason: "blocked_number" }] },
+    })
+    const out = await kuntaniiEntry().checkBatch(["0241111111", "abc", "+233242222222"])
+    expect(kuntaniiVerify).toHaveBeenCalledWith(["0241111111", "0242222222"])
+    expect(out).toEqual([
+      { msisdn: "0241111111", allowed: false, reason: "blocked_number" },
+      { msisdn: "abc", allowed: false, reason: "invalid_phone_number" },
+      { msisdn: "+233242222222", allowed: true },
+    ])
+  })
+
+  it("kuntanii strict batch throws on a failed chunk", async () => {
+    kuntaniiVerify.mockResolvedValueOnce({ ok: false, status: 500 })
+    await expect(kuntaniiEntry().checkBatchStrict!(["0241111111"])).rejects.toThrow(/kuntanii/)
+  })
+
+  it("registry includes kuntanii configured by KUNTANII_API_KEY", () => {
+    vi.stubEnv("KUNTANII_API_KEY", "")
+    expect(kuntaniiEntry().configured()).toBe(false)
+    vi.stubEnv("KUNTANII_API_KEY", "x")
+    expect(kuntaniiEntry().configured()).toBe(true)
+    expect(validateProviderSelection(["kuntanii"])).toEqual({ valid: true, providers: ["kuntanii"] })
+  })
+})
