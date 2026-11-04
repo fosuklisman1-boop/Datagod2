@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { logSecurityEvent } from "../security-log"
 import {
   deriveFromLegacy,
   sanitizeGatewayConfig,
@@ -16,6 +17,7 @@ export interface GatewayConfigReaderDeps {
   readLegacy: () => Promise<{ storefrontDirect: boolean; walletDirect: boolean }>
   now?: () => number
   ttlMs?: number
+  logEvent?: (event: string, details?: Record<string, unknown>) => void
 }
 
 export function createGatewayConfigReader(deps: GatewayConfigReaderDeps): {
@@ -24,6 +26,7 @@ export function createGatewayConfigReader(deps: GatewayConfigReaderDeps): {
 } {
   const now = deps.now ?? Date.now
   const ttlMs = deps.ttlMs ?? DEFAULT_TTL_MS
+  const logEvent = deps.logEvent ?? logSecurityEvent
   let cache: { config: GatewayConfig; expiresAt: number } | null = null
 
   async function load(): Promise<GatewayConfig> {
@@ -43,7 +46,11 @@ export function createGatewayConfigReader(deps: GatewayConfigReaderDeps): {
         // Fail to LAST-KNOWN state, never open. Only when nothing was ever read do we
         // derive from the legacy toggles; if even those are unreadable, everything is
         // hosted checkout (false/false), which is the safe default the legacy code used.
-        if (cache) return cache.config
+        if (cache) {
+          logEvent("gate_read_failed_using_cache", { gate: "payment_gateway_config", fallback: "last_known" })
+          return cache.config
+        }
+        logEvent("gate_read_failed_using_cache", { gate: "payment_gateway_config", fallback: "legacy" })
         try {
           return deriveFromLegacy(await deps.readLegacy())
         } catch {

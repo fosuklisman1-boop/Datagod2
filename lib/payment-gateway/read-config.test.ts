@@ -78,6 +78,42 @@ describe("createGatewayConfigReader", () => {
     expect(await reader.get()).toEqual(deriveFromLegacy({ storefrontDirect: true, walletDirect: false }))
   })
 
+  it("logs a security event when falling back to last-known", async () => {
+    let fail = false
+    const logEvent = vi.fn()
+    let t = 0
+    const reader = createGatewayConfigReader({
+      readRow: async () => { if (fail) throw new Error("db down"); return null },
+      readLegacy: async () => ({ storefrontDirect: false, walletDirect: false }),
+      now: () => t,
+      ttlMs: 10,
+      logEvent,
+    })
+    await reader.get()
+    expect(logEvent).not.toHaveBeenCalled()
+    fail = true
+    t = 100
+    await reader.get()
+    expect(logEvent).toHaveBeenCalledWith(
+      "gate_read_failed_using_cache",
+      expect.objectContaining({ gate: "payment_gateway_config" }),
+    )
+  })
+
+  it("logs a security event on a failed first-ever read", async () => {
+    const logEvent = vi.fn()
+    const reader = createGatewayConfigReader({
+      readRow: async () => { throw new Error("db down") },
+      readLegacy: async () => ({ storefrontDirect: true, walletDirect: false }),
+      logEvent,
+    })
+    await reader.get()
+    expect(logEvent).toHaveBeenCalledWith(
+      "gate_read_failed_using_cache",
+      expect.objectContaining({ gate: "payment_gateway_config" }),
+    )
+  })
+
   it("never rejects even if legacy also throws", async () => {
     const { reader } = mk({
       rowFn: async () => { throw new Error("db down") },
