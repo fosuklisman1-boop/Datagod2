@@ -1,0 +1,667 @@
+KUNTANII ORDER INTAKE API — FULL DOCS (verbatim, pasted by the user 2026-11-03)
+================================================================================
+Source: Kuntanii "Server API" docs page. Saved verbatim so implementation can
+refer back to it. Do not paraphrase — if something here is ambiguous, verify by
+live test before trusting an inferred field name.
+
+ENDPOINT INDEX (everything the docs expose)
+  1. POST /api/integrations/orders                                   create order (normal or instant)
+  2. GET  /api/integrations/pricing?deliveryMode=instant             pricing for the account (instant shown; normal presumably without the param / deliveryMode=normal — UNVERIFIED)
+  3. GET  /api/integrations/orders/{externalOrderId}                 order status
+  4. POST /api/integrations/orders/{externalOrderId}/not-received    open a not-received dispute
+  5. GET  /api/integrations/orders/{externalOrderId}/not-received?reportReference={ref}   dispute status
+  6. POST /api/integrations/beneficiaries/verify                     beneficiary (approved-registry) check
+  7. WEBHOOK (inbound to us)                                         signed order status-change callbacks
+     events seen in docs: order.processing, order.not_received_resolved, order.not_received_reopened
+     (others implied by "status-change": pending/processed/cancelled/not received — names UNVERIFIED)
+     headers: X-Kuntanii-Event, X-Kuntanii-Delivery; signing secret shown at key creation
+     — signature header name + algorithm NOT documented. MUST ASK Kuntanii.
+
+================================================================================
+
+Server API
+Kuntanii Order Intake API
+Send orders from your own website into Kuntanii with a single API key. Kuntanii maps each request to your account, applies your pricing profile, and creates the KT order in the admin queue.
+
+Base URL
+https://kuntanii.com
+
+--------------------------------------------------------------------------------
+Getting started
+--------------------------------------------------------------------------------
+Four things to get right before your first request. Each endpoint here builds on these.
+
+Call from your server
+Keep the API key on your backend. Never expose it in browser JavaScript.
+
+Send a bearer key
+Add Authorization: Bearer <api-key> to every request.
+
+Make retries safe
+Send X-Kuntanii-Idempotency-Key so a retry never creates a duplicate order.
+
+Let Kuntanii price it
+Send phone numbers and data only. Pricing comes from the profile on your account.
+
+--------------------------------------------------------------------------------
+Authentication
+--------------------------------------------------------------------------------
+Every request needs an Authorization: Bearer header carrying an active key that starts with kt_live_. Create and revoke keys from your API management screen. Requests without a valid key return 401 UNAUTHORIZED.
+
+Authorization header
+Authorization: Bearer kt_live_xxxxxxxxxxxxxxxxx
+
+--------------------------------------------------------------------------------
+Create an order
+--------------------------------------------------------------------------------
+Submit one order containing one or more recipients. Send phone numbers and data only — Kuntanii calculates the price.
+
+POST
+/api/integrations/orders
+
+Request
+POST /api/integrations/orders
+Authorization: Bearer kt_live_xxxxxxxxxxxxxxxxx
+X-Kuntanii-Idempotency-Key: DB-ORDER-12345
+Content-Type: application/json
+
+{
+  "externalOrderId": "DB-ORDER-12345",
+  "items": [
+    { "phoneNumber": "0241234567", "dataGb": 3 },
+    { "phoneNumber": "0551234567", "dataGb": 5 }
+  ]
+}
+
+externalOrderId
+Your own order reference. Must be unique per account and is how you look the order up later.
+
+deliveryMode
+Optional: normal (default) or instant. Instant Delivery requires platform availability and applicable Instant Delivery prices. Never silently fall back to normal.
+
+items[].phoneNumber
+Recipient phone number in local Ghana format, e.g. 0241234567.
+
+items[].dataGb
+Data amount in GB. An order above 1500 GB is split into several KT orders automatically.
+
+For priority orders, follow the separate Instant Delivery section. Your existing requests stay on Normal Delivery unless you explicitly send deliveryMode: "instant".
+
+Successful response
+
+201 Created
+{
+  "success": true,
+  "outcome": "accepted",
+  "externalOrderId": "DB-ORDER-12345",
+  "orderReference": "KT-483920174",
+  "user": "Databuy",
+  "entries": 2,
+  "totalDataGb": 8,
+  "totalAmountGhs": 96,
+  "acceptedCount": 2,
+  "rejectedCount": 0,
+  "rejectedRecipients": [],
+  "removedNewNumbers": [],
+  "status": "pending",
+  "wasSplit": false,
+  "orderCount": 1,
+  "queuePosition": { "position": 12, "totalInQueue": 48, "stage": "pending" },
+  "orders": [
+    {
+      "orderReference": "KT-483920174",
+      "entries": 2,
+      "totalDataGb": 8,
+      "totalAmountGhs": 96,
+      "status": "pending",
+      "queuePosition": { "position": 12, "totalInQueue": 48, "stage": "pending" }
+    }
+  ]
+}
+
+deliveryMode
+normal or instant. Also included per order in creation, status and status-change webhook responses.
+
+outcome
+accepted when every recipient proceeds, or partially_accepted when Kuntanii removes one or more recipients.
+
+orderReference
+The KT order ID created in Kuntanii. Store it for support and reconciliation.
+
+status
+Starts as pending, then moves through processing and processed.
+
+totalAmountGhs
+Amount charged, calculated from the pricing profile on your account.
+
+acceptedCount / rejectedCount
+Recipient counts after approved-beneficiary and blocked-number checks.
+
+rejectedRecipients
+Every removed recipient with phoneNumber, dataGb, and a stable reason code.
+
+removedNewNumbers
+Legacy list of numbers removed because they are not in the approved registry. Use rejectedRecipients for new integrations.
+
+wasSplit / orderCount
+Whether the request became more than one KT order, and how many.
+
+queuePosition
+Live queue position while pending or processing; null once the order leaves the active queue.
+
+Rejected recipient reasons
+
+NOT_IN_APPROVED_REGISTRY
+The number was recorded as a new-number candidate and removed from this order.
+
+BLOCKED_NUMBER
+The number is on the admin blocked-number list and was removed from this order.
+
+NO_ORDER_HISTORY
+Legacy response reason. Current eligibility does not require previous orders.
+
+Partial acceptance
+A mixed request still returns 201. Process the accepted order and show or store every entry in rejectedRecipients; do not treat the full request as rejected.
+
+201 Partially accepted
+{
+  "success": true,
+  "outcome": "partially_accepted",
+  "externalOrderId": "DB-ORDER-12346",
+  "orderReference": "KT-483920175",
+  "acceptedCount": 1,
+  "rejectedCount": 1,
+  "rejectedRecipients": [
+    {
+      "phoneNumber": "0551234567",
+      "dataGb": 5,
+      "reason": "NOT_IN_APPROVED_REGISTRY"
+    }
+  ],
+  "removedNewNumbers": ["0551234567"],
+  "status": "pending"
+}
+
+No approved recipients
+When every recipient is outside the approved registry, no order is created. The request returns 422 with the rejected phone numbers and data amounts.
+
+422 No approved recipients
+{
+  "code": "NO_APPROVED_RECIPIENTS",
+  "message": "None of the submitted numbers are in the approved-number registry.",
+  "errors": {
+    "removedNewNumbers": ["0551234567"]
+  },
+  "rejectedRecipients": [
+    {
+      "phoneNumber": "0551234567",
+      "dataGb": 5,
+      "reason": "NOT_IN_APPROVED_REGISTRY"
+    }
+  ],
+  "retryable": false
+}
+
+--------------------------------------------------------------------------------
+Instant Delivery
+--------------------------------------------------------------------------------
+Send an order to Kuntanii's High Priority queue using your existing API key. Follow these steps on your website's server.
+
+1. Check that the account is ready
+Kuntanii must enable Instant Delivery and select its prices first. Normal and super-user accounts use the platform's instant prices. A sub-user needs an active Instant Delivery pricing profile assigned by their main account. Normal prices do not apply to instant orders. Keep your API key on your server, not in browser code or a mobile app bundle.
+
+2. Get the prices for your account
+GET
+/api/integrations/pricing?deliveryMode=instant
+
+Fetch instant prices
+curl "https://kuntanii.com/api/integrations/pricing?deliveryMode=instant" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+Example pricing response (prices are illustrative)
+{
+  "success": true,
+  "deliveryMode": "instant",
+  "pricingProfileId": "your-profile-id",
+  "pricingProfileName": "Instant Delivery",
+  "isManualOverride": false,
+  "totalSpendGhs": 0,
+  "totalOrders": 0,
+  "plans": [{ "planCode": 1, "displayName": "1 GB", "bundleSizeMb": 1024, "unitPriceGhs": 10 }]
+}
+
+Display the returned unitPriceGhs, not the example price. To convert a package to the order request, divide bundleSizeMb by 1024: 1024 MB becomes dataGb: 1. Fetch prices again before checkout. Kuntanii checks the current prices when it accepts the order; a price lookup does not reserve a price or a queue position.
+
+3. Send the order
+POST
+/api/integrations/orders
+
+Create an Instant Delivery order
+curl "https://kuntanii.com/api/integrations/orders" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "X-Kuntanii-Idempotency-Key: INSTANT-12345" \
+  --data '{"externalOrderId":"INSTANT-12345","deliveryMode":"instant","items":[{"phoneNumber":"0241234567","dataGb":1}]}'
+
+externalOrderId
+A unique reference from your own website. Save it for tracking and support.
+
+deliveryMode
+Send instant exactly. Omitting it, or sending normal, creates a Normal Delivery order.
+
+items
+The recipients and their data amounts. Send phoneNumber in Ghana local format and dataGb in GB. Do not send a price.
+
+X-Kuntanii-Idempotency-Key
+A unique key for this submission. Save it before sending and reuse it if the request times out.
+
+4. Read the result before confirming to your customer
+Example successful response (selected fields)
+{
+  "success": true,
+  "outcome": "accepted",
+  "externalOrderId": "INSTANT-12345",
+  "deliveryMode": "instant",
+  "orderReference": "KTHP-0123456789",
+  "acceptedCount": 1,
+  "rejectedCount": 0,
+  "rejectedRecipients": [],
+  "totalAmountGhs": 10,
+  "status": "pending",
+  "queuePosition": { "position": 2, "totalInQueue": 6, "stage": "pending" }
+}
+
+A new accepted order returns 201. Its reference starts with KTHP- followed by ten digits. Save every reference in orders if the request was split. Check outcome and rejectedRecipients: a partially accepted request still returns 201, but only the accepted recipients are ordered. Show the removed numbers to your customer. Instant Delivery does not bypass beneficiary restrictions, payment holds or credit checks.
+
+5. Track delivery
+GET
+/api/integrations/orders/INSTANT-12345
+
+pending
+Waiting in the separate High Priority queue. Its pending position is not a position in the normal queue.
+
+processing
+Staff have downloaded the order. It is now in the shared processing queue.
+
+processed
+The order has been completed. Do not treat acceptance or download as completed delivery.
+
+not received / cancelled
+Use the returned status as-is. Not Received does not itself mean a refund has been approved.
+
+The status response includes orders[].deliveryMode and a live queue position while the order is queued. You can also use the existing signed status-change webhooks. A priority label is not a guaranteed completion time. Instant orders are handled in the staff queue, not forwarded through the normal relay.
+
+6. Handle retries and errors safely
+
+Timeout or lost connection
+Retry the same body with the same external order ID and idempotency key. Do not create another order just because your server missed the response.
+
+200 with idempotent: true
+The submission was already accepted. Use the returned order; do not charge or submit it again. Accepted orders remain retrievable when new instant intake is disabled.
+
+409 CONFLICT
+The reference was reused with changed details, or another request is being accepted. For a genuinely different order or delivery mode, use a new external order ID and key.
+
+422 VALIDATION_ERROR
+Instant Delivery may be disabled, unconfigured or missing an account assignment. Read the message. Do not silently resend as normal.
+
+422 NO_APPROVED_RECIPIENTS
+No recipient can proceed. Show the rejected numbers; no order was created.
+
+402 INSUFFICIENT_CREDIT
+The customer's own wallet cannot cover the order. After funding, retry the unchanged request with the same key.
+
+402 GOVERNING_ACCOUNT_CREDIT_HOLD
+The main account cannot fund the order. Show a neutral hold message; never request or display the main account's balance.
+
+403 payment/account hold
+Stop new intake for that account and show the returned message. Do not bypass the hold by changing delivery mode.
+
+503 CREDIT_UNAVAILABLE
+Credit could not be checked. Retry the unchanged request with the same key; do not assume that it was accepted.
+
+For credit accounts, sending reserves credit, staff download charges it, and cancelling a pending order releases the reservation. Approved refunds use the order's saved prices. A sub-user and their main account can have separate credit rules. Normal Delivery integrations continue working without adding any new field.
+
+--------------------------------------------------------------------------------
+Map MTN-only to Kuntanii
+--------------------------------------------------------------------------------
+Kuntanii fulfils MTN bundles. If your store also sells Telecel and AirtelTigo, keep your existing API key — split the basket on your server and send only the MTN lines to Kuntanii. Route every other network to your other supplier, never to Kuntanii.
+
+Your catalog → network
+Tag each product with its network: MTN, TELECEL, or AIRTELTIGO. Missing means MTN.
+
+MTN lines → Kuntanii
+Send only MTN lines as { phoneNumber, dataGb } with your kt_live_xxxxxxxxxxxxxxxxx key.
+
+Other networks → elsewhere
+Send Telecel / AirtelTigo lines to your other supplier. Do not mix them into the Kuntanii request.
+
+Track it
+Suffix the MTN split with -mtn, e.g. DB-ORDER-12345-mtn, for both externalOrderId and the idempotency key.
+
+What Kuntanii receives
+
+Request — MTN lines only
+POST /api/integrations/orders
+Authorization: Bearer kt_live_xxxxxxxxxxxxxxxxx
+X-Kuntanii-Idempotency-Key: DB-ORDER-12345-mtn
+Content-Type: application/json
+
+{
+  "externalOrderId": "DB-ORDER-12345-mtn",
+  "items": [
+    { "phoneNumber": "0241234567", "dataGb": 3 },
+    { "phoneNumber": "0251234567", "dataGb": 5 }
+  ]
+}
+
+Split on your server — Node.js
+
+Node.js — send MTN-only
+// Split the basket on YOUR server. Kuntanii fulfils MTN only.
+// Your API key stays the same — no key change needed.
+const orderItems = [
+  { phoneNumber: "0241234567", dataGb: 3, network: "MTN" },
+  { phoneNumber: "0261234567", dataGb: 5, network: "TELECEL" },
+  { phoneNumber: "0251234567", dataGb: 5, network: "MTN" },
+];
+
+const mtnItems = orderItems.filter(
+  (item) => String(item.network ?? "MTN").toUpperCase() === "MTN"
+);
+// Route non-MTN lines to your other supplier, never to Kuntanii.
+const otherItems = orderItems.filter(
+  (item) => String(item.network ?? "MTN").toUpperCase() !== "MTN"
+);
+
+if (mtnItems.length === 0) {
+  // Nothing for Kuntanii on this order.
+  return;
+}
+
+await fetch("https://kuntanii.com/api/integrations/orders", {
+  method: "POST",
+  headers: {
+    Authorization: "Bearer kt_live_xxxxxxxxxxxxxxxxx",
+    "Content-Type": "application/json",
+    "X-Kuntanii-Idempotency-Key": "DB-ORDER-12345-mtn",
+  },
+  body: JSON.stringify({
+    externalOrderId: "DB-ORDER-12345-mtn",
+    items: mtnItems.map(({ phoneNumber, dataGb }) => ({ phoneNumber, dataGb })),
+  }),
+});
+
+Mixing networks into one Kuntanii request mis-prices the order, because Kuntanii prices by bundle size from the pricing profile on your account. Splitting first keeps reconciliation simple: one externalOrderId per supplier per checkout.
+
+--------------------------------------------------------------------------------
+Check order status
+--------------------------------------------------------------------------------
+Look an order up by your own externalOrderId whenever you need live status. The response matches the data object Kuntanii sends to your webhook.
+
+GET
+/api/integrations/orders/{externalOrderId}
+
+Request
+GET /api/integrations/orders/DB-ORDER-12345
+Authorization: Bearer kt_live_xxxxxxxxxxxxxxxxx
+
+--------------------------------------------------------------------------------
+Report not received
+--------------------------------------------------------------------------------
+Raise a not-received report for a single recipient on a processed order — the API equivalent of a customer saying their bundle never arrived. It opens a dispute in Kuntanii for admin review. Only phoneNumber is required; send dataGb to disambiguate if the same number appears more than once on the order.
+
+POST
+/api/integrations/orders/{externalOrderId}/not-received
+
+Request
+POST /api/integrations/orders/DB-ORDER-12345/not-received
+Authorization: Bearer kt_live_xxxxxxxxxxxxxxxxx
+Content-Type: application/json
+
+{
+  "phoneNumber": "0241234567",
+  "dataGb": 3,
+  "description": "Customer says the bundle never arrived."
+}
+
+phoneNumber
+Required. The recipient that did not receive data.
+
+dataGb
+Optional. Narrows to the exact recipient when a number repeats on the order.
+
+reasonCode
+Optional short code for your own categorisation.
+
+description
+Optional free-text note shown to the admin reviewing the dispute.
+
+Successful response
+
+201 Created
+{
+  "success": true,
+  "externalOrderId": "DB-ORDER-12345",
+  "reportReference": "NR-72F1A0C4",
+  "orderReference": "KT-483920174",
+  "phoneNumber": "0241234567",
+  "dataGb": 3,
+  "status": "not received",
+  "disputeStatus": "open",
+  "orderStatus": "processed"
+}
+
+Check the review status
+
+GET
+/api/integrations/orders/{externalOrderId}/not-received?reportReference={reportReference}
+
+Request
+GET /api/integrations/orders/DB-ORDER-12345/not-received?reportReference=NR-72F1A0C4
+Authorization: Bearer kt_live_xxxxxxxxxxxxxxxxx
+
+200 OK after review
+{ "success": true, "status": "resolved" }
+
+open
+The report is waiting for review.
+
+escalated
+The report has been forwarded for further review.
+
+resolved
+Kuntanii has closed the report after review. This alone does not confirm delivery or a refund.
+
+rejected
+Kuntanii has reviewed and rejected the report.
+
+Save the reportReference from the report submission response. The lookup only returns reports belonging to this API key's external order, and remains available when new orders are on hold. The ordinary order-status response also includes orders[].notReceivedStatus for the newest report on each order, or null when there are no reports. For multiple recipients, use the specific report lookup to update the correct customer.
+
+--------------------------------------------------------------------------------
+Verify beneficiaries
+--------------------------------------------------------------------------------
+Check whether numbers are on the beneficiary list before you accept an order. This creates no order and charges nothing. Match results by array position or by phoneNumber; use eligible for the decision and reason for your own logic.
+
+POST
+/api/integrations/beneficiaries/verify
+
+Request
+POST /api/integrations/beneficiaries/verify
+Authorization: Bearer kt_live_xxxxxxxxxxxxxxxxx
+Content-Type: application/json
+
+{
+  "phoneNumbers": ["0241234567", "0551234567"]
+}
+
+200 OK
+{
+  "success": true,
+  "summary": { "total": 2, "eligible": 1, "ineligible": 1 },
+  "results": [
+    {
+      "phoneNumber": "0241234567",
+      "normalizedPhone": "0241234567",
+      "eligible": true,
+      "reason": "eligible",
+      "message": "This number is on our beneficiary list."
+    },
+    {
+      "phoneNumber": "0551234567",
+      "normalizedPhone": "0551234567",
+      "eligible": false,
+      "reason": "not_on_beneficiary_list",
+      "message": "This number is not currently on our beneficiary list. It has been recorded and will be added later, so please check back soon."
+    }
+  ]
+}
+
+Result reasons
+
+eligible
+The number is on the beneficiary list and can be ordered for.
+
+not_on_beneficiary_list
+Not eligible yet. The number is recorded for a future beneficiary-list update.
+
+blocked_number
+The number is blocked and cannot receive an order right now.
+
+invalid_phone_number
+The value could not be read as a supported phone number.
+
+A valid number returned as not_on_beneficiary_list is recorded as a new-number candidate. Verification never adds a number to the list, creates an order, or guarantees when a number becomes eligible. When History-Only Mode is enabled, approved, unblocked numbers are eligible even without previous orders. When it is disabled, approved-list membership is not required, but blocked numbers remain ineligible. If beneficiary settings are unavailable, requests fail with a retryable 503 rather than bypassing protection.
+
+--------------------------------------------------------------------------------
+Webhooks (optional)
+--------------------------------------------------------------------------------
+Add a callback URL when you create the API key and Kuntanii posts order status updates to it as the order moves through the queue. Verify the delivery with the signing secret shown when the key is created.
+
+Example delivery
+POST https://yourwebsite.com/kuntanii/webhook
+Content-Type: application/json
+X-Kuntanii-Event: order.processing
+X-Kuntanii-Delivery: 9a8c...
+
+{
+  "event": "order.processing",
+  "createdAt": "2026-06-03T11:00:00.000Z",
+  "data": {
+    "externalOrderId": "DB-ORDER-12345",
+    "intakeStatus": "accepted",
+    "orders": [
+      {
+        "orderReference": "KT-483920174",
+        "status": "processing",
+        "queuePosition": { "position": 4, "totalInQueue": 19, "stage": "processing" }
+      }
+    ]
+  }
+}
+
+Staff review sends order.not_received_resolved (including rejected reports), and reopening sends order.not_received_reopened. These callbacks use the same order-status payload, including orders[].notReceivedStatus. Read the status rather than treating the event name as delivery confirmation. Use the saved report reference to fetch a particular recipient's status.
+
+--------------------------------------------------------------------------------
+Errors & status codes
+--------------------------------------------------------------------------------
+Errors return a JSON body with a stable code and a human-readable message. Read the code instead of matching message text. A retryable value of true means the same idempotency key can be sent again after the stated account restriction is resolved; it does not mean retry immediately.
+
+400 / 422  VALIDATION_ERROR
+The body is missing a field or has a bad value. Check the errors object.
+
+422  NO_APPROVED_RECIPIENTS
+Every submitted recipient was outside the approved-number registry. Inspect rejectedRecipients and do not retry automatically.
+
+422  NO_ELIGIBLE_RECIPIENTS
+Every submitted recipient was removed by approved-beneficiary or blocked-number rules.
+
+401  UNAUTHORIZED
+The API key is missing, malformed, or inactive.
+
+403  FORBIDDEN
+The account does not have access to the requested operation.
+
+403  PAYMENT_VERIFICATION_REQUIRED
+Ordering resumes after the account payment is verified or its deadline is extended.
+
+402  INSUFFICIENT_CREDIT
+Available credit is below the order cost, or the wallet is on hold. Add credit or contact the credit provider, then retry with the same idempotency key.
+
+402  GOVERNING_ACCOUNT_CREDIT_HOLD
+The governing credit account cannot fund this order. Contact the main account; its balance is not disclosed.
+
+503  CREDIT_UNAVAILABLE
+Credit could not be checked. No order or credit movement was committed. Retry with the same idempotency key.
+
+503  BENEFICIARY_CHECK_UNAVAILABLE
+Beneficiary settings could not be read. Protection was not bypassed. Retry the unchanged request with the same idempotency key.
+
+503  CREDIT_RELAY_UNAVAILABLE
+Credit-funded relay ordering is currently disabled. No order or credit movement was committed. Retry the unchanged request with the same key after Kuntanii enables it.
+
+403  PARENT_ORDERS_PAUSED
+The website belongs to a sub-user whose main account has paused ordering.
+
+403  ACCOUNT_ORDERS_PAUSED
+Ordering is paused for the mapped website account.
+
+403  ORDERS_PAUSED
+Kuntanii has temporarily paused order intake globally.
+
+403  PRICING_PROFILE_REQUIRED
+The mapped account needs a pricing profile before it can submit orders.
+
+404  NOT_FOUND
+No order matches that externalOrderId for your account.
+
+409  CONFLICT
+The idempotency key or externalOrderId was already used with different details.
+
+429  RATE_LIMITED
+Too many requests. Slow down and retry after a short wait.
+
+Error body
+{
+  "code": "VALIDATION_ERROR",
+  "message": "Send at least one beneficiary phone number.",
+  "errors": {
+    "phoneNumbers": ["Required"]
+  }
+}
+
+================================================================================
+GAPS IN THE DOCS (must be settled with Kuntanii or by live test before go-live)
+  - Webhook signature: header name + algorithm (HMAC-SHA256? over raw body? timestamp?) not stated.
+  - Full list of webhook event names (only order.processing, order.not_received_resolved,
+    order.not_received_reopened are named).
+  - Full status-lookup response body (docs say it "matches the webhook data object" but don't print it).
+  - Normal-delivery pricing call: is it GET /api/integrations/pricing with no param, or deliveryMode=normal?
+  - Whether sub-1GB sizes are accepted (dataGb is "GB"; fractional values not documented).
+  - Exact cancelled / "not received" status strings in the order-status response.
+  - Rate-limit numbers for 429.
+
+================================================================================
+LIVE PROBE RESULTS — 2026-11-03 (read-only GETs with our real kt_live_ key)
+================================================================================
+  - Key is valid (200s, no 401).
+  - GET /api/integrations/pricing (NO param) works and returns deliveryMode "normal".
+    ?deliveryMode=normal returns the identical body. -> Normal pricing needs no param.
+  - Normal profile: "Super dealer" (isManualOverride: true).
+  - Instant profile: "Super dealer Inst" -> Instant Delivery IS ALREADY ENABLED on our account.
+  - Same 18 plan sizes in both modes (planCode 4..21), all whole GB:
+      1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,40,50,100 GB   (bundleSizeMb = GB*1024)
+    NOT offered: anything sub-1GB, 11,13,14,16-19,21-24,26-29,31-39,41-49,51-99, >100 GB.
+  - Prices observed (GHS, normal / instant):
+      1GB 3.85/4.20   2GB 7.70/8.40   3GB 11.55/12.60  4GB 15.40/16.80  5GB 19.25/21.00
+      6GB 23.10/25.20 7GB 26.95/29.40 8GB 30.80/33.60  9GB 34.35/37.80  10GB 38.50/42.00
+      12GB 46.20/50.40 15GB 57.75/63.00 20GB 77.00/84.00 25GB 96.25/105.00 30GB 115.50/126.00
+      40GB 154.00/168.00 50GB 192.50/210.00 100GB 385.00/420.00
+    (snapshot only — always read live; prices change)
+  - GET /api/integrations/orders/{unknown-uuid} -> 404 {"code":"NOT_FOUND","message":"We could not find that external order."}
+  - GET .../not-received?reportReference=... on unknown order -> same 404 body.
+  - Response headers: no rate-limit / Retry-After headers exposed. Content-Type application/json.
+  - externalOrderId accepts UUID format in the path (no 400 on a UUID).
+  - STILL UNKNOWN: full status body for a real order, webhook event names beyond the 3 documented,
+    webhook signature scheme, exact "cancelled"/"not received" strings in status responses,
+    verify endpoint (not probed — records numbers as candidates).
