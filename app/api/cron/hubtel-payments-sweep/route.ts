@@ -6,7 +6,7 @@ import { listDueHubtelPayments, runHubtelPaymentsSweep } from "@/lib/hubtel-pay/
 
 // Every 5 minutes (cron-job.org; lib/cron-migration/crons.json, fulfillment batch C): re-checks Hubtel payments
 // whose callback never settled them: pending > 5 min, or confirming with a claim > 10 min old. Up to 50 per run,
-// one at a time. confirmHubtelPayment owns every decision (status check + atomic claim), so overlapping runs or a
+// least recently checked first, one at a time, no new row after 85s. confirmHubtelPayment owns every decision (status check + atomic claim), so overlapping runs or a
 // callback arriving mid-sweep cannot double-fulfil. Logic: lib/hubtel-pay/sweep.ts.
 export const dynamic = "force-dynamic"
 // Well under the 10-minute confirming-claim window.

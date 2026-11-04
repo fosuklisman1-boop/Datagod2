@@ -65,6 +65,7 @@ describe("hubtel-payments-sweep cron", () => {
     expect(h.confirm.mock.calls.map((c) => c[0])).toEqual([REF(1), REF(2), REF(3)])
     expect(await res.json()).toEqual({
       processed: 3,
+      skipped: 0,
       outcomes: { fulfilled: 1, failed: 0, pending: 1, needs_review: 0, ignored: 0, error: 1 },
     })
   })

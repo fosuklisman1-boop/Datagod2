@@ -364,6 +364,69 @@ describe("confirmHubtelPayment — not_found / error", () => {
     expect(t.writes).toHaveLength(1)
     expectEveryWriteStampsUpdatedAt(t.writes, new Date(T0.getTime() + min(600)))
   })
+
+  // setup()'s default row expires at T0 + 30 min.
+  const EXPIRY = T0.getTime() + min(30)
+  const afterExpiry = (ms: number) => new Date(EXPIRY + ms)
+  const HOUR = min(60)
+
+  it.each([
+    ["not_found", 23 * HOUR],
+    ["error", 23 * HOUR],
+    ["not_found", 24 * HOUR],
+  ] as const)("%s at expiry + %i ms → stays pending, no claim, no alert", async (kind, offset) => {
+    const at = afterExpiry(offset)
+    const t = setup({ status: { kind, raw: { upstreamStatus: 404 } }, now: at })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("pending")
+    expect(t.claims).toHaveLength(0)
+    expect(t.notify).not.toHaveBeenCalled()
+    expect(t.get().status).toBe("pending")
+    expectEveryWriteStampsUpdatedAt(t.writes, at)
+  })
+
+  it.each(["not_found", "error"] as const)("%s at expiry + 25h → claimed, needs_review, one PII-free alert, no handler", async (kind) => {
+    const at = afterExpiry(25 * HOUR)
+    const t = setup({ status: { kind, raw: { upstreamStatus: 404 } }, now: at })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+    expect(t.claims).toEqual([{ reference: REF, won: true }])
+    expect(t.get().status).toBe("needs_review")
+    expect(t.get().last_check).toEqual({ upstreamStatus: 404 })
+    expect(t.onChargeSuccess).not.toHaveBeenCalled()
+    expect(t.onChargeFailed).not.toHaveBeenCalled()
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    const [message, type, reference] = t.notify.mock.calls[0] as unknown as [string, string, string]
+    expect(message).toContain("no Hubtel record 24h after expiry")
+    expect(message).not.toMatch(/\b(233|0)\d{9}\b/)
+    expect(type).toBe("hubtel_payment")
+    expect(reference).toBe(REF)
+    expectEveryWriteStampsUpdatedAt(t.writes, at)
+  })
+
+  it("a stale confirming row past expiry + 25h also goes to needs_review", async () => {
+    const at = afterExpiry(25 * HOUR)
+    const t = setup({
+      row: { status: "confirming", claimed_at: new Date(at.getTime() - min(11)).toISOString(), claim_count: 1 },
+      status: { kind: "not_found", raw: {} }, now: at,
+    })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+    expect(t.get().status).toBe("needs_review")
+    expect(t.notify).toHaveBeenCalledTimes(1)
+  })
+
+  it("two concurrent callers at expiry + 25h → one claim wins, one alert", async () => {
+    const t = setup({ status: { kind: "not_found", raw: {} }, now: afterExpiry(25 * HOUR) })
+    const out = await Promise.all([confirmHubtelPayment(REF, t.deps), confirmHubtelPayment(REF, t.deps)])
+    expect([...out].sort()).toEqual(["ignored", "needs_review"])
+    expect(t.claims.filter((c) => c.won)).toHaveLength(1)
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    expect(t.get().status).toBe("needs_review")
+  })
+
+  it("unpaid past expiry + 25h is still failed, not parked for review", async () => {
+    const t = setup({ status: { kind: "unpaid", raw: {} }, now: afterExpiry(25 * HOUR) })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("failed")
+    expect(t.onChargeFailed).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("isAllowedPaymentMethod", () => {

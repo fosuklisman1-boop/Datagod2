@@ -60,6 +60,8 @@ const REF_RE = /^[0-9a-f]{32}$/
 const STALE_CLAIM_MS = 10 * 60_000
 /** On the winning claim with this many claims (i.e. the 3rd attempt), stop calling handlers: needs_review. */
 const MAX_CLAIMS = 3
+/** A not_found / error status check later than this after expires_at parks the row for review. */
+const NO_RECORD_REVIEW_MS = 24 * 60 * 60_000
 const ALERT_TYPE = "hubtel_payment"
 
 /** Mobile money and Hubtel/G-Money wallets only. Anything mentioning "card", or unknown/missing, is refused. */
@@ -188,6 +190,17 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     await finish(claimed, { status: "failed", ...hubtelFields })
     if (refunded) await alert(`Hubtel payment ${reference} was REFUNDED by Hubtel (GHS ${ghs(status.amountPesewas)}); marked failed.`)
     return "failed"
+  }
+
+  // not_found / error long after expiry: nothing will ever settle this row, so hand it to a human (never failed:
+  // no record is not proof of no payment). Same atomic claim, so concurrent callers produce one alert.
+  if ((status.kind === "not_found" || status.kind === "error") &&
+      d.now().getTime() > new Date(row.expires_at).getTime() + NO_RECORD_REVIEW_MS) {
+    const claimed = await d.store.claim(reference)
+    if (!claimed) return "ignored"
+    await finish(claimed, { status: "needs_review", ...hubtelFields })
+    await alert(`Hubtel payment ${reference} needs review: no Hubtel record 24h after expiry (status check: ${status.kind}). Not fulfilled.`)
+    return "needs_review"
   }
 
   // unpaid before expiry, not_found, error: never fail, never fulfil.

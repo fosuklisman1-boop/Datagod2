@@ -76,6 +76,37 @@ describe("hubtel-payments callback route", () => {
     expect(logs.some((l) => l.includes("HUBTEL_PAYMENTS_CALLBACK_SECRET"))).toBe(true)
   })
 
+  it("secret of 31 chars → 503 even with a correctly computed sig; no confirm", async () => {
+    const s = "s".repeat(31)
+    process.env.HUBTEL_PAYMENTS_CALLBACK_SECRET = s
+    const res = await POST(req({ ref: REF, sig: signRef(REF, s) }))
+    expect(res.status).toBe(503)
+    expect(h.confirm).not.toHaveBeenCalled()
+  })
+
+  it("secret of exactly 32 chars → accepted", async () => {
+    const s = "s".repeat(32)
+    process.env.HUBTEL_PAYMENTS_CALLBACK_SECRET = s
+    h.confirm.mockResolvedValue("pending")
+    const res = await POST(req({ ref: REF, sig: signRef(REF, s) }))
+    expect(res.status).toBe(200)
+    expect(h.confirm).toHaveBeenCalledTimes(1)
+  })
+
+  it("bad reference with a missing secret → 401 (format is checked first)", async () => {
+    delete process.env.HUBTEL_PAYMENTS_CALLBACK_SECRET
+    const res = await POST(req({ ref: "WALLET-123", sig: "x" }))
+    expect(res.status).toBe(401)
+    expect(h.confirm).not.toHaveBeenCalled()
+  })
+
+  it("missing secret with a garbage sig → 503, no confirm", async () => {
+    delete process.env.HUBTEL_PAYMENTS_CALLBACK_SECRET
+    const res = await POST(req({ ref: REF, sig: "garbage" }))
+    expect(res.status).toBe(503)
+    expect(h.confirm).not.toHaveBeenCalled()
+  })
+
   it("valid sig + unknown reference → 200 { received: true } (confirm returns ignored)", async () => {
     h.confirm.mockResolvedValue("ignored")
     const res = await POST(req({ ref: REF, sig: signRef(REF, SECRET) }))
