@@ -6,6 +6,7 @@ import {
   processKuntaniiWebhook,
   isBodyTooLarge,
   resolveWebhookEvent,
+  verifyKuntaniiSignature,
 } from "@/lib/mtn-providers/kuntanii-webhook-processor"
 
 // Signal-only webhook: the body is never trusted. We only extract the order id
@@ -23,6 +24,14 @@ export async function POST(request: NextRequest) {
       bodyLength: Buffer.byteLength(rawBody, "utf8"),
     })
   )
+
+  // LOG ONLY: observe whether real deliveries verify. Behavior is unchanged either way.
+  const sigResult = verifyKuntaniiSignature(
+    rawBody,
+    request.headers.get("x-kuntanii-signature"),
+    process.env.KUNTANII_WEBHOOK_SECRET,
+  )
+  console.log(`[WEBHOOK-KUNTANII] signature ${sigResult} delivery=${request.headers.get("x-kuntanii-delivery")}`)
 
   if (isBodyTooLarge(rawBody)) {
     console.warn("[WEBHOOK-KUNTANII] Body too large, not processing")

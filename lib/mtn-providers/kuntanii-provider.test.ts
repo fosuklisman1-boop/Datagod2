@@ -652,7 +652,61 @@ describe("checkOrderStatus", () => {
     const r = await provider.checkOrderStatus("ord1")
     expect(r.success).toBe(true)
     expect(r.status).toBe("completed")
-    expect(r.order).toEqual(body)
+    expect(r.order).toEqual({ ...body, status: "processed" })
+  })
+
+  const realBody = (orders: any[]) => ({
+    success: true,
+    externalOrderId: "123e4567-e89b-12d3-a456-426614174000",
+    intakeStatus: "accepted",
+    errorMessage: null,
+    orderCount: orders.length,
+    orders,
+  })
+
+  it("surfaces the raw per-order status as order.status when the body has none (processing)", async () => {
+    const body = realBody([{ orderReference: "KT-1", status: "processing", pendingEntries: 1 }])
+    const client = fakeClient({ getOrder: vi.fn(async () => ({ ok: true, status: 200, data: body })) })
+    const { provider } = setup({ client })
+    const r = await provider.checkOrderStatus("ord1")
+    expect(r.status).toBe("processing")
+    expect(r.order.status).toBe("processing")
+    expect(r.order.intakeStatus).toBe("accepted")
+    expect(r.order.orders[0].orderReference).toBe("KT-1")
+  })
+
+  it("order.status is processed when every entry is processed", async () => {
+    const body = realBody([{ status: "processed" }, { status: "processed" }])
+    const client = fakeClient({ getOrder: vi.fn(async () => ({ ok: true, status: 200, data: body })) })
+    const { provider } = setup({ client })
+    const r = await provider.checkOrderStatus("ord1")
+    expect(r.order.status).toBe("processed")
+  })
+
+  it("order.status is the in-flight entry's status for mixed [cancelled, pending]", async () => {
+    const body = realBody([{ status: "cancelled" }, { status: "pending" }])
+    const client = fakeClient({ getOrder: vi.fn(async () => ({ ok: true, status: 200, data: body })) })
+    const { provider } = setup({ client })
+    const r = await provider.checkOrderStatus("ord1")
+    expect(r.status).toBe("processing")
+    expect(r.order.status).toBe("pending")
+  })
+
+  it("order.status is cancelled for mixed [processed, cancelled]", async () => {
+    const body = realBody([{ status: "processed" }, { status: "cancelled" }])
+    const client = fakeClient({ getOrder: vi.fn(async () => ({ ok: true, status: 200, data: body })) })
+    const { provider } = setup({ client })
+    const r = await provider.checkOrderStatus("ord1")
+    expect(r.status).toBe("failed")
+    expect(r.order.status).toBe("cancelled")
+  })
+
+  it("order.status is processed for mixed [processed, not received]", async () => {
+    const body = realBody([{ status: "not received" }, { status: "processed" }])
+    const client = fakeClient({ getOrder: vi.fn(async () => ({ ok: true, status: 200, data: body })) })
+    const { provider } = setup({ client })
+    const r = await provider.checkOrderStatus("ord1")
+    expect(r.order.status).toBe("processed")
   })
 
   it("redacts phones in the returned order body but keeps status fields", async () => {

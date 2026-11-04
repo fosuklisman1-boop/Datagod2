@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { createHmac, timingSafeEqual } from "crypto"
 
 // Kuntanii webhook = SIGNAL ONLY. Their signature scheme is undocumented, so
 // nothing in the webhook body (status, amounts, etc.) is ever trusted or
@@ -18,6 +19,25 @@ export function extractExternalOrderId(body: unknown): string | null {
   const id = data.externalOrderId
   if (typeof id !== "string" || id.length > 64) return null
   return ID_RE.test(id) ? id : null
+}
+
+export type KuntaniiSignatureResult = "match" | "mismatch" | "missing_header" | "no_secret"
+
+/** Log-only check of `x-kuntanii-signature: sha256=<hex HMAC-SHA256(secret, rawBody)>`. */
+export function verifyKuntaniiSignature(
+  rawBody: string,
+  header: string | null,
+  secret: string | undefined,
+): KuntaniiSignatureResult {
+  if (!secret) return "no_secret"
+  if (!header) return "missing_header"
+  if (!header.startsWith("sha256=")) return "mismatch"
+  const given = header.slice("sha256=".length).trim()
+  if (!/^[0-9a-f]{64}$/i.test(given)) return "mismatch"
+  const expected = createHmac("sha256", secret).update(rawBody, "utf8").digest()
+  const givenBuf = Buffer.from(given, "hex")
+  if (givenBuf.length !== expected.length) return "mismatch"
+  return timingSafeEqual(givenBuf, expected) ? "match" : "mismatch"
 }
 
 export function signatureHeaderSnapshot(headers: Headers): Record<string, string> {

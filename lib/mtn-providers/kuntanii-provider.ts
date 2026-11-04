@@ -17,6 +17,7 @@ import {
   classifyKuntaniiError,
   existingAttemptAction,
   isSizeSupported,
+  mapKuntaniiStatus,
   redactPhone,
   sumCost,
   toLocalGhanaPhone,
@@ -109,6 +110,25 @@ export function entriesOf(body: OrderBody | undefined): KuntaniiOrderEntry[] {
   if (typeof body?.status === "string") return [{ status: body.status }]
   // Nothing visible: [] maps to "resume"/"processing" — never place blind.
   return Array.isArray(orders) ? orders : [{ status: undefined }]
+}
+
+/**
+ * Kuntanii's real status body has no top-level `status`, only orders[].status. Downstream
+ * code (external_status column, reversal candidate filter) reads `order.status`, so surface
+ * the raw per-order status that represents the aggregate.
+ */
+export function representativeRawStatus(entries: KuntaniiOrderEntry[]): string | undefined {
+  const raws = entries.map((e) => (typeof e.status === "string" ? e.status : undefined))
+  if (raws.length === 0) return undefined
+  const norm = (r: string | undefined) => (r ?? "").trim().toLowerCase()
+  if (raws.every((r) => norm(r) === norm(raws[0]))) return raws[0]
+  const agg = aggregateOrdersStatus(entries)
+  const target = agg === "processing" ? "processing" : agg === "failed" ? "failed" : null
+  if (target) {
+    const hit = entries.find((e) => mapKuntaniiStatus(e.status) === target)
+    return typeof hit?.status === "string" ? hit.status : undefined
+  }
+  return "processed"
 }
 
 const KNOWN_STATUSES = new Set(["pending", "processing", "processed", "not received", "cancelled"])
@@ -318,7 +338,13 @@ export class KuntaniiProvider implements MTNProvider {
     const status = aggregateOrdersStatus(entries)
     // Redacted: callers (syncMTNOrderStatus) log this result. Redaction only rewrites
     // phone-shaped strings, so status / message / orderReference / notReceivedStatus survive.
-    return { success: true, status, message: `Kuntanii status: ${status}`, order: redactBody(res.data) as OrderBody | undefined }
+    const order = redactBody(res.data) as OrderBody | undefined
+    let withStatus = order
+    if (order && typeof order === "object" && typeof order.status !== "string") {
+      const raw = representativeRawStatus(entries)
+      if (raw) withStatus = { ...order, status: raw }
+    }
+    return { success: true, status, message: `Kuntanii status: ${status}`, order: withStatus }
   }
 
   async checkBalance(): Promise<number | null> {

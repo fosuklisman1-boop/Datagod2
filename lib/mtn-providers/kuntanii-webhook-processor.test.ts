@@ -165,3 +165,29 @@ describe("resolveWebhookEvent / isBodyTooLarge", () => {
     expect(isBodyTooLarge("é".repeat(32769))).toBe(true)
   })
 })
+
+import { createHmac } from "crypto"
+import { verifyKuntaniiSignature } from "./kuntanii-webhook-processor"
+
+describe("verifyKuntaniiSignature", () => {
+  const secret = "fake-test-secret"
+  const body = '{"data":{"externalOrderId":"x"}}'
+  const good = "sha256=" + createHmac("sha256", secret).update(body).digest("hex")
+
+  it("match", () => expect(verifyKuntaniiSignature(body, good, secret)).toBe("match"))
+  it("mismatch on tampered body", () => expect(verifyKuntaniiSignature(body + " ", good, secret)).toBe("mismatch"))
+  it("mismatch on wrong secret", () => expect(verifyKuntaniiSignature(body, good, "other")).toBe("mismatch"))
+  it("missing_header", () => {
+    expect(verifyKuntaniiSignature(body, null, secret)).toBe("missing_header")
+    expect(verifyKuntaniiSignature(body, "", secret)).toBe("missing_header")
+  })
+  it("no_secret", () => {
+    expect(verifyKuntaniiSignature(body, good, undefined)).toBe("no_secret")
+    expect(verifyKuntaniiSignature(body, good, "")).toBe("no_secret")
+  })
+  it("malformed header: no prefix / wrong length / bad hex", () => {
+    expect(verifyKuntaniiSignature(body, good.slice(7), secret)).toBe("mismatch")
+    expect(verifyKuntaniiSignature(body, "sha256=abcd", secret)).toBe("mismatch")
+    expect(verifyKuntaniiSignature(body, "sha256=" + "z".repeat(64), secret)).toBe("mismatch")
+  })
+})
