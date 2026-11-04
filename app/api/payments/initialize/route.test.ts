@@ -49,6 +49,7 @@ vi.mock("@/lib/storefront-otp", () => ({
   isStorefrontOtpRequired: async () => h.state.gates.storefrontOtp,
   isStorefrontDirectChargeEnabled: async () => h.state.gates.storefrontDirect,
   isWalletDirectChargeEnabled: async () => h.state.gates.walletDirect,
+  isDashboardDirectChargeEnabled: async () => h.state.gates.walletDirect,
 }))
 vi.mock("@/lib/security-log", () => ({ logSecurityEvent: vi.fn() }))
 vi.mock("@/lib/phone-verify-guard", () => ({ checkPhoneVerified: async () => ({ allowed: true }) }))

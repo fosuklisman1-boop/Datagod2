@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { invalidateWalletDirectChargeCache } from "@/lib/storefront-otp"
+import { getGatewayConfig } from "@/lib/payment-gateway/read-config"
+import { setSurfaceModes } from "@/lib/payment-gateway/write-config"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,21 +22,11 @@ export async function GET(request: NextRequest) {
   if (!isAdmin) return errorResponse
 
   try {
-    const { data, error } = await supabase
-      .from("admin_settings")
-      .select("key, value, updated_at")
-      .eq("key", "wallet_direct_charge")
-      .maybeSingle()
-
-    if (error) {
-      console.error("[WALLET-DIRECT-CHARGE-SETTINGS] Read error:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
+    const config = await getGatewayConfig()
     return NextResponse.json({
       success: true,
-      enabled: data?.value?.enabled === true,
-      updated_at: data?.updated_at ?? null,
+      enabled: config.surfaces.wallet_topup.mode === "direct",
+      updated_at: null,
     })
   } catch (e) {
     console.error("[WALLET-DIRECT-CHARGE-SETTINGS] GET error:", e)
@@ -56,21 +47,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "enabled must be a boolean" }, { status: 400 })
     }
 
-    const { error } = await supabase
-      .from("admin_settings")
-      .upsert({
-        key: "wallet_direct_charge",
-        value: { enabled },
-        description: "Collect order-free payments (wallet top-up + dealer upgrade) via an on-page direct MoMo charge (live prompt modal) instead of the hosted Paystack redirect. Independent of the wallet OTP gate.",
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "key" })
-
-    if (error) {
-      console.error("[WALLET-DIRECT-CHARGE-SETTINGS] Upsert error:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    try {
+      await setSurfaceModes(supabase, ["wallet_topup", "dashboard_direct", "sms"], enabled ? "direct" : "checkout", userEmail ?? userId ?? "unknown")
+    } catch (err) {
+      console.error("[WALLET-DIRECT-CHARGE-SETTINGS] Save error:", err)
+      return NextResponse.json({ error: err instanceof Error ? err.message : "Save failed" }, { status: 500 })
     }
 
-    invalidateWalletDirectChargeCache()
     console.warn(`[WALLET-DIRECT-CHARGE-SETTINGS] ⚠️ Wallet/upgrade direct MoMo charge is now ${enabled ? "ENABLED" : "DISABLED"} (by ${userEmail ?? userId})`)
     return NextResponse.json({
       success: true,

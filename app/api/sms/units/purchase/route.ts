@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { purchaseUnitsByQuantity, quoteCredits } from "@/lib/sms/bundle-service"
 import { initializePayment, chargeMobileMoney, detectMomoProvider } from "@/lib/paystack"
-import { isWalletDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
+import { isSmsDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { logSecurityEvent } from "@/lib/security-log"
 import { isSmsEnabled, SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     const metadata = { type: "sms_units_qty", sms_account_id: account.id, units: credits }
 
     // ── Direct MoMo charge (no hosted redirect) when the wallet direct-charge gate is on. ──
-    const directOn = await isWalletDirectChargeEnabled()
+    const directOn = await isSmsDirectChargeEnabled()
     if (body.momoDirect === true && directOn) {
       const phone = String(body.paymentPhone || "").trim()
       const provider = detectMomoProvider(phone)

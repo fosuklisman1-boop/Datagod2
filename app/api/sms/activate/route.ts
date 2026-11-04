@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { activateViaWallet, initActivationPaystack, initActivationDirectCharge } from "@/lib/sms/activation-service"
 import { detectMomoProvider } from "@/lib/paystack"
-import { isWalletDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
+import { isSmsDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { logSecurityEvent } from "@/lib/security-log"
 import { isSmsEnabled, SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     if (!(await isSmsEnabled())) return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
     if (!user.email) return NextResponse.json({ error: "Account email required for Paystack" }, { status: 400 })
 
-    const directOn = await isWalletDirectChargeEnabled()
+    const directOn = await isSmsDirectChargeEnabled()
 
     // Direct MoMo charge (on-page prompt) when the wallet direct-charge gate is on.
     if (body?.momoDirect === true && directOn) {

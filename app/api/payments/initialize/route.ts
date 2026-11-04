@@ -5,7 +5,7 @@ import { shopHandleOrFilter } from "@/lib/shop-handle"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
-import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired, isStorefrontDirectChargeEnabled, isWalletDirectChargeEnabled } from "@/lib/storefront-otp"
+import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired, isStorefrontDirectChargeEnabled, isWalletDirectChargeEnabled, isDashboardDirectChargeEnabled } from "@/lib/storefront-otp"
 import { logSecurityEvent } from "@/lib/security-log"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
@@ -281,20 +281,27 @@ export async function POST(request: NextRequest) {
     // legit path = a bypass), not the OTP gate.
     const isShopOrderSurface = !!orderId
     const isWalletSurface = isTopup || isUpgrade
-    const [walletGateOn, walletDirectOn, storefrontGateOn, storefrontDirectOn] = await Promise.all([
+    const [walletGateOn, walletDirectOn, dashboardDirectOn, storefrontGateOn, storefrontDirectOn] = await Promise.all([
       isWalletOtpRequired(),
       isWalletDirectChargeEnabled(),
+      isDashboardDirectChargeEnabled(),
       isStorefrontOtpRequired(),
       isStorefrontDirectChargeEnabled(),
     ])
 
     // Per-surface flags for the request in hand.
     const surfaceOtpOn = isShopOrderSurface ? storefrontGateOn : isWalletSurface ? walletGateOn : false
-    const surfaceDirectOn = isShopOrderSurface ? storefrontDirectOn : isWalletSurface ? walletDirectOn : false
+    const surfaceDirectOn = isShopOrderSurface
+      ? storefrontDirectOn
+      : isUpgrade
+        ? dashboardDirectOn
+        : isTopup
+          ? walletDirectOn
+          : false
 
     // Order-free per-user burst cap: keep it active when EITHER wallet gate (OTP
     // or direct charge) is on. Admins bypass for support/testing.
-    if ((walletGateOn || walletDirectOn) && (isTopup || isUpgrade) && !isAdmin && userId) {
+    if ((walletGateOn || walletDirectOn || dashboardDirectOn) && (isTopup || isUpgrade) && !isAdmin && userId) {
       const perUser = await applyRateLimit(request, "payment_init_topup_user", 5, 30 * 60 * 1000, `tu:${userId}`)
       if (!perUser.allowed) {
         logSecurityEvent("wallet_topup_user_cap", { channel: type === "dealer_upgrade" ? "dealer_upgrade" : "wallet_topup", userId, email, ip: clientIp })

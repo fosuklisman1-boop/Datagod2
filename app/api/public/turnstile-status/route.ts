@@ -6,6 +6,8 @@ import {
   isPhoneGateDisabled,
   isStorefrontDirectChargeEnabled,
   isWalletDirectChargeEnabled,
+  isDashboardDirectChargeEnabled,
+  isSmsDirectChargeEnabled,
 } from "@/lib/storefront-otp"
 
 /**
@@ -16,19 +18,22 @@ import {
  *   - direct_charge:       whether the storefront uses the on-page direct MoMo
  *                          charge (vs the hosted Paystack redirect)
  *   - wallet_lock:         whether the wallet/upgrade OTP gate is on
- *   - wallet_direct_charge whether wallet/upgrade uses the on-page direct charge
+ *   - wallet_direct_charge whether wallet top-up uses the on-page direct charge
+ *   - dashboard_direct_charge / sms_direct_charge: same, for dealer upgrade / SMS purchases
  * No auth required — the answer is the same for every visitor.
  *
  * Cached at the edge for 30 seconds: an admin toggle takes effect within
  * ~30s. New page loads after a toggle pick up the new state immediately.
  */
 export async function GET() {
-  const [enabled, otpRequired, directCharge, walletLock, walletDirectCharge, phoneGateDisabled] = await Promise.all([
+  const [enabled, otpRequired, directCharge, walletLock, walletDirectCharge, dashboardDirectCharge, smsDirectCharge, phoneGateDisabled] = await Promise.all([
     isTurnstileEnabled(),
     isStorefrontOtpRequired(),
     isStorefrontDirectChargeEnabled(),
     isWalletOtpRequired(),
     isWalletDirectChargeEnabled(),
+    isDashboardDirectChargeEnabled(),
+    isSmsDirectChargeEnabled(),
     isPhoneGateDisabled(),
   ])
   return NextResponse.json(
@@ -38,6 +43,8 @@ export async function GET() {
       direct_charge: directCharge,
       wallet_lock: walletLock,
       wallet_direct_charge: walletDirectCharge,
+      dashboard_direct_charge: dashboardDirectCharge,
+      sms_direct_charge: smsDirectCharge,
       phone_gate_disabled: phoneGateDisabled,
     },
     {
