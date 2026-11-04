@@ -7,7 +7,7 @@
 -- Creates the Supabase roles and mirrors Supabase's default grants (ALL on new public tables to anon/authenticated,
 -- as migration 0060 also does) so the REVOKE is really tested.
 -- Scenarios: table_exists, rls_enabled, no_policies, no_anon_privs, index, internal_reference + metadata
--- (types, NULL by default, round-trip), valid_insert, opaque_reference
+-- (types, NULL by default, round-trip), handler_amount_pesewas + refused_at, one open attempt per order, valid_insert, opaque_reference
 -- (WALLET-1 and uppercase hex refused), check constraints (mode, status, amount), status_default, anon_select
 -- (anon sees nothing), idempotent re-run.
 
@@ -77,6 +77,60 @@ BEGIN
   SELECT count(*) INTO v_n FROM public.hubtel_payments
    WHERE reference = '55555555555555555555555555555555' AND internal_reference = 'WALLET-1' AND metadata->>'type' = 'sms_bundle';
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL new_columns_roundtrip'; END IF;
+
+  -- handler_amount_pesewas / refused_at: nullable, the types confirm.ts and sweep.ts rely on, NULL by default
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hubtel_payments'
+                  AND column_name = 'handler_amount_pesewas' AND data_type = 'integer' AND is_nullable = 'YES') THEN
+    RAISE EXCEPTION 'FAIL handler_amount: nullable integer column missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hubtel_payments'
+                  AND column_name = 'refused_at' AND data_type = 'timestamp with time zone' AND is_nullable = 'YES') THEN
+    RAISE EXCEPTION 'FAIL refused_at: nullable timestamptz column missing';
+  END IF;
+  SELECT count(*) INTO v_n FROM public.hubtel_payments
+   WHERE reference = '0123456789abcdef0123456789abcdef' AND handler_amount_pesewas IS NULL AND refused_at IS NULL;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL new_columns2_null: expected NULL defaults'; END IF;
+  v_caught := false;
+  BEGIN
+    INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, handler_amount_pesewas, expires_at)
+      VALUES ('66666666666666666666666666666666', 'wallet', 'direct', 1000, 0, now());
+  EXCEPTION WHEN check_violation THEN v_caught := true; END;
+  IF NOT v_caught THEN RAISE EXCEPTION 'FAIL handler_amount_check: zero handler amount accepted'; END IF;
+
+  -- one open attempt per order (partial unique index). WALLET-1 is already open from the round-trip row above.
+  v_caught := false;
+  BEGIN
+    INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, expires_at, internal_reference)
+      VALUES ('77777777777777777777777777777777', 'wallet', 'direct', 1000, now(), 'WALLET-1');
+  EXCEPTION WHEN unique_violation THEN v_caught := true; END;
+  IF NOT v_caught THEN RAISE EXCEPTION 'FAIL one_open_pending: second pending row for an order accepted'; END IF;
+
+  -- a confirming row counts as open
+  UPDATE public.hubtel_payments SET status = 'confirming', claimed_at = now() WHERE reference = '55555555555555555555555555555555';
+  v_caught := false;
+  BEGIN
+    INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, expires_at, internal_reference)
+      VALUES ('77777777777777777777777777777777', 'wallet', 'direct', 1000, now(), 'WALLET-1');
+  EXCEPTION WHEN unique_violation THEN v_caught := true; END;
+  IF NOT v_caught THEN RAISE EXCEPTION 'FAIL one_open_confirming: pending alongside a confirming row accepted'; END IF;
+
+  -- closed rows do not block a retry: failed, paid and needs_review can each sit beside a new open attempt
+  UPDATE public.hubtel_payments SET status = 'failed', refused_at = now() WHERE reference = '55555555555555555555555555555555';
+  INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, expires_at, internal_reference)
+    VALUES ('77777777777777777777777777777777', 'wallet', 'direct', 1000, now(), 'WALLET-1');
+  UPDATE public.hubtel_payments SET status = 'paid' WHERE reference = '77777777777777777777777777777777';
+  INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, expires_at, internal_reference)
+    VALUES ('88888888888888888888888888888888', 'wallet', 'direct', 1000, now(), 'WALLET-1');
+  UPDATE public.hubtel_payments SET status = 'needs_review' WHERE reference = '88888888888888888888888888888888';
+  INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, expires_at, internal_reference)
+    VALUES ('99999999999999999999999999999999', 'wallet', 'direct', 1000, now(), 'WALLET-1');
+
+  -- rows with no internal_reference are not limited, and another order is unaffected
+  INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, expires_at)
+    VALUES ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'wallet', 'direct', 1000, now()),
+           ('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'wallet', 'direct', 1000, now());
+  INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, expires_at, internal_reference)
+    VALUES ('cccccccccccccccccccccccccccccccc', 'wallet', 'direct', 1000, now(), 'WALLET-2');
 
   -- opaque reference: a WALLET- reference is refused
   v_caught := false;

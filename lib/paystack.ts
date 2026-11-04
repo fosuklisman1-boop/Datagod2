@@ -434,7 +434,7 @@ export function detectMomoProvider(phone: string): "mtn" | "vod" | "tgo" | null 
   return MOMO_PREFIX[local.slice(0, 3)] ?? null
 }
 
-interface ChargeMobileMoneyParams {
+export interface ChargeMobileMoneyParams {
   email: string
   amount: number        // in GHS — converted to pesewas internally
   phone: string         // e.g. "0244123456" or "+233244123456"

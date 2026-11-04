@@ -3,7 +3,7 @@
 // never settled and runs each through confirmHubtelPayment, one at a time. All money decisions stay in confirm.ts
 // (atomic claim, status check only); this file only chooses which references to look at.
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { shouldSendAlert } from "@/lib/hubtel-cs/float-alert"
+import { sendThrottledAlert } from "./alert-throttle"
 import type { ConfirmOutcome } from "./confirm"
 
 export const SWEEP_LIMIT = 50
@@ -30,7 +30,8 @@ export interface DueRow { reference: string; status: string; updated_at: string 
 
 /**
  * Up to SWEEP_LIMIT rows, least recently checked first: `pending` created more than 5 minutes ago, `confirming`
- * claimed more than 10 minutes ago, or `failed` under 72 hours old and not checked for over an hour (late payments).
+ * claimed more than 10 minutes ago, or `failed` under 72 hours old, not checked for over an hour
+ * and with no refused_at (late payments; a refused attempt never reached Hubtel, so there is nothing to check).
  * Ordered by updated_at, not created_at: every check stamps updated_at, so rows that never resolve take turns instead
  * of filling every run ahead of newer payments.
  * Three simple queries (each already capped) merged, rather than a PostgREST `or` filter. Throws on a database error.
@@ -46,7 +47,7 @@ export async function listDueHubtelPayments(sb: SupabaseClient, now: Date, limit
       .order("updated_at", { ascending: true }).limit(limit),
     sb.from("hubtel_payments").select(cols).eq("status", "confirming").lt("claimed_at", claimedBefore)
       .order("updated_at", { ascending: true }).limit(limit),
-    sb.from("hubtel_payments").select(cols).eq("status", "failed").gt("created_at", failedAfter).lt("updated_at", failedCheckedBefore)
+    sb.from("hubtel_payments").select(cols).eq("status", "failed").is("refused_at", null).gt("created_at", failedAfter).lt("updated_at", failedCheckedBefore)
       .order("updated_at", { ascending: true }).limit(limit),
   ])
   for (const r of [pending, stale, failed]) {
@@ -57,61 +58,15 @@ export async function listDueHubtelPayments(sb: SupabaseClient, now: Date, limit
   return rows.slice(0, limit)
 }
 
-/**
- * One notifyAdmins per SWEEP_ALERT_WINDOW_MS, throttled through an admin_settings stamp (the float-alert.ts pattern),
- * so it holds across Vercel instances. The stamp is written before sending and put back if the send fails. Best effort
- * against truly simultaneous runs, not atomic. A failed read counts as "no recent alert": an unreachable database is
- * exactly when admins should hear about it, and a second alert is better than none. Never throws.
- */
+/** One notifyAdmins per SWEEP_ALERT_WINDOW_MS across instances; see sendThrottledAlert. Never throws. */
 export async function sendSweepAlert(
   db: SupabaseClient, message: string,
   opts: { notify?: (message: string, type: string) => Promise<void>; now?: () => Date } = {},
 ): Promise<void> {
-  const log = (what: string, e: unknown) => console.error(`[HUBTEL-PAYMENTS-SWEEP] alert ${what}:`, e instanceof Error ? e.message : "unknown error")
-  const now = (opts.now ?? (() => new Date()))()
-  const write = async (value: unknown) => {
-    const { error } = (await db.from("admin_settings").upsert(
-      { key: SWEEP_ALERT_KEY, value, description: "Hubtel payments sweep alert throttle", updated_at: now.toISOString() },
-      { onConflict: "key" },
-    )) ?? {}
-    if (error) throw new Error(error.message)
-  }
-
-  let prev: { timestamp?: string } | null = null
-  try {
-    const { data, error } = await db.from("admin_settings").select("value").eq("key", SWEEP_ALERT_KEY).maybeSingle()
-    if (error) log("throttle read failed", new Error(error.message))
-    prev = data?.value ?? null
-  } catch (e) {
-    log("throttle read failed", e)
-  }
-  if (!shouldSendAlert(prev?.timestamp, now, SWEEP_ALERT_WINDOW_MS)) return
-
-  let stamped = false
-  try {
-    await write({ timestamp: now.toISOString() })
-    stamped = true
-  } catch (e) {
-    log("throttle stamp failed", e)
-  }
-
-  try {
-    const notify = opts.notify ?? (async (m: string, t: string) => {
-      const { notifyAdmins } = await import("@/lib/sms-service")
-      await notifyAdmins(m, t)
-    })
-    await notify(message, SWEEP_ALERT_TYPE)
-  } catch (e) {
-    log("send failed", e)
-    if (!stamped) return
-    // Nothing went out: put the previous stamp back so the next failing run can try again.
-    try {
-      if (prev) await write(prev)
-      else await db.from("admin_settings").delete().eq("key", SWEEP_ALERT_KEY)
-    } catch (restoreErr) {
-      log("throttle restore failed", restoreErr)
-    }
-  }
+  await sendThrottledAlert(db, message, {
+    key: SWEEP_ALERT_KEY, type: SWEEP_ALERT_TYPE, description: "Hubtel payments sweep alert throttle",
+    windowMs: SWEEP_ALERT_WINDOW_MS, logPrefix: "[HUBTEL-PAYMENTS-SWEEP]", ...opts,
+  })
 }
 
 export type SweepOutcomes = Record<ConfirmOutcome | "error", number>

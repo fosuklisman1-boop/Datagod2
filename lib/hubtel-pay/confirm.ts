@@ -27,7 +27,12 @@ export interface HubtelPaymentRow {
   internal_reference?: string | null
   /** Passed to the shared charge handlers in place of Paystack metadata (Hubtel returns none). */
   metadata?: unknown
+  /** What was requested from Hubtel; the underpayment check compares against this. */
   amount_pesewas: number
+  /** What the handlers are told was paid, when it differs (the merchant bears the fee). Null means amount_pesewas. */
+  handler_amount_pesewas?: number | null
+  /** Set when Hubtel never got the request: there is nothing to status-check, ever. */
+  refused_at?: string | null
   status: HubtelPaymentStatus
   created_at: string
   expires_at: string
@@ -56,6 +61,8 @@ export interface HubtelPaymentStore {
   load(reference: string): Promise<HubtelPaymentRow | null>
   /** Atomic claim. Returns the claimed row, or null if another caller holds it / it is final / missing. */
   claim(reference: string): Promise<HubtelPaymentRow | null>
+  /** Is another attempt for the same order paid or still open? Throws on a database error. */
+  hasLiveSibling(internalReference: string, exceptReference: string): Promise<boolean>
   /** Guarded update. Returns whether a row changed. Throws on a database error. */
   update(reference: string, patch: RowPatch, guard: UpdateGuard): Promise<boolean>
 }
@@ -110,6 +117,8 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
   if (!row) return "ignored"
 
   if (row.status === "failed") {
+    // Refused at the start: Hubtel never got it, so there can be no late payment to find.
+    if (row.refused_at) return "ignored"
     // Not `age >= window`: an unreadable created_at must stop here too.
     if (!(d.now().getTime() - new Date(row.created_at).getTime() < LATE_PAYMENT_WINDOW_MS)) return "ignored"
     const late = await d.checkStatus(reference)
@@ -197,7 +206,8 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     try {
       // Always OUR amount, even when Hubtel reports more (its fee can sit on top): the real figures stay in last_check
       // and charges_pesewas, and the handler must not credit or re-price on a number the customer never agreed to.
-      res = await d.onChargeSuccess({ ...handlerIdentity, amount: row.amount_pesewas, id: status.transactionId, gateway_response: "Hubtel: Paid" })
+      // When the merchant bears the fee we requested less than the price, and the handler checks the full price.
+      res = await d.onChargeSuccess({ ...handlerIdentity, amount: row.handler_amount_pesewas ?? row.amount_pesewas, id: status.transactionId, gateway_response: "Hubtel: Paid" })
     } catch (e) {
       console.error("[hubtel-pay] handleChargeSuccess threw", reference, e)
       await alert(`Hubtel payment ${reference}: fulfilment handler threw; left confirming, the sweep retries after 10 min.`)
@@ -223,10 +233,28 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     const capped = await capReached(claimed)
     if (capped) return capped
 
+    // Another attempt has paid this order or may still pay it: the failure handler would fail that order, so this
+    // row just closes. Checked after the claim, as close to the handler as possible.
+    let siblingLive = false
+    if (row.internal_reference) {
+      try {
+        siblingLive = await d.store.hasLiveSibling(row.internal_reference, reference)
+      } catch (e) {
+        console.error("[hubtel-pay] sibling check failed", reference, e instanceof Error ? e.message : "unknown error")
+        await alert(`Hubtel payment ${reference}: could not check other attempts for the order; failure handler not called, left confirming, the sweep retries after 10 min.`)
+        return "check_error"
+      }
+    }
+    if (siblingLive) {
+      await finish(claimed, { status: "failed", ...hubtelFields })
+      if (refunded) await alert(`Hubtel payment ${reference} was REFUNDED by Hubtel (GHS ${ghs(status.amountPesewas)}); marked failed. Another attempt for the order is paid or open, so the order was left alone.`)
+      return "failed"
+    }
+
     const gateway_response = refunded ? "Hubtel: Refunded" : "Hubtel: Unpaid (expired)"
     let res: HandlerResponse
     try {
-      res = await d.onChargeFailed({ ...handlerIdentity, amount: status.amountPesewas ?? row.amount_pesewas, gateway_response })
+      res = await d.onChargeFailed({ ...handlerIdentity, amount: status.amountPesewas ?? row.handler_amount_pesewas ?? row.amount_pesewas, gateway_response })
     } catch (e) {
       console.error("[hubtel-pay] handleChargeFailed threw", reference, e)
       await alert(`Hubtel payment ${reference}: failure handler threw; left confirming, the sweep retries after 10 min.`)
@@ -273,7 +301,7 @@ async function resolveDeps(deps: Partial<ConfirmDeps> = {}): Promise<ConfirmDeps
   }
 }
 
-export const ROW_COLUMNS = "reference, internal_reference, metadata, amount_pesewas, status, created_at, expires_at, claimed_at"
+export const ROW_COLUMNS = "reference, internal_reference, metadata, amount_pesewas, handler_amount_pesewas, refused_at, status, created_at, expires_at, claimed_at"
 
 async function supabaseStore(): Promise<HubtelPaymentStore> {
   const { createClient } = await import("@supabase/supabase-js")
@@ -289,6 +317,13 @@ async function supabaseStore(): Promise<HubtelPaymentStore> {
       if (error) throw new Error(`claim_hubtel_payment failed: ${error.message}`)
       const rows = (Array.isArray(data) ? data : data ? [data] : []) as HubtelPaymentRow[]
       return rows[0] ?? null
+    },
+    async hasLiveSibling(internalReference, exceptReference) {
+      const { data, error } = await sb.from("hubtel_payments").select("reference")
+        .eq("internal_reference", internalReference).neq("reference", exceptReference)
+        .in("status", ["paid", "pending", "confirming"]).limit(1)
+      if (error) throw new Error(`hubtel_payments sibling check failed: ${error.message}`)
+      return (data?.length ?? 0) > 0
     },
     async update(reference, patch, guard) {
       let q = sb.from("hubtel_payments").update(patch).eq("reference", reference).in("status", guard.status)

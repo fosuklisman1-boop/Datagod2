@@ -7,7 +7,7 @@ const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString()
 const MIN = 60_000
 const ref = (n: number) => n.toString(16).padStart(32, "0")
 
-interface Row { reference: string; status: string; created_at: string; claimed_at: string | null; updated_at?: string }
+interface Row { reference: string; status: string; created_at: string; claimed_at: string | null; updated_at?: string; refused_at?: string | null }
 
 /**
  * Tiny PostgREST emulator over an in-memory table: supports the chain the sweep uses
@@ -38,6 +38,12 @@ function fakeDb(rows: Row[], opts: { error?: string } = {}) {
         gt(col: keyof Row, v: string) {
           calls.push(`gt:${String(col)}>${v}`)
           filters.push((r) => r[col] !== null && new Date(r[col] as string).getTime() > new Date(v).getTime())
+          return q
+        },
+        is(col: keyof Row, v: null) {
+          calls.push(`is:${String(col)}=${v}`)
+          // A row built without the column reads as NULL, as a freshly inserted row does.
+          filters.push((r) => (r[col] ?? null) === v)
           return q
         },
         order(col: keyof Row, o: { ascending: boolean }) { orderCol = col; asc = o.ascending; return q },
@@ -181,6 +187,13 @@ describe("listDueHubtelPayments", () => {
       expect(await listDueHubtelPayments(db2 as any, NOW)).toHaveLength(SWEEP_LIMIT)
     })
 
+    it("a failed row with refused_at is never picked: nothing reached Hubtel", async () => {
+      const refused: Row = { ...failed(5, 10 * HOUR, 2 * HOUR), refused_at: ago(10 * HOUR) }
+      const plain = failed(6, 10 * HOUR, 2 * HOUR)
+      const { db } = fakeDb([refused, plain])
+      expect((await listDueHubtelPayments(db as any, NOW)).map((r) => r.reference)).toEqual([ref(6)])
+    })
+
     it("a late Paid found by the sweep → needs_review, one alert, no handler (real confirm)", async () => {
       const row: Row = failed(7, 10 * HOUR, 2 * HOUR)
       const { db } = fakeDb([row])
@@ -191,6 +204,7 @@ describe("listDueHubtelPayments", () => {
       const store: HubtelPaymentStore = {
         load: async () => ({ ...stored }),
         claim: vi.fn(async () => null),
+        hasLiveSibling: vi.fn(async () => false),
         update: async (_r, patch, guard) => {
           if (!guard.status.includes(stored.status)) return false
           Object.assign(stored, patch)

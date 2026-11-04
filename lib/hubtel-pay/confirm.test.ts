@@ -27,6 +27,7 @@ function fakeStore(row: Partial<HubtelPaymentRow> | null, clock: () => Date) {
   }
   const writes: Write[] = []
   const claims: { reference: string; won: boolean }[] = []
+  const siblingChecks: { internalReference: string; exceptReference: string }[] = []
   const store: HubtelPaymentStore = {
     async load(ref) { const r = rows.get(ref); return r ? { ...r } : null },
     async claim(ref) {
@@ -42,6 +43,11 @@ function fakeStore(row: Partial<HubtelPaymentRow> | null, clock: () => Date) {
       claims.push({ reference: ref, won: true })
       return { ...r }
     },
+    async hasLiveSibling(internalReference, exceptReference) {
+      siblingChecks.push({ internalReference, exceptReference })
+      return [...rows.values()].some((r) => r.reference !== exceptReference && r.internal_reference === internalReference &&
+        ["paid", "pending", "confirming"].includes(r.status))
+    },
     async update(ref, patch, guard) {
       const r = rows.get(ref)
       const ok = !!r && guard.status.includes(r.status) && (guard.claimedAt === undefined || r.claimed_at === guard.claimedAt)
@@ -50,7 +56,7 @@ function fakeStore(row: Partial<HubtelPaymentRow> | null, clock: () => Date) {
       return ok
     },
   }
-  return { store, rows, writes, claims, get: () => rows.get(REF)! }
+  return { store, rows, writes, claims, siblingChecks, get: () => rows.get(REF)! }
 }
 
 const paid = (over: Partial<PaymentStatus> = {}): PaymentStatus => ({
@@ -341,6 +347,94 @@ describe("confirmHubtelPayment — internal reference and metadata", () => {
     expect(u.onChargeFailed).toHaveBeenCalledWith(expect.objectContaining({ reference: INTERNAL, metadata: META }))
   })
 
+  describe("handler amount (merchant bears the fee)", () => {
+    const row = { amount_pesewas: 1960, handler_amount_pesewas: 2000, internal_reference: INTERNAL }
+
+    it("Hubtel paid the lowered amount → the handler gets the full price, the row keeps the requested amount", async () => {
+      const t = setup({ row, status: paid({ amountPesewas: 1960 }) })
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
+      expect(t.onChargeSuccess).toHaveBeenCalledWith(expect.objectContaining({ amount: 2000, reference: INTERNAL }))
+      expect(t.get().amount_pesewas).toBe(1960)
+    })
+
+    it("the underpayment check still uses the requested amount: under it → needs_review, no handler", async () => {
+      const t = setup({ row, status: paid({ amountPesewas: 1959 }) })
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+      expect(t.onChargeSuccess).not.toHaveBeenCalled()
+    })
+
+    it("no handler amount → amount_pesewas, as before", async () => {
+      const t = setup({ row: { amount_pesewas: 2000, handler_amount_pesewas: null } })
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
+      expect(t.onChargeSuccess).toHaveBeenCalledWith(expect.objectContaining({ amount: 2000 }))
+    })
+  })
+
+  describe("sibling attempts for the same order", () => {
+    const expiredAt = new Date(T0.getTime() + min(31))
+    const addSibling = (t: ReturnType<typeof setup>, status: HubtelPaymentRow["status"], internal: string | null = INTERNAL) => {
+      const sibling = "f".repeat(32)
+      t.rows.set(sibling, { ...t.get(), reference: sibling, status, internal_reference: internal })
+    }
+    const expiredUnpaid = () => setup({ row: { internal_reference: INTERNAL }, status: { kind: "unpaid", raw: {} }, now: expiredAt })
+
+    it.each(["paid", "pending", "confirming"] as const)("expired attempt with a %s sibling → no handleChargeFailed, row closed failed", async (siblingStatus) => {
+      const t = expiredUnpaid()
+      addSibling(t, siblingStatus)
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("failed")
+      expect(t.onChargeFailed).not.toHaveBeenCalled()
+      expect(t.get().status).toBe("failed")
+      expect(t.siblingChecks).toEqual([{ internalReference: INTERNAL, exceptReference: REF }])
+    })
+
+    it.each(["failed", "needs_review"] as const)("expired attempt with a %s sibling → handler runs", async (siblingStatus) => {
+      const t = expiredUnpaid()
+      addSibling(t, siblingStatus)
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("failed")
+      expect(t.onChargeFailed).toHaveBeenCalledTimes(1)
+    })
+
+    it("a paid row for ANOTHER order changes nothing", async () => {
+      const t = expiredUnpaid()
+      addSibling(t, "paid", "another-order")
+      await confirmHubtelPayment(REF, t.deps)
+      expect(t.onChargeFailed).toHaveBeenCalledTimes(1)
+    })
+
+    it("refunded with a paid sibling → no failure handler, the refund alert still goes out", async () => {
+      const t = setup({ row: { internal_reference: INTERNAL }, status: { kind: "refunded", amountPesewas: 2000, raw: {} } })
+      addSibling(t, "paid")
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("failed")
+      expect(t.onChargeFailed).not.toHaveBeenCalled()
+      expect(t.notify).toHaveBeenCalledTimes(1)
+    })
+
+    it("no internal_reference → no sibling lookup, handler runs", async () => {
+      const t = setup({ row: { internal_reference: null }, status: { kind: "unpaid", raw: {} }, now: expiredAt })
+      await confirmHubtelPayment(REF, t.deps)
+      expect(t.siblingChecks).toHaveLength(0)
+      expect(t.onChargeFailed).toHaveBeenCalledTimes(1)
+    })
+
+    it("the sibling lookup failing → no handler, row left confirming for the sweep, alert, check_error", async () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {})
+      const t = expiredUnpaid()
+      t.deps.store.hasLiveSibling = async () => { throw new Error("db down") }
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("check_error")
+      expect(t.onChargeFailed).not.toHaveBeenCalled()
+      expect(t.get().status).toBe("confirming")
+      expect(t.notify).toHaveBeenCalledTimes(1)
+      err.mockRestore()
+    })
+
+    it("a paid attempt does not look at siblings", async () => {
+      const t = setup({ row: { internal_reference: INTERNAL } })
+      addSibling(t, "paid")
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
+      expect(t.siblingChecks).toHaveLength(0)
+    })
+  })
+
   it("null columns fall back to the opaque reference and no metadata", async () => {
     const t = setup({ row: { internal_reference: null, metadata: null } })
     await confirmHubtelPayment(REF, t.deps)
@@ -358,7 +452,7 @@ describe("confirmHubtelPayment — internal reference and metadata", () => {
   it("ROW_COLUMNS selects every column confirm reads, and each exists in migration 0151", () => {
     const sql = readFileSync(join(process.cwd(), "migrations/0151_hubtel_payments.sql"), "utf8")
     const cols = ROW_COLUMNS.split(",").map((c) => c.trim())
-    expect(cols).toEqual(expect.arrayContaining(["amount_pesewas", "created_at", "internal_reference", "metadata"]))
+    expect(cols).toEqual(expect.arrayContaining(["amount_pesewas", "created_at", "internal_reference", "metadata", "handler_amount_pesewas", "refused_at"]))
     for (const c of cols) expect(sql).toMatch(new RegExp(`^\\s+${c}\\s`, "m"))
   })
 })
@@ -366,6 +460,14 @@ describe("confirmHubtelPayment — internal reference and metadata", () => {
 describe("confirmHubtelPayment — late payment on a failed row", () => {
   const HOUR = min(60)
   const failedRow = (ageMs = HOUR) => ({ status: "failed" as const, created_at: new Date(T0.getTime() - ageMs).toISOString() })
+
+  it("a refused row (refused_at set) is never status-checked: nothing reached Hubtel", async () => {
+    const t = setup({ row: { ...failedRow(), refused_at: T0.toISOString() }, status: paid() })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("ignored")
+    expect(t.checkStatus).not.toHaveBeenCalled()
+    expect(t.writes).toHaveLength(0)
+    expect(t.notify).not.toHaveBeenCalled()
+  })
 
   it("Paid → guarded failed→needs_review, one PII-free alert, never a handler or a claim", async () => {
     const raw = { status: "Paid", customerPhoneNumber: "233241234567" }
