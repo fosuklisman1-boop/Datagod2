@@ -42,6 +42,7 @@ import {
   MessageSquare,
   Trophy,
   Globe,
+  CreditCard,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -514,6 +515,33 @@ export function Sidebar() {
                     <Settings className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "Settings"}
+                </Button>
+              </Link>
+
+              <Link href="/admin/gateway" onClick={() => { markClicked("/admin/gateway"); handleNavigation("/admin/gateway") }}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "relative w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/gateway" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/gateway" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Payment Gateway" : undefined}
+                  disabled={loadingPath === "/admin/gateway"}
+                >
+                  {loadingPath === "/admin/gateway" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <CreditCard className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">Payment Gateway</span>
+                      {isNew("/admin/gateway") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/gateway") && <NewTag compact />}
                 </Button>
               </Link>
 

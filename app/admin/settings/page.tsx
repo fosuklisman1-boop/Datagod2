@@ -22,6 +22,8 @@ import PublicUssdCodesCard from "@/components/admin/public-ussd-codes-card"
 import GoogleReviewUrlCard from "@/components/admin/google-review-url-card"
 import SignupSourcesCard from "@/components/admin/signup-sources-card"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
+import Link from "next/link"
+import { buildSettingsSavePayload } from "./_lib/save-payload"
 
 export default function AdminSettingsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
@@ -72,12 +74,7 @@ export default function AdminSettingsPage() {
   const [storefrontAnnouncementTitle, setStorefrontAnnouncementTitle] = useState("")
   const [storefrontAnnouncementMessage, setStorefrontAnnouncementMessage] = useState("")
 
-  // Fee settings
-  const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
-  const [walletTopupFeePercentage, setWalletTopupFeePercentage] = useState(0)
-  const [withdrawalFeePercentage, setWithdrawalFeePercentage] = useState(0)
-  const [withdrawalFeeMinimum, setWithdrawalFeeMinimum] = useState(0)
-  const [minimumWithdrawalAmount, setMinimumWithdrawalAmount] = useState(5)
+  // Payment fees + withdrawal limits live on /admin/gateway (never sent from this page).
 
   // Price adjustment settings (per network)
   const [priceAdjustmentMtn, setPriceAdjustmentMtn] = useState(0)
@@ -101,18 +98,8 @@ export default function AdminSettingsPage() {
   const [turnstileEnabled, setTurnstileEnabled] = useState(true)
   const [savingTurnstile, setSavingTurnstile] = useState(false)
 
-  // Storefront checkout phone-OTP gate
-  const [checkoutOtpEnabled, setCheckoutOtpEnabled] = useState(false)
-  const [savingCheckoutOtp, setSavingCheckoutOtp] = useState(false)
-  const [walletLockEnabled, setWalletLockEnabled] = useState(false)
-  const [savingWalletLock, setSavingWalletLock] = useState(false)
-  // Direct MoMo charge toggles (independent of the OTP gates above)
-  const [storefrontDirectCharge, setStorefrontDirectCharge] = useState(false)
-  const [savingStorefrontDirect, setSavingStorefrontDirect] = useState(false)
-  const [walletDirectCharge, setWalletDirectCharge] = useState(false)
-  const [savingWalletDirect, setSavingWalletDirect] = useState(false)
-  const [verifiedCount, setVerifiedCount] = useState<number | null>(null)
-  const [resettingVerifications, setResettingVerifications] = useState(false)
+  // Checkout/wallet phone-OTP gates and reset-verifications moved to /admin/gateway.
+  // The direct-charge toggles are replaced by that page's per-surface Mode selects.
 
   // Guest purchase settings
   const [guestPurchaseUrl, setGuestPurchaseUrl] = useState("")
@@ -223,23 +210,6 @@ export default function AdminSettingsPage() {
           setStorefrontAnnouncementMessage(data.storefront_announcement_message)
         }
 
-        // Load fee settings
-        if (data.paystack_fee_percentage !== undefined) {
-          setPaystackFeePercentage(data.paystack_fee_percentage)
-        }
-        if (data.wallet_topup_fee_percentage !== undefined) {
-          setWalletTopupFeePercentage(data.wallet_topup_fee_percentage)
-        }
-        if (data.withdrawal_fee_percentage !== undefined) {
-          setWithdrawalFeePercentage(data.withdrawal_fee_percentage)
-        }
-        if (data.withdrawal_fee_minimum !== undefined) {
-          setWithdrawalFeeMinimum(data.withdrawal_fee_minimum)
-        }
-        if (data.minimum_withdrawal_amount !== undefined) {
-          setMinimumWithdrawalAmount(data.minimum_withdrawal_amount)
-        }
-
         // Load terms content
         if (data.terms_content !== undefined) {
           setTermsContent(data.terms_content || "")
@@ -323,48 +293,6 @@ export default function AdminSettingsPage() {
           }
         }
 
-        // Load checkout phone-OTP gate state
-        const otpResponse = await fetch("/api/admin/settings/storefront-otp", {
-          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-        })
-        if (otpResponse.ok) {
-          const otpData = await otpResponse.json()
-          if (typeof otpData.enabled === "boolean") {
-            setCheckoutOtpEnabled(otpData.enabled)
-          }
-        }
-
-        // Load wallet/upgrade payment-lock state
-        const walletLockResponse = await fetch("/api/admin/settings/wallet-otp", {
-          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-        })
-        if (walletLockResponse.ok) {
-          const wlData = await walletLockResponse.json()
-          if (typeof wlData.enabled === "boolean") {
-            setWalletLockEnabled(wlData.enabled)
-          }
-        }
-
-        // Load direct MoMo charge states (independent of the OTP gates)
-        const storefrontDirectResponse = await fetch("/api/admin/settings/storefront-direct-charge", {
-          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-        })
-        if (storefrontDirectResponse.ok) {
-          const sdData = await storefrontDirectResponse.json()
-          if (typeof sdData.enabled === "boolean") {
-            setStorefrontDirectCharge(sdData.enabled)
-          }
-        }
-        const walletDirectResponse = await fetch("/api/admin/settings/wallet-direct-charge", {
-          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-        })
-        if (walletDirectResponse.ok) {
-          const wdData = await walletDirectResponse.json()
-          if (typeof wdData.enabled === "boolean") {
-            setWalletDirectCharge(wdData.enabled)
-          }
-        }
-
         // Load USSD data whitelist state
         const whitelistResponse = await fetch("/api/admin/settings/ussd-whitelist", {
           headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
@@ -382,17 +310,6 @@ export default function AdminSettingsPage() {
           const wlNum = await wlNumResponse.json()
           if (Array.isArray(wlNum.numbers)) {
             setWhitelistNumbers(wlNum.numbers.map((r: { phone_number: string }) => r.phone_number))
-          }
-        }
-
-        // Load count of currently OTP-verified numbers
-        const verifResponse = await fetch("/api/admin/phone-verifications/reset", {
-          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-        })
-        if (verifResponse.ok) {
-          const vData = await verifResponse.json()
-          if (typeof vData.verified === "number") {
-            setVerifiedCount(vData.verified)
           }
         }
       } catch (error) {
@@ -491,178 +408,6 @@ export default function AdminSettingsPage() {
       toast.error(errorMessage)
     } finally {
       setSavingChristmasTheme(false)
-    }
-  }
-
-  const handleCheckoutOtpToggle = async (enabled: boolean) => {
-    setSavingCheckoutOtp(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        setSavingCheckoutOtp(false)
-        return
-      }
-      const response = await fetch("/api/admin/settings/storefront-otp", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ enabled }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || "Failed to update checkout OTP setting")
-      }
-      setCheckoutOtpEnabled(enabled)
-      toast.success(
-        enabled
-          ? "🔐 Checkout phone-OTP is now REQUIRED — guests must verify their phone"
-          : "Checkout phone-OTP disabled — guest checkout open"
-      )
-    } catch (error) {
-      console.error("Error updating checkout OTP:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to update checkout OTP setting")
-    } finally {
-      setSavingCheckoutOtp(false)
-    }
-  }
-
-  const handleWalletLockToggle = async (enabled: boolean) => {
-    setSavingWalletLock(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        setSavingWalletLock(false)
-        return
-      }
-      const response = await fetch("/api/admin/settings/wallet-otp", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ enabled }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || "Failed to update wallet protection setting")
-      }
-      setWalletLockEnabled(enabled)
-      toast.success(
-        enabled
-          ? "🔐 Wallet & upgrade protection ON — top-ups/upgrades can't send MoMo prompts (card/bank only)"
-          : "Wallet & upgrade protection OFF — MoMo top-ups/upgrades open again"
-      )
-    } catch (error) {
-      console.error("Error updating wallet protection:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to update wallet protection setting")
-    } finally {
-      setSavingWalletLock(false)
-    }
-  }
-
-  const handleStorefrontDirectToggle = async (enabled: boolean) => {
-    setSavingStorefrontDirect(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        setSavingStorefrontDirect(false)
-        return
-      }
-      const response = await fetch("/api/admin/settings/storefront-direct-charge", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ enabled }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || "Failed to update storefront direct charge setting")
-      }
-      setStorefrontDirectCharge(enabled)
-      toast.success(
-        enabled
-          ? "💸 Storefront direct MoMo charge ON — customers pay on-page; hosted MoMo is disabled"
-          : "Storefront direct charge OFF — checkout uses the hosted Paystack page"
-      )
-    } catch (error) {
-      console.error("Error updating storefront direct charge:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to update storefront direct charge setting")
-    } finally {
-      setSavingStorefrontDirect(false)
-    }
-  }
-
-  const handleWalletDirectToggle = async (enabled: boolean) => {
-    setSavingWalletDirect(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        setSavingWalletDirect(false)
-        return
-      }
-      const response = await fetch("/api/admin/settings/wallet-direct-charge", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ enabled }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || "Failed to update wallet direct charge setting")
-      }
-      setWalletDirectCharge(enabled)
-      toast.success(
-        enabled
-          ? "💸 Wallet/upgrade direct MoMo charge ON — paid on-page; hosted MoMo is disabled"
-          : "Wallet/upgrade direct charge OFF — uses the hosted Paystack page"
-      )
-    } catch (error) {
-      console.error("Error updating wallet direct charge:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to update wallet direct charge setting")
-    } finally {
-      setSavingWalletDirect(false)
-    }
-  }
-
-  const handleResetVerifications = async () => {
-    if (!window.confirm(
-      "Reset ALL phone verifications?\n\nEvery customer — including returning ones — will have to verify their payment number again (one SMS) on their next order. This also clears any numbers an attacker verified.\n\nContinue?"
-    )) return
-    setResettingVerifications(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        setResettingVerifications(false)
-        return
-      }
-      const response = await fetch("/api/admin/phone-verifications/reset", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({}),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.error || "Reset failed")
-      setVerifiedCount(0)
-      toast.success(`✓ Reset ${data.deleted ?? 0} phone verification(s) — all numbers must re-verify`)
-    } catch (error) {
-      console.error("Error resetting verifications:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to reset verifications")
-    } finally {
-      setResettingVerifications(false)
     }
   }
 
@@ -913,7 +658,9 @@ export default function AdminSettingsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
+        // Fees/withdrawal limits are owned by /admin/gateway; buildSettingsSavePayload
+        // guarantees they are never sent from here (the route only updates sent keys).
+        body: JSON.stringify(buildSettingsSavePayload({
           join_community_link: joinCommunityLink,
           join_group_link: joinGroupLink,
           whatsapp_bot_number: whatsappBotNumber,
@@ -924,11 +671,6 @@ export default function AdminSettingsPage() {
           storefront_announcement_enabled: storefrontAnnouncementEnabled,
           storefront_announcement_title: storefrontAnnouncementTitle,
           storefront_announcement_message: storefrontAnnouncementMessage,
-          paystack_fee_percentage: paystackFeePercentage,
-          wallet_topup_fee_percentage: walletTopupFeePercentage,
-          withdrawal_fee_percentage: withdrawalFeePercentage,
-          withdrawal_fee_minimum: withdrawalFeeMinimum,
-          minimum_withdrawal_amount: minimumWithdrawalAmount,
           price_adjustment_mtn: priceAdjustmentMtn,
           price_adjustment_telecel: priceAdjustmentTelecel,
           price_adjustment_at_ishare: priceAdjustmentAtIshare,
@@ -942,7 +684,7 @@ export default function AdminSettingsPage() {
           upgrades_enabled: upgradesEnabled,
           ai_widget_services: aiWidgetServices,
           signup_default_role: signupDefaultRole,
-        }),
+        })),
       })
 
       const result = await response.json()
@@ -1593,206 +1335,7 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-success" />
-              Payment Fees
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="paystackFee" className="text-sm font-medium">
-                Paystack Fee Percentage
-              </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
-                Fee charged for Paystack payments (e.g., 3 for 3%)
-              </p>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="paystackFee"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={paystackFeePercentage}
-                  onChange={(e) => setPaystackFeePercentage(parseFloat(e.target.value))}
-                  className="flex-1"
-                  placeholder="3.0"
-                />
-                <span className="text-sm font-medium text-muted-foreground">%</span>
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="walletTopupFee" className="text-sm font-medium">
-                Wallet Top-up Fee Percentage
-              </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
-                Additional fee charged on top-ups (e.g., 2 for 2%)
-              </p>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="walletTopupFee"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={walletTopupFeePercentage}
-                  onChange={(e) => setWalletTopupFeePercentage(parseFloat(e.target.value))}
-                  className="flex-1"
-                  placeholder="0"
-                />
-                <span className="text-sm font-medium text-muted-foreground">%</span>
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="withdrawalFee" className="text-sm font-medium">
-                Withdrawal Fee Percentage
-              </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
-                Fee deducted from withdrawal requests (e.g., 5 for 5%)
-              </p>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="withdrawalFee"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={withdrawalFeePercentage}
-                  onChange={(e) => setWithdrawalFeePercentage(parseFloat(e.target.value))}
-                  className="flex-1"
-                  placeholder="0"
-                />
-                <span className="text-sm font-medium text-muted-foreground">%</span>
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="withdrawalFeeMinimum" className="text-sm font-medium">
-                Withdrawal Fee Minimum (GHS)
-              </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
-                The fee never goes below this amount, even if the percentage above would compute less. Set to 0 for no floor.
-              </p>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-muted-foreground">GHS</span>
-                <Input
-                  id="withdrawalFeeMinimum"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={withdrawalFeeMinimum}
-                  onChange={(e) => { const v = parseFloat(e.target.value); setWithdrawalFeeMinimum(Number.isNaN(v) ? 0 : v) }}
-                  className="flex-1"
-                  placeholder="0"
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="minimumWithdrawalAmount" className="text-sm font-medium">
-                Minimum Withdrawal Amount (GHS)
-              </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-2">
-                The smallest amount a shop owner may request to withdraw.
-              </p>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-muted-foreground">GHS</span>
-                <Input
-                  id="minimumWithdrawalAmount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={minimumWithdrawalAmount}
-                  onChange={(e) => { const v = parseFloat(e.target.value); setMinimumWithdrawalAmount(Number.isNaN(v) ? 0 : v) }}
-                  className="flex-1"
-                  placeholder="5"
-                />
-              </div>
-            </div>
-
-            <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 space-y-3">
-              <div>
-                <h4 className="font-semibold text-sm text-primary mb-2">Top-up Preview (GHS 100)</h4>
-                <div className="text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-primary">Amount to top up:</span>
-                    <span className="font-medium text-primary">GHS 100.00</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-primary">
-                      Paystack fee ({paystackFeePercentage}%):
-                    </span>
-                    <span className="font-medium text-primary">
-                      GHS {(100 * paystackFeePercentage / 100).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-primary">
-                      Wallet topup fee ({walletTopupFeePercentage}%):
-                    </span>
-                    <span className="font-medium text-primary">
-                      GHS {(100 * walletTopupFeePercentage / 100).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="border-t border-primary/20 pt-1 flex justify-between">
-                    <span className="text-primary font-semibold">Total charge:</span>
-                    <span className="font-bold text-primary">
-                      GHS {(100 + (100 * paystackFeePercentage / 100) + (100 * walletTopupFeePercentage / 100)).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t border-primary/20 pt-3">
-                <h4 className="font-semibold text-sm text-primary mb-2">Withdrawal Preview (GHS 100 Requested)</h4>
-                <div className="text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-primary">Requested amount:</span>
-                    <span className="font-medium text-primary">GHS 100.00</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-primary">
-                      Withdrawal fee (max of {withdrawalFeePercentage}% or GHS {withdrawalFeeMinimum.toFixed(2)}):
-                    </span>
-                    <span className="font-medium text-warning">
-                      -GHS {Math.max(100 * withdrawalFeePercentage / 100, withdrawalFeeMinimum).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="border-t border-primary/20 pt-1 flex justify-between">
-                    <span className="text-primary font-semibold">Shop receives:</span>
-                    <span className="font-bold text-success">
-                      GHS {(100 - Math.max(100 * withdrawalFeePercentage / 100, withdrawalFeeMinimum)).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-4">
-              <Button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-2 bg-primary hover:bg-primary"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    Save Settings
-                  </>
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Payment Fees card moved to /admin/gateway (Gateway fees & status + Payouts) */}
 
         {/* Price Adjustment Settings */}
         <Card className="mt-6">
@@ -2250,166 +1793,18 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Checkout Phone-OTP Gate */}
-        <Card className="mt-6 border-2 border-primary">
-          <CardHeader className="bg-card">
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              🔐 Checkout Phone Verification (OTP)
-            </CardTitle>
-            <CardDescription className="text-primary mt-1">
-              Require guests to verify their phone via SMS code before placing a
-              shop order. Turn ON during an attack to stop automated orders / card-testing / payment-prompt abuse.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/10 border-2 border-border rounded-lg">
-              <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Require Phone OTP at Checkout</p>
-                <p className="text-sm text-foreground mt-2">
-                  {checkoutOtpEnabled
-                    ? "🔒 ON — every guest must enter an SMS code sent to their phone before they can place an order. Stops automated/bulk orders cold."
-                    : "Guest checkout is open (no OTP). Enable this during an attack to force phone verification. Note: each checkout sends one SMS (cost), so keep it OFF in normal operation."}
-                </p>
-              </div>
-              <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${checkoutOtpEnabled ? "text-success" : "text-muted-foreground"}`}>
-                  {checkoutOtpEnabled ? "ON" : "OFF"}
-                </span>
-                <Switch
-                  checked={checkoutOtpEnabled}
-                  onCheckedChange={handleCheckoutOtpToggle}
-                  disabled={savingCheckoutOtp}
-                  className="data-[state=checked]:bg-success"
-                />
-              </div>
-            </div>
-
-            {/* Storefront Direct MoMo Charge — independent of the OTP toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/10 border-2 border-border rounded-lg">
-              <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Direct MoMo Charge at Checkout</p>
-                <p className="text-sm text-foreground mt-2">
-                  {storefrontDirectCharge
-                    ? "💸 ON — customers pay via an on-page Mobile Money prompt (no Paystack redirect), and the hosted MoMo channel is disabled so prompts can only reach the number entered on-page."
-                    : "OFF — checkout sends customers to the hosted Paystack page (card/MoMo/bank). Turn ON for the on-page direct-charge experience."}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Independent of the OTP toggle. With OTP ON the on-page number must be SMS-verified; with OTP OFF it's charged as typed (rate-capped).
-                </p>
-              </div>
-              <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${storefrontDirectCharge ? "text-success" : "text-muted-foreground"}`}>
-                  {storefrontDirectCharge ? "ON" : "OFF"}
-                </span>
-                <Switch
-                  checked={storefrontDirectCharge}
-                  onCheckedChange={handleStorefrontDirectToggle}
-                  disabled={savingStorefrontDirect}
-                  className="data-[state=checked]:bg-success"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Wallet & Upgrade Payment Protection */}
-        <Card className="mt-6 border-2 border-primary">
-          <CardHeader className="bg-card">
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              💳 Wallet &amp; Upgrade Payment Protection
-            </CardTitle>
-            <CardDescription className="text-primary mt-1">
-              Locks down the <b>order-free</b> payment paths — wallet top-ups &amp; dealer
-              upgrades — which otherwise let any signed-in account open a hosted
-              checkout and fire Mobile Money prompts at any number. Independent of
-              the checkout OTP gate. Turn ON during an attack.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/5 border-2 border-border rounded-lg">
-              <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Protect Top-ups &amp; Upgrades</p>
-                <p className="text-sm text-foreground mt-2">
-                  {walletLockEnabled
-                    ? "🔒 ON — top-ups/upgrades require an OTP-verified payment number. Prompt-spam via these paths is blocked."
-                    : "OFF — no OTP required for top-ups/upgrades. Enable to require a verified payment number during an attack."}
-                </p>
-              </div>
-              <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${walletLockEnabled ? "text-success" : "text-muted-foreground"}`}>
-                  {walletLockEnabled ? "ON" : "OFF"}
-                </span>
-                <Switch
-                  checked={walletLockEnabled}
-                  onCheckedChange={handleWalletLockToggle}
-                  disabled={savingWalletLock}
-                  className="data-[state=checked]:bg-success"
-                />
-              </div>
-            </div>
-
-            {/* Wallet/Upgrade Direct MoMo Charge — independent of the OTP toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-primary/10 border-2 border-border rounded-lg">
-              <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">Direct MoMo Charge for Top-ups &amp; Upgrades</p>
-                <p className="text-sm text-foreground mt-2">
-                  {walletDirectCharge
-                    ? "💸 ON — top-ups/upgrades are paid via an on-page Mobile Money prompt, and the hosted MoMo channel is disabled (the WALLET- prompt-spam path)."
-                    : "OFF — top-ups/upgrades use the hosted Paystack page (card/MoMo/bank). Turn ON for the on-page direct-charge experience."}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Independent of the OTP toggle. With OTP ON the on-page number must be SMS-verified; with OTP OFF it's charged as typed (rate-capped).
-                </p>
-              </div>
-              <div className="flex items-center justify-end gap-4 min-w-fit">
-                <span className={`text-sm font-bold ${walletDirectCharge ? "text-success" : "text-muted-foreground"}`}>
-                  {walletDirectCharge ? "ON" : "OFF"}
-                </span>
-                <Switch
-                  checked={walletDirectCharge}
-                  onCheckedChange={handleWalletDirectToggle}
-                  disabled={savingWalletDirect}
-                  className="data-[state=checked]:bg-success"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Reset Phone Verifications */}
-        <Card className="mt-6 border-2 border-destructive">
-          <CardHeader className="bg-card">
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              📵 Reset Phone Verifications
-            </CardTitle>
-            <CardDescription className="text-destructive mt-1">
-              Clears every OTP-verified number, so all customers must re-verify their
-              payment number once on their next order. Use after an attack to wipe any
-              numbers the attacker verified, or to force a clean slate.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 bg-destructive/10 border-2 border-border rounded-lg">
-              <div className="flex-1">
-                <p className="font-bold text-foreground text-lg">
-                  {verifiedCount === null ? "Verified numbers" : `${verifiedCount} number${verifiedCount === 1 ? "" : "s"} currently verified`}
-                </p>
-                <p className="text-sm text-foreground mt-2">
-                  Returning customers re-verify once (one SMS), then they're remembered again.
-                  Takes effect immediately — no deploy needed. This cannot be undone.
-                </p>
-              </div>
-              <div className="flex items-center justify-end min-w-fit">
-                <Button
-                  variant="destructive"
-                  onClick={handleResetVerifications}
-                  disabled={resettingVerifications}
-                  className="bg-destructive hover:bg-destructive/90"
-                >
-                  {resettingVerifications ? "Resetting…" : "Reset all verifications"}
-                </Button>
-              </div>
-            </div>
+        {/* Payment gateway, fees, payment verification (OTP gates, reset) and payouts moved to /admin/gateway */}
+        <Card className="mt-6 border-primary/20 bg-primary/5">
+          <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-foreground">
+              Payment gateways, fees, checkout/wallet phone verification and payout limits now live on the Payment Gateway page.
+            </p>
+            <Link href="/admin/gateway">
+              <Button variant="outline" className="w-full sm:w-auto">
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Open Payment Gateway
+              </Button>
+            </Link>
           </CardContent>
         </Card>
 
