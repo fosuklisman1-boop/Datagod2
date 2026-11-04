@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { confirmAndReadHubtelPayment, findHubtelPayments, hubtelReportStatus, isHubtelWalletPayment, isLiveHubtelStatus } from "@/lib/hubtel-pay/lookup"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -48,23 +49,25 @@ async function verifyWithPaystack(reference: string): Promise<{
  * Returns a map of order_id -> wallet_payments.reference.
  * Orders with no wallet payment record (payment never initialized) are absent from the map.
  */
-async function getWalletReferences(orderIds: string[]): Promise<Record<string, string>> {
+async function getWalletReferences(orderIds: string[]): Promise<Record<string, WalletRef>> {
   if (orderIds.length === 0) return {}
 
   const { data } = await supabase
     .from("wallet_payments")
-    .select("order_id, reference, created_at")
+    .select("order_id, reference, payment_method, created_at")
     .in("order_id", orderIds)
     .order("created_at", { ascending: false }) // most recent first
 
-  const map: Record<string, string> = {}
+  const map: Record<string, WalletRef> = {}
   for (const wp of data || []) {
     if (wp.order_id && !map[wp.order_id]) {
-      map[wp.order_id] = wp.reference // first hit = most recent
+      map[wp.order_id] = { reference: wp.reference, payment_method: wp.payment_method ?? null } // first hit = most recent
     }
   }
   return map
 }
+
+type WalletRef = { reference: string; payment_method: string | null }
 
 /**
  * GET /api/admin/payment-reverify
@@ -156,7 +159,7 @@ export async function GET(request: NextRequest) {
   // Paystack has no record of them and there's nothing to verify.
   const allOrders = merged
     .filter((o) => walletRefMap[o.id])
-    .map((o) => ({ ...o, wallet_reference: walletRefMap[o.id] }))
+    .map((o) => ({ ...o, wallet_reference: walletRefMap[o.id].reference }))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(offset, offset + limit)
 
@@ -272,7 +275,13 @@ export async function POST(request: NextRequest) {
 
   // Resolve WALLET- references for all orders in one batch query
   const walletRefMap = await getWalletReferences(orders.map((o) => o.id))
-  orders = orders.map((o) => ({ ...o, wallet_reference: walletRefMap[o.id] }))
+  orders = orders.map((o) => ({ ...o, wallet_reference: walletRefMap[o.id]?.reference }))
+
+  // Hubtel payments are confirmed through Hubtel: Paystack never saw them and would answer 404 ("abandoned").
+  const hubtelRows = await findHubtelPayments(supabase, [
+    ...orders.map((o) => o.wallet_reference),
+    ...orders.map((o) => o.id),
+  ])
 
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
@@ -293,6 +302,25 @@ export async function POST(request: NextRequest) {
   let fulfilled = 0
 
   for (const order of orders) {
+    const wallet = walletRefMap[order.id]
+    const hubtelRow = (order.wallet_reference ? hubtelRows.get(order.wallet_reference) : undefined) ?? hubtelRows.get(order.id)
+    if ((wallet && isHubtelWalletPayment(wallet, hubtelRow)) || isLiveHubtelStatus(hubtelRow?.status)) {
+      const reference = order.wallet_reference ?? order.reference_code
+      if (!hubtelRow) {
+        stillPending++
+        results.push({ id: order.id, reference, order_type: order.order_type, paystack_status: "unknown", action: "hubtel_no_record" })
+        continue
+      }
+      // confirmHubtelPayment decides from Hubtel's status check and runs the shared handler exactly once.
+      const r = await confirmAndReadHubtelPayment(supabase, hubtelRow)
+      const reported = hubtelReportStatus(r.status)
+      if (reported === "success") verified++
+      else if (reported === "pending") stillPending++
+      else failed++
+      results.push({ id: order.id, reference, order_type: order.order_type, paystack_status: reported, action: `hubtel_${r.status}` })
+      continue
+    }
+
     // Can't verify against Paystack without a WALLET- reference
     if (!order.wallet_reference) {
       results.push({
