@@ -68,8 +68,26 @@ async function defaultSync(trackingId: string): Promise<unknown> {
   return syncMTNOrderStatus(trackingId)
 }
 
-// Task 7 wires the real implementation.
-async function defaultRefreshOpenDisputes(_trackingId: string): Promise<void> {}
+async function defaultRefreshOpenDisputes(trackingId: string): Promise<void> {
+  const { refreshOpenDisputes } = await import("./kuntanii-disputes")
+  return refreshOpenDisputes(trackingId)
+}
+
+export const MAX_BODY_BYTES = 65536
+
+export function isBodyTooLarge(text: string): boolean {
+  return Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES
+}
+
+/** X-Kuntanii-Event header, falling back to the body's top-level string `event`. Capped at 64 chars. */
+export function resolveWebhookEvent(headerEvent: string | null, payload: unknown): string | null {
+  if (headerEvent) return headerEvent.slice(0, 64)
+  if (payload && typeof payload === "object") {
+    const e = (payload as any).event
+    if (typeof e === "string" && e) return e.slice(0, 64)
+  }
+  return null
+}
 
 export async function processKuntaniiWebhook(
   input: { externalOrderId: string; event: string | null },

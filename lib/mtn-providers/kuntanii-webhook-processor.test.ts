@@ -109,3 +109,25 @@ describe("signatureHeaderSnapshot", () => {
     })
   })
 })
+
+describe("resolveWebhookEvent / isBodyTooLarge", () => {
+  it("prefers the header, slicing to 64 chars", async () => {
+    const { resolveWebhookEvent } = await import("./kuntanii-webhook-processor")
+    expect(resolveWebhookEvent("order.completed", { event: "other" })).toBe("order.completed")
+    expect(resolveWebhookEvent("e".repeat(100), null)).toHaveLength(64)
+  })
+  it("falls back to a string body event, ignores non-strings", async () => {
+    const { resolveWebhookEvent } = await import("./kuntanii-webhook-processor")
+    expect(resolveWebhookEvent(null, { event: "order.not_received_resolved" })).toBe("order.not_received_resolved")
+    expect(resolveWebhookEvent(null, { event: 5 })).toBeNull()
+    expect(resolveWebhookEvent("", { event: "x" })).toBe("x")
+    expect(resolveWebhookEvent(null, "str")).toBeNull()
+  })
+  it("counts bytes, not characters", async () => {
+    const { isBodyTooLarge } = await import("./kuntanii-webhook-processor")
+    expect(isBodyTooLarge("a".repeat(65536))).toBe(false)
+    expect(isBodyTooLarge("a".repeat(65537))).toBe(true)
+    // 32769 two-byte chars = 65538 bytes but only 32769 string length
+    expect(isBodyTooLarge("é".repeat(32769))).toBe(true)
+  })
+})

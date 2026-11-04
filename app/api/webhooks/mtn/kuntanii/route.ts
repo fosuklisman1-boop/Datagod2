@@ -4,28 +4,28 @@ import {
   extractExternalOrderId,
   signatureHeaderSnapshot,
   processKuntaniiWebhook,
+  isBodyTooLarge,
+  resolveWebhookEvent,
 } from "@/lib/mtn-providers/kuntanii-webhook-processor"
-
-const MAX_BODY_CHARS = 65536
 
 // Signal-only webhook: the body is never trusted. We only extract the order id
 // and re-fetch status through our own authenticated API call.
 export async function POST(request: NextRequest) {
   const rawBody = await request.text()
-  const event = request.headers.get("x-kuntanii-event")
+  const headerEvent = request.headers.get("x-kuntanii-event")
 
   console.log(
     "[WEBHOOK-KUNTANII] received",
     JSON.stringify({
-      event,
+      event: headerEvent ? headerEvent.slice(0, 64) : null,
       delivery: request.headers.get("x-kuntanii-delivery"),
       headers: signatureHeaderSnapshot(request.headers),
-      bodyLength: rawBody.length,
+      bodyLength: Buffer.byteLength(rawBody, "utf8"),
     })
   )
 
-  if (rawBody.length > MAX_BODY_CHARS) {
-    console.warn(`[WEBHOOK-KUNTANII] Body too large (${rawBody.length}), not processing`)
+  if (isBodyTooLarge(rawBody)) {
+    console.warn("[WEBHOOK-KUNTANII] Body too large, not processing")
     return NextResponse.json({ received: true })
   }
 
@@ -42,6 +42,8 @@ export async function POST(request: NextRequest) {
     console.warn("[WEBHOOK-KUNTANII] Missing/invalid externalOrderId, not processing")
     return NextResponse.json({ received: true })
   }
+
+  const event = resolveWebhookEvent(headerEvent, payload)
 
   // after() keeps the function alive until processing finishes (see the
   // agentportalgh route for why fire-and-forget is unsafe on Vercel).
