@@ -22,9 +22,12 @@ import {
 import { putGatewayConfig, putGatewaySettings, type GatewaySettingsValues, type HubtelReadiness } from "../_lib/api"
 
 const SURFACE_LABELS: Record<SurfaceKey, { title: string; hint: string }> = {
-  wallet_topup: { title: "Wallet top-up", hint: "Dealer wallet funding and upgrades" },
+  wallet_topup: { title: "Wallet top-up", hint: "Dealer wallet funding from the dashboard" },
   storefront: { title: "Storefront checkout", hint: "Guest orders on shop storefronts" },
-  dashboard_direct: { title: "Dashboard direct purchase", hint: "Pay-per-order buys from the dashboard" },
+  dashboard_direct: {
+    title: "Dealer upgrade",
+    hint: "Dealer upgrade payments today. The results-check service and USSD-shop WhatsApp activation will join this surface later.",
+  },
   sms: { title: "SMS credits", hint: "Bulk SMS credit purchases" },
   ussd: { title: "USSD", hint: "USSD menu payments (direct prompt only)" },
   whatsapp: { title: "WhatsApp", hint: "WhatsApp bot payments (direct prompt only)" },
@@ -50,6 +53,10 @@ export function SurfacesCard({ savedConfig, hubtel, walletTopupFeePercentage, on
     setSurfaces((prev) => ({ ...prev, [k]: { ...prev[k], ...patch } }))
 
   const handleSave = async () => {
+    if (!Number.isFinite(walletFee)) {
+      toast.error("Enter a valid Extra fee % (0 or more)")
+      return
+    }
     setSaving(true)
     try {
       // Only this card's section changes; hubtelFeePercent stays as last saved.
@@ -125,6 +132,9 @@ export function SurfacesCard({ savedConfig, hubtel, walletTopupFeePercentage, on
                       <SelectItem value="direct">Direct</SelectItem>
                     </SelectContent>
                   </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Checkout = hosted payment page; Direct = MoMo prompt sent straight to the customer&apos;s phone.
+                  </p>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Fee bearer</Label>

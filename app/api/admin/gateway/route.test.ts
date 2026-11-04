@@ -67,7 +67,7 @@ describe("/api/admin/gateway", () => {
     const res = await PUT(put(c))
     expect(res!.status).toBe(200)
     expect((await res!.json()).config.surfaces.storefront.mode).toBe("direct")
-    expect((upsertMock.mock.calls[0] as any)[0].key).toBe("payment_gateway_config")
+    expect((upsertMock.mock.calls[0] as any)[0][0].key).toBe("payment_gateway_config")
   })
 
   it("GET reports hubtel not ready and never leaks env values", async () => {

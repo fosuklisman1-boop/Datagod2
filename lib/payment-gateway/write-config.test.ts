@@ -30,7 +30,8 @@ describe("setSurfaceModes", () => {
     const { db, upsert } = fakeDb()
     const result = await setSurfaceModes(db, ["wallet_topup", "dashboard_direct", "sms"], "direct", "a@x")
     expect(upsert).toHaveBeenCalledTimes(1)
-    const [row, opts] = upsert.mock.calls[0] as any
+    const [rows, opts] = upsert.mock.calls[0] as any
+    const row = rows[0]
     expect(row.key).toBe("payment_gateway_config")
     expect(row.value.surfaces.wallet_topup.mode).toBe("direct")
     expect(row.value.surfaces.dashboard_direct.mode).toBe("direct")
@@ -41,10 +42,35 @@ describe("setSurfaceModes", () => {
     expect(invalidate).toHaveBeenCalledTimes(1)
   })
 
+  it("writes config + both legacy rows in ONE upsert, with correct enabled flags (wallet_topup independent of dashboard_direct)", async () => {
+    const { db, upsert } = fakeDb()
+    getFresh.mockResolvedValue(deriveFromLegacy({ storefrontDirect: false, walletDirect: false }))
+    await setSurfaceModes(db, ["dashboard_direct"], "direct", "admin@example.com")
+    expect(upsert).toHaveBeenCalledTimes(1)
+    const [rows, opts] = upsert.mock.calls[0] as any
+    expect(opts).toEqual({ onConflict: "key" })
+    expect(rows.map((r: any) => r.key)).toEqual(["payment_gateway_config", "storefront_direct_charge", "wallet_direct_charge"])
+    expect(rows[1].value).toEqual({ enabled: false })
+    expect(rows[2].value).toEqual({ enabled: false }) // wallet_topup untouched, dashboard_direct is now direct
+    expect(rows[0].value.surfaces.dashboard_direct.mode).toBe("direct")
+
+    upsert.mockClear()
+    await setSurfaceModes(db, ["storefront", "wallet_topup"], "direct", "admin@example.com")
+    const rows2 = (upsert.mock.calls[0] as any)[0]
+    expect(rows2[1].value).toEqual({ enabled: true })
+    expect(rows2[2].value).toEqual({ enabled: true })
+  })
+
+  it("does not persist the admin email in any row", async () => {
+    const { db, upsert } = fakeDb()
+    await setSurfaceModes(db, ["sms"], "direct", "admin@example.com")
+    expect(JSON.stringify(upsert.mock.calls[0])).not.toContain("admin@example.com")
+  })
+
   it("skips direct-only surfaces", async () => {
     const { db, upsert } = fakeDb()
     await setSurfaceModes(db, ["ussd"], "checkout", "a@x")
-    expect((upsert.mock.calls[0] as any)[0].value.surfaces.ussd.mode).toBe("direct")
+    expect((upsert.mock.calls[0] as any)[0][0].value.surfaces.ussd.mode).toBe("direct")
   })
 
   it("throws and does not invalidate when the upsert fails", async () => {
@@ -62,7 +88,7 @@ describe("setSurfaceModes", () => {
     getFresh.mockResolvedValue(fresh)
     const { db, upsert } = fakeDb()
     await setSurfaceModes(db, ["wallet_topup", "dashboard_direct", "sms"], "direct", "a@x")
-    const saved = (upsert.mock.calls[0] as any)[0].value
+    const saved = (upsert.mock.calls[0] as any)[0][0].value
     expect(saved.surfaces.storefront.mode).toBe("direct")
     expect(saved.hubtelFeePercent).toBe(2.5)
     expect(saved.surfaces.wallet_topup.mode).toBe("direct")
