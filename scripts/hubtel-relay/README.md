@@ -54,8 +54,10 @@ Both `POST`, Bearer RELAY_SECRET, JSON body. Every field is validated before any
 - `POST /checkout` body `{reference, amount, description, callbackUrl, returnUrl, cancellationUrl}` → Hubtel
   Online Checkout `https://payproxyapi.hubtel.com/items/initiate` (merchantAccountNumber = `HUBTEL_COLLECTION_ACCOUNT`).
 - Rules: reference 32 lowercase hex; msisdn `233` + 9 digits; channel `mtn-gh` | `vodafone-gh` | `tigo-gh`;
-  amount a number, at most 2 decimals, 0.10–10,000; description `[A-Za-z0-9 .,-]`, 1–60 chars; every URL
-  `https:`, ≤500 chars, no credentials; callbackUrl's host must equal `HUBTEL_RELAY_APP_HOST`.
+  amount a number that is exactly a 2-decimal value (`Math.round(v*100)/100 === v`; callers round), 0.10–10,000;
+  description `[A-Za-z0-9 .,-]`, 1–60 chars; every URL (callbackUrl, returnUrl, cancellationUrl) `https:`,
+  ≤500 chars, no credentials, host equal to `HUBTEL_RELAY_APP_HOST`, and forwarded as the parsed, normalised href.
+  Upstream fetches use `redirect: "error"`, so a redirect is never followed with the credential.
 - Reply: `{ok, upstreamStatus, body, sent}`. `upstreamStatus: 0` = no HTTP response from Hubtel.
   `sent: false` only when the request provably never left the droplet (DNS, connect refused/unreachable,
   connect timeout, TLS certificate failure); timeouts, resets and anything unrecognised are `sent: true`.

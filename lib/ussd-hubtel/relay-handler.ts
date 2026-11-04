@@ -78,14 +78,17 @@ function failedBeforeSend(e: unknown): boolean {
 
 function validAmount(v: unknown): v is number {
   if (typeof v !== "number" || !Number.isFinite(v) || v < 0.1 || v > 10000) return false
-  return Math.abs(v * 100 - Math.round(v * 100)) < 1e-6
+  // Strict: the value must already be the 2-decimal double (0.1 + 0.2 is rejected; callers round).
+  return Math.round(v * 100) / 100 === v
 }
 
-function httpsUrl(v: unknown): URL | null {
+/** Parsed https URL on `host`, ≤500 chars before and after normalisation, no credentials. */
+function appUrl(v: unknown, host: string): URL | null {
   if (typeof v !== "string" || v.length > PAY_URL_MAX) return null
   try {
     const u = new URL(v)
-    if (u.protocol !== "https:" || u.username || u.password) return null
+    if (u.protocol !== "https:" || u.username || u.password || u.host !== host) return null
+    if (u.href.length > PAY_URL_MAX) return null
     return u
   } catch { return null }
 }
@@ -125,6 +128,9 @@ export function createRelayHandler(cfg: RelayConfig) {
           Accept: "application/json", "Content-Type": "application/json", "Cache-Control": "no-cache",
         },
         body: JSON.stringify(payload),
+        // Never follow a redirect with the credential. A redirect rejects ("unexpected redirect",
+        // no pre-send code), so it is classified sent:true: Hubtel may have acted on it.
+        redirect: "error",
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       })
       responded = true
@@ -137,14 +143,14 @@ export function createRelayHandler(cfg: RelayConfig) {
     }
   }
 
-  /** Validates the fields common to both payment routes; returns an error string or null. */
-  function commonPaymentError(p: any): string | null {
-    if (typeof p?.reference !== "string" || !PAY_REF.test(p.reference)) return "invalid reference"
-    if (!validAmount(p.amount)) return "invalid amount"
-    if (typeof p.description !== "string" || !PAY_DESCRIPTION.test(p.description)) return "invalid description"
-    const cb = httpsUrl(p.callbackUrl)
-    if (!cb || cb.host !== appHost) return "invalid callbackUrl"
-    return null
+  /** Validates the fields common to both payment routes. Returns the normalised callback href. */
+  function checkCommon(p: any): { error: string } | { callbackHref: string } {
+    if (typeof p?.reference !== "string" || !PAY_REF.test(p.reference)) return { error: "invalid reference" }
+    if (!validAmount(p.amount)) return { error: "invalid amount" }
+    if (typeof p.description !== "string" || !PAY_DESCRIPTION.test(p.description)) return { error: "invalid description" }
+    const cb = appUrl(p.callbackUrl, appHost)
+    if (!cb) return { error: "invalid callbackUrl" }
+    return { callbackHref: cb.href }
   }
 
   function parseObject(body: string): any | null {
@@ -249,15 +255,15 @@ export function createRelayHandler(cfg: RelayConfig) {
       if (!appHost) return { status: 501, body: { error: "payments not configured" } }
       const p = parseObject(req.body)
       if (!p) return { status: 400, body: { error: "json object required" } }
-      const err = commonPaymentError(p)
-      if (err) return { status: 400, body: { error: err } }
+      const c = checkCommon(p)
+      if ("error" in c) return { status: 400, body: { error: c.error } }
       if (typeof p.msisdn !== "string" || !PAY_MSISDN.test(p.msisdn)) return { status: 400, body: { error: "invalid msisdn" } }
       if (typeof p.channel !== "string" || !PAY_CHANNELS.has(p.channel)) return { status: 400, body: { error: "invalid channel" } }
       const url = `${receiveBase}/merchantaccount/merchants/${encodeURIComponent(cfg.collectionAccount)}/receive/mobilemoney`
       // Field casing per the docs' parameter table (the sample shows "PrimaryCallbackUrl").
       return sendPayment(url, {
         CustomerMsisdn: p.msisdn, Channel: p.channel, Amount: p.amount,
-        PrimaryCallbackURL: p.callbackUrl, Description: p.description, ClientReference: p.reference,
+        PrimaryCallbackURL: c.callbackHref, Description: p.description, ClientReference: p.reference,
       })
     }
 
@@ -265,13 +271,15 @@ export function createRelayHandler(cfg: RelayConfig) {
       if (!appHost) return { status: 501, body: { error: "payments not configured" } }
       const p = parseObject(req.body)
       if (!p) return { status: 400, body: { error: "json object required" } }
-      const err = commonPaymentError(p)
-      if (err) return { status: 400, body: { error: err } }
-      if (!httpsUrl(p.returnUrl)) return { status: 400, body: { error: "invalid returnUrl" } }
-      if (!httpsUrl(p.cancellationUrl)) return { status: 400, body: { error: "invalid cancellationUrl" } }
+      const c = checkCommon(p)
+      if ("error" in c) return { status: 400, body: { error: c.error } }
+      const ret = appUrl(p.returnUrl, appHost)
+      if (!ret) return { status: 400, body: { error: "invalid returnUrl" } }
+      const cancel = appUrl(p.cancellationUrl, appHost)
+      if (!cancel) return { status: 400, body: { error: "invalid cancellationUrl" } }
       return sendPayment(`${checkoutBase}/items/initiate`, {
-        totalAmount: p.amount, description: p.description, callbackUrl: p.callbackUrl,
-        returnUrl: p.returnUrl, cancellationUrl: p.cancellationUrl,
+        totalAmount: p.amount, description: p.description, callbackUrl: c.callbackHref,
+        returnUrl: ret.href, cancellationUrl: cancel.href,
         merchantAccountNumber: cfg.collectionAccount, clientReference: p.reference,
       })
     }

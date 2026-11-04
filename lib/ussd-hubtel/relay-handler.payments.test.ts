@@ -163,6 +163,85 @@ describe("relay /receive", () => {
   })
 })
 
+describe("review fixes round 1", () => {
+  for (const amount of [0.1 + 0.2, 12.3400000001, 9999.999999999]) {
+    for (const path of ["/receive", "/checkout"]) {
+      it(`${path}: amount ${amount} (not exactly 2 decimals) → 400, nothing sent`, async () => {
+        const f = okFetch()
+        const body = path === "/receive" ? receiveBody({ amount }) : checkoutBody({ amount })
+        expect((await mk({}, f)(req(path, body))).status).toBe(400)
+        expect(f).not.toHaveBeenCalled()
+      })
+    }
+  }
+
+  it("amounts 0.1, 12.34, 9999.99 are accepted and forwarded exactly", async () => {
+    for (const amount of [0.1, 12.34, 9999.99]) {
+      const f = okFetch(); const g = okFetch()
+      expect((await mk({}, f)(req("/receive", receiveBody({ amount })))).status).toBe(200)
+      expect(JSON.parse((f.mock.calls[0] as any)[1].body).Amount).toBe(amount)
+      expect((await mk({}, g)(req("/checkout", checkoutBody({ amount })))).status).toBe(200)
+      expect(JSON.parse((g.mock.calls[0] as any)[1].body).totalAmount).toBe(amount)
+    }
+  })
+
+  it("returnUrl / cancellationUrl on another host → 400, nothing sent", async () => {
+    for (const over of [
+      { returnUrl: "https://evil.example/pay/return" },
+      { cancellationUrl: "https://evil.example/pay/cancel" },
+      { returnUrl: "https://www.datagod.store.evil.example/r" },
+    ]) {
+      const f = okFetch()
+      expect((await mk({}, f)(req("/checkout", checkoutBody(over)))).status).toBe(400)
+      expect(f).not.toHaveBeenCalled()
+    }
+  })
+
+  it("URLs are forwarded as the parsed href, never the raw string (tab/newline)", async () => {
+    const rawCb = "https://www.datagod.store/api/webhooks/hubtel-payments?ref=a\tb&sig=c\nd"
+    const rawRet = "https://www.datagod.store/pay/ret\nurn"
+    const rawCancel = "https://WWW.datagod.store/pay/can\tcel"
+    const f = okFetch()
+    const out = await mk({}, f)(req("/checkout", checkoutBody({ callbackUrl: rawCb, returnUrl: rawRet, cancellationUrl: rawCancel })))
+    if (out.status === 200) {
+      const sent = JSON.parse((f.mock.calls[0] as any)[1].body)
+      expect(sent.callbackUrl).toBe(new URL(rawCb).href)
+      expect(sent.returnUrl).toBe(new URL(rawRet).href)
+      expect(sent.cancellationUrl).toBe(new URL(rawCancel).href)
+      for (const v of [sent.callbackUrl, sent.returnUrl, sent.cancellationUrl]) expect(v).not.toMatch(/[\t\n\r]/)
+    } else {
+      expect(out.status).toBe(400)
+      expect(f).not.toHaveBeenCalled()
+    }
+    const g = okFetch()
+    const out2 = await mk({}, g)(req("/receive", receiveBody({ callbackUrl: rawCb })))
+    if (out2.status === 200) {
+      const sent = JSON.parse((g.mock.calls[0] as any)[1].body)
+      expect(sent.PrimaryCallbackURL).toBe(new URL(rawCb).href)
+      expect(sent.PrimaryCallbackURL).not.toMatch(/[\t\n\r]/)
+    } else {
+      expect(g).not.toHaveBeenCalled()
+    }
+  })
+
+  it("every payment fetch uses redirect: 'error'", async () => {
+    const f = okFetch(); const g = okFetch()
+    await mk({}, f)(req("/receive", receiveBody()))
+    await mk({}, g)(req("/checkout", checkoutBody()))
+    expect((f.mock.calls[0] as any)[1].redirect).toBe("error")
+    expect((g.mock.calls[0] as any)[1].redirect).toBe("error")
+  })
+
+  it("a redirect rejection is classified sent:true", async () => {
+    const redirectErr = () => { const e: any = new TypeError("fetch failed"); e.cause = new Error("unexpected redirect"); return e }
+    for (const path of ["/receive", "/checkout"]) {
+      const body = path === "/receive" ? receiveBody() : checkoutBody()
+      const out: any = await mk({}, async () => { throw redirectErr() })(req(path, body))
+      expect(out.body).toMatchObject({ ok: false, upstreamStatus: 0, sent: true })
+    }
+  })
+})
+
 describe("relay /checkout", () => {
   it("401 without the bearer secret, nothing sent", async () => {
     const f = okFetch()
