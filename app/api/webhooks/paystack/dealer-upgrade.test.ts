@@ -140,6 +140,22 @@ describe("Paystack charge.success for a dealer upgrade", () => {
     expect(h.tables.users[0].role).toBe("dealer")
   })
 
+  it("a refused upgrade attached to an order leaves that order untouched", async () => {
+    const order = { id: "some-order", order_status: "pending", payment_status: "pending", total_price: 20 }
+    h.tables.shop_orders = [{ ...order }]
+    h.tables.wallet_payments = [payment({ order_id: "some-order" })]
+    await chargeSuccess(2060, { type: "dealer_upgrade", planId: "plan1", userId: "u1" })
+    expect(h.tables.shop_orders[0]).toEqual(order)
+  })
+
+  it("alerts admins when a paid upgrade names no plan, instead of losing it silently", async () => {
+    h.tables.wallet_payments = [payment()]
+    await chargeSuccess(2060, { userId: "u1" })
+    expect(h.tables.users[0].role).toBe("user")
+    expect(h.notifyAdmins).toHaveBeenCalledTimes(1)
+    expect(h.notifyAdmins.mock.calls[0][2]).toBe(REF)
+  })
+
   it("does NOT grant when the fee is what makes up the plan price", async () => {
     h.tables.wallet_payments = [payment({ amount: 20, fee: 0.6 })]
     await chargeSuccess(2000, { type: "dealer_upgrade", planId: "plan1", userId: "u1" })

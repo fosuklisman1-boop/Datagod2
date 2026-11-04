@@ -1293,7 +1293,9 @@ export async function POST(request: NextRequest) {
               const endDate = new Date()
               endDate.setDate(endDate.getDate() + plan.duration_days)
               
-              await supabase.from("user_subscriptions").insert([{
+              // The role is already set. An insert failure leaves a dealer with no expiry; DIAMOND's
+              // end date (past year 9999) always fails this way, so this logs rather than alerts.
+              const { error: subscriptionInsertError } = await supabase.from("user_subscriptions").insert([{
                 user_id: upgradeUserId,
                 plan_id: planId,
                 start_date: new Date().toISOString(),
@@ -1302,6 +1304,9 @@ export async function POST(request: NextRequest) {
                 payment_reference: reference,
                 amount_paid: amount / 100,
               }])
+              if (subscriptionInsertError) {
+                console.error(`[WEBHOOK] Dealer subscription row not saved: reference ${reference}: ${subscriptionInsertError.message}`)
+              }
 
               // Notify User
               await supabase.from("notifications").insert([{
@@ -1323,6 +1328,15 @@ export async function POST(request: NextRequest) {
               }
             }
           }
+        } else {
+          // Paid in full or not, nothing below will deliver this: tell someone.
+          console.error(`[WEBHOOK] ❌ Dealer upgrade NOT granted (missing_plan_or_user): reference ${reference}`)
+          logSecurityEvent("dealer_upgrade_refused", { reason: "missing_plan_or_user", reference, paid: paidAmountPesewas / 100 })
+          await notifyAdmins(
+            `Dealer upgrade NOT granted (missing_plan_or_user). Paid GHS ${paidAmountPesewas / 100}. Check the payment and refund or upgrade by hand. Ref: ${reference}`,
+            "dealer_upgrade_refused",
+            reference,
+          ).catch((e: unknown) => console.warn("[WEBHOOK] Admin notify failed:", e))
         }
       }
 
