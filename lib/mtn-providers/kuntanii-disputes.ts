@@ -237,6 +237,7 @@ export async function sweepOrphanClaims(
     .from(REPORTS)
     .select("id, tracking_id, external_order_id")
     .is("report_reference", null)
+    .is("last_checked_at", null) // recovered rows have last_checked_at set; don't re-sweep them
     .in("dispute_status", OPEN_STATUSES)
     .lt("created_at", cutoff)
     .order("created_at", { ascending: true })
@@ -252,8 +253,15 @@ export async function sweepOrphanClaims(
       if (!res.ok) continue
       const withReport = (res.data.orders ?? []).find((o) => o.notReceivedStatus != null)
       if (!withReport) {
-        const { error: delErr } = await db.from(REPORTS).delete().eq("id", row.id)
-        if (!delErr) out.freed++
+        const { data: deleted, error: delErr } = await db
+          .from(REPORTS)
+          .delete()
+          .eq("id", row.id)
+          .is("report_reference", null)
+          .select("id")
+        if (!delErr) {
+          if ((deleted ?? []).length > 0) out.freed++
+        }
         else console.error(`[KUNTANII-DISPUTES] sweep could not free claim ${row.id}:`, delErr.message)
       } else {
         const nowIso = new Date(now()).toISOString()

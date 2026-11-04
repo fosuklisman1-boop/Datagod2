@@ -103,7 +103,7 @@ function logRaw(label: string, id: string, res: unknown): void {
 }
 
 /** Order entries for status mapping: orders[] when non-empty, else the top-level status. */
-function entriesOf(body: OrderBody | undefined): KuntaniiOrderEntry[] {
+export function entriesOf(body: OrderBody | undefined): KuntaniiOrderEntry[] {
   const orders = body?.orders
   if (Array.isArray(orders) && orders.length > 0) return orders
   if (typeof body?.status === "string") return [{ status: body.status }]

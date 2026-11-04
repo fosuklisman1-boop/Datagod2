@@ -50,6 +50,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/sync-mtn-status/kuntanii",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/sync-afa-status/apexprime",
       "schedule": "* * * * *"
     },

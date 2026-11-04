@@ -54,7 +54,7 @@ function makeDb(seed: { tracking?: Row[]; reports?: Row[]; insertError?: any; up
           rows.splice(rows.indexOf(r), 1)
           log.deletes.push(r.id)
         })
-        return { data: null, error: null }
+        return { data: matched.map((r) => ({ id: r.id })), error: null }
       }
       let out = matched
       if (limitN !== undefined) {
@@ -268,6 +268,27 @@ describe("sweepOrphanClaims", () => {
       expect(r).toEqual({ checked: 1, freed: 0, recovered: 0 })
       expect(tables.kuntanii_not_received_reports).toHaveLength(1)
     }
+  })
+
+  it("does not re-sweep a row already recovered (last_checked_at set)", async () => {
+    const { db } = makeDb({ reports: [orphan({ last_checked_at: new Date(NOW - 1000).toISOString() })] })
+    const client = orderClient([{ notReceivedStatus: "Escalated" }])
+    const r = await sweepOrphanClaims(900_000, 20, { db, client, now: () => NOW })
+    expect(r).toEqual({ checked: 0, freed: 0, recovered: 0 })
+    expect(client.getOrder).not.toHaveBeenCalled()
+  })
+
+  it("never deletes a claim that gained a report_reference during the sweep", async () => {
+    const { db, tables } = makeDb({ reports: [orphan({})] })
+    const client = fakeClient({
+      getOrder: vi.fn(async () => {
+        tables.kuntanii_not_received_reports[0].report_reference = "rpt-late"
+        return { ok: true, status: 200, data: { externalOrderId: "ext-1", orders: [{ notReceivedStatus: null }] } }
+      }),
+    })
+    const r = await sweepOrphanClaims(900_000, 20, { db, client, now: () => NOW })
+    expect(r.freed).toBe(0)
+    expect(tables.kuntanii_not_received_reports).toHaveLength(1)
   })
 
   it("respects limit, age filter, and skips rows with a reference", async () => {
