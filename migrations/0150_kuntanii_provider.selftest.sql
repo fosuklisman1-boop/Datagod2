@@ -97,6 +97,19 @@ BEGIN
   EXCEPTION WHEN unique_violation THEN v_caught := true; END;
   IF NOT v_caught THEN RAISE EXCEPTION 'FAIL unknown_unique: duplicate external_order_id accepted'; END IF;
 
+  -- claim-first: an open placeholder with NULL report_reference is allowed; a second one for the same tracking is not
+  INSERT INTO public.mtn_fulfillment_tracking DEFAULT VALUES;
+  SELECT id INTO v_trk FROM public.mtn_fulfillment_tracking
+   WHERE id NOT IN (SELECT tracking_id FROM public.kuntanii_not_received_reports) LIMIT 1;
+  INSERT INTO public.kuntanii_not_received_reports (tracking_id, external_order_id, report_reference, dispute_status)
+    VALUES (v_trk, 'ext-2', NULL, 'open');
+  v_caught := false;
+  BEGIN
+    INSERT INTO public.kuntanii_not_received_reports (tracking_id, external_order_id, report_reference, dispute_status)
+      VALUES (v_trk, 'ext-2', NULL, 'open');
+  EXCEPTION WHEN unique_violation THEN v_caught := true; END;
+  IF NOT v_caught THEN RAISE EXCEPTION 'FAIL claim_gate_null_ref: second open NULL-reference report accepted'; END IF;
+
   RAISE NOTICE 'SELFTEST_OK';
 END
 $selftest$;

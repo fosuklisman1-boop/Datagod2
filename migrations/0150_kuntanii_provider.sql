@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS public.kuntanii_not_received_reports (
   tracking_id       uuid NOT NULL REFERENCES public.mtn_fulfillment_tracking(id),
   external_order_id text NOT NULL,
   order_reference   text,
-  report_reference  text NOT NULL UNIQUE,
+  report_reference  text UNIQUE,  -- NULL while the claim-first placeholder row awaits the Kuntanii API reply
   phone_number      text,
   data_gb           numeric,
   reason_code       text,
