@@ -81,8 +81,8 @@ export default function UpgradePage() {
 
         // Wallet/upgrade OTP + direct-charge gates (independent)
         fetch("/api/public/turnstile-status")
-            .then((r) => r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false })
-            .then((d) => { setWalletOtp(d.wallet_lock === true); setWalletDirect(d.wallet_direct_charge === true) })
+            .then((r) => r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false, dashboard_direct_charge: false })
+            .then((d) => { setWalletOtp(d.wallet_lock === true); setWalletDirect(d.dashboard_direct_charge === true) })
             .catch(() => { setWalletOtp(false); setWalletDirect(false) })
     }, [])
 

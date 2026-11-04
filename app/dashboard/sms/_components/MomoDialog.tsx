@@ -18,8 +18,8 @@ export function useWalletGates(): { walletDirect: boolean; walletOtp: boolean } 
   useEffect(() => {
     let alive = true
     fetch("/api/public/turnstile-status")
-      .then((r) => (r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false }))
-      .then((d) => { if (alive) setGates({ walletDirect: d.wallet_direct_charge === true, walletOtp: d.wallet_lock === true }) })
+      .then((r) => (r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false, sms_direct_charge: false }))
+      .then((d) => { if (alive) setGates({ walletDirect: d.sms_direct_charge === true, walletOtp: d.wallet_lock === true }) })
       .catch(() => { if (alive) setGates({ walletDirect: false, walletOtp: false }) })
     return () => { alive = false }
   }, [])
