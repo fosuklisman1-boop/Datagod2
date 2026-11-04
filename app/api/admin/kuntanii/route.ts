@@ -68,7 +68,15 @@ export async function POST(request: NextRequest) {
   if (!isAdmin) return errorResponse!
 
   try {
-    const body = await request.json()
+    let body: any
+    try {
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+    }
 
     if (body.action === "set-delivery-mode") {
       const mode = body.mode
@@ -103,6 +111,13 @@ export async function POST(request: NextRequest) {
           { error: result.error, ...(result.code ? { code: result.code } : {}) },
           { status: result.status }
         )
+      }
+      if (result.persisted === false) {
+        return NextResponse.json({
+          success: true,
+          reportReference: result.reportReference,
+          warning: "Report filed with Kuntanii but not saved locally — note the reference",
+        })
       }
       return NextResponse.json({ success: true, reportReference: result.reportReference })
     }

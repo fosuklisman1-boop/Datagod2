@@ -35,7 +35,7 @@ export function normaliseDisputeStatus(raw: string | undefined): DisputeStatus |
 }
 
 export type FileResult =
-  | { ok: true; reportReference: string }
+  | { ok: true; reportReference: string; persisted?: false }
   | { ok: false; status: 400 | 404 | 409 | 502; error: string; code?: string }
 
 export async function fileNotReceived(
@@ -96,6 +96,12 @@ export async function fileNotReceived(
     const { error } = await db.from(REPORTS).delete().eq("id", claimId)
     if (error) console.error(`[KUNTANII-DISPUTES] could not remove claim ${claimId}:`, error.message)
   }
+  // Outcome unknown: the claim stays (blocks refiling); sweepOrphanClaims reconciles it.
+  const UNKNOWN: FileResult = {
+    ok: false,
+    status: 502,
+    error: "Outcome unknown — do not refile; the claim will be reconciled automatically",
+  }
 
   let res
   try {
@@ -106,30 +112,39 @@ export async function fileNotReceived(
       description: input.description,
     })
   } catch (e) {
-    console.error(`[KUNTANII-DISPUTES] report call threw for ${externalOrderId}:`, (e as Error).message)
-    await release()
-    return { ok: false, status: 502, error: "Kuntanii request failed" }
+    console.error(`[KUNTANII-DISPUTES] report call threw for ${externalOrderId}; claim ${claimId} kept:`, (e as Error).message)
+    return UNKNOWN
   }
 
   if (!res.ok) {
-    await release()
-    return { ok: false, status: 502, error: "Kuntanii rejected the report", code: res.code }
+    // Only a definite client-side rejection proves nothing was filed.
+    if (res.network !== true && res.status >= 400 && res.status <= 499) {
+      await release()
+      return { ok: false, status: 502, error: "Kuntanii rejected the report", code: res.code }
+    }
+    console.error(`[KUNTANII-DISPUTES] report outcome unknown for tracking ${input.trackingId} (status ${res.status}); claim ${claimId} kept`)
+    return UNKNOWN
   }
 
   // The dispute status is data.disputeStatus; data.status is the ORDER-level status.
   const disputeStatus = normaliseDisputeStatus(res.data.disputeStatus) ?? "open"
-  const { error: updErr } = await db
-    .from(REPORTS)
-    .update({
-      report_reference: res.data.reportReference,
-      order_reference: res.data.orderReference ?? null,
-      dispute_status: disputeStatus,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", claimId)
-  if (updErr) {
-    // The dispute exists at Kuntanii; keep the claim row so a retry can't double-file.
-    console.error(`[KUNTANII-DISPUTES] report ${res.data.reportReference} filed but row update failed:`, updErr.message)
+  const patch = {
+    report_reference: res.data.reportReference,
+    order_reference: res.data.orderReference ?? null,
+    dispute_status: disputeStatus,
+    updated_at: new Date().toISOString(),
+  }
+  let persisted = false
+  for (let attempt = 0; attempt < 3 && !persisted; attempt++) {
+    const { error: updErr } = await db.from(REPORTS).update(patch).eq("id", claimId)
+    if (!updErr) persisted = true
+  }
+  if (!persisted) {
+    // The dispute exists at Kuntanii; the claim row stays so nobody can double-file.
+    console.error(
+      `[KUNTANII-DISPUTES] CRITICAL: report ${res.data.reportReference} filed for tracking ${input.trackingId} but could not be saved after 3 attempts (claim ${claimId})`
+    )
+    return { ok: true, reportReference: res.data.reportReference, persisted: false }
   }
   return { ok: true, reportReference: res.data.reportReference }
 }
@@ -154,6 +169,7 @@ export async function refreshDispute(reportId: string, deps: DisputeDeps = {}): 
   if (!res.ok) return null
 
   const status = normaliseDisputeStatus(res.data.status)
+  if (!status) console.warn(`[KUNTANII-DISPUTES] unrecognised dispute status "${String(res.data.status).slice(0, 40)}" for report ${reportId}`)
   const nowIso = new Date().toISOString()
   const patch: Record<string, unknown> = { last_checked_at: nowIso, updated_at: nowIso }
   if (status) patch.dispute_status = status
@@ -169,8 +185,7 @@ async function refreshIds(ids: string[], deps: DisputeDeps): Promise<number> {
   let n = 0
   for (const id of ids) {
     try {
-      await refreshDispute(id, deps)
-      n++
+      if ((await refreshDispute(id, deps)) !== null) n++
     } catch (e) {
       console.error(`[KUNTANII-DISPUTES] refresh failed for report ${id}:`, (e as Error).message)
     }
@@ -203,4 +218,63 @@ export async function refreshStaleDisputes(limit: number, olderThanMs: number, d
     .limit(limit)
   if (error) throw new Error(`refreshStaleDisputes lookup failed: ${error.message}`)
   return refreshIds((data ?? []).map((r: { id: string }) => r.id), { ...deps, db })
+}
+
+/**
+ * Reconciles placeholder claims whose outcome was never recorded (report_reference
+ * still NULL after olderThanMs). Asks Kuntanii whether a report exists for the order:
+ * none -> free the claim; some -> keep it, mark recovered (reference unknown).
+ */
+export async function sweepOrphanClaims(
+  olderThanMs: number,
+  limit: number,
+  deps: DisputeDeps & { now?: () => number } = {}
+): Promise<{ checked: number; freed: number; recovered: number }> {
+  const db = deps.db ?? (supabaseAdmin as SupabaseLike)
+  const now = deps.now ?? Date.now
+  const cutoff = new Date(now() - olderThanMs).toISOString()
+  const { data, error } = await db
+    .from(REPORTS)
+    .select("id, tracking_id, external_order_id")
+    .is("report_reference", null)
+    .in("dispute_status", OPEN_STATUSES)
+    .lt("created_at", cutoff)
+    .order("created_at", { ascending: true })
+    .limit(limit)
+  if (error) throw new Error(`sweepOrphanClaims lookup failed: ${error.message}`)
+
+  const client = deps.client ?? createKuntaniiClient()
+  const out = { checked: 0, freed: 0, recovered: 0 }
+  for (const row of (data ?? []) as Array<{ id: string; tracking_id: string; external_order_id: string }>) {
+    out.checked++
+    try {
+      const res = await client.getOrder(row.external_order_id)
+      if (!res.ok) continue
+      const withReport = (res.data.orders ?? []).find((o) => o.notReceivedStatus != null)
+      if (!withReport) {
+        const { error: delErr } = await db.from(REPORTS).delete().eq("id", row.id)
+        if (!delErr) out.freed++
+        else console.error(`[KUNTANII-DISPUTES] sweep could not free claim ${row.id}:`, delErr.message)
+      } else {
+        const nowIso = new Date(now()).toISOString()
+        const { error: updErr } = await db
+          .from(REPORTS)
+          .update({
+            dispute_status: normaliseDisputeStatus(withReport.notReceivedStatus as string) ?? "open",
+            updated_at: nowIso,
+            last_checked_at: nowIso,
+          })
+          .eq("id", row.id)
+        if (updErr) {
+          console.error(`[KUNTANII-DISPUTES] sweep could not update claim ${row.id}:`, updErr.message)
+          continue
+        }
+        console.warn(`[KUNTANII-DISPUTES] recovered orphan claim for tracking ${row.tracking_id}: report reference unknown`)
+        out.recovered++
+      }
+    } catch (e) {
+      console.error(`[KUNTANII-DISPUTES] sweep check failed for claim ${row.id}:`, (e as Error).message)
+    }
+  }
+  return out
 }

@@ -8,12 +8,14 @@ import {
   refreshDispute,
   refreshOpenDisputes,
   refreshStaleDisputes,
+  sweepOrphanClaims,
 } from "./kuntanii-disputes"
 
 type Row = Record<string, any>
 
 // Tiny in-memory fake covering the chain methods the lib uses.
-function makeDb(seed: { tracking?: Row[]; reports?: Row[]; insertError?: any } = {}) {
+function makeDb(seed: { tracking?: Row[]; reports?: Row[]; insertError?: any; updateFailures?: number } = {}) {
+  let updateFailuresLeft = seed.updateFailures ?? 0
   const tables: Record<string, Row[]> = {
     mtn_fulfillment_tracking: seed.tracking ?? [],
     kuntanii_not_received_reports: seed.reports ?? [],
@@ -39,6 +41,10 @@ function makeDb(seed: { tracking?: Row[]; reports?: Row[]; insertError?: any } =
       }
       const matched = rows.filter((r) => filters.every((f) => f(r)))
       if (op === "update") {
+        if (updateFailuresLeft > 0) {
+          updateFailuresLeft--
+          return { data: null, error: { message: "transient" } }
+        }
         matched.forEach((r) => Object.assign(r, payload))
         log.updates.push(payload)
         return { data: null, error: null }
@@ -71,6 +77,8 @@ function makeDb(seed: { tracking?: Row[]; reports?: Row[]; insertError?: any } =
         filters.push((r) => r.last_checked_at == null || r.last_checked_at < m[1])
         return b
       },
+      lt: (c: string, v: any) => (filters.push((r) => r[c] < v), b),
+      is: (c: string, v: any) => (filters.push((r) => (r[c] ?? null) === v), b),
       order: () => b,
       limit: (n: number) => ((limitN = n), b),
       maybeSingle: () => ((single = true), Promise.resolve(run())),
@@ -171,21 +179,111 @@ describe("fileNotReceived", () => {
     expect(client.reportNotReceived).not.toHaveBeenCalled()
   })
 
-  it("API failure removes the claim row -> 502", async () => {
+  it("definite 4xx rejection removes the claim row -> 502", async () => {
     const { db, tables } = makeDb({ tracking: [goodTracking] })
     const client = fakeClient({
-      reportNotReceived: vi.fn(async () => ({ ok: false, status: 500, code: "boom", message: "x" })),
+      reportNotReceived: vi.fn(async () => ({ ok: false, status: 422, code: "bad", message: "x" })),
     })
     const r = await fileNotReceived(input, { db, client })
-    expect(r).toMatchObject({ ok: false, status: 502, code: "boom" })
+    expect(r).toMatchObject({ ok: false, status: 502, code: "bad" })
     expect(tables.kuntanii_not_received_reports).toHaveLength(0)
   })
 
-  it("client throwing also removes the claim -> 502", async () => {
+  it.each([
+    ["network", { ok: false, status: 0, network: true, message: "x" }],
+    ["network with 4xx-looking status", { ok: false, status: 408, network: true, message: "x" }],
+    ["503", { ok: false, status: 503, message: "x" }],
+  ])("unknown outcome (%s) keeps the claim -> 502", async (_n, res) => {
+    const { db, tables } = makeDb({ tracking: [goodTracking] })
+    const client = fakeClient({ reportNotReceived: vi.fn(async () => res) })
+    const r = await fileNotReceived(input, { db, client })
+    expect(r).toMatchObject({ ok: false, status: 502 })
+    expect((r as any).error).toMatch(/do not refile/)
+    expect(tables.kuntanii_not_received_reports).toHaveLength(1)
+  })
+
+  it("client throwing keeps the claim -> 502", async () => {
     const { db, tables } = makeDb({ tracking: [goodTracking] })
     const client = fakeClient({ reportNotReceived: vi.fn(async () => { throw new Error("net") }) })
     expect(await fileNotReceived(input, { db, client })).toMatchObject({ ok: false, status: 502 })
+    expect(tables.kuntanii_not_received_reports).toHaveLength(1)
+  })
+
+  it("persist fails twice then succeeds -> persisted not false", async () => {
+    const { db, tables } = makeDb({ tracking: [goodTracking], updateFailures: 2 })
+    const r = await fileNotReceived(input, { db, client: fakeClient() })
+    expect(r).toEqual({ ok: true, reportReference: "rpt-1" })
+    expect(tables.kuntanii_not_received_reports[0].report_reference).toBe("rpt-1")
+  })
+
+  it("persist fails 3x -> persisted:false and claim row kept", async () => {
+    const { db, tables } = makeDb({ tracking: [goodTracking], updateFailures: 3 })
+    const r = await fileNotReceived(input, { db, client: fakeClient() })
+    expect(r).toEqual({ ok: true, reportReference: "rpt-1", persisted: false })
+    expect(tables.kuntanii_not_received_reports).toHaveLength(1)
+    expect(tables.kuntanii_not_received_reports[0].report_reference).toBeNull()
+  })
+})
+
+describe("sweepOrphanClaims", () => {
+  const NOW = 10_000_000_000
+  const orphan = (over: Row) => ({
+    id: "o1",
+    tracking_id: "t1",
+    external_order_id: "ext-1",
+    report_reference: null,
+    dispute_status: "open",
+    created_at: new Date(NOW - 3_600_000).toISOString(),
+    last_checked_at: null,
+    ...over,
+  })
+  const orderClient = (orders: any[] | Error | "fail") =>
+    fakeClient({
+      getOrder: vi.fn(async () => {
+        if (orders instanceof Error) throw orders
+        if (orders === "fail") return { ok: false, status: 500, message: "x" }
+        return { ok: true, status: 200, data: { externalOrderId: "ext-1", orders } }
+      }),
+    })
+
+  it("frees the claim when Kuntanii has no report", async () => {
+    const { db, tables } = makeDb({ reports: [orphan({})] })
+    const r = await sweepOrphanClaims(900_000, 20, { db, client: orderClient([{ notReceivedStatus: null }]), now: () => NOW })
+    expect(r).toEqual({ checked: 1, freed: 1, recovered: 0 })
     expect(tables.kuntanii_not_received_reports).toHaveLength(0)
+  })
+
+  it("recovers the claim when Kuntanii has a report", async () => {
+    const { db, tables } = makeDb({ reports: [orphan({})] })
+    const r = await sweepOrphanClaims(900_000, 20, { db, client: orderClient([{ notReceivedStatus: "Escalated" }]), now: () => NOW })
+    expect(r).toEqual({ checked: 1, freed: 0, recovered: 1 })
+    expect(tables.kuntanii_not_received_reports[0]).toMatchObject({ dispute_status: "escalated" })
+    expect(tables.kuntanii_not_received_reports[0].last_checked_at).toBeTruthy()
+  })
+
+  it("leaves the row when getOrder fails or throws", async () => {
+    for (const c of [orderClient("fail"), orderClient(new Error("net"))]) {
+      const { db, tables } = makeDb({ reports: [orphan({})] })
+      const r = await sweepOrphanClaims(900_000, 20, { db, client: c, now: () => NOW })
+      expect(r).toEqual({ checked: 1, freed: 0, recovered: 0 })
+      expect(tables.kuntanii_not_received_reports).toHaveLength(1)
+    }
+  })
+
+  it("respects limit, age filter, and skips rows with a reference", async () => {
+    const { db } = makeDb({
+      reports: [
+        orphan({ id: "a" }),
+        orphan({ id: "b" }),
+        orphan({ id: "c" }),
+        orphan({ id: "young", created_at: new Date(NOW - 60_000).toISOString() }),
+        orphan({ id: "ref", report_reference: "rpt" }),
+      ],
+    })
+    const client = orderClient([{ notReceivedStatus: null }])
+    const r = await sweepOrphanClaims(900_000, 2, { db, client, now: () => NOW })
+    expect(r.checked).toBe(2)
+    expect(client.getOrder).toHaveBeenCalledTimes(2)
   })
 })
 
