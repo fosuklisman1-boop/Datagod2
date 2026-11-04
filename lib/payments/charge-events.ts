@@ -35,7 +35,40 @@ export interface ChargeEventData {
  * lets lib/hubtel-pay/confirm.ts send that payment to review instead of marking it paid. Paystack ignores the body.
  */
 function alreadyProcessedResponse(paymentStatus: unknown): NextResponse {
-  return NextResponse.json(paymentStatus === "completed" ? { received: true } : { received: true, order_closed: true })
+  return NextResponse.json(paymentStatus === "completed" ? { received: true } : orderClosedBody)
+}
+
+/** 200 for a payment that delivered nothing (order missing, refused, not applied). Paystack ignores the body. */
+const orderClosedBody = { received: true, order_closed: true }
+const orderClosedResponse = () => NextResponse.json(orderClosedBody)
+
+/** A storefront order status after which nothing is sent (the confirm path alerts admins to refund). */
+const STOREFRONT_CLOSED_STATUSES = new Set(["failed", "expired", "cancelled"])
+
+/**
+ * Did this payment pay a storefront order that is (or will be) sent? confirmed/resumed: this payment flipped it, so
+ * yes unless the order was already closed. already_processed: only when the order is paid by THIS reference (a
+ * replay); a different reference is a duplicate payment, and an unreadable order counts as not applied. refused and
+ * amount_mismatch: no.
+ */
+async function storefrontPaymentApplied(
+  settled: { outcome: string; status?: string },
+  orderType: string,
+  orderId: string | null,
+  reference: string,
+): Promise<boolean> {
+  if (settled.outcome === "confirmed" || settled.outcome === "resumed") return !STOREFRONT_CLOSED_STATUSES.has(settled.status ?? "")
+  if (settled.outcome !== "already_processed" || !orderId) return false
+  try {
+    const { STOREFRONT_ORDER_TABLE } = await import("@/lib/storefront-commission/payment")
+    const table = STOREFRONT_ORDER_TABLE[orderType as keyof typeof STOREFRONT_ORDER_TABLE]
+    if (!table) return false
+    const { data, error } = await supabase.from(table).select("payment_status, payment_reference, status").eq("id", orderId).maybeSingle()
+    if (error || !data) return false
+    return data.payment_status === "paid" && data.payment_reference === reference && !STOREFRONT_CLOSED_STATUSES.has(data.status)
+  } catch {
+    return false
+  }
 }
 
 export async function handleChargeSuccess(data: ChargeEventData): Promise<NextResponse | null> {
@@ -56,6 +89,13 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     status,
     hasMetadata: !!metadata
   })
+
+  // Hubtel payments arrive through lib/hubtel-pay/confirm.ts with the row's metadata ({ gateway: "hubtel", ... }).
+  // Their transaction id is hex while the paystack_transaction_id / transaction_id columns hold Paystack's numeric
+  // ids (types unverified in prod), so it is never written there: confirm.ts stores it on hubtel_payments.
+  const viaHubtel = metadata?.gateway === "hubtel"
+  const gatewayTransactionId = viaHubtel ? null : data.id
+  const paystackIdColumn = viaHubtel ? {} : { paystack_transaction_id: data.id }
 
   // SMS bundle purchase — credit prepaid units (solvency-gated), not the cash wallet.
   // Defense-in-depth (matches the underpayment guards elsewhere in this handler):
@@ -663,7 +703,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     }
 
     const { markAirtimeOrderPaid } = await import("@/lib/airtime-service")
-    await markAirtimeOrderPaid(ussdAirtimeOrder.id, data.id)
+    await markAirtimeOrderPaid(ussdAirtimeOrder.id, gatewayTransactionId)
 
     await supabase
       .from("payment_attempts")
@@ -870,7 +910,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
       walletPaymentId: paymentData.id,
       reference,
       paidAmount: Math.round(amount) / 100,
-      transactionId: data.id != null ? String(data.id) : null,
+      transactionId: gatewayTransactionId != null ? String(gatewayTransactionId) : null,
       gatewayResponse: data.gateway_response || "success",
     })
     console.log(`[WEBHOOK] Storefront order ${paymentData.order_id} (${paymentData.order_type}): ${settled.outcome}`)
@@ -878,7 +918,8 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
       // Nothing changed (read/flip failed): let Paystack retry.
       return NextResponse.json({ error: "Temporary error" }, { status: 500 })
     }
-    return NextResponse.json({ received: true })
+    const delivered = await storefrontPaymentApplied(settled, paymentData.order_type, paymentData.order_id, reference)
+    return NextResponse.json(delivered ? { received: true } : { received: true, order_closed: true })
   }
 
   const isDealerUpgrade = (metadata?.type === "dealer_upgrade") || (paymentData.order_type === "dealer_upgrade")
@@ -969,7 +1010,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     .update({
       status: "completed",
       amount_received: amount / 100,
-      paystack_transaction_id: data.id,
+      ...paystackIdColumn,
       updated_at: new Date().toISOString(),
     })
     .eq("id", paymentData.id)
@@ -980,7 +1021,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
       .from("payment_attempts")
       .update({
         status: "completed",
-        paystack_transaction_id: data.id,
+        ...paystackIdColumn,
         gateway_response: data.gateway_response || "success",
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -1000,7 +1041,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
 
     if (!purchase) {
       console.error("[WEBHOOK] ussd_shop_token_purchases record not found:", paymentData.order_id)
-      return NextResponse.json({ received: true })
+      return orderClosedResponse()
     }
 
     if (purchase.payment_status !== 'pending') {
@@ -1094,10 +1135,14 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
         .eq("id", paymentData.order_id)
         .single()
 
+      if (!shopOrderData) {
+        console.error("[WEBHOOK] shop order not found for payment:", paymentData.order_id)
+        return orderClosedResponse()
+      }
       if (shopOrderData) {
         await supabase
           .from("shop_orders")
-          .update({ payment_status: "completed", transaction_id: data.id, updated_at: new Date().toISOString() })
+          .update({ payment_status: "completed", ...(viaHubtel ? {} : { transaction_id: data.id }), updated_at: new Date().toISOString() })
           .eq("id", paymentData.order_id)
 
         // Customer tracking — this webhook is the primary completion path
@@ -1225,7 +1270,9 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     } else if (isAirtime) {
       // Airtime: mark paid + record merchant profit (shared with USSD path).
       const { markAirtimeOrderPaid } = await import("@/lib/airtime-service")
-      await markAirtimeOrderPaid(paymentData.order_id, data.id)
+      const marked = await markAirtimeOrderPaid(paymentData.order_id, gatewayTransactionId)
+      // Not applied (order missing, or the paid flip failed: the service alerts admins). Still 200.
+      if (!marked?.success) return orderClosedResponse()
     } else if (isResultsChecker) {
       // Results Checker voucher payment — assign/finalize/deliver + profit
       // (shared with the USSD path).
@@ -1268,6 +1315,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
           "dealer_upgrade_refused",
           reference,
         ).catch((e: unknown) => console.warn("[WEBHOOK] Admin notify failed:", e))
+        return orderClosedResponse()
       } else if (plan) {
         // Update User Role
         await supabase.from("users").update({ role: "dealer", updated_at: new Date().toISOString() }).eq("id", upgradeUserId)
@@ -1323,6 +1371,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
         "dealer_upgrade_refused",
         reference,
       ).catch((e: unknown) => console.warn("[WEBHOOK] Admin notify failed:", e))
+      return orderClosedResponse()
     }
   }
 
@@ -1330,7 +1379,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
   if (!paymentData.order_id && !isDealerUpgrade) {
     if (!paymentData.user_id) {
       console.error(`[WEBHOOK] ❌ CRITICAL: Wallet top-up failed for reference ${reference}. User ID is NULL in the database. This usually means the payment was initialized without an Authorization header or by a guest user.`)
-      return NextResponse.json({ received: true }) // Still return 200 to Paystack
+      return orderClosedResponse() // Still 200 to Paystack; nothing was credited
     }
 
     const creditAmount = (amount / 100) - (paymentData.fee || 0)
@@ -1338,11 +1387,18 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
       p_user_id: paymentData.user_id,
       p_amount: creditAmount,
       p_reference_id: reference,
-      p_description: "Wallet top-up via Paystack",
+      p_description: viaHubtel ? "Wallet top-up" : "Wallet top-up via Paystack",
       p_source: "wallet_topup"
     })
 
-    if (!rpcError && rpcData?.[0]) {
+    if (rpcError) {
+      // Not credited. 500 makes Paystack retry the webhook (safe: the credit is idempotent per reference) and sends a
+      // Hubtel payment to review instead of marking it paid.
+      console.error(`[WEBHOOK] ❌ credit_wallet_safely failed for ${reference}:`, rpcError.code ?? rpcError.message)
+      return NextResponse.json({ error: "Temporary error" }, { status: 500 })
+    }
+
+    if (rpcData?.[0]) {
       const { new_balance: newBalance, already_processed: alreadyProcessed } = rpcData[0]
       if (!alreadyProcessed) {
         // Notifications and SMS handled here...
@@ -1400,6 +1456,7 @@ export async function handleChargeFailed(data: ChargeEventData): Promise<NextRes
         .from("ussd_orders")
         .update({ payment_status: 'failed', order_status: 'failed', updated_at: new Date().toISOString() })
         .eq("id", ussdOrder.id)
+        .neq("payment_status", "completed") // a failed-charge event never fails a paid order
       await supabase
         .from("payment_attempts")
         .update({ status: 'failed', gateway_response: gateway_response || 'failed', updated_at: new Date().toISOString() })
@@ -1423,6 +1480,7 @@ export async function handleChargeFailed(data: ChargeEventData): Promise<NextRes
         .from("ussd_afa_orders")
         .update({ payment_status: 'failed', order_status: 'failed', updated_at: new Date().toISOString() })
         .eq("id", afaOrder.id)
+        .neq("payment_status", "completed")
       console.log("[WEBHOOK] USSD AFA order marked failed:", afaOrder.id)
     }
   } catch (e) {
@@ -1441,6 +1499,7 @@ export async function handleChargeFailed(data: ChargeEventData): Promise<NextRes
         .from("ussd_shop_orders")
         .update({ payment_status: 'failed', order_status: 'failed', updated_at: new Date().toISOString() })
         .eq("id", shopOrder.id)
+        .neq("payment_status", "completed")
       await supabase
         .from("payment_attempts")
         .update({ status: 'failed', gateway_response: gateway_response || 'failed', updated_at: new Date().toISOString() })

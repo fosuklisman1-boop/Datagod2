@@ -130,6 +130,20 @@ describe("Paystack charge.success", () => {
     expect(h.tables.wallet_payments[0].amount_received).toBe(103)
   })
 
+  // DELIBERATE CHANGE (Plan 4 Task 3): this used to fall through and answer 200, so a database error during the
+  // credit was never retried and the customer was never credited. It now answers 500: Paystack retries the webhook,
+  // which is safe because credit_wallet_safely is idempotent per reference.
+  it("wallet top-up: a credit_wallet_safely error answers 500 so Paystack retries; nothing is sent", async () => {
+    h.tables.wallet_payments = [payment()]
+    h.tables.users = [{ id: "u1", phone_number: "0241234567", first_name: "Ama" }]
+    h.rpc.mockImplementation(async () => ({ data: null, error: { code: "57014", message: "statement timeout" } }))
+
+    const res = await chargeSuccess(REF, 10300)
+
+    expect(res.status).toBe(500)
+    expect(h.sendSMS).not.toHaveBeenCalled()
+  })
+
   it("a shop order is marked paid", async () => {
     h.tables.shop_orders = [{
       id: "so1", payment_status: "pending", total_price: 100, network: "MTN", volume_gb: "1",
