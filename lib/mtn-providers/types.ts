@@ -31,6 +31,10 @@ export interface MTNOrderResponse {
     message: string
     traceId?: string
     error_type?: string
+    /** What the provider charged for the order (GHS). Only some providers report it. */
+    provider_cost_ghs?: number
+    /** The provider's own reference for the order. Only some providers report it. */
+    provider_reference?: string
 }
 
 export interface MTNOrderStatusResponse {
