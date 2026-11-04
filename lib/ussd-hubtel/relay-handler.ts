@@ -66,7 +66,7 @@ const PRE_SEND_CODES = new Set([
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "ERR_TLS_CERT_ALTNAME_INVALID",
 ])
 
-function failedBeforeSend(e: unknown): boolean {
+export function failedBeforeSend(e: unknown): boolean {
   let cur: any = e
   for (let depth = 0; depth < 3 && cur && typeof cur === "object"; depth++) {
     if (cur.name === "TimeoutError" || cur.name === "AbortError") return false
