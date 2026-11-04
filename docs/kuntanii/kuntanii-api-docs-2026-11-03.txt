@@ -662,6 +662,23 @@ LIVE PROBE RESULTS — 2026-11-03 (read-only GETs with our real kt_live_ key)
   - GET .../not-received?reportReference=... on unknown order -> same 404 body.
   - Response headers: no rate-limit / Retry-After headers exposed. Content-Type application/json.
   - externalOrderId accepts UUID format in the path (no 400 on a UUID).
-  - STILL UNKNOWN: full status body for a real order, webhook event names beyond the 3 documented,
+
+================================================================================
+FIRST LIVE ORDER — 2026-11-04 06:45 (15GB normal, KT-2323012569, GHS 57.75)
+================================================================================
+  - Place response (201) has extra fields not in docs: "pricingVisibilityVersion":1, "user":"DATAGOD".
+  - STATUS BODY (GET /orders/{id}) — NO top-level "status". Shape:
+      {success, externalOrderId, intakeStatus:"accepted", errorMessage:null, submittedAt, updatedAt,
+       orderCount, totalEntries, totalDataGb, totalAmountGhs, queuePosition:{position,totalInQueue,stage},
+       orders:[{orderReference, deliveryMode, status:"pending"|"processing"|..., entries, pendingEntries,
+                successfulEntries, failedEntries, totalDataGb, totalAmountGhs, submittedAt,
+                downloadedAt (set when staff download → status processing), completedAt, updatedAt,
+                queuePosition, notReceivedStatus}]}
+  - Webhook events seen: order.accepted (on intake), order.processing (on staff download, ~30s later).
+  - Webhook headers: x-kuntanii-event, x-kuntanii-delivery (uuid), x-kuntanii-signature: "sha256=<64 hex>"
+    (scheme presumed HMAC-SHA256(secret, raw body) — being verified log-only).
+  - Webhook body length ~730–860 bytes; arrives ~3s after the event.
+  - Must register the WWW URL (apex 307-redirects POSTs).
+  - STILL UNKNOWN: completed ("processed") body + event name, webhook event names beyond the 3 documented,
     webhook signature scheme, exact "cancelled"/"not received" strings in status responses,
     verify endpoint (not probed — records numbers as candidates).
