@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates, networkColor } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
+import { confirmAndReadHubtelPayment, findHubtelPaymentByInternalRef, hubtelReportStatus, isHubtelWalletPayment } from "@/lib/hubtel-pay/lookup"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
     console.log("[PAYMENT-VERIFY] Fetching payment record...")
     const { data: paymentData, error: fetchError } = await supabase
       .from("wallet_payments")
-      .select("id, user_id, reference, status, shop_id, order_id, order_type")
+      .select("id, user_id, reference, status, shop_id, order_id, order_type, payment_method")
       .eq("reference", reference)
       .single()
 
@@ -41,9 +42,34 @@ export async function POST(request: NextRequest) {
 
     console.log("[PAYMENT-VERIFY] ✓ Record found - User:", paymentData.user_id)
 
+    const { isStorefrontOrderType } = await import("@/lib/storefront-commission/payment")
+
+    // Hubtel payments (every order type, storefront included): Paystack never saw this reference. Confirm through
+    // Hubtel, which runs the shared handler exactly once, and report what the Hubtel row now says. This route writes
+    // nothing itself on this path.
+    const hubtelRow = await findHubtelPaymentByInternalRef(supabase, reference)
+    if (isHubtelWalletPayment(paymentData, hubtelRow)) {
+      if (paymentData.status === "completed") {
+        return NextResponse.json({ success: true, status: "completed", message: "Payment already verified and completed" })
+      }
+      if (!hubtelRow) {
+        return NextResponse.json({ success: true, status: "pending", reference, message: "Payment pending" })
+      }
+      const r = await confirmAndReadHubtelPayment(supabase, hubtelRow)
+      const reported = hubtelReportStatus(r.status)
+      const amount = r.amount_pesewas / 100
+      if (reported === "success") {
+        const message = isStorefrontOrderType(paymentData.order_type) ? "Payment verified!" : "Payment verified! Wallet will be credited shortly."
+        return NextResponse.json({ success: true, status: "success", amount, reference, message })
+      }
+      if (reported === "needs_review") {
+        return NextResponse.json({ success: true, status: "pending", amount, reference, message: "Payment received; it is being reviewed" })
+      }
+      return NextResponse.json({ success: true, status: reported, amount, reference, message: `Payment ${reported}` })
+    }
+
     // Storefront Utility Bill / Standard Bundle orders (cs_bill / cs_bundle): same shared, idempotent confirmation
     // as the Paystack webhook. Every other order type continues below unchanged.
-    const { isStorefrontOrderType } = await import("@/lib/storefront-commission/payment")
     if (isStorefrontOrderType(paymentData.order_type)) {
       const { verifyStorefrontPaymentRoute } = await import("@/lib/storefront-commission/confirm-runtime")
       const out = await verifyStorefrontPaymentRoute(paymentData.order_type, paymentData, reference)
