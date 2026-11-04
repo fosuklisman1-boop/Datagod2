@@ -7,10 +7,10 @@
 // none after Hubtel may hold the request.
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { chargeMobileMoney, type ChargeMobileMoneyParams } from "@/lib/paystack"
-import { hubtelCallbackUrl, HubtelPayInputError, isConfigRefusal, receiveMoney, toPesewas, type StartOutcome } from "@/lib/hubtel-pay/client"
+import { checkPaymentStatus, hubtelCallbackUrl, HubtelPayInputError, isConfigRefusal, receiveMoney, toPesewas, type PaymentStatus, type StartOutcome } from "@/lib/hubtel-pay/client"
 import { newHubtelReference } from "@/lib/hubtel-pay/reference"
 import { sendThrottledAlert } from "@/lib/hubtel-pay/alert-throttle"
-import type { Gateway, GatewayConfig, SurfaceKey } from "./config"
+import type { FeeBearer, Gateway, GatewayConfig, SurfaceConfig, SurfaceKey } from "./config"
 import { isHubtelCollectionReady } from "./hubtel-readiness"
 import { getGatewayConfig } from "./read-config"
 
@@ -38,20 +38,32 @@ export interface NewHubtelPaymentRow {
 export interface RefusedPatch { refused_at: string; last_check: unknown; updated_at: string }
 
 export interface StartStore {
+  /** A paid or needs_review attempt for this order, if any. Throws on a database error. */
+  findSettledSibling(internalReference: string): Promise<{ reference: string; status: string } | null>
   /** "duplicate" means an attempt for this order is already open. Any other failure is "error" (or a throw). */
   insert(row: NewHubtelPaymentRow): Promise<"ok" | "duplicate" | "error">
   /** pending -> failed, nothing reached Hubtel. Returns whether a row changed. Throws on a database error. */
   closeRefused(reference: string, patch: RefusedPatch): Promise<boolean>
+  /** The open attempt for this order, if any. Throws on a database error. */
+  findOpen(internalReference: string): Promise<{ reference: string; status: string; expires_at: string } | null>
+  /** claim_hubtel_payment, used as a mutex. Null means another caller holds the row or it is final. Throws on a database error. */
+  claim(reference: string): Promise<{ reference: string; claimed_at: string } | null>
+  /**
+   * Our claimed row -> failed, leaving refused_at NULL because Hubtel did get this one. Pass claimedAt exactly as the
+   * claim returned it. Returns whether a row changed. Throws on a database error.
+   */
+  closeUnanswered(reference: string, claimedAt: string, patch: { last_check: unknown; updated_at: string }): Promise<boolean>
 }
 
 /** Each kind throttles on its own, so a noisy cause cannot hide a different one. */
-export type StartAlertKind = "config" | "upstream" | "start_error" | "store"
+export type StartAlertKind = "config" | "upstream" | "start_error" | "store" | "sibling"
 
 export interface StartDeps {
   getConfig: () => Promise<GatewayConfig>
   isReady: () => boolean
   chargeMobileMoney: typeof chargeMobileMoney
   receiveMoney: typeof receiveMoney
+  checkStatus: (reference: string) => Promise<PaymentStatus>
   store: StartStore
   newReference: () => string
   callbackUrl: (reference: string) => string
@@ -65,6 +77,8 @@ const EXPIRY_MS = 15 * 60_000
 const DESCRIPTION = "Payment"
 const CHANNELS: Record<string, string> = { mtn: "mtn-gh", vod: "vodafone-gh", tgo: "tigo-gh" }
 const ALERT_WINDOW_MS = 60 * 60_000
+/** A slow alert must not eat a USSD session. Past this the start carries on; the alert may still finish. */
+const ALERT_TIMEOUT_MS = 3_000
 const ALERT_TYPE = "hubtel_payment_start"
 const UNIQUE_VIOLATION = "23505"
 
@@ -79,11 +93,65 @@ function afterFeePesewas(pricePesewas: number, feePercent: number): number {
   return Math.floor(Math.round(pricePesewas * (100 - feePercent) * 1e4) / 1e6)
 }
 
+/** What is requested from Hubtel: the price, or the price less the fee when the merchant bears it. */
+function requestedPesewas(surfaceConfig: SurfaceConfig, feePercent: number, pricePesewas: number): number {
+  return surfaceConfig.feeBearer === "merchant" ? afterFeePesewas(pricePesewas, feePercent) : pricePesewas
+}
+
+/** Written so a NaN amount also counts as under the minimum. */
+const meetsHubtelMinimum = (pesewas: number) => pesewas >= MIN_HUBTEL_PESEWAS
+
+/**
+ * Which gateway a charge on this surface would use, for callers that must decide fees before starting it. Same config,
+ * readiness and verified-payer rules as startMomoCharge, with no side effects. This is a prediction: phone and provider
+ * aren't checked here, and a start can still end on Paystack after a refusal, so the charge's own `gateway` is the truth.
+ */
+export async function resolveSurfaceGateway(
+  surface: SurfaceKey,
+  opts: { verifiedPayer?: boolean; amount?: number },
+  deps: Partial<Pick<StartDeps, "getConfig" | "isReady">> = {},
+): Promise<{ gateway: Gateway; feeBearer: FeeBearer }> {
+  let config: GatewayConfig
+  try {
+    config = await (deps.getConfig ?? getGatewayConfig)()
+  } catch {
+    return { gateway: "paystack", feeBearer: "customer" }
+  }
+  const surfaceConfig = config.surfaces[surface]
+  const hubtel = surfaceConfig.gateway === "hubtel" && (deps.isReady ?? isHubtelCollectionReady)() && opts.verifiedPayer === true &&
+    (opts.amount === undefined || meetsHubtelMinimum(requestedPesewas(surfaceConfig, config.hubtelFeePercent, toPesewas(opts.amount))))
+  return { gateway: hubtel ? "hubtel" : "paystack", feeBearer: surfaceConfig.feeBearer }
+}
+
 /** Codes are ours or Hubtel's short response codes; Hubtel's message text never reaches an alert. */
 const safeCode = (code: string) => code.replace(/[^a-zA-Z0-9_]/g, "").slice(0, 30)
 
 export function createStartStore(sb: SupabaseClient): StartStore {
   return {
+    async findSettledSibling(internalReference) {
+      const { data, error } = await sb.from("hubtel_payments").select("reference, status")
+        .eq("internal_reference", internalReference).in("status", ["paid", "needs_review"]).limit(1)
+      if (error) throw new Error(`hubtel_payments sibling lookup failed: ${error.code ?? "no code"}`)
+      return (data?.[0] as { reference: string; status: string } | undefined) ?? null
+    },
+    async findOpen(internalReference) {
+      const { data, error } = await sb.from("hubtel_payments").select("reference, status, expires_at")
+        .eq("internal_reference", internalReference).in("status", ["pending", "confirming"]).maybeSingle()
+      if (error) throw new Error(`hubtel_payments open lookup failed: ${error.code ?? "no code"}`)
+      return (data as { reference: string; status: string; expires_at: string } | null) ?? null
+    },
+    async claim(reference) {
+      const { data, error } = await sb.rpc("claim_hubtel_payment", { p_reference: reference })
+      if (error) throw new Error(`claim_hubtel_payment failed: ${error.code ?? "no code"}`)
+      const rows = (Array.isArray(data) ? data : data ? [data] : []) as { reference: string; claimed_at: string }[]
+      return rows[0] ? { reference: rows[0].reference, claimed_at: rows[0].claimed_at } : null
+    },
+    async closeUnanswered(reference, claimedAt, patch) {
+      const { data, error } = await sb.from("hubtel_payments").update({ status: "failed", ...patch })
+        .eq("reference", reference).eq("status", "confirming").eq("claimed_at", claimedAt).select("reference")
+      if (error) throw new Error(`hubtel_payments close failed: ${error.code ?? "no code"}`)
+      return (data?.length ?? 0) > 0
+    },
     async insert(row) {
       const { error } = await sb.from("hubtel_payments").insert(row)
       if (!error) return "ok"
@@ -112,8 +180,12 @@ async function getServiceClient(): Promise<SupabaseClient> {
 }
 
 const defaultStore: StartStore = {
+  findSettledSibling: async (internalReference) => createStartStore(await getServiceClient()).findSettledSibling(internalReference),
   insert: async (row) => createStartStore(await getServiceClient()).insert(row),
   closeRefused: async (reference, patch) => createStartStore(await getServiceClient()).closeRefused(reference, patch),
+  findOpen: async (internalReference) => createStartStore(await getServiceClient()).findOpen(internalReference),
+  claim: async (reference) => createStartStore(await getServiceClient()).claim(reference),
+  closeUnanswered: async (reference, claimedAt, patch) => createStartStore(await getServiceClient()).closeUnanswered(reference, claimedAt, patch),
 }
 
 async function defaultAlert(kind: StartAlertKind, message: string): Promise<void> {
@@ -133,6 +205,7 @@ export async function startMomoCharge(
     isReady: isHubtelCollectionReady,
     chargeMobileMoney,
     receiveMoney,
+    checkStatus: (reference) => checkPaymentStatus(reference),
     store: defaultStore,
     newReference: newHubtelReference,
     callbackUrl: (reference) => hubtelCallbackUrl(reference),
@@ -144,11 +217,15 @@ export async function startMomoCharge(
 
   const viaPaystack = async (): Promise<StartMomoResult> => ({ ...(await d.chargeMobileMoney(paystackParams)), gateway: "paystack" })
 
-  /** An alert decides nothing: a failure here is logged and never reaches the payment. */
-  const tell = (kind: StartAlertKind, message: string): Promise<void> =>
-    Promise.resolve().then(() => d.alert(kind, message)).catch((e) => {
+  /** An alert decides nothing: a failure here is logged and never reaches the payment, and it gets ALERT_TIMEOUT_MS at most. */
+  const tell = (kind: StartAlertKind, message: string): Promise<void> => {
+    const sent = Promise.resolve().then(() => d.alert(kind, message)).catch((e) => {
       console.error("[hubtel-start] alert failed:", e instanceof Error ? e.message : "unknown error")
     })
+    let timer: ReturnType<typeof setTimeout>
+    const timedOut = new Promise<void>((resolve) => { timer = setTimeout(resolve, ALERT_TIMEOUT_MS) })
+    return Promise.race([sent, timedOut]).finally(() => clearTimeout(timer))
+  }
 
   /** The alert runs alongside the charge, so it cannot delay the prompt, and still finishes before we return. */
   const fallBack = async (alerts: Promise<void>[]): Promise<StartMomoResult> => {
@@ -174,12 +251,28 @@ export async function startMomoCharge(
 
   const pricePesewas = toPesewas(params.amount)
   const merchantBears = surfaceConfig.feeBearer === "merchant"
-  const amountPesewas = merchantBears ? afterFeePesewas(pricePesewas, config.hubtelFeePercent) : pricePesewas
+  const amountPesewas = requestedPesewas(surfaceConfig, config.hubtelFeePercent, pricePesewas)
   const msisdn = toMsisdn(params.phone)
   const channel = Object.hasOwn(CHANNELS, params.provider) ? CHANNELS[params.provider] : undefined
-  // Written so a NaN amount also lands here.
-  if (!(amountPesewas >= MIN_HUBTEL_PESEWAS) || !msisdn || !channel) return viaPaystack()
+  if (!meetsHubtelMinimum(amountPesewas) || !msisdn || !channel) return viaPaystack()
 
+  const offline: StartMomoResult = { status: "pay_offline", reference: params.reference, gateway: "hubtel" }
+
+  // A paid or in-review attempt may already hold this customer's money: no prompt on any gateway. The index can't do
+  // this, because a failed -> needs_review late payment has to be able to land beside a paid or open attempt.
+  let settled: { reference: string; status: string } | null
+  try {
+    settled = await d.store.findSettledSibling(params.reference)
+  } catch (e) {
+    console.error("[hubtel-start] sibling lookup failed:", e instanceof Error ? e.message : "unknown error")
+    return fallBack([tell("store", `Hubtel start (${surface}): could not check earlier attempts; nothing sent to Hubtel, used Paystack.`)])
+  }
+  if (settled) {
+    await tell("sibling", `Hubtel start (${surface}): attempt ${settled.reference} for this order is ${settled.status}; no new prompt sent.`)
+    return offline
+  }
+
+  // Never sent or stored at this point, so the retry below can use it too. A reference Hubtel has seen is never reused.
   const hubtelReference = d.newReference()
   let callbackUrl: string
   try {
@@ -188,29 +281,59 @@ export async function startMomoCharge(
     return fallBack([tell("config", `Hubtel start (${surface}): callback URL unavailable; used Paystack.`)])
   }
 
-  let inserted: "ok" | "duplicate" | "error"
-  try {
-    inserted = await d.store.insert({
-      reference: hubtelReference,
-      internal_reference: params.reference,
-      metadata: { ...params.metadata, gateway: "hubtel" },
-      surface,
-      mode: "direct",
-      amount_pesewas: amountPesewas,
-      handler_amount_pesewas: merchantBears ? pricePesewas : null,
-      msisdn,
-      channel,
-      expires_at: new Date(d.now().getTime() + EXPIRY_MS).toISOString(),
-    })
-  } catch (e) {
-    console.error("[hubtel-start] row insert threw:", e instanceof Error ? e.message : "unknown error")
-    inserted = "error"
+  const insertRow = async (): Promise<"ok" | "duplicate" | "error"> => {
+    try {
+      return await d.store.insert({
+        reference: hubtelReference,
+        internal_reference: params.reference,
+        metadata: { ...params.metadata, gateway: "hubtel" },
+        surface,
+        mode: "direct",
+        amount_pesewas: amountPesewas,
+        handler_amount_pesewas: merchantBears ? pricePesewas : null,
+        msisdn,
+        channel,
+        expires_at: new Date(d.now().getTime() + EXPIRY_MS).toISOString(),
+      })
+    } catch (e) {
+      console.error("[hubtel-start] row insert threw:", e instanceof Error ? e.message : "unknown error")
+      return "error"
+    }
   }
-  // An attempt is already open for this order: the customer already has a prompt. No second one, no fallback.
-  if (inserted === "duplicate") return { status: "pay_offline", reference: params.reference, gateway: "hubtel" }
+
+  /**
+   * An open attempt past its expiry may never have reached Hubtel, and would otherwise block this order for a day.
+   * The claim is the mutex, so concurrent starts get one winner. Only `not_found` and `unpaid` free the order; the row
+   * closes with no failure handler (the order is about to be retried) and with refused_at NULL, so the 72h late check
+   * still catches a real payment. Everything else stays with the sweep. Returns whether the order is free to retry.
+   */
+  const freeStuckAttempt = async (): Promise<boolean> => {
+    try {
+      const open = await d.store.findOpen(params.reference)
+      if (!open || !(d.now().getTime() >= new Date(open.expires_at).getTime())) return false
+      const claimed = await d.store.claim(open.reference)
+      if (!claimed) return false
+      const status = await d.checkStatus(open.reference)
+      if (status.kind !== "not_found" && status.kind !== "unpaid") return false
+      return await d.store.closeUnanswered(open.reference, claimed.claimed_at, { last_check: status.raw, updated_at: d.now().toISOString() })
+    } catch (e) {
+      console.error("[hubtel-start] stuck attempt check failed:", e instanceof Error ? e.message : "unknown error")
+      return false
+    }
+  }
+
+  let inserted = await insertRow()
+  // Same reference, attempt already open. This only guards starts that reuse a reference, not a caller minting a new
+  // one per attempt. No second prompt and no fallback unless that attempt is expired and freed; a retry that loses
+  // the race to another start hits 23505 again and also stops here.
+  if (inserted === "duplicate") {
+    if (!(await freeStuckAttempt())) return offline
+    inserted = await insertRow()
+    if (inserted === "duplicate") return offline
+  }
   if (inserted === "error") return fallBack([tell("store", `Hubtel start (${surface}): could not record the payment; nothing sent to Hubtel, used Paystack.`)])
 
-  const pending: StartMomoResult = { status: "pay_offline", reference: params.reference, gateway: "hubtel", hubtelReference }
+  const pending: StartMomoResult = { ...offline, hubtelReference }
 
   /** Nothing reached Hubtel: close this attempt for good and charge on Paystack under the caller's reference. */
   const closeAndFallBack = async (code: string, alertFirst?: Promise<void>): Promise<StartMomoResult> => {

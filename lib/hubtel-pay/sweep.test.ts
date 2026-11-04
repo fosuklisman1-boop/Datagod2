@@ -205,6 +205,7 @@ describe("listDueHubtelPayments", () => {
         load: async () => ({ ...stored }),
         claim: vi.fn(async () => null),
         hasLiveSibling: vi.fn(async () => false),
+        hasPaidSibling: vi.fn(async () => false),
         update: async (_r, patch, guard) => {
           if (!guard.status.includes(stored.status)) return false
           Object.assign(stored, patch)

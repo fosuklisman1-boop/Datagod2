@@ -20,8 +20,10 @@
 --     refused_at     set when Hubtel never got the request (refused, or a start error before sending). Such a row
 --                    has nothing to check, so it is never status-checked again.
 --
---   hubtel_payments_one_open_per_order  at most one pending/confirming row per internal_reference. Without it an
---                    expired first attempt could run the failure handler on an order a retry has paid.
+--   hubtel_payments_one_open_per_order  at most one pending/confirming row per internal_reference, so it guards
+--                    starts that reuse the same reference only: a caller minting a new reference per attempt is not
+--                    covered. Paid and needs_review rows stay outside it on purpose, because a failed -> needs_review
+--                    late payment must be able to land beside a paid or open attempt.
 --
 -- Security: RLS enabled with NO policies, and all privileges revoked from anon/authenticated (0060 grants
 -- authenticated CRUD on all tables by default). Only server routes using the service role touch it.

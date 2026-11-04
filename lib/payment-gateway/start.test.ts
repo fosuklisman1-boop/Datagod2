@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
-import { startMomoCharge, createStartStore, type StartDeps, type StartStore } from "./start"
+import { startMomoCharge, createStartStore, resolveSurfaceGateway, type StartDeps, type StartStore } from "./start"
 import { deriveFromLegacy, type GatewayConfig, type SurfaceConfig } from "./config"
-import { HubtelPayInputError, type StartOutcome } from "@/lib/hubtel-pay/client"
+import { HubtelPayInputError, type PaymentStatus, type StartOutcome } from "@/lib/hubtel-pay/client"
 import { newHubtelReference } from "@/lib/hubtel-pay/reference"
 import type { ChargeMobileMoneyParams } from "@/lib/paystack"
 
@@ -36,14 +36,57 @@ function setup(o: {
   insertResult?: "error" | "throw"
   closeResult?: "miss" | "throw"
   callbackUrlThrows?: Error
+  /** Rows already in the table. */
+  seed?: Record<string, any>[]
+  /** What the status check reports for an open attempt past expiry. */
+  status?: PaymentStatus | (() => Promise<PaymentStatus>)
+  /** Forced results for successive inserts, before the real unique check. */
+  insertSeq?: ("duplicate" | "error")[]
+  findOpenThrows?: boolean
+  settledThrows?: boolean
+  closeUnansweredResult?: "miss" | "throw"
+  claimThrows?: boolean
 } = {}) {
   const events: string[] = []
   const rows = new Map<string, any>()
+  for (const r of o.seed ?? []) rows.set(r.reference, { ...r })
+  const insertSeq = [...(o.insertSeq ?? [])]
   const store: StartStore = {
+    async findSettledSibling(internalReference) {
+      if (o.settledThrows) throw new Error("db down")
+      const hit = [...rows.values()].find((r) => r.internal_reference === internalReference && ["paid", "needs_review"].includes(r.status))
+      return hit ? { reference: hit.reference, status: hit.status } : null
+    },
+    async findOpen(internalReference) {
+      if (o.findOpenThrows) throw new Error("db down")
+      const hit = [...rows.values()].find((r) => r.internal_reference === internalReference && ["pending", "confirming"].includes(r.status))
+      return hit ? { reference: hit.reference, status: hit.status, expires_at: hit.expires_at } : null
+    },
+    // One synchronous check-and-set, like the single UPDATE in claim_hubtel_payment.
+    async claim(reference) {
+      events.push("claim")
+      if (o.claimThrows) throw new Error("db down")
+      const r = rows.get(reference)
+      if (!r || r.status !== "pending") return null
+      r.status = "confirming"
+      r.claimed_at = `claim-${reference}`
+      return { reference, claimed_at: r.claimed_at }
+    },
+    async closeUnanswered(reference, claimedAt, patch) {
+      events.push("closeUnanswered")
+      if (o.closeUnansweredResult === "throw") throw new Error("db down")
+      if (o.closeUnansweredResult === "miss") return false
+      const r = rows.get(reference)
+      if (!r || r.status !== "confirming" || r.claimed_at !== claimedAt) return false
+      Object.assign(r, { status: "failed" }, patch)
+      return true
+    },
     async insert(row) {
       events.push("insert")
       if (o.insertResult === "throw") throw new Error("db down")
       if (o.insertResult === "error") return "error"
+      const forced = insertSeq.shift()
+      if (forced) return forced
       for (const r of rows.values()) {
         if (r.internal_reference === row.internal_reference && ["pending", "confirming"].includes(r.status)) return "duplicate"
       }
@@ -70,7 +113,13 @@ function setup(o: {
     return { status: "send_otp", reference: p.reference }
   })
   const alert = vi.fn(async (_kind: string, _message: string) => {})
+  const statusOption = o.status ?? ({ kind: "not_found", raw: { from: "hubtel" } } as PaymentStatus)
+  const checkStatus = vi.fn(async (_reference: string): Promise<PaymentStatus> => {
+    events.push("status")
+    return typeof statusOption === "function" ? statusOption() : statusOption
+  })
   const deps: Partial<StartDeps> = {
+    checkStatus,
     getConfig: async () => o.config ?? config(),
     isReady: () => o.ready ?? true,
     chargeMobileMoney,
@@ -84,7 +133,7 @@ function setup(o: {
     now: () => NOW,
   }
   const onlyRow = () => [...rows.values()][0]
-  return { events, rows, onlyRow, deps, receiveMoney, chargeMobileMoney, alert }
+  return { events, rows, onlyRow, deps, receiveMoney, chargeMobileMoney, alert, checkStatus }
 }
 
 const refused = (over: Partial<Extract<StartOutcome, { kind: "refused" }>> = {}): StartOutcome =>
@@ -451,6 +500,249 @@ describe("startMomoCharge — one open attempt per order", () => {
   })
 })
 
+describe("startMomoCharge — paid or in-review sibling", () => {
+  const sibling = (status: string) => ({ reference: "e".repeat(32), internal_reference: "order-123", status, expires_at: NOW.toISOString() })
+
+  it.each(["paid", "needs_review"])("%s sibling → no row, no prompt, no Paystack, pay_offline, alert", async (status) => {
+    const t = setup({ seed: [sibling(status)] })
+    const out = await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(t.events).toEqual([])
+    expect(t.rows.size).toBe(1)
+    expect(out).toEqual({ status: "pay_offline", reference: "order-123", gateway: "hubtel" })
+    expect(t.alert).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(t.alert.mock.calls)).not.toContain("order-123")
+  })
+
+  it("a failed sibling does not block a new attempt", async () => {
+    const t = setup({ seed: [sibling("failed")] })
+    await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(t.receiveMoney).toHaveBeenCalledTimes(1)
+  })
+
+  it("a paid row for another order does not block", async () => {
+    const t = setup({ seed: [{ ...sibling("paid"), internal_reference: "other" }] })
+    await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(t.receiveMoney).toHaveBeenCalledTimes(1)
+  })
+
+  it("the lookup failing → nothing sent, Paystack, alert (same as a failed insert)", async () => {
+    const t = setup({ settledThrows: true })
+    const out = await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(out.gateway).toBe("paystack")
+    expect(t.events).toEqual(["paystack"])
+    expect(t.alert).toHaveBeenCalledTimes(1)
+  })
+
+  it("the surface being on Paystack never looks at siblings", async () => {
+    const t = setup({ config: deriveFromLegacy({ storefrontDirect: false, walletDirect: false }), seed: [sibling("paid")] })
+    const out = await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(out.gateway).toBe("paystack")
+    expect(t.alert).not.toHaveBeenCalled()
+  })
+})
+
+describe("startMomoCharge — stuck open attempt", () => {
+  const OLD = "d".repeat(32)
+  const open = (expiresInMs: number, status = "pending") => ({
+    reference: OLD, internal_reference: "order-123", status, claimed_at: null,
+    expires_at: new Date(NOW.getTime() + expiresInMs).toISOString(),
+  })
+  const offline = { status: "pay_offline", reference: "order-123", gateway: "hubtel" }
+
+  it("not past expires_at → pay_offline, no claim, no status check", async () => {
+    const t = setup({ seed: [open(1)] })
+    expect(await startMomoCharge("ussd", VERIFIED, t.deps)).toEqual(offline)
+    expect(t.events).toEqual(["insert"])
+  })
+
+  it("the open row vanished, or could not be read → pay_offline", async () => {
+    const gone = setup({ insertSeq: ["duplicate"] })
+    expect(await startMomoCharge("ussd", VERIFIED, gone.deps)).toEqual(offline)
+    expect(gone.events).toEqual(["insert"])
+    const down = setup({ seed: [open(-1)], findOpenThrows: true })
+    expect(await startMomoCharge("ussd", VERIFIED, down.deps)).toEqual(offline)
+    expect(down.events).toEqual(["insert"])
+  })
+
+  it("past expiry but the claim is lost → pay_offline, no status check", async () => {
+    const t = setup({ seed: [open(-1, "confirming")] })
+    expect(await startMomoCharge("ussd", VERIFIED, t.deps)).toEqual(offline)
+    expect(t.events).toEqual(["insert", "claim"])
+  })
+
+  it("the claim throwing → pay_offline", async () => {
+    const t = setup({ seed: [open(-1)], claimThrows: true })
+    expect(await startMomoCharge("ussd", VERIFIED, t.deps)).toEqual(offline)
+    expect(t.events).toEqual(["insert", "claim"])
+  })
+
+  it.each<[string, PaymentStatus]>([
+    ["not_found", { kind: "not_found", raw: { from: "hubtel" } }],
+    ["unpaid", { kind: "unpaid", raw: { from: "hubtel" } }],
+  ])("%s → closed failed with refused_at NULL, new attempt with a new reference, one prompt", async (_n, status) => {
+    const t = setup({ seed: [open(0)], status })
+    const out = await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(t.events).toEqual(["insert", "claim", "status", "closeUnanswered", "insert", "receive"])
+    const old = t.rows.get(OLD)
+    expect(old.status).toBe("failed")
+    expect(old.refused_at ?? null).toBeNull()
+    expect(old.last_check).toEqual({ from: "hubtel" })
+    expect(old.updated_at).toBe(NOW.toISOString())
+    const sent = t.receiveMoney.mock.calls[0][0]
+    expect(sent.reference).not.toBe(OLD)
+    expect(t.rows.get(sent.reference)).toMatchObject({ status: "pending", internal_reference: "order-123" })
+    expect(out).toEqual({ ...offline, hubtelReference: sent.reference })
+    expect(t.chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it.each<[string, PaymentStatus]>([
+    ["paid", { kind: "paid", amountPesewas: 2000, raw: {} }],
+    ["refunded", { kind: "refunded", raw: {} }],
+    ["error", { kind: "error", raw: {} }],
+  ])("%s → pay_offline, nothing sent, not closed; the sweep settles it", async (_n, status) => {
+    const t = setup({ seed: [open(-1)], status })
+    expect(await startMomoCharge("ussd", VERIFIED, t.deps)).toEqual(offline)
+    expect(t.events).toEqual(["insert", "claim", "status"])
+    expect(t.rows.get(OLD).status).toBe("confirming")
+  })
+
+  it("the status check throwing → pay_offline, nothing sent", async () => {
+    const t = setup({ seed: [open(-1)], status: async () => { throw new Error("boom") } })
+    expect(await startMomoCharge("ussd", VERIFIED, t.deps)).toEqual(offline)
+    expect(t.receiveMoney).not.toHaveBeenCalled()
+  })
+
+  it.each(["miss", "throw"] as const)("the guarded close %s → pay_offline, nothing sent", async (closeUnansweredResult) => {
+    const t = setup({ seed: [open(-1)], closeUnansweredResult })
+    expect(await startMomoCharge("ussd", VERIFIED, t.deps)).toEqual(offline)
+    expect(t.events).toEqual(["insert", "claim", "status", "closeUnanswered"])
+  })
+
+  it("the second insert hitting 23505 again → pay_offline, nothing sent", async () => {
+    const t = setup({ seed: [open(-1)], insertSeq: ["duplicate", "duplicate"] })
+    expect(await startMomoCharge("ussd", VERIFIED, t.deps)).toEqual(offline)
+    expect(t.events).toEqual(["insert", "claim", "status", "closeUnanswered", "insert"])
+  })
+
+  it("the second insert failing → Paystack, alert, nothing sent to Hubtel", async () => {
+    const t = setup({ seed: [open(-1)], insertSeq: ["duplicate", "error"] })
+    const out = await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(out.gateway).toBe("paystack")
+    expect(t.receiveMoney).not.toHaveBeenCalled()
+    expect(t.chargeMobileMoney).toHaveBeenCalledTimes(1)
+    expect(t.alert).toHaveBeenCalledTimes(1)
+  })
+
+  it("the re-sent attempt refused → falls back once, as a first attempt would", async () => {
+    const t = setup({ seed: [open(-1)], outcome: refused() })
+    const out = await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(out.gateway).toBe("paystack")
+    expect(t.chargeMobileMoney).toHaveBeenCalledTimes(1)
+  })
+
+  it("concurrent starts on a stuck row → exactly one prompt, no Paystack", async () => {
+    const t = setup({
+      seed: [open(-1)],
+      status: async () => { await new Promise((r) => setTimeout(r, 5)); return { kind: "not_found", raw: {} } },
+    })
+    const results = await Promise.all(Array.from({ length: 5 }, () => startMomoCharge("ussd", VERIFIED, t.deps)))
+    expect(t.receiveMoney).toHaveBeenCalledTimes(1)
+    expect(t.checkStatus).toHaveBeenCalledTimes(1)
+    expect(t.chargeMobileMoney).not.toHaveBeenCalled()
+    for (const r of results) expect(r.status).toBe("pay_offline")
+    const open_ = [...t.rows.values()].filter((r) => ["pending", "confirming"].includes(r.status))
+    expect(open_).toHaveLength(1)
+  })
+})
+
+describe("resolveSurfaceGateway", () => {
+  const deps = (c: GatewayConfig, ready = true) => ({ getConfig: async () => c, isReady: () => ready })
+
+  it("hubtel surface, verified payer, ready → hubtel with the surface's bearer", async () => {
+    expect(await resolveSurfaceGateway("ussd", { verifiedPayer: true }, deps(config({ feeBearer: "merchant" }))))
+      .toEqual({ gateway: "hubtel", feeBearer: "merchant" })
+  })
+
+  it("paystack surface → paystack, keeping the surface's bearer", async () => {
+    const c = deriveFromLegacy({ storefrontDirect: false, walletDirect: false })
+    c.surfaces.ussd.feeBearer = "merchant"
+    expect(await resolveSurfaceGateway("ussd", { verifiedPayer: true }, deps(c))).toEqual({ gateway: "paystack", feeBearer: "merchant" })
+  })
+
+  it.each([false, undefined])("verifiedPayer %s → paystack", async (verifiedPayer) => {
+    expect((await resolveSurfaceGateway("ussd", { verifiedPayer }, deps(config()))).gateway).toBe("paystack")
+  })
+
+  it("not ready → paystack", async () => {
+    expect((await resolveSurfaceGateway("ussd", { verifiedPayer: true }, deps(config(), false))).gateway).toBe("paystack")
+  })
+
+  it("amount under 0.10 → paystack; 0.10 → hubtel; no amount given → not considered", async () => {
+    const c = deps(config())
+    expect((await resolveSurfaceGateway("ussd", { verifiedPayer: true, amount: 0.09 }, c)).gateway).toBe("paystack")
+    expect((await resolveSurfaceGateway("ussd", { verifiedPayer: true, amount: 0.1 }, c)).gateway).toBe("hubtel")
+    expect((await resolveSurfaceGateway("ussd", { verifiedPayer: true }, c)).gateway).toBe("hubtel")
+  })
+
+  it("the merchant-lowered amount is what the minimum applies to", async () => {
+    const c = deps(config({ feeBearer: "merchant" }, 50))
+    expect((await resolveSurfaceGateway("ussd", { verifiedPayer: true, amount: 0.15 }, c)).gateway).toBe("paystack")
+    expect((await resolveSurfaceGateway("ussd", { verifiedPayer: true, amount: 0.2 }, c)).gateway).toBe("hubtel")
+  })
+
+  it("a config read that throws → paystack, customer bearer, and does not throw", async () => {
+    expect(await resolveSurfaceGateway("ussd", { verifiedPayer: true }, { getConfig: async () => { throw new Error("x") }, isReady: () => true }))
+      .toEqual({ gateway: "paystack", feeBearer: "customer" })
+  })
+
+  it("agrees with startMomoCharge on every gate", async () => {
+    for (const [cfg, ready, verifiedPayer, amount] of [
+      [config(), true, true, 20], [config(), false, true, 20], [config(), true, false, 20], [config(), true, true, 0.05],
+      [config({ feeBearer: "merchant" }, 50), true, true, 0.15], [deriveFromLegacy({ storefrontDirect: false, walletDirect: false }), true, true, 20],
+    ] as [GatewayConfig, boolean, boolean, number][]) {
+      const t = setup({ config: cfg, ready })
+      const started = await startMomoCharge("ussd", { ...PARAMS, amount, verifiedPayer }, t.deps)
+      expect((await resolveSurfaceGateway("ussd", { verifiedPayer, amount }, deps(cfg, ready))).gateway).toBe(started.gateway)
+    }
+  })
+})
+
+describe("startMomoCharge — alerts are bounded at 3 seconds", () => {
+  const never = () => new Promise<void>(() => {})
+
+  it.each<[string, Parameters<typeof setup>[0], string]>([
+    ["fallback after a config refusal", { outcome: refused({ code: "relay_401" }) }, "paystack"],
+    ["fallback after a failed insert", { insertResult: "error" }, "paystack"],
+    ["relay_404 with no fallback", { outcome: unknown({ code: "relay_404" }) }, "hubtel"],
+    ["unexpected send error", { outcome: async () => { throw new Error("surprise") } }, "hubtel"],
+    ["paid sibling", { seed: [{ reference: "e".repeat(32), internal_reference: "order-123", status: "paid" }] }, "hubtel"],
+  ])("%s: a never-resolving notify cannot hang the start", async (_n, o, gateway) => {
+    vi.useFakeTimers()
+    try {
+      const t = setup(o)
+      t.deps.alert = vi.fn(never)
+      let done: { gateway: string } | null = null
+      const run = startMomoCharge("ussd", VERIFIED, t.deps).then((r) => { done = r })
+      await vi.advanceTimersByTimeAsync(2_999)
+      expect(done).toBeNull()
+      await vi.advanceTimersByTimeAsync(1)
+      await run
+      expect(done!.gateway).toBe(gateway)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("a quick alert does not wait for the timer, and an alert that rejects changes nothing", async () => {
+    const t = setup({ outcome: refused({ code: "relay_401" }) })
+    t.deps.alert = vi.fn(async () => { throw new Error("sms down") })
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const out = await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(out.gateway).toBe("paystack")
+    err.mockRestore()
+  })
+})
+
 describe("PII-free alerts", () => {
   it.each<[string, Parameters<typeof setup>[0]]>([
     ["refused config", { outcome: refused({ code: "relay_401", message: "bad 0244123456" }) }],
@@ -470,14 +762,66 @@ describe("PII-free alerts", () => {
 describe("createStartStore", () => {
   function fakeSb(res: { error?: { code?: string; message: string } | null; data?: unknown[] }) {
     const calls: unknown[][] = []
+    const reply = () => ({ data: res.data ?? null, error: res.error ?? null })
     const q: any = {
       insert: (v: unknown) => { calls.push(["insert", v]); return Promise.resolve({ error: res.error ?? null }) },
       update: (v: unknown) => { calls.push(["update", v]); return q },
       eq: (c: string, v: unknown) => { calls.push(["eq", c, v]); return q },
-      select: (c: string) => { calls.push(["select", c]); return Promise.resolve({ data: res.data ?? null, error: res.error ?? null }) },
+      in: (c: string, v: unknown) => { calls.push(["in", c, v]); return q },
+      limit: (n: number) => { calls.push(["limit", n]); return q },
+      select: (c: string) => { calls.push(["select", c]); return q },
+      maybeSingle: async () => { const r = reply(); return { ...r, data: Array.isArray(r.data) ? r.data[0] ?? null : r.data } },
+      then: (ok: any, ko: any) => Promise.resolve(reply()).then(ok, ko),
     }
-    return { sb: { from: (t: string) => { calls.push(["from", t]); return q } } as any, calls }
+    return {
+      sb: {
+        from: (t: string) => { calls.push(["from", t]); return q },
+        rpc: async (name: string, args: unknown) => { calls.push(["rpc", name, args]); return reply() },
+      } as any,
+      calls,
+    }
   }
+
+  it("findSettledSibling looks only at paid and needs_review for that order; throws on a database error", async () => {
+    const hit = fakeSb({ data: [{ reference: "r1", status: "paid" }] })
+    expect(await createStartStore(hit.sb).findSettledSibling("order-1")).toEqual({ reference: "r1", status: "paid" })
+    expect(hit.calls).toContainEqual(["eq", "internal_reference", "order-1"])
+    expect(hit.calls).toContainEqual(["in", "status", ["paid", "needs_review"]])
+    expect(await createStartStore(fakeSb({ data: [] }).sb).findSettledSibling("order-1")).toBeNull()
+    await expect(createStartStore(fakeSb({ error: { message: "x" } }).sb).findSettledSibling("order-1")).rejects.toThrow()
+  })
+
+  it("findOpen looks only at pending and confirming for that order; throws on a database error", async () => {
+    const open = { reference: "r1", status: "pending", expires_at: NOW.toISOString() }
+    const hit = fakeSb({ data: [open] })
+    expect(await createStartStore(hit.sb).findOpen("order-1")).toEqual(open)
+    expect(hit.calls).toContainEqual(["eq", "internal_reference", "order-1"])
+    expect(hit.calls).toContainEqual(["in", "status", ["pending", "confirming"]])
+    expect(await createStartStore(fakeSb({ data: [] }).sb).findOpen("order-1")).toBeNull()
+    await expect(createStartStore(fakeSb({ error: { message: "x" } }).sb).findOpen("order-1")).rejects.toThrow()
+  })
+
+  it("claim uses the claim_hubtel_payment RPC; no row back means lost", async () => {
+    const hit = fakeSb({ data: [{ reference: "r1", claimed_at: "2026-11-04T10:00:00.123456+00:00" }] })
+    expect(await createStartStore(hit.sb).claim("r1")).toEqual({ reference: "r1", claimed_at: "2026-11-04T10:00:00.123456+00:00" })
+    expect(hit.calls).toContainEqual(["rpc", "claim_hubtel_payment", { p_reference: "r1" }])
+    expect(await createStartStore(fakeSb({ data: [] }).sb).claim("r1")).toBeNull()
+    await expect(createStartStore(fakeSb({ error: { message: "x" } }).sb).claim("r1")).rejects.toThrow()
+  })
+
+  it("closeUnanswered is guarded on confirming and the exact claimed_at, and never sets refused_at", async () => {
+    const stamp = "2026-11-04T10:00:00.123456+00:00"
+    const patch = { last_check: { a: 1 }, updated_at: NOW.toISOString() }
+    const hit = fakeSb({ data: [{ reference: "r1" }] })
+    expect(await createStartStore(hit.sb).closeUnanswered("r1", stamp, patch)).toBe(true)
+    expect(hit.calls).toContainEqual(["update", { status: "failed", ...patch }])
+    expect(hit.calls).toContainEqual(["eq", "reference", "r1"])
+    expect(hit.calls).toContainEqual(["eq", "status", "confirming"])
+    expect(hit.calls).toContainEqual(["eq", "claimed_at", stamp])
+    expect(await createStartStore(fakeSb({ data: [] }).sb).closeUnanswered("r1", stamp, patch)).toBe(false)
+    await expect(createStartStore(fakeSb({ error: { message: "x" } }).sb).closeUnanswered("r1", stamp, patch)).rejects.toThrow()
+  })
+
   const row = {
     reference: "a".repeat(32), internal_reference: "order-1", metadata: {}, surface: "ussd" as const, mode: "direct" as const, amount_pesewas: 100,
     handler_amount_pesewas: null, msisdn: "233244123456", channel: "mtn-gh", expires_at: NOW.toISOString(),

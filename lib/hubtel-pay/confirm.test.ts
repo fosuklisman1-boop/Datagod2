@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
-import { confirmHubtelPayment, isAllowedPaymentMethod, ROW_COLUMNS, type ConfirmDeps, type HubtelPaymentRow, type HubtelPaymentStore, type RowPatch, type UpdateGuard } from "./confirm"
+import { confirmHubtelPayment, isAllowedPaymentMethod, LIVE_SIBLING_STATUSES, ROW_COLUMNS, type ConfirmDeps, type HubtelPaymentRow, type HubtelPaymentStore, type RowPatch, type UpdateGuard } from "./confirm"
 import type { PaymentStatus } from "./client"
 
 const REF = "0123456789abcdef0123456789abcdef"
@@ -28,6 +28,7 @@ function fakeStore(row: Partial<HubtelPaymentRow> | null, clock: () => Date) {
   const writes: Write[] = []
   const claims: { reference: string; won: boolean }[] = []
   const siblingChecks: { internalReference: string; exceptReference: string }[] = []
+  const paidSiblingChecks: { internalReference: string; exceptReference: string }[] = []
   const store: HubtelPaymentStore = {
     async load(ref) { const r = rows.get(ref); return r ? { ...r } : null },
     async claim(ref) {
@@ -46,7 +47,11 @@ function fakeStore(row: Partial<HubtelPaymentRow> | null, clock: () => Date) {
     async hasLiveSibling(internalReference, exceptReference) {
       siblingChecks.push({ internalReference, exceptReference })
       return [...rows.values()].some((r) => r.reference !== exceptReference && r.internal_reference === internalReference &&
-        ["paid", "pending", "confirming"].includes(r.status))
+        ["paid", "needs_review", "pending", "confirming"].includes(r.status))
+    },
+    async hasPaidSibling(internalReference, exceptReference) {
+      paidSiblingChecks.push({ internalReference, exceptReference })
+      return [...rows.values()].some((r) => r.reference !== exceptReference && r.internal_reference === internalReference && r.status === "paid")
     },
     async update(ref, patch, guard) {
       const r = rows.get(ref)
@@ -56,7 +61,7 @@ function fakeStore(row: Partial<HubtelPaymentRow> | null, clock: () => Date) {
       return ok
     },
   }
-  return { store, rows, writes, claims, siblingChecks, get: () => rows.get(REF)! }
+  return { store, rows, writes, claims, siblingChecks, paidSiblingChecks, get: () => rows.get(REF)! }
 }
 
 const paid = (over: Partial<PaymentStatus> = {}): PaymentStatus => ({
@@ -378,7 +383,7 @@ describe("confirmHubtelPayment — internal reference and metadata", () => {
     }
     const expiredUnpaid = () => setup({ row: { internal_reference: INTERNAL }, status: { kind: "unpaid", raw: {} }, now: expiredAt })
 
-    it.each(["paid", "pending", "confirming"] as const)("expired attempt with a %s sibling → no handleChargeFailed, row closed failed", async (siblingStatus) => {
+    it.each(["paid", "needs_review", "pending", "confirming"] as const)("expired attempt with a %s sibling → no handleChargeFailed, row closed failed", async (siblingStatus) => {
       const t = expiredUnpaid()
       addSibling(t, siblingStatus)
       expect(await confirmHubtelPayment(REF, t.deps)).toBe("failed")
@@ -387,9 +392,13 @@ describe("confirmHubtelPayment — internal reference and metadata", () => {
       expect(t.siblingChecks).toEqual([{ internalReference: INTERNAL, exceptReference: REF }])
     })
 
-    it.each(["failed", "needs_review"] as const)("expired attempt with a %s sibling → handler runs", async (siblingStatus) => {
+    it("the real sibling query covers exactly these statuses", () => {
+      expect([...LIVE_SIBLING_STATUSES].sort()).toEqual(["confirming", "needs_review", "paid", "pending"])
+    })
+
+    it("expired attempt with only a failed sibling → handler runs", async () => {
       const t = expiredUnpaid()
-      addSibling(t, siblingStatus)
+      addSibling(t, "failed")
       expect(await confirmHubtelPayment(REF, t.deps)).toBe("failed")
       expect(t.onChargeFailed).toHaveBeenCalledTimes(1)
     })
@@ -427,11 +436,64 @@ describe("confirmHubtelPayment — internal reference and metadata", () => {
       err.mockRestore()
     })
 
-    it("a paid attempt does not look at siblings", async () => {
+    it("paid with a paid sibling → needs_review, one alert, no handler: the customer may have paid twice", async () => {
       const t = setup({ row: { internal_reference: INTERNAL } })
       addSibling(t, "paid")
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+      expect(t.onChargeSuccess).not.toHaveBeenCalled()
+      expect(t.get().status).toBe("needs_review")
+      expect(t.get().hubtel_transaction_id).toBe("tx-1")
+      expect(t.notify).toHaveBeenCalledTimes(1)
+      expect(t.paidSiblingChecks).toEqual([{ internalReference: INTERNAL, exceptReference: REF }])
+    })
+
+    it.each(["failed", "needs_review", "pending", "confirming"] as const)("paid with a %s sibling → fulfilled as normal", async (siblingStatus) => {
+      const t = setup({ row: { internal_reference: INTERNAL } })
+      addSibling(t, siblingStatus)
       expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
-      expect(t.siblingChecks).toHaveLength(0)
+      expect(t.onChargeSuccess).toHaveBeenCalledTimes(1)
+    })
+
+    it("paid with no internal_reference → no sibling lookup", async () => {
+      const t = setup({ row: { internal_reference: null } })
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
+      expect(t.paidSiblingChecks).toHaveLength(0)
+    })
+
+    it("the paid-sibling lookup failing → no handler, left confirming, alert, check_error", async () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {})
+      const t = setup({ row: { internal_reference: INTERNAL } })
+      t.deps.store.hasPaidSibling = async () => { throw new Error("db down") }
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("check_error")
+      expect(t.onChargeSuccess).not.toHaveBeenCalled()
+      expect(t.get().status).toBe("confirming")
+      expect(t.notify).toHaveBeenCalledTimes(1)
+      err.mockRestore()
+    })
+  })
+
+  describe("handler reports the order was already closed", () => {
+    const body = (b: unknown) => async () => Response.json(b)
+
+    it("order_closed in a 2xx body → needs_review + alert, not paid", async () => {
+      const t = setup({ success: body({ received: true, order_closed: true }) })
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+      expect(t.get().status).toBe("needs_review")
+      expect(t.notify).toHaveBeenCalledTimes(1)
+      expect((t.notify.mock.calls[0] as unknown as string[])[0]).toContain("Needs review")
+    })
+
+    it.each<[string, () => Promise<Response | null>]>([
+      ["null", async () => null],
+      ["{received:true}", body({ received: true })],
+      ["order_closed false", body({ received: true, order_closed: false })],
+      ["an empty body", async () => new Response(null, { status: 200 })],
+      ["non-JSON", async () => new Response("ok", { status: 200 })],
+      ["a JSON array", body([1])],
+    ])("%s → fulfilled and paid", async (_n, success) => {
+      const t = setup({ success })
+      expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
+      expect(t.get().status).toBe("paid")
     })
   })
 

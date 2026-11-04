@@ -169,6 +169,7 @@ describe("hubtel-payments callback route", () => {
       load: vi.fn(async () => ({ ...row })),
       claim: vi.fn(async () => null),
       hasLiveSibling: vi.fn(async () => false),
+      hasPaidSibling: vi.fn(async () => false),
       update: vi.fn(async () => true),
     }
     const deps: Partial<ConfirmDeps> = {
@@ -200,6 +201,7 @@ describe("hubtel-payments callback route", () => {
       load: vi.fn(async () => ({ ...row })),
       claim: vi.fn(async () => null),
       hasLiveSibling: vi.fn(async () => false),
+      hasPaidSibling: vi.fn(async () => false),
       update: vi.fn(async (_r, patch, guard) => {
         if (!guard.status.includes(row.status)) return false
         Object.assign(row, patch)

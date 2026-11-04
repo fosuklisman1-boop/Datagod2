@@ -61,8 +61,10 @@ export interface HubtelPaymentStore {
   load(reference: string): Promise<HubtelPaymentRow | null>
   /** Atomic claim. Returns the claimed row, or null if another caller holds it / it is final / missing. */
   claim(reference: string): Promise<HubtelPaymentRow | null>
-  /** Is another attempt for the same order paid or still open? Throws on a database error. */
+  /** Does another attempt for the same order have one of LIVE_SIBLING_STATUSES? Throws on a database error. */
   hasLiveSibling(internalReference: string, exceptReference: string): Promise<boolean>
+  /** Has another attempt for the same order been paid? Throws on a database error. */
+  hasPaidSibling(internalReference: string, exceptReference: string): Promise<boolean>
   /** Guarded update. Returns whether a row changed. Throws on a database error. */
   update(reference: string, patch: RowPatch, guard: UpdateGuard): Promise<boolean>
 }
@@ -76,6 +78,13 @@ export interface ConfirmDeps {
   notify: (message: string, type: string, reference?: string) => Promise<void>
   now: () => Date
 }
+
+/**
+ * Another attempt in one of these stops the failure handler. paid and needs_review are the real cases: money may be
+ * held, and a pending order with no money is recoverable where a failed order with money is not. pending/confirming
+ * are defence only: the one-open-per-order index normally makes them unreachable, since this row is itself open.
+ */
+export const LIVE_SIBLING_STATUSES: readonly HubtelPaymentStatus[] = ["paid", "needs_review", "pending", "confirming"]
 
 const REF_RE = /^[0-9a-f]{32}$/
 const STALE_CLAIM_MS = 10 * 60_000
@@ -97,6 +106,19 @@ export function isAllowedPaymentMethod(method: string | undefined | null): boole
 }
 
 const isOk = (res: HandlerResponse) => res === null || (res.status >= 200 && res.status < 300)
+/**
+ * The handler says the order was closed before this payment, so nothing was delivered. A retry after a real
+ * fulfilment can't report this: the order's payment_status is completed by then, not failed.
+ * Nothing sends order_closed yet: see the charge-events.ts proposal in the plan 4 task 1 report.
+ */
+const reportsOrderClosed = async (res: HandlerResponse): Promise<boolean> => {
+  if (!res) return false
+  try {
+    return (await res.clone().json())?.order_closed === true
+  } catch {
+    return false
+  }
+}
 const ghs = (p: number | undefined) => (typeof p === "number" ? (p / 100).toFixed(2) : "?")
 const hubtelFieldsOf = (status: PaymentStatus) => ({
   hubtel_transaction_id: status.transactionId ?? null,
@@ -202,6 +224,20 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     const capped = await capReached(claimed)
     if (capped) return capped
 
+    if (row.internal_reference) {
+      let paidSibling: boolean
+      try {
+        paidSibling = await d.store.hasPaidSibling(row.internal_reference, reference)
+      } catch (e) {
+        console.error("[hubtel-pay] paid-sibling check failed", reference, e instanceof Error ? e.message : "unknown error")
+        await alert(`Hubtel payment ${reference}: could not check other attempts for the order; handler not called, left confirming, the sweep retries after 10 min.`)
+        return "check_error"
+      }
+      if (paidSibling) {
+        return park(claimed, `Hubtel payment ${reference} was paid (GHS ${ghs(paidP)}) but another attempt for the order is already paid; the customer may have paid twice. Not fulfilled. Needs review.`)
+      }
+    }
+
     let res: HandlerResponse
     try {
       // Always OUR amount, even when Hubtel reports more (its fee can sit on top): the real figures stay in last_check
@@ -218,6 +254,9 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
       await alert(`Hubtel payment ${reference} needs review: Hubtel says Paid (GHS ${ghs(paidP)}) but the fulfilment handler answered ${res!.status}.`)
       return "needs_review"
     }
+    if (await reportsOrderClosed(res)) {
+      return park(claimed, `Hubtel payment ${reference} was paid (GHS ${ghs(paidP)}) but the order was already closed, so nothing was delivered. Needs review.`)
+    }
     const wrote = await finish(claimed, { status: "paid", ...hubtelFields })
     if (!wrote) {
       await alert(`Hubtel payment ${reference}: fulfilled but could not be marked paid; the sweep may re-run the (idempotent) handler.`)
@@ -233,8 +272,8 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     const capped = await capReached(claimed)
     if (capped) return capped
 
-    // Another attempt has paid this order or may still pay it: the failure handler would fail that order, so this
-    // row just closes. Checked after the claim, as close to the handler as possible.
+    // Another attempt holds or may hold money for this order: the failure handler would fail that order, so this row
+    // just closes. Checked after the claim, as close to the handler as possible.
     let siblingLive = false
     if (row.internal_reference) {
       try {
@@ -247,7 +286,7 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     }
     if (siblingLive) {
       await finish(claimed, { status: "failed", ...hubtelFields })
-      if (refunded) await alert(`Hubtel payment ${reference} was REFUNDED by Hubtel (GHS ${ghs(status.amountPesewas)}); marked failed. Another attempt for the order is paid or open, so the order was left alone.`)
+      if (refunded) await alert(`Hubtel payment ${reference} was REFUNDED by Hubtel (GHS ${ghs(status.amountPesewas)}); marked failed. Another attempt for the order is paid, in review or open, so the order was left alone.`)
       return "failed"
     }
 
@@ -321,8 +360,15 @@ async function supabaseStore(): Promise<HubtelPaymentStore> {
     async hasLiveSibling(internalReference, exceptReference) {
       const { data, error } = await sb.from("hubtel_payments").select("reference")
         .eq("internal_reference", internalReference).neq("reference", exceptReference)
-        .in("status", ["paid", "pending", "confirming"]).limit(1)
+        .in("status", [...LIVE_SIBLING_STATUSES]).limit(1)
       if (error) throw new Error(`hubtel_payments sibling check failed: ${error.message}`)
+      return (data?.length ?? 0) > 0
+    },
+    async hasPaidSibling(internalReference, exceptReference) {
+      const { data, error } = await sb.from("hubtel_payments").select("reference")
+        .eq("internal_reference", internalReference).neq("reference", exceptReference)
+        .eq("status", "paid").limit(1)
+      if (error) throw new Error(`hubtel_payments paid-sibling check failed: ${error.message}`)
       return (data?.length ?? 0) > 0
     },
     async update(reference, patch, guard) {
