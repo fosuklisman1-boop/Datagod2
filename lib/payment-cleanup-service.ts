@@ -8,6 +8,7 @@ import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendPushToUser } from "./push-service"
 import { netCreditAmount } from "@/lib/payment-amounts"
+import { findHubtelPaymentByInternalRef, findHubtelPayments, isHubtelWalletPayment, isLiveHubtelStatus } from "@/lib/hubtel-pay/lookup"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -94,7 +95,7 @@ export async function cleanupAbandonedPayments(
   // Find pending wallet payments older than cutoff
   const { data: pendingPayments, error } = await supabase
     .from("wallet_payments")
-    .select("id, reference, user_id, amount, fee, created_at, shop_id, order_id, order_type")
+    .select("id, reference, user_id, amount, fee, created_at, shop_id, order_id, order_type, payment_method")
     .eq("status", "pending")
     .lt("created_at", cutoffTime)
     .limit(100) // Process in batches
@@ -109,6 +110,10 @@ export async function cleanupAbandonedPayments(
     return { cleaned: 0, verified: 0, credited: 0 }
   }
 
+  // Hubtel payments are settled by the Hubtel sweep; Paystack would answer 404 ("abandoned") for them. Throws on a
+  // lookup error, before anything is changed.
+  const hubtelRows = await findHubtelPayments(supabase, pendingPayments.map((p) => p.reference))
+
   console.log(`[PAYMENT-CLEANUP] Found ${pendingPayments.length} pending payments to check`)
 
   let cleaned = 0
@@ -116,6 +121,7 @@ export async function cleanupAbandonedPayments(
   let credited = 0
 
   for (const payment of pendingPayments) {
+    if (isHubtelWalletPayment(payment, hubtelRows.get(payment.reference))) continue
     try {
       // Verify with Paystack first
       const paystackStatus = await verifyWithPaystack(payment.reference)
@@ -316,7 +322,7 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
   
   const { data: pendingPayments, error } = await supabase
     .from("wallet_payments")
-    .select("id, reference, amount, fee, shop_id, order_type")
+    .select("id, reference, amount, fee, shop_id, order_type, payment_method")
     .eq("user_id", userId)
     .eq("status", "pending")
     .gt("created_at", cutoffTime)
@@ -327,6 +333,15 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
     return { checked: 0, credited: 0, failed: 0 }
   }
 
+  // Hubtel payments are settled by the Hubtel sweep, never by Paystack. A failed lookup checks nothing.
+  let hubtelRows: Awaited<ReturnType<typeof findHubtelPayments>>
+  try {
+    hubtelRows = await findHubtelPayments(supabase, pendingPayments.map((p) => p.reference))
+  } catch (e) {
+    console.error("[PAYMENT-VERIFY] Hubtel payment lookup failed:", e instanceof Error ? e.message : e)
+    return { checked: 0, credited: 0, failed: 0 }
+  }
+
   console.log(`[PAYMENT-VERIFY] Checking ${pendingPayments.length} pending payments for user ${userId}`)
 
   let checked = 0
@@ -334,6 +349,7 @@ export async function verifyUserPendingPayments(userId: string): Promise<{
   let failed = 0
 
   for (const payment of pendingPayments) {
+    if (isHubtelWalletPayment(payment, hubtelRows.get(payment.reference))) continue
     try {
       const paystackStatus = await verifyWithPaystack(payment.reference)
       checked++
@@ -479,7 +495,7 @@ export async function verifyUserPaymentByReference(
 
   const { data: payment } = await supabase
     .from("wallet_payments")
-    .select("id, reference, amount, fee, status, user_id, order_id, shop_id, order_type")
+    .select("id, reference, amount, fee, status, user_id, order_id, shop_id, order_type, payment_method")
     .eq("reference", ref)
     .maybeSingle()
 
@@ -487,6 +503,20 @@ export async function verifyUserPaymentByReference(
   // shop/data/upgrade payment).
   if (!payment || payment.user_id !== userId) return { outcome: "not_found" }
   if (payment.order_id || payment.shop_id || payment.order_type === "dealer_upgrade") return { outcome: "not_found" }
+
+  // Hubtel top-up: the shared charge handler credits it when Hubtel confirms; report from the rows, never Paystack.
+  let hubtelRow: Awaited<ReturnType<typeof findHubtelPaymentByInternalRef>>
+  try {
+    hubtelRow = await findHubtelPaymentByInternalRef(supabase, ref)
+  } catch {
+    return { outcome: "pending" }
+  }
+  if (isHubtelWalletPayment(payment, hubtelRow)) {
+    if (isLiveHubtelStatus(hubtelRow?.status) && hubtelRow?.status !== "paid") return { outcome: "pending" }
+    if (payment.status === "completed") return { outcome: "already_credited" }
+    if (payment.status === "failed" || payment.status === "abandoned") return { outcome: "failed" }
+    return { outcome: "pending" }
+  }
 
   const paystack = await verifyWithPaystack(ref)
   if (paystack.status === "failed" || paystack.status === "abandoned") {
