@@ -184,6 +184,12 @@ export class KuntaniiProvider implements MTNProvider {
           break
         }
         console.warn(`[Kuntanii] attempt lookup ${candidate} failed: HTTP ${res.status} ${res.code ?? ""}`)
+        // ACCOUNT_HOLD classification does not depend on the delivery mode.
+        if (!res.network && classifyKuntaniiError(res.status, res.code, "normal") === "ACCOUNT_HOLD") {
+          const code = res.code ?? "ACCOUNT_HOLD"
+          await this.safeAlert("kuntanii_" + code.toLowerCase(), "Kuntanii: orders refused", `${code}: ${res.message}`)
+          return fail("ACCOUNT_HOLD", `Kuntanii attempt lookup refused (HTTP ${res.status}${res.code ? ` ${res.code}` : ""})`)
+        }
         return fail("RETRYABLE", `Kuntanii attempt lookup failed (HTTP ${res.status})`)
       }
       const entries = entriesOf(res.data)
@@ -310,7 +316,9 @@ export class KuntaniiProvider implements MTNProvider {
       if (!KNOWN_STATUSES.has(s)) console.warn(`[Kuntanii] unknown status for ${id} (${e.orderReference ?? "no ref"}); treating as processing`)
     }
     const status = aggregateOrdersStatus(entries)
-    return { success: true, status, message: `Kuntanii status: ${status}`, order: res.data }
+    // Redacted: callers (syncMTNOrderStatus) log this result. Redaction only rewrites
+    // phone-shaped strings, so status / message / orderReference / notReceivedStatus survive.
+    return { success: true, status, message: `Kuntanii status: ${status}`, order: redactBody(res.data) as OrderBody | undefined }
   }
 
   async checkBalance(): Promise<number | null> {

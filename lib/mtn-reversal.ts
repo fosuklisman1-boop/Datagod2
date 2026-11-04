@@ -19,6 +19,9 @@ export type ReversalRow = {
 // status column was merely copied over by an unrelated flow.
 const PROVIDER_COMPLETED_KEYWORDS = new Set([
   "completed", "complete", "success", "successful", "delivered", "done", "sent", "fulfilled",
+  // Kuntanii: "processed" = delivered; "not received" = delivered, customer disputes it.
+  // Input is normalised (lowercase, spaces -> "_") so "not received" matches "not_received".
+  "processed", "not received", "not_received",
 ])
 
 /**

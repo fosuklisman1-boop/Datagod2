@@ -30,6 +30,13 @@ describe("looksProviderCompleted", () => {
   it("rejects a genuine provider failure string", () => {
     expect(looksProviderCompleted("failed")).toBe(false)
   })
+  it("accepts Kuntanii's raw delivered statuses (processed / not received)", () => {
+    for (const s of ["processed", "Processed", "not received", "Not Received", "not_received"]) {
+      expect(looksProviderCompleted(s)).toBe(true)
+    }
+    expect(looksProviderCompleted("cancelled")).toBe(false)
+    expect(looksProviderCompleted("processing")).toBe(false)
+  })
   it("rejects null/undefined/empty (row whose external_status was never set by a real provider check)", () => {
     expect(looksProviderCompleted(null)).toBe(false)
     expect(looksProviderCompleted(undefined)).toBe(false)

@@ -251,6 +251,39 @@ describe("createOrder attempt walk", () => {
     expect(client.placeOrder).toHaveBeenCalledTimes(0)
   })
 
+  it("walk: lookup 500 does not alert", async () => {
+    const client = fakeClient({
+      getOrder: vi.fn(async () => ({ ok: false, status: 500, message: "HTTP 500" })),
+    })
+    const { provider, alert } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(r.error_type).toBe("RETRYABLE")
+    expect(alert).not.toHaveBeenCalled()
+  })
+
+  it("walk: lookup 401 UNAUTHORIZED alerts and fails ACCOUNT_HOLD without POST", async () => {
+    const client = fakeClient({
+      getOrder: vi.fn(async () => ({ ok: false, status: 401, code: "UNAUTHORIZED", message: "Bad key" })),
+    })
+    const { provider, alert } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(r.success).toBe(false)
+    expect(r.error_type).toBe("ACCOUNT_HOLD")
+    expect(alert).toHaveBeenCalledWith("kuntanii_unauthorized", "Kuntanii: orders refused", "UNAUTHORIZED: Bad key")
+    expect(client.placeOrder).toHaveBeenCalledTimes(0)
+  })
+
+  it("walk: lookup 403 ORDERS_PAUSED alerts and fails ACCOUNT_HOLD without POST", async () => {
+    const client = fakeClient({
+      getOrder: vi.fn(async () => ({ ok: false, status: 403, code: "ORDERS_PAUSED", message: "Orders paused" })),
+    })
+    const { provider, alert } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(r.error_type).toBe("ACCOUNT_HOLD")
+    expect(alert).toHaveBeenCalledWith("kuntanii_orders_paused", "Kuntanii: orders refused", "ORDERS_PAUSED: Orders paused")
+    expect(client.placeOrder).toHaveBeenCalledTimes(0)
+  })
+
   it("walk: lookup network error fails RETRYABLE and never POSTs", async () => {
     const client = fakeClient({
       getOrder: vi.fn(async () => ({ ok: false, status: 0, network: true, message: "timeout" })),
@@ -620,6 +653,30 @@ describe("checkOrderStatus", () => {
     expect(r.success).toBe(true)
     expect(r.status).toBe("completed")
     expect(r.order).toEqual(body)
+  })
+
+  it("redacts phones in the returned order body but keeps status fields", async () => {
+    const body = {
+      externalOrderId: "ord1",
+      status: "processed",
+      orders: [
+        {
+          orderReference: "KT-1",
+          status: "processed",
+          phoneNumber: "0241234567",
+          notReceivedStatus: "open",
+          removedNewNumbers: ["0241234567"],
+        },
+      ],
+    }
+    const client = fakeClient({ getOrder: vi.fn(async () => ({ ok: true, status: 200, data: body })) })
+    const { provider } = setup({ client })
+    const r = await provider.checkOrderStatus("ord1")
+    expect(JSON.stringify(r.order)).not.toContain("0241234567")
+    expect(r.order.status).toBe("processed")
+    expect(r.order.orders[0].status).toBe("processed")
+    expect(r.order.orders[0].orderReference).toBe("KT-1")
+    expect(r.order.orders[0].notReceivedStatus).toBe("open")
   })
 
   it("maps a top-level status when orders[] is absent", async () => {

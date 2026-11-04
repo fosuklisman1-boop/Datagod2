@@ -96,7 +96,7 @@ describe("checkUnknownAttempts", () => {
       client: clientReturning(okBody({ externalOrderId: "ord-1-r2", orders: [{ status: "pending", phoneNumber: "0241234567" }] })),
     })
     expect(alert).toHaveBeenCalledWith(
-      "kuntanii_possible_double_delivery",
+      "kuntanii_possible_double_delivery_ord-1-r2",
       "Kuntanii: possible double delivery",
       "order ord-1 attempt ord-1-r2 is processing at Kuntanii",
     )
@@ -163,6 +163,32 @@ describe("checkUnknownAttempts", () => {
       client: clientReturning(okBody({ externalOrderId: "x", orders: [{ status: "pending" }] })),
     })
     expect(r.checked).toBe(2)
+    expect(alert).toHaveBeenCalledTimes(2)
+  })
+
+  it("a failed alert leaves the row unresolved so the next run retries", async () => {
+    const rows = [row()]
+    const { db } = makeDb(rows)
+    const alert = vi.fn(async () => {
+      throw new Error("sms down")
+    })
+    await checkUnknownAttempts({
+      db, alert, now: () => NOW,
+      client: clientReturning(okBody({ externalOrderId: "x", orders: [{ status: "pending" }] })),
+    })
+    expect(rows[0].resolved_at).toBeNull()
+  })
+
+  it("two different attempts produce two alerts with distinct types", async () => {
+    const rows = [row({ id: "a", external_order_id: "ea" }), row({ id: "b", external_order_id: "eb" })]
+    const { db } = makeDb(rows)
+    const alert = vi.fn(async () => {})
+    await checkUnknownAttempts({
+      db, alert, now: () => NOW,
+      client: clientReturning(okBody({ externalOrderId: "x", orders: [{ status: "pending" }] })),
+    })
+    const types = alert.mock.calls.map((c: any[]) => c[0])
+    expect(types).toEqual(["kuntanii_possible_double_delivery_ea", "kuntanii_possible_double_delivery_eb"])
     expect(rows.every((x) => x.resolved_at)).toBe(true)
   })
 })

@@ -10,7 +10,7 @@ const UUID = "123e4567-e89b-12d3-a456-426614174000"
 
 function deps(over: Record<string, any> = {}) {
   return {
-    findTracking: vi.fn(async () => ({ id: "t1", webhook_received_at: null as string | null })),
+    findTracking: vi.fn(async () => ({ id: "t1", status: "pending", webhook_received_at: null as string | null })),
     markReceived: vi.fn(async () => {}),
     sync: vi.fn(async () => ({ success: true })),
     refreshOpenDisputes: vi.fn(async () => {}),
@@ -45,6 +45,7 @@ describe("processKuntaniiWebhook", () => {
     const d = deps({
       findTracking: vi.fn(async () => ({
         id: "t1",
+        status: "pending",
         webhook_received_at: new Date(now - (REFETCH_THROTTLE_MS - 1000)).toISOString(),
       })),
     })
@@ -57,6 +58,7 @@ describe("processKuntaniiWebhook", () => {
     const d = deps({
       findTracking: vi.fn(async () => ({
         id: "t1",
+        status: "processing",
         webhook_received_at: new Date(now - REFETCH_THROTTLE_MS - 1).toISOString(),
       })),
     })
@@ -70,6 +72,38 @@ describe("processKuntaniiWebhook", () => {
     const d2 = deps()
     await processKuntaniiWebhook({ externalOrderId: UUID, event: "order.completed" }, d2)
     expect(d2.refreshOpenDisputes).not.toHaveBeenCalled()
+  })
+
+  it("completed row + not_received event: no sync, disputes still refreshed", async () => {
+    const d = deps({ findTracking: vi.fn(async () => ({ id: "t1", status: "completed", webhook_received_at: null })) })
+    const r = await processKuntaniiWebhook({ externalOrderId: UUID, event: "order.not_received_reported" }, d)
+    expect(r).toBe("terminal")
+    expect(d.sync).not.toHaveBeenCalled()
+    expect(d.refreshOpenDisputes).toHaveBeenCalledWith("t1")
+  })
+
+  it("completed row + other event -> terminal, no sync", async () => {
+    const d = deps({ findTracking: vi.fn(async () => ({ id: "t1", status: "completed", webhook_received_at: null })) })
+    const r = await processKuntaniiWebhook({ externalOrderId: UUID, event: "order.completed" }, d)
+    expect(r).toBe("terminal")
+    expect(d.sync).not.toHaveBeenCalled()
+    expect(d.refreshOpenDisputes).not.toHaveBeenCalled()
+  })
+
+  it("failed / reversed / abandoned rows are never synced", async () => {
+    for (const status of ["failed", "reversed", "abandoned"]) {
+      const d = deps({ findTracking: vi.fn(async () => ({ id: "t1", status, webhook_received_at: null })) })
+      expect(await processKuntaniiWebhook({ externalOrderId: UUID, event: "order.cancelled" }, d)).toBe("terminal")
+      expect(d.sync).not.toHaveBeenCalled()
+    }
+  })
+
+  it("processing and retrying rows are still synced", async () => {
+    for (const status of ["processing", "retrying"]) {
+      const d = deps({ findTracking: vi.fn(async () => ({ id: "t1", status, webhook_received_at: null })) })
+      expect(await processKuntaniiWebhook({ externalOrderId: UUID, event: null }, d)).toBe("synced")
+      expect(d.sync).toHaveBeenCalledWith("t1")
+    }
   })
 
   it("a failing dep does not throw and later steps still run", async () => {

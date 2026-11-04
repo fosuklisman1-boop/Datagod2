@@ -48,19 +48,22 @@ export async function checkUnknownAttempts(deps: UnknownAttemptDeps = {}): Promi
         continue // young 404 or any other error: look again next run
       }
       const status = aggregateOrdersStatus(entriesOf(res.data))
-      await resolve(db, row.id, status, now)
       if (status !== "failed") {
-        out.alerted++
+        // Per-attempt type so the hourly throttle never swallows a second attempt's alert.
         try {
           await alert(
-            "kuntanii_possible_double_delivery",
+            `kuntanii_possible_double_delivery_${row.external_order_id}`,
             "Kuntanii: possible double delivery",
             `order ${row.order_id} attempt ${row.external_order_id} is ${status} at Kuntanii`,
           )
         } catch (e) {
+          // Leave the row unresolved: the next run retries the alert.
           console.error(`[KUNTANII-UNKNOWN] alert failed for ${row.external_order_id}:`, (e as Error).message)
+          continue
         }
+        out.alerted++
       }
+      await resolve(db, row.id, status, now)
     } catch (e) {
       console.error(`[KUNTANII-UNKNOWN] check failed for ${row.external_order_id}:`, (e as Error).message)
     }

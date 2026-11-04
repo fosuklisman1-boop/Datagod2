@@ -4,10 +4,10 @@ import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { syncWindowStartIso } from "@/lib/status-sync-window"
 import { backgroundCron } from "@/lib/cron-background"
-import { sendPushToUser } from "@/lib/push-service"
 import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-reversal"
 import { checkUnknownAttempts } from "@/lib/mtn-providers/kuntanii-unknown-attempts"
 import { refreshStaleDisputes, sweepOrphanClaims } from "@/lib/mtn-providers/kuntanii-disputes"
+import { applyKuntaniiStatusChange, type KuntaniiSyncRow } from "@/lib/mtn-providers/kuntanii-sync"
 
 // Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
 export const GET = backgroundCron("sync-kuntanii", (request) => runKuntaniiSync(request))
@@ -90,77 +90,14 @@ async function syncStatuses() {
                 if ((statusPriority[newStatus] ?? 0) < (statusPriority[oldStatus] ?? 0)) {
                     console.log(`[CRON-KUNTANII] Skipping regression ${oldStatus} -> ${newStatus} for ${order.mtn_order_id}`)
                 } else if (newStatus !== oldStatus) {
-                    await supabase
-                        .from("mtn_fulfillment_tracking")
-                        .update({
-                            status: newStatus,
-                            external_status: result.order?.status || newStatus,
-                            external_message: result.message,
-                            updated_at: new Date().toISOString(),
-                        })
-                        .eq("id", order.id)
-
-                    const orderTableStatus = newStatus === "failed" ? "pending" : newStatus
-                    let userId: string | null = null
-
-                    if (order.order_type === "bulk" && order.order_id) {
-                        const { data } = await supabase
-                            .from("orders")
-                            .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
-                            .eq("id", order.order_id)
-                            .select("user_id")
-                            .single()
-                        userId = data?.user_id ?? null
-                    } else if (order.order_type === "api" && (order.api_order_id || order.order_id)) {
-                        const { data } = await supabase
-                            .from("api_orders")
-                            .update({ status: orderTableStatus, updated_at: new Date().toISOString() })
-                            .eq("id", order.api_order_id || order.order_id)
-                            .select("user_id")
-                            .single()
-                        userId = data?.user_id ?? null
-                    } else if (order.order_type === "ussd" && order.order_id) {
-                        await supabase
-                            .from("ussd_orders")
-                            .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
-                            .eq("id", order.order_id)
-                    } else if (order.order_type === "ussd_shop" && order.order_id) {
-                        await supabase
-                            .from("ussd_shop_orders")
-                            .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
-                            .eq("id", order.order_id)
-                    } else if (order.shop_order_id) {
-                        const { data: shopData } = await supabase
-                            .from("shop_orders")
-                            .update({ order_status: orderTableStatus, updated_at: new Date().toISOString() })
-                            .eq("id", order.shop_order_id)
-                            .select("shop_id")
-                            .single()
-                        if (shopData?.shop_id) {
-                            const { data: owner } = await supabase.from("user_shops").select("user_id").eq("id", shopData.shop_id).single()
-                            userId = owner?.user_id ?? null
-                        }
+                    // Guarded on oldStatus: an overlapping run / webhook sync that already moved the row wins.
+                    const applied = await applyKuntaniiStatusChange(supabase, order as KuntaniiSyncRow, newStatus, result)
+                    if (applied) {
+                        console.log(`[CRON-KUNTANII] ${order.mtn_order_id}: ${oldStatus} -> ${newStatus}`)
+                        synced++
+                    } else {
+                        console.log(`[CRON-KUNTANII] ${order.mtn_order_id}: already moved from ${oldStatus} by another run, skipping`)
                     }
-
-                    if (userId && (newStatus === "completed" || newStatus === "failed")) {
-                        const title = newStatus === "completed" ? "Order Delivered Successfully" : "Order Delivery Failed"
-                        // No recipient phone in the message: keep PII out of notification text.
-                        const body = newStatus === "completed"
-                            ? `Your ${order.size_gb ?? ""}GB data order has been delivered successfully.`
-                            : `Your ${order.size_gb ?? ""}GB data order failed. Please contact support.`
-                        await supabase.from("notifications").insert({
-                            user_id: userId,
-                            title,
-                            message: body,
-                            type: newStatus === "completed" ? "order_completed" : "order_failed",
-                            reference_id: order.api_order_id || order.order_id || order.shop_order_id,
-                            read: false,
-                        })
-                        sendPushToUser(userId, { title, body }).catch(() => {})
-                    }
-
-                    console.log(`[CRON-KUNTANII] ${order.mtn_order_id}: ${oldStatus} -> ${newStatus}`)
-                    synced++
                 }
             } else {
                 console.warn(`[CRON-KUNTANII] Failed to get status for ${order.mtn_order_id}:`, result.message)

@@ -28,7 +28,10 @@ export function signatureHeaderSnapshot(headers: Headers): Record<string, string
   return out
 }
 
-type Tracking = { id: string; webhook_received_at: string | null }
+type Tracking = { id: string; status: string | null; webhook_received_at: string | null }
+
+/** Tracking statuses a re-fetch may still move. Anything else (completed/failed/reversed/abandoned) is terminal. */
+const IN_FLIGHT_STATUSES = new Set(["pending", "processing", "retrying"])
 
 export interface KuntaniiWebhookDeps {
   findTracking?: (externalOrderId: string) => Promise<Tracking | null>
@@ -45,7 +48,7 @@ function getSupabase() {
 async function defaultFindTracking(externalOrderId: string): Promise<Tracking | null> {
   const { data, error } = await getSupabase()
     .from("mtn_fulfillment_tracking")
-    .select("id, webhook_received_at")
+    .select("id, status, webhook_received_at")
     .eq("provider", "kuntanii")
     .eq("mtn_order_id", externalOrderId)
     .order("created_at", { ascending: false })
@@ -92,7 +95,7 @@ export function resolveWebhookEvent(headerEvent: string | null, payload: unknown
 export async function processKuntaniiWebhook(
   input: { externalOrderId: string; event: string | null },
   deps: KuntaniiWebhookDeps = {}
-): Promise<"ignored" | "throttled" | "synced"> {
+): Promise<"ignored" | "throttled" | "synced" | "terminal"> {
   const findTracking = deps.findTracking ?? defaultFindTracking
   const markReceived = deps.markReceived ?? defaultMarkReceived
   const sync = deps.sync ?? defaultSync
@@ -111,11 +114,6 @@ export async function processKuntaniiWebhook(
     return "ignored"
   }
 
-  if (tracking.webhook_received_at) {
-    const last = Date.parse(tracking.webhook_received_at)
-    if (Number.isFinite(last) && now() - last < REFETCH_THROTTLE_MS) return "throttled"
-  }
-
   const step = async (name: string, fn: () => Promise<unknown>) => {
     try {
       await fn()
@@ -123,11 +121,22 @@ export async function processKuntaniiWebhook(
       console.error(`[WEBHOOK-KUNTANII] ${name} failed for tracking ${tracking!.id}:`, (e as Error).message)
     }
   }
+  // not_received events arrive for completed orders, so disputes refresh regardless of row status.
+  const isNotReceived = !!input.event && input.event.startsWith("order.not_received_")
+
+  // Terminal rows are never re-synced from a webhook (would e.g. re-run completion side effects).
+  if (!IN_FLIGHT_STATUSES.has(tracking.status ?? "")) {
+    if (isNotReceived) await step("refreshOpenDisputes", () => refreshOpenDisputes(tracking!.id))
+    return "terminal"
+  }
+
+  if (tracking.webhook_received_at) {
+    const last = Date.parse(tracking.webhook_received_at)
+    if (Number.isFinite(last) && now() - last < REFETCH_THROTTLE_MS) return "throttled"
+  }
 
   await step("markReceived", () => markReceived(tracking!.id))
   await step("sync", () => sync(tracking!.id))
-  if (input.event && input.event.startsWith("order.not_received_")) {
-    await step("refreshOpenDisputes", () => refreshOpenDisputes(tracking!.id))
-  }
+  if (isNotReceived) await step("refreshOpenDisputes", () => refreshOpenDisputes(tracking!.id))
   return "synced"
 }
