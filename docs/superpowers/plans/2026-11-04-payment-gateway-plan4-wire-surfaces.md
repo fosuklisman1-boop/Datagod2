@@ -26,6 +26,12 @@
   - WhatsApp: the typed MoMo number must equal the sender's number or pass `isPhoneOtpVerified`. Otherwise that payment uses Paystack. The standing rule still applies: always ask for the number, never auto-charge the sender.
 - **Fees:** on Hubtel rows `wallet_payments.fee` is 0 and Hubtel adds its own charge on top. `feeBearer: "merchant"` requests less from Hubtel and tells the handler the full price (Task 1). On Paystack rows with `feeBearer: "merchant"`, `paystackFee` is 0.
 - **Paystack-only verifiers never touch Hubtel rows.** Hubtel `wallet_payments` rows have `payment_method = 'hubtel'`.
+- **Caller rules for Tasks 4-7** (from Task 1's review; callers mint a new reference or order per attempt, so the unique index alone doesn't give one attempt per order):
+  - **R1:** check the order is still open before any start. `botFlowChargeOrder` already does.
+  - **R2:** web paths with an `orderId` look up a live payment row by `order_id` and replay it instead of minting a new reference (copy the replay block in `lib/bot-commission/momo.ts`, 15-minute window).
+  - **R3:** a retry after failure mints a new order, never the same reference. `handleChargeSuccess` answers 200 "already processed" for a `failed` USSD order, so confirm must treat that as needs_review (Task 3).
+- **Gateway resolved before the amount.** USSD and bot amounts already include Paystack's fee (`bundles.ts`: `chargeAmount = price + fee`, stored as the order amount). Use `resolveSurfaceGateway(surface, { verifiedPayer })` from `start.ts` BEFORE writing the order row: on Hubtel the order amount has no Paystack fee. If that charge later falls back to Paystack, it charges the order's amount and we absorb the fee on that one payment.
+- **Timeouts:** every wired route that awaits a start sets `export const maxDuration = 60`. Bots await the charge inside the live USSD reply (`kit.ts`), so Task 6 defers it with `after()` or gives it a relay budget under Uzo's reply limit.
 - Money path: fresh reviewer for each task; failing tests first; Edit/Write only; `next build` from PowerShell; don't run a commit chained after a command that can fail.
 
 ## Review Focus
