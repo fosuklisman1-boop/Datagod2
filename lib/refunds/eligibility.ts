@@ -102,6 +102,12 @@ function commissionEligibility(table: CommissionTable, i: EligibilityInput): Eli
   return table === "airtime_orders" ? airtimeEligibility(c, now) : billOrBundleEligibility(c, now)
 }
 
+/**
+ * Provider TRACKING statuses (mtn_fulfillment_tracking / fulfillment_logs), never the payment's: "abandoned" here is a
+ * provider attempt given up on. A Hubtel-paid order is payment_status 'completed' like a Paystack one (the shared
+ * charge handler sets it), so the gateway never changes this decision; the Paystack verifiers skip Hubtel rows so
+ * they cannot mark such an order's payment abandoned.
+ */
 const TERMINAL_FAILED = new Set(["failed", "error", "abandoned"])
 const IN_FLIGHT = new Set(["pending", "processing", "retrying"])
 

@@ -33,6 +33,22 @@ describe("evaluateEligibility", () => {
   })
 })
 
+describe("payment gateway does not change eligibility (Hubtel vs Paystack)", () => {
+  // The shared charge handler marks a Hubtel-paid order payment_status 'completed', exactly like a Paystack one.
+  it("a Hubtel-paid USSD order never sent anywhere is refundable like a Paystack one", () => {
+    expect(code({ table: "ussd_orders" })).toBe("ok")
+    expect(code({ table: "ussd_shop_orders" })).toBe("ok")
+  })
+  it("'abandoned' is only a provider TRACKING status here; it never stands for the payment", () => {
+    // a paid order whose only provider attempt was abandoned stays refundable
+    expect(code({ table: "ussd_orders", dispatchOutcome: "submitted", trackingStatuses: ["abandoned"] })).toBe("ok")
+  })
+  it("an order whose payment_status a verifier set to abandoned is never refundable (fails closed)", () => {
+    expect(code({ table: "shop_orders", paymentStatus: "abandoned" })).toBe("NOT_PENDING")
+    expect(code({ table: "ussd_orders", paymentStatus: "abandoned" })).toBe("NOT_PENDING")
+  })
+})
+
 describe("refundableStatuses / per-table status", () => {
   it("lists the refundable statuses per table", () => {
     expect(refundableStatuses("shop_orders")).toEqual(["pending"])
