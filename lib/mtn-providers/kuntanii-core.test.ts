@@ -39,6 +39,11 @@ describe("aggregateOrdersStatus", () => {
     expect(aggregateOrdersStatus([{ status: "cancelled" }, { status: "processed" }])).toBe("failed")
     expect(aggregateOrdersStatus([{ status: "cancelled" }])).toBe("failed")
   })
+  it("in-flight parts keep the aggregate processing", () => {
+    expect(aggregateOrdersStatus([{ status: "cancelled" }, { status: "pending" }])).toBe("processing")
+    expect(aggregateOrdersStatus([{ status: "cancelled" }, { status: "processing" }])).toBe("processing")
+    expect(aggregateOrdersStatus([{ status: "cancelled" }, { status: "not received" }])).toBe("failed")
+  })
 })
 
 describe("classifyKuntaniiError", () => {
@@ -144,5 +149,11 @@ describe("sumCost", () => {
     expect(sumCost([], 96)).toBe(96)
     expect(sumCost(undefined)).toBeUndefined()
     expect(sumCost([{ status: "pending" }], 5)).toBe(5)
+  })
+  it("uses fallback (rounded) instead of a partial sum", () => {
+    expect(sumCost([{ totalAmountGhs: 3 }, { status: "pending" }], 10.456)).toBe(10.46)
+  })
+  it("returns undefined for a partial array with no fallback", () => {
+    expect(sumCost([{ totalAmountGhs: 3 }, { status: "pending" }])).toBeUndefined()
   })
 })

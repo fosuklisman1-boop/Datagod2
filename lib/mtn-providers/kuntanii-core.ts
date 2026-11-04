@@ -32,9 +32,9 @@ export function mapKuntaniiStatus(raw: string | undefined | null): OurStatus {
 export function aggregateOrdersStatus(orders: KuntaniiOrderEntry[]): OurStatus {
   if (!orders || orders.length === 0) return "processing"
   const statuses = orders.map((o) => mapKuntaniiStatus(o.status))
+  if (statuses.includes("processing")) return "processing"
   if (statuses.includes("failed")) return "failed"
-  if (statuses.every((s) => s === "completed")) return "completed"
-  return "processing"
+  return "completed"
 }
 
 const ACCOUNT_HOLD_CODES = new Set([
@@ -108,12 +108,16 @@ export function redactPhone(phone: string | null | undefined): string {
 }
 
 export function sumCost(orders: KuntaniiOrderEntry[] | undefined, fallbackTotal?: number): number | undefined {
-  const amounts = (orders ?? [])
+  const list = orders ?? []
+  const amounts = list
     .map((o) => o.totalAmountGhs)
     .filter((a): a is number => typeof a === "number" && Number.isFinite(a))
-  if (amounts.length > 0) {
+  // Only trust the sum when every order has a numeric amount; never a partial sum.
+  if (list.length > 0 && amounts.length === list.length) {
     return Math.round(amounts.reduce((a, b) => a + b, 0) * 100) / 100
   }
-  if (typeof fallbackTotal === "number" && Number.isFinite(fallbackTotal)) return fallbackTotal
+  if (typeof fallbackTotal === "number" && Number.isFinite(fallbackTotal)) {
+    return Math.round(fallbackTotal * 100) / 100
+  }
   return undefined
 }
