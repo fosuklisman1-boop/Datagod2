@@ -105,5 +105,17 @@
 ### Task 7: Verify, review and ship (prod changes need the owner's OK)
 
 - [ ] Full suite (only the known pre-existing failures), placeholder-env build from PowerShell, fresh reviewer on the most capable model over the whole Plan 3 diff.
-- [ ] Ask the owner, then: dry-run and apply migration 0151; set `HUBTEL_PAYMENTS_CALLBACK_SECRET` and `HUBTEL_COLLECTION_ACCOUNT` in Vercel; redeploy the relay with a dated backup and smoke-test `/receive` and `/checkout` validation (400s) with no real charge; register the sweep at cron-job.org.
-- [ ] Once Hubtel confirms the whitelist: the 1 GHS live test to 0555773910 through `receiveMoney`, confirmed by the sweep. The test row has no `wallet_payments` row behind it, so the shared handler answers "Payment record not found" and nothing is delivered. Record the real responses in `docs/hubtel-payments/`.
+- [ ] Ask the owner, then work through the production checklist:
+  - Dry-run and apply migrations 0151 AND 0152.
+  - Read-only checks: `unique_shop_order_shop_profit` exists, and note the column types of `wallet_payments.paystack_transaction_id` and `shop_orders.transaction_id` (Hubtel's id is hex; see the Plan 4 carry list).
+  - In Vercel, set `HUBTEL_COLLECTION_ACCOUNT` and `HUBTEL_PAYMENTS_CALLBACK_SECRET`. The callback secret must be a distinct value, not shared with any other secret.
+  - On the droplet, set `HUBTEL_RELAY_APP_HOST` (and `HUBTEL_RECEIVE_BASIC_AUTH` if the collection keys differ from the status keys). The host of `NEXT_PUBLIC_APP_URL` must equal `HUBTEL_RELAY_APP_HOST`.
+  - Redeploy the relay with a dated backup and smoke-test `/receive` and `/checkout` validation (400s) with no real charge.
+  - Apply AND ENABLE the cron-job.org job for the sweep, and confirm its first logged run (`[HUBTEL-PAYMENTS-SWEEP] run:`).
+  - A scripting-UA POST to the callback (e.g. curl with a bad signature) gets 401, not 403. A 403 means the Vercel firewall is blocking Hubtel's callbacks.
+- [ ] Once Hubtel confirms the whitelist: the 1 GHS live test to 0555773910 through `receiveMoney`, confirmed by the sweep. The test row has no `wallet_payments` row behind it, so the shared handler answers "Payment record not found" and nothing is delivered. Record the real responses in `docs/hubtel-payments/`. In the live test also check:
+  - What the status check's `amount` means when the fee is on top (the price, or the price plus the fee).
+  - `PrimaryCallbackURL` casing.
+  - The real `paymentMethod` values (the allowlist in `confirm.ts` is inferred).
+  - 404 vs Unpaid for an ignored prompt and for an abandoned checkout.
+  - The status reply really carries `responseCode: "0000"` and `data.clientReference` as documented. `checkPaymentStatus` treats anything else as kind `error`, so a difference would leave every payment unsettled (the sweep's hourly alert would show it).
