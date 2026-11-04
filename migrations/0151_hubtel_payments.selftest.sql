@@ -6,7 +6,8 @@
 --
 -- Creates the Supabase roles and mirrors Supabase's default grants (ALL on new public tables to anon/authenticated,
 -- as migration 0060 also does) so the REVOKE is really tested.
--- Scenarios: table_exists, rls_enabled, no_policies, no_anon_privs, index, valid_insert, opaque_reference
+-- Scenarios: table_exists, rls_enabled, no_policies, no_anon_privs, index, internal_reference + metadata
+-- (types, NULL by default, round-trip), valid_insert, opaque_reference
 -- (WALLET-1 and uppercase hex refused), check constraints (mode, status, amount), status_default, anon_select
 -- (anon sees nothing), idempotent re-run.
 
@@ -51,11 +52,31 @@ BEGIN
     RAISE EXCEPTION 'FAIL index: (status, created_at) index missing';
   END IF;
 
-  -- valid row; status defaults to pending
+  -- internal_reference / metadata: the types confirm.ts relies on
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hubtel_payments'
+                  AND column_name = 'internal_reference' AND data_type = 'text' AND is_nullable = 'YES') THEN
+    RAISE EXCEPTION 'FAIL internal_reference: nullable text column missing';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hubtel_payments'
+                  AND column_name = 'metadata' AND data_type = 'jsonb' AND is_nullable = 'YES') THEN
+    RAISE EXCEPTION 'FAIL metadata: nullable jsonb column missing';
+  END IF;
+
+  -- valid row; status defaults to pending; both new columns stay NULL unless set
   INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, expires_at)
     VALUES ('0123456789abcdef0123456789abcdef', 'wallet', 'checkout', 1000, now() + interval '30 minutes');
   SELECT status INTO v_status FROM public.hubtel_payments WHERE reference = '0123456789abcdef0123456789abcdef';
   IF v_status IS DISTINCT FROM 'pending' THEN RAISE EXCEPTION 'FAIL status_default: got %', v_status; END IF;
+  SELECT count(*) INTO v_n FROM public.hubtel_payments
+   WHERE reference = '0123456789abcdef0123456789abcdef' AND internal_reference IS NULL AND metadata IS NULL;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL new_columns_null: expected NULL defaults'; END IF;
+
+  -- internal_reference can hold a surface reference (only the opaque reference has the shape CHECK) and metadata round-trips
+  INSERT INTO public.hubtel_payments (reference, surface, mode, amount_pesewas, expires_at, internal_reference, metadata)
+    VALUES ('55555555555555555555555555555555', 'wallet', 'checkout', 1000, now(), 'WALLET-1', '{"type":"sms_bundle"}');
+  SELECT count(*) INTO v_n FROM public.hubtel_payments
+   WHERE reference = '55555555555555555555555555555555' AND internal_reference = 'WALLET-1' AND metadata->>'type' = 'sms_bundle';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL new_columns_roundtrip'; END IF;
 
   -- opaque reference: a WALLET- reference is refused
   v_caught := false;

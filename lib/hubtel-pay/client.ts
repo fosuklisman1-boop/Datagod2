@@ -186,7 +186,11 @@ const isRelayOwnError = (body: unknown): boolean =>
   !!body && typeof body === "object" && !Array.isArray(body) &&
   Object.keys(body).length === 1 && typeof (body as any).error === "string"
 
-/** Wraps the relay /status check. Never throws. Only "paid" may lead to fulfilment (the caller still checks amount/method). */
+/**
+ * Wraps the relay /status check. Never throws. Only "paid" may lead to fulfilment (the caller still checks amount/method).
+ * A 2xx is only believed when Hubtel's own responseCode is "0000" and data.clientReference is the reference we asked
+ * about; anything else (a success-shaped reply about another transaction, or no proof either way) is kind "error".
+ */
 export async function checkPaymentStatus(
   reference: string,
   deps: { checkStatus?: (ref: string) => Promise<StatusCheckResult> } = {},
@@ -202,6 +206,7 @@ export async function checkPaymentStatus(
     return { kind: "error", raw: res }
   }
   const d: any = res.data ?? {}
+  if (d.clientReference !== reference || (res.body as any)?.responseCode !== "0000") return { kind: "error", raw: res }
   const extra = {
     ...(typeof d.charges === "number" && Number.isFinite(d.charges) ? { chargesPesewas: toPesewas(d.charges) } : {}),
     ...(typeof d.paymentMethod === "string" ? { paymentMethod: d.paymentMethod } : {}),

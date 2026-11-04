@@ -276,7 +276,8 @@ describe("toPesewas", () => {
 })
 
 describe("checkPaymentStatus", () => {
-  const paid = { ok: true, status: "Paid", upstreamStatus: 200, data: { status: "Paid", amount: 0.8, charges: 0.02, paymentMethod: "mobilemoney", transactionId: "h1" }, body: { responseCode: "0000" } }
+  const paid = { ok: true, status: "Paid", upstreamStatus: 200, data: { status: "Paid", clientReference: REF, amount: 0.8, charges: 0.02, paymentMethod: "mobilemoney", transactionId: "h1" }, body: { responseCode: "0000" } }
+  const ok0000 = (status: string, data: Record<string, unknown> = {}) => ({ ok: true, status, upstreamStatus: 200, data: { status, clientReference: REF, ...data }, body: { responseCode: "0000" } })
 
   it("Paid → paid with pesewas fields", async () => {
     const r = await checkPaymentStatus(REF, { checkStatus: async () => paid })
@@ -293,12 +294,47 @@ describe("checkPaymentStatus", () => {
     expect(cs).toHaveBeenCalledWith(REF)
   })
   it("Unpaid → unpaid", async () => {
-    const r = await checkPaymentStatus(REF, { checkStatus: async () => ({ ok: true, status: "Unpaid", data: { status: "Unpaid", amount: 1 } }) })
+    const r = await checkPaymentStatus(REF, { checkStatus: async () => ok0000("Unpaid", { amount: 1 }) })
     expect(r.kind).toBe("unpaid")
   })
   it("Refunded → refunded", async () => {
-    const r = await checkPaymentStatus(REF, { checkStatus: async () => ({ ok: true, status: "Refunded", data: { status: "Refunded" } }) })
+    const r = await checkPaymentStatus(REF, { checkStatus: async () => ok0000("Refunded") })
     expect(r.kind).toBe("refunded")
+  })
+  it("classifies Hubtel's documented Paid and Unpaid samples (docs/hubtel-payments/03-direct-receive-money.txt)", async () => {
+    const SAMPLE_REF = "3jL2KlUy3vt21"
+    const sample = (status: string) => {
+      const data = {
+        date: "2024-04-25T21:45:48.4740964Z", status, transactionId: "7fd01221faeb41469daec7b3561bddc5",
+        externalTransactionId: "0000006824852622", paymentMethod: "mobilemoney", clientReference: SAMPLE_REF,
+        currencyCode: null, amount: 0.1, charges: 0.02, amountAfterCharges: 0.08, isFulfilled: null,
+      }
+      return { ok: true, status, upstreamStatus: 200, data, body: { message: "Successful", responseCode: "0000", data } }
+    }
+    expect((await checkPaymentStatus(SAMPLE_REF, { checkStatus: async () => sample("Paid") })).kind).toBe("paid")
+    expect((await checkPaymentStatus(SAMPLE_REF, { checkStatus: async () => sample("Unpaid") })).kind).toBe("unpaid")
+  })
+  it.each(["Paid", "Unpaid", "Refunded"])("%s for another reference → error", async (status) => {
+    const res = { ...ok0000(status, { amount: 0.8, paymentMethod: "mobilemoney" }) }
+    res.data = { ...res.data, clientReference: "fedcba9876543210fedcba9876543210" }
+    expect((await checkPaymentStatus(REF, { checkStatus: async () => res })).kind).toBe("error")
+  })
+  it.each([
+    ["missing", {}],
+    ["null", { clientReference: null }],
+    ["different case", { clientReference: REF.toUpperCase() }],
+  ])("clientReference %s → error", async (_n, over) => {
+    const res = { ...paid, data: { ...paid.data, clientReference: undefined, ...over } }
+    expect((await checkPaymentStatus(REF, { checkStatus: async () => res })).kind).toBe("error")
+  })
+  it.each([
+    ["0001", { responseCode: "0001" }],
+    ["2001", { responseCode: "2001" }],
+    ["absent", {}],
+    ["no body", undefined],
+    ["numeric", { responseCode: 0 }],
+  ])("responseCode %s → error, even with status Paid", async (_n, body) => {
+    expect((await checkPaymentStatus(REF, { checkStatus: async () => ({ ...paid, body }) })).kind).toBe("error")
   })
   it("Hubtel 404 → not_found", async () => {
     const r = await checkPaymentStatus(REF, { checkStatus: async () => ({ ok: false, error: "relay/hubtel 404", upstreamStatus: 404, body: { message: "payment record not found" } }) })

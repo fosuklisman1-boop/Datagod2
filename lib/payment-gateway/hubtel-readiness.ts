@@ -1,6 +1,6 @@
 // Hubtel collection readiness. Returns env var NAMES only, never values.
 
-const REQUIRED_ENV = ["HUBTEL_RELAY_URL", "HUBTEL_RELAY_SECRET", "HUBTEL_COLLECTION_ACCOUNT"] as const
+const REQUIRED_ENV = ["HUBTEL_RELAY_URL", "HUBTEL_RELAY_SECRET", "HUBTEL_COLLECTION_ACCOUNT", "HUBTEL_PAYMENTS_CALLBACK_SECRET"] as const
 
 // Plan 4 flips this to a real check once Hubtel collections are implemented.
 export function isHubtelCollectionReady(): boolean {

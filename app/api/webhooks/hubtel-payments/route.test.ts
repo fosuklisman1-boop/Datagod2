@@ -45,6 +45,24 @@ describe("hubtel-payments callback route", () => {
     expect(h.confirm).not.toHaveBeenCalled()
   })
 
+  it("bad signature → warn log with the ref only, still 401", async () => {
+    const warn = vi.mocked(console.warn)
+    const badSig = "0".repeat(64)
+    const res = await POST(req({ ref: REF, sig: badSig }))
+    expect(res.status).toBe(401)
+    expect(warn).toHaveBeenCalledTimes(1)
+    const line = warn.mock.calls[0].join(" ")
+    expect(line).toContain(REF)
+    expect(line).not.toContain(badSig)
+    expect(line).not.toContain("233555773910")
+  })
+
+  it("a malformed ref is not logged (nothing attacker-chosen reaches the logs)", async () => {
+    const res = await POST(req({ ref: "WALLET-123", sig: "x" }))
+    expect(res.status).toBe(401)
+    expect(vi.mocked(console.warn)).not.toHaveBeenCalled()
+  })
+
   it("missing sig → 401, no confirm", async () => {
     const res = await POST(req({ ref: REF }))
     expect(res.status).toBe(401)
@@ -116,7 +134,7 @@ describe("hubtel-payments callback route", () => {
     expect(h.confirm.mock.calls[0][0]).toBe(REF)
   })
 
-  it.each(["fulfilled", "failed", "pending", "needs_review"])("outcome %s → 200 { received: true }", async (o) => {
+  it.each(["fulfilled", "failed", "pending", "check_error", "needs_review"])("outcome %s → 200 { received: true }", async (o) => {
     h.confirm.mockResolvedValue(o)
     const res = await POST(req({ ref: REF, sig: signRef(REF, SECRET) }))
     expect(res.status).toBe(200)
@@ -144,6 +162,7 @@ describe("hubtel-payments callback route", () => {
     const actual = await vi.importActual<typeof import("@/lib/hubtel-pay/confirm")>("@/lib/hubtel-pay/confirm")
     const row: HubtelPaymentRow = {
       reference: REF, amount_pesewas: 2000, status: "pending", claimed_at: null,
+      created_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
     }
     const store: HubtelPaymentStore = {
@@ -167,5 +186,40 @@ describe("hubtel-payments callback route", () => {
     expect(outcome).toBe("pending")
     expect(deps.onChargeSuccess).not.toHaveBeenCalled()
     expect(store.claim).not.toHaveBeenCalled()
+  })
+
+  it("a callback on a failed row whose status check now says Paid → needs_review + one alert, no handler", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/hubtel-pay/confirm")>("@/lib/hubtel-pay/confirm")
+    const row: HubtelPaymentRow = {
+      reference: REF, amount_pesewas: 2000, status: "failed", claimed_at: null,
+      created_at: new Date(Date.now() - 3_600_000).toISOString(),
+      expires_at: new Date(Date.now() - 1_800_000).toISOString(),
+    }
+    const store: HubtelPaymentStore = {
+      load: vi.fn(async () => ({ ...row })),
+      claim: vi.fn(async () => null),
+      update: vi.fn(async (_r, patch, guard) => {
+        if (!guard.status.includes(row.status)) return false
+        Object.assign(row, patch)
+        return true
+      }),
+    }
+    const deps: Partial<ConfirmDeps> = {
+      store,
+      checkStatus: vi.fn(async () => ({ kind: "paid" as const, amountPesewas: 2000, paymentMethod: "mobilemoney", raw: {} })),
+      onChargeSuccess: vi.fn(async () => null),
+      onChargeFailed: vi.fn(async () => null),
+      notify: vi.fn(async () => {}),
+    }
+    let outcome: string | undefined
+    h.confirm.mockImplementation(async (ref: string) => { outcome = await actual.confirmHubtelPayment(ref, deps); return outcome })
+
+    const res = await POST(req({ ref: REF, sig: signRef(REF, SECRET) }))
+    expect(res.status).toBe(200)
+    expect(outcome).toBe("needs_review")
+    expect(row.status).toBe("needs_review")
+    expect(deps.onChargeSuccess).not.toHaveBeenCalled()
+    expect(deps.onChargeFailed).not.toHaveBeenCalled()
+    expect(deps.notify).toHaveBeenCalledTimes(1)
   })
 })

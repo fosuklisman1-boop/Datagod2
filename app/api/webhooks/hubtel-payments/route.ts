@@ -35,7 +35,10 @@ export async function POST(request: NextRequest) {
     console.error(`${TAG} HUBTEL_PAYMENTS_CALLBACK_SECRET is not configured (must be at least 32 chars); callback not processed`)
     return NextResponse.json({ error: "not configured" }, { status: 503 })
   }
-  if (!verifySig(ref, sig, secret)) return unauthorized()
+  if (!verifySig(ref, sig, secret)) {
+    console.warn(`${TAG} bad signature ref=${ref}`)
+    return unauthorized()
+  }
 
   let body: unknown = null
   try { body = await request.json() } catch { /* logging only; the body never decides anything */ }

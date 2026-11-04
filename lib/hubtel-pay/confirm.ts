@@ -6,16 +6,30 @@
 // pending -> confirming, or a confirming claim older than 10 minutes. Only the caller that gets the row back
 // continues, so a callback and the sweep arriving together cause at most one handler call and one alert.
 // Every write after the claim is guarded on status='confirming' AND our claimed_at.
+//
+// A `failed` row younger than 72h is still status-checked: Hubtel can report Paid after we gave up. That row is never
+// fulfilled (the failure handler has already run); it goes failed -> needs_review with one alert, guarded on
+// status='failed' so concurrent callers cannot alert twice.
 import type { ChargeEventData } from "@/lib/payments/charge-events"
 import { checkPaymentStatus, type PaymentStatus } from "./client"
 
-export type ConfirmOutcome = "fulfilled" | "failed" | "pending" | "needs_review" | "ignored"
+/**
+ * check_error: nothing was decided because of a fault rather than normal waiting: the status check came back kind
+ * `error`, or a needs_review write did not land. The row is left as it was. Callers treat it like pending; the sweep
+ * also counts it towards its hourly failure alert.
+ */
+export type ConfirmOutcome = "fulfilled" | "failed" | "pending" | "check_error" | "needs_review" | "ignored"
 export type HubtelPaymentStatus = "pending" | "confirming" | "paid" | "failed" | "needs_review"
 
 export interface HubtelPaymentRow {
   reference: string
+  /** What the shared charge handlers look the payment up by; null means the opaque `reference`. Never sent to Hubtel. */
+  internal_reference?: string | null
+  /** Passed to the shared charge handlers in place of Paystack metadata (Hubtel returns none). */
+  metadata?: unknown
   amount_pesewas: number
   status: HubtelPaymentStatus
+  created_at: string
   expires_at: string
   claimed_at: string | null
   /** Successful claims so far (migration 0152); the claim RPC increments it. */
@@ -60,8 +74,10 @@ const REF_RE = /^[0-9a-f]{32}$/
 const STALE_CLAIM_MS = 10 * 60_000
 /** On the winning claim with this many claims (i.e. the 3rd attempt), stop calling handlers: needs_review. */
 const MAX_CLAIMS = 3
-/** A not_found / error status check later than this after expires_at parks the row for review. */
+/** A not_found status check later than this after expires_at parks the row for review. Kind `error` never does. */
 const NO_RECORD_REVIEW_MS = 24 * 60 * 60_000
+/** A failed row younger than this (by created_at) is still checked for a late payment. Matches sweep.ts. */
+const LATE_PAYMENT_WINDOW_MS = 72 * 60 * 60_000
 const ALERT_TYPE = "hubtel_payment"
 
 /** Mobile money and Hubtel/G-Money wallets only. Anything mentioning "card", or unknown/missing, is refused. */
@@ -75,6 +91,11 @@ export function isAllowedPaymentMethod(method: string | undefined | null): boole
 
 const isOk = (res: HandlerResponse) => res === null || (res.status >= 200 && res.status < 300)
 const ghs = (p: number | undefined) => (typeof p === "number" ? (p / 100).toFixed(2) : "?")
+const hubtelFieldsOf = (status: PaymentStatus) => ({
+  hubtel_transaction_id: status.transactionId ?? null,
+  charges_pesewas: status.chargesPesewas ?? null,
+  payment_method: status.paymentMethod ?? null,
+})
 
 export async function confirmHubtelPayment(reference: string, deps?: Partial<ConfirmDeps>): Promise<ConfirmOutcome> {
   if (typeof reference !== "string" || !REF_RE.test(reference)) return "ignored"
@@ -87,16 +108,36 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
 
   const row = await d.store.load(reference)
   if (!row) return "ignored"
+
+  if (row.status === "failed") {
+    // Not `age >= window`: an unreadable created_at must stop here too.
+    if (!(d.now().getTime() - new Date(row.created_at).getTime() < LATE_PAYMENT_WINDOW_MS)) return "ignored"
+    const late = await d.checkStatus(reference)
+    if (late.kind !== "paid") {
+      // Only the stamp: last_check keeps what the row was failed on, and the sweep waits an hour before looking again.
+      await d.store.update(reference, { updated_at: stamp() }, { status: ["failed"] })
+      return "ignored"
+    }
+    const wrote = await d.store.update(reference,
+      { status: "needs_review", ...hubtelFieldsOf(late), last_check: late.raw, updated_at: stamp() }, { status: ["failed"] })
+    if (!wrote) return "ignored"
+    await alert(`Hubtel payment ${reference} was charged after the payment was marked failed (GHS ${ghs(late.amountPesewas)}). Not fulfilled. Needs review.`)
+    return "needs_review"
+  }
+
   const staleConfirming = row.status === "confirming" && row.claimed_at !== null &&
     new Date(row.claimed_at).getTime() < d.now().getTime() - STALE_CLAIM_MS
   if (row.status !== "pending" && !staleConfirming) return "ignored"
 
   const status = await d.checkStatus(reference)
+  const hubtelFields = hubtelFieldsOf(status)
+  /** The handlers find the payment by the surface's own reference; the claim and every row write keep the opaque one. */
+  const handlerIdentity = { reference: row.internal_reference ?? row.reference, metadata: row.metadata ?? undefined }
 
   /** Leave the row where it is; just remember what Hubtel said. */
   const recordCheck = async (): Promise<ConfirmOutcome> => {
     await d.store.update(reference, { last_check: status.raw, updated_at: stamp() }, { status: [row.status] })
-    return "pending"
+    return status.kind === "error" ? "check_error" : "pending"
   }
 
   /** Final write on a row we hold. */
@@ -113,18 +154,23 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     }
   }
 
-  /** True when this winning claim is the MAX_CLAIMS-th (or later): park it for a human instead of retrying. */
-  const capReached = async (claimed: HubtelPaymentRow): Promise<boolean> => {
-    if ((claimed.claim_count ?? 0) < MAX_CLAIMS) return false
-    await finish(claimed, { status: "needs_review", ...hubtelFields })
-    await alert(`Hubtel payment ${reference} stuck after ${MAX_CLAIMS} attempts (Hubtel: ${status.kind}); handler not called again. Needs review.`)
-    return true
+  /**
+   * Hand a claimed row to a human. The alert says "needs review", so it only goes out once that is true. If the write
+   * did not land the row stays confirming: log it, and the sweep reclaims it after 10 minutes and tries again.
+   */
+  const park = async (claimed: HubtelPaymentRow, message: string): Promise<ConfirmOutcome> => {
+    if (await finish(claimed, { status: "needs_review", ...hubtelFields })) {
+      await alert(message)
+      return "needs_review"
+    }
+    console.error("[hubtel-pay] could not write needs_review; no alert sent, the sweep retries after the claim goes stale", reference)
+    return "check_error"
   }
 
-  const hubtelFields = {
-    hubtel_transaction_id: status.transactionId ?? null,
-    charges_pesewas: status.chargesPesewas ?? null,
-    payment_method: status.paymentMethod ?? null,
+  /** On the MAX_CLAIMS-th winning claim (or later) park the row for a human instead of retrying; null means carry on. */
+  const capReached = async (claimed: HubtelPaymentRow): Promise<ConfirmOutcome | null> => {
+    if ((claimed.claim_count ?? 0) < MAX_CLAIMS) return null
+    return park(claimed, `Hubtel payment ${reference} stuck after ${MAX_CLAIMS} attempts (Hubtel: ${status.kind}); handler not called again. Needs review.`)
   }
 
   if (status.kind === "paid") {
@@ -144,11 +190,14 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
       await alert(`Hubtel payment ${reference} needs review: ${problem}. Not fulfilled.`)
       return "needs_review"
     }
-    if (await capReached(claimed)) return "needs_review"
+    const capped = await capReached(claimed)
+    if (capped) return capped
 
     let res: HandlerResponse
     try {
-      res = await d.onChargeSuccess({ reference, amount: paidP!, id: status.transactionId, gateway_response: "Hubtel: Paid" })
+      // Always OUR amount, even when Hubtel reports more (its fee can sit on top): the real figures stay in last_check
+      // and charges_pesewas, and the handler must not credit or re-price on a number the customer never agreed to.
+      res = await d.onChargeSuccess({ ...handlerIdentity, amount: row.amount_pesewas, id: status.transactionId, gateway_response: "Hubtel: Paid" })
     } catch (e) {
       console.error("[hubtel-pay] handleChargeSuccess threw", reference, e)
       await alert(`Hubtel payment ${reference}: fulfilment handler threw; left confirming, the sweep retries after 10 min.`)
@@ -171,12 +220,13 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     const refunded = status.kind === "refunded"
     const claimed = await d.store.claim(reference)
     if (!claimed) return "ignored"
-    if (await capReached(claimed)) return "needs_review"
+    const capped = await capReached(claimed)
+    if (capped) return capped
 
     const gateway_response = refunded ? "Hubtel: Refunded" : "Hubtel: Unpaid (expired)"
     let res: HandlerResponse
     try {
-      res = await d.onChargeFailed({ reference, amount: status.amountPesewas ?? row.amount_pesewas, gateway_response })
+      res = await d.onChargeFailed({ ...handlerIdentity, amount: status.amountPesewas ?? row.amount_pesewas, gateway_response })
     } catch (e) {
       console.error("[hubtel-pay] handleChargeFailed threw", reference, e)
       await alert(`Hubtel payment ${reference}: failure handler threw; left confirming, the sweep retries after 10 min.`)
@@ -192,15 +242,13 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     return "failed"
   }
 
-  // not_found / error long after expiry: nothing will ever settle this row, so hand it to a human (never failed:
-  // no record is not proof of no payment). Same atomic claim, so concurrent callers produce one alert.
-  if ((status.kind === "not_found" || status.kind === "error") &&
-      d.now().getTime() > new Date(row.expires_at).getTime() + NO_RECORD_REVIEW_MS) {
+  // not_found long after expiry: nothing will ever settle this row, so hand it to a human (never failed: no record is
+  // not proof of no payment). Same atomic claim, so concurrent callers produce one alert. Kind `error` never gets here:
+  // an outage says nothing about the payment, and a long outage must not park every open row.
+  if (status.kind === "not_found" && d.now().getTime() > new Date(row.expires_at).getTime() + NO_RECORD_REVIEW_MS) {
     const claimed = await d.store.claim(reference)
     if (!claimed) return "ignored"
-    await finish(claimed, { status: "needs_review", ...hubtelFields })
-    await alert(`Hubtel payment ${reference} needs review: no Hubtel record 24h after expiry (status check: ${status.kind}). Not fulfilled.`)
-    return "needs_review"
+    return park(claimed, `Hubtel payment ${reference} needs review: no Hubtel record 24h after expiry (status check: ${status.kind}). Not fulfilled.`)
   }
 
   // unpaid before expiry, not_found, error: never fail, never fulfil.
@@ -225,7 +273,7 @@ async function resolveDeps(deps: Partial<ConfirmDeps> = {}): Promise<ConfirmDeps
   }
 }
 
-const ROW_COLUMNS = "reference, amount_pesewas, status, expires_at, claimed_at"
+export const ROW_COLUMNS = "reference, internal_reference, metadata, amount_pesewas, status, created_at, expires_at, claimed_at"
 
 async function supabaseStore(): Promise<HubtelPaymentStore> {
   const { createClient } = await import("@supabase/supabase-js")

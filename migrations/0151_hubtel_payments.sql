@@ -11,14 +11,19 @@
 --     amount_pesewas integer, > 0.
 --     status         pending -> confirming (claimed) -> paid | failed | needs_review.
 --     last_check     the latest Hubtel status-check payload; claimed_at marks the confirming claim.
+--     internal_reference  the reference the shared charge handler looks the payment up by (e.g. a surface's own
+--                    order id). NULL means the opaque reference itself. Never sent to Hubtel.
+--     metadata       what the shared charge handler would get as Paystack metadata; Hubtel returns none.
 --
 -- Security: RLS enabled with NO policies, and all privileges revoked from anon/authenticated (0060 grants
 -- authenticated CRUD on all tables by default). Only server routes using the service role touch it.
 
 CREATE TABLE IF NOT EXISTS public.hubtel_payments (
   reference             text PRIMARY KEY CHECK (reference ~ '^[0-9a-f]{32}$'),
+  internal_reference    text,
+  metadata              jsonb,
   surface               text NOT NULL,
-  mode                  text NOT NULL CHECK (mode IN ('checkout', 'direct')),
+  mode                 text NOT NULL CHECK (mode IN ('checkout', 'direct')),
   amount_pesewas        integer NOT NULL CHECK (amount_pesewas > 0),
   msisdn                text,
   channel               text,

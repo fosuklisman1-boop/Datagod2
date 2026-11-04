@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
-import { confirmHubtelPayment, isAllowedPaymentMethod, type ConfirmDeps, type HubtelPaymentRow, type HubtelPaymentStore, type RowPatch, type UpdateGuard } from "./confirm"
+import { readFileSync } from "fs"
+import { join } from "path"
+import { confirmHubtelPayment, isAllowedPaymentMethod, ROW_COLUMNS, type ConfirmDeps, type HubtelPaymentRow, type HubtelPaymentStore, type RowPatch, type UpdateGuard } from "./confirm"
 import type { PaymentStatus } from "./client"
 
 const REF = "0123456789abcdef0123456789abcdef"
@@ -19,6 +21,7 @@ function fakeStore(row: Partial<HubtelPaymentRow> | null, clock: () => Date) {
   if (row) {
     rows.set(REF, {
       reference: REF, amount_pesewas: 2000, status: "pending", claimed_at: null, claim_count: 0,
+      created_at: new Date(T0.getTime() - min(1)).toISOString(),
       expires_at: new Date(T0.getTime() + min(30)).toISOString(), ...row,
     } as HubtelPaymentRow)
   }
@@ -89,7 +92,7 @@ describe("confirmHubtelPayment — row lookup", () => {
     expect(await confirmHubtelPayment("WALLET-1", t.deps)).toBe("ignored")
     expect(load).not.toHaveBeenCalled()
   })
-  it.each(["paid", "failed", "needs_review"] as const)("final status %s → ignored, no status check", async (status) => {
+  it.each(["paid", "needs_review"] as const)("final status %s → ignored, no status check", async (status) => {
     const t = setup({ row: { status } })
     expect(await confirmHubtelPayment(REF, t.deps)).toBe("ignored")
     expect(t.checkStatus).not.toHaveBeenCalled()
@@ -108,18 +111,19 @@ describe("confirmHubtelPayment — row lookup", () => {
 })
 
 describe("confirmHubtelPayment — paid", () => {
-  it("amount and method OK → claim, handler with Hubtel's pesewas, then paid with tx/charges/method", async () => {
-    const t = setup({ status: paid({ amountPesewas: 2050 }) })
+  it("overpaid (Hubtel 2050 vs ours 2000) → claim, handler with OUR pesewas, then paid; Hubtel's figures stay on the row", async () => {
+    const raw = { status: "Paid", amount: 20.5, charges: 0.2 }
+    const t = setup({ status: paid({ amountPesewas: 2050, raw }) })
     expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
     expect(t.onChargeSuccess).toHaveBeenCalledTimes(1)
-    expect(t.onChargeSuccess).toHaveBeenCalledWith({ reference: REF, amount: 2050, id: "tx-1", gateway_response: "Hubtel: Paid" })
+    expect(t.onChargeSuccess).toHaveBeenCalledWith({ reference: REF, amount: 2000, id: "tx-1", gateway_response: "Hubtel: Paid" })
     expect(t.claims).toEqual([{ reference: REF, won: true }])
     const r = t.get()
     expect(r.status).toBe("paid")
     expect(r.hubtel_transaction_id).toBe("tx-1")
     expect(r.charges_pesewas).toBe(20)
     expect(r.payment_method).toBe("mobilemoney")
-    expect(r.last_check).toEqual({ status: "Paid" })
+    expect(r.last_check).toEqual(raw)
     expectEveryWriteStampsUpdatedAt(t.writes)
     // the final write is guarded on OUR claim, using the exact µs string the claim returned (never re-formatted)
     const last = t.writes.at(-1)!
@@ -290,6 +294,146 @@ describe("confirmHubtelPayment — attempt cap (claim_count)", () => {
     expect(t.onChargeSuccess).toHaveBeenCalledTimes(2)
     expect(t.get().status).toBe("needs_review")
   })
+
+  it("cap reached but the needs_review write did not land → no alert, says so in the log, no handler", async () => {
+    const t = setup({ row: stale(2) })
+    t.store.update = async () => false
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("check_error")
+    expect(t.notify).not.toHaveBeenCalled()
+    expect(t.onChargeSuccess).not.toHaveBeenCalled()
+    expect(err.mock.calls.flat().join(" ")).toMatch(/could not write needs_review/)
+    err.mockRestore()
+  })
+
+  it("cap reached and the write throws → same: no alert, logged, nothing thrown", async () => {
+    const t = setup({ row: stale(2) })
+    t.store.update = async () => { throw new Error("db down") }
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("check_error")
+    expect(t.notify).not.toHaveBeenCalled()
+    err.mockRestore()
+  })
+})
+
+describe("confirmHubtelPayment — internal reference and metadata", () => {
+  const INTERNAL = "WALLET-1730000000-abc"
+  const META = { type: "sms_bundle", sms_account_id: "acc-1" }
+
+  it("handleChargeSuccess gets internal_reference and metadata; claim and row writes keep the opaque reference", async () => {
+    const t = setup({ row: { internal_reference: INTERNAL, metadata: META } })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
+    expect(t.onChargeSuccess).toHaveBeenCalledWith(expect.objectContaining({ reference: INTERNAL, metadata: META, amount: 2000 }))
+    expect(t.claims).toEqual([{ reference: REF, won: true }])
+    expect(t.writes.length).toBeGreaterThan(0)
+    for (const w of t.writes) expect(w.reference).toBe(REF)
+    expect(t.get().status).toBe("paid")
+  })
+
+  it("handleChargeFailed gets them too (refunded and expired-unpaid)", async () => {
+    const t = setup({ row: { internal_reference: INTERNAL, metadata: META }, status: { kind: "refunded", raw: {} } })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("failed")
+    expect(t.onChargeFailed).toHaveBeenCalledWith(expect.objectContaining({ reference: INTERNAL, metadata: META }))
+    for (const w of t.writes) expect(w.reference).toBe(REF)
+
+    const u = setup({ row: { internal_reference: INTERNAL, metadata: META }, status: { kind: "unpaid", raw: {} }, now: new Date(T0.getTime() + min(31)) })
+    expect(await confirmHubtelPayment(REF, u.deps)).toBe("failed")
+    expect(u.onChargeFailed).toHaveBeenCalledWith(expect.objectContaining({ reference: INTERNAL, metadata: META }))
+  })
+
+  it("null columns fall back to the opaque reference and no metadata", async () => {
+    const t = setup({ row: { internal_reference: null, metadata: null } })
+    await confirmHubtelPayment(REF, t.deps)
+    const data = (t.onChargeSuccess.mock.calls[0] as unknown as [Record<string, unknown>])[0]
+    expect(data.reference).toBe(REF)
+    expect(data.metadata).toBeUndefined()
+  })
+
+  it("the status check still uses the opaque reference", async () => {
+    const t = setup({ row: { internal_reference: INTERNAL } })
+    await confirmHubtelPayment(REF, t.deps)
+    expect(t.checkStatus).toHaveBeenCalledWith(REF)
+  })
+
+  it("ROW_COLUMNS selects every column confirm reads, and each exists in migration 0151", () => {
+    const sql = readFileSync(join(process.cwd(), "migrations/0151_hubtel_payments.sql"), "utf8")
+    const cols = ROW_COLUMNS.split(",").map((c) => c.trim())
+    expect(cols).toEqual(expect.arrayContaining(["amount_pesewas", "created_at", "internal_reference", "metadata"]))
+    for (const c of cols) expect(sql).toMatch(new RegExp(`^\\s+${c}\\s`, "m"))
+  })
+})
+
+describe("confirmHubtelPayment — late payment on a failed row", () => {
+  const HOUR = min(60)
+  const failedRow = (ageMs = HOUR) => ({ status: "failed" as const, created_at: new Date(T0.getTime() - ageMs).toISOString() })
+
+  it("Paid → guarded failed→needs_review, one PII-free alert, never a handler or a claim", async () => {
+    const raw = { status: "Paid", customerPhoneNumber: "233241234567" }
+    const t = setup({ row: { ...failedRow(), msisdn: "233241234567" } as any, status: paid({ raw }) })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+    expect(t.get().status).toBe("needs_review")
+    expect(t.get().last_check).toEqual(raw)
+    expect(t.get().hubtel_transaction_id).toBe("tx-1")
+    expect(t.writes).toHaveLength(1)
+    expect(t.writes[0].guard).toEqual({ status: ["failed"] })
+    expect(t.onChargeSuccess).not.toHaveBeenCalled()
+    expect(t.onChargeFailed).not.toHaveBeenCalled()
+    expect(t.claims).toHaveLength(0)
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    const [message, type, reference] = t.notify.mock.calls[0] as unknown as [string, string, string]
+    expect(message).toContain("charged after the payment was marked failed")
+    expect(message).not.toContain("233241234567")
+    expect(type).toBe("hubtel_payment")
+    expect(reference).toBe(REF)
+    expectEveryWriteStampsUpdatedAt(t.writes)
+  })
+
+  it("concurrent callers both see Paid → one write lands, one alert", async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    let calls = 0
+    const t = setup({ row: failedRow(), status: async () => { calls++; if (calls === 2) release(); await gate; return paid() } })
+    const out = await Promise.all([confirmHubtelPayment(REF, t.deps), confirmHubtelPayment(REF, t.deps)])
+    expect([...out].sort()).toEqual(["ignored", "needs_review"])
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    expect(t.writes.filter((w) => w.applied)).toHaveLength(1)
+  })
+
+  it.each([
+    ["unpaid", { kind: "unpaid", raw: { status: "Unpaid" } }],
+    ["refunded", { kind: "refunded", raw: { status: "Refunded" } }],
+    ["not_found", { kind: "not_found", raw: {} }],
+    ["error", { kind: "error", raw: {} }],
+  ] as [string, PaymentStatus][])("%s → stamps updated_at only, stays failed, ignored, no alert", async (_k, status) => {
+    const t = setup({ row: { ...failedRow(), last_check: { status: "Unpaid", original: true } }, status })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("ignored")
+    expect(t.get().status).toBe("failed")
+    expect(t.get().last_check).toEqual({ status: "Unpaid", original: true })
+    expect(t.writes).toHaveLength(1)
+    expect(t.writes[0].patch).toEqual({ updated_at: T0.toISOString() })
+    expect(t.writes[0].guard).toEqual({ status: ["failed"] })
+    expect(t.notify).not.toHaveBeenCalled()
+    expect(t.onChargeFailed).not.toHaveBeenCalled()
+  })
+
+  it("73h old → ignored, no status check, no write", async () => {
+    const t = setup({ row: failedRow(73 * HOUR) })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("ignored")
+    expect(t.checkStatus).not.toHaveBeenCalled()
+    expect(t.writes).toHaveLength(0)
+  })
+
+  it("exactly 72h old → ignored (the window is under 72h)", async () => {
+    const t = setup({ row: failedRow(72 * HOUR) })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("ignored")
+    expect(t.checkStatus).not.toHaveBeenCalled()
+  })
+
+  it("71h old → checked", async () => {
+    const t = setup({ row: failedRow(71 * HOUR) })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+    expect(t.checkStatus).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("confirmHubtelPayment — unpaid / refunded", () => {
@@ -353,9 +497,9 @@ describe("confirmHubtelPayment — unpaid / refunded", () => {
 })
 
 describe("confirmHubtelPayment — not_found / error", () => {
-  it.each(["not_found", "error"] as const)("%s → last_check stored, stays pending, never failed", async (kind) => {
+  it.each([["not_found", "pending"], ["error", "check_error"]] as const)("%s → last_check stored, stays pending, never failed, outcome %s", async (kind, outcome) => {
     const t = setup({ status: { kind, raw: { upstreamStatus: 404 } }, now: new Date(T0.getTime() + min(600)) })
-    expect(await confirmHubtelPayment(REF, t.deps)).toBe("pending")
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe(outcome)
     expect(t.claims).toHaveLength(0)
     expect(t.onChargeFailed).not.toHaveBeenCalled()
     expect(t.onChargeSuccess).not.toHaveBeenCalled()
@@ -371,20 +515,39 @@ describe("confirmHubtelPayment — not_found / error", () => {
   const HOUR = min(60)
 
   it.each([
-    ["not_found", 23 * HOUR],
-    ["error", 23 * HOUR],
-    ["not_found", 24 * HOUR],
-  ] as const)("%s at expiry + %i ms → stays pending, no claim, no alert", async (kind, offset) => {
+    ["not_found", 23 * HOUR, "pending"],
+    ["error", 23 * HOUR, "check_error"],
+    ["not_found", 24 * HOUR, "pending"],
+  ] as const)("%s at expiry + %i ms → stays pending, no claim, no alert", async (kind, offset, outcome) => {
     const at = afterExpiry(offset)
     const t = setup({ status: { kind, raw: { upstreamStatus: 404 } }, now: at })
-    expect(await confirmHubtelPayment(REF, t.deps)).toBe("pending")
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe(outcome)
     expect(t.claims).toHaveLength(0)
     expect(t.notify).not.toHaveBeenCalled()
     expect(t.get().status).toBe("pending")
     expectEveryWriteStampsUpdatedAt(t.writes, at)
   })
 
-  it.each(["not_found", "error"] as const)("%s at expiry + 25h → claimed, needs_review, one PII-free alert, no handler", async (kind) => {
+  it("a kind-error check never parks a row, however long after expiry", async () => {
+    const at = afterExpiry(100 * HOUR)
+    const t = setup({ status: { kind: "error", raw: {} }, now: at })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("check_error")
+    expect(t.claims).toHaveLength(0)
+    expect(t.notify).not.toHaveBeenCalled()
+    expect(t.get().status).toBe("pending")
+  })
+
+  it("not_found at expiry + 25h but the needs_review write did not land → no alert, logged, not reported as needs_review", async () => {
+    const t = setup({ status: { kind: "not_found", raw: {} }, now: afterExpiry(25 * HOUR) })
+    t.store.update = async () => false
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("check_error")
+    expect(t.notify).not.toHaveBeenCalled()
+    expect(err.mock.calls.flat().join(" ")).toMatch(/could not write needs_review/)
+    err.mockRestore()
+  })
+
+  it.each(["not_found"] as const)("%s at expiry + 25h → claimed, needs_review, one PII-free alert, no handler", async (kind) => {
     const at = afterExpiry(25 * HOUR)
     const t = setup({ status: { kind, raw: { upstreamStatus: 404 } }, now: at })
     expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
