@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { checkUpgradeInitRequest } from "@/lib/dealer-upgrade-payment"
 import { initializePayment, chargeMobileMoney } from "@/lib/paystack"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
@@ -259,6 +260,14 @@ export async function POST(request: NextRequest) {
 
     const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
     const isUpgrade = type === "dealer_upgrade"
+
+    if (isUpgrade) {
+      const upgradeCheck = checkUpgradeInitRequest({ orderId, planId, userId })
+      if (!upgradeCheck.ok) {
+        logSecurityEvent("dealer_upgrade_init_refused", { reason: upgradeCheck.error, hasOrderId: !!orderId, userId, ip: clientIp })
+        return NextResponse.json({ error: upgradeCheck.error }, { status: upgradeCheck.status })
+      }
+    }
 
     // Phone gate (account holder's own money paths only). Wallet top-up and dealer
     // upgrade move the LOGGED-IN user's money — block them for an unverified account.

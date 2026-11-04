@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse, after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
+import { isDealerUpgradeFullyPaid } from "@/lib/dealer-upgrade-payment"
+import { logSecurityEvent } from "@/lib/security-log"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { getJoinCommunityLink } from "@/lib/app-settings"
 import { sendPushToUser } from "@/lib/push-service"
@@ -1259,7 +1261,19 @@ export async function POST(request: NextRequest) {
 
         if (upgradeUserId && planId) {
           const { data: plan } = await supabase.from("subscription_plans").select("*").eq("id", planId).single()
-          if (plan) {
+          const fullyPaid = !!plan && isDealerUpgradeFullyPaid({
+            paidPesewas: paidAmountPesewas,
+            feeGhs: feeAmount,
+            planPriceGhs: Number(plan.price),
+          })
+          if (plan && !fullyPaid) {
+            // Answer 200: Paystack re-sending this event can't change what was paid.
+            console.error(`[WEBHOOK] ❌ Dealer upgrade NOT granted: paid ${paidAmountPesewas / 100}, plan ${planId} costs ${plan.price}`)
+            logSecurityEvent("dealer_upgrade_underpaid", {
+              reference, planId, userId: upgradeUserId, paid: paidAmountPesewas / 100, fee: feeAmount, planPrice: Number(plan.price),
+            })
+          }
+          if (plan && fullyPaid) {
             // Update User Role
             await supabase.from("users").update({ role: "dealer", updated_at: new Date().toISOString() }).eq("id", upgradeUserId)
             await supabase.auth.admin.updateUserById(upgradeUserId, { user_metadata: { role: "dealer" } }).catch(() => {})

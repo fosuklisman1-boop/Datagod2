@@ -16,12 +16,13 @@ const h = vi.hoisted(() => {
   const chain = (table: string) => {
     const c: any = {}
     let inserting = false
-    for (const m of ["select", "or", "eq", "is", "in", "update", "gte"]) c[m] = () => c
+    for (const m of ["select", "or", "eq", "is", "in", "update", "gte", "gt"]) c[m] = () => c
     c.limit = () => (table === "wallet_payments" && !inserting
       ? Promise.resolve({ data: state.livePayments, error: null })
       : c)
     c.single = async () => {
       if (table === "user_shops") return { data: { id: "shop1" }, error: null }
+      if (table === "subscription_plans") return { data: { price: 20 }, error: null }
       if (table === "app_settings") return { data: { paystack_fee_percentage: 3, wallet_topups_enabled: true, upgrades_enabled: true }, error: null }
       return { data: null, error: null }
     }
@@ -30,7 +31,7 @@ const h = vi.hoisted(() => {
     c.then = (res: any, rej: any) => Promise.resolve({ data: [{ id: "wp1" }], error: null }).then(res, rej)
     return c
   }
-  return { state, fake: { from: chain, auth: { getUser: async () => ({ data: { user: null } }) } } }
+  return { state, fake: { from: chain, auth: { getUser: async (t: string) => ({ data: { user: t === "valid-token" ? { id: "u1", email: "dealer@example.com" } : null } }) } } }
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
@@ -82,6 +83,44 @@ beforeEach(() => {
   chargeMobileMoney.mockClear()
   initializePayment.mockClear()
   recordPayerPhone.mockClear()
+})
+
+describe("payments/initialize: dealer upgrade request shape", () => {
+  const upgrade = (body: Record<string, unknown>, token: string | null = "valid-token") =>
+    POST(new NextRequest("http://x/api/payments/initialize", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ type: "dealer_upgrade", email: "dealer@example.com", amount: 1, ...body }),
+    }))
+
+  it("refuses an upgrade carrying an orderId, before any payment is created", async () => {
+    const res = await upgrade({ planId: "plan1", orderId: ORDER_ID })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Invalid upgrade request")
+    expect(initializePayment).not.toHaveBeenCalled()
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("refuses an upgrade with no planId", async () => {
+    const res = await upgrade({})
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Please choose a subscription plan")
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("refuses an upgrade with no logged-in user", async () => {
+    const res = await upgrade({ planId: "plan1" }, null)
+    expect(res.status).toBe(401)
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("a normal upgrade is still priced from the plan, ignoring the client amount", async () => {
+    const res = await upgrade({ planId: "plan1", amount: 1 })
+    expect(res.status).toBe(200)
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    const walletRow = h.state.inserts.find(i => i.table === "wallet_payments")?.rows[0]
+    expect(walletRow).toMatchObject({ order_type: "dealer_upgrade", order_id: null, amount: 20.6, fee: 0.6 })
+  })
 })
 
 describe("payments/initialize momoDirect: storefront bill / bundle orders", () => {
