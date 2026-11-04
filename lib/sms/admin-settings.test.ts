@@ -33,6 +33,12 @@ describe("validateSection", () => {
     expect(validateSection("caps", { ...ok, business: { per_send: 1.5, per_hour: 1, per_day: 1 } }).ok).toBe(false)
     expect(validateSection("caps", { platform: ok.platform }).ok).toBe(false)
   })
+  it("caps: per_send can't exceed the 5,000 system ceiling (a higher value could never take effect)", () => {
+    const ok = { platform: { per_send: 5000, per_hour: 20, per_day: 500 }, business: { per_send: 5000, per_hour: 2000, per_day: 1000000 } }
+    expect(validateSection("caps", ok).ok).toBe(true)
+    const r = validateSection("caps", { ...ok, business: { per_send: 10000, per_hour: 2000, per_day: 1000000 } })
+    expect(r).toEqual({ ok: false, error: expect.stringContaining("5,000") })
+  })
   it("moderation thresholds", () => {
     expect(rows(validateSection("moderation", { autoSuspendFlags: 2, flagReviewThreshold: 5 }))).toEqual([
       { key: "sms_auto_suspend_flags", value: 2 }, { key: "sms_flag_review_threshold", value: 5 },

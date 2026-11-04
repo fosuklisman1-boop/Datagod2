@@ -9,6 +9,8 @@ import { SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
 import { getGroupActiveRecipients } from "@/lib/sms/tenant-address-book-service"
 import { checkSchedule } from "@/lib/sms/schedule"
 import { resolveTenantSendProvider } from "@/lib/sms/tenant-provider"
+import { loadSmsSettings } from "@/lib/sms/platform-settings"
+import { effectivePerSend } from "@/lib/sms/send-limits"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -93,9 +95,11 @@ export async function POST(request: NextRequest) {
     finalRecipients = recipients as string[]
   }
   if (typeof groupId === "string" && groupId.length > 0) {
-    // Pull up to the auto-batch ceiling (not just 500); enqueueSendBatched fans
-    // the full list out into sequential 500-recipient batches.
-    const grp = await getGroupActiveRecipients(account.id, groupId, SMS_MAX_TOTAL)
+    // Pull up to the account's admin per-send limit (within the 5,000 auto-batch ceiling);
+    // enqueueSendBatched fans the list out into sequential 500-recipient batches. Same cut
+    // the group preview shows, so a big group sends its first N instead of failing the cap.
+    const perSend = effectivePerSend(await loadSmsSettings(), account.mode)
+    const grp = await getGroupActiveRecipients(account.id, groupId, perSend)
     if (!grp.ok) {
       return NextResponse.json(
         { success: false, error: grp.error },
