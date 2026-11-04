@@ -32,7 +32,7 @@ const h = vi.hoisted(() => {
     c.then = (res: any, rej: any) => Promise.resolve({ data: [{ id: "wp1" }], error: null }).then(res, rej)
     return c
   }
-  return { state, fake: { from: chain, auth: { getUser: async () => ({ data: { user: state.authUser } }) } } }
+  return { state, fake: { from: chain, auth: { getUser: async (t: string) => ({ data: { user: t === "valid-token" ? { id: "u1", email: "dealer@example.com" } : state.authUser } }) } } }
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
@@ -88,6 +88,61 @@ beforeEach(() => {
   chargeMobileMoney.mockClear()
   initializePayment.mockClear()
   recordPayerPhone.mockClear()
+})
+
+describe("payments/initialize: dealer upgrade request shape", () => {
+  const upgrade = (body: Record<string, unknown>, token: string | null = "valid-token") =>
+    POST(new NextRequest("http://x/api/payments/initialize", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ type: "dealer_upgrade", email: "dealer@example.com", amount: 1, ...body }),
+    }))
+
+  const PLAN_ID = "4d05cda6-4e1b-42ec-841d-f4c9a41fb79b"
+
+  it("refuses orderType dealer_upgrade sent without the matching type", async () => {
+    const res = await upgrade({ type: undefined, orderType: "dealer_upgrade", planId: PLAN_ID, orderId: ORDER_ID })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Invalid upgrade request")
+    expect(initializePayment).not.toHaveBeenCalled()
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("refuses a planId sent as an array", async () => {
+    const res = await upgrade({ planId: [PLAN_ID] })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Please choose a subscription plan")
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("refuses an upgrade carrying an orderId, before any payment is created", async () => {
+    const res = await upgrade({ planId: PLAN_ID, orderId: ORDER_ID })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Invalid upgrade request")
+    expect(initializePayment).not.toHaveBeenCalled()
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("refuses an upgrade with no planId", async () => {
+    const res = await upgrade({})
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Please choose a subscription plan")
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("refuses an upgrade with no logged-in user", async () => {
+    const res = await upgrade({ planId: PLAN_ID }, null)
+    expect(res.status).toBe(401)
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("a normal upgrade is still priced from the plan, ignoring the client amount", async () => {
+    const res = await upgrade({ planId: PLAN_ID, amount: 1 })
+    expect(res.status).toBe(200)
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    const walletRow = h.state.inserts.find(i => i.table === "wallet_payments")?.rows[0]
+    expect(walletRow).toMatchObject({ order_type: "dealer_upgrade", order_id: null, amount: 51.5, fee: 1.5 })
+  })
 })
 
 describe("payments/initialize momoDirect: storefront bill / bundle orders", () => {
@@ -181,7 +236,7 @@ describe("payments/initialize: dealer upgrade follows dashboard_direct, not wall
     POST(new NextRequest("http://x/api/payments/initialize", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: "Bearer tok" },
-      body: JSON.stringify({ type: "dealer_upgrade", planId: "plan1", email: "dealer@example.com", amount: 50, momoDirect: true, paymentPhone: "0241234567", ...body }),
+      body: JSON.stringify({ type: "dealer_upgrade", planId: "4d05cda6-4e1b-42ec-841d-f4c9a41fb79b", email: "dealer@example.com", amount: 50, momoDirect: true, paymentPhone: "0241234567", ...body }),
     }))
 
   beforeEach(() => {
@@ -228,7 +283,7 @@ describe("payments/initialize: hosted mobile_money strip follows the per-surface
       headers: { "content-type": "application/json", Authorization: "Bearer tok" },
       body: JSON.stringify({ email: "dealer@example.com", amount: 50, ...body }),
     }))
-  const upgrade = () => hosted({ type: "dealer_upgrade", planId: "plan1" })
+  const upgrade = () => hosted({ type: "dealer_upgrade", planId: "4d05cda6-4e1b-42ec-841d-f4c9a41fb79b" })
   const topup = () => hosted({})
 
   beforeEach(() => {

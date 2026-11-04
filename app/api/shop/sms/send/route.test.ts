@@ -4,6 +4,8 @@ import { NextRequest } from "next/server"
 const h = vi.hoisted(() => ({
   batched: vi.fn(),
   dbCalls: [] as string[],
+  group: vi.fn(),
+  settings: vi.fn(),
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -14,14 +16,15 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }))
 vi.mock("@/lib/sms/account-service", () => ({
-  getOrCreateAccountForUser: () => Promise.resolve({ id: "acc1", default_sender_id: null }),
+  getOrCreateAccountForUser: () => Promise.resolve({ id: "acc1", default_sender_id: null, mode: "platform" }),
 }))
+vi.mock("@/lib/sms/platform-settings", () => ({ loadSmsSettings: h.settings }))
 vi.mock("@/lib/sms/send-service", () => ({ enqueueSendBatched: h.batched, SMS_MAX_TOTAL: 5000 }))
 vi.mock("@/lib/sms/shop-context-service", () => ({
   getShopTokens: () => Promise.resolve({ shop_name: "", shop_link: "", shop_phone: "", shop_whatsapp: "" }),
 }))
 vi.mock("@/lib/sms/default-sender", () => ({ loadDefaultSender: () => Promise.resolve(null) }))
-vi.mock("@/lib/sms/tenant-address-book-service", () => ({ getGroupActiveRecipients: vi.fn() }))
+vi.mock("@/lib/sms/tenant-address-book-service", () => ({ getGroupActiveRecipients: h.group }))
 
 import { POST } from "./route"
 
@@ -85,6 +88,16 @@ describe("POST /api/shop/sms/send scheduledAt", () => {
     expect(args[6]).toEqual({ scheduledFor: new Date(at) })
     const j = await res.json()
     expect(j.data).toMatchObject({ scheduled: true, scheduledFor: at, held: false })
+  })
+})
+
+describe("POST /api/shop/sms/send group fetch", () => {
+  it("pulls at most the account's admin per-send limit from the group (not the 5,000 ceiling)", async () => {
+    h.settings.mockResolvedValue({ caps: { platform: { per_send: 2000, per_hour: 600, per_day: 2000 }, business: { per_send: 5000, per_hour: 1, per_day: 1 } } })
+    h.group.mockResolvedValue({ ok: true, data: ["0241234567"] })
+    const res = await call({ message: "Hello world", groupId: "g1" })
+    expect(res.status).toBe(200)
+    expect(h.group).toHaveBeenCalledWith("acc1", "g1", 2000)
   })
 })
 

@@ -108,7 +108,7 @@ export function CapsSection({ s, onSaved }: { s: S; onSaved: Saved }) {
         {(["platform", "business"] as const).map((m) => (
           <div key={m} className="min-w-0 space-y-3">
             <h4 className="text-sm font-semibold capitalize">{m} mode</h4>
-            <NumField label="Max recipients per send" value={v[m].per_send} onChange={(x) => set(m, "per_send", x)} hint="Whole number, 1–1,000,000" />
+            <NumField label="Max recipients per send" value={v[m].per_send} onChange={(x) => set(m, "per_send", x)} hint="Whole number, 1–5,000 (the most one send can carry)" />
             <NumField label="Max sends per hour" value={v[m].per_hour} onChange={(x) => set(m, "per_hour", x)} hint="Whole number, 1–1,000,000" />
             <NumField label="Max recipients per day" value={v[m].per_day} onChange={(x) => set(m, "per_day", x)} hint="Whole number, 1–100,000,000" />
           </div>

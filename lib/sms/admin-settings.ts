@@ -6,6 +6,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { writeAuditLog } from "./moderation-service"
 import { invalidateSmsSettingsCache, normalizeDomain, parseSmsSettings, SMS_SETTING_KEYS, type SmsPlatformSettings } from "./platform-settings"
+import { SMS_HARD_MAX_PER_SEND } from "./send-limits"
 import { normalizeSenderName, validateSenderName } from "./sender-name"
 import { HUBTEL_MANUAL_BALANCE_KEY, HUBTEL_PREFER_MANUAL_KEY, MANUAL_BALANCE_MAX_GHS } from "./hubtel-manual-balance"
 
@@ -48,7 +49,7 @@ function validateCaps(v: unknown): ValidationResult {
   for (const mode of ["platform", "business"] as const) {
     const m = v[mode]
     if (!isObj(m)) return fail(`caps.${mode} is required`)
-    if (!isInt(m.per_send, 1, 1_000_000)) return fail(`${mode}: recipients per send must be a whole number from 1 to 1,000,000`)
+    if (!isInt(m.per_send, 1, SMS_HARD_MAX_PER_SEND)) return fail(`${mode}: recipients per send must be a whole number from 1 to ${SMS_HARD_MAX_PER_SEND.toLocaleString("en-US")} (the most one send can carry)`)
     if (!isInt(m.per_hour, 1, 1_000_000)) return fail(`${mode}: sends per hour must be a whole number from 1 to 1,000,000`)
     if (!isInt(m.per_day, 1, 100_000_000)) return fail(`${mode}: recipients per day must be a whole number from 1 to 100,000,000`)
     out[mode] = { per_send: m.per_send, per_hour: m.per_hour, per_day: m.per_day }

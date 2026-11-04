@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { smsFetch } from "../_lib/api"
 import { useSmsAccount } from "../_lib/useSmsAccount"
-import { addNumbers, costSummary, formatScheduled, fromLocalInputValue, resolveTokens, scheduleError, sendErrorMessage, sendOutcomeMessage, MAX_RECIPIENTS, type ShopTokens } from "../_lib/view"
+import { addNumbers, costSummary, formatScheduled, fromLocalInputValue, resolveTokens, scheduleError, sendErrorMessage, sendOutcomeMessage, recipientLimit, type ShopTokens } from "../_lib/view"
 import { SchedulePicker } from "../_components/compose/SchedulePicker"
 import { SmsShell } from "../_components/SmsShell"
 import { RecipientsPicker } from "../_components/compose/RecipientsPicker"
@@ -32,7 +32,9 @@ const CLOSED_CONFIRM: SendConfirm = { open: false, loading: false, sentCount: 0,
 
 export default function SmsComposePage() {
   const router = useRouter()
-  const { account, featureEnabled, reload, defaultSender, platformSender, senderPool } = useSmsAccount()
+  const { account, featureEnabled, reload, defaultSender, platformSender, senderPool, limits } = useSmsAccount()
+  // The admin per-send cap for this account's mode (server-enforced too); ceiling until Home loads.
+  const maxRecipients = recipientLimit(limits)
 
   const [message, setMessage] = useState("")
   const [recipients, setRecipients] = useState<string[]>([])
@@ -82,8 +84,8 @@ export default function SmsComposePage() {
   // ── recipients ──
   function addRecipients(raw: string) {
     setRecipients((cur) => {
-      const { list, capped } = addNumbers(cur, raw)
-      if (capped) toast.warning(`Recipient limit is ${MAX_RECIPIENTS}.`)
+      const { list, capped } = addNumbers(cur, raw, maxRecipients)
+      if (capped) toast.warning(`Your limit is ${maxRecipients.toLocaleString("en-US")} recipients per send.`)
       return list
     })
   }
@@ -225,6 +227,7 @@ export default function SmsComposePage() {
 
           <RecipientsPicker
             recipients={recipients}
+            max={maxRecipients}
             onAdd={addRecipients}
             onRemove={removeRecipient}
             customers={customers}

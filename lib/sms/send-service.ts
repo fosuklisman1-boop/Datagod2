@@ -12,6 +12,7 @@ import {
 } from "./enforcement"
 import type { PolicySender } from "./policy"
 import type { SmsMode } from "./platform-settings"
+import { SMS_HARD_MAX_PER_SEND } from "./send-limits"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,7 +23,7 @@ const MAX_RECIPIENTS = 500
 // Auto-batching: one enqueueSend call carries up to SMS_BATCH_SIZE recipients;
 // a larger group/list fans out into sequential batches up to SMS_MAX_TOTAL.
 export const SMS_BATCH_SIZE = 500
-export const SMS_MAX_TOTAL = 5000
+export const SMS_MAX_TOTAL = SMS_HARD_MAX_PER_SEND
 
 /** Normalize a phone string to +233XXXXXXXXX (Moolre/E.164 format). */
 function normalizePhoneNumber(phone: string): string | null {

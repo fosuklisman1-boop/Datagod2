@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse, after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
-import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { isDealerUpgradeFullyPaid } from "@/lib/dealer-upgrade-payment"
+import { logSecurityEvent } from "@/lib/security-log"
+import { notifyAdmins, sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { getJoinCommunityLink } from "@/lib/app-settings"
 import { sendPushToUser } from "@/lib/push-service"
 import { getInternalBaseUrl } from "@/lib/internal-url"
@@ -1259,7 +1261,28 @@ export async function POST(request: NextRequest) {
 
         if (upgradeUserId && planId) {
           const { data: plan } = await supabase.from("subscription_plans").select("*").eq("id", planId).single()
-          if (plan) {
+          // Older rows stored the plan id in order_id; any other order_id means a real order.
+          const attachedToOrder = !!paymentData.order_id && paymentData.order_id !== planId
+          const refusal = !plan
+            ? "plan_not_found"
+            : attachedToOrder
+              ? "attached_to_order"
+              : !isDealerUpgradeFullyPaid({ paidPesewas: paidAmountPesewas, feeGhs: feeAmount, planPriceGhs: Number(plan.price) })
+                ? "underpaid"
+                : null
+          if (refusal) {
+            // Answer 200: Paystack re-sending this event can't change what was paid.
+            const paid = paidAmountPesewas / 100
+            console.error(`[WEBHOOK] ❌ Dealer upgrade NOT granted (${refusal}): reference ${reference}, paid ${paid}, plan ${planId}`)
+            logSecurityEvent("dealer_upgrade_refused", {
+              reason: refusal, reference, planId, userId: upgradeUserId, paid, fee: feeAmount, planPrice: plan ? Number(plan.price) : null,
+            })
+            await notifyAdmins(
+              `Dealer upgrade NOT granted (${refusal}). Paid GHS ${paid}. Check the payment and refund or upgrade by hand. Ref: ${reference}`,
+              "dealer_upgrade_refused",
+              reference,
+            ).catch((e: unknown) => console.warn("[WEBHOOK] Admin notify failed:", e))
+          } else if (plan) {
             // Update User Role
             await supabase.from("users").update({ role: "dealer", updated_at: new Date().toISOString() }).eq("id", upgradeUserId)
             await supabase.auth.admin.updateUserById(upgradeUserId, { user_metadata: { role: "dealer" } }).catch(() => {})
@@ -1270,7 +1293,9 @@ export async function POST(request: NextRequest) {
               const endDate = new Date()
               endDate.setDate(endDate.getDate() + plan.duration_days)
               
-              await supabase.from("user_subscriptions").insert([{
+              // The role is already set. An insert failure leaves a dealer with no expiry; DIAMOND's
+              // end date (past year 9999) always fails this way, so this logs rather than alerts.
+              const { error: subscriptionInsertError } = await supabase.from("user_subscriptions").insert([{
                 user_id: upgradeUserId,
                 plan_id: planId,
                 start_date: new Date().toISOString(),
@@ -1279,6 +1304,9 @@ export async function POST(request: NextRequest) {
                 payment_reference: reference,
                 amount_paid: amount / 100,
               }])
+              if (subscriptionInsertError) {
+                console.error(`[WEBHOOK] Dealer subscription row not saved: reference ${reference}: ${subscriptionInsertError.message}`)
+              }
 
               // Notify User
               await supabase.from("notifications").insert([{
@@ -1300,6 +1328,15 @@ export async function POST(request: NextRequest) {
               }
             }
           }
+        } else {
+          // Paid in full or not, nothing below will deliver this: tell someone.
+          console.error(`[WEBHOOK] ❌ Dealer upgrade NOT granted (missing_plan_or_user): reference ${reference}`)
+          logSecurityEvent("dealer_upgrade_refused", { reason: "missing_plan_or_user", reference, paid: paidAmountPesewas / 100 })
+          await notifyAdmins(
+            `Dealer upgrade NOT granted (missing_plan_or_user). Paid GHS ${paidAmountPesewas / 100}. Check the payment and refund or upgrade by hand. Ref: ${reference}`,
+            "dealer_upgrade_refused",
+            reference,
+          ).catch((e: unknown) => console.warn("[WEBHOOK] Admin notify failed:", e))
         }
       }
 
