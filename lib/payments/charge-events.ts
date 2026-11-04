@@ -29,6 +29,15 @@ export interface ChargeEventData {
   [key: string]: unknown
 }
 
+/**
+ * Answer for a payment on an order that is no longer open. completed: already fulfilled, a normal repeat. Anything else
+ * (failed, abandoned, expired): the order closed without this money, so nothing was delivered. Still 200; order_closed
+ * lets lib/hubtel-pay/confirm.ts send that payment to review instead of marking it paid. Paystack ignores the body.
+ */
+function alreadyProcessedResponse(paymentStatus: unknown): NextResponse {
+  return NextResponse.json(paymentStatus === "completed" ? { received: true } : { received: true, order_closed: true })
+}
+
 export async function handleChargeSuccess(data: ChargeEventData): Promise<NextResponse | null> {
   let { reference, amount, status, metadata } = data
 
@@ -188,7 +197,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     // This is a USSD shop payment — never fall through to wallet_payments
     if (shopTokenPurchase.payment_status !== 'pending') {
       console.log("[WEBHOOK] USSD shop token purchase already processed:", shopTokenPurchase.id, "status:", shopTokenPurchase.payment_status)
-      return NextResponse.json({ received: true })
+      return alreadyProcessedResponse(shopTokenPurchase.payment_status)
     }
 
     console.log("[WEBHOOK] Processing USSD shop token purchase:", shopTokenPurchase.id, "is_activation:", shopTokenPurchase.is_activation)
@@ -285,7 +294,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
 
     if (ussdOrder.payment_status !== 'pending' && ussdOrder.payment_status !== 'otp_required') {
       console.log("[WEBHOOK] USSD order already processed:", ussdOrderId)
-      return NextResponse.json({ received: true })
+      return alreadyProcessedResponse(ussdOrder.payment_status)
     }
 
     // Verify amount matches (security check)
@@ -403,7 +412,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
 
     if (ussdAfaOrder.payment_status !== 'pending') {
       console.log("[WEBHOOK] USSD AFA order already processed:", ussdAfaOrder.id)
-      return NextResponse.json({ received: true })
+      return alreadyProcessedResponse(ussdAfaOrder.payment_status)
     }
 
     const paidGhs = amount / 100
@@ -487,7 +496,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
 
     if (ussdShopOrder.payment_status !== 'pending' && ussdShopOrder.payment_status !== 'otp_required') {
       console.log("[WEBHOOK] USSD shop order already processed:", ussdShopOrder.id)
-      return NextResponse.json({ received: true })
+      return alreadyProcessedResponse(ussdShopOrder.payment_status)
     }
 
     const paidGhs = amount / 100
@@ -996,7 +1005,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
 
     if (purchase.payment_status !== 'pending') {
       console.log("[WEBHOOK] USSD shop purchase already processed:", purchase.id)
-      return NextResponse.json({ received: true })
+      return alreadyProcessedResponse(purchase.payment_status)
     }
 
     const { error: purchaseUpdateErr } = await supabase

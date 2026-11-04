@@ -108,8 +108,8 @@ export function isAllowedPaymentMethod(method: string | undefined | null): boole
 const isOk = (res: HandlerResponse) => res === null || (res.status >= 200 && res.status < 300)
 /**
  * The handler says the order was closed before this payment, so nothing was delivered. A retry after a real
- * fulfilment can't report this: the order's payment_status is completed by then, not failed.
- * Nothing sends order_closed yet: see the charge-events.ts proposal in the plan 4 task 1 report.
+ * fulfilment can't report this: the order's payment_status is completed by then, and that answer has no order_closed.
+ * Sent by charge-events.ts for USSD, AFA, shop and token-purchase rows; other order types never send it.
  */
 const reportsOrderClosed = async (res: HandlerResponse): Promise<boolean> => {
   if (!res) return false

@@ -264,6 +264,8 @@ export async function startMomoCharge(
   try {
     settled = await d.store.findSettledSibling(params.reference)
   } catch (e) {
+    // Falling back can't double-charge in practice: a sibling only exists when a reference is reused, and no caller
+    // reuses one today. Revisit this if one ever does, because a paid sibling would go unseen while the DB is down.
     console.error("[hubtel-start] sibling lookup failed:", e instanceof Error ? e.message : "unknown error")
     return fallBack([tell("store", `Hubtel start (${surface}): could not check earlier attempts; nothing sent to Hubtel, used Paystack.`)])
   }

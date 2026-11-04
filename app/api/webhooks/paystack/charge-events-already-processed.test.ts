@@ -1,6 +1,6 @@
 // Pins what the REAL handleChargeSuccess answers for each "already processed" branch, as seen by
-// lib/hubtel-pay/confirm.ts. Today those answers cannot be told apart from a real fulfilment, which is why
-// confirm cannot catch a payment that lands on an order we already failed.
+// lib/hubtel-pay/confirm.ts. A completed order answers exactly like a real fulfilment. An order closed any other way
+// adds order_closed, still 200, so confirm can tell a payment that delivered nothing from one that was fulfilled.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const h = vi.hoisted(() => {
@@ -67,6 +67,7 @@ const bodyOf = async (reference = ID) => {
   return { status: res!.status, body: await res!.json() }
 }
 const ANSWER = { status: 200, body: { received: true } }
+const CLOSED = { status: 200, body: { received: true, order_closed: true } }
 
 beforeEach(() => {
   for (const k of Object.keys(h.tables)) delete h.tables[k]
@@ -85,24 +86,41 @@ describe("handleChargeSuccess — the answer confirm.ts sees", () => {
     expect(h.fulfillUssdOrder).toHaveBeenCalledTimes(1)
   })
 
-  // Order closed before this payment: nothing is delivered, and the answer is the same as a real fulfilment.
-  it.each<[string, string, string]>([
-    ["USSD", "ussd_orders", "failed"],
-    ["USSD", "ussd_orders", "completed"],
-    ["USSD AFA", "ussd_afa_orders", "failed"],
-    ["USSD AFA", "ussd_afa_orders", "completed"],
-    ["USSD shop", "ussd_shop_orders", "failed"],
-    ["USSD shop", "ussd_shop_orders", "completed"],
-  ])("%s order (%s) already %s → {received:true}, nothing delivered", async (_n, table, payment_status) => {
-    h.tables[table] = [{ id: ID, payment_status, amount: 10, network: "MTN", recipient_phone: "0241234567" }]
+  const orderTables: [string, string][] = [["USSD", "ussd_orders"], ["USSD AFA", "ussd_afa_orders"], ["USSD shop", "ussd_shop_orders"]]
+  const closedStatuses = ["failed", "abandoned", "expired"]
+
+  it.each(orderTables)("%s order (%s) already completed → exactly {received:true}, nothing re-delivered", async (_n, table) => {
+    h.tables[table] = [{ id: ID, payment_status: "completed", amount: 10, network: "MTN", recipient_phone: "0241234567" }]
     expect(await bodyOf()).toEqual(ANSWER)
+    expect(h.fulfillUssdOrder).not.toHaveBeenCalled()
+  })
+
+  it.each(orderTables.flatMap(([n, t]) => closedStatuses.map((s) => [n, t, s])))("%s order (%s) closed as %s → 200 with order_closed, nothing delivered, row untouched", async (_n, table, payment_status) => {
+    h.tables[table] = [{ id: ID, payment_status, amount: 10, network: "MTN", recipient_phone: "0241234567" }]
+    expect(await bodyOf()).toEqual(CLOSED)
     expect(h.fulfillUssdOrder).not.toHaveBeenCalled()
     expect(h.tables[table][0].payment_status).toBe(payment_status)
   })
 
-  it.each(["failed", "completed"])("shop token purchase already %s → {received:true}", async (payment_status) => {
-    h.tables.ussd_shop_token_purchases = [{ id: "p1", paystack_reference: ID, payment_status }]
+  /** The two ways a token purchase is reached: its own paystack_reference, or a wallet_payments row pointing at it. */
+  const tokenPurchase: Record<string, (payment_status: string) => void> = {
+    "by paystack_reference": (payment_status) => {
+      h.tables.ussd_shop_token_purchases = [{ id: "p1", paystack_reference: ID, payment_status }]
+    },
+    "via wallet_payments": (payment_status) => {
+      h.tables.wallet_payments = [{ id: "wp1", reference: ID, user_id: "u1", order_id: "p2", order_type: "ussd_shop_token", amount: 10, fee: 0, status: "pending" }]
+      h.tables.ussd_shop_token_purchases = [{ id: "p2", paystack_reference: null, payment_status }]
+    },
+  }
+
+  it.each(Object.keys(tokenPurchase))("shop token purchase %s, already completed → exactly {received:true}", async (route) => {
+    tokenPurchase[route]("completed")
     expect(await bodyOf()).toEqual(ANSWER)
+  })
+
+  it.each(Object.keys(tokenPurchase))("shop token purchase %s, closed as failed → 200 with order_closed", async (route) => {
+    tokenPurchase[route]("failed")
+    expect(await bodyOf()).toEqual(CLOSED)
   })
 
   it("airtime already completed → {received:true}, not re-marked", async () => {
@@ -167,12 +185,27 @@ describe("confirmHubtelPayment through the real handler", () => {
     expect(h.fulfillUssdOrder).toHaveBeenCalledTimes(1)
   })
 
-  // KNOWN GAP, needs the charge-events.ts change proposed in the task 1 report. it.fails passes while the gap exists
-  // and goes red once handleChargeSuccess reports order_closed, at which point drop the `.fails`.
-  it.fails.each(["ussd_orders", "ussd_afa_orders", "ussd_shop_orders"])("a payment landing on a failed %s order → needs_review, not paid", async (table) => {
-    h.tables[table] = [{ id: ID, payment_status: "failed", amount: 10, network: "MTN", recipient_phone: "0241234567" }]
+  const seedOrder = (table: string, payment_status: string) => {
+    h.tables[table] = table === "ussd_shop_token_purchases"
+      ? [{ id: "p1", paystack_reference: ID, payment_status }]
+      : [{ id: ID, payment_status, amount: 10, network: "MTN", recipient_phone: "0241234567" }]
+  }
+  const tables = ["ussd_orders", "ussd_afa_orders", "ussd_shop_orders", "ussd_shop_token_purchases"]
+
+  it.each(tables)("a payment landing on a failed %s row → needs_review with one alert, not paid", async (table) => {
+    seedOrder(table, "failed")
     const t = run({})
     expect(await t.outcome).toBe("needs_review")
     expect(t.stored.status).toBe("needs_review")
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    expect(h.fulfillUssdOrder).not.toHaveBeenCalled()
+  })
+
+  it.each(tables)("a re-run on a completed %s row (fulfilled, final write lost) → paid, no alert", async (table) => {
+    seedOrder(table, "completed")
+    const t = run({})
+    expect(await t.outcome).toBe("fulfilled")
+    expect(t.stored.status).toBe("paid")
+    expect(t.notify).not.toHaveBeenCalled()
   })
 })
