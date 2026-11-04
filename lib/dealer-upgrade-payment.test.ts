@@ -2,10 +2,27 @@ import { describe, expect, it } from "vitest"
 import { checkUpgradeInitRequest, isDealerUpgradeFullyPaid } from "./dealer-upgrade-payment"
 
 describe("checkUpgradeInitRequest", () => {
-  const valid = { orderId: undefined, planId: "plan1", userId: "u1" }
+  const PLAN = "4d05cda6-4e1b-42ec-841d-f4c9a41fb79b"
+  const valid = { type: "dealer_upgrade", orderId: undefined, planId: PLAN, userId: "u1" }
 
   it("accepts a logged-in request for a plan with no order attached", () => {
     expect(checkUpgradeInitRequest(valid)).toEqual({ ok: true })
+  })
+
+  it("leaves every other kind of payment alone", () => {
+    expect(checkUpgradeInitRequest({ orderId: "o1" })).toEqual({ ok: true })
+    expect(checkUpgradeInitRequest({ type: "wallet_topup", orderType: "data", userId: "u1" })).toEqual({ ok: true })
+  })
+
+  it("refuses orderType dealer_upgrade without the matching type (it skipped every upgrade check)", () => {
+    expect(checkUpgradeInitRequest({ orderType: "dealer_upgrade", planId: PLAN, userId: "u1" })).toMatchObject({ ok: false, status: 400 })
+    expect(checkUpgradeInitRequest({ orderType: "dealer_upgrade", planId: PLAN, orderId: "o1", userId: "u1" })).toMatchObject({ ok: false, status: 400 })
+  })
+
+  it("refuses a planId that isn't a single UUID string", () => {
+    expect(checkUpgradeInitRequest({ ...valid, planId: [PLAN] })).toMatchObject({ ok: false, status: 400 })
+    expect(checkUpgradeInitRequest({ ...valid, planId: { id: PLAN } })).toMatchObject({ ok: false, status: 400 })
+    expect(checkUpgradeInitRequest({ ...valid, planId: "plan1" })).toMatchObject({ ok: false, status: 400 })
   })
 
   it("refuses an upgrade carrying an orderId (it would be priced from the order)", () => {

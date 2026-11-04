@@ -36,13 +36,16 @@ const h = vi.hoisted(() => {
     auth: { admin: { updateUserById } },
   }
   const logSecurityEvent = vi.fn()
-  return { tables, inserts, fake, updateUserById, logSecurityEvent }
+  const notifyAdmins = vi.fn(async () => {})
+  const rpc = vi.fn(async () => ({ data: null, error: null }))
+  fake.rpc = rpc
+  return { tables, inserts, fake, updateUserById, logSecurityEvent, notifyAdmins, rpc }
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 vi.mock("@/lib/sms-service", () => ({
   sendSMS: vi.fn(async () => {}),
-  notifyAdmins: vi.fn(async () => {}),
+  notifyAdmins: h.notifyAdmins,
   SMSTemplates: new Proxy({}, { get: () => () => "msg" }),
 }))
 vi.mock("@/lib/app-settings", () => ({ getJoinCommunityLink: vi.fn(async () => null) }))
@@ -79,6 +82,8 @@ beforeEach(() => {
   h.inserts.length = 0
   h.updateUserById.mockClear()
   h.logSecurityEvent.mockClear()
+  h.notifyAdmins.mockClear()
+  h.rpc.mockClear()
   h.tables.subscription_plans = [{ ...PLAN }]
   h.tables.users = [{ id: "u1", role: "user", phone_number: null }]
 })
@@ -101,9 +106,38 @@ describe("Paystack charge.success for a dealer upgrade", () => {
     expect(h.updateUserById).not.toHaveBeenCalled()
     expect(subscriptionInserts()).toHaveLength(0)
     expect(h.logSecurityEvent).toHaveBeenCalledWith(
-      "dealer_upgrade_underpaid",
-      expect.objectContaining({ reference: REF, planId: "plan1", paid: 1.03, planPrice: 20 }),
+      "dealer_upgrade_refused",
+      expect.objectContaining({ reason: "attached_to_order", reference: REF, planId: "plan1", paid: 1.03, planPrice: 20 }),
     )
+  })
+
+  it("a refused upgrade alerts admins and credits no wallet", async () => {
+    h.tables.wallet_payments = [payment({ amount: 1.03, fee: 0.03 })]
+    await chargeSuccess(103, { type: "dealer_upgrade", planId: "plan1", userId: "u1" })
+    expect(h.notifyAdmins).toHaveBeenCalledTimes(1)
+    expect(h.notifyAdmins.mock.calls[0][2]).toBe(REF)
+    expect(h.rpc).not.toHaveBeenCalled()
+  })
+
+  it("does NOT grant when the payment is attached to an order, even at the full price", async () => {
+    h.tables.wallet_payments = [payment({ order_id: "some-order" })]
+    await chargeSuccess(2060, { type: "shop_order", planId: "plan1", userId: "u1" })
+    expect(h.tables.users[0].role).toBe("user")
+    expect(subscriptionInserts()).toHaveLength(0)
+    expect(h.notifyAdmins).toHaveBeenCalledTimes(1)
+  })
+
+  it("alerts admins when the plan no longer exists, and grants nothing", async () => {
+    h.tables.wallet_payments = [payment()]
+    await chargeSuccess(2060, { type: "dealer_upgrade", planId: "gone", userId: "u1" })
+    expect(h.tables.users[0].role).toBe("user")
+    expect(h.notifyAdmins).toHaveBeenCalledTimes(1)
+  })
+
+  it("older rows that stored the plan id in order_id still get their upgrade", async () => {
+    h.tables.wallet_payments = [payment({ order_id: "plan1" })]
+    await chargeSuccess(2060, { type: "dealer_upgrade", userId: "u1" })
+    expect(h.tables.users[0].role).toBe("dealer")
   })
 
   it("does NOT grant when the fee is what makes up the plan price", async () => {

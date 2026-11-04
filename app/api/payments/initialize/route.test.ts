@@ -93,8 +93,25 @@ describe("payments/initialize: dealer upgrade request shape", () => {
       body: JSON.stringify({ type: "dealer_upgrade", email: "dealer@example.com", amount: 1, ...body }),
     }))
 
+  const PLAN_ID = "4d05cda6-4e1b-42ec-841d-f4c9a41fb79b"
+
+  it("refuses orderType dealer_upgrade sent without the matching type", async () => {
+    const res = await upgrade({ type: undefined, orderType: "dealer_upgrade", planId: PLAN_ID, orderId: ORDER_ID })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Invalid upgrade request")
+    expect(initializePayment).not.toHaveBeenCalled()
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("refuses a planId sent as an array", async () => {
+    const res = await upgrade({ planId: [PLAN_ID] })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Please choose a subscription plan")
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
   it("refuses an upgrade carrying an orderId, before any payment is created", async () => {
-    const res = await upgrade({ planId: "plan1", orderId: ORDER_ID })
+    const res = await upgrade({ planId: PLAN_ID, orderId: ORDER_ID })
     expect(res.status).toBe(400)
     expect((await res.json()).error).toBe("Invalid upgrade request")
     expect(initializePayment).not.toHaveBeenCalled()
@@ -109,13 +126,13 @@ describe("payments/initialize: dealer upgrade request shape", () => {
   })
 
   it("refuses an upgrade with no logged-in user", async () => {
-    const res = await upgrade({ planId: "plan1" }, null)
+    const res = await upgrade({ planId: PLAN_ID }, null)
     expect(res.status).toBe(401)
     expect(initializePayment).not.toHaveBeenCalled()
   })
 
   it("a normal upgrade is still priced from the plan, ignoring the client amount", async () => {
-    const res = await upgrade({ planId: "plan1", amount: 1 })
+    const res = await upgrade({ planId: PLAN_ID, amount: 1 })
     expect(res.status).toBe(200)
     expect(initializePayment).toHaveBeenCalledTimes(1)
     const walletRow = h.state.inserts.find(i => i.table === "wallet_payments")?.rows[0]

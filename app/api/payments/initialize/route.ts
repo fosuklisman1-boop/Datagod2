@@ -261,12 +261,10 @@ export async function POST(request: NextRequest) {
     const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
     const isUpgrade = type === "dealer_upgrade"
 
-    if (isUpgrade) {
-      const upgradeCheck = checkUpgradeInitRequest({ orderId, planId, userId })
-      if (!upgradeCheck.ok) {
-        logSecurityEvent("dealer_upgrade_init_refused", { reason: upgradeCheck.error, hasOrderId: !!orderId, userId, ip: clientIp })
-        return NextResponse.json({ error: upgradeCheck.error }, { status: upgradeCheck.status })
-      }
+    const upgradeCheck = checkUpgradeInitRequest({ type, orderType, orderId, planId, userId })
+    if (!upgradeCheck.ok) {
+      logSecurityEvent("dealer_upgrade_init_refused", { reason: upgradeCheck.error, hasOrderId: !!orderId, userId, ip: clientIp })
+      return NextResponse.json({ error: upgradeCheck.error }, { status: upgradeCheck.status })
     }
 
     // Phone gate (account holder's own money paths only). Wallet top-up and dealer
