@@ -5,6 +5,8 @@ import type { PaymentStatus } from "./client"
 const REF = "0123456789abcdef0123456789abcdef"
 const T0 = new Date("2026-11-04T10:00:00.000Z")
 const min = (n: number) => n * 60_000
+/** "2026-11-04T10:00:00.000Z" → "2026-11-04T10:00:00.000456+00:00" (µs + offset, as PostgREST returns it). */
+const pgStamp = (d: Date) => `${d.toISOString().slice(0, 23)}456+00:00`
 
 interface Write { reference: string; patch: RowPatch; guard: UpdateGuard; applied: boolean }
 
@@ -16,7 +18,7 @@ function fakeStore(row: Partial<HubtelPaymentRow> | null, clock: () => Date) {
   const rows = new Map<string, HubtelPaymentRow>()
   if (row) {
     rows.set(REF, {
-      reference: REF, amount_pesewas: 2000, status: "pending", claimed_at: null,
+      reference: REF, amount_pesewas: 2000, status: "pending", claimed_at: null, claim_count: 0,
       expires_at: new Date(T0.getTime() + min(30)).toISOString(), ...row,
     } as HubtelPaymentRow)
   }
@@ -30,7 +32,9 @@ function fakeStore(row: Partial<HubtelPaymentRow> | null, clock: () => Date) {
       const stale = r?.status === "confirming" && r.claimed_at !== null && new Date(r.claimed_at).getTime() < now.getTime() - min(10)
       if (!r || !(r.status === "pending" || stale)) { claims.push({ reference: ref, won: false }); return null }
       r.status = "confirming"
-      r.claimed_at = now.toISOString()
+      // PostgREST returns timestamptz at microsecond precision with an offset.
+      r.claimed_at = pgStamp(now)
+      r.claim_count = (r.claim_count ?? 0) + 1
       ;(r as any).updated_at = now.toISOString()
       claims.push({ reference: ref, won: true })
       return { ...r }
@@ -117,9 +121,17 @@ describe("confirmHubtelPayment — paid", () => {
     expect(r.payment_method).toBe("mobilemoney")
     expect(r.last_check).toEqual({ status: "Paid" })
     expectEveryWriteStampsUpdatedAt(t.writes)
-    // the final write is guarded on OUR claim
+    // the final write is guarded on OUR claim, using the exact µs string the claim returned (never re-formatted)
     const last = t.writes.at(-1)!
-    expect(last.guard).toEqual({ status: ["confirming"], claimedAt: T0.toISOString() })
+    expect(last.guard).toEqual({ status: ["confirming"], claimedAt: "2026-11-04T10:00:00.000456+00:00" })
+    expect(last.guard.claimedAt).toBe(t.get().claimed_at)
+  })
+
+  it("needs_review write after a claim is guarded on the exact µs claimed_at string", async () => {
+    const t = setup({ status: paid({ amountPesewas: 1 }) })
+    await confirmHubtelPayment(REF, t.deps)
+    expect(t.writes.at(-1)!.guard.claimedAt).toBe("2026-11-04T10:00:00.000456+00:00")
+    expect(t.writes.at(-1)!.applied).toBe(true)
   })
 
   it("handler returns a 2xx NextResponse-like → paid", async () => {
@@ -222,6 +234,61 @@ describe("confirmHubtelPayment — paid", () => {
     expect(msg).not.toContain("233241234567")
     expect(type).toBeTypeOf("string")
     expect(ref).toBe(REF)
+  })
+})
+
+describe("confirmHubtelPayment — attempt cap (claim_count)", () => {
+  const stale = (claim_count: number) => ({
+    status: "confirming" as const, claim_count, claimed_at: new Date(T0.getTime() - min(11)).toISOString(),
+  })
+
+  it("1st claim (claim_count becomes 1) → handler called", async () => {
+    const t = setup()
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
+    expect(t.get().claim_count).toBe(1)
+    expect(t.onChargeSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it("2nd claim (claim_count becomes 2) → handler called again", async () => {
+    const t = setup({ row: stale(1) })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("fulfilled")
+    expect(t.get().claim_count).toBe(2)
+    expect(t.onChargeSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it("3rd claim (claim_count becomes 3) → no handler, needs_review, one 'stuck after 3 attempts' alert", async () => {
+    const t = setup({ row: stale(2) })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+    expect(t.get().claim_count).toBe(3)
+    expect(t.onChargeSuccess).not.toHaveBeenCalled()
+    expect(t.get().status).toBe("needs_review")
+    expect(t.notify).toHaveBeenCalledTimes(1)
+    expect((t.notify.mock.calls[0] as unknown as [string])[0]).toContain("stuck after 3 attempts")
+    expectEveryWriteStampsUpdatedAt(t.writes)
+  })
+
+  it("claim_count beyond 3 → still capped", async () => {
+    const t = setup({ row: stale(7) })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+    expect(t.onChargeSuccess).not.toHaveBeenCalled()
+  })
+
+  it("failure path is capped too: refunded on the 3rd claim → no handleChargeFailed, needs_review, one alert", async () => {
+    const t = setup({ row: stale(2), status: { kind: "refunded", raw: {} } })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+    expect(t.onChargeFailed).not.toHaveBeenCalled()
+    expect(t.notify).toHaveBeenCalledTimes(1)
+  })
+
+  it("a handler that throws every time is called at most twice before review", async () => {
+    const t = setup({ success: async () => { throw new Error("always") } })
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("pending")
+    t.setNow(new Date(T0.getTime() + min(11)))
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("pending")
+    t.setNow(new Date(T0.getTime() + min(22)))
+    expect(await confirmHubtelPayment(REF, t.deps)).toBe("needs_review")
+    expect(t.onChargeSuccess).toHaveBeenCalledTimes(2)
+    expect(t.get().status).toBe("needs_review")
   })
 })
 

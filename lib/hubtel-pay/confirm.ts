@@ -18,6 +18,8 @@ export interface HubtelPaymentRow {
   status: HubtelPaymentStatus
   expires_at: string
   claimed_at: string | null
+  /** Successful claims so far (migration 0152); the claim RPC increments it. */
+  claim_count?: number
   hubtel_transaction_id?: string | null
   charges_pesewas?: number | null
   payment_method?: string | null
@@ -56,6 +58,8 @@ export interface ConfirmDeps {
 
 const REF_RE = /^[0-9a-f]{32}$/
 const STALE_CLAIM_MS = 10 * 60_000
+/** On the winning claim with this many claims (i.e. the 3rd attempt), stop calling handlers: needs_review. */
+const MAX_CLAIMS = 3
 const ALERT_TYPE = "hubtel_payment"
 
 /** Mobile money and Hubtel/G-Money wallets only. Anything mentioning "card", or unknown/missing, is refused. */
@@ -96,12 +100,23 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
   /** Final write on a row we hold. */
   const finish = async (claimed: HubtelPaymentRow, patch: Omit<RowPatch, "updated_at">): Promise<boolean> => {
     try {
+      // Pass claimed_at EXACTLY as the claim returned it. Never normalise it through Date/toISOString:
+      // PostgREST returns and compares timestamptz at microsecond precision, and a millisecond string
+      // would never match, so every guarded final write would silently change nothing.
       return await d.store.update(reference, { ...patch, last_check: status.raw, updated_at: stamp() },
         { status: ["confirming"], claimedAt: claimed.claimed_at ?? undefined })
     } catch (e) {
       console.error("[hubtel-pay] final write failed", reference, e)
       return false
     }
+  }
+
+  /** True when this winning claim is the MAX_CLAIMS-th (or later): park it for a human instead of retrying. */
+  const capReached = async (claimed: HubtelPaymentRow): Promise<boolean> => {
+    if ((claimed.claim_count ?? 0) < MAX_CLAIMS) return false
+    await finish(claimed, { status: "needs_review", ...hubtelFields })
+    await alert(`Hubtel payment ${reference} stuck after ${MAX_CLAIMS} attempts (Hubtel: ${status.kind}); handler not called again. Needs review.`)
+    return true
   }
 
   const hubtelFields = {
@@ -127,6 +142,7 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
       await alert(`Hubtel payment ${reference} needs review: ${problem}. Not fulfilled.`)
       return "needs_review"
     }
+    if (await capReached(claimed)) return "needs_review"
 
     let res: HandlerResponse
     try {
@@ -153,6 +169,7 @@ export async function confirmHubtelPayment(reference: string, deps?: Partial<Con
     const refunded = status.kind === "refunded"
     const claimed = await d.store.claim(reference)
     if (!claimed) return "ignored"
+    if (await capReached(claimed)) return "needs_review"
 
     const gateway_response = refunded ? "Hubtel: Refunded" : "Hubtel: Unpaid (expired)"
     let res: HandlerResponse

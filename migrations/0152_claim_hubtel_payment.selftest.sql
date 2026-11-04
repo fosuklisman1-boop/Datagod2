@@ -73,9 +73,14 @@ BEGIN
   IF v_row.claimed_at IS DISTINCT FROM now() THEN RAISE EXCEPTION 'FAIL claim_pending: claimed_at not now()'; END IF;
   IF v_row.updated_at IS DISTINCT FROM now() THEN RAISE EXCEPTION 'FAIL claim_pending: updated_at not now()'; END IF;
 
-  -- second claim on the same (now freshly confirming) row loses
+  IF v_row.claim_count IS DISTINCT FROM 1 THEN RAISE EXCEPTION 'FAIL claim_count_first: got %', v_row.claim_count; END IF;
+
+  -- second claim on the same (now freshly confirming) row loses, and does not bump claim_count
   SELECT count(*) INTO v_n FROM public.claim_hubtel_payment(A);
   IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL double_claim: second claim won (% rows)', v_n; END IF;
+  IF (SELECT claim_count FROM public.hubtel_payments WHERE reference = A) <> 1 THEN
+    RAISE EXCEPTION 'FAIL claim_count_lost: lost claim changed claim_count';
+  END IF;
 
   -- 9-minute-old claim is not reclaimed
   SELECT count(*) INTO v_n FROM public.claim_hubtel_payment(B9);
@@ -85,6 +90,17 @@ BEGIN
   SELECT * INTO v_row FROM public.claim_hubtel_payment(C11);
   IF v_row.reference IS DISTINCT FROM C11 THEN RAISE EXCEPTION 'FAIL stale_11min: 11-minute-old claim not reclaimed'; END IF;
   IF v_row.claimed_at IS DISTINCT FROM now() THEN RAISE EXCEPTION 'FAIL stale_11min: claimed_at not refreshed'; END IF;
+  IF v_row.claim_count IS DISTINCT FROM 1 THEN RAISE EXCEPTION 'FAIL claim_count_reclaim: got %', v_row.claim_count; END IF;
+  IF (SELECT claim_count FROM public.hubtel_payments WHERE reference = B9) <> 0 THEN
+    RAISE EXCEPTION 'FAIL claim_count_9min: lost reclaim changed claim_count';
+  END IF;
+
+  -- claim_count rises by exactly 1 per successful claim: age C11's claim again and re-claim it
+  UPDATE public.hubtel_payments SET claimed_at = now() - interval '11 minutes' WHERE reference = C11;
+  SELECT * INTO v_row FROM public.claim_hubtel_payment(C11);
+  IF v_row.claim_count IS DISTINCT FROM 2 THEN RAISE EXCEPTION 'FAIL claim_count_second: got %', v_row.claim_count; END IF;
+
+  -- final rows' claim_count untouched by refused claims (checked below after the final-state claims)
 
   -- final states are never claimed
   SELECT count(*) INTO v_n FROM public.claim_hubtel_payment(P);
@@ -95,6 +111,16 @@ BEGIN
   IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL final_review: needs_review row claimed'; END IF;
   IF (SELECT status FROM public.hubtel_payments WHERE reference = P) <> 'paid' THEN
     RAISE EXCEPTION 'FAIL final_paid: status changed';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.hubtel_payments WHERE reference IN (P, F, R) AND claim_count <> 0) THEN
+    RAISE EXCEPTION 'FAIL claim_count_final: refused claim on a final row changed claim_count';
+  END IF;
+
+  -- column shape
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'hubtel_payments' AND column_name = 'claim_count'
+                    AND data_type = 'integer' AND is_nullable = 'NO' AND column_default = '0') THEN
+    RAISE EXCEPTION 'FAIL claim_count_column: missing or wrong shape';
   END IF;
 
   -- unknown reference

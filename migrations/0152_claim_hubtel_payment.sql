@@ -12,8 +12,15 @@
 --   concurrent UPDATE waits on the row lock, then re-checks the WHERE against the committed row and matches
 --   nothing, so two simultaneous callers (callback + sweep) can never both win.
 --
+--   claim_count  number of successful claims. confirm.ts sends a row to needs_review instead of calling the handler
+--     again once the winning claim's count reaches 3 (caps the loop from a handler that always throws or a final
+--     write that keeps failing). Added here, not in 0151, so 0151 stays as reviewed.
+--
 -- Security: SECURITY DEFINER with a pinned search_path; EXECUTE revoked from PUBLIC/anon/authenticated and
 -- granted to service_role only.
+
+ALTER TABLE public.hubtel_payments
+  ADD COLUMN IF NOT EXISTS claim_count integer NOT NULL DEFAULT 0;
 
 CREATE OR REPLACE FUNCTION public.claim_hubtel_payment(p_reference text)
 RETURNS SETOF public.hubtel_payments
@@ -26,6 +33,7 @@ BEGIN
   UPDATE public.hubtel_payments
      SET status = 'confirming',
          claimed_at = now(),
+         claim_count = claim_count + 1,
          updated_at = now()
    WHERE reference = p_reference
      AND (status = 'pending'
