@@ -68,6 +68,7 @@ const C_EXACT = new Set(
     "drain-fulfillment-queue",
     "reconcile-paystack-refunds",
     "expire-stale-bot-orders",
+    "hubtel-payments-sweep", // confirms + fulfils Hubtel collections; overlap-safe via the atomic claim (0152)
   ].map((n) => P + n),
 )
 
