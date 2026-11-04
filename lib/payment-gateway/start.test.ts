@@ -759,6 +759,126 @@ describe("PII-free alerts", () => {
   })
 })
 
+describe("startMomoCharge — earlier attempts block every Paystack path on a Hubtel surface", () => {
+  const OLD = "d".repeat(32)
+  const seedRow = (status: string, expiresInMs = 60_000) => ({
+    reference: OLD, internal_reference: "order-123", status, claimed_at: null,
+    expires_at: new Date(NOW.getTime() + expiresInMs).toISOString(),
+  })
+  const offline = { status: "pay_offline", reference: "order-123", gateway: "hubtel" }
+  const paths: [string, any, Parameters<typeof setup>[0]][] = [
+    ["unverified payer", { ...PARAMS, verifiedPayer: false }, {}],
+    ["verifiedPayer not stated", PARAMS, {}],
+    ["under the minimum", { ...VERIFIED, amount: 0.05 }, {}],
+    ["malformed phone", { ...VERIFIED, phone: "024 412 3456" }, {}],
+    ["unknown provider", { ...VERIFIED, provider: "xyz" }, {}],
+    ["Hubtel not ready", VERIFIED, { ready: false }],
+    ["callback URL unavailable", VERIFIED, { callbackUrlThrows: new Error("no url") }],
+    ["row insert error", VERIFIED, { insertResult: "error" }],
+  ]
+
+  it.each(paths)("%s + an open attempt → no Paystack prompt", async (_n, params, o) => {
+    const t = setup({ ...o, seed: [seedRow("pending")] })
+    expect(await startMomoCharge("ussd", params, t.deps)).toEqual(offline)
+    expect(t.chargeMobileMoney).not.toHaveBeenCalled()
+    expect(t.receiveMoney).not.toHaveBeenCalled()
+  })
+
+  it.each(paths)("%s + a paid sibling → no Paystack prompt", async (_n, params, o) => {
+    for (const status of ["paid", "needs_review"]) {
+      const t = setup({ ...o, seed: [seedRow(status)] })
+      expect(await startMomoCharge("ussd", params, t.deps)).toEqual(offline)
+      expect(t.chargeMobileMoney).not.toHaveBeenCalled()
+    }
+  })
+
+  it("an expired open attempt Hubtel never saw is freed, then the Paystack path may run", async () => {
+    const t = setup({ seed: [seedRow("pending", -1)] })
+    const out = await startMomoCharge("ussd", { ...PARAMS, verifiedPayer: false }, t.deps)
+    expect(out.gateway).toBe("paystack")
+    expect(t.chargeMobileMoney).toHaveBeenCalledTimes(1)
+    expect(t.rows.get(OLD).status).toBe("failed")
+  })
+
+  it("no earlier attempt: the Paystack paths run as before", async () => {
+    for (const [, params, o] of paths) {
+      const t = setup(o)
+      expect((await startMomoCharge("ussd", params, t.deps)).gateway).toBe("paystack")
+      expect(t.chargeMobileMoney).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it("surface on Paystack: the attempt tables are never read", async () => {
+    const t = setup({ config: deriveFromLegacy({ storefrontDirect: false, walletDirect: false }), seed: [seedRow("pending")] })
+    const sibling = vi.spyOn(t.deps.store!, "findSettledSibling")
+    const open = vi.spyOn(t.deps.store!, "findOpen")
+    expect((await startMomoCharge("ussd", VERIFIED, t.deps)).gateway).toBe("paystack")
+    expect(sibling).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+    expect(t.chargeMobileMoney).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("startMomoCharge — onFallback", () => {
+  const withFallback = (amount = 20.6) => {
+    const onFallback = vi.fn(async () => ({ amount }))
+    return { onFallback, params: { ...VERIFIED, onFallback } }
+  }
+
+  it("refused → row closed first, called once, Paystack charges the amount it returns and never sees the callback", async () => {
+    const { onFallback, params } = withFallback()
+    const t = setup({ outcome: refused() })
+    onFallback.mockImplementation(async () => { t.events.push("onFallback"); return { amount: 20.6 } })
+    const out = await startMomoCharge("ussd", params, t.deps)
+    expect(out.gateway).toBe("paystack")
+    expect(onFallback).toHaveBeenCalledTimes(1)
+    expect(t.events).toEqual(["insert", "receive", "close", "onFallback", "paystack"])
+    const sent = t.chargeMobileMoney.mock.calls[0][0]
+    expect(sent.amount).toBe(20.6)
+    expect(sent).not.toHaveProperty("onFallback")
+    expect(sent).not.toHaveProperty("verifiedPayer")
+  })
+
+  it.each<[string, any, Parameters<typeof setup>[0]]>([
+    ["unverified", { verifiedPayer: false }, {}],
+    ["under the minimum", { amount: 0.05 }, {}],
+    ["not ready", {}, { ready: false }],
+    ["insert error", {}, { insertResult: "error" }],
+    ["surface back on Paystack after the caller resolved Hubtel", {}, { config: deriveFromLegacy({ storefrontDirect: false, walletDirect: false }) }],
+  ])("%s → called once before Paystack", async (_n, over, o) => {
+    const { onFallback, params } = withFallback()
+    const t = setup(o)
+    await startMomoCharge("ussd", { ...params, ...over }, t.deps)
+    expect(onFallback).toHaveBeenCalledTimes(1)
+    expect(t.chargeMobileMoney).toHaveBeenCalledTimes(1)
+    expect(t.chargeMobileMoney.mock.calls[0][0].amount).toBe(20.6)
+  })
+
+  it("onFallback throwing → the error reaches the caller, nothing charged, the Hubtel row stays closed", async () => {
+    const { onFallback, params } = withFallback()
+    onFallback.mockRejectedValue(new Error("no row"))
+    const t = setup({ outcome: refused() })
+    await expect(startMomoCharge("ussd", params, t.deps)).rejects.toThrow("no row")
+    expect(t.chargeMobileMoney).not.toHaveBeenCalled()
+    expect(t.onlyRow().status).toBe("failed")
+  })
+
+  it("Hubtel accepted or unknown → never called", async () => {
+    for (const outcome of [{ kind: "accepted" } as StartOutcome, { kind: "unknown", code: "timeout" } as StartOutcome]) {
+      const { onFallback, params } = withFallback()
+      const t = setup({ outcome })
+      expect((await startMomoCharge("ussd", params, t.deps)).gateway).toBe("hubtel")
+      expect(onFallback).not.toHaveBeenCalled()
+    }
+  })
+
+  it("omitted → Paystack charges the caller's amount, as before", async () => {
+    const t = setup({ outcome: refused() })
+    await startMomoCharge("ussd", VERIFIED, t.deps)
+    expect(t.chargeMobileMoney.mock.calls[0][0].amount).toBe(20)
+  })
+})
+
 describe("createStartStore", () => {
   function fakeSb(res: { error?: { code?: string; message: string } | null; data?: unknown[] }) {
     const calls: unknown[][] = []

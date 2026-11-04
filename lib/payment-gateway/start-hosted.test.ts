@@ -314,6 +314,86 @@ describe("startHostedPayment — siblings and one open attempt per order", () =>
   })
 })
 
+describe("startHostedPayment — earlier attempts block every Paystack path on a Hubtel surface", () => {
+  const OLD = "d".repeat(32)
+  const seedRow = (status: string, over: Record<string, unknown> = {}) => ({
+    reference: OLD, internal_reference: PARAMS.reference, status, mode: "direct", claimed_at: null,
+    expires_at: new Date(NOW.getTime() + 60_000).toISOString(), ...over,
+  })
+  const paths: [string, InitializePaymentParams, Parameters<typeof setup>[0]][] = [
+    ["under the minimum", { ...PARAMS, amount: 0.05 }, {}],
+    ["Hubtel not ready", PARAMS, { ready: false }],
+    ["row insert error", PARAMS, { insertResult: "error" }],
+  ]
+
+  it.each(paths)("%s + an open attempt with no link → try_again, no Paystack", async (_n, params, o) => {
+    const t = setup({ ...o, seed: [seedRow("pending")] })
+    await expect(startHostedPayment("wallet_topup", params, t.deps)).rejects.toMatchObject({ code: "try_again" })
+    expect(t.initializePayment).not.toHaveBeenCalled()
+  })
+
+  it.each(paths)("%s + a live hosted attempt → its link, no Paystack", async (_n, params, o) => {
+    const t = setup({ ...o, seed: [seedRow("pending", { mode: "checkout", checkout_url: CHECKOUT })] })
+    expect(await startHostedPayment("wallet_topup", params, t.deps)).toMatchObject({ authorizationUrl: CHECKOUT, gateway: "hubtel" })
+    expect(t.initializePayment).not.toHaveBeenCalled()
+  })
+
+  it.each(paths)("%s + a paid sibling → already_processing, no Paystack", async (_n, params, o) => {
+    const t = setup({ ...o, seed: [seedRow("paid")] })
+    await expect(startHostedPayment("wallet_topup", params, t.deps)).rejects.toMatchObject({ code: "already_processing" })
+    expect(t.initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("callback URL unavailable + an open attempt → try_again, no Paystack", async () => {
+    const t = setup({ seed: [seedRow("pending")] })
+    t.deps.callbackUrl = () => { throw new Error("no url") }
+    await expect(startHostedPayment("wallet_topup", PARAMS, t.deps)).rejects.toMatchObject({ code: "try_again" })
+    expect(t.initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("surface on Paystack: the attempt tables are never read", async () => {
+    const t = setup({ config: deriveFromLegacy({ storefrontDirect: false, walletDirect: false }), seed: [seedRow("pending")] })
+    const sibling = vi.spyOn(t.deps.store!, "findSettledSibling")
+    const open = vi.spyOn(t.deps.store!, "findOpen")
+    expect((await startHostedPayment("wallet_topup", PARAMS, t.deps)).gateway).toBe("paystack")
+    expect(sibling).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+  })
+})
+
+describe("startHostedPayment — onFallback", () => {
+  const refusedOutcome: StartOutcome = { kind: "refused", code: "4000", message: "no" }
+
+  it("refused → row closed first, called once, Paystack gets the amount it returns and never sees the callback", async () => {
+    const t = setup({ outcome: refusedOutcome })
+    const onFallback = vi.fn(async () => { t.events.push("onFallback"); return { amount: 20.6 } })
+    const out = await startHostedPayment("wallet_topup", { ...PARAMS, onFallback }, t.deps)
+    expect(out.gateway).toBe("paystack")
+    expect(onFallback).toHaveBeenCalledTimes(1)
+    expect(t.events).toEqual(["insert", "checkout", "close", "onFallback", "paystack"])
+    const sent = t.initializePayment.mock.calls[0][0]
+    expect(sent.amount).toBe(20.6)
+    expect(sent).not.toHaveProperty("onFallback")
+  })
+
+  it("onFallback throwing → the error reaches the caller, nothing started, the Hubtel row stays closed", async () => {
+    const t = setup({ outcome: refusedOutcome })
+    await expect(startHostedPayment("wallet_topup", { ...PARAMS, onFallback: async () => { throw new Error("no row") } }, t.deps)).rejects.toThrow("no row")
+    expect(t.initializePayment).not.toHaveBeenCalled()
+    expect(t.onlyRow().status).toBe("failed")
+  })
+
+  it("accepted → never called; omitted → the caller's amount, as before", async () => {
+    const onFallback = vi.fn(async () => ({ amount: 20.6 }))
+    const ok = setup()
+    await startHostedPayment("wallet_topup", { ...PARAMS, onFallback }, ok.deps)
+    expect(onFallback).not.toHaveBeenCalled()
+    const t = setup({ outcome: refusedOutcome })
+    await startHostedPayment("wallet_topup", PARAMS, t.deps)
+    expect(t.initializePayment.mock.calls[0][0].amount).toBe(20)
+  })
+})
+
 describe("createStartStore — hosted additions", () => {
   function fakeSb(res: { error?: { message: string } | null; data?: unknown[] }) {
     const calls: unknown[][] = []

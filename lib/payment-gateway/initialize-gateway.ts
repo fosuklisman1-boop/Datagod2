@@ -55,6 +55,14 @@ export async function isVerifiedWebPayer(
   }
 }
 
+/** The payment row could not be re-priced for a Paystack fallback, so nothing may be charged. */
+export class FallbackRefusedError extends Error {
+  constructor() {
+    super("Could not re-price the payment for its fallback")
+    this.name = "FallbackRefusedError"
+  }
+}
+
 /** Same window as lib/bot-commission/momo.ts's replay. */
 export const HUBTEL_REPLAY_WINDOW_MS = 15 * 60 * 1000
 

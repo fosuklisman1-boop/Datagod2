@@ -26,6 +26,8 @@ const h = vi.hoisted(() => {
     momoGateway: null as null | "paystack" | "hubtel",
     hostedGateway: null as null | "paystack" | "hubtel",
     hostedError: null as null | "try_again" | "already_processing",
+    /** What a wallet_payments update answers; default one changed row. */
+    updateResult: null as null | { data: any; error: any },
   }
   const chain = (table: string) => {
     const c: any = {}
@@ -54,6 +56,7 @@ const h = vi.hoisted(() => {
       if (mode === "update") {
         state.updates.push({ table, patch, filters })
         state.events.push(`update:${table}`)
+        if (state.updateResult) return Promise.resolve(state.updateResult).then(res, rej)
       }
       return Promise.resolve({ data: [{ id: "wp1" }], error: null }).then(res, rej)
     }
@@ -76,9 +79,10 @@ vi.mock("@/lib/paystack", () => ({
 const startMomoCharge = vi.fn(async (surface: Surface, params: any) => {
   const gateway = h.state.momoGateway ?? (h.state.config.surfaces[surface].gateway === "hubtel" && params.verifiedPayer ? "hubtel" : "paystack")
   if (gateway === "paystack") {
-    const { verifiedPayer, ...p } = params
+    const { verifiedPayer, onFallback, ...p } = params
     void verifiedPayer
-    return { ...(await chargeMobileMoney(p)), reference: params.reference, gateway }
+    const amount = onFallback ? (await onFallback()).amount : p.amount
+    return { ...(await chargeMobileMoney({ ...p, amount })), reference: params.reference, gateway }
   }
   return { status: "pay_offline", reference: params.reference, gateway, hubtelReference: "h".repeat(32) }
 })
@@ -119,6 +123,8 @@ vi.mock("@/lib/security-log", () => ({ logSecurityEvent: vi.fn() }))
 vi.mock("@/lib/phone-verify-guard", () => ({ checkPhoneVerified: async () => ({ allowed: true }) }))
 vi.mock("@/lib/custom-domain-lookup", () => ({ resolveTrustedBaseUrl: async () => "https://shop.example" }))
 vi.mock("@/lib/refunds/payer-phone", () => ({ recordPayerPhone: vi.fn(async () => {}) }))
+const sendThrottledAlert = vi.fn(async (..._a: any[]) => {})
+vi.mock("@/lib/hubtel-pay/alert-throttle", () => ({ sendThrottledAlert: (...a: any[]) => sendThrottledAlert(...a) }))
 
 import * as route from "./route"
 const { POST } = route
@@ -164,6 +170,8 @@ beforeEach(() => {
   h.state.momoGateway = null
   h.state.hostedGateway = null
   h.state.hostedError = null
+  h.state.updateResult = null
+  sendThrottledAlert.mockClear()
   chargeMobileMoney.mockClear()
   initializePayment.mockClear()
   startMomoCharge.mockClear()
@@ -276,7 +284,7 @@ describe("payments/initialize gateway choice", () => {
     expect(walletRow()).toMatchObject({ payment_method: "paystack", fee: 1.5 })
   })
 
-  it("fallback: Hubtel resolved but the wrapper used Paystack => row fixed to paystack after the start; fee stays 0", async () => {
+  it("fallback: Hubtel resolved but the wrapper used Paystack => one update sets amount, fee and method; Paystack charges price + fee", async () => {
     h.state.config = config({ wallet_topup: h.state.surfaceCfg("hubtel", "direct") })
     h.state.gates.walletDirect = true
     h.state.momoGateway = "paystack"
@@ -286,9 +294,18 @@ describe("payments/initialize gateway choice", () => {
     expect(wp).toMatchObject({ payment_method: "hubtel", fee: 0, amount: 50 })
     const ups = methodUpdates()
     expect(ups).toHaveLength(1)
-    expect(ups[0].patch).toEqual({ payment_method: "paystack" })
+    expect(ups[0].patch).toEqual({ amount: 51.5, fee: 1.5, payment_method: "paystack" })
     expect(ups[0].filters).toContainEqual(["reference", wp.reference])
-    expect(h.state.events.indexOf("update:wallet_payments")).toBeGreaterThan(h.state.events.indexOf("start:momo"))
+    expect(chargeMobileMoney.mock.calls[0][0]).toMatchObject({ amount: 51.5 })
+  })
+
+  it("fallback on a merchant-bearing surface: Paystack + merchant bearer stays fee 0", async () => {
+    h.state.config = config({ wallet_topup: h.state.surfaceCfg("hubtel", "direct", "merchant") })
+    h.state.gates.walletDirect = true
+    h.state.momoGateway = "paystack"
+    await momoTopup()
+    expect(methodUpdates()[0].patch).toEqual({ amount: 50, fee: 0, payment_method: "paystack" })
+    expect(chargeMobileMoney.mock.calls[0][0]).toMatchObject({ amount: 50 })
   })
 
   it("other direction: Paystack resolved but the hosted wrapper used Hubtel => row fixed to hubtel", async () => {
@@ -299,6 +316,17 @@ describe("payments/initialize gateway choice", () => {
     expect(ups).toHaveLength(1)
     expect(ups[0].patch).toEqual({ payment_method: "hubtel" })
     expect(ups[0].filters).toContainEqual(["reference", walletRow().reference])
+    expect(sendThrottledAlert).not.toHaveBeenCalled()
+  })
+
+  it("a failed payment_method correction sends a throttled alert: on an error, and when no row changed", async () => {
+    h.state.hostedGateway = "hubtel"
+    h.state.updateResult = { data: null, error: { message: "db down" } }
+    expect((await topup()).status).toBe(200)
+    expect(sendThrottledAlert).toHaveBeenCalledTimes(1)
+    h.state.updateResult = { data: [], error: null }
+    expect((await topup()).status).toBe(200)
+    expect(sendThrottledAlert).toHaveBeenCalledTimes(2)
   })
 
   it("a hosted start error answers the wrapper's message; already_processing is 409, try_again 503", async () => {

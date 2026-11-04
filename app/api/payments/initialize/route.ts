@@ -17,7 +17,9 @@ import {
 } from "@/lib/storefront-commission/payment"
 import { HostedStartError, resolveSurfaceGateway, startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
 import type { FeeBearer, Gateway } from "@/lib/payment-gateway/config"
-import { initializeFee, initializeSurface, isVerifiedWebPayer, pickHubtelReplay, HUBTEL_REPLAY_WINDOW_MS } from "@/lib/payment-gateway/initialize-gateway"
+import { FallbackRefusedError, initializeFee, initializeSurface, isVerifiedWebPayer, pickHubtelReplay, HUBTEL_REPLAY_WINDOW_MS } from "@/lib/payment-gateway/initialize-gateway"
+import { normalizeGhanaPhone } from "@/lib/phone-format"
+import { sendThrottledAlert } from "@/lib/hubtel-pay/alert-throttle"
 
 // A Hubtel start awaits the relay.
 export const maxDuration = 60
@@ -39,14 +41,26 @@ function detectMomoProvider(phone: string): "mtn" | "vod" | "tgo" | null {
 }
 
 /**
- * wallet_payments.payment_method must name the gateway that actually took the payment. A start can end on another
- * gateway than the one resolved (Hubtel refused -> Paystack fallback, or the config changed in between), so the row
- * is fixed right after the start returns, before the response (and so the poll) can read it.
+ * wallet_payments.payment_method must name the gateway that actually took the payment. A fallback to Paystack fixes
+ * its row in onFallback; what's left is the config changing between resolving and starting. The row is fixed right
+ * after the start returns. The money has already moved on, so a failed fix can't refuse: it alerts the admins.
  */
 async function syncPaymentMethod(reference: string, written: Gateway, used: Gateway): Promise<void> {
   if (written === used) return
-  const { error } = await supabase.from("wallet_payments").update({ payment_method: used }).eq("reference", reference)
-  if (error) console.error(`[PAYMENT-INIT] ❌ Could not set payment_method=${used} for ${reference}:`, error.message)
+  let problem: string | null = null
+  try {
+    const { data, error } = await supabase.from("wallet_payments").update({ payment_method: used }).eq("reference", reference).select("id")
+    if (error) problem = error.message
+    else if (!data?.length) problem = "no row changed"
+  } catch (e) {
+    problem = e instanceof Error ? e.message : "unknown error"
+  }
+  if (!problem) return
+  console.error(`[PAYMENT-INIT] ❌ Could not set payment_method=${used} for ${reference}:`, problem)
+  await sendThrottledAlert(supabase, `Payment ${reference} was taken by ${used}, but its record could not be updated. Check it by hand.`, {
+    key: "last_payment_method_sync_alert", type: "hubtel_payment_start", description: "Payment method correction alert throttle",
+    windowMs: 60 * 60 * 1000, logPrefix: "[PAYMENT-INIT]",
+  })
 }
 
 const ALLOWED_ORIGINS = [
@@ -541,8 +555,10 @@ export async function POST(request: NextRequest) {
     const hostedMomoStripped = !momoDirect && !isAdmin &&
       ((surfaceDirectOn && (isTopup || isUpgrade)) || (storefrontDirectOn && !!orderId))
     // A direct charge only runs when its gate is on (or for an admin); otherwise it is refused below, as today.
-    const directPhone = String(paymentPhone || "").trim()
-    const directRuns = !!momoDirect && (surfaceDirectOn || isAdmin) && detectMomoProvider(directPhone) !== null
+    // Canonicalised once, here: Hubtel gets this form. A number with none is "not Hubtel", so it carries the standard
+    // Paystack fee from the start. The Paystack path keeps the raw value, as today.
+    const canonicalPhone = normalizeGhanaPhone(String(paymentPhone || "").trim())
+    const directRuns = !!momoDirect && (surfaceDirectOn || isAdmin) && !!canonicalPhone && detectMomoProvider(canonicalPhone) !== null
     let gateway: Gateway = "paystack"
     let feeBearer: FeeBearer = "customer"
     if (gatewaySurface) {
@@ -550,10 +566,11 @@ export async function POST(request: NextRequest) {
       const potential = await resolveSurfaceGateway(gatewaySurface, { verifiedPayer: true, amount: finalAmount })
       feeBearer = potential.feeBearer
       if (potential.gateway === "hubtel" && !hostedMomoStripped && (!momoDirect || directRuns)) {
-        if (momoDirect) {
+        if (momoDirect && canonicalPhone) {
           // No unsolicited prompts (Hubtel's rule): a verified number is required even when the surface's OTP gate is
-          // off, for admins too. Same answer as the OTP gate gives, before anything is written.
-          const verified = await isVerifiedWebPayer(directPhone, {
+          // off, for admins too. Same answer as the OTP gate gives, before anything is written. When that gate is on,
+          // it wants a real OTP, so an account's own verified number alone can't pass it further down with a row left behind.
+          const verified = await isVerifiedWebPayer(canonicalPhone, {
             isPhoneOtpVerified,
             ownVerifiedPhone: async () => {
               if (!userId) return null
@@ -562,13 +579,26 @@ export async function POST(request: NextRequest) {
               return (data.phone_number as string | null) ?? null
             },
           })
-          if (!verified) {
+          const otpGatePassed = !surfaceOtpOn || isAdmin || await isPhoneOtpVerified(canonicalPhone)
+          if (!verified || !otpGatePassed) {
             logSecurityEvent("momodirect_unverified_payment_number", {
-              channel: "hubtel_direct", ip: clientIp, email, paymentPhone: directPhone, orderId: orderId || null,
+              channel: "hubtel_direct", ip: clientIp, email, paymentPhone: canonicalPhone, orderId: orderId || null,
             })
             return NextResponse.json(
               { error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" },
               { status: 403 }
+            )
+          }
+          // Hubtel direct always takes the per-phone cap, OTP gate on or off and for admins too, keyed on the canonical
+          // number so a reformatted number can't get a fresh budget. Checked before anything is written.
+          const hubtelPhoneCap = await applyRateLimit(request, "momodirect_phone", 3, 60 * 60 * 1000, `mp:${canonicalPhone}`)
+          if (!hubtelPhoneCap.allowed) {
+            logSecurityEvent("momodirect_phone_cap", {
+              channel: "hubtel_direct", ip: clientIp, email, paymentPhone: canonicalPhone, orderId: orderId || null,
+            })
+            return NextResponse.json(
+              { error: "Too many payment attempts for this number. Please try again later." },
+              { status: 429, headers: { "X-RateLimit-Reset": new Date(hubtelPhoneCap.resetAt).toISOString() } }
             )
           }
         }
@@ -622,10 +652,8 @@ export async function POST(request: NextRequest) {
     const paystackFeePercentage = extraPaystackFeeRate(orderType, settings?.paystack_fee_percentage)
 
     // Use finalAmount (verified) for calculation. Hubtel, or a merchant-borne fee, adds none.
-    const paystackFee = initializeFee({
-      surface: gatewaySurface, gateway, feeBearer,
-      standardFee: Math.round(finalAmount * paystackFeePercentage * 100) / 100,
-    })
+    const standardFee = Math.round(finalAmount * paystackFeePercentage * 100) / 100
+    let paystackFee = initializeFee({ surface: gatewaySurface, gateway, feeBearer, standardFee })
     const totalAmount = finalAmount + paystackFee
 
     console.log("[PAYMENT-INIT] Fee Calculation:")
@@ -732,6 +760,35 @@ export async function POST(request: NextRequest) {
         : orderId ? "Data bundle"
         : "Wallet Top-up"
 
+    // A payment priced for Hubtel carries no Paystack fee, so a fallback re-prices it before Paystack is called: the
+    // row's amount, fee and method change together, in one update. If that can't happen, nothing is charged.
+    let rowMethod: Gateway = gateway
+    const repriceForPaystack = async (): Promise<{ amount: number }> => {
+      const fee = initializeFee({ surface: gatewaySurface, gateway: "paystack", feeBearer, standardFee })
+      const amount = finalAmount + fee
+      let changed = false
+      try {
+        const { data, error } = await supabase
+          .from("wallet_payments")
+          .update({ amount, fee, payment_method: "paystack" })
+          .eq("reference", reference)
+          .eq("status", "pending")
+          .select("id")
+        if (error) console.error(`[PAYMENT-INIT] ❌ Could not re-price ${reference} for Paystack:`, error.message)
+        changed = !error && (data?.length ?? 0) > 0
+      } catch (e) {
+        console.error(`[PAYMENT-INIT] ❌ Could not re-price ${reference} for Paystack:`, e instanceof Error ? e.message : "unknown error")
+      }
+      if (!changed) throw new FallbackRefusedError()
+      paystackFee = fee
+      rowMethod = "paystack"
+      paymentMetadata.paystackFee = fee
+      return { amount }
+    }
+    // Only a payment priced for Hubtel needs it; one priced for Paystack already charges the right amount.
+    const fallbackHook = gateway === "hubtel" ? { onFallback: repriceForPaystack } : {}
+    const fallbackRefused = () =>
+      NextResponse.json({ error: "Could not start the payment. Please try again.", code: "try_again" }, { status: 503 })
 
     // ── Direct MoMo charge path ──────────────────────────────────────────────
     // We charge a SERVER-SPECIFIED MoMo number directly via Paystack /charge — no
@@ -761,7 +818,7 @@ export async function POST(request: NextRequest) {
       if (!orderId && !isTopup && !isUpgrade) {
         return NextResponse.json({ error: "Direct MoMo charge requires an order." }, { status: 400 })
       }
-      const payPhone = String(paymentPhone || "").trim()
+      const payPhone = gateway === "hubtel" && canonicalPhone ? canonicalPhone : String(paymentPhone || "").trim()
       const provider = detectMomoProvider(payPhone)
       if (!provider) {
         return NextResponse.json({ error: "Could not detect mobile money network from the payment number." }, { status: 400 })
@@ -781,7 +838,8 @@ export async function POST(request: NextRequest) {
             { status: 403 }
           )
         }
-      } else if (!isAdmin) {
+      } else if (!isAdmin && gateway !== "hubtel") {
+        // (Hubtel direct took this cap before its row was written, above.)
         // OTP gate OFF (direct charge only): no SMS verification, so the typed
         // number is the sole guardrail target. Apply a tight per-phone cap on top
         // of the existing per-IP (3/min, 30/hr) and per-email (5/hr) limits to
@@ -812,10 +870,16 @@ export async function POST(request: NextRequest) {
       }
       // verifiedPayer only when Hubtel was resolved (the number was checked above), so the wrapper can't go to Hubtel
       // with an amount that includes Paystack's fee. On a Paystack surface the wrapper calls chargeMobileMoney as is.
-      const charge = gatewaySurface
-        ? await startMomoCharge(gatewaySurface, { ...chargeParams, verifiedPayer: gateway === "hubtel" })
-        : { ...(await chargeMobileMoney(chargeParams)), gateway: "paystack" as Gateway }
-      await syncPaymentMethod(reference, gateway, charge.gateway)
+      let charge: { status: string; gateway: Gateway }
+      try {
+        charge = gatewaySurface
+          ? await startMomoCharge(gatewaySurface, { ...chargeParams, verifiedPayer: gateway === "hubtel", ...fallbackHook })
+          : { ...(await chargeMobileMoney(chargeParams)), gateway: "paystack" }
+      } catch (e) {
+        if (e instanceof FallbackRefusedError) return fallbackRefused()
+        throw e
+      }
+      await syncPaymentMethod(reference, rowMethod, charge.gateway)
 
       // [REFUND] Record the payer MoMo number for storefront shop orders so refund payout gateways know
       // where to pay. Non-fatal and never throws (see recordPayerPhone).
@@ -897,8 +961,9 @@ export async function POST(request: NextRequest) {
     let paymentResult: { authorizationUrl: string; accessCode: string; reference: string; gateway: Gateway }
     if (gatewaySurface && !hostedMomoStripped) {
       try {
-        paymentResult = await startHostedPayment(gatewaySurface, hostedParams)
+        paymentResult = await startHostedPayment(gatewaySurface, { ...hostedParams, ...fallbackHook })
       } catch (e) {
+        if (e instanceof FallbackRefusedError) return fallbackRefused()
         // No safe link to give: Hubtel may hold the request, or this order already has a paid / in-review attempt.
         if (e instanceof HostedStartError) {
           return NextResponse.json({ error: e.message, code: e.code }, { status: e.code === "already_processing" ? 409 : 503 })
@@ -908,7 +973,7 @@ export async function POST(request: NextRequest) {
     } else {
       paymentResult = { ...(await initializePayment(hostedParams)), gateway: "paystack" }
     }
-    await syncPaymentMethod(reference, gateway, paymentResult.gateway)
+    await syncPaymentMethod(reference, rowMethod, paymentResult.gateway)
 
     console.log("[PAYMENT-INIT] ✓ Success")
 

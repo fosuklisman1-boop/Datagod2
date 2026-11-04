@@ -287,9 +287,16 @@ async function freeStuckAttempt(
   }
 }
 
+/**
+ * For a caller that priced this payment for Hubtel. Called exactly once, just before any Paystack call the start then
+ * makes, to re-price it; Paystack charges the amount returned. If it throws, nothing is charged and the error reaches
+ * the caller. Omit it (or don't pass it when you priced for Paystack) and Paystack charges params.amount.
+ */
+export type OnGatewayFallback = () => Promise<{ amount: number }>
+
 export async function startMomoCharge(
   surface: SurfaceKey,
-  params: ChargeMobileMoneyParams & { verifiedPayer?: boolean },
+  params: ChargeMobileMoneyParams & { verifiedPayer?: boolean; onFallback?: OnGatewayFallback },
   deps: Partial<StartDeps> = {},
 ): Promise<StartMomoResult> {
   const d: StartDeps = {
@@ -305,9 +312,12 @@ export async function startMomoCharge(
     now: () => new Date(),
     ...deps,
   }
-  const { verifiedPayer, ...paystackParams } = params
+  const { verifiedPayer, onFallback, ...paystackParams } = params
 
-  const viaPaystack = async (): Promise<StartMomoResult> => ({ ...(await d.chargeMobileMoney(paystackParams)), gateway: "paystack" })
+  const viaPaystack = async (): Promise<StartMomoResult> => {
+    const charge = onFallback ? { ...paystackParams, amount: (await onFallback()).amount } : paystackParams
+    return { ...(await d.chargeMobileMoney(charge)), gateway: "paystack" }
+  }
 
   const tell = makeTell(d.alert)
 
@@ -328,17 +338,6 @@ export async function startMomoCharge(
   }
   const surfaceConfig = config.surfaces[surface]
   if (surfaceConfig.gateway !== "hubtel") return viaPaystack()
-  if (!d.isReady()) return fallBack([tell("config", `Hubtel start (${surface}): surface is set to Hubtel but Hubtel is not ready; used Paystack.`)])
-
-  // undefined counts as not verified: every caller must state it. Hubtel's rule is no unsolicited prompts.
-  if (verifiedPayer !== true) return viaPaystack()
-
-  const pricePesewas = toPesewas(params.amount)
-  const merchantBears = surfaceConfig.feeBearer === "merchant"
-  const amountPesewas = requestedPesewas(surfaceConfig, config.hubtelFeePercent, pricePesewas)
-  const msisdn = toMsisdn(params.phone)
-  const channel = Object.hasOwn(CHANNELS, params.provider) ? CHANNELS[params.provider] : undefined
-  if (!meetsHubtelMinimum(amountPesewas) || !msisdn || !channel) return viaPaystack()
 
   const offline: StartMomoResult = { status: "pay_offline", reference: params.reference, gateway: "hubtel" }
 
@@ -348,8 +347,8 @@ export async function startMomoCharge(
   try {
     settled = await d.store.findSettledSibling(params.reference)
   } catch (e) {
-    // Falling back can't double-charge in practice: a sibling only exists when a reference is reused, and no caller
-    // reuses one today. Revisit this if one ever does, because a paid sibling would go unseen while the DB is down.
+    // A caller that reuses a reference (payments/initialize's replay) passes onFallback, whose row update refuses the
+    // charge while the DB is down. Without onFallback the reference is fresh, so it can have no sibling.
     console.error("[hubtel-start] sibling lookup failed:", e instanceof Error ? e.message : "unknown error")
     return fallBack([tell("store", `Hubtel start (${surface}): could not check earlier attempts; nothing sent to Hubtel, used Paystack.`)])
   }
@@ -358,12 +357,47 @@ export async function startMomoCharge(
     return offline
   }
 
+  /**
+   * Every Paystack path below goes through this: a live Hubtel attempt under this reference means no Paystack prompt,
+   * or the customer can approve both. Null means clear to go on. A failed read is treated as clear, same trade-off as
+   * the sibling lookup above.
+   */
+  const heldByOpenAttempt = async (): Promise<StartMomoResult | null> => {
+    let open: OpenAttempt | null
+    try {
+      open = await d.store.findOpen(params.reference)
+    } catch (e) {
+      console.error("[hubtel-start] open attempt lookup failed:", e instanceof Error ? e.message : "unknown error")
+      return null
+    }
+    if (!open) return null
+    return (await freeStuckAttempt(d, params.reference)) ? null : offline
+  }
+
+  if (!d.isReady()) {
+    const held = await heldByOpenAttempt()
+    if (held) return held
+    return fallBack([tell("config", `Hubtel start (${surface}): surface is set to Hubtel but Hubtel is not ready; used Paystack.`)])
+  }
+
+  const pricePesewas = toPesewas(params.amount)
+  const merchantBears = surfaceConfig.feeBearer === "merchant"
+  const amountPesewas = requestedPesewas(surfaceConfig, config.hubtelFeePercent, pricePesewas)
+  const msisdn = toMsisdn(params.phone)
+  const channel = Object.hasOwn(CHANNELS, params.provider) ? CHANNELS[params.provider] : undefined
+  // undefined counts as not verified: every caller must state it. Hubtel's rule is no unsolicited prompts.
+  if (verifiedPayer !== true || !meetsHubtelMinimum(amountPesewas) || !msisdn || !channel) {
+    return (await heldByOpenAttempt()) ?? viaPaystack()
+  }
+
   // Never sent or stored at this point, so the retry below can use it too. A reference Hubtel has seen is never reused.
   const hubtelReference = d.newReference()
   let callbackUrl: string
   try {
     callbackUrl = d.callbackUrl(hubtelReference)
   } catch {
+    const held = await heldByOpenAttempt()
+    if (held) return held
     return fallBack([tell("config", `Hubtel start (${surface}): callback URL unavailable; used Paystack.`)])
   }
 
@@ -396,7 +430,11 @@ export async function startMomoCharge(
     inserted = await insertRow()
     if (inserted === "duplicate") return offline
   }
-  if (inserted === "error") return fallBack([tell("store", `Hubtel start (${surface}): could not record the payment; nothing sent to Hubtel, used Paystack.`)])
+  if (inserted === "error") {
+    const held = await heldByOpenAttempt()
+    if (held) return held
+    return fallBack([tell("store", `Hubtel start (${surface}): could not record the payment; nothing sent to Hubtel, used Paystack.`)])
+  }
 
   const pending: StartMomoResult = { ...offline, hubtelReference }
 
@@ -457,7 +495,7 @@ export async function startMomoCharge(
  */
 export async function startHostedPayment(
   surface: SurfaceKey,
-  params: InitializePaymentParams,
+  params: InitializePaymentParams & { onFallback?: OnGatewayFallback },
   deps: Partial<HostedStartDeps> = {},
 ): Promise<StartHostedResult> {
   const d: HostedStartDeps = {
@@ -475,7 +513,11 @@ export async function startHostedPayment(
     ...deps,
   }
   const tell = makeTell(d.alert)
-  const viaPaystack = async (): Promise<StartHostedResult> => ({ ...(await d.initializePayment(params)), gateway: "paystack" })
+  const { onFallback, ...paystackParams } = params
+  const viaPaystack = async (): Promise<StartHostedResult> => {
+    const start = onFallback ? { ...paystackParams, amount: (await onFallback()).amount } : paystackParams
+    return { ...(await d.initializePayment(start)), gateway: "paystack" }
+  }
   const fallBack = async (alerts: Promise<void>[]): Promise<StartHostedResult> => {
     try {
       return await viaPaystack()
@@ -492,12 +534,6 @@ export async function startHostedPayment(
   }
   const surfaceConfig = config.surfaces[surface]
   if (surfaceConfig.gateway !== "hubtel") return viaPaystack()
-  if (!d.isReady()) return fallBack([tell("config", `Hubtel checkout (${surface}): surface is set to Hubtel but Hubtel is not ready; used Paystack.`)])
-
-  const pricePesewas = toPesewas(params.amount)
-  const merchantBears = surfaceConfig.feeBearer === "merchant"
-  const amountPesewas = requestedPesewas(surfaceConfig, config.hubtelFeePercent, pricePesewas)
-  if (!meetsHubtelMinimum(amountPesewas)) return viaPaystack()
 
   const hubtelResult = (authorizationUrl: string): StartHostedResult =>
     ({ authorizationUrl, accessCode: "", reference: params.reference, gateway: "hubtel" })
@@ -507,7 +543,7 @@ export async function startHostedPayment(
   try {
     settled = await d.store.findSettledSibling(params.reference)
   } catch (e) {
-    // Same trade-off as startMomoCharge: only a reused reference can have a sibling, and no caller reuses one today.
+    // Same trade-off as startMomoCharge: a caller reusing a reference passes onFallback, which refuses while the DB is down.
     console.error("[hubtel-start] sibling lookup failed:", e instanceof Error ? e.message : "unknown error")
     return fallBack([tell("store", `Hubtel checkout (${surface}): could not check earlier attempts; nothing sent to Hubtel, used Paystack.`)])
   }
@@ -516,6 +552,52 @@ export async function startHostedPayment(
     throw new HostedStartError("already_processing")
   }
 
+  /**
+   * An attempt for this order is already open. A live hosted one hands back its link. Anything else (a direct
+   * attempt, a hosted one with no link yet, or one past expiry) goes through the stuck-row check; if that doesn't
+   * free the order there's no link to give, so the customer is asked to try again. Never a second link, never Paystack.
+   */
+  const reuseOpen = async (): Promise<string | null> => {
+    try {
+      const open = await d.store.findOpen(params.reference)
+      if (open && open.mode === "checkout" && open.checkout_url && d.now().getTime() < new Date(open.expires_at).getTime()) {
+        return open.checkout_url
+      }
+    } catch (e) {
+      console.error("[hubtel-start] open lookup failed:", e instanceof Error ? e.message : "unknown error")
+      throw new HostedStartError("try_again")
+    }
+    return null
+  }
+
+  /**
+   * Every Paystack path below goes through this. A live link wins; an open attempt that can't be freed is try_again
+   * (thrown), and a read failure is too. Null means no attempt is in the way.
+   */
+  const heldByOpenAttempt = async (): Promise<StartHostedResult | null> => {
+    const existing = await reuseOpen()
+    if (existing) return hubtelResult(existing)
+    let open: OpenAttempt | null
+    try {
+      open = await d.store.findOpen(params.reference)
+    } catch {
+      throw new HostedStartError("try_again")
+    }
+    if (open && !(await freeStuckAttempt(d, params.reference))) throw new HostedStartError("try_again")
+    return null
+  }
+
+  if (!d.isReady()) {
+    const held = await heldByOpenAttempt()
+    if (held) return held
+    return fallBack([tell("config", `Hubtel checkout (${surface}): surface is set to Hubtel but Hubtel is not ready; used Paystack.`)])
+  }
+
+  const pricePesewas = toPesewas(params.amount)
+  const merchantBears = surfaceConfig.feeBearer === "merchant"
+  const amountPesewas = requestedPesewas(surfaceConfig, config.hubtelFeePercent, pricePesewas)
+  if (!meetsHubtelMinimum(amountPesewas)) return (await heldByOpenAttempt()) ?? viaPaystack()
+
   const hubtelReference = d.newReference()
   let callbackUrl: string, returnUrl: string, cancellationUrl: string
   try {
@@ -523,6 +605,8 @@ export async function startHostedPayment(
     returnUrl = d.returnUrl(hubtelReference, false)
     cancellationUrl = d.returnUrl(hubtelReference, true)
   } catch {
+    const held = await heldByOpenAttempt()
+    if (held) return held
     return fallBack([tell("config", `Hubtel checkout (${surface}): callback or return URL unavailable; used Paystack.`)])
   }
 
@@ -546,24 +630,6 @@ export async function startHostedPayment(
     }
   }
 
-  /**
-   * An attempt for this order is already open. A live hosted one hands back its link. Anything else (a direct
-   * attempt, a hosted one with no link yet, or one past expiry) goes through the stuck-row check; if that doesn't
-   * free the order there's no link to give, so the customer is asked to try again. Never a second link, never Paystack.
-   */
-  const reuseOpen = async (): Promise<string | null> => {
-    try {
-      const open = await d.store.findOpen(params.reference)
-      if (open && open.mode === "checkout" && open.checkout_url && d.now().getTime() < new Date(open.expires_at).getTime()) {
-        return open.checkout_url
-      }
-    } catch (e) {
-      console.error("[hubtel-start] open lookup failed:", e instanceof Error ? e.message : "unknown error")
-      throw new HostedStartError("try_again")
-    }
-    return null
-  }
-
   let inserted = await insertRow()
   if (inserted === "duplicate") {
     const existing = await reuseOpen()
@@ -572,7 +638,11 @@ export async function startHostedPayment(
     inserted = await insertRow()
     if (inserted === "duplicate") throw new HostedStartError("try_again")
   }
-  if (inserted === "error") return fallBack([tell("store", `Hubtel checkout (${surface}): could not record the payment; nothing sent to Hubtel, used Paystack.`)])
+  if (inserted === "error") {
+    const held = await heldByOpenAttempt()
+    if (held) return held
+    return fallBack([tell("store", `Hubtel checkout (${surface}): could not record the payment; nothing sent to Hubtel, used Paystack.`)])
+  }
 
   /** Nothing reached Hubtel: close this attempt for good and start on Paystack under the caller's reference. */
   const closeAndFallBack = async (code: string, alertFirst?: Promise<void>): Promise<StartHostedResult> => {
