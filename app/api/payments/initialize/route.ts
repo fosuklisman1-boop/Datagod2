@@ -746,7 +746,8 @@ export async function POST(request: NextRequest) {
     // (even if OTP is on — order creation already gated the number), so momo stays.
     //
     // Wallet/upgrade (order-free) paths.
-    if (walletDirectOn && (isTopup || isUpgrade) && !isAdmin) {
+    // surfaceDirectOn is per-surface: wallet_topup for top-ups, dashboard_direct for upgrades.
+    if (surfaceDirectOn && (isTopup || isUpgrade) && !isAdmin) {
       hostedChannels = hostedChannels.filter((c) => c !== "mobile_money")
       if (hostedChannels.length === 0) hostedChannels = ["bank_transfer"]
       // Someone reached the hosted checkout for an order-free path while direct

@@ -220,3 +220,51 @@ describe("payments/initialize: dealer upgrade follows dashboard_direct, not wall
     expect(keys).not.toContain("payment_init_topup_user")
   })
 })
+
+describe("payments/initialize: hosted mobile_money strip follows the per-surface direct flag", () => {
+  const hosted = (body: Record<string, unknown>) =>
+    POST(new NextRequest("http://x/api/payments/initialize", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: "Bearer tok" },
+      body: JSON.stringify({ email: "dealer@example.com", amount: 50, ...body }),
+    }))
+  const upgrade = () => hosted({ type: "dealer_upgrade", planId: "plan1" })
+  const topup = () => hosted({})
+
+  beforeEach(() => {
+    h.state.authUser = { id: "user1" }
+    h.state.gates.storefrontDirect = false
+  })
+
+  it("upgrade, dashboard_direct=direct, wallet_topup=checkout => mobile_money stripped", async () => {
+    h.state.gates.dashboardDirect = true
+    h.state.gates.walletDirect = false
+    await upgrade()
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(initializePayment.mock.calls[0][0].channels).not.toContain("mobile_money")
+  })
+
+  it("upgrade, dashboard_direct=checkout, wallet_topup=direct => mobile_money kept", async () => {
+    h.state.gates.dashboardDirect = false
+    h.state.gates.walletDirect = true
+    await upgrade()
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(initializePayment.mock.calls[0][0].channels).toContain("mobile_money")
+  })
+
+  it("topup, wallet_topup=direct, dashboard_direct=checkout => mobile_money stripped", async () => {
+    h.state.gates.dashboardDirect = false
+    h.state.gates.walletDirect = true
+    await topup()
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(initializePayment.mock.calls[0][0].channels).not.toContain("mobile_money")
+  })
+
+  it("topup, wallet_topup=checkout, dashboard_direct=direct => mobile_money kept", async () => {
+    h.state.gates.dashboardDirect = true
+    h.state.gates.walletDirect = false
+    await topup()
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(initializePayment.mock.calls[0][0].channels).toContain("mobile_money")
+  })
+})
