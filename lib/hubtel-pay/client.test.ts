@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import {
   classifyStart, receiveMoney, initiateCheckout, checkPaymentStatus, hubtelCallbackUrl,
-  toPesewas, HubtelPayInputError, type RelayReply,
+  toPesewas, HubtelPayInputError, isConfigRefusal, type RelayReply, type StartRoute,
 } from "./client"
 import { verifySig } from "@/lib/hubtel-cs/callback"
 
@@ -23,9 +23,20 @@ describe("classifyStart — refused (safe to fall back)", () => {
     const o = classifyStart(relay(0, "fetch failed", false), "receive")
     expect(o.kind).toBe("refused")
   })
-  it.each([400, 401, 403, 404, 422])("Hubtel HTTP %i", (s) => {
+  it.each([400, 401, 403, 404, 405, 413, 415, 422])("Hubtel HTTP %i", (s) => {
     expect(classifyStart(relay(s, { ResponseCode: "9999" }), "receive").kind).toBe("refused")
     expect(classifyStart(relay(s, { responseCode: "9999" }), "checkout").kind).toBe("refused")
+    expect(classifyStart(relay(s, "plain text"), "receive").kind).toBe("refused")
+  })
+  it("Hubtel HTTP 403 → refused", () => {
+    expect(classifyStart(relay(403, { ResponseCode: "9999" }), "receive")).toMatchObject({ kind: "refused", upstreamStatus: 403 })
+  })
+  it("Hubtel HTTP 400 with business code 4070 → refused", () => {
+    expect(classifyStart(relay(400, { ResponseCode: "4070" }), "receive")).toMatchObject({ kind: "refused", code: "4070" })
+  })
+  it("Vercel→relay UND_ERR_CONNECT_TIMEOUT → refused relay_unreachable", () => {
+    const e = Object.assign(new TypeError("fetch failed"), { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } })
+    expect(classifyStart({ kind: "transport_error", error: e }, "receive")).toMatchObject({ kind: "refused", code: "relay_unreachable" })
   })
   it.each(["4000", "4070", "4101", "4103"])("receive code %s on HTTP 200", (code) => {
     const o = classifyStart(relay(200, { ResponseCode: code, Message: "nope" }), "receive")
@@ -83,6 +94,32 @@ describe("classifyStart — unknown (never fall back)", () => {
   it.each([500, 502, 503, 504])("Hubtel HTTP %i", (s) => {
     expect(classifyStart(relay(s, { ResponseCode: "4000" }), "receive").kind).toBe("unknown")
   })
+  it.each([408, 409, 410, 423, 425, 429, 499])("Hubtel HTTP %i (not in the refused set)", (s) => {
+    expect(classifyStart(relay(s, { ResponseCode: "9999" }), "receive").kind).toBe("unknown")
+    expect(classifyStart(relay(s, { responseCode: "9999" }), "checkout").kind).toBe("unknown")
+  })
+  it.each(["0000", "0001", "0005", "5000"])("refused-set HTTP status contradicted by code %s → unknown", (code) => {
+    expect(classifyStart(relay(400, { ResponseCode: code }), "receive").kind).toBe("unknown")
+    expect(classifyStart(relay(403, { responseCode: code }), "checkout").kind).toBe("unknown")
+  })
+  it("receive body with lowercase responseCode is not trusted → unknown", () => {
+    expect(classifyStart(relay(200, { responseCode: "0001", Data: { TransactionId: "t" } }), "receive").kind).toBe("unknown")
+    expect(classifyStart(relay(200, { responseCode: "4000" }), "receive").kind).toBe("unknown")
+  })
+  it("relay HTTP 202 → unknown", () => {
+    expect(classifyStart(reply(202, { ok: true, upstreamStatus: 200, sent: true, body: { ResponseCode: "0001" } }), "receive").kind).toBe("unknown")
+  })
+  it.each([
+    "https://evil.example/pay",
+    "https://pay.hubtel.com.evil.example/x",
+    "https://sub.pay.hubtel.com/x",
+    "https://pay.hubtel.com:8443/x",
+    "https://user@pay.hubtel.com/x",
+    "http://pay.hubtel.com/x",
+    "not a url",
+  ])("checkout 0000 with checkoutUrl %s → unknown", (url) => {
+    expect(classifyStart(relay(200, { responseCode: "0000", data: { checkoutUrl: url } }), "checkout").kind).toBe("unknown")
+  })
   it("Hubtel 3xx", () => {
     expect(classifyStart(relay(302, "redirect"), "receive").kind).toBe("unknown")
   })
@@ -112,6 +149,38 @@ describe("classifyStart — unknown (never fall back)", () => {
   })
   it("uses the Hubtel code as the outcome code when present", () => {
     expect(classifyStart(relay(200, { ResponseCode: "0005", Message: "pending" }), "receive")).toMatchObject({ kind: "unknown", code: "0005" })
+  })
+})
+
+describe("isConfigRefusal", () => {
+  const e = (code: string) => Object.assign(new TypeError("fetch failed"), { cause: { code } })
+  it.each<[string, RelayReply, StartRoute]>([
+    ["relay_not_configured", { kind: "not_configured" }, "receive"],
+    ["relay_401", reply(401, { error: "unauthorized" }), "receive"],
+    ["relay_501", reply(501, { error: "payments not configured" }), "checkout"],
+    ["relay_unreachable", { kind: "transport_error", error: e("ECONNREFUSED") }, "receive"],
+    ["Hubtel HTTP 401", relay(401, { ResponseCode: "9999" }), "receive"],
+    ["Hubtel HTTP 403", relay(403, "forbidden"), "checkout"],
+    ["code 4101", relay(200, { ResponseCode: "4101" }), "receive"],
+    ["code 4103", relay(200, { responseCode: "4103" }), "checkout"],
+  ])("true for %s", (_n, r, route) => {
+    const o = classifyStart(r, route)
+    expect(o.kind).toBe("refused")
+    expect(isConfigRefusal(o)).toBe(true)
+  })
+  it.each<[string, RelayReply]>([
+    ["4000", relay(200, { ResponseCode: "4000" })],
+    ["4070", relay(200, { ResponseCode: "4070" })],
+    ["Hubtel HTTP 400", relay(400, { ResponseCode: "9999" })],
+    ["not_sent", relay(0, "fetch failed", false)],
+  ])("false for %s", (_n, r) => {
+    const o = classifyStart(r, "receive")
+    expect(o.kind).toBe("refused")
+    expect(isConfigRefusal(o)).toBe(false)
+  })
+  it("false for accepted and unknown", () => {
+    expect(isConfigRefusal({ kind: "accepted" })).toBe(false)
+    expect(isConfigRefusal({ kind: "unknown", code: "4101", message: "" })).toBe(false)
   })
 })
 

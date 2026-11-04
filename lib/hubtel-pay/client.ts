@@ -9,8 +9,8 @@ import { checkTransactionStatus, type StatusCheckResult } from "@/lib/ussd-hubte
 
 export type StartOutcome =
   | { kind: "accepted"; checkoutUrl?: string; hubtelTransactionId?: string }
-  | { kind: "refused"; code: string; message: string }
-  | { kind: "unknown"; code: string; message: string }
+  | { kind: "refused"; code: string; message: string; upstreamStatus?: number }
+  | { kind: "unknown"; code: string; message: string; upstreamStatus?: number }
 
 /** What came back from one call to the relay, before classification. */
 export type RelayReply =
@@ -36,6 +36,30 @@ export interface ClientDeps {
 
 /** Hubtel codes that mean the request was rejected outright (nothing will be charged). */
 const REFUSED_CODES = new Set(["4000", "4070", "4101", "4103"])
+/**
+ * Hubtel HTTP statuses that mean "rejected, not processed" (controller ruling, narrower than
+ * "any 4xx"). 408/409/410/423/425/429/499 and other 4xx stay unknown: they can follow a request
+ * Hubtel already holds.
+ */
+const REFUSED_HTTP = new Set([400, 401, 403, 404, 405, 413, 415, 422])
+/** Codes meaning accepted/pending/processing: they contradict a refused HTTP status → unknown. */
+const LIVE_CODES = new Set(["0000", "0001", "0005", "5000"])
+/** Refusals caused by our setup, not the customer. */
+const CONFIG_CODES = new Set(["relay_not_configured", "relay_401", "relay_501", "relay_unreachable", "4101", "4103"])
+const CHECKOUT_HOST = "pay.hubtel.com"
+
+export function isConfigRefusal(o: StartOutcome): boolean {
+  if (o.kind !== "refused") return false
+  return CONFIG_CODES.has(o.code) || o.upstreamStatus === 401 || o.upstreamStatus === 403
+}
+
+function isHubtelCheckoutUrl(v: unknown): v is string {
+  if (typeof v !== "string") return false
+  try {
+    const u = new URL(v)
+    return u.protocol === "https:" && u.host === CHECKOUT_HOST && !u.username && !u.password
+  } catch { return false }
+}
 const REF_RE = /^[0-9a-f]{32}$/
 /** Longer than the relay's own 8s upstream timeout, so the relay normally answers first. */
 const RELAY_TIMEOUT_MS = 15_000
@@ -77,8 +101,11 @@ export function classifyStart(reply: RelayReply, route: StartRoute): StartOutcom
   const code = typeof rawCode === "string" ? rawCode : null
   const message = msg(body?.Message ?? body?.message ?? body?.status ?? j.body)
 
-  if (up >= 400 && up < 500) return { kind: "refused", code: code ?? `http_${up}`, message }
-  if (up < 200 || up >= 300) return { kind: "unknown", code: code ?? `http_${up}`, message }
+  if (REFUSED_HTTP.has(up)) {
+    if (code && LIVE_CODES.has(code)) return { kind: "unknown", code, message: `HTTP ${up} contradicted by code ${code}`, upstreamStatus: up }
+    return { kind: "refused", code: code ?? `http_${up}`, message, upstreamStatus: up }
+  }
+  if (up < 200 || up >= 300) return { kind: "unknown", code: code ?? `http_${up}`, message, upstreamStatus: up }
   if (!code) return { kind: "unknown", code: "malformed_reply", message }
   if (REFUSED_CODES.has(code)) return { kind: "refused", code, message }
 
@@ -88,8 +115,8 @@ export function classifyStart(reply: RelayReply, route: StartRoute): StartOutcom
   }
   if (route === "checkout" && code === "0000") {
     const url = body?.data?.checkoutUrl
-    if (typeof url === "string" && url.startsWith("https://")) return { kind: "accepted", checkoutUrl: url }
-    return { kind: "unknown", code, message: "0000 without an https checkoutUrl" }
+    if (isHubtelCheckoutUrl(url)) return { kind: "accepted", checkoutUrl: url }
+    return { kind: "unknown", code, message: `0000 without an https://${CHECKOUT_HOST} checkoutUrl` }
   }
   return { kind: "unknown", code, message }
 }
