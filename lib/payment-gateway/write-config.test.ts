@@ -3,10 +3,12 @@ import { deriveFromLegacy } from "./config"
 
 const invalidate = vi.fn()
 const getConfig = vi.fn()
+const getFresh = vi.fn()
 
 vi.mock("@/lib/payment-gateway/read-config", () => ({
   GATEWAY_CONFIG_KEY: "payment_gateway_config",
   getGatewayConfig: () => getConfig(),
+  readGatewayConfigFresh: () => getFresh(),
   invalidateGatewayConfigCache: () => invalidate(),
 }))
 
@@ -20,6 +22,7 @@ function fakeDb() {
 beforeEach(() => {
   vi.clearAllMocks()
   getConfig.mockResolvedValue(deriveFromLegacy({ storefrontDirect: false, walletDirect: false }))
+  getFresh.mockResolvedValue(deriveFromLegacy({ storefrontDirect: false, walletDirect: false }))
 })
 
 describe("setSurfaceModes", () => {
@@ -48,6 +51,28 @@ describe("setSurfaceModes", () => {
     const upsert = vi.fn(async () => ({ error: { message: "boom" } }))
     const db = { from: () => ({ upsert }) } as any
     await expect(saveGatewayConfig(db, await getConfig(), "a@x")).rejects.toThrow()
+    expect(invalidate).not.toHaveBeenCalled()
+  })
+
+  it("builds from the FRESH row, not the stale cache (keeps other surfaces and fee)", async () => {
+    const stale = deriveFromLegacy({ storefrontDirect: false, walletDirect: false })
+    const fresh = deriveFromLegacy({ storefrontDirect: true, walletDirect: false })
+    fresh.hubtelFeePercent = 2.5
+    getConfig.mockResolvedValue(stale)
+    getFresh.mockResolvedValue(fresh)
+    const { db, upsert } = fakeDb()
+    await setSurfaceModes(db, ["wallet_topup", "dashboard_direct", "sms"], "direct", "a@x")
+    const saved = (upsert.mock.calls[0] as any)[0].value
+    expect(saved.surfaces.storefront.mode).toBe("direct")
+    expect(saved.hubtelFeePercent).toBe(2.5)
+    expect(saved.surfaces.wallet_topup.mode).toBe("direct")
+  })
+
+  it("rejects and saves nothing when the fresh read throws", async () => {
+    getFresh.mockRejectedValue(new Error("db down"))
+    const { db, upsert } = fakeDb()
+    await expect(setSurfaceModes(db, ["storefront"], "direct", "a@x")).rejects.toThrow("db down")
+    expect(upsert).not.toHaveBeenCalled()
     expect(invalidate).not.toHaveBeenCalled()
   })
 })

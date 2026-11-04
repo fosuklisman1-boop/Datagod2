@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { DIRECT_ONLY_SURFACES, type GatewayConfig, type PaymentMode, type SurfaceKey } from "./config"
-import { GATEWAY_CONFIG_KEY, getGatewayConfig, invalidateGatewayConfigCache } from "./read-config"
+import { GATEWAY_CONFIG_KEY, readGatewayConfigFresh, invalidateGatewayConfigCache } from "./read-config"
 
 export async function saveGatewayConfig(
   db: SupabaseClient,
@@ -26,7 +26,8 @@ export async function setSurfaceModes(
   mode: PaymentMode,
   actor: string,
 ): Promise<GatewayConfig> {
-  const current = await getGatewayConfig()
+  // Strict uncached read: a failed read throws and nothing is saved.
+  const current = await readGatewayConfigFresh()
   const next: GatewayConfig = {
     ...current,
     surfaces: { ...current.surfaces },

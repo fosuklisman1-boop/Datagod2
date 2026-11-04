@@ -108,3 +108,32 @@ export function invalidateGatewayConfigCache(): void {
   reader.invalidate()
   legacyModule?.invalidateLegacyDirectChargeCaches()
 }
+
+/**
+ * Strict, uncached read for read-modify-write paths (admin saves). Unlike
+ * getGatewayConfig() it never falls back to a stale cache or legacy-derived
+ * state when the DB read fails: it THROWS, so a save is aborted instead of
+ * persisting stale/derived values as the new truth.
+ */
+export async function readGatewayConfigFresh(): Promise<GatewayConfig> {
+  if (!supabase) throw new Error("Supabase is not configured")
+  const { data, error } = await supabase
+    .from("admin_settings")
+    .select("value")
+    .eq("key", GATEWAY_CONFIG_KEY)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) invalidateGatewayConfigCache()
+  const legacy = await reader_readLegacy()
+  const base = deriveFromLegacy(legacy)
+  return data && data.value != null ? sanitizeGatewayConfig(data.value, base) : base
+}
+
+async function reader_readLegacy(): Promise<{ storefrontDirect: boolean; walletDirect: boolean }> {
+  legacyModule ??= await import("./legacy-direct-charge")
+  const [storefrontDirect, walletDirect] = await Promise.all([
+    legacyModule.readLegacyStorefrontDirectCharge(),
+    legacyModule.readLegacyWalletDirectCharge(),
+  ])
+  return { storefrontDirect, walletDirect }
+}
