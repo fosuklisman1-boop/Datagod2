@@ -45,5 +45,27 @@ transaction status check. No business logic, no queue. Retries live in Vercel cr
 - `POST /refund` (Bearer RELAY_SECRET, body `{orderId, callbackUrl}`) → Hubtel refund API for `HUBTEL_COLLECTION_ACCOUNT`. `HUBTEL_REFUND_BASIC_AUTH` — optional base64 `user:pass`; defaults to `HUBTEL_STATUS_BASIC_AUTH`
 
 Confirm with the Hubtel Retail Systems Engineer that this droplet's IP is whitelisted for trnf.hubtel.com.
+
+## Payment routes (collection)
+Both `POST`, Bearer RELAY_SECRET, JSON body. Every field is validated before anything is sent
+(400 otherwise); unknown fields are dropped.
+- `POST /receive` body `{reference, msisdn, channel, amount, description, callbackUrl}` → Hubtel Direct
+  Receive Money `https://rmp.hubtel.com/merchantaccount/merchants/{HUBTEL_COLLECTION_ACCOUNT}/receive/mobilemoney`.
+- `POST /checkout` body `{reference, amount, description, callbackUrl, returnUrl, cancellationUrl}` → Hubtel
+  Online Checkout `https://payproxyapi.hubtel.com/items/initiate` (merchantAccountNumber = `HUBTEL_COLLECTION_ACCOUNT`).
+- Rules: reference 32 lowercase hex; msisdn `233` + 9 digits; channel `mtn-gh` | `vodafone-gh` | `tigo-gh`;
+  amount a number, at most 2 decimals, 0.10–10,000; description `[A-Za-z0-9 .,-]`, 1–60 chars; every URL
+  `https:`, ≤500 chars, no credentials; callbackUrl's host must equal `HUBTEL_RELAY_APP_HOST`.
+- Reply: `{ok, upstreamStatus, body, sent}`. `upstreamStatus: 0` = no HTTP response from Hubtel.
+  `sent: false` only when the request provably never left the droplet (DNS, connect refused/unreachable,
+  connect timeout, TLS certificate failure); timeouts, resets and anything unrecognised are `sent: true`.
+
+Env on the droplet:
+- `HUBTEL_RELAY_APP_HOST` — e.g. `www.datagod.store` (host only, no scheme). Without it both routes answer 501.
+- `HUBTEL_RECEIVE_BASIC_AUTH` — optional base64 `apikey:secret` for Receive Money + Checkout; defaults to `HUBTEL_STATUS_BASIC_AUTH`.
+
+**Whitelisting:** confirm with the Hubtel Retail Systems Engineer that this droplet's IP is whitelisted
+for `rmp.hubtel.com` (Receive Money) and `payproxyapi.hubtel.com` (Online Checkout). Non-whitelisted
+calls come back as 403 or time out.
 Redeploy: copy `scripts/hubtel-relay/server.ts` and `lib/ussd-hubtel/relay-handler.ts` (same paths), set env, `systemctl restart hubtel-relay`.
 Check: `curl -s -H "Authorization: Bearer $RELAY_SECRET" https://<relay-host>/balance`
