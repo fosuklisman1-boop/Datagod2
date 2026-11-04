@@ -48,7 +48,7 @@ vi.mock("@/lib/internal-url", () => ({ getInternalBaseUrl: () => "http://localho
 
 import { GET } from "./route"
 
-const run = async () => (await GET(new NextRequest("http://x/api/cron/verify-pending-payments"))).json()
+const run = async () => (await GET(new NextRequest("http://x/api/cron/verify-pending-payments")))!.json()
 const order = (id: string, o: Record<string, any> = {}) => ({
   id, reference_code: `ORD-${id}`, network: "MTN", customer_phone: "0241234567", volume_gb: "1", customer_name: "A",
   total_price: 10, payment_status: "pending", order_status: "pending", created_at: "2026-11-04T09:00:00Z", ...o,
@@ -133,7 +133,7 @@ describe("verify-pending-payments cron and Hubtel rows", () => {
 
     const res = await GET(new NextRequest("http://x/api/cron/verify-pending-payments"))
 
-    expect(res.status).toBe(500)
+    expect(res!.status).toBe(500)
     expect(paystackCalls()).toEqual([])
     expect(h.tables.shop_orders[0].payment_status).toBe("pending")
   })
