@@ -176,6 +176,35 @@ describe("createOrder attempt walk", () => {
     expect(r).toMatchObject({ success: true, order_id: "ord1-r2" })
   })
 
+  it("walk: empty orders[] with top-level cancelled moves to -r2", async () => {
+    const client = fakeClient({
+      getOrder: vi.fn(async (id: string) =>
+        id === "ord1" ? { ok: true, status: 200, data: { externalOrderId: "ord1", orders: [], status: "cancelled" } } : notFound(),
+      ),
+    })
+    const { provider } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(client.placeOrder).toHaveBeenCalledWith(expect.objectContaining({ externalOrderId: "ord1-r2" }))
+    expect(r).toMatchObject({ success: true, order_id: "ord1-r2" })
+  })
+
+  it("walk: 404 with an unexpected code fails RETRYABLE and never POSTs", async () => {
+    const client = fakeClient({
+      getOrder: vi.fn(async () => ({ ok: false, status: 404, code: "ROUTE_NOT_FOUND", message: "no such route" })),
+    })
+    const { provider } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(r.error_type).toBe("RETRYABLE")
+    expect(client.placeOrder).toHaveBeenCalledTimes(0)
+  })
+
+  it("walk: uncoded 404 frees the id", async () => {
+    const client = fakeClient({ getOrder: vi.fn(async () => ({ ok: false, status: 404, message: "HTTP 404" })) })
+    const { provider } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(r).toMatchObject({ success: true, order_id: "ord1" })
+  })
+
   it("walk: pending existing attempt resumes without POST", async () => {
     const client = fakeClient({
       getOrder: vi.fn(async () => ({ ok: true, status: 200, data: { externalOrderId: "ord1", orders: [{ status: "pending" }] } })),
@@ -332,6 +361,71 @@ describe("createOrder placement", () => {
     expect(r.error_type).toBe("ACCOUNT_HOLD")
     expect(alert).toHaveBeenCalledTimes(1)
     expect(alert).toHaveBeenCalledWith("kuntanii_orders_paused", "Kuntanii: orders refused", "ORDERS_PAUSED: Orders paused")
+  })
+
+  it("uncoded instant 422 alerts as kuntanii_instant_unavailable", async () => {
+    const client = fakeClient({
+      placeOrder: vi.fn(async () => ({ ok: false, status: 422, message: "HTTP 422" })),
+    })
+    const { provider, alert } = setup({ client, mode: "instant" })
+    const r = await provider.createOrder(req())
+    expect(r.error_type).toBe("INSTANT_UNAVAILABLE")
+    expect(alert).toHaveBeenCalledWith("kuntanii_instant_unavailable", "Kuntanii: orders refused", expect.any(String))
+  })
+
+  it("409 CONFLICT records an unknown attempt (an order with that id exists)", async () => {
+    const client = fakeClient({
+      placeOrder: vi.fn(async () => ({ ok: false, status: 409, code: "CONFLICT", message: "conflict" })),
+    })
+    const { provider, recordUnknownAttempt } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(r.success).toBe(false)
+    expect(recordUnknownAttempt).toHaveBeenCalledWith("ord1", "ord1")
+  })
+
+  it("unknown outcome reconcile showing cancelled fails over", async () => {
+    let calls = 0
+    const client = fakeClient({
+      getOrder: vi.fn(async () =>
+        calls++ === 0 ? notFound() : { ok: true, status: 200, data: { externalOrderId: "ord1", orders: [{ status: "cancelled" }] } },
+      ),
+      placeOrder: vi.fn(async () => ({ ok: false, status: 0, network: true, message: "timeout" })),
+    })
+    const { provider, recordUnknownAttempt } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(r.success).toBe(false)
+    expect(r.error_type).toBe("API_ERROR")
+    expect(r.message).toMatch(/cancelled/i)
+    expect(recordUnknownAttempt).toHaveBeenCalledTimes(0)
+  })
+
+  it("never logs bare phone strings from a documented 422 NO_APPROVED_RECIPIENTS body", async () => {
+    const logs: string[] = []
+    const spies = (["log", "warn", "error", "info"] as const).map((k) =>
+      vi.spyOn(console, k).mockImplementation((...a: any[]) => {
+        logs.push(a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "))
+      }),
+    )
+    const body = {
+      success: false,
+      code: "NO_APPROVED_RECIPIENTS",
+      message: "No approved recipients",
+      errors: { removedNewNumbers: ["0551234567", "+233 55-123-4568"] },
+      rejectedRecipients: [{ phoneNumber: "0551234567", dataGb: 1, reason: "not_on_beneficiary_list" }],
+      removedNewNumbers: ["233551234567"],
+    }
+    const client = fakeClient({
+      placeOrder: vi.fn(async () => ({ ok: false, status: 422, code: "NO_APPROVED_RECIPIENTS", message: "No approved recipients", body })),
+    })
+    const { provider } = setup({ client })
+    const r = await provider.createOrder(req())
+    spies.forEach((s) => s.mockRestore())
+    expect(r.error_type).toBe("NOT_ELIGIBLE")
+    const all = logs.join("\n")
+    expect(all).toContain("[KUNTANII-RAW]")
+    expect(all).not.toContain("0551234567")
+    expect(all).not.toContain("551234567")
+    expect(all).not.toContain("55-123-4568")
   })
 
   it("plain validation error does not alert or record", async () => {

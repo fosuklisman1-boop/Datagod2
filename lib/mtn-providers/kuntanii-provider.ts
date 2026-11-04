@@ -72,7 +72,16 @@ export type KuntaniiDeps = {
 
 const PHONE_KEYS = new Set(["phoneNumber", "normalizedPhone"])
 
+const PHONE_SHAPE = /^(0\d{9}|233\d{9})$/
+
+function looksLikePhone(s: string): boolean {
+  return PHONE_SHAPE.test(s.replace(/[\s\-+]/g, ""))
+}
+
+// Keyed redaction for phoneNumber/normalizedPhone, plus any phone-shaped string
+// anywhere (e.g. bare arrays like removedNewNumbers, unknown keys).
 function redactBody(value: unknown): unknown {
+  if (typeof value === "string") return looksLikePhone(value) ? redactPhone(value.replace(/[\s\-+]/g, "")) : value
   if (Array.isArray(value)) return value.map(redactBody)
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {}
@@ -93,9 +102,13 @@ function logRaw(label: string, id: string, res: unknown): void {
   }
 }
 
-/** Order entries for status mapping: orders[] when present, else the top-level status. */
+/** Order entries for status mapping: orders[] when non-empty, else the top-level status. */
 function entriesOf(body: OrderBody | undefined): KuntaniiOrderEntry[] {
-  return body?.orders ?? [{ status: body?.status }]
+  const orders = body?.orders
+  if (Array.isArray(orders) && orders.length > 0) return orders
+  if (typeof body?.status === "string") return [{ status: body.status }]
+  // Nothing visible: [] maps to "resume"/"processing" — never place blind.
+  return Array.isArray(orders) ? orders : [{ status: undefined }]
 }
 
 const KNOWN_STATUSES = new Set(["pending", "processing", "processed", "not received", "cancelled"])
@@ -164,7 +177,9 @@ export class KuntaniiProvider implements MTNProvider {
         return fail("RETRYABLE", "Kuntanii attempt lookup failed")
       }
       if (!res.ok) {
-        if (res.status === 404 && !res.network) {
+        // Only Kuntanii's own "order not found" frees the id; any other 404
+        // (wrong route, proxy page) is an unknown — never place blind.
+        if (res.status === 404 && !res.network && (res.code === undefined || res.code === "NOT_FOUND")) {
           id = candidate
           break
         }
@@ -237,11 +252,19 @@ export class KuntaniiProvider implements MTNProvider {
     // Unknown outcome (timeout / unparseable 2xx): ask Kuntanii once whether it exists.
     if (res.network === true || (res.status >= 200 && res.status < 300)) {
       let found = false
+      let cancelled = false
       try {
         const check = await this.client.getOrder(id)
-        found = check.ok
+        if (check.ok) {
+          if (aggregateOrdersStatus(entriesOf(check.data)) === "failed") cancelled = true
+          else found = true
+        }
       } catch {
         found = false
+      }
+      if (cancelled) {
+        // Kuntanii has it and it is cancelled: nothing will be delivered, safe to fail over.
+        return fail("API_ERROR", `Kuntanii order ${id} exists but is cancelled (after unknown outcome)`)
       }
       if (found) {
         console.warn(`[Kuntanii] place ${id} had an unknown outcome but the order exists — treating as accepted`)
@@ -254,12 +277,13 @@ export class KuntaniiProvider implements MTNProvider {
     const cls = classifyKuntaniiError(res.status, res.code, mode)
     if (cls === "ACCOUNT_HOLD" || cls === "INSTANT_UNAVAILABLE") {
       await this.safeAlert(
-        "kuntanii_" + (res.code ?? "hold").toLowerCase(),
+        "kuntanii_" + (res.code ?? cls).toLowerCase(),
         "Kuntanii: orders refused",
         `${res.code ?? cls}: ${res.message}`,
       )
     }
-    if (cls === "RETRYABLE") await this.safeRecordUnknown(id, req.client_ref ?? null)
+    // RETRYABLE: outcome unknown. CONFLICT: an order with this id exists — both must be watched.
+    if (cls === "RETRYABLE" || cls === "CONFLICT") await this.safeRecordUnknown(id, req.client_ref ?? null)
     if (cls === "CONFLICT") console.error(`[Kuntanii] CONFLICT placing ${id} — same id, different body? investigate`)
     return fail(cls, `Kuntanii ${res.status}${res.code ? ` ${res.code}` : ""}: ${res.message}`)
   }
