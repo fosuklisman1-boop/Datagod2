@@ -12,6 +12,11 @@ vi.mock("@/lib/moolre-transfer", () => ({
   initiateTransfer: vi.fn(), getTransferStatus: (...a: unknown[]) => getMoolreTransferStatus(...a),
 }))
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({}) }))
+const checkSendStatus = vi.fn()
+vi.mock("./hubtel-send-client", async (orig) => ({
+  ...(await orig<typeof import("./hubtel-send-client")>()),
+  checkSendStatus: (...a: unknown[]) => checkSendStatus(...a),
+}))
 
 import { MAX_PER_RUN, reconcileProcessingPaystackRefunds } from "./reconcile-paystack"
 import { getGateway } from "./gateways"
@@ -257,4 +262,74 @@ describe("reconcileProcessingPaystackRefunds on Moolre payouts", () => {
       expect(r).toMatchObject({ checked: 1, stillProcessing: 1, completed: 0, failed: 0 })
       expect(calls.map((c) => c.name)).toEqual(["mark_refund_processing"])
     })
+})
+
+const RFH = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+const hubtelSend = (o: Partial<StoredRefund> = {}) => row({ id: RFH, gateway: "hubtel_send", gateway_ref: "tx1", destination_phone: "0245550101", ...o })
+
+describe("reconcileProcessingPaystackRefunds on Hubtel Send Money payouts", () => {
+  it("completed -> complete_order_refund once, looked up by refund id and amount", async () => {
+    checkSendStatus.mockResolvedValue({ kind: "completed", ref: "tx9" })
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [hubtelSend()], NOW)
+    expect(r).toMatchObject({ checked: 1, completed: 1, failed: 0 })
+    expect(checkSendStatus).toHaveBeenCalledWith({ refundId: RFH, amount: 9.8 })
+    expect(calls.map((c) => c.name)).toEqual(["complete_order_refund"])
+    expect(deps.notify).toHaveBeenCalledTimes(1)
+  })
+  it("failed -> fail_order_refund, no notify", async () => {
+    checkSendStatus.mockResolvedValue({ kind: "failed", error: "Hubtel reports the payout failed" })
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [hubtelSend()], NOW)
+    expect(r).toMatchObject({ checked: 1, failed: 1, completed: 0 })
+    expect(calls.map((c) => c.name)).toEqual(["fail_order_refund"])
+    expect(deps.notify).not.toHaveBeenCalled()
+  })
+  it.each([[{ kind: "pending", ref: "x" }], [{ kind: "unknown", error: "relay down" }]])("%o leaves the row processing, never compensates", async (res) => {
+    checkSendStatus.mockResolvedValue(res)
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [hubtelSend()], NOW)
+    expect(r).toMatchObject({ checked: 1, stillProcessing: 1, completed: 0, failed: 0 })
+    expect(calls.map((c) => c.name)).toEqual(["mark_refund_processing"])
+  })
+  it("a check younger than 5 minutes is not made (Hubtel's rule), and the row stays processing", async () => {
+    const { deps, calls } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [hubtelSend({ updated_at: new Date(NOW - 60_000).toISOString() })], NOW)
+    expect(r).toMatchObject({ checked: 1, stillProcessing: 1 })
+    expect(checkSendStatus).not.toHaveBeenCalled()
+    expect(calls).toEqual([])
+  })
+  it("only processing hubtel_send rows are processed", async () => {
+    const { deps } = setup()
+    const r = await reconcileProcessingPaystackRefunds(deps, [hubtelSend({ status: "completed" }), hubtelSend({ status: "reserved" })], NOW)
+    expect(r).toMatchObject({ checked: 0, skipped: 2 })
+  })
+  it("pending for more than 24 hours alerts admins once, without changing state", async () => {
+    checkSendStatus.mockResolvedValue({ kind: "pending", ref: "x" })
+    const { deps, calls } = setup()
+    const onStale = vi.fn(async () => {})
+    const old = hubtelSend({ id: "old", created_at: new Date(NOW - 25 * 3_600_000).toISOString() })
+    const fresh = hubtelSend({ id: "fresh" })
+    const r = await reconcileProcessingPaystackRefunds(deps, [old, fresh], NOW, { onStaleHubtelSend: onStale })
+    expect(r.stale24h).toBe(1)
+    expect(onStale).toHaveBeenCalledTimes(1)
+    expect(onStale).toHaveBeenCalledWith([expect.objectContaining({ id: "old" })])
+    expect(calls.map((c) => c.name).filter((n) => n !== "mark_refund_processing")).toEqual([])
+  })
+  it("no alert when nothing is stale, and a throwing alert never breaks the run", async () => {
+    checkSendStatus.mockResolvedValue({ kind: "pending", ref: "x" })
+    const { deps } = setup()
+    const onStale = vi.fn(async () => { throw new Error("sms down") })
+    await reconcileProcessingPaystackRefunds(deps, [hubtelSend()], NOW, { onStaleHubtelSend: onStale })
+    expect(onStale).not.toHaveBeenCalled()
+    const old = hubtelSend({ created_at: new Date(NOW - 25 * 3_600_000).toISOString() })
+    await expect(reconcileProcessingPaystackRefunds(deps, [old], NOW, { onStaleHubtelSend: onStale })).resolves.toMatchObject({ stale24h: 1 })
+  })
+  it("a completed row stale in creation time is not alerted (only unsettled ones)", async () => {
+    checkSendStatus.mockResolvedValue({ kind: "completed", ref: "tx9" })
+    const { deps } = setup()
+    const onStale = vi.fn(async () => {})
+    await reconcileProcessingPaystackRefunds(deps, [hubtelSend({ created_at: new Date(NOW - 30 * 3_600_000).toISOString() })], NOW, { onStaleHubtelSend: onStale })
+    expect(onStale).not.toHaveBeenCalled()
+  })
 })

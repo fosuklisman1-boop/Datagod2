@@ -382,11 +382,13 @@ export async function applyGatewayOutcome(deps: RefundDeps, stored: StoredRefund
 }
 
 /** Re-checks a refund stuck in `reserved` / `processing` / `awaiting_otp` against its gateway and settles it. */
-export async function reconcileRefund(deps: RefundDeps, stored: StoredRefund): Promise<Settled> {
+export async function reconcileRefund(deps: RefundDeps, stored: StoredRefund, opts: { skipInFlightGuard?: boolean } = {}): Promise<Settled> {
   if (stored.status !== "processing" && stored.status !== "awaiting_otp" && stored.status !== "reserved") {
     throw new RefundError("ORDER_NOT_PENDING", "Only processing refunds can be reconciled")
   }
-  if (isInFlight(stored, nowOf(deps))) {
+  // skipInFlightGuard: only for a caller that already knows the original payout call has returned (a signed gateway
+  // callback on a row that is `processing`, never `reserved`). Everyone else waits out the 5 minutes.
+  if (!opts.skipInFlightGuard && isInFlight(stored, nowOf(deps))) {
     throw new RefundError("IN_FLIGHT", "The original payout request may still be running. Wait a few minutes before checking status.")
   }
   const gateway = deps.getGateway(stored.gateway)
