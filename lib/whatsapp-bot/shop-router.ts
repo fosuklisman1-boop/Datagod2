@@ -22,6 +22,7 @@ import type { WaShopSession } from "./shop-types"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 import { submitOtp } from "@/lib/paystack"
+import { claimShopCharge, releaseShopCharge } from "./shop-charge-claim"
 import {
   guardedReprice, isUssdHubtelPayer, samePrice, startUssdCharge, ussdOrderAmount, type UssdPrice,
 } from "@/lib/ussd/gateway-charge"
@@ -323,7 +324,34 @@ function shopNaturalToDigit(
   return null
 }
 
+const SHOP_CHARGE_BUSY_REPLY = 'Your payment is still being processed. Please check your phone for the MoMo prompt.'
+const SHOP_CHARGE_UNAVAILABLE_REPLY = 'Sorry, we could not start the payment right now. Please try again in a moment.'
+
+/**
+ * Takes the sender's charge claim before a confirm step writes an order. Returns null when this request may go on, or
+ * the reply to send instead: nothing is created and the session isn't written. The session is read again once the claim
+ * is held, because a request that read the step just before an earlier charge finished can win the claim after it.
+ */
+async function takeShopChargeClaim(from: string, step: WaShopSession['step'], claim: { held: boolean }): Promise<string | null> {
+  const result = await claimShopCharge(from)
+  if (result === 'unavailable') return SHOP_CHARGE_UNAVAILABLE_REPLY
+  if (result === 'held') return SHOP_CHARGE_BUSY_REPLY
+  claim.held = true
+  const fresh = await getSession(from)
+  return fresh?.step === step ? null : SHOP_CHARGE_BUSY_REPLY
+}
+
 export async function shopWaRouter(from: string, text: string, inboundMsgId: string | null): Promise<string> {
+  // Released only after the reply and the session write: until then the session still says the confirm step.
+  const claim = { held: false }
+  try {
+    return await routeShopMessage(from, text, inboundMsgId, claim)
+  } finally {
+    if (claim.held) await releaseShopCharge(from)
+  }
+}
+
+async function routeShopMessage(from: string, text: string, inboundMsgId: string | null, claim: { held: boolean }): Promise<string> {
   await logMessage(from, "inbound", text, inboundMsgId)
 
   let input = text.trim()
@@ -796,6 +824,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           break
         }
 
+        const dataRefusal = await takeShopChargeClaim(from, 'CONFIRM', claim)
+        if (dataRefusal) {
+          reply = dataRefusal
+          skipPersist = true
+          break
+        }
+
         // Re-fetch retail price from DB to prevent stale-session price tampering.
         const verified = await verifyBundlePrice(session.shopId!, session.bundleId!, session.parentShopId)
         if (!verified) {
@@ -1057,6 +1092,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         if (!(await isShopStillOpen(session.shopCodeId!))) {
           deleteAfter = true
           reply = SHOP_CLOSED_REPLY
+          break
+        }
+
+        const airtimeRefusal = await takeShopChargeClaim(from, 'AIRTIME_CONFIRM', claim)
+        if (airtimeRefusal) {
+          reply = airtimeRefusal
+          skipPersist = true
           break
         }
 
@@ -1328,6 +1370,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         if (!(await isShopStillOpen(session.shopCodeId!))) {
           deleteAfter = true
           reply = SHOP_CLOSED_REPLY
+          break
+        }
+
+        const rcRefusal = await takeShopChargeClaim(from, 'RC_CONFIRM', claim)
+        if (rcRefusal) {
+          reply = rcRefusal
+          skipPersist = true
           break
         }
 
@@ -1644,6 +1693,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         if (!(await isShopStillOpen(session.shopCodeId!))) {
           deleteAfter = true
           reply = SHOP_CLOSED_REPLY
+          break
+        }
+
+        const rcCheckRefusal = await takeShopChargeClaim(from, 'RCCHECK_CONFIRM', claim)
+        if (rcCheckRefusal) {
+          reply = rcCheckRefusal
+          skipPersist = true
           break
         }
 

@@ -13,6 +13,34 @@ const h = vi.hoisted(() => ({
   texts: [] as Array<[string, string]>,
   quote: null as any,
   verified: vi.fn(async () => true),
+  redisKeys: new Map<string, string>(),
+  redisDown: false,
+  redisDelFails: false,
+  staleOnce: null as any,
+}))
+
+// The claim runs against a fake Redis with real SET NX semantics (read at import, so set before the imports below).
+vi.hoisted(() => {
+  process.env.UPSTASH_REDIS_REST_URL = "https://example.invalid"
+  process.env.UPSTASH_REDIS_REST_TOKEN = "test"
+})
+vi.mock("@upstash/redis", () => ({
+  Redis: class {
+    async set(k: string, v: string, o: any) {
+      if (h.redisDown) throw new Error("redis down")
+      if (o?.nx && h.redisKeys.has(k)) return null
+      h.redisKeys.set(k, v)
+      return "OK"
+    }
+    async del(k: string) {
+      if (h.redisDelFails) throw new Error("redis down")
+      h.redisKeys.delete(k)
+      return 1
+    }
+    async get() { return null }
+    async setex() { return "OK" }
+    async expire() { return 1 }
+  },
 }))
 
 vi.mock("@supabase/supabase-js", async () => (await import("@/lib/ussd/gateway-test-kit")).supabaseMock())
@@ -21,7 +49,11 @@ vi.mock("@/lib/payment-gateway/hubtel-readiness", async () => (await import("@/l
 vi.mock("@/lib/hubtel-pay/client", async (orig) => (await import("@/lib/ussd/gateway-test-kit")).relayMock(await orig()))
 vi.mock("@/lib/hubtel-pay/alert-throttle", async () => (await import("@/lib/ussd/gateway-test-kit")).alertMock())
 vi.mock("./shop-session", () => ({
-  getSession: async (id: string) => h.sessions.get(id) ?? null,
+  getSession: async (id: string) => {
+    if (h.staleOnce) { const s = h.staleOnce; h.staleOnce = null; return s }
+    const s = h.sessions.get(id)
+    return s ? JSON.parse(JSON.stringify(s)) : null
+  },
   setSession: async (id: string, s: any) => { h.sessions.set(id, JSON.parse(JSON.stringify(s))) },
   deleteSession: async (id: string) => { h.sessions.delete(id) },
 }))
@@ -130,6 +162,10 @@ beforeEach(() => {
   h.texts = []
   h.quote = null
   h.verified.mockClear()
+  h.redisKeys.clear()
+  h.redisDown = false
+  h.redisDelFails = false
+  h.staleOnce = null
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   vi.mocked(chargeMobileMoney).mockClear()
   kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
@@ -207,6 +243,130 @@ describe("WhatsApp shop bot, every surface on Paystack (unchanged)", () => {
     await pay()
     expect(rows("airtime_orders")[0]).toMatchObject({ total_paid: 9.79, payment_fee_amount: 0.19 })
     expect(charged()[0][0].amount).toBe(9.79)
+  })
+})
+
+// The session stays on the confirm step while the charge is awaited, so a second distinct "1" used to read that step
+// and mint a second order and a second prompt. One per-sender claim is taken before the order, on every gateway.
+describe.each([
+  { gateway: "Paystack", hubtel: [] as string[] },
+  { gateway: "Hubtel", hubtel: ["whatsapp"] },
+])("two inbound Pay now messages at once, $gateway", ({ hubtel }) => {
+  const SITES = [
+    { name: "data CONFIRM", start: () => bundle(OWN), step: "CONFIRM", table: "ussd_shop_orders" },
+    { name: "AIRTIME_CONFIRM", start: () => airtime(OWN), step: "AIRTIME_CONFIRM", table: "airtime_orders" },
+    { name: "RC_CONFIRM", start: () => vouchers(OWN), step: "RC_CONFIRM", table: "results_checker_orders" },
+    { name: "RCCHECK_CONFIRM", start: () => check(OWN), step: "RCCHECK_CONFIRM", table: "results_check_requests" },
+  ]
+  const BUSY = /still being processed/i
+  const slow = () => new Promise((r) => setTimeout(r, 15))
+  const prompts = () => charged().length + kit.receive.mock.calls.length
+
+  beforeEach(() => {
+    kit.config = gatewayConfig(hubtel)
+    h.charge = async (p: any) => { await slow(); return { status: "pay_offline", reference: p.reference } }
+    kit.receive.mockImplementation(async () => { await slow(); return { kind: "accepted" } })
+  })
+
+  describe.each(SITES)("$name", ({ start, step, table }) => {
+    it("concurrent: exactly one order, one prompt, one sent reply; the claim is freed", async () => {
+      start()
+      const replies = await Promise.all([pay(), pay()])
+      expect(rows(table)).toHaveLength(1)
+      expect(prompts()).toBe(1)
+      expect(replies.filter((r) => BUSY.test(r))).toHaveLength(1)
+      expect(replies.filter((r) => r.includes(OWN))).toHaveLength(1)
+      expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
+      expect(h.redisKeys.size).toBe(0)
+      expectNeutral(...replies)
+    })
+
+    it("a second message mid-charge changes nothing; the first request's session write stands", async () => {
+      start()
+      const before = h.sessions.get(FROM)
+      const first = pay()
+      await new Promise((r) => setTimeout(r, 5)) // the first holds the claim and is inside the charge
+      expect(await pay()).toMatch(BUSY)
+      expect(h.sessions.get(FROM)).toEqual(before)
+      expect(await first).toContain(OWN)
+      expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
+      expect(rows(table)).toHaveLength(1)
+      expect(prompts()).toBe(1)
+    })
+
+    it("a message that read the confirm step just before the first finished finds it gone: no order, no prompt", async () => {
+      start()
+      const stale = h.sessions.get(FROM)
+      await pay()
+      h.staleOnce = stale
+      expect(await pay()).toMatch(BUSY)
+      expect(rows(table)).toHaveLength(1)
+      expect(prompts()).toBe(1)
+      expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
+      expect(h.redisKeys.size).toBe(0)
+    })
+
+    it("a later purchase after the hand-off isn't blocked", async () => {
+      start()
+      await pay()
+      start()
+      expect(await pay()).toContain(OWN)
+      expect(rows(table)).toHaveLength(2)
+      expect(prompts()).toBe(2)
+    })
+
+    it("Redis down: nothing is created or charged, the chat stays on the step and can retry", async () => {
+      start()
+      h.redisDown = true
+      const r = await pay()
+      expect(r).toBe("Sorry, we could not start the payment right now. Please try again in a moment.")
+      expect(rows(table)).toHaveLength(0)
+      expect(prompts()).toBe(0)
+      expect(h.sessions.get(FROM).step).toBe(step)
+      h.redisDown = false
+      expect(await pay()).toContain(OWN)
+      expect(rows(table)).toHaveLength(1)
+    })
+
+    it("a failed release doesn't break the reply", async () => {
+      start()
+      h.redisDelFails = true
+      expect(await pay()).toContain(OWN)
+      expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
+    })
+  })
+
+  it("the claim is freed when the charge step fails, and when the order writer throws", async () => {
+    h.charge = async () => { throw new Error("Paystack charge failed (HTTP 400)") }
+    kit.receive.mockImplementation(async () => { throw new Error("relay blew up") })
+    bundle(OWN)
+    await pay()
+    expect(h.redisKeys.size).toBe(0)
+
+    const { createShopBundleOrder } = await import("@/lib/shop-commerce/orders")
+    vi.mocked(createShopBundleOrder).mockRejectedValueOnce(new Error("db down"))
+    bundle(OWN)
+    await expect(pay()).rejects.toThrow("db down")
+    expect(h.redisKeys.size).toBe(0)
+  })
+
+  it("the claim is per sender: another customer's payment goes through at the same time", async () => {
+    const OTHER_SENDER = "233201234567"
+    bundle(OWN)
+    h.sessions.set(OTHER_SENDER, { ...h.sessions.get(FROM), paymentPhone: "0201234567", paystackProvider: "vod" })
+    await Promise.all([pay(), shopWaRouter(OTHER_SENDER, "1", null)])
+    expect(rows("ussd_shop_orders")).toHaveLength(2)
+    expect(prompts()).toBe(2)
+  })
+
+  it("a charge asking for an OTP keeps SUBMIT_OTP; the second message doesn't undo it", async () => {
+    h.charge = async (p: any) => { await slow(); return { status: "send_otp", reference: p.reference } }
+    kit.receive.mockImplementation(async () => { await slow(); return { kind: "refused", code: "4000", message: "no" } })
+    bundle(OWN)
+    await Promise.all([pay(), pay()])
+    const o = rows("ussd_shop_orders")
+    expect(o).toHaveLength(1)
+    expect(h.sessions.get(FROM)).toMatchObject({ step: "SUBMIT_OTP", pendingOrderId: o[0].id })
   })
 })
 
