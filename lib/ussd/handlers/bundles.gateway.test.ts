@@ -38,6 +38,7 @@ vi.mock("@/lib/storefront-otp", async (orig) => ({
 
 import { handleConfirm, handlePaymentMethod } from "./bundles"
 import { chargeMobileMoney } from "@/lib/paystack"
+import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "../gateway-test-kit"
 
 const DIAL = "+233244123456"
@@ -64,6 +65,7 @@ beforeEach(() => {
   h.sms = async () => {}
   h.verified.clear()
   vi.mocked(chargeMobileMoney).mockClear()
+  vi.mocked(sendWhatsAppText).mockClear()
   kit.db.packages = [{ id: "p1", price: 10, dealer_price: 8, is_available: true }]
   kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
 })
@@ -100,6 +102,9 @@ describe("Uzo bundles on Paystack (unchanged)", () => {
     await runAfter()
     expect(order().payment_status).toBe("otp_required")
     expect(sms).toHaveBeenCalledTimes(1)
+    expect(sendWhatsAppText).not.toHaveBeenCalled()
+    expect(h.sessions.get("S1")).toBeUndefined() // the Uzo path leaves the redial to find the order
+    expect(h.sessions.get(DIAL)).toBeUndefined()
   })
 })
 

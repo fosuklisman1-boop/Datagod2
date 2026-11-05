@@ -48,13 +48,27 @@ vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({ isRecipientBlocked: vi.fn(async () => false), RECIPIENT_BLOCKED_PROMPT: "" }))
 vi.mock("@/lib/ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({})) }))
 vi.mock("./cashback-visibility", () => ({ whatsappBotItemsVisible: vi.fn(async () => ({})) }))
+vi.mock("@/lib/ussd/resolve-dialer", () => ({ resolveDialer: vi.fn(async () => ({})) }))
+vi.mock("@/lib/secure-random", () => ({ secureReference: () => "REF-001" }))
+vi.mock("@/lib/ussd/bots/gate", () => ({ botMenusVisible: async () => ({}), UZO_BOT_MENUS_HIDDEN: {} }))
+vi.mock("@/lib/airtime-pricing", async (orig) => ({
+  ...(await orig<object>()),
+  isAirtimeEnabled: vi.fn(async () => true),
+  getAirtimeLimits: vi.fn(async () => ({ min: 1, max: 500 })),
+  airtimeBaseFeeRate: vi.fn(async () => 5),
+}))
+vi.mock("@/lib/results-checker-service", () => ({
+  isExamBoardEnabled: vi.fn(async () => true), getAvailableCount: vi.fn(async () => 10), getMaxQuantity: vi.fn(async () => 10),
+  calculateRCPrice: vi.fn(async () => ({ unitPrice: 20, totalPaid: 40, bulkApplied: false })),
+  purchaseResultsCheckerVouchers: vi.fn(), getRCBulkHint: vi.fn(async () => null),
+}))
 vi.mock("@/lib/storefront-otp", async (orig) => ({
   ...(await orig<object>()),
   isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
 }))
 
 import { waRouter } from "./router"
-import { chargeMobileMoney } from "@/lib/paystack"
+import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "@/lib/ussd/gateway-test-kit"
 
 const FROM = "233244123456"
@@ -94,6 +108,8 @@ beforeEach(() => {
   h.texts = []
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   vi.mocked(chargeMobileMoney).mockClear()
+  vi.mocked(submitOtp).mockReset()
+  vi.mocked(submitOtp).mockImplementation(async (reference: string) => ({ status: "pending", reference }) as any)
   kit.db.packages = [{ id: "p1", price: 10, dealer_price: 8, is_available: true }]
   kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
 })
@@ -138,6 +154,70 @@ describe("main WhatsApp bot, bundles, every surface on Paystack (unchanged)", ()
     await payByMomo(OTHER)
     await runAfter()
     expect(order()).toMatchObject({ order_status: "failed", payment_status: "failed" })
+  })
+})
+
+// The chat is keyed by the sender (233...), while the router overwrites session.dialingPhone with the typed number.
+// The OTP hand-off must land in the sender's chat whoever pays, or the customer's code never reaches SUBMIT_OTP.
+describe("main WhatsApp bot, Paystack asks for an OTP: the customer's next message completes it", () => {
+  const atAirtime = () => h.sessions.set(FROM, {
+    step: "AIRTIME_CONFIRM", dialingPhone: OWN, airtimeRecipient: "0201234567", airtimeNetwork: "MTN",
+    airtimeAmount: 10.5, airtimeFee: 0.5, airtimeToDeliver: 10,
+  })
+  const atVouchers = () => h.sessions.set(FROM, { step: "RC_CONFIRM", dialingPhone: OWN, rcBoard: "WASSCE", rcQty: 2, rcTotal: 40 })
+  const SITES = [
+    { name: "bundle confirm", start: () => atConfirm(), table: "ussd_orders", pendingTable: undefined },
+    { name: "bundle via the payment-method screen", start: () => atConfirm({ userId: "u1", walletBalance: 50 }), table: "ussd_orders", pendingTable: undefined },
+    { name: "airtime", start: atAirtime, table: "airtime_orders", pendingTable: "airtime_orders" },
+    { name: "vouchers", start: atVouchers, table: "results_checker_orders", pendingTable: "results_checker_orders" },
+  ]
+
+  beforeEach(() => { h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference }) })
+
+  describe.each(SITES)("$name", ({ start, table, pendingTable }) => {
+    describe.each([
+      { payer: "the sender's own number", typed: OWN },
+      { payer: "someone else's number", typed: OTHER },
+    ])("paid from $payer", ({ typed }) => {
+      it("the session and the text go to the sender, never the typed number", async () => {
+        start()
+        await payByMomo(typed)
+        await runAfter()
+        const o = rows(table)[0]
+        expect(o.payment_status).toBe("otp_required")
+        const s = h.sessions.get(FROM)
+        expect(s).toMatchObject({ step: "SUBMIT_OTP", pendingOrderId: o.id, dialingPhone: typed })
+        expect(s.pendingOrderTable).toBe(pendingTable)
+        expect(h.sessions.has(typed)).toBe(false)
+        expect(h.texts).toHaveLength(1)
+        expect(h.texts[0][0]).toBe(FROM)
+        expect(h.texts[0][1]).toMatch(/one-time code/)
+        expectNeutral([])
+      })
+
+      it("the next message reaches SUBMIT_OTP and submits the code for this order", async () => {
+        start()
+        await payByMomo(typed)
+        await runAfter()
+        const o = rows(table)[0]
+        const reply = await waRouter(FROM, "123456")
+        expect(reply).not.toMatch(/session expired/i)
+        await runAfter()
+        expect(submitOtp).toHaveBeenCalledTimes(1)
+        expect(submitOtp).toHaveBeenCalledWith(o.id, "123456")
+        expect(o.payment_status).not.toBe("failed")
+        expect(h.sessions.has(FROM)).toBe(false) // one-shot, as on USSD
+      })
+
+      it("0 cancels this order", async () => {
+        start()
+        await payByMomo(typed)
+        await runAfter()
+        await waRouter(FROM, "0")
+        expect(rows(table)[0].payment_status).toBe("failed")
+        expect(submitOtp).not.toHaveBeenCalled()
+      })
+    })
   })
 })
 
@@ -201,8 +281,11 @@ describe("main WhatsApp bot, bundles, whatsapp surface on Hubtel", () => {
     const replies = await payByMomo(OWN)
     await runAfter()
     expect(order().payment_status).toBe("otp_required")
-    expect(h.history.some(([, s]) => s.step === "SUBMIT_OTP" && s.pendingOrderId === order().id)).toBe(true)
-    expect(h.texts.some(([, b]) => /one-time code/.test(b))).toBe(true)
+    expect(h.sessions.get(FROM)).toMatchObject({ step: "SUBMIT_OTP", pendingOrderId: order().id, dialingPhone: OWN })
+    expect(h.sessions.has(OWN)).toBe(false)
+    expect(h.texts).toHaveLength(1)
+    expect(h.texts[0][0]).toBe(FROM)
+    expect(h.texts[0][1]).toMatch(/one-time code/)
     expectNeutral(replies)
   })
 

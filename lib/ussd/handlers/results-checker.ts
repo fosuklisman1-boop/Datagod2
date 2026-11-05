@@ -319,8 +319,9 @@ async function createRcOrderAndChargeMomo(
       if (status === "send_otp") {
         await supabase.from("results_checker_orders").update({ payment_status: "otp_required", updated_at: new Date().toISOString() }).eq("id", order.id)
         if (channel === "whatsapp") {
-          await setSession(dialingPhone, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: order.id, pendingOrderTable: "results_checker_orders" })
-          await sendWhatsAppText(dialingPhone, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+          // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
+          await setSession(sessionId, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: order.id, pendingOrderTable: "results_checker_orders" })
+          await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
         } else {
           sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: order.id }).catch(() => {})
         }
