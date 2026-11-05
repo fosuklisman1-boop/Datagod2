@@ -4,8 +4,10 @@
  * so the customer always gets the single most relevant message. In Phase 1 the result is
  * only RECORDED (sms_send_logs.policy_shadow); enforcement arrives with Phase 3.
  */
-import { extractLinkHosts, matchBlockedContent, suspiciousHostReason } from "./content-filter"
+import { extractLinkHosts, isOwnDomain, matchBlockedContent, suspiciousHostReason } from "./content-filter"
 import type { SmsMode, SmsPlatformSettings } from "./platform-settings"
+
+export { isOwnDomain }
 
 export type PolicyDecision = "allow" | "hold" | "reject" | "block" | "unavailable"
 export type PolicyCode =
@@ -36,14 +38,6 @@ export interface PolicyResult { decision: PolicyDecision; code: PolicyCode; reas
 
 const result = (decision: PolicyDecision, code: PolicyCode, reason: string, flags: PolicyFlag[] = []): PolicyResult =>
   ({ decision, code, reason, flags })
-
-export function isOwnDomain(host: string, ownDomains: string[]): boolean {
-  const h = host.toLowerCase().replace(/^www\./, "")
-  return ownDomains.some((raw) => {
-    const d = raw.toLowerCase().replace(/^www\./, "")
-    return !!d && (h === d || h.endsWith(`.${d}`))
-  })
-}
 
 const keywordOf = (reason: string) => /^blocked keyword: "(.*)"$/.exec(reason)?.[1] ?? reason
 const fmt = (n: number) => n.toLocaleString("en-US")

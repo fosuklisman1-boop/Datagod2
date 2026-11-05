@@ -7,6 +7,16 @@ export interface FilterResult {
 export interface FilterOptions {
   blockedKeywords?: string[]
   allowedDomains?: string[]
+  /** Our own domains (+ subdomains). Never treated as lookalikes: store names may contain digits. */
+  ownDomains?: string[]
+}
+
+export function isOwnDomain(host: string, ownDomains: string[]): boolean {
+  const h = host.toLowerCase().replace(/^www\./, "")
+  return ownDomains.some((raw) => {
+    const d = raw.toLowerCase().replace(/^www\./, "")
+    return !!d && (h === d || h.endsWith(`.${d}`))
+  })
 }
 
 // Known URL shorteners that must be blocked
@@ -184,12 +194,13 @@ export function extractLinkHosts(rawMessage: string): string[] {
 }
 
 export function filterSmsContent(message: string, options: FilterOptions = {}): FilterResult {
-  const { blockedKeywords = [], allowedDomains = [] } = options
+  const { blockedKeywords = [], allowedDomains = [], ownDomains = [] } = options
 
   const blockedReason = matchBlockedContent(message, blockedKeywords)
   if (blockedReason) return { blocked: true, flagged: false, reason: blockedReason }
 
   for (const host of extractHosts(message)) {
+    if (isOwnDomain(host, ownDomains)) continue
     const suspicious = suspiciousHostReason(host)
     if (suspicious) return { blocked: true, flagged: false, reason: suspicious }
     // Flag non-allowed domains if an allowlist is provided
