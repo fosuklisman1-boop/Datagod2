@@ -67,6 +67,9 @@ export async function ussdOrderAmount(
   return gateway === "hubtel" ? price.hubtel : price.paystack
 }
 
+/** The same MoMo price on both gateways (handlers that add no Paystack fee). */
+export const samePrice = (amount: number): UssdPrice => ({ hubtel: amount, paystack: amount })
+
 export interface UssdChargeInput {
   surface: SurfaceKey
   /** isUssdHubtelPayer for this charge. */
@@ -78,9 +81,10 @@ export interface UssdChargeInput {
   params: Omit<ChargeMobileMoneyParams, "amount">
   /**
    * Moves the order from `written` to the Paystack price, guarded on it still being unpaid at `written`. True when
-   * exactly that row changed. Must not throw.
+   * exactly that row changed. Must not throw. Handlers with no Paystack fee omit it: their order is never written
+   * below the Paystack price, and if one were, a missing reprice refuses the fallback.
    */
-  reprice: () => Promise<boolean>
+  reprice?: () => Promise<boolean>
 }
 
 /**
@@ -96,7 +100,7 @@ export async function startUssdCharge(i: UssdChargeInput, deps?: Partial<StartDe
   const hubtel = i.verifiedPayer && (feeless || pesewas(i.price.hubtel) === paystack)
   let amount = i.written
   const onFallback = async (): Promise<{ amount: number }> => {
-    if (!(await i.reprice())) throw new FallbackRefusedError()
+    if (!i.reprice || !(await i.reprice())) throw new FallbackRefusedError()
     amount = i.price.paystack
     return { amount }
   }
