@@ -232,6 +232,27 @@ describe("storefront on Hubtel", () => {
     expect(initiateCheckout).toHaveBeenCalledTimes(1)
   })
 
+  it.each<[string, Record<string, unknown>]>([
+    ["name", { fullName: "Ama Mensah" }],
+    ["phone", { phoneNumber: "0201234567" }],
+    ["location", { location: "Kumasi" }],
+    ["region", { region: "Ashanti" }],
+  ])("a retry with a corrected %s during an open attempt => 409, the paid order's details never change silently", async (_n, over) => {
+    await send()
+    const retry = await send(over)
+    expect(retry.status).toBe(409)
+    expect(await retry.json()).toMatchObject({ code: "PAYMENT_IN_PROGRESS" })
+    expect(orders()).toHaveLength(1)
+    expect(initiateCheckout).toHaveBeenCalledTimes(1)
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("the same details with surrounding spaces still replay", async () => {
+    await send()
+    expect((await send({ fullName: " Ama ", location: "Accra " })).status).toBe(200)
+    expect(orders()).toHaveLength(1)
+  })
+
   it("a retry for a different person is a different order", async () => {
     await send()
     await send({ ghCardNumber: "GHA-987654321-0" })

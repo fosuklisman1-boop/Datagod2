@@ -7,6 +7,7 @@ import { verifyTurnstileToken, getRequestIp, isTurnstileEnabled } from "@/lib/tu
 import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
 import { parseGhanaCardNumber } from "@/lib/ghana-card"
+import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { FallbackRefusedError, HostedStartError, resolveSurfaceGateway, startHostedPayment } from "@/lib/payment-gateway/start"
 import { HUBTEL_REPLAY_LOOKBACK_MS } from "@/lib/payment-gateway/initialize-gateway"
 import { decideAttemptReplay, replayUnknown, TRY_AGAIN_BODY, type ReplayDecision } from "@/lib/payment-gateway/web-replay"
@@ -18,6 +19,18 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+const text = (v: unknown) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ").toLowerCase() : "")
+const phoneKey = (v: unknown) => (typeof v === "string" ? normalizeGhanaPhone(v) ?? v.replace(/\s/g, "") : "")
+
+/** Is this retry the registration the pending order was written for? Case, spacing and phone format don't count. */
+function sameAfaDetails(
+  order: { full_name?: unknown; dialing_phone?: unknown; location?: unknown; region?: unknown },
+  req: { fullName: unknown; phone: unknown; location: unknown; region: unknown },
+): boolean {
+  return text(order.full_name) === text(req.fullName) && phoneKey(order.dialing_phone) === phoneKey(req.phone) &&
+    text(order.location) === text(req.location) && text(order.region) === text(req.region)
+}
 
 async function getAdminSetting(key: string): Promise<any> {
   const { data } = await supabase.from("admin_settings").select("value").eq("key", key).single()
@@ -143,7 +156,7 @@ export async function POST(request: NextRequest) {
     const { gateway } = await resolveSurfaceGateway("storefront", { verifiedPayer: true, amount: shopPrice })
     const { data: pendingOrders, error: pendingErr } = await supabase
       .from("ussd_afa_orders")
-      .select("id, amount")
+      .select("id, amount, full_name, dialing_phone, location, region")
       .eq("shop_id", shopId)
       .eq("gh_card_number", normalizedGhCard)
       .eq("payment_status", "pending")
@@ -156,6 +169,14 @@ export async function POST(request: NextRequest) {
       : await decideAttemptReplay(supabase, "storefront", gateway, { references: (pendingOrders ?? []).map((o) => o.id) })
     if (replay.kind === "refuse") return NextResponse.json(replay.body, { status: replay.status })
     const reused = replay.kind === "replay" ? (pendingOrders ?? []).find((o) => o.id === replay.reference) : undefined
+    // A replay pays the order as it was written. Corrected details can't ride on it, and can't get a second live
+    // attempt beside it either: the customer finishes or waits out the open one.
+    if (reused && !sameAfaDetails(reused, { fullName, phone: cleanPhone, location, region })) {
+      return NextResponse.json(
+        { error: "A payment for this registration is still in progress. Finish it, or try again a little later.", code: "PAYMENT_IN_PROGRESS" },
+        { status: 409 },
+      )
+    }
 
     let order: { id: string } | null = reused ?? null
     if (!order) {
