@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { getBundlesRuntime } from "@/lib/standard-bundles/runtime"
 import { BUNDLE_NETWORKS, type BundleNetwork } from "@/lib/standard-bundles/categories"
-import { resolveShop } from "@/lib/storefront-commission/shop"
+import { paymentFeeIsWaived, resolveShop } from "@/lib/storefront-commission/shop"
 import { storefrontCatalog } from "@/lib/storefront-commission/bundles"
+import { storefrontPaymentFeeWaived } from "@/lib/storefront-commission/reprice"
 
 export const dynamic = "force-dynamic"
 
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
     const { deps, db } = getBundlesRuntime()
     const shop = await resolveShop(db, params.get("shop"))
     if (!shop) return NextResponse.json({ error: "Shop not found" }, { status: 404 })
-    const result = await storefrontCatalog(deps, network as BundleNetwork)
+    const result = await storefrontCatalog(deps, network as BundleNetwork, await paymentFeeIsWaived({ paymentFeeWaived: storefrontPaymentFeeWaived }))
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
     return NextResponse.json({ categories: result.categories })
   } catch (e) {

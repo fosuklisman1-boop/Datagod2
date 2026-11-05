@@ -13,8 +13,9 @@ import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
 import { recordPayerPhone } from "@/lib/refunds/payer-phone"
 import {
   isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkCommissionPayable,
-  STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF,
+  STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF, type CommissionPrice,
 } from "@/lib/storefront-commission/payment"
+import { priceCommissionOrder } from "@/lib/storefront-commission/reprice"
 import { FallbackRefusedError, HostedStartError, resolveSurfaceGateway, startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
 import { getSurfaceConfig } from "@/lib/payment-gateway/read-config"
 import type { FeeBearer, Gateway } from "@/lib/payment-gateway/config"
@@ -404,6 +405,8 @@ export async function POST(request: NextRequest) {
     let recipient: string | undefined // product beneficiary (data/airtime recipient) for metadata
     // A channel 'bots' commission order (USSD / WhatsApp bots): no storefront slug, neutral payer email.
     let botOrder = false
+    // A storefront commission order's price: the payment fee is inside paid_amount, so it moves with the gateway.
+    let commissionPrice: CommissionPrice | null = null
 
     // Commission order: amount = paid_amount from the DB (the payment fee is already inside it), and only a row that
     // is still pending AND unpaid. Storefront rows: this shop's row, payer email = the buyer's. Bot rows: payer email =
@@ -411,7 +414,7 @@ export async function POST(request: NextRequest) {
     if (orderId && storefrontType) {
       const { data: csRow, error: csErr } = await supabase
         .from(STOREFRONT_ORDER_TABLE[storefrontType])
-        .select("channel, shop_id, status, payment_status, paid_amount, buyer_email, buyer_phone")
+        .select("channel, shop_id, status, payment_status, paid_amount, payment_fee_amount, buyer_email, buyer_phone")
         .eq("id", orderId)
         .maybeSingle()
       if (csErr) console.error("[PAYMENT-INIT] ❌ Could not read storefront order:", csErr)
@@ -435,6 +438,10 @@ export async function POST(request: NextRequest) {
       email = payable.email
       shopId = payable.shopId
       botOrder = payable.bot
+      if (!payable.bot) {
+        const recordedFee = (csRow as { payment_fee_amount?: number | string | null } | null)?.payment_fee_amount
+        commissionPrice = { paid: payable.amount, fee: recordedFee === null ? null : Number(recordedFee ?? 0) }
+      }
     } else if (orderId) {
       // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
       const table = orderType === "airtime" ? "airtime_orders"
@@ -657,6 +664,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // The gateway is settled and the order isn't held by a live attempt, so its price can match: confirm checks
+    // paid_amount to the pesewa, so nothing is charged unless the two agree.
+    if (commissionPrice && isStorefrontOrderType(storefrontType)) {
+      const priced = await priceCommissionOrder(supabase, storefrontType, orderId, commissionPrice, gateway === "hubtel" || feeBearer === "merchant")
+      if (!priced.ok) return NextResponse.json({ error: "Could not start the payment. Please try again.", code: "try_again" }, { status: 503 })
+      commissionPrice = priced.price
+      finalAmount = priced.price.paid
+    }
+
     // Generate unique reference
     // Storefront commission orders use an opaque 32-hex reference (never the BILL-/SB- order code).
     const reference = replay
@@ -784,6 +800,15 @@ export async function POST(request: NextRequest) {
     let rowMethod: Gateway = gateway
     const repriceForPaystack = async (): Promise<{ amount: number }> => {
       const fee = initializeFee({ surface: gatewaySurface, gateway: "paystack", feeBearer, standardFee })
+      // A storefront commission order's fee lives in paid_amount, which moves first: if the payment row then fails,
+      // nothing is charged and the next start puts the price right again for whichever gateway it resolves to.
+      if (commissionPrice && isStorefrontOrderType(storefrontType) && feeBearer === "customer") {
+        const priced = await priceCommissionOrder(supabase, storefrontType, orderId, commissionPrice, false)
+        if (!priced.ok) throw new FallbackRefusedError()
+        commissionPrice = priced.price
+        finalAmount = priced.price.paid
+        paymentMetadata.originalAmount = finalAmount
+      }
       const amount = finalAmount + fee
       let changed = false
       try {

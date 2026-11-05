@@ -79,6 +79,38 @@ const KEY = "key-0001-abcd"
 
 beforeEach(() => __resetCatalogCache())
 
+describe("storefront bundles when the gateway waives the payment fee", () => {
+  const offered = async (waived?: boolean) => {
+    const { d } = harness()
+    const c = await storefrontCatalog(d, "MTN", waived)
+    if (!c.ok) throw new Error("catalog failed")
+    return c.categories.flatMap(x => x.bundles)[0]
+  }
+
+  it("the catalog shows no payment fee, and no fee in the price", async () => {
+    const [plain, waived] = [await offered(), await offered(true)]
+    expect(plain.paymentFee).toBeGreaterThan(0)
+    expect(waived.paymentFee).toBe(0)
+    expect(waived.payAmount).toBeCloseTo(plain.payAmount - plain.paymentFee, 2)
+  })
+
+  it("the order is written with that price and a NULL fee", async () => {
+    const h = harness({ paymentFeeWaived: async () => true })
+    const b = await offered(true)
+    const r = await initializeStorefrontBundle(h.d, "shop-A", { token: b.token, phone: "0241234567", idempotencyKey: "k".repeat(24), expectedPay: b.payAmount, ...BUYER })
+    expect(r).toMatchObject({ ok: true, value: { payAmount: b.payAmount, paymentFee: 0 } })
+    expect(h.inserts[0]).toMatchObject({ paid_amount: b.payAmount, payment_fee_amount: null })
+  })
+
+  it("not waived: today's price and recorded fee", async () => {
+    const h = harness({ paymentFeeWaived: async () => false })
+    const b = await offered()
+    const r = await initializeStorefrontBundle(h.d, "shop-A", { token: b.token, phone: "0241234567", idempotencyKey: "k".repeat(24), expectedPay: b.payAmount, ...BUYER })
+    expect(r).toMatchObject({ ok: true, value: { payAmount: b.payAmount, paymentFee: b.paymentFee } })
+    expect(h.inserts[0]).toMatchObject({ paid_amount: b.payAmount, payment_fee_amount: b.paymentFee })
+  })
+})
+
 describe("storefrontCatalog", () => {
   it("adds the storefront price to every bundle", async () => {
     const { d } = harness()

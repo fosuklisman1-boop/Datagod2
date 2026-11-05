@@ -6,6 +6,7 @@ import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-ot
 import { verifyShopSession } from "@/lib/shop-token"
 import { getBillsRuntime, getBillsAvailability } from "@/lib/bills/runtime"
 import { getBundlesRuntime, getBundlesAvailability } from "@/lib/standard-bundles/runtime"
+import { storefrontPaymentFeeWaived } from "./reprice"
 import type { AvailabilityDeps, CapDeps } from "./shop"
 import type { StorefrontBillsDeps, StorefrontOrderRow } from "./bills"
 import type { StorefrontBundleRow, StorefrontBundlesDeps } from "./bundles"
@@ -60,6 +61,7 @@ export function getStorefrontBillsRuntime(request: NextRequest): { deps: Storefr
         return (data as StorefrontOrderRow | null) ?? null
       },
       caps: capDeps(request, db),
+      paymentFeeWaived: storefrontPaymentFeeWaived,
     },
   }
 }
@@ -88,6 +90,7 @@ export function getStorefrontBundlesRuntime(request: NextRequest): { deps: Store
         return data as StorefrontBundleRow
       },
       caps: capDeps(request, db),
+      paymentFeeWaived: storefrontPaymentFeeWaived,
     },
   }
 }
@@ -101,6 +104,7 @@ export function getAvailabilityRuntime(): { deps: AvailabilityDeps; db: Supabase
       getHubtelConfig: deps.getHubtelConfig,
       getBillsAvailability: () => getBillsAvailability(db),
       getBundlesAvailability: () => getBundlesAvailability(db, deps.getHubtelConfig),
+      paymentFeeWaived: storefrontPaymentFeeWaived,
     },
   }
 }
