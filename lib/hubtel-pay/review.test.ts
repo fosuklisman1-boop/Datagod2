@@ -152,6 +152,31 @@ describe("markPaymentFailed", () => {
     await markPaymentFailed(deps, REF, "a")
     expect(onChargeSuccess).not.toHaveBeenCalled()
   })
+  it("closes the leftover wallet row under its internal reference, after the Hubtel row is failed", async () => {
+    const { deps, rows } = setup(baseRow(), paid({ kind: "unpaid" }))
+    const closeWalletPayment = vi.fn(async () => { expect(rows.get(REF)!.status).toBe("failed") })
+    await markPaymentFailed({ ...deps, closeWalletPayment }, REF, "a")
+    expect(closeWalletPayment).toHaveBeenCalledExactlyOnceWith("WALLET-1")
+  })
+  it("uses the opaque reference when the row has no internal reference", async () => {
+    const { deps } = setup(baseRow({ internal_reference: null }), paid({ kind: "unpaid" }))
+    const closeWalletPayment = vi.fn(async () => {})
+    await markPaymentFailed({ ...deps, closeWalletPayment }, REF, "a")
+    expect(closeWalletPayment).toHaveBeenCalledExactlyOnceWith(REF)
+  })
+  it("leaves the wallet row alone when Hubtel says Paid or the check errors", async () => {
+    for (const s of [paid(), paid({ kind: "error" })]) {
+      const { deps } = setup(baseRow(), s)
+      const closeWalletPayment = vi.fn(async () => {})
+      await markPaymentFailed({ ...deps, closeWalletPayment }, REF, "a")
+      expect(closeWalletPayment).not.toHaveBeenCalled()
+    }
+  })
+  it("a failure closing the wallet row doesn't undo the result", async () => {
+    const { deps } = setup(baseRow(), paid({ kind: "unpaid" }))
+    const closeWalletPayment = vi.fn(async () => { throw new Error("db down") })
+    expect((await markPaymentFailed({ ...deps, closeWalletPayment }, REF, "a")).ok).toBe(true)
+  })
 })
 
 describe("recheck and list", () => {

@@ -70,6 +70,8 @@ export interface ReviewStore {
 
 export interface ReviewDeps {
   store: ReviewStore
+  /** Closes a pending Hubtel wallet row after Mark failed, unless another attempt for it may hold money. */
+  closeWalletPayment?: (internalReference: string) => Promise<void>
   checkStatus: (reference: string) => Promise<PaymentStatus>
   onChargeSuccess: (data: ChargeEventData) => Promise<Response | null>
   log: (event: string, fields: Record<string, unknown>) => void
@@ -242,6 +244,13 @@ export async function markPaymentFailed(deps: ReviewDeps, reference: string, adm
   const wrote = await deps.store.update(reference, { status: "failed", last_check: status.raw, updated_at: deps.now().toISOString() }, guard)
   deps.log("mark_failed", { adminId, reference, kind: check.kind, wrote })
   if (!wrote) return { ok: false, status: 409, message: "The payment changed while you were looking. Refresh the list.", check }
+  // The Paystack verifiers skip Hubtel wallet rows, so a pending one left here would never close and could crowd out real
+  // rows. A late payment can still complete a failed row. Best effort: the row is already failed.
+  try {
+    await deps.closeWalletPayment?.(row.internal_reference ?? row.reference)
+  } catch (e) {
+    deps.log("mark_failed_wallet_row_left_open", { adminId, reference, error: e instanceof Error ? e.message : "unknown error" })
+  }
   return { ok: true, message: "Marked failed. The order itself was not changed.", check }
 }
 
@@ -294,8 +303,10 @@ export function supabaseReviewStore(sb: SupabaseClient): ReviewStore {
 
 export async function defaultReviewDeps(sb: SupabaseClient): Promise<ReviewDeps> {
   const events = await import("@/lib/payments/charge-events")
+  const { closeRefusedHubtelWalletPayment } = await import("@/lib/payment-gateway/close-refused")
   return {
     store: supabaseReviewStore(sb),
+    closeWalletPayment: async (internalReference) => { await closeRefusedHubtelWalletPayment(sb, internalReference) },
     checkStatus: (ref) => checkPaymentStatus(ref),
     onChargeSuccess: events.handleChargeSuccess,
     log: (event, fields) => console.warn(`[ADMIN-HUBTEL-REVIEW] ${event}`, JSON.stringify(fields)),
