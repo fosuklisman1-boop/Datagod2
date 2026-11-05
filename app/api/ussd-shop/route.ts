@@ -4,6 +4,10 @@ import { shopRouter } from "@/lib/ussd-shop/router"
 
 // Shop-code USSD endpoint — separate from the main Datagod USSD.
 // Configure this URL in your Uzo dashboard as the shop storefront callback URL.
+
+/** Payment starts run in after() (3 s delay + up to 15 s on the Hubtel relay + a Paystack fallback). */
+export const maxDuration = 60
+
 export async function POST(request: NextRequest) {
   try {
     const ussdSecret = process.env.USSD_SHOP_SECRET

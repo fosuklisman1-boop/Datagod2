@@ -34,6 +34,9 @@ async function verifyMetaSignature(request: NextRequest, rawBody: string): Promi
   }
 }
 
+/** Shared USSD handlers and the bot charge start payments in after(); a Hubtel start can take 15 s on the relay. */
+export const maxDuration = 60
+
 // ── GET: Meta webhook verification ───────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
