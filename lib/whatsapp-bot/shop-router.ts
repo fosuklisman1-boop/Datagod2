@@ -23,7 +23,7 @@ import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/sh
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 import { submitOtp } from "@/lib/paystack"
 import { claimShopCharge, releaseShopCharge } from "./shop-charge-claim"
-import { chargeWithTimeout } from "./charge-timeout"
+import { chargeGate } from "./charge-timeout"
 import {
   guardedReprice, isUssdHubtelPayer, samePrice, startUssdCharge, ussdOrderAmount, type UssdPrice,
 } from "@/lib/ussd/gateway-charge"
@@ -925,7 +925,8 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
 
         try {
           // Hubtel's unknown answers pay_offline (never throws); a fallback re-prices the order first or charges nothing.
-          const timed = await chargeWithTimeout((deps) => startUssdCharge({
+          const gate = chargeGate()
+          const timed = await gate.race(startUssdCharge({
             surface: 'whatsapp',
             verifiedPayer,
             price,
@@ -947,7 +948,7 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
             reprice: guardedReprice(supabase, 'ussd_shop_orders', orderId, {
               from: { amount: chargeAmount }, set: { amount: price.paystack }, guards: { payment_status: 'pending' },
             }),
-          }, deps))
+          }, gate.deps))
           if (timed.kind === 'timeout') {
             console.warn("[WA-SHOP-CONFIRM] charge timed out; outcome unknown, order left pending:", orderId)
             deleteAfter = true
@@ -1262,7 +1263,8 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const timed = await chargeWithTimeout((deps) => startUssdCharge({
+          const gate = chargeGate()
+          const timed = await gate.race(startUssdCharge({
             surface: 'whatsapp',
             verifiedPayer,
             price: momoPrice,
@@ -1285,7 +1287,7 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
               set: { total_paid: momoPrice.paystack, payment_fee_amount: feeBack },
               guards: { payment_status: 'pending_payment' },
             }),
-          }, deps))
+          }, gate.deps))
           if (timed.kind === 'timeout') {
             console.warn("[WA-SHOP-AIRTIME-CONFIRM] charge timed out; outcome unknown, order left pending:", orderId)
             deleteAfter = true
@@ -1490,7 +1492,8 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
 
         try {
           // No Paystack fee on vouchers: the same amount on either gateway, so a fallback re-prices nothing.
-          const timed = await chargeWithTimeout((deps) => startUssdCharge({
+          const gate = chargeGate()
+          const timed = await gate.race(startUssdCharge({
             surface: 'whatsapp',
             verifiedPayer: shopHubtelPayer(from, session),
             price: samePrice(pricing.totalPaid),
@@ -1508,7 +1511,7 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
                 shop_id: session.shopId,
               },
             },
-          }, deps))
+          }, gate.deps))
           if (timed.kind === 'timeout') {
             console.warn("[WA-SHOP-RC-CONFIRM] charge timed out; outcome unknown, order left pending:", orderId)
             deleteAfter = true
@@ -1845,7 +1848,8 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
 
         try {
           // No Paystack fee on a results check: the same amount on either gateway.
-          const timed = await chargeWithTimeout((deps) => startUssdCharge({
+          const gate = chargeGate()
+          const timed = await gate.race(startUssdCharge({
             surface: 'whatsapp',
             verifiedPayer: shopHubtelPayer(from, session),
             price: samePrice(pricing.totalPaid),
@@ -1863,7 +1867,7 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
                 shop_id: session.shopId,
               },
             },
-          }, deps))
+          }, gate.deps))
           if (timed.kind === 'timeout') {
             console.warn("[WA-SHOP-RCCHECK-CONFIRM] charge timed out; outcome unknown, request left pending:", orderId)
             deleteAfter = true

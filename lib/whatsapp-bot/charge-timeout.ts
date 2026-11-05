@@ -5,6 +5,8 @@
 // tells the customer it failed. The charge itself can't be cancelled, but its Paystack call is gated: once the time is
 // up, a Paystack charge that had not started yet (a fallback after a slow Hubtel answer) is refused, so a timeout
 // can never turn into a second prompt on another gateway.
+//
+// Usage: const gate = chargeGate(); const timed = await gate.race(startUssdCharge(input, gate.deps))
 import { chargeMobileMoney } from "@/lib/paystack"
 import { FallbackRefusedError, type StartDeps } from "@/lib/payment-gateway/start"
 
@@ -13,25 +15,35 @@ export const chargeTimeout = { ms: 40_000 }
 
 export type TimedCharge<T> = { kind: "done"; value: T } | { kind: "timeout" }
 
-export async function chargeWithTimeout<T>(run: (deps: Partial<StartDeps>) => Promise<T>): Promise<TimedCharge<T>> {
+export interface ChargeGate {
+  /** Pass to startUssdCharge / startMomoCharge: the gated Paystack charge. */
+  deps: Partial<StartDeps>
+  race<T>(work: Promise<T>): Promise<TimedCharge<T>>
+}
+
+export function chargeGate(): ChargeGate {
   let timedOut = false
   const gatedCharge: StartDeps["chargeMobileMoney"] = async (params) => {
     if (timedOut) throw new FallbackRefusedError()
     return chargeMobileMoney(params)
   }
-  const work = run({ chargeMobileMoney: gatedCharge })
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const limit = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), chargeTimeout.ms) })
-  try {
-    const first = await Promise.race([work.then((value) => ({ value })), limit])
-    if (first === "timeout") {
-      timedOut = true
-      // Whatever the late charge does now is settled by its webhook or the sweep; never an unhandled rejection.
-      work.catch((e) => console.error("[WA-SHOP-CHARGE] charge ended after the timeout:", e instanceof Error ? e.name : "unknown error"))
-      return { kind: "timeout" }
-    }
-    return { kind: "done", value: first.value }
-  } finally {
-    clearTimeout(timer)
+  return {
+    deps: { chargeMobileMoney: gatedCharge },
+    async race<T>(work: Promise<T>): Promise<TimedCharge<T>> {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const limit = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), chargeTimeout.ms) })
+      try {
+        const first = await Promise.race([work.then((value) => ({ value })), limit])
+        if (first === "timeout") {
+          timedOut = true
+          // Whatever the late charge does now is settled by its webhook or the sweep; never an unhandled rejection.
+          work.catch((e) => console.error("[WA-SHOP-CHARGE] charge ended after the timeout:", e instanceof Error ? e.name : "unknown error"))
+          return { kind: "timeout" }
+        }
+        return { kind: "done", value: first.value }
+      } finally {
+        clearTimeout(timer)
+      }
+    },
   }
 }
