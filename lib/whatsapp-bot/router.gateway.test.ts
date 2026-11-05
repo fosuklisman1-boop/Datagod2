@@ -317,3 +317,41 @@ describe("main WhatsApp bot, bundles, whatsapp surface on Hubtel", () => {
     expect(hubtelRows()).toHaveLength(1)
   })
 })
+
+// A results-check request (results_check_requests) waiting on Paystack's OTP: cancel and a refused code must close THAT
+// request, never touch ussd_orders (the data-bundle table the generic handler writes).
+describe("main WhatsApp bot, results-check OTP closes the request itself", () => {
+  const REQ = "rcq-1"
+  const atOtp = () => {
+    rows("results_check_requests").push({ id: REQ, payment_status: "otp_required", status: "pending" })
+    rows("ussd_orders").push({ id: REQ, order_status: "pending", payment_status: "pending" })
+    h.sessions.set(FROM, { step: "SUBMIT_OTP", dialingPhone: OWN, pendingOrderId: REQ, pendingOrderTable: "results_check_requests" })
+  }
+  const req = () => rows("results_check_requests").find((r) => r.id === REQ)!
+  const ussd = () => rows("ussd_orders").find((r) => r.id === REQ)!
+
+  it("0 cancels the request", async () => {
+    atOtp()
+    await waRouter(FROM, "0")
+    expect(req()).toMatchObject({ payment_status: "failed", status: "failed" })
+    expect(ussd()).toMatchObject({ order_status: "pending", payment_status: "pending" })
+  })
+
+  it("a refused code fails the request", async () => {
+    atOtp()
+    vi.mocked(submitOtp).mockResolvedValueOnce({ status: "failed" } as any)
+    await waRouter(FROM, "123456")
+    await runAfter()
+    expect(submitOtp).toHaveBeenCalledWith(REQ, "123456")
+    expect(req()).toMatchObject({ payment_status: "failed", status: "failed" })
+    expect(ussd()).toMatchObject({ order_status: "pending", payment_status: "pending" })
+  })
+})
+
+describe("main WhatsApp bot, results-check OTP step: a paid request is recognised", () => {
+  it("a non-OTP message after the request is paid says approved", async () => {
+    rows("results_check_requests").push({ id: "rcq-2", payment_status: "paid", status: "pending" })
+    h.sessions.set(FROM, { step: "SUBMIT_OTP", dialingPhone: OWN, pendingOrderId: "rcq-2", pendingOrderTable: "results_check_requests" })
+    expect(await waRouter(FROM, "done")).toMatch(/approved/)
+  })
+})

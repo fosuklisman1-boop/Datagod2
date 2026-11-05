@@ -407,7 +407,12 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         break
       }
 
-      if (session.pendingOrderTable === 'airtime_orders' || session.pendingOrderTable === 'results_checker_orders') {
+      // Same tables as the USSD router: each closes its own row (handleSubmitOtp writes ussd_orders only).
+      if (
+        session.pendingOrderTable === 'airtime_orders' ||
+        session.pendingOrderTable === 'results_checker_orders' ||
+        session.pendingOrderTable === 'results_check_requests'
+      ) {
         if (!session.pendingOrderId) {
           result = { message: 'Session error. Please start a new order.', ussdServiceOp: 17 }
         } else {
@@ -782,9 +787,11 @@ async function isOrderPaymentComplete(orderId: string, table?: string): Promise<
   try {
     const tbl = table === 'airtime_orders' ? 'airtime_orders'
       : table === 'results_checker_orders' ? 'results_checker_orders'
+      : table === 'results_check_requests' ? 'results_check_requests'
       : 'ussd_orders'
     const { data } = await supabase.from(tbl).select('payment_status').eq('id', orderId).maybeSingle()
-    return data?.payment_status === 'completed'
+    // results_check_requests says 'paid' (charge-events.ts); the order tables say 'completed'.
+    return data?.payment_status === (tbl === 'results_check_requests' ? 'paid' : 'completed')
   } catch {
     return false
   }
