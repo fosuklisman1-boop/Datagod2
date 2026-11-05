@@ -213,3 +213,39 @@ describe("extractLinkHosts — round-2 hardening", () => {
     it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
   }
 })
+describe("extractLinkHosts — links that used to slip through", () => {
+  const cases: Array<[string, string, string[]]> = [
+    ["uncommon TLD with a path", "Visit scam.fun/x", ["scam.fun"]],
+    ["uncommon TLD without a path", "Visit scam.ai", ["scam.ai"]],
+    ["pro TLD with a path", "Visit scam.pro/x", ["scam.pro"]],
+    ["unlisted TLD with a path", "Visit scam.unknownword/x", ["scam.unknownword"]],
+    ["Title-case word TLD with a path", "Visit scam.Top/win", ["scam.top"]],
+    ["bare IP with a path", "Visit 1.2.3.4/x", ["1.2.3.4"]],
+    ["bare IP alone", "Visit 1.2.3.4", ["1.2.3.4"]],
+    ["bare IP ending a sentence", "Visit 1.2.3.4.", ["1.2.3.4"]],
+    ["scheme IP is not reported twice", "http://1.2.3.4/x", ["1.2.3.4"]],
+  ]
+  for (const [name, input, expected] of cases) {
+    it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
+  }
+})
+describe("extractLinkHosts — ordinary seller copy is not a link", () => {
+  const cases: Array<[string, string]> = [
+    ["data per day", "1.5GB/day for GHS 10.50/week"],
+    ["size then a slash", "Get 1GB.Bundles/Data today"],
+    ["size then a word TLD (Title case)", "Get 5GB.Top up now"],
+    ["size then a word TLD (lowercase)", "Get 5gb.top up now"],
+    ["size then a word TLD (shop)", "Enjoy 10GB.Shop today"],
+    ["sentence then a Title-case word and slash", "Thanks.Call/text us"],
+    ["all-caps words with a slash", "MTN.DATA/VOICE"],
+    ["sentence joined to a new TLD word", "Great offer.Fun for all"],
+    ["version number", "App version 1.2.3"],
+    ["date", "Ends 12.10.2026"],
+    ["not a real IP", "Code 999.1.1.1"],
+    ["five number groups", "Ref 1.2.3.4.5"],
+    ["money", "GHS 10.50/GB"],
+  ]
+  for (const [name, input] of cases) {
+    it(name, () => expect(extractLinkHosts(input)).toEqual([]))
+  }
+})

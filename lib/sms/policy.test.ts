@@ -102,6 +102,21 @@ describe("evaluateSendPolicy — platform content", () => {
     expect(r.code).toBe("CONTENT_BLOCKED")
     expect(r.flags[0]).toMatchObject({ severity: "fraud", matched: "bit.ly" })
   })
+  it("links on uncommon endings and bare IPs → block without a flag", () => {
+    for (const message of ["See scam.fun/x", "See scam.ai", "See scam.pro/x", "See scam.Top/win", "See 1.2.3.4/x"]) {
+      expect(evaluateSendPolicy(input({ message }))).toMatchObject({ decision: "block", code: "LINK_NOT_ALLOWED", flags: [] })
+    }
+  })
+  it("data-size copy is neither refused nor flagged as a lookalike", () => {
+    for (const message of ["Get 5GB.Top up now", "Get 5gb.top up now", "Enjoy 10GB.Shop today", "Get 1GB.Bundles/Data today"]) {
+      expect(evaluateSendPolicy(input({ message }))).toMatchObject({ decision: "allow", flags: [] })
+    }
+  })
+  it("a real data-size lookalike link with a path is still caught", () => {
+    const r = evaluateSendPolicy(input({ message: "Claim at 5gb.top/win" }))
+    expect(r.code).toBe("CONTENT_BLOCKED")
+    expect(r.flags[0]).toMatchObject({ severity: "fraud", matched: "5gb.top" })
+  })
 })
 
 describe("evaluateSendPolicy — business content", () => {

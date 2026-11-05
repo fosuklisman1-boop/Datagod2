@@ -121,13 +121,23 @@ export function suspiciousHostReason(host: string): string | null {
 // ordinary text ("Mr.Smith", "10.50") is never mistaken for a link.
 const BARE_LINK_TLDS = new Set(
   ("com net org store shop app io co gh xyz info biz me link site online top click live ly to gl gd gy " +
-    "ru tk ml ga cf gq cc pw us uk ng cn in de club vip icu buzz sbs cfd win today dev page").split(" ")
+    "ru tk ml ga cf gq cc pw us uk ng cn in de club vip icu buzz sbs cfd win today dev page " +
+    "ai pro fun mobi tv tech website asia africa pics cyou lol zip mov gdn kim " +
+    "eu fr ca au nl za ke ug tz ir pk bd mx ws cx gg nu").split(" ")
 )
 // TLDs that are also ordinary English words ("now.Top up", "offer.Shop now"). A two-label
 // run ending in one of these in Title-case ("now.Top") is treated as prose, not a link.
 const WORD_TLDS = new Set(
-  "to top me shop store app link site online click live info win today page club buzz dev".split(" ")
+  ("to top me shop store app link site online click live info win today page club buzz dev " +
+    "pro fun tech website asia africa pics").split(" ")
 )
+// A data size ("5GB"). "Get 5GB.Top up now" is a sentence missing its space, and calling it a
+// link is costly: the digit makes it look like a lookalike domain, which is a fraud flag.
+const DATA_SIZE_LABEL_RE = /^\d+(?:mb|gb|tb)$/i
+// A bare IPv4 address. Scheme URLs are removed before this runs, and a fifth number group
+// ("1.2.3.4.5") means it is not an address.
+const IPV4_RE =
+  /(?<![\w.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\w]|\.\d)/g
 // Longest dotted run of labels; the TLD test happens afterwards so "datagod.store.evil.ru"
 // is kept whole rather than truncated at "datagod.store".
 const DOTTED_RUN_RE =
@@ -146,14 +156,26 @@ export function extractLinkHosts(rawMessage: string): string[] {
   const withoutSchemes = message.replace(SCHEME_HOST_RE, " ")
   for (const m of withoutSchemes.matchAll(DOTTED_RUN_RE)) {
     const run = m[1]
-    if (withoutSchemes[m.index! + run.length] === "@") continue // email local part
+    const next = withoutSchemes[m.index! + run.length]
+    if (next === "@") continue // email local part
+    const hasPath = next === "/"
     const rawLabels = run.split(".")
-    if (!rawLabels.slice(1).some((l) => BARE_LINK_TLDS.has(l.toLowerCase()))) continue
-    // "now.Top", "offer.Shop", "Thanks.To": sentence boundary, not a link.
     const last = rawLabels[rawLabels.length - 1]
-    if (rawLabels.length === 2 && /^[a-z]+$/.test(rawLabels[0]) && /^[A-Z][a-z]+$/.test(last) && WORD_TLDS.has(last.toLowerCase())) continue
+    if (!rawLabels.slice(1).some((l) => BARE_LINK_TLDS.has(l.toLowerCase()))) {
+      // An unlisted ending is only a link when a path follows it and it reads like a domain:
+      // "scam.unknownword/x" is, while "Thanks.Call/text", "MTN.DATA/VOICE", "1.5GB/day" and
+      // "1GB.Bundles/Data" are not.
+      if (!hasPath || !/^[a-z]{2,}$/.test(last) || !/^[a-z]/i.test(rawLabels[0])) continue
+    }
+    if (!hasPath && WORD_TLDS.has(last.toLowerCase())) {
+      // "now.Top", "offer.Shop", "Thanks.To": sentence boundary, not a link.
+      if (rawLabels.length === 2 && /^[a-z]+$/.test(rawLabels[0]) && /^[A-Z][a-z]+$/.test(last)) continue
+      // "5GB.Top", "5gb.top", "10GB.Shop": a data size, then the next sentence.
+      if (rawLabels.length === 2 && DATA_SIZE_LABEL_RE.test(rawLabels[0])) continue
+    }
     add(run)
   }
+  for (const m of withoutSchemes.matchAll(IPV4_RE)) add(m[0])
   return out
 }
 
