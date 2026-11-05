@@ -27,6 +27,7 @@ vi.mock("@/lib/paystack", async (orig) => ({
 }))
 vi.mock("../../sms-service", () => ({ sendSMS: vi.fn(async (p: any) => h.sms(p)), SMSTemplates: { ussdOtpRequired: () => "otp" } }))
 vi.mock("../../whatsapp-bot/send", () => ({ sendWhatsAppText: vi.fn() }))
+vi.mock("../../whatsapp-bot/session", () => ({ setWaSession: vi.fn(async () => {}) }))
 vi.mock("../../app-settings", () => ({ getJoinCommunityLink: vi.fn(async () => "") }))
 vi.mock("../../network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn(async () => ({ enabled: false, map: {} })) }))
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({ isRecipientBlocked: vi.fn(async () => false), RECIPIENT_BLOCKED_PROMPT: "" }))
@@ -39,6 +40,8 @@ vi.mock("@/lib/storefront-otp", async (orig) => ({
 import { handleConfirm, handlePaymentMethod } from "./bundles"
 import { chargeMobileMoney } from "@/lib/paystack"
 import { sendWhatsAppText } from "../../whatsapp-bot/send"
+import { setWaSession } from "../../whatsapp-bot/session"
+import { setSession } from "../session"
 import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "../gateway-test-kit"
 
 const DIAL = "+233244123456"
@@ -66,6 +69,8 @@ beforeEach(() => {
   h.verified.clear()
   vi.mocked(chargeMobileMoney).mockClear()
   vi.mocked(sendWhatsAppText).mockClear()
+  vi.mocked(setWaSession).mockClear()
+  vi.mocked(setSession).mockClear()
   kit.db.packages = [{ id: "p1", price: 10, dealer_price: 8, is_available: true }]
   kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
 })
@@ -105,6 +110,36 @@ describe("Uzo bundles on Paystack (unchanged)", () => {
     expect(sendWhatsAppText).not.toHaveBeenCalled()
     expect(h.sessions.get("S1")).toBeUndefined() // the Uzo path leaves the redial to find the order
     expect(h.sessions.get(DIAL)).toBeUndefined()
+    expect(setWaSession).not.toHaveBeenCalled()
+  })
+
+  it("Uzo wallet detour: the USSD session store is used, never the WhatsApp one, and send_otp stays on SMS", async () => {
+    h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference })
+    await handleConfirm("1", "S1", session({ userId: "u1", walletBalance: 50 }))
+    expect(setSession).toHaveBeenCalledWith("S1", expect.objectContaining({ step: "PAYMENT_METHOD" }))
+    await handlePaymentMethod("2", "S1", h.sessions.get("S1"))
+    await runAfter()
+    expect(order().payment_status).toBe("otp_required")
+    expect(setWaSession).not.toHaveBeenCalled()
+  })
+
+  // The USSD store's 120 s is a live dial's limit: a WhatsApp customer gets the bot's 30 minutes to reply with the code.
+  it("WhatsApp send_otp: SUBMIT_OTP is written by the WhatsApp store (30 min), not the USSD one (120 s)", async () => {
+    h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference })
+    await handleConfirm("1", "233244123456", session({ dialingPhone: "0551234567" }), "whatsapp")
+    await runAfter()
+    expect(setWaSession).toHaveBeenCalledTimes(1)
+    expect(setWaSession).toHaveBeenCalledWith("233244123456", { step: "SUBMIT_OTP", dialingPhone: "0551234567", pendingOrderId: order().id })
+    expect(vi.mocked(setSession).mock.calls.filter(([, s]) => s.step === "SUBMIT_OTP")).toHaveLength(0)
+  })
+
+  it("WhatsApp send_otp after the payment-method screen: the WhatsApp store too", async () => {
+    h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference })
+    await handleConfirm("1", "233244123456", session({ dialingPhone: "0551234567", userId: "u1", walletBalance: 50 }), "whatsapp")
+    await handlePaymentMethod("2", "233244123456", h.sessions.get("233244123456"), "whatsapp")
+    await runAfter()
+    expect(setWaSession).toHaveBeenCalledWith("233244123456", { step: "SUBMIT_OTP", dialingPhone: "0551234567", pendingOrderId: order().id })
+    expect(vi.mocked(setSession).mock.calls.filter(([, s]) => s.step === "SUBMIT_OTP")).toHaveLength(0)
   })
 })
 

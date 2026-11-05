@@ -7,6 +7,7 @@ import { Redis } from "@upstash/redis"
 // The TTL outlives the webhook's whole budget (maxDuration 60 s, the charge runs inside it), so a claim can't expire
 // under the request holding it, and a plain DEL on release can't free someone else's. A request killed mid-charge leaves
 // the claim to expire by itself.
+// Keep above maxDuration in app/api/whatsapp/webhook/route.ts; shop-charge-claim.test.ts fails otherwise.
 const CLAIM_TTL_SECONDS = 75
 
 const configured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)

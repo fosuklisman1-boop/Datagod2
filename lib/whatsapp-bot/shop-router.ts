@@ -324,7 +324,8 @@ function shopNaturalToDigit(
   return null
 }
 
-const SHOP_CHARGE_BUSY_REPLY = 'Your payment is still being processed. Please check your phone for the MoMo prompt.'
+// Also the reply when the earlier request has already ended, in any way, and its prompt may have gone to another number.
+const SHOP_CHARGE_BUSY_REPLY = "Please check for the payment prompt, or start again if you didn't get one."
 const SHOP_CHARGE_UNAVAILABLE_REPLY = 'Sorry, we could not start the payment right now. Please try again in a moment.'
 
 /**

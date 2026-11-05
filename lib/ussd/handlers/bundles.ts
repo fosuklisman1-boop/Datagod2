@@ -6,6 +6,7 @@ import { subAgentBundles, subAgentCost, type SubAgentOffer } from "@/lib/shop-co
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, waWalletShort } from "../menus"
 import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
+import { setWaSession } from "../../whatsapp-bot/session"
 import { resolveEmail } from "../resolve-email"
 import { liveWalletBalance } from "../wallet-balance"
 import { submitOtp } from "../../paystack"
@@ -446,7 +447,7 @@ export async function handleConfirm(
           // directly into SUBMIT_OTP and push a follow-up message, rather than
           // relying on the USSD-only redial-resume lookup in lib/ussd/router.ts.
           // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
-          await setSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
+          await setWaSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
           await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
         } else {
           console.log("[USSD-CONFIRM] OTP required — user must redial to complete:", orderId)
@@ -525,7 +526,7 @@ export async function handlePaymentMethod(
           await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
           if (channel === 'whatsapp') {
             // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
-            await setSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
+            await setWaSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
             await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
           } else {
             console.log("[USSD-PAYMENT_METHOD] OTP required — user must redial to complete:", orderId)

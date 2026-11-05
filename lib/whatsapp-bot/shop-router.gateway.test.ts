@@ -258,7 +258,8 @@ describe.each([
     { name: "RC_CONFIRM", start: () => vouchers(OWN), step: "RC_CONFIRM", table: "results_checker_orders" },
     { name: "RCCHECK_CONFIRM", start: () => check(OWN), step: "RCCHECK_CONFIRM", table: "results_check_requests" },
   ]
-  const BUSY = /still being processed/i
+  // True whatever became of the first request and wherever its prompt went; names no gateway.
+  const BUSY = /^Please check for the payment prompt, or start again if you didn't get one\.$/
   const slow = () => new Promise((r) => setTimeout(r, 15))
   const prompts = () => charged().length + kit.receive.mock.calls.length
 

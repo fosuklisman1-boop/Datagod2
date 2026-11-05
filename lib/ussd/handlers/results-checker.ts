@@ -9,6 +9,7 @@ import {
   rcCheckConfirmMenu, rcCheckPaymentMethodMenu, waWalletShort,
 } from "../menus"
 import { setSession } from "../session"
+import { setWaSession } from "../../whatsapp-bot/session"
 import { isValidDob } from "../../results-check-validation"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
@@ -320,7 +321,7 @@ async function createRcOrderAndChargeMomo(
         await supabase.from("results_checker_orders").update({ payment_status: "otp_required", updated_at: new Date().toISOString() }).eq("id", order.id)
         if (channel === "whatsapp") {
           // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
-          await setSession(sessionId, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: order.id, pendingOrderTable: "results_checker_orders" })
+          await setWaSession(sessionId, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: order.id, pendingOrderTable: "results_checker_orders" })
           await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
         } else {
           sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: order.id }).catch(() => {})
@@ -1078,7 +1079,7 @@ export async function handleRcCheckConfirmMomo(
         await supabase.from("results_check_requests")
           .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
           .eq("id", request.id)
-        await setSession(sessionId, { step: "SUBMIT_OTP", dialingPhone: waPhone, pendingOrderId: request.id, pendingOrderTable: "results_check_requests" })
+        await setWaSession(sessionId, { step: "SUBMIT_OTP", dialingPhone: waPhone, pendingOrderId: request.id, pendingOrderTable: "results_check_requests" })
         await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
       }
     } catch (err) {

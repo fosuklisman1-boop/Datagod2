@@ -1,5 +1,7 @@
 // The shop bot's per-sender charge claim: atomic in Redis, closed when Redis can't answer, in-process only when Redis
 // isn't configured at all (the shop sessions are in-process then too).
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const h = vi.hoisted(() => ({
@@ -61,13 +63,20 @@ describe("with Redis", () => {
     expect(await c.claimShopCharge("233551234567")).toBe("claimed")
   })
 
-  it("is SET NX with a TTL that outlives the webhook's 60 s budget", async () => {
+  it("is SET NX with a TTL that outlives the webhook route's maxDuration", async () => {
+    // Read from the route file's text: importing the route would load the whole webhook. Raising maxDuration past the
+    // TTL fails here, because a claim could then expire under the request still charging.
+    const route = readFileSync(resolve(process.cwd(), "app/api/whatsapp/webhook/route.ts"), "utf8")
+    const match = route.match(/^export const maxDuration = (\d+)$/m)
+    expect(match, "the webhook route must declare maxDuration").not.toBeNull()
+    const maxDuration = Number(match![1])
+
     const c = await load(true)
     await c.claimShopCharge(SENDER)
     const [key, , opts] = h.setCalls[0]
     expect(key).toContain(SENDER)
     expect(opts.nx).toBe(true)
-    expect(opts.ex).toBeGreaterThan(60)
+    expect(opts.ex).toBeGreaterThan(maxDuration)
     expect(opts.ex).toBeLessThanOrEqual(120)
   })
 
