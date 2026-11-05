@@ -370,10 +370,11 @@ describe("main WhatsApp bot, AFA: Paystack asks for an OTP", () => {
   })
   beforeEach(() => { h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference }) })
   const afa = () => rows("ussd_afa_orders")[0]
+  const payAfa = async () => { await waRouter(FROM, "1"); await waRouter(FROM, OWN) }
 
   it("the chat waits on SUBMIT_OTP for this order and the sender is asked for the code", async () => {
     atAfa()
-    await waRouter(FROM, "1")
+    await payAfa()
     await runAfter()
     expect(h.sessions.get(FROM)).toMatchObject({ step: "SUBMIT_OTP", pendingOrderId: afa().id, pendingOrderTable: "ussd_afa_orders" })
     expect(h.texts.at(-1)?.[0]).toBe(FROM)
@@ -383,7 +384,7 @@ describe("main WhatsApp bot, AFA: Paystack asks for an OTP", () => {
 
   it("the code is submitted for this order and the order stays payable", async () => {
     atAfa()
-    await waRouter(FROM, "1")
+    await payAfa()
     await runAfter()
     await waRouter(FROM, "123456")
     await runAfter()
@@ -394,7 +395,7 @@ describe("main WhatsApp bot, AFA: Paystack asks for an OTP", () => {
 
   it("0 cancels the AFA order itself", async () => {
     atAfa()
-    await waRouter(FROM, "1")
+    await payAfa()
     await runAfter()
     await waRouter(FROM, "0")
     expect(afa()).toMatchObject({ payment_status: "failed", order_status: "failed" })
@@ -403,9 +404,53 @@ describe("main WhatsApp bot, AFA: Paystack asks for an OTP", () => {
   it("pay_offline: unchanged, no OTP step", async () => {
     h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
     atAfa()
-    await waRouter(FROM, "1")
+    await payAfa()
     await runAfter()
     expect(h.sessions.get(FROM)?.step).not.toBe("SUBMIT_OTP")
+  })
+})
+
+// Standing rule: the bot always asks for the MoMo number and never charges the sender on its own.
+describe("main WhatsApp bot, AFA asks for the MoMo number", () => {
+  const atAfa = () => h.sessions.set(FROM, {
+    step: "AFA_CONFIRM_AFA", dialingPhone: OWN, afaFullName: "Ama Mensah", afaGhCard: "GHA-123456789-0",
+    afaLocation: "Kumasi", afaRegion: "Ashanti", afaPrice: 20,
+  })
+  const charged = () => vi.mocked(chargeMobileMoney).mock.calls
+
+  it("Pay now asks for the number and charges nothing yet", async () => {
+    atAfa()
+    expect((await waRouter(FROM, "1"))).toMatch(/Enter MoMo number/)
+    await runAfter()
+    expect(rows("ussd_afa_orders")).toHaveLength(0)
+    expect(charged()).toHaveLength(0)
+    expect(h.sessions.get(FROM)).toMatchObject({ step: "WA_ENTER_PAYMENT_PHONE", waNextStep: "CONFIRM_AFA" })
+  })
+
+  it("the typed number is charged, with its own network", async () => {
+    atAfa()
+    await waRouter(FROM, "1")
+    await waRouter(FROM, "0201234567")
+    await runAfter()
+    expect(rows("ussd_afa_orders")).toHaveLength(1)
+    expect(charged()).toHaveLength(1)
+    expect(charged()[0][0]).toMatchObject({ phone: "0201234567", provider: "vod" })
+  })
+
+  it("0 cancels with nothing written, like the other confirm flows", async () => {
+    atAfa()
+    await waRouter(FROM, "1")
+    expect(await waRouter(FROM, "0")).toMatch(/cancelled/i)
+    await runAfter()
+    expect(rows("ussd_afa_orders")).toHaveLength(0)
+    expect(charged()).toHaveLength(0)
+  })
+
+  it("the confirm menu doesn't name a number before one was given", async () => {
+    atAfa()
+    const reply = await waRouter(FROM, "9")
+    expect(reply).toMatch(/1\. Pay now/)
+    expect(reply).not.toContain(OWN)
   })
 })
 

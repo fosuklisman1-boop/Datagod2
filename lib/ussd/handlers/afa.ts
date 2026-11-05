@@ -89,7 +89,8 @@ export async function handleAfaEnterLocation(
 export async function handleAfaEnterRegion(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel: UssdChannel = 'ussd'
 ): Promise<UzoResponse> {
   if (input.trim() === '0') {
     await setSession(sessionId, { ...session, step: 'AFA_ENTER_LOCATION' })
@@ -112,7 +113,7 @@ export async function handleAfaEnterRegion(
     : session.dialingPhone ?? ''
 
   await setSession(sessionId, { ...session, step: 'AFA_CONFIRM_AFA', afaRegion: region, afaPrice: price })
-  return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, price, localPhone))
+  return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, price, channel === 'whatsapp' ? null : localPhone))
 }
 
 // ── AFA_CONFIRM_AFA ───────────────────────────────────────────────────────────
@@ -132,7 +133,7 @@ export async function handleAfaConfirm(
     const localPhone = session.dialingPhone?.startsWith('+233')
       ? '0' + session.dialingPhone.slice(4)
       : session.dialingPhone ?? ''
-    return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, session.afaPrice!, localPhone))
+    return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, session.afaPrice!, channel === 'whatsapp' ? null : localPhone))
   }
 
   const { afaFullName, afaGhCard, afaLocation, afaRegion, afaPrice, dialingPhone } = session
@@ -187,7 +188,8 @@ export async function handleAfaConfirm(
         params: {
           email,
           phone: dialingPhone!,
-          provider: 'mtn',
+          // WhatsApp sets this from the typed number. USSD stays on MTN as before.
+          provider: (channel === 'whatsapp' ? session.paystackProvider ?? 'mtn' : 'mtn') as 'mtn' | 'vod' | 'tgo',
           reference: orderId,
           metadata: {
             source: 'ussd_afa',

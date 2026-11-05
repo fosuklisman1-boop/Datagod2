@@ -440,10 +440,16 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       result = await handleAfaEnterLocation(input, sessionId, session)
       break
     case 'AFA_ENTER_REGION':
-      result = await handleAfaEnterRegion(input, sessionId, session)
+      result = await handleAfaEnterRegion(input, sessionId, session, 'whatsapp')
       break
     case 'AFA_CONFIRM_AFA':
-      result = await handleAfaConfirm(input, sessionId, session, 'whatsapp')
+      if (input === '1') {
+        // Always ask for MoMo number — don't auto-use the WhatsApp number
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AFA' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+      } else {
+        result = await handleAfaConfirm(input, sessionId, session, 'whatsapp')
+      }
       break
 
     case 'AIRTIME_ENTER_RECIPIENT':
@@ -704,6 +710,7 @@ async function enterPaymentPhone(
     : session.waNextStep === 'CONFIRM_RC' ? 'RC_CONFIRM'
     : session.waNextStep === 'CONFIRM_BUNDLE' ? 'CONFIRM'
     : session.waNextStep === 'CONFIRM_CHECK' ? 'RC_CHECK_CONFIRM'
+    : session.waNextStep === 'CONFIRM_AFA' ? 'AFA_CONFIRM_AFA'
     : session.pendingOrderTable === 'airtime_orders' ? 'AIRTIME_PAYMENT_METHOD'
     : session.pendingOrderTable === 'results_checker_orders' ? 'RC_PAYMENT_METHOD'
     : 'PAYMENT_METHOD'
@@ -711,7 +718,7 @@ async function enterPaymentPhone(
   if (input.trim() === '0') {
     if (
       parentStep === 'CONFIRM' || parentStep === 'AIRTIME_CONFIRM' ||
-      parentStep === 'RC_CONFIRM' || parentStep === 'RC_CHECK_CONFIRM'
+      parentStep === 'RC_CONFIRM' || parentStep === 'RC_CHECK_CONFIRM' || parentStep === 'AFA_CONFIRM_AFA'
     ) {
       // Return to the confirm step by resetting step (user can re-review the order)
       await setWaSession(sessionId, { ...session, step: parentStep as USSDSession['step'], waNextStep: undefined })
@@ -794,6 +801,11 @@ async function enterPaymentPhone(
   }
   if (session.waNextStep === 'CONFIRM_CHECK') {
     const res = await handleRcCheckConfirmMomo(sessionId, updatedSession)
+    return { ...res, message: fixWaMomoMsg(res.message) }
+  }
+
+  if (session.waNextStep === 'CONFIRM_AFA') {
+    const res = await handleAfaConfirm('1', sessionId, updatedSession, 'whatsapp')
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
 
