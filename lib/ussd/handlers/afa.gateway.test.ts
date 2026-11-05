@@ -2,7 +2,7 @@
 // Hubtel 50.00. The prompt always goes to the dialler on the MTN provider (as today).
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ afterFns: [] as Array<() => Promise<void>>, charge: null as any }))
+const h = vi.hoisted(() => ({ afterFns: [] as Array<() => Promise<void>>, charge: null as any, verified: new Set<string>() }))
 
 vi.mock("@supabase/supabase-js", async () => (await import("@/lib/ussd/gateway-test-kit")).supabaseMock())
 vi.mock("@/lib/payment-gateway/read-config", async () => (await import("@/lib/ussd/gateway-test-kit")).readConfigMock())
@@ -14,6 +14,10 @@ vi.mock("../session", () => ({ setSession: vi.fn(async () => {}) }))
 vi.mock("../resolve-email", () => ({ resolveEmail: vi.fn(async () => "payer@example.com") }))
 vi.mock("@/lib/paystack", async (orig) => ({ ...(await orig<object>()), chargeMobileMoney: vi.fn(async (p: any) => h.charge(p)) }))
 vi.mock("../../ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({})) }))
+vi.mock("@/lib/storefront-otp", async (orig) => ({
+  ...(await orig<object>()),
+  isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
+}))
 
 import { handleAfaConfirm } from "./afa"
 import { chargeMobileMoney } from "@/lib/paystack"
@@ -34,6 +38,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   resetKit()
   h.afterFns = []
+  h.verified.clear()
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   vi.mocked(chargeMobileMoney).mockClear()
   kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
@@ -111,6 +116,16 @@ describe("Uzo AFA", () => {
       await handleAfaConfirm("1", "233244123456", session({ dialingPhone: "0244123456" }), "whatsapp")
       await runAfter()
       expect(hubtelRows()[0].surface).toBe("whatsapp")
+    })
+
+    it("WhatsApp: another number, even an OTP-verified one, goes to Paystack at price + fee", async () => {
+      kit.config = gatewayConfig(["whatsapp"])
+      h.verified.add("0244123456")
+      await handleAfaConfirm("1", "233551234567", session({ dialingPhone: "0244123456" }), "whatsapp")
+      expect(order().amount).toBeCloseTo(51.5, 2)
+      await runAfter()
+      expect(kit.receive).not.toHaveBeenCalled()
+      expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBeCloseTo(51.5, 2)
     })
   })
 })

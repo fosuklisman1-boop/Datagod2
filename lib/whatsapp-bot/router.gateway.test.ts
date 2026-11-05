@@ -1,0 +1,236 @@
+// The main WhatsApp bot (waRouter) charging through the shared USSD handlers, with the REAL startMomoCharge on the
+// `whatsapp` surface. Only the network edges are fakes (lib/ussd/gateway-test-kit.ts): nothing reaches a database,
+// the relay, Paystack, Hubtel or WhatsApp. Bundle price 10, Paystack fee 3%: Paystack 10.30, Hubtel 10.00.
+//
+// WhatsApp payer rule: Hubtel only when the typed MoMo number is the sender's own (an SMS OTP verification doesn't
+// count: it isn't bound to the sender); otherwise that payment is Paystack's, at the full fee, as today. The bot always asks for the number (never charges the sender).
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const h = vi.hoisted(() => ({
+  afterFns: [] as Array<() => Promise<void>>,
+  sessions: new Map<string, any>(),
+  history: [] as Array<[string, any]>,
+  charge: null as any,
+  verified: new Set<string>(),
+  texts: [] as Array<[string, string]>,
+}))
+
+vi.mock("@supabase/supabase-js", async () => (await import("@/lib/ussd/gateway-test-kit")).supabaseMock())
+vi.mock("@/lib/payment-gateway/read-config", async () => (await import("@/lib/ussd/gateway-test-kit")).readConfigMock())
+vi.mock("@/lib/payment-gateway/hubtel-readiness", async () => (await import("@/lib/ussd/gateway-test-kit")).readinessMock())
+vi.mock("@/lib/hubtel-pay/client", async (orig) => (await import("@/lib/ussd/gateway-test-kit")).relayMock(await orig()))
+vi.mock("@/lib/hubtel-pay/alert-throttle", async () => (await import("@/lib/ussd/gateway-test-kit")).alertMock())
+vi.mock("next/server", () => ({ after: (fn: () => Promise<void>) => { h.afterFns.push(fn) } }))
+// The WhatsApp session and the USSD session share one key space in production (ussd:session:<id>).
+vi.mock("./session", () => ({
+  getWaSession: async (id: string) => h.sessions.get(id) ?? null,
+  setWaSession: async (id: string, s: any) => { h.sessions.set(id, JSON.parse(JSON.stringify(s))); h.history.push([id, s]) },
+  deleteWaSession: async (id: string) => { h.sessions.delete(id) },
+  extendWaSession: async () => {},
+}))
+vi.mock("@/lib/ussd/session", () => ({
+  getSession: async (id: string) => h.sessions.get(id) ?? null,
+  setSession: async (id: string, s: any) => { h.sessions.set(id, JSON.parse(JSON.stringify(s))); h.history.push([id, s]) },
+  deleteSession: async (id: string) => { h.sessions.delete(id) },
+}))
+vi.mock("@/lib/ussd/resolve-email", () => ({ resolveEmail: vi.fn(async () => "payer@example.com") }))
+vi.mock("@/lib/ussd/wallet-balance", () => ({ liveWalletBalance: vi.fn(async () => undefined) }))
+vi.mock("@/lib/ussd/fulfill", () => ({ fulfillUssdOrder: vi.fn() }))
+vi.mock("@/lib/paystack", async (orig) => ({
+  ...(await orig<object>()),
+  chargeMobileMoney: vi.fn(async (p: any) => h.charge(p)),
+  submitOtp: vi.fn(),
+}))
+vi.mock("@/lib/sms-service", () => ({ sendSMS: vi.fn(async () => {}), SMSTemplates: { ussdOtpRequired: () => "otp" } }))
+vi.mock("./send", () => ({ sendWhatsAppText: vi.fn(async (to: string, body: string) => { h.texts.push([to, body]); return null }) }))
+vi.mock("@/lib/app-settings", () => ({ getJoinCommunityLink: vi.fn(async () => "") }))
+vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn(async () => ({ enabled: false, map: {} })) }))
+vi.mock("@/lib/mtn-providers/customer-verification", () => ({ isRecipientBlocked: vi.fn(async () => false), RECIPIENT_BLOCKED_PROMPT: "" }))
+vi.mock("@/lib/ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({})) }))
+vi.mock("./cashback-visibility", () => ({ whatsappBotItemsVisible: vi.fn(async () => ({})) }))
+vi.mock("@/lib/storefront-otp", async (orig) => ({
+  ...(await orig<object>()),
+  isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
+}))
+
+import { waRouter } from "./router"
+import { chargeMobileMoney } from "@/lib/paystack"
+import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "@/lib/ussd/gateway-test-kit"
+
+const FROM = "233244123456"
+const OWN = "0244123456"
+const OTHER = "0551234567"
+const paystackPrice = 10.3
+
+const atConfirm = (over: Record<string, unknown> = {}) => h.sessions.set(FROM, {
+  step: "CONFIRM", network: "MTN", paystackProvider: "mtn", bundleId: "p1", bundleSize: "1GB", bundlePrice: 10,
+  recipientPhone: "0201234567", dialingPhone: OWN, effectivePriceTier: "regular", ...over,
+})
+
+/** The customer picks MoMo on the confirm screen, then types the number to charge. Returns every reply. */
+async function payByMomo(typed: string): Promise<string[]> {
+  return [await waRouter(FROM, "2"), await waRouter(FROM, typed)]
+}
+
+async function runAfter() {
+  const done = Promise.all(h.afterFns.splice(0).map((f) => f()))
+  await vi.advanceTimersByTimeAsync(5000)
+  await done
+}
+const order = () => rows("ussd_orders")[0]
+
+/** No customer-facing text names a gateway. */
+function expectNeutral(replies: string[]) {
+  for (const m of [...replies, ...h.texts.map(([, b]) => b)]) expect(m).not.toMatch(/hubtel|paystack/i)
+}
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  resetKit()
+  h.afterFns = []
+  h.sessions.clear()
+  h.history = []
+  h.verified.clear()
+  h.texts = []
+  h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
+  vi.mocked(chargeMobileMoney).mockClear()
+  kit.db.packages = [{ id: "p1", price: 10, dealer_price: 8, is_available: true }]
+  kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
+})
+
+describe("main WhatsApp bot, bundles, every surface on Paystack (unchanged)", () => {
+  it("the typed number is charged price + fee with today's params; no Hubtel row", async () => {
+    atConfirm()
+    const replies = await payByMomo(OTHER)
+    expect(replies[1]).toContain(`MoMo prompt sent to ${OTHER}`)
+    expect(order().amount).toBeCloseTo(paystackPrice, 2)
+    await runAfter()
+    expect(chargeMobileMoney).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toEqual({
+      email: "payer@example.com", amount: order().amount, phone: OTHER, provider: "mtn", reference: order().id,
+      metadata: { source: "ussd", ussd_order_id: order().id, recipient_phone: "0201234567", network: "MTN", package_size: "1GB" },
+    })
+    expect(hubtelRows()).toHaveLength(0)
+    expect(kit.receive).not.toHaveBeenCalled()
+    expectNeutral(replies)
+  })
+
+  it("the sender's own number on Paystack: price + fee, as today", async () => {
+    atConfirm()
+    await payByMomo(OWN)
+    await runAfter()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: OWN, amount: order().amount })
+    expect(order().amount).toBeCloseTo(paystackPrice, 2)
+  })
+
+  it("an OTP-verified number on a Paystack surface reads no verification and pays price + fee", async () => {
+    h.verified.add(OTHER)
+    atConfirm()
+    await payByMomo(OTHER)
+    await runAfter()
+    expect(order().amount).toBeCloseTo(paystackPrice, 2)
+    expect(kit.receive).not.toHaveBeenCalled()
+  })
+
+  it("a Paystack error still fails the order", async () => {
+    h.charge = async () => { throw new Error("Paystack charge failed (HTTP 400)") }
+    atConfirm()
+    await payByMomo(OTHER)
+    await runAfter()
+    expect(order()).toMatchObject({ order_status: "failed", payment_status: "failed" })
+  })
+})
+
+describe("main WhatsApp bot, bundles, whatsapp surface on Hubtel", () => {
+  beforeEach(() => { kit.config = gatewayConfig(["whatsapp"]) })
+
+  it("the sender's own number: Hubtel at the price without the fee, one prompt", async () => {
+    atConfirm()
+    const replies = await payByMomo(OWN)
+    expect(order().amount).toBe(10)
+    await runAfter()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(kit.receive).toHaveBeenCalledTimes(1)
+    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: "233244123456", channel: "mtn-gh", amount: 10, description: "Payment" })
+    expect(hubtelRows()[0]).toMatchObject({ internal_reference: order().id, surface: "whatsapp", status: "pending" })
+    expect(order()).toMatchObject({ payment_status: "pending", order_status: "pending" })
+    expectNeutral(replies)
+  })
+
+  it("another number that passed an OTP verification: still Paystack at the full fee (verification isn't the sender's)", async () => {
+    h.verified.add(OTHER)
+    atConfirm()
+    const replies = await payByMomo(OTHER)
+    expect(order().amount).toBeCloseTo(paystackPrice, 2)
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: OTHER, amount: order().amount })
+    expectNeutral(replies)
+  })
+
+  it("an unverified other number: Paystack at the full fee, nothing sent to Hubtel", async () => {
+    atConfirm()
+    const replies = await payByMomo(OTHER)
+    expect(order().amount).toBeCloseTo(paystackPrice, 2)
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(hubtelRows()).toHaveLength(0)
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: OTHER, amount: order().amount })
+    expectNeutral(replies)
+  })
+
+  it("refused: Paystack at price + fee, the order moved to that price before the charge", async () => {
+    kit.receive.mockImplementation(async () => ({ kind: "refused", code: "4000", message: "no" }))
+    let amountAtCharge: number | undefined
+    h.charge = async (p: any) => { amountAtCharge = Number(order().amount); return { status: "pay_offline", reference: p.reference } }
+    atConfirm()
+    const replies = await payByMomo(OWN)
+    await runAfter()
+    expect(chargeMobileMoney).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBeCloseTo(paystackPrice, 2)
+    expect(amountAtCharge).toBeCloseTo(paystackPrice, 2)
+    expect(hubtelRows()[0].status).toBe("failed")
+    expect(order().payment_status).toBe("pending")
+    expectNeutral(replies)
+  })
+
+  it("refused, then Paystack asks for an OTP: the follow-up asks for the code without naming a gateway", async () => {
+    kit.receive.mockImplementation(async () => ({ kind: "refused", code: "4000", message: "no" }))
+    h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference })
+    atConfirm()
+    const replies = await payByMomo(OWN)
+    await runAfter()
+    expect(order().payment_status).toBe("otp_required")
+    expect(h.history.some(([, s]) => s.step === "SUBMIT_OTP" && s.pendingOrderId === order().id)).toBe(true)
+    expect(h.texts.some(([, b]) => /one-time code/.test(b))).toBe(true)
+    expectNeutral(replies)
+  })
+
+  it("unknown: the order is not failed and no second prompt goes out", async () => {
+    kit.receive.mockImplementation(async () => ({ kind: "unknown", code: "timeout", message: "slow" }))
+    atConfirm()
+    await payByMomo(OWN)
+    await runAfter()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(kit.receive).toHaveBeenCalledTimes(1)
+    expect(order()).toMatchObject({ payment_status: "pending", order_status: "pending" })
+    expect(hubtelRows()[0].status).toBe("pending")
+  })
+
+  it("the same order charged twice (wallet detour, MoMo again) sends one prompt", async () => {
+    atConfirm({ userId: "u1", walletBalance: 50 })
+    await payByMomo(OWN)
+    await runAfter()
+    const pm = h.history.map(([, s]) => s).find((s) => s.step === "PAYMENT_METHOD")
+    expect(pm).toMatchObject({ pendingOrderId: order().id, pendingOrderAmount: { orderId: order().id, amount: 10 } })
+    // The chat comes back to the payment-method screen for the same order and picks MoMo again.
+    h.sessions.set(FROM, JSON.parse(JSON.stringify(pm)))
+    await waRouter(FROM, "2")
+    await waRouter(FROM, OWN)
+    await runAfter()
+    expect(rows("ussd_orders")).toHaveLength(1)
+    expect(kit.receive).toHaveBeenCalledTimes(1)
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(hubtelRows()).toHaveLength(1)
+  })
+})

@@ -8,6 +8,12 @@ const h = vi.hoisted(() => ({
   charge: null as any,
   quote: null as any,
   dialer: {} as any,
+  verified: new Set<string>(),
+}))
+vi.mock("@/lib/whatsapp-bot/cashback-visibility", () => ({ whatsappBotItemsVisible: vi.fn(async () => ({ cashbackAirtime: true })) }))
+vi.mock("@/lib/storefront-otp", async (orig) => ({
+  ...(await orig<object>()),
+  isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
 }))
 
 vi.mock("@supabase/supabase-js", async () => (await import("@/lib/ussd/gateway-test-kit")).supabaseMock())
@@ -62,6 +68,7 @@ beforeEach(() => {
   h.sessions.clear()
   h.quote = null
   h.dialer = {}
+  h.verified.clear()
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   vi.mocked(chargeMobileMoney).mockClear()
 })
@@ -166,5 +173,48 @@ describe("Uzo airtime on Hubtel", () => {
     await runAfter()
     expect(hubtelRows()[0].surface).toBe("whatsapp")
     expect(chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("WhatsApp cashback: another number, even an OTP-verified one, stays on Paystack at payAmount", async () => {
+    kit.config = gatewayConfig(["whatsapp"])
+    h.quote = QUOTE
+    h.verified.add(DIALER)
+    await handleAirtimeConfirm("1", "233201239999", cashback(), "whatsapp")
+    expect(order()).toMatchObject({ total_paid: 9.69, payment_fee_amount: 0.19 })
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: DIALER, amount: 9.69 })
+  })
+
+  it("WhatsApp cashback: the sender's own number goes to Hubtel without the fee", async () => {
+    kit.config = gatewayConfig(["whatsapp"])
+    h.quote = QUOTE
+    await handleAirtimeConfirm("1", "233241112222", cashback(), "whatsapp")
+    expect(order()).toMatchObject({ total_paid: 9.5, payment_fee_amount: 0 })
+    await runAfter()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: "233241112222", amount: 9.5 })
+  })
+
+  it("WhatsApp cashback: an unverified other number stays on Paystack at payAmount", async () => {
+    kit.config = gatewayConfig(["whatsapp"])
+    h.quote = QUOTE
+    await handleAirtimeConfirm("1", "233201239999", cashback(), "whatsapp")
+    expect(order()).toMatchObject({ total_paid: 9.69, payment_fee_amount: 0.19 })
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBe(9.69)
+  })
+
+  it("WhatsApp PAYMENT_METHOD: an OTP-verified other number goes to Paystack at payAmount", async () => {
+    kit.config = gatewayConfig(["whatsapp"])
+    h.quote = QUOTE
+    h.verified.add(DIALER)
+    h.dialer = { userId: "u1", balance: 50 }
+    await handleAirtimeConfirm("1", "233201239999", cashback(), "whatsapp")
+    await handleAirtimePaymentMethod("2", "233201239999", h.sessions.get("233201239999"), "whatsapp")
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBe(9.69)
   })
 })

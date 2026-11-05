@@ -2,7 +2,11 @@
 // adds a Paystack fee, so both gateways charge the same amount and a fallback re-prices nothing.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ afterFns: [] as Array<() => Promise<void>>, charge: null as any }))
+const h = vi.hoisted(() => ({ afterFns: [] as Array<() => Promise<void>>, charge: null as any, verified: new Set<string>() }))
+vi.mock("@/lib/storefront-otp", async (orig) => ({
+  ...(await orig<object>()),
+  isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
+}))
 
 vi.mock("@supabase/supabase-js", async () => (await import("@/lib/ussd/gateway-test-kit")).supabaseMock())
 vi.mock("@/lib/payment-gateway/read-config", async () => (await import("@/lib/ussd/gateway-test-kit")).readConfigMock())
@@ -45,6 +49,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   resetKit()
   h.afterFns = []
+  h.verified.clear()
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   vi.mocked(chargeMobileMoney).mockClear()
   kit.db.results_check_requests = [{ id: "req-1", payment_status: "pending_payment", status: "pending" }]
@@ -134,5 +139,30 @@ describe("WhatsApp results check", () => {
     await runAfter()
     expect(kit.receive).not.toHaveBeenCalled()
     expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: "0551234567", amount: 2 })
+  })
+
+  it("another typed number, even an OTP-verified one, stays on Paystack", async () => {
+    h.verified.add("0551234567")
+    await handleRcCheckConfirmMomo("233244123456", checkSession({ dialingPhone: "0551234567" }))
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: "0551234567", amount: 2 })
+  })
+})
+
+describe("WhatsApp vouchers (shared handler)", () => {
+  beforeEach(() => { kit.config = gatewayConfig(["whatsapp"]) })
+
+  it("the sender's own number goes to Hubtel; another number, even OTP-verified, to Paystack", async () => {
+    await handleRcConfirm("1", "233244123456", rcSession({ dialingPhone: "0244123456" }), "whatsapp")
+    await runAfter()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: "233244123456", amount: 40 })
+
+    h.verified.add("0551234567")
+    await handleRcConfirm("1", "233244123456", rcSession({ dialingPhone: "0551234567" }), "whatsapp")
+    await runAfter()
+    expect(kit.receive).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: "0551234567", amount: 40 })
   })
 })

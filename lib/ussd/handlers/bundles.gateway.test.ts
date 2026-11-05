@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   sessions: new Map<string, any>(),
   charge: null as any,
   sms: null as any,
+  verified: new Set<string>(),
 }))
 
 vi.mock("@supabase/supabase-js", async () => (await import("@/lib/ussd/gateway-test-kit")).supabaseMock())
@@ -30,6 +31,10 @@ vi.mock("../../app-settings", () => ({ getJoinCommunityLink: vi.fn(async () => "
 vi.mock("../../network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn(async () => ({ enabled: false, map: {} })) }))
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({ isRecipientBlocked: vi.fn(async () => false), RECIPIENT_BLOCKED_PROMPT: "" }))
 vi.mock("../../ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({})) }))
+vi.mock("@/lib/storefront-otp", async (orig) => ({
+  ...(await orig<object>()),
+  isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
+}))
 
 import { handleConfirm, handlePaymentMethod } from "./bundles"
 import { chargeMobileMoney } from "@/lib/paystack"
@@ -57,6 +62,7 @@ beforeEach(() => {
   h.sessions.clear()
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   h.sms = async () => {}
+  h.verified.clear()
   vi.mocked(chargeMobileMoney).mockClear()
   kit.db.packages = [{ id: "p1", price: 10, dealer_price: 8, is_available: true }]
   kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
@@ -226,5 +232,24 @@ describe("WhatsApp (shared handler): surface whatsapp, the owner is the sender",
     await runAfter()
     expect(kit.receive).not.toHaveBeenCalled()
     expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: "0551234567", amount: order().amount })
+  })
+
+  it("another number, even an OTP-verified one, goes to Paystack at price + fee", async () => {
+    h.verified.add("0551234567")
+    await handleConfirm("1", "233244123456", session({ dialingPhone: "0551234567" }), "whatsapp")
+    expect(order().amount).toBeCloseTo(paystackPrice, 2)
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: "0551234567", amount: order().amount })
+  })
+
+  it("PAYMENT_METHOD: an OTP-verified other number goes to Paystack at price + fee", async () => {
+    h.verified.add("0551234567")
+    await handleConfirm("1", "233244123456", session({ dialingPhone: "0551234567", userId: "u1", walletBalance: 50 }), "whatsapp")
+    expect(order().amount).toBeCloseTo(paystackPrice, 2)
+    await handlePaymentMethod("2", "233244123456", h.sessions.get("233244123456"), "whatsapp")
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBeCloseTo(paystackPrice, 2)
   })
 })
