@@ -18,6 +18,13 @@ const h = vi.hoisted(() => {
     walletUpdateError: null as null | { message: string },
     capped: [] as string[],
     nextId: 1,
+    /** Fail the Nth read of hubtel_payments from now on (one transient error). */
+    hubtelReadFailAt: null as number | null,
+    hubtelReads: 0,
+    /** Fail reads of wallet_payments (the route's replay lookup). */
+    walletReadError: null as null | { message: string },
+    /** Hubtel reads as ready once more, then goes not-ready (between the route's resolve and the wrapper's start). */
+    readyFlips: false,
   }
   const OPEN = ["pending", "confirming"]
   const query = (table: string) => {
@@ -35,6 +42,10 @@ const h = vi.hoisted(() => {
         const hit = matching()
         hit.forEach((r) => Object.assign(r, patch))
         return { data: hit, error: null }
+      }
+      if (table === "wallet_payments" && state.walletReadError) return { data: null, error: state.walletReadError }
+      if (table === "hubtel_payments" && state.hubtelReadFailAt !== null && ++state.hubtelReads === state.hubtelReadFailAt) {
+        return { data: null, error: { code: "08006", message: "connection lost" } }
       }
       return { data: matching(), error: null }
     }
@@ -99,8 +110,17 @@ vi.mock("@/lib/hubtel-pay/client", async (importOriginal) => ({
   hubtelReturnUrl: (r: string) => `https://www.example.com/rt?ref=${r}`,
 }))
 vi.mock("@/lib/hubtel-pay/alert-throttle", () => ({ sendThrottledAlert: vi.fn(async () => {}) }))
-vi.mock("@/lib/payment-gateway/read-config", () => ({ getGatewayConfig: async () => h.state.config }))
-vi.mock("@/lib/payment-gateway/hubtel-readiness", () => ({ isHubtelCollectionReady: () => h.state.ready }))
+vi.mock("@/lib/payment-gateway/read-config", () => ({
+  getGatewayConfig: async () => h.state.config,
+  getSurfaceConfig: async (s: string) => h.state.config.surfaces[s],
+}))
+vi.mock("@/lib/payment-gateway/hubtel-readiness", () => ({
+  isHubtelCollectionReady: () => {
+    const ready = h.state.ready
+    if (h.state.readyFlips) h.state.ready = false
+    return ready
+  },
+}))
 vi.mock("@/lib/shop-handle", () => ({ shopHandleOrFilter: () => "x" }))
 vi.mock("@/lib/rate-limiter", () => ({
   applyRateLimit: vi.fn(async (_r: unknown, name: string) => ({ allowed: !h.state.capped.includes(name), resetAt: Date.now() })),
@@ -170,6 +190,10 @@ beforeEach(() => {
   h.state.gates = { storefrontOtp: false, storefrontDirect: false, walletOtp: false, walletDirect: false, dashboardDirect: false }
   h.state.walletUpdateError = null
   h.state.capped = []
+  h.state.hubtelReadFailAt = null
+  h.state.hubtelReads = 0
+  h.state.walletReadError = null
+  h.state.readyFlips = false
   vi.mocked(applyRateLimit).mockClear()
   chargeMobileMoney.mockClear()
   initializePayment.mockClear()
@@ -321,6 +345,221 @@ describe("the per-phone cap on Hubtel direct", () => {
     h.state.db.users[0] = { id: "user1", role: "user", phone_number: "0241234567", phone_verified: true }
     expect((await momoTopup("0241234567")).status).toBe(403)
     expect(walletRows()).toHaveLength(0)
+  })
+})
+
+describe("one failed read on a replayed reference: refused, never a second prompt", () => {
+  const LIVE_READ = 1 // the route's own look at the live attempt
+  const SIBLING_READ = 2
+  const OPEN_READ = 3
+
+  describe("direct", () => {
+    beforeEach(async () => {
+      h.state.config = config({ storefront: { mode: "direct" } })
+      h.state.gates.storefrontDirect = true
+      await shopOrder({ momoDirect: true, paymentPhone: "0241234567" })
+      expect(receiveMoney).toHaveBeenCalledTimes(1)
+    })
+    const retry = () => shopOrder({ momoDirect: true, paymentPhone: "0241234567" })
+    const expectRefused = async (res: Response) => {
+      expect(res.status).toBe(503)
+      expect((await res.json()).error).toMatch(/try again/i)
+      expect(chargeMobileMoney).not.toHaveBeenCalled()
+      expect(receiveMoney).toHaveBeenCalledTimes(1)
+      expect(walletRows()).toHaveLength(1)
+      expect(walletRows()[0]).toMatchObject({ payment_method: "hubtel", fee: 0, amount: 20 })
+      expect(hubtelRows()[0].status).toBe("pending")
+    }
+
+    it("the sibling read fails", async () => {
+      h.state.hubtelReadFailAt = SIBLING_READ
+      await expectRefused(await retry())
+    })
+
+    it("the sibling read fails while Hubtel goes not-ready between resolve and start", async () => {
+      h.state.hubtelReadFailAt = SIBLING_READ
+      h.state.readyFlips = true
+      await expectRefused(await retry())
+    })
+
+    it("the open-attempt read fails while Hubtel goes not-ready between resolve and start", async () => {
+      h.state.hubtelReadFailAt = OPEN_READ
+      h.state.readyFlips = true
+      await expectRefused(await retry())
+    })
+
+    it("the route's own look at the live attempt fails", async () => {
+      h.state.hubtelReadFailAt = LIVE_READ
+      await expectRefused(await retry())
+    })
+
+    it("the surface goes back to Paystack between resolve and start", async () => {
+      const hubtel = h.state.config
+      const paystack = config()
+      let reads = 0
+      vi.spyOn(h.state, "config", "get").mockImplementation(() => (++reads === 1 ? hubtel : paystack))
+      try {
+        await expectRefused(await retry())
+      } finally {
+        vi.restoreAllMocks()
+      }
+    })
+  })
+
+  describe("hosted", () => {
+    beforeEach(async () => {
+      h.state.config = config({ storefront: { mode: "checkout" } })
+      await shopOrder()
+      expect(initiateCheckout).toHaveBeenCalledTimes(1)
+    })
+    const expectRefused = async (res: Response) => {
+      expect(res.status).toBe(503)
+      expect((await res.json()).error).toMatch(/try again/i)
+      expect(initializePayment).not.toHaveBeenCalled()
+      expect(initiateCheckout).toHaveBeenCalledTimes(1)
+      expect(walletRows()).toHaveLength(1)
+    }
+
+    it("the sibling read fails", async () => {
+      h.state.hubtelReadFailAt = SIBLING_READ
+      await expectRefused(await shopOrder())
+    })
+
+    it("the sibling read fails while Hubtel goes not-ready between resolve and start", async () => {
+      h.state.hubtelReadFailAt = SIBLING_READ
+      h.state.readyFlips = true
+      await expectRefused(await shopOrder())
+    })
+  })
+})
+
+describe("one failed read on a just-minted reference: Paystack stays available, at the full fee", () => {
+  it("direct, Hubtel ready and not-ready between resolve and start", async () => {
+    for (const readyFlips of [false, true]) {
+      h.state.db.wallet_payments = []
+      h.state.ready = true
+      h.state.readyFlips = readyFlips
+      h.state.hubtelReads = 0
+      h.state.hubtelReadFailAt = 1
+      chargeMobileMoney.mockClear()
+      h.state.config = config({ wallet_topup: { mode: "direct" } })
+      h.state.gates.walletDirect = true
+      expect((await momoTopup("0241234567")).status).toBe(200)
+      expect(chargeMobileMoney).toHaveBeenCalledTimes(1)
+      expect(chargeMobileMoney.mock.calls[0][0]).toMatchObject({ amount: 51.5 })
+      expect(walletRows()[0]).toMatchObject({ amount: 51.5, fee: 1.5, payment_method: "paystack" })
+    }
+  })
+
+  it("hosted", async () => {
+    h.state.config = config({ wallet_topup: { mode: "checkout" } })
+    h.state.hubtelReadFailAt = 1
+    expect((await topup()).status).toBe(200)
+    expect((initializePayment.mock.calls[0][0] as any).amount).toBe(51.5)
+    expect(walletRows()[0]).toMatchObject({ amount: 51.5, fee: 1.5, payment_method: "paystack" })
+  })
+})
+
+describe("a replay lookup that fails", () => {
+  beforeEach(() => { h.state.walletReadError = { message: "db down" } })
+
+  it.each<[string, () => void]>([
+    ["Hubtel resolved", () => {}],
+    ["Hubtel configured but not ready", () => { h.state.ready = false }],
+  ])("%s => 503, no fresh reference, nothing started", async (_n, arrange) => {
+    h.state.config = config({ storefront: { mode: "checkout" } })
+    arrange()
+    const res = await shopOrder()
+    expect(res.status).toBe(503)
+    expect((await res.json()).error).toMatch(/try again/i)
+    expect(walletRows()).toHaveLength(0)
+    expect(initiateCheckout).not.toHaveBeenCalled()
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("a surface on Paystack proceeds as today", async () => {
+    const res = await shopOrder()
+    expect(res.status).toBe(200)
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(walletRows()[0]).toMatchObject({ amount: 20.6, fee: 0.6, payment_method: "paystack" })
+  })
+})
+
+describe("a poison paymentPhone", () => {
+  const POISON = { toString: 1 }
+
+  it("a hosted request ignores the field", async () => {
+    const res = await topup({ paymentPhone: POISON })
+    expect(res.status).toBe(200)
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+  })
+
+  it("a hosted request on a Hubtel surface ignores it too", async () => {
+    h.state.config = config({ wallet_topup: { mode: "checkout" } })
+    expect((await topup({ paymentPhone: POISON })).status).toBe(200)
+    expect(initiateCheckout).toHaveBeenCalledTimes(1)
+  })
+
+  it.each<[string, () => void]>([
+    ["Paystack", () => {}],
+    ["Hubtel", () => { h.state.config = config({ wallet_topup: { mode: "direct" } }) }],
+  ])("direct on %s => today's bad-number answer, nothing charged", async (_n, arrange) => {
+    arrange()
+    h.state.gates.walletDirect = true
+    for (const paymentPhone of [POISON, ["0241234567"], true]) {
+      const res = await momoTopup(paymentPhone as any)
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ error: "Could not detect mobile money network from the payment number." })
+    }
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(receiveMoney).not.toHaveBeenCalled()
+  })
+})
+
+describe("a hosted attempt lives 60 minutes: a retry gets the same link", () => {
+  const age = (minutes: number) => {
+    walletRows()[0].created_at = new Date(Date.now() - minutes * 60_000).toISOString()
+  }
+  beforeEach(async () => {
+    h.state.config = config({ storefront: { mode: "checkout" } })
+    await shopOrder()
+    expect(initiateCheckout).toHaveBeenCalledTimes(1)
+  })
+
+  it("at 30 minutes => the same reference and link, no second link, no new row", async () => {
+    const reference = walletRows()[0].reference
+    age(30)
+    const res = await shopOrder()
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ reference, authorizationUrl: "https://pay.hubtel.com/abc" })
+    expect(initiateCheckout).toHaveBeenCalledTimes(1)
+    expect(walletRows()).toHaveLength(1)
+  })
+
+  it("at 30 minutes with the surface now on Paystack => 409, no Paystack link beside it", async () => {
+    age(30)
+    h.state.config = config()
+    const res = await shopOrder()
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: "PAYMENT_IN_PROGRESS" })
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("at 30 minutes with the attempt already closed => a new reference", async () => {
+    const reference = walletRows()[0].reference
+    age(30)
+    hubtelRows()[0].status = "failed"
+    const res = await shopOrder()
+    expect(res.status).toBe(200)
+    expect((await res.json()).reference).not.toBe(reference)
+    expect(initiateCheckout).toHaveBeenCalledTimes(2)
+  })
+
+  it("at 30 minutes with the attempt past its expiry => a new reference", async () => {
+    const reference = walletRows()[0].reference
+    age(30)
+    hubtelRows()[0].expires_at = new Date(Date.now() - 1000).toISOString()
+    expect((await (await shopOrder()).json()).reference).not.toBe(reference)
   })
 })
 

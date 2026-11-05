@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { initializeFee, initializeSurface, isVerifiedWebPayer, pickHubtelReplay, HUBTEL_REPLAY_WINDOW_MS } from "./initialize-gateway"
+import { initializeFee, initializeSurface, isVerifiedWebPayer, momoPhoneText, pickHubtelReplay, HUBTEL_REPLAY_LOOKBACK_MS, HUBTEL_REPLAY_WINDOW_MS } from "./initialize-gateway"
 
 const base = { storefrontType: null, botOrder: false, orderId: null, orderType: undefined, isTopup: false, isUpgrade: false }
 
@@ -86,5 +86,26 @@ describe("pickHubtelReplay", () => {
   })
   it("nothing => null", () => {
     expect(pickHubtelReplay(null, now)).toBeNull()
+  })
+  it("past 15 minutes, a row replays only while its own attempt is open and unexpired", () => {
+    const row = { id: "a", reference: "R1", payment_method: "hubtel", status: "pending", created_at: ago(30 * 60_000) }
+    const later = new Date(now + 60_000).toISOString()
+    expect(pickHubtelReplay([row], now, [{ internal_reference: "R1", expires_at: later }])).toEqual({ id: "a", reference: "R1" })
+    expect(pickHubtelReplay([row], now, [{ internal_reference: "R1", expires_at: ago(1) }])).toBeNull()
+    expect(pickHubtelReplay([row], now, [{ internal_reference: "OTHER", expires_at: later }])).toBeNull()
+    expect(pickHubtelReplay([row], now)).toBeNull()
+  })
+  it("the lookback covers a hosted attempt's 60 minutes", () => {
+    expect(HUBTEL_REPLAY_LOOKBACK_MS).toBe(60 * 60_000)
+  })
+})
+
+describe("momoPhoneText", () => {
+  it("strings are trimmed, numbers become text", () => {
+    expect(momoPhoneText(" 0241234567 ")).toBe("0241234567")
+    expect(momoPhoneText(241234567)).toBe("241234567")
+  })
+  it("anything else is no number, and never throws", () => {
+    for (const v of [{ toString: 1 }, ["0241234567"], null, undefined, true, {}]) expect(momoPhoneText(v)).toBe("")
   })
 })

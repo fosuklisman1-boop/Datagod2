@@ -294,9 +294,30 @@ async function freeStuckAttempt(
  */
 export type OnGatewayFallback = () => Promise<{ amount: number }>
 
+/**
+ * Nothing may be charged, and nothing was. Thrown when a caller's onFallback can't re-price the payment, or when a
+ * reused reference's earlier attempts can't be ruled out. The caller answers "try again".
+ */
+export class FallbackRefusedError extends Error {
+  constructor() {
+    super("Refused to fall back to Paystack")
+    this.name = "FallbackRefusedError"
+  }
+}
+
+export interface StartCallerOptions {
+  onFallback?: OnGatewayFallback
+  /**
+   * This reference already had a Hubtel attempt (a replay). A Paystack prompt under it could sit beside a live Hubtel
+   * one, so when the earlier attempts can't be read, or the surface no longer says Hubtel, the start throws
+   * FallbackRefusedError. A just-minted reference can't have an attempt, so there Paystack stays available.
+   */
+  reusedReference?: boolean
+}
+
 export async function startMomoCharge(
   surface: SurfaceKey,
-  params: ChargeMobileMoneyParams & { verifiedPayer?: boolean; onFallback?: OnGatewayFallback },
+  params: ChargeMobileMoneyParams & { verifiedPayer?: boolean } & StartCallerOptions,
   deps: Partial<StartDeps> = {},
 ): Promise<StartMomoResult> {
   const d: StartDeps = {
@@ -312,7 +333,7 @@ export async function startMomoCharge(
     now: () => new Date(),
     ...deps,
   }
-  const { verifiedPayer, onFallback, ...paystackParams } = params
+  const { verifiedPayer, onFallback, reusedReference, ...paystackParams } = params
 
   const viaPaystack = async (): Promise<StartMomoResult> => {
     const charge = onFallback ? { ...paystackParams, amount: (await onFallback()).amount } : paystackParams
@@ -334,10 +355,17 @@ export async function startMomoCharge(
   try {
     config = await d.getConfig()
   } catch {
+    if (reusedReference) {
+      await tell("start_error", `Hubtel start (${surface}): gateway config unreadable on a retry; refused, nothing sent.`)
+      throw new FallbackRefusedError()
+    }
     return fallBack([tell("start_error", `Hubtel start (${surface}): gateway config unreadable; used Paystack.`)])
   }
   const surfaceConfig = config.surfaces[surface]
-  if (surfaceConfig.gateway !== "hubtel") return viaPaystack()
+  if (surfaceConfig.gateway !== "hubtel") {
+    if (reusedReference) throw new FallbackRefusedError()
+    return viaPaystack()
+  }
 
   const offline: StartMomoResult = { status: "pay_offline", reference: params.reference, gateway: "hubtel" }
 
@@ -347,9 +375,12 @@ export async function startMomoCharge(
   try {
     settled = await d.store.findSettledSibling(params.reference)
   } catch (e) {
-    // A caller that reuses a reference (payments/initialize's replay) passes onFallback, whose row update refuses the
-    // charge while the DB is down. Without onFallback the reference is fresh, so it can have no sibling.
+    // A just-minted reference can have no sibling, so Paystack stays available. A reused one might: refuse.
     console.error("[hubtel-start] sibling lookup failed:", e instanceof Error ? e.message : "unknown error")
+    if (reusedReference) {
+      await tell("store", `Hubtel start (${surface}): could not check earlier attempts on a retry; refused, nothing sent.`)
+      throw new FallbackRefusedError()
+    }
     return fallBack([tell("store", `Hubtel start (${surface}): could not check earlier attempts; nothing sent to Hubtel, used Paystack.`)])
   }
   if (settled) {
@@ -359,8 +390,8 @@ export async function startMomoCharge(
 
   /**
    * Every Paystack path below goes through this: a live Hubtel attempt under this reference means no Paystack prompt,
-   * or the customer can approve both. Null means clear to go on. A failed read is treated as clear, same trade-off as
-   * the sibling lookup above.
+   * or the customer can approve both. Null means clear to go on. A failed read refuses on a reused reference; on a
+   * just-minted one there can be no attempt, so it is clear.
    */
   const heldByOpenAttempt = async (): Promise<StartMomoResult | null> => {
     let open: OpenAttempt | null
@@ -368,6 +399,10 @@ export async function startMomoCharge(
       open = await d.store.findOpen(params.reference)
     } catch (e) {
       console.error("[hubtel-start] open attempt lookup failed:", e instanceof Error ? e.message : "unknown error")
+      if (reusedReference) {
+        await tell("store", `Hubtel start (${surface}): could not check the open attempt on a retry; refused, nothing sent.`)
+        throw new FallbackRefusedError()
+      }
       return null
     }
     if (!open) return null
@@ -495,7 +530,7 @@ export async function startMomoCharge(
  */
 export async function startHostedPayment(
   surface: SurfaceKey,
-  params: InitializePaymentParams & { onFallback?: OnGatewayFallback },
+  params: InitializePaymentParams & StartCallerOptions,
   deps: Partial<HostedStartDeps> = {},
 ): Promise<StartHostedResult> {
   const d: HostedStartDeps = {
@@ -513,7 +548,7 @@ export async function startHostedPayment(
     ...deps,
   }
   const tell = makeTell(d.alert)
-  const { onFallback, ...paystackParams } = params
+  const { onFallback, reusedReference, ...paystackParams } = params
   const viaPaystack = async (): Promise<StartHostedResult> => {
     const start = onFallback ? { ...paystackParams, amount: (await onFallback()).amount } : paystackParams
     return { ...(await d.initializePayment(start)), gateway: "paystack" }
@@ -530,10 +565,17 @@ export async function startHostedPayment(
   try {
     config = await d.getConfig()
   } catch {
+    if (reusedReference) {
+      await tell("start_error", `Hubtel checkout (${surface}): gateway config unreadable on a retry; refused, nothing sent.`)
+      throw new FallbackRefusedError()
+    }
     return fallBack([tell("start_error", `Hubtel checkout (${surface}): gateway config unreadable; used Paystack.`)])
   }
   const surfaceConfig = config.surfaces[surface]
-  if (surfaceConfig.gateway !== "hubtel") return viaPaystack()
+  if (surfaceConfig.gateway !== "hubtel") {
+    if (reusedReference) throw new FallbackRefusedError()
+    return viaPaystack()
+  }
 
   const hubtelResult = (authorizationUrl: string): StartHostedResult =>
     ({ authorizationUrl, accessCode: "", reference: params.reference, gateway: "hubtel" })
@@ -543,8 +585,12 @@ export async function startHostedPayment(
   try {
     settled = await d.store.findSettledSibling(params.reference)
   } catch (e) {
-    // Same trade-off as startMomoCharge: a caller reusing a reference passes onFallback, which refuses while the DB is down.
+    // Same rule as startMomoCharge: a just-minted reference can have no sibling; a reused one might, so refuse.
     console.error("[hubtel-start] sibling lookup failed:", e instanceof Error ? e.message : "unknown error")
+    if (reusedReference) {
+      await tell("store", `Hubtel checkout (${surface}): could not check earlier attempts on a retry; refused, nothing sent.`)
+      throw new FallbackRefusedError()
+    }
     return fallBack([tell("store", `Hubtel checkout (${surface}): could not check earlier attempts; nothing sent to Hubtel, used Paystack.`)])
   }
   if (settled) {

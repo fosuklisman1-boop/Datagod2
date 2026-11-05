@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { startMomoCharge, createStartStore, resolveSurfaceGateway, type StartDeps, type StartStore } from "./start"
+import { FallbackRefusedError, startMomoCharge, createStartStore, resolveSurfaceGateway, type StartDeps, type StartStore } from "./start"
 import { deriveFromLegacy, type GatewayConfig, type SurfaceConfig } from "./config"
 import { HubtelPayInputError, type PaymentStatus, type StartOutcome } from "@/lib/hubtel-pay/client"
 import { newHubtelReference } from "@/lib/hubtel-pay/reference"
@@ -876,6 +876,51 @@ describe("startMomoCharge — onFallback", () => {
     const t = setup({ outcome: refused() })
     await startMomoCharge("ussd", VERIFIED, t.deps)
     expect(t.chargeMobileMoney.mock.calls[0][0].amount).toBe(20)
+  })
+})
+
+describe("startMomoCharge — reusedReference: a failed read never leads to a second prompt", () => {
+  const paystackConfig = deriveFromLegacy({ storefrontDirect: false, walletDirect: false })
+  const cases: [string, any, Parameters<typeof setup>[0]][] = [
+    ["sibling read fails", VERIFIED, { settledThrows: true }],
+    ["sibling read fails, Hubtel not ready", VERIFIED, { settledThrows: true, ready: false }],
+    ["open read fails, unverified", { ...PARAMS, verifiedPayer: false }, { findOpenThrows: true }],
+    ["open read fails, Hubtel not ready", VERIFIED, { findOpenThrows: true, ready: false }],
+    ["open read fails, malformed phone", { ...VERIFIED, phone: "024 412 3456" }, { findOpenThrows: true }],
+    ["open read fails, insert error", VERIFIED, { findOpenThrows: true, insertResult: "error" }],
+    ["open read fails, callback URL unavailable", VERIFIED, { findOpenThrows: true, callbackUrlThrows: new Error("no url") }],
+  ]
+
+  it.each(cases)("%s + reused → refused, onFallback not called, nothing charged or sent", async (_n, params, o) => {
+    const onFallback = vi.fn(async () => ({ amount: 20.6 }))
+    const t = setup(o)
+    await expect(startMomoCharge("ussd", { ...params, onFallback, reusedReference: true }, t.deps)).rejects.toBeInstanceOf(FallbackRefusedError)
+    expect(onFallback).not.toHaveBeenCalled()
+    expect(t.chargeMobileMoney).not.toHaveBeenCalled()
+    expect(t.receiveMoney).not.toHaveBeenCalled()
+  })
+
+  it.each(cases)("%s + a just-minted reference → Paystack stays available", async (_n, params, o) => {
+    const t = setup(o)
+    expect((await startMomoCharge("ussd", { ...params, reusedReference: false }, t.deps)).gateway).toBe("paystack")
+    expect(t.chargeMobileMoney).toHaveBeenCalledTimes(1)
+    expect(t.chargeMobileMoney.mock.calls[0][0]).not.toHaveProperty("reusedReference")
+  })
+
+  it("reused, and the surface went back to Paystack or the config is unreadable → refused", async () => {
+    const flipped = setup({ config: paystackConfig })
+    await expect(startMomoCharge("ussd", { ...VERIFIED, reusedReference: true }, flipped.deps)).rejects.toBeInstanceOf(FallbackRefusedError)
+    expect(flipped.chargeMobileMoney).not.toHaveBeenCalled()
+    const unreadable = setup()
+    unreadable.deps.getConfig = async () => { throw new Error("db down") }
+    await expect(startMomoCharge("ussd", { ...VERIFIED, reusedReference: true }, unreadable.deps)).rejects.toBeInstanceOf(FallbackRefusedError)
+    expect(unreadable.chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("reused, reads fine, the earlier attempt was closed, Hubtel refuses again → Paystack is allowed", async () => {
+    const t = setup({ outcome: refused() })
+    expect((await startMomoCharge("ussd", { ...VERIFIED, reusedReference: true }, t.deps)).gateway).toBe("paystack")
+    expect(t.chargeMobileMoney).toHaveBeenCalledTimes(1)
   })
 })
 

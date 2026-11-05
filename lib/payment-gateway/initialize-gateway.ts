@@ -55,16 +55,20 @@ export async function isVerifiedWebPayer(
   }
 }
 
-/** The payment row could not be re-priced for a Paystack fallback, so nothing may be charged. */
-export class FallbackRefusedError extends Error {
-  constructor() {
-    super("Could not re-price the payment for its fallback")
-    this.name = "FallbackRefusedError"
-  }
+/**
+ * paymentPhone comes straight from the request body and may be anything. Only a string or a number can be a phone
+ * number; everything else is "" (no number), never a throw: String() throws on a body like {"toString":1}.
+ */
+export function momoPhoneText(value: unknown): string {
+  if (typeof value === "string") return value.trim()
+  if (typeof value === "number") return String(value)
+  return ""
 }
 
 /** Same window as lib/bot-commission/momo.ts's replay. */
 export const HUBTEL_REPLAY_WINDOW_MS = 15 * 60 * 1000
+/** How far back to look for a live attempt: a hosted attempt lives 60 minutes (start.ts). */
+export const HUBTEL_REPLAY_LOOKBACK_MS = 60 * 60 * 1000
 
 export interface WalletPaymentReplayRow {
   id: string
@@ -74,11 +78,20 @@ export interface WalletPaymentReplayRow {
   created_at: string | null
 }
 
-/** The newest pending Hubtel payment row for the order from the last 15 minutes, if any. */
-export function pickHubtelReplay(rows: WalletPaymentReplayRow[] | null | undefined, nowMs: number): { id: string; reference: string } | null {
+/**
+ * The newest pending Hubtel payment row for the order that is from the last 15 minutes, or whose own attempt is still
+ * open and unexpired (a hosted link lives longer than the window). `openAttempts` are hubtel_payments rows.
+ */
+export function pickHubtelReplay(
+  rows: WalletPaymentReplayRow[] | null | undefined,
+  nowMs: number,
+  openAttempts: { internal_reference: string | null; expires_at: string | null }[] = [],
+): { id: string; reference: string } | null {
+  const attemptLive = (reference: string | null) => openAttempts.some((a) =>
+    a.internal_reference === reference && !!a.expires_at && new Date(a.expires_at).getTime() > nowMs)
   const live = (rows ?? []).filter((r) =>
     r.payment_method === "hubtel" && r.status === "pending" && !!r.reference && !!r.created_at &&
-    nowMs - new Date(r.created_at).getTime() <= HUBTEL_REPLAY_WINDOW_MS)
+    (nowMs - new Date(r.created_at).getTime() <= HUBTEL_REPLAY_WINDOW_MS || attemptLive(r.reference)))
   live.sort((a, b) => new Date(b.created_at!).getTime() - new Date(a.created_at!).getTime())
   const top = live[0]
   return top ? { id: top.id, reference: top.reference! } : null

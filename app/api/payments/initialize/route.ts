@@ -15,9 +15,10 @@ import {
   isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkCommissionPayable,
   STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF,
 } from "@/lib/storefront-commission/payment"
-import { HostedStartError, resolveSurfaceGateway, startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
+import { FallbackRefusedError, HostedStartError, resolveSurfaceGateway, startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
+import { getSurfaceConfig } from "@/lib/payment-gateway/read-config"
 import type { FeeBearer, Gateway } from "@/lib/payment-gateway/config"
-import { FallbackRefusedError, initializeFee, initializeSurface, isVerifiedWebPayer, pickHubtelReplay, HUBTEL_REPLAY_WINDOW_MS } from "@/lib/payment-gateway/initialize-gateway"
+import { initializeFee, initializeSurface, isVerifiedWebPayer, momoPhoneText, pickHubtelReplay, HUBTEL_REPLAY_LOOKBACK_MS } from "@/lib/payment-gateway/initialize-gateway"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { sendThrottledAlert } from "@/lib/hubtel-pay/alert-throttle"
 
@@ -557,7 +558,7 @@ export async function POST(request: NextRequest) {
     // A direct charge only runs when its gate is on (or for an admin); otherwise it is refused below, as today.
     // Canonicalised once, here: Hubtel gets this form. A number with none is "not Hubtel", so it carries the standard
     // Paystack fee from the start. The Paystack path keeps the raw value, as today.
-    const canonicalPhone = normalizeGhanaPhone(String(paymentPhone || "").trim())
+    const canonicalPhone = momoDirect ? normalizeGhanaPhone(momoPhoneText(paymentPhone)) : null
     const directRuns = !!momoDirect && (surfaceDirectOn || isAdmin) && !!canonicalPhone && detectMomoProvider(canonicalPhone) !== null
     let gateway: Gateway = "paystack"
     let feeBearer: FeeBearer = "customer"
@@ -606,9 +607,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // R2: an order whose Hubtel attempt is still live (pending, last 15 minutes) reuses that attempt's reference, so
-    // the wrapper's one-attempt-per-order rule applies (no second prompt / the same link). Paystack rows replay
-    // nothing, as today; but a live Hubtel attempt is never joined by a Paystack one.
+    // R2: an order whose Hubtel attempt is still live (pending in the last 15 minutes, or its own attempt open and
+    // unexpired: a hosted link lives 60) reuses that attempt's reference, so the wrapper's one-attempt-per-order rule
+    // applies (no second prompt / the same link). Paystack rows replay nothing, as today; but a live Hubtel attempt is
+    // never joined by a Paystack one.
     let replay: { id: string; reference: string } | null = null
     if (gatewaySurface && orderId) {
       const { data: liveRows, error: liveErr } = await supabase
@@ -617,19 +619,32 @@ export async function POST(request: NextRequest) {
         .eq("order_id", orderId)
         .eq("status", "pending")
         .eq("payment_method", "hubtel")
-        .gte("created_at", new Date(Date.now() - HUBTEL_REPLAY_WINDOW_MS).toISOString())
+        .gte("created_at", new Date(Date.now() - HUBTEL_REPLAY_LOOKBACK_MS).toISOString())
         .limit(5)
-      if (liveErr) {
-        console.error("[PAYMENT-INIT] Hubtel replay lookup failed:", liveErr.message)
-        if (gateway === "hubtel") {
+      let lookupError = liveErr?.message ?? null
+      let openAttempts: { internal_reference: string | null; expires_at: string | null }[] = []
+      const liveReferences = (liveRows ?? []).map((r) => r.reference).filter(Boolean)
+      if (!lookupError && liveReferences.length > 0) {
+        const { data: attempts, error: attemptsErr } = await supabase
+          .from("hubtel_payments")
+          .select("internal_reference, expires_at")
+          .in("internal_reference", liveReferences)
+          .in("status", ["pending", "confirming"])
+        lookupError = attemptsErr?.message ?? null
+        openAttempts = attempts ?? []
+      }
+      if (lookupError) {
+        console.error("[PAYMENT-INIT] Hubtel replay lookup failed:", lookupError)
+        // A live attempt can't be ruled out, so no fresh reference. A surface on Paystack proceeds as today.
+        if (gateway === "hubtel" || (await getSurfaceConfig(gatewaySurface)).gateway === "hubtel") {
           return NextResponse.json({ error: "Could not start the payment. Please try again." }, { status: 503 })
         }
       } else {
-        replay = pickHubtelReplay(liveRows, Date.now())
+        replay = pickHubtelReplay(liveRows, Date.now(), openAttempts)
         if (replay && gateway !== "hubtel") {
           return NextResponse.json(
             {
-              error: "A payment for this order is still waiting for approval on your phone. Approve it, or wait 15 minutes and try again.",
+              error: "A payment for this order is still in progress. Finish it, or try again a little later.",
               code: "PAYMENT_IN_PROGRESS",
             },
             { status: 409 }
@@ -818,7 +833,7 @@ export async function POST(request: NextRequest) {
       if (!orderId && !isTopup && !isUpgrade) {
         return NextResponse.json({ error: "Direct MoMo charge requires an order." }, { status: 400 })
       }
-      const payPhone = gateway === "hubtel" && canonicalPhone ? canonicalPhone : String(paymentPhone || "").trim()
+      const payPhone = gateway === "hubtel" && canonicalPhone ? canonicalPhone : momoPhoneText(paymentPhone)
       const provider = detectMomoProvider(payPhone)
       if (!provider) {
         return NextResponse.json({ error: "Could not detect mobile money network from the payment number." }, { status: 400 })
@@ -873,7 +888,7 @@ export async function POST(request: NextRequest) {
       let charge: { status: string; gateway: Gateway }
       try {
         charge = gatewaySurface
-          ? await startMomoCharge(gatewaySurface, { ...chargeParams, verifiedPayer: gateway === "hubtel", ...fallbackHook })
+          ? await startMomoCharge(gatewaySurface, { ...chargeParams, verifiedPayer: gateway === "hubtel", reusedReference: !!replay, ...fallbackHook })
           : { ...(await chargeMobileMoney(chargeParams)), gateway: "paystack" }
       } catch (e) {
         if (e instanceof FallbackRefusedError) return fallbackRefused()
@@ -961,7 +976,7 @@ export async function POST(request: NextRequest) {
     let paymentResult: { authorizationUrl: string; accessCode: string; reference: string; gateway: Gateway }
     if (gatewaySurface && !hostedMomoStripped) {
       try {
-        paymentResult = await startHostedPayment(gatewaySurface, { ...hostedParams, ...fallbackHook })
+        paymentResult = await startHostedPayment(gatewaySurface, { ...hostedParams, reusedReference: !!replay, ...fallbackHook })
       } catch (e) {
         if (e instanceof FallbackRefusedError) return fallbackRefused()
         // No safe link to give: Hubtel may hold the request, or this order already has a paid / in-review attempt.

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { startHostedPayment, HostedStartError, createStartStore, type HostedStartDeps, type HostedStartStore } from "./start"
+import { FallbackRefusedError, startHostedPayment, HostedStartError, createStartStore, type HostedStartDeps, type HostedStartStore } from "./start"
 import { deriveFromLegacy, type GatewayConfig, type SurfaceConfig } from "./config"
 import { HubtelPayInputError, type PaymentStatus, type StartOutcome } from "@/lib/hubtel-pay/client"
 import type { InitializePaymentParams } from "@/lib/paystack"
@@ -391,6 +391,55 @@ describe("startHostedPayment — onFallback", () => {
     const t = setup({ outcome: refusedOutcome })
     await startHostedPayment("wallet_topup", PARAMS, t.deps)
     expect(t.initializePayment.mock.calls[0][0].amount).toBe(20)
+  })
+})
+
+describe("startHostedPayment — reusedReference: a failed read never leads to a second link", () => {
+  const siblingDown = (o: Parameters<typeof setup>[0] = {}) => {
+    const t = setup(o)
+    vi.spyOn(t.deps.store!, "findSettledSibling").mockRejectedValue(new Error("db down"))
+    return t
+  }
+
+  it.each<[string, Parameters<typeof setup>[0]]>([["Hubtel ready", {}], ["Hubtel not ready", { ready: false }]])(
+    "sibling read fails, %s + reused → refused, onFallback not called, nothing started",
+    async (_n, o) => {
+      const onFallback = vi.fn(async () => ({ amount: 20.6 }))
+      const t = siblingDown(o)
+      await expect(startHostedPayment("wallet_topup", { ...PARAMS, onFallback, reusedReference: true }, t.deps)).rejects.toBeInstanceOf(FallbackRefusedError)
+      expect(onFallback).not.toHaveBeenCalled()
+      expect(t.initializePayment).not.toHaveBeenCalled()
+      expect(t.initiateCheckout).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each<[string, Parameters<typeof setup>[0]]>([["Hubtel ready", {}], ["Hubtel not ready", { ready: false }]])(
+    "sibling read fails, %s + a just-minted reference → Paystack stays available",
+    async (_n, o) => {
+      const t = siblingDown(o)
+      expect((await startHostedPayment("wallet_topup", { ...PARAMS, reusedReference: false }, t.deps)).gateway).toBe("paystack")
+      expect(t.initializePayment).toHaveBeenCalledTimes(1)
+      expect(t.initializePayment.mock.calls[0][0]).not.toHaveProperty("reusedReference")
+    },
+  )
+
+  it("open read fails on a Paystack path → try_again, reused or not", async () => {
+    for (const reusedReference of [true, false]) {
+      const t = setup({ ready: false })
+      vi.spyOn(t.deps.store!, "findOpen").mockRejectedValue(new Error("db down"))
+      await expect(startHostedPayment("wallet_topup", { ...PARAMS, reusedReference }, t.deps)).rejects.toBeInstanceOf(HostedStartError)
+      expect(t.initializePayment).not.toHaveBeenCalled()
+    }
+  })
+
+  it("reused, and the surface went back to Paystack or the config is unreadable → refused", async () => {
+    const flipped = setup({ config: deriveFromLegacy({ storefrontDirect: false, walletDirect: false }) })
+    await expect(startHostedPayment("wallet_topup", { ...PARAMS, reusedReference: true }, flipped.deps)).rejects.toBeInstanceOf(FallbackRefusedError)
+    expect(flipped.initializePayment).not.toHaveBeenCalled()
+    const unreadable = setup()
+    unreadable.deps.getConfig = async () => { throw new Error("db down") }
+    await expect(startHostedPayment("wallet_topup", { ...PARAMS, reusedReference: true }, unreadable.deps)).rejects.toBeInstanceOf(FallbackRefusedError)
+    expect(unreadable.initializePayment).not.toHaveBeenCalled()
   })
 })
 
