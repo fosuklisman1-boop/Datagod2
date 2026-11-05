@@ -18,6 +18,8 @@ export async function loadUserSignals(
   users: Array<{ id: string; phone?: string | null }>,
   now: number = Date.now(),
 ): Promise<Map<string, UserSignalsView>> {
+  // Postgres prints uuids in lower case, so the RPC's keys are lower case whatever the caller passed.
+  users = users.map((u) => ({ ...u, id: u.id.toLowerCase() }))
   const ids = [...new Set(users.map((u) => u.id))].slice(0, MAX_SIGNAL_USERS)
   if (ids.length === 0) return new Map()
   const knownPhones = users.map((u) => u.phone).filter((p): p is string => !!p)

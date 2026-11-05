@@ -31,6 +31,12 @@ describe("GET /api/admin/users/[id]/signals", () => {
     expect(h.fake.ofTable("blacklisted_phone_numbers")[0].op("in")).toEqual(["in", "phone_number", ["244111222", "0244111222"]])
   })
 
+  it("looks the user up by the lower-cased id (the RPC's keys are lower case)", async () => {
+    const res = await GET(USER_ID.toUpperCase())
+    expect(h.fake.rpcCalls[0].args.p_user_ids).toEqual([USER_ID])
+    expect((await res.json()).signals).not.toBeNull()
+  })
+
   it("gate and id", async () => {
     h.gate = "forbidden"
     expect((await GET()).status).toBe(403)

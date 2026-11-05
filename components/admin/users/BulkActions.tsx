@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -10,11 +11,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Bell, ChevronDown, Loader2, ShieldOff, ShieldCheck, UserCog } from "lucide-react"
 import { toast } from "sonner"
-import { adminJson } from "@/lib/admin-users/drawer-client"
+import { AdminApiError, adminJson } from "@/lib/admin-users/drawer-client"
 import { BROADCAST_LIMITS } from "@/lib/broadcast-limits"
 import {
   BULK_MAX_USERS, BULK_ROLES, NOTIFY_CHANNELS, NOTIFY_MATCHING_MAX, SUSPEND_REASON_MAX, SUSPEND_REASON_MIN,
-  bulkConfirmTitle, summariseBulkResults,
+  bulkConfirmTitle, bulkTargetCount, summariseBulkResults,
   type BulkAction, type BulkResultRow, type BulkRole, type NotifyChannel,
 } from "@/lib/admin-users/bulk-params"
 import type { UsersListFilters } from "@/lib/admin-users/list-params"
@@ -29,6 +30,8 @@ interface BulkResponse {
   failed: number
   results: BulkResultRow[]
   broadcastId?: string | null
+  /** notify: audit rows that could not be written. */
+  auditFailed?: number
 }
 
 export interface BulkActionsProps {
@@ -49,6 +52,11 @@ export interface BulkActionsProps {
 /** The bar shown while users are selected, and the confirm / result dialog of each bulk action. */
 export function BulkActions({ selectedIds, allMatching, onAllMatchingChange, total, filters, onClear, onDone, labelOf }: BulkActionsProps) {
   const [pending, setPending] = useState<{ action: BulkAction; role?: BulkRole } | null>(null)
+  // The signed-in admin: role and suspension changes skip them, so the confirmation does not count them.
+  const [selfId, setSelfId] = useState<string | null>(null)
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSelfId(data.session?.user.id ?? null)).catch(() => {})
+  }, [])
   const count = allMatching ? total : selectedIds.size
   if (count === 0 && !allMatching) return null
 
@@ -105,7 +113,7 @@ export function BulkActions({ selectedIds, allMatching, onAllMatchingChange, tot
           key={`${pending.action}:${pending.role ?? ""}`}
           action={pending.action}
           role={pending.role}
-          count={count}
+          {...(allMatching ? { count: total, selfSkipped: false } : bulkTargetCount(pending.action, selectedIds, selfId))}
           target={allMatching ? { matching: filters } : { userIds: [...selectedIds] }}
           labelOf={labelOf}
           onClose={(changed) => {
@@ -118,10 +126,12 @@ export function BulkActions({ selectedIds, allMatching, onAllMatchingChange, tot
   )
 }
 
-function BulkDialog({ action, role, count, target, labelOf, onClose }: {
+function BulkDialog({ action, role, count, selfSkipped, target, labelOf, onClose }: {
   action: BulkAction
   role?: BulkRole
+  /** Users it will act on (the acting admin left out of role / suspension changes). */
   count: number
+  selfSkipped: boolean
   target: { userIds: string[] } | { matching: UsersListFilters }
   labelOf: (id: string) => string
   onClose: (changed: boolean) => void
@@ -132,6 +142,9 @@ function BulkDialog({ action, role, count, target, labelOf, onClose }: {
   const [channels, setChannels] = useState<NotifyChannel[]>(["in_app", "push"])
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<BulkResponse | null>(null)
+  // A notify request that failed without a clear answer (timeout, network, 5xx) may still have been sent.
+  const [uncertain, setUncertain] = useState(false)
+  const [resendOk, setResendOk] = useState(false)
 
   const params =
     action === "set_role" ? { role } :
@@ -151,6 +164,11 @@ function BulkDialog({ action, role, count, target, labelOf, onClose }: {
       else toast.warning(`${res.failed.toLocaleString()} of ${res.total.toLocaleString()} failed`)
     } catch (e: any) {
       toast.error(e?.message || "Bulk action failed")
+      const definite = e instanceof AdminApiError && e.status >= 400 && e.status < 500
+      if (action === "notify" && !definite) {
+        setUncertain(true)
+        setResendOk(false)
+      }
     } finally {
       setBusy(false)
     }
@@ -173,6 +191,7 @@ function BulkDialog({ action, role, count, target, labelOf, onClose }: {
                 </>}
                 {action === "suspend" && <p>Each user is signed out and blocked, and told by SMS, email and push (with the reason). Your own account is skipped.</p>}
                 {action === "unsuspend" && <p>Each user can sign in again and is told by SMS, email and push. Your own account is skipped.</p>}
+                {selfSkipped && <p className="text-warning">Your own account is selected; it is skipped and not counted.</p>}
                 {action === "notify" && <p>
                   Sent through the Broadcast page&apos;s queue: the first {BROADCAST_LIMITS.firstBatch} now, the rest within minutes. It appears in Broadcast history.
                   {"matching" in target && " Every user matching the current filters is included."}
@@ -212,6 +231,16 @@ function BulkDialog({ action, role, count, target, labelOf, onClose }: {
           </div>
         )}
 
+        {!result && uncertain && (
+          <div role="alert" className="space-y-2 rounded-md border border-warning bg-warning/10 p-2 text-sm">
+            <p>The request did not finish cleanly, so the notification <strong>may already have been sent</strong>. Check Broadcast history before sending again.</p>
+            <label className="flex items-center gap-2">
+              <Checkbox checked={resendOk} onCheckedChange={(v) => setResendOk(v === true)} />
+              Send it again anyway
+            </label>
+          </div>
+        )}
+
         {result && summary && (
           <div className="space-y-2 text-sm">
             <p>
@@ -219,6 +248,19 @@ function BulkDialog({ action, role, count, target, labelOf, onClose }: {
               {summary.unchanged > 0 && <> ({summary.unchanged.toLocaleString()} already as requested)</>}
               {summary.failed > 0 && <>, <strong className="text-destructive">{summary.failed.toLocaleString()} failed</strong></>}.
             </p>
+            {(result.auditFailed ?? 0) > 0 && (
+              <p className="text-warning">{result.auditFailed!.toLocaleString()} audit log entries could not be written.</p>
+            )}
+            {summary.notes.length > 0 && (
+              <ul className="max-h-40 overflow-y-auto space-y-2 rounded border border-warning/50 p-2">
+                {summary.notes.map((g) => (
+                  <li key={g.note}>
+                    <p className="font-medium text-warning">{g.note} ({g.ids.length})</p>
+                    <p className="text-xs text-muted-foreground break-all">{g.ids.slice(0, 20).map(labelOf).join(", ")}{g.ids.length > 20 ? ` and ${g.ids.length - 20} more` : ""}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
             {summary.errors.length > 0 && (
               <ul className="max-h-60 overflow-y-auto space-y-2 rounded border p-2">
                 {summary.errors.map((g) => (
@@ -238,7 +280,7 @@ function BulkDialog({ action, role, count, target, labelOf, onClose }: {
           ) : (
             <>
               <Button variant="outline" disabled={busy} onClick={() => onClose(false)}>Cancel</Button>
-              <Button variant={action === "suspend" ? "destructive" : "default"} disabled={busy || !valid} onClick={run}>
+              <Button variant={action === "suspend" ? "destructive" : "default"} disabled={busy || !valid || count === 0 || (uncertain && !resendOk)} onClick={run}>
                 {busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {action === "notify" ? `Send to ${count.toLocaleString()}` : `${action === "set_role" ? "Change" : action === "suspend" ? "Suspend" : "Unsuspend"} ${count.toLocaleString()}`}
               </Button>

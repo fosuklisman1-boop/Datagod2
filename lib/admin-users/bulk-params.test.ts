@@ -81,6 +81,25 @@ describe("bulkConfirmTitle / summariseBulkResults", () => {
     ])).toEqual({
       total: 5, succeeded: 2, failed: 3, unchanged: 1,
       errors: [{ error: "User not found", ids: ["c", "e"] }, { error: "x", ids: ["d"] }],
+      notes: [],
     })
+  })
+  it("lists partial-channel notes of successful users (not 'unchanged')", () => {
+    expect(summariseBulkResults([
+      { id: "a", ok: true, note: "Push/SMS not queued (down)" }, { id: "b", ok: true, note: "Push/SMS not queued (down)" },
+      { id: "c", ok: true, note: "unchanged" },
+    ]).notes).toEqual([{ note: "Push/SMS not queued (down)", ids: ["a", "b"] }])
+  })
+})
+
+describe("bulkTargetCount", () => {
+  it("leaves the acting admin out of role and suspension counts (the server skips them), not out of notify", async () => {
+    const { bulkTargetCount } = await import("./bulk-params")
+    const sel = new Set([id(1), id(2), id(3)])
+    expect(bulkTargetCount("suspend", sel, id(2))).toEqual({ count: 2, selfSkipped: true })
+    expect(bulkTargetCount("set_role", sel, id(2).toUpperCase())).toEqual({ count: 2, selfSkipped: true })
+    expect(bulkTargetCount("unsuspend", sel, id(9))).toEqual({ count: 3, selfSkipped: false })
+    expect(bulkTargetCount("notify", sel, id(2))).toEqual({ count: 3, selfSkipped: false })
+    expect(bulkTargetCount("suspend", sel, null)).toEqual({ count: 3, selfSkipped: false })
   })
 })

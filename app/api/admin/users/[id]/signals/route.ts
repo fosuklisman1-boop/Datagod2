@@ -15,8 +15,9 @@ export async function GET(req: NextRequest, ctx: IdCtx) {
   const idp = await userIdParam(ctx)
   if (!idp.ok) return idp.response
   try {
-    const signals = await loadUserSignals(serviceClient(), [{ id: idp.id }])
-    return NextResponse.json({ signals: signals.get(idp.id) ?? null })
+    const id = idp.id.toLowerCase()
+    const signals = await loadUserSignals(serviceClient(), [{ id }])
+    return NextResponse.json({ signals: signals.get(id) ?? null })
   } catch (e: any) {
     console.error("[ADMIN-USER-SIGNALS]", e?.message ?? e)
     return NextResponse.json({ error: "Failed to load activity signals" }, { status: 500 })

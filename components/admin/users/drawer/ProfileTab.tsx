@@ -132,7 +132,7 @@ export function ProfileTab({ profile, onChanged, actions, refreshKey = 0 }: {
 
       <section className="space-y-2 border-t pt-4">
         <h4 className="text-sm font-semibold">Tags</h4>
-        <TagsEditor userId={profile.id} onChanged={onChanged} />
+        <TagsEditor userId={profile.id} refreshKey={refreshKey} onChanged={onChanged} />
       </section>
 
       <section className="space-y-3 border-t pt-4">

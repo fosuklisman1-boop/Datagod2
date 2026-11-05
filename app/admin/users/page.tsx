@@ -81,6 +81,8 @@ function AdminUsersPageInner() {
   const [allMatching, setAllMatching] = useState(false)
   // Emails of users seen on any page, so a bulk result can name the users it failed for.
   const emailsRef = useRef(new Map<string, string>())
+  // The "signals unavailable" warning is shown once per visit, not on every page load.
+  const signalsToastShown = useRef(false)
 
   const [selectedUser, setSelectedUser] = useState<DialogUser | null>(null)
   // Independent flags: these dialogs open on top of the user drawer.
@@ -154,7 +156,10 @@ function AdminUsersPageInner() {
         setLoadError(null)
         setUsers(res.users || [])
         for (const u of res.users || []) if (u.email) emailsRef.current.set(u.id, u.email)
-        if (res.signalsUnavailable) toast.warning("Activity and risk signals could not be loaded for this page")
+        if (res.signalsUnavailable && !signalsToastShown.current) {
+          signalsToastShown.current = true
+          toast.warning("Activity and risk signals could not be loaded; the list works without them")
+        }
         setTotal(res.total || 0)
         // Past the last page (e.g. after a delete or a stale link): go to the last page that exists.
         const lastPage = Math.max(1, Math.ceil((res.total || 0) / params.pageSize))

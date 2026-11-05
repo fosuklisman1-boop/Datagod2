@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
     if (users.length) {
       try {
         const signals = await loadUserSignals(adminClient, users.map((u) => ({ id: u.id, phone: u.phoneNumber || null })))
-        for (const u of users) u.signals = signals.get(u.id) ?? null
+        for (const u of users) u.signals = signals.get(u.id.toLowerCase()) ?? null
       } catch (e: any) {
         console.error("[ADMIN-USERS] signals failed:", e?.message ?? e)
         signalsUnavailable = true

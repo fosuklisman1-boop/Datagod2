@@ -47,14 +47,17 @@ export function TagsEditor({ userId, refreshKey = 0, onChanged }: { userId: stri
   const [busy, setBusy] = useState(false)
   const tags = data?.tags ?? []
 
-  const change = async (body: { add?: string[]; remove?: string[] }) => {
+  /** true when the change was saved (the input is only cleared then). */
+  const change = async (body: { add?: string[]; remove?: string[] }): Promise<boolean> => {
     setBusy(true)
     try {
       await adminJson(userApiPath(userId, "tags"), { method: "POST", body })
       reload()
       onChanged()
+      return true
     } catch (e: any) {
       toast.error(e?.message || "Could not change tags")
+      return false
     } finally {
       setBusy(false)
     }
@@ -79,7 +82,7 @@ export function TagsEditor({ userId, refreshKey = 0, onChanged }: { userId: stri
       </div>
       <form className="flex items-center gap-2" onSubmit={(e) => {
         e.preventDefault()
-        if (candidate && !tags.includes(candidate)) change({ add: [candidate] }).then(() => setText(""))
+        if (candidate && !tags.includes(candidate)) change({ add: [candidate] }).then((saved) => { if (saved) setText("") })
       }}>
         <Input list={`tag-suggestions-${userId}`} value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a tag"
           aria-label="Add a tag" aria-invalid={!!text.trim() && !candidate} className="h-8 text-xs sm:w-48" maxLength={32} />

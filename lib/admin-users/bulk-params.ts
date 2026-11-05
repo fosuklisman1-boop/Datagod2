@@ -146,11 +146,27 @@ export function summariseBulkResults(results: BulkResultRow[]) {
     const k = r.error || "Failed"
     byError.set(k, [...(byError.get(k) ?? []), r.id])
   }
+  const byNote = new Map<string, string[]>()
+  for (const r of results) {
+    if (!r.ok || !r.note || r.note === "unchanged") continue
+    byNote.set(r.note, [...(byNote.get(r.note) ?? []), r.id])
+  }
   return {
+    notes: [...byNote.entries()].map(([note, ids]) => ({ note, ids })).sort((a, b) => b.ids.length - a.ids.length),
     total: results.length,
     succeeded: results.length - failed.length,
     failed: failed.length,
     unchanged: results.filter((r) => r.ok && r.note?.includes("unchanged")).length,
     errors: [...byError.entries()].map(([error, ids]) => ({ error, ids })).sort((a, b) => b.ids.length - a.ids.length),
   }
+}
+
+/**
+ * How many users a bulk action will act on, for the confirmation: role and suspension changes skip the acting
+ * admin (the server refuses them), so they are not counted; notifications include them.
+ */
+export function bulkTargetCount(action: BulkAction, selected: ReadonlySet<string>, selfId: string | null): { count: number; selfSkipped: boolean } {
+  const self = selfId?.toLowerCase() ?? null
+  const selfSkipped = action !== "notify" && !!self && [...selected].some((id) => id.toLowerCase() === self)
+  return { count: selected.size - (selfSkipped ? 1 : 0), selfSkipped }
 }
