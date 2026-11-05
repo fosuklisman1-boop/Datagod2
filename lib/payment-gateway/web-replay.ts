@@ -30,6 +30,12 @@ async function surfaceSaysHubtel(surface: SurfaceKey): Promise<boolean> {
   }
 }
 
+/** The answer when a live attempt can't be ruled out: refuse on Hubtel; a surface on Paystack goes on as today. */
+export async function replayUnknown(surface: SurfaceKey, gateway: Gateway): Promise<ReplayDecision> {
+  if (gateway === "hubtel" || (await surfaceSaysHubtel(surface))) return { kind: "refuse", status: 503, body: TRY_AGAIN_BODY }
+  return { kind: "fresh" }
+}
+
 /**
  * Does this purchase already have a live Hubtel attempt? A live one is replayed when the request resolved to Hubtel, and
  * refused otherwise: a Paystack prompt beside it could be paid too. One read, on Paystack as well, and the answer to a
@@ -65,10 +71,7 @@ export async function decideAttemptReplay(
     console.error("[payment-replay] open attempt lookup threw:", e instanceof Error ? e.message : "unknown error")
     failed = true
   }
-  if (failed) {
-    if (gateway === "hubtel" || (await surfaceSaysHubtel(surface))) return { kind: "refuse", status: 503, body: TRY_AGAIN_BODY }
-    return { kind: "fresh" }
-  }
+  if (failed) return replayUnknown(surface, gateway)
   const live = pickHubtelReplay(
     (rows ?? []).map((r) => ({ id: r.reference ?? "", reference: r.internal_reference, payment_method: "hubtel", status: "pending", created_at: r.created_at })),
     nowMs,
