@@ -66,7 +66,7 @@
 **Interfaces:**
 - `hubtelSendGateway: RefundGateway`, id `hubtel_send`, label `Hubtel (MoMo payout to payer)`, placed before `manual`. `supports`: switch on, `order.payment.hubtelCollection`, the attempt status is `paid`, a valid payer number, `paymentMethod` isn't a card.
 - `orders.ts` carries the attempt's status, stored msisdn and channel, and requested amount onto `payment`; the payer number comes from the attempt's msisdn when it has one.
-- `eligibility.ts` keeps refusing `hubtelCollection` unless the attempt is `paid`. Then allowed gateways are `hubtel_send`, `wallet` (only where wallet already applies) and `manual`. Paystack reversal and the Paystack and Moolre payouts stay refused, so one payment is refunded from one pot.
+- `eligibility.ts` keeps refusing `hubtelCollection` unless the attempt is `paid`. Then allowed gateways (owner decision 2026-11-05) are `hubtel_send`, `moolre`, `paystack_payout`, `wallet` (only where wallet already applies) and `manual`, each still subject to its own `supports()`. Paystack reversal stays refused: Paystack never saw this payment. The payouts are backups for an empty Hubtel disbursement balance, and the refund row records which gateway paid. `hubtel_send` is listed first so the dialog pre-selects it.
 - `order_refunds.gateway` is plain text with no CHECK in its create migration. Confirm the claim RPCs (`20261005`, `0120`, `0123`, `20261007`) don't list gateway ids; if one does, add an idempotent migration with a selftest.
 
 - [ ] Tests: each refusal above; a Hubtel-paid order offers exactly those gateways; amount cap; Paystack-paid orders are offered exactly what they are today; two clicks give one send (existing claim). RED, implement, GREEN, commit.
@@ -83,7 +83,7 @@
 
 ### Task 5: Verify and ship dark
 
-- [ ] Full suite (known failures only), placeholder-env build from PowerShell, a fresh reviewer on the most capable model available. Opus's weekly limit resets Nov 10, 10am Reykjavik time; this code should get Opus before the switch goes on.
+- [ ] Full suite (known failures only), placeholder-env build from PowerShell, a fresh reviewer on the most capable model available. Owner decision 2026-11-05: build now and keep it off; Opus reviews after its weekly limit resets (Nov 10, 10am Reykjavik time), before the switch goes on.
 - [ ] With the owner's OK: migration if any (dry run first), push, redeploy the relay with a dated backup, no-charge smoke checks.
 
 ### Task 6: Supervised live test (owner present)
