@@ -126,6 +126,9 @@ vi.mock("@/lib/refunds/payer-phone", () => ({ recordPayerPhone: vi.fn(async () =
 const sendThrottledAlert = vi.fn(async (..._a: any[]) => {})
 vi.mock("@/lib/hubtel-pay/alert-throttle", () => ({ sendThrottledAlert: (...a: any[]) => sendThrottledAlert(...a) }))
 
+const closeRefused = vi.fn(async (..._a: any[]) => "closed" as const)
+vi.mock("@/lib/payment-gateway/close-refused", () => ({ closeRefusedHubtelWalletPayment: (...a: any[]) => closeRefused(...a) }))
+
 import * as route from "./route"
 const { POST } = route
 
@@ -176,6 +179,7 @@ beforeEach(() => {
   initializePayment.mockClear()
   startMomoCharge.mockClear()
   startHostedPayment.mockClear()
+  closeRefused.mockClear()
 })
 
 describe("payments/initialize gateway choice", () => {
@@ -339,6 +343,32 @@ describe("payments/initialize gateway choice", () => {
     res = await topup()
     expect(res.status).toBe(409)
     expect((await res.json()).error).toBe("This payment is already being processed. Please check your order before paying again.")
+  })
+
+  it("a refused start closes its own fresh Hubtel row (hosted error, momo fallback refused); success and replays don't", async () => {
+    h.state.config = config({ wallet_topup: h.state.surfaceCfg("hubtel", "checkout") })
+    h.state.hostedError = "already_processing"
+    await topup()
+    expect(closeRefused).toHaveBeenCalledTimes(1)
+    expect(closeRefused.mock.calls[0][1]).toBe(walletRow().reference)
+
+    closeRefused.mockClear()
+    h.state.hostedError = "try_again"
+    await topup()
+    expect(closeRefused).toHaveBeenCalledTimes(1)
+
+    closeRefused.mockClear()
+    h.state.hostedError = null
+    expect((await topup()).status).toBe(200)
+    expect(closeRefused).not.toHaveBeenCalled()
+
+    // A fallback that can't re-price throws FallbackRefusedError: nothing was charged.
+    h.state.config = config({ wallet_topup: h.state.surfaceCfg("hubtel", "direct") })
+    h.state.gates.walletDirect = true
+    h.state.momoGateway = "paystack"
+    h.state.updateResult = { data: [], error: null }
+    expect((await momoTopup()).status).toBe(503)
+    expect(closeRefused).toHaveBeenCalledTimes(1)
   })
 
   it("hosted with direct charge on (MoMo stripped on Paystack): stays on Paystack, never a Hubtel page", async () => {
