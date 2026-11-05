@@ -67,8 +67,8 @@ export function momoPhoneText(value: unknown): string {
 
 /** Same window as lib/bot-commission/momo.ts's replay. */
 export const HUBTEL_REPLAY_WINDOW_MS = 15 * 60 * 1000
-/** How far back to look for a live attempt: a hosted attempt lives 60 minutes (start.ts). */
-export const HUBTEL_REPLAY_LOOKBACK_MS = 60 * 60 * 1000
+/** How far back to look for a live attempt's row: an attempt can start up to 15 minutes after its row and live 60. */
+export const HUBTEL_REPLAY_LOOKBACK_MS = 75 * 60 * 1000
 
 export interface WalletPaymentReplayRow {
   id: string
@@ -78,20 +78,29 @@ export interface WalletPaymentReplayRow {
   created_at: string | null
 }
 
+export interface OpenAttemptReplayRow {
+  internal_reference: string | null
+  expires_at: string | null
+  mode: string | null
+  checkout_url: string | null
+}
+
 /**
- * The newest pending Hubtel payment row for the order that is from the last 15 minutes, or whose own attempt is still
- * open and unexpired (a hosted link lives longer than the window). `openAttempts` are hubtel_payments rows.
+ * The newest pending Hubtel payment row for the order that is from the last 15 minutes, or whose own hosted attempt is
+ * still open, unexpired and has a link to hand back. A hosted attempt with no link has nothing to give the customer, so
+ * it only holds the order for the 15 minutes. `openAttempts` are hubtel_payments rows.
  */
 export function pickHubtelReplay(
   rows: WalletPaymentReplayRow[] | null | undefined,
   nowMs: number,
-  openAttempts: { internal_reference: string | null; expires_at: string | null }[] = [],
+  openAttempts: OpenAttemptReplayRow[] = [],
 ): { id: string; reference: string } | null {
-  const attemptLive = (reference: string | null) => openAttempts.some((a) =>
-    a.internal_reference === reference && !!a.expires_at && new Date(a.expires_at).getTime() > nowMs)
+  const hasLiveLink = (reference: string | null) => openAttempts.some((a) =>
+    a.internal_reference === reference && a.mode === "checkout" && !!a.checkout_url &&
+    !!a.expires_at && new Date(a.expires_at).getTime() > nowMs)
   const live = (rows ?? []).filter((r) =>
     r.payment_method === "hubtel" && r.status === "pending" && !!r.reference && !!r.created_at &&
-    (nowMs - new Date(r.created_at).getTime() <= HUBTEL_REPLAY_WINDOW_MS || attemptLive(r.reference)))
+    (nowMs - new Date(r.created_at).getTime() <= HUBTEL_REPLAY_WINDOW_MS || hasLiveLink(r.reference)))
   live.sort((a, b) => new Date(b.created_at!).getTime() - new Date(a.created_at!).getTime())
   const top = live[0]
   return top ? { id: top.id, reference: top.reference! } : null

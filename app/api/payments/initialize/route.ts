@@ -18,7 +18,7 @@ import {
 import { FallbackRefusedError, HostedStartError, resolveSurfaceGateway, startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
 import { getSurfaceConfig } from "@/lib/payment-gateway/read-config"
 import type { FeeBearer, Gateway } from "@/lib/payment-gateway/config"
-import { initializeFee, initializeSurface, isVerifiedWebPayer, momoPhoneText, pickHubtelReplay, HUBTEL_REPLAY_LOOKBACK_MS } from "@/lib/payment-gateway/initialize-gateway"
+import { initializeFee, initializeSurface, isVerifiedWebPayer, momoPhoneText, pickHubtelReplay, HUBTEL_REPLAY_LOOKBACK_MS, type OpenAttemptReplayRow } from "@/lib/payment-gateway/initialize-gateway"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { sendThrottledAlert } from "@/lib/hubtel-pay/alert-throttle"
 
@@ -607,10 +607,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // R2: an order whose Hubtel attempt is still live (pending in the last 15 minutes, or its own attempt open and
-    // unexpired: a hosted link lives 60) reuses that attempt's reference, so the wrapper's one-attempt-per-order rule
-    // applies (no second prompt / the same link). Paystack rows replay nothing, as today; but a live Hubtel attempt is
-    // never joined by a Paystack one.
+    // R2: an order whose Hubtel attempt is still live (pending in the last 15 minutes, or a hosted attempt still open
+    // with a link to return) reuses that attempt's reference, so the wrapper's one-attempt-per-order rule applies (no
+    // second prompt / the same link). Paystack rows replay nothing, as today; but a live Hubtel attempt is never joined
+    // by a Paystack one.
     let replay: { id: string; reference: string } | null = null
     if (gatewaySurface && orderId) {
       const { data: liveRows, error: liveErr } = await supabase
@@ -620,21 +620,25 @@ export async function POST(request: NextRequest) {
         .eq("status", "pending")
         .eq("payment_method", "hubtel")
         .gte("created_at", new Date(Date.now() - HUBTEL_REPLAY_LOOKBACK_MS).toISOString())
+        .order("created_at", { ascending: false })
         .limit(5)
-      let lookupError = liveErr?.message ?? null
-      let openAttempts: { internal_reference: string | null; expires_at: string | null }[] = []
+      let openAttempts: OpenAttemptReplayRow[] = []
       const liveReferences = (liveRows ?? []).map((r) => r.reference).filter(Boolean)
-      if (!lookupError && liveReferences.length > 0) {
+      if (!liveErr && liveReferences.length > 0) {
         const { data: attempts, error: attemptsErr } = await supabase
           .from("hubtel_payments")
-          .select("internal_reference, expires_at")
+          .select("internal_reference, expires_at, mode, checkout_url")
           .in("internal_reference", liveReferences)
           .in("status", ["pending", "confirming"])
-        lookupError = attemptsErr?.message ?? null
+        if (attemptsErr) {
+          // These rows may have a live attempt behind them, whatever the surface says now: no fresh reference, no Paystack.
+          console.error("[PAYMENT-INIT] Hubtel attempt lookup failed:", attemptsErr.message)
+          return NextResponse.json({ error: "Could not start the payment. Please try again." }, { status: 503 })
+        }
         openAttempts = attempts ?? []
       }
-      if (lookupError) {
-        console.error("[PAYMENT-INIT] Hubtel replay lookup failed:", lookupError)
+      if (liveErr) {
+        console.error("[PAYMENT-INIT] Hubtel replay lookup failed:", liveErr.message)
         // A live attempt can't be ruled out, so no fresh reference. A surface on Paystack proceeds as today.
         if (gateway === "hubtel" || (await getSurfaceConfig(gatewaySurface)).gateway === "hubtel") {
           return NextResponse.json({ error: "Could not start the payment. Please try again." }, { status: 503 })

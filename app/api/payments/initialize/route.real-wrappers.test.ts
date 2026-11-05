@@ -34,7 +34,16 @@ const h = vi.hoisted(() => {
     let patch: Row = {}
     let inserted: Row[] = []
     let error: any = null
-    const matching = () => rows().filter((r) => filters.every((f) => f(r)))
+    let orderBy: { key: string; ascending: boolean } | null = null
+    let limitTo: number | null = null
+    const matching = () => {
+      const hit = rows().filter((r) => filters.every((f) => f(r)))
+      if (orderBy) {
+        const { key, ascending } = orderBy
+        hit.sort((a, b) => (String(a[key]) < String(b[key]) ? -1 : 1) * (ascending ? 1 : -1))
+      }
+      return limitTo === null ? hit : hit.slice(0, limitTo)
+    }
     const run = () => {
       if (mode === "insert") return { data: error ? null : inserted, error }
       if (mode === "update") {
@@ -50,11 +59,12 @@ const h = vi.hoisted(() => {
       return { data: matching(), error: null }
     }
     const c: any = {}
-    for (const m of ["select", "or", "is", "gt", "order"]) c[m] = () => c
+    for (const m of ["select", "or", "is", "gt"]) c[m] = () => c
     c.eq = (k: string, v: unknown) => (filters.push((r) => r[k] === v), c)
     c.in = (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[k])), c)
     c.gte = (k: string, v: string) => (filters.push((r) => String(r[k]) >= v), c)
-    c.limit = () => c
+    c.order = (key: string, opts?: { ascending?: boolean }) => (orderBy = { key, ascending: opts?.ascending ?? true }, c)
+    c.limit = (n: number) => (limitTo = n, c)
     c.insert = (input: Row | Row[]) => {
       mode = "insert"
       inserted = (Array.isArray(input) ? input : [input]).map((r) => ({ id: `row${state.nextId++}`, status: "pending", ...r }))
@@ -560,6 +570,135 @@ describe("a hosted attempt lives 60 minutes: a retry gets the same link", () => 
     age(30)
     hubtelRows()[0].expires_at = new Date(Date.now() - 1000).toISOString()
     expect((await (await shopOrder()).json()).reference).not.toBe(reference)
+  })
+
+  it.each([5, 16, 30, 59])("with a link, at %i minutes => the same link", async (minutes) => {
+    const reference = walletRows()[0].reference
+    age(minutes)
+    const res = await shopOrder()
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ reference, authorizationUrl: "https://pay.hubtel.com/abc" })
+    expect(initiateCheckout).toHaveBeenCalledTimes(1)
+    expect(walletRows()).toHaveLength(1)
+  })
+
+  it("at row age 65 with the link still live (the attempt started after its row) => the same link", async () => {
+    const reference = walletRows()[0].reference
+    age(65)
+    hubtelRows()[0].expires_at = new Date(Date.now() + 10 * 60_000).toISOString()
+    const res = await shopOrder()
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ reference, authorizationUrl: "https://pay.hubtel.com/abc" })
+    expect(initiateCheckout).toHaveBeenCalledTimes(1)
+    expect(walletRows()).toHaveLength(1)
+  })
+
+  it("past row age 75 => not looked at, a new reference", async () => {
+    const reference = walletRows()[0].reference
+    age(76)
+    hubtelRows()[0].expires_at = new Date(Date.now() + 10 * 60_000).toISOString()
+    expect((await (await shopOrder()).json()).reference).not.toBe(reference)
+  })
+
+  it("the lookup keeps the newest rows: an older crowd can't hide a live link", async () => {
+    const live = walletRows()[0]
+    live.created_at = new Date(Date.now() - 2 * 60_000).toISOString()
+    // Older pending rows first in table order, so an unordered limit(5) would drop the live one.
+    h.state.db.wallet_payments = [
+      ...[58, 56, 54, 52, 50].map((m, i) => ({ ...live, id: `old${i}`, reference: `OLD-${i}`, created_at: new Date(Date.now() - m * 60_000).toISOString() })),
+      live,
+    ]
+    const res = await shopOrder()
+    expect(await res.json()).toMatchObject({ reference: live.reference, authorizationUrl: "https://pay.hubtel.com/abc" })
+    expect(initiateCheckout).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("a hosted attempt that never produced a link holds the order for 15 minutes, not 60", () => {
+  const age = (minutes: number) => {
+    walletRows()[0].created_at = new Date(Date.now() - minutes * 60_000).toISOString()
+  }
+  const noLink: [string, () => Promise<void>][] = [
+    ["Hubtel's answer was unknown", async () => {
+      initiateCheckout.mockImplementationOnce(async () => ({ kind: "unknown", code: "timeout" }))
+      expect((await shopOrder()).status).toBe(503)
+    }],
+    ["the send threw", async () => {
+      initiateCheckout.mockImplementationOnce(async () => { throw new Error("socket hang up") })
+      expect((await shopOrder()).status).toBe(503)
+    }],
+    ["the link could not be stored", async () => {
+      expect((await shopOrder()).status).toBe(200)
+      hubtelRows()[0].checkout_url = null
+    }],
+  ]
+  beforeEach(() => {
+    h.state.config = config({ storefront: { mode: "checkout" } })
+  })
+
+  it.each(noLink)("%s, at 5 minutes => still held: try again, no second link", async (_n, arrange) => {
+    await arrange()
+    const calls = initiateCheckout.mock.calls.length
+    age(5)
+    const res = await shopOrder()
+    expect(res.status).toBe(503)
+    expect((await res.json()).error).toMatch(/try again/i)
+    expect(initiateCheckout).toHaveBeenCalledTimes(calls)
+    expect(initializePayment).not.toHaveBeenCalled()
+    expect(walletRows()).toHaveLength(1)
+  })
+
+  const later = noLink.flatMap(([n, arrange]) => [16, 30, 59].map((m) => [n, m, arrange] as [string, number, () => Promise<void>]))
+  it.each(later)("%s, at %i minutes => free: a new reference and a new link", async (_n, minutes, arrange) => {
+    await arrange()
+    const first = walletRows()[0].reference
+    const calls = initiateCheckout.mock.calls.length
+    age(minutes)
+    const res = await shopOrder()
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.reference).not.toBe(first)
+    expect(json.authorizationUrl).toBe("https://pay.hubtel.com/abc")
+    expect(initiateCheckout).toHaveBeenCalledTimes(calls + 1)
+    expect(walletRows()).toHaveLength(2)
+  })
+
+  it("the surface now on Paystack, no link, at 30 minutes => Paystack at the full fee, no 409", async () => {
+    await noLink[0][1]()
+    age(30)
+    h.state.config = config()
+    const res = await shopOrder()
+    expect(res.status).toBe(200)
+    expect((initializePayment.mock.calls[0][0] as any).amount).toBe(20.6)
+    expect(walletRows()[1]).toMatchObject({ amount: 20.6, fee: 0.6, payment_method: "paystack" })
+  })
+})
+
+describe("live rows found, then the attempt read fails: refused on any surface", () => {
+  const expectRefused = async (res: Response) => {
+    expect(res.status).toBe(503)
+    expect((await res.json()).error).toMatch(/try again/i)
+    expect(walletRows()).toHaveLength(1)
+    expect(hubtelRows()).toHaveLength(1)
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(initializePayment).not.toHaveBeenCalled()
+  }
+
+  it("direct, surface flipped to Paystack => no Paystack prompt beside the live attempt", async () => {
+    h.state.config = config({ storefront: { mode: "direct" } })
+    h.state.gates.storefrontDirect = true
+    await shopOrder({ momoDirect: true, paymentPhone: "0241234567" })
+    h.state.config = config()
+    h.state.hubtelReadFailAt = 1
+    await expectRefused(await shopOrder({ momoDirect: true, paymentPhone: "0241234567" }))
+  })
+
+  it("hosted, surface flipped to Paystack => no Paystack link beside the live attempt", async () => {
+    h.state.config = config({ storefront: { mode: "checkout" } })
+    await shopOrder()
+    h.state.config = config()
+    h.state.hubtelReadFailAt = 1
+    await expectRefused(await shopOrder())
   })
 })
 

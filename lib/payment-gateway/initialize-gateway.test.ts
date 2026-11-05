@@ -87,16 +87,25 @@ describe("pickHubtelReplay", () => {
   it("nothing => null", () => {
     expect(pickHubtelReplay(null, now)).toBeNull()
   })
-  it("past 15 minutes, a row replays only while its own attempt is open and unexpired", () => {
+  it("past 15 minutes, a row replays only while its own hosted attempt is unexpired and has a link to return", () => {
     const row = { id: "a", reference: "R1", payment_method: "hubtel", status: "pending", created_at: ago(30 * 60_000) }
     const later = new Date(now + 60_000).toISOString()
-    expect(pickHubtelReplay([row], now, [{ internal_reference: "R1", expires_at: later }])).toEqual({ id: "a", reference: "R1" })
-    expect(pickHubtelReplay([row], now, [{ internal_reference: "R1", expires_at: ago(1) }])).toBeNull()
-    expect(pickHubtelReplay([row], now, [{ internal_reference: "OTHER", expires_at: later }])).toBeNull()
+    const link = { internal_reference: "R1", expires_at: later, mode: "checkout", checkout_url: "https://pay.hubtel.com/x" }
+    expect(pickHubtelReplay([row], now, [link])).toEqual({ id: "a", reference: "R1" })
+    expect(pickHubtelReplay([row], now, [{ ...link, expires_at: ago(1) }])).toBeNull()
+    expect(pickHubtelReplay([row], now, [{ ...link, internal_reference: "OTHER" }])).toBeNull()
+    expect(pickHubtelReplay([row], now, [{ ...link, checkout_url: null }])).toBeNull()
+    expect(pickHubtelReplay([row], now, [{ ...link, mode: "direct" }])).toBeNull()
     expect(pickHubtelReplay([row], now)).toBeNull()
   })
-  it("the lookback covers a hosted attempt's 60 minutes", () => {
-    expect(HUBTEL_REPLAY_LOOKBACK_MS).toBe(60 * 60_000)
+  it("inside 15 minutes a row replays with or without a link", () => {
+    const row = { id: "a", reference: "R1", payment_method: "hubtel", status: "pending", created_at: ago(5 * 60_000) }
+    const noLink = { internal_reference: "R1", expires_at: new Date(now + 60_000).toISOString(), mode: "checkout", checkout_url: null }
+    expect(pickHubtelReplay([row], now, [noLink])).toEqual({ id: "a", reference: "R1" })
+    expect(pickHubtelReplay([row], now)).toEqual({ id: "a", reference: "R1" })
+  })
+  it("the lookback covers an attempt started up to 15 minutes after its row, living 60", () => {
+    expect(HUBTEL_REPLAY_LOOKBACK_MS).toBe(75 * 60_000)
   })
 })
 

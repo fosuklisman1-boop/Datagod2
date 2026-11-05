@@ -17,7 +17,7 @@ const h = vi.hoisted(() => {
   const chain = (table: string) => {
     const c: any = {}
     let inserting = false
-    for (const m of ["select", "or", "eq", "is", "in", "update", "gte", "gt"]) c[m] = () => c
+    for (const m of ["select", "or", "eq", "is", "in", "update", "gte", "gt", "order"]) c[m] = () => c
     c.limit = () => (table === "wallet_payments" && !inserting
       ? Promise.resolve({ data: state.livePayments, error: null })
       : c)
