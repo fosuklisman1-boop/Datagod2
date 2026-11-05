@@ -36,6 +36,7 @@ function make(o: { gateway?: boolean } = {}) {
     payerOtp: { required: vi.fn(async () => false), verified: vi.fn(async () => false) },
     now: () => NOW,
     defer: (fn) => { deferred.push(fn) },
+    reopenOtpChat: vi.fn(async () => {}),
     ...(o.gateway === false ? {} : { gateway: { getConfig: getGatewayConfig, isReady: isHubtelCollectionReady } }),
   }
   const flush = async () => { for (const f of deferred.splice(0)) await f() }
@@ -160,6 +161,78 @@ describe("bot charge on Hubtel", () => {
     await botChargeMomo(m.deps, input({ botSurface: "whatsapp", payPhone: "0241234567" }))
     await m.flush()
     expect(hubtelRows()[0].surface).toBe("whatsapp")
+  })
+
+  it("WhatsApp: another number that passed an OTP verification stays on Paystack at the full fee, with no lookup for the gateway", async () => {
+    kit.db.hubtel_bill_orders[0].bot_surface = "whatsapp"
+    const m = make()
+    vi.mocked(m.deps.payerOtp.verified).mockResolvedValue(true)
+    await botChargeMomo(m.deps, input({ botSurface: "whatsapp", payPhone: "0551234567" }))
+    expect(m.charge.mock.calls[0][0]).toMatchObject({ amount: 20.22, phone: "0551234567" })
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(m.deps.payerOtp.verified).not.toHaveBeenCalled()
+  })
+
+  describe("refused, and the fallback Paystack charge asks for an OTP (after the reply already closed the chat)", () => {
+    const refusedThenOtp = (m: ReturnType<typeof make>) => {
+      kit.receive.mockImplementation(async () => ({ kind: "refused", code: "4000", message: "no" }))
+      m.charge.mockImplementation(async (p: any) => ({ status: "send_otp", reference: p.reference }))
+    }
+
+    it("main WhatsApp bot: pointer stored first, then the chat reopens under the sender, not the paying number", async () => {
+      kit.db.hubtel_bill_orders[0].bot_surface = "whatsapp"
+      const m = make()
+      refusedThenOtp(m)
+      const calls: string[] = []
+      vi.mocked(m.deps.otpPointer.set).mockImplementation(async () => { calls.push("pointer") })
+      vi.mocked(m.deps.reopenOtpChat!).mockImplementation(async () => { calls.push("reopen") })
+      await botChargeMomo(m.deps, input({ botSurface: "whatsapp", payPhone: "0241234567" }))
+      expect(m.deps.reopenOtpChat).not.toHaveBeenCalled() // not before the reply
+      await m.flush()
+      expect(calls).toEqual(["pointer", "reopen"])
+      expect(m.deps.reopenOtpChat).toHaveBeenCalledTimes(1)
+      expect(m.deps.reopenOtpChat).toHaveBeenCalledWith("whatsapp", "0241234567")
+      expect(vi.mocked(m.deps.otpPointer.set).mock.calls[0][1]).toMatchObject({ reference: payment().reference, channel: "whatsapp" })
+    })
+
+    it("shop WhatsApp bot: its own channel", async () => {
+      Object.assign(kit.db.hubtel_bill_orders[0], { bot_surface: "whatsapp_shop", shop_id: "shop-1" })
+      const m = make()
+      refusedThenOtp(m)
+      await botChargeMomo(m.deps, input({ botSurface: "whatsapp_shop", shopId: "shop-1", payPhone: "0241234567" }))
+      await m.flush()
+      expect(m.deps.reopenOtpChat).toHaveBeenCalledWith("whatsapp_shop", "0241234567")
+    })
+
+    it("a failed reopen doesn't fail the order: the Paystack prompt is out", async () => {
+      kit.db.hubtel_bill_orders[0].bot_surface = "whatsapp"
+      const m = make()
+      refusedThenOtp(m)
+      vi.mocked(m.deps.reopenOtpChat!).mockRejectedValue(new Error("redis down"))
+      await botChargeMomo(m.deps, input({ botSurface: "whatsapp", payPhone: "0241234567" }))
+      await m.flush()
+      expect(order().status).toBe("pending")
+      expect(payment().status).toBe("pending")
+    })
+
+    it("Uzo USSD never reopens a WhatsApp chat (its redial path takes over)", async () => {
+      const m = make()
+      refusedThenOtp(m)
+      await botChargeMomo(m.deps, input())
+      await m.flush()
+      expect(m.deps.otpPointer.set).toHaveBeenCalledTimes(1)
+      expect(m.deps.reopenOtpChat).not.toHaveBeenCalled()
+    })
+
+    it("no OTP asked: no reopen", async () => {
+      kit.db.hubtel_bill_orders[0].bot_surface = "whatsapp"
+      kit.receive.mockImplementation(async () => ({ kind: "refused", code: "4000", message: "no" }))
+      const m = make()
+      await botChargeMomo(m.deps, input({ botSurface: "whatsapp", payPhone: "0241234567" }))
+      await m.flush()
+      expect(m.charge).toHaveBeenCalledTimes(1)
+      expect(m.deps.reopenOtpChat).not.toHaveBeenCalled()
+    })
   })
 
   it("an order left fee-free by an earlier Hubtel attempt gets its fee back before a Paystack charge", async () => {
