@@ -12,13 +12,15 @@ export interface EligibilityInput {
   externalOrderId: string | null
   /** Commission tables only: the raw order facts + Hubtel ledger rows. */
   commission?: CommissionEvidence
+  /** The payment is a Hubtel collection: no refund route exists here yet. */
+  hubtelCollection?: boolean
   /** Clock (ms epoch) for the never-sent grace / stuck-claim ages. Defaults to Date.now(). */
   now?: number
 }
 
 export type EligibilityCode =
   | "NOT_PENDING" | "ALREADY_REFUNDED" | "DISPATCH_IN_PROGRESS" | "DISPATCH_UNKNOWN"
-  | "PROVIDER_IN_PROGRESS" | "SENT_TO_PROVIDER" | "NOT_STOREFRONT" | "HUBTEL_BLOCKED" | "BEFORE_LAUNCH"
+  | "PROVIDER_IN_PROGRESS" | "SENT_TO_PROVIDER" | "NOT_STOREFRONT" | "HUBTEL_BLOCKED" | "BEFORE_LAUNCH" | "HUBTEL_COLLECTION"
 
 /**
  * releaseStuck: a stuck Hubtel dispatch claim (processing, never reached Hubtel, >= 5 min) must be released first.
@@ -33,7 +35,7 @@ export function orderEligibility(o: RefundableOrder, now: number = Date.now()): 
   return evaluateEligibility({
     table: o.table, orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
     dispatchOutcome: o.evidence.dispatchOutcome, trackingStatuses: o.evidence.trackingStatuses,
-    externalOrderId: o.evidence.externalOrderId, commission: o.evidence.commission, now,
+    externalOrderId: o.evidence.externalOrderId, commission: o.evidence.commission, hubtelCollection: o.payment.hubtelCollection, now,
   })
 }
 
@@ -105,8 +107,8 @@ function commissionEligibility(table: CommissionTable, i: EligibilityInput): Eli
 /**
  * Provider TRACKING statuses (mtn_fulfillment_tracking / fulfillment_logs), never the payment's: "abandoned" here is a
  * provider attempt given up on. A Hubtel-paid order is payment_status 'completed' like a Paystack one (the shared
- * charge handler sets it), so the gateway never changes this decision; the Paystack verifiers skip Hubtel rows so
- * they cannot mark such an order's payment abandoned.
+ * charge handler sets it), so these statuses never depend on the gateway; the Paystack verifiers skip Hubtel rows so
+ * they cannot mark such an order's payment abandoned. Hubtel collections stop earlier, at hubtelCollection.
  */
 const TERMINAL_FAILED = new Set(["failed", "error", "abandoned"])
 const IN_FLIGHT = new Set(["pending", "processing", "retrying"])
@@ -120,6 +122,9 @@ export function refundableStatuses(table: OrderTable): readonly string[] {
 const no = (code: EligibilityCode, reason: string): Eligibility => ({ eligible: false, code, reason })
 
 export function evaluateEligibility(i: EligibilityInput): Eligibility {
+  if (i.hubtelCollection) {
+    return no("HUBTEL_COLLECTION", "This order was paid through Hubtel. Refunds through Hubtel are not available here yet, and Paystack never held this money.")
+  }
   if (i.table && isCommissionTable(i.table)) return commissionEligibility(i.table, i)
   if (!refundableStatuses(i.table ?? "shop_orders").includes(i.orderStatus) || i.paymentStatus !== "completed") return no("NOT_PENDING", "Order is not a paid, pending order")
   if (i.hasActiveRefund) return no("ALREADY_REFUNDED", "A refund already exists for this order")

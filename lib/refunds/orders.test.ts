@@ -579,3 +579,48 @@ describe("external_order_id on orders / api_orders", () => {
     expect(sel).not.toContain("external_order_id")
   })
 })
+
+describe("orders paid through Hubtel collections", () => {
+  const hubtelRow = (internal_reference: string, status: string) => ({
+    reference: "a".repeat(32), internal_reference, status, amount_pesewas: 1000, created_at: "2026-11-05T00:00:00Z",
+  })
+  const shopOrder = {
+    id: "s1", shop_id: "shopA", customer_phone: "0241112222", network: "MTN", volume_gb: 1, total_price: 10,
+    order_status: "pending", payment_status: "completed", created_at: "2026-11-05T00:00:00Z",
+  }
+  const walletRow = { order_id: "s1", reference: "WALLET-1", amount: 10, fee: 0, status: "completed" }
+  const ussdOrder = {
+    id: "u1", dialing_phone: "0241112222", recipient_phone: "0241112222", network: "MTN", package_size: "1",
+    amount: 10, order_status: "pending", payment_status: "completed", paystack_reference: "u1", created_at: "2026-11-05T00:00:00Z",
+  }
+
+  it("a shop order whose wallet_payments reference was paid on Hubtel is never labelled Paystack", async () => {
+    const db = fakeDb({ ...EMPTY, shop_orders: [shopOrder], wallet_payments: [walletRow], hubtel_payments: [hubtelRow("WALLET-1", "paid")] })
+    const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
+    expect(o.payment).toMatchObject({ gateway: "hubtel", reference: null, hubtelCollection: true })
+  })
+
+  it("a USSD order is found by its own id, and a parked attempt counts: money may be held", async () => {
+    const db = fakeDb({ ...EMPTY, ussd_orders: [ussdOrder], hubtel_payments: [hubtelRow("u1", "needs_review")] })
+    const [o] = await loadRefundableOrders(db, [{ table: "ussd_orders", id: "u1" }])
+    expect(o.payment).toMatchObject({ gateway: "hubtel", reference: null, hubtelCollection: true })
+  })
+
+  it("a closed Hubtel attempt beside a Paystack payment leaves the order on Paystack", async () => {
+    const db = fakeDb({ ...EMPTY, shop_orders: [shopOrder], wallet_payments: [walletRow], hubtel_payments: [hubtelRow("WALLET-1", "failed")] })
+    const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
+    expect(o.payment).toMatchObject({ gateway: "paystack", reference: "WALLET-1" })
+    expect(o.payment.hubtelCollection).toBeUndefined()
+  })
+
+  it("no Hubtel row: unchanged", async () => {
+    const db = fakeDb({ ...EMPTY, shop_orders: [shopOrder], wallet_payments: [walletRow], hubtel_payments: [] })
+    const [o] = await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])
+    expect(o.payment).toMatchObject({ gateway: "paystack", reference: "WALLET-1" })
+  })
+
+  it("the Hubtel lookup failing throws rather than offering a Paystack refund", async () => {
+    const db = fakeDb({ ...EMPTY, shop_orders: [shopOrder], wallet_payments: [walletRow] }, [], { hubtel_payments: "boom" })
+    await expect(loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])).rejects.toThrow()
+  })
+})

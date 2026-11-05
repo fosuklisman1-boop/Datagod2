@@ -4,6 +4,7 @@ import { loadPayerPhones } from "./payer-phone"
 import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
+import { findHubtelPayments, isLiveHubtelStatus } from "@/lib/hubtel-pay/lookup"
 
 /** A stored phone as 0XXXXXXXXX when it is a Ghana number (USSD rows store +233XXXXXXXXX), else as stored. */
 export function displayPhone(v: unknown): string | null {
@@ -186,7 +187,23 @@ export async function loadRefundableOrders(
     const rows = await inRows<any>(db, table, SELECT[table], "id", ids)
     out.push(...(isCommissionTable(table) ? await enrichCommission(db, table, rows) : await enrich(db, table, rows)))
   }
-  return out
+  return markHubtelCollections(db, out)
+}
+
+/**
+ * Orders with a Hubtel collection attempt that holds or may hold the customer's money. The payment then belongs to
+ * Hubtel whatever the row above looks like: Paystack never saw this reference, so it loses the reference and can't be
+ * offered, and eligibility refuses the refund until Hubtel Send Money exists. Looked up by the payment reference and
+ * the order id (USSD-style orders use their id). A failed lookup throws: never guess a payment is Paystack's.
+ */
+async function markHubtelCollections(db: SupabaseClient, orders: RefundableOrder[]): Promise<RefundableOrder[]> {
+  if (orders.length === 0) return orders
+  const attempts = await findHubtelPayments(db, orders.flatMap((o) => [o.id, o.payment.reference]))
+  const hasLive = (ref: string | null) => !!ref && isLiveHubtelStatus(attempts.get(ref)?.status)
+  return orders.map((o) => {
+    if (!hasLive(o.id) && !hasLive(o.payment.reference)) return o
+    return { ...o, payment: { ...o.payment, gateway: "hubtel" as const, reference: null, hubtelCollection: true } }
+  })
 }
 
 /** Per-shop credited/pending profit for one order, with each owner's balances (pesewa-exact sums). */

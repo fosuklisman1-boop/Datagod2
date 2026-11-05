@@ -104,6 +104,11 @@ export interface PaymentSource {
    * equal to the order price); null when unknown.
    */
   hubtel?: { orderId: string; amountPaid: number; amountAfterCharges: number | null; paidAt: string; paidRows: number }
+  /**
+   * A Hubtel collection (hubtel_payments, the gateway switch) holds or may hold this order's money. Not the USSD
+   * checkout rail above: there is no way to send this money back from here until Hubtel Send Money, so it is refused.
+   */
+  hubtelCollection?: boolean
 }
 
 export interface RefundableOrder {

@@ -71,4 +71,10 @@ describe("refundableStatuses / per-table status", () => {
   it("a table-less input behaves like the original tables (pending only)", () => {
     expect(code({ orderStatus: "held_registration" })).toBe("NOT_PENDING")
   })
+  it("a Hubtel collection is refused on every table, with a message that says why", () => {
+    expect(code({ hubtelCollection: true })).toBe("HUBTEL_COLLECTION")
+    expect(code({ table: "hubtel_bill_orders", hubtelCollection: true })).toBe("HUBTEL_COLLECTION")
+    const r = evaluateEligibility({ ...base, hubtelCollection: true })
+    expect(r.eligible ? "" : r.reason).toMatch(/Hubtel/)
+  })
 })
