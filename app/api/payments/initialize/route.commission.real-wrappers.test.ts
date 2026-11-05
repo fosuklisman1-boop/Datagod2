@@ -22,7 +22,7 @@ const h = vi.hoisted(() => {
     nextId: 1,
   }
   const OPEN = ["pending", "confirming"]
-  const ORDER_TABLES = ["hubtel_bill_orders", "hubtel_data_orders"]
+  const ORDER_TABLES = ["hubtel_bill_orders", "hubtel_data_orders", "airtime_orders"]
   const query = (table: string) => {
     const rows = () => (state.db[table] ??= [])
     const filters: ((r: Row) => boolean)[] = []
@@ -46,7 +46,7 @@ const h = vi.hoisted(() => {
         if (table === "wallet_payments" && state.walletUpdateError) return { data: null, error: state.walletUpdateError }
         if (ORDER_TABLES.includes(table) && state.orderUpdateError) return { data: null, error: state.orderUpdateError }
         const hit = matching()
-        if (ORDER_TABLES.includes(table) && "paid_amount" in patch) state.orderUpdates++
+        if (ORDER_TABLES.includes(table) && ("paid_amount" in patch || "total_paid" in patch)) state.orderUpdates++
         hit.forEach((r) => Object.assign(r, patch))
         return { data: hit, error: null }
       }
@@ -152,6 +152,14 @@ vi.mock("@/lib/sms-service", () => ({ sendSMS: vi.fn(async () => {}), notifyAdmi
 vi.mock("@/lib/app-settings", () => ({ getJoinCommunityLink: vi.fn(async () => null) }))
 vi.mock("@/lib/push-service", () => ({ sendPushToUser: vi.fn(async () => {}), notifyAdminsPush: vi.fn(async () => {}) }))
 vi.mock("@/lib/internal-url", () => ({ getInternalBaseUrl: () => "http://localhost" }))
+// The airtime branch's price check is the real handler's; only the post-payment flip and dispatch are faked here.
+vi.mock("@/lib/airtime-service", () => ({
+  markAirtimeOrderPaid: async (id: string) => {
+    const row = (h.state.db.airtime_orders ?? []).find((r) => r.id === id && r.payment_status !== "completed")
+    if (row) row.payment_status = "completed"
+    return { success: true }
+  },
+}))
 vi.mock("@/lib/results-checker-service", () => ({
   notifyAdminsNewResultsCheckRequest: vi.fn(async () => {}),
   fulfillPaidResultsCheckRequest: vi.fn(async () => ({})),
@@ -597,6 +605,89 @@ describe("the order must still be payable", () => {
     }))
     expect(res.status).toBe(200)
     expect((initializePayment.mock.calls[0][0] as any).amount).toBe(BASE)
+    expect(h.state.orderUpdates).toBe(0)
+  })
+})
+
+describe("storefront cashback airtime: total_paid has the payment fee inside it", () => {
+  // Face 50, cashback 0 here, fee 1.95% rounded up: 0.98. total_paid 50.98.
+  const seedAirtime = (o: Record<string, unknown> = {}) => {
+    h.state.db.airtime_orders = [{
+      id: ORDER_ID, shop_id: "shop1", status: "pending_payment", payment_status: "pending_payment", beneficiary_phone: "0241234567",
+      total_paid: 50.98, payment_fee_amount: 0.98, fee_amount: 0, cashback_rate: 3, ...o,
+    }]
+  }
+  const airtime = () => h.state.db.airtime_orders[0]
+  const buy = (body: Record<string, unknown> = {}) =>
+    POST(new NextRequest("http://x/api/payments/initialize", {
+      method: "POST", headers: { "content-type": "application/json", host: "shop.example" },
+      body: JSON.stringify({ orderId: ORDER_ID, orderType: "airtime", shopSlug: "myshop", email: "b@example.com", amount: 1, ...body }),
+    }))
+  // null is the handler's plain "done" (the webhook route answers 200 for it).
+  const settle = async (reference: string, pesewas: number) => (await handleChargeSuccess({ reference, amount: pesewas, id: 123 }))?.status ?? 200
+  beforeEach(() => {
+    seedAirtime()
+    h.state.cashback = { ...h.state.cashback, storefrontGroups: { ...h.state.cashback.storefrontGroups, airtime: true }, paymentFee: { ...h.state.cashback.paymentFee, airtime: 1.95 } }
+  })
+
+  it("Paystack: total_paid charged as it stands, no write to the order", async () => {
+    h.state.config = config()
+    h.state.cashbackError = true
+    expect((await buy()).status).toBe(200)
+    expect((initializePayment.mock.calls[0][0] as any).amount).toBe(50.98)
+    expect(h.state.orderUpdates).toBe(0)
+    expect(await settle(walletRows()[0].reference, 5098)).toBe(200)
+    expect(airtime().payment_status).toBe("completed")
+  })
+
+  it("Hubtel: the fee comes out of total_paid before Hubtel is asked, and the real handler settles it", async () => {
+    expect((await buy()).status).toBe(200)
+    expect(initiateCheckout.mock.calls[0][0]).toMatchObject({ amount: 50 })
+    expect(airtime()).toMatchObject({ total_paid: 50, payment_fee_amount: null })
+    expect(walletRows()[0]).toMatchObject({ amount: 50, fee: 0, payment_method: "hubtel" })
+    expect(await confirmHubtelPayment(hubtelRows()[0].reference, confirmDeps(5100))).toBe("fulfilled")
+    expect(airtime().payment_status).toBe("completed")
+  })
+
+  it("fallback after a refusal: price + fee is charged, total_paid says so, the handler settles it", async () => {
+    initiateCheckout.mockImplementation(async () => REFUSED)
+    expect((await buy()).status).toBe(200)
+    const sent = initializePayment.mock.calls[0][0] as any
+    expect(sent.amount).toBe(50.98)
+    expect(airtime()).toMatchObject({ total_paid: 50.98, payment_fee_amount: 0.98 })
+    expect(walletRows()[0]).toMatchObject({ amount: 50.98, payment_method: "paystack" })
+    expect(await settle(sent.reference, 5000)).toBe(400)
+    expect(airtime().payment_status).toBe("pending_payment")
+    expect(await settle(sent.reference, 5098)).toBe(200)
+    expect(airtime().payment_status).toBe("completed")
+  })
+
+  it.each<[string, () => void]>([
+    ["the order write errors", () => { h.state.orderUpdateError = { message: "db down" } }],
+    ["the order was paid meanwhile", () => { airtime().status = "processing" }],
+    ["the fee can't be read", () => { h.state.cashbackError = true }],
+  ])("fallback: %s => 503, nothing charged", async (_n, breakIt) => {
+    initiateCheckout.mockImplementation(async () => { breakIt(); return REFUSED })
+    expect((await buy()).status).toBe(503)
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("the order write fails before Hubtel => 503, nothing written or sent", async () => {
+    h.state.orderUpdateError = { message: "db down" }
+    expect((await buy()).status).toBe(503)
+    expect(initiateCheckout).not.toHaveBeenCalled()
+    expect(walletRows()).toHaveLength(0)
+    expect(airtime().total_paid).toBe(50.98)
+  })
+
+  it.each<[string, () => void]>([
+    ["on Hubtel", () => {}],
+    ["on fallback", () => { initiateCheckout.mockImplementation(async () => REFUSED) }],
+  ])("a legacy airtime order (fee_amount is margin, no cashback snapshot) is untouched %s", async (_n, arrange) => {
+    seedAirtime({ cashback_rate: null, payment_fee_amount: null, fee_amount: 2, total_paid: 52 })
+    arrange()
+    expect((await buy()).status).toBe(200)
+    expect(airtime()).toMatchObject({ total_paid: 52, fee_amount: 2, payment_fee_amount: null })
     expect(h.state.orderUpdates).toBe(0)
   })
 })

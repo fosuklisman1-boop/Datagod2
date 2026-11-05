@@ -15,7 +15,7 @@ import {
   isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkCommissionPayable,
   STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF, type CommissionPrice,
 } from "@/lib/storefront-commission/payment"
-import { priceCommissionOrder } from "@/lib/storefront-commission/reprice"
+import { AIRTIME_REPRICE_SPEC, commissionRepriceSpec, priceOrderForGateway, type RepriceSpec } from "@/lib/storefront-commission/reprice"
 import { FallbackRefusedError, HostedStartError, resolveSurfaceGateway, startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
 import { getSurfaceConfig } from "@/lib/payment-gateway/read-config"
 import type { FeeBearer, Gateway } from "@/lib/payment-gateway/config"
@@ -405,8 +405,9 @@ export async function POST(request: NextRequest) {
     let recipient: string | undefined // product beneficiary (data/airtime recipient) for metadata
     // A channel 'bots' commission order (USSD / WhatsApp bots): no storefront slug, neutral payer email.
     let botOrder = false
-    // A storefront commission order's price: the payment fee is inside paid_amount, so it moves with the gateway.
-    let commissionPrice: CommissionPrice | null = null
+    // An order whose stored price has the payment fee inside it (storefront commission: paid_amount; storefront
+    // cashback airtime: total_paid), so that price moves with the gateway.
+    let movablePrice: { spec: RepriceSpec; price: CommissionPrice } | null = null
 
     // Commission order: amount = paid_amount from the DB (the payment fee is already inside it), and only a row that
     // is still pending AND unpaid. Storefront rows: this shop's row, payer email = the buyer's. Bot rows: payer email =
@@ -438,9 +439,9 @@ export async function POST(request: NextRequest) {
       email = payable.email
       shopId = payable.shopId
       botOrder = payable.bot
-      if (!payable.bot) {
+      if (!payable.bot && storefrontType) {
         const recordedFee = (csRow as { payment_fee_amount?: number | string | null } | null)?.payment_fee_amount
-        commissionPrice = { paid: payable.amount, fee: recordedFee === null ? null : Number(recordedFee ?? 0) }
+        movablePrice = { spec: commissionRepriceSpec(storefrontType), price: { paid: payable.amount, fee: recordedFee === null ? null : Number(recordedFee ?? 0) } }
       }
     } else if (orderId) {
       // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
@@ -460,7 +461,8 @@ export async function POST(request: NextRequest) {
       const phoneColumn = orderType === "airtime" ? "beneficiary_phone"
         : orderType === "results_check_service" ? "phone_number"
         : "customer_phone"
-      const selectColumns = `${amountColumn}, ${statusField}, payment_status, ${phoneColumn}`
+      // Airtime also reads its cashback snapshot: only a cashback order has a payment fee inside total_paid.
+      const selectColumns = `${amountColumn}, ${statusField}, payment_status, ${phoneColumn}${orderType === "airtime" ? ", payment_fee_amount, cashback_rate" : ""}`
       const { data: orderData, error: orderError } = await supabase
         .from(table)
         .select(selectColumns)
@@ -508,6 +510,12 @@ export async function POST(request: NextRequest) {
 
       console.log(`[PAYMENT-INIT] ✓ Price verified. Client sent: ${amount}, DB has: ${verifiedAmount}. Enforcing DB value.`)
       finalAmount = verifiedAmount
+      // A legacy airtime order (no cashback snapshot) has no payment fee in total_paid: its fee_amount is margin.
+      const cashbackAirtime = orderType === "airtime" && (orderData as any).cashback_rate !== null && (orderData as any).cashback_rate !== undefined
+      if (cashbackAirtime) {
+        const recordedFee = (orderData as any).payment_fee_amount
+        movablePrice = { spec: AIRTIME_REPRICE_SPEC, price: { paid: verifiedAmount, fee: recordedFee === null ? null : Number(recordedFee ?? 0) } }
+      }
     } else if (type === "dealer_upgrade" && planId) {
       console.log(`[PAYMENT-INIT] Dealer Upgrade detected. Verifying plan ${planId}...`)
       const { data: plan, error: planError } = await supabase
@@ -665,11 +673,11 @@ export async function POST(request: NextRequest) {
     }
 
     // The gateway is settled and the order isn't held by a live attempt, so its price can match: confirm checks
-    // paid_amount to the pesewa, so nothing is charged unless the two agree.
-    if (commissionPrice && isStorefrontOrderType(storefrontType)) {
-      const priced = await priceCommissionOrder(supabase, storefrontType, orderId, commissionPrice, gateway === "hubtel" || feeBearer === "merchant")
+    // the stored price, so nothing is charged unless the two agree.
+    if (movablePrice && gatewaySurface) {
+      const priced = await priceOrderForGateway(supabase, movablePrice.spec, orderId, movablePrice.price, gateway === "hubtel" || feeBearer === "merchant")
       if (!priced.ok) return NextResponse.json({ error: "Could not start the payment. Please try again.", code: "try_again" }, { status: 503 })
-      commissionPrice = priced.price
+      movablePrice.price = priced.price
       finalAmount = priced.price.paid
     }
 
@@ -800,12 +808,12 @@ export async function POST(request: NextRequest) {
     let rowMethod: Gateway = gateway
     const repriceForPaystack = async (): Promise<{ amount: number }> => {
       const fee = initializeFee({ surface: gatewaySurface, gateway: "paystack", feeBearer, standardFee })
-      // A storefront commission order's fee lives in paid_amount, which moves first: if the payment row then fails,
-      // nothing is charged and the next start puts the price right again for whichever gateway it resolves to.
-      if (commissionPrice && isStorefrontOrderType(storefrontType) && feeBearer === "customer") {
-        const priced = await priceCommissionOrder(supabase, storefrontType, orderId, commissionPrice, false)
+      // An order's own price with the fee inside moves first: if the payment row then fails, nothing is charged and
+      // the next start puts the price right again for whichever gateway it resolves to.
+      if (movablePrice && feeBearer === "customer") {
+        const priced = await priceOrderForGateway(supabase, movablePrice.spec, orderId, movablePrice.price, false)
         if (!priced.ok) throw new FallbackRefusedError()
-        commissionPrice = priced.price
+        movablePrice.price = priced.price
         finalAmount = priced.price.paid
         paymentMetadata.originalAmount = finalAmount
       }
