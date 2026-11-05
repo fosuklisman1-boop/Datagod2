@@ -123,9 +123,9 @@ describe("hubtel_send refund()", () => {
     await hubtelSendGateway.refund(ctx(hubtelOrder({ channel: "vodafone-gh" })))
     expect(sendMoney.mock.calls[0][0].channel).toBe("vodafone-gh")
     sendMoney.mockClear()
-    // the admin-confirmed destination differs from the number that paid: use the prefix of the destination
-    await hubtelSendGateway.refund(ctx(hubtelOrder({ channel: "vodafone-gh" }), 5, "0265550199"))
-    expect(sendMoney.mock.calls[0][0]).toMatchObject({ msisdn: "233265550199", channel: "tigo-gh" })
+    // no stored channel: the paying number's prefix
+    await hubtelSendGateway.refund(ctx(hubtelOrder({ channel: null }), 5))
+    expect(sendMoney.mock.calls[0][0]).toMatchObject({ msisdn: "233245550101", channel: "mtn-gh" })
   })
   it("passes unknown and completed outcomes straight through", async () => {
     sendMoney.mockResolvedValue({ kind: "unknown", error: "timeout" })
@@ -177,6 +177,32 @@ describe("hubtel_send refund()", () => {
   it("never leaks the msisdn into an outcome message", async () => {
     const out = await hubtelSendGateway.refund(ctx(hubtelOrder({ requestedPesewas: 100 }), 5, "0245550101"))
     expect(JSON.stringify(out)).not.toMatch(/245550101/)
+  })
+})
+
+// A Hubtel payout goes only to the number that paid: a number on the order row may be the dialler, not the payer.
+describe("hubtel_send pays only the number that paid", () => {
+  it("refuses an attempt with no stored number (e.g. hosted checkout), even if the order row has one", () => {
+    const s = hubtelSendGateway.supports(hubtelOrder({ msisdn: null }))
+    expect(s.ok).toBe(false)
+  })
+  it("sends nothing to a destination other than the paying number", async () => {
+    const out = await hubtelSendGateway.refund(ctx(hubtelOrder(), 10, "0245550199"))
+    expect(out.kind).toBe("failed")
+    expect(sendMoney).not.toHaveBeenCalled()
+  })
+  it("the same number in another format is still the paying number", async () => {
+    sendMoney.mockResolvedValueOnce({ kind: "pending", ref: "t1" })
+    await hubtelSendGateway.refund(ctx(hubtelOrder(), 10, "+233245550101"))
+    expect(sendMoney).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("an order with two paid Hubtel attempts", () => {
+  it("offers manual only: which payment to return needs a person", () => {
+    const order = hubtelOrder({ paidAttempts: 2, msisdn: null, channel: null, requestedPesewas: null, paymentMethod: null })
+    const offered = listGateways().filter((g) => supportOf(g, order).ok).map((g) => g.id)
+    expect(offered).toEqual(["manual"])
   })
 })
 

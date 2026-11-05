@@ -28,7 +28,7 @@
 2. 2001 is ambiguous in Hubtel's docs (processor error, invalid number or duplicate reference), so it is `unknown`, not `failed`.
 3. Status check "no match" right after sending is not failure: it stays `pending` until the reconcile window passes, then needs a human.
 4. An order paid by two attempts, or an attempt that turned `needs_review`, can't be refunded automatically.
-5. A checkout-paid order has no stored MoMo number: the destination is what the admin confirms in the dialog, and a card payment is refused.
+5. `hubtel_send` pays only the number stored on the paid attempt. A checkout-paid order has no stored number, so it is refunded another way, and a card payment is refused. An order with two paid attempts offers manual only.
 
 ---
 

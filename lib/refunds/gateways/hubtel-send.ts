@@ -28,7 +28,10 @@ function refusal(order: RefundableOrder, phone: string | null): string | null {
   if (a.paidAttempts !== 1) return "This order has more than one paid Hubtel payment — refund manually"
   if (!isAllowedPaymentMethod(a.paymentMethod)) return "Only mobile money payments can be paid back through Hubtel — refund another way"
   if (a.requestedPesewas == null || !(a.requestedPesewas > 0)) return "The amount requested from Hubtel is unknown — refund manually"
+  // Only ever the number that paid. A number on the order row may be the dialler, not the payer.
+  if (!a.msisdn) return "Hubtel did not record the paying number — refund another way"
   if (!phone) return "No payer number on the order"
+  if (toHubtelMsisdn(phone) !== toHubtelMsisdn(a.msisdn)) return "Hubtel payouts only go to the number that paid — refund another way"
   if (!destinationOf(order, phone)) return "Payer number is not a recognised MoMo network"
   return null
 }
