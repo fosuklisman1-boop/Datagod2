@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
 
@@ -195,6 +195,10 @@ vi.mock("./policy-context", () => ({
   },
   shadowPolicyWithin: () => Promise.resolve({ mode: "platform", shadow: { decision: "allow", code: "OK", reason: "", flags: [], enforced: false, evaluated_at: "t" } }),
   buildShadow: (r: any, enforced: boolean) => ({ ...r, enforced, evaluated_at: "t" }),
+  PLATFORM_ROOT_DOMAIN: "datagod.store",
+  loadOwnDomains: () => (h.state as any).ownDomainsThrows
+    ? Promise.reject(new Error("custom_domains read failed"))
+    : Promise.resolve(["datagod.store", "kingsdata.com"]),
   evaluatePolicy: (args: any) => {
     h.state.policyArgs.push(args)
     h.state.calls.push({ fn: "evaluatePolicy" })
@@ -632,6 +636,29 @@ describe("enqueueSend", () => {
     const logRow = (() => { const i = inserts("sms_send_logs")[0]; return Array.isArray(i.args) ? i.args[0] : i.args })()
     expect(logRow.mode).toBe("platform")
     expect(logRow.policy_shadow).toMatchObject({ decision: "allow", enforced: false })
+  })
+
+  describe("a seller's own store link (store name contains a digit)", () => {
+    const tokens = { shop_name: "Shop 5", shop_link: "https://shop-5.datagod.store", shop_phone: "", shop_whatsapp: "" }
+    afterEach(() => { (h.state as any).ownDomainsThrows = false })
+
+    it("{shop_link} is not blocked", async () => {
+      expect((await enqueueSend("u1", "acc1", "Buy at {shop_link}", ["0241234567"], tokens as any)).ok).toBe(true)
+    })
+    it("a typed link is not blocked", async () => {
+      expect((await enqueueSend("u1", "acc1", "Buy at http://shop-5.datagod.store", ["0241234567"])).ok).toBe(true)
+    })
+    it("a custom domain store is not blocked", async () => {
+      expect((await enqueueSend("u1", "acc1", "Buy at https://shop5.kingsdata.com", ["0241234567"])).ok).toBe(true)
+    })
+    it("still works on datagod.store if custom domains can't be read", async () => {
+      (h.state as any).ownDomainsThrows = true
+      expect((await enqueueSend("u1", "acc1", "Buy at https://shop-5.datagod.store", ["0241234567"])).ok).toBe(true)
+    })
+    it("a real lookalike is still blocked", async () => {
+      const r = await enqueueSend("u1", "acc1", "Buy at https://paypa1.com", ["0241234567"])
+      expect(r).toMatchObject({ ok: false, error: "BLOCKED" })
+    })
   })
 
   it("blocked send log also records mode + policy_shadow", async () => {

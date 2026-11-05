@@ -4,6 +4,7 @@ import { generateShopSession } from "@/lib/shop-token-edge"
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
+import { safeRedirectPath } from "@/lib/post-auth-redirect"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 import { apiHostRewrite } from "@/lib/api-v2/host"
 import { subagentsHostRedirect, SUBAGENTS_SUBDOMAIN } from "@/lib/sub-agents/join-host"
@@ -316,10 +317,10 @@ export async function middleware(request: NextRequest) {
     !path.startsWith("/auth/complete-profile") &&
     !path.startsWith("/auth/callback")
   ) {
-    const dashboardUrl = request.nextUrl.clone()
-    dashboardUrl.pathname = "/dashboard"
-    dashboardUrl.searchParams.delete("redirect")
-    return NextResponse.redirect(dashboardUrl)
+    // Honor a remembered destination (?redirect=/dashboard/x) so a user who is
+    // already signed in still lands on the page they clicked, not the dashboard root.
+    const target = safeRedirectPath(request.nextUrl.searchParams.get("redirect"))
+    return NextResponse.redirect(new URL(target, request.nextUrl.origin))
   }
 
   // ── Security headers ────────────────────────────────────────────────────────
@@ -337,7 +338,7 @@ export async function middleware(request: NextRequest) {
     // frame-ancestors replaces X-Frame-Options; keep both for broad compatibility.
     "frame-ancestors 'self' https://js.paystack.co",
     "worker-src 'self' blob:",
-    "connect-src 'self' https://js.paystack.co https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co https://storage.googleapis.com https://eu.i.posthog.com https://eu-assets.i.posthog.com https://www.google-analytics.com https://www.googletagmanager.com https://challenges.cloudflare.com",
+    "connect-src 'self' https://js.paystack.co https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co https://storage.googleapis.com https://eu.i.posthog.com https://eu-assets.i.posthog.com https://*.google-analytics.com https://analytics.google.com https://*.analytics.google.com https://www.google.com https://*.googletagmanager.com https://challenges.cloudflare.com",
     // Harden against injection via object/data URIs and base-tag hijacking.
     "object-src 'none'",
     "base-uri 'self'",

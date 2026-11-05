@@ -180,6 +180,31 @@ describe("extractLinkHosts — bypass hardening", () => {
   }
 })
 
+describe("filterSmsContent — our own domains", () => {
+  const ownDomains = ["datagod.store", "kingsdata.com"]
+  it("a store name with a digit is not a lookalike (shop-5)", () => {
+    expect(filterSmsContent("Buy at https://shop-5.datagod.store", { ownDomains }).blocked).toBe(false)
+    expect(filterSmsContent("Buy at http://shop-5.datagod.store/x", { ownDomains }).blocked).toBe(false)
+  })
+  it("a custom domain store with a digit is not a lookalike", () => {
+    expect(filterSmsContent("Buy at https://shop5.kingsdata.com", { ownDomains }).blocked).toBe(false)
+  })
+  it("without the option the old behaviour stands", () => {
+    expect(filterSmsContent("Buy at https://shop-5.datagod.store").blocked).toBe(true)
+  })
+  const stillBlocked: Array<[string, string]> = [
+    ["our name as a prefix of someone else's domain", "https://shop-5.datagod.store.evil1.ru"],
+    ["our name before the @ of someone else's domain", "https://datagod.store@paypa1.com"],
+    ["a lookalike of our name", "https://datag0d.store"],
+    ["a lookalike next to a genuine store link", "https://shop-5.datagod.store or https://paypa1.com"],
+    ["a shortener next to a genuine store link", "https://shop-5.datagod.store or https://bit.ly/x"],
+    ["scam wording next to a genuine store link", "You have won! https://shop-5.datagod.store"],
+  ]
+  for (const [name, message] of stillBlocked) {
+    it(`still blocks ${name}`, () => expect(filterSmsContent(message, { ownDomains }).blocked).toBe(true))
+  }
+})
+
 describe("filterSmsContent — scheme host parsing", () => {
   it("does not flag an allowed domain followed by punctuation", () => {
     const r = filterSmsContent("https://datagod.app!", { allowedDomains: ["datagod.app"] })
@@ -211,5 +236,50 @@ describe("extractLinkHosts — round-2 hardening", () => {
   ]
   for (const [name, input, expected] of cases) {
     it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
+  }
+})
+describe("extractLinkHosts — links that used to slip through", () => {
+  const cases: Array<[string, string, string[]]> = [
+    ["uncommon TLD with a path", "Visit scam.fun/x", ["scam.fun"]],
+    ["uncommon TLD without a path", "Visit scam.ai", ["scam.ai"]],
+    ["pro TLD with a path", "Visit scam.pro/x", ["scam.pro"]],
+    ["unlisted TLD with a path", "Visit scam.unknownword/x", ["scam.unknownword"]],
+    ["Title-case word TLD with a path", "Visit scam.Top/win", ["scam.top"]],
+    ["bare IP with a path", "Visit 1.2.3.4/x", ["1.2.3.4"]],
+    ["bare IP alone", "Visit 1.2.3.4", ["1.2.3.4"]],
+    ["bare IP ending a sentence", "Visit 1.2.3.4.", ["1.2.3.4"]],
+    ["scheme IP is not reported twice", "http://1.2.3.4/x", ["1.2.3.4"]],
+    ["unlisted TLD with a query", "Visit scam.unknownword?x=1", ["scam.unknownword"]],
+    ["unlisted TLD with a port", "Visit scam.unknownword:8080/x", ["scam.unknownword"]],
+    ["unlisted TLD with a fragment", "Visit scam.unknownword#x", ["scam.unknownword"]],
+    ["data size on a word TLD is still a link (registrable)", "Visit 5gb.top", ["5gb.top"]],
+    ["Title-case data size on a word TLD is still a link", "Get 5GB.Top up now", ["5gb.top"]],
+  ]
+  for (const [name, input, expected] of cases) {
+    it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
+  }
+})
+describe("suspiciousHostReason — data sizes are not lookalikes", () => {
+  it("5gb.top is not a fraud signal", () => expect(suspiciousHostReason("5gb.top")).toBeNull())
+  it("10GB.shop is not a fraud signal", () => expect(suspiciousHostReason("10GB.shop")).toBeNull())
+  it("a real digit lookalike still is", () => expect(suspiciousHostReason("paypa1.com")).toBe("suspicious link: homoglyph domain"))
+  it("a size inside a longer name still is", () => expect(suspiciousHostReason("5gbfree.top")).toBe("suspicious link: homoglyph domain"))
+})
+describe("extractLinkHosts — ordinary seller copy is not a link", () => {
+  const cases: Array<[string, string]> = [
+    ["data per day", "1.5GB/day for GHS 10.50/week"],
+    ["size then a slash", "Get 1GB.Bundles/Data today"],
+    ["sentence then a Title-case word and slash", "Thanks.Call/text us"],
+    ["sentence then a colon", "Price list.Unknownword: 5GB"],
+    ["all-caps words with a slash", "MTN.DATA/VOICE"],
+    ["sentence joined to a new TLD word", "Great offer.Fun for all"],
+    ["version number", "App version 1.2.3"],
+    ["date", "Ends 12.10.2026"],
+    ["not a real IP", "Code 999.1.1.1"],
+    ["five number groups", "Ref 1.2.3.4.5"],
+    ["money", "GHS 10.50/GB"],
+  ]
+  for (const [name, input] of cases) {
+    it(name, () => expect(extractLinkHosts(input)).toEqual([]))
   }
 })
