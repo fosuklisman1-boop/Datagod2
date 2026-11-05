@@ -39,6 +39,7 @@ import {
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { handleWaBotOtp, handleWaBotStep, isWaBotStep, waBotNaturalToDigit, waBotOtpPending } from "./bot-flows"
 import { whatsappBotItemsVisible } from "./cashback-visibility"
+import { claimShopCharge, releaseShopCharge } from "./shop-charge-claim"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -666,7 +667,32 @@ async function waMainMenuText(sessionId: string, session: USSDSession): Promise<
 
 // ── WA_ENTER_PAYMENT_PHONE ────────────────────────────────────────────────────
 
-async function handleWaEnterPaymentPhone(
+/**
+ * The typed MoMo number writes the order and starts the charge, so two messages arriving together (both reading this
+ * step) would mint two orders and two prompts. One at a time per sender, on every gateway: the same claim as the shop
+ * bot, in its own scope. The session is read again once the claim is held, because a message that read the step just
+ * before an earlier one finished can win the claim after it.
+ */
+const WA_CHARGE_BUSY_REPLY = "Please check for the payment prompt, or start again if you didn't get one."
+
+async function handleWaEnterPaymentPhone(input: string, sessionId: string, session: USSDSession): Promise<UzoResponse> {
+  if (input.trim() === '0') return enterPaymentPhone(input, sessionId, session)
+  const claim = await claimShopCharge(sessionId, 'main')
+  if (claim === 'unavailable') return { message: 'Sorry, we could not start the payment right now. Please try again in a moment.', ussdServiceOp: 2 }
+  // Op 2 on the busy answers: op 17 would delete the session the other request is still writing.
+  if (claim === 'held') return { message: WA_CHARGE_BUSY_REPLY, ussdServiceOp: 2 }
+  try {
+    const fresh = await getWaSession(sessionId)
+    if (fresh?.step !== 'WA_ENTER_PAYMENT_PHONE') {
+      return { message: WA_CHARGE_BUSY_REPLY, ussdServiceOp: 2 }
+    }
+    return await enterPaymentPhone(input, sessionId, fresh)
+  } finally {
+    await releaseShopCharge(sessionId, 'main')
+  }
+}
+
+async function enterPaymentPhone(
   input: string,
   sessionId: string,
   session: USSDSession

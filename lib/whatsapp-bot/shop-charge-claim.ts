@@ -24,7 +24,9 @@ try {
   console.error("[WA-SHOP-CLAIM] Failed to initialise Redis:", e instanceof Error ? e.message : "unknown error")
 }
 
-const claimKey = (sender: string) => `wa-shop:charge-claim:${sender}`
+/** Each bot has its own claim, so the same customer on both numbers isn't blocked across them. */
+export type ChargeScope = "shop" | "main"
+const claimKey = (sender: string, scope: ChargeScope) => `wa-${scope}:charge-claim:${sender}`
 
 // Redis not configured at all (local runs, tests): the shop sessions are in-process then too (shop-session.ts), so an
 // in-process claim gives the same reach.
@@ -47,7 +49,7 @@ async function alertOutage(): Promise<void> {
       import("@/lib/hubtel-pay/alert-throttle"),
       import("@/lib/supabase"),
     ])
-    await sendThrottledAlert(supabaseAdmin, "WhatsApp shop bot: the payment lock (Redis) is not answering, so shop-bot payments are being refused. Check Upstash.", {
+    await sendThrottledAlert(supabaseAdmin, "WhatsApp bots: the payment lock (Redis) is not answering, so bot MoMo payments are being refused. Check Upstash.", {
       key: "last_wa_shop_claim_outage_alert", type: "whatsapp_shop_claim_outage", description: "WhatsApp shop charge-claim outage alert throttle",
       windowMs: OUTAGE_ALERT_WINDOW_MS, logPrefix: "[WA-SHOP-CLAIM]",
     })
@@ -58,14 +60,14 @@ async function alertOutage(): Promise<void> {
 
 let warnedUnconfigured = false
 
-export async function claimShopCharge(sender: string): Promise<ShopChargeClaim> {
+export async function claimShopCharge(sender: string, scope: ChargeScope = "shop"): Promise<ShopChargeClaim> {
   if (configured) {
     if (!redis) {
       await alertOutage()
       return "unavailable"
     }
     try {
-      const result = await redis.set(claimKey(sender), "1", { nx: true, ex: CLAIM_TTL_SECONDS })
+      const result = await redis.set(claimKey(sender, scope), "1", { nx: true, ex: CLAIM_TTL_SECONDS })
       return result === "OK" ? "claimed" : "held"
     } catch (e) {
       console.error("[WA-SHOP-CLAIM] claim failed; refusing the charge:", e instanceof Error ? e.message : "unknown error")
@@ -78,19 +80,20 @@ export async function claimShopCharge(sender: string): Promise<ShopChargeClaim> 
     console.warn("[WA-SHOP-CLAIM] Redis is not configured: the charge claim is per instance only, so two instances could both charge one sender.")
   }
   const now = Date.now()
-  if ((localClaims.get(sender) ?? 0) > now) return "held"
-  localClaims.set(sender, now + CLAIM_TTL_SECONDS * 1000)
+  const local = `${scope}:${sender}`
+  if ((localClaims.get(local) ?? 0) > now) return "held"
+  localClaims.set(local, now + CLAIM_TTL_SECONDS * 1000)
   return "claimed"
 }
 
 /** Never throws. If the delete fails the claim expires by itself within CLAIM_TTL_SECONDS. */
-export async function releaseShopCharge(sender: string): Promise<void> {
+export async function releaseShopCharge(sender: string, scope: ChargeScope = "shop"): Promise<void> {
   if (!configured) {
-    localClaims.delete(sender)
+    localClaims.delete(`${scope}:${sender}`)
     return
   }
   try {
-    await redis?.del(claimKey(sender))
+    await redis?.del(claimKey(sender, scope))
   } catch (e) {
     console.error("[WA-SHOP-CLAIM] release failed; the claim will expire:", e instanceof Error ? e.message : "unknown error")
   }

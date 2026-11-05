@@ -403,3 +403,15 @@ describe("main WhatsApp bot, AFA: Paystack asks for an OTP", () => {
     expect(h.sessions.get(FROM)?.step).not.toBe("SUBMIT_OTP")
   })
 })
+
+describe("main WhatsApp bot, two MoMo-number messages at once", () => {
+  it("one order and one prompt", async () => {
+    atConfirm()
+    await waRouter(FROM, "2")
+    const replies = await Promise.all([waRouter(FROM, OTHER), waRouter(FROM, OTHER)])
+    await runAfter()
+    expect(rows("ussd_orders")).toHaveLength(1)
+    expect(vi.mocked(chargeMobileMoney).mock.calls).toHaveLength(1)
+    expectNeutral(replies)
+  })
+})
