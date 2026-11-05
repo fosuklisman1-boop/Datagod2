@@ -86,6 +86,14 @@ describe("0149_admin_user_notes_tags.sql structure", () => {
     for (const t of tables) expect(t, t).toMatch(/^(public|auth)\./)
   })
 
+  it("refunds are refund credits by source only (never clawbacks), and AFA also counts cancelled as failed", () => {
+    const c = code(sql)
+    expect(c).not.toMatch(/LIKE '%refund%'/)
+    expect(c).toMatch(/t\.type = 'credit'\s+AND t\.source IN \('airtime_refund', 'standard_bundle_refund', 'results_checker_refund',\s+'results_check_refund', 'order_refund', 'bill_refund'\)/)
+    expect(c).toMatch(/lower\(afa\.status\) IN \('failed', 'error', 'cancelled'\)/)
+    expect(c.match(/IN \('failed', 'error'\)/g)).toHaveLength(6)
+  })
+
   it("the windows' defaults match the app's thresholds", () => {
     expect(sql).toMatch(new RegExp(`p_failed_hours int DEFAULT ${RISK_THRESHOLDS.failedOrdersWindowHours}\\b`))
     expect(sql).toMatch(new RegExp(`p_refund_hours int DEFAULT ${RISK_THRESHOLDS.refundsWindowHours}\\b`))

@@ -34,12 +34,20 @@
 --                             afa_orders); NULL if none. One max() per table on its (user_id, created_at DESC)
 --                             index (0148 and 0117/0118): an index-only top-1 per table.
 --       failed_orders         orders in those tables with lower(status) IN ('failed', 'error') created in the
---                             last p_failed_hours hours. Each table's count stops at 50 (range scan on the same
---                             index), so the sum is at most 350.
---       refunds               public.transactions rows of the user in the last p_refund_hours hours that are
---                             refunds: type 'refund' / 'order_refund', or a source containing 'refund'
---                             (airtime_refund, bill_refund, order_refund, ...). Stops at 50. Uses the
---                             (user_id, created_at DESC) index added by 0150 (works without it, slower).
+--                             last p_failed_hours hours; for afa_orders also 'cancelled' (how AFA marks a failed
+--                             registration). The hubtel tables (hubtel_data_orders, hubtel_bill_orders) move a
+--                             failed order on to 'refunded' once it is refunded, so those show up as refunds
+--                             instead. Each table's count stops at 50 (range scan on the same index), so the sum
+--                             is at most 350.
+--       refunds               refund credits to the user's wallet in the last p_refund_hours hours: transactions
+--                             with type 'credit' and source airtime_refund, standard_bundle_refund,
+--                             results_checker_refund, results_check_refund, order_refund or bill_refund (every
+--                             source the refund paths write; they all credit through credit_wallet_safely or an
+--                             insert with type 'credit'). NOT refund_clawback / refund_clawback_undo: those are
+--                             taken from / returned to the shop owner of a refunded storefront order. No code
+--                             writes type 'refund' or 'order_refund' transactions, so types are not matched.
+--                             Stops at 50. Uses the (user_id, created_at DESC) index added by 0150 (works
+--                             without it, slower).
 --       admin_credits         admin_audit_log 'wallet_credit' rows for the user in the last p_credit_hours hours
 --                             (0146 writes one per admin credit), and admin_credit_amount, their total amount.
 --                             Stops at 50 rows. Index idx_admin_audit_log_target (target_user_id, created_at DESC).
@@ -161,11 +169,14 @@ BEGIN
       + (SELECT count(*) FROM (SELECT 1 FROM public.results_checker_orders rc WHERE rc.user_id = i.id
          AND rc.created_at >= v_failed_since AND lower(rc.status) IN ('failed', 'error') LIMIT c_cap) x)
       + (SELECT count(*) FROM (SELECT 1 FROM public.afa_orders afa WHERE afa.user_id = i.id
-         AND afa.created_at >= v_failed_since AND lower(afa.status) IN ('failed', 'error') LIMIT c_cap) x)
+         AND afa.created_at >= v_failed_since AND lower(afa.status) IN ('failed', 'error', 'cancelled') LIMIT c_cap) x)
       AS failed_orders,
       (SELECT count(*) FROM (SELECT 1 FROM public.transactions t WHERE t.user_id = i.id
          AND t.created_at >= v_refund_since
-         AND (t.type IN ('refund', 'order_refund') OR t.source LIKE '%refund%') LIMIT c_cap) x) AS refunds,
+         AND t.type = 'credit'
+         AND t.source IN ('airtime_refund', 'standard_bundle_refund', 'results_checker_refund',
+                          'results_check_refund', 'order_refund', 'bill_refund')
+         LIMIT c_cap) x) AS refunds,
       cr.n AS admin_credits,
       cr.amount AS admin_credit_amount,
       au.created_at,

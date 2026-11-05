@@ -39,8 +39,9 @@ CREATE TABLE public.afa_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), u
 \i migrations/0150_admin_user_signals_indexes.sql
 \i migrations/0150_admin_user_signals_indexes.sql
 
--- A: busy, risky account: new (2h old), 600 in the wallet, 6 failed orders today across tables (+1 older, +1 not failed),
---    3 refunds this week (+1 older, +1 debit), 1 admin credit of 250 today (+1 older), phone 0244111222 shared
+-- A: busy, risky account: new (2h old), 600 in the wallet, 7 failed orders today across tables (incl. a cancelled
+--    AFA order; +1 older, +1 completed, +1 cancelled data order), 3 refunds this week (+1 older; clawbacks,
+--    debits and a type 'refund' row are not refunds), 1 admin credit of 250 today (+1 older), phone 0244111222 shared
 --    with B (stored 233244111222) and C (stored 244111222); verified.
 -- B: old account, quiet; one completed api order last month.
 -- D: no users row, no wallet, nothing.
@@ -71,13 +72,25 @@ INSERT INTO public.hubtel_data_orders (user_id, status, created_at) VALUES ('000
 INSERT INTO public.airtime_orders (user_id, status, created_at) VALUES ('00000000-0000-0000-0000-00000000000a', 'failed', now() - interval '5 hours');
 INSERT INTO public.hubtel_bill_orders (user_id, status, created_at) VALUES ('00000000-0000-0000-0000-00000000000a', 'failed', now() - interval '6 hours');
 INSERT INTO public.results_checker_orders (user_id, status, created_at) VALUES ('00000000-0000-0000-0000-00000000000a', 'pending', now() - interval '7 hours');
-INSERT INTO public.afa_orders (user_id, status, created_at) VALUES ('00000000-0000-0000-0000-00000000000a', 'completed', now() - interval '1 minute');
+INSERT INTO public.afa_orders (user_id, status, created_at) VALUES
+  ('00000000-0000-0000-0000-00000000000a', 'completed', now() - interval '1 minute'),
+  ('00000000-0000-0000-0000-00000000000a', 'cancelled', now() - interval '2 hours');
+-- 'cancelled' is a failure only for AFA; in the other tables it is not counted.
+INSERT INTO public.orders (user_id, status, created_at) VALUES
+  ('00000000-0000-0000-0000-00000000000a', 'cancelled', (now() - interval '3 hours')::timestamp);
+-- Refund credits as credit_wallet_safely and the airtime routes write them (type 'credit', a *_refund source).
+-- No code writes type 'refund' / 'order_refund' transactions; such rows are not refunds here.
 INSERT INTO public.transactions (user_id, type, source, created_at) VALUES
-  ('00000000-0000-0000-0000-00000000000a', 'credit',       'airtime_refund', now() - interval '1 day'),
-  ('00000000-0000-0000-0000-00000000000a', 'order_refund', 'order_refund',   now() - interval '2 days'),
-  ('00000000-0000-0000-0000-00000000000a', 'refund',       NULL,             now() - interval '6 days'),
-  ('00000000-0000-0000-0000-00000000000a', 'refund',       NULL,             now() - interval '8 days'),
-  ('00000000-0000-0000-0000-00000000000a', 'debit',        'data_purchase',  now() - interval '1 day');
+  ('00000000-0000-0000-0000-00000000000a', 'credit', 'airtime_refund',         now() - interval '1 day'),
+  ('00000000-0000-0000-0000-00000000000a', 'credit', 'order_refund',           now() - interval '2 days'),
+  ('00000000-0000-0000-0000-00000000000a', 'credit', 'bill_refund',            now() - interval '6 days'),
+  ('00000000-0000-0000-0000-00000000000a', 'credit', 'standard_bundle_refund', now() - interval '8 days'),
+  ('00000000-0000-0000-0000-00000000000a', 'debit',  'data_purchase',          now() - interval '1 day'),
+  -- clawbacks taken from (and given back to) shop owners when a storefront order is refunded: not refunds
+  ('00000000-0000-0000-0000-00000000000a', 'debit',  'refund_clawback',        now() - interval '1 hour'),
+  ('00000000-0000-0000-0000-00000000000a', 'credit', 'refund_clawback_undo',   now() - interval '1 hour'),
+  ('00000000-0000-0000-0000-00000000000a', 'debit',  'order_refund',           now() - interval '1 hour'),
+  ('00000000-0000-0000-0000-00000000000a', 'refund', NULL,                     now() - interval '1 hour');
 INSERT INTO public.admin_audit_log (admin_id, action, target_user_id, new_value, created_at) VALUES
   ('00000000-0000-0000-0000-0000000000ad', 'wallet_credit', '00000000-0000-0000-0000-00000000000a', '{"amount": 250}', now() - interval '3 hours'),
   ('00000000-0000-0000-0000-0000000000ad', 'wallet_credit', '00000000-0000-0000-0000-00000000000a', '{"amount": 99}',  now() - interval '3 days'),
@@ -139,7 +152,7 @@ BEGIN
     '00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d', NULL, '00000000-0000-0000-0000-00000000000a']::uuid[]);
   ASSERT (SELECT count(*) FROM jsonb_object_keys(v)) = 4, format('4 users: %s', v);
   a := v->'00000000-0000-0000-0000-00000000000a';
-  ASSERT (a->>'failed_orders')::int = 6, format('A failed: %s', a);
+  ASSERT (a->>'failed_orders')::int = 7, format('A failed (6 failed/error + 1 cancelled AFA): %s', a);
   ASSERT (a->>'refunds')::int = 3, format('A refunds: %s', a);
   ASSERT (a->>'admin_credits')::int = 1 AND (a->>'admin_credit_amount')::numeric = 250, format('A credits: %s', a);
   ASSERT (a->>'wallet_balance')::numeric = 600, format('A wallet: %s', a);
@@ -164,7 +177,7 @@ BEGIN
 
   -- windows come from the caller (hours): 48h failed window also counts the 30h-old failure; 10-day refunds window the 8-day one
   a := public.admin_user_signals(ARRAY['00000000-0000-0000-0000-00000000000a']::uuid[], 48, 240, 96)->'00000000-0000-0000-0000-00000000000a';
-  ASSERT (a->>'failed_orders')::int = 7 AND (a->>'refunds')::int = 4 AND (a->>'admin_credits')::int = 2, format('wider windows: %s', a);
+  ASSERT (a->>'failed_orders')::int = 8 AND (a->>'refunds')::int = 4 AND (a->>'admin_credits')::int = 2, format('wider windows: %s', a);
 
   -- caps: 60 failed orders in one table count as 50
   INSERT INTO public.api_orders (user_id, status, created_at)
