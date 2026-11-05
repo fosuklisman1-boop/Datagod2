@@ -180,6 +180,31 @@ describe("extractLinkHosts — bypass hardening", () => {
   }
 })
 
+describe("filterSmsContent — our own domains", () => {
+  const ownDomains = ["datagod.store", "kingsdata.com"]
+  it("a store name with a digit is not a lookalike (shop-5)", () => {
+    expect(filterSmsContent("Buy at https://shop-5.datagod.store", { ownDomains }).blocked).toBe(false)
+    expect(filterSmsContent("Buy at http://shop-5.datagod.store/x", { ownDomains }).blocked).toBe(false)
+  })
+  it("a custom domain store with a digit is not a lookalike", () => {
+    expect(filterSmsContent("Buy at https://shop5.kingsdata.com", { ownDomains }).blocked).toBe(false)
+  })
+  it("without the option the old behaviour stands", () => {
+    expect(filterSmsContent("Buy at https://shop-5.datagod.store").blocked).toBe(true)
+  })
+  const stillBlocked: Array<[string, string]> = [
+    ["our name as a prefix of someone else's domain", "https://shop-5.datagod.store.evil1.ru"],
+    ["our name before the @ of someone else's domain", "https://datagod.store@paypa1.com"],
+    ["a lookalike of our name", "https://datag0d.store"],
+    ["a lookalike next to a genuine store link", "https://shop-5.datagod.store or https://paypa1.com"],
+    ["a shortener next to a genuine store link", "https://shop-5.datagod.store or https://bit.ly/x"],
+    ["scam wording next to a genuine store link", "You have won! https://shop-5.datagod.store"],
+  ]
+  for (const [name, message] of stillBlocked) {
+    it(`still blocks ${name}`, () => expect(filterSmsContent(message, { ownDomains }).blocked).toBe(true))
+  }
+})
+
 describe("filterSmsContent — scheme host parsing", () => {
   it("does not flag an allowed domain followed by punctuation", () => {
     const r = filterSmsContent("https://datagod.app!", { allowedDomains: ["datagod.app"] })
