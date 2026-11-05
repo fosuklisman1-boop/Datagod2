@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { isTurnstileEnabled } from "@/lib/turnstile"
+import { resolveSurfaceGateway } from "@/lib/payment-gateway/start"
 import {
   isStorefrontOtpRequired,
   isWalletOtpRequired,
@@ -26,7 +27,7 @@ import {
  * ~30s. New page loads after a toggle pick up the new state immediately.
  */
 export async function GET() {
-  const [enabled, otpRequired, directCharge, walletLock, walletDirectCharge, dashboardDirectCharge, smsDirectCharge, phoneGateDisabled] = await Promise.all([
+  const [enabled, otpRequired, directCharge, walletLock, walletDirectCharge, dashboardDirectCharge, smsDirectCharge, phoneGateDisabled, walletGateway] = await Promise.all([
     isTurnstileEnabled(),
     isStorefrontOtpRequired(),
     isStorefrontDirectChargeEnabled(),
@@ -35,6 +36,8 @@ export async function GET() {
     isDashboardDirectChargeEnabled(),
     isSmsDirectChargeEnabled(),
     isPhoneGateDisabled(),
+    // Display only: which gateway the top-up screen should describe. Never throws (a failed read answers paystack).
+    resolveSurfaceGateway("wallet_topup", { verifiedPayer: true }).then((r) => r.gateway),
   ])
   return NextResponse.json(
     {
@@ -46,6 +49,7 @@ export async function GET() {
       dashboard_direct_charge: dashboardDirectCharge,
       sms_direct_charge: smsDirectCharge,
       phone_gate_disabled: phoneGateDisabled,
+      wallet_gateway: walletGateway,
     },
     {
       headers: {
