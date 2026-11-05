@@ -83,7 +83,7 @@ export function HistoryTab({ userId, refreshKey = 0 }: { userId: string; refresh
               <span className="text-xs text-muted-foreground whitespace-nowrap">{dateTime(r.created_at)}</span>
             </div>
             <p className="text-xs text-muted-foreground break-words">{auditSummary(r)}</p>
-            <p className="text-xs text-muted-foreground">by {r.admin_email ?? r.admin_id}</p>
+            <p className="text-xs text-muted-foreground">by {r.admin_email ?? r.admin_id ?? "a deleted admin"}</p>
           </li>
         ))}
       </ul>

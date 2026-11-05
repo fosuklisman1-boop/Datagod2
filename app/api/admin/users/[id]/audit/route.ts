@@ -34,8 +34,8 @@ export async function GET(req: NextRequest, ctx: IdCtx) {
     return NextResponse.json({ error: "Failed to load admin history" }, { status: 500 })
   }
 
-  const rows = (data ?? []) as Array<{ id: string; admin_id: string; action: string; old_value: unknown; new_value: unknown; created_at: string }>
-  const adminIds = [...new Set(rows.map((r) => r.admin_id).filter(Boolean))]
+  const rows = (data ?? []) as Array<{ id: string; admin_id: string | null; action: string; old_value: unknown; new_value: unknown; created_at: string }>
+  const adminIds = [...new Set(rows.map((r) => r.admin_id).filter((x): x is string => !!x))]
   const emails = new Map<string, string>()
   if (adminIds.length) {
     const admins = await db.from("users").select("id, email").in("id", adminIds)
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest, ctx: IdCtx) {
   }
 
   return NextResponse.json({
-    rows: rows.map((r) => ({ ...r, admin_email: emails.get(r.admin_id) ?? null })),
+    rows: rows.map((r) => ({ ...r, admin_email: r.admin_id ? emails.get(r.admin_id) ?? null : null })),
     total: count ?? 0,
     page,
     pageSize,
