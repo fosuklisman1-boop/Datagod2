@@ -170,7 +170,12 @@ export interface USSDSession extends UzoNpSessionFields, UzoPbSessionFields {
   walletBalance?: number            // fetched at network selection for display; re-verified at payment
   pendingOrderId?: string  // order created at CONFIRM; used by PAYMENT_METHOD + SUBMIT_OTP
   pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' // which table SUBMIT_OTP targets (data bundles default to ussd_orders)
-  botOtp?: boolean         // SUBMIT_OTP is for a commission-cashback bot charge (Redis OTP pointer, lib/ussd/bots/otp-redial.ts)
+  /**
+   * Set only when an order was priced for Hubtel (written below today's Paystack price): that order and its MoMo
+   * amount. Any other order (a different id, or none recorded) carries today's Paystack price (lib/ussd/gateway-charge.ts).
+   */
+  pendingOrderAmount?: { orderId: string; amount: number }
+  botOtp?: boolean        // SUBMIT_OTP is for a commission-cashback bot charge (Redis OTP pointer, lib/ussd/bots/otp-redial.ts)
   // AFA registration fields
   afaFullName?: string
   afaGhCard?: string

@@ -436,7 +436,7 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       result = await handleAfaEnterRegion(input, sessionId, session)
       break
     case 'AFA_CONFIRM_AFA':
-      result = await handleAfaConfirm(input, sessionId, session)
+      result = await handleAfaConfirm(input, sessionId, session, 'whatsapp')
       break
 
     case 'AIRTIME_ENTER_RECIPIENT':

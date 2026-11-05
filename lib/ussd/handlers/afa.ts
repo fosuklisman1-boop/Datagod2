@@ -4,7 +4,9 @@ import { UzoResponse, USSDSession } from "../types"
 import { cont, end, mainMenu, afaEnterNamePrompt, afaEnterCardPrompt, afaEnterLocationPrompt, afaEnterRegionPrompt, afaConfirmMenu } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
-import { chargeMobileMoney } from "../../paystack"
+import {
+  guardedReprice, isUssdHubtelPayer, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdChannel, type UssdPrice,
+} from "../gateway-charge"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 import { parseGhanaCardNumber } from "../../ghana-card"
 
@@ -115,7 +117,9 @@ export async function handleAfaEnterRegion(
 export async function handleAfaConfirm(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  /** 'whatsapp' from the WhatsApp router: the gateway surface, and the session owner is the sender (sessionId). */
+  channel: UssdChannel = 'ussd'
 ): Promise<UzoResponse> {
   if (input.trim() === '2') {
     await setSession(sessionId, { step: 'MAIN', dialingPhone: session.dialingPhone })
@@ -137,7 +141,12 @@ export async function handleAfaConfirm(
     .is("key", null)
     .single()
   const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
-  const chargeAmount = afaPrice! + Math.round(afaPrice! * feePercent * 100) / 100
+  const price: UssdPrice = { hubtel: afaPrice!, paystack: afaPrice! + Math.round(afaPrice! * feePercent * 100) / 100 }
+  // Resolved before the order is written: Hubtel's amount has no Paystack fee. The prompt always goes to the dialler
+  // on the MTN provider (as today), so only an MTN dialler can go to Hubtel.
+  const surface = ussdChargeSurface(channel)
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === 'whatsapp' ? sessionId : dialingPhone, provider: 'mtn' })
+  const chargeAmount = await ussdOrderAmount(surface, verifiedPayer, price)
 
   const { data: order, error: orderErr } = await supabase
     .from("ussd_afa_orders")
@@ -168,18 +177,26 @@ export async function handleAfaConfirm(
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      await chargeMobileMoney({
-        email,
-        amount: chargeAmount,
-        phone: dialingPhone!,
-        provider: 'mtn',
-        reference: orderId,
-        metadata: {
-          source: 'ussd_afa',
-          ussd_afa_order_id: orderId,
-          full_name: afaFullName,
-          gh_card_number: afaGhCard,
+      await startUssdCharge({
+        surface,
+        verifiedPayer,
+        price,
+        written: chargeAmount,
+        params: {
+          email,
+          phone: dialingPhone!,
+          provider: 'mtn',
+          reference: orderId,
+          metadata: {
+            source: 'ussd_afa',
+            ussd_afa_order_id: orderId,
+            full_name: afaFullName,
+            gh_card_number: afaGhCard,
+          },
         },
+        reprice: guardedReprice(supabase, "ussd_afa_orders", orderId, {
+          from: { amount: chargeAmount }, set: { amount: price.paystack }, guards: { payment_status: "pending" },
+        }),
       })
 
       await supabase

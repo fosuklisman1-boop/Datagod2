@@ -8,8 +8,11 @@ import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { liveWalletBalance } from "../wallet-balance"
-import { chargeMobileMoney, submitOtp } from "../../paystack"
+import { submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
+import {
+  guardedReprice, isUssdHubtelPayer, pendingOrderAmountFor, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdPrice,
+} from "../gateway-charge"
 import { fulfillUssdOrder } from "../fulfill"
 import { sendSMS, SMSTemplates } from "../../sms-service"
 import { sendWhatsAppText } from "../../whatsapp-bot/send"
@@ -25,6 +28,10 @@ const supabase = createClient(
 )
 
 export const PAGE_SIZE = 5
+
+/** A Hubtel-priced order moves to the Paystack price before any Paystack charge (startUssdCharge's onFallback). */
+const repriceUssdOrder = (orderId: string, from: number, to: number) =>
+  guardedReprice(supabase, "ussd_orders", orderId, { from: { amount: from }, set: { amount: to }, guards: { payment_status: "pending" } })
 
 const NETWORK_OPTIONS: Record<string, { dbName: string; paystackProvider: 'mtn' | 'vod' | 'tgo' }> = {
   '1': { dbName: 'MTN', paystackProvider: 'mtn' },
@@ -347,7 +354,7 @@ export async function handleConfirm(
   }
 
   const fee = Math.round(verifiedPrice * feePercent * 100) / 100
-  const chargeAmount = verifiedPrice + fee
+  const price: UssdPrice = { hubtel: verifiedPrice, paystack: verifiedPrice + fee }
 
   if (Math.abs(verifiedPrice - bundlePrice!) > 0.01) {
     await setSession(sessionId, { step: 'MAIN', dialingPhone })
@@ -362,6 +369,12 @@ export async function handleConfirm(
   if (opts.walletOnly) walletBalance = await liveWalletBalance(session.userId)
   const walletEligible = !!session.userId && walletBalance !== undefined && walletBalance >= verifiedPrice
   if (opts.walletOnly && !walletEligible) return waWalletShort()
+
+  // The gateway decides the MoMo amount, so it is resolved before the order is written.
+  const surface = ussdChargeSurface(channel)
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === 'whatsapp' ? sessionId : dialingPhone, provider: paystackProvider })
+  const chargeAmount = await ussdOrderAmount(surface, verifiedPayer, price)
+  const pricedForHubtel = chargeAmount !== price.paystack
 
   // Create pending order
   const { data: order, error: orderError } = await supabase
@@ -393,7 +406,10 @@ export async function handleConfirm(
   const localDialing = dialingPhone!.startsWith('+233') ? '0' + dialingPhone!.slice(4) : dialingPhone
 
   if (walletEligible) {
-    await setSession(sessionId, { ...session, step: 'PAYMENT_METHOD', pendingOrderId: orderId, ...(opts.walletOnly ? { walletBalance } : {}) })
+    await setSession(sessionId, {
+      ...session, step: 'PAYMENT_METHOD', pendingOrderId: orderId, ...(opts.walletOnly ? { walletBalance } : {}),
+      ...(pricedForHubtel ? { pendingOrderAmount: { orderId, amount: chargeAmount } } : {}),
+    })
     return cont(paymentMethodMenu(verifiedPrice, walletBalance!))
   }
 
@@ -401,13 +417,19 @@ export async function handleConfirm(
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount: chargeAmount,
-        phone: dialingPhone!,
-        provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
-        reference: orderId,
-        metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+      const { status } = await startUssdCharge({
+        surface,
+        verifiedPayer,
+        price,
+        written: chargeAmount,
+        params: {
+          email,
+          phone: dialingPhone!,
+          provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
+          reference: orderId,
+          metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+        },
+        reprice: repriceUssdOrder(orderId, chargeAmount, price.paystack),
       })
       try {
         await supabase.from("payment_attempts").insert({ reference: orderId, amount: verifiedPrice, email, status: 'pending', payment_type: 'ussd', order_id: orderId })
@@ -467,19 +489,29 @@ export async function handlePaymentMethod(
       .from("app_settings").select("paystack_fee_percentage").is("key", null).single()
     const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
     const fee = Math.round(verifiedPrice * feePercent * 100) / 100
-    const chargeAmount = verifiedPrice + fee
+    const price: UssdPrice = { hubtel: verifiedPrice, paystack: verifiedPrice + fee }
+    // The order is charged as it was priced: set by handleConfirm only when it was written for Hubtel.
+    const written = pendingOrderAmountFor(session, orderId) ?? price.paystack
+    const surface = ussdChargeSurface(channel)
+    const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === 'whatsapp' ? sessionId : dialingPhone, provider: paystackProvider })
 
     const email = await resolveEmail(dialingPhone!)
     after(async () => {
       await new Promise(r => setTimeout(r, 3000))
       try {
-        const { status } = await chargeMobileMoney({
-          email,
-          amount: chargeAmount,
-          phone: dialingPhone!,
-          provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
-          reference: orderId,
-          metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+        const { status } = await startUssdCharge({
+          surface,
+          verifiedPayer,
+          price,
+          written,
+          params: {
+            email,
+            phone: dialingPhone!,
+            provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
+            reference: orderId,
+            metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+          },
+          reprice: repriceUssdOrder(orderId, written, price.paystack),
         })
         try {
           await supabase.from("payment_attempts").insert({ reference: orderId, amount: verifiedPrice, email, status: 'pending', payment_type: 'ussd', order_id: orderId })
