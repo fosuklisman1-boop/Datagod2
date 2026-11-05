@@ -19,15 +19,32 @@ export type RoleChangeResult =
 
 const ROLE_LABELS: Record<string, string> = { dealer: "Dealer", sub_agent: "Sub-agent", admin: "Admin", user: "Standard user" }
 
+/** One shop_packages margin change made by a role change, recorded in its audit row. */
+export interface MarginAdjustment {
+  shop_package_id: string
+  delta: number
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
 /**
  * Set a user's role (public.users.role, the source of truth, and auth user_metadata.role for the session).
- * - A user whose shop has a parent shop (a sub-agent's shop) cannot become a dealer.
- * - Becoming a dealer raises the user's shop_packages margins by (role price - dealer price) so their selling
- *   prices stay the same.
- * - Setting the role a user already has changes nothing (no write, no margin change, no push, no audit row);
- *   before, the margins were raised again each time.
- * - With an adminId, one admin_audit_log row 'user_role_change' {role} -> {role} (best-effort, `audited`).
- *   The CRON bypass (no admin id) is not audited: admin_audit_log.admin_id is NOT NULL.
+ * - A user whose shop has a parent shop (a sub-agent's shop) cannot become a dealer. If the shop cannot be read,
+ *   the change is refused rather than risk making a sub-agent a dealer.
+ * - Becoming a dealer raises each shop_packages margin by (role price - dealer price), for packages with a dealer
+ *   price above 0 and below the role price, so the shop's selling prices stay the same. The exact deltas are
+ *   recorded in the audit row (new_value.margin_adjustments).
+ * - Going from dealer back to user (or sub-agent) subtracts exactly the deltas recorded by the latest upgrade, not
+ *   deltas recomputed from today's prices (package prices may have changed since), never below a margin of 0.
+ *   If that upgrade was not recorded (made before this change, or through the CRON bypass, which is not audited)
+ *   and the shop has margins it would have raised, the change is refused: an exact reversal is not possible and
+ *   leaving the raised margins would put the shop's prices up by the dealer discount. dealer -> admin keeps the
+ *   margins, as before (callers differ on whether admins are priced as dealers).
+ * - The role write is conditional (only if the stored role is still different), so of two concurrent identical
+ *   changes only one adjusts margins; the other reports changed: false.
+ * - Setting the role a user already has changes nothing (no write, no margin change, no push, no audit row).
+ * - With an adminId, one admin_audit_log row 'user_role_change' (best-effort, `audited`). The CRON bypass (no admin
+ *   id) is not audited.
  * - The user gets a push notification (fire and forget).
  */
 export async function changeUserRole(
@@ -45,8 +62,13 @@ export async function changeUserRole(
   const oldRole = ((current as { role: string | null }).role || "user") as string
   if (oldRole === role) return { ok: true, changed: false, oldRole, newRole: role, audited: false }
 
-  const { data: targetShop } = await db.from("user_shops").select("id, parent_shop_id").eq("user_id", userId).maybeSingle()
-  const shop = targetShop as { id: string; parent_shop_id: string | null } | null
+  const leavingDealer = oldRole === "dealer" && role !== "admin"
+  const { data: targetShop, error: shopError } = await db.from("user_shops").select("id, parent_shop_id").eq("user_id", userId).maybeSingle()
+  if (shopError && (role === "dealer" || leavingDealer)) {
+    console.error("[UPDATE-ROLE] shop read failed:", shopError.message)
+    return { ok: false, status: 500, error: "Couldn't verify the user's shop, so the role was not changed. Try again." }
+  }
+  const shop = (shopError ? null : targetShop) as { id: string; parent_shop_id: string | null } | null
 
   if (role === "dealer" && shop?.parent_shop_id) {
     return {
@@ -56,20 +78,51 @@ export async function changeUserRole(
     }
   }
 
-  const { error: updateError } = await db.from("users").update({ role }).eq("id", userId)
+  // Leaving dealer: work out the exact reversal before changing anything.
+  let reversal: MarginAdjustment[] | null = null
+  if (leavingDealer && shop) {
+    const plan = await recordedUpgrade(db, userId)
+    if (!plan.ok) return { ok: false, status: 500, error: "Couldn't read the user's role history, so the role was not changed. Try again." }
+    if (plan.adjustments) reversal = plan.adjustments
+    else if ((await dealerUpgradeDeltas(db, shop.id)).length > 0) {
+      return {
+        ok: false,
+        status: 409,
+        error: "This dealer's shop margins were raised when they became a dealer, but that change was not recorded, so it cannot be undone exactly. Adjust their shop margins by hand before changing the role.",
+      }
+    }
+  }
+
+  // Conditional write: only if the stored role is still different (NULL counts as different).
+  const { data: updated, error: updateError } = await db
+    .from("users")
+    .update({ role })
+    .eq("id", userId)
+    .or(`role.is.null,role.neq.${role}`)
+    .select("id")
   if (updateError) {
     console.error("[UPDATE-ROLE] Error updating user role:", updateError)
     return { ok: false, status: 500, error: "Failed to update user role" }
   }
+  if (!Array.isArray(updated) || updated.length === 0) {
+    // Someone else set this role between our read and our write; they did the margin work.
+    return { ok: true, changed: false, oldRole, newRole: role, audited: false }
+  }
 
-  if (role === "dealer" && shop) await adjustDealerMargins(db, userId, shop.id)
+  let margin_adjustments: MarginAdjustment[] | undefined
+  if (role === "dealer") margin_adjustments = shop ? await applyDealerUpgrade(db, userId, shop.id) : []
+  else if (reversal) margin_adjustments = await applyReversal(db, reversal)
 
   // Also update user_metadata in auth (for session data). Non-blocking: the users table is the source of truth.
   const { error: metaError } = await db.auth.admin.updateUserById(userId, { user_metadata: { role } })
   if (metaError) console.warn("[UPDATE-ROLE] Could not update auth metadata:", metaError.message)
 
   const audited = adminId
-    ? await writeAudit(db, { admin_id: adminId, action: "user_role_change", target_user_id: userId, old_value: { role: oldRole }, new_value: { role } })
+    ? await writeAudit(db, {
+        admin_id: adminId, action: "user_role_change", target_user_id: userId,
+        old_value: { role: oldRole },
+        new_value: margin_adjustments ? { role, margin_adjustments } : { role },
+      })
     : false
 
   console.log(`[UPDATE-ROLE] User ${userId} role updated: ${oldRole} -> ${role}`)
@@ -82,27 +135,82 @@ export async function changeUserRole(
   return { ok: true, changed: true, oldRole, newRole: role, audited }
 }
 
-/** Raise each shop_packages margin by (role price - dealer price), so a new dealer's selling prices stay the same. */
-async function adjustDealerMargins(db: SupabaseClient, userId: string, shopId: string) {
-  console.log(`[UPDATE-ROLE] Upgrading user ${userId} to dealer. Adjusting margins...`)
-  const { data: shopPackages, error: pkgError } = await db.from("shop_packages").select("id, package_id, profit_margin").eq("shop_id", shopId)
-  if (pkgError || !shopPackages || shopPackages.length === 0) return
+/** The margin deltas recorded by the user's latest role change, when that change made them a dealer. */
+async function recordedUpgrade(db: SupabaseClient, userId: string): Promise<{ ok: false } | { ok: true; adjustments: MarginAdjustment[] | null }> {
+  const { data, error } = await db
+    .from("admin_audit_log")
+    .select("new_value")
+    .eq("target_user_id", userId)
+    .eq("action", "user_role_change")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    console.error("[UPDATE-ROLE] role history read failed:", error.message)
+    return { ok: false }
+  }
+  const v = (data as { new_value: { role?: unknown; margin_adjustments?: unknown } | null } | null)?.new_value
+  if (v?.role !== "dealer" || !Array.isArray(v.margin_adjustments)) return { ok: true, adjustments: null }
+  const adjustments = (v.margin_adjustments as unknown[]).filter(
+    (a): a is MarginAdjustment => !!a && typeof (a as any).shop_package_id === "string" && Number.isFinite((a as any).delta),
+  )
+  return { ok: true, adjustments }
+}
 
+/**
+ * What becoming a dealer adds to each margin: role price - dealer price, for packages whose dealer price is above 0
+ * (lib/pricing/package-price.ts rolePrice ignores a 0 dealer price) and below the role price.
+ */
+async function dealerUpgradeDeltas(db: SupabaseClient, shopId: string): Promise<Array<MarginAdjustment & { margin: number }>> {
+  const { data: shopPackages, error: pkgError } = await db.from("shop_packages").select("id, package_id, profit_margin").eq("shop_id", shopId)
+  if (pkgError || !shopPackages || shopPackages.length === 0) return []
   const packageIds = shopPackages.map((sp: any) => sp.package_id)
   const { data: packages, error: priceError } = await db.from("packages").select("id, price, dealer_price").in("id", packageIds)
-  if (priceError || !packages) return
-
-  const priceMap = new Map<string, { adminPrice: number; dealerPrice: number | null }>()
-  packages.forEach((pkg: any) => priceMap.set(pkg.id, { adminPrice: pkg.price, dealerPrice: pkg.dealer_price }))
-
-  for (const shopPkg of shopPackages as any[]) {
-    const prices = priceMap.get(shopPkg.package_id)
-    if (prices && prices.dealerPrice !== null && prices.dealerPrice < prices.adminPrice) {
-      const newMargin = (shopPkg.profit_margin || 0) + (prices.adminPrice - prices.dealerPrice)
-      await db.from("shop_packages").update({ profit_margin: newMargin }).eq("id", shopPkg.id)
-      console.log(`[UPDATE-ROLE] Adjusted package ${shopPkg.package_id}: margin ${shopPkg.profit_margin} -> ${newMargin}`)
+  if (priceError || !packages) return []
+  const priceMap = new Map<string, { adminPrice: number; dealerPrice: number }>()
+  packages.forEach((pkg: any) => priceMap.set(pkg.id, { adminPrice: Number(pkg.price), dealerPrice: Number(pkg.dealer_price ?? 0) }))
+  const out: Array<MarginAdjustment & { margin: number }> = []
+  for (const sp of shopPackages as any[]) {
+    const p = priceMap.get(sp.package_id)
+    if (p && p.dealerPrice > 0 && p.dealerPrice < p.adminPrice) {
+      out.push({ shop_package_id: sp.id, delta: round2(p.adminPrice - p.dealerPrice), margin: Number(sp.profit_margin || 0) })
     }
   }
+  return out
+}
+
+/** Raise the margins (selling prices stay the same for a new dealer); returns what was added. */
+async function applyDealerUpgrade(db: SupabaseClient, userId: string, shopId: string): Promise<MarginAdjustment[]> {
+  console.log(`[UPDATE-ROLE] Upgrading user ${userId} to dealer. Adjusting margins...`)
+  const deltas = await dealerUpgradeDeltas(db, shopId)
+  const done: MarginAdjustment[] = []
+  for (const d of deltas) {
+    const { error } = await db.from("shop_packages").update({ profit_margin: round2(d.margin + d.delta) }).eq("id", d.shop_package_id)
+    if (error) console.error(`[UPDATE-ROLE] margin update ${d.shop_package_id} failed:`, error.message)
+    else done.push({ shop_package_id: d.shop_package_id, delta: d.delta })
+  }
+  return done
+}
+
+/** Subtract the recorded upgrade deltas (never below 0); returns what was actually changed (negative deltas). */
+async function applyReversal(db: SupabaseClient, recorded: MarginAdjustment[]): Promise<MarginAdjustment[]> {
+  if (recorded.length === 0) return []
+  const { data, error } = await db.from("shop_packages").select("id, profit_margin").in("id", recorded.map((r) => r.shop_package_id))
+  if (error) {
+    console.error("[UPDATE-ROLE] margin read for reversal failed:", error.message)
+    return []
+  }
+  const current = new Map(((data ?? []) as Array<{ id: string; profit_margin: number | null }>).map((r) => [r.id, Number(r.profit_margin || 0)]))
+  const done: MarginAdjustment[] = []
+  for (const r of recorded) {
+    const margin = current.get(r.shop_package_id)
+    if (margin === undefined) continue // the package was removed from the shop since
+    const next = Math.max(0, round2(margin - r.delta))
+    const { error: upErr } = await db.from("shop_packages").update({ profit_margin: next }).eq("id", r.shop_package_id)
+    if (upErr) console.error(`[UPDATE-ROLE] margin reversal ${r.shop_package_id} failed:`, upErr.message)
+    else done.push({ shop_package_id: r.shop_package_id, delta: round2(next - margin) })
+  }
+  return done
 }
 
 export interface SuspendNotifications {

@@ -42,8 +42,11 @@ function usersHandler(q: FakeQuery) {
   const id = q.filter("id") as string | string[]
   if (q.kind === "update") {
     const u = h.users[id as string]
-    if (u) Object.assign(u, q.payload)
-    return { data: null, error: null }
+    // the role write is conditional: or=(role.is.null,role.neq.<new role>)
+    const neq = /role\.neq\.(\w+)/.exec(String(q.op("or")?.[1] ?? ""))?.[1]
+    if (!u || (neq && u.role === neq)) return { data: [], error: null }
+    Object.assign(u, q.payload)
+    return { data: [{ id }], error: null }
   }
   if (Array.isArray(id)) {
     return { data: id.filter((x) => h.users[x]).map((x) => ({ id: x, ...h.users[x] })), error: null }
@@ -146,7 +149,8 @@ describe("POST /api/admin/users/bulk: set_role", () => {
     expect(h.authUpdates).toEqual([{ id: U(1), attrs: { user_metadata: { role: "dealer" } } }])
     // one audit row, for the one user changed
     expect(audits()).toEqual([{
-      admin_id: ADMIN_ID, action: "user_role_change", target_user_id: U(1), old_value: { role: "user" }, new_value: { role: "dealer" },
+      admin_id: ADMIN_ID, action: "user_role_change", target_user_id: U(1), old_value: { role: "user" },
+      new_value: { role: "dealer", margin_adjustments: [] },
     }])
   })
 })
