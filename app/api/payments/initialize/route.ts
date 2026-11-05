@@ -15,7 +15,7 @@ import {
   isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkCommissionPayable,
   STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF, type CommissionPrice,
 } from "@/lib/storefront-commission/payment"
-import { AIRTIME_REPRICE_SPEC, commissionRepriceSpec, priceOrderForGateway, type RepriceSpec } from "@/lib/storefront-commission/reprice"
+import { airtimeRepriceSpec, commissionRepriceSpec, priceOrderForGateway, type RepriceSpec } from "@/lib/storefront-commission/reprice"
 import { FallbackRefusedError, HostedStartError, resolveSurfaceGateway, startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
 import { getSurfaceConfig } from "@/lib/payment-gateway/read-config"
 import type { FeeBearer, Gateway } from "@/lib/payment-gateway/config"
@@ -462,7 +462,7 @@ export async function POST(request: NextRequest) {
         : orderType === "results_check_service" ? "phone_number"
         : "customer_phone"
       // Airtime also reads its cashback snapshot: only a cashback order has a payment fee inside total_paid.
-      const selectColumns = `${amountColumn}, ${statusField}, payment_status, ${phoneColumn}${orderType === "airtime" ? ", payment_fee_amount, cashback_rate" : ""}`
+      const selectColumns = `${amountColumn}, ${statusField}, payment_status, ${phoneColumn}${orderType === "airtime" ? ", payment_fee_amount, cashback_rate, channel, shop_id" : ""}`
       const { data: orderData, error: orderError } = await supabase
         .from(table)
         .select(selectColumns)
@@ -493,6 +493,17 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      // Airtime here is storefront airtime only: this shop's row (the slug was resolved above) with no channel. Bot
+      // airtime (ussd, ussd_shop, whatsapp_shop, ...) is paid inside its own bot and never comes through this route;
+      // a request naming one, or another shop's order, is refused before any start or price change.
+      if (orderType === "airtime") {
+        const row = orderData as { channel?: string | null; shop_id?: string | null }
+        if (row.channel != null || !shopId || row.shop_id !== shopId) {
+          console.warn(`[PAYMENT-INIT] ❌ Airtime order ${orderId} is not a storefront order of this shop`)
+          return NextResponse.json({ error: "Invalid order ID" }, { status: 400 })
+        }
+      }
+
       // Beneficiary number (for the Paystack "Recipient" custom field).
       recipient = (orderData as any)[phoneColumn] || undefined
 
@@ -514,7 +525,7 @@ export async function POST(request: NextRequest) {
       const cashbackAirtime = orderType === "airtime" && (orderData as any).cashback_rate !== null && (orderData as any).cashback_rate !== undefined
       if (cashbackAirtime) {
         const recordedFee = (orderData as any).payment_fee_amount
-        movablePrice = { spec: AIRTIME_REPRICE_SPEC, price: { paid: verifiedAmount, fee: recordedFee === null ? null : Number(recordedFee ?? 0) } }
+        movablePrice = { spec: airtimeRepriceSpec(shopId!), price: { paid: verifiedAmount, fee: recordedFee === null ? null : Number(recordedFee ?? 0) } }
       }
     } else if (type === "dealer_upgrade" && planId) {
       console.log(`[PAYMENT-INIT] Dealer Upgrade detected. Verifying plan ${planId}...`)

@@ -26,6 +26,8 @@ export interface RepriceSpec {
   amountColumn: string
   /** Equality guards: the row must still be unpaid in exactly this state. */
   payable: Record<string, string>
+  /** Columns that must be NULL on the row (the storefront airtime insert writes no channel; bot rows always do). */
+  nullColumns?: string[]
   feeRate: (cfg: CashbackConfig) => number
 }
 
@@ -39,12 +41,19 @@ export function commissionRepriceSpec(orderType: StorefrontOrderType): RepriceSp
   }
 }
 
-/** Storefront cashback airtime only: a legacy order has no payment fee in total_paid (its fee_amount is margin). */
-export const AIRTIME_REPRICE_SPEC: RepriceSpec = {
-  table: "airtime_orders",
-  amountColumn: "total_paid",
-  payable: { status: "pending_payment", payment_status: "pending_payment" },
-  feeRate: (cfg) => (storefrontAirtimeOn(cfg) ? cfg.paymentFee.airtime ?? 0 : 0),
+/**
+ * Storefront cashback airtime of this shop only: the storefront insert (app/api/shop/airtime/initialize) writes no
+ * channel, while every bot insert writes one (ussd, ussd_shop, whatsapp_shop, ...). The caller only builds this for a
+ * cashback order: a legacy order has no payment fee in total_paid (its fee_amount is margin).
+ */
+export function airtimeRepriceSpec(shopId: string): RepriceSpec {
+  return {
+    table: "airtime_orders",
+    amountColumn: "total_paid",
+    payable: { shop_id: shopId, status: "pending_payment", payment_status: "pending_payment" },
+    nullColumns: ["channel"],
+    feeRate: (cfg) => (storefrontAirtimeOn(cfg) ? cfg.paymentFee.airtime ?? 0 : 0),
+  }
 }
 
 /**
@@ -76,6 +85,7 @@ export async function priceOrderForGateway(
       .update({ [spec.amountColumn]: change.paid, payment_fee_amount: change.fee, updated_at: new Date().toISOString() })
       .eq("id", orderId)
     for (const [column, value] of Object.entries(spec.payable)) q = q.eq(column, value)
+    for (const column of spec.nullColumns ?? []) q = q.is(column, null)
     const { data, error } = await q.eq(spec.amountColumn, current.paid).select("id")
     if (error) {
       console.error("[storefront-reprice] write failed:", error.code ?? "no code")

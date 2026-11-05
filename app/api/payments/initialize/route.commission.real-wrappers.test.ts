@@ -53,7 +53,8 @@ const h = vi.hoisted(() => {
       return { data: matching(), error: null }
     }
     const c: any = {}
-    for (const m of ["select", "or", "is", "gt"]) c[m] = () => c
+    for (const m of ["select", "or", "gt"]) c[m] = () => c
+    c.is = (k: string, v: unknown) => (filters.push((r) => (v === null ? r[k] === null || r[k] === undefined : r[k] === v)), c)
     c.eq = (k: string, v: unknown) => (filters.push((r) => r[k] === v), c)
     c.in = (k: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[k])), c)
     c.gte = (k: string, v: string) => (filters.push((r) => String(r[k]) >= v), c)
@@ -678,6 +679,43 @@ describe("storefront cashback airtime: total_paid has the payment fee inside it"
     expect(initiateCheckout).not.toHaveBeenCalled()
     expect(walletRows()).toHaveLength(0)
     expect(airtime().total_paid).toBe(50.98)
+  })
+
+  it.each<[string, Record<string, unknown>]>([
+    ["a USSD bot order", { channel: "ussd", shop_id: null }],
+    ["a USSD shop bot order of this shop", { channel: "ussd_shop" }],
+    ["a WhatsApp shop bot order of this shop", { channel: "whatsapp_shop" }],
+    ["another shop's storefront order", { shop_id: "other-shop" }],
+  ])("%s => refused on this route, on any gateway, and never repriced", async (_n, over) => {
+    for (const cfg of [HUBTEL(), config()]) {
+      seedAirtime(over)
+      h.state.config = cfg
+      const res = await buy()
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ error: "Invalid order ID" })
+    }
+    expect(initiateCheckout).not.toHaveBeenCalled()
+    expect(initializePayment).not.toHaveBeenCalled()
+    expect(h.state.orderUpdates).toBe(0)
+    expect(walletRows()).toHaveLength(0)
+  })
+
+  it("no shop slug => refused (every storefront page sends one)", async () => {
+    const res = await buy({ shopSlug: undefined })
+    expect(res.status).toBe(400)
+    expect(initiateCheckout).not.toHaveBeenCalled()
+    expect(h.state.orderUpdates).toBe(0)
+  })
+
+  it("the reprice write itself only matches this shop's storefront row", async () => {
+    const { airtimeRepriceSpec, priceOrderForGateway } = await import("@/lib/storefront-commission/reprice")
+    const price = { paid: 50.98, fee: 0.98 }
+    seedAirtime({ channel: "ussd_shop" })
+    expect(await priceOrderForGateway(h.fake as any, airtimeRepriceSpec("shop1"), ORDER_ID, price, true)).toEqual({ ok: false })
+    seedAirtime()
+    expect(await priceOrderForGateway(h.fake as any, airtimeRepriceSpec("other-shop"), ORDER_ID, price, true)).toEqual({ ok: false })
+    expect(airtime().total_paid).toBe(50.98)
+    expect(await priceOrderForGateway(h.fake as any, airtimeRepriceSpec("shop1"), ORDER_ID, price, true)).toEqual({ ok: true, price: { paid: 50, fee: null } })
   })
 
   it.each<[string, () => void]>([
