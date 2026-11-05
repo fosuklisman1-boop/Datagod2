@@ -21,7 +21,10 @@ import { getShopPref, setShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop
 import type { WaShopSession } from "./shop-types"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
-import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
+import { submitOtp } from "@/lib/paystack"
+import {
+  guardedReprice, isUssdHubtelPayer, samePrice, startUssdCharge, ussdOrderAmount, type UssdPrice,
+} from "@/lib/ussd/gateway-charge"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
@@ -114,6 +117,14 @@ async function markOrderFailed(table: ShopOrderTable, orderId: string): Promise<
     console.error("[WA-SHOP] failed to mark order failed:", table, orderId, err)
   }
 }
+
+/**
+ * Can this shop charge go to Hubtel (surface `whatsapp`)? Only when the typed MoMo number is the sender's own (both
+ * canonicalised, the provider that number's network). Any other number pays on Paystack at the full fee, even an
+ * OTP-verified one: isPhoneOtpVerified isn't bound to the sender. The bot still always asks for the number.
+ */
+const shopHubtelPayer = (from: string, session: WaShopSession): boolean =>
+  isUssdHubtelPayer({ chargePhone: session.paymentPhone, ownerPhone: from, provider: session.paystackProvider })
 
 async function markOrderOtpRequired(table: ShopOrderTable, orderId: string): Promise<void> {
   try {
@@ -802,7 +813,10 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
 
         const feePercent = await fetchPaystackFeePercent()
         const fee = Math.round(verifiedPrice * feePercent * 100) / 100
-        const chargeAmount = verifiedPrice + fee
+        // The gateway decides the MoMo amount (Hubtel's has no Paystack fee), so it is resolved before the order.
+        const price: UssdPrice = { hubtel: verifiedPrice, paystack: verifiedPrice + fee }
+        const verifiedPayer = shopHubtelPayer(from, session)
+        const chargeAmount = await ussdOrderAmount('whatsapp', verifiedPayer, price)
 
         const [customerEmail, shopOwnerEmail] = await Promise.all([
           resolveEmail(from).catch(() => null),
@@ -840,20 +854,29 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const { status } = await chargeMobileMoney({
-            email,
-            amount: chargeAmount,
-            phone: session.paymentPhone!,
-            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
-            reference: orderId,
-            metadata: {
-              source: 'whatsapp_shop',
-              whatsapp_shop_order_id: orderId,
-              recipient_phone: session.recipientPhone,
-              network: session.network,
-              package_size: session.bundleSize,
-              shop_id: session.shopId,
+          // Hubtel's unknown answers pay_offline (never throws); a fallback re-prices the order first or charges nothing.
+          const { status } = await startUssdCharge({
+            surface: 'whatsapp',
+            verifiedPayer,
+            price,
+            written: chargeAmount,
+            params: {
+              email,
+              phone: session.paymentPhone!,
+              provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+              reference: orderId,
+              metadata: {
+                source: 'whatsapp_shop',
+                whatsapp_shop_order_id: orderId,
+                recipient_phone: session.recipientPhone,
+                network: session.network,
+                package_size: session.bundleSize,
+                shop_id: session.shopId,
+              },
             },
+            reprice: guardedReprice(supabase, 'ussd_shop_orders', orderId, {
+              from: { amount: chargeAmount }, set: { amount: price.paystack }, guards: { payment_status: 'pending' },
+            }),
           })
 
           if (status === 'send_otp') {
@@ -868,7 +891,8 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           }
         } catch (err) {
           console.error("[WA-SHOP-CONFIRM] Charge failed:", err)
-          // chargeMobileMoney throws whenever Paystack's HTTP response isn't ok —
+          // The charge throws whenever Paystack's HTTP response isn't ok (or a fallback couldn't re-price, so nothing
+          // was charged) —
           // meaning Paystack never registered the charge, so no charge.failed
           // webhook will ever arrive to reconcile this order. Without this write
           // it would sit at pending/pending forever (no cron covers this table).
@@ -1075,6 +1099,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           if (rq.kind === 'cashback') cb = rq.quote
         }
 
+        // The MoMo price on each gateway, resolved before the order: cashback carries a Paystack payment fee (Hubtel
+        // drops it); legacy airtime has none.
+        const momoPrice: UssdPrice = cb ? { hubtel: cb.base, paystack: cb.payAmount } : samePrice(amount)
+        const verifiedPayer = shopHubtelPayer(from, session)
+        const written = await ussdOrderAmount('whatsapp', verifiedPayer, momoPrice)
+        const pricedForHubtel = written !== momoPrice.paystack
+
         const referenceCode = secureReference("AT", 2, 3)
         let orderResult: Awaited<ReturnType<typeof createShopAirtimeOrder>>
         let customerEmail: string | null
@@ -1089,14 +1120,18 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             beneficiaryPhone: session.airtimeRecipient!,
             airtimeAmount: amount,
             feeAmount: 0,
-            totalPaid: cb.payAmount,
+            totalPaid: written,
             shopId: session.shopId!,
             merchantCommission: cb.shopShare,
             dialingPhone: from,
             channel: 'whatsapp_shop',
             customerName: 'WhatsApp Customer',
             customerEmail: customerEmail ?? null,
-            cashbackColumns: uzoCashbackAirtimeColumns(cb, true),
+            // Priced for Hubtel: no Paystack payment fee (Hubtel adds its own charge).
+            cashbackColumns: {
+              ...uzoCashbackAirtimeColumns(cb, true),
+              ...(pricedForHubtel ? { total_paid: written, payment_fee_amount: 0 } : {}),
+            },
           })
         } else {
           const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
@@ -1120,8 +1155,9 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             customerEmail: customerEmail ?? null,
           })
         }
-        // What the payer is charged = the row's total_paid.
-        const price = cb ? cb.payAmount : amount
+        // What the payer is charged = the row's total_paid; a fallback restores the fee it left out.
+        const price = written
+        const feeBack = Math.round((momoPrice.paystack - written) * 100) / 100
 
         if ('error' in orderResult) {
           console.error("[WA-SHOP-AIRTIME-CONFIRM] Failed to create order:", orderResult.error)
@@ -1134,19 +1170,29 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const { status } = await chargeMobileMoney({
-            email,
-            amount: price,
-            phone: session.paymentPhone!,
-            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
-            reference: orderId,
-            metadata: {
-              source: 'whatsapp_shop_airtime',
-              airtime_order_id: orderId,
-              recipient_phone: session.airtimeRecipient,
-              network,
-              shop_id: session.shopId,
+          const { status } = await startUssdCharge({
+            surface: 'whatsapp',
+            verifiedPayer,
+            price: momoPrice,
+            written: price,
+            params: {
+              email,
+              phone: session.paymentPhone!,
+              provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+              reference: orderId,
+              metadata: {
+                source: 'whatsapp_shop_airtime',
+                airtime_order_id: orderId,
+                recipient_phone: session.airtimeRecipient,
+                network,
+                shop_id: session.shopId,
+              },
             },
+            reprice: guardedReprice(supabase, 'airtime_orders', orderId, {
+              from: { total_paid: price },
+              set: { total_paid: momoPrice.paystack, payment_fee_amount: feeBack },
+              guards: { payment_status: 'pending_payment' },
+            }),
           })
 
           if (status === 'send_otp') {
@@ -1329,18 +1375,24 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const { status } = await chargeMobileMoney({
-            email,
-            amount: pricing.totalPaid,
-            phone: session.paymentPhone!,
-            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
-            reference: orderId,
-            metadata: {
-              source: 'whatsapp_shop_results_checker',
-              results_checker_order_id: orderId,
-              exam_board: board,
-              quantity: qty,
-              shop_id: session.shopId,
+          // No Paystack fee on vouchers: the same amount on either gateway, so a fallback re-prices nothing.
+          const { status } = await startUssdCharge({
+            surface: 'whatsapp',
+            verifiedPayer: shopHubtelPayer(from, session),
+            price: samePrice(pricing.totalPaid),
+            written: pricing.totalPaid,
+            params: {
+              email,
+              phone: session.paymentPhone!,
+              provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+              reference: orderId,
+              metadata: {
+                source: 'whatsapp_shop_results_checker',
+                results_checker_order_id: orderId,
+                exam_board: board,
+                quantity: qty,
+                shop_id: session.shopId,
+              },
             },
           })
 
@@ -1656,18 +1708,24 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const { status } = await chargeMobileMoney({
-            email,
-            amount: pricing.totalPaid,
-            phone: session.paymentPhone!,
-            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
-            reference: orderId,
-            metadata: {
-              source: 'whatsapp_shop_results_check',
-              results_check_request_id: orderId,
-              exam_board: board,
-              mode,
-              shop_id: session.shopId,
+          // No Paystack fee on a results check: the same amount on either gateway.
+          const { status } = await startUssdCharge({
+            surface: 'whatsapp',
+            verifiedPayer: shopHubtelPayer(from, session),
+            price: samePrice(pricing.totalPaid),
+            written: pricing.totalPaid,
+            params: {
+              email,
+              phone: session.paymentPhone!,
+              provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+              reference: orderId,
+              metadata: {
+                source: 'whatsapp_shop_results_check',
+                results_check_request_id: orderId,
+                exam_board: board,
+                mode,
+                shop_id: session.shopId,
+              },
             },
           })
 
