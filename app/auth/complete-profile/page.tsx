@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { readFirstTouchFromBrowser } from "@/lib/signup-source"
 import { safeRedirectPath } from "@/lib/post-auth-redirect"
+import { trackSignUp } from "@/lib/analytics/google-analytics"
 
 // Destination remembered from the page the user clicked before signing up
 // (?next=...); read lazily so no Suspense boundary is needed.
@@ -315,6 +316,7 @@ export default function CompleteProfilePage() {
         return
       }
 
+      await trackSignUp("google")
       toast.success("Profile created! Welcome to DATAGOD.")
       router.push(postAuthTarget())
     } catch {

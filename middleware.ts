@@ -334,11 +334,11 @@ export async function middleware(request: NextRequest) {
     "style-src 'self' 'unsafe-inline' https://paystack.com https://checkout.paystack.com https://fonts.googleapis.com",
     "font-src 'self' data: https://fonts.gstatic.com",
     "img-src 'self' data: https: blob:",
-    "frame-src https://checkout.paystack.com https://challenges.cloudflare.com",
+    "frame-src https://checkout.paystack.com https://challenges.cloudflare.com https://td.doubleclick.net",
     // frame-ancestors replaces X-Frame-Options; keep both for broad compatibility.
     "frame-ancestors 'self' https://js.paystack.co",
     "worker-src 'self' blob:",
-    "connect-src 'self' https://js.paystack.co https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co https://storage.googleapis.com https://eu.i.posthog.com https://eu-assets.i.posthog.com https://*.google-analytics.com https://analytics.google.com https://*.analytics.google.com https://www.google.com https://*.googletagmanager.com https://challenges.cloudflare.com",
+    "connect-src 'self' https://js.paystack.co https://api.paystack.co https://paystack.com https://checkout.paystack.com https://supabase.co https://*.supabase.co wss://*.supabase.co https://storage.googleapis.com https://eu.i.posthog.com https://eu-assets.i.posthog.com https://*.google-analytics.com https://analytics.google.com https://*.analytics.google.com https://www.google.com https://www.google.com.gh https://*.g.doubleclick.net https://*.googletagmanager.com https://challenges.cloudflare.com",
     // Harden against injection via object/data URIs and base-tag hijacking.
     "object-src 'none'",
     "base-uri 'self'",
