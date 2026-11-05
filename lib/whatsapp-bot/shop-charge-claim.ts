@@ -37,16 +37,45 @@ const localClaims = new Map<string, number>()
  */
 export type ShopChargeClaim = "claimed" | "held" | "unavailable"
 
+/** At most one outage alert per this long, across instances (admin_settings stamp; see sendThrottledAlert). */
+const OUTAGE_ALERT_WINDOW_MS = 30 * 60_000
+
+/** Every shop-bot payment is refused while this lasts, so admins hear about it. No sender number. Never throws. */
+async function alertOutage(): Promise<void> {
+  try {
+    const [{ sendThrottledAlert }, { supabaseAdmin }] = await Promise.all([
+      import("@/lib/hubtel-pay/alert-throttle"),
+      import("@/lib/supabase"),
+    ])
+    await sendThrottledAlert(supabaseAdmin, "WhatsApp shop bot: the payment lock (Redis) is not answering, so shop-bot payments are being refused. Check Upstash.", {
+      key: "last_wa_shop_claim_outage_alert", type: "whatsapp_shop_claim_outage", description: "WhatsApp shop charge-claim outage alert throttle",
+      windowMs: OUTAGE_ALERT_WINDOW_MS, logPrefix: "[WA-SHOP-CLAIM]",
+    })
+  } catch (e) {
+    console.error("[WA-SHOP-CLAIM] outage alert failed:", e instanceof Error ? e.message : "unknown error")
+  }
+}
+
+let warnedUnconfigured = false
+
 export async function claimShopCharge(sender: string): Promise<ShopChargeClaim> {
   if (configured) {
-    if (!redis) return "unavailable"
+    if (!redis) {
+      await alertOutage()
+      return "unavailable"
+    }
     try {
       const result = await redis.set(claimKey(sender), "1", { nx: true, ex: CLAIM_TTL_SECONDS })
       return result === "OK" ? "claimed" : "held"
     } catch (e) {
       console.error("[WA-SHOP-CLAIM] claim failed; refusing the charge:", e instanceof Error ? e.message : "unknown error")
+      await alertOutage()
       return "unavailable"
     }
+  }
+  if (!warnedUnconfigured) {
+    warnedUnconfigured = true
+    console.warn("[WA-SHOP-CLAIM] Redis is not configured: the charge claim is per instance only, so two instances could both charge one sender.")
   }
   const now = Date.now()
   if ((localClaims.get(sender) ?? 0) > now) return "held"

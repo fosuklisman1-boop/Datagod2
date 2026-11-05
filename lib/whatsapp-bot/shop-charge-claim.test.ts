@@ -30,6 +30,10 @@ vi.mock("@upstash/redis", () => ({
   },
 }))
 
+const alertMock = vi.fn(async (..._a: any[]) => {})
+vi.mock("@/lib/hubtel-pay/alert-throttle", () => ({ sendThrottledAlert: (...a: any[]) => alertMock(...a) }))
+vi.mock("@/lib/supabase", () => ({ supabaseAdmin: {} }))
+
 const SENDER = "233244123456"
 
 async function load(configured: boolean) {
@@ -50,6 +54,8 @@ beforeEach(() => {
   h.setFails = false
   h.delFails = false
   h.ctorFails = false
+  alertMock.mockReset()
+  alertMock.mockImplementation(async () => {})
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks() })
@@ -104,6 +110,46 @@ describe("with Redis", () => {
     await c.claimShopCharge(SENDER)
     h.delFails = true
     await expect(c.releaseShopCharge(SENDER)).resolves.toBeUndefined()
+  })
+})
+
+describe("outage alerting", () => {
+  it("a Redis error raises one throttled admin alert, with no sender number in it", async () => {
+    const c = await load(true)
+    h.setFails = true
+    await c.claimShopCharge(SENDER)
+    await c.claimShopCharge(SENDER)
+    expect(alertMock).toHaveBeenCalledTimes(2) // the throttle itself (sendThrottledAlert) limits delivery
+    const [, message, opts] = alertMock.mock.calls[0]
+    expect(message).not.toContain(SENDER)
+    expect(message).not.toContain("244123456")
+    expect(opts).toMatchObject({ key: expect.any(String), windowMs: expect.any(Number) })
+    expect(opts.windowMs).toBeGreaterThanOrEqual(15 * 60_000)
+  })
+
+  it("a client that failed to initialise alerts too", async () => {
+    h.ctorFails = true
+    const c = await load(true)
+    await c.claimShopCharge(SENDER)
+    expect(alertMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("an alert that throws never changes the answer", async () => {
+    alertMock.mockRejectedValueOnce(new Error("x"))
+    const c = await load(true)
+    h.setFails = true
+    expect(await c.claimShopCharge(SENDER)).toBe("unavailable")
+  })
+
+  it("no alert on a normal claim; a warning (not an alert) when Redis isn't configured", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const c = await load(true)
+    await c.claimShopCharge(SENDER)
+    expect(alertMock).not.toHaveBeenCalled()
+    const u = await load(false)
+    await u.claimShopCharge(SENDER)
+    expect(alertMock).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/not configured/))
   })
 })
 
