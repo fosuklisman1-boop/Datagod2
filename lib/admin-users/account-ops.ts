@@ -16,7 +16,7 @@ export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number]
 export type OpFailure = { ok: false; status: number; error: string }
 
 export type RoleChangeResult =
-  | { ok: true; changed: boolean; oldRole: string; newRole: AssignableRole; audited: boolean }
+  | { ok: true; changed: boolean; oldRole: string; newRole: AssignableRole; audited: boolean; note?: string }
   | OpFailure
 
 const ROLE_LABELS: Record<string, string> = { dealer: "Dealer", sub_agent: "Sub-agent", admin: "Admin", user: "Standard user" }
@@ -29,6 +29,9 @@ export interface MarginAdjustment {
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
+export const MARGINS_NOT_REVERSED_NOTE =
+  "Margins were not reversed: this dealer was upgraded before margin changes were recorded. Check their shop prices."
+
 /**
  * Set a user's role (public.users.role, the source of truth, and auth user_metadata.role for the session).
  * - A user whose shop has a parent shop (a sub-agent's shop) cannot become a dealer. If the shop cannot be read,
@@ -38,9 +41,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100
  *   recorded in the audit row (new_value.margin_adjustments).
  * - Going from dealer back to user (or sub-agent) subtracts exactly the deltas recorded by the latest upgrade, not
  *   deltas recomputed from today's prices (package prices may have changed since), never below a margin of 0.
- *   If that upgrade was not recorded (made before this change, or through the CRON bypass, which is not audited)
- *   and the shop has margins it would have raised, the change is refused: an exact reversal is not possible and
- *   leaving the raised margins would put the shop's prices up by the dealer discount. dealer -> admin keeps the
+ *   If that upgrade was not recorded (every dealer made before this change, or through the unaudited CRON
+ *   bypass) and the shop has margins it would have raised, the downgrade still goes ahead with the margins left
+ *   as they are (the old behaviour), and the result carries MARGINS_NOT_REVERSED_NOTE for the admin: an exact
+ *   reversal is not possible, and refusing would block downgrading every existing dealer. dealer -> admin keeps the
  *   margins, as before (callers differ on whether admins are priced as dealers).
  * - The role write is conditional (only if the stored role is still different), so of two concurrent identical
  *   changes only one adjusts margins; the other reports changed: false.
@@ -82,17 +86,12 @@ export async function changeUserRole(
 
   // Leaving dealer: work out the exact reversal before changing anything.
   let reversal: MarginAdjustment[] | null = null
+  let notReversed = false
   if (leavingDealer && shop) {
     const plan = await recordedUpgrade(db, userId)
     if (!plan.ok) return { ok: false, status: 500, error: "Couldn't read the user's role history, so the role was not changed. Try again." }
     if (plan.adjustments) reversal = plan.adjustments
-    else if ((await dealerUpgradeDeltas(db, shop.id)).length > 0) {
-      return {
-        ok: false,
-        status: 409,
-        error: "This dealer's shop margins were raised when they became a dealer, but that change was not recorded, so it cannot be undone exactly. Adjust their shop margins by hand before changing the role.",
-      }
-    }
+    else notReversed = (await dealerUpgradeDeltas(db, shop.id)).length > 0
   }
 
   // Conditional write: only if the stored role is still different (NULL counts as different).
@@ -123,7 +122,7 @@ export async function changeUserRole(
     ? await writeAudit(db, {
         admin_id: adminId, action: "user_role_change", target_user_id: userId,
         old_value: { role: oldRole },
-        new_value: margin_adjustments ? { role, margin_adjustments } : { role },
+        new_value: margin_adjustments ? { role, margin_adjustments } : notReversed ? { role, margins_not_reversed: true } : { role },
       })
     : false
 
@@ -134,7 +133,9 @@ export async function changeUserRole(
     data: { url: "/dashboard" },
   }).catch(() => {})
 
-  return { ok: true, changed: true, oldRole, newRole: role, audited }
+  return notReversed
+    ? { ok: true, changed: true, oldRole, newRole: role, audited, note: MARGINS_NOT_REVERSED_NOTE }
+    : { ok: true, changed: true, oldRole, newRole: role, audited }
 }
 
 /** The margin deltas recorded by the user's latest role change, when that change made them a dealer. */

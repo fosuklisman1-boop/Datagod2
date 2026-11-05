@@ -70,7 +70,11 @@ export async function POST(req: NextRequest) {
               deferNotifications: (send) => { deferred.push(send) },
             })
         if (!r.ok) return { id, ok: false, error: r.error }
-        const notes = [!r.changed && "unchanged", r.changed && !r.audited && "audit log entry could not be written"].filter(Boolean)
+        const notes = [
+          !r.changed && "unchanged",
+          "note" in r && r.note,
+          r.changed && !r.audited && "audit log entry could not be written",
+        ].filter(Boolean)
         return notes.length ? { id, ok: true, note: notes.join("; ") } : { id, ok: true }
       } catch (e: any) {
         console.error(`[ADMIN-BULK] ${request.action} ${id} failed:`, e?.message ?? e)

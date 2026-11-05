@@ -140,7 +140,9 @@ describe("POST /api/admin/users/update-role (shared changeUserRole)", () => {
     await POST({ userId: USER_ID, role: "dealer" })
     expect(h.margins).toEqual({ sp1: 3, sp2: 1.5, sp3: 1 })
     const down = await POST({ userId: USER_ID, role: "user" })
-    expect(await down.json()).toMatchObject({ success: true, changed: true })
+    const downBody = await down.json()
+    expect(downBody).toMatchObject({ success: true, changed: true })
+    expect(downBody.note).toBeUndefined()
     expect(h.margins).toEqual({ sp1: 1, sp2: 1, sp3: 1 })
     expect(h.audit[1].new_value).toEqual({ role: "user", margin_adjustments: [{ shop_package_id: "sp1", delta: -2 }, { shop_package_id: "sp2", delta: -0.5 }] })
     await POST({ userId: USER_ID, role: "dealer" })
@@ -160,13 +162,17 @@ describe("POST /api/admin/users/update-role (shared changeUserRole)", () => {
     }
   })
 
-  it("refuses dealer -> user when the upgrade was not recorded and the shop has margins it would have raised", async () => {
+  it("dealer -> user without a recorded upgrade: allowed, margins left as they are, with a note for the admin", async () => {
     h.role = "dealer"
     const res = await POST({ userId: USER_ID, role: "user" })
-    expect(res.status).toBe(409)
-    expect((await res.json()).error).toMatch(/margins/i)
-    expect(h.role).toBe("dealer")
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      success: true, changed: true,
+      note: "Margins were not reversed: this dealer was upgraded before margin changes were recorded. Check their shop prices.",
+    })
+    expect(h.role).toBe("user")
     expect(h.margins).toEqual({ sp1: 1, sp2: 1, sp3: 1 })
+    expect(h.audit[0].new_value).toEqual({ role: "user", margins_not_reversed: true })
   })
 
   it("dealer -> user without a shop needs no margin work", async () => {

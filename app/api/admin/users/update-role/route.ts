@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
             userId,
             newRole: targetRole,
             changed: result.changed,
+            ...(result.note ? { note: result.note } : {}),
         })
     } catch (error) {
         console.error("[UPDATE-ROLE] Error:", error)

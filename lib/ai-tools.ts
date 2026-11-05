@@ -2485,7 +2485,7 @@ export async function executeToolCall(
           body: JSON.stringify({ userId: input.user_id, role: input.role }),
         })
         const data = await res.json()
-        return { success: res.ok, message: data.message ?? data.error, new_role: data.newRole }
+        return { success: res.ok, message: data.message ?? data.error, new_role: data.newRole, ...(data.note ? { note: data.note } : {}) }
       }
 
       case "adjust_wallet_balance": {

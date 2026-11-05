@@ -148,6 +148,24 @@ describe("POST /api/admin/users/bulk: gate and validation", () => {
 })
 
 describe("POST /api/admin/users/bulk: set_role", () => {
+  it("dealer -> user without a recorded upgrade is done, with the margins note in the result", async () => {
+    h.shops[U(2)] = { id: "shop-2", parent_shop_id: null }
+    h.fake = createFakeDb({
+      tables: {
+        users: usersHandler,
+        user_shops: (q) => ({ data: h.shops[q.filter("user_id") as string] ?? null, error: null }),
+        shop_packages: () => ({ data: [{ id: "sp1", package_id: "p1", profit_margin: 1 }], error: null }),
+        packages: () => ({ data: [{ id: "p1", price: 10, dealer_price: 8 }], error: null }),
+        admin_audit_log: () => ({ data: null, error: null }),
+      },
+    })
+    ;(h.fake.db.auth.admin as any).updateUserById = async () => ({ error: null })
+    const body = await (await POST({ action: "set_role", userIds: [U(2)], params: { role: "user" } })).json()
+    expect(body.results).toEqual([{ id: U(2), ok: true,
+      note: "Margins were not reversed: this dealer was upgraded before margin changes were recorded. Check their shop prices." }])
+    expect(h.users[U(2)].role).toBe("user")
+  })
+
   it("applies the update-role rules per user, skips the acting admin, and audits each change", async () => {
     const res = await POST({ action: "set_role", userIds: [U(1), U(2), U(3), ADMIN_ID, U(9)], params: { role: "dealer" } })
     expect(res.status).toBe(200)

@@ -67,8 +67,10 @@ export function ProfileTab({ profile, onChanged, actions, refreshKey = 0 }: {
 
   const saveRole = async () => {
     try {
-      await adminUserService.updateUserRole(profile.id, newRole)
+      const r = await adminUserService.updateUserRole(profile.id, newRole)
       toast.success(`Role updated to ${newRole}. They need to sign out and back in for it to apply.`)
+      // e.g. a dealer upgraded before margin changes were recorded: their margins were not reversed.
+      if (r?.note) toast.warning(r.note, { duration: 15000 })
       onChanged()
     } catch (e: any) {
       toast.error(e?.message || "Failed to update role")
