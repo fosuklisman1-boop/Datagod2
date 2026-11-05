@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { SurfaceFeeNote } from "@/components/payment/hubtel-fee-note"
 import { AlertCircle, CheckCircle, Loader2, Smartphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -188,6 +189,7 @@ export function MomoDialog({ open, onClose, cost, walletOtp }: MomoDialogProps) 
                 className="font-mono"
               />
               <p className="text-xs text-muted-foreground">The payment prompt is sent to this number.</p>
+              <SurfaceFeeNote field="sms_gateway" />
             </div>
 
             {walletOtp && (!f.otpVerified ? (

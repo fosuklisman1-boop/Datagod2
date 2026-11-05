@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { isOtpRequiredReply, walletTopupDisplay } from "./wallet-topup-display"
+import { gatewayPayLabel, isOtpRequiredReply, storefrontOtpStep, walletTopupDisplay } from "./wallet-topup-display"
 
 describe("walletTopupDisplay", () => {
   it("Paystack: unchanged wording, percentage fee, total on the button", () => {
@@ -31,6 +31,29 @@ describe("walletTopupDisplay", () => {
       expect(walletTopupDisplay({ amount, gateway: "hubtel", paystackFeePercent: 3 }).payButton).toBe("Pay GHS 0.00 + fee")
       expect(walletTopupDisplay({ amount, gateway: "paystack", paystackFeePercent: 3 }).payButton).toBe("Pay GHS 0.00")
     }
+  })
+})
+
+describe("gatewayPayLabel", () => {
+  it("Paystack keeps today's wording", () => {
+    expect(gatewayPayLabel({ amount: 10, gateway: "paystack", direct: true })).toBe("Pay GHS 10.00")
+    expect(gatewayPayLabel({ amount: 10, gateway: "paystack", direct: false })).toBe("Pay GHS 10.00 with Paystack")
+  })
+  it("Hubtel says the fee is extra and never says Paystack, direct or hosted", () => {
+    for (const direct of [true, false]) expect(gatewayPayLabel({ amount: 10, gateway: "hubtel", direct })).toBe("Pay GHS 10.00 + fee")
+  })
+})
+
+describe("storefrontOtpStep", () => {
+  it("the admin's OTP gate always shows it", () => {
+    expect(storefrontOtpStep({ otpRequired: true, gateway: "paystack", direct: true })).toBe(true)
+  })
+  it("Hubtel direct shows it even with the gate off, because the server refuses an unverified number after the order exists", () => {
+    expect(storefrontOtpStep({ otpRequired: false, gateway: "hubtel", direct: true })).toBe(true)
+  })
+  it("Paystack with the gate off, and Hubtel's hosted page, don't", () => {
+    expect(storefrontOtpStep({ otpRequired: false, gateway: "paystack", direct: true })).toBe(false)
+    expect(storefrontOtpStep({ otpRequired: false, gateway: "hubtel", direct: false })).toBe(false)
   })
 })
 

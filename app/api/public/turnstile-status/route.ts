@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { isTurnstileEnabled } from "@/lib/turnstile"
 import { resolveSurfaceGateway } from "@/lib/payment-gateway/start"
+import { storefrontOtpStep } from "@/lib/payment-gateway/wallet-topup-display"
 import {
   isStorefrontOtpRequired,
   isWalletOtpRequired,
@@ -27,7 +28,7 @@ import {
  * ~30s. New page loads after a toggle pick up the new state immediately.
  */
 export async function GET() {
-  const [enabled, otpRequired, directCharge, walletLock, walletDirectCharge, dashboardDirectCharge, smsDirectCharge, phoneGateDisabled, walletGateway] = await Promise.all([
+  const [enabled, otpRequired, directCharge, walletLock, walletDirectCharge, dashboardDirectCharge, smsDirectCharge, phoneGateDisabled, walletGateway, storefrontGateway, dashboardGateway, smsGateway] = await Promise.all([
     isTurnstileEnabled(),
     isStorefrontOtpRequired(),
     isStorefrontDirectChargeEnabled(),
@@ -36,13 +37,16 @@ export async function GET() {
     isDashboardDirectChargeEnabled(),
     isSmsDirectChargeEnabled(),
     isPhoneGateDisabled(),
-    // Display only: which gateway the top-up screen should describe. Never throws (a failed read answers paystack).
+    // Display only: which gateway each checkout should describe. Never throws (a failed read answers paystack).
     resolveSurfaceGateway("wallet_topup", { verifiedPayer: true }).then((r) => r.gateway),
+    resolveSurfaceGateway("storefront", { verifiedPayer: true }).then((r) => r.gateway),
+    resolveSurfaceGateway("dashboard_direct", { verifiedPayer: true }).then((r) => r.gateway),
+    resolveSurfaceGateway("sms", { verifiedPayer: true }).then((r) => r.gateway),
   ])
   return NextResponse.json(
     {
       enabled,
-      otp_required: otpRequired,
+      otp_required: storefrontOtpStep({ otpRequired, gateway: storefrontGateway, direct: directCharge }),
       direct_charge: directCharge,
       wallet_lock: walletLock,
       wallet_direct_charge: walletDirectCharge,
@@ -50,6 +54,9 @@ export async function GET() {
       sms_direct_charge: smsDirectCharge,
       phone_gate_disabled: phoneGateDisabled,
       wallet_gateway: walletGateway,
+      storefront_gateway: storefrontGateway,
+      dashboard_gateway: dashboardGateway,
+      sms_gateway: smsGateway,
     },
     {
       headers: {

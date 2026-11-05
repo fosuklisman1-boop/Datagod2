@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { PayerOtpStep, usePayerOtp } from "@/components/storefront-commission/PayerOtp"
+import { SurfaceFeeNote } from "@/components/payment/hubtel-fee-note"
 import { MomoPayerHint, NOT_MOMO } from "@/components/storefront-commission/MomoPayerHint"
 import { useStorefrontPayment } from "@/components/storefront-commission/DirectMomo"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
@@ -334,6 +335,7 @@ export function BundlesTab({ shopSlug, networks }: Props) {
               </div>
 
               <PayerOtpStep otp={otp} />
+              <SurfaceFeeNote field="storefront_gateway" />
 
               <HoneypotField value={honeypot} onChange={setHoneypot} />
 

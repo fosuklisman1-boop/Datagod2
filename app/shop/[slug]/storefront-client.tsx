@@ -66,6 +66,7 @@ import { joinShopUrl } from "@/lib/sub-agents/join-url"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
+import { HubtelFeeNote, useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
 import { StorefrontServicesCarousel, type StorefrontCarouselSlide } from "@/components/shop/StorefrontServicesCarousel"
@@ -289,6 +290,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
   // separate confirmation dialog handleSubmitOrder already shows on submit.
   const [checkoutVerifyStatus, setCheckoutVerifyStatus] = useState<"idle" | "checking" | "verified" | "unverified">("idle")
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
+  const storefrontGateway = useSurfaceGateway("storefront_gateway")
   const checkCheckoutPhoneUpfront = async () => {
     if (!selectedPackage || selectedPackage.packages.network.toUpperCase() !== "MTN") return
     const digits = orderData.customer_phone.replace(/\D/g, "")
@@ -1876,7 +1878,8 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
           // Same formula app/api/payments/initialize actually charges with
           // (data orders always carry the gateway fee -- only airtime is
           // exempted there), so this displayed total matches the real charge.
-          const gatewayFee = Math.round(total * (paystackFeePercentage / 100) * 100) / 100
+          // On Hubtel we charge no fee of our own: Hubtel adds its fee on top, and its rate isn't known here.
+          const gatewayFee = storefrontGateway === "hubtel" ? 0 : Math.round(total * (paystackFeePercentage / 100) * 100) / 100
           const totalWithFee = total + gatewayFee
           const showForm = !verifyWarningOpen && !momoModal
           return (
@@ -2076,8 +2079,9 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
                     <div className="shrink-0 space-y-3 border-t border-border p-5">
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Total <span className="text-xs">+ gateway fee</span></span>
-                        <span className="text-xl font-black text-foreground">GH₵{totalWithFee.toFixed(2)}</span>
+                        <span className="text-xl font-black text-foreground">GH₵{totalWithFee.toFixed(2)}{storefrontGateway === "hubtel" && <span className="text-xs font-medium"> + fee</span>}</span>
                       </div>
+                      <HubtelFeeNote gateway={storefrontGateway} />
                       {turnstileEnabled && (
                         <div className="flex justify-center">
                           <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />

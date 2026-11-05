@@ -24,7 +24,7 @@ export function walletTopupDisplay(i: { amount: number; gateway: Gateway; paysta
       feeValue: "Added at payment",
       totalLabel: "Total Amount:",
       totalValue: total,
-      feeNote: "Hubtel adds its fee on top. Check the total on your MoMo prompt before you approve.",
+      feeNote: HUBTEL_FEE_NOTE,
       payButton: `Pay ${total}`,
     }
   }
@@ -39,6 +39,22 @@ export function walletTopupDisplay(i: { amount: number; gateway: Gateway; paysta
     feeNote: `The ${pct}% fee is charged by Paystack for payment processing.`,
     payButton: `Pay ${total}`,
   }
+}
+
+export const HUBTEL_FEE_NOTE = "Hubtel adds its fee on top. Check the total on your MoMo prompt before you approve."
+
+/** The pay button on a checkout that shows a plain price. */
+export function gatewayPayLabel(i: { amount: number; gateway: Gateway; direct: boolean }): string {
+  if (i.gateway === "hubtel") return `Pay ${ghs(i.amount)} + fee`
+  return i.direct ? `Pay ${ghs(i.amount)}` : `Pay ${ghs(i.amount)} with Paystack`
+}
+
+/**
+ * Should the storefront forms show their verify step? Hubtel direct needs a verified number even with the OTP gate off.
+ * These forms write the order before the payment starts, so asking up front is what stops an unpaid order being left behind.
+ */
+export function storefrontOtpStep(i: { otpRequired: boolean; gateway: Gateway; direct: boolean }): boolean {
+  return i.otpRequired || (i.gateway === "hubtel" && i.direct)
 }
 
 /** The server wants this number verified first (Hubtel's no-unsolicited-prompts rule), even with the OTP gate off. */

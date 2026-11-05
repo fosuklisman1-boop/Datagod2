@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { GraduationCap, Loader2, CheckCircle2, Copy, AlertCircle, Download } from "lucide-react"
 import { toast } from "sonner"
+import { useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
+import { gatewayPayLabel } from "@/lib/payment-gateway/wallet-topup-display"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
@@ -51,6 +53,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
   // hosted Paystack redirect, regardless of whether OTP is required.
   const [otpRequired, setOtpRequired] = useState<boolean>(false)
   const [directCharge, setDirectCharge] = useState<boolean>(false)
+  const storefrontGateway = useSurfaceGateway("storefront_gateway")
   const [paymentPhone, setPaymentPhone] = useState("")
   const [otpSent, setOtpSent] = useState(false)
   const [otpCode, setOtpCode] = useState("")
@@ -662,9 +665,7 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
           >
             {submitting
               ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Processing…</>
-              : directCharge
-                ? `Pay GHS ${totalPrice.toFixed(2)}`
-                : `Pay GHS ${totalPrice.toFixed(2)} with Paystack`
+              : gatewayPayLabel({ amount: totalPrice, gateway: storefrontGateway, direct: directCharge })
             }
           </Button>
 
