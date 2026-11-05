@@ -20,6 +20,7 @@ const h = vi.hoisted(() => {
     nextId: 1,
     hubtelReadError: null as null | { message: string },
     hubtelInsertError: null as null | { code: string; message: string },
+    failRpc: null as null | string,
   }
   const OPEN = ["pending", "confirming"]
   const query = (table: string) => {
@@ -82,6 +83,8 @@ const h = vi.hoisted(() => {
     auth: { getUser: async () => ({ data: { user: { id: "user1", email: "dealer@example.com" } }, error: null }) },
     rpc: async (fn: string, args: any) => {
       state.rpcCalls.push({ fn, args })
+      if (state.failRpc === fn) return { data: null, error: { message: "boom" } }
+      if (state.failRpc === `${fn}:ALREADY_ACTIVATED`) return { data: null, error: { message: "ALREADY_ACTIVATED" } }
       if (fn === "credit_sms_units_if_solvent") return { data: [{ outcome: "credited" }], error: null }
       if (fn === "activate_sms_account") return { data: [{ ok: true }], error: null }
       if (fn === "claim_hubtel_payment") {
@@ -200,6 +203,7 @@ beforeEach(() => {
   h.state.capped = []
   h.state.hubtelReadError = null
   h.state.hubtelInsertError = null
+  h.state.failRpc = null
   vi.mocked(applyRateLimit).mockClear()
   chargeMobileMoney.mockClear()
   initializePayment.mockClear()
@@ -623,6 +627,104 @@ describe("a fallback's full price passes the handler's check, and a short Paysta
     const reference = `smsqty-${ACCOUNT}-100-1700000000000`
     await handleChargeSuccess({ reference, amount, metadata: { type: "sms_units_qty", sms_account_id: ACCOUNT, units: 100 } })
     expect(credits()).toHaveLength(expected)
+  })
+})
+
+describe("an SMS payment on Hubtel that credits nothing is never marked paid", () => {
+  /** A Hubtel row as a start writes it, so confirm's own checks pass and only the handler decides. */
+  const seedRow = (internalReference: string, metadata: Record<string, unknown>, pesewas: number) => {
+    const reference = "a".repeat(32)
+    h.state.db.hubtel_payments = [{
+      reference, internal_reference: internalReference, metadata: { ...metadata, gateway: "hubtel" }, surface: "sms", mode: "direct",
+      amount_pesewas: pesewas, handler_amount_pesewas: null, status: "pending", created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 60_000).toISOString(), claimed_at: null,
+    }]
+    return reference
+  }
+  const QTY = `smsqty-${ACCOUNT}-100-1700000000000`
+  const BUNDLE_REF = `smsbundle-${ACCOUNT}-${BUNDLE}-1700000000000`
+  const ACT = `smsactivate-${ACCOUNT}-1700000000000`
+  const qtyMeta = { type: "sms_units_qty", sms_account_id: ACCOUNT, units: 100 }
+  const bundleMeta = { type: "sms_bundle", sms_account_id: ACCOUNT, units: 250, bundle_id: BUNDLE }
+  const actMeta = { type: "sms_activation", sms_account_id: ACCOUNT, fee: 20 }
+  const setting = (key: string, amount: number) => { h.state.db.tenant_global_settings.find((r) => r.key === key)!.value = { amount } }
+
+  it.each<[string, string, Record<string, unknown>, number, () => void]>([
+    ["credits: the price per credit went up after the start", QTY, qtyMeta, 400, () => setting("sms_price_per_credit", 0.05)],
+    ["credits: invalid quantity", QTY, { ...qtyMeta, units: 0 }, 400, () => {}],
+    ["bundle: the price went up after the start", BUNDLE_REF, bundleMeta, 1000, () => { h.state.db.sms_bundles[0].price_ghs = 12 }],
+    ["bundle: the bundle is gone", BUNDLE_REF, bundleMeta, 1000, () => { h.state.db.sms_bundles = [] }],
+    ["activation: the fee went up after the start", ACT, actMeta, 2000, () => setting("sms_activation_fee", 25)],
+    ["activation: the fee is not configured", ACT, actMeta, 2000, () => setting("sms_activation_fee", 0)],
+    ["ref fallback: bundle gone", BUNDLE_REF, {}, 1000, () => { h.state.db.sms_bundles = [] }],
+    ["ref fallback: bundle underpaid", BUNDLE_REF, {}, 1000, () => { h.state.db.sms_bundles[0].price_ghs = 12 }],
+    ["ref fallback: credits underpaid", QTY, {}, 400, () => setting("sms_price_per_credit", 0.05)],
+    ["ref fallback: unparseable bundle reference", "smsbundle-short", {}, 1000, () => {}],
+    ["ref fallback: unparseable credits reference", "smsqty-short", {}, 400, () => {}],
+    ["ref fallback: unparseable activation reference", "smsactivate-short", {}, 2000, () => {}],
+    ["ref fallback: activation underpaid", ACT, {}, 2000, () => setting("sms_activation_fee", 25)],
+  ])("%s => order_closed, so confirm parks it for review", async (_n, internal, metadata, pesewas, arrange) => {
+    const ref = seedRow(internal, metadata, pesewas)
+    arrange()
+    expect(await confirmHubtelPayment(ref, confirmDeps(pesewas))).toBe("needs_review")
+    expect(hubtelRows()[0].status).toBe("needs_review")
+    expect(credits()).toHaveLength(0)
+  })
+
+  it.each<[string, string, Record<string, unknown>, number]>([
+    ["credits", QTY, qtyMeta, 400],
+    ["bundle", BUNDLE_REF, bundleMeta, 1000],
+    ["ref fallback credits", QTY, {}, 400],
+    ["ref fallback bundle", BUNDLE_REF, {}, 1000],
+  ])("%s: the credit RPC fails => 500, so confirm parks it and alerts", async (_n, internal, metadata, pesewas) => {
+    const ref = seedRow(internal, metadata, pesewas)
+    h.state.failRpc = "credit_sms_units_if_solvent"
+    expect(await confirmHubtelPayment(ref, confirmDeps(pesewas))).toBe("needs_review")
+    expect(hubtelRows()[0].status).toBe("needs_review")
+  })
+
+  it.each<[string, Record<string, unknown>]>([["activation", actMeta], ["ref fallback activation", {}]])(
+    "%s: the activation RPC fails => 500, so confirm parks it", async (_n, metadata) => {
+      const ref = seedRow(ACT, metadata, 2000)
+      h.state.failRpc = "activate_sms_account"
+      expect(await confirmHubtelPayment(ref, confirmDeps(2000))).toBe("needs_review")
+    },
+  )
+
+  it("an account already active is a normal repeat: fulfilled", async () => {
+    const ref = seedRow(ACT, actMeta, 2000)
+    h.state.failRpc = "activate_sms_account:ALREADY_ACTIVATED"
+    expect(await confirmHubtelPayment(ref, confirmDeps(2000))).toBe("fulfilled")
+  })
+})
+
+describe("Paystack: the SMS handler's answers keep HTTP 200", () => {
+  const charge = async (reference: string, amount: number, metadata?: Record<string, unknown>) => {
+    const { handleChargeSuccess } = await import("@/lib/payments/charge-events")
+    const res = await handleChargeSuccess({ reference, amount, metadata, id: 1 })
+    return { status: res!.status, body: await res!.json() }
+  }
+  const QTY = `smsqty-${ACCOUNT}-100-1700000000000`
+
+  it("a failed credit: 200, body as today", async () => {
+    h.state.failRpc = "credit_sms_units_if_solvent"
+    expect(await charge(QTY, 400, { type: "sms_units_qty", sms_account_id: ACCOUNT, units: 100 })).toEqual({ status: 200, body: { received: true, type: "sms_units_qty" } })
+  })
+
+  it("a failed activation: 200, body as today", async () => {
+    h.state.failRpc = "activate_sms_account"
+    expect(await charge(`smsactivate-${ACCOUNT}-1`, 2000, { type: "sms_activation", sms_account_id: ACCOUNT, fee: 20 })).toEqual({ status: 200, body: { received: true, type: "sms_activation" } })
+  })
+
+  it("underpayment: still 200, now says nothing was delivered", async () => {
+    expect(await charge(QTY, 300, { type: "sms_units_qty", sms_account_id: ACCOUNT, units: 100 })).toEqual({
+      status: 200, body: { received: true, order_closed: true, type: "sms_units_qty", error: "underpayment" },
+    })
+  })
+
+  it("a good payment: as today", async () => {
+    expect(await charge(QTY, 400, { type: "sms_units_qty", sms_account_id: ACCOUNT, units: 100 })).toEqual({ status: 200, body: { received: true, type: "sms_units_qty" } })
+    expect(credits()).toHaveLength(1)
   })
 })
 

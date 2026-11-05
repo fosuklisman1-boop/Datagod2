@@ -97,6 +97,18 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
   const gatewayTransactionId = viaHubtel ? null : data.id
   const paystackIdColumn = viaHubtel ? {} : { paystack_transaction_id: data.id }
 
+  // SMS answers. Gave up for good (nothing will ever be credited for this payment): 200 with order_closed, so a Hubtel
+  // payment goes to review. A credit or activation that failed and may succeed on a retry: 500 on Hubtel, so confirm
+  // parks it and alerts; Paystack keeps today's 200 (it ignores the body, and a retry there was never relied on).
+  const smsGaveUp = (body: Record<string, unknown>) => NextResponse.json({ received: true, order_closed: true, ...body })
+  const smsNotApplied = (body: Record<string, unknown>) =>
+    viaHubtel ? NextResponse.json({ ...body, error: "not_applied" }, { status: 500 }) : NextResponse.json({ received: true, ...body })
+  /** finalizeActivationPaystack's own refusals (fee unreadable or 0, underpaid) are final; an RPC error may not be. */
+  const smsActivationFailed = (error: string | undefined) =>
+    error === "Activation fee not configured" || error?.startsWith("Underpayment")
+      ? smsGaveUp({ type: "sms_activation", error: "not_activated" })
+      : smsNotApplied({ type: "sms_activation" })
+
   // SMS bundle purchase — credit prepaid units (solvency-gated), not the cash wallet.
   // Defense-in-depth (matches the underpayment guards elsewhere in this handler):
   // re-fetch the bundle and credit its authoritative unit count only if the amount
@@ -107,16 +119,19 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
       .from("sms_bundles").select("units, price_ghs").eq("id", metadata.bundle_id).maybeSingle()
     if (!smsBundle) {
       console.error("[WEBHOOK] SMS bundle not found:", metadata.bundle_id)
-      return NextResponse.json({ received: true, type: "sms_bundle", error: "bundle_not_found" })
+      return smsGaveUp({ type: "sms_bundle", error: "bundle_not_found" })
     }
     const paidGhs = amount / 100
     if (paidGhs < Number(smsBundle.price_ghs) - 0.01) {
       console.error(`[WEBHOOK] SMS bundle underpayment: paid ${paidGhs} < ${smsBundle.price_ghs}`)
-      return NextResponse.json({ received: true, type: "sms_bundle", error: "underpayment" })
+      return smsGaveUp({ type: "sms_bundle", error: "underpayment" })
     }
     const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
     const result = await creditUnitsForPaystack(metadata.sms_account_id, Number(smsBundle.units), reference, paidGhs)
-    if (!result.ok) console.error("[WEBHOOK] SMS bundle credit failed:", result.error)
+    if (!result.ok) {
+      console.error("[WEBHOOK] SMS bundle credit failed:", result.error)
+      return smsNotApplied({ type: "sms_bundle" })
+    }
     return NextResponse.json({ received: true, type: "sms_bundle" })
   }
 
@@ -127,17 +142,20 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     const credits = Number(metadata.units)
     if (!Number.isInteger(credits) || credits <= 0) {
       console.error("[WEBHOOK] sms_units_qty invalid credits:", metadata.units)
-      return NextResponse.json({ received: true, type: "sms_units_qty", error: "invalid_credits" })
+      return smsGaveUp({ type: "sms_units_qty", error: "invalid_credits" })
     }
     const { getPricePerCredit, creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
     const expected = Math.round(credits * (await getPricePerCredit()) * 100) / 100
     const paidGhs = amount / 100
     if (paidGhs < expected - 0.01) {
       console.error(`[WEBHOOK] sms_units_qty underpayment: paid ${paidGhs} < ${expected}`)
-      return NextResponse.json({ received: true, type: "sms_units_qty", error: "underpayment" })
+      return smsGaveUp({ type: "sms_units_qty", error: "underpayment" })
     }
     const result = await creditUnitsForPaystack(metadata.sms_account_id, credits, reference, paidGhs)
-    if (!result.ok) console.error("[WEBHOOK] sms_units_qty credit failed:", result.error)
+    if (!result.ok) {
+      console.error("[WEBHOOK] sms_units_qty credit failed:", result.error)
+      return smsNotApplied({ type: "sms_units_qty" })
+    }
     return NextResponse.json({ received: true, type: "sms_units_qty" })
   }
 
@@ -153,9 +171,9 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     )
     if (!result.ok && !result.alreadyDone) {
       console.error("[WEBHOOK] SMS activation finalize failed:", result.error)
-    } else {
-      console.log("[WEBHOOK] ✓ SMS account activated:", metadata.sms_account_id, result.alreadyDone ? "(already done)" : "")
+      return smsActivationFailed(result.error)
     }
+    console.log("[WEBHOOK] ✓ SMS account activated:", metadata.sms_account_id, result.alreadyDone ? "(already done)" : "")
     return NextResponse.json({ received: true, type: "sms_activation" })
   }
 
@@ -176,18 +194,23 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
         .from("sms_bundles").select("units, price_ghs").eq("id", bundleId).maybeSingle()
       if (!smsBundle) {
         console.error("[WEBHOOK] sms_bundle ref-fallback: bundle not found", bundleId)
-      } else {
-        const paidGhs = amount / 100
-        if (paidGhs >= Number(smsBundle.price_ghs) - 0.01) {
-          const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
-          const result = await creditUnitsForPaystack(accountId, Number(smsBundle.units), reference, paidGhs)
-          if (!result.ok) console.error("[WEBHOOK] sms_bundle (ref fallback) credit failed:", result.error)
-        } else {
-          console.error(`[WEBHOOK] sms_bundle ref-fallback underpayment: paid ${paidGhs} < ${smsBundle.price_ghs}`)
+        return smsGaveUp({ type: "sms_bundle", via: "ref_fallback" })
+      }
+      const paidGhs = amount / 100
+      if (paidGhs >= Number(smsBundle.price_ghs) - 0.01) {
+        const { creditUnitsForPaystack } = await import("@/lib/sms/bundle-service")
+        const result = await creditUnitsForPaystack(accountId, Number(smsBundle.units), reference, paidGhs)
+        if (!result.ok) {
+          console.error("[WEBHOOK] sms_bundle (ref fallback) credit failed:", result.error)
+          return smsNotApplied({ type: "sms_bundle", via: "ref_fallback" })
         }
+      } else {
+        console.error(`[WEBHOOK] sms_bundle ref-fallback underpayment: paid ${paidGhs} < ${smsBundle.price_ghs}`)
+        return smsGaveUp({ type: "sms_bundle", via: "ref_fallback" })
       }
     } else {
       console.error("[WEBHOOK] sms_bundle ref-fallback: unparseable reference", reference)
+      return smsGaveUp({ type: "sms_bundle", via: "ref_fallback" })
     }
     return NextResponse.json({ received: true, type: "sms_bundle", via: "ref_fallback" })
   }
@@ -202,12 +225,17 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
         const expected = Math.round(credits * (await getPricePerCredit()) * 100) / 100
         if (paidGhs >= expected - 0.01) {
           const result = await creditUnitsForPaystack(accountId, credits, reference, paidGhs)
-          if (!result.ok) console.error("[WEBHOOK] sms_units_qty (ref fallback) credit failed:", result.error)
+          if (!result.ok) {
+            console.error("[WEBHOOK] sms_units_qty (ref fallback) credit failed:", result.error)
+            return smsNotApplied({ type: "sms_units_qty", via: "ref_fallback" })
+          }
         } else {
           console.error(`[WEBHOOK] smsqty ref-fallback underpayment: paid ${paidGhs} < ${expected}`)
+          return smsGaveUp({ type: "sms_units_qty", via: "ref_fallback" })
         }
       } else {
         console.error("[WEBHOOK] smsqty ref-fallback: unparseable reference", reference)
+        return smsGaveUp({ type: "sms_units_qty", via: "ref_fallback" })
       }
       return NextResponse.json({ received: true, type: "sms_units_qty", via: "ref_fallback" })
     }
@@ -215,9 +243,14 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     if (accountId.length === 36) {
       const { finalizeActivationPaystack } = await import("@/lib/sms/activation-service")
       const result = await finalizeActivationPaystack(accountId, reference, paidGhs)
-      if (!result.ok && !result.alreadyDone) console.error("[WEBHOOK] sms_activation (ref fallback) failed:", result.error)
+      if (!result.ok && !result.alreadyDone) {
+        console.error("[WEBHOOK] sms_activation (ref fallback) failed:", result.error)
+        const failed = smsActivationFailed(result.error)
+        return failed.status === 500 ? failed : smsGaveUp({ type: "sms_activation", via: "ref_fallback" })
+      }
     } else {
       console.error("[WEBHOOK] smsactivate ref-fallback: unparseable reference", reference)
+      return smsGaveUp({ type: "sms_activation", via: "ref_fallback" })
     }
     return NextResponse.json({ received: true, type: "sms_activation", via: "ref_fallback" })
   }
