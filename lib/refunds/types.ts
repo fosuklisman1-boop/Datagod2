@@ -106,9 +106,31 @@ export interface PaymentSource {
   hubtel?: { orderId: string; amountPaid: number; amountAfterCharges: number | null; paidAt: string; paidRows: number }
   /**
    * A Hubtel collection (hubtel_payments, the gateway switch) holds or may hold this order's money. Not the USSD
-   * checkout rail above: there is no way to send this money back from here until Hubtel Send Money, so it is refused.
+   * checkout rail above. Paystack never saw this payment, so a Paystack reversal is never offered; only an attempt
+   * whose status is `paid` (hubtelAttempt) makes the order refundable, through the gateways in HUBTEL_PAID_GATEWAYS.
    */
   hubtelCollection?: boolean
+  /** Facts of the Hubtel collection attempt(s) behind hubtelCollection. */
+  hubtelAttempt?: HubtelAttemptFacts
+}
+
+/**
+ * What the order's live Hubtel collection attempts say, folded to one answer. `status` is `paid` only when every live
+ * attempt is paid; any pending / confirming / needs_review attempt wins (most worrying first), because that money may
+ * not have landed yet, or may still land. The other fields come from the single paid attempt and are null when there
+ * are none or several (we never guess between payers).
+ */
+export interface HubtelAttemptFacts {
+  status: "paid" | "pending" | "confirming" | "needs_review"
+  /** Number of `paid` attempts for this order (more than one = the customer paid twice). */
+  paidAttempts: number
+  /** The payer's number as stored (233XXXXXXXXX) on a direct mobile money charge; null for hosted checkout. */
+  msisdn: string | null
+  /** Hubtel channel the payer paid on (mtn-gh, vodafone-gh, tigo-gh). */
+  channel: string | null
+  /** What we requested from Hubtel, in pesewas: handler_amount_pesewas ?? amount_pesewas, never Hubtel's gross. */
+  requestedPesewas: number | null
+  paymentMethod: string | null
 }
 
 export interface RefundableOrder {
@@ -180,6 +202,8 @@ export interface RefundGateway {
   supports(order: RefundableOrder): GatewaySupport
   /** Gateways that can only refund one exact amount (Hubtel: the full payment). null = no constraint for this order. */
   fixedAmount?(order: RefundableOrder): number | null
+  /** Gateways that can send at most this much (Hubtel Send Money: what we requested from the payer). null = no cap. */
+  maxAmount?(order: RefundableOrder): number | null
   refund(ctx: RefundContext): Promise<GatewayOutcome>
   checkStatus?(ctx: RefundContext, gatewayRef: string | null): Promise<GatewayOutcome>
   /** Only gateways whose payout needs a one-time code (Paystack payout). */

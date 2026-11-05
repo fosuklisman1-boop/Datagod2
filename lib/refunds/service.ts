@@ -3,7 +3,7 @@ import { planClawback, type ClawbackPlan } from "./clawback"
 import { orderEligibility, type Eligibility } from "./eligibility"
 import { defaultRefundAmount, validateRefundAmount } from "./amounts"
 import { loadRefundableOrders } from "./orders"
-import { getGateway, listGateways } from "./gateways"
+import { getGateway, listGateways, supportOf } from "./gateways"
 import { notifyRefund, type RefundNotification } from "./notify"
 import { loadRefundContact } from "./contact"
 import { FRESH_OTP_MS, isInFlight, isStale } from "./staleness"
@@ -127,7 +127,7 @@ export interface RefundPreview {
   eligibility: Eligibility
   defaultAmount: number
   /** fixedAmount: set when the gateway can refund only that exact amount (Hubtel). */
-  gateways: { id: string; label: string; ok: boolean; reason?: string; fixedAmount?: number }[]
+  gateways: { id: string; label: string; ok: boolean; reason?: string; fixedAmount?: number; maxAmount?: number }[]
   clawback: ClawbackPlan
   /** Who to pay for a manual refund; null when unknown, not applicable, or the lookup failed. */
   contact: RefundContact | null
@@ -152,10 +152,12 @@ export async function previewRefund(deps: RefundDeps, ref: { table: OrderTable; 
     eligibility: eligibilityOf(order, nowOf(deps)),
     defaultAmount: defaultRefundAmount(order.paid, order.gatewayFee),
     gateways: listGateways().map((g) => {
-      const s = g.supports(order)
+      const s = supportOf(g, order)
       const entry: RefundPreview["gateways"][number] = { id: g.id, label: g.label, ok: s.ok, reason: s.ok ? undefined : s.reason }
       const fixed = g.fixedAmount?.(order)
       if (typeof fixed === "number") entry.fixedAmount = fixed
+      const max = s.ok ? g.maxAmount?.(order) : null
+      if (typeof max === "number") entry.maxAmount = max
       return entry
     }),
     clawback: planClawback(order.owners),
@@ -293,7 +295,7 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
 
   const gateway = deps.getGateway(input.gateway)
   if (!gateway) throw new RefundError("GATEWAY_UNSUPPORTED", `Unknown gateway "${input.gateway}"`)
-  const support = gateway.supports(order)
+  const support = supportOf(gateway, order)
   if (!support.ok) throw new RefundError("GATEWAY_UNSUPPORTED", support.reason)
 
   const amountError = validateRefundAmount(input.amount, order.paid)
@@ -301,6 +303,10 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
   const fixed = gateway.fixedAmount?.(order)
   if (typeof fixed === "number" && Math.abs(fixed - input.amount) > 0.005) {
     throw new RefundError("BAD_AMOUNT", `${gateway.label} refunds the full amount only (GHS ${fixed.toFixed(2)})`)
+  }
+  const max = gateway.maxAmount?.(order)
+  if (typeof max === "number" && input.amount > max + 0.005) {
+    throw new RefundError("BAD_AMOUNT", `${gateway.label} can refund at most GHS ${max.toFixed(2)} (what was requested from the payer)`)
   }
 
   if (elig.releaseStuck) await releaseStuck(deps, order, input.adminId)

@@ -4,7 +4,7 @@ import { loadPayerPhones } from "./payer-phone"
 import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
-import { findHubtelPayments, isLiveHubtelStatus } from "@/lib/hubtel-pay/lookup"
+import { findHubtelAttempts, isLiveHubtelStatus, type HubtelAttemptRow } from "@/lib/hubtel-pay/lookup"
 
 /** A stored phone as 0XXXXXXXXX when it is a Ghana number (USSD rows store +233XXXXXXXXX), else as stored. */
 export function displayPhone(v: unknown): string | null {
@@ -13,7 +13,7 @@ export function displayPhone(v: unknown): string | null {
 }
 import {
   BOT_CHANNEL, isCommissionTable, isWalletOnlyTable, STOREFRONT_REFUNDS_FROM, type CommissionLedgerFact, type CommissionTable, type DispatchOutcome,
-  type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder,
+  type HubtelAttemptFacts, type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder,
 } from "./types"
 
 type ClassicTable = Exclude<OrderTable, CommissionTable>
@@ -190,19 +190,55 @@ export async function loadRefundableOrders(
   return markHubtelCollections(db, out)
 }
 
+const UNSETTLED_ORDER = ["needs_review", "confirming", "pending"] as const
+
+/**
+ * Folds every live attempt (pending / confirming / paid / needs_review) of one order into the facts a refund needs,
+ * or null when there are none. An unsettled attempt wins over a paid one: its money may not have landed or may still
+ * land. The payer facts are taken from the single paid attempt only; with none or several they are null.
+ * Amount = handler_amount_pesewas ?? amount_pesewas (what we asked Hubtel for), never Hubtel's gross.
+ */
+export function foldHubtelAttempts(rows: HubtelAttemptRow[]): HubtelAttemptFacts | null {
+  const byRef = new Map<string, HubtelAttemptRow>()
+  for (const r of rows) byRef.set(r.reference, r)
+  const live = [...byRef.values()].filter((r) => isLiveHubtelStatus(r.status))
+  if (live.length === 0) return null
+  const paid = live.filter((r) => r.status === "paid")
+  const unsettled = UNSETTLED_ORDER.find((s) => live.some((r) => r.status === s))
+  const one = paid.length === 1 ? paid[0] : null
+  const requested = one ? one.handler_amount_pesewas ?? one.amount_pesewas : null
+  return {
+    status: unsettled ?? "paid",
+    paidAttempts: paid.length,
+    msisdn: one && typeof one.msisdn === "string" && one.msisdn ? one.msisdn : null,
+    channel: one && typeof one.channel === "string" && one.channel ? one.channel : null,
+    requestedPesewas: typeof requested === "number" && Number.isInteger(requested) && requested > 0 ? requested : null,
+    paymentMethod: one && typeof one.payment_method === "string" && one.payment_method ? one.payment_method : null,
+  }
+}
+
 /**
  * Orders with a Hubtel collection attempt that holds or may hold the customer's money. The payment then belongs to
  * Hubtel whatever the row above looks like: Paystack never saw this reference, so it loses the reference and can't be
- * offered, and eligibility refuses the refund until Hubtel Send Money exists. Looked up by the payment reference and
- * the order id (USSD-style orders use their id). A failed lookup throws: never guess a payment is Paystack's.
+ * offered a reversal. Eligibility refuses the refund unless the attempt is `paid` (hubtelAttempt carries what the
+ * Hubtel Send Money gateway needs). When exactly one paid attempt stored the payer's number, that number replaces
+ * whatever payer phone the row had. Looked up by the payment reference and the order id (USSD-style orders use their
+ * id). A failed lookup throws: never guess a payment is Paystack's.
  */
 async function markHubtelCollections(db: SupabaseClient, orders: RefundableOrder[]): Promise<RefundableOrder[]> {
   if (orders.length === 0) return orders
-  const attempts = await findHubtelPayments(db, orders.flatMap((o) => [o.id, o.payment.reference]))
-  const hasLive = (ref: string | null) => !!ref && isLiveHubtelStatus(attempts.get(ref)?.status)
+  const attempts = await findHubtelAttempts(db, orders.flatMap((o) => [o.id, o.payment.reference]))
   return orders.map((o) => {
-    if (!hasLive(o.id) && !hasLive(o.payment.reference)) return o
-    return { ...o, payment: { ...o.payment, gateway: "hubtel" as const, reference: null, hubtelCollection: true } }
+    const facts = foldHubtelAttempts([...(attempts.get(o.id) ?? []), ...(o.payment.reference ? attempts.get(o.payment.reference) ?? [] : [])])
+    if (!facts) return o
+    const payer = facts.status === "paid" && facts.paidAttempts === 1 && facts.msisdn ? normalizeGhanaPhone(facts.msisdn) : null
+    return {
+      ...o,
+      payment: {
+        ...o.payment, gateway: "hubtel" as const, reference: null, hubtelCollection: true, hubtelAttempt: facts,
+        ...(payer ? { payerPhone: payer } : {}),
+      },
+    }
   })
 }
 

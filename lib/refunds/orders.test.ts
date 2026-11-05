@@ -619,6 +619,63 @@ describe("orders paid through Hubtel collections", () => {
     expect(o.payment).toMatchObject({ gateway: "paystack", reference: "WALLET-1" })
   })
 
+  describe("attempt facts for Hubtel Send Money", () => {
+    const attempt = (reference: string, internal_reference: string, status: string, over: Record<string, unknown> = {}) => ({
+      reference, internal_reference, status, amount_pesewas: 1000, handler_amount_pesewas: null,
+      msisdn: "233245550101", channel: "mtn-gh", payment_method: "mobilemoney", created_at: "2026-11-05T00:00:00Z", ...over,
+    })
+    const load = async (rows: unknown[]) => {
+      const db = fakeDb({ ...EMPTY, shop_orders: [shopOrder], wallet_payments: [walletRow], hubtel_payments: rows })
+      return (await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }]))[0]
+    }
+
+    it("a paid attempt carries its status, channel, method and requested amount, and its msisdn becomes the payer number", async () => {
+      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid")])
+      expect(o.payment.hubtelCollection).toBe(true)
+      expect(o.payment.hubtelAttempt).toEqual({
+        status: "paid", paidAttempts: 1, msisdn: "233245550101", channel: "mtn-gh", requestedPesewas: 1000, paymentMethod: "mobilemoney",
+      })
+      expect(o.payment.payerPhone).toBe("0245550101")
+      expect(o.payment.reference).toBeNull()
+    })
+    it("the cap is handler_amount_pesewas when set, never the gross", async () => {
+      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid", { amount_pesewas: 1050, handler_amount_pesewas: 1000 })])
+      expect(o.payment.hubtelAttempt?.requestedPesewas).toBe(1000)
+    })
+    it("falls back to amount_pesewas when there is no handler amount", async () => {
+      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid", { amount_pesewas: 1234, handler_amount_pesewas: null })])
+      expect(o.payment.hubtelAttempt?.requestedPesewas).toBe(1234)
+    })
+    it("a checkout-paid attempt has no msisdn: the payer number is left as the order had it, and facts say so", async () => {
+      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid", { msisdn: null, channel: null })])
+      expect(o.payment.hubtelAttempt).toMatchObject({ msisdn: null, channel: null })
+      expect(o.payment.payerPhone).toBeNull() // shop_orders has no payer unless a direct charge recorded one
+    })
+    it.each(["pending", "confirming", "needs_review"])("an unsettled %s attempt wins over a paid one", async (status) => {
+      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid"), attempt("b".repeat(32), "s1", status)])
+      expect(o.payment.hubtelAttempt?.status).toBe(status)
+      expect(o.payment.payerPhone).toBeNull() // no msisdn adopted while anything is unsettled
+    })
+    it("two paid attempts are counted and no single attempt's facts are trusted", async () => {
+      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid"), attempt("b".repeat(32), "s1", "paid", { msisdn: "233245550177" })])
+      expect(o.payment.hubtelAttempt).toMatchObject({ status: "paid", paidAttempts: 2, msisdn: null, channel: null, requestedPesewas: null, paymentMethod: null })
+      expect(o.payment.payerPhone).toBeNull()
+    })
+    it("failed attempts are ignored for status and count", async () => {
+      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid"), attempt("c".repeat(32), "WALLET-1", "failed")])
+      expect(o.payment.hubtelAttempt).toMatchObject({ status: "paid", paidAttempts: 1 })
+    })
+    it("an invalid stored msisdn is not adopted as the payer number", async () => {
+      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid", { msisdn: "bad" })])
+      expect(o.payment.payerPhone).toBeNull()
+    })
+    it("a Paystack-paid order carries no attempt facts", async () => {
+      const o = await load([])
+      expect(o.payment.hubtelAttempt).toBeUndefined()
+      expect(o.payment.hubtelCollection).toBeUndefined()
+    })
+  })
+
   it("the Hubtel lookup failing throws rather than offering a Paystack refund", async () => {
     const db = fakeDb({ ...EMPTY, shop_orders: [shopOrder], wallet_payments: [walletRow] }, [], { hubtel_payments: "boom" })
     await expect(loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])).rejects.toThrow()

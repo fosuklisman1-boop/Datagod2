@@ -12,8 +12,10 @@ export interface EligibilityInput {
   externalOrderId: string | null
   /** Commission tables only: the raw order facts + Hubtel ledger rows. */
   commission?: CommissionEvidence
-  /** The payment is a Hubtel collection: no refund route exists here yet. */
+  /** The payment is a Hubtel collection: refundable only once its attempt is `paid` (hubtelAttemptStatus). */
   hubtelCollection?: boolean
+  /** Folded status of the order's live Hubtel attempts (see HubtelAttemptFacts). Anything but "paid" is refused. */
+  hubtelAttemptStatus?: string
   /** Clock (ms epoch) for the never-sent grace / stuck-claim ages. Defaults to Date.now(). */
   now?: number
 }
@@ -35,7 +37,8 @@ export function orderEligibility(o: RefundableOrder, now: number = Date.now()): 
   return evaluateEligibility({
     table: o.table, orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
     dispatchOutcome: o.evidence.dispatchOutcome, trackingStatuses: o.evidence.trackingStatuses,
-    externalOrderId: o.evidence.externalOrderId, commission: o.evidence.commission, hubtelCollection: o.payment.hubtelCollection, now,
+    externalOrderId: o.evidence.externalOrderId, commission: o.evidence.commission, hubtelCollection: o.payment.hubtelCollection,
+    hubtelAttemptStatus: o.payment.hubtelAttempt?.status, now,
   })
 }
 
@@ -122,8 +125,10 @@ export function refundableStatuses(table: OrderTable): readonly string[] {
 const no = (code: EligibilityCode, reason: string): Eligibility => ({ eligible: false, code, reason })
 
 export function evaluateEligibility(i: EligibilityInput): Eligibility {
-  if (i.hubtelCollection) {
-    return no("HUBTEL_COLLECTION", "This order was paid through Hubtel. Refunds through Hubtel are not available here yet, and Paystack never held this money.")
+  // A Hubtel collection is refundable only once its attempt is paid. Pending, confirming and needs_review attempts
+  // may not have landed yet or may still land, and a missing or unrecognised status fails closed.
+  if (i.hubtelCollection && i.hubtelAttemptStatus !== "paid") {
+    return no("HUBTEL_COLLECTION", "This order was paid through Hubtel and the payment is not confirmed as paid yet (still in progress or under review). Wait for it to settle first; Paystack never held this money.")
   }
   if (i.table && isCommissionTable(i.table)) return commissionEligibility(i.table, i)
   if (!refundableStatuses(i.table ?? "shop_orders").includes(i.orderStatus) || i.paymentStatus !== "completed") return no("NOT_PENDING", "Order is not a paid, pending order")

@@ -79,6 +79,44 @@ function better(a: HubtelPaymentRef, b: HubtelPaymentRef): boolean {
   return new Date(a.created_at).getTime() > new Date(b.created_at).getTime()
 }
 
+/** One hubtel_payments attempt with the facts a refund needs. */
+export interface HubtelAttemptRow extends HubtelPaymentRef {
+  /** What the shared charge handlers were told was paid, when it differs from amount_pesewas (the merchant bears the fee). */
+  handler_amount_pesewas: number | null
+  msisdn: string | null
+  channel: string | null
+  payment_method: string | null
+}
+
+const ATTEMPT_COLUMNS = `${COLUMNS}, handler_amount_pesewas, msisdn, channel, payment_method`
+
+/**
+ * EVERY attempt per internal reference (not just the best one), newest first, for refund decisions that must see
+ * all of an order's attempts: whether any is unsettled, and how many were paid. Same chunking and failure rules as
+ * findHubtelPayments (a missing table means none; any other database error throws).
+ */
+export async function findHubtelAttempts(
+  sb: SupabaseClient,
+  internalRefs: readonly (string | null | undefined)[],
+): Promise<Map<string, HubtelAttemptRow[]>> {
+  const refs = [...new Set(internalRefs.filter((r): r is string => typeof r === "string" && r.length > 0))]
+  const out = new Map<string, HubtelAttemptRow[]>()
+  for (let i = 0; i < refs.length; i += CHUNK) {
+    const { data, error } = await sb.from("hubtel_payments").select(ATTEMPT_COLUMNS).in("internal_reference", refs.slice(i, i + CHUNK))
+    if (error) {
+      if (isMissingTable(error)) return new Map()
+      throw new Error(`hubtel_payments lookup failed: ${error.code ?? error.message ?? "unknown"}`)
+    }
+    for (const r of (data ?? []) as HubtelAttemptRow[]) {
+      const list = out.get(r.internal_reference) ?? []
+      list.push(r)
+      out.set(r.internal_reference, list)
+    }
+  }
+  for (const list of out.values()) list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  return out
+}
+
 /** Single-reference form of findHubtelPayments. */
 export async function findHubtelPaymentByInternalRef(sb: SupabaseClient, internalRef: string): Promise<HubtelPaymentRef | null> {
   return (await findHubtelPayments(sb, [internalRef])).get(internalRef) ?? null
