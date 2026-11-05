@@ -213,3 +213,48 @@ describe("extractLinkHosts — round-2 hardening", () => {
     it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
   }
 })
+describe("extractLinkHosts — links that used to slip through", () => {
+  const cases: Array<[string, string, string[]]> = [
+    ["uncommon TLD with a path", "Visit scam.fun/x", ["scam.fun"]],
+    ["uncommon TLD without a path", "Visit scam.ai", ["scam.ai"]],
+    ["pro TLD with a path", "Visit scam.pro/x", ["scam.pro"]],
+    ["unlisted TLD with a path", "Visit scam.unknownword/x", ["scam.unknownword"]],
+    ["Title-case word TLD with a path", "Visit scam.Top/win", ["scam.top"]],
+    ["bare IP with a path", "Visit 1.2.3.4/x", ["1.2.3.4"]],
+    ["bare IP alone", "Visit 1.2.3.4", ["1.2.3.4"]],
+    ["bare IP ending a sentence", "Visit 1.2.3.4.", ["1.2.3.4"]],
+    ["scheme IP is not reported twice", "http://1.2.3.4/x", ["1.2.3.4"]],
+    ["unlisted TLD with a query", "Visit scam.unknownword?x=1", ["scam.unknownword"]],
+    ["unlisted TLD with a port", "Visit scam.unknownword:8080/x", ["scam.unknownword"]],
+    ["unlisted TLD with a fragment", "Visit scam.unknownword#x", ["scam.unknownword"]],
+    ["data size on a word TLD is still a link (registrable)", "Visit 5gb.top", ["5gb.top"]],
+    ["Title-case data size on a word TLD is still a link", "Get 5GB.Top up now", ["5gb.top"]],
+  ]
+  for (const [name, input, expected] of cases) {
+    it(name, () => expect(extractLinkHosts(input)).toEqual(expected))
+  }
+})
+describe("suspiciousHostReason — data sizes are not lookalikes", () => {
+  it("5gb.top is not a fraud signal", () => expect(suspiciousHostReason("5gb.top")).toBeNull())
+  it("10GB.shop is not a fraud signal", () => expect(suspiciousHostReason("10GB.shop")).toBeNull())
+  it("a real digit lookalike still is", () => expect(suspiciousHostReason("paypa1.com")).toBe("suspicious link: homoglyph domain"))
+  it("a size inside a longer name still is", () => expect(suspiciousHostReason("5gbfree.top")).toBe("suspicious link: homoglyph domain"))
+})
+describe("extractLinkHosts — ordinary seller copy is not a link", () => {
+  const cases: Array<[string, string]> = [
+    ["data per day", "1.5GB/day for GHS 10.50/week"],
+    ["size then a slash", "Get 1GB.Bundles/Data today"],
+    ["sentence then a Title-case word and slash", "Thanks.Call/text us"],
+    ["sentence then a colon", "Price list.Unknownword: 5GB"],
+    ["all-caps words with a slash", "MTN.DATA/VOICE"],
+    ["sentence joined to a new TLD word", "Great offer.Fun for all"],
+    ["version number", "App version 1.2.3"],
+    ["date", "Ends 12.10.2026"],
+    ["not a real IP", "Code 999.1.1.1"],
+    ["five number groups", "Ref 1.2.3.4.5"],
+    ["money", "GHS 10.50/GB"],
+  ]
+  for (const [name, input] of cases) {
+    it(name, () => expect(extractLinkHosts(input)).toEqual([]))
+  }
+})

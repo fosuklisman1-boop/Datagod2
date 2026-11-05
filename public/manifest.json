@@ -3,7 +3,7 @@
   "name": "DATAGOD - Affordable Data Packages",
   "short_name": "DATAGOD",
   "description": "Buy affordable data packages from multiple networks with instant delivery. Shop data bundles from MTN, Telecel, AT, and more.",
-  "start_url": "/",
+  "start_url": "/dashboard",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
   "background_color": "#030303",

@@ -4,6 +4,7 @@ import { generateShopSession } from "@/lib/shop-token-edge"
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
+import { safeRedirectPath } from "@/lib/post-auth-redirect"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 import { apiHostRewrite } from "@/lib/api-v2/host"
 import { subagentsHostRedirect, SUBAGENTS_SUBDOMAIN } from "@/lib/sub-agents/join-host"
@@ -316,10 +317,10 @@ export async function middleware(request: NextRequest) {
     !path.startsWith("/auth/complete-profile") &&
     !path.startsWith("/auth/callback")
   ) {
-    const dashboardUrl = request.nextUrl.clone()
-    dashboardUrl.pathname = "/dashboard"
-    dashboardUrl.searchParams.delete("redirect")
-    return NextResponse.redirect(dashboardUrl)
+    // Honor a remembered destination (?redirect=/dashboard/x) so a user who is
+    // already signed in still lands on the page they clicked, not the dashboard root.
+    const target = safeRedirectPath(request.nextUrl.searchParams.get("redirect"))
+    return NextResponse.redirect(new URL(target, request.nextUrl.origin))
   }
 
   // ── Security headers ────────────────────────────────────────────────────────

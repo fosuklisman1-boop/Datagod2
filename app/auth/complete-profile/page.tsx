@@ -14,6 +14,11 @@ import { CheckCircle2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { readFirstTouchFromBrowser } from "@/lib/signup-source"
+import { safeRedirectPath } from "@/lib/post-auth-redirect"
+
+// Destination remembered from the page the user clicked before signing up
+// (?next=...); read lazily so no Suspense boundary is needed.
+const postAuthTarget = () => safeRedirectPath(new URLSearchParams(window.location.search).get("next"))
 
 const DEFAULT_TERMS = `Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service. Please read them carefully before creating an account or making any purchase.
 
@@ -113,7 +118,7 @@ export default function CompleteProfilePage() {
         .maybeSingle()
 
       if (existingProfile?.phone_number) {
-        router.replace("/dashboard")
+        router.replace(postAuthTarget())
         return
       }
 
@@ -311,7 +316,7 @@ export default function CompleteProfilePage() {
       }
 
       toast.success("Profile created! Welcome to DATAGOD.")
-      router.push("/dashboard")
+      router.push(postAuthTarget())
     } catch {
       toast.error("Something went wrong. Please try again.")
     } finally {
