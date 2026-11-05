@@ -71,3 +71,15 @@ for `rmp.hubtel.com` (Receive Money) and `payproxyapi.hubtel.com` (Online Checko
 calls come back as 403 or time out.
 Redeploy: copy `scripts/hubtel-relay/server.ts` and `lib/ussd-hubtel/relay-handler.ts` (same paths), set env, `systemctl restart hubtel-relay`.
 Check: `curl -s -H "Authorization: Bearer $RELAY_SECRET" https://<relay-host>/balance`
+
+## Send Money routes (refund payouts)
+Both Bearer RELAY_SECRET. Answer 501 unless `HUBTEL_DISBURSEMENT_ACCOUNT` and `HUBTEL_RELAY_APP_HOST` are set.
+- `POST /send` body `{reference, msisdn, channel, amount, callbackUrl}` -> Hubtel Direct Send Money
+  `https://smp.hubtel.com/api/merchants/{HUBTEL_DISBURSEMENT_ACCOUNT}/send/mobilemoney`. `Description` is fixed to
+  `Refund` and `RecipientName` is the msisdn. Same field rules as `/receive`; the callback must also be on the app host
+  at exactly `/api/webhooks/hubtel-send`. Reply `{ok, upstreamStatus, body, sent}` (`sent` as for `/receive`).
+- `GET /send-status?clientReference=<32 hex>` -> `https://smrsc.hubtel.com/api/merchants/{HUBTEL_DISBURSEMENT_ACCOUNT}/transactions/status`.
+  Reply `{ok, upstreamStatus, body}`. Hubtel answers HTTP 400 `{"ResponseCode":"error","Data":"Your status check did not match any records..."}` for an unknown reference.
+- `HUBTEL_SEND_BASIC_AUTH` - optional base64 `user:pass`; defaults to `HUBTEL_STATUS_BASIC_AUTH`.
+- Whitelisting: confirm the droplet IP is whitelisted for `smp.hubtel.com` and that the key may send.
+Redeploy: copy `scripts/hubtel-relay/server.ts` and `lib/ussd-hubtel/relay-handler.ts` (same paths), keep a dated backup, `systemctl restart hubtel-relay`.

@@ -27,6 +27,10 @@ export interface RelayConfig {
   receiveBasicAuth?: string
   receiveBaseUrl?: string
   checkoutBaseUrl?: string
+  /** Basic credential for Direct Send Money (/send, /send-status); defaults to statusBasicAuth. */
+  sendBasicAuth?: string
+  sendBaseUrl?: string
+  sendStatusBaseUrl?: string
 }
 
 export interface RelayRequest {
@@ -51,6 +55,10 @@ const PAY_MSISDN = /^233[0-9]{9}$/
 const PAY_CHANNELS = new Set(["mtn-gh", "vodafone-gh", "tigo-gh"])
 const PAY_DESCRIPTION = /^[A-Za-z0-9 .,-]{1,60}$/
 const PAY_URL_MAX = 500
+/** Refund payouts (/send): the only callback path the relay will hand to Hubtel. */
+const SEND_CALLBACK_PATH = "/api/webhooks/hubtel-send"
+/** Fixed text: no surface or product word ever goes into a payout. */
+const SEND_DESCRIPTION = "Refund"
 
 /**
  * Error codes that mean the request never left the relay: name resolution, TCP connect and
@@ -115,16 +123,18 @@ export function createRelayHandler(cfg: RelayConfig) {
   const receiveBase = (cfg.receiveBaseUrl ?? "https://rmp.hubtel.com").replace(/\/$/, "")
   const checkoutBase = (cfg.checkoutBaseUrl ?? "https://payproxyapi.hubtel.com").replace(/\/$/, "")
   const appHost = cfg.appHost?.trim().toLowerCase() || ""
+  const sendBase = (cfg.sendBaseUrl ?? "https://smp.hubtel.com").replace(/\/$/, "")
+  const sendStatusBase = (cfg.sendStatusBaseUrl ?? "https://smrsc.hubtel.com").replace(/\/$/, "")
 
-  /** Shared send for /receive and /checkout: adds `sent` to the usual reply shape. */
-  async function sendPayment(url: string, payload: Record<string, unknown>) {
+  /** Shared send for /receive, /checkout and /send: adds `sent` to the usual reply shape. */
+  async function sendPayment(url: string, payload: Record<string, unknown>, basicAuth: string = cfg.receiveBasicAuth ?? cfg.statusBasicAuth) {
     let responded = false
     let upstreamStatus = 0
     try {
       const res = await doFetch(url, {
         method: "POST",
         headers: {
-          Authorization: `Basic ${cfg.receiveBasicAuth ?? cfg.statusBasicAuth}`,
+          Authorization: `Basic ${basicAuth}`,
           Accept: "application/json", "Content-Type": "application/json", "Cache-Control": "no-cache",
         },
         body: JSON.stringify(payload),
@@ -282,6 +292,42 @@ export function createRelayHandler(cfg: RelayConfig) {
         returnUrl: ret.href, cancellationUrl: cancel.href,
         merchantAccountNumber: cfg.collectionAccount, clientReference: p.reference,
       })
+    }
+
+    // Direct Send Money (refund payouts). Fixed Hubtel paths only, from the disbursement account.
+    if (req.method === "POST" && req.path === "/send") {
+      if (!appHost || !cfg.disbursementAccount) return { status: 501, body: { error: "send not configured" } }
+      const p = parseObject(req.body)
+      if (!p) return { status: 400, body: { error: "json object required" } }
+      if (typeof p.reference !== "string" || !PAY_REF.test(p.reference)) return { status: 400, body: { error: "invalid reference" } }
+      if (typeof p.msisdn !== "string" || !PAY_MSISDN.test(p.msisdn)) return { status: 400, body: { error: "invalid msisdn" } }
+      if (typeof p.channel !== "string" || !PAY_CHANNELS.has(p.channel)) return { status: 400, body: { error: "invalid channel" } }
+      if (!validAmount(p.amount)) return { status: 400, body: { error: "invalid amount" } }
+      const cb = appUrl(p.callbackUrl, appHost)
+      if (!cb || cb.pathname !== SEND_CALLBACK_PATH) return { status: 400, body: { error: "invalid callbackUrl" } }
+      const url = `${sendBase}/api/merchants/${encodeURIComponent(cfg.disbursementAccount)}/send/mobilemoney`
+      return sendPayment(url, {
+        RecipientName: p.msisdn, RecipientMsisdn: p.msisdn, Channel: p.channel, Amount: p.amount,
+        PrimaryCallbackURL: cb.href, Description: SEND_DESCRIPTION, ClientReference: p.reference,
+      }, cfg.sendBasicAuth ?? cfg.statusBasicAuth)
+    }
+
+    if (req.method === "GET" && req.path === "/send-status") {
+      if (!cfg.disbursementAccount) return { status: 501, body: { error: "send not configured" } }
+      const ref = req.query.get("clientReference") ?? ""
+      if (!PAY_REF.test(ref)) return { status: 400, body: { error: "invalid clientReference" } }
+      const url = `${sendStatusBase}/api/merchants/${encodeURIComponent(cfg.disbursementAccount)}/transactions/status?clientReference=${ref}`
+      try {
+        const res = await doFetch(url, {
+          method: "GET",
+          headers: { Authorization: `Basic ${cfg.sendBasicAuth ?? cfg.statusBasicAuth}`, Accept: "application/json" },
+          redirect: "error",
+          signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        })
+        return { status: 200, body: { ok: res.ok, upstreamStatus: res.status, body: await readBody(res) } }
+      } catch (e: any) {
+        return { status: 200, body: { ok: false, upstreamStatus: 0, body: String(e?.message ?? e) } }
+      }
     }
 
     const cs = CS_PATH.exec(req.path)
