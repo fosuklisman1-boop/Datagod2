@@ -35,21 +35,22 @@ const localClaims = new Map<string, number>()
 /**
  * - `claimed`: this request may write the order and charge. It must call releaseShopCharge when done.
  * - `held`: another request for this sender is charging. Create nothing.
- * - `unavailable`: Redis is configured but can't answer, so a concurrent charge can't be ruled out. Create nothing.
+ * - `unavailable`: Redis is configured but can't answer, so a concurrent charge can't be ruled out. The shop bot creates
+ *   nothing; the main bot goes ahead without a claim (owner decision 2026-11-05).
  */
 export type ShopChargeClaim = "claimed" | "held" | "unavailable"
 
 /** At most one outage alert per this long, across instances (admin_settings stamp; see sendThrottledAlert). */
 const OUTAGE_ALERT_WINDOW_MS = 30 * 60_000
 
-/** Every shop-bot payment is refused while this lasts, so admins hear about it. No sender number. Never throws. */
+/** Shop-bot payments are refused while this lasts, so admins hear about it. No sender number. Never throws. */
 async function alertOutage(): Promise<void> {
   try {
     const [{ sendThrottledAlert }, { supabaseAdmin }] = await Promise.all([
       import("@/lib/hubtel-pay/alert-throttle"),
       import("@/lib/supabase"),
     ])
-    await sendThrottledAlert(supabaseAdmin, "WhatsApp bots: the payment lock (Redis) is not answering, so bot MoMo payments are being refused. Check Upstash.", {
+    await sendThrottledAlert(supabaseAdmin, "WhatsApp bots: the payment lock (Redis) is not answering. Shop-bot MoMo payments are being refused; main-bot payments continue without double-order protection. Check Upstash.", {
       key: "last_wa_shop_claim_outage_alert", type: "whatsapp_shop_claim_outage", description: "WhatsApp shop charge-claim outage alert throttle",
       windowMs: OUTAGE_ALERT_WINDOW_MS, logPrefix: "[WA-SHOP-CLAIM]",
     })

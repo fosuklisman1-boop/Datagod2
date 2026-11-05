@@ -678,7 +678,9 @@ const WA_CHARGE_BUSY_REPLY = "Please check for the payment prompt, or start agai
 async function handleWaEnterPaymentPhone(input: string, sessionId: string, session: USSDSession): Promise<UzoResponse> {
   if (input.trim() === '0') return enterPaymentPhone(input, sessionId, session)
   const claim = await claimShopCharge(sessionId, 'main')
-  if (claim === 'unavailable') return { message: 'Sorry, we could not start the payment right now. Please try again in a moment.', ussdServiceOp: 2 }
+  // Owner decision 2026-11-05: on the main bot a lock outage doesn't stop sales. No claim is held, so nothing to release,
+  // and admins were alerted inside claimShopCharge. Two messages at once could mint two orders during that outage.
+  if (claim === 'unavailable') return enterPaymentPhone(input, sessionId, session)
   // Op 2 on the busy answers: op 17 would delete the session the other request is still writing.
   if (claim === 'held') return { message: WA_CHARGE_BUSY_REPLY, ussdServiceOp: 2 }
   try {

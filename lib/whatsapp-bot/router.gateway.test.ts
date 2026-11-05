@@ -22,6 +22,10 @@ vi.mock("@/lib/hubtel-pay/client", async (orig) => (await import("@/lib/ussd/gat
 vi.mock("@/lib/hubtel-pay/alert-throttle", async () => (await import("@/lib/ussd/gateway-test-kit")).alertMock())
 vi.mock("next/server", () => ({ after: (fn: () => Promise<void>) => { h.afterFns.push(fn) } }))
 // The WhatsApp session and the USSD session share one key space in production (ussd:session:<id>).
+vi.mock("./shop-charge-claim", async (orig) => {
+  const real = await orig<typeof import("./shop-charge-claim")>()
+  return { ...real, claimShopCharge: vi.fn(real.claimShopCharge), releaseShopCharge: vi.fn(real.releaseShopCharge) }
+})
 vi.mock("./session", () => ({
   getWaSession: async (id: string) => h.sessions.get(id) ?? null,
   setWaSession: async (id: string, s: any) => { h.sessions.set(id, JSON.parse(JSON.stringify(s))); h.history.push([id, s]) },
@@ -68,6 +72,7 @@ vi.mock("@/lib/storefront-otp", async (orig) => ({
 }))
 
 import { waRouter } from "./router"
+import { claimShopCharge, releaseShopCharge } from "./shop-charge-claim"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "@/lib/ussd/gateway-test-kit"
 
@@ -413,5 +418,17 @@ describe("main WhatsApp bot, two MoMo-number messages at once", () => {
     expect(rows("ussd_orders")).toHaveLength(1)
     expect(vi.mocked(chargeMobileMoney).mock.calls).toHaveLength(1)
     expectNeutral(replies)
+  })
+
+  it("the lock can't answer: the payment still goes ahead, and nothing is released", async () => {
+    atConfirm()
+    await waRouter(FROM, "2")
+    vi.mocked(claimShopCharge).mockResolvedValueOnce("unavailable")
+    vi.mocked(releaseShopCharge).mockClear()
+    await waRouter(FROM, OTHER)
+    await runAfter()
+    expect(rows("ussd_orders")).toHaveLength(1)
+    expect(vi.mocked(chargeMobileMoney).mock.calls).toHaveLength(1)
+    expect(releaseShopCharge).not.toHaveBeenCalled()
   })
 })
