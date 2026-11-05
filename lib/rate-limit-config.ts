@@ -169,6 +169,7 @@ export const HEAVY_ADMIN_OPERATIONS = [
     '/api/admin/mtn-registration/export',
     '/api/admin/mtn-registration/batch',
     '/api/admin/packages/bulk-update-price',
+    '/api/admin/users/bulk',
 ] as const
 
 /**

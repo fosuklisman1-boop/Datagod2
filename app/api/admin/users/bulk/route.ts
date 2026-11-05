@@ -6,15 +6,19 @@ import { changeUserRole, setUserSuspended } from "@/lib/admin-users/account-ops"
 import { sendBulkNotification, type BulkUserResult, type NotifyRecipient } from "@/lib/admin-users/bulk-notify"
 import { parseExportRpcResult, toExportRpcArgs, type ExportCursor } from "@/lib/admin-users/export-params"
 import type { UsersListFilters } from "@/lib/admin-users/list-params"
+import { runAfterResponse } from "@/lib/admin-users/after-response"
 
 export const dynamic = "force-dynamic"
-// 200 suspensions each send an SMS and an email; at 5 at a time that can take a minute or two.
+// The request itself only does database work (about 4 queries per user, 5 users at a time: ~20s for 200).
+// Suspension SMS / email go out after the response (runAfterResponse), 5 at a time, inside the same 300s.
 export const maxDuration = 300
 
 /** Users processed at once for role and suspension changes. */
 const CONCURRENCY = 5
 /** Rows per admin_export_users call when resolving "every matching user". */
 const MATCHING_CHUNK = 1000
+/** Rows per audit insert for notify. */
+const AUDIT_CHUNK = 100
 
 /**
  * POST /api/admin/users/bulk { action, userIds | matching, params }   (lib/admin-users/bulk-params.ts)
@@ -52,6 +56,8 @@ export async function POST(req: NextRequest) {
     const db = serviceClient()
     if (request.action === "notify") return await notify(db, adminId, request)
 
+    // Suspension notices are sent after the response so 200 users finish well inside maxDuration.
+    const deferred: Array<() => Promise<void>> = []
     const results = await mapLimit(request.target.ids, CONCURRENCY, async (id): Promise<BulkUserResult> => {
       if (id === adminId.toLowerCase()) {
         return { id, ok: false, error: request.action === "set_role" ? "You cannot change your own role" : "You cannot suspend or unsuspend yourself" }
@@ -59,7 +65,10 @@ export async function POST(req: NextRequest) {
       try {
         const r = request.action === "set_role"
           ? await changeUserRole(db, { userId: id, role: request.role, adminId })
-          : await setUserSuspended(db, { userId: id, suspend: request.action === "suspend", reason: request.reason, adminId, skipUnchanged: true })
+          : await setUserSuspended(db, {
+              userId: id, suspend: request.action === "suspend", reason: request.reason, adminId, skipUnchanged: true,
+              deferNotifications: (send) => { deferred.push(send) },
+            })
         if (!r.ok) return { id, ok: false, error: r.error }
         const notes = [!r.changed && "unchanged", r.changed && !r.audited && "audit log entry could not be written"].filter(Boolean)
         return notes.length ? { id, ok: true, note: notes.join("; ") } : { id, ok: true }
@@ -68,6 +77,7 @@ export async function POST(req: NextRequest) {
         return { id, ok: false, error: "Unexpected error" }
       }
     })
+    if (deferred.length) runAfterResponse(async () => { await mapLimit(deferred, CONCURRENCY, (send) => send()) })
     return NextResponse.json(summary(request.action, results))
   } catch (e: any) {
     console.error("[ADMIN-BULK] error:", e?.message ?? e)
@@ -101,19 +111,25 @@ async function notify(db: SupabaseClient, adminId: string, request: Extract<Bulk
 
   const sent = recipients.length
     ? await sendBulkNotification(db, { adminId, recipients, title: request.title, message: request.message, channels: request.channels })
-    : { results: [], broadcastId: null, broadcastError: null }
+    : { results: [], delivered: new Map<string, string[]>(), broadcastId: null, broadcastError: null }
 
-  // One audit row per user notified, in batches (up to 5000 users).
+  // One audit row per user notified, listing the channels that actually went out for them (or were queued), in
+  // batches. A failed batch is reported and the next one still written.
   const notified = sent.results.filter((r) => r.ok).map((r) => r.id)
-  for (let i = 0; i < notified.length; i += 500) {
-    const ok = await writeAuditBatch(db, notified.slice(i, i + 500).map((id) => ({
-      admin_id: adminId, action: "user_notify", target_user_id: id,
-      new_value: { title: request.title, channels: request.channels, broadcast_id: sent.broadcastId },
-    })))
-    if (!ok) break
+  let auditFailed = 0
+  for (let i = 0; i < notified.length; i += AUDIT_CHUNK) {
+    const batch = notified.slice(i, i + AUDIT_CHUNK)
+    const ok = await writeAuditBatch(db, batch.map((id) => {
+      const channels = sent.delivered.get(id) ?? []
+      return {
+        admin_id: adminId, action: "user_notify", target_user_id: id,
+        new_value: { title: request.title, channels, broadcast_id: channels.some((c) => c !== "in_app") ? sent.broadcastId : null },
+      }
+    }))
+    if (!ok) auditFailed += batch.length
   }
 
-  return NextResponse.json({ ...summary("notify", [...sent.results, ...missing]), broadcastId: sent.broadcastId })
+  return NextResponse.json({ ...summary("notify", [...sent.results, ...missing]), broadcastId: sent.broadcastId, auditFailed })
 }
 
 /** Every user matching the list filters, through admin_export_users (the export's keyset paging), up to the limit. */

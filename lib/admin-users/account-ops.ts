@@ -5,6 +5,8 @@
 // the user's notifications, the audit row), so the bulk path cannot drift from the single-user one.
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { sendPushToUser } from "@/lib/push-service"
+import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { sendEmail, EmailTemplates } from "@/lib/email-service"
 import { writeAudit } from "./route-utils"
 import { SUSPEND_REASON_MAX } from "./bulk-params"
 
@@ -232,7 +234,18 @@ export type SuspendResult =
  */
 export async function setUserSuspended(
   db: SupabaseClient,
-  opts: { userId: string; suspend: boolean; reason?: string | null; adminId?: string | null; skipUnchanged?: boolean },
+  opts: {
+    userId: string
+    suspend: boolean
+    reason?: string | null
+    adminId?: string | null
+    skipUnchanged?: boolean
+    /**
+     * Bulk path: instead of awaiting the user's SMS / email / push, hand the send to this callback (it runs after
+     * the response). The result's `notifications` then only says that they were deferred (all false).
+     */
+    deferNotifications?: (send: () => Promise<void>) => void
+  },
 ): Promise<SuspendResult> {
   const { userId, suspend: isSuspending, adminId } = opts
   const reason = typeof opts.reason === "string" && opts.reason.trim() ? opts.reason.trim().slice(0, SUSPEND_REASON_MAX) : null
@@ -275,9 +288,8 @@ export async function setUserSuspended(
       })
     : false
 
-  try {
+  const send = async () => {
     if (user.phone_number) {
-      const { sendSMS, SMSTemplates } = await import("@/lib/sms-service")
       const smsRes = await sendSMS({
         phone: user.phone_number,
         message: isSuspending ? SMSTemplates.userSuspended(reason ?? undefined) : SMSTemplates.userUnsuspended(),
@@ -288,7 +300,6 @@ export async function setUserSuspended(
       if (!smsRes.success) notifications.sms_error = smsRes.error || "Unknown SMS error"
     }
     if (user.email) {
-      const { sendEmail, EmailTemplates } = await import("@/lib/email-service")
       const payload = isSuspending ? EmailTemplates.userSuspended(user.email, reason ?? undefined) : EmailTemplates.userUnsuspended(user.email)
       const emailRes = await sendEmail({
         to: [{ email: user.email, name: user.first_name || "User" }],
@@ -308,6 +319,14 @@ export async function setUserSuspended(
         : "Your account has been restored. You can now log in again.",
       data: { url: "/" },
     }).catch(() => {})
+  }
+
+  if (opts.deferNotifications) {
+    opts.deferNotifications(() => send().catch((e) => console.warn("[ADMIN-SUSPEND-USER] Deferred notification error:", e?.message ?? e)))
+    return { ok: true, changed: true, audited, notifications }
+  }
+  try {
+    await send()
   } catch (notifErr: any) {
     console.warn("[ADMIN-SUSPEND-USER] Notification error (non-fatal):", notifErr)
     notifications.sms_error = notifErr?.message ?? String(notifErr)

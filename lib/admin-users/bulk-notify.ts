@@ -16,32 +16,45 @@ export interface NotifyRecipient {
   name: string | null
 }
 
+export type ChannelOutcome = "sent" | "queued" | "failed"
+
 export interface BulkUserResult {
   id: string
   ok: boolean
   error?: string
   /** Something the admin should know that is not a failure, e.g. "no phone number: SMS skipped". */
   note?: string
+  /** notify only: what happened on each requested channel (in_app sent / failed; push, sms queued / failed). */
+  channels?: Partial<Record<NotifyChannel, ChannelOutcome>>
 }
 
-const IN_APP_CHUNK = 500
+/**
+ * In-app rows per insert. Each inserted notifications row also fires the Supabase webhook that pushes it to the
+ * user's mobile devices (app/api/push/dispatch), so rows go in small batches with a short pause between them
+ * rather than 5000 webhook calls at once.
+ */
+export const IN_APP_CHUNK = 100
+export const IN_APP_PAUSE_MS = 250
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 export async function sendBulkNotification(
   db: SupabaseClient,
   opts: { adminId: string; recipients: NotifyRecipient[]; title: string; message: string; channels: NotifyChannel[] },
-): Promise<{ results: BulkUserResult[]; broadcastId: string | null; broadcastError: string | null }> {
+): Promise<{ results: BulkUserResult[]; delivered: Map<string, NotifyChannel[]>; broadcastId: string | null; broadcastError: string | null }> {
   const { recipients, title, message, channels } = opts
-  const failed = new Map<string, string>()
+  const inAppFailed = new Set<string>()
 
   if (channels.includes("in_app")) {
     for (let i = 0; i < recipients.length; i += IN_APP_CHUNK) {
+      if (i > 0) await sleep(IN_APP_PAUSE_MS)
       const chunk = recipients.slice(i, i + IN_APP_CHUNK)
       const { error } = await db.from("notifications").insert(chunk.map((r) => ({
         user_id: r.id, title, message, type: "admin_action", action_url: "/dashboard", read: false,
       })))
       if (error) {
         console.error("[ADMIN-BULK-NOTIFY] in-app insert failed:", error.message)
-        for (const r of chunk) failed.set(r.id, "In-app notification could not be saved")
+        for (const r of chunk) inAppFailed.add(r.id)
       }
     }
   }
@@ -69,16 +82,25 @@ export async function sendBulkNotification(
       console.error("[ADMIN-BULK-NOTIFY] broadcast failed:", e?.message ?? e)
       broadcastError = "Push / SMS could not be queued"
     }
-    if (broadcastError) {
-      for (const r of recipients) failed.set(r.id, [failed.get(r.id), broadcastError].filter(Boolean).join("; "))
-    }
   }
+  const bLabel = broadcastChannels.map((c) => (c === "sms" ? "SMS" : "push")).join("/")
+  const bFailText = (first: boolean) => `${first ? bLabel[0].toUpperCase() + bLabel.slice(1) : bLabel} not queued (${broadcastError})`
 
+  const delivered = new Map<string, NotifyChannel[]>()
   const results = recipients.map((r): BulkUserResult => {
-    const error = failed.get(r.id)
-    if (error) return { id: r.id, ok: false, error }
-    const note = channels.includes("sms") && !r.phone ? "No phone number: SMS skipped" : undefined
-    return note ? { id: r.id, ok: true, note } : { id: r.id, ok: true }
+    const outcome: Partial<Record<NotifyChannel, ChannelOutcome>> = {}
+    if (channels.includes("in_app")) outcome.in_app = inAppFailed.has(r.id) ? "failed" : "sent"
+    for (const c of broadcastChannels) outcome[c] = broadcastError ? "failed" : "queued"
+    const ok = channels.filter((c) => outcome[c] !== "failed")
+    delivered.set(r.id, ok)
+
+    const failures: string[] = []
+    if (outcome.in_app === "failed") failures.push("In-app notification not saved")
+    if (broadcastChannels.length && broadcastError) failures.push(bFailText(failures.length === 0))
+    if (ok.length === 0) return { id: r.id, ok: false, error: failures.join("; "), channels: outcome }
+    const notes = [...failures]
+    if (outcome.sms === "queued" && !r.phone) notes.push("No phone number: SMS skipped")
+    return notes.length ? { id: r.id, ok: true, note: notes.join("; "), channels: outcome } : { id: r.id, ok: true, channels: outcome }
   })
-  return { results, broadcastId, broadcastError }
+  return { results, delivered, broadcastId, broadcastError }
 }

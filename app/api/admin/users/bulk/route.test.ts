@@ -11,13 +11,23 @@ const h = vi.hoisted(() => ({
   users: {} as Record<string, { role: string; is_suspended: boolean; email: string; phone_number: string | null; first_name: string }>,
   shops: {} as Record<string, { id: string; parent_shop_id: string | null }>,
   exportPages: [] as any[],
+  /** Work the route handed to runAfterResponse (sent after the response). */
+  afterTasks: [] as Array<() => Promise<void>>,
+  sms: [] as string[],
+  broadcastFails: false,
+  notificationsFail: false,
+  auditFailBatches: 0,
 }))
+vi.mock("@/lib/admin-users/after-response", () => ({ runAfterResponse: (t: () => Promise<void>) => { h.afterTasks.push(t) } }))
 vi.mock("@/lib/admin-auth", () => ({
   verifyAdminAccess: vi.fn(async () => (await import("@/lib/admin-users/test-fake-db")).fakeVerify(h.gate)),
 }))
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => new Proxy({}, { get: (_t, k) => (h.fake.db as any)[k] }) }))
 vi.mock("@/lib/push-service", () => ({ sendPushToUser: vi.fn(async () => ({ sent: 1, removed: 0 })) }))
-vi.mock("@/lib/sms-service", () => ({ sendSMS: vi.fn(async () => ({ success: true })), SMSTemplates: { userSuspended: () => "s", userUnsuspended: () => "u" } }))
+vi.mock("@/lib/sms-service", () => ({
+  sendSMS: vi.fn(async (o: { phone: string }) => { h.sms.push(o.phone); return { success: true } }),
+  SMSTemplates: { userSuspended: () => "s", userUnsuspended: () => "u" },
+}))
 vi.mock("@/lib/email-service", () => ({
   sendEmail: vi.fn(async () => ({ success: true })),
   EmailTemplates: { userSuspended: () => ({ subject: "s", html: "h" }), userUnsuspended: () => ({ subject: "u", html: "h" }) },
@@ -63,6 +73,11 @@ beforeEach(() => {
   h.enqueued = []
   h.drained = []
   h.exportPages = []
+  h.afterTasks = []
+  h.sms = []
+  h.broadcastFails = false
+  h.notificationsFail = false
+  h.auditFailBatches = 0
   h.users = {
     [U(1)]: { role: "user", is_suspended: false, email: "one@x.com", phone_number: "0244000001", first_name: "One" },
     [U(2)]: { role: "dealer", is_suspended: true, email: "two@x.com", phone_number: null, first_name: "Two" },
@@ -75,9 +90,11 @@ beforeEach(() => {
       users: usersHandler,
       user_shops: (q) => ({ data: h.shops[q.filter("user_id") as string] ?? null, error: null }),
       shop_packages: () => ({ data: [], error: null }),
-      admin_audit_log: () => ({ data: null, error: null }),
-      notifications: () => ({ data: null, error: null }),
-      broadcast_logs: (q) => (q.kind === "insert" ? { data: { id: "bc-1" }, error: null } : { data: null, error: null }),
+      admin_audit_log: () => (h.auditFailBatches-- > 0 ? { data: null, error: { message: "audit down" } } : { data: null, error: null }),
+      notifications: () => (h.notificationsFail ? { data: null, error: { message: "down" } } : { data: null, error: null }),
+      broadcast_logs: (q) => (q.kind === "insert"
+        ? (h.broadcastFails ? { data: null, error: { message: "broadcast_logs down" } } : { data: { id: "bc-1" }, error: null })
+        : { data: null, error: null }),
     },
     rpc: (name) => {
       if (name === "admin_export_users") return h.exportPages.shift() ?? { data: { rows: [], next_cursor: null }, error: null }
@@ -167,6 +184,11 @@ describe("POST /api/admin/users/bulk: suspend / unsuspend", () => {
       { id: U(3), ok: true },
     ])
     expect(h.authUpdates.map((u) => u.id).sort()).toEqual([U(1), U(3)].sort())
+    // the users' SMS / email / push go out after the response, not inside the 300s request
+    expect(h.sms).toEqual([])
+    expect(h.afterTasks).toHaveLength(1)
+    await h.afterTasks[0]()
+    expect(h.sms.sort()).toEqual(["0244000001", "0244000003"])
     expect(h.authUpdates[0].attrs).toEqual({ ban_duration: "876000h" })
     expect(h.users[U(1)].is_suspended).toBe(true)
     expect(h.users[ADMIN_ID].is_suspended).toBe(false)
@@ -197,8 +219,8 @@ describe("POST /api/admin/users/bulk: notify", () => {
     const body = await res.json()
     expect(body).toMatchObject({ action: "notify", total: 3, succeeded: 2, failed: 1, broadcastId: "bc-1" })
     expect(body.results).toEqual([
-      { id: U(1), ok: true },
-      { id: U(2), ok: true, note: "No phone number: SMS skipped" },
+      { id: U(1), ok: true, channels: { in_app: "sent", push: "queued", sms: "queued" } },
+      { id: U(2), ok: true, note: "No phone number: SMS skipped", channels: { in_app: "sent", push: "queued", sms: "queued" } },
       { id: U(9), ok: false, error: "User not found" },
     ])
     expect(h.fake.ofTable("notifications")[0].payload).toEqual([U(1), U(2)].map((id) => ({
@@ -222,11 +244,44 @@ describe("POST /api/admin/users/bulk: notify", () => {
     expect(h.fake.ofTable("broadcast_logs")).toHaveLength(0)
   })
 
-  it("reports a failed in-app insert per user", async () => {
-    h.fake = createFakeDb({ ...{ tables: { users: usersHandler, notifications: () => ({ data: null, error: { message: "down" } }), admin_audit_log: () => ({ data: null, error: null }) } } })
-    const body = await (await POST({ action: "notify", userIds: [U(1)], params: { ...params, channels: ["in_app"] } })).json()
-    expect(body.results).toEqual([{ id: U(1), ok: false, error: "In-app notification could not be saved" }])
+  it("in-app saved but push/SMS not queued: ok, with a note; the audit row lists only in_app", async () => {
+    h.broadcastFails = true
+    const body = await (await POST({ action: "notify", userIds: [U(1)], params })).json()
+    expect(body.results).toEqual([{ id: U(1), ok: true, note: "Push/SMS not queued (Push / SMS could not be queued)", channels: { in_app: "sent", push: "failed", sms: "failed" } }])
+    expect(body.broadcastId).toBeNull()
+    expect(audits().map((a) => a.new_value.channels)).toEqual([["in_app"]])
+  })
+
+  it("in-app failed but push/SMS queued: ok, says the in-app part failed; the audit row lists push and sms", async () => {
+    h.notificationsFail = true
+    const body = await (await POST({ action: "notify", userIds: [U(1)], params })).json()
+    expect(body.results).toEqual([{ id: U(1), ok: true, note: "In-app notification not saved", channels: { in_app: "failed", push: "queued", sms: "queued" } }])
+    expect(audits().map((a) => a.new_value.channels)).toEqual([["push", "sms"]])
+  })
+
+  it("every channel failed: not ok, and no audit row", async () => {
+    h.notificationsFail = true
+    h.broadcastFails = true
+    const body = await (await POST({ action: "notify", userIds: [U(1)], params })).json()
+    expect(body.results).toEqual([{ id: U(1), ok: false, error: "In-app notification not saved; push/SMS not queued (Push / SMS could not be queued)", channels: { in_app: "failed", push: "failed", sms: "failed" } }])
     expect(h.fake.ofTable("admin_audit_log")).toHaveLength(0)
+  })
+
+  it("inserts in-app rows in small chunks (each insert fans out to the mobile push webhook)", async () => {
+    const ids = Array.from({ length: 150 }, (_, i) => U(500 + i))
+    for (const id of ids) h.users[id] = { role: "user", is_suspended: false, email: `${id}@x.com`, phone_number: null, first_name: "X" }
+    const body = await (await POST({ action: "notify", userIds: ids, params: { ...params, channels: ["in_app"] } })).json()
+    expect(body.succeeded).toBe(150)
+    expect(h.fake.ofTable("notifications").map((q) => (q.payload as any[]).length)).toEqual([100, 50])
+  })
+
+  it("a failed audit batch does not stop the others, and the response says how many rows were not written", async () => {
+    const ids = Array.from({ length: 150 }, (_, i) => U(700 + i))
+    for (const id of ids) h.users[id] = { role: "user", is_suspended: false, email: null as any, phone_number: null, first_name: "X" }
+    h.auditFailBatches = 1
+    const body = await (await POST({ action: "notify", userIds: ids, params: { ...params, channels: ["in_app"] } })).json()
+    expect(h.fake.ofTable("admin_audit_log").map((q) => (q.payload as any[]).length)).toEqual([100, 50])
+    expect(body.auditFailed).toBe(100)
   })
 
   it("'every matching user' is resolved on the server with the list filters (export keyset paging)", async () => {
