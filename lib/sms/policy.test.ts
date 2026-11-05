@@ -107,15 +107,13 @@ describe("evaluateSendPolicy — platform content", () => {
       expect(evaluateSendPolicy(input({ message }))).toMatchObject({ decision: "block", code: "LINK_NOT_ALLOWED", flags: [] })
     }
   })
-  it("data-size copy is neither refused nor flagged as a lookalike", () => {
-    for (const message of ["Get 5GB.Top up now", "Get 5gb.top up now", "Enjoy 10GB.Shop today", "Get 1GB.Bundles/Data today"]) {
-      expect(evaluateSendPolicy(input({ message }))).toMatchObject({ decision: "allow", flags: [] })
+  it("a data size joined to a word ending is refused as a link, without a fraud flag", () => {
+    for (const message of ["Get 5GB.Top up now", "Get 5gb.top up now", "Enjoy 10GB.Shop today", "Claim at 5gb.top/win"]) {
+      expect(evaluateSendPolicy(input({ message }))).toMatchObject({ decision: "block", code: "LINK_NOT_ALLOWED", flags: [] })
     }
   })
-  it("a real data-size lookalike link with a path is still caught", () => {
-    const r = evaluateSendPolicy(input({ message: "Claim at 5gb.top/win" }))
-    expect(r.code).toBe("CONTENT_BLOCKED")
-    expect(r.flags[0]).toMatchObject({ severity: "fraud", matched: "5gb.top" })
+  it("ordinary data-size copy is allowed", () => {
+    expect(evaluateSendPolicy(input({ message: "Get 1GB.Bundles/Data today, 1G.B for GHS 4.50" }))).toMatchObject({ decision: "allow", flags: [] })
   })
 })
 

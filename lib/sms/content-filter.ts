@@ -113,6 +113,9 @@ export function matchBlockedContent(message: string, blockedKeywords: string[] =
 export function suspiciousHostReason(host: string): string | null {
   const h = host.toLowerCase().replace(/^www\./, "")
   if (SHORTENER_HOSTS.has(h)) return "suspicious link: known shortener"
+  // "5gb.top" is a data size then a sentence ("Get 5GB.Top up now"), not a disguised brand.
+  // It is still a link (Platform refuses it as one), just not a fraud signal.
+  if (DATA_SIZE_LABEL_RE.test(h.replace(/\.[a-z]{2,}$/, ""))) return null
   if (isHomoglyphHost(h)) return "suspicious link: homoglyph domain"
   return null
 }
@@ -158,7 +161,9 @@ export function extractLinkHosts(rawMessage: string): string[] {
     const run = m[1]
     const next = withoutSchemes[m.index! + run.length]
     if (next === "@") continue // email local part
-    const hasPath = next === "/"
+    const after = withoutSchemes.slice(m.index! + run.length, m.index! + run.length + 2)
+    // A path, query, fragment or port right after the host ("/x", "?x", "#x", ":8080").
+    const hasPath = /^[/?#]/.test(after) || /^:\d/.test(after)
     const rawLabels = run.split(".")
     const last = rawLabels[rawLabels.length - 1]
     if (!rawLabels.slice(1).some((l) => BARE_LINK_TLDS.has(l.toLowerCase()))) {
@@ -167,12 +172,11 @@ export function extractLinkHosts(rawMessage: string): string[] {
       // "1GB.Bundles/Data" are not.
       if (!hasPath || !/^[a-z]{2,}$/.test(last) || !/^[a-z]/i.test(rawLabels[0])) continue
     }
-    if (!hasPath && WORD_TLDS.has(last.toLowerCase())) {
-      // "now.Top", "offer.Shop", "Thanks.To": sentence boundary, not a link.
-      if (rawLabels.length === 2 && /^[a-z]+$/.test(rawLabels[0]) && /^[A-Z][a-z]+$/.test(last)) continue
-      // "5GB.Top", "5gb.top", "10GB.Shop": a data size, then the next sentence.
-      if (rawLabels.length === 2 && DATA_SIZE_LABEL_RE.test(rawLabels[0])) continue
-    }
+    // "now.Top", "offer.Shop", "Thanks.To": sentence boundary, not a link. (A data size such as
+    // "5GB.Top" stays a link, since 5gb.top is registrable; suspiciousHostReason just doesn't
+    // call it a lookalike.)
+    if (!hasPath && WORD_TLDS.has(last.toLowerCase()) && rawLabels.length === 2 &&
+        /^[a-z]+$/.test(rawLabels[0]) && /^[A-Z][a-z]+$/.test(last)) continue
     add(run)
   }
   for (const m of withoutSchemes.matchAll(IPV4_RE)) add(m[0])
