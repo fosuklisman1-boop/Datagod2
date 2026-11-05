@@ -48,9 +48,10 @@ function runBootstrap(pathname: string) {
   const appended: Array<{ src: string; async: boolean }> = []
   const win: Record<string, any> = {}
   const timers: Array<() => void> = []
+  const location = { pathname, origin: "https://www.datagod.store" }
   const context = {
     window: win,
-    location: { pathname, origin: "https://www.datagod.store" },
+    location,
     document: {
       createElement: () => ({ src: "", async: false }),
       head: { appendChild: (s: { src: string; async: boolean }) => appended.push(s) },
@@ -60,7 +61,7 @@ function runBootstrap(pathname: string) {
   }
   vm.runInNewContext(gaBootstrapScript(), context)
   const commands = () => win.dataLayer.map((a: ArrayLike<unknown>) => Array.from(a)) as unknown[][]
-  return { win, appended, timers, commands, disabled: () => win[`ga-disable-${GA_MEASUREMENT_ID}`] }
+  return { win, appended, timers, commands, location, disabled: () => win[`ga-disable-${GA_MEASUREMENT_ID}`] }
 }
 
 describe("gaBootstrapScript", () => {
@@ -108,7 +109,8 @@ describe("sign-up conversion event", () => {
   const signUpEvent = (commands: unknown[][]) => commands.find((c) => c[0] === "event" && c[1] === "sign_up")
 
   it("sends sign_up with a query-free URL from a private page, then turns collection back off", () => {
-    const { win, commands, disabled } = runBootstrap("/mtn-data")
+    const { win, commands, location, disabled } = runBootstrap("/mtn-data")
+    location.pathname = "/auth/signup"
     win.__dgGaSync("/auth/signup")
     expect(disabled()).toBe(true)
 
