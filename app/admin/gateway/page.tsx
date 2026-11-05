@@ -15,6 +15,7 @@ import { SurfacesCard } from "./_components/SurfacesCard"
 import { GatewayFeesCard } from "./_components/GatewayFeesCard"
 import { VerificationCard } from "./_components/VerificationCard"
 import { PayoutsCard } from "./_components/PayoutsCard"
+import { NeedsReviewCard } from "./_components/NeedsReviewCard"
 
 interface Loaded {
   config: GatewayConfig
@@ -102,6 +103,7 @@ export default function AdminGatewayPage() {
                   onConfigSaved={onConfigSaved}
                   onSettingsSaved={onSettingsSaved}
                 />
+                <NeedsReviewCard />
               </div>
               <div className="space-y-6">
                 <GatewayFeesCard
