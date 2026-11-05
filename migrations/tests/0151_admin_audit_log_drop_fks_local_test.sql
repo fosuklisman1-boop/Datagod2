@@ -1,10 +1,10 @@
 -- LOCAL ONLY. Never run against production: it creates stub tables and an auth schema.
 --
--- Exercises 0151_admin_audit_log_fk_set_null.sql on admin_audit_log exactly as 0069 creates it, in an EMPTY
+-- Exercises 0151_admin_audit_log_drop_fks.sql on admin_audit_log exactly as 0069 creates it, in an EMPTY
 -- database. Run from the repo root:
 --
 --   createdb audit_fk_test
---   psql -v ON_ERROR_STOP=1 -d audit_fk_test -f migrations/tests/0151_admin_audit_log_fk_set_null_local_test.sql
+--   psql -v ON_ERROR_STOP=1 -d audit_fk_test -f migrations/tests/0151_admin_audit_log_drop_fks_local_test.sql
 --
 -- Passes when it prints ADMIN_AUDIT_LOG_FK_LOCAL_TEST_OK. Any failed ASSERT aborts.
 
@@ -23,7 +23,7 @@ CREATE TABLE public.sms_accounts (id uuid PRIMARY KEY, status text, amount_paid 
 CREATE TABLE public.sms_unit_transactions (id uuid PRIMARY KEY, delta int, reason text);
 
 \i migrations/0069_admin_moderation_sms.sql
--- The tables 0149 adds (they cascade / set null themselves).
+-- The tables 0149 adds (they cascade / set null themselves; 0151 does not touch them).
 CREATE TABLE public.orders (id uuid);
 \i migrations/0149_admin_user_notes_tags.sql
 
@@ -51,41 +51,34 @@ END $$;
 ALTER TABLE public.admin_audit_log RENAME CONSTRAINT admin_audit_log_target_user_id_fkey TO some_old_name;
 ALTER TABLE public.admin_audit_log ADD CONSTRAINT dup_target_fk FOREIGN KEY (target_user_id) REFERENCES auth.users(id);
 
-\i migrations/0151_admin_audit_log_fk_set_null.sql
+\i migrations/0151_admin_audit_log_drop_fks.sql
 -- Idempotent: a second apply succeeds and changes nothing.
-\i migrations/0151_admin_audit_log_fk_set_null.sql
+\i migrations/0151_admin_audit_log_drop_fks.sql
 
 DO $$
 DECLARE
   n int;
 BEGIN
-  -- exactly one FK per column, both ON DELETE SET NULL, both validated, admin_id nullable
-  SELECT count(*) INTO n FROM pg_constraint
-   WHERE conrelid = 'public.admin_audit_log'::regclass AND contype = 'f';
-  ASSERT n = 2, format('two FKs, got %s', n);
-  ASSERT (SELECT bool_and(confdeltype = 'n' AND convalidated AND confrelid = 'auth.users'::regclass)
-            FROM pg_constraint WHERE conrelid = 'public.admin_audit_log'::regclass AND contype = 'f'), 'SET NULL, valid, auth.users';
-  ASSERT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'admin_audit_log_admin_id_fkey' AND conrelid = 'public.admin_audit_log'::regclass), 'admin fk name';
-  ASSERT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'admin_audit_log_target_user_id_fkey' AND conrelid = 'public.admin_audit_log'::regclass), 'target fk name';
+  -- no foreign key left on admin_audit_log; admin_id nullable (CRON-bypass rows have no admin)
+  SELECT count(*) INTO n FROM pg_constraint WHERE conrelid = 'public.admin_audit_log'::regclass AND contype = 'f';
+  ASSERT n = 0, format('no FKs, got %s', n);
   ASSERT (SELECT NOT attnotnull FROM pg_attribute WHERE attrelid = 'public.admin_audit_log'::regclass AND attname = 'admin_id'), 'admin_id nullable';
 
-  -- deleting an audited user now works: their audit rows stay, with target_user_id NULL; notes and tags go
+  -- deleting an audited user works, and their audit rows keep the original uuids; notes and tags go
   DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-00000000000a';
   ASSERT (SELECT count(*) FROM public.admin_audit_log) = 2, 'audit rows kept';
-  ASSERT (SELECT count(*) FROM public.admin_audit_log WHERE target_user_id IS NULL) = 1, 'target set null';
+  ASSERT (SELECT count(*) FROM public.admin_audit_log WHERE target_user_id = '00000000-0000-0000-0000-00000000000a'
+            AND admin_id = '00000000-0000-0000-0000-0000000000ad') = 1, 'target uuid kept';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.admin_audit_log WHERE target_user_id IS NULL OR admin_id IS NULL), 'nothing nulled';
   ASSERT NOT EXISTS (SELECT 1 FROM public.admin_user_notes), 'notes cascade';
   ASSERT NOT EXISTS (SELECT 1 FROM public.admin_user_tags), 'tags cascade';
 
-  -- deleting the admin who acted keeps their rows with admin_id NULL
+  -- deleting the admin who acted keeps their id on every row
   DELETE FROM auth.users WHERE id = '00000000-0000-0000-0000-0000000000ad';
-  ASSERT (SELECT count(*) FROM public.admin_audit_log WHERE admin_id IS NULL) = 2, 'admin set null';
+  ASSERT (SELECT count(*) FROM public.admin_audit_log WHERE admin_id = '00000000-0000-0000-0000-0000000000ad') = 2, 'admin uuid kept';
 
-  -- the FKs still refuse an unknown user on insert
-  BEGIN
-    INSERT INTO public.admin_audit_log (admin_id, action, target_user_id) VALUES (NULL, 'x', '00000000-0000-0000-0000-0000000000ff');
-    RAISE EXCEPTION 'unknown target accepted';
-  EXCEPTION WHEN foreign_key_violation THEN NULL;
-  END;
+  -- a CRON-bypass action (no admin) can now be recorded
+  INSERT INTO public.admin_audit_log (admin_id, action, target_user_id) VALUES (NULL, 'set_admin', '00000000-0000-0000-0000-00000000000b');
 
   RAISE NOTICE 'ADMIN_AUDIT_LOG_FK_LOCAL_TEST_OK';
 END $$;

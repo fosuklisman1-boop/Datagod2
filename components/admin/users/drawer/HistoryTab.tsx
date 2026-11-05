@@ -24,6 +24,7 @@ const ACTION_LABELS: Record<string, string> = {
   user_note_update: "Note edited",
   user_note_delete: "Note deleted",
   user_tags_change: "Tags changed",
+  user_removed: "Account deleted",
 }
 
 /** One line summarising an audit row's change. */
@@ -83,7 +84,7 @@ export function HistoryTab({ userId, refreshKey = 0 }: { userId: string; refresh
               <span className="text-xs text-muted-foreground whitespace-nowrap">{dateTime(r.created_at)}</span>
             </div>
             <p className="text-xs text-muted-foreground break-words">{auditSummary(r)}</p>
-            <p className="text-xs text-muted-foreground">by {r.admin_email ?? r.admin_id ?? "a deleted admin"}</p>
+            <p className="text-xs text-muted-foreground">by {r.admin_email ?? r.admin_id ?? "system (no signed-in admin)"}</p>
           </li>
         ))}
       </ul>

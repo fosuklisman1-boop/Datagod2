@@ -76,7 +76,7 @@ export interface TxResponse extends Paged<TxRow> {
 
 export interface AuditRow {
   id: string
-  /** NULL once that admin account has been deleted (0151). */
+  /** NULL when no signed-in admin acted (the CRON bypass; nullable since 0151). */
   admin_id: string | null
   admin_email: string | null
   action: string
