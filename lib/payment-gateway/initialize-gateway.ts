@@ -81,26 +81,35 @@ export interface WalletPaymentReplayRow {
 export interface OpenAttemptReplayRow {
   internal_reference: string | null
   expires_at: string | null
+  status: string | null
   mode: string | null
   checkout_url: string | null
 }
 
 /**
- * The newest pending Hubtel payment row for the order that is from the last 15 minutes, or whose own hosted attempt is
- * still open, unexpired and has a link to hand back. A hosted attempt with no link has nothing to give the customer, so
- * it only holds the order for the 15 minutes. `openAttempts` are hubtel_payments rows.
+ * Does this open attempt still hold its order? `confirming` always does: a check is running and may find it paid.
+ * Otherwise it holds until it expires, unless it is a checkout attempt with no link: start.ts never hands out a link it
+ * couldn't store, so a null checkout_url means nobody received one. Anything unknown (no mode, no readable expiry) holds.
+ */
+function attemptHolds(a: OpenAttemptReplayRow, nowMs: number): boolean {
+  if (a.status === "confirming") return true
+  const expired = !!a.expires_at && new Date(a.expires_at).getTime() <= nowMs
+  return !expired && (a.mode !== "checkout" || !!a.checkout_url)
+}
+
+/**
+ * The newest pending Hubtel payment row for the order that is from the last 15 minutes, or whose own attempt still
+ * holds the order (attemptHolds). `openAttempts` are hubtel_payments rows that are pending or confirming.
  */
 export function pickHubtelReplay(
   rows: WalletPaymentReplayRow[] | null | undefined,
   nowMs: number,
   openAttempts: OpenAttemptReplayRow[] = [],
 ): { id: string; reference: string } | null {
-  const hasLiveLink = (reference: string | null) => openAttempts.some((a) =>
-    a.internal_reference === reference && a.mode === "checkout" && !!a.checkout_url &&
-    !!a.expires_at && new Date(a.expires_at).getTime() > nowMs)
+  const held = (reference: string | null) => openAttempts.some((a) => a.internal_reference === reference && attemptHolds(a, nowMs))
   const live = (rows ?? []).filter((r) =>
     r.payment_method === "hubtel" && r.status === "pending" && !!r.reference && !!r.created_at &&
-    (nowMs - new Date(r.created_at).getTime() <= HUBTEL_REPLAY_WINDOW_MS || hasLiveLink(r.reference)))
+    (nowMs - new Date(r.created_at).getTime() <= HUBTEL_REPLAY_WINDOW_MS || held(r.reference)))
   live.sort((a, b) => new Date(b.created_at!).getTime() - new Date(a.created_at!).getTime())
   const top = live[0]
   return top ? { id: top.id, reference: top.reference! } : null

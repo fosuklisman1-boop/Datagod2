@@ -607,10 +607,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // R2: an order whose Hubtel attempt is still live (pending in the last 15 minutes, or a hosted attempt still open
-    // with a link to return) reuses that attempt's reference, so the wrapper's one-attempt-per-order rule applies (no
-    // second prompt / the same link). Paystack rows replay nothing, as today; but a live Hubtel attempt is never joined
-    // by a Paystack one.
+    // R2: an order whose Hubtel attempt is still live (pending in the last 15 minutes, or an attempt that still holds
+    // the order: see pickHubtelReplay) reuses that attempt's reference, so the wrapper's one-attempt-per-order rule
+    // applies (no second prompt / the same link). Paystack rows replay nothing, as today; but a live Hubtel attempt is
+    // never joined by a Paystack one.
     let replay: { id: string; reference: string } | null = null
     if (gatewaySurface && orderId) {
       const { data: liveRows, error: liveErr } = await supabase
@@ -627,7 +627,7 @@ export async function POST(request: NextRequest) {
       if (!liveErr && liveReferences.length > 0) {
         const { data: attempts, error: attemptsErr } = await supabase
           .from("hubtel_payments")
-          .select("internal_reference, expires_at, mode, checkout_url")
+          .select("internal_reference, expires_at, status, mode, checkout_url")
           .in("internal_reference", liveReferences)
           .in("status", ["pending", "confirming"])
         if (attemptsErr) {

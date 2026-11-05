@@ -729,14 +729,18 @@ export async function startHostedPayment(
     return closeAndFallBack(code, alert)
   }
   if (outcome.kind === "accepted" && outcome.checkoutUrl) {
+    // A link is only handed out once it is stored, so a null checkout_url always means nobody received one. The replay
+    // rule relies on that to free the order: a delivered but unrecorded link could be paid beside a second one.
+    let stored = false
     try {
-      if (!(await d.store.setCheckoutUrl(hubtelReference, outcome.checkoutUrl))) {
-        await tell("store", `Hubtel checkout (${surface}): attempt ${hubtelReference} was not there to store its link.`)
-      }
+      stored = await d.store.setCheckoutUrl(hubtelReference, outcome.checkoutUrl)
     } catch (e) {
-      // The link still works; only a repeat start for this order loses it (and gets "try again").
       console.error("[hubtel-start] checkout_url write failed:", e instanceof Error ? e.message : "unknown error")
-      await tell("store", `Hubtel checkout (${surface}): could not store the link for attempt ${hubtelReference}.`)
+    }
+    if (!stored) {
+      // The row stays open for the sweep. No fallback: Hubtel holds this attempt.
+      await tell("store", `Hubtel checkout (${surface}): could not store the link for attempt ${hubtelReference}; no link given, asked to try again.`)
+      throw new HostedStartError("try_again")
     }
     return hubtelResult(outcome.checkoutUrl)
   }

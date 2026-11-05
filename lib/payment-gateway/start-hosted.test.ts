@@ -203,13 +203,23 @@ describe("startHostedPayment — Hubtel accepted", () => {
     expect(t.onlyRow()).toMatchObject({ amount_pesewas: 1960, handler_amount_pesewas: 2000 })
   })
 
-  it("a failed checkout_url write still returns the URL (the payment is with Hubtel) and alerts", async () => {
+  it("a failed checkout_url write never returns the URL: try_again, row left open, alert, no Paystack", async () => {
     const t = setup({ setUrlThrows: true })
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
-    const out = await startHostedPayment("wallet_topup", PARAMS, t.deps)
+    await expect(startHostedPayment("wallet_topup", PARAMS, t.deps)).rejects.toMatchObject({ code: "try_again" })
     err.mockRestore()
-    expect(out.authorizationUrl).toBe(CHECKOUT)
     expect(t.alert).toHaveBeenCalledTimes(1)
+    expect(t.onlyRow()).toMatchObject({ status: "pending" })
+    expect(t.onlyRow().checkout_url ?? null).toBeNull()
+    expect(t.initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("a checkout_url write that changes no row never returns the URL either", async () => {
+    const t = setup()
+    vi.spyOn(t.deps.store!, "setCheckoutUrl").mockResolvedValue(false)
+    await expect(startHostedPayment("wallet_topup", PARAMS, t.deps)).rejects.toMatchObject({ code: "try_again" })
+    expect(t.alert).toHaveBeenCalledTimes(1)
+    expect(t.initializePayment).not.toHaveBeenCalled()
   })
 })
 

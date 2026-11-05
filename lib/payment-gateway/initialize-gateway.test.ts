@@ -87,20 +87,43 @@ describe("pickHubtelReplay", () => {
   it("nothing => null", () => {
     expect(pickHubtelReplay(null, now)).toBeNull()
   })
-  it("past 15 minutes, a row replays only while its own hosted attempt is unexpired and has a link to return", () => {
+  describe("past 15 minutes, an open attempt holds while unexpired unless it is a checkout attempt with no link", () => {
     const row = { id: "a", reference: "R1", payment_method: "hubtel", status: "pending", created_at: ago(30 * 60_000) }
+    const held = { id: "a", reference: "R1" }
     const later = new Date(now + 60_000).toISOString()
-    const link = { internal_reference: "R1", expires_at: later, mode: "checkout", checkout_url: "https://pay.hubtel.com/x" }
-    expect(pickHubtelReplay([row], now, [link])).toEqual({ id: "a", reference: "R1" })
-    expect(pickHubtelReplay([row], now, [{ ...link, expires_at: ago(1) }])).toBeNull()
-    expect(pickHubtelReplay([row], now, [{ ...link, internal_reference: "OTHER" }])).toBeNull()
-    expect(pickHubtelReplay([row], now, [{ ...link, checkout_url: null }])).toBeNull()
-    expect(pickHubtelReplay([row], now, [{ ...link, mode: "direct" }])).toBeNull()
-    expect(pickHubtelReplay([row], now)).toBeNull()
+    const link = { internal_reference: "R1", expires_at: later, status: "pending", mode: "checkout", checkout_url: "https://pay.hubtel.com/x" }
+
+    it("a checkout attempt with a link holds; without one it does not", () => {
+      expect(pickHubtelReplay([row], now, [link])).toEqual(held)
+      expect(pickHubtelReplay([row], now, [{ ...link, checkout_url: null }])).toBeNull()
+    })
+    it("a direct attempt holds, with no link to have", () => {
+      expect(pickHubtelReplay([row], now, [{ ...link, mode: "direct", checkout_url: null }])).toEqual(held)
+    })
+    it("a null mode holds (fail closed)", () => {
+      expect(pickHubtelReplay([row], now, [{ ...link, mode: null, checkout_url: null }])).toEqual(held)
+    })
+    it("a confirming attempt always holds: no link, past expiry, either mode", () => {
+      expect(pickHubtelReplay([row], now, [{ ...link, status: "confirming", checkout_url: null }])).toEqual(held)
+      expect(pickHubtelReplay([row], now, [{ ...link, status: "confirming", expires_at: ago(60_000) }])).toEqual(held)
+      expect(pickHubtelReplay([row], now, [{ ...link, status: "confirming", mode: "direct", expires_at: ago(60_000) }])).toEqual(held)
+    })
+    it("a pending attempt past expiry does not hold, whatever its mode", () => {
+      expect(pickHubtelReplay([row], now, [{ ...link, expires_at: ago(1) }])).toBeNull()
+      expect(pickHubtelReplay([row], now, [{ ...link, mode: "direct", expires_at: ago(1) }])).toBeNull()
+    })
+    it("a missing or unreadable expiry holds (fail closed)", () => {
+      expect(pickHubtelReplay([row], now, [{ ...link, expires_at: null }])).toEqual(held)
+      expect(pickHubtelReplay([row], now, [{ ...link, expires_at: "not a date" }])).toEqual(held)
+    })
+    it("another order's attempt, or none, does not hold", () => {
+      expect(pickHubtelReplay([row], now, [{ ...link, internal_reference: "OTHER" }])).toBeNull()
+      expect(pickHubtelReplay([row], now)).toBeNull()
+    })
   })
   it("inside 15 minutes a row replays with or without a link", () => {
     const row = { id: "a", reference: "R1", payment_method: "hubtel", status: "pending", created_at: ago(5 * 60_000) }
-    const noLink = { internal_reference: "R1", expires_at: new Date(now + 60_000).toISOString(), mode: "checkout", checkout_url: null }
+    const noLink = { internal_reference: "R1", expires_at: new Date(now + 60_000).toISOString(), status: "pending", mode: "checkout", checkout_url: null }
     expect(pickHubtelReplay([row], now, [noLink])).toEqual({ id: "a", reference: "R1" })
     expect(pickHubtelReplay([row], now)).toEqual({ id: "a", reference: "R1" })
   })

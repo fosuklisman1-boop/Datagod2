@@ -23,6 +23,8 @@ const h = vi.hoisted(() => {
     hubtelReads: 0,
     /** Fail reads of wallet_payments (the route's replay lookup). */
     walletReadError: null as null | { message: string },
+    /** Answer to hubtel_payments updates, instead of applying them (a failed checkout_url write). */
+    hubtelUpdateError: null as null | { message: string },
     /** Hubtel reads as ready once more, then goes not-ready (between the route's resolve and the wrapper's start). */
     readyFlips: false,
   }
@@ -48,6 +50,7 @@ const h = vi.hoisted(() => {
       if (mode === "insert") return { data: error ? null : inserted, error }
       if (mode === "update") {
         if (table === "wallet_payments" && state.walletUpdateError) return { data: null, error: state.walletUpdateError }
+        if (table === "hubtel_payments" && state.hubtelUpdateError) return { data: null, error: state.hubtelUpdateError }
         const hit = matching()
         hit.forEach((r) => Object.assign(r, patch))
         return { data: hit, error: null }
@@ -203,6 +206,7 @@ beforeEach(() => {
   h.state.hubtelReadFailAt = null
   h.state.hubtelReads = 0
   h.state.walletReadError = null
+  h.state.hubtelUpdateError = null
   h.state.readyFlips = false
   vi.mocked(applyRateLimit).mockClear()
   chargeMobileMoney.mockClear()
@@ -628,8 +632,13 @@ describe("a hosted attempt that never produced a link holds the order for 15 min
       expect((await shopOrder()).status).toBe(503)
     }],
     ["the link could not be stored", async () => {
-      expect((await shopOrder()).status).toBe(200)
-      hubtelRows()[0].checkout_url = null
+      h.state.hubtelUpdateError = { message: "db down" }
+      const res = await shopOrder()
+      h.state.hubtelUpdateError = null
+      expect(res.status).toBe(503)
+      expect(await res.json()).not.toHaveProperty("authorizationUrl")
+      expect(hubtelRows()[0]).toMatchObject({ status: "pending" })
+      expect(hubtelRows()[0].checkout_url ?? null).toBeNull()
     }],
   ]
   beforeEach(() => {
@@ -671,6 +680,89 @@ describe("a hosted attempt that never produced a link holds the order for 15 min
     expect(res.status).toBe(200)
     expect((initializePayment.mock.calls[0][0] as any).amount).toBe(20.6)
     expect(walletRows()[1]).toMatchObject({ amount: 20.6, fee: 0.6, payment_method: "paystack" })
+  })
+})
+
+describe("a link that could not be stored is never delivered", () => {
+  it("store fails => no URL; a retry at 16 minutes starts fresh; only one link ever reached the customer", async () => {
+    h.state.config = config({ storefront: { mode: "checkout" } })
+    const delivered: string[] = []
+    const attempt = async () => {
+      const res = await shopOrder()
+      const json = await res.json()
+      if (json.authorizationUrl) delivered.push(json.authorizationUrl)
+      return { res, json }
+    }
+
+    h.state.hubtelUpdateError = { message: "db down" }
+    const first = await attempt()
+    h.state.hubtelUpdateError = null
+    expect(first.res.status).toBe(503)
+    expect(first.json.error).toMatch(/try again/i)
+    expect(delivered).toHaveLength(0)
+    expect(hubtelRows()[0]).toMatchObject({ status: "pending" })
+
+    walletRows()[0].created_at = new Date(Date.now() - 16 * 60_000).toISOString()
+    const retry = await attempt()
+    expect(retry.res.status).toBe(200)
+    expect(retry.json.reference).not.toBe(walletRows()[0].reference)
+    expect(delivered).toEqual(["https://pay.hubtel.com/abc"])
+    expect(hubtelRows().filter((r) => r.checkout_url)).toHaveLength(1)
+  })
+})
+
+describe("an unexpired direct attempt holds the order past 15 minutes: no second prompt", () => {
+  beforeEach(async () => {
+    h.state.config = config({ storefront: { mode: "direct" } })
+    h.state.gates.storefrontDirect = true
+    await shopOrder({ momoDirect: true, paymentPhone: "0241234567" })
+    expect(receiveMoney).toHaveBeenCalledTimes(1)
+    // The attempt started a while after its row: the row is 20 minutes old, the attempt has 5 left.
+    walletRows()[0].created_at = new Date(Date.now() - 20 * 60_000).toISOString()
+    hubtelRows()[0].expires_at = new Date(Date.now() + 5 * 60_000).toISOString()
+  })
+  const retry = () => shopOrder({ momoDirect: true, paymentPhone: "0241234567" })
+
+  it("on a Hubtel surface => the same reference, pay_offline, no new row", async () => {
+    const reference = walletRows()[0].reference
+    const res = await retry()
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ reference, status: "pay_offline" })
+    expect(receiveMoney).toHaveBeenCalledTimes(1)
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(walletRows()).toHaveLength(1)
+    expect(hubtelRows()).toHaveLength(1)
+  })
+
+  it("on a surface flipped to Paystack => 409, no Paystack prompt", async () => {
+    h.state.config = config()
+    const res = await retry()
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: "PAYMENT_IN_PROGRESS" })
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(receiveMoney).toHaveBeenCalledTimes(1)
+    expect(walletRows()).toHaveLength(1)
+  })
+
+  it("past its expiry, still pending => not held: a new reference", async () => {
+    const reference = walletRows()[0].reference
+    hubtelRows()[0].expires_at = new Date(Date.now() - 1000).toISOString()
+    const res = await retry()
+    expect(res.status).toBe(200)
+    expect((await res.json()).reference).not.toBe(reference)
+  })
+
+  it("past its expiry but confirming => still held, on either surface, no prompt", async () => {
+    hubtelRows()[0].status = "confirming"
+    hubtelRows()[0].expires_at = new Date(Date.now() - 60 * 60_000).toISOString()
+    const reference = walletRows()[0].reference
+    const res = await retry()
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ reference, status: "pay_offline" })
+    h.state.config = config()
+    expect((await retry()).status).toBe(409)
+    expect(receiveMoney).toHaveBeenCalledTimes(1)
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
   })
 })
 
