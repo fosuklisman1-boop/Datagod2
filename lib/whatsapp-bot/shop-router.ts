@@ -23,6 +23,7 @@ import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/sh
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 import { submitOtp } from "@/lib/paystack"
 import { claimShopCharge, releaseShopCharge } from "./shop-charge-claim"
+import { chargeWithTimeout } from "./charge-timeout"
 import {
   guardedReprice, isUssdHubtelPayer, samePrice, startUssdCharge, ussdOrderAmount, type UssdPrice,
 } from "@/lib/ussd/gateway-charge"
@@ -340,6 +341,30 @@ async function takeShopChargeClaim(from: string, step: WaShopSession['step'], cl
   claim.held = true
   const fresh = await getSession(from)
   return fresh?.step === step ? null : SHOP_CHARGE_BUSY_REPLY
+}
+
+/** A charge that outlived its time limit: a prompt may be on its way, so nothing here says it failed. */
+export const SHOP_CHARGE_PENDING_REPLY = "Your payment is being started. If a payment prompt arrives on your phone, approve it to complete your order."
+
+/**
+ * Right after the order write, before the charge: the chat leaves the confirm step, so a request killed mid-charge can't
+ * leave it there for a later "1" to mint a second order. The request's own final write follows as before. Best effort:
+ * while this request runs, the claim covers the step anyway.
+ */
+async function leaveConfirmStep(from: string): Promise<void> {
+  try {
+    await setSession(from, { step: 'AI_CONVERSATION' })
+  } catch (e) {
+    console.error("[WA-SHOP-CONFIRM] could not move the chat off the confirm step:", e instanceof Error ? e.message : "unknown error")
+  }
+}
+
+/**
+ * "2"/"0" on a confirm step takes the charge claim too: a cancel that read the step while another request is charging
+ * must not answer "cancelled" while that prompt goes out. Null means cancel; otherwise the reply to send instead.
+ */
+async function claimForCancel(from: string, step: WaShopSession['step'], claim: { held: boolean }): Promise<string | null> {
+  return takeShopChargeClaim(from, step, claim)
 }
 
 export async function shopWaRouter(from: string, text: string, inboundMsgId: string | null): Promise<string> {
@@ -803,6 +828,12 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
       // ── CONFIRM ──────────────────────────────────────────────────────────────
       case 'CONFIRM': {
         if (input === '2' || input === '0') {
+          const busy = await claimForCancel(from, 'CONFIRM', claim)
+          if (busy) {
+            reply = busy
+            skipPersist = true
+            break
+          }
           deleteAfter = true
           reply = 'Order cancelled.'
           break
@@ -816,6 +847,8 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
             session.recipientPhone!,
             session.paymentPhone!
           )
+          // Nothing changed; writing this (possibly stale) session back could return the chat to the confirm step.
+          skipPersist = true
           break
         }
 
@@ -887,11 +920,12 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
         }
 
         const orderId = orderResult.orderId
+        await leaveConfirmStep(from)
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
           // Hubtel's unknown answers pay_offline (never throws); a fallback re-prices the order first or charges nothing.
-          const { status } = await startUssdCharge({
+          const timed = await chargeWithTimeout((deps) => startUssdCharge({
             surface: 'whatsapp',
             verifiedPayer,
             price,
@@ -913,7 +947,14 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
             reprice: guardedReprice(supabase, 'ussd_shop_orders', orderId, {
               from: { amount: chargeAmount }, set: { amount: price.paystack }, guards: { payment_status: 'pending' },
             }),
-          })
+          }, deps))
+          if (timed.kind === 'timeout') {
+            console.warn("[WA-SHOP-CONFIRM] charge timed out; outcome unknown, order left pending:", orderId)
+            deleteAfter = true
+            reply = SHOP_CHARGE_PENDING_REPLY
+            break
+          }
+          const { status } = timed.value
 
           if (status === 'send_otp') {
             await markOrderOtpRequired('ussd_shop_orders', orderId)
@@ -1081,12 +1122,19 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
       // ── AIRTIME_CONFIRM ─────────────────────────────────────────────────────
       case 'AIRTIME_CONFIRM': {
         if (input === '2' || input === '0') {
+          const busy = await claimForCancel(from, 'AIRTIME_CONFIRM', claim)
+          if (busy) {
+            reply = busy
+            skipPersist = true
+            break
+          }
           deleteAfter = true
           reply = 'Order cancelled.'
           break
         }
         if (input !== '1') {
           reply = shopAirtimeConfirmText(session, shopName)
+          skipPersist = true
           break
         }
 
@@ -1210,10 +1258,11 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
         }
 
         const orderId = orderResult.orderId
+        await leaveConfirmStep(from)
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const { status } = await startUssdCharge({
+          const timed = await chargeWithTimeout((deps) => startUssdCharge({
             surface: 'whatsapp',
             verifiedPayer,
             price: momoPrice,
@@ -1236,7 +1285,14 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
               set: { total_paid: momoPrice.paystack, payment_fee_amount: feeBack },
               guards: { payment_status: 'pending_payment' },
             }),
-          })
+          }, deps))
+          if (timed.kind === 'timeout') {
+            console.warn("[WA-SHOP-AIRTIME-CONFIRM] charge timed out; outcome unknown, order left pending:", orderId)
+            deleteAfter = true
+            reply = SHOP_CHARGE_PENDING_REPLY
+            break
+          }
+          const { status } = timed.value
 
           if (status === 'send_otp') {
             await markOrderOtpRequired('airtime_orders', orderId)
@@ -1359,12 +1415,19 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
       // ── RC_CONFIRM ───────────────────────────────────────────────────────────
       case 'RC_CONFIRM': {
         if (input === '2' || input === '0') {
+          const busy = await claimForCancel(from, 'RC_CONFIRM', claim)
+          if (busy) {
+            reply = busy
+            skipPersist = true
+            break
+          }
           deleteAfter = true
           reply = 'Order cancelled.'
           break
         }
         if (input !== '1') {
           reply = shopRcConfirmMenu(shopName, session.rcBoard!, session.rcQty!, session.rcTotal!, session.paymentPhone!)
+          skipPersist = true
           break
         }
 
@@ -1422,11 +1485,12 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
         }
 
         const orderId = orderResult.orderId
+        await leaveConfirmStep(from)
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
           // No Paystack fee on vouchers: the same amount on either gateway, so a fallback re-prices nothing.
-          const { status } = await startUssdCharge({
+          const timed = await chargeWithTimeout((deps) => startUssdCharge({
             surface: 'whatsapp',
             verifiedPayer: shopHubtelPayer(from, session),
             price: samePrice(pricing.totalPaid),
@@ -1444,7 +1508,14 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
                 shop_id: session.shopId,
               },
             },
-          })
+          }, deps))
+          if (timed.kind === 'timeout') {
+            console.warn("[WA-SHOP-RC-CONFIRM] charge timed out; outcome unknown, order left pending:", orderId)
+            deleteAfter = true
+            reply = SHOP_CHARGE_PENDING_REPLY
+            break
+          }
+          const { status } = timed.value
 
           if (status === 'send_otp') {
             await markOrderOtpRequired('results_checker_orders', orderId)
@@ -1678,6 +1749,12 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
       // ── RCCHECK_CONFIRM ──────────────────────────────────────────────────────
       case 'RCCHECK_CONFIRM': {
         if (input === '2' || input === '0') {
+          const busy = await claimForCancel(from, 'RCCHECK_CONFIRM', claim)
+          if (busy) {
+            reply = busy
+            skipPersist = true
+            break
+          }
           deleteAfter = true
           reply = 'Order cancelled.'
           break
@@ -1688,6 +1765,7 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
             session.rcCheckIndex!, session.rcCheckYear!, session.rcCheckDob!,
             session.rcCheckMode ?? 'own_voucher', session.rcCheckAmount ?? 0, session.paymentPhone!
           )
+          skipPersist = true
           break
         }
 
@@ -1762,11 +1840,12 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
         }
 
         const orderId = orderResult.orderId
+        await leaveConfirmStep(from)
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
           // No Paystack fee on a results check: the same amount on either gateway.
-          const { status } = await startUssdCharge({
+          const timed = await chargeWithTimeout((deps) => startUssdCharge({
             surface: 'whatsapp',
             verifiedPayer: shopHubtelPayer(from, session),
             price: samePrice(pricing.totalPaid),
@@ -1784,7 +1863,14 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
                 shop_id: session.shopId,
               },
             },
-          })
+          }, deps))
+          if (timed.kind === 'timeout') {
+            console.warn("[WA-SHOP-RCCHECK-CONFIRM] charge timed out; outcome unknown, request left pending:", orderId)
+            deleteAfter = true
+            reply = SHOP_CHARGE_PENDING_REPLY
+            break
+          }
+          const { status } = timed.value
 
           if (status === 'send_otp') {
             await markOrderOtpRequired('results_check_requests', orderId)

@@ -119,7 +119,8 @@ vi.mock("@/lib/airtime-pricing", async (orig) => ({
 }))
 vi.mock("@/lib/storefront-otp", async (orig) => ({ ...(await orig<object>()), isPhoneOtpVerified: h.verified }))
 
-import { shopWaRouter } from "./shop-router"
+import { shopWaRouter, SHOP_CHARGE_PENDING_REPLY } from "./shop-router"
+import { chargeTimeout } from "./charge-timeout"
 import { chargeMobileMoney } from "@/lib/paystack"
 import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "@/lib/ussd/gateway-test-kit"
 
@@ -282,13 +283,67 @@ describe.each([
       expectNeutral(...replies)
     })
 
+    it("the chat leaves the confirm step right after the order write, before the charge", async () => {
+      start()
+      let during: string | undefined
+      h.charge = async (p: any) => { during = h.sessions.get(FROM)?.step; return { status: "pay_offline", reference: p.reference } }
+      kit.receive.mockImplementation(async () => { during = h.sessions.get(FROM)?.step; return { kind: "accepted" } })
+      await pay()
+      expect(during).toBe("AI_CONVERSATION")
+    })
+
+    it("'2' mid-charge from a message that read the confirm step: busy, never 'cancelled'", async () => {
+      start()
+      const stale = h.sessions.get(FROM)
+      const first = pay()
+      await new Promise((r) => setTimeout(r, 5))
+      h.staleOnce = stale
+      const cancel = await shopWaRouter(FROM, "2", null)
+      expect(cancel).toMatch(BUSY)
+      expect(cancel).not.toMatch(/cancel/i)
+      expect(await first).toContain(OWN)
+      expect(prompts()).toBe(1)
+      expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
+    })
+
+    it("a stale menu re-display never puts the chat back on the confirm step", async () => {
+      start()
+      const stale = h.sessions.get(FROM)
+      await pay()
+      h.staleOnce = stale
+      await shopWaRouter(FROM, "9", null)
+      expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
+      h.staleOnce = null
+      await pay()
+      expect(rows(table)).toHaveLength(1)
+    })
+
+    it("a charge that outlives the timeout: outcome unknown, no failure, no fallback, a neutral reply", async () => {
+      chargeTimeout.ms = 5
+      try {
+        start()
+        h.charge = async (p: any) => { await new Promise((r) => setTimeout(r, 40)); return { status: "pay_offline", reference: p.reference } }
+        kit.receive.mockImplementation(async () => { await new Promise((r) => setTimeout(r, 40)); return { kind: "refused", code: "4000", message: "no" } })
+        const r = await pay()
+        expect(r).toBe(SHOP_CHARGE_PENDING_REPLY)
+        expect(r).not.toMatch(/fail|could not|sorry/i)
+        await new Promise((res) => setTimeout(res, 80))
+        if (hubtel.length) expect(charged()).toHaveLength(0) // Hubtel refused after the timeout: no Paystack prompt
+        expect(JSON.stringify(rows(table))).not.toMatch(/"failed"/)
+        expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
+        expect(h.redisKeys.size).toBe(0)
+        expectNeutral(r)
+      } finally {
+        chargeTimeout.ms = 40_000
+      }
+    })
+
     it("a second message mid-charge changes nothing; the first request's session write stands", async () => {
       start()
-      const before = h.sessions.get(FROM)
       const first = pay()
       await new Promise((r) => setTimeout(r, 5)) // the first holds the claim and is inside the charge
-      expect(await pay()).toMatch(BUSY)
-      expect(h.sessions.get(FROM)).toEqual(before)
+      expect(await pay()).toBe("") // the chat already left the confirm step: the AI handles it, nothing is created
+      expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
       expect(await first).toContain(OWN)
       expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
       expect(rows(table)).toHaveLength(1)
