@@ -4,6 +4,8 @@ import { UzoResponse, USSDSession } from "../types"
 import { cont, end, mainMenu, afaEnterNamePrompt, afaEnterCardPrompt, afaEnterLocationPrompt, afaEnterRegionPrompt, afaConfirmMenu } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
+import { setWaSession } from "../../whatsapp-bot/session"
+import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import {
   guardedReprice, isUssdHubtelPayer, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdChannel, type UssdPrice,
 } from "../gateway-charge"
@@ -177,7 +179,7 @@ export async function handleAfaConfirm(
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      await startUssdCharge({
+      const { status } = await startUssdCharge({
         surface,
         verifiedPayer,
         price,
@@ -203,6 +205,14 @@ export async function handleAfaConfirm(
         .from("ussd_afa_orders")
         .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
         .eq("id", orderId)
+
+      // WhatsApp: Paystack wants an OTP. The reply has already closed the chat, so reopen it on SUBMIT_OTP for this
+      // order under the sender (sessionId), or the customer can never pay. payment_status stays 'pending': the AFA
+      // success handler accepts nothing else. USSD has no way to ask after the session ends (unchanged).
+      if (status === 'send_otp' && channel === 'whatsapp') {
+        await setWaSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId, pendingOrderTable: 'ussd_afa_orders' })
+        await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+      }
 
       console.log("[USSD-AFA] ✓ MoMo charge initiated for AFA order:", orderId)
     } catch (err) {

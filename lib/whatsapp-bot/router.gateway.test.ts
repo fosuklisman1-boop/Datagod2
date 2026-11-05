@@ -355,3 +355,51 @@ describe("main WhatsApp bot, results-check OTP step: a paid request is recognise
     expect(await waRouter(FROM, "done")).toMatch(/approved/)
   })
 })
+
+// AFA on WhatsApp: when Paystack asks for an OTP the chat must wait for it, or the customer dead-ends with an order
+// that can never be paid. The AFA success handler needs payment_status 'pending', so the OTP step leaves it there.
+describe("main WhatsApp bot, AFA: Paystack asks for an OTP", () => {
+  const atAfa = () => h.sessions.set(FROM, {
+    step: "AFA_CONFIRM_AFA", dialingPhone: OWN, afaFullName: "Ama Mensah", afaGhCard: "GHA-123456789-0",
+    afaLocation: "Kumasi", afaRegion: "Ashanti", afaPrice: 20,
+  })
+  beforeEach(() => { h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference }) })
+  const afa = () => rows("ussd_afa_orders")[0]
+
+  it("the chat waits on SUBMIT_OTP for this order and the sender is asked for the code", async () => {
+    atAfa()
+    await waRouter(FROM, "1")
+    await runAfter()
+    expect(h.sessions.get(FROM)).toMatchObject({ step: "SUBMIT_OTP", pendingOrderId: afa().id, pendingOrderTable: "ussd_afa_orders" })
+    expect(h.texts.at(-1)?.[0]).toBe(FROM)
+    expect(h.texts.at(-1)?.[1]).toMatch(/one-time code/)
+    expect(afa().payment_status).toBe("pending")
+  })
+
+  it("the code is submitted for this order and the order stays payable", async () => {
+    atAfa()
+    await waRouter(FROM, "1")
+    await runAfter()
+    await waRouter(FROM, "123456")
+    await runAfter()
+    expect(submitOtp).toHaveBeenCalledWith(afa().id, "123456")
+    expect(afa().payment_status).toBe("pending")
+    expect(rows("ussd_orders")).toHaveLength(0)
+  })
+
+  it("0 cancels the AFA order itself", async () => {
+    atAfa()
+    await waRouter(FROM, "1")
+    await runAfter()
+    await waRouter(FROM, "0")
+    expect(afa()).toMatchObject({ payment_status: "failed", order_status: "failed" })
+  })
+
+  it("pay_offline: unchanged, no OTP step", async () => {
+    h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
+    atAfa()
+    await waRouter(FROM, "1")
+    await runAfter()
+    expect(h.sessions.get(FROM)?.step).not.toBe("SUBMIT_OTP")
+  })
+})

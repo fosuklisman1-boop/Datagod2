@@ -169,7 +169,7 @@ export interface USSDSession extends UzoNpSessionFields, UzoPbSessionFields {
   userId?: string                   // registered user's DB id (if phone matched a user)
   walletBalance?: number            // fetched at network selection for display; re-verified at payment
   pendingOrderId?: string  // order created at CONFIRM; used by PAYMENT_METHOD + SUBMIT_OTP
-  pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' // which table SUBMIT_OTP targets (data bundles default to ussd_orders)
+  pendingOrderTable?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' | 'ussd_afa_orders' // which table SUBMIT_OTP targets (data bundles default to ussd_orders)
   /**
    * Set only when an order was priced for Hubtel (written below today's Paystack price): that order and its MoMo
    * amount. Any other order (a different id, or none recorded) carries today's Paystack price (lib/ussd/gateway-charge.ts).

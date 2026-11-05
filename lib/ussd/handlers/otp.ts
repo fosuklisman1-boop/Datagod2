@@ -8,14 +8,17 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export type OtpOrderTable = "airtime_orders" | "results_checker_orders" | "results_check_requests"
+export type OtpOrderTable = "airtime_orders" | "results_checker_orders" | "results_check_requests" | "ussd_afa_orders"
 
-// Both airtime_orders and results_checker_orders carry a `status` column (the
-// data-bundle tables use `order_status` instead — those keep their own OTP
-// handlers). The "awaiting prompt" payment_status they sit at before a charge
-// confirms is 'pending_payment'.
-const SECONDARY_STATUS_COL = "status"
-const PENDING_VALUE = "pending_payment"
+// airtime_orders, results_checker_orders and results_check_requests carry a `status` column and wait at
+// payment_status 'pending_payment'. ussd_afa_orders (WhatsApp AFA) uses `order_status`, and its success handler only
+// accepts payment_status 'pending', which it never left, so the OTP step leaves it there.
+const COLUMNS: Record<OtpOrderTable, { statusCol: string; pending: string }> = {
+  airtime_orders: { statusCol: "status", pending: "pending_payment" },
+  results_checker_orders: { statusCol: "status", pending: "pending_payment" },
+  results_check_requests: { statusCol: "status", pending: "pending_payment" },
+  ussd_afa_orders: { statusCol: "order_status", pending: "pending" },
+}
 
 /**
  * Shared OTP-submission step for USSD airtime / results-checker orders (both the
@@ -31,7 +34,7 @@ export async function handleOtpSubmit(
   if (input.trim() === "0") {
     await supabase
       .from(table)
-      .update({ payment_status: "failed", [SECONDARY_STATUS_COL]: "failed", updated_at: new Date().toISOString() })
+      .update({ payment_status: "failed", [COLUMNS[table].statusCol]: "failed", updated_at: new Date().toISOString() })
       .eq("id", orderId)
     return { message: "Order cancelled.", ussdServiceOp: 17 }
   }
@@ -42,7 +45,7 @@ export async function handleOtpSubmit(
   // not re-trigger the OTP prompt while the charge is being completed.
   await supabase
     .from(table)
-    .update({ payment_status: PENDING_VALUE, updated_at: new Date().toISOString() })
+    .update({ payment_status: COLUMNS[table].pending, updated_at: new Date().toISOString() })
     .eq("id", orderId)
 
   after(async () => {
@@ -53,14 +56,14 @@ export async function handleOtpSubmit(
       if (status === "failed") {
         await supabase
           .from(table)
-          .update({ payment_status: "failed", [SECONDARY_STATUS_COL]: "failed", updated_at: new Date().toISOString() })
+          .update({ payment_status: "failed", [COLUMNS[table].statusCol]: "failed", updated_at: new Date().toISOString() })
           .eq("id", orderId)
       }
     } catch (err) {
       console.error("[USSD-OTP] submitOtp error:", err)
       await supabase
         .from(table)
-        .update({ payment_status: "failed", [SECONDARY_STATUS_COL]: "failed", updated_at: new Date().toISOString() })
+        .update({ payment_status: "failed", [COLUMNS[table].statusCol]: "failed", updated_at: new Date().toISOString() })
         .eq("id", orderId)
     }
   })

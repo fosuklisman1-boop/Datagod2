@@ -411,7 +411,8 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       if (
         session.pendingOrderTable === 'airtime_orders' ||
         session.pendingOrderTable === 'results_checker_orders' ||
-        session.pendingOrderTable === 'results_check_requests'
+        session.pendingOrderTable === 'results_check_requests' ||
+        session.pendingOrderTable === 'ussd_afa_orders'
       ) {
         if (!session.pendingOrderId) {
           result = { message: 'Session error. Please start a new order.', ussdServiceOp: 17 }
@@ -788,6 +789,7 @@ async function isOrderPaymentComplete(orderId: string, table?: string): Promise<
     const tbl = table === 'airtime_orders' ? 'airtime_orders'
       : table === 'results_checker_orders' ? 'results_checker_orders'
       : table === 'results_check_requests' ? 'results_check_requests'
+      : table === 'ussd_afa_orders' ? 'ussd_afa_orders'
       : 'ussd_orders'
     const { data } = await supabase.from(tbl).select('payment_status').eq('id', orderId).maybeSingle()
     // results_check_requests says 'paid' (charge-events.ts); the order tables say 'completed'.
