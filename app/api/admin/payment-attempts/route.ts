@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { alertClosedOrderPayment, isClosedUnpaidShopOrder } from "@/lib/payments/closed-order"
 import { notificationTemplates } from "@/lib/notification-service"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { notifyAdminsPush } from "@/lib/push-service"
@@ -421,13 +422,20 @@ export async function PATCH(request: NextRequest) {
         // Get shop order details
         const { data: shopOrderData, error: orderFetchError } = await supabase
           .from("shop_orders")
-          .select("id, shop_id, profit_amount, customer_phone, customer_email, customer_name, network, volume_gb, total_price, reference_code, parent_shop_id, parent_profit_amount, queue")
+          .select("id, shop_id, profit_amount, customer_phone, customer_email, customer_name, network, volume_gb, total_price, reference_code, parent_shop_id, parent_profit_amount, queue, order_status, payment_status")
           .eq("id", attempt.order_id)
           .single()
 
         if (orderFetchError || !shopOrderData) {
           console.error("[ADMIN-PAYMENT-ATTEMPTS] Error fetching shop order:", orderFetchError)
           return NextResponse.json({ error: "Failed to fetch shop order details" }, { status: 500 })
+        }
+
+        // Closed before this money landed: nothing would be sent. Record the money on wallet_payments for the refund tool.
+        if (isClosedUnpaidShopOrder(shopOrderData)) {
+          await supabase.from("wallet_payments").update({ status: "completed", updated_at: new Date().toISOString() }).eq("reference", attempt.reference)
+          await alertClosedOrderPayment(supabase, { orderId: String(attempt.order_id), reference: attempt.reference, amountGhs: Number(amount) || 0 })
+          return NextResponse.json({ success: true, order_closed: true, message: "The order was already closed, so nothing was sent. Refund it on /admin/refunds." })
         }
 
         // Update shop order payment status

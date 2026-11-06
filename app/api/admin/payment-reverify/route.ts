@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { alertClosedOrderPayment, isClosedUnpaidShopOrder } from "@/lib/payments/closed-order"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { confirmAndReadHubtelPayment, findHubtelPayments, hubtelReportStatus, isHubtelWalletPayment, isLiveHubtelStatus } from "@/lib/hubtel-pay/lookup"
 
@@ -375,6 +376,14 @@ export async function POST(request: NextRequest) {
             current?.order_status === "completed"
           ) {
             results.push({ id: order.id, reference: order.wallet_reference, order_type: order.order_type, paystack_status: "success", action: "already_processed" })
+            continue
+          }
+
+          // Closed before this money landed: fulfilment would send nothing. Record the money and tell admins to refund.
+          if (isClosedUnpaidShopOrder(current)) {
+            await supabase.from("wallet_payments").update({ status: "completed", updated_at: new Date().toISOString() }).eq("reference", order.wallet_reference)
+            await alertClosedOrderPayment(supabase, { orderId: order.id, reference: order.wallet_reference, amountGhs: paidGhs })
+            results.push({ id: order.id, reference: order.wallet_reference, order_type: order.order_type, paystack_status: "success", action: "order_closed" })
             continue
           }
 

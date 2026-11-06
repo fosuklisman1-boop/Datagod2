@@ -295,3 +295,37 @@ describe("Paystack webhook envelope", () => {
     expect(h.state.fromCalls).toBe(0)
   })
 })
+
+// Deliberate change from the owner's ruling 2026-11-06 (Opus review C1): a Paystack payment landing on a closed order.
+describe("Paystack charge.success on a closed shop order", () => {
+  const closedOrder = (over: Record<string, any> = {}) => ({
+    id: "so1", order_status: "expired", payment_status: "expired", total_price: 100, network: "MTN", volume_gb: "1",
+    customer_phone: "0241234568", shop_id: "shop1", profit_amount: 5, parent_shop_id: "shop0", parent_profit_amount: 1, ...over,
+  })
+
+  it("answers 2xx, records the money on wallet_payments only, credits no profit and fulfils nothing", async () => {
+    h.tables.shop_orders = [closedOrder()]
+    h.tables.wallet_payments = [payment({ order_id: "so1", shop_id: "shop1", order_type: "shop_order" })]
+
+    const res = await chargeSuccess(REF, 10300)
+
+    expect(res.status).toBe(200)
+    expect(h.tables.wallet_payments[0].status).toBe("completed")
+    expect(h.tables.shop_orders[0].payment_status).toBe("expired")
+    expect(h.tables.shop_orders[0].order_status).toBe("expired")
+    expect(h.inserts.filter((i) => i.table === "shop_profits")).toEqual([])
+    expect(h.fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("an order paid before it failed: a repeat event still answers plainly and is not treated as closed", async () => {
+    h.tables.shop_orders = [closedOrder({ order_status: "failed", payment_status: "completed", profit_amount: 0, parent_shop_id: null })]
+    h.tables.wallet_payments = [payment({ order_id: "so1", shop_id: "shop1", order_type: "shop_order", status: "completed" })]
+
+    const res = await chargeSuccess(REF, 10300)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ received: true })
+    expect(h.tables.shop_orders[0].order_status).toBe("failed")
+    expect(h.fetchMock).toHaveBeenCalledTimes(1)
+  })
+})

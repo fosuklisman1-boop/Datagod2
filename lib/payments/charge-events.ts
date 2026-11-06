@@ -11,6 +11,7 @@ import { getJoinCommunityLink } from "@/lib/app-settings"
 import { sendPushToUser } from "@/lib/push-service"
 import { getInternalBaseUrl } from "@/lib/internal-url"
 import { notifyAdminsNewResultsCheckRequest } from "@/lib/results-checker-service"
+import { alertClosedOrderPayment, isClosedUnpaidShopOrder } from "./closed-order"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -1171,6 +1172,13 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
       if (!shopOrderData) {
         console.error("[WEBHOOK] shop order not found for payment:", paymentData.order_id)
         return orderClosedResponse()
+      }
+      // Closed before this money arrived: fulfilment only claims `pending`, so nothing would be sent. No flip, no profit.
+      // Paystack gets its 2xx and admins are told once; Hubtel parks in review, and confirm.ts raises its own alert.
+      if (isClosedUnpaidShopOrder(shopOrderData)) {
+        console.error(`[WEBHOOK] Payment ${reference} landed on closed shop order ${paymentData.order_id}; not fulfilled`)
+        if (!viaHubtel) await alertClosedOrderPayment(supabase, { orderId: paymentData.order_id, reference, amountGhs: amount / 100 })
+        return NextResponse.json({ ...orderClosedBody, closed_reason: "late_payment" })
       }
       if (shopOrderData) {
         await supabase

@@ -252,3 +252,30 @@ describe("handleChargeFailed never fails a paid USSD order", () => {
     expect(h.tables[table][0]).toMatchObject({ payment_status: "failed", order_status: "failed" })
   })
 })
+
+describe("a Hubtel payment on a closed shop order", () => {
+  const closed = { id: "so1", order_status: "expired", payment_status: "expired", total_price: 100, network: "MTN", volume_gb: "1", customer_phone: "0241234569", shop_id: "s1", profit_amount: 5 }
+  it("answers order_closed before the flip and before profit; the wallet row keeps the proof", async () => {
+    h.tables.shop_orders = [{ ...closed }]
+    h.tables.wallet_payments = [wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    const a = await answer({ metadata: HUBTEL })
+    expect(a?.status).toBe(200)
+    expect(a?.body).toMatchObject({ received: true, order_closed: true, closed_reason: "late_payment" })
+    expect(h.tables.shop_orders[0].payment_status).toBe("expired")
+    expect(h.tables.wallet_payments[0].status).toBe("completed")
+    expect(h.fetchMock).not.toHaveBeenCalled()
+    // Hubtel's confirm path raises its own alert.
+    expect(h.notifyAdmins).not.toHaveBeenCalled()
+  })
+  it("Paystack: the same order alerts admins, with no phone number in the message", async () => {
+    h.tables.shop_orders = [{ ...closed }]
+    h.tables.wallet_payments = [wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    const a = await answer({ id: 9, metadata: {} })
+    expect(a?.status).toBe(200)
+    expect(h.tables.shop_orders[0].payment_status).toBe("expired")
+    const calls = h.notifyAdmins.mock.calls as unknown as string[][]
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0]).toContain("/admin/refunds")
+    expect(calls[0][0]).not.toContain(closed.customer_phone)
+  })
+})
