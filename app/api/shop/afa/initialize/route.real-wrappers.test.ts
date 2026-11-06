@@ -212,7 +212,7 @@ describe("storefront on Hubtel", () => {
     expect(res.status).toBe(200)
     const orderId = orders()[0].id
     expect(await res.json()).toEqual({ success: true, orderId, authorizationUrl: "https://pay.hubtel.com/abc" })
-    expect(initiateCheckout.mock.calls[0][0]).toMatchObject({ amount: 30, description: "Payment" })
+    expect(initiateCheckout.mock.calls[0][0]).toMatchObject({ amount: 30, description: "Clingshub" })
     expect(initiateCheckout.mock.calls[0][0].reference).not.toBe(orderId)
     expect(hubtelRows()[0]).toMatchObject({ internal_reference: orderId, surface: "storefront", mode: "checkout", amount_pesewas: 3000 })
     expect(hubtelRows()[0].metadata).toMatchObject({

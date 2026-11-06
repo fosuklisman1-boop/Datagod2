@@ -324,7 +324,7 @@ describe("priced for Hubtel, on Hubtel", () => {
     const res = await send()
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ authorizationUrl: "https://pay.hubtel.com/abc" })
-    expect(initiateCheckout.mock.calls[0][0]).toMatchObject({ amount: BASE, description: "Payment" })
+    expect(initiateCheckout.mock.calls[0][0]).toMatchObject({ amount: BASE, description: "Clingshub" })
     expect(walletRows()[0]).toMatchObject({ amount: BASE, fee: 0, payment_method: "hubtel" })
     expect(h.state.orderUpdates).toBe(0)
     expect(await confirmHubtelPayment(hubtelRows()[0].reference, confirmDeps(10186))).toBe("fulfilled")
