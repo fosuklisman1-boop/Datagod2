@@ -14,7 +14,7 @@
 
 - Money out: `failed` means money definitely did not move. Anything else is `unknown` or `pending`, and is never retried with a new reference.
 - `ClientReference` is the refund id's UUID with the dashes removed: 32 lowercase hex, opaque (owner rule), and the same on any repeat, so Hubtel's duplicate rule (HT-S0001) blocks a second send.
-- `Description` is exactly `Refund`. No surface or product word.
+- `Description` is exactly `Clingshub` (owner rule 2026-11-06). No surface or product word, and not "Refund".
 - Only a `hubtel_payments` row with status `paid` makes an order refundable here. `pending`, `confirming` and `needs_review` stay refused.
 - The refund amount is capped at what we requested (`handler_amount_pesewas ?? amount_pesewas`), never the gross Hubtel reports, which includes Hubtel's fee.
 - Relay routes expose fixed Hubtel paths only, with strict validation, `redirect: "error"` and a `sent` flag.
