@@ -238,15 +238,26 @@ describe("readSendStatus (raw view + verdict for a stuck payout)", () => {
   it.each(["Success", "successful", "Paid", "Completed", "unsuccessful"])("%s reads as success: never markable", (w) => {
     expect(readSendStatus(withStatus(w), REF).verdict).toBe("success")
   })
-  it.each(["failed", "Declined", "Rejected", "reversed", "Cancelled", "expired"])("%s reads as failed", (w) => {
+  it.each(["failed", "Failed", "FAILED"])("%s reads as failed", (w) => {
     expect(readSendStatus(withStatus(w), REF).verdict).toBe("failed")
   })
-  it.each(["pending", "processing", "queued", "something new", ""])("%j is not settled", (w) => {
+  // A wrong "failed" lets an admin retry under a new reference, which can pay twice. Other words wait for the live test.
+  it.each(["Declined", "Rejected", "reversed", "Cancelled", "expired", "failed to confirm", "pending", "processing", "queued", "something new", ""])("%j is not settled", (w) => {
     expect(readSendStatus(withStatus(w), REF).verdict).toBe("unclear")
   })
-  it("Hubtel's no-match answer is no_record", () => {
-    expect(readSendStatus(up(400, { message: "Your request did not match any records" }), REF).verdict).toBe("no_record")
-    expect(readSendStatus(up(404, { Message: "Not found" }), REF).verdict).toBe("no_record")
+  it("only Hubtel's exact no-match answer is no_record (live probe 2026-11-05)", () => {
+    const noMatch = { ResponseCode: "error", Data: "Your status check did not match any records, please check your request and try again." }
+    expect(readSendStatus(up(400, noMatch), REF).verdict).toBe("no_record")
+  })
+  it.each([
+    ["a 404 from a proxy or a wrong path", 404, { Message: "Not found" }],
+    ["a 404 with the right words", 404, { ResponseCode: "error", Data: "did not match any records" }],
+    ["a 400 saying the account was not found", 400, { ResponseCode: "error", Data: "Merchant account not found" }],
+    ["a 400 with no record wording", 400, { ResponseCode: "error", Data: "no record" }],
+    ["the words outside Data", 400, { message: "did not match any records" }],
+    ["without Hubtel's response code", 400, { Data: "did not match any records" }],
+  ])("%s is unclear, never no_record", (_n, status, body) => {
+    expect(readSendStatus(up(status, body), REF).verdict).toBe("unclear")
   })
   it("another 4xx or 5xx, or a reply about another reference, is unclear", () => {
     expect(readSendStatus(up(401, { message: "unauthorized" }), REF).verdict).toBe("unclear")

@@ -155,8 +155,8 @@ export function classifySendStatus(reply: RelayReply, want: { reference: string;
 
 /**
  * What an admin needs to decide on a stuck payout. Deliberately separate from classifySendStatus, which only settles on
- * an exact match; this one reads wider, and fails safe: any word that might mean paid is `success`, and only a clear
- * failure word or Hubtel's own no-match answer can let an admin mark the refund failed. Update the words after the
+ * an exact match; this one reads wider on paid, and fails safe: any word that might mean paid is `success`, and only the
+ * word "failed" or Hubtel's exact no-match answer can let an admin mark the refund failed. Update the words after the
  * supervised live test records Hubtel's real values.
  */
 export type SendStatusVerdict = "success" | "failed" | "no_record" | "unclear" | "no_answer"
@@ -168,8 +168,8 @@ export interface SendStatusView {
 }
 
 const MAYBE_PAID = /succ|paid|complet|deliver/i
-const CLEARLY_FAILED = /fail|declin|reject|revers|cancel|expired/i
-const NO_RECORD = /did not match|no record|not found/i
+/** Hubtel's own wording, seen live 2026-11-05. A generic "not found" could be a proxy or a wrong account, not this payout. */
+const NO_MATCH = /did not match any records/i
 
 /** Masks digit runs that could be a phone number, in strings and numbers, at any depth. */
 function maskDigits(v: unknown, depth = 0): unknown {
@@ -194,10 +194,12 @@ export function readSendStatus(reply: RelayReply, reference: string): SendStatus
   if (data && data.ClientReference === reference) {
     const word = typeof data.transactionStatus === "string" ? data.transactionStatus : ""
     if (MAYBE_PAID.test(word)) return view("success")
-    if (CLEARLY_FAILED.test(word)) return view("failed")
+    // The same single word classifySendStatus accepts. A wrong "failed" allows a retry under a new reference.
+    if (word.trim().toLowerCase() === "failed") return view("failed")
     return view("unclear")
   }
-  if ((up === 400 || up === 404) && !data && NO_RECORD.test(JSON.stringify(body ?? ""))) return view("no_record")
+  const code = typeof body?.ResponseCode === "string" ? body.ResponseCode.toLowerCase() : ""
+  if (up === 400 && code === "error" && typeof body?.Data === "string" && NO_MATCH.test(body.Data)) return view("no_record")
   return view("unclear")
 }
 

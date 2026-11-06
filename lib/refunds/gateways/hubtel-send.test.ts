@@ -206,6 +206,17 @@ describe("an order with two paid Hubtel attempts", () => {
   })
 })
 
+describe("hubtel_send checkStatus() keeps Hubtel's transaction id", () => {
+  it("a no-match doesn't overwrite the stored id with our reference", async () => {
+    checkSendStatus.mockResolvedValue({ kind: "pending", ref: "ourreference" })
+    expect(await hubtelSendGateway.checkStatus!(ctx(hubtelOrder()), "8a545e5c7357714b80b65f76")).toEqual({ kind: "pending", ref: "8a545e5c7357714b80b65f76" })
+  })
+  it("with no stored id the reference is used", async () => {
+    checkSendStatus.mockResolvedValue({ kind: "pending", ref: "ourreference" })
+    expect(await hubtelSendGateway.checkStatus!(ctx(hubtelOrder()), null)).toEqual({ kind: "pending", ref: "ourreference" })
+  })
+})
+
 describe("hubtel_send checkStatus()", () => {
   it("looks up by refund id and amount, even when the switch is off", async () => {
     vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "false")

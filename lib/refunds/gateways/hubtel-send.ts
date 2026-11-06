@@ -68,7 +68,9 @@ export const hubtelSendGateway: RefundGateway = {
   },
   // Looked up by the refund id (its ClientReference). Deliberately not behind the switch: a send already made must
   // still be reconcilable after the switch is turned off.
-  async checkStatus(ctx) {
-    return checkSendStatus({ refundId: ctx.refundId, amount: ctx.amount })
+  async checkStatus(ctx, gatewayRef) {
+    const outcome = await checkSendStatus({ refundId: ctx.refundId, amount: ctx.amount })
+    // A no-match must not overwrite Hubtel's transaction id: it's the proof that Hubtel accepted the send.
+    return outcome.kind === "pending" && gatewayRef ? { kind: "pending", ref: gatewayRef } : outcome
   },
 }
