@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { expireStaleShopOrders } from "@/lib/payments/expire-shop-orders"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,15 +36,12 @@ export async function GET(request: NextRequest) {
     //    Expiring them frees the cap so real buyers aren't locked out during an
     //    attack. Only touches payment_status='pending' rows (paid orders already
     //    flipped to 'completed' by the webhook, so they're untouched).
-    const { data: shopExpired, error: shopErr } = await supabase
-      .from("shop_orders")
-      .update({ order_status: "expired", payment_status: "expired", updated_at: new Date().toISOString() })
-      .eq("payment_status", "pending")
-      .lt("created_at", cutoff)
-      .select("id")
-
-    if (shopErr) {
-      console.error("[EXPIRE-STALE] shop_orders DB error:", shopErr)
+    //    An order with a live Hubtel attempt is skipped: the customer may still be paying.
+    let shopExpired = 0
+    try {
+      shopExpired = await expireStaleShopOrders(supabase, cutoff)
+    } catch (shopErr) {
+      console.error("[EXPIRE-STALE] shop_orders DB error:", shopErr instanceof Error ? shopErr.message : "unknown error")
     }
 
     // 3) Results-checker orders
@@ -61,7 +59,7 @@ export async function GET(request: NextRequest) {
 
     const result = {
       airtime: airtimeExpired?.length ?? 0,
-      shop: shopExpired?.length ?? 0,
+      shop: shopExpired,
       results_checker: rcExpired?.length ?? 0,
     }
     console.log(`[EXPIRE-STALE] Expired stale pending orders (cutoff ${cutoff}):`, result)
