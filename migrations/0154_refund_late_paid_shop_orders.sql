@@ -22,7 +22,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
      AND (p_shop_id IS NULL OR o.shop_id = p_shop_id)
      AND EXISTS (SELECT 1 FROM wallet_payments w WHERE w.order_id = o.id AND w.status = 'completed')
    ORDER BY o.created_at DESC
-   LIMIT 500
+   LIMIT 200
 $$;
 REVOKE ALL ON FUNCTION public.late_paid_shop_order_ids(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.late_paid_shop_order_ids(uuid) TO service_role;

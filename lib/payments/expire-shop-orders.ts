@@ -5,9 +5,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { findHubtelAttempts, isLiveHubtelStatus } from "@/lib/hubtel-pay/lookup"
 
-const PAGE = 500
-/** A cap on one run; anything left over goes on the next. */
-const MAX_PAGES = 10
+/** Goes into `.in()` lists: much longer URLs have failed in production (see bulk order chunking). */
+const PAGE = 200
+/** A cap on one run, to stay inside cron-job.org's 30 s; anything left over goes on the next. */
+const MAX_PAGES = 5
 
 /** Returns how many orders were expired. A failed lookup expires nothing in that page, and the next run tries again. */
 export async function expireStaleShopOrders(db: SupabaseClient, cutoffIso: string): Promise<number> {
@@ -15,7 +16,8 @@ export async function expireStaleShopOrders(db: SupabaseClient, cutoffIso: strin
   let skipped = 0
   for (let page = 0; page < MAX_PAGES; page++) {
     const { data, error } = await db.from("shop_orders").select("id")
-      .eq("payment_status", "pending").lt("created_at", cutoffIso)
+      // order_status too: the state-machine trigger refuses completed -> expired, and one refused row aborts the statement.
+      .eq("payment_status", "pending").eq("order_status", "pending").lt("created_at", cutoffIso)
       .order("created_at", { ascending: true }).range(skipped, skipped + PAGE - 1)
     if (error) throw new Error(`shop_orders read failed: ${error.message}`)
     const ids = ((data ?? []) as { id: string }[]).map((r) => r.id)
@@ -43,7 +45,7 @@ export async function expireStaleShopOrders(db: SupabaseClient, cutoffIso: strin
       // Re-guarded on pending: a payment may have landed since the read above.
       const { data: updated, error: upError } = await db.from("shop_orders")
         .update({ order_status: "expired", payment_status: "expired", updated_at: new Date().toISOString() })
-        .in("id", toExpire).eq("payment_status", "pending").select("id")
+        .in("id", toExpire).eq("payment_status", "pending").eq("order_status", "pending").select("id")
       if (upError) throw new Error(`shop_orders update failed: ${upError.message}`)
       expired += updated?.length ?? 0
     }
