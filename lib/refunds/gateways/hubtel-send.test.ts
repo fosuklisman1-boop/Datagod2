@@ -68,6 +68,13 @@ describe("hubtel_send supports()", () => {
   it("accepts an order however it was paid (owner decision 2026-11-06)", () => {
     expect(hubtelSendGateway.supports(baseOrder())).toEqual({ ok: true })
   })
+  // A payout here would turn wallet balance into cash, and an order with no payment on record has nothing to return.
+  it.each(["wallet", null])("refuses a %s payment on a table that can hold other payments, and sends nothing", async (gateway) => {
+    const order = baseOrder({ table: "ussd_orders", payment: { gateway, reference: null, payerPhone: "0245550101", walletUserId: "u1" } as any })
+    expect(hubtelSendGateway.supports(order).ok).toBe(false)
+    expect((await hubtelSendGateway.refund(ctx(order))).kind).toBe("failed")
+    expect(sendMoney).not.toHaveBeenCalled()
+  })
   it.each(["pending", "confirming", "needs_review", "failed"])("refuses an attempt that is %s", (status) => {
     expect(hubtelSendGateway.supports(hubtelOrder({ status })).ok).toBe(false)
   })

@@ -23,10 +23,14 @@ function destinationOf(order: RefundableOrder, phone: string | null): { msisdn: 
  * Owner decision 2026-11-06: it works like the Paystack payout, on any refundable order however it was paid: a free
  * amount to the order's payer number. The amount is limited only by what the order paid (validateRefundAmount and the
  * reserve RPC). A collection attempt must be confirmed paid: money that may not have landed can't be refunded.
- * Wallet-only tables stay out: their refund goes back to the wallet, and a MoMo payout would turn wallet balance into cash.
+ * Wallet-paid orders stay out, on any table: their refund goes back to the wallet, and a MoMo payout would turn wallet
+ * balance into cash.
  */
 function refusal(order: RefundableOrder, phone: string | null): string | null {
   if (isWalletOnlyTable(order.table)) return WALLET_ONLY_REASON
+  // By payment as well as table: a USSD order can be wallet-paid. A null gateway means no payment on record to return.
+  if (order.payment.gateway === "wallet") return "Paid from the wallet — refund it to the wallet"
+  if (order.payment.gateway === null) return "No payment on record to send back — refund manually"
   if (order.payment.hubtelCollection && order.payment.hubtelAttempt?.status !== "paid") return "The Hubtel payment is not confirmed as paid yet"
   if (!phone) return "No payer number on the order"
   if (!destinationOf(order, phone)) return "Payer number is not a recognised MoMo network"
