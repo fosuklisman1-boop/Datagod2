@@ -69,7 +69,9 @@ describe("previewRefund on a Hubtel-paid order", () => {
     expect(p.eligibility.eligible).toBe(true)
     expect(p.gateways.filter((g) => g.ok).map((g) => g.id)).toEqual(["hubtel_send", "paystack_payout", "moolre", "manual"])
     expect(p.gateways[0].id).toBe("hubtel_send")
-    expect(p.gateways.find((g) => g.id === "hubtel_send")).toMatchObject({ ok: true, maxAmount: 10 })
+    const send = p.gateways.find((g) => g.id === "hubtel_send")
+    expect(send).toMatchObject({ ok: true })
+    expect(send?.maxAmount).toBeUndefined()
     const paystack = p.gateways.find((g) => g.id === "paystack")!
     expect(paystack.ok).toBe(false)
     expect(paystack.reason).toMatch(/Paystack/)
@@ -119,9 +121,9 @@ describe("executeRefund with hubtel_send", () => {
     await expect(executeRefund(deps, input)).rejects.toMatchObject({ code: "ALREADY_REFUNDED" })
     expect(sendMoney).toHaveBeenCalledTimes(1)
   })
-  it("an amount above what we requested is refused before any reserve or send", async () => {
-    const { deps, calls } = setup(hubtelOrder({ requestedPesewas: 980 }))
-    await expect(executeRefund(deps, { ...input, amount: 10 })).rejects.toMatchObject({ code: "BAD_AMOUNT" })
+  it("an amount above what the order paid is refused before any reserve or send", async () => {
+    const { deps, calls } = setup(hubtelOrder())
+    await expect(executeRefund(deps, { ...input, amount: 10.01 })).rejects.toMatchObject({ code: "BAD_AMOUNT" })
     expect(calls).toEqual([])
     expect(sendMoney).not.toHaveBeenCalled()
   })

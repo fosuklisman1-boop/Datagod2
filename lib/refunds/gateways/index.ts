@@ -32,8 +32,8 @@ export const HUBTEL_PAID_REASON ="Paystack never held this Hubtel payment — re
 /** gateway.supports() behind the Hubtel-paid allowlist. Every caller that offers or executes a gateway goes through this. */
 export function supportOf(gateway: RefundGateway, order: RefundableOrder): GatewaySupport {
   if (order.payment.hubtelCollection && !HUBTEL_PAID_GATEWAYS.includes(gateway.id)) return { ok: false, reason: HUBTEL_PAID_REASON }
-  // Two paid attempts: which payment to return, and how much, needs a person.
-  if (order.payment.hubtelCollection && (order.payment.hubtelAttempt?.paidAttempts ?? 0) > 1 && gateway.id !== "manual") {
+  // Two paid attempts: a person decides, by hand or through Hubtel Send Money (owner decision 2026-11-06: a free amount).
+  if (order.payment.hubtelCollection && (order.payment.hubtelAttempt?.paidAttempts ?? 0) > 1 && gateway.id !== "manual" && gateway.id !== "hubtel_send") {
     return { ok: false, reason: "This order has more than one paid Hubtel payment — refund manually" }
   }
   // A MoMo payout returns the money only to the number that paid. A number on the order row may be one a buyer typed.

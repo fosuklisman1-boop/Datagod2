@@ -1,6 +1,5 @@
-import { isAllowedPaymentMethod } from "@/lib/hubtel-pay/confirm"
 import { checkSendStatus, hubtelChannelFor, isHubtelChannel, sendMoney, toHubtelMsisdn } from "../hubtel-send-client"
-import { hubtelRequestedCap, isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundableOrder, type RefundGateway } from "../types"
+import { isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundableOrder, type RefundGateway } from "../types"
 
 /** Nothing can be sent until this is exactly "true"; checking the status of a send already made never needs it. */
 const enabled = () => process.env.HUBTEL_SEND_REFUNDS_ENABLED === "true"
@@ -19,40 +18,23 @@ function destinationOf(order: RefundableOrder, phone: string | null): { msisdn: 
   return channel ? { msisdn, channel } : null
 }
 
-/** The Hubtel USSD checkout payment behind this order. It has no collection attempt: its facts come from hubtel_transactions. */
-const ussdPaymentOf = (order: RefundableOrder) => (order.payment.hubtelCollection ? undefined : order.payment.hubtel)
-
-/** Why this order cannot be paid out through Hubtel Send Money, or null when it can. Never includes a phone number. */
+/**
+ * Why this order cannot be paid out through Hubtel Send Money, or null when it can. Never includes a phone number.
+ * Owner decision 2026-11-06: it works like the Paystack payout, a free amount to the order's payer number. The amount
+ * is limited only by what the order paid (validateRefundAmount and the reserve RPC). It stays Hubtel-paid orders only,
+ * and a collection attempt must be confirmed paid: money that may not have landed can't be refunded.
+ */
 function refusal(order: RefundableOrder, phone: string | null): string | null {
   if (isWalletOnlyTable(order.table)) return WALLET_ONLY_REASON
-  const h = ussdPaymentOf(order)
-  if (h) {
-    if (h.paidRows !== 1) return "This order has more than one Hubtel payment — refund manually"
-    // We pay back the order price, so Hubtel's net has to be exactly that; anything else needs a person.
-    const net = h.amountAfterCharges
-    if (typeof net !== "number" || !(Math.abs(net - order.paid) < 0.005)) return "Hubtel's net amount does not match the order price — refund manually"
-    if (!h.mobile) return "Hubtel did not record the paying number — refund another way"
-    if (!phone) return "No payer number on the order"
-    if (toHubtelMsisdn(phone) !== toHubtelMsisdn(h.mobile)) return "Hubtel payouts only go to the number that paid — refund another way"
-    if (!destinationOf(order, phone)) return "Payer number is not a recognised MoMo network"
-    return null
+  if (order.payment.hubtelCollection) {
+    if (order.payment.hubtelAttempt?.status !== "paid") return "The Hubtel payment is not confirmed as paid yet"
+  } else if (!order.payment.hubtel) {
+    return "Not paid through Hubtel"
   }
-  const a = order.payment.hubtelAttempt
-  if (!order.payment.hubtelCollection || !a) return "Not paid through Hubtel"
-  if (a.status !== "paid") return "The Hubtel payment is not confirmed as paid yet"
-  if (a.paidAttempts !== 1) return "This order has more than one paid Hubtel payment — refund manually"
-  if (!isAllowedPaymentMethod(a.paymentMethod)) return "Only mobile money payments can be paid back through Hubtel — refund another way"
-  if (a.requestedPesewas == null || !(a.requestedPesewas > 0)) return "The amount requested from Hubtel is unknown — refund manually"
-  // Only ever the number that paid. A number on the order row may be the dialler, not the payer.
-  if (!a.msisdn) return "Hubtel did not record the paying number — refund another way"
   if (!phone) return "No payer number on the order"
-  if (toHubtelMsisdn(phone) !== toHubtelMsisdn(a.msisdn)) return "Hubtel payouts only go to the number that paid — refund another way"
   if (!destinationOf(order, phone)) return "Payer number is not a recognised MoMo network"
   return null
 }
-
-/** At most what we requested from the payer (a USSD order: its price), never Hubtel's gross which includes its fee. */
-const capOf = (order: RefundableOrder): number | null => (ussdPaymentOf(order) ? round2(order.paid) : hubtelRequestedCap(order))
 
 export const hubtelSendGateway: RefundGateway = {
   id: "hubtel_send",
@@ -62,7 +44,6 @@ export const hubtelSendGateway: RefundGateway = {
     const why = refusal(order, order.payment.payerPhone)
     return why ? { ok: false, reason: why } : { ok: true }
   },
-  maxAmount: capOf,
   async refund(ctx): Promise<GatewayOutcome> {
     // Everything is re-checked here: a failure before the send means nothing was sent, so it is a clean `failed`.
     if (!enabled()) return { kind: "failed", error: "Hubtel payouts are not enabled — nothing was sent" }
@@ -70,13 +51,9 @@ export const hubtelSendGateway: RefundGateway = {
     const why = refusal(ctx.order, phone)
     if (why) return { kind: "failed", error: `${why} — nothing was sent` }
     const dest = destinationOf(ctx.order, phone)
-    const cap = capOf(ctx.order)
     const amount = ctx.amount
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0 || round2(amount) !== amount) {
       return { kind: "failed", error: "Invalid refund amount — nothing was sent" }
-    }
-    if (cap === null || amount > cap + 0.0001) {
-      return { kind: "failed", error: `Amount is above what was requested from the payer (GHS ${cap === null ? "unknown" : cap.toFixed(2)}) — nothing was sent` }
     }
     if (!dest) return { kind: "failed", error: "No valid MoMo number to pay out to — nothing was sent" }
     return sendMoney({ refundId: ctx.refundId, msisdn: dest.msisdn, channel: dest.channel, amount })
