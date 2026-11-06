@@ -735,3 +735,13 @@ describe("every route that awaits a start declares its time budget", () => {
     expect((await import("./activate/route")).maxDuration).toBe(60)
   })
 })
+
+describe("hosted SMS on a Hubtel row set to direct (I3)", () => {
+  it("a bundle stays on Paystack, with no Hubtel row", async () => {
+    h.state.config = config({ mode: "direct" })
+    const res = await buyBundle()
+    expect(res.status).toBe(200)
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(hubtelRows()).toEqual([])
+  })
+})

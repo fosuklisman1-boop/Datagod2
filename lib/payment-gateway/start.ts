@@ -633,6 +633,10 @@ export async function startHostedPayment(
     return null
   }
 
+  // Hubtel's hosted page takes cards and we can't switch them off, so it runs only on a row an admin set to checkout.
+  // A row set to direct stays on Paystack here. An attempt from before the switch still holds the order, as above.
+  if (surfaceConfig.mode !== "checkout") return (await heldByOpenAttempt()) ?? viaPaystack()
+
   if (!d.isReady()) {
     const held = await heldByOpenAttempt()
     if (held) return held

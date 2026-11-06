@@ -482,3 +482,30 @@ describe("createStartStore — hosted additions", () => {
     await expect(createStartStore(fakeSb({ error: { message: "x" } }).sb).setCheckoutUrl("r1", CHECKOUT)).rejects.toThrow()
   })
 })
+
+describe("startHostedPayment on a row set to direct (I3)", () => {
+  const direct = () => config({ mode: "direct" })
+
+  it("stays on Paystack: no row, nothing sent to Hubtel, no alert", async () => {
+    const t = setup({ config: direct() })
+    const out = await startHostedPayment("wallet_topup", PARAMS, t.deps)
+    expect(out.gateway).toBe("paystack")
+    expect(t.events).toEqual(["paystack"])
+    expect(t.rows.size).toBe(0)
+    expect(t.alert).not.toHaveBeenCalled()
+  })
+
+  it("a paid or in-review attempt still refuses a new link", async () => {
+    const t = setup({ config: direct(), seed: [{ reference: "e".repeat(32), internal_reference: "WALLET-123", status: "paid" }] })
+    await expect(startHostedPayment("wallet_topup", PARAMS, t.deps)).rejects.toBeInstanceOf(HostedStartError)
+    expect(t.events).not.toContain("paystack")
+  })
+
+  it("a live hosted link from before the switch is handed back, never a Paystack link beside it", async () => {
+    const open = { reference: "e".repeat(32), internal_reference: "WALLET-123", status: "pending", mode: "checkout", checkout_url: CHECKOUT, expires_at: new Date(NOW.getTime() + 60_000).toISOString() }
+    const t = setup({ config: direct(), seed: [open] })
+    const out = await startHostedPayment("wallet_topup", { ...PARAMS, reusedReference: true }, t.deps)
+    expect(out.authorizationUrl).toBe(CHECKOUT)
+    expect(t.events).not.toContain("paystack")
+  })
+})

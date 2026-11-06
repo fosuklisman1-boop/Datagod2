@@ -181,7 +181,8 @@ function config(hubtel: Record<string, { feeBearer?: string }> = {}, paystackMer
     surfaces[s] = { gateway: "paystack", mode: "checkout", feeBearer: "customer" }
   }
   if (paystackMerchant) surfaces.storefront.feeBearer = "merchant"
-  for (const [s, o] of Object.entries(hubtel)) surfaces[s] = { gateway: "hubtel", mode: "direct", feeBearer: o.feeBearer ?? "customer" }
+  // checkout: hosted Hubtel runs only on a checkout row. Direct charges here are decided by the direct gate, not this field.
+  for (const [s, o] of Object.entries(hubtel)) surfaces[s] = { gateway: "hubtel", mode: "checkout", feeBearer: o.feeBearer ?? "customer" }
   return { version: 1, surfaces, hubtelFeePercent: 2 }
 }
 const HUBTEL = () => config({ storefront: {} })
