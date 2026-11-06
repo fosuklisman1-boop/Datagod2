@@ -46,9 +46,9 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe("registry placement", () => {
-  it("hubtel_send is first (the dialog pre-selects the first supported gateway) and manual stays last", () => {
+  it("Paystack's reversal then hubtel_send (the dialog pre-selects the first supported gateway), and manual stays last", () => {
     const ids = listGateways().map((g) => g.id)
-    expect(ids[0]).toBe("hubtel_send")
+    expect(ids.slice(0, 2)).toEqual(["paystack", "hubtel_send"])
     expect(ids.at(-1)).toBe("manual")
     expect(getGateway("hubtel_send")).toBe(hubtelSendGateway)
     expect(hubtelSendGateway.label).toBe("Hubtel (MoMo payout to payer)")
@@ -65,8 +65,8 @@ describe("hubtel_send supports()", () => {
     const r = hubtelSendGateway.supports(hubtelOrder())
     expect(r.ok).toBe(false)
   })
-  it("refuses an order that is not a Hubtel collection", () => {
-    expect(hubtelSendGateway.supports(baseOrder()).ok).toBe(false)
+  it("accepts an order however it was paid (owner decision 2026-11-06)", () => {
+    expect(hubtelSendGateway.supports(baseOrder())).toEqual({ ok: true })
   })
   it.each(["pending", "confirming", "needs_review", "failed"])("refuses an attempt that is %s", (status) => {
     expect(hubtelSendGateway.supports(hubtelOrder({ status })).ok).toBe(false)
@@ -139,7 +139,6 @@ describe("hubtel_send refund()", () => {
     expect(sendMoney).not.toHaveBeenCalled()
   })
   it.each([
-    ["no Hubtel facts", baseOrder()],
     ["an attempt that is not paid", hubtelOrder({ status: "pending" })],
   ])("sends nothing for %s", async (_n, order) => {
     expect((await hubtelSendGateway.refund(ctx(order))).kind).toBe("failed")
@@ -207,9 +206,6 @@ describe("hubtel_send on a Hubtel USSD order", () => {
     vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "")
     expect(hubtelSendGateway.supports(ussdOrder()).ok).toBe(false)
   })
-  it("a Paystack order with no Hubtel payment is still refused", () => {
-    expect(hubtelSendGateway.supports(baseOrder()).ok).toBe(false)
-  })
 })
 
 describe("an order with two paid Hubtel attempts", () => {
@@ -263,19 +259,20 @@ describe("gateways offered on a Hubtel-paid order", () => {
   })
 })
 
-describe("Paystack-paid orders are offered exactly what they are today", () => {
+describe("Paystack-paid orders: today's options plus Hubtel, with the reversal still pre-selected", () => {
   const offered = (o: RefundableOrder) => listGateways().filter((g) => supportOf(g, o).ok).map((g) => g.id)
   const paystackOrder = (o: Partial<RefundableOrder> = {}) =>
     baseOrder({ table: "ussd_orders", payment: { gateway: "paystack", reference: "ref-1", payerPhone: "0245550101", walletUserId: null }, ...o })
 
-  it("a ussd order with a payer number: Paystack reversal, both payouts, manual", () => {
+  it("a ussd order with a payer number: Paystack reversal first, then Hubtel, both payouts, manual", () => {
+    expect(offered(paystackOrder())).toEqual(["paystack", "hubtel_send", "paystack_payout", "moolre", "manual"])
+  })
+  it("with the switch off Hubtel isn't offered", () => {
+    vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "false")
     expect(offered(paystackOrder())).toEqual(["paystack", "paystack_payout", "moolre", "manual"])
   })
   it("with a wallet user the wallet joins", () => {
-    expect(offered(paystackOrder({ payment: { gateway: "paystack", reference: "ref-1", payerPhone: "0245550101", walletUserId: "u1" } }))).toEqual(["paystack", "paystack_payout", "moolre", "wallet", "manual"])
-  })
-  it("hubtel_send is never offered, even with the switch on", () => {
-    expect(supportOf(hubtelSendGateway, paystackOrder()).ok).toBe(false)
+    expect(offered(paystackOrder({ payment: { gateway: "paystack", reference: "ref-1", payerPhone: "0245550101", walletUserId: "u1" } }))).toEqual(["paystack", "hubtel_send", "paystack_payout", "moolre", "wallet", "manual"])
   })
   it("a wallet-only order offers the wallet and manual only", () => {
     const o = baseOrder({ table: "orders", payment: { gateway: "wallet", reference: null, payerPhone: null, walletUserId: "u1" } })

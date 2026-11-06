@@ -68,7 +68,7 @@ describe("previewRefund on a Hubtel-paid order", () => {
     const p = await previewRefund(deps, { table: "shop_orders", id: "o1" })
     expect(p.eligibility.eligible).toBe(true)
     expect(p.gateways.filter((g) => g.ok).map((g) => g.id)).toEqual(["hubtel_send", "paystack_payout", "moolre", "manual"])
-    expect(p.gateways[0].id).toBe("hubtel_send")
+    expect(p.gateways.find((g) => g.ok)?.id).toBe("hubtel_send") // pre-selected
     const send = p.gateways.find((g) => g.id === "hubtel_send")
     expect(send).toMatchObject({ ok: true })
     expect(send?.maxAmount).toBeUndefined()

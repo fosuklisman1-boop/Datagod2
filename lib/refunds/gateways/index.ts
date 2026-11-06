@@ -12,7 +12,9 @@ import { manualGateway } from "./manual"
 // hubtel_send is FIRST: the refund dialog pre-selects the first supported gateway, and for a Hubtel-paid order that
 // should be paying the customer back from the Hubtel account. It supports nothing else, so Paystack-paid orders still
 // pre-select Paystack. Manual stays LAST: the first supported gateway must be a real payout.
-const GATEWAYS: RefundGateway[] = [hubtelSendGateway, paystackGateway, paystackPayoutGateway, moolreGateway, hubtelGateway, walletGateway, manualGateway]
+// Paystack's reversal first, so a Paystack-paid order pre-selects it and doesn't spend the Hubtel balance by default.
+// It's refused on any other order, which then pre-selects Hubtel Send Money.
+const GATEWAYS: RefundGateway[] = [paystackGateway, hubtelSendGateway, paystackPayoutGateway, moolreGateway, hubtelGateway, walletGateway, manualGateway]
 
 export const listGateways = (): RefundGateway[] => GATEWAYS
 export const getGateway = (id: string): RefundGateway | undefined => GATEWAYS.find((g) => g.id === id)
