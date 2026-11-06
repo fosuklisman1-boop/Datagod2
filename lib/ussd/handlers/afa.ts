@@ -7,6 +7,7 @@ import { resolveEmail } from "../resolve-email"
 import { setWaSession } from "../../whatsapp-bot/session"
 import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import { sendSMS, SMSTemplates } from "../../sms-service"
+import { paystackProviderFromPhone } from "../paystack-provider"
 import {
   guardedReprice, isUssdHubtelPayer, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdChannel, type UssdPrice,
 } from "../gateway-charge"
@@ -146,10 +147,13 @@ export async function handleAfaConfirm(
     .single()
   const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
   const price: UssdPrice = { hubtel: afaPrice!, paystack: afaPrice! + Math.round(afaPrice! * feePercent * 100) / 100 }
-  // Resolved before the order is written: Hubtel's amount has no Paystack fee. The prompt always goes to the dialler
-  // on the MTN provider (as today), so only an MTN dialler can go to Hubtel.
+  // Resolved before the order is written: Hubtel's amount has no Paystack fee. USSD always prompts the dialler on the
+  // MTN provider (as today), so only an MTN dialler goes to Hubtel there. WhatsApp uses the paying number's own network.
   const surface = ussdChargeSurface(channel)
-  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === 'whatsapp' ? sessionId : dialingPhone, provider: 'mtn' })
+  const provider: 'mtn' | 'vod' | 'tgo' = channel === 'whatsapp'
+    ? (session.paystackProvider as 'mtn' | 'vod' | 'tgo' | undefined) ?? paystackProviderFromPhone(dialingPhone ?? '') ?? 'mtn'
+    : 'mtn'
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === 'whatsapp' ? sessionId : dialingPhone, provider })
   const chargeAmount = await ussdOrderAmount(surface, verifiedPayer, price)
 
   const { data: order, error: orderErr } = await supabase
@@ -189,8 +193,7 @@ export async function handleAfaConfirm(
         params: {
           email,
           phone: dialingPhone!,
-          // WhatsApp sets this from the typed number. USSD stays on MTN as before.
-          provider: (channel === 'whatsapp' ? session.paystackProvider ?? 'mtn' : 'mtn') as 'mtn' | 'vod' | 'tgo',
+          provider,
           reference: orderId,
           metadata: {
             source: 'ussd_afa',

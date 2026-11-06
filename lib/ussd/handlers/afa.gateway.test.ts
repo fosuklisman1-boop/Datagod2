@@ -165,3 +165,43 @@ describe("USSD AFA: Paystack asks for an OTP", () => {
     expect(vi.mocked(sendSMS)).not.toHaveBeenCalled()
   })
 })
+
+describe("AFA on WhatsApp: the number's own network", () => {
+  beforeEach(() => { kit.config = gatewayConfig(["whatsapp"]) })
+
+  it.each([
+    ["Telecel", "0201234599", "233201234599", "vod", "vodafone-gh"],
+    ["AirtelTigo", "0271234599", "233271234599", "tgo", "tigo-gh"],
+  ])("a %s sender paying from their own number reaches Hubtel at the plain price", async (_n, local, sender, provider, channel) => {
+    await handleAfaConfirm("1", sender, session({ dialingPhone: local, paystackProvider: provider }), "whatsapp")
+    expect(order().amount).toBe(50)
+    await runAfter()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: sender, channel, amount: 50 })
+  })
+  it("with no provider on the session the number decides, on Hubtel and on a Paystack fallback", async () => {
+    await handleAfaConfirm("1", "233201234598", session({ dialingPhone: "0201234598" }), "whatsapp")
+    expect(order().amount).toBe(50)
+    await runAfter()
+    expect(kit.receive).toHaveBeenCalledTimes(1)
+
+    resetKit()
+    kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
+    await handleAfaConfirm("1", "233551234567", session({ dialingPhone: "0201234598" }), "whatsapp")
+    await runAfter()
+    expect(vi.mocked(chargeMobileMoney).mock.lastCall?.[0]).toMatchObject({ provider: "vod", amount: 51.5 })
+  })
+  it("an unknown prefix keeps today's MTN default and stays on Paystack", async () => {
+    await handleAfaConfirm("1", "233111234567", session({ dialingPhone: "0111234567" }), "whatsapp")
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].provider).toBe("mtn")
+  })
+  it("USSD stays on MTN: a non-MTN dialler keeps Paystack", async () => {
+    kit.config = gatewayConfig(["ussd"])
+    await handleAfaConfirm("1", "S1", session({ dialingPhone: "+233201234597" }))
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].provider).toBe("mtn")
+  })
+})
