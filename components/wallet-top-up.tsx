@@ -29,6 +29,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   const [errorMessage, setErrorMessage] = useState("")
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
   const [walletGateway, setWalletGateway] = useState<"paystack" | "hubtel">("paystack")
+  const [walletFeeBearer, setWalletFeeBearer] = useState<"customer" | "merchant">("customer")
 
   // Wallet payment gates — OTP and direct charge are now INDEPENDENT toggles.
   //   • walletOtp    → the MoMo number must be SMS-OTP verified.
@@ -62,6 +63,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         setWalletOtp(d.wallet_lock === true)
         setWalletDirect(d.wallet_direct_charge === true)
         setWalletGateway(d.wallet_gateway === "hubtel" ? "hubtel" : "paystack")
+        setWalletFeeBearer(d.wallet_fee_bearer === "merchant" ? "merchant" : "customer")
       })
       .catch(() => { setWalletOtp(false); setWalletDirect(false) })
   }, [])
@@ -193,7 +195,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     }
   }
 
-  const display = walletTopupDisplay({ amount: parseFloat(amount || "0"), gateway: walletGateway, paystackFeePercent: paystackFeePercentage })
+  const display = walletTopupDisplay({ amount: parseFloat(amount || "0"), gateway: walletGateway, paystackFeePercent: paystackFeePercentage, feeBearer: walletFeeBearer })
 
   const handleTopUp = async () => {
     // Validation
@@ -422,7 +424,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <span>{display.totalValue}</span>
               </div>
             </div>
-            <p className="text-xs text-warning mt-2">{display.feeNote}</p>
+            {display.feeNote && <p className="text-xs text-warning mt-2">{display.feeNote}</p>}
           </div>
         )}
 

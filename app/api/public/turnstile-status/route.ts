@@ -28,7 +28,7 @@ import {
  * ~30s. New page loads after a toggle pick up the new state immediately.
  */
 export async function GET() {
-  const [enabled, otpRequired, directCharge, walletLock, walletDirectCharge, dashboardDirectCharge, smsDirectCharge, phoneGateDisabled, walletGateway, storefrontGateway, dashboardGateway, smsGateway] = await Promise.all([
+  const [enabled, otpRequired, directCharge, walletLock, walletDirectCharge, dashboardDirectCharge, smsDirectCharge, phoneGateDisabled, walletSurface, storefrontGateway, dashboardGateway, smsGateway] = await Promise.all([
     isTurnstileEnabled(),
     isStorefrontOtpRequired(),
     isStorefrontDirectChargeEnabled(),
@@ -38,7 +38,7 @@ export async function GET() {
     isSmsDirectChargeEnabled(),
     isPhoneGateDisabled(),
     // Display only: which gateway each checkout should describe. Never throws (a failed read answers paystack).
-    resolveSurfaceGateway("wallet_topup", { verifiedPayer: true }).then((r) => r.gateway),
+    resolveSurfaceGateway("wallet_topup", { verifiedPayer: true }),
     resolveSurfaceGateway("storefront", { verifiedPayer: true }).then((r) => r.gateway),
     resolveSurfaceGateway("dashboard_direct", { verifiedPayer: true }).then((r) => r.gateway),
     resolveSurfaceGateway("sms", { verifiedPayer: true }).then((r) => r.gateway),
@@ -53,7 +53,8 @@ export async function GET() {
       dashboard_direct_charge: dashboardDirectCharge,
       sms_direct_charge: smsDirectCharge,
       phone_gate_disabled: phoneGateDisabled,
-      wallet_gateway: walletGateway,
+      wallet_gateway: walletSurface.gateway,
+      wallet_fee_bearer: walletSurface.feeBearer,
       storefront_gateway: storefrontGateway,
       dashboard_gateway: dashboardGateway,
       sms_gateway: smsGateway,

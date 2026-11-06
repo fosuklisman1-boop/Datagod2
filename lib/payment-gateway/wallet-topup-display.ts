@@ -1,6 +1,6 @@
 // What the wallet top-up screen says for each gateway. Hubtel adds its own fee on top and its rate isn't fixed in our
 // config (live 2026-11-05: 0.01 on 1.00, 0.10 on 5.00), so the screen promises no percentage on Hubtel.
-import type { Gateway } from "./config"
+import type { FeeBearer, Gateway } from "./config"
 
 export interface WalletTopupDisplay {
   description: string
@@ -14,8 +14,21 @@ export interface WalletTopupDisplay {
 
 const ghs = (n: number) => `GHS ${n.toFixed(2)}`
 
-export function walletTopupDisplay(i: { amount: number; gateway: Gateway; paystackFeePercent: number }): WalletTopupDisplay {
+export function walletTopupDisplay(i: { amount: number; gateway: Gateway; paystackFeePercent: number; feeBearer?: FeeBearer }): WalletTopupDisplay {
   const amount = Number.isFinite(i.amount) ? i.amount : 0
+  // The merchant bears the fee on either gateway: the customer pays the plain amount, so no fee is shown.
+  if (i.feeBearer === "merchant") {
+    const total = ghs(amount)
+    return {
+      description: i.gateway === "hubtel" ? "Add funds to your wallet using Mobile Money with Hubtel" : "Add funds to your wallet using Paystack",
+      feeLabel: "Fee:",
+      feeValue: ghs(0),
+      totalLabel: "Total Amount:",
+      totalValue: total,
+      feeNote: "",
+      payButton: `Pay ${total}`,
+    }
+  }
   if (i.gateway === "hubtel") {
     const total = `${ghs(amount)} + fee`
     return {
