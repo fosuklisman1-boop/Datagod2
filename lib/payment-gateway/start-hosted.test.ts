@@ -181,7 +181,7 @@ describe("startHostedPayment — Hubtel accepted", () => {
     expect(sent).toEqual({
       reference: ref,
       amount: 20,
-      description: "Payment",
+      description: "Clingshub",
       callbackUrl: `https://www.datagod.store/api/webhooks/hubtel-payments?ref=${ref}&sig=cb`,
       returnUrl: `https://www.datagod.store/api/payments/hubtel-return?ref=${ref}&sig=rt`,
       cancellationUrl: `https://www.datagod.store/api/payments/hubtel-return?ref=${ref}&sig=rt&cancelled=1`,

@@ -236,7 +236,7 @@ describe("main WhatsApp bot, bundles, whatsapp surface on Hubtel", () => {
     await runAfter()
     expect(chargeMobileMoney).not.toHaveBeenCalled()
     expect(kit.receive).toHaveBeenCalledTimes(1)
-    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: "233244123456", channel: "mtn-gh", amount: 10, description: "Payment" })
+    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: "233244123456", channel: "mtn-gh", amount: 10, description: "Clingshub" })
     expect(hubtelRows()[0]).toMatchObject({ internal_reference: order().id, surface: "whatsapp", status: "pending" })
     expect(order()).toMatchObject({ payment_status: "pending", order_status: "pending" })
     expectNeutral(replies)

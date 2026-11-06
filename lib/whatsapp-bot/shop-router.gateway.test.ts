@@ -436,7 +436,7 @@ describe("WhatsApp shop bot, whatsapp surface on Hubtel", () => {
     expect(o.amount).toBe(10)
     expect(charged()).toHaveLength(0)
     expect(kit.receive).toHaveBeenCalledTimes(1)
-    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: "233244123456", channel: "mtn-gh", amount: 10, description: "Payment" })
+    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: "233244123456", channel: "mtn-gh", amount: 10, description: "Clingshub" })
     expect(hubtelRows()[0]).toMatchObject({ internal_reference: o.id, surface: "whatsapp", status: "pending" })
     expect(o).toMatchObject({ payment_status: "pending", order_status: "pending" })
     expect(r).toContain(OWN)
