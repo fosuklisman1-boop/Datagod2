@@ -18,7 +18,7 @@ vi.mock("./hubtel-send-client", async (orig) => ({
   checkSendStatus: (...a: unknown[]) => checkSendStatus(...a),
 }))
 
-import { MAX_PER_RUN, reconcileProcessingPaystackRefunds } from "./reconcile-paystack"
+import { MAX_PER_RUN, reconcileProcessingPaystackRefunds, staleHubtelSendAlert } from "./reconcile-paystack"
 import { getGateway } from "./gateways"
 import { reconcileRefund, type RefundDeps, type StoredRefund } from "./service"
 import type { RefundableOrder } from "./types"
@@ -331,5 +331,16 @@ describe("reconcileProcessingPaystackRefunds on Hubtel Send Money payouts", () =
     const onStale = vi.fn(async () => {})
     await reconcileProcessingPaystackRefunds(deps, [hubtelSend({ created_at: new Date(NOW - 30 * 3_600_000).toISOString() })], NOW, { onStaleHubtelSend: onStale })
     expect(onStale).not.toHaveBeenCalled()
+  })
+})
+
+describe("staleHubtelSendAlert", () => {
+  it("names the action to take, by id only", () => {
+    const text = staleHubtelSendAlert([{ id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301" }])
+    expect(text).toContain("3f2504e0")
+    expect(text).toContain("Hubtel status")
+    expect(text).toContain("mark failed")
+    expect(text).toContain("/admin/refunds")
+    expect(text).not.toMatch(/\d{9,}/)
   })
 })

@@ -33,6 +33,12 @@ function isProcessable(row: StoredRefund): boolean {
   return row.gateway === "paystack_payout" || row.gateway === "moolre" || row.gateway === "hubtel_send"
 }
 
+/** Ids only: no number, no amount. Says what to do: the row has its own actions on /admin/refunds. */
+export function staleHubtelSendAlert(stale: Pick<StoredRefund, "id">[]): string {
+  const ids = stale.slice(0, 5).map((r) => r.id.slice(0, 8)).join(", ")
+  return `${stale.length} Hubtel payout refund(s) still unconfirmed after 24 hours (${ids}). On /admin/refunds, History: press "Hubtel status" to see what Hubtel says. If it failed or has no record, use "Hubtel confirms this never paid: mark failed", then Retry. If it says paid, check Hubtel and contact the developer.`
+}
+
 export interface ReconcileOptions {
   /** Called once per run with the hubtel_send refunds still unsettled 24 hours after creation. Never allowed to throw into the run. */
   onStaleHubtelSend?: (rows: StoredRefund[]) => Promise<void>

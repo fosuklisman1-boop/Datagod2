@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { refundDb } from "@/lib/refunds/http"
 import { defaultDeps, type StoredRefund } from "@/lib/refunds/service"
-import { reconcileProcessingPaystackRefunds } from "@/lib/refunds/reconcile-paystack"
+import { reconcileProcessingPaystackRefunds, staleHubtelSendAlert } from "@/lib/refunds/reconcile-paystack"
 import { sendThrottledAlert } from "@/lib/hubtel-pay/alert-throttle"
 
 export const dynamic = "force-dynamic"
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       // A Hubtel payout still unconfirmed after 24 hours needs a human. Ids only: no number, no amount.
       onStaleHubtelSend: (stale) => sendThrottledAlert(
         db,
-        `${stale.length} Hubtel payout refund(s) still unconfirmed after 24 hours (${stale.slice(0, 5).map((r) => r.id.slice(0, 8)).join(", ")}). Check Hubtel and resolve on /admin/refunds.`,
+        staleHubtelSendAlert(stale),
         { key: "hubtel_send_stale_refund_alert", type: "hubtel_send_refund", description: "Last stale Hubtel payout refund alert", windowMs: 6 * 3_600_000, logPrefix: "[REFUND-CRON]" },
       ),
     })

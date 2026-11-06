@@ -153,6 +153,54 @@ export function classifySendStatus(reply: RelayReply, want: { reference: string;
   return pending
 }
 
+/**
+ * What an admin needs to decide on a stuck payout. Deliberately separate from classifySendStatus, which only settles on
+ * an exact match; this one reads wider, and fails safe: any word that might mean paid is `success`, and only a clear
+ * failure word or Hubtel's own no-match answer can let an admin mark the refund failed. Update the words after the
+ * supervised live test records Hubtel's real values.
+ */
+export type SendStatusVerdict = "success" | "failed" | "no_record" | "unclear" | "no_answer"
+export interface SendStatusView {
+  verdict: SendStatusVerdict
+  upstreamStatus: number | null
+  /** Hubtel's reply with every long digit run masked: no phone number reaches the screen or the audit log. */
+  raw: unknown
+}
+
+const MAYBE_PAID = /succ|paid|complet|deliver/i
+const CLEARLY_FAILED = /fail|declin|reject|revers|cancel|expired/i
+const NO_RECORD = /did not match|no record|not found/i
+
+/** Masks digit runs that could be a phone number, in strings and numbers, at any depth. */
+function maskDigits(v: unknown, depth = 0): unknown {
+  if (typeof v === "string") return v.replace(/\d{7,}/g, "…")
+  if (typeof v === "number") return Math.abs(v) >= 1_000_000 ? "…" : v
+  if (depth > 6 || v === null || typeof v !== "object") return v === undefined || typeof v === "boolean" || v === null ? v : null
+  if (Array.isArray(v)) return v.map((x) => maskDigits(x, depth + 1))
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, maskDigits(x, depth + 1)]))
+}
+
+/** Pure. Reads the relay's reply to GET /send-status. `reference` is the ClientReference we sent. */
+export function readSendStatus(reply: RelayReply, reference: string): SendStatusView {
+  if (reply.kind !== "reply") return { verdict: "no_answer", upstreamStatus: null, raw: null }
+  const j = asObject(reply.json)
+  if (reply.httpStatus !== 200 || !j || typeof j.upstreamStatus !== "number" || j.upstreamStatus === 0) {
+    return { verdict: "no_answer", upstreamStatus: j && typeof j.upstreamStatus === "number" ? j.upstreamStatus : null, raw: maskDigits(reply.json) }
+  }
+  const up: number = j.upstreamStatus
+  const view = (verdict: SendStatusVerdict): SendStatusView => ({ verdict, upstreamStatus: up, raw: maskDigits(j.body) })
+  const body = asObject(j.body)
+  const data = asObject(body?.Data)
+  if (data && data.ClientReference === reference) {
+    const word = typeof data.transactionStatus === "string" ? data.transactionStatus : ""
+    if (MAYBE_PAID.test(word)) return view("success")
+    if (CLEARLY_FAILED.test(word)) return view("failed")
+    return view("unclear")
+  }
+  if ((up === 400 || up === 404) && !data && NO_RECORD.test(JSON.stringify(body ?? ""))) return view("no_record")
+  return view("unclear")
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Callback URL. The signature covers "send:" + ref, so a collection-callback or return signature can never open it.
 
@@ -236,4 +284,11 @@ export async function checkSendStatus(p: { refundId: string; amount: number }, d
   try { reference = sendRefundReference(p.refundId) } catch { return { kind: "unknown", error: "Invalid refund id — status not checked" } }
   const reply = await callRelay("GET", `/send-status?clientReference=${reference}`, null, deps)
   return classifySendStatus(reply, { reference, amount: p.amount })
+}
+
+/** The same status check, read for an admin (see readSendStatus). Read-only. Never throws. */
+export async function describeSendStatus(p: { refundId: string; amount: number }, deps: SendDeps = {}): Promise<SendStatusView> {
+  let reference: string
+  try { reference = sendRefundReference(p.refundId) } catch { return { verdict: "no_answer", upstreamStatus: null, raw: null } }
+  return readSendStatus(await callRelay("GET", `/send-status?clientReference=${reference}`, null, deps), reference)
 }

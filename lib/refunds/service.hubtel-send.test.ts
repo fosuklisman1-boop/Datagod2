@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const sendMoney = vi.fn()
 const checkSendStatus = vi.fn()
+const describeSendStatus = vi.fn()
 vi.mock("./hubtel-send-client", async (orig) => ({
   ...(await orig<typeof import("./hubtel-send-client")>()),
   sendMoney: (...a: unknown[]) => sendMoney(...a),
   checkSendStatus: (...a: unknown[]) => checkSendStatus(...a),
+  describeSendStatus: (...a: unknown[]) => describeSendStatus(...a),
 }))
 vi.mock("@/lib/moolre-transfer", () => ({ initiateTransfer: vi.fn(), getTransferStatus: vi.fn() }))
 vi.mock("@/lib/paystack", () => ({ refundTransaction: vi.fn(), fetchRefund: vi.fn() }))
@@ -16,7 +18,7 @@ vi.mock("@/lib/paystack-transfer", () => ({
 }))
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ rpc: vi.fn() }) }))
 
-import { executeRefund, previewRefund, reconcileRefund, type RefundDeps, type StoredRefund } from "./service"
+import { executeRefund, markHubtelSendNeverPaid, previewRefund, reconcileRefund, type RefundDeps, type StoredRefund } from "./service"
 import { getGateway } from "./gateways"
 import type { RefundableOrder } from "./types"
 
@@ -178,5 +180,54 @@ describe("reconcile a hubtel_send refund", () => {
     deps.now = () => NOW
     expect((await reconcileRefund(deps, row())).status).toBe("processing")
     expect(names(calls)).toEqual(["mark_refund_processing"])
+  })
+})
+
+describe("markHubtelSendNeverPaid (I1)", () => {
+  const NOW = Date.parse("2026-11-06T12:00:00Z")
+  const stuck = (o: Partial<StoredRefund> = {}): StoredRefund => ({
+    id: RF, order_table: "shop_orders", order_id: "o1", gateway: "hubtel_send", amount: 10, destination_phone: "0245550101",
+    gateway_ref: null, status: "processing", clawbacks: [], updated_at: "2026-11-06T11:50:00Z", created_at: "2026-11-06T09:00:00Z", ...o,
+  })
+  const withClock = (s: ReturnType<typeof setup>) => { s.deps.now = () => NOW; return s }
+
+  it.each(["no_record", "failed"])("%s: re-checks first, then fails the row and restores the clawback", async (verdict) => {
+    describeSendStatus.mockResolvedValue({ verdict, upstreamStatus: 400, raw: {} })
+    const { deps, calls } = withClock(setup(hubtelOrder()))
+    const out = await markHubtelSendNeverPaid(deps, stuck())
+    expect(describeSendStatus).toHaveBeenCalledWith({ refundId: RF, amount: 10 })
+    expect(out.status).toBe("failed")
+    expect(names(calls)).toEqual(["fail_order_refund"])
+  })
+  it.each(["success", "no_answer", "unclear"])("%s: refuses and changes nothing", async (verdict) => {
+    describeSendStatus.mockResolvedValue({ verdict, upstreamStatus: 200, raw: {} })
+    const { deps, calls } = withClock(setup(hubtelOrder()))
+    await expect(markHubtelSendNeverPaid(deps, stuck())).rejects.toMatchObject({ code: "NOT_ELIGIBLE" })
+    expect(calls).toEqual([])
+  })
+  it("a throwing status check refuses", async () => {
+    describeSendStatus.mockRejectedValue(new Error("x"))
+    const { deps, calls } = withClock(setup(hubtelOrder()))
+    await expect(markHubtelSendNeverPaid(deps, stuck())).rejects.toMatchObject({ code: "NOT_ELIGIBLE" })
+    expect(calls).toEqual([])
+  })
+  it("too young to rule out: refused before Hubtel is asked", async () => {
+    const { deps } = withClock(setup(hubtelOrder()))
+    await expect(markHubtelSendNeverPaid(deps, stuck({ created_at: "2026-11-06T11:30:00Z" }))).rejects.toMatchObject({ code: "IN_FLIGHT" })
+    await expect(markHubtelSendNeverPaid(deps, stuck({ created_at: undefined }))).rejects.toMatchObject({ code: "IN_FLIGHT" })
+    expect(describeSendStatus).not.toHaveBeenCalled()
+  })
+  it("only an unsettled hubtel_send refund", async () => {
+    const { deps } = withClock(setup(hubtelOrder()))
+    await expect(markHubtelSendNeverPaid(deps, stuck({ gateway: "moolre" }))).rejects.toMatchObject({ code: "GATEWAY_UNSUPPORTED" })
+    for (const status of ["completed", "failed", "awaiting_otp"]) {
+      await expect(markHubtelSendNeverPaid(deps, stuck({ status }))).rejects.toMatchObject({ code: "ORDER_NOT_PENDING" })
+    }
+  })
+  it("the ledger already says completed: a conflict, not a quiet failure", async () => {
+    describeSendStatus.mockResolvedValue({ verdict: "no_record", upstreamStatus: 400, raw: {} })
+    const s = withClock(setup(hubtelOrder()))
+    s.deps.rpc = async () => ({ data: "completed", error: null })
+    await expect(markHubtelSendNeverPaid(s.deps, stuck())).rejects.toMatchObject({ code: "SETTLE_FAILED" })
   })
 })

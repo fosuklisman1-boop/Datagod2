@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
-  classifySend, classifySendStatus, hubtelChannelFor, hubtelSendCallbackUrl, sendMoney, checkSendStatus,
+  classifySend, classifySendStatus, hubtelChannelFor, hubtelSendCallbackUrl, readSendStatus, sendMoney, checkSendStatus,
   sendRefundReference, toHubtelMsisdn, verifySendSig,
 } from "./hubtel-send-client"
 import type { RelayReply } from "@/lib/hubtel-pay/client"
@@ -228,5 +228,43 @@ describe("sendMoney / checkSendStatus (relay calls)", () => {
   })
   it("checkSendStatus with an unreachable relay is unknown", async () => {
     expect((await checkSendStatus({ refundId: UUID, amount: 5 }, { fetchImpl: (async () => { throw new Error("x") }) as any, env })).kind).toBe("unknown")
+  })
+})
+
+describe("readSendStatus (raw view + verdict for a stuck payout)", () => {
+  const up = (upstreamStatus: number, body: unknown) => relay({ upstreamStatus, body })
+  const withStatus = (transactionStatus: string) => up(200, { ResponseCode: "success", Data: { ClientReference: REF, transactionStatus, Amount: 5 } })
+
+  it.each(["Success", "successful", "Paid", "Completed", "unsuccessful"])("%s reads as success: never markable", (w) => {
+    expect(readSendStatus(withStatus(w), REF).verdict).toBe("success")
+  })
+  it.each(["failed", "Declined", "Rejected", "reversed", "Cancelled", "expired"])("%s reads as failed", (w) => {
+    expect(readSendStatus(withStatus(w), REF).verdict).toBe("failed")
+  })
+  it.each(["pending", "processing", "queued", "something new", ""])("%j is not settled", (w) => {
+    expect(readSendStatus(withStatus(w), REF).verdict).toBe("unclear")
+  })
+  it("Hubtel's no-match answer is no_record", () => {
+    expect(readSendStatus(up(400, { message: "Your request did not match any records" }), REF).verdict).toBe("no_record")
+    expect(readSendStatus(up(404, { Message: "Not found" }), REF).verdict).toBe("no_record")
+  })
+  it("another 4xx or 5xx, or a reply about another reference, is unclear", () => {
+    expect(readSendStatus(up(401, { message: "unauthorized" }), REF).verdict).toBe("unclear")
+    expect(readSendStatus(up(500, { message: "not found" }), REF).verdict).toBe("unclear")
+    expect(readSendStatus(up(200, { Data: { ClientReference: "other", transactionStatus: "failed" } }), REF).verdict).toBe("unclear")
+    expect(readSendStatus(up(200, {}), REF).verdict).toBe("unclear")
+  })
+  it("no answer at all is no_answer", () => {
+    expect(readSendStatus({ kind: "not_configured" }, REF).verdict).toBe("no_answer")
+    expect(readSendStatus({ kind: "transport_error", error: new Error("x") }, REF).verdict).toBe("no_answer")
+    expect(readSendStatus(relay({ error: "bad" }, 502), REF).verdict).toBe("no_answer")
+    expect(readSendStatus(up(0, null), REF).verdict).toBe("no_answer")
+  })
+  it("the raw view keeps the fields but never a phone number, as text or as a number", () => {
+    const view = readSendStatus(up(200, { Data: { ClientReference: REF, transactionStatus: "pending", RecipientMsisdn: "233245550173", Number: 233245550174, Nested: [{ Note: "to 0245550175" }], Amount: 5 } }), REF)
+    const text = JSON.stringify(view.raw)
+    expect(text).not.toMatch(/245550173|245550174|245550175/)
+    expect(text).toContain("transactionStatus")
+    expect(text).toContain('"Amount":5')
   })
 })

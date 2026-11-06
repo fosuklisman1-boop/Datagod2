@@ -6,6 +6,7 @@ import { loadRefundableOrders } from "./orders"
 import { getGateway, listGateways, supportOf } from "./gateways"
 import { notifyRefund, type RefundNotification } from "./notify"
 import { loadRefundContact } from "./contact"
+import { describeSendStatus, type SendStatusVerdict, type SendStatusView } from "./hubtel-send-client"
 import { FRESH_OTP_MS, isInFlight, isStale } from "./staleness"
 import { isCommissionTable, type CommissionTable, type GatewayOutcome, type OrderTable, type RefundContact, type RefundContext, type RefundGateway, type RefundableOrder } from "./types"
 
@@ -456,6 +457,53 @@ export async function cancelRefund(deps: RefundDeps, stored: StoredRefund): Prom
     return { status: "awaiting_otp", message: "Could not confirm the payout state with the gateway — not cancelled. Try again shortly." }
   }
   return settleStored(deps, stored, ctx, outcome)
+}
+
+/**
+ * A stuck Hubtel payout needs a human, but "failed" frees the order for a second payout, so it has to be true. Too soon
+ * after the send, a no-match can just mean Hubtel hasn't recorded it yet. Hubtel asks for 5 minutes; this waits longer.
+ */
+export const NEVER_PAID_MIN_AGE_MS = 60 * 60_000
+
+const NEVER_PAID_REFUSAL: Partial<Record<SendStatusVerdict, string>> = {
+  success: "Hubtel may have paid this. It was not marked failed: use Check status, or check Hubtel.",
+  no_answer: "Hubtel could not be asked. It was not marked failed: try again shortly.",
+  unclear: "Hubtel's answer does not show this payout failed. It was not marked failed: check Hubtel, and see the raw status.",
+}
+
+/** Read-only: what Hubtel says about this payout right now. Settles nothing. */
+export async function inspectHubtelSend(stored: StoredRefund): Promise<SendStatusView & { canMarkFailed: boolean }> {
+  if (stored.gateway !== "hubtel_send") throw new RefundError("GATEWAY_UNSUPPORTED", "This is not a Hubtel payout")
+  const view = await describeSendStatus({ refundId: stored.id, amount: Number(stored.amount) })
+  return { ...view, canMarkFailed: view.verdict === "failed" || view.verdict === "no_record" }
+}
+
+/**
+ * The exit for a stuck Hubtel payout: an admin confirms it never paid. Hubtel is asked again first, and this refuses
+ * unless the answer is a clear failure or no record at all. The ledger then fails the row and restores the owner's
+ * clawback, and the order can be refunded again by the normal Retry.
+ */
+export async function markHubtelSendNeverPaid(deps: RefundDeps, stored: StoredRefund): Promise<Settled & { verdict: SendStatusVerdict }> {
+  if (stored.gateway !== "hubtel_send") throw new RefundError("GATEWAY_UNSUPPORTED", "This is not a Hubtel payout")
+  if (stored.status !== "processing" && stored.status !== "reserved") {
+    throw new RefundError("ORDER_NOT_PENDING", "Only an unsettled Hubtel payout can be marked failed")
+  }
+  // Not `age < minimum`: an unreadable created_at must refuse too.
+  if (!(nowOf(deps) - Date.parse(stored.created_at ?? "") >= NEVER_PAID_MIN_AGE_MS)) {
+    throw new RefundError("IN_FLIGHT", "This payout is too recent to rule out. Try again an hour after it was started.")
+  }
+  let view: SendStatusView
+  try {
+    view = await describeSendStatus({ refundId: stored.id, amount: Number(stored.amount) })
+  } catch {
+    view = { verdict: "no_answer", upstreamStatus: null, raw: null }
+  }
+  if (view.verdict !== "failed" && view.verdict !== "no_record") {
+    throw new RefundError("NOT_ELIGIBLE", NEVER_PAID_REFUSAL[view.verdict] ?? "Not marked failed", { code: "HUBTEL_MAY_HAVE_PAID", verdict: view.verdict })
+  }
+  const error = view.verdict === "failed" ? "Hubtel reports the payout failed; marked failed by an admin" : "Hubtel has no record of this payout; marked failed by an admin"
+  await compensate(deps, stored.id, error, { kind: "failed", error })
+  return { status: "failed", message: "Marked failed and the owner's cut restored. You can now retry the refund.", verdict: view.verdict }
 }
 
 export const MANUAL_GATEWAY = "manual"

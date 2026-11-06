@@ -111,6 +111,7 @@ export default function AdminRefundsPage() {
   const [tab, setTab] = useState("pending")
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
   const [verified, setVerified] = useState<Record<string, { severity: VerificationSeverity; text: string }>>({})
+  const [hubtelStatus, setHubtelStatus] = useState<Record<string, { verdict: string; canMarkFailed: boolean; raw: unknown }>>({})
   const loadSeq = useRef(0)
   const otpFromExecute = useRef(false)
   const [settleFailed, setSettleFailed] = useState<{ message: string; detail: SettleFailedDetail } | null>(null)
@@ -213,6 +214,44 @@ export default function AdminRefundsPage() {
   }
 
   const closeRetry = () => { setRetryFor(null); setRetryWarning(null); setRetryConfirm(false) }
+
+  // Read-only: what Hubtel says about a payout right now. Settles nothing.
+  const checkHubtelSend = async (r: HistoryRow) => {
+    if (verifyingId) return
+    setVerifyingId(r.id)
+    try {
+      const res = await fetch(`/api/admin/refunds/${r.id}/gateway-status`, { headers: { Authorization: `Bearer ${await getToken()}` } })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(res.status === 403 ? "Sign in as an admin" : json.error || "Could not ask Hubtel")
+      setHubtelStatus((m) => ({ ...m, [r.id]: { verdict: String(json.verdict), canMarkFailed: json.canMarkFailed === true, raw: json.raw ?? null } }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not ask Hubtel")
+    } finally {
+      setVerifyingId(null)
+    }
+  }
+
+  const markHubtelNeverPaid = async (r: HistoryRow) => {
+    if (busyId) return
+    if (!window.confirm("Only do this if Hubtel confirms this payout never went out. Hubtel is asked again first. The refund is marked failed and can then be retried, so a wrong answer here pays the customer twice.")) return
+    setBusyId(r.id)
+    try {
+      const res = await fetch(`/api/admin/refunds/${r.id}/hubtel-never-paid`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${await getToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "Not marked failed")
+      toast.success(json.message || "Marked failed")
+      setHubtelStatus((m) => { const { [r.id]: _done, ...rest } = m; return rest })
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Not marked failed")
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   // Read-only: asks Paystack about this refund; settles nothing.
   const verify = async (r: HistoryRow) => {
@@ -391,6 +430,12 @@ export default function AdminRefundsPage() {
                               {verified[r.id].text}
                             </div>
                           )}
+                          {hubtelStatus[r.id] && (
+                            <div className="mt-1">
+                              <div className="font-medium">Hubtel: {hubtelStatus[r.id].verdict.replace("_", " ")}</div>
+                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-[11px]">{JSON.stringify(hubtelStatus[r.id].raw, null, 2)}</pre>
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap justify-end gap-2">
@@ -401,6 +446,14 @@ export default function AdminRefundsPage() {
                               <Button size="sm" variant="ghost" disabled={verifyingId !== null} onClick={() => verify(r)}>
                                 {verifyingId === r.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}Verify at gateway
                               </Button>
+                            )}
+                            {r.gateway === "hubtel_send" && (r.status === "processing" || r.status === "reserved") && (
+                              <Button size="sm" variant="ghost" disabled={verifyingId !== null} onClick={() => checkHubtelSend(r)}>
+                                {verifyingId === r.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}Hubtel status
+                              </Button>
+                            )}
+                            {r.gateway === "hubtel_send" && hubtelStatus[r.id]?.canMarkFailed && (r.status === "processing" || r.status === "reserved") && (
+                              <Button size="sm" variant="destructive" disabled={busy} onClick={() => markHubtelNeverPaid(r)}>Hubtel confirms this never paid: mark failed</Button>
                             )}
                             {r.status === "awaiting_otp" && (
                               <>
