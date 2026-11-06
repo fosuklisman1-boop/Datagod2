@@ -638,9 +638,9 @@ describe("orders paid through Hubtel collections", () => {
       expect(o.payment.payerPhone).toBe("0245550101")
       expect(o.payment.reference).toBeNull()
     })
-    it("the cap is handler_amount_pesewas when set, never the gross", async () => {
-      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid", { amount_pesewas: 1050, handler_amount_pesewas: 1000 })])
-      expect(o.payment.hubtelAttempt?.requestedPesewas).toBe(1000)
+    it("merchant bears the fee: the cap is what was requested from Hubtel, not the full price the handler was told", async () => {
+      const o = await load([attempt("a".repeat(32), "WALLET-1", "paid", { amount_pesewas: 9800, handler_amount_pesewas: 10000 })])
+      expect(o.payment.hubtelAttempt?.requestedPesewas).toBe(9800)
     })
     it("falls back to amount_pesewas when there is no handler amount", async () => {
       const o = await load([attempt("a".repeat(32), "WALLET-1", "paid", { amount_pesewas: 1234, handler_amount_pesewas: null })])

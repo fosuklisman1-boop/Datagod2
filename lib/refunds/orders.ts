@@ -197,7 +197,8 @@ const UNSETTLED_ORDER = ["needs_review", "confirming", "pending"] as const
  * Folds every live attempt (pending / confirming / paid / needs_review) of one order into the facts a refund needs,
  * or null when there are none. An unsettled attempt wins over a paid one: its money may not have landed or may still
  * land. The payer facts are taken from the single paid attempt only; with none or several they are null.
- * Amount = handler_amount_pesewas ?? amount_pesewas (what we asked Hubtel for), never Hubtel's gross.
+ * Amount = amount_pesewas, what we asked Hubtel for. Not handler_amount_pesewas: when the merchant bears the fee that is
+ * the full price, more than the customer was asked for. Never Hubtel's gross either.
  */
 export function foldHubtelAttempts(rows: HubtelAttemptRow[]): HubtelAttemptFacts | null {
   const byRef = new Map<string, HubtelAttemptRow>()
@@ -207,7 +208,7 @@ export function foldHubtelAttempts(rows: HubtelAttemptRow[]): HubtelAttemptFacts
   const paid = live.filter((r) => r.status === "paid")
   const unsettled = UNSETTLED_ORDER.find((s) => live.some((r) => r.status === s))
   const one = paid.length === 1 ? paid[0] : null
-  const requested = one ? one.handler_amount_pesewas ?? one.amount_pesewas : null
+  const requested = one ? one.amount_pesewas : null
   return {
     status: unsettled ?? "paid",
     paidAttempts: paid.length,

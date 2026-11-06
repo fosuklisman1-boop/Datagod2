@@ -128,7 +128,7 @@ export interface HubtelAttemptFacts {
   msisdn: string | null
   /** Hubtel channel the payer paid on (mtn-gh, vodafone-gh, tigo-gh). */
   channel: string | null
-  /** What we requested from Hubtel, in pesewas: handler_amount_pesewas ?? amount_pesewas, never Hubtel's gross. */
+  /** What we requested from Hubtel, in pesewas: amount_pesewas, never the handler's full price or Hubtel's gross. */
   requestedPesewas: number | null
   paymentMethod: string | null
 }
