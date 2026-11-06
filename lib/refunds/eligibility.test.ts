@@ -100,3 +100,19 @@ describe("refundableStatuses / per-table status", () => {
     })
   })
 })
+
+describe("a shop order closed before its payment landed (C1)", () => {
+  const late: Partial<EligibilityInput> = { table: "shop_orders", orderStatus: "expired", paymentStatus: "expired", latePaid: true }
+  it("is refundable", () => expect(code(late)).toBe("ok"))
+  it("needs the proof of payment", () => expect(code({ ...late, latePaid: false })).toBe("NOT_PENDING"))
+  it("applies to shop_orders only", () => expect(code({ ...late, table: "ussd_orders" })).toBe("NOT_PENDING"))
+  it("keeps the other refusals", () => {
+    expect(code({ ...late, hasActiveRefund: true })).toBe("ALREADY_REFUNDED")
+    expect(code({ ...late, externalOrderId: "x1" })).toBe("SENT_TO_PROVIDER")
+    expect(code({ ...late, trackingStatuses: ["pending"] })).toBe("PROVIDER_IN_PROGRESS")
+  })
+  it("a Hubtel one still waits until its attempt is paid", () => {
+    expect(code({ ...late, hubtelCollection: true, hubtelAttemptStatus: "needs_review" })).toBe("HUBTEL_COLLECTION")
+    expect(code({ ...late, hubtelCollection: true, hubtelAttemptStatus: "paid" })).toBe("ok")
+  })
+})

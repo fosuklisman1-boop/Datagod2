@@ -159,6 +159,8 @@ export interface RefundableOrder {
     dispatchAttempts: number | null
     trackingStatuses: string[]
     externalOrderId: string | null
+    /** shop_orders: closed before its payment landed; a completed wallet payment proves the money. */
+    latePaid?: boolean
     /** Commission tables only. */
     commission?: CommissionEvidence
   }

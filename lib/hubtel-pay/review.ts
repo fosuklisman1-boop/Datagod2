@@ -17,7 +17,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { ChargeEventData } from "@/lib/payments/charge-events"
 import { checkPaymentStatus, type PaymentStatus } from "./client"
-import { isAllowedPaymentMethod, reportsOrderClosed, type HubtelPaymentStatus } from "./confirm"
+import { isAllowedPaymentMethod, reportsLatePayment, reportsOrderClosed, type HubtelPaymentStatus } from "./confirm"
 
 export const STALE_CONFIRMING_MS = 10 * 60_000
 const REF_RE = /^[0-9a-f]{32}$/
@@ -204,6 +204,25 @@ export async function fulfilPayment(deps: ReviewDeps, reference: string, adminId
     deps.log("fulfil_handler_refused", { adminId, reference, httpStatus: res!.status })
     await backToReview().catch(() => false)
     return { ok: false, status: 502, message: `The fulfilment handler answered ${res!.status}. The payment is back in review.`, check }
+  }
+  // A fresh check says Paid and the order closed before it landed: nothing to deliver. Record it as paid (the money is
+  // held), which is what lets /admin/refunds return it. Otherwise the row has no exit: it can't be fulfilled or failed.
+  if (await reportsLatePayment(res)) {
+    let recorded = false
+    try {
+      recorded = await deps.store.update(reference, {
+        status: "paid", last_check: status.raw, updated_at: stamp(),
+        hubtel_transaction_id: status.transactionId ?? null, charges_pesewas: status.chargesPesewas ?? null, payment_method: status.paymentMethod ?? null,
+      }, { status: ["confirming"], claimedAt })
+    } catch {
+      recorded = false
+    }
+    deps.log("fulfil_late_payment", { adminId, reference, recorded })
+    if (!recorded) {
+      await backToReview().catch(() => false)
+      return { ok: false, status: 502, message: "The order was already closed, but the payment could not be recorded. It is back in review; try again.", check }
+    }
+    return { ok: true, message: "The order was already closed, so nothing was delivered. The payment is recorded: refund it on /admin/refunds.", check }
   }
   if (await reportsOrderClosed(res)) {
     deps.log("fulfil_order_closed", { adminId, reference })

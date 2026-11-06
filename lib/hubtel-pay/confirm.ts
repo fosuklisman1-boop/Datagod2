@@ -119,6 +119,15 @@ export const reportsOrderClosed = async (res: HandlerResponse): Promise<boolean>
     return false
   }
 }
+/** The order closed before this payment landed: the money is held and only a refund can settle it. See charge-events.ts. */
+export const reportsLatePayment = async (res: HandlerResponse): Promise<boolean> => {
+  if (!res) return false
+  try {
+    return (await res.clone().json())?.closed_reason === "late_payment"
+  } catch {
+    return false
+  }
+}
 const ghs = (p: number | undefined) => (typeof p === "number" ? (p / 100).toFixed(2) : "?")
 const hubtelFieldsOf = (status: PaymentStatus) => ({
   hubtel_transaction_id: status.transactionId ?? null,

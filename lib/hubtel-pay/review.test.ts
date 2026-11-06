@@ -110,6 +110,15 @@ describe("fulfilPayment", () => {
     }
   })
 
+  it("a late payment on a closed order: confirmed held, marked paid so the refund tool can return it, nothing delivered", async () => {
+    const handler = async () => new Response(JSON.stringify({ received: true, order_closed: true, closed_reason: "late_payment" }), { status: 200 })
+    const { deps, rows } = setup(baseRow(), paid(), { handler })
+    const out = await fulfilPayment(deps, REF, "a")
+    expect(out.ok).toBe(true)
+    expect(out.message).toMatch(/refund/i)
+    expect(rows.get(REF)!.status).toBe("paid")
+  })
+
   it("a stale confirming row can be fulfilled; a fresh claim and other statuses cannot", async () => {
     const stale = setup(baseRow({ status: "confirming", claimed_at: "2026-11-05T11:40:00Z" }))
     expect((await fulfilPayment(stale.deps, REF, "a")).ok).toBe(true)

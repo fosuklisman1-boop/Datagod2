@@ -681,3 +681,38 @@ describe("orders paid through Hubtel collections", () => {
     await expect(loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }])).rejects.toThrow()
   })
 })
+
+describe("late-paid shop orders (C1)", () => {
+  const rows = (status: string, payment: string, wpStatus: string): Rows => ({
+    ...EMPTY,
+    shop_orders: [{ id: "s1", shop_id: "shopA", customer_phone: "0241112233", network: "MTN", volume_gb: 2, total_price: 10, order_status: status, payment_status: payment, external_order_id: null, created_at: "2026-11-05T00:00:00Z" }],
+    wallet_payments: [{ order_id: "s1", reference: "WALLET-L", amount: 10.3, fee: 0.3, status: wpStatus }],
+    user_shops: [{ id: "shopA", shop_name: "Alpha", user_id: "uA" }],
+  })
+  it("an expired order with a completed payment is late-paid, and refunds through that payment", async () => {
+    const [o] = await loadRefundableOrders(fakeDb(rows("expired", "expired", "completed")), [{ table: "shop_orders", id: "s1" }])
+    expect(o.evidence.latePaid).toBe(true)
+    expect(o.paid).toBe(10.3)
+    expect(o.payment).toMatchObject({ gateway: "paystack", reference: "WALLET-L" })
+  })
+  it("no completed payment, or an order that recorded its payment, is not", async () => {
+    for (const r of [rows("expired", "expired", "pending"), rows("failed", "completed", "completed"), rows("pending", "completed", "completed")]) {
+      const [o] = await loadRefundableOrders(fakeDb(r), [{ table: "shop_orders", id: "s1" }])
+      expect(o.evidence.latePaid).toBe(false)
+    }
+  })
+  it("the pending list also asks for late-paid rows, scoped to the shop", async () => {
+    const calls: unknown[][] = []
+    const rpc = vi.fn(async () => ({ data: ["s9"], error: null }))
+    const db = { ...fakeDb({ ...EMPTY, shop_orders: [] }, calls), rpc }
+    await listPendingOrderRefs(db, { table: "shop_orders", shopId: "shopA", pageSize: 10, page: 1 })
+    expect(rpc).toHaveBeenCalledWith("late_paid_shop_order_ids", { p_shop_id: "shopA" })
+    expect(calls).toContainEqual(["shop_orders", "in", "id", ["s9"]])
+  })
+  it("a list RPC not applied yet leaves the list as it was", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const db = { ...fakeDb({ ...EMPTY, shop_orders: [{ id: "s2", created_at: "2026-11-05T00:00:00Z" }] }), rpc: async () => ({ data: null, error: { message: "not found" } }) }
+    expect((await listPendingOrderRefs(db, { table: "shop_orders", pageSize: 10, page: 1 })).map((r) => r.id)).toEqual(["s2"])
+    err.mockRestore()
+  })
+})

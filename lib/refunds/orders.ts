@@ -5,6 +5,7 @@ import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { findHubtelAttempts, isLiveHubtelStatus, type HubtelAttemptRow } from "@/lib/hubtel-pay/lookup"
+import { isLatePaidShopOrder } from "@/lib/payments/closed-order"
 
 /** A stored phone as 0XXXXXXXXX when it is a Ghana number (USSD rows store +233XXXXXXXXX), else as stored. */
 export function displayPhone(v: unknown): string | null {
@@ -594,6 +595,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
         dispatchAttempts: claim ? Number(claim.attempts ?? 0) : null,
         trackingStatuses,
         externalOrderId: (r.external_order_id as string | null | undefined) != null ? String(r.external_order_id) : null,
+        ...(table === "shop_orders" ? { latePaid: isLatePaidShopOrder(r, walletPayments.some((w) => w.order_id === id && w.status === "completed")) } : {}),
       },
     })
   }
@@ -628,6 +630,21 @@ function commissionPendingQueries(db: SupabaseClient, table: CommissionTable): a
   ]
 }
 
+/**
+ * Shop orders closed before their payment landed (migration 0154). The list stays usable without them: until 0154 is
+ * applied, or if this read fails, they are left out (the admin alert still names the order).
+ */
+async function latePaidShopOrderIds(db: SupabaseClient, shopId?: string): Promise<string[]> {
+  try {
+    const { data, error } = await db.rpc("late_paid_shop_order_ids", { p_shop_id: shopId ?? null })
+    if (error) throw new Error(error.message)
+    return (data ?? []) as string[]
+  } catch (e) {
+    console.error("[REFUND] late-paid list unavailable:", e instanceof Error ? e.message : "unknown error")
+    return []
+  }
+}
+
 /** Newest-first merged page of paid+pending orders. Each table's top (page*pageSize) rows contain the global top. */
 export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuery): Promise<{ table: OrderTable; id: string; createdAt: string }[]> {
   const tables = (opts.table ? [opts.table] : (Object.keys(SELECT) as OrderTable[])).filter((t) => !(opts.shopId && (t === "ussd_orders" || isWalletOnlyTable(t)))) // these have no shop_id: never return them unscoped
@@ -639,6 +656,10 @@ export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuer
       : isCommissionTable(table)
         ? commissionPendingQueries(db, table)
         : [db.from(table).select("id, created_at").eq("order_status", "pending").eq("payment_status", "completed")]
+    if (table === "shop_orders") {
+      const late = await latePaidShopOrderIds(db, opts.shopId)
+      if (late.length > 0) queries.push(db.from(table).select("id, created_at").in("id", late))
+    }
     for (let q of queries) {
       if (opts.shopId) q = q.eq("shop_id", opts.shopId)
       if (opts.q) {

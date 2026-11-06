@@ -16,6 +16,8 @@ export interface EligibilityInput {
   hubtelCollection?: boolean
   /** Folded status of the order's live Hubtel attempts (see HubtelAttemptFacts). Anything but "paid" is refused. */
   hubtelAttemptStatus?: string
+  /** shop_orders: closed before its payment landed, with a completed wallet payment proving the money (migration 0154). */
+  latePaid?: boolean
   /** Clock (ms epoch) for the never-sent grace / stuck-claim ages. Defaults to Date.now(). */
   now?: number
 }
@@ -38,7 +40,7 @@ export function orderEligibility(o: RefundableOrder, now: number = Date.now()): 
     table: o.table, orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: o.evidence.hasActiveRefund,
     dispatchOutcome: o.evidence.dispatchOutcome, trackingStatuses: o.evidence.trackingStatuses,
     externalOrderId: o.evidence.externalOrderId, commission: o.evidence.commission, hubtelCollection: o.payment.hubtelCollection,
-    hubtelAttemptStatus: o.payment.hubtelAttempt?.status, now,
+    hubtelAttemptStatus: o.payment.hubtelAttempt?.status, latePaid: o.evidence.latePaid, now,
   })
 }
 
@@ -131,7 +133,8 @@ export function evaluateEligibility(i: EligibilityInput): Eligibility {
     return no("HUBTEL_COLLECTION", "This order was paid through Hubtel and the payment is not confirmed as paid yet (still in progress or under review). Wait for it to settle first; Paystack never held this money.")
   }
   if (i.table && isCommissionTable(i.table)) return commissionEligibility(i.table, i)
-  if (!refundableStatuses(i.table ?? "shop_orders").includes(i.orderStatus) || i.paymentStatus !== "completed") return no("NOT_PENDING", "Order is not a paid, pending order")
+  const latePaid = i.latePaid === true && i.table === "shop_orders" // mirrors reserve_order_refund (0154)
+  if (!latePaid && (!refundableStatuses(i.table ?? "shop_orders").includes(i.orderStatus) || i.paymentStatus !== "completed")) return no("NOT_PENDING", "Order is not a paid, pending order")
   if (i.hasActiveRefund) return no("ALREADY_REFUNDED", "A refund already exists for this order")
   if (i.dispatchOutcome === "claimed") return no("DISPATCH_IN_PROGRESS", "Being sent to a provider right now")
   if (i.dispatchOutcome === "unknown") return no("DISPATCH_UNKNOWN", "A provider call ended with an unknown result — investigate before refunding")
