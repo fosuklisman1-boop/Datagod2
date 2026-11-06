@@ -58,7 +58,7 @@ const PAY_URL_MAX = 500
 /** Refund payouts (/send): the only callback path the relay will hand to Hubtel. */
 const SEND_CALLBACK_PATH = "/api/webhooks/hubtel-send"
 /** Fixed text: no surface or product word ever goes into a payout. */
-const SEND_DESCRIPTION = "Refund"
+const SEND_DESCRIPTION = "Clingshub" // Owner rule 2026-11-06: what the customer sees on a payout.
 
 /**
  * Error codes that mean the request never left the relay: name resolution, TCP connect and

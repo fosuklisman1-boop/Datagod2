@@ -58,7 +58,7 @@ describe("relay /send", () => {
     expect(init.redirect).toBe("error")
     expect(JSON.parse(init.body)).toEqual({
       RecipientName: "233241234567", RecipientMsisdn: "233241234567", Channel: "mtn-gh", Amount: 12.5,
-      PrimaryCallbackURL: CB, Description: "Refund", ClientReference: REF,
+      PrimaryCallbackURL: CB, Description: "Clingshub", ClientReference: REF,
     })
     expect(out.status).toBe(200)
     expect(out.body).toEqual({ ok: true, upstreamStatus: 200, body: { ResponseCode: "0001" }, sent: true })
