@@ -200,7 +200,7 @@ BEGIN
   ASSERT pg_temp.avail(v_shop) = 990, 'clawback stays after complete + late fail';
 
   -- (10b) settle RPCs report the resulting status
-  ASSERT complete_order_refund(v_rid, 'AGAIN') = 'completed', 'repeat complete returns completed';
+  ASSERT complete_order_refund(v_rid, 'AGAIN') = 'already_completed', 'repeat complete returns already_completed (0155)';
   ASSERT fail_order_refund(v_rid, 'late fail 2') = 'completed', 'fail on completed returns completed';
   ASSERT pg_temp.avail(v_shop) = 990, 'fail on completed did not restore balances';
 
