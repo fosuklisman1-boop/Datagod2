@@ -4,7 +4,7 @@ import { loadPayerPhones } from "./payer-phone"
 import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
-import { findHubtelAttempts, isLiveHubtelStatus, type HubtelAttemptRow } from "@/lib/hubtel-pay/lookup"
+import { findHubtelAttempts, isLiveHubtelStatus, isManuallyRefundedPayment, type HubtelAttemptRow } from "@/lib/hubtel-pay/lookup"
 import { isLatePaidShopOrder } from "@/lib/payments/closed-order"
 
 /** A stored phone as 0XXXXXXXXX when it is a Ghana number (USSD rows store +233XXXXXXXXX), else as stored. */
@@ -244,6 +244,19 @@ async function markHubtelCollections(db: SupabaseClient, orders: RefundableOrder
   })
 }
 
+/**
+ * Drops completed wallet rows whose money an admin already returned outside the app. A second payment on a closed order
+ * completes its own row before it parks, and the refund must go through the payment still held, whichever row comes first.
+ * Only an order with two or more completed rows can have one. A failed lookup throws, like markHubtelCollections.
+ */
+async function withoutHandRefundedPayments(db: SupabaseClient, walletPayments: any[]): Promise<any[]> {
+  const completed = walletPayments.filter((w) => w.status === "completed")
+  const refs = completed.filter((w) => completed.some((x) => x !== w && x.order_id === w.order_id)).map((w) => w.reference as string)
+  if (refs.length === 0) return walletPayments
+  const attempts = await findHubtelAttempts(db, refs)
+  return walletPayments.filter((w) => !(w.status === "completed" && isManuallyRefundedPayment(attempts.get(w.reference) ?? [])))
+}
+
 /** Per-shop credited/pending profit for one order, with each owner's balances (pesewa-exact sums). */
 function ownersOf(
   orderProfits: any[], shopById: Map<string, any>, balanceByShop: Map<string, number>, walletByUser: Map<string, number>,
@@ -431,7 +444,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
   const walletOnly = isWalletOnlyTable(table)
   const fk = PROFIT_FK[table]
 
-  const [profits, tracking, claims, refunds, walletDebits, walletPayments, fulfillmentLogs, paidHubtelTx] = await Promise.all([
+  const [profits, tracking, claims, refunds, walletDebits, allWalletPayments, fulfillmentLogs, paidHubtelTx] = await Promise.all([
     fk ? inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${fk}`, fk, ids, (q) => q.is("refund_id", null)) : Promise.resolve([] as any[]),
     inRows<any>(db, "mtn_fulfillment_tracking", `status, ${TRACKING_COL[table]}`, TRACKING_COL[table], ids),
     inRows<any>(db, "order_dispatch_claims", "order_id, last_outcome, attempts", "order_id", ids),
@@ -444,6 +457,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
     // Hubtel USSD checkout payments: any row of these tables may have been paid through Hubtel (no bot_surface here).
     HUBTEL_CHECKOUT_TABLES.has(table) ? loadPaidHubtelTx(db, table, ids) : Promise.resolve([] as any[]),
   ])
+  const walletPayments = await withoutHandRefundedPayments(db, allWalletPayments)
 
   const shopIds = [...new Set([
     ...profits.map((p) => p.shop_id as string),

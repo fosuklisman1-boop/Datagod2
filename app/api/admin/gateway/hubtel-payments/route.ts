@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { defaultReviewDeps, fulfilPayment, listReview, markPaymentFailed, recheckPayment } from "@/lib/hubtel-pay/review"
+import { defaultReviewDeps, fulfilPayment, listReview, markPaymentFailed, markRefundedManually, recheckPayment, type ActionResult, type ReviewDeps } from "@/lib/hubtel-pay/review"
 
 // Fulfil awaits a relay status check and the shared charge handler.
 export const maxDuration = 60
@@ -19,16 +19,24 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const ACTIONS = { recheck: recheckPayment, fulfil: fulfilPayment, mark_failed: markPaymentFailed } as const
+interface ActionBody { action?: unknown; reference?: unknown; admin_reference?: unknown; note?: unknown }
+type Action = (deps: ReviewDeps, reference: string, adminId: string, body: ActionBody) => Promise<ActionResult>
 
-/** POST { action: "recheck" | "fulfil" | "mark_failed", reference } */
+const ACTIONS: Record<"recheck" | "fulfil" | "mark_failed" | "refunded_manually", Action> = {
+  recheck: recheckPayment,
+  fulfil: fulfilPayment,
+  mark_failed: markPaymentFailed,
+  refunded_manually: (deps, reference, adminId, body) => markRefundedManually(deps, reference, adminId, { adminReference: body.admin_reference, note: body.note }),
+}
+
+/** POST { action: "recheck" | "fulfil" | "mark_failed", reference } or { action: "refunded_manually", reference, admin_reference, note } */
 export async function POST(request: NextRequest) {
   const { isAdmin, userId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
   // Every action is logged with the admin's id, so a request without one (the cron secret) can't act on money.
   if (!userId) return NextResponse.json({ error: "An admin account is required" }, { status: 403 })
 
-  let body: { action?: unknown; reference?: unknown }
+  let body: ActionBody
   try {
     body = await request.json()
   } catch {
@@ -38,8 +46,8 @@ export async function POST(request: NextRequest) {
   if (!action || typeof body.reference !== "string") return NextResponse.json({ error: "Unknown action" }, { status: 400 })
 
   try {
-    const result = await ACTIONS[action](await defaultReviewDeps(supabaseAdmin), body.reference, userId)
-    // Best effort audit row; never blocks the answer.
+    const result = await ACTIONS[action](await defaultReviewDeps(supabaseAdmin), body.reference, userId, body)
+    // Best effort audit row; never blocks the answer. Holds the opaque reference only, never what the admin typed.
     supabaseAdmin.from("admin_audit_log").insert([{
       admin_id: userId, action: `hubtel_payment_${action}`, target_user_id: null,
       old_value: { reference: body.reference }, new_value: { ok: result.ok, message: result.message.slice(0, 200) },

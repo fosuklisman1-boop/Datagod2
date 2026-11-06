@@ -8,19 +8,29 @@
 //             the taker goes on. Refused unless a fresh status check says Paid, by mobile money/wallet, and Hubtel's own
 //             figures show we received at least what we requested (the status-check amount INCLUDES Hubtel's charge,
 //             which sits on top for the customer, so amount - charges is what reaches us). Also refused when another
-//             attempt for the order is already paid (the customer paid twice: deliver once, refund the other).
+//             attempt for the order is already paid, or anything else shows this is a second payment (the customer paid
+//             twice: deliver once, and the admin pays the other back, see markRefundedManually).
 //   markFailed closes the Hubtel row only, after a fresh check that does not say Paid. The order is left alone: a
 //             missing payment record is not proof of no payment, and the order's own tools decide its fate. The sweep
 //             still re-checks a failed row for 72h, so a late payment comes back here.
+//   markRefundedManually records that an admin paid a second payment back outside the app. It moves no money. Only a
+//             needs_review row, only after a fresh check says Paid, and only when classifySecondPayment says something
+//             else paid for the order: never a way out for an order's only payment. Terminal: nothing re-checks, claims or
+//             fulfils the row, and the refund fold ignores it, so the first payment becomes refundable again.
 //
-// Every action is logged with the admin id and the opaque reference only (no phone numbers).
+// Every action is logged with the admin id and the opaque reference only (no phone numbers, nothing the admin typed).
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { ChargeEventData } from "@/lib/payments/charge-events"
+import { CLOSED_SHOP_ORDER_STATUSES } from "@/lib/payments/closed-order"
+import { isStorefrontOrderType } from "@/lib/storefront-commission/payment"
 import { checkPaymentStatus, type PaymentStatus } from "./client"
 import { isAllowedPaymentMethod, reportsLatePayment, reportsOrderClosed, type HubtelPaymentStatus } from "./confirm"
+import { findHubtelAttempts, isManuallyRefundedPayment } from "./lookup"
 
 export const STALE_CONFIRMING_MS = 10 * 60_000
 const REF_RE = /^[0-9a-f]{32}$/
+/** The admin's words for the way out, in every message that sends them to it. Matches the button. */
+const MANUAL_EXIT = 'pay it back by hand, then use "Refunded outside the app"'
 
 export interface ReviewRow {
   reference: string
@@ -54,6 +64,18 @@ export interface CheckSummary {
   paymentMethod: string | null
 }
 
+/** What the shop order behind one payment says about who paid for it. */
+export interface OrderPaymentFacts {
+  orderStatus: string | null
+  paymentStatus: string | null
+  /** This payment's own wallet_payments row is completed. */
+  ownPaymentCompleted: boolean
+  /** Another wallet_payments row on the order is completed and its money wasn't already returned by hand. */
+  otherPaymentCompleted: boolean
+  /** order_refunds has a completed refund for this order. */
+  refundCompleted: boolean
+}
+
 export interface ReviewStore {
   listOpen(now: Date): Promise<ReviewRow[]>
   load(reference: string): Promise<ReviewRow | null>
@@ -66,11 +88,17 @@ export interface ReviewStore {
   /** Guarded update; returns whether a row changed. Throws on a database error. */
   update(reference: string, patch: Record<string, unknown>, guard: { status: HubtelPaymentStatus[]; claimedAt?: string }): Promise<boolean>
   hasPaidSibling(internalReference: string, exceptReference: string): Promise<boolean>
+  /**
+   * The I4 read from charge-events.ts, without calling the handler. Null when this payment is not on a shop order: the
+   * handler's guard doesn't apply to those either, and only a paid sibling can show a second payment. Throws on a
+   * database error.
+   */
+  orderPaymentFacts(paymentReference: string, metadata: unknown): Promise<OrderPaymentFacts | null>
 }
 
 export interface ReviewDeps {
   store: ReviewStore
-  /** Closes a pending Hubtel wallet row after Mark failed, unless another attempt for it may hold money. */
+  /** Closes a pending Hubtel wallet row after Mark failed or a manual refund, unless another attempt for it may hold money. */
   closeWalletPayment?: (internalReference: string) => Promise<void>
   checkStatus: (reference: string) => Promise<PaymentStatus>
   onChargeSuccess: (data: ChargeEventData) => Promise<Response | null>
@@ -160,6 +188,40 @@ export function fulfilRefusal(row: Pick<ReviewRow, "amount_pesewas">, s: Payment
   return null
 }
 
+/**
+ * second          something other than this payment paid for the order, so this money is extra.
+ * not_second      nothing shows another payment: this may be the order's only one.
+ * refund_running  a refund is in flight on the order. Decide after it ends.
+ * unclear         the order was refunded and nothing shows this money is separate from what was refunded.
+ */
+export type SecondPaymentVerdict = "second" | "not_second" | "refund_running" | "unclear"
+
+export function classifySecondPayment({ paidSibling, order }: { paidSibling: boolean; order: OrderPaymentFacts | null }): SecondPaymentVerdict {
+  if (order?.orderStatus === "refunding") return "refund_running"
+  // Two opaque references, both Paid: two separate payments, on any kind of order.
+  if (paidSibling) return "second"
+  if (!order) return "not_second"
+  // charge-events.ts completes the wallet row before it flips the order, so a completed order over an open row was paid by
+  // something else (say the buyer's wallet, which has no wallet_payments row).
+  const paidElsewhere = order.paymentStatus === "completed" && !order.ownPaymentCompleted
+  if (order.orderStatus === "refunded") {
+    if (!order.refundCompleted) return "unclear"
+    return order.otherPaymentCompleted || paidElsewhere ? "second" : "unclear"
+  }
+  if (order.paymentStatus === "completed") return order.otherPaymentCompleted || paidElsewhere ? "second" : "not_second"
+  // A closed order never records a late payment, so the other late payment is what shows this one is extra.
+  return order.otherPaymentCompleted && CLOSED_SHOP_ORDER_STATUSES.includes(String(order.orderStatus)) ? "second" : "not_second"
+}
+
+async function readSecondPayment(deps: ReviewDeps, row: ReviewRow): Promise<SecondPaymentVerdict> {
+  const paidSibling = !!row.internal_reference && (await deps.store.hasPaidSibling(row.internal_reference, row.reference))
+  const order = await deps.store.orderPaymentFacts(row.internal_reference ?? row.reference, row.metadata)
+  return classifySecondPayment({ paidSibling, order })
+}
+
+const REFUND_RUNNING_MESSAGE = "A refund is running on this order. Wait for it to finish, then try again."
+const UNCLEAR_MESSAGE = "The order was refunded, and its records can't show this payment is separate from the one refunded. Check it by hand with Hubtel."
+
 export async function fulfilPayment(deps: ReviewDeps, reference: string, adminId: string): Promise<ActionResult> {
   const row = await loadActionable(deps, reference)
   if (isResult(row)) return row
@@ -170,9 +232,15 @@ export async function fulfilPayment(deps: ReviewDeps, reference: string, adminId
     deps.log("fulfil_refused", { adminId, reference, kind: check.kind })
     return { ok: false, status: 409, message: refusal, check }
   }
-  if (row.internal_reference && (await deps.store.hasPaidSibling(row.internal_reference, reference))) {
-    deps.log("fulfil_refused", { adminId, reference, kind: "paid_sibling" })
-    return { ok: false, status: 409, message: "Another payment for this order is already paid: the customer paid twice. Not fulfilled; refund this one.", check }
+  // Refused before the handler, because on a closed order it would answer "late payment" and this row would be recorded
+  // paid: /admin/refunds returns one payment per order, so a second one recorded paid would have no way out.
+  const verdict = await readSecondPayment(deps, row)
+  if (verdict !== "not_second") {
+    deps.log("fulfil_refused", { adminId, reference, kind: verdict })
+    const message = verdict === "second"
+      ? `Another payment for this order is already paid: the customer paid twice. Not fulfilled; ${MANUAL_EXIT}.`
+      : `${verdict === "refund_running" ? REFUND_RUNNING_MESSAGE : UNCLEAR_MESSAGE} Not fulfilled.`
+    return { ok: false, status: 409, message, check }
   }
 
   const claimedAt = await deps.store.take(row)
@@ -227,7 +295,7 @@ export async function fulfilPayment(deps: ReviewDeps, reference: string, adminId
   if (await reportsOrderClosed(res)) {
     deps.log("fulfil_order_closed", { adminId, reference })
     await backToReview().catch(() => false)
-    return { ok: false, status: 409, message: "The order was already closed, so nothing was delivered. The payment is back in review; refund it.", check }
+    return { ok: false, status: 409, message: `The order was already closed, so nothing was delivered. The payment is back in review. If another payment settled the order, ${MANUAL_EXIT}.`, check }
   }
   let marked = false
   try {
@@ -251,7 +319,7 @@ export async function markPaymentFailed(deps: ReviewDeps, reference: string, adm
   const check = summarizeCheck(status)
   if (status.kind === "paid") {
     deps.log("mark_failed_refused", { adminId, reference, kind: "paid" })
-    return { ok: false, status: 409, message: "Hubtel says this payment is Paid: money is held. Fulfil it or refund it; it cannot be marked failed.", check }
+    return { ok: false, status: 409, message: `Hubtel says this payment is Paid: money is held, so it cannot be marked failed. Fulfil it, or if it is a second payment, ${MANUAL_EXIT}.`, check }
   }
   if (status.kind === "error") {
     deps.log("mark_failed_refused", { adminId, reference, kind: "error" })
@@ -272,6 +340,78 @@ export async function markPaymentFailed(deps: ReviewDeps, reference: string, adm
   }
   return { ok: true, message: "Marked failed. The order itself was not changed.", check }
 }
+
+const ADMIN_REFERENCE_MIN = 4
+const ADMIN_REFERENCE_MAX = 100
+const NOTE_MIN = 3
+const NOTE_MAX = 500
+const ANY_CONTROL_CHAR = /[\u0000-\u001f\u007f]/
+/** A note may run over several lines. */
+const NOTE_CONTROL_CHAR = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/
+
+/** What the admin typed, trimmed, or the reason it can't be stored. The reason never repeats their words. */
+function readManualRefundForm(form: { adminReference: unknown; note: unknown }): { adminReference: string; note: string } | string {
+  if (typeof form?.adminReference !== "string" || typeof form?.note !== "string") return "Enter the MoMo or Hubtel reference and a note."
+  const adminReference = form.adminReference.trim()
+  const note = form.note.trim()
+  if (adminReference.length < ADMIN_REFERENCE_MIN || adminReference.length > ADMIN_REFERENCE_MAX || ANY_CONTROL_CHAR.test(adminReference)) {
+    return `The MoMo or Hubtel reference must be ${ADMIN_REFERENCE_MIN} to ${ADMIN_REFERENCE_MAX} characters on one line.`
+  }
+  if (note.length < NOTE_MIN || note.length > NOTE_MAX || NOTE_CONTROL_CHAR.test(note)) return `The note must be ${NOTE_MIN} to ${NOTE_MAX} characters.`
+  return { adminReference, note }
+}
+
+export async function markRefundedManually(
+  deps: ReviewDeps, reference: string, adminId: string, form: { adminReference: unknown; note: unknown },
+): Promise<ActionResult> {
+  if (typeof reference !== "string" || !REF_RE.test(reference)) return { ok: false, status: 400, message: "Invalid reference" }
+  const row = await deps.store.load(reference)
+  if (!row) return { ok: false, status: 404, message: "Payment not found" }
+  // Not a stale confirming row: its handler may have run, and Fulfil is what settles that.
+  if (row.status !== "needs_review") return { ok: false, status: 409, message: `This payment is ${row.status} and is not waiting for review.` }
+  const typed = readManualRefundForm(form)
+  if (typeof typed === "string") return { ok: false, status: 400, message: typed }
+
+  const status = await deps.checkStatus(reference)
+  const check = summarizeCheck(status)
+  if (status.kind !== "paid") {
+    deps.log("refunded_manually_refused", { adminId, reference, kind: check.kind })
+    return status.kind === "error"
+      ? { ok: false, status: 502, message: "The status check failed, so this can't be recorded yet. Try again.", check }
+      : { ok: false, status: 409, message: `Hubtel does not say Paid (it says ${check.kind}), so there is nothing to have refunded. Not recorded.`, check }
+  }
+
+  const verdict = await readSecondPayment(deps, row)
+  if (verdict !== "second") {
+    deps.log("refunded_manually_refused", { adminId, reference, kind: verdict })
+    const message = verdict === "refund_running" ? `${REFUND_RUNNING_MESSAGE} Not recorded.`
+      : verdict === "unclear" ? `${UNCLEAR_MESSAGE} Not recorded.`
+      : "Nothing else shows as paid for this order, so this may be its only payment. Not recorded; this action is only for a second payment. Use Fulfil."
+    return { ok: false, status: 409, message, check }
+  }
+
+  const at = deps.now().toISOString()
+  // The one write, guarded on status: of two clicks, or a click and a Fulfil, only one gets past here.
+  const wrote = await deps.store.update(reference, {
+    status: "refunded_manually",
+    manual_refund: { admin_reference: typed.adminReference, note: typed.note, admin_id: adminId, recorded_at: at },
+    last_check: status.raw, updated_at: at,
+    hubtel_transaction_id: status.transactionId ?? null, charges_pesewas: status.chargesPesewas ?? null, payment_method: status.paymentMethod ?? null,
+  }, { status: ["needs_review"] })
+  deps.log("refunded_manually", { adminId, reference, wrote })
+  if (!wrote) return { ok: false, status: 409, message: "The payment changed while you were looking. Refresh the list.", check }
+  // This payment's wallet row, if still open. Best effort: the row is already closed.
+  try {
+    await deps.closeWalletPayment?.(row.internal_reference ?? row.reference)
+  } catch (e) {
+    deps.log("refunded_manually_wallet_row_left_open", { adminId, reference, error: e instanceof Error ? e.name : "unknown" })
+  }
+  return { ok: true, message: "Recorded as refunded outside the app. No money moved and the order was not changed.", check }
+}
+
+/** wallet_payments.order_type values whose order_id is not a shop order, as in charge-events.ts. */
+const NOT_SHOP_ORDER_TYPES = new Set(["dealer_upgrade", "airtime", "results_checker", "results_check_service", "ussd_shop_activation", "ussd_shop_token"])
+const NOT_SHOP_METADATA_ORDER_TYPES = new Set(["airtime", "results_checker", "results_check_service"])
 
 export const REVIEW_COLUMNS = "reference, internal_reference, surface, amount_pesewas, handler_amount_pesewas, metadata, status, last_check, created_at, claimed_at"
 
@@ -316,6 +456,36 @@ export function supabaseReviewStore(sb: SupabaseClient): ReviewStore {
         .eq("internal_reference", internalReference).neq("reference", exceptReference).eq("status", "paid").limit(1)
       if (error) throw new Error(`hubtel_payments paid-sibling check failed: ${error.message}`)
       return (data?.length ?? 0) > 0
+    },
+    async orderPaymentFacts(paymentReference, metadata) {
+      const { data: own, error: ownError } = await sb.from("wallet_payments").select("status, order_id, order_type").eq("reference", paymentReference).maybeSingle()
+      if (ownError) throw new Error(`wallet payment read failed: ${ownError.message}`)
+      const meta = (metadata && typeof metadata === "object" ? metadata : {}) as { type?: unknown; orderType?: unknown }
+      const orderType = own?.order_type as unknown
+      if (!own?.order_id || NOT_SHOP_ORDER_TYPES.has(String(orderType)) || isStorefrontOrderType(orderType)) return null
+      if (meta.type === "dealer_upgrade" || NOT_SHOP_METADATA_ORDER_TYPES.has(String(meta.orderType))) return null
+
+      const { data: order, error: orderError } = await sb.from("shop_orders").select("order_status, payment_status").eq("id", own.order_id).maybeSingle()
+      if (orderError) throw new Error(`shop order read failed: ${orderError.message}`)
+      if (!order) return null
+
+      const { data: others, error: othersError } = await sb.from("wallet_payments").select("reference")
+        .eq("order_id", own.order_id).eq("status", "completed").neq("reference", paymentReference).limit(50)
+      if (othersError) throw new Error(`wallet payment read failed: ${othersError.message}`)
+      const otherRefs = (others ?? []).map((o) => o.reference as string)
+      const attempts = await findHubtelAttempts(sb, otherRefs)
+
+      const { data: refunds, error: refundError } = await sb.from("order_refunds").select("id")
+        .eq("order_table", "shop_orders").eq("order_id", own.order_id).eq("status", "completed").limit(1)
+      if (refundError) throw new Error(`order refund read failed: ${refundError.message}`)
+
+      return {
+        orderStatus: (order.order_status as string | null) ?? null,
+        paymentStatus: (order.payment_status as string | null) ?? null,
+        ownPaymentCompleted: own.status === "completed",
+        otherPaymentCompleted: otherRefs.some((r) => !isManuallyRefundedPayment(attempts.get(r) ?? [])),
+        refundCompleted: (refunds?.length ?? 0) > 0,
+      }
     },
   }
 }

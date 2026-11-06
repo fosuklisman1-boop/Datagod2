@@ -49,6 +49,15 @@ describe("closeRefusedHubtelWalletPayment", () => {
     expect(updates).toHaveLength(0)
   })
 
+  it("a payment returned by hand holds no money: its open wallet row closes, unless another attempt on it is paid", async () => {
+    const alone = fakeDb({ attempts: [attempt("refunded_manually")] })
+    expect(await closeRefusedHubtelWalletPayment(alone.db, "WALLET-1")).toBe("closed")
+    expect(alone.updates).toHaveLength(1)
+    const withPaid = fakeDb({ attempts: [{ ...attempt("refunded_manually"), reference: "b".repeat(32) }, attempt("paid")] })
+    expect(await closeRefusedHubtelWalletPayment(withPaid.db, "WALLET-1")).toBe("left_open")
+    expect(withPaid.updates).toHaveLength(0)
+  })
+
   it("the attempt lookup fails: left open, never throws", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     const { db, updates } = fakeDb({ lookupError: true })

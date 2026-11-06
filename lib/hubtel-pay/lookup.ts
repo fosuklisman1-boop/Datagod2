@@ -31,18 +31,30 @@ export function isHubtelWalletPayment(
   return payment.payment_method === "hubtel" || isLiveHubtelStatus(hubtelRow?.status)
 }
 
+/**
+ * A wallet row can stay `completed` after its money went back by hand: nothing ever reopens a completed row. These are its
+ * attempts: true when one was refunded outside the app and none still holds or may hold money.
+ */
+export function isManuallyRefundedPayment(attempts: readonly Pick<HubtelPaymentRef, "status">[]): boolean {
+  return attempts.some((a) => a.status === "refunded_manually") && !attempts.some((a) => isLiveHubtelStatus(a.status))
+}
+
 /** How the verifier routes report a Hubtel row, in their Paystack-shaped `status` fields. */
 export function hubtelReportStatus(status: HubtelPaymentStatus): "success" | "failed" | "pending" | "needs_review" {
   if (status === "paid") return "success"
-  if (status === "failed") return "failed"
+  // Closed for good and not applied to anything: never "pending", which would keep a verifier waiting on it.
+  if (status === "failed" || status === "refunded_manually") return "failed"
   if (status === "needs_review") return "needs_review"
   return "pending"
 }
 
 const COLUMNS = "reference, internal_reference, status, amount_pesewas, created_at"
 const CHUNK = 200
-/** Higher wins when one internal reference has several attempts: money first, then open, then closed. */
-const RANK: Record<string, number> = { paid: 4, needs_review: 3, confirming: 2, pending: 2, failed: 1 }
+/**
+ * Higher wins when one internal reference has several attempts: money first, then open, then closed. refunded_manually is
+ * lowest: the money went back and it can't change, while a failed row can still receive a late payment.
+ */
+const RANK: Record<string, number> = { paid: 4, needs_review: 3, confirming: 2, pending: 2, failed: 1, refunded_manually: 0 }
 
 /** The table does not exist yet (migration 0151 unapplied): no Hubtel payment can exist. */
 const isMissingTable = (e: { code?: string } | null | undefined) => e?.code === "42P01" || e?.code === "PGRST205"

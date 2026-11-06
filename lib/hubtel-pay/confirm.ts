@@ -19,7 +19,8 @@ import { checkPaymentStatus, type PaymentStatus } from "./client"
  * also counts it towards its hourly failure alert.
  */
 export type ConfirmOutcome = "fulfilled" | "failed" | "pending" | "check_error" | "needs_review" | "ignored"
-export type HubtelPaymentStatus = "pending" | "confirming" | "paid" | "failed" | "needs_review"
+/** refunded_manually is terminal: an admin returned this payment outside the app (review.ts). Nothing reads it as money held. */
+export type HubtelPaymentStatus = "pending" | "confirming" | "paid" | "failed" | "needs_review" | "refunded_manually"
 
 export interface HubtelPaymentRow {
   reference: string

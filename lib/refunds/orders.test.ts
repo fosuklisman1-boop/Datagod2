@@ -1,4 +1,5 @@
 import { loadRefundableOrders, listPendingOrderRefs, resolveWalletUser } from "./orders"
+import { evaluateEligibility } from "./eligibility"
 
 type Rows = Record<string, unknown[]>
 
@@ -673,6 +674,57 @@ describe("orders paid through Hubtel collections", () => {
       const o = await load([])
       expect(o.payment.hubtelAttempt).toBeUndefined()
       expect(o.payment.hubtelCollection).toBeUndefined()
+    })
+  })
+
+  describe("a second payment recorded as refunded outside the app", () => {
+    const attempt = (reference: string, internal_reference: string, status: string, msisdn = "233245550101") => ({
+      reference, internal_reference, status, amount_pesewas: 1000, handler_amount_pesewas: null,
+      msisdn, channel: "mtn-gh", payment_method: "mobilemoney", created_at: "2026-11-05T00:00:00Z",
+    })
+    const load = async (rows: unknown[], wallet: unknown[] = [walletRow], order: unknown = shopOrder) => {
+      const db = fakeDb({ ...EMPTY, shop_orders: [order], wallet_payments: wallet, hubtel_payments: rows })
+      return (await loadRefundableOrders(db, [{ table: "shop_orders", id: "s1" }]))[0]
+    }
+
+    it("while it is parked the first payment can't be refunded; once recorded the fold ignores it and the first is refundable again", async () => {
+      const first = attempt("a".repeat(32), "WALLET-1", "paid")
+      const parked = await load([first, attempt("b".repeat(32), "WALLET-1", "needs_review", "233245550177")])
+      expect(parked.payment.hubtelAttempt?.status).toBe("needs_review")
+      const eligibility = (o: Awaited<ReturnType<typeof load>>) => evaluateEligibility({
+        orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, hasActiveRefund: false, dispatchOutcome: null, trackingStatuses: [], externalOrderId: null,
+        hubtelCollection: o.payment.hubtelCollection, hubtelAttemptStatus: o.payment.hubtelAttempt?.status,
+      })
+      expect(eligibility(parked)).toMatchObject({ eligible: false, code: "HUBTEL_COLLECTION" })
+
+      const recorded = await load([first, attempt("b".repeat(32), "WALLET-1", "refunded_manually", "233245550177")])
+      expect(recorded.payment.hubtelAttempt).toMatchObject({ status: "paid", paidAttempts: 1, msisdn: "233245550101" })
+      expect(recorded.payment.payerPhone).toBe("0245550101") // the first payer, never the second
+      expect(eligibility(recorded)).toMatchObject({ eligible: true })
+    })
+
+    it("on its own it counts as no attempt at all", async () => {
+      const o = await load([attempt("b".repeat(32), "WALLET-1", "refunded_manually")])
+      expect(o.payment.hubtelCollection).toBeUndefined()
+    })
+
+    it("two completed wallet rows on a closed order: the refund goes through the one still holding money, whichever row comes first", async () => {
+      const closed = { ...shopOrder, order_status: "expired", payment_status: "expired" }
+      const second = { ...walletRow, reference: "WALLET-2", amount: 77 }
+      const rows = [attempt("a".repeat(32), "WALLET-1", "paid"), attempt("b".repeat(32), "WALLET-2", "refunded_manually", "233245550177")]
+      for (const wallet of [[second, walletRow], [walletRow, second]]) {
+        const o = await load(rows, wallet, closed)
+        expect(o.paid).toBe(Number((walletRow as { amount: number }).amount))
+        expect(o.payment.hubtelAttempt).toMatchObject({ status: "paid", paidAttempts: 1, msisdn: "233245550101" })
+        expect(o.evidence.latePaid).toBe(true)
+      }
+    })
+
+    it("a parked payment's wallet row is not hidden: only a hand-refunded one is", async () => {
+      const second = { ...walletRow, reference: "WALLET-2", amount: 77 }
+      const o = await load([attempt("b".repeat(32), "WALLET-2", "needs_review")], [second, walletRow])
+      expect(o.paid).toBe(77)
+      expect(o.payment.hubtelAttempt?.status).toBe("needs_review")
     })
   })
 
