@@ -743,7 +743,9 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     }
 
     const { markAirtimeOrderPaid } = await import("@/lib/airtime-service")
-    await markAirtimeOrderPaid(ussdAirtimeOrder.id, gatewayTransactionId)
+    const airtimeMarked = await markAirtimeOrderPaid(ussdAirtimeOrder.id, gatewayTransactionId)
+    // The flip failed and the service has alerted admins. On Hubtel the row must not become paid over an unpaid order.
+    if (viaHubtel && !airtimeMarked?.success) return orderClosedResponse()
 
     await supabase
       .from("payment_attempts")
