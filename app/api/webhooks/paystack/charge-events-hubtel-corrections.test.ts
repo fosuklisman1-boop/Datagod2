@@ -279,3 +279,36 @@ describe("a Hubtel payment on a closed shop order", () => {
     expect(calls[0][0]).not.toContain(closed.customer_phone)
   })
 })
+
+describe("a second payment on a shop order that is already paid (I4)", () => {
+  const paidOrder = { id: "so1", order_status: "processing", payment_status: "completed", total_price: 100, network: "MTN", volume_gb: "1", customer_phone: "0241234572", shop_id: "s1", profit_amount: 5 }
+  const first = wp({ id: "wp0", reference: "WALLET-0", order_id: "so1", shop_id: "s1", order_type: "shop_order", status: "completed" })
+
+  it("Hubtel after another payment (Hubtel or Paystack): order_closed, its wallet row stays open, nothing re-runs", async () => {
+    h.tables.shop_orders = [{ ...paidOrder }]
+    h.tables.wallet_payments = [first, wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    const a = await answer({ metadata: HUBTEL })
+    expect(a).toEqual(CLOSED)
+    expect(h.tables.wallet_payments[1].status).toBe("pending")
+    expect(h.fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("the order paid some other way (no other payment row): still order_closed", async () => {
+    h.tables.shop_orders = [{ ...paidOrder }]
+    h.tables.wallet_payments = [wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    expect(await answer({ metadata: HUBTEL })).toEqual(CLOSED)
+  })
+
+  it("a replay of the payment that paid it is not closed", async () => {
+    h.tables.shop_orders = [{ ...paidOrder }]
+    h.tables.wallet_payments = [wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order", status: "completed" })]
+    expect(await answer({ metadata: HUBTEL })).toBeNull() // no early answer: the normal path
+  })
+
+  it("Paystack second payment: unchanged", async () => {
+    h.tables.shop_orders = [{ ...paidOrder, profit_amount: 0 }]
+    h.tables.wallet_payments = [first, wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    expect(await answer({ id: 9, metadata: {} })).toBeNull()
+    expect(h.tables.wallet_payments[1].status).toBe("completed")
+  })
+})

@@ -1038,6 +1038,24 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
 
   // Overpayments are accepted and flow as normal orders
 
+  // A Hubtel payment on a shop order something else already paid (another Hubtel attempt, Paystack, the wallet): the
+  // customer paid twice. This payment's wallet row stays open and it parks in review. A replay of the payment that paid
+  // the order is not this: its own row is completed and no other is. A failed read throws: confirm.ts leaves the row
+  // for the sweep to retry.
+  if (viaHubtel && paymentData.order_id && !isDealerUpgrade && !isAirtime && !isResultsChecker && !isResultsCheckService && !isUssdShopActivation && !isUssdShopToken) {
+    const { data: paidOrder, error: paidOrderError } = await supabase.from("shop_orders").select("payment_status").eq("id", paymentData.order_id).maybeSingle()
+    if (paidOrderError) throw new Error(`shop order read failed: ${paidOrderError.message}`)
+    if (paidOrder?.payment_status === "completed") {
+      const { data: others, error: othersError } = await supabase.from("wallet_payments").select("reference")
+        .eq("order_id", paymentData.order_id).eq("status", "completed").neq("reference", reference).limit(1)
+      if (othersError) throw new Error(`wallet payment read failed: ${othersError.message}`)
+      if (paymentData.status !== "completed" || (others?.length ?? 0) > 0) {
+        console.error(`[WEBHOOK] Second payment ${reference} on shop order ${paymentData.order_id}; not applied`)
+        return orderClosedResponse()
+      }
+    }
+  }
+
   // Update payment status
   await supabase
     .from("wallet_payments")
