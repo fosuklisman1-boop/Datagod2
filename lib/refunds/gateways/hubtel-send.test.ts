@@ -320,6 +320,26 @@ describe("payouts on a Hubtel-paid order go only to the number that paid (I2)", 
   })
 })
 
+// A payout on a wallet-paid order would turn wallet balance into cash. USSD orders can be wallet-paid and carry a number.
+describe("payouts refuse a wallet-paid order on any table", () => {
+  const walletUssd = () => baseOrder({ table: "ussd_orders", payment: { gateway: "wallet", reference: null, payerPhone: "0245550101", walletUserId: "u1" } })
+
+  it.each(["moolre", "paystack_payout"])("%s is refused, and the wallet stays available", (id) => {
+    expect(supportOf(getGateway(id)!, walletUssd()).ok).toBe(false)
+    expect(supportOf(getGateway("wallet")!, walletUssd()).ok).toBe(true)
+  })
+  it("moolre sends nothing at refund time either", async () => {
+    expect((await getGateway("moolre")!.refund(ctx(walletUssd()))).kind).toBe("failed")
+  })
+  it("a Paystack-paid or Hubtel USSD order keeps both payouts", () => {
+    for (const gateway of ["paystack", "hubtel"] as const) {
+      const o = baseOrder({ table: "ussd_orders", payment: { gateway, reference: null, payerPhone: "0245550101", walletUserId: null } })
+      expect(supportOf(getGateway("moolre")!, o).ok).toBe(true)
+      expect(supportOf(getGateway("paystack_payout")!, o).ok).toBe(true)
+    }
+  })
+})
+
 describe("payouts are capped at what was requested from Hubtel (M2)", () => {
   it("moolre and paystack_payout cap a Hubtel-paid order; a Paystack-paid one has no cap", () => {
     for (const id of ["moolre", "paystack_payout"]) {

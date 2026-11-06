@@ -19,6 +19,8 @@ export const moolreGateway: RefundGateway = {
   label: "Moolre (MoMo payout to payer)",
   supports(order) {
     if (isWalletOnlyTable(order.table)) return { ok: false, reason: WALLET_ONLY_REASON }
+    // A payout on a wallet-paid order would turn wallet balance into cash. USSD orders can be wallet-paid.
+    if (order.payment.gateway === "wallet") return { ok: false, reason: "Paid from the wallet — refund it to the wallet" }
     const phone = order.payment.payerPhone
     if (!phone) return { ok: false, reason: "No payer number on the order" }
     if (!momoNetworkForMoolre(phone)) return { ok: false, reason: "Payer number is not a recognised MoMo network" }
@@ -26,6 +28,7 @@ export const moolreGateway: RefundGateway = {
   },
   maxAmount: hubtelRequestedCap,
   async refund(ctx) {
+    if (ctx.order.payment.gateway === "wallet") return { kind: "failed", error: "Paid from the wallet — nothing was sent" }
     const phone = ctx.destinationPhone
     const network = phone ? momoNetworkForMoolre(phone) : null
     if (!phone || !network) return { kind: "failed", error: "No valid MoMo number to pay out to" }
