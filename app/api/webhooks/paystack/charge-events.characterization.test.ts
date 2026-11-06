@@ -70,6 +70,7 @@ vi.mock("@/lib/sms/bundle-service", () => ({
   getPricePerCredit: vi.fn(async () => 1),
 }))
 vi.mock("@/lib/ussd/fulfill", () => ({ fulfillUssdOrder: h.fulfillUssdOrder }))
+vi.mock("@/lib/ussd/fulfill-afa", () => ({ fulfillUssdAfaOrder: vi.fn(async () => ({ success: true, message: "ok" })) }))
 
 import { NextRequest } from "next/server"
 import { POST } from "./route"
@@ -327,5 +328,16 @@ describe("Paystack charge.success on a closed shop order", () => {
     expect(await res.json()).toEqual({ received: true })
     expect(h.tables.shop_orders[0].order_status).toBe("failed")
     expect(h.fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Deliberate change (USSD AFA OTP): a USSD AFA order can now wait at otp_required; the payment still applies.
+describe("Paystack charge.success on a USSD AFA order waiting for its OTP", () => {
+  const AFA_ID = "7f6c1f0e-1111-4222-8333-944455556672"
+  it("is processed like a pending one", async () => {
+    h.tables.ussd_afa_orders = [{ id: AFA_ID, amount: 50, payment_status: "otp_required", dialing_phone: "0241234574", shop_id: null, merchant_commission: 0 }]
+    const res = await chargeSuccess(AFA_ID, 5000)
+    expect(res.status).toBe(200)
+    expect(h.tables.ussd_afa_orders[0].payment_status).toBe("completed")
   })
 })

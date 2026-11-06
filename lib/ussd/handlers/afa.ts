@@ -6,6 +6,7 @@ import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
 import { setWaSession } from "../../whatsapp-bot/session"
 import { sendWhatsAppText } from "../../whatsapp-bot/send"
+import { sendSMS, SMSTemplates } from "../../sms-service"
 import {
   guardedReprice, isUssdHubtelPayer, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdChannel, type UssdPrice,
 } from "../gateway-charge"
@@ -214,6 +215,19 @@ export async function handleAfaConfirm(
       if (status === 'send_otp' && channel === 'whatsapp') {
         await setWaSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId, pendingOrderTable: 'ussd_afa_orders' })
         await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+      } else if (status === 'send_otp') {
+        // USSD can't ask once the session has ended: as bundles do, park the order for the redial and tell the customer.
+        const { error: otpErr } = await supabase
+          .from("ussd_afa_orders")
+          .update({ payment_status: 'otp_required', updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+          .eq("payment_status", "pending")
+        if (otpErr) {
+          // A refused write leaves nothing for a redial to find, so no SMS sends the customer looking for it.
+          console.error("[USSD-AFA] Could not mark OTP required for order:", orderId, otpErr.code ?? "unknown")
+        } else {
+          sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
+        }
       }
 
       console.log("[USSD-AFA] ✓ MoMo charge initiated for AFA order:", orderId)

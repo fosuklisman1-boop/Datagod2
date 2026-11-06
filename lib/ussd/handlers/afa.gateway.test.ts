@@ -19,8 +19,11 @@ vi.mock("@/lib/storefront-otp", async (orig) => ({
   isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
 }))
 
+vi.mock("../../sms-service", () => ({ sendSMS: vi.fn(async () => {}), SMSTemplates: { ussdOtpRequired: () => "otp" } }))
+
 import { handleAfaConfirm } from "./afa"
 import { chargeMobileMoney } from "@/lib/paystack"
+import { sendSMS } from "../../sms-service"
 import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "../gateway-test-kit"
 
 const session = (over: Record<string, unknown> = {}): any => ({
@@ -41,6 +44,7 @@ beforeEach(() => {
   h.verified.clear()
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   vi.mocked(chargeMobileMoney).mockClear()
+  vi.mocked(sendSMS).mockClear()
   kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
 })
 
@@ -127,5 +131,37 @@ describe("Uzo AFA", () => {
       expect(kit.receive).not.toHaveBeenCalled()
       expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBeCloseTo(51.5, 2)
     })
+  })
+})
+
+describe("USSD AFA: Paystack asks for an OTP", () => {
+  beforeEach(() => { h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference }) })
+
+  it("marks otp_required and texts the dialler", async () => {
+    await handleAfaConfirm("1", "S1", session())
+    await runAfter()
+    expect(order().payment_status).toBe("otp_required")
+    expect(vi.mocked(sendSMS)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(sendSMS).mock.calls[0][0]).toMatchObject({ phone: "+233244123456", type: "otp_required", reference: order().id })
+  })
+  it("the status write refused (0156 not applied): no SMS sending the customer to a redial that finds nothing", async () => {
+    await handleAfaConfirm("1", "S1", session())
+    kit.failUpdates = ["ussd_afa_orders"]
+    await runAfter()
+    expect(order().payment_status).toBe("pending")
+    expect(vi.mocked(sendSMS)).not.toHaveBeenCalled()
+  })
+  it("a normal prompt sends no OTP SMS", async () => {
+    h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
+    await handleAfaConfirm("1", "S1", session())
+    await runAfter()
+    expect(order().payment_status).toBe("pending")
+    expect(vi.mocked(sendSMS)).not.toHaveBeenCalled()
+  })
+  it("WhatsApp is unchanged: stays pending and asks in the chat", async () => {
+    await handleAfaConfirm("1", "233551234567", session({ dialingPhone: "0244123456", paystackProvider: "mtn" }), "whatsapp")
+    await runAfter()
+    expect(order().payment_status).toBe("pending")
+    expect(vi.mocked(sendSMS)).not.toHaveBeenCalled()
   })
 })

@@ -490,7 +490,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
   if (ussdAfaOrder) {
     console.log("[WEBHOOK] Processing USSD AFA order:", ussdAfaOrder.id)
 
-    if (ussdAfaOrder.payment_status !== 'pending') {
+    if (ussdAfaOrder.payment_status !== 'pending' && ussdAfaOrder.payment_status !== 'otp_required') {
       console.log("[WEBHOOK] USSD AFA order already processed:", ussdAfaOrder.id)
       return alreadyProcessedResponse(ussdAfaOrder.payment_status)
     }

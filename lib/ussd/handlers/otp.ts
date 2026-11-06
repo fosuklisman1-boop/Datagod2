@@ -11,8 +11,8 @@ const supabase = createClient(
 export type OtpOrderTable = "airtime_orders" | "results_checker_orders" | "results_check_requests" | "ussd_afa_orders"
 
 // airtime_orders, results_checker_orders and results_check_requests carry a `status` column and wait at
-// payment_status 'pending_payment'. ussd_afa_orders (WhatsApp AFA) uses `order_status`, and its success handler only
-// accepts payment_status 'pending', which it never left, so the OTP step leaves it there.
+// payment_status 'pending_payment'. ussd_afa_orders uses `order_status` and waits at 'pending': WhatsApp AFA never leaves
+// it, and USSD AFA comes back to it here from 'otp_required' before the code is submitted.
 const COLUMNS: Record<OtpOrderTable, { statusCol: string; pending: string }> = {
   airtime_orders: { statusCol: "status", pending: "pending_payment" },
   results_checker_orders: { statusCol: "status", pending: "pending_payment" },
