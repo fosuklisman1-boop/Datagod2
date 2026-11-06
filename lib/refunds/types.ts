@@ -103,7 +103,7 @@ export interface PaymentSource {
    * amountPaid = gross the customer paid Hubtel (order price + Hubtel's customer fee); amountAfterCharges = net (in prod
    * equal to the order price); null when unknown.
    */
-  hubtel?: { orderId: string; amountPaid: number; amountAfterCharges: number | null; paidAt: string; paidRows: number }
+  hubtel?: { mobile?: string | null; orderId: string; amountPaid: number; amountAfterCharges: number | null; paidAt: string; paidRows: number }
   /**
    * A Hubtel collection (hubtel_payments, the gateway switch) holds or may hold this order's money. Not the USSD
    * checkout rail above. Paystack never saw this payment, so a Paystack reversal is never offered; only an attempt

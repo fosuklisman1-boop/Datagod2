@@ -198,6 +198,51 @@ describe("hubtel_send pays only the number that paid", () => {
   })
 })
 
+// Orders paid through the Hubtel USSD checkout have no collection attempt: their facts are on payment.hubtel.
+describe("hubtel_send on a Hubtel USSD order", () => {
+  const ussdOrder = (h: Record<string, unknown> = {}, pay: Record<string, unknown> = {}): RefundableOrder => baseOrder({
+    table: "ussd_shop_orders", paid: 4.9,
+    payment: {
+      gateway: "hubtel", reference: null, payerPhone: "0245550101", walletUserId: null,
+      hubtel: { orderId: "HT1", amountPaid: 5, amountAfterCharges: 4.9, paidAt: "2026-11-06T08:00:00Z", paidRows: 1, mobile: "233245550101", ...h },
+      ...pay,
+    } as any,
+  })
+
+  it("is offered, and pre-selected over the old Refund API", () => {
+    vi.stubEnv("HUBTEL_REFUND_ENABLED", "true")
+    expect(hubtelSendGateway.supports(ussdOrder())).toEqual({ ok: true })
+    expect(listGateways().find((g) => supportOf(g, ussdOrder()).ok)?.id).toBe("hubtel_send")
+  })
+  it("sends to the number that paid, on its network", async () => {
+    sendMoney.mockResolvedValueOnce({ kind: "pending", ref: "t1" })
+    expect((await hubtelSendGateway.refund(ctx(ussdOrder(), 4.9))).kind).toBe("pending")
+    expect(sendMoney.mock.calls[0][0]).toMatchObject({ refundId: RF, msisdn: "233245550101", channel: "mtn-gh", amount: 4.9 })
+  })
+  it("sends nothing to another number", async () => {
+    expect((await hubtelSendGateway.refund(ctx(ussdOrder(), 4.9, "0245550199"))).kind).toBe("failed")
+    expect(sendMoney).not.toHaveBeenCalled()
+  })
+  it("the cap is the order price, not the gross with Hubtel's fee", async () => {
+    expect(hubtelSendGateway.maxAmount!(ussdOrder())).toBe(4.9)
+    expect((await hubtelSendGateway.refund(ctx(ussdOrder(), 5))).kind).toBe("failed")
+    expect(sendMoney).not.toHaveBeenCalled()
+  })
+  it("refuses two paid rows, no recorded number, or a net that doesn't match the price", () => {
+    expect(hubtelSendGateway.supports(ussdOrder({ paidRows: 2 })).ok).toBe(false)
+    expect(hubtelSendGateway.supports(ussdOrder({ mobile: null })).ok).toBe(false)
+    expect(hubtelSendGateway.supports(ussdOrder({ amountAfterCharges: null })).ok).toBe(false)
+    expect(hubtelSendGateway.supports(ussdOrder({ amountAfterCharges: 3 })).ok).toBe(false)
+  })
+  it("is refused with the switch off", () => {
+    vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "")
+    expect(hubtelSendGateway.supports(ussdOrder()).ok).toBe(false)
+  })
+  it("a Paystack order with no Hubtel payment is still refused", () => {
+    expect(hubtelSendGateway.supports(baseOrder()).ok).toBe(false)
+  })
+})
+
 describe("an order with two paid Hubtel attempts", () => {
   it("offers manual only: which payment to return needs a person", () => {
     const order = hubtelOrder({ paidAttempts: 2, msisdn: null, channel: null, requestedPesewas: null, paymentMethod: null })

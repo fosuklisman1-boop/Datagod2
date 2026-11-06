@@ -19,11 +19,26 @@ function destinationOf(order: RefundableOrder, phone: string | null): { msisdn: 
   return channel ? { msisdn, channel } : null
 }
 
+/** The Hubtel USSD checkout payment behind this order. It has no collection attempt: its facts come from hubtel_transactions. */
+const ussdPaymentOf = (order: RefundableOrder) => (order.payment.hubtelCollection ? undefined : order.payment.hubtel)
+
 /** Why this order cannot be paid out through Hubtel Send Money, or null when it can. Never includes a phone number. */
 function refusal(order: RefundableOrder, phone: string | null): string | null {
   if (isWalletOnlyTable(order.table)) return WALLET_ONLY_REASON
+  const h = ussdPaymentOf(order)
+  if (h) {
+    if (h.paidRows !== 1) return "This order has more than one Hubtel payment — refund manually"
+    // We pay back the order price, so Hubtel's net has to be exactly that; anything else needs a person.
+    const net = h.amountAfterCharges
+    if (typeof net !== "number" || !(Math.abs(net - order.paid) < 0.005)) return "Hubtel's net amount does not match the order price — refund manually"
+    if (!h.mobile) return "Hubtel did not record the paying number — refund another way"
+    if (!phone) return "No payer number on the order"
+    if (toHubtelMsisdn(phone) !== toHubtelMsisdn(h.mobile)) return "Hubtel payouts only go to the number that paid — refund another way"
+    if (!destinationOf(order, phone)) return "Payer number is not a recognised MoMo network"
+    return null
+  }
   const a = order.payment.hubtelAttempt
-  if (!order.payment.hubtelCollection || !a) return "Not paid through a Hubtel collection"
+  if (!order.payment.hubtelCollection || !a) return "Not paid through Hubtel"
   if (a.status !== "paid") return "The Hubtel payment is not confirmed as paid yet"
   if (a.paidAttempts !== 1) return "This order has more than one paid Hubtel payment — refund manually"
   if (!isAllowedPaymentMethod(a.paymentMethod)) return "Only mobile money payments can be paid back through Hubtel — refund another way"
@@ -36,8 +51,8 @@ function refusal(order: RefundableOrder, phone: string | null): string | null {
   return null
 }
 
-/** At most what we requested from the payer, never Hubtel's gross which includes its fee. */
-const capOf = hubtelRequestedCap
+/** At most what we requested from the payer (a USSD order: its price), never Hubtel's gross which includes its fee. */
+const capOf = (order: RefundableOrder): number | null => (ussdPaymentOf(order) ? round2(order.paid) : hubtelRequestedCap(order))
 
 export const hubtelSendGateway: RefundGateway = {
   id: "hubtel_send",

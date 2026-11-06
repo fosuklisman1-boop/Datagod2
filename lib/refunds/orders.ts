@@ -131,7 +131,7 @@ const HUBTEL_CHECKOUT_TABLES: ReadonlySet<OrderTable> = new Set<OrderTable>(["us
  */
 async function loadPaidHubtelTx(db: SupabaseClient, table: OrderTable, ids: string[]): Promise<any[]> {
   if (ids.length === 0) return []
-  const rows = await inRows<any>(db, "hubtel_transactions", "order_id, hubtel_order_id, amount_paid, amount_after_charges, paid_at", "order_id", ids,
+  const rows = await inRows<any>(db, "hubtel_transactions", "order_id, hubtel_order_id, amount_paid, amount_after_charges, paid_at, mobile", "order_id", ids,
     (q) => q.eq("order_table", table).not("paid_at", "is", null))
   return rows.filter((t) => t.paid_at && t.hubtel_order_id && Number(t.amount_paid) > 0)
 }
@@ -144,6 +144,7 @@ function hubtelFactsOf(paidTx: any[], id: string): Pick<PaymentSource, "hubtel">
   const net = t.amount_after_charges == null ? NaN : Number(t.amount_after_charges)
   return {
     hubtel: {
+      ...(typeof t.mobile === "string" && t.mobile ? { mobile: t.mobile } : {}),
       orderId: String(t.hubtel_order_id),
       amountPaid: round2(Number(t.amount_paid)),
       amountAfterCharges: Number.isFinite(net) ? round2(net) : null,
