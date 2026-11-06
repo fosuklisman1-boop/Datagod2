@@ -260,3 +260,43 @@ describe("Paystack-paid orders are offered exactly what they are today", () => {
     expect(offered(paystackOrder({ payment: { gateway: "paystack", reference: "ref-1", payerPhone: null, walletUserId: null } }))).toEqual(["paystack", "manual"])
   })
 })
+
+describe("payouts on a Hubtel-paid order go only to the number that paid (I2)", () => {
+  const moolre = () => getGateway("moolre")!
+  const payout = () => getGateway("paystack_payout")!
+
+  it("a hosted payment has no recorded number: payouts refused; wallet and manual stay available", () => {
+    const o = hubtelOrder({ msisdn: null, channel: null }, {}, { payerPhone: "0245550199", walletUserId: "u1" })
+    for (const g of [moolre(), payout(), hubtelSendGateway]) {
+      const s = supportOf(g, o)
+      expect(s.ok).toBe(false)
+      if (!s.ok) expect(s.reason).not.toMatch(/\d{7,}/)
+    }
+    expect(supportOf(getGateway("wallet")!, o).ok).toBe(true)
+    expect(supportOf(getGateway("manual")!, o).ok).toBe(true)
+  })
+  it("a destination other than the paying number is refused", () => {
+    const o = hubtelOrder({}, {}, { payerPhone: "0245550199" })
+    expect(supportOf(moolre(), o).ok).toBe(false)
+    expect(supportOf(payout(), o).ok).toBe(false)
+  })
+  it("the paying number, in any format, is allowed", () => {
+    const o = hubtelOrder({ msisdn: "233245550101" }, {}, { payerPhone: "0245550101" })
+    expect(supportOf(moolre(), o).ok).toBe(true)
+    expect(supportOf(payout(), o).ok).toBe(true)
+  })
+  it("a Paystack-paid order is unchanged", () => {
+    expect(supportOf(moolre(), baseOrder()).ok).toBe(true)
+    expect(supportOf(payout(), baseOrder()).ok).toBe(true)
+  })
+})
+
+describe("payouts are capped at what was requested from Hubtel (M2)", () => {
+  it("moolre and paystack_payout cap a Hubtel-paid order; a Paystack-paid one has no cap", () => {
+    for (const id of ["moolre", "paystack_payout"]) {
+      const g = getGateway(id)!
+      expect(g.maxAmount?.(hubtelOrder({ requestedPesewas: 980 }))).toBe(9.8)
+      expect(g.maxAmount?.(baseOrder()) ?? null).toBeNull()
+    }
+  })
+})

@@ -133,6 +133,12 @@ export interface HubtelAttemptFacts {
   paymentMethod: string | null
 }
 
+/** A payout on a Hubtel-paid order sends at most what was requested from the payer. Null on any other order: no cap. */
+export function hubtelRequestedCap(order: Pick<RefundableOrder, "payment">): number | null {
+  const p = order.payment.hubtelAttempt?.requestedPesewas
+  return order.payment.hubtelCollection && typeof p === "number" && p > 0 ? Math.round(p) / 100 : null
+}
+
 export interface RefundableOrder {
   table: OrderTable
   id: string

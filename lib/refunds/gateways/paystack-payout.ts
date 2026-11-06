@@ -3,7 +3,7 @@ import {
   mapNetworkToPaystackBankCode, type PaystackTransferResult,
 } from "@/lib/paystack-transfer"
 import { momoNetworkForMoolre } from "./moolre"
-import { BOT_GATEWAY_REASON, isBotOrder, isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundGateway } from "../types"
+import { BOT_GATEWAY_REASON, hubtelRequestedCap, isBotOrder, isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundGateway } from "../types"
 
 const DEFINITIVE_FAILURE = new Set(["failed", "reversed", "rejected", "blocked"])
 const IN_FLIGHT = new Set(["pending", "processing", "queued", "received"])
@@ -40,6 +40,7 @@ export const paystackPayoutGateway: RefundGateway = {
     if (!network || !mapNetworkToPaystackBankCode(network)) return { ok: false, reason: "Payer number is not a recognised MoMo network" }
     return { ok: true }
   },
+  maxAmount: hubtelRequestedCap,
   async refund(ctx) {
     const phone = ctx.destinationPhone
     const network = phone ? momoNetworkForMoolre(phone) : null

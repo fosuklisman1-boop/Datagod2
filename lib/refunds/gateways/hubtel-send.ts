@@ -1,6 +1,6 @@
 import { isAllowedPaymentMethod } from "@/lib/hubtel-pay/confirm"
 import { checkSendStatus, hubtelChannelFor, isHubtelChannel, sendMoney, toHubtelMsisdn } from "../hubtel-send-client"
-import { isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundableOrder, type RefundGateway } from "../types"
+import { hubtelRequestedCap, isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundableOrder, type RefundGateway } from "../types"
 
 /** Nothing can be sent until this is exactly "true"; checking the status of a send already made never needs it. */
 const enabled = () => process.env.HUBTEL_SEND_REFUNDS_ENABLED === "true"
@@ -36,11 +36,8 @@ function refusal(order: RefundableOrder, phone: string | null): string | null {
   return null
 }
 
-/** At most what we requested from the payer (handler amount when set), never Hubtel's gross which includes its fee. */
-function capOf(order: RefundableOrder): number | null {
-  const p = order.payment.hubtelAttempt?.requestedPesewas
-  return order.payment.hubtelCollection && typeof p === "number" && p > 0 ? round2(p / 100) : null
-}
+/** At most what we requested from the payer, never Hubtel's gross which includes its fee. */
+const capOf = hubtelRequestedCap
 
 export const hubtelSendGateway: RefundGateway = {
   id: "hubtel_send",

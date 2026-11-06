@@ -1,3 +1,4 @@
+import { normalizeGhanaPhone } from "@/lib/phone-format"
 import type { GatewaySupport, RefundableOrder, RefundGateway } from "../types"
 import { paystackGateway } from "./paystack"
 import { paystackPayoutGateway } from "./paystack-payout"
@@ -24,7 +25,9 @@ export const getGateway = (id: string): RefundGateway | undefined => GATEWAYS.fi
  */
 export const HUBTEL_PAID_GATEWAYS: readonly string[] = ["hubtel_send", "paystack_payout", "moolre", "wallet", "manual"]
 
-export const HUBTEL_PAID_REASON = "Paystack never held this Hubtel payment — refund it with a payout, the wallet or manually"
+const MOMO_PAYOUTS: readonly string[] = ["moolre", "paystack_payout"]
+
+export const HUBTEL_PAID_REASON ="Paystack never held this Hubtel payment — refund it with a payout, the wallet or manually"
 
 /** gateway.supports() behind the Hubtel-paid allowlist. Every caller that offers or executes a gateway goes through this. */
 export function supportOf(gateway: RefundGateway, order: RefundableOrder): GatewaySupport {
@@ -32,6 +35,15 @@ export function supportOf(gateway: RefundGateway, order: RefundableOrder): Gatew
   // Two paid attempts: which payment to return, and how much, needs a person.
   if (order.payment.hubtelCollection && (order.payment.hubtelAttempt?.paidAttempts ?? 0) > 1 && gateway.id !== "manual") {
     return { ok: false, reason: "This order has more than one paid Hubtel payment — refund manually" }
+  }
+  // A MoMo payout returns the money only to the number that paid. A number on the order row may be one a buyer typed.
+  if (order.payment.hubtelCollection && MOMO_PAYOUTS.includes(gateway.id)) {
+    const paidFrom = order.payment.hubtelAttempt?.msisdn
+    if (!paidFrom) return { ok: false, reason: "Hubtel did not record the paying number — refund to the wallet or manually" }
+    const destination = order.payment.payerPhone
+    if (!destination || normalizeGhanaPhone(destination) !== normalizeGhanaPhone(paidFrom)) {
+      return { ok: false, reason: "Payouts on a Hubtel payment only go to the number that paid — refund to the wallet or manually" }
+    }
   }
   return gateway.supports(order)
 }
