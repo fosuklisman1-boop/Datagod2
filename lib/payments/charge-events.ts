@@ -43,6 +43,12 @@ function alreadyProcessedResponse(paymentStatus: unknown): NextResponse {
 const orderClosedBody = { received: true, order_closed: true }
 const orderClosedResponse = () => NextResponse.json(orderClosedBody)
 
+/**
+ * The results-checker service refused the order, so this payment delivered nothing: it failed earlier, or is gone.
+ * `pending` is not this: out of stock means the payment was recorded and the order waits for manual delivery.
+ */
+const rcOrderRefused = (r: { success: boolean; status: string }) => !r.success && (r.status === "failed" || r.status === "not_found")
+
 /** A storefront order status after which nothing is sent (the confirm path alerts admins to refund). */
 const STOREFRONT_CLOSED_STATUSES = new Set(["failed", "expired", "cancelled"])
 
@@ -802,6 +808,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     const rcResult = await fulfillPaidResultsCheckerOrder(ussdRcOrder.id)
     if (!rcResult.success) {
       console.warn("[WEBHOOK] USSD RC fulfillment incomplete:", rcResult.status, rcResult.message)
+      if (viaHubtel && rcOrderRefused(rcResult)) return orderClosedResponse()
     }
 
     return NextResponse.json({ received: true })
@@ -1336,7 +1343,8 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
       // Results Checker voucher payment — assign/finalize/deliver + profit
       // (shared with the USSD path).
       const { fulfillPaidResultsCheckerOrder } = await import("@/lib/results-checker-service")
-      await fulfillPaidResultsCheckerOrder(paymentData.order_id)
+      const rcResult = await fulfillPaidResultsCheckerOrder(paymentData.order_id)
+      if (viaHubtel && rcOrderRefused(rcResult)) return orderClosedResponse()
     } else if (isResultsCheckService) {
       // Results Check Service storefront request — assign combo voucher (if
       // applicable), record merchant commission, send payment confirmation.
