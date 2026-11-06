@@ -66,6 +66,7 @@ import { joinShopUrl } from "@/lib/sub-agents/join-url"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
+import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
 import { HubtelFeeNote, useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
@@ -770,6 +771,8 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
         // order regardless of anything client-side), but don't reopen a view
         // they explicitly closed or keep polling for a UI no one's watching.
         if (paymentDismissedRef.current) return
+        const fallbackNote = fallbackChargeNotice(chargeData)
+        if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
         // Sheet is already showing the "sending" view (set at the top of this
         // function) -- just transition it now that the prompt has actually
         // been dispatched. Telecel Cash charges come back "send_otp" (needs a

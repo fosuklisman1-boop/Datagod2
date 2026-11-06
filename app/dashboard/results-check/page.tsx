@@ -11,6 +11,7 @@ import {
   ClipboardCheck, GraduationCap, Loader2, CheckCircle2, AlertCircle, Wallet, Smartphone,
 } from "lucide-react"
 import { toast } from "sonner"
+import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
 import { HubtelFeeNote, useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
 import { PayerOtpStep, usePayerOtp } from "@/components/storefront-commission/PayerOtp"
 import { isOtpRequiredReply } from "@/lib/payment-gateway/wallet-topup-display"
@@ -409,6 +410,8 @@ export default function DashboardResultsCheckPage() {
       // charge may still have fired (the webhook completes the request
       // regardless), but don't reopen a view they already closed.
       if (paymentDismissedRef.current) return
+      const fallbackNote = fallbackChargeNotice(chargeData)
+      if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
       setMomoModal({ state: chargeData.status === "send_otp" ? "otp" : "awaiting", orderId, reference: chargeData.reference, summary })
       pollMomoStatus(orderId, chargeData.reference, summary, successInfo)
     } catch {

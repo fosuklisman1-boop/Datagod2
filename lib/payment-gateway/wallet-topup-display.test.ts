@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { gatewayPayLabel, isOtpRequiredReply, storefrontOtpStep, walletTopupDisplay } from "./wallet-topup-display"
+import { fallbackChargeNotice, gatewayPayLabel, isOtpRequiredReply, storefrontOtpStep, walletTopupDisplay } from "./wallet-topup-display"
 
 describe("walletTopupDisplay", () => {
   it("Paystack: unchanged wording, percentage fee, total on the button", () => {
@@ -64,5 +64,31 @@ describe("isOtpRequiredReply", () => {
     expect(isOtpRequiredReply(403, {})).toBe(false)
     expect(isOtpRequiredReply(500, { code: "OTP_REQUIRED" })).toBe(false)
     expect(isOtpRequiredReply(403, null)).toBe(false)
+  })
+})
+
+describe("fallbackChargeNotice (M6)", () => {
+  it("states the real total when the reply carries one", () => {
+    const n = fallbackChargeNotice({ chargedAmount: 51.5 })
+    expect(n).toContain("GHS 51.50")
+  })
+  it.each([{}, null, { chargedAmount: "51.5" }, { chargedAmount: Number.NaN }, { chargedAmount: 0 }])("nothing to say for %j", (reply) => {
+    expect(fallbackChargeNotice(reply)).toBeNull()
+  })
+})
+
+describe("walletTopupDisplay under merchant bearer (M7)", () => {
+  it.each(["paystack", "hubtel"] as const)("%s: shows no fee and the plain amount", (gateway) => {
+    const d = walletTopupDisplay({ amount: 5, gateway, paystackFeePercent: 3, feeBearer: "merchant" })
+    expect(d.feeValue).toBe("GHS 0.00")
+    expect(d.totalValue).toBe("GHS 5.00")
+    expect(d.payButton).toBe("Pay GHS 5.00")
+    expect(d.feeNote).toBe("")
+    expect(JSON.stringify(d)).not.toMatch(/\+ fee|3%/)
+  })
+  it("customer bearer, or none given: unchanged", () => {
+    const none = walletTopupDisplay({ amount: 5, gateway: "hubtel", paystackFeePercent: 3 })
+    expect(walletTopupDisplay({ amount: 5, gateway: "hubtel", paystackFeePercent: 3, feeBearer: "customer" })).toEqual(none)
+    expect(none.payButton).toBe("Pay GHS 5.00 + fee")
   })
 })

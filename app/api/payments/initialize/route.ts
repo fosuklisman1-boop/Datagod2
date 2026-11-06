@@ -818,6 +818,8 @@ export async function POST(request: NextRequest) {
     // A payment priced for Hubtel carries no Paystack fee, so a fallback re-prices it before Paystack is called: the
     // row's amount, fee and method change together, in one update. If that can't happen, nothing is charged.
     let rowMethod: Gateway = gateway
+    // Set only after a fallback: the screen quoted Hubtel's price, so the answer says what is really being charged.
+    let chargedAfterFallback: { chargedAmount: number } | Record<string, never> = {}
     const repriceForPaystack = async (): Promise<{ amount: number }> => {
       const fee = initializeFee({ surface: gatewaySurface, gateway: "paystack", feeBearer, standardFee })
       // An order's own price with the fee inside moves first: if the payment row then fails, nothing is charged and
@@ -847,6 +849,7 @@ export async function POST(request: NextRequest) {
       paystackFee = fee
       rowMethod = "paystack"
       paymentMetadata.paystackFee = fee
+      chargedAfterFallback = { chargedAmount: amount }
       return { amount }
     }
     // Only a payment priced for Hubtel needs it; one priced for Paystack already charges the right amount.
@@ -980,6 +983,7 @@ export async function POST(request: NextRequest) {
         reference,
         status: charge.status, // usually "pay_offline" / "send_otp" / "pending"; Hubtel is always "pay_offline"
         paymentId,
+        ...chargedAfterFallback,
       })
       Object.entries(corsHeaders).forEach(([k, v]) => resp.headers.set(k, v))
       resp.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -1079,6 +1083,7 @@ export async function POST(request: NextRequest) {
       accessCode: paymentResult.accessCode,
       reference: paymentResult.reference,
       paymentId,
+      ...chargedAfterFallback,
     })
 
     Object.entries(corsHeaders).forEach(([k, v]) => response.headers.set(k, v))

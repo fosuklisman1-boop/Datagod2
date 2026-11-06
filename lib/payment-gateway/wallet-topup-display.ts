@@ -43,6 +43,13 @@ export function walletTopupDisplay(i: { amount: number; gateway: Gateway; paysta
 
 export const HUBTEL_FEE_NOTE = "Hubtel adds its fee on top. Check the total on your MoMo prompt before you approve."
 
+/** The initialize reply moved to Paystack after a Hubtel refusal: what the customer is really being asked for. */
+export function fallbackChargeNotice(reply: unknown): string | null {
+  const amount = (reply as { chargedAmount?: unknown } | null)?.chargedAmount
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) return null
+  return `This payment moved to Paystack. The total is ${ghs(amount)}, including its fee. Check it on your prompt before you approve.`
+}
+
 /** The pay button on a checkout that shows a plain price. */
 export function gatewayPayLabel(i: { amount: number; gateway: Gateway; direct: boolean }): string {
   if (i.gateway === "hubtel") return `Pay ${ghs(i.amount)} + fee`

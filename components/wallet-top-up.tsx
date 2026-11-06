@@ -12,7 +12,7 @@ import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import { PaymentSheet } from "@/components/shop/PaymentSheet"
-import { isOtpRequiredReply, walletTopupDisplay } from "@/lib/payment-gateway/wallet-topup-display"
+import { fallbackChargeNotice, isOtpRequiredReply, walletTopupDisplay } from "@/lib/payment-gateway/wallet-topup-display"
 
 interface WalletTopUpProps {
   onSuccess?: (amount: number) => void
@@ -275,6 +275,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
         // charge may still have fired (the webhook completes the top-up
         // regardless), but don't reopen a view they already closed.
         if (paymentDismissedRef.current) { setIsLoading(false); return }
+        const fallbackNote = fallbackChargeNotice(data)
+        if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
         const summary = { amount: parseFloat(amount), paymentPhone, reference: data.reference }
         setMomoModal({ state: data.status === "send_otp" ? "otp" : "awaiting", reference: data.reference, summary })
         pollMomoStatus(data.reference, summary)

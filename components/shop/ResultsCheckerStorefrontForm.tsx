@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { GraduationCap, Loader2, CheckCircle2, Copy, AlertCircle, Download } from "lucide-react"
 import { toast } from "sonner"
+import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
 import { useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
 import { gatewayPayLabel } from "@/lib/payment-gateway/wallet-topup-display"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
@@ -335,6 +336,8 @@ export function ResultsCheckerStorefrontForm({ shop, shopSlug }: ResultsCheckerS
         // charge may still have fired (the webhook completes the order
         // regardless), but don't reopen a view they already closed.
         if (paymentDismissedRef.current) return
+        const fallbackNote = fallbackChargeNotice(chargeData)
+        if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
         setMomoModal({ state: chargeData.status === "send_otp" ? "otp" : "awaiting", orderId: initData.orderId, reference: chargeData.reference, summary })
         pollMomoStatus(initData.orderId, chargeData.reference, { ...summary, reference: chargeData.reference })
         return

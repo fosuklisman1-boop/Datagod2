@@ -10,6 +10,7 @@ import { Crown, Check, Zap, Loader2, Sparkles, Star, PartyPopper, ShieldCheck, U
 import { supabase } from "@/lib/supabase"
 import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
+import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
 import { HubtelFeeNote, useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
 import { isOtpRequiredReply } from "@/lib/payment-gateway/wallet-topup-display"
 import { cn } from "@/lib/utils"
@@ -338,6 +339,8 @@ export default function UpgradePage() {
                     return
                 }
                 if (!res.ok || !data.success) { throw new Error(data?.error || "Could not start the Mobile Money charge. Please try again.") }
+                const fallbackNote = fallbackChargeNotice(data)
+                if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
                 setUpgradeFlow({ state: "awaiting", plan, reference: data.reference })
                 pollUpgradeStatus(data.reference, plan)
             } else {
