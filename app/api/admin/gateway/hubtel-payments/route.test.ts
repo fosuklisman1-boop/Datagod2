@@ -67,7 +67,7 @@ describe("/api/admin/gateway/hubtel-payments", () => {
   it("non-admins are refused on GET and every POST action, and nothing runs", async () => {
     verifyMock.mockResolvedValue({ isAdmin: false, errorResponse: NextResponse.json({ error: "no" }, { status: 403 }) })
     expect((await GET(new NextRequest("http://x/api/admin/gateway/hubtel-payments")))!.status).toBe(403)
-    for (const action of ["recheck", "fulfil", "mark_failed", "refunded_manually"]) {
+    for (const action of ["recheck", "fulfil", "mark_failed", "refunded_manually", "check_manual_refund"]) {
       expect((await POST(post({ ...MANUAL, action })))!.status).toBe(403)
     }
     expect(h.handler).toBe(0)
@@ -108,6 +108,14 @@ describe("/api/admin/gateway/hubtel-payments", () => {
     expect((await res!.json()).error).toMatch(/only payment/)
     expect((review as any).__row().status).toBe("needs_review")
     expect(h.audit[0]).toMatchObject({ new_value: { ok: false } })
+  })
+
+  it("check_manual_refund: answers yes or no and changes nothing", async () => {
+    expect((await POST(post({ action: "check_manual_refund", reference: REF })))!.status).toBe(409)
+    ;(globalThis as any).__order = SECOND
+    expect((await POST(post({ action: "check_manual_refund", reference: REF })))!.status).toBe(200)
+    expect((review as any).__row().status).toBe("needs_review")
+    expect(h.closed).toEqual([])
   })
 
   it("refunded_manually: a missing reference or note is a 400", async () => {

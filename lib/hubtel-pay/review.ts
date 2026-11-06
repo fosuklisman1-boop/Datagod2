@@ -361,17 +361,18 @@ function readManualRefundForm(form: { adminReference: unknown; note: unknown }):
   return { adminReference, note }
 }
 
-export async function markRefundedManually(
-  deps: ReviewDeps, reference: string, adminId: string, form: { adminReference: unknown; note: unknown },
-): Promise<ActionResult> {
+async function loadForManualRefund(deps: ReviewDeps, reference: string): Promise<ReviewRow | ActionResult> {
   if (typeof reference !== "string" || !REF_RE.test(reference)) return { ok: false, status: 400, message: "Invalid reference" }
   const row = await deps.store.load(reference)
   if (!row) return { ok: false, status: 404, message: "Payment not found" }
   // Not a stale confirming row: its handler may have run, and Fulfil is what settles that.
   if (row.status !== "needs_review") return { ok: false, status: 409, message: `This payment is ${row.status} and is not waiting for review.` }
-  const typed = readManualRefundForm(form)
-  if (typeof typed === "string") return { ok: false, status: 400, message: typed }
+  return row
+}
 
+/** Hubtel's fresh answer when this payment qualifies, or the refusal. Writes nothing. */
+async function manualRefundGate(deps: ReviewDeps, row: ReviewRow, adminId: string): Promise<{ status: PaymentStatus; check: CheckSummary } | ActionResult> {
+  const reference = row.reference
   const status = await deps.checkStatus(reference)
   const check = summarizeCheck(status)
   if (status.kind !== "paid") {
@@ -389,6 +390,29 @@ export async function markRefundedManually(
       : "Nothing else shows as paid for this order, so this may be its only payment. Not recorded; this action is only for a second payment. Use Fulfil."
     return { ok: false, status: 409, message, check }
   }
+  return { status, check }
+}
+
+/** Asked before the form opens, so an admin doesn't pay a customer back and only then learn the payment doesn't qualify. */
+export async function checkManualRefund(deps: ReviewDeps, reference: string, adminId: string): Promise<ActionResult> {
+  const row = await loadForManualRefund(deps, reference)
+  if (isResult(row)) return row
+  const gate = await manualRefundGate(deps, row, adminId)
+  if ("ok" in gate) return gate
+  return { ok: true, message: "This is a second payment. Pay the customer back, then record it here.", check: gate.check }
+}
+
+export async function markRefundedManually(
+  deps: ReviewDeps, reference: string, adminId: string, form: { adminReference: unknown; note: unknown },
+): Promise<ActionResult> {
+  const row = await loadForManualRefund(deps, reference)
+  if (isResult(row)) return row
+  const typed = readManualRefundForm(form)
+  if (typeof typed === "string") return { ok: false, status: 400, message: typed }
+
+  const gate = await manualRefundGate(deps, row, adminId)
+  if ("ok" in gate) return gate
+  const { status, check } = gate
 
   const at = deps.now().toISOString()
   // The one write, guarded on status: of two clicks, or a click and a Fulfil, only one gets past here.
@@ -469,6 +493,11 @@ export function supabaseReviewStore(sb: SupabaseClient): ReviewStore {
       if (orderError) throw new Error(`shop order read failed: ${orderError.message}`)
       if (!order) return null
 
+      // Read after the order: the handler completes the wallet row first, so a completed order is never paired with an
+      // older open row, which would make this payment look like a second one.
+      const { data: ownNow, error: ownNowError } = await sb.from("wallet_payments").select("status").eq("reference", paymentReference).maybeSingle()
+      if (ownNowError) throw new Error(`wallet payment read failed: ${ownNowError.message}`)
+
       const { data: others, error: othersError } = await sb.from("wallet_payments").select("reference")
         .eq("order_id", own.order_id).eq("status", "completed").neq("reference", paymentReference).limit(50)
       if (othersError) throw new Error(`wallet payment read failed: ${othersError.message}`)
@@ -482,7 +511,7 @@ export function supabaseReviewStore(sb: SupabaseClient): ReviewStore {
       return {
         orderStatus: (order.order_status as string | null) ?? null,
         paymentStatus: (order.payment_status as string | null) ?? null,
-        ownPaymentCompleted: own.status === "completed",
+        ownPaymentCompleted: ownNow?.status === "completed",
         otherPaymentCompleted: otherRefs.some((r) => !isManuallyRefundedPayment(attempts.get(r) ?? [])),
         refundCompleted: (refunds?.length ?? 0) > 0,
       }

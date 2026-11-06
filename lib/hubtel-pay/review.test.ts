@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { classifySecondPayment, fulfilPayment, fulfilRefusal, listReview, markPaymentFailed, markRefundedManually, reasonOf, recheckPayment, supabaseReviewStore, type OrderPaymentFacts, type ReviewDeps, type ReviewRow } from "./review"
+import { checkManualRefund, classifySecondPayment, fulfilPayment, fulfilRefusal, listReview, markPaymentFailed, markRefundedManually, reasonOf, recheckPayment, supabaseReviewStore, type OrderPaymentFacts, type ReviewDeps, type ReviewRow } from "./review"
 import type { PaymentStatus } from "./client"
 
 const REF = "0123456789abcdef0123456789abcdef"
@@ -524,6 +524,19 @@ describe("supabaseReviewStore.orderPaymentFacts", () => {
     })
   })
 
+  // The handler completes the wallet row, then the order. A wallet read older than the order read could show an order
+  // completed by this very payment as "paid elsewhere", and an only payment as a second one.
+  it("a payment settling during the reads is seen as this payment's own, not another", async () => {
+    const tables: Tables = { wallet_payments: [{ ...OWN }], shop_orders: [ORDER], order_refunds: [] }
+    const sb = fakeSb(tables)
+    const from = sb.from
+    // A new row object, so a read taken before the order read keeps the old status, as a real database reply would.
+    sb.from = (table: string) => { if (table === "shop_orders") tables.wallet_payments = [{ ...OWN, status: "completed" }]; return from(table) }
+    const facts = await supabaseReviewStore(sb).orderPaymentFacts("WALLET-2", null)
+    expect(facts).toMatchObject({ ownPaymentCompleted: true, otherPaymentCompleted: false })
+    expect(classifySecondPayment({ paidSibling: false, order: facts })).toBe("not_second")
+  })
+
   it("this reference's own completed row is not 'another payment'", async () => {
     const sb = fakeSb({ wallet_payments: [{ ...OWN, status: "completed" }], shop_orders: [ORDER] })
     expect(await supabaseReviewStore(sb).orderPaymentFacts("WALLET-2", null)).toMatchObject({ ownPaymentCompleted: true, otherPaymentCompleted: false })
@@ -571,6 +584,38 @@ describe("supabaseReviewStore.orderPaymentFacts", () => {
   it.each(["wallet_payments", "shop_orders", "order_refunds", "hubtel_payments"])("a failed read of %s throws: never guess", async (table) => {
     const sb = fakeSb({ wallet_payments: [OWN, OTHER], shop_orders: [ORDER] }, { [table]: "boom" })
     await expect(supabaseReviewStore(sb).orderPaymentFacts("WALLET-2", null)).rejects.toThrow()
+  })
+})
+
+// Asked before the form opens, so an admin never pays a customer back and only then learns the payment doesn't qualify.
+describe("checkManualRefund", () => {
+  const second = { order: orderFacts() }
+  it("says yes for a second payment, and writes nothing", async () => {
+    const { deps, updates } = setup(baseRow(), paid(), second)
+    expect(await checkManualRefund(deps, REF, "a")).toMatchObject({ ok: true, check: { kind: "paid" } })
+    expect(updates).toHaveLength(0)
+  })
+  it("refuses an order's only payment, and writes nothing", async () => {
+    const { deps, updates } = setup(baseRow(), paid(), { order: orderFacts({ ownPaymentCompleted: true, otherPaymentCompleted: false }) })
+    const out = await checkManualRefund(deps, REF, "a")
+    expect(out).toMatchObject({ ok: false, status: 409 })
+    expect(out.message).toMatch(/only payment/)
+    expect(updates).toHaveLength(0)
+  })
+  it("refuses when Hubtel doesn't say Paid, or can't be asked", async () => {
+    const { deps } = setup(baseRow(), paid({ kind: "unpaid" }), second)
+    expect(await checkManualRefund(deps, REF, "a")).toMatchObject({ ok: false, status: 409 })
+    const failing = setup(baseRow(), paid({ kind: "error" }), second)
+    expect(await checkManualRefund(failing.deps, REF, "a")).toMatchObject({ ok: false, status: 502 })
+  })
+  it("refuses a row that isn't waiting for review", async () => {
+    const { deps } = setup(baseRow({ status: "paid" }), paid(), second)
+    expect(await checkManualRefund(deps, REF, "a")).toMatchObject({ ok: false, status: 409 })
+  })
+  it("gives the same answer the record step does", async () => {
+    const { deps } = setup(baseRow(), paid(), second)
+    expect((await checkManualRefund(deps, REF, "a")).ok).toBe(true)
+    expect((await markRefundedManually(deps, REF, "a", { adminReference: "MM12345", note: "paid back" })).ok).toBe(true)
   })
 })
 

@@ -25,3 +25,5 @@ ALTER TABLE public.hubtel_payments ADD CONSTRAINT hubtel_payments_status_check
 COMMIT;
 
 ALTER TABLE public.hubtel_payments VALIDATE CONSTRAINT hubtel_payments_status_check;
+
+NOTIFY pgrst, 'reload schema';

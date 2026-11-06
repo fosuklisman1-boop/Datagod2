@@ -24,7 +24,7 @@ interface ReviewItem {
   ageMinutes: number
 }
 interface CheckSummary { kind: string; amountGhs: number | null; chargesGhs: number | null; paymentMethod: string | null }
-type Action = "recheck" | "fulfil" | "mark_failed" | "refunded_manually"
+type Action = "recheck" | "check_manual_refund" | "fulfil" | "mark_failed" | "refunded_manually"
 interface ManualRefundForm { admin_reference: string; note: string }
 
 const age = (m: number) => (m < 60 ? `${m} min` : m < 48 * 60 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`)
@@ -51,6 +51,19 @@ export function NeedsReviewCard() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Asks first: the form says to pay the customer back, so it must only open for a payment that qualifies.
+  const openManual = async (item: ReviewItem) => {
+    setBusy(`${item.reference}:check_manual_refund`)
+    try {
+      const res = await fetchAction(item.reference, "check_manual_refund")
+      if (res.check) setChecks((c) => ({ ...c, [item.reference]: checkText(res.check!) }))
+      if (res.ok) setManualOpen(item.reference)
+      else toast.error(res.message)
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const act = async (item: ReviewItem, action: Action, form?: ManualRefundForm) => {
     if (action === "fulfil" && !window.confirm(`Fulfil ${item.internalReference ?? item.reference} (GHS ${item.amountGhs.toFixed(2)})? Hubtel is checked again first.`)) return
@@ -118,7 +131,7 @@ export function NeedsReviewCard() {
                       onSubmit={(form) => act(item, "refunded_manually", form)}
                     />
                   ) : (
-                    <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setManualOpen(item.reference)} className="mt-2 w-full border-primary/40 px-2 text-primary hover:text-primary">
+                    <Button size="sm" variant="outline" disabled={!!busy} onClick={() => openManual(item)} className="mt-2 w-full border-primary/40 px-2 text-primary hover:text-primary">
                       <HandCoins className="h-4 w-4" />
                       <span className="ml-1 truncate">Refunded outside the app</span>
                     </Button>

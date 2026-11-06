@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { defaultReviewDeps, fulfilPayment, listReview, markPaymentFailed, markRefundedManually, recheckPayment, type ActionResult, type ReviewDeps } from "@/lib/hubtel-pay/review"
+import { checkManualRefund, defaultReviewDeps, fulfilPayment, listReview, markPaymentFailed, markRefundedManually, recheckPayment, type ActionResult, type ReviewDeps } from "@/lib/hubtel-pay/review"
 
 // Fulfil awaits a relay status check and the shared charge handler.
 export const maxDuration = 60
@@ -22,8 +22,9 @@ export async function GET(request: NextRequest) {
 interface ActionBody { action?: unknown; reference?: unknown; admin_reference?: unknown; note?: unknown }
 type Action = (deps: ReviewDeps, reference: string, adminId: string, body: ActionBody) => Promise<ActionResult>
 
-const ACTIONS: Record<"recheck" | "fulfil" | "mark_failed" | "refunded_manually", Action> = {
+const ACTIONS: Record<"recheck" | "check_manual_refund" | "fulfil" | "mark_failed" | "refunded_manually", Action> = {
   recheck: recheckPayment,
+  check_manual_refund: checkManualRefund,
   fulfil: fulfilPayment,
   mark_failed: markPaymentFailed,
   refunded_manually: (deps, reference, adminId, body) => markRefundedManually(deps, reference, adminId, { adminReference: body.admin_reference, note: body.note }),
