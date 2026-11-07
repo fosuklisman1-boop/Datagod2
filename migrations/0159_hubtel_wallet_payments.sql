@@ -8,7 +8,8 @@
 --   hubtel_wallet_payments  one row per wallet-paid Hubtel session. session_id is unique, and so is (order_table,
 --                           order_id). state: 'debited' -> 'fulfilled' or 'needs_review', moved by the caller after the
 --                           post-payment handler runs. The partial index serves a sweep of rows stuck on 'debited'.
---                           RLS on, no policies: only the service role may touch it.
+--                           order_table is CHECKed to the four tables below, as hubtel_transactions does for its own.
+--                           RLS on, no policies. service_role may read and update; only the RPC inserts, and nobody deletes.
 --   pay_hubtel_order_from_wallet(p_session, p_user, p_table, p_order, p_amount, p_source, p_description)
 --     Signature (text, uuid, text, uuid, numeric, text, text).
 --
@@ -51,18 +52,21 @@
 --   * Different users on one session or one order: no shared wallet lock. The loser blocks on the unique index until the
 --     winner commits, gets unique_violation, and its debit rolls back. The handler returns the winner as a replay if it
 --     is the same table, order and user; otherwise BAD_INPUT.
---   * The ALREADY_CARTED check is a read, not a lock: the checkout path does not take this wallet lock. Refusing the
---     other direction (never cart a session or order with a wallet payment) belongs to the checkout path.
+--   * The ALREADY_CARTED check reads hubtel_transactions by session and by order. It is a read, not a lock: the checkout
+--     path does not take this wallet lock. Refusing the other direction (never cart a session or order with a wallet
+--     payment) belongs to the checkout path.
 --   * Lock order: wallet row, then new rows only. No deadlock cycle with data_order_debit (order row -> wallet).
 --
--- PRE-CHECKS (each must return the stated value before applying):
+-- PRE-CHECKS (each must return the stated value before applying). Production facts confirmed 2026-11-07, re-run at apply:
+-- transactions has no source CHECK and has unique_transaction_reference UNIQUE (user_id, reference_id, type); all four
+-- order tables' ids are uuid; transactions has no triggers; hubtel_wallet_payments does not exist yet.
 --   SELECT to_regclass('public.hubtel_wallet_payments');                                    -- NULL
 --   SELECT count(*) FROM pg_proc WHERE proname = 'pay_hubtel_order_from_wallet';            -- 0
 --   SELECT count(*) FROM pg_proc WHERE proname = 'deduct_wallet' AND prosecdef;             -- 1
 --   SELECT count(*) FROM pg_constraint WHERE conname = 'transactions_source_check';         -- 0
---     -- No migration in this repo creates it. If it exists in prod, read it: it must allow ussd_data_purchase,
---     -- airtime_purchase, ussd_results_checker and results_check_request. If it would refuse one, widen it in this
---     -- migration before applying. The self-test's every_table_and_source scenario fails on such a refusal.
+--     -- So nothing refuses ussd_data_purchase, airtime_purchase, ussd_results_checker or results_check_request, and
+--     -- this migration widens nothing. If it ever returns 1, read it and widen it here before applying. The self-test's
+--     -- every_table_and_source scenario fails on such a refusal.
 --   SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'unique_transaction_reference';
 --     -- UNIQUE (user_id, reference_id, type)
 --   SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
@@ -76,7 +80,7 @@
 --    WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'reference_id';
 --     -- character varying or text, wide enough for a uuid
 --   SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.transactions'::regclass AND NOT tgisinternal;
---     -- anything here: read it before applying
+--     -- no rows; anything here: read it before applying
 --   SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.wallets'::regclass AND NOT tgisinternal;
 --     -- sec_detect_wallet_trg (0085); anything else: read it before applying
 --
@@ -92,7 +96,7 @@ SET LOCAL statement_timeout = '120s';
 CREATE TABLE IF NOT EXISTS public.hubtel_wallet_payments (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id            text NOT NULL UNIQUE,
-  order_table           text NOT NULL,
+  order_table           text NOT NULL CHECK (order_table IN ('ussd_orders','airtime_orders','results_checker_orders','results_check_requests')),
   order_id              uuid NOT NULL,
   user_id               uuid NOT NULL,
   amount                numeric(12,2) NOT NULL CHECK (amount > 0),
@@ -110,7 +114,10 @@ CREATE INDEX IF NOT EXISTS hubtel_wallet_payments_debited_idx
 ALTER TABLE public.hubtel_wallet_payments ENABLE ROW LEVEL SECURITY;
 -- No policies on purpose. 0060 grants authenticated CRUD by default, so the REVOKE is what keeps it out.
 REVOKE ALL ON TABLE public.hubtel_wallet_payments FROM PUBLIC, anon, authenticated;
--- Rows are inserted only by the RPC; the caller reads them and moves the state.
+-- 0060's default privileges give service_role ALL on a new table, so take it back. Rows are inserted only by the RPC,
+-- which runs as its owner and is not affected, and are never deleted: a payment row always comes with its debit. The
+-- caller reads rows and moves the state.
+REVOKE ALL ON TABLE public.hubtel_wallet_payments FROM service_role;
 GRANT SELECT, UPDATE ON TABLE public.hubtel_wallet_payments TO service_role;
 
 -- 2. Atomic debit + history row + payment row.
@@ -179,8 +186,9 @@ BEGIN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'order already holds a payment';
   END IF;
 
-  -- 5. This session reached Hubtel's checkout: one order, one way to pay.
-  IF EXISTS (SELECT 1 FROM public.hubtel_transactions h WHERE h.session_id = p_session) THEN
+  -- 5. This session or this order reached Hubtel's checkout: one order, one way to pay.
+  IF EXISTS (SELECT 1 FROM public.hubtel_transactions h
+              WHERE h.session_id = p_session OR (h.order_table = p_table AND h.order_id = p_order)) THEN
     RAISE EXCEPTION 'ALREADY_CARTED';
   END IF;
 
@@ -238,6 +246,9 @@ COMMIT;
 --     -- false, false, true
 --   SELECT has_table_privilege('anon', 'public.hubtel_wallet_payments', 'SELECT'),
 --          has_table_privilege('authenticated', 'public.hubtel_wallet_payments', 'SELECT'),
---          has_table_privilege('service_role', 'public.hubtel_wallet_payments', 'SELECT');
---     -- false, false, true
+--          has_table_privilege('service_role', 'public.hubtel_wallet_payments', 'SELECT'),
+--          has_table_privilege('service_role', 'public.hubtel_wallet_payments', 'UPDATE'),
+--          has_table_privilege('service_role', 'public.hubtel_wallet_payments', 'INSERT'),
+--          has_table_privilege('service_role', 'public.hubtel_wallet_payments', 'DELETE');
+--     -- false, false, true, true, false, false
 --   SELECT count(*) FROM hubtel_wallet_payments;                                                 -- 0 until the switch is on

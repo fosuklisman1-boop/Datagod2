@@ -23,8 +23,10 @@
 --
 -- Scenarios (labels): catalog, order_id_types, grants, deny_anon / deny_authenticated (a real call and a real table read
 -- under SET LOCAL ROLE), happy, replay, replay_other_amount, session_other_order, session_other_user,
--- other_session_same_order, already_carted, short_wallet, no_wallet, the refusals (bad_table_*, bad_source_*,
--- amount_zero, amount_negative, amount_three_dp, ...), every_table_and_source, debit_already_recorded, final_balance.
+-- other_session_same_order, already_carted, already_carted_other_session, short_wallet, no_wallet, the refusals
+-- (bad_table_*, bad_source_*, amount_zero, amount_negative, amount_three_dp, ...), order_table_check, service_role_pays
+-- (a real paying call under SET LOCAL ROLE service_role, which cannot itself insert), every_table_and_source,
+-- debit_already_recorded, final_balance.
 --
 -- Picks the admin (public.users.role = 'admin', joined to auth.users and public.wallets) with the largest wallet
 -- balance, and holds that wallet's row lock from the start, so live traffic cannot move the totals compared below. The
@@ -48,6 +50,7 @@ DECLARE
   v_session text := 'selftest-' || gen_random_uuid()::text;
   v_order   uuid := gen_random_uuid();
   v_order2  uuid := gen_random_uuid();
+  v_carted  uuid := gen_random_uuid();
   v_sess2   text;
   v_res     jsonb;
   v_res2    jsonb;
@@ -131,6 +134,50 @@ BEGIN
   IF NOT has_table_privilege('service_role', v_tbl, 'SELECT') OR NOT has_table_privilege('service_role', v_tbl, 'UPDATE') THEN
     RAISE EXCEPTION 'FAIL grants: service_role cannot read or update the table';
   END IF;
+  -- 0060's default privileges would give service_role ALL here: a payment row must only ever come with its debit.
+  FOREACH v_priv IN ARRAY ARRAY['INSERT', 'DELETE', 'TRUNCATE'] LOOP
+    IF has_table_privilege('service_role', v_tbl, v_priv) THEN RAISE EXCEPTION 'FAIL grants: service_role has % on the table', v_priv; END IF;
+  END LOOP;
+
+  -- order_table_check: the table itself refuses a table outside the four ------------------
+  v_got := NULL;
+  <<order_table_check>>
+  BEGIN
+    INSERT INTO public.hubtel_wallet_payments (session_id, order_table, order_id, user_id, amount)
+    VALUES ('selftest-' || gen_random_uuid()::text, 'ussd_shop_orders', gen_random_uuid(), v_user, 0.01);
+    v_got := 'NO_ERROR';
+  EXCEPTION WHEN check_violation THEN
+    v_got := SQLERRM;
+  END order_table_check;
+  IF v_got IS NULL OR v_got NOT LIKE '%hubtel_wallet_payments_order_table_check%' THEN
+    RAISE EXCEPTION 'FAIL order_table_check: got %', v_got;
+  END IF;
+
+  -- service_role_pays: the RPC runs as its owner, so it still inserts for a role that cannot. The block always raises at
+  -- its end, which undoes the payment and the role; the variables survive. The role really is service_role, or this fails.
+  v_got := NULL; v_seen := NULL; v_res2 := NULL; v_called := false;
+  <<service_role_pays>>
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE service_role';
+    v_seen := current_user;
+    v_res2 := public.pay_hubtel_order_from_wallet('selftest-' || gen_random_uuid()::text, v_user, 'ussd_orders', gen_random_uuid(), 0.01, v_source, v_desc);
+    <<service_role_insert>>
+    BEGIN
+      INSERT INTO public.hubtel_wallet_payments (session_id, order_table, order_id, user_id, amount)
+      VALUES ('selftest-' || gen_random_uuid()::text, 'ussd_orders', gen_random_uuid(), v_user, 0.01);
+      v_called := true;
+    EXCEPTION WHEN insufficient_privilege THEN
+      NULL;
+    END service_role_insert;
+    RAISE EXCEPTION 'SELFTEST_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    v_got := SQLERRM;
+  END service_role_pays;
+  IF v_seen IS DISTINCT FROM 'service_role' THEN RAISE EXCEPTION 'FAIL service_role_pays: could not switch role (current_user %, err %)', v_seen, v_got; END IF;
+  IF v_got IS DISTINCT FROM 'SELFTEST_UNWIND' THEN RAISE EXCEPTION 'FAIL service_role_pays: got %', v_got; END IF;
+  IF (v_res2->>'replay')::boolean IS DISTINCT FROM false THEN RAISE EXCEPTION 'FAIL service_role_pays: result %', v_res2; END IF;
+  IF v_called THEN RAISE EXCEPTION 'FAIL service_role_pays: service_role inserted a payment row directly'; END IF;
+  IF current_user = 'service_role' THEN RAISE EXCEPTION 'FAIL service_role_pays: role did not revert'; END IF;
 
   -- deny_anon / deny_authenticated: a real call and a real read under each role are refused. Variables survive the
   -- sub-block rollback; the role itself reverts with it. A failed role switch is reported, never counted as a pass.
@@ -205,10 +252,10 @@ BEGIN
   IF v_bal <> v_bal0 - v_paid THEN RAISE EXCEPTION 'FAIL replay: balance %', v_bal; END IF;
 
   -- The refusals: the stated error, the wallet unchanged, no row for the case's session or order, no phone in the error.
-  -- already_carted's session gets its hubtel_transactions row first.
+  -- The carted session and order get their hubtel_transactions row first.
   v_sess2 := 'selftest-' || gen_random_uuid()::text;
   INSERT INTO public.hubtel_transactions (session_id, order_table, order_id, expected_amount)
-  VALUES (v_sess2, 'ussd_orders', gen_random_uuid(), 0.50);
+  VALUES (v_sess2, 'ussd_orders', v_carted, 0.50);
   v_short := ceil((v_bal0 - v_paid) * 100) / 100 + 0.01;
 
   -- Columns: case, session, user, table, order, amount, source, description, expected error.
@@ -220,6 +267,7 @@ BEGIN
       ('other_session_same_order', 'selftest-' || gen_random_uuid()::text, v_user, 'ussd_orders', v_order, 0.50::numeric, v_source, v_desc, 'BAD_INPUT'),
       ('other_session_other_user', 'selftest-' || gen_random_uuid()::text, v_other, 'ussd_orders', v_order, 0.50::numeric, v_source, v_desc, 'BAD_INPUT'),
       ('already_carted',           v_sess2, v_user, 'ussd_orders',              gen_random_uuid(), 0.50::numeric, v_source, v_desc, 'ALREADY_CARTED'),
+      ('already_carted_other_session', 'selftest-' || gen_random_uuid()::text, v_user, 'ussd_orders', v_carted, 0.50::numeric, v_source, v_desc, 'ALREADY_CARTED'),
       ('short_wallet',             'selftest-' || gen_random_uuid()::text, v_user, 'ussd_orders', gen_random_uuid(), v_short, v_source, v_desc, 'INSUFFICIENT_FUNDS'),
       ('no_wallet',                'selftest-' || gen_random_uuid()::text, v_other, 'ussd_orders', gen_random_uuid(), 0.50::numeric, v_source, v_desc, 'INSUFFICIENT_FUNDS'),
       ('bad_table_shop',           'selftest-' || gen_random_uuid()::text, v_user, 'ussd_shop_orders', gen_random_uuid(), 0.50::numeric, v_source, v_desc, 'BAD_INPUT'),

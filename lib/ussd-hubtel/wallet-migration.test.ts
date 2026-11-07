@@ -77,6 +77,22 @@ describe("0159 migration text", () => {
     expect(c).not.toMatch(/CREATE POLICY/i)
   })
 
+  it("takes 0060's default ALL back from service_role before granting only read and update", () => {
+    const c = code(migration())
+    const revoke = c.search(/REVOKE ALL ON TABLE public\.hubtel_wallet_payments FROM service_role;/)
+    const grant = c.search(/GRANT SELECT, UPDATE ON TABLE public\.hubtel_wallet_payments TO service_role;/)
+    expect(revoke).toBeGreaterThan(-1)
+    expect(grant).toBeGreaterThan(revoke)
+  })
+
+  it("refuses at the table any order_table outside the four, like hubtel_transactions does", () => {
+    expect(code(migration())).toMatch(/order_table\s+text NOT NULL CHECK \(order_table IN \('ussd_orders','airtime_orders','results_checker_orders','results_check_requests'\)\)/)
+  })
+
+  it("ALREADY_CARTED looks at the session and at the order", () => {
+    expect(rpcBody()).toMatch(/h\.session_id = p_session OR \(h\.order_table = p_table AND h\.order_id = p_order\)/)
+  })
+
   it("locks the wallet, then looks for a replay, then validates, then debits, then writes", () => {
     const b = rpcBody()
     const at = [
@@ -143,7 +159,8 @@ describe("0159 run string (migration + self-test)", () => {
   it("self-test covers every required scenario", () => {
     const st = read(SELFTEST_FILE)
     for (const label of ["catalog", "order_id_types", "grants", "deny_anon", "deny_authenticated", "happy", "replay", "replay_other_amount",
-                         "session_other_order", "session_other_user", "other_session_same_order", "already_carted", "short_wallet",
+                         "session_other_order", "session_other_user", "other_session_same_order", "already_carted", "already_carted_other_session",
+                         "order_table_check", "service_role_pays", "short_wallet",
                          "no_wallet", "bad_table", "bad_source", "amount_zero", "amount_negative", "amount_three_dp",
                          "every_table_and_source", "debit_already_recorded"]) {
       expect(st).toContain(label)
@@ -165,10 +182,9 @@ const PGliteCtor = await loadPGlite()
 
 const ROLES = `
   CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS;
-  -- Supabase's defaults (and 0060 for tables), so the REVOKEs are really tested. service_role is left out on purpose,
-  -- so its table access has to come from the migration's own GRANT.
+  -- Supabase's defaults and 0060's, service_role included, so every REVOKE is really tested.
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
-  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 `
 const FIXTURES = `
   CREATE SCHEMA auth;
@@ -281,6 +297,22 @@ describe.skipIf(!PGliteCtor)("0159 in PGlite", () => {
       await db.exec("DELETE FROM public.hubtel_wallet_payments")
     })
 
+    it.each([["ussd_shop_orders"], ["ussd_afa_orders"], ["USSD_ORDERS"], ["orders"]])("the table itself refuses order_table %s", async table => {
+      await expect(db.query(
+        "INSERT INTO public.hubtel_wallet_payments (session_id, order_table, order_id, user_id, amount) VALUES ($1, $2, $3, $4, 1)",
+        [newSession(), table, uuid("0c0c"), uuid("0c0c")],
+      )).rejects.toThrow(/hubtel_wallet_payments_order_table_check/)
+    })
+
+    it.each(ORDER_TABLES)("the table accepts order_table %s", async table => {
+      const session = newSession()
+      await db.query(
+        "INSERT INTO public.hubtel_wallet_payments (session_id, order_table, order_id, user_id, amount) VALUES ($1, $2, $3, $4, 1)",
+        [session, table, uuid("0c0c"), uuid("0c0c")],
+      )
+      await db.query("DELETE FROM public.hubtel_wallet_payments WHERE session_id = $1", [session])
+    })
+
     it("a paying call debits once and writes one history row and one debited payment row", async () => {
       const user = await newUser("20.00", "1.00")
       const order = uuid("0a0a")
@@ -384,6 +416,22 @@ describe.skipIf(!PGliteCtor)("0159 in PGlite", () => {
       expect(await ledger(user)).toBe(before)
     })
 
+    it("the same order carted under another session raises ALREADY_CARTED and writes nothing", async () => {
+      const user = await newUser()
+      const order = uuid("0a0a")
+      await db.query(`INSERT INTO public.hubtel_transactions (session_id, order_table, order_id, expected_amount) VALUES ($1, 'ussd_orders', $2, 5)`, [newSession(), order])
+      const before = await ledger(user)
+      expectClean(await failure(call({ user, order, table: "ussd_orders" })), "ALREADY_CARTED")
+      expect(await ledger(user)).toBe(before)
+    })
+
+    it("a cart in another table with the same order id is another order, and does not block the payment", async () => {
+      const user = await newUser()
+      const order = uuid("0a0a")
+      await db.query(`INSERT INTO public.hubtel_transactions (session_id, order_table, order_id, expected_amount) VALUES ($1, 'airtime_orders', $2, 5)`, [newSession(), order])
+      expect((await call({ user, order, table: "ussd_orders" })).replay).toBe(false)
+    })
+
     it("a balance short by one pesewa raises INSUFFICIENT_FUNDS and writes nothing", async () => {
       const user = await newUser("4.99")
       const before = await ledger(user)
@@ -467,7 +515,7 @@ describe.skipIf(!PGliteCtor)("0159 in PGlite", () => {
       await db.exec(`
         BEGIN;
         ALTER TABLE public.hubtel_transactions RENAME TO hubtel_transactions_real;
-        CREATE FUNCTION public.selftest_inject_winner() RETURNS TABLE (session_id text) LANGUAGE plpgsql AS $inject$
+        CREATE FUNCTION public.selftest_inject_winner() RETURNS TABLE (session_id text, order_table text, order_id uuid) LANGUAGE plpgsql AS $inject$
         BEGIN
           INSERT INTO public.hubtel_wallet_payments (session_id, order_table, order_id, user_id, amount)
           VALUES ('${winner.session}', 'ussd_orders', '${winner.order}', '${winner.user}', 5) ON CONFLICT DO NOTHING;
@@ -552,6 +600,53 @@ describe.skipIf(!PGliteCtor)("0159 in PGlite", () => {
         await db.query("UPDATE public.hubtel_wallet_payments SET state = 'fulfilled', updated_at = now() WHERE id = $1", [r.payment_id])
       } finally {
         await db.exec("RESET ROLE")
+      }
+    })
+
+    // PGlite's default user is a superuser, which ignores privileges. Prod's owner, postgres, is not one.
+    it("with a non-superuser owner, the RPC still inserts for service_role, which cannot insert itself", async () => {
+      const user = await newUser()
+      const before = await ledger(user)
+      await db.exec(`
+        BEGIN;
+        CREATE ROLE selftest_owner NOLOGIN NOSUPERUSER;
+        GRANT SELECT, UPDATE ON public.wallets TO selftest_owner;
+        GRANT INSERT ON public.transactions TO selftest_owner;
+        GRANT SELECT ON public.hubtel_transactions TO selftest_owner;
+        ALTER TABLE public.hubtel_wallet_payments OWNER TO selftest_owner;
+        ALTER FUNCTION ${SIG} OWNER TO selftest_owner;
+        SET LOCAL ROLE service_role;
+      `)
+      try {
+        const r = await call({ user })
+        expect(r.replay).toBe(false)
+        expect((await one("SELECT state FROM public.hubtel_wallet_payments WHERE id = $1", [r.payment_id])).state).toBe("debited")
+        expect((await one("SELECT has_table_privilege('service_role', 'public.hubtel_wallet_payments', 'INSERT') AS ok")).ok).toBe(false)
+      } finally {
+        await db.exec("ROLLBACK")
+      }
+      expect(await ledger(user)).toBe(before)
+    })
+
+    it("service_role cannot insert or delete a payment row, so a payment row always comes with its debit", async () => {
+      const user = await newUser()
+      const r = await call({ user })
+      const after = await ledger(user)
+      await db.exec("SET ROLE service_role")
+      try {
+        await expect(db.query(
+          "INSERT INTO public.hubtel_wallet_payments (session_id, order_table, order_id, user_id, amount) VALUES ($1, 'ussd_orders', $2, $3, 1)",
+          [newSession(), uuid("0a0a"), user],
+        )).rejects.toThrow(/permission denied for table/)
+        await expect(db.query("DELETE FROM public.hubtel_wallet_payments WHERE id = $1", [r.payment_id])).rejects.toThrow(/permission denied for table/)
+        await expect(db.query("TRUNCATE public.hubtel_wallet_payments")).rejects.toThrow(/permission denied for table/)
+      } finally {
+        await db.exec("RESET ROLE")
+      }
+      expect(await ledger(user)).toBe(after)
+      for (const [p, want] of [["SELECT", true], ["UPDATE", true], ["INSERT", false], ["DELETE", false], ["TRUNCATE", false]] as const) {
+        const { ok } = await one("SELECT has_table_privilege('service_role', 'public.hubtel_wallet_payments', $1) AS ok", [p])
+        expect(ok).toBe(want)
       }
     })
   })
