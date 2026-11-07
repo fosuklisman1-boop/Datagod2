@@ -585,7 +585,7 @@ export async function recordBotPaymentForReview(
   supabase: SupabaseClient,
   table: StorefrontOrderTable,
   orderId: string,
-  p: { reference: string; reason: string },
+  p: { reference: string; reason: string; urgent?: boolean },
 ): Promise<number> {
   const now = new Date().toISOString()
   const patch = { paid_at: now, payment_reference: p.reference }
@@ -594,8 +594,11 @@ export async function recordBotPaymentForReview(
     extra: { status: "failed", failure_reason: `${BOT_NEEDS_REVIEW_PREFIX} ${p.reason}. Not sent: refund it or deliver it by hand.` },
   }
   let groupId: string | null = null
+  let groupSize = 0
   try {
-    groupId = (await readSpecialGroup(supabase, table, orderId))?.groupId ?? null
+    const group = await readSpecialGroup(supabase, table, orderId)
+    groupId = group?.groupId ?? null
+    groupSize = group?.children.length ?? 0
   } catch (e) {
     console.error("[HUBTEL-ORDER] Special group read failed; recording the held payment on this order only:", table, orderId, safeDbError(e))
     await urgentAlert(`URGENT: ${table} order ${orderId}: Hubtel payment (ref ${p.reference}) held for review, but its Special group could not be read. Only this unit is recorded; check its other units by hand.`)
@@ -608,6 +611,9 @@ export async function recordBotPaymentForReview(
       console.error("[HUBTEL-ORDER] could not record the held payment on the Special group:", table, groupId, safeDbError(e))
       await urgentAlert(`URGENT: Special group ${groupId}: Hubtel payment (ref ${p.reference}) held for review, but it could not be recorded on the units. Record and refund it by hand.`)
       throw e
+    }
+    if (p.urgent) {
+      await urgentAlert(`URGENT: Special group ${groupId}: the payment handler died after Hubtel took the payment (ref ${p.reference}). ${n} of ${groupSize} units were never confirmed and are now held: refund or deliver them from Admin > Refunds. Any other unit that is paid but unsent: send it from Admin > Hubtel Commission > Standard Bundles.`)
     }
   } else {
     n = await markCommissionOrderPaid(supabase, table, orderId, patch, opts)
@@ -684,7 +690,7 @@ async function botCommissionPostPayment(
       console.error("[HUBTEL-ORDER] Special group read failed at payment:", table, orderId, safeDbError(e))
     }
     if (!group) {
-      await urgentAlert(`URGENT: Special group ${order.special_group_id}: Hubtel payment (ref ${reference}) held for review: the group could not be read. Nothing was sent; check it in Admin > Refunds.`)
+      await urgentAlert(`URGENT: Special group ${order.special_group_id}: Hubtel payment (ref ${reference}) held for review: the group could not be read. Nothing was sent for this payment; check it in Admin > Refunds.`)
       return holdForReview(`Special group ${order.special_group_id} could not be read`)
     }
     return specialGroupPostPayment(supabase, group, { orderId, reference, amountAfterCharges }, { ...special, record: recordBotPaymentForReview })

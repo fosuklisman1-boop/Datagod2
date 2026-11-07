@@ -11,6 +11,8 @@ export interface PaidReviewInfo {
   reference: string
   /** Fixed text naming why the payment is held (ids and numbers only, no row data). */
   reason: string
+  /** No handler will ever finish this payment (the sweep): a Special group's admins get an URGENT alert. */
+  urgent?: boolean
 }
 
 /**

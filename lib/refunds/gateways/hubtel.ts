@@ -7,6 +7,8 @@ const MAX_AGE_MS = 44 * 86_400_000
 const MIN_AMOUNT = 1
 const round2 = (n: number) => Math.round(n * 100) / 100
 const money = (n: number | null) => (typeof n === "number" && Number.isFinite(n) ? n.toFixed(2) : "unknown")
+// Hubtel refunds a whole transaction, and one transaction pays for every unit of a Special group.
+const SPECIAL_GROUP_REASON = "One Hubtel payment covers this whole Special Bundle — refund this unit with a payout or manually"
 
 export const hubtelGateway: RefundGateway = {
   id: "hubtel",
@@ -14,6 +16,7 @@ export const hubtelGateway: RefundGateway = {
   supports(order) {
     if (process.env.HUBTEL_REFUND_ENABLED !== "true") return { ok: false, reason: "Hubtel refunds are not enabled" }
     if (isWalletOnlyTable(order.table)) return { ok: false, reason: WALLET_ONLY_REASON }
+    if (order.specialGroupId) return { ok: false, reason: SPECIAL_GROUP_REASON }
     const h = order.payment.hubtel
     if (!h) return { ok: false, reason: "Not paid through Hubtel" }
     // With several paid rows the other hubtel fields come from an arbitrary one, so never guess.
@@ -34,6 +37,7 @@ export const hubtelGateway: RefundGateway = {
     return order.payment.hubtel ? round2(order.paid) : null
   },
   async refund(ctx) {
+    if (ctx.order.specialGroupId) return { kind: "failed", error: SPECIAL_GROUP_REASON }
     const h = ctx.order.payment.hubtel
     if (!h) return { kind: "failed", error: "Not paid through Hubtel" }
     const net = h.amountAfterCharges

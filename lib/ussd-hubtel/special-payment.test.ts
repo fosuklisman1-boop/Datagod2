@@ -177,7 +177,7 @@ function txStore(tables: Record<string, Row[]>): HubtelTxStore {
     update: async (sid, patch) => { const r = get(sid); if (r) Object.assign(r, patch) },
     listPendingCallbacks: async () => [],
     listAwaitingPayment: async () => (tables.hubtel_transactions ?? []).filter(r => r.state === "awaiting_payment").map(r => ({ ...r }) as HubtelTxRow),
-    listStaleProcessing: async () => [],
+    listStaleProcessing: async () => (tables.hubtel_transactions ?? []).filter(r => r.state === "processing").map(r => ({ ...r }) as HubtelTxRow),
     listIndeterminate: async () => [],
   }
 }
@@ -265,9 +265,24 @@ describe("one Hubtel payment for a Special group", () => {
       expect(r.dispatchGroup).not.toHaveBeenCalled()
       expect(r.profits).toEqual([])
       for (const c of tables[TABLE]) expectHeld(c, "H1", /does not match/)
-      expectUrgentNaming(GROUP, /held/i)
+      expectUrgentNaming(GROUP, /held/i, "Nothing was sent for this payment")
     })
   }
+
+  it("a held group's handler re-run: its failed children are not a retry, so it holds again and the row can never land fulfilled", async () => {
+    const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [txRow()] }
+    const { client } = fakeDb(tables)
+    const r = rig(tables)
+    const handlers = createOrderHandlers(client, { confirmQueued: r.confirmQueued, dispatchGroup: r.dispatchGroup, defer: r.defer })
+    await expect(processFulfillment(txStore(tables), handlers, paidInfo({ amountAfterCharges: 15.22 }))).resolves.toBe("needs_review")
+    // Every child is now paid with this reference + failed, and the facts now match the sum.
+    tables.hubtel_transactions[0].amount_after_charges = 15.21
+    const held = tables[TABLE].map(c => ({ ...c }))
+    await expect(handlers.hubtel_data_orders("c1")).rejects.toThrow(/unit 1\/3 is failed\/paid/)
+    expect(r.confirmQueued).not.toHaveBeenCalled()
+    expect(r.defer).not.toHaveBeenCalled()
+    expect(tables[TABLE]).toEqual(held)
+  })
 
   it("processFulfillment end to end: the over-payment lands the tx row in needs_review with the reason", async () => {
     const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [txRow()] }
@@ -284,6 +299,7 @@ describe("one Hubtel payment for a Special group", () => {
     ["one child failed before payment", () => group(3, i => (i === 2 ? { status: "failed", failure_reason: "x" } : {})), {}, /unit 2\/3/],
     ["one child already completed", () => group(3, i => (i === 3 ? { status: "completed", payment_status: "paid", payment_reference: "H1-other" } : {})), {}, /unit 3\/3/],
     ["one child paid under another reference", () => group(3, i => (i === 2 ? { payment_status: "paid", payment_reference: "OTHER" } : {})), {}, /unit 2\/3/],
+    ["one child paid with this reference but failed", () => group(3, i => (i === 2 ? { payment_status: "paid", payment_reference: "H1", status: "failed" } : {})), {}, /unit 2\/3/],
     ["one child with no paid_amount", () => group(3, i => (i === 2 ? { paid_amount: null } : i === 1 ? { paid_amount: 10.14 } : {})), {}, /paid_amount/],
     ["one child with a zero paid_amount", () => group(3, i => (i === 2 ? { paid_amount: 0 } : i === 1 ? { paid_amount: 10.14 } : {})), {}, /paid_amount/],
     ["one child with a negative paid_amount", () => group(3, i => (i === 2 ? { paid_amount: -5.07 } : i === 1 ? { paid_amount: 15.21 } : {})), {}, /paid_amount/],
@@ -351,7 +367,8 @@ describe("one Hubtel payment for a Special group", () => {
     expectUrgentNaming(GROUP)
   })
 
-  it("replay after everything flipped and sent: no second share, no second dispatch, no alert, no needs_review", async () => {
+  // Defensive only: processFulfillment never re-runs a handler for a claimed row. A real death is handled by the sweep (see below).
+  it("handler called again directly after everything flipped and sent: no second share, no second dispatch, no alert, no needs_review", async () => {
     const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [paidTx()] }
     const { client } = fakeDb(tables)
     const r = rig(tables)
@@ -369,7 +386,8 @@ describe("one Hubtel payment for a Special group", () => {
     expect(r.engineAlerts).toEqual([])
   })
 
-  it("replay after the process died mid-group: only children the engine resumes or flips are dispatched; no second share", async () => {
+  // Engine-level guard, NOT a production resume path: nothing re-runs this handler after a death. See the sweep tests below.
+  it("handler called directly on a partly flipped group: only children the engine resumes or flips are dispatched; no second share", async () => {
     const tables: Record<string, Row[]> = {
       [TABLE]: [
         child(1, { payment_status: "paid", payment_reference: "H1", status: "processing", hubtel_client_reference: "HCS-c1" }),
@@ -517,6 +535,127 @@ describe("one Hubtel payment for a Special group", () => {
     expect(confirmBot).toHaveBeenCalledWith(TABLE, "c1", { paidAmount: 15.21, reference: "H1" })
     expect(r.confirmQueued).not.toHaveBeenCalled()
     expect(r.defer).not.toHaveBeenCalled()
+  })
+})
+
+describe("the process died mid-handler: the sweep in runStatusChecks", () => {
+  const stale = (o: Partial<HubtelTxRow> = {}) => paidTx({ state: "processing", ...o })
+  const sweep = (tables: Record<string, Row[]>, client: any, paidReviewHandlers?: any) => {
+    const r = rig(tables)
+    return runStatusChecks({
+      store: txStore(tables), handlers: createOrderHandlers(client, { confirmQueued: r.confirmQueued, dispatchGroup: r.dispatchGroup, defer: r.defer }),
+      failHandlers: createFailHandlers(client), paidReviewHandlers: paidReviewHandlers ?? createPaidReviewHandlers(client), now: NOW,
+      check: async () => ({ ok: true, status: "Unpaid" }),
+    }).then(res => ({ res, r }))
+  }
+
+  it("death before child 1 flipped: every unit becomes paid + failed and refundable, URGENT names the group", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [stale()] }
+    const { client } = fakeDb(tables)
+    const { res, r } = await sweep(tables, client)
+    expect(res.swept).toBe(1)
+    expect(tables.hubtel_transactions[0]).toMatchObject({ state: "needs_review", callback_status: "pending" })
+    for (const c of tables[TABLE]) expectHeld(c, "H1", /handler did not finish/)
+    expect(r.confirmQueued).not.toHaveBeenCalled()
+    expect(r.posts).toEqual([])
+    expectUrgentNaming(GROUP, "3 of 3")
+  })
+
+  it("death after child 2 of 4: flipped units stay for the watch and the admin send; never-flipped units are held", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = {
+      [TABLE]: [
+        child(1, { payment_status: "paid", payment_reference: "H1", updated_at: new Date(NOW - 15 * 60_000).toISOString() }),
+        child(2, { payment_status: "paid", payment_reference: "H1", updated_at: new Date(NOW - 15 * 60_000).toISOString() }),
+        child(3),
+        child(4),
+      ],
+      hubtel_transactions: [stale({ amount_after_charges: 20.28 })],
+    }
+    const { client } = fakeDb(tables)
+    const { res, r } = await sweep(tables, client)
+    expect(res.swept).toBe(1)
+    for (const k of [0, 1]) {
+      expect(tables[TABLE][k]).toMatchObject({ payment_status: "paid", status: "pending", failure_reason: null })
+      expect(bundleCanDispatch(tables[TABLE][k] as any, 0, NOW)).toBe(true)
+    }
+    for (const k of [2, 3]) expectHeld(tables[TABLE][k], "H1", /handler did not finish/)
+    expect(r.posts).toEqual([])
+    expect(r.profits).toEqual([])
+    expectUrgentNaming(GROUP, "2 of 4")
+  })
+
+  it("no Hubtel OrderId on the row: recorded under the session reference the handler would have used", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [stale({ hubtel_order_id: null })] }
+    const { client } = fakeDb(tables)
+    await sweep(tables, client)
+    for (const c of tables[TABLE]) expectHeld(c, "hubtel-session:S1", /handler did not finish/)
+  })
+
+  it("a row with no paid_at holds no proof of payment: nothing is recorded on the order", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [stale({ paid_at: null })] }
+    const { client } = fakeDb(tables)
+    const { res } = await sweep(tables, client)
+    expect(res.swept).toBe(1)
+    for (const c of tables[TABLE]) expect(c).toMatchObject({ payment_status: "unpaid", status: "pending" })
+  })
+
+  it("a recorder failure is logged and does not stop the sweep of other rows", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = {
+      [TABLE]: [child(1), child(9, { special_group_id: "g-2", special_index: 1 })],
+      hubtel_transactions: [stale({ session_id: "S1", order_id: "c1", amount_after_charges: 5.07 }), stale({ session_id: "S2", order_id: "c9", hubtel_order_id: "H2", amount_after_charges: 5.07 })],
+    }
+    const { client } = fakeDb(tables)
+    const real = createPaidReviewHandlers(client)
+    const handlers = { hubtel_data_orders: async (id: string, p: any) => { if (id === "c1") throw new Error("db down"); return real.hubtel_data_orders(id, p) } }
+    const { res } = await sweep(tables, client, handlers)
+    expect(res.swept).toBe(2)
+    expect(tables.hubtel_transactions.map(t => t.state)).toEqual(["needs_review", "needs_review"])
+    expectHeld(tables[TABLE][1], "H2", /handler did not finish/)
+    expect(log.mock.calls.some(c => String(c[0]).includes("could not record the held payment") && c.includes("S1"))).toBe(true)
+  })
+
+  it("an alert failure is logged and does not stop the sweep", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.notifyAdmins.mockImplementation(async () => { throw new Error("sms down") })
+    const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [stale()] }
+    const { client } = fakeDb(tables)
+    const { res } = await sweep(tables, client)
+    expect(res.swept).toBe(1)
+    for (const c of tables[TABLE]) expectHeld(c, "H1", /handler did not finish/)
+    expect(log.mock.calls.some(c => c.some(x => String(x).includes("urgent alert failed")))).toBe(true)
+  })
+
+  it("a single bot order gets the same paid + failed state its recorder always produces, with no group alert; an order already flipped is untouched", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = {
+      [TABLE]: [
+        child(1, { special_group_id: null, special_index: null }),
+        child(2, { special_group_id: null, special_index: null, payment_status: "paid", payment_reference: "H2" }),
+      ],
+      hubtel_transactions: [stale({ order_id: "c1" }), stale({ session_id: "S2", order_id: "c2", hubtel_order_id: "H2" })],
+    }
+    const { client } = fakeDb(tables)
+    await sweep(tables, client)
+    expectHeld(tables[TABLE][0], "H1", /handler did not finish/)
+    expect(tables[TABLE][1]).toMatchObject({ payment_status: "paid", status: "pending", failure_reason: null })
+    expect(urgent()).toEqual([])
+  })
+
+  it("a table with no paid-review recorder only moves the tx row", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = {
+      ussd_orders: [{ id: "u1", payment_status: "pending" }],
+      hubtel_transactions: [stale({ order_table: "ussd_orders", order_id: "u1" })],
+    }
+    const { client } = fakeDb(tables)
+    const { res } = await sweep(tables, client)
+    expect(res.swept).toBe(1)
+    expect(tables.ussd_orders[0].payment_status).toBe("pending")
   })
 })
 
@@ -704,9 +843,20 @@ describe("admin views of a Hubtel-paid Special child", () => {
       expect(orderEligibility(o, NOW)).toEqual({ eligible: true })
     }
     // Refunding the single Hubtel transaction would return the whole group's money for one unit.
-    const first = hubtelGateway.supports(orders[0])
-    expect(first).toMatchObject({ ok: false, reason: expect.stringContaining("does not match the order price") })
+    expect(orders[0].specialGroupId).toBe(GROUP)
+    expect(hubtelGateway.supports(orders[0])).toMatchObject({ ok: false, reason: expect.stringContaining("Special Bundle") })
     expect(hubtelGateway.supports(orders[1]).ok).toBe(false)
+  })
+
+  it("the whole-transaction Hubtel refund is refused even when Hubtel's net happens to equal the child's price", async () => {
+    vi.stubEnv("HUBTEL_REFUND_ENABLED", "true")
+    const db = listDb({ [TABLE]: [paidChild(1)], hubtel_transactions: [{ ...paidTxRow, amount_paid: 5.3, amount_after_charges: 5.07 }] })
+    const [o] = await loadRefundableOrders(db, [{ table: TABLE, id: "c1" }])
+    expect(hubtelGateway.supports(o)).toMatchObject({ ok: false, reason: expect.stringContaining("Special Bundle") })
+    const ungrouped = listDb({ [TABLE]: [paidChild(1, { special_group_id: null })], hubtel_transactions: [{ ...paidTxRow, amount_paid: 5.3, amount_after_charges: 5.07 }] })
+    const [single] = await loadRefundableOrders(ungrouped, [{ table: TABLE, id: "c1" }])
+    expect(single.specialGroupId).toBeUndefined()
+    expect(hubtelGateway.supports(single)).toEqual({ ok: true })
   })
 
   it("a child with an active refund is refused a second one; its siblings stay refundable", async () => {

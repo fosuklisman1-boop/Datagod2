@@ -1,5 +1,5 @@
 // lib/ussd-hubtel/status-check.ts
-import { processFulfillment, recordReviewReason, type OrderHandlers, type PaidReviewHandlers } from "./payment"
+import { hubtelPaymentRef, processFulfillment, recordReviewReason, type OrderHandlers, type PaidReviewHandlers } from "./payment"
 import type { HubtelTxRow, HubtelTxStore } from "./types"
 import { safeDbError } from "./log-safe"
 
@@ -89,6 +89,16 @@ export async function runStatusChecks(args: {
       })
       await recordReviewReason(args.store, row.session_id, SWEEP_REVIEW_REASON)
       console.error("[HUBTEL-STATUS] stale processing row moved to needs_review:", row.session_id)
+      // The handler died and is never re-run. With a proven payment, the guarded recorder makes whatever it never flipped
+      // paid + failed (refundable, never sent) and tells admins about a Special group; what it flipped stays as it is.
+      const record = args.paidReviewHandlers?.[fresh.order_table]
+      if (record && fresh.paid_at) {
+        try {
+          await record(fresh.order_id, { reference: hubtelPaymentRef(fresh.hubtel_order_id, row.session_id), reason: SWEEP_REVIEW_REASON, urgent: true })
+        } catch (e) {
+          console.error("[HUBTEL-STATUS] could not record the held payment on the order:", row.session_id, fresh.order_table, fresh.order_id, safeDbError(e))
+        }
+      }
       out.swept++
     } catch (e) { console.error("[HUBTEL-STATUS] sweep error:", row.session_id, safeDbError(e)) }
   }

@@ -153,6 +153,8 @@ export interface RefundableOrder {
   buyerUserId?: string | null
   /** Bot commission orders only (channel 'bots'): the bot surface that sold it. Absent on every other row. */
   botSurface?: string | null
+  /** A Special Bundles child: one payment covers its whole group. Absent on every other row. */
+  specialGroupId?: string
   createdAt: string
   paid: number
   gatewayFee: number

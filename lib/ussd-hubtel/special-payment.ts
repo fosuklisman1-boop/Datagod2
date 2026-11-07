@@ -52,7 +52,8 @@ const unitOf = (c: SpecialGroupChild, n: number) => `${c.special_index}/${n}`
 
 /**
  * Why this payment cannot be applied to the group, or null when it can. Fixed text with ids, statuses and amounts only.
- * A child already paid with THIS reference is a retry, so the engine's outcome decides it.
+ * A child already paid with THIS reference is a retry, so the engine's outcome decides it, unless it is failed: the
+ * engine would call that already_processed and a group with every unit failed would land fulfilled.
  */
 function holdReason(group: SpecialGroup, facts: SpecialPaymentFacts): string | null {
   const n = group.children.length
@@ -65,7 +66,7 @@ function holdReason(group: SpecialGroup, facts: SpecialPaymentFacts): string | n
     if (!Number.isFinite(paid) || paid <= 0) return `unit ${unit} has no valid paid_amount (${String(c.paid_amount)})`
     if (c.channel !== "bots") return `unit ${unit} has channel '${String(c.channel)}', not a bot order`
     const open = c.status === "pending" && c.payment_status === "unpaid"
-    const retry = c.payment_status === "paid" && c.payment_reference === facts.reference
+    const retry = c.payment_status === "paid" && c.payment_reference === facts.reference && c.status !== "failed"
     if (!open && !retry) return `unit ${unit} is ${String(c.status)}/${String(c.payment_status)}, not payable with this payment`
     total += pesewas(paid)
   }
@@ -103,7 +104,7 @@ export async function specialGroupPostPayment(
   const reason = holdReason(group, facts)
   if (reason) {
     await record(reason)
-    await urgentAlert(`URGENT: Special group ${groupId}: Hubtel payment (ref ${facts.reference}) held for review: ${reason}. Nothing was sent; refund or deliver it from ${REFUNDS_PLACE}.`)
+    await urgentAlert(`URGENT: Special group ${groupId}: Hubtel payment (ref ${facts.reference}) held for review: ${reason}. Nothing was sent for this payment; refund or deliver it from ${REFUNDS_PLACE}.`)
     throw new Error(`${TABLE} ${facts.orderId}: Special group ${groupId}: ${reason}: needs manual review`)
   }
 

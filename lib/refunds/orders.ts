@@ -82,7 +82,7 @@ const SELECT: Record<OrderTable, string> = {
   hubtel_bill_orders:
     "id, shop_id, user_id, channel, bot_surface, biller, account_number, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
   hubtel_data_orders:
-    "id, shop_id, user_id, channel, bot_surface, network, bundle_display, beneficiary_phone, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
+    "id, shop_id, user_id, channel, bot_surface, network, bundle_display, beneficiary_phone, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, special_group_id, created_at, updated_at",
 }
 
 /** Bot commission row (bills/bundles channel 'bots', anonymous buyer). Airtime has no bot rows here yet. */
@@ -372,6 +372,7 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
       shopId: (r.shop_id as string | undefined) ?? null,
       shopName: r.shop_id ? (shopById.get(r.shop_id)?.shop_name as string | undefined) ?? null : null,
       ...(bot ? { botSurface: (r.bot_surface as string | null | undefined) ?? null } : {}),
+      ...(r.special_group_id ? { specialGroupId: String(r.special_group_id) } : {}),
       packageLabel: label.packageLabel,
       network: label.network,
       recipientPhone: displayPhone(label.recipient),
