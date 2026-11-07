@@ -12,6 +12,7 @@ import { isValidIdempotencyKey } from "@/lib/standard-bundles/service"
 import { CATEGORY_ORDER, type BundleNetwork } from "@/lib/standard-bundles/categories"
 import type { BotContext } from "@/lib/bot-commission/context"
 import type { BotCatalogResult } from "@/lib/bot-commission/catalog"
+import type { BotSpecialPlan } from "@/lib/bot-commission/special-orders"
 import { toLocalPhone, USSD_SCREEN_LIMIT } from "../protocol"
 import {
   failOrphanEngineOrder, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable,
@@ -21,6 +22,8 @@ import { backFromInternetType } from "./internet-bundles"
 import type { HubtelReply, HubtelSession, NpPlan } from "../types"
 
 export const NP_PAGE_SIZE = 5
+/** Our own first line on the MTN category list. A real Hubtel category with this name is always dropped, so the digit means ours. */
+export const SPECIAL_CATEGORY = "Special Bundles"
 const NETWORKS: readonly BundleNetwork[] = ["MTN", "TELECEL", "AT"]
 const NETWORK_LABEL: Record<BundleNetwork, string> = { MTN: "MTN", TELECEL: "Telecel", AT: "AirtelTigo" }
 const npLabel = (s: HubtelSession) => (s.npNetwork ? NETWORK_LABEL[s.npNetwork] : "")
@@ -126,15 +129,41 @@ async function selectNetwork(ctx: FlowCtx): Promise<HubtelReply> {
 async function showCategories(ctx: FlowCtx, network: BundleNetwork, prefix = ""): Promise<HubtelReply> {
   const c = await loadCatalog(ctx, network)
   if (!c.ok && c.status !== 403) return finish(ctx, NP_TEXT.unavailable)
-  if (!c.ok || c.categories.length === 0) {
+  // MTN: a real Hubtel "Special Bundles" category is always dropped; our own line takes its place when showing.
+  const real = c.ok ? c.categories.map(x => x.name).filter(n => network !== "MTN" || n !== SPECIAL_CATEGORY) : []
+  const special = c.ok && network === "MTN" ? (await loadSpecialPlans(ctx)).length > 0 : false
+  if (!c.ok || (real.length === 0 && !special)) {
     return goto(ctx, { step: "NP_NETWORK" }, networkScreen(`${NETWORK_LABEL[network]}: ${NP_TEXT.notAvailable}\n`), NETWORK)
   }
-  const names = c.categories.map(x => x.name)
-  return goto(ctx, { step: "NP_CATEGORY", npNetwork: network, npCategories: names }, categoryScreen(network, names, prefix), CATEGORY)
+  const names = special ? [SPECIAL_CATEGORY, ...real] : real
+  return goto(ctx, { step: "NP_CATEGORY", npNetwork: network, npCategories: names, npSpecial: undefined }, categoryScreen(network, names, prefix), CATEGORY)
+}
+
+/** Special Bundle plans for this session (MTN). A Fail, a throw or a missing context all mean "not showing": the normal list stays. */
+async function loadSpecialPlans(ctx: FlowCtx): Promise<BotSpecialPlan[]> {
+  const bc = botContext(ctx.session)
+  if (!bc) return []
+  try {
+    const r = await ctx.deps.networkPlans.specialPlans(bc)
+    return r.ok ? r.plans : []
+  } catch (e) {
+    console.error("[HUBTEL-NP] special plans failed:", e instanceof Error ? e.message : "error")
+    return []
+  }
+}
+
+/** Page `page` of the Special list (fresh tokens). The page's plans go in the session as NpPlan, so the later steps are shared. */
+async function showSpecialPlans(ctx: FlowCtx, page: number): Promise<HubtelReply> {
+  const plans = await loadSpecialPlans(ctx)
+  if (plans.length === 0) return showCategories(ctx, "MTN", `${NP_TEXT.notAvailable}\n`)
+  const slice = pageSlice(plans.map((p): NpPlan => ({ t: p.token, d: p.display, f: p.faceAmount, p: p.payAmount })), page, NP_PAGE_SIZE)
+  return goto(ctx, { step: "NP_PLAN", npSpecial: true, npCategory: SPECIAL_CATEGORY, npPage: slice.page, npPlans: slice.items, npPlan: undefined },
+    planScreen("MTN", SPECIAL_CATEGORY, slice.items, slice.hasNext), PLAN)
 }
 
 /** Load `page` of the session's category (fresh tokens) and show it; the page's tokens go in the session. */
 async function showPlans(ctx: FlowCtx, category: string, page: number): Promise<HubtelReply> {
+  if (ctx.session.npSpecial) return showSpecialPlans(ctx, page)
   const network = ctx.session.npNetwork!
   const c = await loadCatalog(ctx, network)
   if (!c.ok && c.status !== 403) return finish(ctx, NP_TEXT.unavailable)
@@ -151,6 +180,7 @@ async function selectCategory(ctx: FlowCtx): Promise<HubtelReply> {
   const names = s.npCategories ?? []
   const name = /^\d+$/.test(ctx.input) ? names[Number(ctx.input) - 1] : undefined
   if (!name) return say(ctx, categoryScreen(s.npNetwork!, names), "NP_CATEGORY", CATEGORY)
+  if (s.npNetwork === "MTN" && name === SPECIAL_CATEGORY) return showSpecialPlans(ctx, 0)
   return showPlans(ctx, name, 0)
 }
 
@@ -160,7 +190,7 @@ async function selectPlan(ctx: FlowCtx): Promise<HubtelReply> {
   const plans = s.npPlans ?? []
   if (ctx.input === "00") {
     if (page > 0) return showPlans(ctx, s.npCategory!, page - 1)
-    return goto(ctx, { step: "NP_CATEGORY", npPlans: undefined }, categoryScreen(s.npNetwork!, s.npCategories ?? []), CATEGORY)
+    return goto(ctx, { step: "NP_CATEGORY", npPlans: undefined, npSpecial: undefined }, categoryScreen(s.npNetwork!, s.npCategories ?? []), CATEGORY)
   }
   // "0" = next page (showPlans clamps to the last page, so "0" on the last page just repaints it).
   if (ctx.input === "0") return showPlans(ctx, s.npCategory!, page + 1)
@@ -223,6 +253,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (!bc || !plan || !session.npRecipient) return finish(ctx, NP_TEXT.unavailable)
 
   const key = npIdempotencyKey(req.SessionId)
+  if (session.npSpecial) return confirmSpecial(ctx, bc, plan, key)
   let r
   try {
     r = await deps.networkPlans.createOrder(bc, { token: plan.t, recipient: session.npRecipient, idempotencyKey: key, expectedPay: plan.p })
@@ -252,6 +283,46 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
     // touched). A row read as not open is already paid or closed: the guarded patch could not touch it anyway.
     if (error || !open) await failOrphanEngineOrder(deps, "hubtel_data_orders", r.order.id, "HUBTEL-NP", req.SessionId)
     return finish(ctx, NP_TEXT.unavailable)
+  }
+  return submitOrder(ctx, { table: "hubtel_data_orders", orderId: r.order.id, price: r.order.payAmount, logTag: "HUBTEL-NP" })
+}
+
+/**
+ * Confirm for a Special group: same key and read-back rule as Standard Bundles. Child 1 is carted at the engine's
+ * total, and only when that is the total the screen showed (a replay can hand back an older group's price).
+ * Failing every child of an abandoned group is failOrderGuarded's job; here only child 1's id is passed on.
+ */
+async function confirmSpecial(ctx: FlowCtx, bc: BotContext, plan: NpPlan, key: string): Promise<HubtelReply> {
+  const { deps, req, session } = ctx
+  let r
+  try {
+    r = await deps.networkPlans.createSpecialOrder(bc, { token: plan.t, recipient: session.npRecipient, idempotencyKey: key, expectedPay: plan.p })
+  } catch (e) {
+    console.error("[HUBTEL-NP] createSpecialOrder threw:", e instanceof Error ? e.message : "error", "session:", req.SessionId)
+    const orphan = await deps.networkPlans.findSpecialOrderId(bc, key).catch((err: unknown) => {
+      console.error("[HUBTEL-NP] special orphan lookup failed:", err instanceof Error ? err.message : "error", "session:", req.SessionId)
+      return null
+    })
+    if (orphan) await failOrphanEngineOrder(deps, "hubtel_data_orders", orphan, "HUBTEL-NP", req.SessionId)
+    return finish(ctx, NP_TEXT.unavailable)
+  }
+  if (!r.ok) {
+    if (r.status === 409) return finish(ctx, NP_TEXT.priceChanged)
+    if (r.status === 429) return finish(ctx, NP_TEXT.tooMany)
+    if (r.status === 403) return finish(ctx, NP_TEXT.notAvailable)
+    return finish(ctx, NP_TEXT.unavailable)
+  }
+  const { data: row, error } = await deps.supabase
+    .from("hubtel_data_orders").select("status, payment_status").eq("id", r.order.id).maybeSingle()
+  const open = row as { status?: string; payment_status?: string } | null
+  if (error || open?.status !== "pending" || open?.payment_status !== "unpaid") {
+    console.error("[HUBTEL-NP] Special order is not open; refusing to cart:", r.order.id, open?.status ?? null, open?.payment_status ?? null, "session:", req.SessionId)
+    if (error || !open) await failOrphanEngineOrder(deps, "hubtel_data_orders", r.order.id, "HUBTEL-NP", req.SessionId)
+    return finish(ctx, NP_TEXT.unavailable)
+  }
+  if (Math.abs(r.order.payAmount - plan.p) > 0.005) {
+    console.error("[HUBTEL-NP] Special total differs from the screen; refusing to cart:", r.order.id, "session:", req.SessionId)
+    return finish(ctx, NP_TEXT.priceChanged)
   }
   return submitOrder(ctx, { table: "hubtel_data_orders", orderId: r.order.id, price: r.order.payAmount, logTag: "HUBTEL-NP" })
 }

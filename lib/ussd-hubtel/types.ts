@@ -118,6 +118,7 @@ export interface HubtelSession {
   npPage?: number
   npPlans?: NpPlan[] // the plans on the current page (at most 5)
   npPlan?: NpPlan // the chosen plan
+  npSpecial?: boolean // the plan list / confirm is the Special Bundles line (MTN), not a Hubtel category
   npOtherNumber?: boolean // NP_RECIPIENT is waiting for a typed number
   npRecipient?: string // local 0XXXXXXXXX
   // Pay Bills (Commission Cashback bots; Utility Bills). Ghana Water is never offered here.
