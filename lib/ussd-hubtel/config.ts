@@ -3,6 +3,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 export const HUBTEL_USSD_CONFIG_KEY = "hubtel_ussd_config"
+/**
+ * The new main code's own row (the Service Interaction URL with `line=main`). Deliberately a separate key: a save
+ * here rewrites only this row, so it can never overwrite the settings of the code on the existing URL, or the reverse.
+ */
+export const HUBTEL_USSD_MAIN_LINE_CONFIG_KEY = "hubtel_ussd_main_line_config"
 
 export interface HubtelUssdConfig {
   enabled: boolean
@@ -138,31 +143,36 @@ function resolveConfig(stored: StoredHubtelUssdConfig): HubtelUssdConfig {
   }
 }
 
-export async function getHubtelUssdConfig(supabase: SupabaseClient): Promise<HubtelUssdConfig> {
+async function readStored(supabase: SupabaseClient, key: string): Promise<StoredHubtelUssdConfig> {
   const { data, error } = await supabase
     .from("admin_settings")
     .select("value")
-    .eq("key", HUBTEL_USSD_CONFIG_KEY)
+    .eq("key", key)
     .maybeSingle()
   if (error) throw error
-  const stored = data?.value && typeof data.value === "object" ? (data.value as StoredHubtelUssdConfig) : {}
-  return resolveConfig(stored)
+  return data?.value && typeof data.value === "object" ? (data.value as StoredHubtelUssdConfig) : {}
 }
 
-export async function setHubtelUssdConfig(
-  supabase: SupabaseClient,
-  patch: {
-    enabled?: boolean
-    mode?: "main" | "shop"
-    visibility?: Partial<HubtelUssdConfig["visibility"]>
-    brandName?: string
-    /** A string sets the custom welcome; null clears it (back to `Welcome to <brand>`). */
-    welcome?: string | null
-  }
-): Promise<HubtelUssdConfig> {
-  if (patch.mode !== undefined && patch.mode !== "main" && patch.mode !== "shop") {
-    throw new Error("invalid mode")
-  }
+export async function getHubtelUssdConfig(supabase: SupabaseClient): Promise<HubtelUssdConfig> {
+  return resolveConfig(await readStored(supabase, HUBTEL_USSD_CONFIG_KEY))
+}
+
+/** The main code's settings: off when no row exists, and always main mode, whatever a row stores. */
+export async function getHubtelMainLineConfig(supabase: SupabaseClient): Promise<HubtelUssdConfig> {
+  return resolveConfig({ ...(await readStored(supabase, HUBTEL_USSD_MAIN_LINE_CONFIG_KEY)), mode: "main" })
+}
+
+/** What both codes can change. */
+export interface HubtelLinePatch {
+  enabled?: boolean
+  visibility?: Partial<HubtelUssdConfig["visibility"]>
+  brandName?: string
+  /** A string sets the custom welcome; null clears it (back to `Welcome to <brand>`). */
+  welcome?: string | null
+}
+
+/** Throws on invalid text, before the caller reads or writes anything. */
+function validatedText(patch: HubtelLinePatch): { brandName?: string; welcome?: string | null } {
   let brandName: string | undefined
   if (patch.brandName !== undefined) {
     const v = validateBrandName(patch.brandName)
@@ -177,16 +187,52 @@ export async function setHubtelUssdConfig(
     if (!v.ok) throw new Error(`invalid welcome: ${v.error}`)
     welcome = v.value
   }
-  const current = await getHubtelUssdConfig(supabase)
-  const custom = welcome !== undefined ? welcome : current.welcomeCustom ? current.welcome : null
-  const stored: StoredHubtelUssdConfig = {
+  return { brandName, welcome }
+}
+
+/** The row to store, without `mode`: `patch` over `current`. */
+function mergedRow(
+  current: HubtelUssdConfig,
+  patch: HubtelLinePatch,
+  text: { brandName?: string; welcome?: string | null }
+): StoredHubtelUssdConfig {
+  const custom = text.welcome !== undefined ? text.welcome : current.welcomeCustom ? current.welcome : null
+  return {
     enabled: patch.enabled ?? current.enabled,
-    mode: patch.mode ?? current.mode,
     visibility: { ...current.visibility, ...(patch.visibility ?? {}) },
-    brandName: brandName ?? current.brandName,
+    brandName: text.brandName ?? current.brandName,
     // The derived welcome is never stored, so a later brand change re-derives it.
     ...(custom !== null ? { welcome: custom } : {}),
   }
+}
+
+export async function setHubtelMainLineConfig(supabase: SupabaseClient, patch: HubtelLinePatch): Promise<HubtelUssdConfig> {
+  const text = validatedText(patch)
+  const current = await getHubtelMainLineConfig(supabase)
+  const stored = mergedRow(current, patch, text)
+  const { error } = await supabase.from("admin_settings").upsert(
+    {
+      key: HUBTEL_USSD_MAIN_LINE_CONFIG_KEY,
+      value: stored,
+      description: "Hubtel USSD main code: on/off, per-service visibility, brand name, custom welcome line.",
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "key" }
+  )
+  if (error) throw error
+  return resolveConfig({ ...stored, mode: "main" })
+}
+
+export async function setHubtelUssdConfig(
+  supabase: SupabaseClient,
+  patch: HubtelLinePatch & { mode?: "main" | "shop" }
+): Promise<HubtelUssdConfig> {
+  if (patch.mode !== undefined && patch.mode !== "main" && patch.mode !== "shop") {
+    throw new Error("invalid mode")
+  }
+  const text = validatedText(patch)
+  const current = await getHubtelUssdConfig(supabase)
+  const stored: StoredHubtelUssdConfig = { ...mergedRow(current, patch, text), mode: patch.mode ?? current.mode }
   const { error } = await supabase.from("admin_settings").upsert(
     {
       key: HUBTEL_USSD_CONFIG_KEY,
