@@ -287,6 +287,16 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   return submitOrder(ctx, { table: "hubtel_data_orders", orderId: r.order.id, price: r.order.payAmount, logTag: "HUBTEL-NP" })
 }
 
+/** The group may have committed although the call did not succeed: find child 1 under this session's key and fail it (guarded). Never throws. */
+async function failSpecialOrphan(ctx: FlowCtx, bc: BotContext, key: string): Promise<void> {
+  const { deps, req } = ctx
+  const orphan = await deps.networkPlans.findSpecialOrderId(bc, key).catch((err: unknown) => {
+    console.error("[HUBTEL-NP] special orphan lookup failed:", err instanceof Error ? err.message : "error", "session:", req.SessionId)
+    return null
+  })
+  if (orphan) await failOrphanEngineOrder(deps, "hubtel_data_orders", orphan, "HUBTEL-NP", req.SessionId)
+}
+
 /**
  * Confirm for a Special group: same key and read-back rule as Standard Bundles. Child 1 is carted at the engine's
  * total, and only when that is the total the screen showed (a replay can hand back an older group's price).
@@ -299,17 +309,15 @@ async function confirmSpecial(ctx: FlowCtx, bc: BotContext, plan: NpPlan, key: s
     r = await deps.networkPlans.createSpecialOrder(bc, { token: plan.t, recipient: session.npRecipient, idempotencyKey: key, expectedPay: plan.p })
   } catch (e) {
     console.error("[HUBTEL-NP] createSpecialOrder threw:", e instanceof Error ? e.message : "error", "session:", req.SessionId)
-    const orphan = await deps.networkPlans.findSpecialOrderId(bc, key).catch((err: unknown) => {
-      console.error("[HUBTEL-NP] special orphan lookup failed:", err instanceof Error ? err.message : "error", "session:", req.SessionId)
-      return null
-    })
-    if (orphan) await failOrphanEngineOrder(deps, "hubtel_data_orders", orphan, "HUBTEL-NP", req.SessionId)
+    await failSpecialOrphan(ctx, bc, key)
     return finish(ctx, NP_TEXT.unavailable)
   }
   if (!r.ok) {
     if (r.status === 409) return finish(ctx, NP_TEXT.priceChanged)
     if (r.status === 429) return finish(ctx, NP_TEXT.tooMany)
     if (r.status === 403) return finish(ctx, NP_TEXT.notAvailable)
+    // 5xx can follow a committed group (it exists but could not be read or priced): same cleanup as a throw.
+    await failSpecialOrphan(ctx, bc, key)
     return finish(ctx, NP_TEXT.unavailable)
   }
   const { data: row, error } = await deps.supabase
@@ -322,6 +330,8 @@ async function confirmSpecial(ctx: FlowCtx, bc: BotContext, plan: NpPlan, key: s
   }
   if (Math.abs(r.order.payAmount - plan.p) > 0.005) {
     console.error("[HUBTEL-NP] Special total differs from the screen; refusing to cart:", r.order.id, "session:", req.SessionId)
+    // Open and never carted: nothing sweeps hubtel_ussd rows without a tx row, so fail it (skipped if a cart exists).
+    await failOrphanEngineOrder(deps, "hubtel_data_orders", r.order.id, "HUBTEL-NP", req.SessionId)
     return finish(ctx, NP_TEXT.priceChanged)
   }
   return submitOrder(ctx, { table: "hubtel_data_orders", orderId: r.order.id, price: r.order.payAmount, logTag: "HUBTEL-NP" })

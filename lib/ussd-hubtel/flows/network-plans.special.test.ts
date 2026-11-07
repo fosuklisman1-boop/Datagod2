@@ -184,9 +184,13 @@ describe("special bundles: recipient and confirm", () => {
   it("a replayed group at a different total than the screen showed is never carted", async () => {
     const s = setup({ np: { specialResult: { ok: true, order: { id: BOT_ORDER_ID, groupId: BOT_GROUP_ID, n: 2, payAmount: 4.5 } } } })
     await toConfirm(s)
+    vi.spyOn(console, "error").mockImplementation(() => {})
     const r = await send(s, "1")
     expect(r).toMatchObject({ Type: "release", Message: NP_TEXT.priceChanged })
     expect(s.sup.inserts.hubtel_transactions).toBeUndefined()
+    // The group is open (pending + unpaid) and never carted: it is failed, guarded, so it cannot stay open forever.
+    expect(s.sup.updates).toEqual([{ table: "hubtel_data_orders", patch: expect.objectContaining({ status: "failed" }) }])
+    expect((s.sup.updates[0] as any).filters).toContainEqual(["eq", "id", BOT_ORDER_ID])
   })
   it("an open-state check guards the cart: a paid or closed child 1 is never carted", async () => {
     const sup = fakeSupabase({ rows: { hubtel_data_orders: { id: BOT_ORDER_ID, status: "pending", payment_status: "paid" } } })
@@ -236,6 +240,29 @@ describe("special bundles: orphans", () => {
     expect(findSpecialOrderId).toHaveBeenCalledWith({ botSurface: "hubtel_ussd", shopId: null, rail: "hubtel", buyerPhone: ME }, SID)
     expect(sup.inserts.hubtel_transactions).toBeUndefined()
     guardedFailOn(sup)
+  })
+  it("a 503 Fail after a committed group: child 1 is found and failed", async () => {
+    const findSpecialOrderId = vi.fn(async () => BOT_ORDER_ID)
+    const sup = fakeSupabase({ rows: { hubtel_data_orders: OPEN_ROW } })
+    const s = setup({ sup, np: { specialResult: { ok: false, status: 503, error: "x" }, findSpecialOrderId } })
+    await toConfirm(s)
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const r = await send(s, "1")
+    expect(r).toMatchObject({ Type: "release", Message: NP_TEXT.unavailable })
+    expect(findSpecialOrderId).toHaveBeenCalledWith({ botSurface: "hubtel_ussd", shopId: null, rail: "hubtel", buyerPhone: ME }, SID)
+    expect(sup.inserts.hubtel_transactions).toBeUndefined()
+    guardedFailOn(sup)
+  })
+  it("a 503 Fail with nothing found, or a failing lookup: nothing to fail, no throw", async () => {
+    for (const findSpecialOrderId of [async () => null, async () => { throw new Error("db down") }]) {
+      const sup = fakeSupabase({ rows: { hubtel_data_orders: OPEN_ROW } })
+      const s = setup({ sup, np: { specialResult: { ok: false, status: 503, error: "x" }, findSpecialOrderId } })
+      await toConfirm(s)
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      const r = await send(s, "1")
+      expect(r.Message).toBe(NP_TEXT.unavailable)
+      expect(sup.updates).toEqual([])
+    }
   })
   it("threw with nothing found, or the lookup failed: nothing to fail", async () => {
     for (const findSpecialOrderId of [async () => null, async () => { throw new Error("db down") }]) {
