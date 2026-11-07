@@ -354,12 +354,12 @@ export default function AdminUssdHubtelPage() {
   }, [])
   useEffect(() => { load() }, [load])
 
-  const save = async (line: "shop" | "main", patch: object, label: string) => {
+  const save = async (body: object, label: string) => {
     setBusy(label)
     try {
-      const body = line === "main" ? { ...patch, line: "main" } : patch
       const res = await authed("/api/admin/ussd-hubtel/config", { method: "POST", body: JSON.stringify(body) })
-      if (line === "main") setMainLine(res.mainLine)
+      // The server says which code it saved: show what it returned, for that code only.
+      if (res.mainLine) setMainLine(res.mainLine)
       else setConfig(res.config)
       toast.success("Saved")
     } catch (e: any) { toast.error(e.message || "Save failed") } finally { setBusy(null) }
@@ -407,10 +407,10 @@ export default function AdminUssdHubtelPage() {
             <TabsTrigger value="shop">Shop code</TabsTrigger>
           </TabsList>
           <TabsContent value="main">
-            <HubtelLineSettings line="main" config={mainLine} envOk={envOk} busy={busy} onSave={(patch, label) => save("main", patch, label)} />
+            <HubtelLineSettings line="main" config={mainLine} envOk={envOk} busy={busy} onSave={save} />
           </TabsContent>
           <TabsContent value="shop">
-            <HubtelLineSettings line="shop" config={config} envOk={envOk} busy={busy} onSave={(patch, label) => save("shop", patch, label)} />
+            <HubtelLineSettings line="shop" config={config} envOk={envOk} busy={busy} onSave={save} />
           </TabsContent>
         </Tabs>
 

@@ -3,6 +3,15 @@
 // it and never guess a menu.
 export type HubtelLine = "default" | "main"
 
+/**
+ * The body a settings tab posts to the admin config route. This is the one place that decides which code a save
+ * reaches: a shop code save carries no `line`, so it can never touch the main code's settings, and the reverse.
+ */
+export function hubtelSaveBody(line: "shop" | "main", patch: object): object {
+  if (line === "main") return { ...patch, line: "main" }
+  return patch
+}
+
 /** `values` is `searchParams.getAll("line")`. */
 export function parseHubtelLine(values: string[]): HubtelLine | null {
   if (values.length === 0) return "default"

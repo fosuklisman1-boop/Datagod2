@@ -187,6 +187,7 @@ The new code needs its **own** Service Interaction URL. If Hubtel cannot do this
 1. New paid `hubtel_transactions` rows keep arriving, and the owner dials `*713*235#` once.
 2. `hubtel_ussd_main_line_config` has no row in `admin_settings`, which means off.
 3. A request with `line=main` and no secret, from a normal browser or allowed client, returns 401. The firewall may block scripted clients: if so, record that and rely on checks 1 and 2.
+4. Run this last, because a save creates the row that check 2 expects to be absent. Open `/admin/ussd-hubtel` and look at both tabs: Main code has no Mode selector, Shop code shows its live settings. On the **Main code** tab only, change one setting that keeps the code off (for example a service toggle), then restore it. The newest `admin_audit_log` action must be `hubtel_ussd_main_line_config_update`, and `hubtel_ussd_config.updated_at` must not have moved. If it moved, the Main tab is saving to the live shop code: stop and check `*713*235#` immediately.
 
 ### Launch
 1. Register the two URLs above with Hubtel and keep the code restricted. Dial it while off and expect "Service unavailable".

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { hubtelSaveBody } from "@/lib/ussd-hubtel/line"
 import { IMPLEMENTED_SERVICES } from "@/lib/ussd-hubtel/menus"
 import {
   BRAND_MAX, DEFAULT_BRAND, WELCOME_MAX, derivedWelcome, validateBrandName, validateWelcome, type HubtelUssdConfig,
@@ -31,13 +32,14 @@ export function HubtelLineSettings({ line, config, envOk, busy, onSave }: {
   config: HubtelUssdConfig | null
   envOk: boolean
   busy: string | null
-  onSave: (patch: object, label: string) => void
+  /** Receives the request body, already marked with this code's line. */
+  onSave: (body: object, label: string) => void
 }) {
   const isShopLine = line === "shop"
   // Labels carry the line, so saving on one tab never disables the other tab's controls.
   const label = (name: string) => `${line}:${name}`
   const isBusy = (name: string) => busy === label(name)
-  const save = (patch: object, name: string) => onSave(patch, label(name))
+  const save = (patch: object, name: string) => onSave(hubtelSaveBody(line, patch), label(name))
 
   // Brand name: re-synced from the server value on load / save / reset.
   const [brandDraft, setBrandDraft] = useState("")
