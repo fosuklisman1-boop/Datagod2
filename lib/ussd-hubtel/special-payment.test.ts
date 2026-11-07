@@ -6,7 +6,7 @@ import { readFileSync } from "fs"
 import path from "path"
 import { NextRequest } from "next/server"
 import {
-  BOT_NEEDS_REVIEW_PREFIX, createFailHandlers, createOrderHandlers, createPaidReviewHandlers, recordBotPaymentForReview, type ConfirmBotFn,
+  BOT_NEEDS_REVIEW_PREFIX, createFailHandlers, createOrderHandlers, createPaidReviewHandlers, createPossiblyPaidAlerts, recordBotPaymentForReview, type ConfirmBotFn,
 } from "./order-handlers"
 import { specialGroupPostPayment, type ConfirmQueuedFn } from "./special-payment"
 import { processFulfillment } from "./payment"
@@ -544,10 +544,92 @@ describe("the process died mid-handler: the sweep in runStatusChecks", () => {
     const r = rig(tables)
     return runStatusChecks({
       store: txStore(tables), handlers: createOrderHandlers(client, { confirmQueued: r.confirmQueued, dispatchGroup: r.dispatchGroup, defer: r.defer }),
-      failHandlers: createFailHandlers(client), paidReviewHandlers: paidReviewHandlers ?? createPaidReviewHandlers(client), now: NOW,
+      failHandlers: createFailHandlers(client), paidReviewHandlers: paidReviewHandlers ?? createPaidReviewHandlers(client),
+      possiblyPaidAlerts: createPossiblyPaidAlerts(client), now: NOW,
       check: async () => ({ ok: true, status: "Unpaid" }),
     }).then(res => ({ res, r }))
   }
+
+  it("the alert says a held unit is refunded there or delivered by hand, never 'refund or deliver' from the page", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [stale()] }
+    await sweep(tables, fakeDb(tables).client)
+    expectUrgentNaming(GROUP, "Admin > Refunds", "refund them there, or deliver by hand")
+    expect(urgent().join()).not.toMatch(/refund or deliver/)
+  })
+
+  describe("a row with no paid_at (no proof of payment: it may also be a crash in the expiry path)", () => {
+    it("a Special group: URGENT 'possibly paid: check with Hubtel', naming group and session; still nothing recorded", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [stale({ paid_at: null, hubtel_order_id: null })] }
+      const { res } = await sweep(tables, fakeDb(tables).client)
+      expect(res.swept).toBe(1)
+      expectUrgentNaming(GROUP, "S1", /possibly paid/i, /check with Hubtel/i)
+      for (const c of tables[TABLE]) expect(c).toMatchObject({ payment_status: "unpaid", status: "pending", payment_reference: null })
+    })
+
+    it("a non-group row: no alert, same behaviour as before", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      const tables: Record<string, Row[]> = {
+        [TABLE]: [child(1, { special_group_id: null, special_index: null })],
+        hubtel_transactions: [stale({ paid_at: null })],
+      }
+      const { res } = await sweep(tables, fakeDb(tables).client)
+      expect(res.swept).toBe(1)
+      expect(urgent()).toEqual([])
+      expect(tables[TABLE][0]).toMatchObject({ payment_status: "unpaid", status: "pending" })
+    })
+
+    it("a row WITH paid_at gets the handler-died alert only, not 'possibly paid'", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [stale()] }
+      await sweep(tables, fakeDb(tables).client)
+      expect(urgent().join()).not.toMatch(/possibly paid/i)
+    })
+
+    it("a failed notifyAdmins is logged and the sweep moves on", async () => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {})
+      h.notifyAdmins.mockImplementation(async () => { throw new Error("sms down") })
+      const tables: Record<string, Row[]> = {
+        [TABLE]: [child(1), child(9, { special_group_id: "g-2", special_index: 1 })],
+        hubtel_transactions: [stale({ paid_at: null }), stale({ session_id: "S2", order_id: "c9", paid_at: null })],
+      }
+      const { res } = await sweep(tables, fakeDb(tables).client)
+      expect(res.swept).toBe(2)
+      expect(log.mock.calls.some(c => c.some(x => String(x).includes("urgent alert failed")))).toBe(true)
+    })
+
+    it("an alerter that throws is logged and the sweep moves on", async () => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {})
+      const tables: Record<string, Row[]> = {
+        [TABLE]: [child(1)],
+        hubtel_transactions: [stale({ paid_at: null }), stale({ session_id: "S2", order_id: "c1", paid_at: null })],
+      }
+      const r = rig(tables)
+      const { client } = fakeDb(tables)
+      const res = await runStatusChecks({
+        store: txStore(tables), handlers: createOrderHandlers(client, { confirmQueued: r.confirmQueued, dispatchGroup: r.dispatchGroup, defer: r.defer }),
+        failHandlers: createFailHandlers(client), paidReviewHandlers: createPaidReviewHandlers(client),
+        possiblyPaidAlerts: { [TABLE]: async () => { throw new Error("boom") } }, now: NOW,
+        check: async () => ({ ok: true, status: "Unpaid" }),
+      })
+      expect(res.swept).toBe(2)
+      expect(log.mock.calls.some(c => String(c[0]).includes("possibly paid") && c.includes("S1"))).toBe(true)
+    })
+
+    it("the group read failing: we cannot tell, so URGENT names the order rather than staying silent", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      const tables: Record<string, Row[]> = { [TABLE]: group(), hubtel_transactions: [stale({ paid_at: null })] }
+      const { res } = await sweep(tables, fakeDb(tables, { read: cols => cols === "special_group_id" }).client)
+      expect(res.swept).toBe(1)
+      expectUrgentNaming("c1", "S1", /possibly paid/i)
+    })
+
+    it("the cron route wires the alerts in", () => {
+      const src = readFileSync(path.join(process.cwd(), "app/api/cron/hubtel-status-check/route.ts"), "utf8")
+      expect(src).toMatch(/possiblyPaidAlerts:\s*createPossiblyPaidAlerts\(supabase\)/)
+    })
+  })
 
   it("death before child 1 flipped: every unit becomes paid + failed and refundable, URGENT names the group", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
@@ -745,6 +827,23 @@ describe("recordBotPaymentForReview on a Special group", () => {
     expect(r.confirmQueued).not.toHaveBeenCalled()
     expect(r.defer).not.toHaveBeenCalled()
     for (const c of tables[TABLE]) expectHeld(c, "HLATE", /arrived late/)
+    expectUrgentNaming(GROUP, "HLATE", /arrived late/, "3 of 3 units are held for a real payment", /refunding or delivering by hand/)
+    expect(urgent().join()).not.toMatch(/handler died/)
+  })
+
+  it("late success on a single bot order: the recorder works as before, no group alert", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = {
+      [TABLE]: [child(1, { special_group_id: null, special_index: null, status: "failed" })],
+      hubtel_transactions: [txRow({ state: "failed" })],
+    }
+    const { client } = fakeDb(tables)
+    const r = rig(tables)
+    const out = await processFulfillment(txStore(tables), createOrderHandlers(client, { confirmQueued: r.confirmQueued, dispatchGroup: r.dispatchGroup, defer: r.defer }),
+      paidInfo({ hubtelOrderId: "HLATE", amountAfterCharges: 5.07 }), { paidReview: createPaidReviewHandlers(client) })
+    expect(out).toBe("needs_review")
+    expectHeld(tables[TABLE][0], "HLATE", /arrived late/)
+    expect(urgent()).toEqual([])
   })
 
   it("underpayment on a group: held for the whole group through the same recorder", async () => {
@@ -756,6 +855,38 @@ describe("recordBotPaymentForReview on a Special group", () => {
     expect(out).toBe("needs_review")
     expect(r.confirmQueued).not.toHaveBeenCalled()
     for (const c of tables[TABLE]) expectHeld(c, "H1", /short/)
+    expectUrgentNaming(GROUP, "H1", /short/, "after_charges 10", "3 of 3 units are held for a real payment", /refunding or delivering by hand/)
+    expect(urgent().join()).not.toMatch(/handler died/)
+  })
+
+  it("a late or short payment on a group whose recording fails has its own alert only, then raises (held wording not sent)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const tables: Record<string, Row[]> = { [TABLE]: group() }
+    const { client } = fakeDb(tables, { update: on => on.includes("special_group_id") })
+    await expect(recordBotPaymentForReview(client, TABLE, "c1", { reference: "HL", reason: "late", held: true })).rejects.toBeTruthy()
+    expect(urgent()).toHaveLength(1)
+    expect(urgent()[0]).not.toMatch(/held for a real payment/)
+  })
+})
+
+describe("what admins are told to do with a unit that was not sent", () => {
+  const opts = (over: Partial<Parameters<typeof specialGroupPostPayment>[3]> = {}) => ({
+    confirmQueued: vi.fn(async (): Promise<ConfirmResult> => ({ outcome: "error" })) as unknown as ConfirmQueuedFn,
+    dispatchGroup: vi.fn(async () => {}), record: vi.fn(async () => 0), startedAt: NOW, ...over,
+  })
+  const asGroup = () => ({ groupId: GROUP, children: group() as any[] })
+
+  it("a held payment: refund it there, or deliver by hand", async () => {
+    await expect(specialGroupPostPayment({} as any, asGroup(), { orderId: "c1", reference: "H1", amountAfterCharges: 1 }, opts())).rejects.toBeTruthy()
+    expectUrgentNaming(GROUP, "Admin > Refunds", "refund it there, or deliver by hand")
+    expect(urgent().join()).not.toMatch(/refund or deliver/)
+  })
+
+  it("units that could not be confirmed: refund them there, or deliver by hand", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    await expect(specialGroupPostPayment({} as any, asGroup(), { orderId: "c1", reference: "H1", amountAfterCharges: 15.21 }, opts())).rejects.toBeTruthy()
+    expectUrgentNaming(GROUP, "Admin > Refunds", "refund them there, or deliver by hand")
+    expect(urgent().join()).not.toMatch(/refund or deliver/)
   })
 })
 

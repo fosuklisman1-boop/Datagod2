@@ -104,7 +104,7 @@ export async function specialGroupPostPayment(
   const reason = holdReason(group, facts)
   if (reason) {
     await record(reason)
-    await urgentAlert(`URGENT: Special group ${groupId}: Hubtel payment (ref ${facts.reference}) held for review: ${reason}. Nothing was sent for this payment; refund or deliver it from ${REFUNDS_PLACE}.`)
+    await urgentAlert(`URGENT: Special group ${groupId}: Hubtel payment (ref ${facts.reference}) held for review: ${reason}. Nothing was sent for this payment. See ${REFUNDS_PLACE}: refund it there, or deliver by hand.`)
     throw new Error(`${TABLE} ${facts.orderId}: Special group ${groupId}: ${reason}: needs manual review`)
   }
 
@@ -151,7 +151,7 @@ export async function specialGroupPostPayment(
   }
 
   if (failed.length > 0) {
-    await urgentAlert(`URGENT: Special group ${groupId}: Hubtel payment (ref ${facts.reference}) taken but unit ${failedText} could not be confirmed. Those units were not sent; refund or deliver them from ${REFUNDS_PLACE}.`)
+    await urgentAlert(`URGENT: Special group ${groupId}: Hubtel payment (ref ${facts.reference}) taken but unit ${failedText} could not be confirmed. Those units were not sent. See ${REFUNDS_PLACE}: refund them there, or deliver by hand.`)
     throw new Error(`${TABLE} ${facts.orderId}: Special group ${groupId}: unit ${failedText} not confirmed: needs manual review`)
   }
 }

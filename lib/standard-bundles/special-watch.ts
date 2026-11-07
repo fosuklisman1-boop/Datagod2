@@ -36,7 +36,9 @@ export async function watchStuckSpecialGroups(db: SupabaseClient, deps: SpecialW
     .eq("payment_status", "paid")
     .eq("status", "pending")
     .is("hubtel_client_reference", null)
-    .lt("created_at", new Date(now - SPECIAL_WATCH_AGE_MS).toISOString())
+    // updated_at, not created_at: the clock starts when the child was paid, so a payment made minutes after the group
+    // was created is not reported during a normal send.
+    .lt("updated_at", new Date(now - SPECIAL_WATCH_AGE_MS).toISOString())
     .limit(SPECIAL_WATCH_LIMIT)
   if (error) {
     if ((error as { code?: string }).code === "42703") return { skipped: true, groups: 0, alerted: 0 }

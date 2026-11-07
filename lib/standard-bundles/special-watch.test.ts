@@ -65,7 +65,7 @@ describe("watchStuckSpecialGroups", () => {
     expect(q.find(c => c.fn === "not")!.args).toEqual(["special_group_id", "is", null])
     expect(q.filter(c => c.fn === "eq").map(c => c.args)).toEqual([["payment_status", "paid"], ["status", "pending"]])
     expect(q.find(c => c.fn === "is")!.args).toEqual(["hubtel_client_reference", null])
-    expect(q.find(c => c.fn === "lt")!.args).toEqual(["created_at", iso(SPECIAL_WATCH_AGE_MS)])
+    expect(q.find(c => c.fn === "lt")!.args).toEqual(["updated_at", iso(SPECIAL_WATCH_AGE_MS)])
     expect(q.find(c => c.fn === "limit")).toBeTruthy()
     expect(writes.filter(w => w.table === "hubtel_data_orders")).toEqual([])
     expect(a.sent).toEqual([])

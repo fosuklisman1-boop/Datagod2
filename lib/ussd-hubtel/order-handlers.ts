@@ -1,6 +1,6 @@
 // lib/ussd-hubtel/order-handlers.ts
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { hubtelPaymentRef, type OrderHandlers, type PaidReviewHandlers } from "./payment"
+import { hubtelPaymentRef, type OrderHandlers, type PaidReviewHandlers, type PossiblyPaidAlerts } from "./payment"
 import { ORDER_TABLES, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { isPaidOutcome, type ConfirmPayment, type ConfirmResult } from "@/lib/storefront-commission/confirm"
 import { markCommissionGroupPaid, markCommissionOrderPaid } from "@/lib/storefront-commission/mark-paid"
@@ -585,7 +585,7 @@ export async function recordBotPaymentForReview(
   supabase: SupabaseClient,
   table: StorefrontOrderTable,
   orderId: string,
-  p: { reference: string; reason: string; urgent?: boolean },
+  p: { reference: string; reason: string; urgent?: boolean; held?: boolean },
 ): Promise<number> {
   const now = new Date().toISOString()
   const patch = { paid_at: now, payment_reference: p.reference }
@@ -613,7 +613,9 @@ export async function recordBotPaymentForReview(
       throw e
     }
     if (p.urgent) {
-      await urgentAlert(`URGENT: Special group ${groupId}: the payment handler died after Hubtel took the payment (ref ${p.reference}). ${n} of ${groupSize} units were never confirmed and are now held: refund or deliver them from Admin > Refunds. Any other unit that is paid but unsent: send it from Admin > Hubtel Commission > Standard Bundles.`)
+      await urgentAlert(`URGENT: Special group ${groupId}: the payment handler died after Hubtel took the payment (ref ${p.reference}). ${n} of ${groupSize} units were never confirmed and are now held. See Admin > Refunds: refund them there, or deliver by hand. Any other unit that is paid but unsent: send it from Admin > Hubtel Commission > Standard Bundles.`)
+    } else if (p.held) {
+      await urgentAlert(`URGENT: Special group ${groupId}: ${p.reason} (ref ${p.reference}). Nothing was sent. ${n} of ${groupSize} units are held for a real payment and need refunding or delivering by hand. See Admin > Refunds: refund them there, or deliver by hand.`)
     }
   } else {
     n = await markCommissionOrderPaid(supabase, table, orderId, patch, opts)
@@ -627,6 +629,29 @@ export function createPaidReviewHandlers(supabase: SupabaseClient): PaidReviewHa
   return {
     hubtel_bill_orders: async (orderId, p) => { await recordBotPaymentForReview(supabase, "hubtel_bill_orders", orderId, p) },
     hubtel_data_orders: async (orderId, p) => { await recordBotPaymentForReview(supabase, "hubtel_data_orders", orderId, p) },
+  }
+}
+
+/**
+ * The sweep found a stale row with no paid_at: Hubtel may or may not have taken the money (this state can also follow a
+ * crash in the expiry path with no payment), so nothing is recorded on the order. A Special group gets an URGENT alert;
+ * any other row stays silent. A group read error cannot rule a group out, so it alerts naming the order. Never throws
+ * for an alert (urgentAlert logs its own failure).
+ */
+export function createPossiblyPaidAlerts(supabase: SupabaseClient): PossiblyPaidAlerts {
+  const action = "No payment is recorded on the order. If Hubtel took the money, the units are unsent: refund it by hand, or deliver by hand."
+  return {
+    hubtel_data_orders: async (orderId, sessionId) => {
+      let groupId: string | null
+      try {
+        groupId = (await readSpecialGroup(supabase, "hubtel_data_orders", orderId))?.groupId ?? null
+      } catch (e) {
+        console.error("[HUBTEL-ORDER] Special group read failed for a possibly paid row:", orderId, sessionId, safeDbError(e))
+        await urgentAlert(`URGENT: hubtel_data_orders order ${orderId}: possibly paid (session ${sessionId}), and its Special group could not be read: check with Hubtel. ${action}`)
+        return
+      }
+      if (groupId) await urgentAlert(`URGENT: Special group ${groupId}: possibly paid (session ${sessionId}): check with Hubtel. ${action}`)
+    },
   }
 }
 
