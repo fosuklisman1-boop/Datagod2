@@ -6,6 +6,7 @@ import { isPaidOutcome, type ConfirmPayment, type ConfirmResult } from "@/lib/st
 import { markCommissionOrderPaid } from "@/lib/storefront-commission/mark-paid"
 import type { StorefrontOrderTable } from "@/lib/storefront-commission/payment"
 import { safeDbError } from "./log-safe"
+import { readSpecialGroup } from "./special-group"
 
 const last9 = (p: string | null | undefined) => (p || "").replace(/\D/g, "").slice(-9)
 
@@ -661,12 +662,12 @@ export function createOrderHandlers(supabase: SupabaseClient, opts: { confirmBot
  * The guarded fail update: only an order still in a payable status (and matching the table's failGuards) is
  * failed, so a paid order is never touched. Returns the filtered update builder (await it, or add `.select`).
  */
-function guardedFailUpdate(supabase: SupabaseClient, table: HubtelOrderTable, orderId: string) {
+function guardedFailUpdate(supabase: SupabaseClient, table: HubtelOrderTable, orderId: string, groupId: string | null = null) {
   const spec = ORDER_TABLES[table]
   let q = supabase
     .from(table)
     .update(spec.failPatch())
-    .eq("id", orderId)
+    .eq(groupId ? "special_group_id" : "id", groupId ?? orderId)
     .in("payment_status", [...spec.payableStatuses])
   for (const [col, vals] of Object.entries(spec.failGuards ?? {})) q = q.in(col, [...vals])
   return q
@@ -677,8 +678,15 @@ export function createFailHandlers(supabase: SupabaseClient): OrderHandlers {
   const handlers: OrderHandlers = {}
   for (const table of Object.keys(ORDER_TABLES) as HubtelOrderTable[]) {
     handlers[table] = async orderId => {
-      // Only an order that is still unpaid may be failed: a paid order is never touched here.
-      const { error } = await guardedFailUpdate(supabase, table, orderId)
+      // Only an order that is still unpaid may be failed: a paid order is never touched here. A Special group
+      // child fails with its whole group (a read error fails just this row, as before).
+      let groupId: string | null = null
+      try {
+        groupId = (await readSpecialGroup(supabase, table, orderId))?.groupId ?? null
+      } catch (e) {
+        console.error("[HUBTEL-ORDER] Special group read failed; failing the order by id:", table, orderId, safeDbError(e))
+      }
+      const { error } = await guardedFailUpdate(supabase, table, orderId, groupId)
       if (error) console.error("[HUBTEL-ORDER] fail handler update error:", table, orderId, safeDbError(error))
     }
   }
@@ -693,7 +701,14 @@ export function createFailHandlers(supabase: SupabaseClient): OrderHandlers {
  */
 export async function failOrderStrict(supabase: SupabaseClient, table: string, orderId: string): Promise<void> {
   if (!isHubtelOrderTable(table)) throw new Error(`${table} has no fail patch: order ${orderId} left unchanged`)
-  const { data, error } = await guardedFailUpdate(supabase, table, orderId).select("id")
+  // A Special group child fails with its whole group; success when at least one child changed.
+  let group: Awaited<ReturnType<typeof readSpecialGroup>>
+  try {
+    group = await readSpecialGroup(supabase, table, orderId)
+  } catch (e) {
+    throw new Error(`${table} ${orderId} could not be marked failed: Special group read failed: ${safeDbError(e).message}`)
+  }
+  const { data, error } = await guardedFailUpdate(supabase, table, orderId, group?.groupId ?? null).select("id")
   if (error) throw new Error(`${table} ${orderId} could not be marked failed: ${safeDbError(error).message}`)
   if (!data || data.length === 0) {
     throw new Error(`${table} ${orderId} is not in an unpaid state (missing, already failed, or paid): left unchanged`)
