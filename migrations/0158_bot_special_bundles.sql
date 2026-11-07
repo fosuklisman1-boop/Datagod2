@@ -24,27 +24,33 @@
 --                            bundle_value, bundle_display, bundle_category (non-empty strings),
 --                            amount (face, Hubtel price), paid_amount (the buyer's price per unit)
 --                            -- both numbers > 0, at most 2 decimals, < 1,000,000, and exactly
---                            paid_amount = amount - COALESCE(cashback_amount, 0)
---                  optional  cashback_amount, shop_share_amount (0..amount, at most 2 decimals), cashback_rate,
---                            cashback_share (0..100), expected_commission (0..999999), cashback_provider
---                            (string) -- or null
+--                            paid_amount = amount - COALESCE(cashback_amount, 0) + COALESCE(payment_fee_amount, 0)
+--                  optional  cashback_amount, shop_share_amount (0..amount, at most 2 decimals),
+--                            payment_fee_amount (the per-unit rail fee from quoteBots: >= 0, < 1,000,000, at most
+--                            2 decimals; absent or null is stored as 0), cashback_rate, cashback_share (0..100),
+--                            expected_commission (0..999999), cashback_provider (string) -- or null
 --                Any other key, a non-object element, or rows that differ => BAD_INPUT.
 --                The RPC sets channel, user_id (NULL), status, payment_status, bot_surface, buyer_phone, shop_id,
---                payment_fee_amount (0), idempotency_key, reference_code ('SB-' + 12 hex), special_group_id and
---                special_index. buyer_name and buyer_email stay NULL, as on every bot order.
+--                idempotency_key, reference_code ('SB-' + 12 hex), special_group_id and special_index.
+--                buyer_name and buyer_email stay NULL, as on every bot order.
 --   p_total      must equal N x paid_amount exactly (the amount of the one checkout that follows).
 --   returns      {"group_id": uuid, "order_ids": [uuid ordered by special_index], "replay": bool}
---   errors       RAISE EXCEPTION 'BAD_INPUT' (reason in DETAIL, no PII). Nothing is written.
+--   errors       RAISE EXCEPTION 'BAD_INPUT' (reason in DETAIL, no PII), including a key already used under another
+--                shop: a replay never crosses shops. RAISE EXCEPTION 'GROUP_CONFLICT' (SQLSTATE 23505, fixed text):
+--                a unique clash that is not a same-key replay. Postgres's own message is not re-raised, because its
+--                DETAIL can carry the buyer's phone. Nothing is written on any error.
 --
--- Order: guard surface, buyer and key -> replay lookup of key:1 -> validate -> N inserts in one sub-block.
+-- Order: guard surface, buyer and key -> replay lookup of key:1 (same shop only) -> validate -> N inserts in one
+-- sub-block.
 --
 -- No money moves here, on purpose: no wallets, no transactions, no deduct_wallet. Children end pending + unpaid, the
 -- same state botCreateBundleOrder leaves a bot order in, and Hubtel's payment confirmation flips them later.
 --
 -- Concurrency: there is no wallet row to lock, so two identical calls at once can both miss the replay lookup. The
 -- second then blocks on uq_hubtel_data_orders_bots_idem (bot_surface, buyer_phone, idempotency_key) at key:1 until
--- the first commits, gets unique_violation, and the handler returns the first call's group as a replay. Any other
--- clash rolls back every child of this call and re-raises, so a partial group can never be written.
+-- the first commits, gets unique_violation, and the handler returns the first call's group as a replay (or BAD_INPUT
+-- if that group belongs to another shop). Any other clash rolls back every child of this call and raises
+-- GROUP_CONFLICT, so a partial group can never be written.
 --
 -- PRE-CHECKS (each must return the stated value before applying):
 --   SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'hubtel_data_orders_special_check';
@@ -105,7 +111,9 @@ DECLARE
   v_paid     numeric;
   v_sum      numeric;
   v_num      numeric;
+  v_fee      numeric;
   v_group    uuid;
+  v_shop     uuid;
   v_id       uuid;
   v_ids      jsonb := '[]'::jsonb;
 BEGIN
@@ -121,13 +129,16 @@ BEGIN
   END IF;
 
   -- 1. Replay: the group already exists for this surface and buyer => hand it back, never insert again.
-  SELECT o.special_group_id INTO v_group
+  SELECT o.special_group_id, o.shop_id INTO v_group, v_shop
     FROM public.hubtel_data_orders o
    WHERE o.channel = 'bots' AND o.bot_surface = p_surface AND o.buyer_phone = p_buyer
      AND o.idempotency_key = p_group_key || ':1';
   IF FOUND THEN
     IF v_group IS NULL THEN
       RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'idempotency key already used by another order';
+    END IF;
+    IF v_shop IS DISTINCT FROM p_shop THEN
+      RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'idempotency key already used under another shop';
     END IF;
     RETURN jsonb_build_object(
       'group_id', v_group,
@@ -163,7 +174,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM jsonb_object_keys(v_unit) k
               WHERE k NOT IN ('network','service_key','beneficiary_phone','bundle_value','bundle_display',
                               'bundle_category','amount','paid_amount','cashback_amount','shop_share_amount',
-                              'cashback_rate','cashback_share','cashback_provider','expected_commission')) THEN
+                              'payment_fee_amount','cashback_rate','cashback_share','cashback_provider',
+                              'expected_commission')) THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'unknown row field';
   END IF;
 
@@ -188,11 +200,12 @@ BEGIN
   IF NOT (v_amount > 0) OR v_amount <> round(v_amount, 2) OR v_amount >= 1000000 THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'amount must be positive with at most 2 decimals';
   END IF;
-  IF NOT (v_paid > 0) OR v_paid <> round(v_paid, 2) OR v_paid > v_amount THEN
-    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'paid_amount must be positive, at most 2 decimals, not above amount';
+  -- Not capped at amount as in 0141: a rail fee can lift paid_amount above face. The price invariant below pins it.
+  IF NOT (v_paid > 0) OR v_paid <> round(v_paid, 2) OR v_paid >= 1000000 THEN
+    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'paid_amount must be positive with at most 2 decimals';
   END IF;
 
-  FOREACH v_key IN ARRAY ARRAY['cashback_amount','shop_share_amount','cashback_rate','cashback_share','expected_commission'] LOOP
+  FOREACH v_key IN ARRAY ARRAY['cashback_amount','shop_share_amount','payment_fee_amount','cashback_rate','cashback_share','expected_commission'] LOOP
     IF v_unit ? v_key AND jsonb_typeof(v_unit -> v_key) <> 'null' THEN
       IF jsonb_typeof(v_unit -> v_key) <> 'number' THEN
         RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = v_key || ' must be a number';
@@ -200,6 +213,7 @@ BEGIN
       v_num := (v_unit ->> v_key)::numeric;
       IF v_num < 0
          OR (v_key IN ('cashback_amount','shop_share_amount') AND (v_num > v_amount OR v_num <> round(v_num, 2)))
+         OR (v_key = 'payment_fee_amount' AND (v_num >= 1000000 OR v_num <> round(v_num, 2)))
          OR (v_key IN ('cashback_rate','cashback_share') AND v_num > 100)
          OR (v_key = 'expected_commission' AND v_num >= 1000000) THEN
         RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = v_key || ' out of range';
@@ -215,10 +229,11 @@ BEGIN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'shop_share_amount needs a shop';
   END IF;
 
-  -- Price invariant (quoteCashback: payAmount = face - customerCashback), exact numeric: a caller bug can
-  -- never under- or over-charge. No cashback (absent or null) => paid_amount must equal amount.
-  IF v_paid <> v_amount - COALESCE((v_unit ->> 'cashback_amount')::numeric, 0) THEN
-    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'paid_amount must equal amount - cashback_amount';
+  -- Price invariant (quoteBots: payAmount = face - customerCashback + paymentFee), exact numeric: a caller bug can
+  -- never under- or over-charge. Cashback or fee absent or null counts as 0.
+  v_fee := COALESCE((v_unit ->> 'payment_fee_amount')::numeric, 0);
+  IF v_paid <> v_amount - COALESCE((v_unit ->> 'cashback_amount')::numeric, 0) + v_fee THEN
+    RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'paid_amount must equal amount - cashback_amount + payment_fee_amount';
   END IF;
 
   v_sum := v_paid * v_n;
@@ -242,7 +257,7 @@ BEGIN
         NULL, 'bots', p_surface, p_shop, p_buyer, 'MTN', 'data_mtn', v_unit ->> 'beneficiary_phone',
         v_unit ->> 'bundle_value', v_unit ->> 'bundle_display', v_unit ->> 'bundle_category',
         v_amount, 'pending', 'unpaid', p_group_key || ':' || v_i,
-        v_paid, 0,
+        v_paid, v_fee,
         (v_unit ->> 'cashback_amount')::numeric, (v_unit ->> 'shop_share_amount')::numeric,
         (v_unit ->> 'cashback_rate')::numeric, (v_unit ->> 'cashback_share')::numeric,
         v_unit ->> 'cashback_provider', (v_unit ->> 'expected_commission')::numeric,
@@ -254,14 +269,17 @@ BEGIN
     RETURN jsonb_build_object('group_id', v_group, 'order_ids', v_ids, 'replay', false);
   EXCEPTION
     WHEN unique_violation THEN
-      -- Every child of this call is rolled back. A same-key race lands here: report the winner's group.
-      -- Otherwise re-raise (nothing written).
-      SELECT o.special_group_id INTO v_group
+      -- Every child of this call is rolled back. A same-key race lands here: report the winner's group, unless it
+      -- belongs to another shop. Otherwise a fixed error, never Postgres's own: its DETAIL can carry the phone.
+      SELECT o.special_group_id, o.shop_id INTO v_group, v_shop
         FROM public.hubtel_data_orders o
        WHERE o.channel = 'bots' AND o.bot_surface = p_surface AND o.buyer_phone = p_buyer
          AND o.idempotency_key = p_group_key || ':1' AND o.special_group_id IS NOT NULL;
       IF NOT FOUND THEN
-        RAISE;
+        RAISE EXCEPTION 'GROUP_CONFLICT' USING ERRCODE = 'unique_violation', DETAIL = 'unique clash while creating the group';
+      END IF;
+      IF v_shop IS DISTINCT FROM p_shop THEN
+        RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'idempotency key already used under another shop';
       END IF;
       RETURN jsonb_build_object(
         'group_id', v_group,

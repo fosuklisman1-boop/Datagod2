@@ -89,6 +89,16 @@ describe("0158 migration text", () => {
     expect(b.match(/INSERT INTO public\.hubtel_data_orders/g)).toHaveLength(1)
   })
 
+  it("never re-raises Postgres's own error, and checks the shop on both replay paths", () => {
+    const b = rpcBody()
+    expect(b).not.toMatch(/\bRAISE\s*;/)
+    expect(b.match(/v_shop IS DISTINCT FROM p_shop/g)).toHaveLength(2)
+  })
+
+  it("prices with the fee exactly", () => {
+    expect(rpcBody()).toMatch(/v_paid <> v_amount - COALESCE\(\(v_unit ->> 'cashback_amount'\)::numeric, 0\) \+ v_fee/)
+  })
+
   it("states the pre-checks: the CHECK as 0141 left it, and that the new name is free", () => {
     const m = migration()
     expect(m).toContain("channel = 'dashboard'::text")
@@ -108,7 +118,7 @@ describe("0158 run string (migration + self-test)", () => {
   it("self-test covers replay, every refusal, the CHECK and the grants", () => {
     expect(exists(SELFTEST_FILE)).toBe(true)
     const st = read(SELFTEST_FILE)
-    for (const label of ["happy", "main_context", "replay", "other_buyer", "no_partial_group", "key_used_by_normal_order", "bad_total", "rows_differ", "not_mtn",
+    for (const label of ["happy", "main_context", "replay", "replay_other_shop", "fee_paid_wrong", "fee_negative", "other_buyer", "no_partial_group", "key_used_by_normal_order", "bad_total", "rows_differ", "not_mtn",
                          "paid_not_face_minus_cashback", "bad_surface", "share_without_shop", "dashboard_special", "storefront_special",
                          "bots_without_surface", "deny_anon", "deny_authenticated"]) {
       expect(st).toContain(label)
@@ -232,8 +242,11 @@ describe.skipIf(!PGliteCtor)("0158 in PGlite", () => {
 
   it("the self-rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
     const before = await orderCount()
-    await expect(db.exec(runString())).rejects.toThrow(/SELFTEST_OK 0158/)
-    await db.exec("ROLLBACK")
+    try {
+      await expect(db.exec(runString())).rejects.toThrow(/SELFTEST_OK 0158/)
+    } finally {
+      await db.exec("ROLLBACK") // also on a failure, so it cannot hide the behaviour tests below
+    }
     expect(Number((await one("SELECT count(*) AS n FROM pg_proc WHERE proname = 'create_bot_special_bundle_orders'")).n)).toBe(0)
     expect(await orderCount()).toBe(before)
   })
@@ -297,12 +310,47 @@ describe.skipIf(!PGliteCtor)("0158 in PGlite", () => {
       await expect(call({ key })).rejects.toThrow("BAD_INPUT")
     })
 
-    it("a clash on a later child writes no part of the group", async () => {
+    it("a clash on a later child writes no part of the group, and the error carries no phone", async () => {
       const before = await orderCount()
       const key = newKey()
       await insertRow({ channel: "bots", bot_surface: "hubtel_ussd", buyer_phone: BUYER, idempotency_key: `${key}:2`, special_group_id: null, special_index: null })
-      await expect(call({ key })).rejects.toThrow(/duplicate key/)
+      const err: any = await call({ key }).then(() => null, e => e)
+      expect(err?.message).toBe("GROUP_CONFLICT")
+      expect(err.code).toBe("23505")
+      expect(JSON.stringify({ m: err.message, d: err.detail, h: err.hint })).not.toContain(BUYER)
       expect(await orderCount()).toBe(before + 1) // only the row this test inserted
+    })
+
+    it("a replay never crosses shops: another shop, or shop to main and back, is refused", async () => {
+      const OTHER = "5f0c1a9e-0158-4158-8158-000000000159"
+      const shopKey = newKey()
+      const first = await call({ key: shopKey })
+      const before = await orderCount()
+      await expect(call({ key: shopKey, shop: OTHER })).rejects.toThrow("BAD_INPUT")
+      await expect(call({ key: shopKey, shop: null })).rejects.toThrow("BAD_INPUT")
+      const mainKey = newKey()
+      const unit = { ...UNIT, shop_share_amount: 0 }
+      await call({ key: mainKey, shop: null, n: 1, rows: rows(1, unit), total: "2.95" })
+      await expect(call({ key: mainKey, shop: SHOP, n: 1, rows: rows(1, unit), total: "2.95" })).rejects.toThrow("BAD_INPUT")
+      expect(await orderCount()).toBe(before + 1) // only the main-code group
+      expect(await call({ key: shopKey })).toEqual({ ...first, replay: true }) // the right shop still replays
+    })
+
+    it("a rail fee is stored on every child and can lift paid above face", async () => {
+      const unit = { ...UNIT, payment_fee_amount: 0.1, paid_amount: 3.05 }
+      const r = await call({ n: 2, rows: rows(2, unit), total: "6.10" })
+      const got = (await db.query("SELECT amount, paid_amount, payment_fee_amount FROM public.hubtel_data_orders WHERE special_group_id = $1", [r.group_id])).rows
+      expect(got).toHaveLength(2)
+      for (const o of got as any[]) expect([o.amount, o.paid_amount, o.payment_fee_amount].map(Number)).toEqual([3, 3.05, 0.1])
+    })
+
+    it("an absent or null fee is stored as 0", async () => {
+      for (const unit of [UNIT, { ...UNIT, payment_fee_amount: null }]) {
+        const r = await call({ n: 1, rows: rows(1, unit), total: "2.95" })
+        const o = await one("SELECT payment_fee_amount AS f FROM public.hubtel_data_orders WHERE id = $1", [r.order_ids[0]])
+        expect(Number(o.f)).toBe(0)
+        expect(o.f).not.toBeNull()
+      }
     })
 
     const REFUSALS: [string, Parameters<typeof call>[0]][] = [
@@ -329,7 +377,11 @@ describe.skipIf(!PGliteCtor)("0158 in PGlite", () => {
       ["n of 51", { n: 51, rows: rows(51), total: "150.45" }],
       ["n differs from the rows", { n: 2 }],
       ["a caller-set column", { rows: rows(3, { ...UNIT, status: "completed" }) }],
-      ["a caller-set fee", { rows: rows(3, { ...UNIT, payment_fee_amount: 1 }) }],
+      ["a fee the paid amount does not include", { rows: rows(3, { ...UNIT, payment_fee_amount: 1 }) }],
+      ["a paid amount off by a pesewa with a fee", { rows: rows(3, { ...UNIT, payment_fee_amount: 0.1, paid_amount: 3.04 }), total: "9.12" }],
+      ["a negative fee", { rows: rows(3, { ...UNIT, payment_fee_amount: -0.1, paid_amount: 2.85 }), total: "8.55" }],
+      ["a fee with 3 decimals", { rows: rows(3, { ...UNIT, payment_fee_amount: 0.105, paid_amount: 3.05 }), total: "9.15" }],
+      ["a fee as text", { rows: rows(3, { ...UNIT, payment_fee_amount: "0.10", paid_amount: 3.05 }), total: "9.15" }],
       ["a negative share", { rows: rows(3, { ...UNIT, shop_share_amount: -0.01 }) }],
       ["a bad beneficiary", { rows: rows(3, { ...UNIT, beneficiary_phone: "0249990159" }) }],
     ]

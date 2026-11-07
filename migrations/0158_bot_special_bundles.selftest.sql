@@ -25,10 +25,10 @@
 -- The PGlite block of the test file also compares the totals, where nothing else is writing.
 --
 -- Scenarios (labels): catalog, grants, deny_anon / deny_authenticated (real call under SET LOCAL ROLE), happy (N=3, shop),
--- main_context, replay (same key, and same key with another payload), other_buyer, no_partial_group,
--- key_used_by_normal_order, the refusals (bad_total_*, rows_differ, not_mtn, paid_not_face_minus_cashback_*,
--- bad_surface_*, share_without_shop, bad_buyer_*, ...), dashboard_special, storefront_special, api_special,
--- bots_not_mtn, bots_without_surface.
+-- main_context, replay (same key, and same key with another payload), replay_other_shop, fee, fee_null, other_buyer,
+-- no_partial_group, key_used_by_normal_order, the refusals (bad_total_*, rows_differ, not_mtn,
+-- paid_not_face_minus_cashback_*, bad_surface_*, share_without_shop, bad_buyer_*, fee_*, ...), dashboard_special, and
+-- the CHECK refusals named by constraint: storefront_special, api_special, bots_not_mtn, bots_without_surface.
 --
 -- No real user, shop or wallet is read or written: user and shop ids are random (neither column has a foreign key on
 -- hubtel_data_orders). Test phones 233249990158 to 233249990161 are unique to this selftest. Unit: face 3.00,
@@ -63,6 +63,7 @@ DECLARE
   v_src     text;
   v_channel text;
   v_network text;
+  v_detail  text;
 BEGIN
   v_unit := jsonb_build_object(
     'network', 'MTN', 'service_key', 'data_mtn', 'beneficiary_phone', v_phone,
@@ -156,13 +157,41 @@ BEGIN
      OR v_res2->'order_ids' <> v_res->'order_ids' THEN
     RAISE EXCEPTION 'FAIL replay: % vs %', v_res2, v_res;
   END IF;
-  -- replay with a different (even invalid) payload still returns the group
-  v_res2 := public.create_bot_special_bundle_orders(v_surface, v_buyer, NULL, v_key1, 0, '[]'::jsonb, 0);
+  -- replay with a different (even invalid) payload under the same shop still returns the group
+  v_res2 := public.create_bot_special_bundle_orders(v_surface, v_buyer, v_shop, v_key1, 0, '[]'::jsonb, 0);
   IF (v_res2->>'replay')::boolean IS DISTINCT FROM true OR v_res2->'order_ids' <> v_res->'order_ids' THEN
     RAISE EXCEPTION 'FAIL replay_other_payload: %', v_res2;
   END IF;
+  -- replay_other_shop: a replay never crosses shops, including from a shop to the main code (NULL)
+  FOREACH v_keyx IN ARRAY ARRAY[gen_random_uuid()::text, NULL] LOOP
+    v_got := NULL;
+    <<replay_other_shop>>
+    BEGIN
+      PERFORM public.create_bot_special_bundle_orders(v_surface, v_buyer, v_keyx::uuid, v_key1, 3,
+                (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 8.85);
+      v_got := 'NO_ERROR';
+    EXCEPTION WHEN OTHERS THEN
+      v_got := SQLERRM;
+    END replay_other_shop;
+    IF v_got IS DISTINCT FROM 'BAD_INPUT' THEN RAISE EXCEPTION 'FAIL replay_other_shop: got %', v_got; END IF;
+  END LOOP;
   SELECT count(*) INTO v_n FROM public.hubtel_data_orders WHERE buyer_phone = v_buyer AND idempotency_key LIKE v_key1 || ':%';
   IF v_n <> 3 THEN RAISE EXCEPTION 'FAIL replay: % children', v_n; END IF;
+
+  -- fee: a rail fee is accepted, can lift paid above face, and is stored on every child ------------------
+  v_keyx := 'selftest-' || gen_random_uuid()::text;
+  v_res2 := public.create_bot_special_bundle_orders(v_surface, v_buyer, v_shop, v_keyx, 2,
+              (SELECT jsonb_agg(v_unit || '{"payment_fee_amount":0.10,"paid_amount":3.05}'::jsonb) FROM generate_series(1, 2)), 6.10);
+  SELECT count(*) INTO v_n FROM public.hubtel_data_orders
+   WHERE special_group_id = (v_res2->>'group_id')::uuid AND payment_fee_amount = 0.10 AND paid_amount = 3.05 AND amount = 3.00;
+  IF v_n <> 2 THEN RAISE EXCEPTION 'FAIL fee: % matching children', v_n; END IF;
+  -- fee_null: null counts as 0, and is stored as 0
+  v_keyx := 'selftest-' || gen_random_uuid()::text;
+  v_res2 := public.create_bot_special_bundle_orders(v_surface, v_buyer, v_shop, v_keyx, 1,
+              jsonb_build_array(v_unit || '{"payment_fee_amount":null}'::jsonb), 2.95);
+  SELECT count(*) INTO v_n FROM public.hubtel_data_orders
+   WHERE id = (v_res2->'order_ids'->>0)::uuid AND payment_fee_amount = 0;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL fee_null: child row'; END IF;
 
   -- other_buyer: the same key from another number is its own group ----------------------------------
   v_res2 := public.create_bot_special_bundle_orders(v_surface, '233249990160', v_shop, v_key1, 1, jsonb_build_array(v_unit), 2.95);
@@ -218,7 +247,10 @@ BEGIN
       ('amount_as_text',  v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit || '{"amount":"3.00"}'::jsonb), 2.95::numeric),
       ('missing_display', v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit - 'bundle_display'), 2.95::numeric),
       ('unknown_field',   v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit || '{"status":"completed"}'::jsonb), 2.95::numeric),
-      ('caller_set_fee',  v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit || '{"payment_fee_amount":1}'::jsonb), 2.95::numeric),
+      ('fee_paid_wrong',  v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit || '{"payment_fee_amount":0.10}'::jsonb), 2.95::numeric),
+      ('fee_negative',    v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit || '{"payment_fee_amount":-0.10,"paid_amount":2.85}'::jsonb), 2.85::numeric),
+      ('fee_three_dp',    v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit || '{"payment_fee_amount":0.105,"paid_amount":3.05}'::jsonb), 3.05::numeric),
+      ('fee_as_text',     v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit || '{"payment_fee_amount":"0.10","paid_amount":3.05}'::jsonb), 3.05::numeric),
       ('negative_share',  v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit || '{"shop_share_amount":-0.01}'::jsonb), 2.95::numeric),
       ('three_dp_share',  v_surface, v_buyer, v_shop, 1, jsonb_build_array(v_unit || '{"shop_share_amount":0.005}'::jsonb), 2.95::numeric)
     ) AS t(c, sf, by_, sh, pn, rws, tot)
@@ -267,7 +299,7 @@ BEGIN
   END key_used_by_normal_order;
   IF v_got IS DISTINCT FROM 'BAD_INPUT' THEN RAISE EXCEPTION 'FAIL key_used_by_normal_order: got %', v_got; END IF;
 
-  -- no_partial_group: a clash on child 2 of 3 rolls back child 1 and re-raises ----------------------------
+  -- no_partial_group: a clash on child 2 of 3 rolls back child 1 and raises the fixed GROUP_CONFLICT, no phone ---
   v_keyx := 'selftest-' || gen_random_uuid()::text;
   INSERT INTO public.hubtel_data_orders (reference_code, channel, bot_surface, buyer_phone, network, service_key, beneficiary_phone,
                                          bundle_value, bundle_display, bundle_category, amount, idempotency_key)
@@ -280,9 +312,11 @@ BEGIN
               (SELECT jsonb_agg(v_unit) FROM generate_series(1, 3)), 8.85);
     v_got := 'NO_ERROR';
   EXCEPTION WHEN unique_violation THEN
-    v_got := 'unique_violation';
+    GET STACKED DIAGNOSTICS v_detail = PG_EXCEPTION_DETAIL;
+    v_got := SQLERRM;
   END no_partial_group;
-  IF v_got IS DISTINCT FROM 'unique_violation' THEN RAISE EXCEPTION 'FAIL no_partial_group: got %', v_got; END IF;
+  IF v_got IS DISTINCT FROM 'GROUP_CONFLICT' THEN RAISE EXCEPTION 'FAIL no_partial_group: got %', v_got; END IF;
+  IF v_detail LIKE '%' || v_buyer || '%' THEN RAISE EXCEPTION 'FAIL no_partial_group: the phone is in DETAIL'; END IF;
   SELECT count(*) INTO v_n FROM public.hubtel_data_orders WHERE idempotency_key LIKE v_keyx || ':%';
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL no_partial_group: % rows for the key', v_n; END IF;
 
@@ -306,6 +340,11 @@ BEGIN
     v_got := NULL;
     <<check_refusal>>
     BEGIN
+      -- 0123's constraint is checked first (Postgres checks by name), so it would hide this one. The drop rolls back
+      -- with this sub-block.
+      IF v_case = 'bots_without_surface' THEN
+        ALTER TABLE public.hubtel_data_orders DROP CONSTRAINT hubtel_data_orders_bot_surface_required;
+      END IF;
       INSERT INTO public.hubtel_data_orders (reference_code, channel, bot_surface, buyer_phone, shop_id, network, service_key, beneficiary_phone,
                                              bundle_value, bundle_display, bundle_category, amount, idempotency_key,
                                              special_group_id, special_index)
@@ -314,10 +353,17 @@ BEGIN
               gen_random_uuid(), 1);
       v_got := 'NO_ERROR';
     EXCEPTION WHEN check_violation THEN
-      v_got := 'check_violation';
+      v_got := SQLERRM;
     END check_refusal;
-    IF v_got IS DISTINCT FROM 'check_violation' THEN RAISE EXCEPTION 'FAIL %: got %', v_case, v_got; END IF;
+    -- This migration's own CHECK must be the one refusing: any other check_violation is a failure.
+    IF v_got IS NULL OR v_got NOT LIKE '%hubtel_data_orders_special_check%' THEN
+      RAISE EXCEPTION 'FAIL %: got %', v_case, v_got;
+    END IF;
   END LOOP;
+  -- the drop above rolled back
+  SELECT count(*) INTO v_n FROM pg_constraint
+   WHERE conrelid = 'public.hubtel_data_orders'::regclass AND conname = 'hubtel_data_orders_bot_surface_required';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL bots_without_surface: 0123 constraint not restored'; END IF;
 
   -- Always roll back. -------------------------------------------------------
   RAISE EXCEPTION 'SELFTEST_OK 0158: all scenarios passed; rolling back';
