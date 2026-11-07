@@ -11,7 +11,7 @@ import { dbSessionStore } from "./session"
 import { defaultShopServices } from "./shop-services"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
 import { mainExitText, mainMenuText, type MainMenuKey, type ShopMenuKey } from "./menus"
-import { release, respond, toE164 } from "./protocol"
+import { release, respond, toE164, USSD_SCREEN_LIMIT } from "./protocol"
 import {
   finish, mainMenuReply, menuFor, replaySubmittedOrder,
   type FlowCtx, type RouterDeps, type StepHandler, type StepTable,
@@ -165,7 +165,10 @@ async function startSession(req: HubtelRequest, deps: RouterDeps, config: Hubtel
     return release(req.SessionId, "No services available right now. Please try again later.", { platform: req.Platform })
   }
   await deps.sessions.set(req.SessionId, { mode: "main", step: "MAIN", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked })
-  return respond(req.SessionId, prefix + mainMenuText(resolved, config.welcome), { label: "Main menu", clientState: "MAIN", platform: req.Platform })
+  const menu = mainMenuText(resolved, config.welcome)
+  // A screen over the limit is cut off, which would lose "0. Exit": the menu matters more than the notice.
+  const text = (prefix + menu).length <= USSD_SCREEN_LIMIT ? prefix + menu : menu
+  return respond(req.SessionId, text, { label: "Main menu", clientState: "MAIN", platform: req.Platform })
 }
 
 /** New or restarted session: the CURRENT config mode decides, and is pinned by the start function. */
