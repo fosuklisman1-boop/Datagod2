@@ -1,5 +1,7 @@
 # Hubtel USSD — go-live runbook (Plans 1-3: data, airtime, results checker, AFA, shop mode)
 
+> **Two codes now.** The existing URL (no `line` parameter) serves `*713*235#`, in the mode set on the Shop code tab. A second code uses `line=main`: see "Two codes: the main code" at the end. Each has its own settings on `/admin/ussd-hubtel`.
+
 ## 0. Prerequisites you do manually
 - [ ] Hubtel merchant account; note the **Collection Account Number** and API credentials.
 - [ ] DigitalOcean droplet running the relay (`scripts/hubtel-relay/README.md`); give its **public IPv4** to your Hubtel Retail Systems Engineer to whitelist for the callback + status-check endpoints. Deploy layout is repo-relative: copy only `scripts/hubtel-relay/server.ts` and `lib/ussd-hubtel/relay-handler.ts` into `/opt/hubtel-relay/`, preserving those paths (the README has the full steps).
@@ -157,3 +159,38 @@ After Phase B passes cleanly, leave the channel enabled and widen the audience (
 - Hubtel orders use `channel='ussd'` like Uzo orders; to report Hubtel separately, join `hubtel_transactions (order_table, order_id)`.
 - The status-check cron handles at most 50 awaiting rows per run (oldest first); a large backlog drains over several runs.
 - Still to do: live visual check of `/admin/ussd-hubtel` (incl. the Mark resolved dialog) and the live simulator runs on a non-production environment (Phase A).
+
+## Two codes: the main code
+
+The main code is a second Hubtel code on the same merchant account. It always opens the main menu, whatever Mode the Shop code tab is set to. Design: `docs/superpowers/specs/2026-11-07-hubtel-main-line-design.md`. Uzo codes are unaffected.
+
+### URLs to give Hubtel
+- Service Interaction URL: `https://www.datagod.store/api/ussd-hubtel/interaction?secret=<HUBTEL_WEBHOOK_SECRET>&line=main`
+- Service Fulfilment URL: `https://www.datagod.store/api/ussd-hubtel/fulfillment?secret=<HUBTEL_WEBHOOK_SECRET>` (the same as the existing code)
+
+The new code needs its **own** Service Interaction URL. If Hubtel cannot do this, stop: the routing needs another design. Do not attach the code to the existing URL, or callers get the shop-code prompt.
+
+### How `line` works
+- No `line`: the existing code's settings (`hubtel_ussd_config`).
+- `line=main`: the main code's settings (`hubtel_ussd_main_line_config`). No row means **off**.
+- Anything else, including a repeated `line`: "Service unavailable", and no menu opens. If callers report this, check the URL Hubtel holds.
+
+### Settings and switches
+- Each code has its own switch, services, brand and welcome line. A save changes only that code's row.
+- Switching one code off ends only that code's sessions. To roll back the main code, switch it off on the **Main code** tab. The shop code keeps working.
+- Fulfilment, callbacks, status checks and the relay are shared and need no change. So are prices (`ussd_price_tier`, shared with Uzo main) and Hubtel's charge, which the customer pays on top.
+- Standard Bundles and Pay Bills also need the cashback bots switches, which apply to every code.
+- The `/admin/utility-bills` Pay Bills status reflects the **shop code only**, not the main code.
+- `/admin/ussd-hubtel` shows transactions and sessions for both codes together. Main orders use `channel='ussd'`, like Uzo: join `hubtel_transactions` to tell them apart.
+
+### After deploying the code change (main code still off)
+1. New paid `hubtel_transactions` rows keep arriving, and the owner dials `*713*235#` once.
+2. `hubtel_ussd_main_line_config` has no row in `admin_settings`, which means off.
+3. A request with `line=main` and no secret, from a normal browser or allowed client, returns 401. The firewall may block scripted clients: if so, record that and rely on checks 1 and 2.
+
+### Launch
+1. Register the two URLs above with Hubtel and keep the code restricted. Dial it while off and expect "Service unavailable".
+2. Switch on the **Main code** tab and test from the owner's phone with small purchases. Priority: **AFA (none ever sold through Hubtel), Pay Bills (one ever sold), Check Results**. Then one each of data, airtime, Standard Bundles and vouchers. Each row on `/admin/ussd-hubtel` must be `fulfilled` with `callback_status=sent`. Read the screens on a real handset.
+3. If anything is wrong, switch only the main code off.
+4. Ask Hubtel to remove the restriction. Watch `needs_review` and `callback_failed` for the first hours.
+5. Decide which main code to publish: `public_ussd_codes` in `/admin/settings` holds one code, and two main codes will be live.
