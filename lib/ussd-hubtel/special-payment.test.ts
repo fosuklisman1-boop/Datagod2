@@ -898,7 +898,7 @@ describe("stuck-children watch", () => {
     const orders = [{ special_group_id: GROUP }, { special_group_id: GROUP }]
     const chain = (rows: unknown): any => {
       const q: any = {
-        select: () => q, not: () => q, is: () => q, lt: () => q, limit: () => q, in: () => q,
+        select: () => q, not: () => q, is: () => q, lt: () => q, limit: () => q, in: () => q, or: () => q,
         eq: (c: string, v: unknown) => { eqs.push([c, v]); return q },
         maybeSingle: async () => ({ data: null, error: null }),
         upsert: async () => ({ error: null }),
