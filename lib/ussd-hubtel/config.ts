@@ -35,6 +35,11 @@ export interface HubtelUssdConfig {
    * path that did not load it, or a failed load) means hidden: fail closed.
    */
   botMenus?: BotMenuGate
+  /**
+   * Wallet payment on the main code. MAIN LINE ONLY: `getHubtelMainLineConfig` returns true only for a stored
+   * explicit `true`; `getHubtelUssdConfig` (the shop line) never returns it true, whatever its row holds.
+   */
+  walletPayment?: boolean
 }
 
 /** Cashback bots gate per bot menu: `enabled && surfaces.bots && botGroups[group]` (bundles / bills). */
@@ -48,6 +53,7 @@ interface StoredHubtelUssdConfig {
   visibility?: Partial<HubtelUssdConfig["visibility"]>
   brandName?: unknown
   welcome?: unknown
+  walletPayment?: unknown
 }
 
 export const DEFAULT_BRAND = "Clingshub"
@@ -128,10 +134,12 @@ function storedCustomWelcome(raw: unknown): string | null {
   return v.ok && v.value !== DEFAULT_WELCOME ? v.value : null
 }
 
-function resolveConfig(stored: StoredHubtelUssdConfig): HubtelUssdConfig {
+function resolveConfig(stored: StoredHubtelUssdConfig, mainLine = false): HubtelUssdConfig {
   const brandName = storedBrand(stored.brandName)
   const custom = storedCustomWelcome(stored.welcome)
   return {
+    // Main line only, and only an explicit `true`. The shop line carries no such key at all.
+    ...(mainLine ? { walletPayment: stored.walletPayment === true } : {}),
     // Only an explicit `true` enables the channel.
     enabled: stored.enabled === true,
     mode: stored.mode === "shop" ? "shop" : "main",
@@ -159,12 +167,14 @@ export async function getHubtelUssdConfig(supabase: SupabaseClient): Promise<Hub
 
 /** The main code's settings: off when no row exists, and always main mode, whatever a row stores. */
 export async function getHubtelMainLineConfig(supabase: SupabaseClient): Promise<HubtelUssdConfig> {
-  return resolveConfig({ ...(await readStored(supabase, HUBTEL_USSD_MAIN_LINE_CONFIG_KEY)), mode: "main" })
+  return resolveConfig({ ...(await readStored(supabase, HUBTEL_USSD_MAIN_LINE_CONFIG_KEY)), mode: "main" }, true)
 }
 
 /** What both codes can change. */
 export interface HubtelLinePatch {
   enabled?: boolean
+  /** Main code only: setHubtelUssdConfig ignores it and never stores it. */
+  walletPayment?: boolean
   visibility?: Partial<HubtelUssdConfig["visibility"]>
   brandName?: string
   /** A string sets the custom welcome; null clears it (back to `Welcome to <brand>`). */
@@ -209,7 +219,10 @@ function mergedRow(
 export async function setHubtelMainLineConfig(supabase: SupabaseClient, patch: HubtelLinePatch): Promise<HubtelUssdConfig> {
   const text = validatedText(patch)
   const current = await getHubtelMainLineConfig(supabase)
-  const stored = mergedRow(current, patch, text)
+  const stored: StoredHubtelUssdConfig = {
+    ...mergedRow(current, patch, text),
+    walletPayment: patch.walletPayment ?? current.walletPayment === true,
+  }
   const { error } = await supabase.from("admin_settings").upsert(
     {
       key: HUBTEL_USSD_MAIN_LINE_CONFIG_KEY,
@@ -220,7 +233,7 @@ export async function setHubtelMainLineConfig(supabase: SupabaseClient, patch: H
     { onConflict: "key" }
   )
   if (error) throw error
-  return resolveConfig({ ...stored, mode: "main" })
+  return resolveConfig({ ...stored, mode: "main" }, true)
 }
 
 export async function setHubtelUssdConfig(

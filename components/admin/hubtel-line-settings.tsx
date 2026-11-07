@@ -101,6 +101,16 @@ export function HubtelLineSettings({ line, config, envOk, busy, onSave }: {
                   onCheckedChange={v => save({ enabled: v }, "enabled")} />
               </div>
               {!envOk && <p className="text-xs text-amber-600">Cannot enable until all environment variables below are configured.</p>}
+              {!isShopLine && (
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm">
+                    <span className="font-medium">Wallet payment</span>
+                    <span className="block text-xs text-muted-foreground">Main code only. Starts OFF.</span>
+                  </span>
+                  <Switch checked={config.walletPayment === true} disabled={isBusy("walletPayment")} aria-label="Toggle Wallet payment"
+                    onCheckedChange={v => save({ walletPayment: v }, "walletPayment")} />
+                </div>
+              )}
               {isShopLine && (
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Mode</span>

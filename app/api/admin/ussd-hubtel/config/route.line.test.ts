@@ -96,6 +96,27 @@ describe("POST /api/admin/ussd-hubtel/config: line", () => {
       admin_id: "admin-1", action: "hubtel_ussd_main_line_config_update", old_value: MAIN, new_value: { ...MAIN, enabled: true },
     })
   })
+  it("walletPayment on the main line saves to the main row only", async () => {
+    const res = await post({ line: "main", walletPayment: true })
+    expect(res.status).toBe(200)
+    expect(h.setMain.mock.calls[0][1]).toMatchObject({ walletPayment: true })
+    expect(h.set).not.toHaveBeenCalled()
+  })
+  it("refuses walletPayment without line main", async () => {
+    expect((await post({ walletPayment: true })).status).toBe(400)
+    nothingWritten()
+  })
+  it("refuses a non-boolean walletPayment", async () => {
+    for (const walletPayment of ["true", 1, null, {}]) {
+      expect((await post({ line: "main", walletPayment })).status).toBe(400)
+    }
+    nothingWritten()
+  })
+  it("audits a walletPayment change on the main line", async () => {
+    h.setMain.mockResolvedValue({ ...MAIN, walletPayment: true })
+    await post({ line: "main", walletPayment: true })
+    expect(h.audit[0]).toMatchObject({ action: "hubtel_ussd_main_line_config_update", old_value: MAIN, new_value: { ...MAIN, walletPayment: true } })
+  })
   it("rejects a non-admin", async () => {
     h.auth = { isAdmin: false, errorResponse: new Response(null, { status: 403 }) }
     expect((await post({ line: "main", enabled: true })).status).toBe(403)

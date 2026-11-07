@@ -57,6 +57,10 @@ export async function POST(request: NextRequest) {
   if (isMainLine && body.mode !== undefined) {
     return NextResponse.json({ error: "The main code has no mode" }, { status: 400 })
   }
+  if (body.walletPayment !== undefined) {
+    if (!isMainLine) return NextResponse.json({ error: "walletPayment is a main code setting: send line 'main'" }, { status: 400 })
+    if (typeof body.walletPayment !== "boolean") return NextResponse.json({ error: "walletPayment must be a boolean" }, { status: 400 })
+  }
   if (body?.mode !== undefined && body.mode !== "main" && body.mode !== "shop") {
     return NextResponse.json({ error: "mode must be 'main' or 'shop'" }, { status: 400 })
   }
@@ -106,7 +110,7 @@ export async function POST(request: NextRequest) {
     const shared = { enabled: body.enabled, visibility: body.visibility, brandName, welcome }
     const before = isMainLine ? await getHubtelMainLineConfig(client) : await getHubtelUssdConfig(client)
     const config = isMainLine
-      ? await setHubtelMainLineConfig(client, shared)
+      ? await setHubtelMainLineConfig(client, { ...shared, walletPayment: body.walletPayment })
       : await setHubtelUssdConfig(client, { ...shared, mode: body.mode })
     client.from("admin_audit_log").insert([{
       admin_id: userId, action: isMainLine ? "hubtel_ussd_main_line_config_update" : "hubtel_ussd_config_update", target_user_id: null,

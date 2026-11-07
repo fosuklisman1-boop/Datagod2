@@ -29,7 +29,7 @@ describe("getHubtelMainLineConfig", () => {
     const { client } = fakeSettings({ [HUBTEL_USSD_CONFIG_KEY]: SHOP_ROW })
     expect(await getHubtelMainLineConfig(client)).toEqual({
       enabled: false, mode: "main", visibility: ALL_VISIBLE,
-      brandName: "Clingshub", welcome: "Welcome to Clingshub", welcomeCustom: false,
+      brandName: "Clingshub", welcome: "Welcome to Clingshub", welcomeCustom: false, walletPayment: false,
     })
   })
   it("stays off for anything but an explicit true, including malformed rows", async () => {
@@ -45,6 +45,37 @@ describe("getHubtelMainLineConfig", () => {
   it("falls back to the defaults for an invalid stored brand or welcome", async () => {
     const { client } = fakeSettings({ [HUBTEL_USSD_MAIN_LINE_CONFIG_KEY]: { brandName: "bad\nbrand", welcome: "x".repeat(61) } })
     expect(await getHubtelMainLineConfig(client)).toMatchObject({ brandName: "Clingshub", welcome: "Welcome to Clingshub", welcomeCustom: false })
+  })
+})
+
+describe("walletPayment", () => {
+  it("reads false when the stored main row has no such field", async () => {
+    const { client } = fakeSettings({ [HUBTEL_USSD_MAIN_LINE_CONFIG_KEY]: { enabled: true } })
+    expect((await getHubtelMainLineConfig(client)).walletPayment).toBe(false)
+  })
+  it("reads true only for a stored explicit true", async () => {
+    for (const [value, want] of [[true, true], ["yes", false], ["true", false], [1, false], [null, false]] as const) {
+      const { client } = fakeSettings({ [HUBTEL_USSD_MAIN_LINE_CONFIG_KEY]: { walletPayment: value } })
+      expect((await getHubtelMainLineConfig(client)).walletPayment).toBe(want)
+    }
+  })
+  it("never reads true on the existing line, even if a stray value is stored there", async () => {
+    const { client } = fakeSettings({ [HUBTEL_USSD_CONFIG_KEY]: { ...SHOP_ROW, walletPayment: true } })
+    expect((await getHubtelUssdConfig(client)).walletPayment).not.toBe(true)
+  })
+  it("saves to the main row only, and keeps it across a later partial patch", async () => {
+    const { client, rows, upserted } = fakeSettings({ [HUBTEL_USSD_CONFIG_KEY]: SHOP_ROW })
+    const shopBefore = structuredClone(rows.get(HUBTEL_USSD_CONFIG_KEY))
+    expect((await setHubtelMainLineConfig(client, { walletPayment: true })).walletPayment).toBe(true)
+    expect(upserted).toEqual([HUBTEL_USSD_MAIN_LINE_CONFIG_KEY])
+    expect(rows.get(HUBTEL_USSD_CONFIG_KEY)).toEqual(shopBefore)
+    expect((await setHubtelMainLineConfig(client, { enabled: true })).walletPayment).toBe(true)
+    expect((await setHubtelMainLineConfig(client, { walletPayment: false })).walletPayment).toBe(false)
+  })
+  it("a shop line save never stores it", async () => {
+    const { client, rows } = fakeSettings({ [HUBTEL_USSD_CONFIG_KEY]: { ...SHOP_ROW, walletPayment: true } })
+    await setHubtelUssdConfig(client, { enabled: false })
+    expect(rows.get(HUBTEL_USSD_CONFIG_KEY)).not.toHaveProperty("walletPayment")
   })
 })
 
