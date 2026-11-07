@@ -197,3 +197,34 @@ The new code needs its **own** Service Interaction URL. If Hubtel cannot do this
 3. If anything is wrong, switch only the main code off.
 4. Ask Hubtel to remove the restriction. Watch `needs_review` and `callback_failed` for the first hours.
 5. Decide which main code to publish: `public_ussd_codes` in `/admin/settings` holds one code, and two main codes will be live.
+
+## Special Bundles on USSD
+
+Sold under Internet Bundles > Standard Bundles > MTN on both Hubtel codes. Off until an admin turns on **Sell on Hubtel USSD** on the Special card (Admin > Hubtel Commission > Standard Bundles). Sizes are the card's shared multiples list, so changing them also changes the dashboard. Migration 0158 is applied (2026-11-07).
+
+### How it works
+- One purchase is N unpaid rows in `hubtel_data_orders` (`channel='bots'`, `special_group_id`, `special_index`). The `hubtel_transactions` row points at child 1, with `expected_amount` = the total.
+- When Hubtel confirms payment, every child is confirmed at its own price and the units are sent one after another in the background. Each unit has its own shop share and Hubtel POST.
+- Any mismatch holds the whole group: nothing is sent, the units become paid + failed, and the row goes to `needs_review`.
+
+### Alerts and what to do
+All are URGENT admin alerts. Muting `bills_review` in `disabled_sms_alert_types` silences them with no email fallback.
+- **Unit failed at Hubtel:** refund that unit on `/admin/refunds`, or deliver by hand.
+- **Group held (underpaid, late, or amount differs):** refund the units on `/admin/refunds`, or deliver by hand.
+- **Paid units not sent:** send them from the Standard Bundles tab.
+- **Units stuck mid-send:** they may have reached Hubtel, so check before resending.
+- **Possibly paid:** check with Hubtel. Nothing is recorded on the order, and "not paid" cannot be resolved once the sweep has stamped `paid_at`.
+
+Refunds are per unit, to the payer's phone. The whole-transaction Hubtel refund is refused for any group row.
+
+### Hubtel code 2001 (open)
+The only failure so far: unit 10 of a size 10 dashboard purchase on 2026-11-03. Units 1 to 9 went out about 1.4 seconds apart and delivered. Hubtel's callback had `ResponseCode` 2001, an empty `Description` and `AmountDebited` 3, so the cause is unknown. A limit on rapid repeat purchases has not been ruled out. If there is one, sizes 10 and 15 would lose units on most sales. Asked of Hubtel: the reason, whether the GHS 3 was debited, and whether a limit exists. Do not add pacing or automatic retries until this is answered: a retry risks delivering twice.
+
+### Before turning it on
+1. Have Hubtel's answer on code 2001, and decide whether to lower the largest size.
+2. Turn the switch on and buy from the owner's phone on `*713*235*1#`: the smallest size, then the largest. Then one purchase on `*713*235#`.
+3. For each, check one `hubtel_transactions` row `fulfilled`, N children `completed`, the data on the handset, the callback sent, and on the shop purchase a share of N x the per-unit share.
+4. Also check: the stuck watch runs without error (`/api/cron/expire-stale-bot-orders`, because its `.or` filter has not run on the real server), an admin retry on a failed bot child works, and the time taken to confirm a large group.
+5. An admin tab left open from before this deploy turns the switch off when its Special card is saved. This fails safe: turn it back on.
+
+If anything is wrong, turn off **Sell on Hubtel USSD**. This does not stop dashboard sales.
