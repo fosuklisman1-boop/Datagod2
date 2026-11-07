@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { after, NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { createSupabaseTxStore } from "@/lib/ussd-hubtel/tx-store"
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   const check = withStatusCheckLogging(checkTransactionStatus, supabase)
   const result = await runStatusChecks({
     store: createSupabaseTxStore(supabase),
-    handlers: createOrderHandlers(supabase),
+    handlers: createOrderHandlers(supabase, { defer: after }),
     failHandlers: createFailHandlers(supabase),
     paidReviewHandlers: createPaidReviewHandlers(supabase),
     check,

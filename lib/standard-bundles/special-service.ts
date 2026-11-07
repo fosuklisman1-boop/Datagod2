@@ -56,7 +56,7 @@ const KEY_USED ="This request was already used for another purchase. Please try 
 const fail = (status: number, error: string): { ok: false; status: number; error: string } => ({ ok: false, status, error })
 const cents = (n: number) => Math.round(n * 100)
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
-const safeAlert = async (d: SpecialDeps, m: string, urgent = false) => { try { await d.alert(m, urgent) } catch { /* never break the flow */ } }
+const safeAlert = async (d: Pick<BundlesDeps, "alert">, m: string, urgent = false) => { try { await d.alert(m, urgent) } catch { /* never break the flow */ } }
 
 /** The same config, with MTN's hidden categories cleared: Special is governed by its own switch only (ruling). */
 export function ignoreHidden(cfg: BundlesConfig): BundlesConfig {
@@ -191,42 +191,45 @@ async function replayGroup(d: SpecialDeps, userId: string, groupId: string, firs
 }
 
 /**
- * `startedAt`: buySpecial's entry time, so the 240s budget includes the pre-response work. `n`: the group size paid for.
- * Every child failure in the loop (missing row, exception, or a child left failed / unsent) is an URGENT alert naming
- * the group and unit i/N: a Special purchase is one customer payment.
+ * The sequential dispatch of a paid Special group's children, in the order given. Never throws for a child.
+ * `startedAt`: when the request started, so the 240s budget includes the work before this loop. `n`: the group size paid
+ * for, used in alerts even when `ids` is only part of the group (a resumed group). Every child failure in the loop
+ * (missing row, exception, or a child left failed / unsent) is an URGENT alert naming the group and unit i/N: a Special
+ * purchase is one customer payment.
  */
-function scheduleDispatch(d: SpecialDeps, groupId: string, ids: string[], n: number, startedAt: number): void {
-  const task = async () => {
-    const start = startedAt
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i]
-      // Time budget (route maxDuration 300s): past 240s, stop and hand the rest to an admin, never a silent cut-off.
-      if (d.now() - start > DISPATCH_BUDGET_MS) {
-        const k = ids.length - i
-        console.error("[bundles] special dispatch time budget exceeded:", groupId, `${k}/${ids.length} not sent`)
-        await safeAlert(d, `Special group ${groupId}: ${k} of ${ids.length} units not sent (time budget); send them from ${ADMIN_PLACE}`, true)
-        return
+export async function dispatchSpecialGroup(d: BundlesDeps, groupId: string, ids: string[], n: number, startedAt: number): Promise<void> {
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]
+    // Time budget (route maxDuration 300s): past 240s, stop and hand the rest to an admin, never a silent cut-off.
+    if (d.now() - startedAt > DISPATCH_BUDGET_MS) {
+      const k = ids.length - i
+      console.error("[bundles] special dispatch time budget exceeded:", groupId, `${k}/${n} not sent`)
+      await safeAlert(d, `Special group ${groupId}: ${k} of ${n} units not sent (time budget); send them from ${ADMIN_PLACE}`, true)
+      return
+    }
+    let unit = `${i + 1}/${n}`
+    // One child failing never stops the others; every failure leaves a log line and an URGENT admin alert.
+    try {
+      const row = (await d.getOrder(id)) as SpecialChildRow | null
+      if (!row) {
+        console.error("[bundles] special child missing:", id)
+        await safeAlert(d, `Special group ${groupId}: unit ${unit} (order ${id}) not found for dispatch; check it in ${ADMIN_PLACE}`, true)
+        continue
       }
-      let unit = `${i + 1}/${n}`
-      // One child failing never stops the others; every failure leaves a log line and an URGENT admin alert.
-      try {
-        const row = (await d.getOrder(id)) as SpecialChildRow | null
-        if (!row) {
-          console.error("[bundles] special child missing:", id)
-          await safeAlert(d, `Special group ${groupId}: unit ${unit} (order ${id}) not found for dispatch; check it in ${ADMIN_PLACE}`, true)
-          continue
-        }
-        if (row.special_index) unit = `${row.special_index}/${n}`
-        const status = await dispatchBundleOrder(d, row)
-        if (status === "failed" || status === "pending") {
-          await safeAlert(d, `Special group ${groupId}: unit ${unit} (${row.reference_code}) ${status === "failed" ? "failed" : "paid but not sent"}; retry, send or refund it in ${ADMIN_PLACE}`, true)
-        }
-      } catch (e) {
-        console.error("[bundles] special child dispatch error:", id, msg(e))
-        await safeAlert(d, `Special group ${groupId}: unit ${unit} (order ${id}) dispatch error (${msg(e)}). It is paid; check it in ${ADMIN_PLACE}`, true)
+      if (row.special_index) unit = `${row.special_index}/${n}`
+      const status = await dispatchBundleOrder(d, row)
+      if (status === "failed" || status === "pending") {
+        await safeAlert(d, `Special group ${groupId}: unit ${unit} (${row.reference_code}) ${status === "failed" ? "failed" : "paid but not sent"}; retry, send or refund it in ${ADMIN_PLACE}`, true)
       }
+    } catch (e) {
+      console.error("[bundles] special child dispatch error:", id, msg(e))
+      await safeAlert(d, `Special group ${groupId}: unit ${unit} (order ${id}) dispatch error (${msg(e)}). It is paid; check it in ${ADMIN_PLACE}`, true)
     }
   }
+}
+
+function scheduleDispatch(d: SpecialDeps, groupId: string, ids: string[], n: number, startedAt: number): void {
+  const task = () => dispatchSpecialGroup(d, groupId, ids, n, startedAt)
   try {
     d.schedule(task)
   } catch (e) {

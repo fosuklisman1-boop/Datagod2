@@ -3,10 +3,11 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { hubtelPaymentRef, type OrderHandlers, type PaidReviewHandlers } from "./payment"
 import { ORDER_TABLES, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { isPaidOutcome, type ConfirmPayment, type ConfirmResult } from "@/lib/storefront-commission/confirm"
-import { markCommissionOrderPaid } from "@/lib/storefront-commission/mark-paid"
+import { markCommissionGroupPaid, markCommissionOrderPaid } from "@/lib/storefront-commission/mark-paid"
 import type { StorefrontOrderTable } from "@/lib/storefront-commission/payment"
 import { safeDbError } from "./log-safe"
 import { readSpecialGroup } from "./special-group"
+import { specialGroupPostPayment, urgentAlert, type ConfirmQueuedFn, type DispatchGroupFn, type SpecialPaymentOpts } from "./special-payment"
 
 const last9 = (p: string | null | undefined) => (p || "").replace(/\D/g, "").slice(-9)
 
@@ -528,6 +529,17 @@ const defaultConfirmBot: ConfirmBotFn = async (table, orderId, p) => {
   return confirmBotPayment(table, orderId, p)
 }
 
+const defaultConfirmQueued: ConfirmQueuedFn = async (table, orderId, p, queue) => {
+  const { confirmBotPaymentQueued } = await import("@/lib/storefront-commission/confirm-runtime")
+  return confirmBotPaymentQueued(table, orderId, p, queue)
+}
+
+const defaultDispatchGroup: DispatchGroupFn = async (groupId, ids, n, startedAt) => {
+  const { getBundlesRuntime } = await import("@/lib/standard-bundles/runtime")
+  const { dispatchSpecialGroup } = await import("@/lib/standard-bundles/special-service")
+  await dispatchSpecialGroup(getBundlesRuntime().deps, groupId, ids, n, startedAt)
+}
+
 /**
  * The payment facts for a bot order paid through the Hubtel checkout, from the hubtel_transactions row that
  * processFulfillment saved BEFORE running the handler (the most recently paid row for the order; paid_at, the Hubtel
@@ -566,6 +578,8 @@ export const BOT_NEEDS_REVIEW_PREFIX = "needs review:"
  * The order is then refundable through /admin/refunds (failed + paid, channel bots) and is never dispatched (dispatch
  * needs a pending order). No shop share is credited. When the engine already flipped the order paid, this is a no-op
  * (0 rows) and touches nothing, so it can never double-credit or un-dispatch anything. Returns rows changed.
+ * A Special group child: the one payment covers the group, so every child still unpaid is recorded, by the same guard
+ * per row. A group read error is alerted and only this row is recorded; a failed group write is alerted and raised.
  */
 export async function recordBotPaymentForReview(
   supabase: SupabaseClient,
@@ -574,11 +588,31 @@ export async function recordBotPaymentForReview(
   p: { reference: string; reason: string },
 ): Promise<number> {
   const now = new Date().toISOString()
-  const n = await markCommissionOrderPaid(supabase, table, orderId, { paid_at: now, payment_reference: p.reference }, {
+  const patch = { paid_at: now, payment_reference: p.reference }
+  const opts = {
     channels: ["bots"],
     extra: { status: "failed", failure_reason: `${BOT_NEEDS_REVIEW_PREFIX} ${p.reason}. Not sent: refund it or deliver it by hand.` },
-  })
-  if (n > 0) console.error("[HUBTEL-ORDER] paid bot order held for review (marked paid + failed, not sent):", table, orderId, p.reason)
+  }
+  let groupId: string | null = null
+  try {
+    groupId = (await readSpecialGroup(supabase, table, orderId))?.groupId ?? null
+  } catch (e) {
+    console.error("[HUBTEL-ORDER] Special group read failed; recording the held payment on this order only:", table, orderId, safeDbError(e))
+    await urgentAlert(`URGENT: ${table} order ${orderId}: Hubtel payment (ref ${p.reference}) held for review, but its Special group could not be read. Only this unit is recorded; check its other units by hand.`)
+  }
+  let n: number
+  if (groupId) {
+    try {
+      n = await markCommissionGroupPaid(supabase, table, groupId, patch, opts)
+    } catch (e) {
+      console.error("[HUBTEL-ORDER] could not record the held payment on the Special group:", table, groupId, safeDbError(e))
+      await urgentAlert(`URGENT: Special group ${groupId}: Hubtel payment (ref ${p.reference}) held for review, but it could not be recorded on the units. Record and refund it by hand.`)
+      throw e
+    }
+  } else {
+    n = await markCommissionOrderPaid(supabase, table, orderId, patch, opts)
+  }
+  if (n > 0) console.error("[HUBTEL-ORDER] paid bot order held for review (marked paid + failed, not sent):", table, groupId ?? orderId, `rows ${n}`, p.reason)
   return n
 }
 
@@ -601,23 +635,37 @@ export function createPaidReviewHandlers(supabase: SupabaseClient): PaidReviewHa
  * "needs review: …", never sent, refundable) and THROWS so the tx row lands in needs_review. So does a payment for an
  * unpaid order that is no longer pending (the orphan race, finding 3): the engine is not called for it. A dispatch
  * problem after a normal flip is alerted by the engine and is not a needs_review.
+ * A Special group child (the row the transaction points at) hands over to specialGroupPostPayment.
  */
 async function botCommissionPostPayment(
   supabase: SupabaseClient,
   table: StorefrontOrderTable,
   orderId: string,
   confirmBot: ConfirmBotFn,
+  special: Omit<SpecialPaymentOpts, "record">,
 ): Promise<void> {
-  const { data: order, error: lookupErr } = await supabase
-    .from(table)
-    .select("id, channel, status, payment_status, paid_amount")
-    .eq("id", orderId)
-    .maybeSingle()
+  // Only hubtel_data_orders has the Special group column.
+  const columns = table === "hubtel_data_orders"
+    ? "id, channel, status, payment_status, paid_amount, special_group_id"
+    : "id, channel, status, payment_status, paid_amount"
+  const { data, error: lookupErr } = await supabase.from(table).select(columns).eq("id", orderId).maybeSingle()
   if (lookupErr) throw new Error(`${table} ${orderId} lookup failed: ${safeDbError(lookupErr).message}`)
+  const order = data as unknown as {
+    channel: string | null; status: string | null; payment_status: string | null
+    paid_amount: number | string | null; special_group_id?: string | null
+  } | null
   if (!order) throw new Error(`${table} ${orderId} not found`)
   if (order.channel !== "bots") throw new Error(`${table} ${orderId} has channel '${order.channel}', not a bot order`)
 
-  const { reference, amountAfterCharges } = await hubtelPaymentFacts(supabase, table, orderId)
+  let facts: Awaited<ReturnType<typeof hubtelPaymentFacts>>
+  try {
+    facts = await hubtelPaymentFacts(supabase, table, orderId)
+  } catch (e) {
+    // No reference, so nothing can be recorded on the units: the tx row lands in needs_review, and a group's admins are told.
+    if (order.special_group_id) await urgentAlert(`URGENT: Special group ${order.special_group_id}: Hubtel payment could not be read back, so its units were left unpaid and not sent. Check the review queue.`)
+    throw e
+  }
+  const { reference, amountAfterCharges } = facts
   /** Record the payment on the order (best effort), then throw => needs_review. */
   const holdForReview = async (reason: string): Promise<never> => {
     try {
@@ -626,6 +674,20 @@ async function botCommissionPostPayment(
       console.error("[HUBTEL-ORDER] could not record the held payment on the bot order:", table, orderId, safeDbError(e))
     }
     throw new Error(`${table} ${orderId}: ${reason}: needs manual review`)
+  }
+
+  if (order.special_group_id) {
+    let group: Awaited<ReturnType<typeof readSpecialGroup>> = null
+    try {
+      group = await readSpecialGroup(supabase, table, orderId)
+    } catch (e) {
+      console.error("[HUBTEL-ORDER] Special group read failed at payment:", table, orderId, safeDbError(e))
+    }
+    if (!group) {
+      await urgentAlert(`URGENT: Special group ${order.special_group_id}: Hubtel payment (ref ${reference}) held for review: the group could not be read. Nothing was sent; check it in Admin > Refunds.`)
+      return holdForReview(`Special group ${order.special_group_id} could not be read`)
+    }
+    return specialGroupPostPayment(supabase, group, { orderId, reference, amountAfterCharges }, { ...special, record: recordBotPaymentForReview })
   }
 
   const expected = Number(order.paid_amount)
@@ -644,8 +706,27 @@ async function botCommissionPostPayment(
   if (!isPaidOutcome(r.outcome)) return holdForReview(`bot payment confirmation returned '${r.outcome}'`)
 }
 
-export function createOrderHandlers(supabase: SupabaseClient, opts: { confirmBot?: ConfirmBotFn } = {}): OrderHandlers {
+/**
+ * Build these once per request, at its start: the time is the start of a Special group's dispatch budget (a handler late
+ * in a long cron run must not budget past the route's maxDuration). `defer` runs a Special group's sends after the
+ * response (next/server `after` in the routes); without it they run inline.
+ */
+export function createOrderHandlers(
+  supabase: SupabaseClient,
+  opts: {
+    confirmBot?: ConfirmBotFn
+    defer?: (task: () => Promise<void>) => void
+    confirmQueued?: ConfirmQueuedFn
+    dispatchGroup?: DispatchGroupFn
+  } = {},
+): OrderHandlers {
   const confirmBot = opts.confirmBot ?? defaultConfirmBot
+  const special = {
+    confirmQueued: opts.confirmQueued ?? defaultConfirmQueued,
+    dispatchGroup: opts.dispatchGroup ?? defaultDispatchGroup,
+    defer: opts.defer,
+    startedAt: Date.now(),
+  }
   return {
     ussd_afa_orders: orderId => afaOrderPostPayment(supabase, orderId),
     ussd_orders: orderId => ussdOrderPostPayment(supabase, orderId),
@@ -653,8 +734,8 @@ export function createOrderHandlers(supabase: SupabaseClient, opts: { confirmBot
     airtime_orders: orderId => airtimeOrderPostPayment(supabase, orderId),
     results_checker_orders: orderId => rcOrderPostPayment(supabase, orderId),
     results_check_requests: orderId => checkRequestPostPayment(supabase, orderId),
-    hubtel_bill_orders: orderId => botCommissionPostPayment(supabase, "hubtel_bill_orders", orderId, confirmBot),
-    hubtel_data_orders: orderId => botCommissionPostPayment(supabase, "hubtel_data_orders", orderId, confirmBot),
+    hubtel_bill_orders: orderId => botCommissionPostPayment(supabase, "hubtel_bill_orders", orderId, confirmBot, special),
+    hubtel_data_orders: orderId => botCommissionPostPayment(supabase, "hubtel_data_orders", orderId, confirmBot, special),
   }
 }
 
