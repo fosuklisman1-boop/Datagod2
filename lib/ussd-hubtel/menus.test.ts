@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { resolveMainMenu, mainMenuText, networkMenuText, bundleMenuText, confirmMenuText, whoForText, formatSize, recipientPromptText, HUBTEL_NETWORKS, IMPLEMENTED_SERVICES,
+  resolveInternetTypes, internetMenuText,
   resolveShopMenu, shopHeader, shopCodePromptText, shopCodeRetryText, shopMenuText, shopNetworkLabel, sortShopNetworks, shopNetworkMenuText,
 } from "./menus"
 import { DEFAULT_BRAND, DEFAULT_WELCOME } from "./config"
@@ -10,26 +11,64 @@ const allOn = { data: true, afa: true, airtime: true, resultsChecker: true }
 describe("main menu", () => {
   it("shows only implemented services and renumbers", () => {
     const r = resolveMainMenu({ ...allOn, networkPlans: true, payBills: true }, false, { networkPlans: true, payBills: true })
-    expect(r.map(i => i.key)).toEqual(Object.entries(IMPLEMENTED_SERVICES).filter(([, v]) => v).map(([k]) => k))
-    expect(mainMenuText(r, DEFAULT_WELCOME)).toContain("1. Buy Data Bundle")
+    // Every implemented service is reachable: directly from the menu, or through the Internet Bundles item.
+    const reachable = new Set<string>(r.map(i => i.key))
+    if (reachable.has("internet")) { reachable.add("data"); reachable.add("networkPlans") }
+    for (const [k, v] of Object.entries(IMPLEMENTED_SERVICES)) if (v) expect(reachable.has(k), k).toBe(true)
+    expect(mainMenuText(r, DEFAULT_WELCOME)).toContain("1. Internet Bundles")
+  })
+  it("main menu with all visible", () => {
+    const r = resolveMainMenu({ ...allOn, networkPlans: true, payBills: true }, false, { networkPlans: true, payBills: true })
+    expect(mainMenuText(r, DEFAULT_WELCOME)).toBe(
+      "Welcome to Clingshub\n1. Internet Bundles\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n5. Pay Bills\n0. Exit"
+    )
+  })
+  it("shop menu with all visible", () => {
+    const r = resolveShopMenu({ ...allOn, networkPlans: true, payBills: true }, false, { networkPlans: true, payBills: true })
+    expect(shopMenuText("Ama Data Hub", r)).toContain("1. Internet Bundles\n2. Buy Airtime\n3. Results Checker\n4. Pay Bills\n0. Exit")
   })
   it("bot menus need BOTH the admin flag and the cashback gate; no gate given = hidden", () => {
     const vis = { ...allOn, networkPlans: true, payBills: true }
-    expect(resolveMainMenu(vis, false).map(i => i.key)).toEqual(["data", "afa", "airtime", "resultsChecker"])
-    expect(resolveMainMenu(allOn, false, { networkPlans: true, payBills: true }).map(i => i.key)).toEqual(["data", "afa", "airtime", "resultsChecker"])
+    expect(resolveMainMenu(vis, false).map(i => i.key)).toEqual(["internet", "afa", "airtime", "resultsChecker"])
+    expect(resolveMainMenu(allOn, false, { networkPlans: true, payBills: true }).map(i => i.key)).toEqual(["internet", "afa", "airtime", "resultsChecker"])
     expect(resolveMainMenu({ ...vis, payBills: false }, false, { networkPlans: true, payBills: true }).map(i => i.label))
-      .toEqual(["Buy Data Bundle", "AFA Registration", "Buy Airtime", "Results Checker", "Standard Bundles"])
+      .toEqual(["Internet Bundles", "AFA Registration", "Buy Airtime", "Results Checker"])
     expect(resolveMainMenu(vis, false, { networkPlans: false, payBills: true }).map(i => `${i.digit}. ${i.label}`))
-      .toEqual(["1. Buy Data Bundle", "2. AFA Registration", "3. Buy Airtime", "4. Results Checker", "5. Pay Bills"])
-    expect(resolveShopMenu(vis, false).map(i => i.key)).toEqual(["data", "airtime", "resultsChecker"])
+      .toEqual(["1. Internet Bundles", "2. AFA Registration", "3. Buy Airtime", "4. Results Checker", "5. Pay Bills"])
+    expect(resolveShopMenu(vis, false).map(i => i.key)).toEqual(["internet", "airtime", "resultsChecker"])
     expect(resolveShopMenu(vis, true, { networkPlans: true, payBills: true }).map(i => `${i.digit}. ${i.label}`))
-      .toEqual(["1. Buy Airtime", "2. Results Checker", "3. Standard Bundles", "4. Pay Bills"])
+      .toEqual(["1. Internet Bundles", "2. Buy Airtime", "3. Results Checker", "4. Pay Bills"])
   })
   it("the header is the given welcome line", () => {
     const r = resolveMainMenu(allOn, false)
     expect(mainMenuText(r, "Akwaaba to Ama Data")).toBe(
-      "Akwaaba to Ama Data\n1. Buy Data Bundle\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit"
+      "Akwaaba to Ama Data\n1. Internet Bundles\n2. AFA Registration\n3. Buy Airtime\n4. Results Checker\n0. Exit"
     )
+  })
+  it("Internet Bundles is hidden, and the rest renumber, when neither type is visible", () => {
+    const vis = { ...allOn, data: false, networkPlans: true, payBills: true }
+    expect(resolveMainMenu(vis, false, { networkPlans: false, payBills: true }).map(i => `${i.digit}. ${i.label}`))
+      .toEqual(["1. AFA Registration", "2. Buy Airtime", "3. Results Checker", "4. Pay Bills"])
+    expect(resolveMainMenu(allOn, true).map(i => i.key)).toEqual(["afa", "airtime", "resultsChecker"])
+  })
+})
+
+describe("internet bundle types", () => {
+  const open = { networkPlans: true, payBills: true }
+  const vis = { ...allOn, networkPlans: true, payBills: true }
+  it("always in the order data, networkPlans", () => {
+    expect(resolveInternetTypes(vis, false, open)).toEqual(["data", "networkPlans"])
+  })
+  it("data follows admin visibility and the whitelist block; networkPlans follows the visibility flag and the gate", () => {
+    expect(resolveInternetTypes(vis, true, open)).toEqual(["networkPlans"])
+    expect(resolveInternetTypes({ ...vis, data: false }, false, open)).toEqual(["networkPlans"])
+    expect(resolveInternetTypes(vis, false)).toEqual(["data"])
+    expect(resolveInternetTypes({ ...vis, networkPlans: false }, false, open)).toEqual(["data"])
+    expect(resolveInternetTypes(vis, true)).toEqual([])
+  })
+  it("the type screen", () => {
+    expect(internetMenuText(["data", "networkPlans"])).toBe("Internet Bundles\n1. Data Bundles\n2. Standard Bundles\n0. Back")
+    expect(internetMenuText(["networkPlans"])).toBe("Internet Bundles\n1. Standard Bundles\n0. Back")
   })
   it("exit message uses the brand (default Clingshub for an empty brand)", () => {
     expect(mainExitText("Ama Data")).toBe("Thank you for using Ama Data.")
@@ -39,9 +78,9 @@ describe("main menu", () => {
   it("the default welcome is 'Welcome to Clingshub'", () => {
     expect(mainMenuText(resolveMainMenu(allOn, false), DEFAULT_WELCOME).split("\n")[0]).toBe("Welcome to Clingshub")
   })
-  it("hides data when the caller is whitelist-blocked or admin-hidden", () => {
-    expect(resolveMainMenu(allOn, true).map(i => i.key)).not.toContain("data")
-    expect(resolveMainMenu({ ...allOn, data: false }, false).map(i => i.key)).not.toContain("data")
+  it("hides Internet Bundles (data only here) when the caller is whitelist-blocked or admin-hidden", () => {
+    expect(resolveMainMenu(allOn, true).map(i => i.key)).not.toContain("internet")
+    expect(resolveMainMenu({ ...allOn, data: false }, false).map(i => i.key)).not.toContain("internet")
   })
 })
 
@@ -92,12 +131,12 @@ describe("confirm menu", () => {
 
 describe("shop menus", () => {
   const on = { data: true, afa: true, airtime: true, resultsChecker: true }
-  it("lists data, airtime and results checker with real wording; never AFA", () => {
-    expect(resolveShopMenu(on, false).map(i => i.label)).toEqual(["Buy Data Bundle", "Buy Airtime", "Results Checker"])
+  it("lists internet bundles, airtime and results checker with real wording; never AFA", () => {
+    expect(resolveShopMenu(on, false).map(i => i.label)).toEqual(["Internet Bundles", "Buy Airtime", "Results Checker"])
   })
   it("hides data for a whitelist-blocked caller and each service the admin hides", () => {
     expect(resolveShopMenu(on, true).map(i => i.key)).toEqual(["airtime", "resultsChecker"])
-    expect(resolveShopMenu({ ...on, airtime: false }, false).map(i => i.key)).toEqual(["data", "resultsChecker"])
+    expect(resolveShopMenu({ ...on, airtime: false }, false).map(i => i.key)).toEqual(["internet", "resultsChecker"])
     expect(resolveShopMenu({ data: false, afa: true, airtime: false, resultsChecker: false }, false)).toEqual([])
   })
   it("shopHeader: printable ASCII, collapsed spaces, max 30 chars, never empty", () => {
@@ -112,7 +151,7 @@ describe("shop menus", () => {
   })
   it("product menu text", () => {
     expect(shopMenuText("Ama Data Hub", resolveShopMenu(on, false))).toBe(
-      "Ama Data Hub\nWhat would you like to buy?\n1. Buy Data Bundle\n2. Buy Airtime\n3. Results Checker\n0. Exit"
+      "Ama Data Hub\nWhat would you like to buy?\n1. Internet Bundles\n2. Buy Airtime\n3. Results Checker\n0. Exit"
     )
   })
   it("network labels and order: real names, known networks first, others as stored", () => {

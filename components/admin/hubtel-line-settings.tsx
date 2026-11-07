@@ -15,12 +15,12 @@ import {
 
 /** Commission Cashback bot menus: shown only when this toggle AND the cashback bots switches are on. */
 const CASHBACK_SERVICES: { key: "networkPlans" | "payBills"; label: string }[] = [
-  { key: "networkPlans", label: "Network Plans" },
+  { key: "networkPlans", label: "Internet Bundles: Standard Bundles" },
   { key: "payBills", label: "Pay Bills" },
 ]
 
 const SERVICES: { key: Exclude<keyof HubtelUssdConfig["visibility"], "networkPlans" | "payBills">; label: string }[] = [
-  { key: "data", label: "Data Bundle" },
+  { key: "data", label: "Internet Bundles: Data Bundles" },
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
@@ -254,7 +254,7 @@ export function HubtelLineSettings({ line, config, envOk, busy, onSave }: {
                 <div className="rounded-lg border bg-muted/40 p-3">
                   <div className="mb-1 text-xs text-muted-foreground">Preview</div>
                   <pre className="whitespace-pre-wrap break-words font-mono text-sm">
-                    {`${previewWelcome}\n${config.mode === "shop" ? "Enter shop code:" : "1. Buy Data Bundle\n..."}`}
+                    {`${previewWelcome}\n${config.mode === "shop" ? "Enter shop code:" : "1. Internet Bundles\n..."}`}
                   </pre>
                 </div>
                 <div className="flex flex-wrap gap-2">

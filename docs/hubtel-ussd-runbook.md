@@ -67,7 +67,7 @@
    - Set Mode = **Shop USSD** on `/admin/ussd-hubtel` (the confirm dialog is the only warning; the Mode applies to NEW dials, in-flight sessions keep theirs).
    - Pick a test shop whose code is `active` with a few tokens and note its balance: `select code, status, token_balance from ussd_shop_codes where code = '<CODE>';`.
    - **Billing table:** `0111_hubtel_shop_billing_claims.sql` must be applied or every shop code is refused with "Shop unavailable. Try again." (fails closed).
-   - Menu digits come from the shop menu (`Buy Data Bundle`, `Buy Airtime`, `Results Checker`, in that order, subject to the Hubtel visibility toggles; AFA and Check Results are NOT in the shop menu) and the simulator finds them by label. `FLOW=rccheck` and `FLOW=afa` are not available with `SHOP=1`.
+   - Menu digits come from the shop menu (`Internet Bundles`, `Buy Airtime`, `Results Checker`, in that order, subject to the Hubtel visibility toggles; AFA and Check Results are NOT in the shop menu) and the simulator finds them by label. `FLOW=rccheck` and `FLOW=afa` are not available with `SHOP=1`.
    - `SHOP_CODE` is REQUIRED with `SHOP=1` (the script stops with an error otherwise; there is no default code, so a guess can never spend a real shop's token). The script prints its `SessionId` at the start.
    - Three wrong / unknown / inactive codes in one session end it with "Too many attempts. Please try again later." (no token is spent on a wrong code).
 
@@ -180,6 +180,8 @@ The new code needs its **own** Service Interaction URL. If Hubtel cannot do this
 - Switching one code off ends only that code's sessions. To roll back the main code, switch it off on the **Main code** tab. The shop code keeps working.
 - Fulfilment, callbacks, status checks and the relay are shared and need no change. So are prices (`ussd_price_tier`, shared with Uzo main) and Hubtel's charge, which the customer pays on top.
 - Standard Bundles and Pay Bills also need the cashback bots switches, which apply to every code.
+- **Internet Bundles screen (both codes):** the old top-level "Buy Data Bundle" and "Standard Bundles" items are now one item, **1. Internet Bundles**. With both types visible to the caller it opens `Internet Bundles / 1. Data Bundles / 2. Standard Bundles / 0. Back`; with only one visible it goes straight to that flow, and `0` there returns to the main (or shop) menu. If neither is visible the item is hidden and the rest renumber from 1. The two toggles on each code's tab are labelled `Internet Bundles: Data Bundles` and `Internet Bundles: Standard Bundles`; their keys and behaviour are unchanged.
+- **Digits moved:** Pay Bills is now **5** on the main menu (was 6) and **4** on the shop menu (was 5); AFA, Buy Airtime and Results Checker keep 2, 3 and 4 on main (Buy Airtime 2 and Results Checker 3 on shop). Tell testers and update any printed instructions.
 - The `/admin/utility-bills` Pay Bills status reflects the **shop code only**, not the main code.
 - `/admin/ussd-hubtel` shows transactions and sessions for both codes together. Main orders use `channel='ussd'`, like Uzo: join `hubtel_transactions` to tell them apart.
 

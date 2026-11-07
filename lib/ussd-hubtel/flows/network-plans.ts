@@ -14,10 +14,10 @@ import type { BotContext } from "@/lib/bot-commission/context"
 import type { BotCatalogResult } from "@/lib/bot-commission/catalog"
 import { toLocalPhone, USSD_SCREEN_LIMIT } from "../protocol"
 import {
-  backToMain, failOrphanEngineOrder, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable,
+  failOrphanEngineOrder, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable,
 } from "../flow-kit"
 import { clip, fitListScreen, pageSlice } from "../screen-fit"
-import { backToProduct } from "./shop"
+import { backFromInternetType } from "./internet-bundles"
 import type { HubtelReply, HubtelSession, NpPlan } from "../types"
 
 export const NP_PAGE_SIZE = 5
@@ -110,7 +110,7 @@ async function loadCatalog(ctx: FlowCtx, network: BundleNetwork): Promise<{ ok: 
 const toPlan = (b: Categories[number]["bundles"][number]): NpPlan => ({ t: b.token, d: b.display, f: b.amount, p: b.payAmount })
 
 /** Back out of the flow: main menu (main mode) or the shop's product menu (shop mode). */
-const leave = (ctx: FlowCtx, prefix = "") => (ctx.session.mode === "shop" ? backToProduct(ctx, prefix) : backToMain(ctx))
+const leave = (ctx: FlowCtx, prefix = "") => backFromInternetType(ctx, prefix)
 
 export async function startNetworkPlans(ctx: FlowCtx): Promise<HubtelReply> {
   return goto(ctx, { step: "NP_NETWORK" }, networkScreen(), NETWORK)

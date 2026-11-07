@@ -6,7 +6,8 @@ import { subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 import { priceForTier } from "../catalog"
 import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } from "../menus"
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
-import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
+import { backFromInternetType } from "./internet-bundles"
+import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
 import type { HubtelReply, HubtelSession } from "../types"
 import { confirmNote, recipientBlockedAtPay, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
 
@@ -25,7 +26,7 @@ export async function startData(ctx: FlowCtx): Promise<HubtelReply> {
 
 async function selectNetwork(ctx: FlowCtx): Promise<HubtelReply> {
   const { input, deps, session } = ctx
-  if (input === "0") return backToMain(ctx)
+  if (input === "0") return backFromInternetType(ctx)
   const net = HUBTEL_NETWORKS.find(n => n.digit === input)
   if (!net) return say(ctx, networkMenuText(), "SELECT_NETWORK", NETWORK)
 

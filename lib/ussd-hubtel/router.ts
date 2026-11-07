@@ -10,7 +10,7 @@ import {
 import { dbSessionStore } from "./session"
 import { defaultShopServices } from "./shop-services"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
-import { mainExitText, mainMenuText, type MainMenuKey, type ShopMenuKey } from "./menus"
+import { mainExitText, mainMenuText, type InternetType, type MainMenuKey, type ShopMenuKey } from "./menus"
 import { release, respond, toE164, USSD_SCREEN_LIMIT } from "./protocol"
 import {
   finish, mainMenuReply, menuFor, replaySubmittedOrder,
@@ -19,6 +19,7 @@ import {
 import { AFA_STEPS, startAfa } from "./flows/afa"
 import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
 import { DATA_STEPS, startData } from "./flows/data"
+import { internetMenuStep, startInternetBundles } from "./flows/internet-bundles"
 import { NETWORK_PLANS_STEPS, startNetworkPlans } from "./flows/network-plans"
 import { PAY_BILLS_STEPS, startPayBills } from "./flows/pay-bills"
 import { RC_BUY_STEPS, startRc } from "./flows/rc-buy"
@@ -66,18 +67,22 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
   }
 }
 
-/** First screen of each main-menu service. Every IMPLEMENTED_SERVICES key must have one (tested). */
+/** What each Internet Bundles type opens, per mode. Both start from the same Standard Bundles flow (it reads session.mode). */
+export const MAIN_INTERNET_ENTRIES: Partial<Record<InternetType, StepHandler>> = { data: startData, networkPlans: startNetworkPlans }
+export const SHOP_INTERNET_ENTRIES: Partial<Record<InternetType, StepHandler>> = { data: startShopData, networkPlans: startNetworkPlans }
+
+/** First screen of each main-menu item. Every IMPLEMENTED_SERVICES key is reached by an entry or an internet entry (tested). */
 export const MAIN_MENU_ENTRIES: Partial<Record<MainMenuKey, StepHandler>> = {
-  data: startData,
+  internet: startInternetBundles(MAIN_INTERNET_ENTRIES),
   airtime: startAirtime,
   resultsChecker: startRc,
   afa: startAfa,
-  networkPlans: startNetworkPlans,
   payBills: startPayBills,
 }
 
 const STEPS: StepTable = {
   MAIN: handleMain,
+  INTERNET_MENU: internetMenuStep(MAIN_INTERNET_ENTRIES),
   ...DATA_STEPS,
   ...AIRTIME_STEPS,
   ...RC_BUY_STEPS,
@@ -89,10 +94,9 @@ const STEPS: StepTable = {
 
 /** First screen of each shop product (Tasks 3, 5, 6 register theirs). Shop mode only. */
 export const SHOP_PRODUCT_ENTRIES: Partial<Record<ShopMenuKey, StepHandler>> = {
-  data: startShopData,
+  internet: startInternetBundles(SHOP_INTERNET_ENTRIES),
   airtime: startShopAirtime,
   resultsChecker: startShopRc,
-  networkPlans: startNetworkPlans, // the flows read session.mode for the shop split and the way back
   payBills: startPayBills,
 }
 
@@ -100,6 +104,7 @@ export const SHOP_PRODUCT_ENTRIES: Partial<Record<ShopMenuKey, StepHandler>> = {
 const SHOP_STEPS: StepTable = {
   ...SHOP_ENTRY_STEPS,
   SHOP_PRODUCT: handleShopProduct,
+  INTERNET_MENU: internetMenuStep(SHOP_INTERNET_ENTRIES),
   ...SHOP_DATA_STEPS,
   ...SHOP_AIRTIME_STEPS,
   ...SHOP_RC_STEPS,
