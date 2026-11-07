@@ -13,7 +13,7 @@ Hubtel payment that delivers every unit, with shops earning their usual share.
 
 ## Scope
 
-In scope: the Hubtel main code (`*714*2547#`, `line=main`) and the Hubtel shop code (`*713*235#`).
+In scope: the Hubtel main code (`*713*235*1#`, `line=main`) and the Hubtel shop code (`*713*235#`).
 
 Not in scope: Uzo USSD, WhatsApp bots, the storefront and the API. Their menus and Special Bundles access do not change.
 

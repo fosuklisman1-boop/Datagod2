@@ -115,7 +115,7 @@ Expected: Vercel READY with the alias assigned to the new commit.
 
 - [ ] **Step 3: Live check with the owner**
 
-Owner dials `*714*2547#` and `*713*235#`, and opens Internet Bundles, each type, and Back.
+Owner dials `*713*235*1#` and `*713*235#`, and opens Internet Bundles, each type, and Back.
 Expected: `hubtel_ussd_interactions` shows `INTERNET_MENU` rows, new paid `hubtel_transactions` rows keep arriving, and no `Service unavailable` replies. **Part B does not start until this passes.**
 
 ---
