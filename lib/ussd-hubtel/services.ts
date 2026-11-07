@@ -20,6 +20,8 @@ import { quoteBotAirtime } from "@/lib/cashback/storefront-airtime"
 import type { BotContext } from "@/lib/bot-commission/context"
 import type { BotCatalogResult } from "@/lib/bot-commission/catalog"
 import type { BotBillOrderInput, BotBundleOrderInput, BotOrderResult } from "@/lib/bot-commission/orders"
+import type { BotSpecialOrderInput, BotSpecialOrderResult, BotSpecialPlan } from "@/lib/bot-commission/special-orders"
+import type { Fail } from "@/lib/storefront-commission/shop"
 import type { BundleNetwork } from "@/lib/standard-bundles/categories"
 import { BILLERS, BILLER_KEYS, type BillerKey, type BillInputs } from "@/lib/bills/billers"
 import type { VerifyResult } from "@/lib/bills/service"
@@ -82,6 +84,12 @@ export interface NetworkPlansServices {
    * threw (it may have committed) so the orphan can be failed. Throws on read error.
    */
   findOrderId(ctx: BotContext, idempotencyKey: string): Promise<string | null>
+  /** Special Bundle plans for this bot (MTN only; [] when not sold here). Signed tokens, per-unit pricing. */
+  specialPlans(ctx: BotContext): Promise<{ ok: true; plans: BotSpecialPlan[] } | Fail>
+  /** Create the unpaid Special group. `order.id` is child 1. May throw (outcome unknown): look it up with findSpecialOrderId. */
+  createSpecialOrder(ctx: BotContext, input: BotSpecialOrderInput): Promise<BotSpecialOrderResult>
+  /** Child 1's id for this buyer and group key, or null. Throws on read error. */
+  findSpecialOrderId(ctx: BotContext, idempotencyKey: string): Promise<string | null>
 }
 
 export function defaultNetworkPlansServices(): NetworkPlansServices {
@@ -106,6 +114,24 @@ export function defaultNetworkPlansServices(): NetworkPlansServices {
         import("@/lib/bot-commission/runtime"), import("@/lib/bot-commission/orders"),
       ])
       return botCreateBundleOrder(getBotBundlesRuntime().deps, ctx, input)
+    },
+    async specialPlans(ctx) {
+      const [{ getBotSpecialRuntime }, { botSpecialPlans }] = await Promise.all([
+        import("@/lib/bot-commission/runtime"), import("@/lib/bot-commission/special-orders"),
+      ])
+      return botSpecialPlans(getBotSpecialRuntime().deps, ctx)
+    },
+    async createSpecialOrder(ctx, input) {
+      const [{ getBotSpecialRuntime }, { botCreateSpecialOrder }] = await Promise.all([
+        import("@/lib/bot-commission/runtime"), import("@/lib/bot-commission/special-orders"),
+      ])
+      return botCreateSpecialOrder(getBotSpecialRuntime().deps, ctx, input)
+    },
+    async findSpecialOrderId(ctx, idempotencyKey) {
+      const [{ getBotBundlesRuntime }, { findSpecialFirstChild }] = await Promise.all([
+        import("@/lib/bot-commission/runtime"), import("@/lib/bot-commission/special-orders"),
+      ])
+      return findSpecialFirstChild(getBotBundlesRuntime().deps, ctx, idempotencyKey)
     },
   }
 }

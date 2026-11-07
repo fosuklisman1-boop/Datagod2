@@ -59,7 +59,7 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const safeAlert = async (d: SpecialDeps, m: string, urgent = false) => { try { await d.alert(m, urgent) } catch { /* never break the flow */ } }
 
 /** The same config, with MTN's hidden categories cleared: Special is governed by its own switch only (ruling). */
-function ignoreHidden(cfg: BundlesConfig): BundlesConfig {
+export function ignoreHidden(cfg: BundlesConfig): BundlesConfig {
   const mtn = cfg.networks?.MTN
   return mtn ? { ...cfg, networks: { ...cfg.networks, MTN: { ...mtn, hiddenCategories: [] } } } : cfg
 }
