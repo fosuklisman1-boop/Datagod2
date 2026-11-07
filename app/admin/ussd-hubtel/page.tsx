@@ -6,36 +6,20 @@ import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { RefreshCw } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Input } from "@/components/ui/input"
-import { IMPLEMENTED_SERVICES } from "@/lib/ussd-hubtel/menus"
-import {
-  BRAND_MAX, DEFAULT_BRAND, WELCOME_MAX, derivedWelcome, validateBrandName, validateWelcome, type HubtelUssdConfig,
-} from "@/lib/ussd-hubtel/config"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { HubtelLineSettings } from "@/components/admin/hubtel-line-settings"
+import type { HubtelUssdConfig } from "@/lib/ussd-hubtel/config"
 import type { HubtelTxRow } from "@/lib/ussd-hubtel/types"
 import { HubtelSessionsViewer, bearerFetch } from "@/components/ussd/HubtelSessionsViewer"
 
 type EnvStatus = { webhookSecret: boolean; relayUrl: boolean; relaySecret: boolean; redis?: boolean }
 type Counts = { needs_review: number; callback_pending: number; callback_failed: number; awaiting_payment: number }
-
-/** Commission Cashback bot menus: shown only when this toggle AND the cashback bots switches are on. */
-const CASHBACK_SERVICES: { key: "networkPlans" | "payBills"; label: string }[] = [
-  { key: "networkPlans", label: "Network Plans" },
-  { key: "payBills", label: "Pay Bills" },
-]
-
-const SERVICES: { key: Exclude<keyof HubtelUssdConfig["visibility"], "networkPlans" | "payBills">; label: string }[] = [
-  { key: "data", label: "Data Bundle" },
-  { key: "afa", label: "AFA Registration" },
-  { key: "airtime", label: "Buy Airtime" },
-  { key: "resultsChecker", label: "Results Checker" },
-]
 
 type TxFilter = "all" | "attention" | "awaiting_payment" | "fulfilled" | "failed"
 const TX_FILTERS: { value: TxFilter; label: string }[] = [
@@ -349,6 +333,7 @@ function CallbackLogCard() {
 
 export default function AdminUssdHubtelPage() {
   const [config, setConfig] = useState<HubtelUssdConfig | null>(null)
+  const [mainLine, setMainLine] = useState<HubtelUssdConfig | null>(null)
   const [env, setEnv] = useState<EnvStatus | null>(null)
   const [txs, setTxs] = useState<HubtelTxRow[]>([])
   const [counts, setCounts] = useState<Counts | null>(null)
@@ -357,24 +342,6 @@ export default function AdminUssdHubtelPage() {
   const [resolving, setResolving] = useState<HubtelTxRow | null>(null)
   const [outcome, setOutcome] = useState<"fulfilled" | "not_paid">("fulfilled")
   const [note, setNote] = useState("")
-  // Brand name: re-synced from the server value on load / save / reset.
-  const [brandDraft, setBrandDraft] = useState("")
-  const savedBrand = config?.brandName
-  useEffect(() => { if (savedBrand !== undefined) setBrandDraft(savedBrand) }, [savedBrand])
-  const brandCheck = validateBrandName(brandDraft)
-  const brandUnchanged = brandCheck.ok && brandCheck.value === savedBrand
-  // Brand used for live previews: the draft while it is valid, else the saved one.
-  const previewBrand = brandCheck.ok ? brandCheck.value : (savedBrand ?? DEFAULT_BRAND)
-
-  // Welcome: the field holds ONLY the custom override; blank means "Welcome to <brand>".
-  const [welcomeDraft, setWelcomeDraft] = useState("")
-  const savedCustomWelcome = config ? (config.welcomeCustom ? config.welcome : "") : undefined
-  useEffect(() => { if (savedCustomWelcome !== undefined) setWelcomeDraft(savedCustomWelcome) }, [savedCustomWelcome])
-  const welcomeBlank = welcomeDraft.trim() === ""
-  const welcomeCheck = validateWelcome(welcomeDraft)
-  const welcomeValid = welcomeBlank || welcomeCheck.ok
-  const welcomeUnchanged = welcomeBlank ? savedCustomWelcome === "" : welcomeCheck.ok && welcomeCheck.value === savedCustomWelcome
-  const previewWelcome = welcomeBlank ? derivedWelcome(previewBrand) : welcomeDraft.trim()
   // "Not paid" is only possible while no payment is recorded and no callback is due.
   const canMarkNotPaid = (t: HubtelTxRow) => t.paid_at == null && t.callback_status === "not_due"
   const shown = txs.filter(t => matchesFilter(t, filter))
@@ -382,16 +349,19 @@ export default function AdminUssdHubtelPage() {
   const load = useCallback(async () => {
     try {
       const [c, t] = await Promise.all([authed("/api/admin/ussd-hubtel/config"), authed("/api/admin/ussd-hubtel/transactions")])
-      setConfig(c.config); setEnv(c.env); setTxs(t.transactions); setCounts(t.counts)
+      setConfig(c.config); setMainLine(c.mainLine); setEnv(c.env); setTxs(t.transactions); setCounts(t.counts)
     } catch (e: any) { toast.error(e.message || "Failed to load Hubtel USSD") }
   }, [])
   useEffect(() => { load() }, [load])
 
-  const save = async (patch: object, label: string) => {
+  const save = async (line: "shop" | "main", patch: object, label: string) => {
     setBusy(label)
     try {
-      const res = await authed("/api/admin/ussd-hubtel/config", { method: "POST", body: JSON.stringify(patch) })
-      setConfig(res.config); toast.success("Saved")
+      const body = line === "main" ? { ...patch, line: "main" } : patch
+      const res = await authed("/api/admin/ussd-hubtel/config", { method: "POST", body: JSON.stringify(body) })
+      if (line === "main") setMainLine(res.mainLine)
+      else setConfig(res.config)
+      toast.success("Saved")
     } catch (e: any) { toast.error(e.message || "Save failed") } finally { setBusy(null) }
   }
 
@@ -424,203 +394,25 @@ export default function AdminUssdHubtelPage() {
     } catch (e: any) { toast.error(e.message || "Resolve failed") } finally { setBusy(null) }
   }
 
-  const envOk =env && env.webhookSecret && env.relayUrl && env.relaySecret
+  const envOk = !!env && env.webhookSecret && env.relayUrl && env.relaySecret
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <PageHeaderBanner title="Hubtel USSD" subtitle="One Hubtel code serving the main menu or the shop menu. Configure the channel and watch payments." />
+        <PageHeaderBanner title="Hubtel USSD" subtitle="Two Hubtel codes: the main menu and the shop menu. Configure each one and watch payments." />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Channel</CardTitle>
-            <CardDescription>The kill switch ships OFF. Turn it on only after the runbook checks pass.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!config ? <p className="text-sm text-muted-foreground">Loading...</p> : (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Hubtel USSD enabled</span>
-                  <Switch checked={config.enabled} disabled={busy === "enabled" || (!config.enabled && !envOk)} aria-label="Toggle Hubtel USSD"
-                    onCheckedChange={v => save({ enabled: v }, "enabled")} />
-                </div>
-                {!envOk && <p className="text-xs text-amber-600">Cannot enable until all environment variables below are configured.</p>}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Mode</span>
-                  <Select value={config.mode} disabled={busy === "mode"} onValueChange={v => {
-                    if (v === config.mode) return
-                    const label = v === "shop" ? "Shop USSD" : "Main USSD"
-                    const billing = v === "shop"
-                      ? " In shop mode callers must enter a shop code first (customer sessions are free)."
-                      : ""
-                    if (!window.confirm(`Switch the Hubtel code to ${label}?${billing} Calls already in progress keep the mode they started with; new dials use ${label}.`)) return
-                    save({ mode: v }, "mode")
-                  }}>
-                    <SelectTrigger className="w-48" aria-label="Hubtel USSD mode"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="main">Main USSD</SelectItem>
-                      <SelectItem value="shop">Shop USSD (shop code first)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {config.mode === "shop" && (
-                  <p className="text-xs text-muted-foreground">
-                    Shop mode: callers enter a shop code first (customer sessions are free). Services follow the shop&apos;s catalogue and the toggles below. AFA is not
-                    offered in shop mode. Calls already in progress keep the mode they started with.
-                  </p>
-                )}
-                <div className="divide-y rounded-lg border">
-                  {SERVICES.map(s => {
-                    // The shop menu has no AFA: its toggle does nothing in shop mode.
-                    const deadInShop = config.mode === "shop" && s.key === "afa"
-                    return (
-                      <div key={s.key} className="flex items-center justify-between p-3">
-                        <span className="text-sm">
-                          {s.label}{!IMPLEMENTED_SERVICES[s.key] && <Badge variant="outline" className="ml-2">not built yet</Badge>}
-                          {deadInShop && <span className="ml-2 text-xs text-muted-foreground">AFA is not offered in shop mode</span>}
-                        </span>
-                        <Switch checked={config.visibility[s.key]} disabled={busy === s.key || deadInShop} aria-label={`Toggle ${s.label}`}
-                          onCheckedChange={v => save({ visibility: { [s.key]: v } }, s.key)} />
-                      </div>
-                    )
-                  })}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Cashback menus: shown only when Commission Cashback is on for bots (and the matching group) as well as here.
-                </p>
-                <div className="divide-y rounded-lg border">
-                  {CASHBACK_SERVICES.map(s => (
-                    <div key={s.key} className="flex items-center justify-between p-3">
-                      <span className="text-sm">{s.label}</span>
-                      <Switch checked={config.visibility[s.key] !== false} disabled={busy === s.key} aria-label={`Toggle ${s.label}`}
-                        onCheckedChange={v => save({ visibility: { [s.key]: v } }, s.key)} />
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Brand name</CardTitle>
-            <CardDescription>
-              The name callers see on the Hubtel screens: the welcome line (unless a custom welcome is set below), the
-              exit message (&quot;Thank you for using {previewBrand}.&quot;) and the Check Results &quot;create an
-              account&quot; message. SMS texts sent by shared services are not affected. Applies immediately.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {!config ? <p className="text-sm text-muted-foreground">Loading...</p> : (
-              <>
-                <div className="space-y-1">
-                  <Input
-                    value={brandDraft}
-                    onChange={e => setBrandDraft(e.target.value)}
-                    maxLength={BRAND_MAX}
-                    placeholder={DEFAULT_BRAND}
-                    aria-label="Brand name"
-                    aria-invalid={!brandCheck.ok}
-                    aria-describedby="hubtel-brand-help"
-                  />
-                  <div id="hubtel-brand-help" className="flex items-start justify-between gap-3 text-xs">
-                    <span className={brandCheck.ok ? "text-muted-foreground" : "text-destructive"}>
-                      {brandCheck.ok ? "1-30 plain characters (letters, numbers, spaces, basic punctuation), one line." : brandCheck.error}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground">{brandDraft.length}/{BRAND_MAX}</span>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    disabled={busy === "brand" || !brandCheck.ok || brandUnchanged}
-                    onClick={() => { if (brandCheck.ok) save({ brandName: brandCheck.value }, "brand") }}
-                  >
-                    {busy === "brand" ? "Saving..." : "Save"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy === "brand" || (savedBrand === DEFAULT_BRAND && brandDraft === DEFAULT_BRAND)}
-                    onClick={() => {
-                      // Already the default on the server: just discard the local edit.
-                      if (savedBrand === DEFAULT_BRAND) setBrandDraft(DEFAULT_BRAND)
-                      else save({ brandName: "" }, "brand")
-                    }}
-                  >
-                    Reset to default
-                  </Button>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Welcome message</CardTitle>
-            <CardDescription>
-              The first line callers see: on the main menu (main mode) and on the shop-code prompt (shop mode). Applies to new dials immediately.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {!config ? <p className="text-sm text-muted-foreground">Loading...</p> : (
-              <>
-                <div className="flex items-center gap-2 text-xs">
-                  <Badge variant={config.welcomeCustom ? "default" : "outline"}>{config.welcomeCustom ? "Custom" : "From brand name"}</Badge>
-                  <span className="text-muted-foreground">Leave blank to use &apos;{derivedWelcome(previewBrand)}&apos;.</span>
-                </div>
-                <div className="space-y-1">
-                  <Input
-                    value={welcomeDraft}
-                    onChange={e => setWelcomeDraft(e.target.value)}
-                    maxLength={WELCOME_MAX}
-                    placeholder={derivedWelcome(previewBrand)}
-                    aria-label="Welcome message"
-                    aria-invalid={!welcomeValid}
-                    aria-describedby="hubtel-welcome-help"
-                  />
-                  <div id="hubtel-welcome-help" className="flex items-start justify-between gap-3 text-xs">
-                    <span className={welcomeValid ? "text-muted-foreground" : "text-destructive"}>
-                      {welcomeValid || welcomeCheck.ok
-                        ? "1-60 plain characters (letters, numbers, spaces, basic punctuation), one line."
-                        : welcomeCheck.error}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground">{welcomeDraft.length}/{WELCOME_MAX}</span>
-                  </div>
-                </div>
-                <div className="rounded-lg border bg-muted/40 p-3">
-                  <div className="mb-1 text-xs text-muted-foreground">Preview</div>
-                  <pre className="whitespace-pre-wrap break-words font-mono text-sm">
-                    {`${previewWelcome}\n${config.mode === "shop" ? "Enter shop code:" : "1. Buy Data Bundle\n..."}`}
-                  </pre>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    disabled={busy === "welcome" || !welcomeValid || welcomeUnchanged}
-                    onClick={() => save({ welcome: welcomeBlank ? "" : welcomeDraft.trim() }, "welcome")}
-                  >
-                    {busy === "welcome" ? "Saving..." : "Save"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy === "welcome" || (!config.welcomeCustom && welcomeBlank)}
-                    onClick={() => {
-                      // Not customised on the server: just discard the local edit.
-                      if (!config.welcomeCustom) setWelcomeDraft("")
-                      else save({ welcome: "" }, "welcome")
-                    }}
-                  >
-                    Reset to default
-                  </Button>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+        <Tabs defaultValue="shop" className="gap-4">
+          <TabsList>
+            <TabsTrigger value="main">Main code</TabsTrigger>
+            <TabsTrigger value="shop">Shop code</TabsTrigger>
+          </TabsList>
+          <TabsContent value="main">
+            <HubtelLineSettings line="main" config={mainLine} envOk={envOk} busy={busy} onSave={(patch, label) => save("main", patch, label)} />
+          </TabsContent>
+          <TabsContent value="shop">
+            <HubtelLineSettings line="shop" config={config} envOk={envOk} busy={busy} onSave={(patch, label) => save("shop", patch, label)} />
+          </TabsContent>
+        </Tabs>
 
         <HubtelSessionsViewer
           fetcher={bearerFetch}
