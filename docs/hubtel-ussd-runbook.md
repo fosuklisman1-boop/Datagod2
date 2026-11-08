@@ -198,6 +198,53 @@ The new code needs its **own** Service Interaction URL. If Hubtel cannot do this
 4. Ask Hubtel to remove the restriction. Watch `needs_review` and `callback_failed` for the first hours.
 5. Decide which main code to publish: `public_ussd_codes` in `/admin/settings` holds one code, and two main codes will be live.
 
+## Wallet payment on the main code
+
+Callers on the main code can pay from their Datagod wallet instead of MoMo, for Data Bundles, Buy Airtime, Buy Vouchers and Check Results. A wallet purchase has no Hubtel checkout, no Hubtel charge and no `hubtel_transactions` row. Design: `docs/superpowers/specs/2026-11-07-hubtel-main-wallet-design.md`.
+
+### The switch
+- **Wallet payment** on the **Main code** tab of `/admin/ussd-hubtel` (`walletPayment` on `hubtel_ussd_main_line_config`). Missing means off. The shop code has no such switch and never offers the wallet.
+- Turning it off stops new wallet offers at once. A caller already on the `Pay with:` screen who presses `1` gets "Service unavailable", with nothing created and nothing debited. `2` (MoMo) still works.
+
+### Who sees it
+All of these, checked on each request: the **main code** in main mode, `Platform` **USSD**, the dialling number resolves to an account whose **phone is verified** (`users.phone_verified = true`), and the account's live **balance covers the price**. Everyone else goes from Confirm to Hubtel's checkout exactly as before. If the verification or balance cannot be read, the caller gets MoMo. Verification and the price are checked again when `1` is pressed: if verification was lost in between, the caller gets "Service unavailable" and no order is created.
+
+### Deploy order
+1. Apply migration **0159** (`hubtel_wallet_payments` and `pay_hubtel_order_from_wallet`) with the prod change protocol.
+2. Read the table through the **service client** (PostgREST, not SQL), for example `select id from hubtel_wallet_payments limit 1` with the service-role key, and get an empty result with no error. This proves PostgREST's schema cache has the table.
+3. Only then push the code, with the switch off.
+
+If the code ever runs before the table is visible, the replay lookup treats a missing table (`42P01`, `PGRST205`, `PGRST202`) as "no wallet payment", so MoMo keeps working. Any other read error on that lookup ends the session with "Service unavailable" (fail closed), so watch for a run of those after a deploy.
+
+### Alerts and what to do
+URGENT admin alerts (SMS with email fallback, alert type `bills_review`; muting it in `disabled_sms_alert_types` silences them with no fallback):
+- **"wallet debited, but the order was not completed"**: the payment row is `needs_review`. Check the order. Deliver it by hand, or refund it to the wallet (see Refunds). Never pay it out to a phone.
+- **"the debit could not be confirmed ... left for the sweep"**: the RPC's outcome is unknown and the payment row could not be read. Check the wallet's `transactions` and `hubtel_wallet_payments` for the session. If a payment row exists, the sweep will deliver it after 10 minutes; if no row and no debit exists, nothing was taken.
+- The sweep (inside `/api/cron/hubtel-status-check`) re-runs delivery for `debited` rows older than 10 minutes and sends the first alert above if it fails again.
+
+### Refunds
+A wallet-paid order is refunded to the **same wallet only**. A payout on top of a wallet refund pays twice.
+- **Data orders** (`ussd_orders`): refund to the wallet from `/admin/refunds` (Pending orders, while the order is pending).
+- **Airtime** (`airtime_orders`): mark it Failed on `/admin/airtime`, which credits the buyer's wallet.
+- **Vouchers** (`results_checker_orders`): Refund on `/admin/results-checker`, which credits the buyer's wallet.
+- **Check Results** (`results_check_requests`): no in-app refund. Complete it on `/admin/results-check-requests`, or credit the wallet by hand.
+- **Failed or reversed data orders** (`order_status` `failed` or `reversed`): `/admin/refunds` does not take them. Credit the wallet by hand, after checking the order was not resent (a reversed order is never resent automatically, but someone may have resent it).
+- An order that was never marked paid (its handler failed before marking it) is refused by every refund tool: credit the wallet by hand, or deliver by hand.
+
+### The wallet attention card
+`/admin/refunds` shows a **wallet attention** card listing Hubtel wallet payments that need a person: `needs_review` rows whose order is not completed or refunded, `debited` rows older than the sweep window, and paid wallet orders whose data order has failed or been reversed. Each row gives the order, amount, why it is listed and where it can be refunded. While a row is still `debited` the sweep may still deliver it: do not refund yet. The card says when there are more rows than it shows.
+
+### Supervised test (plan Task 7 step 7)
+From the owner's phone (verified, small balance), with the switch on:
+1. One each of data, airtime, vouchers and Check Results paid from the wallet. For each: one debit, one `transactions` row, the payment row `fulfilled`, the order delivered, and **no** `hubtel_transactions` row. Confirm Hubtel accepts a session that ends with no checkout.
+2. A balance too short: the caller goes straight to the checkout, with no wallet screen.
+3. `0` (Cancel) on the `Pay with:` screen: "Order cancelled.", nothing created.
+4. `2` (MoMo) on the `Pay with:` screen: today's checkout, paid and delivered as usual.
+5. One deliberately failed post-payment, agreed with the developer beforehand (the stock and price checks run again before the debit, so a sold-out board fails at Confirm, not after payment): the screen still says payment successful, the payment row goes to `needs_review`, and the URGENT alert arrives. Then **wait more than 10 minutes** and check: the sweep did not deliver twice or move the row back, the alert did not repeat, and the order is listed on the wallet attention card. Refund it to the wallet from the page the card names, and check the card clears.
+6. Switch off and check the main code is unchanged for a MoMo caller.
+
+If anything is wrong, turn **Wallet payment** off. MoMo is unaffected.
+
 ## Special Bundles on USSD
 
 Sold under Internet Bundles > Standard Bundles > MTN on both Hubtel codes. Off until an admin turns on **Sell on Hubtel USSD** on the Special card (Admin > Hubtel Commission > Standard Bundles). Sizes are the card's shared multiples list, so changing them also changes the dashboard. Migration 0158 is applied (2026-11-07).

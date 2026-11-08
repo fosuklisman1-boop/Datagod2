@@ -74,6 +74,7 @@ The payment row then moves to `fulfilled`, or `needs_review` if the handler thro
 Failure paths:
 - RPC refuses for balance: repaint with `2. MoMo` and `0. Cancel`, and delete or fail the unpaid order with the guarded fail.
 - RPC throws, outcome unknown: read `hubtel_wallet_payments` by session. Found means continue as paid; not found means fail the order guarded and offer MoMo. A read error ends with the unavailable text, an URGENT alert, and the order left for the sweep.
+- As built (2026-11-08): an unknown RPC error with no payment row found ends with the unavailable text, not a MoMo offer, because the debit may still commit late and offering MoMo there could take two payments.
 - A process death after the debit: a sweep finds `debited` rows older than 10 minutes, re-runs the handler (its guarded mark makes that safe), and alerts URGENT if it fails again. This runs from the existing Hubtel status-check cron.
 
 Repeat protection: `replaySubmittedOrder` runs first as today. A wallet-paid session answers "This order was already submitted." The unique session key stops a second debit, and an order with a wallet payment can never be carted.
