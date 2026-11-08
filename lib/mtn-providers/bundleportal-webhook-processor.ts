@@ -2,6 +2,7 @@ import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { mapBundlePortalStatus } from "@/lib/mtn-providers/bundleportal-provider"
 import { sendPushToUser } from "@/lib/push-service"
+import { flagReversal, isReversal, looksProviderCompleted } from "@/lib/mtn-reversal"
 
 // Webhook processing logic for the Bundle Portal MTN fulfillment provider,
 // extracted out of app/api/webhooks/mtn/bundleportal/route.ts so it's unit
@@ -32,7 +33,7 @@ export function verifySig(rawBody: string, header: string | null, secret: string
 
 /** Bundle Portal's four documented webhook events, mapped to our canonical status set. */
 function mapEventStatus(event: string, status: string): "pending" | "processing" | "completed" | "failed" {
-  if (event === "order.cancelled" || event === "order.refunded") return "failed"
+  if (event === "order.failed" || event === "order.cancelled" || event === "order.refunded") return "failed"
   return mapBundlePortalStatus(status)
 }
 
@@ -47,12 +48,33 @@ export async function processWebhook(payload: any) {
 
   const { data: tracking } = await supabase
     .from("mtn_fulfillment_tracking")
-    .select("id, status, order_type, order_id, api_order_id, shop_order_id")
+    .select("id, status, order_type, order_id, api_order_id, shop_order_id, provider, external_status, updated_at")
     .eq("mtn_order_id", ref)
     .maybeSingle()
 
   if (!tracking) {
     console.warn("[WEBHOOK-BUNDLEPORTAL] No tracking row found for order_id:", ref)
+    return
+  }
+
+  // A reversed order is waiting on an admin. A repeat delivery must not push it
+  // on to "failed", which the order tables store as "pending" and would requeue.
+  if (tracking.status === "reversed") {
+    console.warn(`[WEBHOOK-BUNDLEPORTAL] Ignoring ${payload.event} for already-reversed ${ref}`)
+    return
+  }
+
+  // Despite the docs below, Bundle Portal does fail orders it already reported
+  // completed, and refunds us (seen in production 2026-11-07/08, from minutes
+  // to days later). Flag those for admin review; never auto-resend. Completions
+  // it never confirmed itself (admin bulk-complete) are not reversals.
+  if (
+    newStatus === "failed" &&
+    looksProviderCompleted(tracking.external_status) &&
+    isReversal({ trackingStatus: tracking.status, completedAt: tracking.updated_at, providerStatus: "failed" })
+  ) {
+    const { flagged } = await flagReversal(supabase, tracking, { status: payload.status ?? "failed", message: payload.failure_reason ?? payload.event })
+    if (flagged) console.warn(`[WEBHOOK-BUNDLEPORTAL] Reversal flagged for ${ref} (${payload.event} after completed)`)
     return
   }
 
