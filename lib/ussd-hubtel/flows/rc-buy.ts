@@ -7,9 +7,10 @@ import { rcMenuText } from "../menus"
 import { toLocalPhone } from "../protocol"
 import { safeDbError } from "../log-safe"
 import { startRcCheck } from "./rc-check"
-import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
+import { backToMain, finish, goto, replaySubmittedOrder, say, type FlowCtx, type StepTable } from "../flow-kit"
+import { checkoutOrChoose, type Prepare, type PreparedOrder } from "./pay-choice"
 import type { MyVoucherOrder } from "../services"
-import type { HubtelReply } from "../types"
+import type { HubtelReply, PayKind } from "../types"
 
 export const ALL_BOARDS: ExamBoard[] = ["WASSCE", "BECE", "NOVDEC"]
 
@@ -127,6 +128,15 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
 
+  return checkoutOrChoose(ctx, "rc", prepareRc)
+}
+
+/** Every check before paying (run at confirm and again on PAY_CHOICE): the order to create, or the reply to show. */
+export async function prepareRc(ctx: FlowCtx): Promise<PreparedOrder | HubtelReply> {
+  const { deps, session } = ctx
+  const board = session.rcBoard as ExamBoard
+  const qty = session.rcQty!
+
   // Stale-session guard: stock and price may have moved since the confirm screen. Every
   // comparison is written so NaN / undefined fails closed (releases) rather than selling.
   const [enabled, available] = await Promise.all([deps.rc.isBoardEnabled(board), deps.rc.availableCount(board)])
@@ -140,7 +150,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   }
   const dialer = await deps.resolveDialer(session.dialingPhone)
 
-  return submitOrder(ctx, {
+  return {
     table: "results_checker_orders",
     price: pricing.totalPaid,
     logTag: "HUBTEL-RC",
@@ -162,7 +172,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
       dialing_phone: session.dialingPhone,
       channel: "ussd",
     },
-  })
+  }
 }
 
 async function myVouchers(ctx: FlowCtx): Promise<HubtelReply> {
@@ -197,3 +207,6 @@ export const RC_BUY_STEPS: StepTable = {
   RC_MY_VOUCHERS: myVouchers,
   RC_VOUCHER_DETAIL: voucherDetail,
 }
+
+/** PAY_CHOICE's re-run of the voucher checks (registered in router.ts). */
+export const RC_PREPARES: Partial<Record<PayKind, Prepare>> = { rc: prepareRc }

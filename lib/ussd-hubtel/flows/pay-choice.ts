@@ -29,19 +29,31 @@ export function choiceScreenText(balance: number): string {
 }
 
 /** The final screen after a wallet payment: "Payment successful." plus the service's delivery wording (Uzo's). */
-const PAID_TEXT: Partial<Record<PayKind, string>> = {
-  data: "Payment successful.\nYour package will reflect\nin a few minutes.",
+const PAID_TEXT: Partial<Record<PayKind, (row: Record<string, unknown>) => string>> = {
+  data: () => "Payment successful.\nYour package will reflect\nin a few minutes.",
+  airtime: () => "Payment successful.\nAirtime will reflect\nshortly.",
+  // Uzo's wallet text for vouchers names the reference, the exam and whether it is one voucher or several.
+  rc: row => `Success! Ref ${String(row.reference_code ?? "")}.\n${String(row.exam_board ?? "")} voucher${Number(row.quantity) > 1 ? "s" : ""} sent by SMS.`,
+  rc_check: row => `Payment successful!\nWe'll check your\n${String(row.exam_board ?? "")} results and\nsend them to you shortly.`,
 }
-const paidText = (kind: PayKind) => PAID_TEXT[kind] ?? "Payment successful."
+const paidText = (kind: PayKind, row: Record<string, unknown>) => PAID_TEXT[kind]?.(row) ?? "Payment successful."
 
-/** The wallet history line, as Uzo writes it: the product only, no phone. */
+/** The wallet history line, as Uzo writes it, minus any phone number. */
 const DESCRIPTION: Partial<Record<PayKind, (row: Record<string, unknown>) => string>> = {
   data: row => `USSD data purchase: ${String(row.network ?? "")} ${String(row.package_size ?? "")}`.trim(),
+  airtime: row => `Airtime: ${String(row.network ?? "")} GHS ${String(row.airtime_amount ?? "")}`.trim(),
+  rc: row => `${String(row.exam_board ?? "")} Results Checker x${String(row.quantity ?? "")} — Ref: ${String(row.reference_code ?? "")}`,
+  rc_check: row => `Results check: ${String(row.exam_board ?? "")} ${String(row.index_number ?? "")} ${String(row.exam_year ?? "")}`,
 }
 const descriptionFor = (kind: PayKind, row: Record<string, unknown>) => DESCRIPTION[kind]?.(row) ?? "USSD purchase"
 
 /** The order row's money column per wallet table: set to the debited amount on the wallet path. */
-const AMOUNT_COLUMN: Partial<Record<WalletTable, string>> = { ussd_orders: "amount" }
+const AMOUNT_COLUMN: Partial<Record<WalletTable, string>> = {
+  ussd_orders: "amount",
+  airtime_orders: "total_paid", // fee-priced: the typed amount; cashback: cb.payAmount (cashbackAirtimeColumns)
+  results_checker_orders: "total_paid",
+  results_check_requests: "fee",
+}
 
 const ALREADY_SUBMITTED_TEXT = "This order was already submitted."
 
@@ -183,12 +195,12 @@ async function payByWallet(ctx: FlowCtx, kind: PayKind, prepare: Prepare): Promi
         // Not expected (payFromWallet always names the payment): the row is debited, so the sweep runs it.
         console.error(LOG, "paid with no payment id; left for the sweep:", table, order.id, sid)
       }
-      return finish(ctx, paidText(kind))
+      return finish(ctx, paidText(kind, row))
     }
     case "replay":
       // This session's payment already exists for this order: the run that made it owns post-payment.
       console.warn(LOG, "wallet payment replayed:", table, order.id, sid)
-      return finish(ctx, paidText(kind))
+      return finish(ctx, paidText(kind, row))
     case "insufficient":
       await failOrder()
       return goto(ctx, { step: "PAY_CHOICE", payWalletDeclined: true }, INSUFFICIENT_TEXT, CHOICE)

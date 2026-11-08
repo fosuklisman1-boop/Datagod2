@@ -17,7 +17,7 @@ import {
   type FlowCtx, type RouterDeps, type StepHandler, type StepTable,
 } from "./flow-kit"
 import { AFA_STEPS, startAfa } from "./flows/afa"
-import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
+import { AIRTIME_PREPARES, AIRTIME_STEPS, startAirtime } from "./flows/airtime"
 import { DATA_PREPARES, DATA_STEPS, startData } from "./flows/data"
 import { payChoiceStep } from "./flows/pay-choice"
 import { createOrderHandlers } from "./order-handlers"
@@ -25,8 +25,8 @@ import { urgentAlert } from "./special-payment"
 import { internetMenuStep, startInternetBundles } from "./flows/internet-bundles"
 import { NETWORK_PLANS_STEPS, startNetworkPlans } from "./flows/network-plans"
 import { PAY_BILLS_STEPS, startPayBills } from "./flows/pay-bills"
-import { RC_BUY_STEPS, startRc } from "./flows/rc-buy"
-import { RC_CHECK_STEPS } from "./flows/rc-check"
+import { RC_BUY_STEPS, RC_PREPARES, startRc } from "./flows/rc-buy"
+import { RC_CHECK_PREPARES, RC_CHECK_STEPS } from "./flows/rc-check"
 import { SHOP_AIRTIME_STEPS, startShopAirtime } from "./flows/shop-airtime"
 import { SHOP_DATA_STEPS, startShopData } from "./flows/shop-data"
 import { SHOP_RC_STEPS, startShopRc } from "./flows/shop-rc"
@@ -96,7 +96,7 @@ const STEPS: StepTable = {
   ...NETWORK_PLANS_STEPS,
   ...PAY_BILLS_STEPS,
   // Wallet or MoMo (main mode only: never in SHOP_STEPS).
-  PAY_CHOICE: payChoiceStep({ ...DATA_PREPARES }),
+  PAY_CHOICE: payChoiceStep({ ...DATA_PREPARES, ...AIRTIME_PREPARES, ...RC_PREPARES, ...RC_CHECK_PREPARES }),
 }
 
 /** First screen of each shop product (Tasks 3, 5, 6 register theirs). Shop mode only. */

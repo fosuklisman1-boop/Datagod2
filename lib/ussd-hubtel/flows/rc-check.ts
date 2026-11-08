@@ -8,8 +8,9 @@ import {
 } from "@/lib/results-check-validation"
 import { brandText, rcMenuText } from "../menus"
 import { toLocalPhone } from "../protocol"
-import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
-import type { HubtelReply, HubtelSession } from "../types"
+import { finish, goto, replaySubmittedOrder, say, type FlowCtx, type StepTable } from "../flow-kit"
+import { checkoutOrChoose, type Prepare, type PreparedOrder } from "./pay-choice"
+import type { HubtelReply, HubtelSession, PayKind } from "../types"
 
 const CHECK_BOARDS: ExamBoard[] = ["WASSCE", "BECE", "NOVDEC"]
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -200,6 +201,15 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
 
+  return checkoutOrChoose(ctx, "rc_check", prepareRcCheck)
+}
+
+/** Every check before paying (run at confirm and again on PAY_CHOICE): the order to create, or the reply to show. */
+export async function prepareRcCheck(ctx: FlowCtx): Promise<PreparedOrder | HubtelReply> {
+  const { deps, session: s } = ctx
+  const board = s.rcCheckBoard as ExamBoard
+  const mode = s.rcCheckMode ?? "own_voucher"
+
   // Re-verify everything that sets the price or gates the service. Every comparison is written so
   // NaN / undefined fails closed (releases) rather than selling.
   const settings = await deps.rc.checkSettings()
@@ -217,7 +227,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
     return finish(ctx, `Price changed${shown}. Please restart your order.`)
   }
 
-  return submitOrder(ctx, {
+  return {
     table: "results_check_requests",
     price: amount,
     logTag: "HUBTEL-RC-CHECK",
@@ -239,7 +249,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
       voucher_serial: mode === "own_voucher" ? (s.rcCheckVoucherSerial ?? null) : null,
       whatsapp_number: s.rcCheckWaNumber ?? null,
     },
-  })
+  }
 }
 
 export const RC_CHECK_STEPS: StepTable = {
@@ -253,3 +263,6 @@ export const RC_CHECK_STEPS: StepTable = {
   RC_CHECK_WA_NUMBER: waNumber,
   RC_CHECK_CONFIRM: confirm,
 }
+
+/** PAY_CHOICE's re-run of the Check Results checks (registered in router.ts). */
+export const RC_CHECK_PREPARES: Partial<Record<PayKind, Prepare>> = { rc_check: prepareRcCheck }

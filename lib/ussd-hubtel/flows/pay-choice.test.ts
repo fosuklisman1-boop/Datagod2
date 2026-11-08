@@ -688,9 +688,10 @@ describe("pay choice: helpers", () => {
     const w = world()
     await walkToConfirm(w.deps)
     await press(w.deps, "1")
-    w.store.set("S1", { ...w.store.get("S1")!, payKind: "rc" })
+    // Every real kind now has a prepare, so the fixture is a kind nothing registers.
+    w.store.set("S1", { ...w.store.get("S1")!, payKind: "unregistered" as never })
     for (const m of ["1", "2"]) {
-      w.store.set("S1", { ...w.store.get("S1") ?? { step: "PAY_CHOICE", dialingPhone: "+233200585542", platform: "USSD" }, step: "PAY_CHOICE", payKind: "rc" })
+      w.store.set("S1", { ...w.store.get("S1") ?? { step: "PAY_CHOICE", dialingPhone: "+233200585542", platform: "USSD" }, step: "PAY_CHOICE", payKind: "unregistered" as never })
       expect((await press(w.deps, m)).Message).toBe(UNAVAILABLE)
     }
     expect(w.sup.inserts["ussd_orders"]).toBeUndefined()
