@@ -11,7 +11,7 @@ import type { OrderHandlers } from "./payment"
 
 const LOG = "[HUBTEL-WALLET]"
 const TABLE = "hubtel_wallet_payments"
-const ROW_COLUMNS = "id, session_id, order_table, order_id, user_id, amount, state, review_reason, created_at"
+const ROW_COLUMNS = "id, session_id, order_table, order_id, user_id, amount, state, review_reason, created_at, updated_at"
 
 export type WalletTable = "ussd_orders" | "airtime_orders" | "results_checker_orders" | "results_check_requests"
 
@@ -28,6 +28,13 @@ export const WALLET_SOURCE: Record<WalletTable, string> = {
  * route's run time (post-payment included, when it is deferred) staying under this 10-minute window.
  */
 export const WALLET_SWEEP_MIN_AGE_MS = 10 * 60_000
+/**
+ * A sweep claims a row by moving its updated_at (compare-and-set), and a row claimed less than this long ago is not
+ * listed again. So an overlapping cron run (the route runs every 2 minutes for up to 300 seconds) never runs a handler
+ * on a row another run is still handling: results_check_requests has no guarded mark of its own and would deliver twice.
+ * Must stay above the route's maxDuration; a run that died mid-row frees the row after this long.
+ */
+export const WALLET_SWEEP_LEASE_MS = 10 * 60_000
 export const WALLET_SWEEP_LIMIT = 100
 
 export type WalletAlert = (message: string) => Promise<void>
@@ -48,6 +55,7 @@ export interface WalletPaymentRow {
   state: "debited" | "fulfilled" | "needs_review"
   review_reason: string | null
   created_at: string
+  updated_at: string
 }
 
 export interface WalletPayInput {
@@ -178,7 +186,9 @@ async function moveFromDebited(
 type SettleOutcome = "fulfilled" | "review" | "none"
 
 /** The shared post-payment step. A handler finding its order already completed returns normally: that counts as fulfilled. */
-async function settle(deps: WalletPayDeps, paymentId: string, table: string, orderId: string): Promise<SettleOutcome> {
+async function settle(
+  deps: WalletPayDeps, paymentId: string, table: string, orderId: string, amount?: number | string,
+): Promise<SettleOutcome> {
   let failure: { category: string; reason: string } | null = null
   const handler = deps.handlers[table]
   if (typeof handler !== "function") {
@@ -208,16 +218,49 @@ async function settle(deps: WalletPayDeps, paymentId: string, table: string, ord
     return "none"
   }
   const recorded = moved.ok ? "" : " The review state could not be saved, so the sweep will try again."
-  await sendAlert(deps.alert, `URGENT: wallet payment on ${table} order ${orderId}${ghs(moved.row?.amount)}: wallet debited, but the order was not completed (${failure.category}). Check the order, then deliver it by hand or refund it to the wallet.${recorded}`)
+  await sendAlert(deps.alert, `URGENT: wallet payment on ${table} order ${orderId}${ghs(amount ?? moved.row?.amount)}: wallet debited, but the order was not completed (${failure.category}). Check the order, then deliver it by hand or refund it to the wallet.${recorded}`)
   return "review"
 }
 
-/** Run the order's handler, then set fulfilled, or needs_review with an URGENT alert naming the order. Never throws. */
-export async function runWalletPostPayment(deps: WalletPayDeps, paymentId: string, table: WalletTable, orderId: string): Promise<void> {
+/**
+ * Run the order's handler, then set fulfilled, or needs_review with an URGENT alert naming the order. Never throws.
+ * `amount` (what was debited) goes in the alert; without it, the alert takes it from the row when the write returns it.
+ */
+export async function runWalletPostPayment(
+  deps: WalletPayDeps, paymentId: string, table: WalletTable, orderId: string, amount?: number,
+): Promise<void> {
   try {
-    await settle(deps, paymentId, table, orderId)
+    await settle(deps, paymentId, table, orderId, amount)
   } catch (e) {
     console.error(LOG, "post-payment step failed:", table, orderId, paymentId, safeError(e))
+  }
+}
+
+/**
+ * Claim a listed row for this sweep run: move updated_at, only if the row is still debited and nobody moved it since it
+ * was listed. False (skip the row) if another run got there first, or on any error. Never throws.
+ */
+async function claimRow(db: SupabaseClient, row: WalletPaymentRow): Promise<boolean> {
+  try {
+    const { data, error } = await db
+      .from(TABLE)
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", row.id)
+      .eq("state", "debited")
+      .eq("updated_at", row.updated_at)
+      .select("id")
+    if (error) {
+      console.error(LOG, "sweep claim failed; row skipped:", row.order_table, row.order_id, row.id, safeError(error))
+      return false
+    }
+    if (!data || data.length === 0) {
+      console.warn(LOG, "row claimed by another run; skipped:", row.order_table, row.order_id, row.id)
+      return false
+    }
+    return true
+  } catch (e) {
+    console.error(LOG, "sweep claim failed; row skipped:", row.order_table, row.order_id, row.id, safeError(e))
+    return false
   }
 }
 
@@ -241,6 +284,7 @@ export async function sweepWalletPayments(
       .select(ROW_COLUMNS)
       .eq("state", "debited")
       .lt("created_at", new Date(now - WALLET_SWEEP_MIN_AGE_MS).toISOString())
+      .lt("updated_at", new Date(now - WALLET_SWEEP_LEASE_MS).toISOString())
       .order("created_at", { ascending: true })
       .limit(WALLET_SWEEP_LIMIT)
     if (error) {
@@ -252,7 +296,8 @@ export async function sweepWalletPayments(
     for (const row of rows) {
       if (deadlineMs != null && Date.now() > deadlineMs) break
       try {
-        const outcome = await settle({ db, handlers, alert }, row.id, row.order_table, row.order_id)
+        if (!(await claimRow(db, row))) continue
+        const outcome = await settle({ db, handlers, alert }, row.id, row.order_table, row.order_id, row.amount)
         if (outcome === "fulfilled") out.fulfilled++
         else if (outcome === "review") out.review++
       } catch (e) {

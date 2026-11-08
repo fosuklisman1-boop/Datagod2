@@ -4,6 +4,7 @@ import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   WALLET_SOURCE,
+  WALLET_SWEEP_LEASE_MS,
   WALLET_SWEEP_LIMIT,
   WALLET_SWEEP_MIN_AGE_MS,
   findWalletPaymentBySession,
@@ -24,8 +25,8 @@ type DbOpts = {
   readError?: any
   readThrows?: boolean
   listError?: any
-  updateError?: (id: string) => any
-  updateThrows?: (id: string) => boolean
+  updateError?: (id: string, patch: Row) => any
+  updateThrows?: (id: string, patch: Row) => boolean
 }
 
 /** In-memory hubtel_wallet_payments. It has no insert or delete: only the RPC inserts, and nobody deletes. */
@@ -35,19 +36,19 @@ function fakeDb(rows: Row[] = [], opts: DbOpts = {}) {
     expect(table).toBe("hubtel_wallet_payments")
     const q = {
       filters: [] as [string, any][],
-      before: null as [string, string] | null,
+      before: [] as [string, string][],
       patch: null as Row | null,
       max: Infinity,
       ordered: false,
       select: () => q,
       eq: (c: string, v: any) => { q.filters.push([c, v]); return q },
-      lt: (c: string, v: string) => { q.before = [c, v]; return q },
+      lt: (c: string, v: string) => { q.before.push([c, v]); return q },
       order: () => { q.ordered = true; return q },
       limit: (n: number) => { q.max = n; return q },
       update: (p: Row) => { q.patch = p; return q },
       matching: () => {
         let out = rows.filter(r => q.filters.every(([c, v]) => r[c] === v))
-        if (q.before) out = out.filter(r => r[q.before![0]] < q.before![1])
+        out = out.filter(r => q.before.every(([c, v]) => r[c] < v))
         if (q.ordered) out = [...out].sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
         return out.slice(0, q.max)
       },
@@ -62,8 +63,8 @@ function fakeDb(rows: Row[] = [], opts: DbOpts = {}) {
       if (q.patch) {
         const id = q.filters.find(([c]) => c === "id")?.[1]
         calls.updates.push({ filters: q.filters, patch: q.patch })
-        if (opts.updateThrows?.(id)) throw new Error("fetch failed")
-        const err = opts.updateError?.(id)
+        if (opts.updateThrows?.(id, q.patch)) throw new Error("fetch failed")
+        const err = opts.updateError?.(id, q.patch)
         if (err) return { data: null, error: err }
         const hit = q.matching()
         hit.forEach(r => Object.assign(r, q.patch))
@@ -102,6 +103,7 @@ const payRow = (over: Row = {}): Row => ({
   state: "debited",
   review_reason: null,
   created_at: OLD,
+  updated_at: OLD,
   ...over,
 })
 
@@ -375,6 +377,18 @@ describe("runWalletPostPayment", () => {
   it.each([
     ["returned", { updateError: () => ({ code: "XX000", message: "down" }) }],
     ["thrown", { updateThrows: () => true }],
+  ])("the amount passed in reaches the alert even when the %s state write failed", async (_, opts) => {
+    const rows = [payRow()]
+    const alert = vi.fn(async (_m: string) => {})
+    const db = fakeDb(rows, opts)
+    const handlers = { ussd_orders: vi.fn(async () => { throw new Error("boom") }) }
+    await runWalletPostPayment({ db: db.client, handlers, alert }, "pay-1", "ussd_orders", "O1", 7.25)
+    expect(alert.mock.calls[0][0]).toContain("GHS 7.25")
+  })
+
+  it.each([
+    ["returned", { updateError: () => ({ code: "XX000", message: "down" }) }],
+    ["thrown", { updateThrows: () => true }],
   ])("a %s write error after the handler succeeded is logged; the row stays debited for the sweep", async (_, opts) => {
     const rows = [payRow()]
     const alert = vi.fn(async () => {})
@@ -465,6 +479,66 @@ describe("sweepWalletPayments", () => {
     await expect(sweep(db(), {}, alert)).resolves.toEqual({ found: 0, fulfilled: 0, review: 0 })
     expect(alert).not.toHaveBeenCalled()
     expect(errorLog).toHaveBeenCalled()
+  })
+
+  it("two overlapping sweeps that both listed one row: it is claimed once and its handler runs once", async () => {
+    const rows = [payRow({ order_table: "results_check_requests" })]
+    const handler = vi.fn(async () => {})
+    const { client } = fakeDb(rows)
+    const [a, b] = await Promise.all([
+      sweep(client, { results_check_requests: handler }),
+      sweep(client, { results_check_requests: handler }),
+    ])
+    expect(a.found + b.found).toBe(2) // both listed it before either claimed it
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(a.fulfilled + b.fulfilled).toBe(1)
+    expect(rows[0].state).toBe("fulfilled")
+  })
+
+  it("a sweep starting while another still runs the handler does not list the claimed row", async () => {
+    const rows = [payRow({ order_table: "results_check_requests" })]
+    const { client } = fakeDb(rows)
+    let inner: Awaited<ReturnType<typeof sweep>> | null = null
+    const handler = vi.fn(async () => {
+      inner = await sweep(client, { results_check_requests: handler })
+    })
+    await sweep(client, { results_check_requests: handler })
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(inner).toEqual({ found: 0, fulfilled: 0, review: 0 })
+  })
+
+  it("a row claimed within the lease is not listed; one whose claim expired is", async () => {
+    expect(WALLET_SWEEP_LEASE_MS).toBeGreaterThan(300_000) // above the route's maxDuration
+    const rows = [
+      payRow({ id: "held", order_id: "O-held", updated_at: new Date(NOW - WALLET_SWEEP_LEASE_MS + 1000).toISOString() }),
+      payRow({ id: "expired", order_id: "O-exp", updated_at: new Date(NOW - WALLET_SWEEP_LEASE_MS - 1000).toISOString() }),
+    ]
+    const handler = vi.fn(async () => {})
+    await sweep(fakeDb(rows).client, { ussd_orders: handler })
+    expect(handler.mock.calls).toEqual([["O-exp"]])
+  })
+
+  it.each([
+    ["returned", { updateError: (_: string, p: Row) => (p.state ? null : { code: "XX000", message: `down ${PHONE}` }) }],
+    ["thrown", { updateThrows: (_: string, p: Row) => !p.state }],
+  ])("a %s claim error skips the row: no handler, no throw, logged", async (_, opts) => {
+    const rows = [payRow()]
+    const handler = vi.fn(async () => {})
+    const res = await sweep(fakeDb(rows, opts).client, { ussd_orders: handler })
+    expect(res).toEqual({ found: 1, fulfilled: 0, review: 0 })
+    expect(handler).not.toHaveBeenCalled()
+    expect(rows[0].state).toBe("debited")
+    expect(errorLog).toHaveBeenCalled()
+    expect(logged()).not.toContain(PHONE)
+  })
+
+  it("the row's amount reaches the alert even when the needs_review write fails", async () => {
+    const rows = [payRow({ amount: "9.40" })]
+    const alert = vi.fn(async (_m: string) => {})
+    const db = fakeDb(rows, { updateError: (_: string, p: Row) => (p.state === "needs_review" ? { code: "XX000", message: "down" } : null) })
+    const res = await sweep(db.client, { ussd_orders: vi.fn(async () => { throw new Error("boom") }) }, alert)
+    expect(res.review).toBe(1)
+    expect(alert.mock.calls[0][0]).toContain("GHS 9.40")
   })
 
   it("past the deadline it starts no new row; the next run picks it up", async () => {
