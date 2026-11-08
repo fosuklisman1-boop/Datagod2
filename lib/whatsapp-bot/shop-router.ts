@@ -333,12 +333,14 @@ const SHOP_CHARGE_BUSY_REPLY = "Please check for the payment prompt, or start ag
  * the reply to send instead: nothing is created and the session isn't written. The session is read again once the claim
  * is held, because a request that read the step just before an earlier charge finished can win the claim after it.
  */
-async function takeShopChargeClaim(from: string, step: WaShopSession['step'], claim: { held: boolean }): Promise<string | null> {
+async function takeShopChargeClaim(
+  from: string, step: WaShopSession['step'], claim: { held: boolean }, onOutage: 'go' | 'busy' = 'go',
+): Promise<string | null> {
   const result = await claimShopCharge(from)
   // Owner decision 2026-11-08, same as the main bot (router.ts): a lock outage doesn't stop sales. No claim is held, so
   // claim.held stays false and nothing is released; admins were alerted inside claimShopCharge. Two messages at once
-  // could mint two orders during that outage.
-  if (result === 'unavailable') return null
+  // could mint two orders during that outage. A cancel ('busy') never answers "cancelled" while a charge may be running.
+  if (result === 'unavailable') return onOutage === 'busy' ? SHOP_CHARGE_BUSY_REPLY : null
   if (result === 'held') return SHOP_CHARGE_BUSY_REPLY
   claim.held = true
   const fresh = await getSession(from)
@@ -366,7 +368,7 @@ async function leaveConfirmStep(from: string): Promise<void> {
  * must not answer "cancelled" while that prompt goes out. Null means cancel; otherwise the reply to send instead.
  */
 async function claimForCancel(from: string, step: WaShopSession['step'], claim: { held: boolean }): Promise<string | null> {
-  return takeShopChargeClaim(from, step, claim)
+  return takeShopChargeClaim(from, step, claim, 'busy')
 }
 
 export async function shopWaRouter(from: string, text: string, inboundMsgId: string | null): Promise<string> {
