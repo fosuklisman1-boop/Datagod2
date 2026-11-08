@@ -112,6 +112,11 @@ export interface PaymentSource {
   hubtelCollection?: boolean
   /** Facts of the Hubtel collection attempt(s) behind hubtelCollection. */
   hubtelAttempt?: HubtelAttemptFacts
+  /**
+   * Paid from the wallet on the Hubtel main code (hubtel_wallet_payments, migration 0159). The wallet is then the only
+   * rail (supportOf), and a payment still `debited` is not refundable: the sweep may still deliver the order.
+   */
+  hubtelWallet?: { paymentId: string; state: "debited" | "fulfilled" | "needs_review"; amount: number }
 }
 
 /**

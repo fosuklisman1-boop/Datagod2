@@ -6,6 +6,7 @@ import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { findHubtelAttempts, isLiveHubtelStatus, isManuallyRefundedPayment, type HubtelAttemptRow } from "@/lib/hubtel-pay/lookup"
 import { isLatePaidShopOrder } from "@/lib/payments/closed-order"
+import { loadHubtelWalletPayments, type HubtelWalletPaymentFact } from "./hubtel-wallet"
 
 /** A stored phone as 0XXXXXXXXX when it is a Ghana number (USSD rows store +233XXXXXXXXX), else as stored. */
 export function displayPhone(v: unknown): string | null {
@@ -446,7 +447,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
   const walletOnly = isWalletOnlyTable(table)
   const fk = PROFIT_FK[table]
 
-  const [profits, tracking, claims, refunds, walletDebits, allWalletPayments, fulfillmentLogs, paidHubtelTx] = await Promise.all([
+  const [profits, tracking, claims, refunds, walletDebits, allWalletPayments, fulfillmentLogs, paidHubtelTx, hubtelWalletPayments] = await Promise.all([
     fk ? inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${fk}`, fk, ids, (q) => q.is("refund_id", null)) : Promise.resolve([] as any[]),
     inRows<any>(db, "mtn_fulfillment_tracking", `status, ${TRACKING_COL[table]}`, TRACKING_COL[table], ids),
     inRows<any>(db, "order_dispatch_claims", "order_id, last_outcome, attempts", "order_id", ids),
@@ -458,6 +459,8 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
     walletOnly ? inRows<any>(db, "fulfillment_logs", "order_id, status", "order_id", ids) : Promise.resolve([] as any[]),
     // Hubtel USSD checkout payments: any row of these tables may have been paid through Hubtel (no bot_surface here).
     HUBTEL_CHECKOUT_TABLES.has(table) ? loadPaidHubtelTx(db, table, ids) : Promise.resolve([] as any[]),
+    // Hubtel main-code wallet payments (0159). Of the four tables it covers, only ussd_orders is refundable here.
+    table === "ussd_orders" ? loadHubtelWalletPayments(db, "ussd_orders", ids) : Promise.resolve([] as HubtelWalletPaymentFact[]),
   ])
   const walletPayments = await withoutHandRefundedPayments(db, allWalletPayments)
 
@@ -565,6 +568,15 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
               payerPhone: null,
               walletUserId: null,
             }
+      }
+    } else if (hubtelWalletPayments.some((w) => w.orderId === id)) {
+      // Paid from the wallet on the Hubtel main code. The payment row (written only by the paying RPC, with the debit)
+      // names the wallet and the amount debited; a transactions debit never overrides it. The wallet is the only rail.
+      const w = hubtelWalletPayments.find((x) => x.orderId === id)!
+      paid = w.amount
+      payment = {
+        gateway: "wallet", reference: null, payerPhone: displayPhone(r.dialing_phone), walletUserId: w.userId,
+        hubtelWallet: { paymentId: w.paymentId, state: w.state, amount: w.amount },
       }
     } else {
       paid = Number(r.amount)

@@ -41,6 +41,16 @@ interface PendingRow {
   manualRefund?: boolean
 }
 
+/** A Hubtel main-code wallet payment an admin must see (GET /api/admin/refunds/wallet-attention). Read-only. */
+interface WalletAttentionRow {
+  paymentId: string; orderTable: string; orderId: string; amount: number; state: "debited" | "needs_review"
+  orderStatus: string | null; reason: string; refundHint: string; createdAt: string
+}
+
+const WALLET_TABLE_LABEL: Record<string, string> = {
+  ussd_orders: "Data (USSD)", airtime_orders: "Airtime", results_checker_orders: "Results checker", results_check_requests: "Results check",
+}
+
 type RefundStatus = "reserved" | "processing" | "awaiting_otp" | "completed" | "failed"
 
 interface HistoryRow {
@@ -88,6 +98,8 @@ function Pager({ page, count, loading, onPage }: { page: number; count: number; 
 export default function AdminRefundsPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const [pending, setPending] = useState<PendingRow[]>([])
+  const [walletAttention, setWalletAttention] = useState<WalletAttentionRow[]>([])
+  const [walletAttentionError, setWalletAttentionError] = useState<string | null>(null)
   const [history, setHistory] = useState<HistoryRow[]>([])
   const [loading, setLoading] = useState(true)
   // Re-evaluated every 15s so "In flight" rows become checkable without a manual reload.
@@ -126,7 +138,12 @@ export default function AdminRefundsPage() {
     try {
       const token = await getToken()
       const hq = (extra: string) => `/api/admin/refunds/history?${extra}`
-      const [p, h] = await Promise.all([
+      // Wallet money to watch: its own request, so a failure shows as an error on its card and never blocks the page.
+      const wallet = getJson("/api/admin/refunds/wallet-attention", token).then(
+        (r) => ({ rows: r.rows as WalletAttentionRow[], error: null as string | null }),
+        (e) => ({ rows: [] as WalletAttentionRow[], error: e instanceof Error ? e.message : "Failed to load" }),
+      )
+      const [p, h, w] = await Promise.all([
         getJson(`/api/admin/refunds/pending?q=${encodeURIComponent(appliedQ)}&page=${pendingPage}`, token),
         statusFilter === "attention"
           // "Needs attention" = 3 history calls (one per status; the route filters by a single status),
@@ -134,8 +151,11 @@ export default function AdminRefundsPage() {
           ? Promise.all(ATTENTION_STATUSES.map((s) => getJson(hq(`status=${s}`), token))).then((rs) =>
               rs.flatMap((r) => r.rows as HistoryRow[]).sort((a, b) => b.created_at.localeCompare(a.created_at)))
           : getJson(hq(`page=${historyPage}${statusFilter === "all" ? "" : `&status=${statusFilter}`}`), token).then((r) => r.rows as HistoryRow[]),
+        wallet,
       ])
       if (seq !== loadSeq.current) return // a newer load superseded this one
+      setWalletAttention(w.rows)
+      setWalletAttentionError(w.error)
       setPending(p.rows)
       setHistory(h)
     } catch (e) {
@@ -324,6 +344,43 @@ export default function AdminRefundsPage() {
         </div>
 
         <TabsContent value="pending">
+          {(walletAttention.length > 0 || walletAttentionError) && (
+            <Card className="mb-4 border-amber-500/60">
+              <CardHeader><CardTitle>Wallet payments to check (Hubtel main code)</CardTitle></CardHeader>
+              <CardContent className="overflow-x-auto">
+                {walletAttentionError ? (
+                  <p className="text-sm text-destructive">Could not load wallet payments: {walletAttentionError}. Reload before assuming there are none.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Service</TableHead><TableHead>Order</TableHead><TableHead>Debited</TableHead>
+                        <TableHead>State</TableHead><TableHead>Order status</TableHead><TableHead>Why it is here</TableHead><TableHead>Placed</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {walletAttention.map((r) => (
+                        <TableRow key={r.paymentId}>
+                          <TableCell>{WALLET_TABLE_LABEL[r.orderTable] ?? r.orderTable}</TableCell>
+                          <TableCell className="font-mono text-xs">{r.orderId}</TableCell>
+                          <TableCell>GHS {Number(r.amount).toFixed(2)}</TableCell>
+                          <TableCell>
+                            <Badge variant={r.state === "needs_review" ? "destructive" : "secondary"}>{r.state === "needs_review" ? "Needs review" : "Still debited"}</Badge>
+                          </TableCell>
+                          <TableCell>{r.orderStatus ?? "not found"}</TableCell>
+                          <TableCell className="max-w-md text-xs">
+                            <div>{r.reason}</div>
+                            <div className="mt-1 text-muted-foreground">{r.refundHint}</div>
+                          </TableCell>
+                          <TableCell>{new Date(r.createdAt).toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardHeader><CardTitle>Pending, paid orders</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">

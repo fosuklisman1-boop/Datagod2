@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { expireStaleShopOrders } from "@/lib/payments/expire-shop-orders"
+import { expireStaleUnpaidOrders } from "@/lib/payments/expire-stale-unpaid"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,17 +19,12 @@ export async function GET(request: NextRequest) {
   try {
     const cutoff = new Date(Date.now() - EXPIRY_MINUTES * 60 * 1000).toISOString()
 
-    // 1) Airtime orders
-    const { data: airtimeExpired, error: airtimeErr } = await supabase
-      .from("airtime_orders")
-      .update({ status: "expired", payment_status: "expired", updated_at: new Date().toISOString() })
-      .eq("status", "pending_payment")
-      .eq("payment_status", "pending_payment")
-      .lt("created_at", cutoff)
-      .select("id")
-
-    if (airtimeErr) {
-      console.error("[EXPIRE-STALE] airtime_orders DB error:", airtimeErr)
+    // 1) Airtime orders. One paid from the wallet on the Hubtel main code is never expired (see expire-stale-unpaid.ts).
+    let airtimeExpired = 0
+    try {
+      airtimeExpired = await expireStaleUnpaidOrders(supabase, "airtime_orders", cutoff)
+    } catch (airtimeErr) {
+      console.error("[EXPIRE-STALE] airtime_orders DB error:", airtimeErr instanceof Error ? airtimeErr.message : "unknown error")
     }
 
     // 2) Shop (data) orders — CRITICAL: unpaid flood orders that never expire
@@ -44,23 +40,18 @@ export async function GET(request: NextRequest) {
       console.error("[EXPIRE-STALE] shop_orders DB error:", shopErr instanceof Error ? shopErr.message : "unknown error")
     }
 
-    // 3) Results-checker orders
-    const { data: rcExpired, error: rcErr } = await supabase
-      .from("results_checker_orders")
-      .update({ status: "expired", payment_status: "expired", updated_at: new Date().toISOString() })
-      .eq("status", "pending_payment")
-      .eq("payment_status", "pending_payment")
-      .lt("created_at", cutoff)
-      .select("id")
-
-    if (rcErr) {
-      console.error("[EXPIRE-STALE] results_checker_orders DB error:", rcErr)
+    // 3) Results-checker orders, with the same wallet-payment guard.
+    let rcExpired = 0
+    try {
+      rcExpired = await expireStaleUnpaidOrders(supabase, "results_checker_orders", cutoff)
+    } catch (rcErr) {
+      console.error("[EXPIRE-STALE] results_checker_orders DB error:", rcErr instanceof Error ? rcErr.message : "unknown error")
     }
 
     const result = {
-      airtime: airtimeExpired?.length ?? 0,
+      airtime: airtimeExpired,
       shop: shopExpired,
-      results_checker: rcExpired?.length ?? 0,
+      results_checker: rcExpired,
     }
     console.log(`[EXPIRE-STALE] Expired stale pending orders (cutoff ${cutoff}):`, result)
 
