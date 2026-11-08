@@ -6,7 +6,7 @@
 // On PAY_CHOICE, 1 and 2 both run the replay check, then the service's prepare again (price, stock, recipient block),
 // so nothing is charged on a stale screen. 1 creates the order with no hubtel_transactions row and debits the wallet
 // through payFromWallet; 2 is today's submitOrder. Logs carry ids and amounts only, never a phone.
-import { payFromWallet, runWalletPostPayment, WALLET_SOURCE, type WalletTable } from "../wallet-pay"
+import { findWalletPaymentBySession, payFromWallet, runWalletPostPayment, WALLET_SOURCE, type WalletTable } from "../wallet-pay"
 import {
   createOrderRow, failOrderGuarded, finish, goto, ORDER_ERROR_TEXT, replaySubmittedOrder, say, submitOrder,
   UNAVAILABLE_TEXT, type FlowCtx, type StepHandler, type SubmitNewOrder,
@@ -39,6 +39,11 @@ const DESCRIPTION: Partial<Record<PayKind, (row: Record<string, unknown>) => str
   data: row => `USSD data purchase: ${String(row.network ?? "")} ${String(row.package_size ?? "")}`.trim(),
 }
 const descriptionFor = (kind: PayKind, row: Record<string, unknown>) => DESCRIPTION[kind]?.(row) ?? "USSD purchase"
+
+/** The order row's money column per wallet table: set to the debited amount on the wallet path. */
+const AMOUNT_COLUMN: Partial<Record<WalletTable, string>> = { ussd_orders: "amount" }
+
+const ALREADY_SUBMITTED_TEXT = "This order was already submitted."
 
 function isWalletTable(table: string): table is WalletTable {
   return Object.prototype.hasOwnProperty.call(WALLET_SOURCE, table)
@@ -138,13 +143,33 @@ async function payByWallet(ctx: FlowCtx, kind: PayKind, prepare: Prepare): Promi
   if (!userId) return finish(ctx, UNAVAILABLE_TEXT)
 
   const walletDeps = deps.walletPayDeps!()
-  const order = await createOrderRow(ctx, prepared)
+  // The row records exactly what is debited (the MoMo path keeps prepare's value as before).
+  const row = { ...prepared.row }
+  const amountColumn = AMOUNT_COLUMN[table]
+  if (amountColumn && typeof row[amountColumn] === "number") row[amountColumn] = amount
+  const order = await createOrderRow(ctx, { ...prepared, row })
   if (!order) return finish(ctx, ORDER_ERROR_TEXT)
 
   const result = await payFromWallet(walletDeps, {
     sessionId: sid, userId, table, orderId: order.id, amount, description: descriptionFor(kind, prepared.row),
   })
-  const failOrder = () => failOrderGuarded(deps.supabase, table, order.id, false, prepared.logTag)
+  // Guarded on the table's payable statuses (`engine` = true): a paid order is never failed from here.
+  const failOrder = () => failOrderGuarded(deps.supabase, table, order.id, true, prepared.logTag)
+  /**
+   * After failing this request's order: a concurrent request for this session may have paid (its own order). Then
+   * the customer was debited once and will be served, so say so. A read error keeps the unavailable text.
+   */
+  const unavailableOrAlreadyPaid = async () => {
+    try {
+      if (await findWalletPaymentBySession(deps.supabase, sid)) {
+        console.warn(LOG, "another request paid this session; this order failed:", table, order.id, sid)
+        return finish(ctx, ALREADY_SUBMITTED_TEXT)
+      }
+    } catch (e) {
+      console.error(LOG, "payment re-read failed after a refusal:", table, order.id, sid, safeDbError(e))
+    }
+    return finish(ctx, UNAVAILABLE_TEXT)
+  }
 
   switch (result.kind) {
     case "paid": {
@@ -169,17 +194,17 @@ async function payByWallet(ctx: FlowCtx, kind: PayKind, prepare: Prepare): Promi
       return goto(ctx, { step: "PAY_CHOICE", payWalletDeclined: true }, INSUFFICIENT_TEXT, CHOICE)
     case "refused":
       await failOrder()
-      return finish(ctx, UNAVAILABLE_TEXT)
+      return unavailableOrAlreadyPaid()
     case "unavailable":
     default:
       if (result.debitUncertain) {
         // A debit may exist: the sweep owns this order. Failing it here could hide a paid order.
         console.error(LOG, "debit uncertain; order left for the sweep:", table, order.id, amount, sid)
-      } else {
-        // No payment row: fail it. A debit committing late then finds the order failed and is held for review.
-        await failOrder()
+        return finish(ctx, UNAVAILABLE_TEXT)
       }
-      return finish(ctx, UNAVAILABLE_TEXT)
+      // No payment row: fail it. A debit committing late then finds the order failed and is held for review.
+      await failOrder()
+      return unavailableOrAlreadyPaid()
   }
 }
 

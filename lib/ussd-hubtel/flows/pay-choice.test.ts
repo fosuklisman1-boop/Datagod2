@@ -7,7 +7,7 @@ import { RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
 import { fakeSupabase, makeDeps, NEW_ID, req } from "../testing/fakes"
 import type { HubtelUssdConfig } from "../config"
 import type { HubtelPlatform, HubtelReply } from "../types"
-import type { FlowCtx } from "../flow-kit"
+import { replaySubmittedOrder, type FlowCtx } from "../flow-kit"
 import { checkoutOrChoose, choiceScreenText, INSUFFICIENT_TEXT, walletOfferFor } from "./pay-choice"
 
 const CHOICE_42 = "Pay with:\n1. Datagod Wallet\n   (bal GHS 42.00)\n2. MoMo\n0. Cancel"
@@ -48,10 +48,11 @@ function world(o: {
     payments.push({ id: "pay-0", session_id: "S1", order_table: "ussd_orders", order_id: "old", user_id: "user-1", amount: 10, state: "debited", created_at: "", updated_at: "", ...o.existingPayment })
   }
   const rpcCalls: any[] = []
-  const state = { paymentsReadError: o.paymentsReadError === true }
+  const state = { paymentsReadError: o.paymentsReadError === true, walletTableCalls: 0 }
   const baseFrom = sup.client.from.bind(sup.client)
   sup.client.from = (table: string) => {
     if (table !== "hubtel_wallet_payments") return baseFrom(table)
+    state.walletTableCalls++
     const filters: Record<string, unknown> = {}
     let patch: any = null
     const match = () => payments.filter(p => Object.entries(filters).every(([k, v]) => (p as any)[k] === v))
@@ -516,6 +517,122 @@ describe("pay choice: checks run again on 1 and 2 (Review Focus 4)", () => {
       expect(w.rpcCalls).toHaveLength(0)
     })
   }
+})
+
+/** Would this update's .eq/.in filters match `row`? (The fake records them; this evaluates them.) */
+function filtersMatch(update: unknown, row: Record<string, unknown>): boolean {
+  const filters = (update as { filters: Array<[string, string, unknown]> }).filters
+  return filters.every(([op, col, v]) => (op === "eq" ? row[col] === v : (v as unknown[]).includes(row[col])))
+}
+
+describe("pay choice: fix round 1", () => {
+  /** An RPC that loses a race: another request for this session paid (its own order) just before. */
+  const lostRace = (w: () => ReturnType<typeof world>, reply: () => RpcResult) => (a: any): RpcResult => {
+    w().payments.push({ id: "pay-other", session_id: a.p_session, order_table: "ussd_orders", order_id: "other-order", user_id: a.p_user, amount: a.p_amount, state: "debited", created_at: "", updated_at: "" })
+    return reply()
+  }
+
+  it("refused (BAD_INPUT) while this session already holds a payment: already submitted, this order failed", async () => {
+    let w!: ReturnType<typeof world>
+    w = world({ rpc: lostRace(() => w, () => ({ data: null, error: { message: "BAD_INPUT" } })) })
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    const r = await press(w.deps, "1")
+    expect(r.Type).toBe("release")
+    expect(r.Message).toBe(ALREADY)
+    expect(w.sup.updates.find(u => u.table === "ussd_orders")?.patch).toMatchObject({ payment_status: "failed" })
+    expect(w.handler).not.toHaveBeenCalled()
+    expect(w.store.has("S1")).toBe(false)
+  })
+  it("plain unavailable while another request paid: the read-back sees another order (refused), so already submitted", async () => {
+    let w!: ReturnType<typeof world>
+    w = world({ rpc: lostRace(() => w, () => { throw new Error("socket hang up") }) })
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    expect((await press(w.deps, "1")).Message).toBe(ALREADY)
+    expect(w.handler).not.toHaveBeenCalled()
+  })
+  it("plain unavailable (no row anywhere), then the re-read still finds nothing: unavailable", async () => {
+    const w = world({ rpc: () => ({ data: null, error: { message: "something odd" } }) })
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    expect((await press(w.deps, "1")).Message).toBe(UNAVAILABLE)
+  })
+  it("refused, and the re-read fails: keeps the unavailable text", async () => {
+    let w!: ReturnType<typeof world>
+    w = world({ rpc: () => { w.state.paymentsReadError = true; return { data: null, error: { message: "BAD_INPUT" } } } })
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    expect((await press(w.deps, "1")).Message).toBe(UNAVAILABLE)
+  })
+
+  for (const [name, rpc] of [
+    ["insufficient", () => ({ data: null, error: { message: "INSUFFICIENT_FUNDS" } })],
+    ["refused", () => ({ data: null, error: { message: "ALREADY_CARTED" } })],
+    ["plain unavailable", () => { throw new Error("socket hang up") }],
+  ] as Array<[string, () => RpcResult]>) {
+    it(`${name}: the fail is guarded on payable statuses, so a completed order is never touched`, async () => {
+      const w = world({ rpc })
+      await walkToConfirm(w.deps)
+      await press(w.deps, "1")
+      await press(w.deps, "1")
+      const fail = w.sup.updates.find(u => u.table === "ussd_orders")!
+      expect((fail as any).filters).toContainEqual(["in", "payment_status", ["pending", "otp_required"]])
+      expect(filtersMatch(fail, { id: NEW_ID, payment_status: "completed" })).toBe(false)
+      expect(filtersMatch(fail, { id: NEW_ID, payment_status: "pending" })).toBe(true)
+    })
+  }
+
+  it("the wallet path's order row records the debited (rounded) amount", async () => {
+    const w = world({ pkg: { price: 3.3000000000000003, dealer_price: null, is_available: true }, bundlePrice: 3.3 })
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    await press(w.deps, "1")
+    expect(w.sup.inserts["ussd_orders"][0].amount).toBe(3.3)
+    expect(w.rpcCalls[0].args.p_amount).toBe(w.sup.inserts["ussd_orders"][0].amount)
+  })
+  it("the MoMo path's order row is unchanged (prepare's value)", async () => {
+    const w = world({ pkg: { price: 3.3000000000000003, dealer_price: null, is_available: true }, bundlePrice: 3.3 })
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    await press(w.deps, "2")
+    expect(w.sup.inserts["ussd_orders"][0].amount).toBe(3.3000000000000003)
+  })
+
+  /** Shop code 1234 -> Internet Bundles -> MTN -> first package -> someone else -> number. */
+  async function shopConfirm(deps: RouterDeps) {
+    await hubtelRouter(req({ Type: "Initiation" }), deps)
+    const menu = await hubtelRouter(req({ Message: "1234" }), deps)
+    const internet = menu.Message.split("\n").find(l => l.endsWith("Internet Bundles"))!.split(".")[0]
+    await hubtelRouter(req({ Message: internet }), deps)
+    await hubtelRouter(req({ Message: "1" }), deps)
+    await hubtelRouter(req({ Message: "1" }), deps)
+    await hubtelRouter(req({ Message: "2" }), deps)
+    return hubtelRouter(req({ Message: "0244123456" }), deps)
+  }
+  it("a shop-mode confirm makes no hubtel_wallet_payments read", async () => {
+    const w = world({ cfg: { mode: "shop" } })
+    await shopConfirm(w.deps)
+    expect(w.store.get("S1")).toMatchObject({ mode: "shop", step: "SHOP_DATA_CONFIRM" })
+    const r = await press(w.deps, "1")
+    expect(r.Type).toBe("AddToCart")
+    expect(w.state.walletTableCalls).toBe(0)
+  })
+  it("a wallet lookup error cannot end a shop-line session", async () => {
+    const w = world({ cfg: { mode: "shop" }, paymentsReadError: true })
+    await shopConfirm(w.deps)
+    const r = await press(w.deps, "1")
+    expect(r.Type).toBe("AddToCart")
+    expect(r.Message).not.toBe(UNAVAILABLE)
+  })
+  it("replaySubmittedOrder: mode shop skips the lookup; no mode or main keeps it (fail closed)", async () => {
+    const w = world({ paymentsReadError: true })
+    expect(await replaySubmittedOrder(w.deps, "S1", "USSD", "shop")).toBeNull()
+    expect(w.state.walletTableCalls).toBe(0)
+    expect((await replaySubmittedOrder(w.deps, "S1", "USSD"))?.Message).toBe(UNAVAILABLE)
+    expect((await replaySubmittedOrder(w.deps, "S1", "USSD", "main"))?.Message).toBe(UNAVAILABLE)
+    expect(w.state.walletTableCalls).toBe(2)
+  })
 })
 
 describe("pay choice: helpers", () => {

@@ -97,7 +97,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (input === "0") return finish(ctx, "Order cancelled.")
   if (input !== "1") return say(ctx, confirmText(session), "SHOP_DATA_CONFIRM", CONFIRM)
 
-  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
+  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform, ctx.session.mode)
   if (replay) return replay
 
   // Hard block before payment: the confirm screen's check may have timed out (fail open there).

@@ -245,7 +245,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (input === "0") return finish(ctx, "Order cancelled.")
   if (input !== "1") return say(ctx, networkPlanConfirmText(session.npPlan!, session.npRecipient!, session.confirmNote, npLabel(session)), "NP_CONFIRM", CONFIRM)
 
-  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
+  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform, ctx.session.mode)
   if (replay) return replay
 
   const bc = botContext(session)

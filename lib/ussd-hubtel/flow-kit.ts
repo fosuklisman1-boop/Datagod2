@@ -132,11 +132,14 @@ export const UNAVAILABLE_TEXT = "Service unavailable. Please try again later."
  * was already submitted. A session already paid from the wallet is "already submitted" and never
  * carts; if that wallet lookup cannot be read, the session ends with the unavailable text (fail
  * closed). Returns null when no order exists for the session.
+ * `mode`: the session's pinned mode when known. A shop session can never hold a wallet payment, so "shop" skips the
+ * wallet lookup (the shop line never depends on that table). Absent (the no-session path, main flows) = look it up.
  */
 export async function replaySubmittedOrder(
   deps: RouterDeps,
   sid: string,
-  platform: HubtelPlatform
+  platform: HubtelPlatform,
+  mode?: HubtelSession["mode"],
 ): Promise<HubtelReply | null> {
   const { data: tx } = await deps.supabase
     .from("hubtel_transactions")
@@ -148,6 +151,7 @@ export async function replaySubmittedOrder(
     return release(sid, "This order was already submitted.", { platform })
   }
   if (!tx) {
+    if (mode === "shop") return null
     // One order, one way to pay: a session the wallet already paid for must never reach Hubtel's checkout.
     let walletPaid: boolean
     try {
