@@ -327,7 +327,6 @@ function shopNaturalToDigit(
 
 // Also the reply when the earlier request has already ended, in any way, and its prompt may have gone to another number.
 const SHOP_CHARGE_BUSY_REPLY = "Please check for the payment prompt, or start again if you didn't get one."
-const SHOP_CHARGE_UNAVAILABLE_REPLY = 'Sorry, we could not start the payment right now. Please try again in a moment.'
 
 /**
  * Takes the sender's charge claim before a confirm step writes an order. Returns null when this request may go on, or
@@ -336,7 +335,10 @@ const SHOP_CHARGE_UNAVAILABLE_REPLY = 'Sorry, we could not start the payment rig
  */
 async function takeShopChargeClaim(from: string, step: WaShopSession['step'], claim: { held: boolean }): Promise<string | null> {
   const result = await claimShopCharge(from)
-  if (result === 'unavailable') return SHOP_CHARGE_UNAVAILABLE_REPLY
+  // Owner decision 2026-11-08, same as the main bot (router.ts): a lock outage doesn't stop sales. No claim is held, so
+  // claim.held stays false and nothing is released; admins were alerted inside claimShopCharge. Two messages at once
+  // could mint two orders during that outage.
+  if (result === 'unavailable') return null
   if (result === 'held') return SHOP_CHARGE_BUSY_REPLY
   claim.held = true
   const fresh = await getSession(from)

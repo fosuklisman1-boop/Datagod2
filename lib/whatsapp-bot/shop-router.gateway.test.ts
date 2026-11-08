@@ -371,17 +371,28 @@ describe.each([
       expect(prompts()).toBe(2)
     })
 
-    it("Redis down: nothing is created or charged, the chat stays on the step and can retry", async () => {
+    // Owner decision 2026-11-08: like the main bot, a lock outage doesn't stop sales (no claim is held, so none is released).
+    it("Redis down (claim unavailable): the charge goes ahead without a claim", async () => {
       start()
       h.redisDown = true
       const r = await pay()
-      expect(r).toBe("Sorry, we could not start the payment right now. Please try again in a moment.")
+      expect(r).toContain(OWN)
+      expect(r).not.toMatch(/could not start the payment/)
+      expect(rows(table)).toHaveLength(1)
+      expect(prompts()).toBe(1)
+      expect(h.sessions.get(FROM)).toEqual({ step: "AI_CONVERSATION" })
+      expect(h.redisKeys.size).toBe(0)
+    })
+
+    it("claim held by another request: refused, nothing created or charged", async () => {
+      start()
+      h.redisKeys.set(`wa-shop:charge-claim:${FROM}`, "1")
+      const r = await pay()
+      expect(r).toMatch(BUSY)
       expect(rows(table)).toHaveLength(0)
       expect(prompts()).toBe(0)
       expect(h.sessions.get(FROM).step).toBe(step)
-      h.redisDown = false
-      expect(await pay()).toContain(OWN)
-      expect(rows(table)).toHaveLength(1)
+      expect(h.redisKeys.has(`wa-shop:charge-claim:${FROM}`)).toBe(true) // not ours: never released
     })
 
     it("a failed release doesn't break the reply", async () => {
