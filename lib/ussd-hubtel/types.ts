@@ -39,6 +39,10 @@ export type HubtelStep =
   | "SHOP_RC_SELECT_BOARD" | "SHOP_RC_ENTER_QTY" | "SHOP_RC_CONFIRM"
   | "NP_NETWORK" | "NP_CATEGORY" | "NP_PLAN" | "NP_RECIPIENT" | "NP_CONFIRM"
   | "PB_BILLER" | "PB_ECG_MODE" | "PB_ACCOUNT" | "PB_METER_TYPE" | "PB_METERS" | "PB_CONSENT" | "PB_AMOUNT" | "PB_CONFIRM"
+  | "PAY_CHOICE"
+
+/** Which service's checks a PAY_CHOICE screen re-runs (main mode only). */
+export type PayKind = "data" | "airtime" | "rc" | "rc_check"
 
 /** One Network Plans plan as kept in the session: signed catalog token, display, face (Hubtel price), pay (our price). */
 export interface NpPlan { t: string; d: string; f: number; p: number }
@@ -139,6 +143,10 @@ export interface HubtelSession {
   pbDue?: number | null
   pbFace?: number // what the biller receives
   pbPay?: number // what the caller pays (engine quote)
+  // Wallet or MoMo choice (PAY_CHOICE, main mode only)
+  payKind?: PayKind // whose prepare the screen re-runs on 1 and 2
+  payBalance?: number // the balance shown, for repaints only (never used to decide a payment)
+  payWalletDeclined?: boolean // the wallet refused for balance: only 2. MoMo and 0. Cancel remain
 }
 
 export type HubtelTxState = "awaiting_payment" | "processing" | "fulfilled" | "needs_review" | "failed"

@@ -14,6 +14,7 @@ import { resolveMainMenu, mainMenuText } from "./menus"
 import { cartItemNameFor, failOrderGuarded, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { addToCart, release, respond } from "./protocol"
 import { safeDbError } from "./log-safe"
+import { findWalletPaymentBySession, type WalletPayDeps } from "./wallet-pay"
 import type { DeliveryChannel } from "@/lib/delivery-estimate/query"
 import type { HubtelFieldType, HubtelPlatform, HubtelReply, HubtelRequest, HubtelSession, HubtelStep } from "./types"
 
@@ -55,6 +56,11 @@ export interface RouterDeps {
    * Optional: without it the task is simply left to run detached.
    */
   defer?(task: () => Promise<unknown>): void
+  /**
+   * What a wallet payment needs (the order handlers and the URGENT alert), built per request when a caller pays from
+   * the wallet. Optional: without it the wallet is never offered, and every confirm goes to the checkout as before.
+   */
+  walletPayDeps?(): WalletPayDeps
 }
 
 export interface FlowCtx {
@@ -118,10 +124,14 @@ export async function backToMain(ctx: FlowCtx): Promise<HubtelReply> {
   return mainMenuReply(ctx)
 }
 
+export const UNAVAILABLE_TEXT = "Service unavailable. Please try again later."
+
 /**
  * Idempotency guard shared by every CONFIRM and the no-session path. If this Hubtel session
  * already produced an order: replay the identical AddToCart while it awaits payment, else say it
- * was already submitted. Returns null when no order exists for the session.
+ * was already submitted. A session already paid from the wallet is "already submitted" and never
+ * carts; if that wallet lookup cannot be read, the session ends with the unavailable text (fail
+ * closed). Returns null when no order exists for the session.
  */
 export async function replaySubmittedOrder(
   deps: RouterDeps,
@@ -133,10 +143,21 @@ export async function replaySubmittedOrder(
     .select("order_table, order_id, expected_amount, state")
     .eq("session_id", sid)
     .maybeSingle()
-  if (!tx) return null
   const alreadySubmitted = async () => {
     await deps.sessions.del(sid)
     return release(sid, "This order was already submitted.", { platform })
+  }
+  if (!tx) {
+    // One order, one way to pay: a session the wallet already paid for must never reach Hubtel's checkout.
+    let walletPaid: boolean
+    try {
+      walletPaid = (await findWalletPaymentBySession(deps.supabase, sid)) !== null
+    } catch (e) {
+      console.error("[HUBTEL-REPLAY] Wallet payment lookup failed; refusing to continue:", sid, e instanceof Error ? e.message : "error")
+      await deps.sessions.del(sid)
+      return release(sid, UNAVAILABLE_TEXT, { platform })
+    }
+    return walletPaid ? alreadySubmitted() : null
   }
   if (tx.state !== "awaiting_payment") return alreadySubmitted()
   if (!isHubtelOrderTable(tx.order_table)) {
@@ -185,6 +206,21 @@ export interface SubmitNewOrder { table: HubtelOrderTable; row: Record<string, u
  */
 export interface SubmitCreatedOrder { table: HubtelOrderTable; orderId: string; price: number; logTag: string; row?: never }
 
+export const ORDER_ERROR_TEXT = "Error creating order. Please try again."
+
+/**
+ * Insert the order row only: no hubtel_transactions row and no reply. Returns the new id, or null (logged) when the
+ * insert failed. submitOrder carts it; the wallet path pays it from the wallet.
+ */
+export async function createOrderRow(ctx: FlowCtx, args: SubmitNewOrder): Promise<{ id: string } | null> {
+  const { data: inserted, error: orderError } = await ctx.deps.supabase.from(args.table).insert([args.row]).select("id").single()
+  if (orderError || !inserted) {
+    console.error(`[${args.logTag}] Failed to create order:`, safeDbError(orderError))
+    return null
+  }
+  return inserted as { id: string }
+}
+
 /**
  * Inserts the order (unless `orderId` names an engine-created one) + its hubtel_transactions row and
  * answers with AddToCart at `price` (our price: Hubtel adds its own charge on top). Callers MUST have
@@ -211,11 +247,8 @@ export async function submitOrder(ctx: FlowCtx, args: SubmitNewOrder | SubmitCre
   if (created) {
     order = { id: args.orderId! }
   } else {
-    const { data: inserted, error: orderError } = await deps.supabase.from(args.table).insert([args.row]).select("id").single()
-    if (orderError || !inserted) {
-      console.error(`[${args.logTag}] Failed to create order:`, safeDbError(orderError))
-      return finish(ctx, "Error creating order. Please try again.")
-    }
+    const inserted = await createOrderRow(ctx, args)
+    if (!inserted) return finish(ctx, ORDER_ERROR_TEXT)
     order = inserted
   }
 

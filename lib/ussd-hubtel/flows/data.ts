@@ -7,8 +7,9 @@ import { priceForTier } from "../catalog"
 import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } from "../menus"
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { backFromInternetType } from "./internet-bundles"
-import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
-import type { HubtelReply, HubtelSession } from "../types"
+import { finish, goto, replaySubmittedOrder, say, type FlowCtx, type StepTable } from "../flow-kit"
+import { checkoutOrChoose, type Prepare, type PreparedOrder } from "./pay-choice"
+import type { HubtelReply, HubtelSession, PayKind } from "../types"
 import { confirmNote, recipientBlockedAtPay, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
 
 const NETWORK = { label: "Select network" }
@@ -87,6 +88,13 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
 
+  return checkoutOrChoose(ctx, "data", prepareData)
+}
+
+/** Every check before paying (run at confirm and again on PAY_CHOICE): the order to create, or the reply to show. */
+export async function prepareData(ctx: FlowCtx): Promise<PreparedOrder | HubtelReply> {
+  const { deps, session } = ctx
+
   // Hard block before payment: the confirm screen's check may have timed out (fail open there).
   if (await recipientBlockedAtPay(ctx, session.network, session.recipientPhone)) {
     console.warn("[HUBTEL-CONFIRM] Unverified MTN recipient blocked at pay")
@@ -120,7 +128,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
     return finish(ctx, `Price changed to GHS ${price.toFixed(2)}. Please restart your order.`)
   }
 
-  return submitOrder(ctx, {
+  return {
     table: "ussd_orders",
     price,
     logTag: "HUBTEL-CONFIRM",
@@ -140,7 +148,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
       order_status: "pending",
       payment_status: "pending",
     },
-  })
+  }
 }
 
 export const DATA_STEPS: StepTable = {
@@ -149,3 +157,6 @@ export const DATA_STEPS: StepTable = {
   ENTER_RECIPIENT: enterRecipient,
   CONFIRM: confirm,
 }
+
+/** PAY_CHOICE's re-run of the data checks (registered in router.ts). */
+export const DATA_PREPARES: Partial<Record<PayKind, Prepare>> = { data: prepareData }

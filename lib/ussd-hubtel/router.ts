@@ -18,7 +18,10 @@ import {
 } from "./flow-kit"
 import { AFA_STEPS, startAfa } from "./flows/afa"
 import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
-import { DATA_STEPS, startData } from "./flows/data"
+import { DATA_PREPARES, DATA_STEPS, startData } from "./flows/data"
+import { payChoiceStep } from "./flows/pay-choice"
+import { createOrderHandlers } from "./order-handlers"
+import { urgentAlert } from "./special-payment"
 import { internetMenuStep, startInternetBundles } from "./flows/internet-bundles"
 import { NETWORK_PLANS_STEPS, startNetworkPlans } from "./flows/network-plans"
 import { PAY_BILLS_STEPS, startPayBills } from "./flows/pay-bills"
@@ -64,6 +67,8 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
       return verdict !== false
     },
     deliveryEstimate: async channel => confirmScreenText(await getCachedChannelEstimate(supabase, channel)),
+    // Built when a caller pays from the wallet (once per request), with the same URGENT alert the order handlers use.
+    walletPayDeps: () => ({ db: supabase, handlers: createOrderHandlers(supabase), alert: urgentAlert }),
   }
 }
 
@@ -90,6 +95,8 @@ const STEPS: StepTable = {
   ...AFA_STEPS,
   ...NETWORK_PLANS_STEPS,
   ...PAY_BILLS_STEPS,
+  // Wallet or MoMo (main mode only: never in SHOP_STEPS).
+  PAY_CHOICE: payChoiceStep({ ...DATA_PREPARES }),
 }
 
 /** First screen of each shop product (Tasks 3, 5, 6 register theirs). Shop mode only. */
