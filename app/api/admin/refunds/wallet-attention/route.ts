@@ -11,7 +11,8 @@ export async function GET(request: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse ?? NextResponse.json({ error: "Unauthorized" }, { status: 403 })
   try {
-    return NextResponse.json({ rows: await listHubtelWalletAttention(refundDb()) })
+    const { rows, truncated } = await listHubtelWalletAttention(refundDb())
+    return NextResponse.json({ rows, truncated })
   } catch (err) {
     return refundErrorResponse(err)
   }

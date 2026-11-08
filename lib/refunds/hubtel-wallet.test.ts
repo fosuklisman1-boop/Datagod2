@@ -206,11 +206,45 @@ describe("MoMo-paid orders on the same tables keep today's rails", () => {
   })
 })
 
+/** In-memory store that applies eq / in / lt / gte, order, range and limit, so paging and filters are really exercised. */
+function storeDb(rows: Rows, errors: Record<string, { message: string; code?: string }> = {}) {
+  const make = (table: string) => {
+    const filters: ((r: any) => boolean)[] = []
+    const orders: [string, boolean][] = []
+    let lo = 0
+    let hi = Infinity
+    const q: any = {
+      select: () => q,
+      eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return q },
+      in: (c: string, vs: unknown[]) => { filters.push((r) => vs.includes(r[c])); return q },
+      lt: (c: string, v: string) => { filters.push((r) => String(r[c]) < v); return q },
+      gte: (c: string, v: string) => { filters.push((r) => String(r[c]) >= v); return q },
+      order: (c: string, o?: { ascending?: boolean }) => { orders.push([c, o?.ascending !== false]); return q },
+      range: (a: number, b: number) => { lo = a; hi = b; return q },
+      limit: (n: number) => { lo = 0; hi = n - 1; return q },
+      then: (res: (v: unknown) => unknown) => {
+        if (errors[table]) return Promise.resolve({ data: null, error: errors[table] }).then(res)
+        const out = ((rows[table] ?? []) as any[]).filter((r) => filters.every((f) => f(r))).sort((a, b) => {
+          for (const [c, asc] of orders) {
+            const x = String(a[c]), y = String(b[c])
+            if (x !== y) return (x < y ? -1 : 1) * (asc ? 1 : -1)
+          }
+          return 0
+        })
+        return Promise.resolve({ data: out.slice(lo, hi + 1), error: null }).then(res)
+      },
+    }
+    return q
+  }
+  return { from: (t: string) => make(t) } as any
+}
+
 describe("listHubtelWalletAttention: wallet money an admin must see on /admin/refunds", () => {
   const pay = (o: Record<string, unknown>) => walletPayment(o)
+  const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString()
 
   it("lists needs_review payments and payments still debited 10+ minutes on, each with its reason, on all four tables", async () => {
-    const db = fakeDb({
+    const db = storeDb({
       hubtel_wallet_payments: [
         pay({ id: "p1", order_table: "ussd_orders", order_id: "o1", state: "needs_review", review_reason: "post-payment error" }),
         pay({ id: "p2", order_table: "airtime_orders", order_id: "a1", state: "debited", created_at: OLD, amount: 5 }),
@@ -219,23 +253,74 @@ describe("listHubtelWalletAttention: wallet money an admin must see on /admin/re
         pay({ id: "p5", order_table: "ussd_orders", order_id: "o5", state: "debited", created_at: FRESH }), // too recent
         pay({ id: "p6", order_table: "ussd_orders", order_id: "o6", state: "fulfilled" }),
       ],
-      ussd_orders: [{ id: "o1", order_status: "pending" }],
-      airtime_orders: [{ id: "a1", status: "pending_payment" }],
-      results_checker_orders: [{ id: "r1", status: "pending" }],
-      results_check_requests: [{ id: "q1", status: "pending" }],
+      ussd_orders: [{ id: "o1", order_status: "pending", payment_status: "pending" }, { id: "o6", order_status: "pending", payment_status: "completed", created_at: OLD }],
+      airtime_orders: [{ id: "a1", status: "pending_payment", payment_status: "pending_payment" }],
+      results_checker_orders: [{ id: "r1", status: "pending", payment_status: "completed" }],
+      results_check_requests: [{ id: "q1", status: "pending", payment_status: "pending_payment" }],
     })
-    const rows = await listHubtelWalletAttention(db, NOW)
+    const { rows, truncated } = await listHubtelWalletAttention(db, NOW)
+    expect(truncated).toBe(false)
     expect(rows.map((r) => r.paymentId).sort()).toEqual(["p1", "p2", "p3", "p4"])
     const p1 = rows.find((r) => r.paymentId === "p1")!
-    expect(p1).toMatchObject({ orderTable: "ussd_orders", orderId: "o1", amount: 12, state: "needs_review", orderStatus: "pending", reviewReason: "post-payment error" })
+    expect(p1).toMatchObject({ orderTable: "ussd_orders", orderId: "o1", amount: 12, kind: "needs_review", orderStatus: "pending", reviewReason: "post-payment error" })
     expect(p1.reason).toMatch(/not completed/i)
     expect(rows.find((r) => r.paymentId === "p2")!.reason).toMatch(/sweep/i)
     for (const r of rows) expect(r.refundHint.length).toBeGreaterThan(0)
     expect(rows.find((r) => r.paymentId === "p2")!.refundHint).toMatch(/do not refund/i)
   })
 
+  it("hints a refund tool only when the order was marked paid; otherwise: credit the wallet by hand", async () => {
+    const review = (table: string, id: string) => pay({ id: `p-${id}`, order_table: table, order_id: id, state: "needs_review" })
+    const db = storeDb({
+      hubtel_wallet_payments: [
+        review("results_checker_orders", "rPaid"), review("results_checker_orders", "rUnpaid"),
+        review("airtime_orders", "aPaid"), review("airtime_orders", "aUnpaid"),
+        review("ussd_orders", "uPaid"), review("ussd_orders", "uUnpaid"),
+      ],
+      results_checker_orders: [{ id: "rPaid", status: "pending", payment_status: "completed" }, { id: "rUnpaid", status: "pending_payment", payment_status: "pending_payment" }],
+      airtime_orders: [{ id: "aPaid", status: "pending", payment_status: "completed" }, { id: "aUnpaid", status: "pending_payment", payment_status: "pending_payment" }],
+      ussd_orders: [{ id: "uPaid", order_status: "pending", payment_status: "completed" }, { id: "uUnpaid", order_status: "pending", payment_status: "pending" }],
+    })
+    const hint = async (id: string) => (await listHubtelWalletAttention(db, NOW)).rows.find((r) => r.orderId === id)!.refundHint
+    expect(await hint("rPaid")).toMatch(/Refund on \/admin\/results-checker: that credits the buyer's wallet/)
+    expect(await hint("rUnpaid")).toMatch(/credit the wallet by hand/i)
+    expect(await hint("rUnpaid")).not.toMatch(/that credits the buyer's wallet/)
+    expect(await hint("aPaid")).toMatch(/mark it Failed on \/admin\/airtime: that credits the buyer's wallet/)
+    expect(await hint("aUnpaid")).toMatch(/credit the wallet by hand/i)
+    expect(await hint("aUnpaid")).not.toMatch(/that credits the buyer's wallet/)
+    expect(await hint("uPaid")).toMatch(/Pending orders on this page/)
+    expect(await hint("uUnpaid")).toMatch(/credit the wallet by hand/i)
+  })
+
+  it("lists a fulfilled wallet payment whose ussd_orders row is failed or reversed, with the hand-refund hint", async () => {
+    const db = storeDb({
+      hubtel_wallet_payments: [
+        pay({ id: "pf", order_id: "oFailed", state: "fulfilled", created_at: at(120) }),
+        pay({ id: "pr", order_id: "oReversed", state: "fulfilled", created_at: at(100) }),
+        pay({ id: "pp", order_id: "oPending", state: "fulfilled", created_at: at(90) }),
+        pay({ id: "pu", order_id: "oFailedUnpaid", state: "fulfilled", created_at: at(80) }),
+        pay({ id: "pa", order_table: "airtime_orders", order_id: "oFailed", state: "fulfilled", created_at: at(70) }),
+      ],
+      ussd_orders: [
+        { id: "oFailed", order_status: "failed", payment_status: "completed", created_at: at(121) },
+        { id: "oReversed", order_status: "reversed", payment_status: "completed", created_at: at(101) },
+        { id: "oPending", order_status: "pending", payment_status: "completed", created_at: at(91) },
+        { id: "oFailedUnpaid", order_status: "failed", payment_status: "failed", created_at: at(81) },
+        { id: "oNoWallet", order_status: "failed", payment_status: "completed", created_at: at(60) },
+        { id: "oBeforeWallet", order_status: "failed", payment_status: "completed", created_at: at(60 * 24 * 30) },
+      ],
+    })
+    const { rows } = await listHubtelWalletAttention(db, NOW)
+    expect(rows.map((r) => r.paymentId).sort()).toEqual(["pf", "pr"])
+    for (const r of rows) {
+      expect(r.kind).toBe("failed_order")
+      expect(r.refundHint).toBe("Refund by hand from the wallet; check it wasn't resent first.")
+    }
+    expect(rows.find((r) => r.paymentId === "pr")!.orderStatus).toBe("reversed")
+  })
+
   it("drops a needs_review payment once its order is completed or refunded, but keeps a stale debited one", async () => {
-    const db = fakeDb({
+    const db = storeDb({
       hubtel_wallet_payments: [
         pay({ id: "p1", order_id: "o1", state: "needs_review" }),
         pay({ id: "p2", order_id: "o2", state: "needs_review" }),
@@ -244,17 +329,47 @@ describe("listHubtelWalletAttention: wallet money an admin must see on /admin/re
       ],
       ussd_orders: [{ id: "o1", order_status: "completed" }, { id: "o2", order_status: "refunded" }, { id: "o3", order_status: "completed" }, { id: "o4", order_status: "failed" }],
     })
-    expect((await listHubtelWalletAttention(db, NOW)).map((r) => r.paymentId).sort()).toEqual(["p3", "p4"])
+    expect((await listHubtelWalletAttention(db, NOW)).rows.map((r) => r.paymentId).sort()).toEqual(["p3", "p4"])
+  })
+
+  it("pages past resolved needs_review rows, so older unresolved ones never fall off", async () => {
+    const resolved = Array.from({ length: 450 }, (_, i) => pay({ id: `res${i}`, order_id: `done${i}`, state: "needs_review", created_at: at(10 + i) }))
+    const open = [0, 1, 2].map((i) => pay({ id: `open${i}`, order_id: `open${i}`, state: "needs_review", created_at: at(1000 + i) }))
+    const db = storeDb({
+      hubtel_wallet_payments: [...resolved, ...open],
+      ussd_orders: [
+        ...resolved.map((p) => ({ id: p.order_id, order_status: "completed", payment_status: "completed" })),
+        ...open.map((p) => ({ id: p.order_id, order_status: "pending", payment_status: "pending" })),
+      ],
+    })
+    const { rows, truncated } = await listHubtelWalletAttention(db, NOW)
+    expect(rows.map((r) => r.paymentId).sort()).toEqual(["open0", "open1", "open2"])
+    expect(truncated).toBe(false)
+  })
+
+  it("says it is truncated when more unresolved rows exist than it shows, or the page bound is hit", async () => {
+    const many = Array.from({ length: 205 }, (_, i) => pay({ id: `n${i}`, order_id: `n${i}`, state: "needs_review", created_at: at(10 + i) }))
+    const big = await listHubtelWalletAttention(storeDb({ hubtel_wallet_payments: many, ussd_orders: [] }), NOW)
+    expect(big.rows).toHaveLength(200)
+    expect(big.truncated).toBe(true)
+    expect(big.rows.map((r) => r.paymentId)).toContain("n0") // newest first
+
+    const resolved = Array.from({ length: 2000 }, (_, i) => pay({ id: `r${i}`, order_id: `r${i}`, state: "needs_review", created_at: at(10 + i) }))
+    const bound = await listHubtelWalletAttention(storeDb({
+      hubtel_wallet_payments: [...resolved, pay({ id: "old", order_id: "old", state: "needs_review", created_at: at(99_999) })],
+      ussd_orders: resolved.map((p) => ({ id: p.order_id, order_status: "completed" })),
+    }), NOW)
+    expect(bound.truncated).toBe(true)
   })
 
   it("keeps a payment whose order cannot be found", async () => {
-    const db = fakeDb({ hubtel_wallet_payments: [pay({ state: "needs_review" })], ussd_orders: [] })
-    expect(await listHubtelWalletAttention(db, NOW)).toMatchObject([{ paymentId: "pay-1", orderStatus: null }])
+    const db = storeDb({ hubtel_wallet_payments: [pay({ state: "needs_review" })], ussd_orders: [] })
+    expect((await listHubtelWalletAttention(db, NOW)).rows).toMatchObject([{ paymentId: "pay-1", orderStatus: null }])
   })
 
   it("is empty when the table does not exist yet, and throws on any other read error", async () => {
-    expect(await listHubtelWalletAttention(fakeDb({}, { hubtel_wallet_payments: { message: "missing", code: "PGRST205" } }), NOW)).toEqual([])
-    await expect(listHubtelWalletAttention(fakeDb({}, { hubtel_wallet_payments: { message: "boom" } }), NOW)).rejects.toThrow()
-    await expect(listHubtelWalletAttention(fakeDb({ hubtel_wallet_payments: [pay({ state: "needs_review" })] }, { ussd_orders: { message: "boom" } }), NOW)).rejects.toThrow()
+    expect(await listHubtelWalletAttention(storeDb({}, { hubtel_wallet_payments: { message: "missing", code: "PGRST205" } }), NOW)).toEqual({ rows: [], truncated: false })
+    await expect(listHubtelWalletAttention(storeDb({}, { hubtel_wallet_payments: { message: "boom" } }), NOW)).rejects.toThrow()
+    await expect(listHubtelWalletAttention(storeDb({ hubtel_wallet_payments: [pay({ state: "needs_review" })] }, { ussd_orders: { message: "boom" } }), NOW)).rejects.toThrow()
   })
 })

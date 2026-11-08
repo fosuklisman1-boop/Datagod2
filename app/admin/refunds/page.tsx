@@ -43,8 +43,13 @@ interface PendingRow {
 
 /** A Hubtel main-code wallet payment an admin must see (GET /api/admin/refunds/wallet-attention). Read-only. */
 interface WalletAttentionRow {
-  paymentId: string; orderTable: string; orderId: string; amount: number; state: "debited" | "needs_review"
+  paymentId: string; orderTable: string; orderId: string; amount: number
+  kind: "needs_review" | "stale_debited" | "failed_order"
   orderStatus: string | null; reason: string; refundHint: string; createdAt: string
+}
+
+const ATTENTION_KIND_LABEL: Record<WalletAttentionRow["kind"], string> = {
+  needs_review: "Needs review", stale_debited: "Still debited", failed_order: "Order failed",
 }
 
 const WALLET_TABLE_LABEL: Record<string, string> = {
@@ -100,6 +105,7 @@ export default function AdminRefundsPage() {
   const [pending, setPending] = useState<PendingRow[]>([])
   const [walletAttention, setWalletAttention] = useState<WalletAttentionRow[]>([])
   const [walletAttentionError, setWalletAttentionError] = useState<string | null>(null)
+  const [walletAttentionTruncated, setWalletAttentionTruncated] = useState(false)
   const [history, setHistory] = useState<HistoryRow[]>([])
   const [loading, setLoading] = useState(true)
   // Re-evaluated every 15s so "In flight" rows become checkable without a manual reload.
@@ -140,8 +146,8 @@ export default function AdminRefundsPage() {
       const hq = (extra: string) => `/api/admin/refunds/history?${extra}`
       // Wallet money to watch: its own request, so a failure shows as an error on its card and never blocks the page.
       const wallet = getJson("/api/admin/refunds/wallet-attention", token).then(
-        (r) => ({ rows: r.rows as WalletAttentionRow[], error: null as string | null }),
-        (e) => ({ rows: [] as WalletAttentionRow[], error: e instanceof Error ? e.message : "Failed to load" }),
+        (r) => ({ rows: r.rows as WalletAttentionRow[], truncated: (r as { truncated?: unknown }).truncated === true, error: null as string | null }),
+        (e) => ({ rows: [] as WalletAttentionRow[], truncated: false, error: e instanceof Error ? e.message : "Failed to load" }),
       )
       const [p, h, w] = await Promise.all([
         getJson(`/api/admin/refunds/pending?q=${encodeURIComponent(appliedQ)}&page=${pendingPage}`, token),
@@ -156,6 +162,7 @@ export default function AdminRefundsPage() {
       if (seq !== loadSeq.current) return // a newer load superseded this one
       setWalletAttention(w.rows)
       setWalletAttentionError(w.error)
+      setWalletAttentionTruncated(w.truncated)
       setPending(p.rows)
       setHistory(h)
     } catch (e) {
@@ -365,7 +372,7 @@ export default function AdminRefundsPage() {
                           <TableCell className="font-mono text-xs">{r.orderId}</TableCell>
                           <TableCell>GHS {Number(r.amount).toFixed(2)}</TableCell>
                           <TableCell>
-                            <Badge variant={r.state === "needs_review" ? "destructive" : "secondary"}>{r.state === "needs_review" ? "Needs review" : "Still debited"}</Badge>
+                            <Badge variant={r.kind === "stale_debited" ? "secondary" : "destructive"}>{ATTENTION_KIND_LABEL[r.kind] ?? r.kind}</Badge>
                           </TableCell>
                           <TableCell>{r.orderStatus ?? "not found"}</TableCell>
                           <TableCell className="max-w-md text-xs">
@@ -377,6 +384,9 @@ export default function AdminRefundsPage() {
                       ))}
                     </TableBody>
                   </Table>
+                )}
+                {!walletAttentionError && walletAttentionTruncated && (
+                  <p className="mt-2 text-sm text-amber-600">More wallet payments need checking than this list shows (the newest are listed). Resolve these, then reload to see the rest.</p>
                 )}
               </CardContent>
             </Card>
