@@ -32,8 +32,8 @@ export function choiceScreenText(balance: number): string {
 const PAID_TEXT: Partial<Record<PayKind, (row: Record<string, unknown>) => string>> = {
   data: () => "Payment successful.\nYour package will reflect\nin a few minutes.",
   airtime: () => "Payment successful.\nAirtime will reflect\nshortly.",
-  // Uzo's wallet text for vouchers names the reference, the exam and whether it is one voucher or several.
-  rc: row => `Success! Ref ${String(row.reference_code ?? "")}.\n${String(row.exam_board ?? "")} voucher${Number(row.quantity) > 1 ? "s" : ""} sent by SMS.`,
+  // Uzo's wallet text, in future tense: here the vouchers are assigned after the debit (deferred post-payment), so "sent" would promise too early.
+  rc: row => `Success! Ref ${String(row.reference_code ?? "")}.\nYour ${String(row.exam_board ?? "")} voucher${Number(row.quantity) > 1 ? "s" : ""} will be\nsent by SMS shortly.`,
   rc_check: row => `Payment successful!\nWe'll check your\n${String(row.exam_board ?? "")} results and\nsend them to you shortly.`,
 }
 const paidText = (kind: PayKind, row: Record<string, unknown>) => PAID_TEXT[kind]?.(row) ?? "Payment successful."
@@ -41,7 +41,7 @@ const paidText = (kind: PayKind, row: Record<string, unknown>) => PAID_TEXT[kind
 /** The wallet history line, as Uzo writes it, minus any phone number. */
 const DESCRIPTION: Partial<Record<PayKind, (row: Record<string, unknown>) => string>> = {
   data: row => `USSD data purchase: ${String(row.network ?? "")} ${String(row.package_size ?? "")}`.trim(),
-  airtime: row => `Airtime: ${String(row.network ?? "")} GHS ${String(row.airtime_amount ?? "")}`.trim(),
+  airtime: row => `Airtime: ${String(row.network ?? "")} GHS ${Number(row.airtime_amount).toFixed(2)}`.trim(),
   rc: row => `${String(row.exam_board ?? "")} Results Checker x${String(row.quantity ?? "")} — Ref: ${String(row.reference_code ?? "")}`,
   rc_check: row => `Results check: ${String(row.exam_board ?? "")} ${String(row.index_number ?? "")} ${String(row.exam_year ?? "")}`,
 }

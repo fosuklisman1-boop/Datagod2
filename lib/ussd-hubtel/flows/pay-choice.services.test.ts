@@ -122,8 +122,16 @@ describe("pay choice: airtime, fee-priced", () => {
       args: { p_session: "S1", p_user: "user-1", p_table: "airtime_orders", p_order: NEW_ID, p_amount: 10, p_source: "airtime_purchase" },
     })
     expect(w.rpcCalls[0].args.p_description).not.toContain("0244123456")
+    expect(w.rpcCalls[0].args.p_description).toBe("Airtime: MTN GHS 9.52")
     await w.runDeferred()
     expect(w.handler).toHaveBeenCalledWith(NEW_ID)
+  })
+  it("a whole airtime amount shows two decimals in the history text", async () => {
+    const w = world({ over: { airtime: fakeAirtime({ cashbackQuote: async () => cbQuote(9.6) }) } })
+    await walkAirtime(w.deps)
+    await press(w.deps, "1")
+    await press(w.deps, "1")
+    expect(w.rpcCalls[0].args.p_description).toBe("Airtime: MTN GHS 10.00")
   })
   it("2 gives today's AddToCart at the same price", async () => {
     const w = world()
@@ -232,8 +240,11 @@ describe("pay choice: buy vouchers", () => {
     const row = w.sup.inserts["results_checker_orders"][0]
     expect(row).toMatchObject({ total_paid: 40, quantity: 2, exam_board: "WASSCE" })
     expect(r.Type).toBe("release")
-    expect(r.Message).toBe(`Success! Ref ${row.reference_code}.\nWASSCE vouchers sent by SMS.`)
+    expect(r.Message).toBe(`Success! Ref ${row.reference_code}.\nYour WASSCE vouchers will be\nsent by SMS shortly.`)
     expect(r.Message.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
+    // The longest board name and a two-digit quantity still fit one screen.
+    const longest = `Success! Ref ${row.reference_code}.\nYour NOVDEC vouchers will be\nsent by SMS shortly.`
+    expect(longest.length).toBeLessThanOrEqual(USSD_SCREEN_LIMIT)
     expect(w.rpcCalls[0].args).toMatchObject({ p_table: "results_checker_orders", p_amount: 40, p_source: "ussd_results_checker" })
     expect(w.rpcCalls[0].args.p_description).not.toMatch(/\d{9,}/)
     await w.runDeferred()
@@ -244,7 +255,7 @@ describe("pay choice: buy vouchers", () => {
     await start(w.deps, "Results Checker")
     await send(w.deps, ["1", "1", "1"])
     await press(w.deps, "1")
-    expect((await press(w.deps, "1")).Message).toMatch(/WASSCE voucher sent by SMS\.$/)
+    expect((await press(w.deps, "1")).Message).toMatch(/Your WASSCE voucher will be\nsent by SMS shortly\.$/)
   })
   it("2 gives today's AddToCart", async () => {
     const w = world()
@@ -414,6 +425,8 @@ describe("pay choice: check results", () => {
     await start(w.deps, "Results Checker")
     const r = await press(w.deps, "3")
     expect(r.Message).toContain("create a Clingshub account")
-    expect(UNAVAILABLE).toBeTruthy()
+    expect(r.Type).toBe("release")
+    expect(w.sup.inserts["results_check_requests"]).toBeUndefined()
+    expect(w.rpcCalls).toHaveLength(0)
   })
 })

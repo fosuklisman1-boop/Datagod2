@@ -193,8 +193,6 @@ async function waNumber(ctx: FlowCtx): Promise<HubtelReply> {
 
 async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const { deps, req, session: s } = ctx
-  const board = s.rcCheckBoard as ExamBoard
-  const mode = s.rcCheckMode ?? "own_voucher"
   if (ctx.input === "2") return finish(ctx, "Order cancelled.")
   if (ctx.input !== "1") return say(ctx, confirmText(s), "RC_CHECK_CONFIRM", CONFIRM)
 
