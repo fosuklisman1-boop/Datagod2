@@ -40,6 +40,7 @@ function world(o: {
   handler?: (id: string) => Promise<void>
   bundlePrice?: number
   verifyRecipient?: RouterDeps["verifyRecipient"]
+  phoneVerified?: RouterDeps["isPhoneVerified"]
 } = {}) {
   const pkg = o.pkg ?? { price: 10, dealer_price: null, is_available: true }
   const sup = fakeSupabase({ pkg })
@@ -48,7 +49,7 @@ function world(o: {
     payments.push({ id: "pay-0", session_id: "S1", order_table: "ussd_orders", order_id: "old", user_id: "user-1", amount: 10, state: "debited", created_at: "", updated_at: "", ...o.existingPayment })
   }
   const rpcCalls: any[] = []
-  const state = { paymentsReadError: o.paymentsReadError === true, walletTableCalls: 0 }
+  const state = { paymentsReadError: o.paymentsReadError === true, walletTableCalls: 0, paymentsReadErrorObj: { message: "read failed" } as Record<string, unknown> }
   const baseFrom = sup.client.from.bind(sup.client)
   sup.client.from = (table: string) => {
     if (table !== "hubtel_wallet_payments") return baseFrom(table)
@@ -60,7 +61,7 @@ function world(o: {
       select() { return b },
       eq(c: string, v: unknown) { filters[c] = v; return b },
       update(p: any) { patch = p; return b },
-      maybeSingle: async () => (state.paymentsReadError ? { data: null, error: { message: "read failed" } } : { data: match()[0] ?? null, error: null }),
+      maybeSingle: async () => (state.paymentsReadError ? { data: null, error: state.paymentsReadErrorObj } : { data: match()[0] ?? null, error: null }),
       then(res: any) {
         if (patch) {
           const rows = match()
@@ -91,16 +92,18 @@ function world(o: {
   const deferred: Array<() => Promise<unknown>> = []
   const resolveDialer = vi.fn(o.dialer ?? (async () => ({ userId: "user-1", balance: o.balance ?? 42 })))
   const getConfig = vi.fn(async () => config(o.cfg))
+  const isPhoneVerified = vi.fn(o.phoneVerified ?? (async () => true))
   const { deps, store } = makeDeps({
     getConfig,
     resolveDialer,
+    isPhoneVerified,
     walletPayDeps: () => ({ db: sup.client, handlers: { ussd_orders: handler }, alert }),
     ...(o.bundlePrice !== undefined ? { fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: o.bundlePrice! }], total: 1 }) } : {}),
     ...(o.verifyRecipient ? { verifyRecipient: o.verifyRecipient } : {}),
     ...(o.defer === false ? {} : { defer: (t: () => Promise<unknown>) => { deferred.push(t) } }),
   }, sup)
   const runDeferred = async () => { while (deferred.length) await deferred.shift()!() }
-  return { deps, store, sup, pkg, payments, rpcCalls, handler, alert, deferred, runDeferred, resolveDialer, getConfig, state }
+  return { deps, store, sup, pkg, payments, rpcCalls, handler, alert, deferred, runDeferred, resolveDialer, getConfig, state, isPhoneVerified }
 }
 
 /** Initiation -> data -> MTN -> first bundle -> someone else -> 0244123456: the data confirm screen. */
@@ -703,5 +706,144 @@ describe("pay choice: helpers", () => {
     await press(w.deps, "1")
     expect(w.rpcCalls).toHaveLength(0)
     expect(w.sup.inserts["ussd_orders"]).toBeUndefined()
+  })
+})
+
+describe("final fix: a missing hubtel_wallet_payments table is no wallet payment (replay lookup only)", () => {
+  for (const code of ["42P01", "PGRST205", "PGRST202"]) {
+    it(`${code} at a main confirm: today's checkout, not the unavailable text`, async () => {
+      const w = world({ cfg: { walletPayment: false } })
+      await walkToConfirm(w.deps)
+      w.state.paymentsReadError = true
+      w.state.paymentsReadErrorObj = { code, message: "relation \"hubtel_wallet_payments\" does not exist" }
+      vi.spyOn(console, "warn").mockImplementation(() => {})
+      const r = await press(w.deps, "1")
+      expect(r.Type).toBe("AddToCart")
+      expect(w.sup.inserts["hubtel_transactions"]).toHaveLength(1)
+    })
+    it(`${code} on the no-session path: replaySubmittedOrder returns null`, async () => {
+      const w = world({ paymentsReadError: true })
+      w.state.paymentsReadErrorObj = { code, message: "missing" }
+      vi.spyOn(console, "warn").mockImplementation(() => {})
+      expect(await replaySubmittedOrder(w.deps, "S1", "USSD")).toBeNull()
+    })
+  }
+  for (const code of ["57014", "XX000", "PGRST301"]) {
+    it(`any other error (${code}) still fails closed`, async () => {
+      const w = world({ cfg: { walletPayment: false } })
+      await walkToConfirm(w.deps)
+      w.state.paymentsReadError = true
+      w.state.paymentsReadErrorObj = { code, message: "boom" }
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      const r = await press(w.deps, "1")
+      expect(r.Type).toBe("release")
+      expect(r.Message).toBe(UNAVAILABLE)
+      expect(w.sup.inserts["hubtel_transactions"]).toBeUndefined()
+      expect((await replaySubmittedOrder(w.deps, "S2", "USSD"))?.Message).toBe(UNAVAILABLE)
+    })
+  }
+})
+
+describe("final fix: a late debit for this request's own order is not 'already submitted'", () => {
+  it("unknown RPC error, nothing on read-back, then this order's own debit commits before the re-read: unavailable", async () => {
+    let w!: ReturnType<typeof world>
+    w = world({ rpc: () => { throw new Error("socket hang up") } })
+    // The late debit lands while this request fails its order (between the read-back and the re-read).
+    const from = w.sup.client.from
+    w.sup.client.from = (t: string) => {
+      const b = from(t)
+      if (t === "ussd_orders") {
+        const update = b.update
+        b.update = (patch: any) => {
+          w.payments.push({ id: "pay-late", session_id: "S1", order_table: "ussd_orders", order_id: NEW_ID, user_id: "user-1", amount: 10, state: "needs_review", created_at: "", updated_at: "" })
+          return update(patch)
+        }
+      }
+      return b
+    }
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    const r = await press(w.deps, "1")
+    expect(r.Type).toBe("release")
+    expect(r.Message).toBe(UNAVAILABLE)
+    expect(w.payments.find(p => p.id === "pay-late")).toBeDefined()
+  })
+  it("a row for a different order still says already submitted", async () => {
+    let w!: ReturnType<typeof world>
+    w = world({
+      rpc: (a: any) => {
+        w.payments.push({ id: "pay-other", session_id: a.p_session, order_table: "ussd_orders", order_id: "other-order", user_id: a.p_user, amount: a.p_amount, state: "debited", created_at: "", updated_at: "" })
+        return { data: null, error: { message: "ALREADY_CARTED" } }
+      },
+    })
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    expect((await press(w.deps, "1")).Message).toBe(ALREADY)
+  })
+})
+
+describe("final fix: the wallet needs a verified phone", () => {
+  it("verified: offered (the check names the dialler's account)", async () => {
+    const w = world()
+    await walkToConfirm(w.deps)
+    expect((await press(w.deps, "1")).Message).toBe(CHOICE_42)
+    expect(w.isPhoneVerified).toHaveBeenCalledWith("user-1")
+  })
+  it("unverified: straight to today's checkout, no choice screen", async () => {
+    const w = world({ phoneVerified: async () => false })
+    await walkToConfirm(w.deps)
+    const r = await press(w.deps, "1")
+    expect(r).toEqual(await todaysCart())
+    expect(r.Type).toBe("AddToCart")
+    expect(w.rpcCalls).toHaveLength(0)
+  })
+  it("the verification read fails: no offer, today's checkout", async () => {
+    const w = world({ phoneVerified: async () => { throw new Error("db down") } })
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    await walkToConfirm(w.deps)
+    expect((await press(w.deps, "1")).Type).toBe("AddToCart")
+    expect(w.rpcCalls).toHaveLength(0)
+  })
+  it("no verification check wired: no offer", async () => {
+    const w = world()
+    delete (w.deps as Partial<RouterDeps>).isPhoneVerified
+    await walkToConfirm(w.deps)
+    expect((await press(w.deps, "1")).Type).toBe("AddToCart")
+  })
+  it("verification lost between the screen and 1: unavailable, no order, no debit", async () => {
+    const w = world()
+    await walkToConfirm(w.deps)
+    expect((await press(w.deps, "1")).Message).toBe(CHOICE_42)
+    w.isPhoneVerified.mockImplementation(async () => false)
+    const r = await press(w.deps, "1")
+    expect(r.Type).toBe("release")
+    expect(r.Message).toBe(UNAVAILABLE)
+    expect(w.sup.inserts["ussd_orders"]).toBeUndefined()
+    expect(w.rpcCalls).toHaveLength(0)
+  })
+  it("the verification read fails on 1: unavailable, no order, no debit", async () => {
+    const w = world()
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    w.isPhoneVerified.mockImplementation(async () => { throw new Error("db down") })
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    expect((await press(w.deps, "1")).Message).toBe(UNAVAILABLE)
+    expect(w.sup.inserts["ussd_orders"]).toBeUndefined()
+    expect(w.rpcCalls).toHaveLength(0)
+  })
+  it("2 (MoMo) does not need a verified phone", async () => {
+    const w = world()
+    await walkToConfirm(w.deps)
+    await press(w.deps, "1")
+    w.isPhoneVerified.mockImplementation(async () => false)
+    expect((await press(w.deps, "2")).Type).toBe("AddToCart")
+  })
+  it("walletOfferFor: null when unverified", async () => {
+    const w = world({ phoneVerified: async () => false })
+    const ctx: FlowCtx = {
+      input: "1", req: req({ Message: "1" }), deps: w.deps, config: config(),
+      session: { step: "CONFIRM", dialingPhone: "+233200585542", platform: "USSD" },
+    }
+    expect(await walletOfferFor(ctx, 10)).toBeNull()
   })
 })

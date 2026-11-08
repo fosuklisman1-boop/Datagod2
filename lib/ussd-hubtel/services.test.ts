@@ -1,6 +1,30 @@
 // lib/ussd-hubtel/services.test.ts
 import { describe, it, expect } from "vitest"
-import { getAfaPrice, listMyVouchers } from "./services"
+import { getAfaPrice, isPhoneVerified, listMyVouchers } from "./services"
+
+describe("isPhoneVerified", () => {
+  const client = (data: unknown, error: unknown = null) => {
+    const calls: unknown[][] = []
+    const b: any = {
+      select: (...a: unknown[]) => { calls.push(["select", ...a]); return b },
+      eq: (...a: unknown[]) => { calls.push(["eq", ...a]); return b },
+      maybeSingle: async () => ({ data, error }),
+    }
+    return { supabase: { from: (t: string) => { calls.push(["from", t]); return b } } as any, calls }
+  }
+  it("reads users.phone_verified for the account id; true only when exactly true", async () => {
+    const { supabase, calls } = client({ phone_verified: true })
+    expect(await isPhoneVerified(supabase, "user-1")).toBe(true)
+    expect(calls).toContainEqual(["from", "users"])
+    expect(calls).toContainEqual(["select", "phone_verified"])
+    expect(calls).toContainEqual(["eq", "id", "user-1"])
+    for (const v of [false, null, "true", 1]) expect(await isPhoneVerified(client({ phone_verified: v }).supabase, "user-1")).toBe(false)
+    expect(await isPhoneVerified(client(null).supabase, "user-1")).toBe(false)
+  })
+  it("throws on a read error, so an unread value is never taken as verified or unverified silently", async () => {
+    await expect(isPhoneVerified(client(null, { code: "57014", message: "timeout" }).supabase, "user-1")).rejects.toThrow()
+  })
+})
 
 describe("listMyVouchers", () => {
   it("matches every stored phone format, completed only, newest 5", async () => {

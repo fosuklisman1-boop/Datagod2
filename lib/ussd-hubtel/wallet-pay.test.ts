@@ -272,6 +272,13 @@ describe("findWalletPaymentBySession", () => {
     expect(err).toBeInstanceOf(Error)
     expect(err.message).not.toContain(PHONE)
   })
+
+  it("the thrown error keeps the database error code, so a caller can tell a missing table apart", async () => {
+    const { client } = fakeDb([], { readError: { code: "PGRST205", message: "Could not find the table" } })
+    const err = await findWalletPaymentBySession(client, "S1").catch(e => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.code).toBe("PGRST205")
+  })
 })
 
 describe("runWalletPostPayment", () => {

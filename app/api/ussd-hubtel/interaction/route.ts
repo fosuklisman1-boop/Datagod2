@@ -8,6 +8,10 @@ import { safeDbError } from "@/lib/ussd-hubtel/log-safe"
 import { logInteraction, shapeInteractionRow, trackSessionStore } from "@/lib/ussd-hubtel/interaction-log"
 import type { HubtelReply } from "@/lib/ussd-hubtel/types"
 
+// Wallet payments run delivery in after() (fulfillUssdOrder with the MTN retry sequence, vouchers, SMS). 300s stays under
+// the wallet sweep's 10-minute window and lease (lib/ussd-hubtel/wallet-pay.ts), which rely on this route finishing first.
+export const maxDuration = 300
+
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
 // Hubtel Service Interaction URL: https://<domain>/api/ussd-hubtel/interaction?secret=<HUBTEL_WEBHOOK_SECRET>

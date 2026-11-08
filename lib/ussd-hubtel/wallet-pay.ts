@@ -105,10 +105,16 @@ async function sendAlert(alert: WalletAlert, message: string): Promise<void> {
   }
 }
 
-/** The payment row for a session, or null. THROWS on a read failure: an unread row is never the same as no payment. */
+/**
+ * The payment row for a session, or null. THROWS on a read failure: an unread row is never the same as no payment. The
+ * thrown error keeps the database error `code` (never its detail), so a caller can tell a missing table apart.
+ */
 export async function findWalletPaymentBySession(db: SupabaseClient, sessionId: string): Promise<WalletPaymentRow | null> {
   const { data, error } = await db.from(TABLE).select(ROW_COLUMNS).eq("session_id", sessionId).maybeSingle()
-  if (error) throw new Error(`${TABLE} read failed: ${safeError(error).message}`)
+  if (error) {
+    const safe = safeError(error)
+    throw Object.assign(new Error(`${TABLE} read failed: ${safe.message}`), safe.code ? { code: safe.code } : {})
+  }
   return (data as WalletPaymentRow | null) ?? null
 }
 

@@ -5,7 +5,7 @@ import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { BOT_MENUS_HIDDEN, getHubtelUssdConfig, type BotMenuGate, type HubtelUssdConfig } from "./config"
 import {
   defaultAfaServices, defaultAirtimeServices, defaultNetworkPlansServices, defaultPayBillsServices, defaultRcServices,
-  loadBotMenuGate, resolveDialer,
+  isPhoneVerified, loadBotMenuGate, resolveDialer,
 } from "./services"
 import { dbSessionStore } from "./session"
 import { defaultShopServices } from "./shop-services"
@@ -69,6 +69,8 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     deliveryEstimate: async channel => confirmScreenText(await getCachedChannelEstimate(supabase, channel)),
     // Built when a caller pays from the wallet (once per request), with the same URGENT alert the order handlers use.
     walletPayDeps: () => ({ db: supabase, handlers: createOrderHandlers(supabase), alert: urgentAlert }),
+    // The wallet is offered and paid only for an account whose phone is verified.
+    isPhoneVerified: userId => isPhoneVerified(supabase, userId),
   }
 }
 

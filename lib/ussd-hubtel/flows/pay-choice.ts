@@ -1,7 +1,7 @@
 // lib/ussd-hubtel/flows/pay-choice.ts
 // Wallet or MoMo, on the main code only. A service's confirm runs its replay check, then checkoutOrChoose: an
-// eligible caller (switch on, main mode, Platform USSD, the dialler resolves to an account whose balance covers the
-// price) sees PAY_CHOICE; everyone else goes to Hubtel's checkout exactly as before.
+// eligible caller (switch on, main mode, Platform USSD, the dialler resolves to an account with a verified phone whose
+// balance covers the price) sees PAY_CHOICE; everyone else goes to Hubtel's checkout exactly as before.
 //
 // On PAY_CHOICE, 1 and 2 both run the replay check, then the service's prepare again (price, stock, recipient block),
 // so nothing is charged on a stale screen. 1 creates the order with no hubtel_transactions row and debits the wallet
@@ -77,8 +77,23 @@ function walletOpen(ctx: FlowCtx): boolean {
 }
 
 /**
- * The wallet offer for this caller at `price`, or null: not eligible, unregistered, balance short, or the balance
- * could not be read (then the caller simply goes to the checkout). With the switch off nothing is read.
+ * The account's phone is verified (users.phone_verified = true), read fresh. False when unverified, when the read
+ * fails, or when no check is wired: the wallet is only for verified phones. Never throws.
+ */
+async function phoneVerified(ctx: FlowCtx, userId: string): Promise<boolean> {
+  const check = ctx.deps.isPhoneVerified
+  if (typeof check !== "function") return false
+  try {
+    return (await check(userId)) === true
+  } catch (e) {
+    console.warn(LOG, "phone verification read failed; no wallet:", ctx.req.SessionId, safeDbError(e))
+    return false
+  }
+}
+
+/**
+ * The wallet offer for this caller at `price`, or null: not eligible, unregistered, phone not verified, balance short,
+ * or a read failed (then the caller simply goes to the checkout). With the switch off nothing is read.
  */
 export async function walletOfferFor(ctx: FlowCtx, price: number): Promise<{ userId: string; balance: number } | null> {
   if (!walletOpen(ctx)) return null
@@ -88,6 +103,7 @@ export async function walletOfferFor(ctx: FlowCtx, price: number): Promise<{ use
     const balance = Number(dialer.balance)
     if (!dialer.userId || !Number.isFinite(balance)) return null
     if (pesewas(balance) < pesewas(price)) return null
+    if (!(await phoneVerified(ctx, dialer.userId))) return null
     return { userId: dialer.userId, balance }
   } catch (e) {
     console.warn(LOG, "balance read failed; going to checkout:", ctx.req.SessionId, safeDbError(e))
@@ -153,6 +169,11 @@ async function payByWallet(ctx: FlowCtx, kind: PayKind, prepare: Prepare): Promi
     console.warn(LOG, "dialer read failed on PAY_CHOICE; nothing created:", sid, safeDbError(e))
   }
   if (!userId) return finish(ctx, UNAVAILABLE_TEXT)
+  // Verification may have been lost since the screen (or cannot be read now): nothing is created or debited.
+  if (!(await phoneVerified(ctx, userId))) {
+    console.warn(LOG, "phone not verified on PAY_CHOICE; nothing created:", sid)
+    return finish(ctx, UNAVAILABLE_TEXT)
+  }
 
   const walletDeps = deps.walletPayDeps!()
   // The row records exactly what is debited (the MoMo path keeps prepare's value as before).
@@ -169,14 +190,18 @@ async function payByWallet(ctx: FlowCtx, kind: PayKind, prepare: Prepare): Promi
   const failOrder = () => failOrderGuarded(deps.supabase, table, order.id, true, prepared.logTag)
   /**
    * After failing this request's order: a concurrent request for this session may have paid (its own order). Then
-   * the customer was debited once and will be served, so say so. A read error keeps the unavailable text.
+   * the customer was debited once and will be served, so say so. A row for THIS order is this request's own debit
+   * committing late (held for review, since the order is now failed): that is not "already submitted", so it keeps the
+   * unavailable text, as does a read error.
    */
   const unavailableOrAlreadyPaid = async () => {
     try {
-      if (await findWalletPaymentBySession(deps.supabase, sid)) {
+      const found = await findWalletPaymentBySession(deps.supabase, sid)
+      if (found && (found.order_table !== table || found.order_id !== order.id)) {
         console.warn(LOG, "another request paid this session; this order failed:", table, order.id, sid)
         return finish(ctx, ALREADY_SUBMITTED_TEXT)
       }
+      if (found) console.error(LOG, "this order's own debit committed after it was failed; held for review:", table, order.id, sid)
     } catch (e) {
       console.error(LOG, "payment re-read failed after a refusal:", table, order.id, sid, safeDbError(e))
     }

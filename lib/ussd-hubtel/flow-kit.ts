@@ -15,6 +15,7 @@ import { cartItemNameFor, failOrderGuarded, isHubtelOrderTable, type HubtelOrder
 import { addToCart, release, respond } from "./protocol"
 import { safeDbError } from "./log-safe"
 import { findWalletPaymentBySession, type WalletPayDeps } from "./wallet-pay"
+import { isMissingTable } from "@/lib/refunds/hubtel-wallet"
 import type { DeliveryChannel } from "@/lib/delivery-estimate/query"
 import type { HubtelFieldType, HubtelPlatform, HubtelReply, HubtelRequest, HubtelSession, HubtelStep } from "./types"
 
@@ -61,6 +62,11 @@ export interface RouterDeps {
    * the wallet. Optional: without it the wallet is never offered, and every confirm goes to the checkout as before.
    */
   walletPayDeps?(): WalletPayDeps
+  /**
+   * Whether the account's phone is verified (users.phone_verified = true). The wallet is offered and paid only then.
+   * May throw on a read error. Optional: without it the wallet is never offered or paid (the caller goes to MoMo).
+   */
+  isPhoneVerified?(userId: string): Promise<boolean>
 }
 
 export interface FlowCtx {
@@ -127,11 +133,23 @@ export async function backToMain(ctx: FlowCtx): Promise<HubtelReply> {
 export const UNAVAILABLE_TEXT = "Service unavailable. Please try again later."
 
 /**
+ * The replay lookup's one tolerated error: hubtel_wallet_payments does not exist (42P01 / PGRST205, via the shared
+ * isMissingTable) or PostgREST's schema cache has not caught up (PGRST202 is accepted too, as asked for this lookup).
+ */
+function isWalletTableMissing(e: unknown): boolean {
+  const code = e != null && typeof e === "object" ? (e as { code?: unknown }).code : undefined
+  if (typeof code !== "string") return false
+  return isMissingTable({ code }) || code === "PGRST202"
+}
+
+/**
  * Idempotency guard shared by every CONFIRM and the no-session path. If this Hubtel session
  * already produced an order: replay the identical AddToCart while it awaits payment, else say it
  * was already submitted. A session already paid from the wallet is "already submitted" and never
  * carts; if that wallet lookup cannot be read, the session ends with the unavailable text (fail
- * closed). Returns null when no order exists for the session.
+ * closed). The one exception: a missing hubtel_wallet_payments table (code deployed before migration
+ * 0159, or a PostgREST schema cache lagging after it) counts as no wallet payment, since none can
+ * exist without the table. Returns null when no order exists for the session.
  * `mode`: the session's pinned mode when known. A shop session can never hold a wallet payment, so "shop" skips the
  * wallet lookup (the shop line never depends on that table). Absent (the no-session path, main flows) = look it up.
  */
@@ -157,6 +175,10 @@ export async function replaySubmittedOrder(
     try {
       walletPaid = (await findWalletPaymentBySession(deps.supabase, sid)) !== null
     } catch (e) {
+      if (isWalletTableMissing(e)) {
+        console.warn("[HUBTEL-REPLAY] hubtel_wallet_payments not found (migration 0159 not applied, or schema cache lag); no wallet payment:", sid)
+        return null
+      }
       console.error("[HUBTEL-REPLAY] Wallet payment lookup failed; refusing to continue:", sid, e instanceof Error ? e.message : "error")
       await deps.sessions.del(sid)
       return release(sid, UNAVAILABLE_TEXT, { platform })

@@ -29,6 +29,16 @@ import type { VerifyResult } from "@/lib/bills/service"
 export { resolveDialer }
 export type { DialerInfo }
 
+/**
+ * True only when users.phone_verified is exactly true for this account. THROWS on a read error, so the caller decides
+ * (the Hubtel wallet treats an unread value as unverified). A dedicated read: resolveDialer stays as its callers know it.
+ */
+export async function isPhoneVerified(supabase: SupabaseClient, userId: string): Promise<boolean> {
+  const { data, error } = await supabase.from("users").select("phone_verified").eq("id", userId).maybeSingle()
+  if (error) throw new Error(`users phone_verified read failed: ${safeDbError(error).message}`)
+  return (data as { phone_verified?: unknown } | null)?.phone_verified === true
+}
+
 /** Cashback bots gate per bot menu: master switch AND bots surface AND the menu's group (bundles / bills). */
 export function botMenuGate(cfg: CashbackConfig): BotMenuGate {
   const on = cfg.enabled === true && cfg.surfaces?.bots === true

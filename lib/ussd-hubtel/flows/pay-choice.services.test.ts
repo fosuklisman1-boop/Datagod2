@@ -64,6 +64,7 @@ function world(o: {
   const { deps, store } = makeDeps({
     getConfig: async () => config(o.cfg),
     resolveDialer,
+    isPhoneVerified: async () => true,
     walletPayDeps: () => ({
       db: sup.client,
       handlers: o.handlers ?? { airtime_orders: handler, results_checker_orders: handler, results_check_requests: handler },
