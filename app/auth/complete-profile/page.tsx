@@ -74,6 +74,9 @@ export default function CompleteProfilePage() {
   const [isLoading, setIsLoading] = useState(false)
   const [initializing, setInitializing] = useState(true)
   const [sessionToken, setSessionToken] = useState<string | null>(null)
+  // Email sign-ups can land here too (confirm link after the phone code expired);
+  // they were already reported on the sign-up page.
+  const [isGoogleSignUp, setIsGoogleSignUp] = useState(false)
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -137,6 +140,7 @@ export default function CompleteProfilePage() {
         phoneNumber: "",
       })
       setSessionToken(session.access_token)
+      setIsGoogleSignUp(session.user.app_metadata?.provider === "google")
 
       // Fetch signup enabled setting
       try {
@@ -316,7 +320,7 @@ export default function CompleteProfilePage() {
         return
       }
 
-      await trackSignUp("google")
+      if (isGoogleSignUp) await trackSignUp("google")
       toast.success("Profile created! Welcome to DATAGOD.")
       router.push(postAuthTarget())
     } catch {
