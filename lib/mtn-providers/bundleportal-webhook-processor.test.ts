@@ -227,14 +227,23 @@ describe("processWebhook", () => {
     })
   })
 
-  it("re-delivering the SAME terminal status only stamps webhook_received_at, nothing else", async () => {
+  it("writes nothing on a repeat order.completed, because any write restarts the 72h reversal window", async () => {
     const target = seedTracking({ mtn_order_id: "our-ref-6", status: "completed" })
 
     await processWebhook({ event: "order.completed", order_id: "our-ref-6", status: "completed" })
 
+    expect(fakeDb.updates).toEqual([])
+    expect(target.status).toBe("completed")
+  })
+
+  it("re-delivering failed only stamps webhook_received_at, nothing else", async () => {
+    const target = seedTracking({ mtn_order_id: "our-ref-8", status: "failed" })
+
+    await processWebhook({ event: "order.failed", order_id: "our-ref-8", status: "failed" })
+
     expect(fakeDb.updates).toHaveLength(1)
     expect(fakeDb.updates[0].id).toBe(target.id)
     expect(Object.keys(fakeDb.updates[0].payload)).toEqual(["webhook_received_at"])
-    expect(target.status).toBe("completed")
+    expect(target.status).toBe("failed")
   })
 })

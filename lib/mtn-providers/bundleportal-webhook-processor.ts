@@ -90,6 +90,10 @@ export async function processWebhook(payload: any) {
     return
   }
 
+  // A DB trigger sets updated_at on every write, and the reversal window is
+  // measured from it, so a repeat completion must not touch the row.
+  if (newStatus === "completed" && tracking.status === "completed") return
+
   if (newStatus === tracking.status) {
     await supabase.from("mtn_fulfillment_tracking").update({ webhook_received_at: new Date().toISOString() }).eq("id", tracking.id)
     return
