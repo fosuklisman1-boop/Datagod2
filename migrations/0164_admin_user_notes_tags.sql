@@ -1,9 +1,10 @@
--- 0149_admin_user_notes_tags.sql
+-- 0164_admin_user_notes_tags.sql
+-- Already applied to production on 2026-11-09 (as 0149_admin_user_notes_tags.sql)
 --
 -- Admin notes and tags on users, and the per-page activity / risk signals for the admin users page
 -- (app/admin/users, its user drawer, /api/admin/users/[id]/notes, /api/admin/users/[id]/tags and GET /api/admin/users).
 -- ADDITIVE (two new tables, their indexes, one new function). Idempotent (re-runnable). One transaction.
--- Must be applied BEFORE the code that calls it is deployed. 0145's admin_list_users / admin_export_users read
+-- Must be applied BEFORE the code that calls it is deployed. 0160's admin_list_users / admin_export_users read
 -- public.admin_user_tags when they are called, so they need this migration too.
 --
 --   public.admin_user_notes   free-text notes admins keep about a user
@@ -29,10 +30,10 @@
 --   admin_user_signals(p_user_ids uuid[], p_failed_hours int, p_refund_hours int, p_credit_hours int)
 --     RETURNS jsonb {"<user id>": {...}, ...}: one object per distinct, non-NULL id given (at most 200, else
 --     'BAD_INPUT'); ids that match no user still get an object (all counts 0, dates NULL).
---       last_order_at         newest created_at over the 7 order tables 0147 reads (orders, api_orders,
+--       last_order_at         newest created_at over the 7 order tables 0162 reads (orders, api_orders,
 --                             hubtel_data_orders, airtime_orders, hubtel_bill_orders, results_checker_orders,
 --                             afa_orders); NULL if none. One max() per table on its (user_id, created_at DESC)
---                             index (0148 and 0117/0118): an index-only top-1 per table.
+--                             index (0163 and 0117/0118): an index-only top-1 per table.
 --       failed_orders         orders in those tables with lower(status) IN ('failed', 'error') created in the
 --                             last p_failed_hours hours; for afa_orders also 'cancelled' (how AFA marks a failed
 --                             registration). The hubtel tables (hubtel_data_orders, hubtel_bill_orders) move a
@@ -46,10 +47,10 @@
 --                             insert with type 'credit'). NOT refund_clawback / refund_clawback_undo: those are
 --                             taken from / returned to the shop owner of a refunded storefront order. No code
 --                             writes type 'refund' or 'order_refund' transactions, so types are not matched.
---                             Stops at 50. Uses the (user_id, created_at DESC) index added by 0150 (works
+--                             Stops at 50. Uses the (user_id, created_at DESC) index added by 0165 (works
 --                             without it, slower).
 --       admin_credits         admin_audit_log 'wallet_credit' rows for the user in the last p_credit_hours hours
---                             (0146 writes one per admin credit), and admin_credit_amount, their total amount.
+--                             (0161 writes one per admin credit), and admin_credit_amount, their total amount.
 --                             Stops at 50 rows. Index idx_admin_audit_log_target (target_user_id, created_at DESC).
 --       created_at            auth.users.created_at
 --       wallet_balance        wallets.balance (the larger one if a user ever had two rows; 0 if none)
@@ -65,7 +66,7 @@
 --     Blacklisted phones are NOT checked here: the route uses lib/blacklist.ts so there is one definition.
 --
 --   SECURITY DEFINER (it reads every user's orders and money), search_path = public, pg_temp, every table
---   schema-qualified, EXECUTE for service_role only. jit = off (as 0145): 7 subqueries per id inflate the cost
+--   schema-qualified, EXECUTE for service_role only. jit = off (as 0160): 7 subqueries per id inflate the cost
 --   estimate past jit_above_cost and JIT compilation would cost more than the query.
 --
 --   NOT done here: a "has risk flags" list filter. Deciding it for the whole user base means running these

@@ -11,7 +11,7 @@ import { isUuid } from "@/lib/admin-users/drawer-params"
  *   metadata) can be deleted here: remove the admin role first (POST /api/admin/remove-admin).
  * - Before anything is deleted, one admin_audit_log row 'user_removed' records who deleted whom, with the
  *   deleted account's email, phone and role. If that row cannot be written, nothing is deleted.
- *   admin_audit_log keeps the raw ids (0151 dropped its foreign keys), so the row survives the deletion.
+ *   admin_audit_log keeps the raw ids (0166 dropped its foreign keys), so the row survives the deletion.
  */
 export async function DELETE(req: NextRequest) {
   try {

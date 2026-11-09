@@ -15,7 +15,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
  * export order is fixed to (created_at, id) ascending so keyset paging never skips or repeats a row.
  * 200: { users, nextCursor }   400: { error, details }
  *
- * One admin_export_users call (migrations/0145) per request, so 100k users is ~20 requests.
+ * One admin_export_users call (migrations/0160) per request, so 100k users is ~20 requests.
  */
 export async function GET(req: NextRequest) {
   const { isAdmin, errorResponse } = await verifyAdminAccess(req)

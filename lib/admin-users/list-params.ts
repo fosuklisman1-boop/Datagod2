@@ -2,7 +2,7 @@
 //
 // Pure (no I/O) so the route, the page and the tests share one definition of
 // "what does ?role=dealer&page=3 mean". The database function
-// public.admin_list_users (migrations/0145_admin_list_users.sql) re-validates
+// public.admin_list_users (migrations/0160_admin_list_users.sql) re-validates
 // sort/dir/pricing mode, clamps limit/offset and escapes the search term, so this
 // layer is the friendly front door, not the only guard.
 
@@ -306,7 +306,7 @@ export interface AdminListUsersRow {
   shop_balance: number | string | null
   customer_count: number | string | null
   sub_agent_count: number | string | null
-  /** The user's admin tags, A-Z (0145 + 0149). */
+  /** The user's admin tags, A-Z (0160 + 0164). */
   tags?: unknown
 }
 

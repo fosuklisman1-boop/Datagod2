@@ -1,11 +1,12 @@
 -- LOCAL ONLY. Never run against production: it creates stub tables with generated rows.
+-- Renamed from 0148_admin_user_orders_indexes_local_test.sql. The migration it tests was already applied to production on 2026-11-09 (as 0148_admin_user_orders_indexes.sql).
 --
--- Applies 0147 and 0148 to a stub schema with one heavy user (200k data orders) and checks that
+-- Applies 0162 and 0163 to a stub schema with one heavy user (200k data orders) and checks that
 -- admin_user_orders reads the new (user_id, created_at DESC) indexes as top-N scans and stays fast.
--- Run from the repo root, in autocommit mode (0148 uses CREATE INDEX CONCURRENTLY):
+-- Run from the repo root, in autocommit mode (0163 uses CREATE INDEX CONCURRENTLY):
 --
 --   createdb user_orders_idx_test
---   psql -v ON_ERROR_STOP=1 -d user_orders_idx_test -f migrations/tests/0148_admin_user_orders_indexes_local_test.sql
+--   psql -v ON_ERROR_STOP=1 -d user_orders_idx_test -f migrations/tests/0163_admin_user_orders_indexes_local_test.sql
 --
 -- Passes when it prints ADMIN_USER_ORDERS_INDEXES_LOCAL_TEST_OK.
 
@@ -48,9 +49,9 @@ INSERT INTO public.airtime_orders (user_id, reference_code, network, beneficiary
 SELECT '00000000-0000-0000-0000-0000000000ff', 'AT-' || g, 'MTN', '0244', 1, 1, 'completed', timestamptz '2025-01-01' + g * interval '7 minutes'
 FROM generate_series(1, 20000) g;
 
-\i migrations/0147_admin_user_orders.sql
-\i migrations/0148_admin_user_orders_indexes.sql
-\i migrations/0148_admin_user_orders_indexes.sql
+\i migrations/0162_admin_user_orders.sql
+\i migrations/0163_admin_user_orders_indexes.sql
+\i migrations/0163_admin_user_orders_indexes.sql
 ANALYZE;
 
 DO $$

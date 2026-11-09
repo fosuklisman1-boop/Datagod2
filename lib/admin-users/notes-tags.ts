@@ -1,4 +1,4 @@
-// Admin notes and tags on users: the rules the routes, the UI and migrations/0149_admin_user_notes_tags.sql share.
+// Admin notes and tags on users: the rules the routes, the UI and migrations/0164_admin_user_notes_tags.sql share.
 // Pure (no I/O).
 
 /** Offered in the tag picker. Any tag that passes TAG_RE may be used. */

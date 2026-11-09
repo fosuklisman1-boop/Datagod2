@@ -1,4 +1,5 @@
--- 0146_admin_wallet_adjust.sql
+-- 0161_admin_wallet_adjust.sql
+-- Already applied to production on 2026-11-09 (as 0146_admin_wallet_adjust.sql)
 --
 -- Atomic, audited admin wallet credit / debit for POST /api/admin/update-balance (the admin users page's
 -- balance dialog and the admin AI tool). Replaces the route's read-then-write: it read the balance, wrote

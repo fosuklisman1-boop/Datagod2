@@ -373,7 +373,7 @@ export const adminUserService = {
   },
 
   // Credit or debit a user's wallet, with a reason. expectedBalance is the balance the admin confirmed;
-  // the server refuses (409) if it has changed. Atomic and audited (admin_wallet_adjust, migrations/0146).
+  // the server refuses (409) if it has changed. Atomic and audited (admin_wallet_adjust, migrations/0161).
   async updateUserBalance(
     userId: string,
     amount: number,

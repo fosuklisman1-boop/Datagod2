@@ -1,9 +1,10 @@
 -- LOCAL ONLY. Never run against production: it creates stub tables and an auth schema.
+-- Renamed from 0146_admin_wallet_adjust_local_test.sql. The migration it tests was already applied to production on 2026-11-09 (as 0146_admin_wallet_adjust.sql).
 --
--- Exercises 0146_admin_wallet_adjust.sql against a stub schema in an EMPTY database. Run from the repo root:
+-- Exercises 0161_admin_wallet_adjust.sql against a stub schema in an EMPTY database. Run from the repo root:
 --
 --   createdb wallet_adjust_test
---   psql -v ON_ERROR_STOP=1 -d wallet_adjust_test -f migrations/tests/0146_admin_wallet_adjust_local_test.sql
+--   psql -v ON_ERROR_STOP=1 -d wallet_adjust_test -f migrations/tests/0161_admin_wallet_adjust_local_test.sql
 --
 -- Passes when it prints ADMIN_WALLET_ADJUST_LOCAL_TEST_OK. Any failed ASSERT aborts.
 
@@ -52,8 +53,8 @@ INSERT INTO public.wallets (user_id, balance, total_credited, total_spent) VALUE
   ('00000000-0000-0000-0000-000000000005', 7.00, 0, 0);
 
 -- Applied twice: the migration must be re-runnable.
-\i migrations/0146_admin_wallet_adjust.sql
-\i migrations/0146_admin_wallet_adjust.sql
+\i migrations/0161_admin_wallet_adjust.sql
+\i migrations/0161_admin_wallet_adjust.sql
 
 DO $$
 DECLARE

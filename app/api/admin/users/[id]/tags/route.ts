@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
  * POST /api/admin/users/[id]/tags { add?, remove? }    -> { tags, changed, audited }
  *      Tags are 1..32 of [a-z0-9-] (trimmed, lower-cased); at most 20 per user. Signed-in admin only (no CRON
  *      bypass). One 'user_tags_change' audit row {tags: before} -> {tags: after, added, removed} when anything
- *      changed. public.admin_user_tags (0149) has RLS on and no policies: only service-role routes reach it.
+ *      changed. public.admin_user_tags (0164) has RLS on and no policies: only service-role routes reach it.
  */
 async function readTags(db: ReturnType<typeof serviceClient>, userId: string) {
   const { data, error } = await db.from("admin_user_tags").select("tag").eq("user_id", userId).order("tag", { ascending: true })

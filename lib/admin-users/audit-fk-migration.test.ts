@@ -1,19 +1,19 @@
-// Structural checks of 0151_admin_audit_log_drop_fks.sql. Behaviour (deleting audited users and admins, the
+// Structural checks of 0166_admin_audit_log_drop_fks.sql. Behaviour (deleting audited users and admins, the
 // renamed / duplicate FK case, idempotence) is tested against a real Postgres by
-// migrations/tests/0151_admin_audit_log_drop_fks_local_test.sql.
+// migrations/tests/0166_admin_audit_log_drop_fks_local_test.sql.
 import { describe, it, expect } from "vitest"
 import { readFileSync, readdirSync } from "fs"
 import { join } from "path"
 
 const read = (...p: string[]) => readFileSync(join(process.cwd(), ...p), "utf8")
-const sql = read("migrations", "0151_admin_audit_log_drop_fks.sql")
+const sql = read("migrations", "0166_admin_audit_log_drop_fks.sql")
 const code = sql.replace(/--.*$/gm, "")
-const localTest = read("migrations", "tests", "0151_admin_audit_log_drop_fks_local_test.sql")
+const localTest = read("migrations", "tests", "0166_admin_audit_log_drop_fks_local_test.sql")
 
-describe("0151_admin_audit_log_drop_fks.sql", () => {
-  it("is the only migration numbered 0151", () => {
-    expect(readdirSync(join(process.cwd(), "migrations")).filter((f) => f.startsWith("0151_") && f.endsWith(".sql")))
-      .toEqual(["0151_admin_audit_log_drop_fks.sql"])
+describe("0166_admin_audit_log_drop_fks.sql", () => {
+  it("is the only migration numbered 0166", () => {
+    expect(readdirSync(join(process.cwd(), "migrations")).filter((f) => f.startsWith("0166_") && f.endsWith(".sql")))
+      .toEqual(["0166_admin_audit_log_drop_fks.sql"])
   })
 
   it("is one transaction with a lock timeout", () => {
@@ -40,7 +40,7 @@ describe("0151_admin_audit_log_drop_fks.sql", () => {
 
   it("has a local Postgres test that applies the real 0069 first", () => {
     expect(localTest).toContain("\\i migrations/0069_admin_moderation_sms.sql")
-    expect(localTest.match(/\\i migrations\/0151_admin_audit_log_drop_fks\.sql/g)).toHaveLength(2)
+    expect(localTest.match(/\\i migrations\/0166_admin_audit_log_drop_fks\.sql/g)).toHaveLength(2)
     expect(localTest).toContain("ADMIN_AUDIT_LOG_FK_LOCAL_TEST_OK")
   })
 })
