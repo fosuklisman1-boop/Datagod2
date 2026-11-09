@@ -10,6 +10,9 @@ import { Crown, Check, Zap, Loader2, Sparkles, Star, PartyPopper, ShieldCheck, U
 import { supabase } from "@/lib/supabase"
 import { initializePayment } from "@/lib/payment-service"
 import { toast } from "sonner"
+import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
+import { HubtelFeeNote, useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
+import { isOtpRequiredReply } from "@/lib/payment-gateway/wallet-topup-display"
 import { cn } from "@/lib/utils"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
@@ -44,6 +47,7 @@ export default function UpgradePage() {
     // Wallet/upgrade gates — OTP and direct charge are now INDEPENDENT toggles.
     const [walletOtp, setWalletOtp] = useState(false)
     const [walletDirect, setWalletDirect] = useState(false)
+    const dashboardGateway = useSurfaceGateway("dashboard_gateway")
     const [paymentPhone, setPaymentPhone] = useState("")
     const [otpSent, setOtpSent] = useState(false)
     const [otpCode, setOtpCode] = useState("")
@@ -81,8 +85,8 @@ export default function UpgradePage() {
 
         // Wallet/upgrade OTP + direct-charge gates (independent)
         fetch("/api/public/turnstile-status")
-            .then((r) => r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false })
-            .then((d) => { setWalletOtp(d.wallet_lock === true); setWalletDirect(d.wallet_direct_charge === true) })
+            .then((r) => r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false, dashboard_direct_charge: false })
+            .then((d) => { setWalletOtp(d.wallet_lock === true); setWalletDirect(d.dashboard_direct_charge === true) })
             .catch(() => { setWalletOtp(false); setWalletDirect(false) })
     }, [])
 
@@ -328,7 +332,15 @@ export default function UpgradePage() {
                     body: JSON.stringify({ email: userEmail, amount: plan.price, type: "dealer_upgrade", planId: plan.id, momoDirect: true, paymentPhone }),
                 })
                 const data = await res.json().catch(() => ({}))
+                // Hubtel needs a verified number even with the OTP gate off: show the verify step in this dialog. Nothing was charged.
+                if (isOtpRequiredReply(res.status, data)) {
+                    setWalletOtp(true)
+                    toast.info("Verify this Mobile Money number to continue")
+                    return
+                }
                 if (!res.ok || !data.success) { throw new Error(data?.error || "Could not start the Mobile Money charge. Please try again.") }
+                const fallbackNote = fallbackChargeNotice(data)
+                if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
                 setUpgradeFlow({ state: "awaiting", plan, reference: data.reference })
                 pollUpgradeStatus(data.reference, plan)
             } else {
@@ -503,9 +515,11 @@ export default function UpgradePage() {
                         <Zap className="w-4 h-4 text-amber-500 fill-amber-500" /> Fast & Secure
                     </p>
                     <p className="mt-2 text-xs text-muted-foreground">
-                        Upgrade your account in seconds using card, mobile money or bank transfer via Paystack. Your benefits start immediately.
+                        {dashboardGateway === "hubtel"
+                            ? "Upgrade your account in seconds using mobile money via Hubtel. Your benefits start immediately."
+                            : "Upgrade your account in seconds using card, mobile money or bank transfer via Paystack. Your benefits start immediately."}
                     </p>
-                    <p className="mt-3 text-xs font-bold text-muted-foreground">SECURE PAYMENTS BY PAYSTACK</p>
+                    <p className="mt-3 text-xs font-bold text-muted-foreground">SECURE PAYMENTS BY {dashboardGateway === "hubtel" ? "HUBTEL" : "PAYSTACK"}</p>
                 </div>
             </div>
 
@@ -697,8 +711,9 @@ export default function UpgradePage() {
                                     Upgrade to <span className="font-semibold">{upgradeFlow.plan?.name}</span> — GHS {Number(upgradeFlow.plan?.price || 0).toFixed(2)}.{" "}
                                     {walletDirect
                                         ? `The payment prompt is sent to the number ${walletOtp ? "you verify" : "you enter"} below.`
-                                        : "Verify the number below, then continue to Paystack to complete payment."}
+                                        : `Verify the number below, then continue to ${dashboardGateway === "hubtel" ? "Hubtel" : "Paystack"} to complete payment.`}
                                 </p>
+                                <HubtelFeeNote gateway={dashboardGateway} />
                                 <div>
                                     <label className="text-sm font-semibold text-[#1b388b]">Mobile Money number to pay from *</label>
                                     <input

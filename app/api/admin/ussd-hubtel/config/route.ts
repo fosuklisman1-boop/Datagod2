@@ -2,8 +2,8 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import {
-  DEFAULT_BRAND, getHubtelUssdConfig, hubtelEnvReady, setHubtelUssdConfig, validateBrandName, validateWelcome,
-  VISIBILITY_KEYS,
+  DEFAULT_BRAND, getHubtelMainLineConfig, getHubtelUssdConfig, hubtelEnvReady, setHubtelMainLineConfig,
+  setHubtelUssdConfig, validateBrandName, validateWelcome, VISIBILITY_KEYS,
 } from "@/lib/ussd-hubtel/config"
 
 const adminClient = () =>
@@ -21,10 +21,13 @@ export async function GET(request: NextRequest) {
   // A rate-limited admin comes back with isAdmin true AND a 429 errorResponse: honour it.
   if (!isAdmin || errorResponse) return errorResponse ?? FORBIDDEN()
   try {
-    const config = await getHubtelUssdConfig(adminClient())
+    const client = adminClient()
+    // `config` stays the existing URL's settings: /admin/utility-bills reads it too.
+    const [config, mainLine] = await Promise.all([getHubtelUssdConfig(client), getHubtelMainLineConfig(client)])
     const { missing } = hubtelEnvReady()
     return NextResponse.json({
       config,
+      mainLine,
       env: {
         webhookSecret: !missing.includes("HUBTEL_WEBHOOK_SECRET"),
         relayUrl: !missing.includes("HUBTEL_RELAY_URL"),
@@ -46,6 +49,17 @@ export async function POST(request: NextRequest) {
 
   if (typeof body !== "object" || body === null) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+  if (body.line !== undefined && body.line !== "main") {
+    return NextResponse.json({ error: "line must be 'main' when given" }, { status: 400 })
+  }
+  const isMainLine = body.line === "main"
+  if (isMainLine && body.mode !== undefined) {
+    return NextResponse.json({ error: "The main code has no mode" }, { status: 400 })
+  }
+  if (body.walletPayment !== undefined) {
+    if (!isMainLine) return NextResponse.json({ error: "walletPayment is a main code setting: send line 'main'" }, { status: 400 })
+    if (typeof body.walletPayment !== "boolean") return NextResponse.json({ error: "walletPayment must be a boolean" }, { status: 400 })
   }
   if (body?.mode !== undefined && body.mode !== "main" && body.mode !== "shop") {
     return NextResponse.json({ error: "mode must be 'main' or 'shop'" }, { status: 400 })
@@ -93,13 +107,16 @@ export async function POST(request: NextRequest) {
 
   const client = adminClient()
   try {
-    const before = await getHubtelUssdConfig(client)
-    const config = await setHubtelUssdConfig(client, { enabled: body.enabled, mode: body.mode, visibility: body.visibility, brandName, welcome })
+    const shared = { enabled: body.enabled, visibility: body.visibility, brandName, welcome }
+    const before = isMainLine ? await getHubtelMainLineConfig(client) : await getHubtelUssdConfig(client)
+    const config = isMainLine
+      ? await setHubtelMainLineConfig(client, { ...shared, walletPayment: body.walletPayment })
+      : await setHubtelUssdConfig(client, { ...shared, mode: body.mode })
     client.from("admin_audit_log").insert([{
-      admin_id: userId, action: "hubtel_ussd_config_update", target_user_id: null,
+      admin_id: userId, action: isMainLine ? "hubtel_ussd_main_line_config_update" : "hubtel_ussd_config_update", target_user_id: null,
       old_value: before, new_value: config, created_at: new Date().toISOString(),
     }]).then(({ error }: { error: any }) => { if (error) console.warn("[ADMIN-AUDIT] hubtel config log failed:", error.message) })
-    return NextResponse.json({ config })
+    return NextResponse.json(isMainLine ? { mainLine: config } : { config })
   } catch (e) {
     console.error("[HUBTEL-ADMIN] config POST error:", e)
     return NextResponse.json({ error: "Failed to update Hubtel USSD config" }, { status: 500 })

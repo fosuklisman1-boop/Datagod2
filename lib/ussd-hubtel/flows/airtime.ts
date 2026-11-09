@@ -7,9 +7,11 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { secureReference } from "@/lib/secure-random"
 import { AIRTIME_NETWORKS, airtimeLabel, type AirtimeNetworkKey } from "../menus"
 import { toLocalPhone } from "../protocol"
-import { backToMain, finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
-import type { HubtelReply } from "../types"
+import { backToMain, finish, goto, replaySubmittedOrder, say, type FlowCtx, type StepTable } from "../flow-kit"
+import { checkoutOrChoose, type Prepare, type PreparedOrder } from "./pay-choice"
+import type { HubtelReply, PayKind } from "../types"
 import { samePrice } from "@/lib/cashback/quote"
+import { dialerGetsDealerRate } from "@/lib/sub-agents/dealer-rates"
 import {
   airtimeAmountText, cashbackAirtimeColumns, cashbackAirtimeConfirmText, cashbackPromptApplies, usableCashbackQuote,
 } from "./airtime-cashback"
@@ -40,7 +42,7 @@ export function airtimeConfirmText(label: string, recipient: string, pay: number
   )
 }
 
-const isDealerRole = (role?: string) => role === "dealer" || role === "sub_agent"
+const isDealerRole = dialerGetsDealerRate
 
 export async function startAirtime(ctx: FlowCtx): Promise<HubtelReply> {
   return goto(ctx, { step: "AIRTIME_ENTER_RECIPIENT" }, airtimeRecipientPromptText(), RECIPIENT)
@@ -111,7 +113,7 @@ async function enterAmount(ctx: FlowCtx): Promise<HubtelReply> {
   }
 
   // Not applied: today's fee pricing, unchanged.
-  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer.role))
+  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer))
   const { fee, toDeliver } = splitInclusive(amount, rate)
   if (!(toDeliver > 0)) return invalid()
 
@@ -138,6 +140,17 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
   if (replay) return replay
 
+  return checkoutOrChoose(ctx, "airtime", prepareAirtime)
+}
+
+/** Every check before paying (run at confirm and again on PAY_CHOICE): the order to create, or the reply to show. */
+export async function prepareAirtime(ctx: FlowCtx): Promise<PreparedOrder | HubtelReply> {
+  const { deps, session } = ctx
+  const network = session.airtimeNetwork!
+  const label = airtimeLabel(network)
+  const amount = session.airtimeAmount!
+  const shownPay = session.airtimeCashbackPay
+
   // Stale-session guard: settings may have changed since the confirm screen was shown.
   if (!(await deps.airtime.isEnabled(network))) return finish(ctx, `${label} airtime is no longer available.`)
   const { min, max } = await deps.airtime.getLimits()
@@ -152,7 +165,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
     if (!cbNow || shownPay === undefined || !Number.isFinite(shownPay) || !samePrice(cb.payAmount, shownPay)) {
       return finish(ctx, "Airtime rates changed. Please restart your order.")
     }
-    return submitOrder(ctx, {
+    return {
       table: "airtime_orders",
       price: cb.payAmount,
       logTag: "HUBTEL-AIRTIME",
@@ -172,11 +185,11 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
         channel: "ussd",
         ...cashbackAirtimeColumns(cb, 0), // main mode never credits a shop share
       },
-    })
+    }
   }
 
   // Not applied: today's fee pricing, unchanged.
-  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer.role))
+  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer))
   const { fee, toDeliver } = splitInclusive(amount, rate)
   // Fail closed: a NaN/undefined on either side must never pass the drift check.
   const shown = session.airtimeToDeliver
@@ -185,7 +198,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
     return finish(ctx, "Airtime rates changed. Please restart your order.")
   }
 
-  return submitOrder(ctx, {
+  return {
     table: "airtime_orders",
     price: amount,
     logTag: "HUBTEL-AIRTIME",
@@ -207,7 +220,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
       dialing_phone: session.dialingPhone,
       channel: "ussd",
     },
-  })
+  }
 }
 
 export const AIRTIME_STEPS: StepTable = {
@@ -216,3 +229,6 @@ export const AIRTIME_STEPS: StepTable = {
   AIRTIME_ENTER_AMOUNT: enterAmount,
   AIRTIME_CONFIRM: confirm,
 }
+
+/** PAY_CHOICE's re-run of the airtime checks (registered in router.ts). */
+export const AIRTIME_PREPARES: Partial<Record<PayKind, Prepare>> = { airtime: prepareAirtime }

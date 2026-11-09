@@ -15,7 +15,7 @@ export default function PrivacyPage() {
           <Shield className="w-8 h-8 text-primary" />
           <h1 className="text-3xl font-bold text-foreground">Privacy Policy</h1>
         </div>
-        <p className="text-sm text-muted-foreground mb-8">Last updated: June 2026</p>
+        <p className="text-sm text-muted-foreground mb-8">Last updated: November 2026</p>
 
         <div className="bg-card rounded-xl  border border-white/60 dark:border-white/5 p-8 space-y-8 text-foreground leading-relaxed clay">
 
@@ -31,7 +31,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-foreground mb-3">3. Data Sharing</h2>
-            <p>We share your information only with service providers necessary to fulfil your orders (telecommunications networks, payment processors such as Paystack, and SMS providers). These partners are contractually bound to protect your data and use it only for the purposes we specify.</p>
+            <p>We share your information only with service providers necessary to fulfil your orders (telecommunications networks, payment processors such as Paystack, and SMS providers). These partners are contractually bound to protect your data and use it only for the purposes we specify. On our public pages we also use Google Analytics to measure site traffic. It receives technical data such as the pages viewed, device type and approximate location, but not your name, phone number or order details.</p>
           </section>
 
           <section>
@@ -56,7 +56,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-foreground mb-3">8. Cookies</h2>
-            <p>We use essential cookies to maintain your session and keep you logged in. We do not use tracking or advertising cookies.</p>
+            <p>We use essential cookies to maintain your session and keep you logged in. On our public pages, Google Analytics also sets cookies that help us understand how visitors find and use our site. We do not use advertising cookies.</p>
           </section>
 
           <section>

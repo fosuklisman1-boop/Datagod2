@@ -1,0 +1,351 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { RefundableOrder, RefundContext } from "../types"
+
+const sendMoney = vi.fn()
+const checkSendStatus = vi.fn()
+vi.mock("../hubtel-send-client", async (orig) => ({
+  ...(await orig<typeof import("../hubtel-send-client")>()),
+  sendMoney: (...a: unknown[]) => sendMoney(...a),
+  checkSendStatus: (...a: unknown[]) => checkSendStatus(...a),
+}))
+vi.mock("@/lib/moolre-transfer", () => ({ initiateTransfer: vi.fn(), getTransferStatus: vi.fn() }))
+vi.mock("@/lib/paystack", () => ({ refundTransaction: vi.fn(), fetchRefund: vi.fn() }))
+vi.mock("@/lib/paystack-transfer", () => ({
+  createRecipient: vi.fn(), initiateTransfer: vi.fn(), finalizeTransfer: vi.fn(), getTransferStatus: vi.fn(),
+  mapNetworkToPaystackBankCode: (n: string) => ({ MTN: "MTN", TELECEL: "VOD", AT: "ATL" } as Record<string, string>)[n.toUpperCase()],
+}))
+vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ rpc: vi.fn() }) }))
+
+import { hubtelSendGateway } from "./hubtel-send"
+import { getGateway, listGateways, supportOf } from "./index"
+
+const RF = "3F2504E0-4F89-41D3-9A0C-0305E82C3301"
+
+const baseOrder = (o: Partial<RefundableOrder> = {}): RefundableOrder => ({
+  table: "shop_orders", id: "o1", orderStatus: "pending", paymentStatus: "completed",
+  shopId: null, shopName: null, packageLabel: "2", network: "MTN", recipientPhone: "0245550102",
+  createdAt: "2026-11-05", paid: 10, gatewayFee: 0,
+  payment: { gateway: "paystack", reference: "ref-1", payerPhone: "0245550101", walletUserId: null },
+  owners: [], evidence: { hasActiveRefund: false, dispatchOutcome: null, dispatchAttempts: null, trackingStatuses: [], externalOrderId: null },
+  ...o,
+})
+const attemptOf = (a: Record<string, unknown> = {}) => ({
+  status: "paid", paidAttempts: 1, msisdn: "233245550101", channel: "mtn-gh", requestedPesewas: 1000, paymentMethod: "mobilemoney", ...a,
+})
+const hubtelOrder = (a: Record<string, unknown> = {}, o: Partial<RefundableOrder> = {}, pay: Record<string, unknown> = {}): RefundableOrder =>
+  baseOrder({
+    payment: { gateway: "hubtel", reference: null, payerPhone: "0245550101", walletUserId: null, hubtelCollection: true, hubtelAttempt: attemptOf(a), ...pay } as any,
+    ...o,
+  })
+const ctx = (order: RefundableOrder, amount = 10, dest: string | null = "0245550101"): RefundContext => ({ refundId: RF, order, amount, destinationPhone: dest })
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "true")
+})
+afterEach(() => vi.unstubAllEnvs())
+
+describe("registry placement", () => {
+  it("Paystack's reversal then hubtel_send (the dialog pre-selects the first supported gateway), and manual stays last", () => {
+    const ids = listGateways().map((g) => g.id)
+    expect(ids.slice(0, 2)).toEqual(["paystack", "hubtel_send"])
+    expect(ids.at(-1)).toBe("manual")
+    expect(getGateway("hubtel_send")).toBe(hubtelSendGateway)
+    expect(hubtelSendGateway.label).toBe("Hubtel (MoMo payout to payer)")
+  })
+})
+
+describe("hubtel_send supports()", () => {
+  it("accepts a paid mobile money Hubtel collection with a valid payer number", () => {
+    expect(hubtelSendGateway.supports(hubtelOrder())).toEqual({ ok: true })
+  })
+  it.each([undefined, "", "false", "TRUE", "1", "yes"])("refuses unless the switch is exactly true (%j)", (v) => {
+    if (v === undefined) vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", undefined as any)
+    else vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", v)
+    const r = hubtelSendGateway.supports(hubtelOrder())
+    expect(r.ok).toBe(false)
+  })
+  it("accepts an order however it was paid (owner decision 2026-11-06)", () => {
+    expect(hubtelSendGateway.supports(baseOrder())).toEqual({ ok: true })
+  })
+  // A payout here would turn wallet balance into cash, and an order with no payment on record has nothing to return.
+  it.each(["wallet", null])("refuses a %s payment on a table that can hold other payments, and sends nothing", async (gateway) => {
+    const order = baseOrder({ table: "ussd_orders", payment: { gateway, reference: null, payerPhone: "0245550101", walletUserId: "u1" } as any })
+    expect(hubtelSendGateway.supports(order).ok).toBe(false)
+    expect((await hubtelSendGateway.refund(ctx(order))).kind).toBe("failed")
+    expect(sendMoney).not.toHaveBeenCalled()
+  })
+  it.each(["pending", "confirming", "needs_review", "failed"])("refuses an attempt that is %s", (status) => {
+    expect(hubtelSendGateway.supports(hubtelOrder({ status })).ok).toBe(false)
+  })
+  // Owner decision 2026-11-06: it works like the Paystack payout, so these don't limit it.
+  it("accepts two paid attempts, any payment method, no recorded number or a number other than the payer's", () => {
+    for (const a of [{ paidAttempts: 2 }, { paymentMethod: "card" }, { paymentMethod: null }, { msisdn: null }, { requestedPesewas: null }]) {
+      expect(hubtelSendGateway.supports(hubtelOrder(a)).ok).toBe(true)
+    }
+    expect(hubtelSendGateway.supports(hubtelOrder({}, {}, { payerPhone: "0245550199" })).ok).toBe(true)
+  })
+  it("refuses without a payer number, or one that is not a MoMo network", () => {
+    expect(hubtelSendGateway.supports(hubtelOrder({}, {}, { payerPhone: null })).ok).toBe(false)
+    expect(hubtelSendGateway.supports(hubtelOrder({}, {}, { payerPhone: "0115550101" })).ok).toBe(false)
+    expect(hubtelSendGateway.supports(hubtelOrder({}, {}, { payerPhone: "12345" })).ok).toBe(false)
+  })
+  it("refuses wallet-only tables", () => {
+    expect(hubtelSendGateway.supports(hubtelOrder({}, { table: "orders" })).ok).toBe(false)
+    expect(hubtelSendGateway.supports(hubtelOrder({}, { table: "api_orders" })).ok).toBe(false)
+  })
+  it("the refusal reasons never contain a phone number", () => {
+    const r = hubtelSendGateway.supports(hubtelOrder({ status: "pending" }))
+    expect(JSON.stringify(r)).not.toMatch(/\d{9}/)
+  })
+})
+
+describe("hubtel_send amount", () => {
+  it("has no limit of its own: the service holds it to what the order paid, as for the Paystack payout", () => {
+    expect(hubtelSendGateway.maxAmount).toBeUndefined()
+    expect(hubtelSendGateway.fixedAmount).toBeUndefined()
+  })
+})
+
+describe("hubtel_send refund()", () => {
+  it("sends the destination as 233 msisdn on the stored channel, with the refund id", async () => {
+    sendMoney.mockResolvedValue({ kind: "pending", ref: "tx1" })
+    const out = await hubtelSendGateway.refund(ctx(hubtelOrder({ channel: "mtn-gh" }), 9.5))
+    expect(out).toEqual({ kind: "pending", ref: "tx1" })
+    expect(sendMoney).toHaveBeenCalledTimes(1)
+    expect(sendMoney.mock.calls[0][0]).toEqual({ refundId: RF, msisdn: "233245550101", channel: "mtn-gh", amount: 9.5 })
+  })
+  it("prefers the channel the payer paid on (a ported number), falling back to the prefix", async () => {
+    sendMoney.mockResolvedValue({ kind: "pending", ref: "t" })
+    await hubtelSendGateway.refund(ctx(hubtelOrder({ channel: "vodafone-gh" })))
+    expect(sendMoney.mock.calls[0][0].channel).toBe("vodafone-gh")
+    sendMoney.mockClear()
+    // no stored channel: the paying number's prefix
+    await hubtelSendGateway.refund(ctx(hubtelOrder({ channel: null }), 5))
+    expect(sendMoney.mock.calls[0][0]).toMatchObject({ msisdn: "233245550101", channel: "mtn-gh" })
+  })
+  it("passes unknown and completed outcomes straight through", async () => {
+    sendMoney.mockResolvedValue({ kind: "unknown", error: "timeout" })
+    expect(await hubtelSendGateway.refund(ctx(hubtelOrder()))).toEqual({ kind: "unknown", error: "timeout" })
+    sendMoney.mockResolvedValue({ kind: "completed", ref: "t2" })
+    expect(await hubtelSendGateway.refund(ctx(hubtelOrder()))).toEqual({ kind: "completed", ref: "t2" })
+  })
+  it("accepts the full amount and a partial one", async () => {
+    sendMoney.mockResolvedValue({ kind: "pending", ref: "t" })
+    await hubtelSendGateway.refund(ctx(hubtelOrder({ requestedPesewas: 1000 }), 10))
+    await hubtelSendGateway.refund(ctx(hubtelOrder({ requestedPesewas: 1000 }), 0.5))
+    expect(sendMoney).toHaveBeenCalledTimes(2)
+  })
+  it.each([0, -1, NaN, 1.005])("rejects amount %s without sending", async (amount) => {
+    expect((await hubtelSendGateway.refund(ctx(hubtelOrder(), amount))).kind).toBe("failed")
+    expect(sendMoney).not.toHaveBeenCalled()
+  })
+  it("re-checks the switch at send time", async () => {
+    vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "false")
+    expect((await hubtelSendGateway.refund(ctx(hubtelOrder()))).kind).toBe("failed")
+    expect(sendMoney).not.toHaveBeenCalled()
+  })
+  it.each([
+    ["an attempt that is not paid", hubtelOrder({ status: "pending" })],
+  ])("sends nothing for %s", async (_n, order) => {
+    expect((await hubtelSendGateway.refund(ctx(order))).kind).toBe("failed")
+    expect(sendMoney).not.toHaveBeenCalled()
+  })
+  it("sends nothing without a valid destination", async () => {
+    for (const dest of [null, "", "0115550101", "abc"]) {
+      expect((await hubtelSendGateway.refund(ctx(hubtelOrder(), 5, dest))).kind).toBe("failed")
+    }
+    expect(sendMoney).not.toHaveBeenCalled()
+  })
+  it("never leaks the msisdn into an outcome message", async () => {
+    const out = await hubtelSendGateway.refund(ctx(hubtelOrder({ status: "pending" }), 5, "0245550101"))
+    expect(out.kind).toBe("failed")
+    expect(JSON.stringify(out)).not.toMatch(/245550101/)
+  })
+})
+
+// Owner decision 2026-11-06: like the Paystack payout, it pays the order's payer number.
+describe("hubtel_send destination", () => {
+  it("sends to the order's payer number, even when it isn't the number that paid", async () => {
+    sendMoney.mockResolvedValueOnce({ kind: "pending", ref: "t1" })
+    await hubtelSendGateway.refund(ctx(hubtelOrder(), 10, "0245550199"))
+    expect(sendMoney.mock.calls[0][0]).toMatchObject({ msisdn: "233245550199", channel: "mtn-gh" })
+  })
+  it("the same number in another format works", async () => {
+    sendMoney.mockResolvedValueOnce({ kind: "pending", ref: "t1" })
+    await hubtelSendGateway.refund(ctx(hubtelOrder(), 10, "+233245550101"))
+    expect(sendMoney).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Orders paid through the Hubtel USSD checkout have no collection attempt: their facts are on payment.hubtel.
+describe("hubtel_send on a Hubtel USSD order", () => {
+  const ussdOrder = (h: Record<string, unknown> = {}, pay: Record<string, unknown> = {}): RefundableOrder => baseOrder({
+    table: "ussd_shop_orders", paid: 4.9,
+    payment: {
+      gateway: "hubtel", reference: null, payerPhone: "0245550101", walletUserId: null,
+      hubtel: { orderId: "HT1", amountPaid: 5, amountAfterCharges: 4.9, paidAt: "2026-11-06T08:00:00Z", paidRows: 1, mobile: "233245550101", ...h },
+      ...pay,
+    } as any,
+  })
+
+  it("is offered, and pre-selected over the old Refund API", () => {
+    vi.stubEnv("HUBTEL_REFUND_ENABLED", "true")
+    expect(hubtelSendGateway.supports(ussdOrder())).toEqual({ ok: true })
+    expect(listGateways().find((g) => supportOf(g, ussdOrder()).ok)?.id).toBe("hubtel_send")
+  })
+  it("sends to the number that paid, on its network", async () => {
+    sendMoney.mockResolvedValueOnce({ kind: "pending", ref: "t1" })
+    expect((await hubtelSendGateway.refund(ctx(ussdOrder(), 4.9))).kind).toBe("pending")
+    expect(sendMoney.mock.calls[0][0]).toMatchObject({ refundId: RF, msisdn: "233245550101", channel: "mtn-gh", amount: 4.9 })
+  })
+  it("accepts two paid rows, no recorded number, or a net that doesn't match the price", () => {
+    for (const h of [{ paidRows: 2 }, { mobile: null }, { amountAfterCharges: null }, { amountAfterCharges: 3 }]) {
+      expect(hubtelSendGateway.supports(ussdOrder(h)).ok).toBe(true)
+    }
+  })
+  it("a partial amount is sent", async () => {
+    sendMoney.mockResolvedValueOnce({ kind: "pending", ref: "t1" })
+    await hubtelSendGateway.refund(ctx(ussdOrder(), 2))
+    expect(sendMoney.mock.calls[0][0]).toMatchObject({ amount: 2 })
+  })
+  it("is refused with the switch off", () => {
+    vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "")
+    expect(hubtelSendGateway.supports(ussdOrder()).ok).toBe(false)
+  })
+})
+
+describe("an order with two paid Hubtel attempts", () => {
+  it("offers Hubtel Send Money and manual: a person decides what to return", () => {
+    const order = hubtelOrder({ paidAttempts: 2, msisdn: null, channel: null, requestedPesewas: null, paymentMethod: null })
+    const offered = listGateways().filter((g) => supportOf(g, order).ok).map((g) => g.id)
+    expect(offered).toEqual(["hubtel_send", "manual"])
+  })
+})
+
+describe("hubtel_send checkStatus() keeps Hubtel's transaction id", () => {
+  it("a no-match doesn't overwrite the stored id with our reference", async () => {
+    checkSendStatus.mockResolvedValue({ kind: "pending", ref: "ourreference" })
+    expect(await hubtelSendGateway.checkStatus!(ctx(hubtelOrder()), "8a545e5c7357714b80b65f76")).toEqual({ kind: "pending", ref: "8a545e5c7357714b80b65f76" })
+  })
+  it("with no stored id the reference is used", async () => {
+    checkSendStatus.mockResolvedValue({ kind: "pending", ref: "ourreference" })
+    expect(await hubtelSendGateway.checkStatus!(ctx(hubtelOrder()), null)).toEqual({ kind: "pending", ref: "ourreference" })
+  })
+})
+
+describe("hubtel_send checkStatus()", () => {
+  it("looks up by refund id and amount, even when the switch is off", async () => {
+    vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "false")
+    checkSendStatus.mockResolvedValue({ kind: "completed", ref: "t9" })
+    const out = await hubtelSendGateway.checkStatus!(ctx(hubtelOrder(), 7.25), "tx1")
+    expect(out).toEqual({ kind: "completed", ref: "t9" })
+    expect(checkSendStatus).toHaveBeenCalledWith({ refundId: RF, amount: 7.25 })
+  })
+})
+
+describe("gateways offered on a Hubtel-paid order", () => {
+  const offered = (o: RefundableOrder) => listGateways().filter((g) => supportOf(g, o).ok).map((g) => g.id)
+
+  it("is hubtel_send, moolre, paystack_payout and manual (wallet only where it applies); never Paystack reversal or the Hubtel refund API", () => {
+    expect(offered(hubtelOrder())).toEqual(["hubtel_send", "paystack_payout", "moolre", "manual"])
+  })
+  it("adds the wallet where a proving wallet user exists", () => {
+    expect(offered(hubtelOrder({}, {}, { walletUserId: "u1" }))).toEqual(["hubtel_send", "paystack_payout", "moolre", "wallet", "manual"])
+  })
+  it("with the switch off the other payouts still work for a paid attempt", () => {
+    vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "false")
+    expect(offered(hubtelOrder())).toEqual(["paystack_payout", "moolre", "manual"])
+  })
+  it("Paystack reversal is refused with a reason even if a stale Paystack reference leaks onto the order", () => {
+    const o = hubtelOrder({}, {}, { reference: "ref-1" })
+    const paystack = getGateway("paystack")!
+    const s = supportOf(paystack, o)
+    expect(s.ok).toBe(false)
+    expect(supportOf(getGateway("hubtel")!, o).ok).toBe(false)
+  })
+})
+
+describe("Paystack-paid orders: today's options plus Hubtel, with the reversal still pre-selected", () => {
+  const offered = (o: RefundableOrder) => listGateways().filter((g) => supportOf(g, o).ok).map((g) => g.id)
+  const paystackOrder = (o: Partial<RefundableOrder> = {}) =>
+    baseOrder({ table: "ussd_orders", payment: { gateway: "paystack", reference: "ref-1", payerPhone: "0245550101", walletUserId: null }, ...o })
+
+  it("a ussd order with a payer number: Paystack reversal first, then Hubtel, both payouts, manual", () => {
+    expect(offered(paystackOrder())).toEqual(["paystack", "hubtel_send", "paystack_payout", "moolre", "manual"])
+  })
+  it("with the switch off Hubtel isn't offered", () => {
+    vi.stubEnv("HUBTEL_SEND_REFUNDS_ENABLED", "false")
+    expect(offered(paystackOrder())).toEqual(["paystack", "paystack_payout", "moolre", "manual"])
+  })
+  it("with a wallet user the wallet joins", () => {
+    expect(offered(paystackOrder({ payment: { gateway: "paystack", reference: "ref-1", payerPhone: "0245550101", walletUserId: "u1" } }))).toEqual(["paystack", "hubtel_send", "paystack_payout", "moolre", "wallet", "manual"])
+  })
+  it("a wallet-only order offers the wallet and manual only", () => {
+    const o = baseOrder({ table: "orders", payment: { gateway: "wallet", reference: null, payerPhone: null, walletUserId: "u1" } })
+    expect(offered(o)).toEqual(["wallet", "manual"])
+  })
+  it("a no-payer-number order offers Paystack reversal and manual only", () => {
+    expect(offered(paystackOrder({ payment: { gateway: "paystack", reference: "ref-1", payerPhone: null, walletUserId: null } }))).toEqual(["paystack", "manual"])
+  })
+})
+
+describe("payouts on a Hubtel-paid order go only to the number that paid (I2)", () => {
+  const moolre = () => getGateway("moolre")!
+  const payout = () => getGateway("paystack_payout")!
+
+  it("a hosted payment has no recorded number: payouts refused; wallet and manual stay available", () => {
+    const o = hubtelOrder({ msisdn: null, channel: null }, {}, { payerPhone: "0245550199", walletUserId: "u1" })
+    for (const g of [moolre(), payout()]) {
+      const s = supportOf(g, o)
+      expect(s.ok).toBe(false)
+      if (!s.ok) expect(s.reason).not.toMatch(/\d{7,}/)
+    }
+    expect(supportOf(getGateway("wallet")!, o).ok).toBe(true)
+    expect(supportOf(getGateway("manual")!, o).ok).toBe(true)
+  })
+  it("a destination other than the paying number is refused", () => {
+    const o = hubtelOrder({}, {}, { payerPhone: "0245550199" })
+    expect(supportOf(moolre(), o).ok).toBe(false)
+    expect(supportOf(payout(), o).ok).toBe(false)
+  })
+  it("the paying number, in any format, is allowed", () => {
+    const o = hubtelOrder({ msisdn: "233245550101" }, {}, { payerPhone: "0245550101" })
+    expect(supportOf(moolre(), o).ok).toBe(true)
+    expect(supportOf(payout(), o).ok).toBe(true)
+  })
+  it("a Paystack-paid order is unchanged", () => {
+    expect(supportOf(moolre(), baseOrder()).ok).toBe(true)
+    expect(supportOf(payout(), baseOrder()).ok).toBe(true)
+  })
+})
+
+// A payout on a wallet-paid order would turn wallet balance into cash. USSD orders can be wallet-paid and carry a number.
+describe("payouts refuse a wallet-paid order on any table", () => {
+  const walletUssd = () => baseOrder({ table: "ussd_orders", payment: { gateway: "wallet", reference: null, payerPhone: "0245550101", walletUserId: "u1" } })
+
+  it.each(["moolre", "paystack_payout"])("%s is refused, and the wallet stays available", (id) => {
+    expect(supportOf(getGateway(id)!, walletUssd()).ok).toBe(false)
+    expect(supportOf(getGateway("wallet")!, walletUssd()).ok).toBe(true)
+  })
+  it("moolre sends nothing at refund time either", async () => {
+    expect((await getGateway("moolre")!.refund(ctx(walletUssd()))).kind).toBe("failed")
+  })
+  it("a Paystack-paid or Hubtel USSD order keeps both payouts", () => {
+    for (const gateway of ["paystack", "hubtel"] as const) {
+      const o = baseOrder({ table: "ussd_orders", payment: { gateway, reference: null, payerPhone: "0245550101", walletUserId: null } })
+      expect(supportOf(getGateway("moolre")!, o).ok).toBe(true)
+      expect(supportOf(getGateway("paystack_payout")!, o).ok).toBe(true)
+    }
+  })
+})
+
+describe("payouts are capped at what was requested from Hubtel (M2)", () => {
+  it("moolre and paystack_payout cap a Hubtel-paid order; a Paystack-paid one has no cap", () => {
+    for (const id of ["moolre", "paystack_payout"]) {
+      const g = getGateway(id)!
+      expect(g.maxAmount?.(hubtelOrder({ requestedPesewas: 980 }))).toBe(9.8)
+      expect(g.maxAmount?.(baseOrder()) ?? null).toBeNull()
+    }
+  })
+})

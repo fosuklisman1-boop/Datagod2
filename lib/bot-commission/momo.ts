@@ -1,5 +1,11 @@
+import { after } from "next/server"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
+import { FallbackRefusedError, resolveSurfaceGateway, startMomoCharge, type StartDeps } from "@/lib/payment-gateway/start"
+import { getGatewayConfig } from "@/lib/payment-gateway/read-config"
+import { isHubtelCollectionReady } from "@/lib/payment-gateway/hubtel-readiness"
+import { priceOrderForGateway, type RepriceSpec } from "@/lib/storefront-commission/reprice"
+import type { CommissionPrice } from "@/lib/storefront-commission/payment"
 import { recordPayerPhone } from "@/lib/refunds/payer-phone"
 import { ghanaSignificant, normalizeGhanaPhone } from "@/lib/phone-format"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
@@ -91,6 +97,32 @@ export interface BotMomoDeps {
    */
   payerOtp: { required(): Promise<boolean>; verified(phone: string): Promise<boolean> }
   now(): number
+  /**
+   * Gateway config + Hubtel readiness. Absent => Paystack, exactly as before (older wiring and tests). getBotMomoRuntime
+   * passes the live ones.
+   */
+  gateway?: Pick<StartDeps, "getConfig" | "isReady"> & Partial<Omit<StartDeps, "getConfig" | "isReady" | "chargeMobileMoney">>
+  /**
+   * Runs a Hubtel start after the reply (next/server `after` by default). The relay can take 15 s, longer than a live
+   * USSD reply may wait, so a Hubtel start never runs inside it. Paystack starts stay inline, as before.
+   */
+  defer?(fn: () => Promise<void>): void
+  /**
+   * A deferred start answered send_otp after the WhatsApp reply closed the chat: put the sender's chat (local form)
+   * back on SUBMIT_OTP and tell them. Called after the OTP pointer is stored; WhatsApp surfaces only.
+   */
+  reopenOtpChat?(channel: "whatsapp" | "whatsapp_shop", senderLocal: string): Promise<void>
+}
+
+/** Where a bot order's payment fee lives, and its rate (cashback config botFees.paystack, gated like quoteBots). */
+function botRepriceSpec(orderType: BotOrderType): RepriceSpec {
+  const group = orderType === "cs_bill" ? "bills" : "bundles"
+  return {
+    table: STOREFRONT_ORDER_TABLE[orderType],
+    amountColumn: "paid_amount",
+    payable: { channel: "bots", status: "pending", payment_status: "unpaid" },
+    feeRate: (cfg) => (cfg.enabled && cfg.surfaces.bots && cfg.botGroups[group] ? cfg.botFees.paystack?.[group] ?? 0 : 0),
+  }
 }
 
 /**
@@ -111,7 +143,7 @@ export const BOT_MOMO_MESSAGES = {
 const TAG = "BOT-MOMO"
 const refuse = (code: keyof typeof BOT_MOMO_MESSAGES): BotChargeResult => ({ ok: false, code, message: BOT_MOMO_MESSAGES[code] })
 
-interface BotPayableRow extends CommissionPayableRow { bot_surface: string | null }
+interface BotPayableRow extends CommissionPayableRow { bot_surface: string | null; payment_fee_amount?: number | string | null }
 
 /**
  * Charge a bot commission order (created by the engine) by a Paystack MoMo prompt to the paying number: the dialing
@@ -154,7 +186,7 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
   try {
     const { data, error } = await d.db
       .from(table)
-      .select("channel, bot_surface, shop_id, status, payment_status, paid_amount, buyer_email, buyer_phone")
+      .select("channel, bot_surface, shop_id, status, payment_status, paid_amount, payment_fee_amount, buyer_email, buyer_phone")
       .eq("id", i.orderId)
       .maybeSingle()
     if (error) throw error
@@ -217,13 +249,29 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
 
   const reference = newPaystackReference()
   const createdAt = new Date(d.now()).toISOString()
-  const amount = payable.amount
   const shopId = payable.shopId
+
+  // Gateway before the payment row: paid_amount carries the bot's Paystack payment fee, which Hubtel doesn't charge.
+  // Hubtel only for the session owner's own number (Uzo: always the dialler; WhatsApp: the sender typed their own).
+  const gatewaySurface = whatsapp ? "whatsapp" : "ussd"
+  const verifiedPayer = paySig === dialSig
+  const gateway = d.gateway ? (await resolveSurfaceGateway(gatewaySurface, { verifiedPayer }, d.gateway)).gateway : "paystack"
+  const spec = botRepriceSpec(i.orderType)
+  const rawFee = row.payment_fee_amount
+  const current: CommissionPrice = { paid: payable.amount, fee: rawFee === undefined ? undefined : rawFee === null ? null : Number(rawFee) }
+  // Hubtel: the fee comes out. Paystack: an order an earlier Hubtel attempt left fee-free gets its fee back; any other
+  // order is untouched (no write, today's amount).
+  const priced = await priceOrderForGateway(d.db, spec, i.orderId, current, gateway === "hubtel")
+  if (!priced.ok) {
+    await failBotCharge(d.db, i.orderType, i.orderId, null, TAG)
+    return refuse("CHARGE_FAILED")
+  }
+  const amount = priced.price.paid
 
   try {
     const { error } = await d.db.from("wallet_payments").insert([{
       user_id: null, shop_id: shopId, order_id: i.orderId, order_type: i.orderType, amount, fee: 0, reference,
-      status: "pending", payment_method: "paystack", created_at: createdAt,
+      status: "pending", payment_method: gateway, created_at: createdAt,
     }])
     if (error) throw error
   } catch (e) {
@@ -232,32 +280,19 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
     return refuse("CHARGE_FAILED")
   }
 
-  let status: string
-  try {
-    status = (await d.chargeMobileMoney({
-      email: payable.email,
-      amount,
-      phone: local,
-      provider,
-      reference,
-      // Neutral labels only: the internal cs_bill / cs_bundle code stays in wallet_payments.order_type.
-      metadata: { source: whatsapp ? "whatsapp_bot" : "ussd_bot", bot_surface: i.botSurface, order_type: STOREFRONT_PAYMENT_CHANNEL },
-      channel: STOREFRONT_PAYMENT_CHANNEL,
-      purpose: STOREFRONT_PAYMENT_PURPOSE,
-    })).status
-  } catch (e) {
-    console.error(`[${TAG}] charge failed for ${i.orderId}:`, e instanceof Error ? e.message : String(e))
-    await failBotCharge(d.db, i.orderType, i.orderId, reference, TAG)
-    return refuse("CHARGE_FAILED")
+  const chargeParams = {
+    email: payable.email,
+    amount,
+    phone: local,
+    provider,
+    reference,
+    // Neutral labels only: the internal cs_bill / cs_bundle code stays in wallet_payments.order_type.
+    metadata: { source: whatsapp ? "whatsapp_bot" : "ussd_bot", bot_surface: i.botSurface, order_type: STOREFRONT_PAYMENT_CHANNEL },
+    channel: STOREFRONT_PAYMENT_CHANNEL,
+    purpose: STOREFRONT_PAYMENT_PURPOSE,
   }
-  if (status === "failed") {
-    console.error(`[${TAG}] charge refused for ${i.orderId}`)
-    await failBotCharge(d.db, i.orderType, i.orderId, reference, TAG)
-    return refuse("CHARGE_FAILED")
-  }
-
   // [REFUND] payer MoMo number for refund payouts. Never throws.
-  await d.recordPayerPhone(d.db, {
+  const recordPayer = () => d.recordPayerPhone(d.db, {
     reference,
     rawPhone: local,
     baseRow: {
@@ -265,8 +300,7 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
       payment_type: "shop_order", shop_id: shopId, order_id: i.orderId, created_at: createdAt,
     },
   })
-
-  if (status === "send_otp") {
+  const storeOtpPointer = async () => {
     try {
       // Keyed by the session's authenticated number (dialler / WhatsApp sender), never the paying number: only this
       // session's owner can ever submit the code for this order.
@@ -279,6 +313,61 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
       console.error(`[${TAG}] could not store the OTP pointer for ${i.orderId}:`, e instanceof Error ? e.message : String(e))
     }
   }
+
+  if (gateway === "hubtel") {
+    // The prompt is on its way either way (Hubtel, or Paystack after a refusal), so the reply is today's "prompt sent".
+    // The start runs after the reply: the relay can take 15 s, longer than a live USSD reply can wait.
+    await recordPayer()
+    const startHubtel = async (): Promise<void> => {
+      const onFallback = async (): Promise<{ amount: number }> => {
+        const back = await priceOrderForGateway(d.db, spec, i.orderId, priced.price, false)
+        if (!back.ok) throw new FallbackRefusedError()
+        const { data, error } = await d.db.from("wallet_payments")
+          .update({ amount: back.price.paid, payment_method: "paystack", updated_at: new Date(d.now()).toISOString() })
+          .eq("reference", reference).eq("status", "pending").select("reference")
+        if (error || !data?.length) throw new FallbackRefusedError()
+        return { amount: back.price.paid }
+      }
+      try {
+        const r = await startMomoCharge(gatewaySurface, { ...chargeParams, verifiedPayer: true, onFallback }, { ...d.gateway, chargeMobileMoney: d.chargeMobileMoney })
+        if (r.status === "failed") {
+          console.error(`[${TAG}] charge refused for ${i.orderId}`)
+          await failBotCharge(d.db, i.orderType, i.orderId, reference, TAG)
+        } else if (r.status === "send_otp") {
+          await storeOtpPointer()
+          if (whatsapp) {
+            // The reply already went out with no pointer to see, so the chat is closed. The Paystack prompt stands
+            // either way, and the webhook's no-session fallback still takes a code, so a failure here fails nothing.
+            await d.reopenOtpChat?.(i.botSurface === "whatsapp_shop" ? "whatsapp_shop" : "whatsapp", dialLocal)
+              .catch((e) => console.error(`[${TAG}] could not reopen the OTP chat for ${i.orderId}:`, e instanceof Error ? e.message : "error"))
+          }
+        }
+      } catch (e) {
+        // Only Paystack errors and a refused re-price reach here; Hubtel's unknown never throws (the order stays open).
+        console.error(`[${TAG}] charge failed for ${i.orderId}:`, e instanceof Error ? e.message : String(e))
+        await failBotCharge(d.db, i.orderType, i.orderId, reference, TAG)
+      }
+    }
+    ;(d.defer ?? after)(startHubtel)
+    return { ok: true, reference, status: "pay_offline", promptedPhone: local }
+  }
+
+  let status: string
+  try {
+    status = (await d.chargeMobileMoney(chargeParams)).status
+  } catch (e) {
+    console.error(`[${TAG}] charge failed for ${i.orderId}:`, e instanceof Error ? e.message : String(e))
+    await failBotCharge(d.db, i.orderType, i.orderId, reference, TAG)
+    return refuse("CHARGE_FAILED")
+  }
+  if (status === "failed") {
+    console.error(`[${TAG}] charge refused for ${i.orderId}`)
+    await failBotCharge(d.db, i.orderType, i.orderId, reference, TAG)
+    return refuse("CHARGE_FAILED")
+  }
+
+  await recordPayer()
+  if (status === "send_otp") await storeOtpPointer()
   return { ok: true, reference, status, promptedPhone: local }
 }
 
@@ -331,5 +420,11 @@ export function getBotMomoRuntime(): BotMomoDeps {
     otpPointer: { set: setBotOtpPointer, clear: clearBotOtpPointer },
     payerOtp: { required: readStorefrontOtpRequiredStrict, verified: isPhoneOtpVerified },
     now: Date.now,
+    gateway: { getConfig: getGatewayConfig, isReady: isHubtelCollectionReady },
+    // Imported on use: the WhatsApp flow modules import this one through the shared bot flows.
+    reopenOtpChat: async (channel, senderLocal) => {
+      if (channel === "whatsapp_shop") await (await import("@/lib/whatsapp-bot/shop-bot-flows")).reopenShopBotOtp(senderLocal)
+      else await (await import("@/lib/whatsapp-bot/bot-flows")).reopenWaBotOtp(senderLocal)
+    },
   }
 }

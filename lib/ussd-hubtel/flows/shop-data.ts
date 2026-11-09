@@ -7,7 +7,8 @@ import {
 } from "../menus"
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
 import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, type StepTable } from "../flow-kit"
-import { backToProduct, shopMenuReply } from "./shop"
+import { shopMenuReply } from "./shop"
+import { backFromInternetType } from "./internet-bundles"
 import { confirmNote, recipientBlockedAtPay, RECIPIENT_BLOCKED_NOTE } from "../confirm-note"
 import type { HubtelReply, HubtelSession } from "../types"
 
@@ -43,7 +44,7 @@ export async function startShopData(ctx: FlowCtx): Promise<HubtelReply> {
 
 async function selectNetwork(ctx: FlowCtx): Promise<HubtelReply> {
   const { input, deps, session } = ctx
-  if (input === "0") return backToProduct(ctx) // D5: never back to code entry
+  if (input === "0") return backFromInternetType(ctx) // D5: never back to code entry
   const network = /^\d+$/.test(input) ? networksOf(session)[Number(input) - 1] : undefined
   if (!network) return say(ctx, networkScreen(session), "SHOP_DATA_NETWORK", NETWORK)
   const { bundles, total } = await pageOf(ctx, network, 0)
@@ -96,7 +97,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   if (input === "0") return finish(ctx, "Order cancelled.")
   if (input !== "1") return say(ctx, confirmText(session), "SHOP_DATA_CONFIRM", CONFIRM)
 
-  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
+  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform, ctx.session.mode)
   if (replay) return replay
 
   // Hard block before payment: the confirm screen's check may have timed out (fail open there).

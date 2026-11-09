@@ -7,6 +7,7 @@ import { airtimeAmountGate, airtimeFeeKey, airtimeNetworkGate, airtimeSettingsSu
 import { airtimeCashbackTarget, type AirtimeProviderDeps } from "@/lib/cashback/storefront-airtime"
 import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
+import { getDealerRateTier } from "@/lib/sub-agents/dealer-rates"
 import { secureReference } from "@/lib/secure-random"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
@@ -349,8 +350,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
       merchantRoleFeeRate = merchantFeeSetting?.rate ?? 5
     }
   } else {
-    const { data: userProfile } = await supabase.from("users").select("role").eq("id", userId).single()
-    const isUserDealer = userProfile?.role === "dealer" || userProfile?.role === "sub_agent"
+    const isUserDealer = (await getDealerRateTier(supabase, userId)) === "dealer"
     isBuyerDealer = isUserDealer
     const feeSetting = await getAdminSetting(airtimeFeeKey(network, isUserDealer ? "dealer" : "customer"))
     merchantRoleFeeRate = feeSetting?.rate ?? 5

@@ -6,11 +6,13 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { MAX_RECIPIENTS, parseRows } from "../../_lib/view"
+import { parseRows } from "../../_lib/view"
 import type { ComposeCustomer, ComposeGroup } from "./types"
 
 interface Props {
   recipients: string[]
+  /** Recipients one send may carry (the account's admin per-send limit). */
+  max: number
   onAdd: (raw: string) => void
   onRemove: (n: string) => void
   customers: ComposeCustomer[]
@@ -20,7 +22,7 @@ interface Props {
   onGroupChange: (id: string) => void
 }
 
-export function RecipientsPicker({ recipients, onAdd, onRemove, customers, groups, groupsLoaded, selectedGroupId, onGroupChange }: Props) {
+export function RecipientsPicker({ recipients, max, onAdd, onRemove, customers, groups, groupsLoaded, selectedGroupId, onGroupChange }: Props) {
   const [single, setSingle] = useState("")
   const [list, setList] = useState("")
   const fileRef = useRef<HTMLInputElement>(null)
@@ -39,7 +41,7 @@ export function RecipientsPicker({ recipients, onAdd, onRemove, customers, group
   return (
     <div className="space-y-2">
       <Label className="text-muted-foreground">
-        Recipients ({recipients.length} / max {MAX_RECIPIENTS}){group ? ` + group “${group.name}”` : ""}
+        Recipients ({recipients.length} / max {max.toLocaleString("en-US")}){group ? ` + group “${group.name}”` : ""}
       </Label>
 
       <Tabs defaultValue="paste">

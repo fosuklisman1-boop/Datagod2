@@ -19,6 +19,9 @@ export type ReversalRow = {
 // status column was merely copied over by an unrelated flow.
 const PROVIDER_COMPLETED_KEYWORDS = new Set([
   "completed", "complete", "success", "successful", "delivered", "done", "sent", "fulfilled",
+  // Kuntanii: "processed" = delivered; "not received" = delivered, customer disputes it.
+  // Input is normalised (lowercase, spaces -> "_") so "not received" matches "not_received".
+  "processed", "not received", "not_received",
 ])
 
 /**
@@ -95,28 +98,42 @@ export async function flagReversal(
 ): Promise<{ flagged: boolean; superseded: boolean }> {
   const nowIso = new Date().toISOString()
 
+  const failed = (step: string, message: string) => {
+    console.error(`[MTN-REVERSAL] Could not flag tracking row ${row.id}: ${step}: ${message}`)
+    notifyAdminsPush({
+      title: "🚨 Provider reversal NOT recorded",
+      body: `${row.provider ?? "provider"} failed a completed order (tracking ${String(row.id).slice(0, 8)}) but saving it failed at ${step}. Check this order by hand.`,
+      data: { url: "/admin/orders" },
+    }).catch(() => {})
+    return { flagged: false, superseded }
+  }
+
   let superseded = false
   const link = trackingLinkColumn(row)
   if (link) {
-    const { data: newer } = await supabase
+    const { data: newer, error: siblingError } = await supabase
       .from("mtn_fulfillment_tracking")
       .select("id")
       .eq(link.col, link.id)
       .neq("id", row.id)
       .eq("status", "completed")
       .limit(1)
+    if (siblingError) return failed("sibling lookup", siblingError.message)
     superseded = !!(newer && newer.length > 0)
   }
 
-  await supabase
+  // Order first: tracking stays "completed" if this fails, so a re-delivery can retry.
+  const target = orderTarget(row)
+  if (target && !superseded) {
+    const { error: orderError } = await supabase.from(target.table).update({ [target.col]: "reversed", updated_at: nowIso }).eq("id", target.id)
+    if (orderError) return failed("order update", orderError.message)
+  }
+
+  const { error: trackingError } = await supabase
     .from("mtn_fulfillment_tracking")
     .update({ status: "reversed", external_status: provider.status ?? "failed", external_message: provider.message ?? null, updated_at: nowIso })
     .eq("id", row.id)
-
-  const target = orderTarget(row)
-  if (target && !superseded) {
-    await supabase.from(target.table).update({ [target.col]: "reversed", updated_at: nowIso }).eq("id", target.id)
-  }
+  if (trackingError) return failed("tracking update", trackingError.message)
 
   const ref = row.shop_order_id || row.order_id || row.api_order_id || row.id
   if (superseded) {

@@ -9,6 +9,8 @@ const NEVER_GATED = [
   "lib/sms/delivery-poll.ts",
   "lib/sms/campaign-dispatch.ts",
   "app/api/webhooks/paystack/route.ts",
+  // The webhook's charge.success / charge.failed handling (where sms_bundle credits happen) lives here now.
+  "lib/payments/charge-events.ts",
 ]
 
 describe("kill switch never gates drain / DLR / dispatch / paystack webhook", () => {

@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   process: vi.fn(),
   dispatch: vi.fn(),
   send: vi.fn(),
+  orderHandlerArgs: [] as any[],
 }))
 
 vi.mock("next/server", async importOriginal => ({
@@ -37,14 +38,18 @@ vi.mock("@/lib/ussd-hubtel/payment", async importOriginal => ({
   processFulfillment: (...a: any[]) => h.process(...a),
 }))
 vi.mock("@/lib/ussd-hubtel/tx-store", () => ({ createSupabaseTxStore: () => ({ kind: "store" }) }))
-vi.mock("@/lib/ussd-hubtel/order-handlers", () => ({ createOrderHandlers: () => ({}), createPaidReviewHandlers: () => ({ kind: "paidReview" }) }))
+vi.mock("@/lib/ussd-hubtel/order-handlers", () => ({
+  createOrderHandlers: (...a: any[]) => { h.orderHandlerArgs = a; return {} },
+  createPaidReviewHandlers: () => ({ kind: "paidReview" }),
+}))
 vi.mock("@/lib/ussd-hubtel/callbacks", () => ({ dispatchCallback: (...a: any[]) => h.dispatch(...a) }))
 vi.mock("@/lib/ussd-hubtel/relay", async importOriginal => ({
   ...(await importOriginal<typeof import("@/lib/ussd-hubtel/relay")>()),
   sendFulfillmentCallback: (...a: any[]) => h.send(...a),
 }))
 
-import { POST } from "./route"
+import { after } from "next/server"
+import { maxDuration, POST } from "./route"
 import { __resetCallbackLogWarningsForTests } from "@/lib/ussd-hubtel/callback-log"
 
 const SECRET = "s3cret-fulfil"
@@ -71,6 +76,14 @@ beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {})
 })
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks() })
+
+describe("POST /api/ussd-hubtel/fulfillment: Special group dispatch wiring", () => {
+  it("handlers defer a group's sends with after(); the route allows the 240s dispatch budget", async () => {
+    await POST(post(JSON.stringify(PAYLOAD)))
+    expect(h.orderHandlerArgs[1]).toEqual({ defer: after })
+    expect(maxDuration).toBe(300)
+  })
+})
 
 describe("POST /api/ussd-hubtel/fulfillment: responses unchanged", () => {
   it("valid payload: 200 {received, outcome}; one inbound log with the outcome and the parsed payload", async () => {

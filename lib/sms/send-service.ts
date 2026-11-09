@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { prepareSmsMessage, type ShopTokens } from "./prepare"
 import { filterSmsContent } from "./content-filter"
 import { calculateSegments } from "./segments"
-import { resolveCampaignSender, shadowPolicyWithin, type PolicyShadow } from "./policy-context"
+import { loadOwnDomains, PLATFORM_ROOT_DOMAIN, resolveCampaignSender, shadowPolicyWithin, type PolicyShadow } from "./policy-context"
 import { isSmsEnabled } from "./kill-switch"
 import { dispatchCampaign, type SentRow } from "./campaign-dispatch"
 import { isMissingColumn } from "./provider-override"
@@ -12,6 +12,7 @@ import {
 } from "./enforcement"
 import type { PolicySender } from "./policy"
 import type { SmsMode } from "./platform-settings"
+import { SMS_HARD_MAX_PER_SEND } from "./send-limits"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,7 +23,7 @@ const MAX_RECIPIENTS = 500
 // Auto-batching: one enqueueSend call carries up to SMS_BATCH_SIZE recipients;
 // a larger group/list fans out into sequential batches up to SMS_MAX_TOTAL.
 export const SMS_BATCH_SIZE = 500
-export const SMS_MAX_TOTAL = 5000
+export const SMS_MAX_TOTAL = SMS_HARD_MAX_PER_SEND
 
 /** Normalize a phone string to +233XXXXXXXXX (Moolre/E.164 format). */
 function normalizePhoneNumber(phone: string): string | null {
@@ -168,7 +169,10 @@ export async function enqueueSend(
     : shadowPolicyWithin({ accountId, sender, recipientCount: recipients.length, message: prepared })
 
   // 3. Content filter (on the SAME text that will be billed + sent). Blocked → cost 0, audit row.
-  const filterResult = filterSmsContent(prepared)
+  //    Our own domains are exempt from the lookalike check, as in the send policy: a store called
+  //    shop-5 must be able to send its own link. If custom domains can't be read, keep the root.
+  const ownDomains = await loadOwnDomains().catch(() => [PLATFORM_ROOT_DOMAIN])
+  const filterResult = filterSmsContent(prepared, { ownDomains })
   const seg = calculateSegments(prepared).segments
   if (filterResult.blocked) {
     const { mode, shadow } = await shadowPromise

@@ -1,6 +1,7 @@
 /** Customer-facing read model for the SMS pages (Phase 3): home summary, records, credit ledger. Throws on DB errors. */
 import { createClient } from "@supabase/supabase-js"
 import { loadSmsSettings, type SmsMode } from "./platform-settings"
+import { effectivePerSend } from "./send-limits"
 import { loadDefaultSender } from "./default-sender"
 import { resolvePlatformSender } from "./platform-sender"
 
@@ -133,7 +134,7 @@ export async function getHomeSummary(accountId: string) {
   const caps = settings.caps[mode]
   return {
     mode,
-    limits: { perSend: caps.per_send, perHour: caps.per_hour, perDay: caps.per_day },
+    limits: { perSend: effectivePerSend(settings, mode), perHour: caps.per_hour, perDay: caps.per_day },
     stats,
     recentLedger: ledger,
     featureEnabled: settings.featureEnabled,

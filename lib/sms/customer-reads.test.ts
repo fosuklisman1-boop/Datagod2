@@ -61,6 +61,13 @@ describe("getHomeSummary", () => {
     expect(opsOf("sms_unit_transactions")).toContainEqual({ m: "limit", args: [5] })
     expect(opsOf("sms_unit_transactions")).toContainEqual({ m: "eq", args: ["sms_account_id", "acct1"] })
   })
+  it("reports the per-send limit the account can actually use (admin cap within the 5,000 ceiling)", async () => {
+    h.tables.sms_accounts = { data: { mode: "business" }, error: null }
+    h.tables.sms_unit_transactions = { data: [], error: null }
+    h.settings.mockResolvedValue({ ...SETTINGS, caps: { ...SETTINGS.caps, business: { per_send: 10000, per_hour: 2000, per_day: 99 } } })
+    const r = await getHomeSummary("acct1")
+    expect(r.limits).toEqual({ perSend: 5000, perHour: 2000, perDay: 99 })
+  })
   it("defaults to platform mode and zero stats when nothing is returned", async () => {
     h.tables.sms_accounts = { data: null, error: null }
     h.tables.sms_unit_transactions = { data: [], error: null }

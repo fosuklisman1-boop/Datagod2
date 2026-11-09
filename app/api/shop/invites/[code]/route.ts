@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { sendPushToUser } from "@/lib/push-service"
+import { createSubAgentShop, ensureWallet } from "@/lib/sub-agents/create-shop"
+import { shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
+import { getWholesalePackages } from "@/lib/sub-agents/wholesale-packages"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -54,34 +57,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "The inviting shop is no longer active" }, { status: 410 })
     }
 
-    // Get parent shop's sub-agent catalog (to show what prices sub-agent will pay)
-    const { data: catalogItems, error: catalogError } = await supabase
-      .from("sub_agent_catalog")
-      .select(`
-        id,
-        wholesale_margin,
-        is_active,
-        package:packages (
-          id,
-          network,
-          size,
-          price,
-          dealer_price
-        )
-      `)
-      .eq("shop_id", invite.inviter_shop.id)
-      .eq("is_active", true)
-
-    // Fetch parent's role to determine correct wholesale cost
-    let isParentDealer = false;
-    if (invite.inviter_shop?.user_id) {
-      const { data: parentUser } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", invite.inviter_shop.user_id)
-        .single();
-      isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
-    }
+    // What the sub-agent will pay: the parent's live cost (subAgentCosts), shared with the open join page
+    const wholesale_packages = await getWholesalePackages(supabase, invite.inviter_shop.id)
 
     return NextResponse.json({
       success: true,
@@ -91,21 +68,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         shop_name: invite.inviter_shop.shop_name,
         shop_id: invite.inviter_shop.id
       },
-      // Show the wholesale prices (admin price + parent's wholesale margin = what sub-agent pays)
-      wholesale_packages: (catalogItems || [])
-        .filter((item: any) => item.package?.price != null)
-        .map((item: any) => {
-          const pkg = (item.package as any)
-          const adminPrice = (isParentDealer && pkg.dealer_price && pkg.dealer_price > 0)
-            ? pkg.dealer_price
-            : pkg.price;
-
-          return {
-            network: pkg.network,
-            size: pkg.size,
-            wholesale_price: adminPrice + (item.wholesale_margin || 0)
-          }
-        })
+      wholesale_packages
     })
   } catch (error) {
     console.error("Error fetching invite:", error)
@@ -240,85 +203,44 @@ export async function POST(request: NextRequest, { params }: Params) {
       })
 
     if (userError) {
-      console.error("Error creating user record:", userError)
-      // Continue anyway - user record might be created by trigger
+      console.error("Error creating user record:", userError.code, userError.message)
+      await supabase.auth.admin.deleteUser(newUserId)
+      return NextResponse.json({ error: "Failed to create account" }, { status: 500 })
     }
 
     // Create wallet for sub-agent
-    const { error: walletError } = await supabase
-      .from("wallets")
-      .insert({
-        user_id: newUserId,
-        balance: 0,
-        total_credited: 0,
-        total_spent: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-
-    if (walletError) {
-      console.error("Error creating wallet:", walletError)
-      // Continue anyway - wallet might be created by trigger
+    try {
+      await ensureWallet(supabase, newUserId)
+    } catch (walletError: any) {
+      console.error("Error creating wallet:", walletError?.code, walletError?.message)
+      await supabase.auth.admin.deleteUser(newUserId)
+      return NextResponse.json({ error: "Failed to create account" }, { status: 500 })
     }
 
     // Create shop for sub-agent
-    const { data: newShop, error: shopError } = await supabase
-      .from("user_shops")
-      .insert({
-        user_id: newUserId,
-        shop_name: shop_name,
-        shop_slug: shop_slug.toLowerCase(),
-        parent_shop_id: invite.inviter_shop.id,
-        tier_level: parentTierLevel + 1,
-        is_active: true, // Auto-activate sub-agent shops
-        description: `Sub-agent of ${invite.inviter_shop.shop_name}`
+    // Active shop; parent's packages are copied by the shared helper.
+    let newShop: { shopId: string; slug: string; created: boolean }
+    try {
+      newShop = await createSubAgentShop(supabase, {
+        userId: newUserId,
+        parent: {
+          id: invite.inviter_shop.id,
+          shop_name: invite.inviter_shop.shop_name,
+          tier_level: parentTierLevel,
+        },
+        shopName: shop_name,
+        shopSlug: shop_slug,
+        via: "invite",
+        dealerRatesEnabled: await shopOwnerIsDealer(invite.inviter_shop.id),
       })
-      .select()
-      .single()
-
-    if (shopError) {
-      console.error("Error creating shop:", shopError)
+    } catch (shopError: any) {
+      console.error("Error creating shop:", shopError?.code, shopError?.message)
       // Rollback: delete the created user
       await supabase.auth.admin.deleteUser(newUserId)
       return NextResponse.json(
         { error: "Failed to create shop" },
         { status: 500 }
       )
-    }
-
-    // Copy parent's shop packages to sub-agent's shop
-    // Sub-agent's base price = parent's selling price (base + profit_margin)
-    const { data: parentPackages, error: packagesError } = await supabase
-      .from("shop_packages")
-      .select(`
-        package_id,
-        profit_margin,
-        is_available,
-        package:packages (
-          price
-        )
-      `)
-      .eq("shop_id", invite.inviter_shop.id)
-      .eq("is_available", true)
-
-    if (!packagesError && parentPackages) {
-      // One row per package: shop_packages is UNIQUE(shop_id, package_id)
-      // (migration 0144), so a parent's duplicate rows must not fail the insert.
-      const uniqueParentPackages = [...new Map(parentPackages.map((pkg: any) => [pkg.package_id, pkg])).values()]
-      const subAgentPackages = uniqueParentPackages.map((pkg: any) => ({
-        shop_id: newShop.id,
-        package_id: pkg.package_id,
-        // Sub-agent starts with 0 margin, they can set their own later
-        // Their "cost" is parent's price + parent's margin
-        profit_margin: 0,
-        is_available: true
-      }))
-
-      if (subAgentPackages.length > 0) {
-        await supabase
-          .from("shop_packages")
-          .insert(subAgentPackages)
-      }
     }
 
     // Mark invite as accepted
@@ -344,8 +266,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       success: true,
       message: "Account created successfully",
       user_id: newUserId,
-      shop_id: newShop.id,
-      shop_slug: newShop.shop_slug
+      shop_id: newShop.shopId,
+      shop_slug: newShop.slug
     })
   } catch (error) {
     console.error("Error accepting invite:", error)

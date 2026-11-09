@@ -30,14 +30,34 @@ vi.mock("@/lib/refunds/dispatch-guard", () => ({
   withDispatchGuard: async (_id: unknown, run: () => Promise<unknown>) => run(),
 }))
 
-vi.mock("@/lib/supabase", () => ({
-  supabaseAdmin: fakeSupabase({
+// Spy on rows written to mtn_fulfillment_tracking (saveMTNTracking).
+const trackingInsert = vi.hoisted(() => vi.fn())
+
+vi.mock("@/lib/supabase", () => {
+  const settings = fakeSupabase({
     // Registration gate OFF isolates these tests to the whitelist pre-check
     // (the gate itself is already covered by mtn-hold.test.ts).
     mtn_registration_gate_enabled: { enabled: false },
     mtn_whitelist_enabled: { enabled: true },
-  }),
-}))
+  })
+  return {
+    supabaseAdmin: {
+      from(table: string) {
+        if (table !== "mtn_fulfillment_tracking") return settings.from(table)
+        return {
+          update() {
+            const chain: any = { eq: () => chain, in: () => Promise.resolve({ error: null }) }
+            return chain
+          },
+          insert(row: unknown) {
+            trackingInsert(row)
+            return { select: () => ({ single: () => Promise.resolve({ data: { id: "trk-1" }, error: null }) }) }
+          },
+        }
+      },
+    },
+  }
+})
 
 vi.mock("@/lib/mtn-providers/factory", async (importOriginal) => {
   // Keep the real isValidMtnProviderName (a pure, supabase-free check) so the
@@ -68,6 +88,7 @@ import {
   validatePhoneNetworkMatch,
   extractOrderIdCandidatesFromReference,
   createMTNOrder,
+  saveMTNTracking,
 } from "@/lib/mtn-fulfillment"
 import { getProviderByName, getMTNProvider, getRetrySequence } from "@/lib/mtn-providers/factory"
 import { checkWhitelistForOrder } from "@/lib/mtn-providers/provider-whitelist"
@@ -272,6 +293,36 @@ describe("MTN Fulfillment Service", () => {
       expect(result.success).toBe(false)
       expect(result.held).toBe(true)
       expect(result.error_type).toBe("WHITELIST_BLOCKED")
+    })
+  })
+
+  describe("saveMTNTracking provider cost/reference", () => {
+    const req = { recipient_phone: "0551234567", network: "MTN" as const, size_gb: 1 }
+
+    beforeEach(() => trackingInsert.mockClear())
+
+    it("saveMTNTracking writes provider_cost_ghs and provider_reference when present", async () => {
+      await saveMTNTracking(
+        "order-1",
+        "o1",
+        req,
+        { success: true, order_id: "o1", message: "ok", provider_cost_ghs: 3.85, provider_reference: "KT-1" },
+        "shop",
+        "kuntanii"
+      )
+      expect(trackingInsert).toHaveBeenCalledTimes(1)
+      expect(trackingInsert.mock.calls[0][0]).toMatchObject({
+        provider_cost_ghs: 3.85,
+        provider_reference: "KT-1",
+      })
+    })
+
+    it("omits both keys when absent", async () => {
+      await saveMTNTracking("order-1", "o1", req, { success: true, order_id: "o1", message: "ok" }, "shop", "sykes")
+      expect(trackingInsert).toHaveBeenCalledTimes(1)
+      const row = trackingInsert.mock.calls[0][0]
+      expect(row).not.toHaveProperty("provider_cost_ghs")
+      expect(row).not.toHaveProperty("provider_reference")
     })
   })
 })

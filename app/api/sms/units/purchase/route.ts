@@ -2,11 +2,18 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { purchaseUnitsByQuantity, quoteCredits } from "@/lib/sms/bundle-service"
-import { initializePayment, chargeMobileMoney, detectMomoProvider } from "@/lib/paystack"
-import { isWalletDirectChargeEnabled, isWalletOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
+import { isSmsDirectChargeEnabled, isWalletOtpRequired } from "@/lib/storefront-otp"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { logSecurityEvent } from "@/lib/security-log"
 import { isSmsEnabled, SMS_DISABLED_MESSAGE } from "@/lib/sms/kill-switch"
+import { SMS_SURFACE, planSmsDirect, smsHostedGateway, smsStartRefusal } from "@/lib/sms/gateway-start"
+import { initializePayment } from "@/lib/paystack"
+import { startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
+import { decideAttemptReplay } from "@/lib/payment-gateway/web-replay"
+import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
+
+// A Hubtel start awaits the relay.
+export const maxDuration = 60
 
 const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
@@ -39,28 +46,23 @@ export async function POST(request: NextRequest) {
     if (!user.email) return NextResponse.json({ error: "Account email required" }, { status: 400 })
     const { cost } = await quoteCredits(credits)
     if (cost <= 0) return NextResponse.json({ error: "Pricing not configured" }, { status: 400 })
-    const reference = `smsqty-${account.id}-${credits}-${Date.now()}`
+    const referencePrefix = `smsqty-${account.id}-${credits}-`
     // The charge.success webhook (sms_units_qty branch) credits the units off this metadata,
     // for BOTH the hosted redirect and the direct MoMo charge.
     const metadata = { type: "sms_units_qty", sms_account_id: account.id, units: credits }
 
     // ── Direct MoMo charge (no hosted redirect) when the wallet direct-charge gate is on. ──
-    const directOn = await isWalletDirectChargeEnabled()
+    const directOn = await isSmsDirectChargeEnabled()
     if (body.momoDirect === true && directOn) {
-      const phone = String(body.paymentPhone || "").trim()
-      const provider = detectMomoProvider(phone)
-      if (!provider) {
-        return NextResponse.json({ error: "Could not detect the mobile money network from that number." }, { status: 400 })
-      }
       // OTP gate: when wallet OTP is on, the payment number must be SMS-verified, so a
       // direct charge can never prompt an unverified third-party number.
       const otpRequired = await isWalletOtpRequired()
-      if (otpRequired && !(await isPhoneOtpVerified(phone))) {
-        return NextResponse.json({ error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" }, { status: 403 })
-      }
+      const plan = await planSmsDirect(supabaseAdmin, { rawPhone: body.paymentPhone, userId: user.id, otpRequired, amount: cost })
+      if (!plan.ok) return NextResponse.json(plan.body, { status: plan.status })
+      const { phone, provider } = plan
       // Throttle MoMo prompt-spam. Per-IP (bounds account-rotation behind one IP) + per-user
-      // always; per-phone when OTP is off (the OTP gate is the per-number guardrail when on).
-      // Mirrors /api/payments/initialize.
+      // always; per-phone when OTP is off (the OTP gate is the per-number guardrail when on),
+      // and always on Hubtel. Mirrors /api/payments/initialize.
       const ipCap = await applyRateLimit(request, "sms_momodirect_ip", 6, 60_000)
       if (!ipCap.allowed) {
         logSecurityEvent("sms_momodirect_ip_cap", { channel: "sms_credits", userId: user.id, paymentPhone: phone })
@@ -71,27 +73,53 @@ export async function POST(request: NextRequest) {
         logSecurityEvent("sms_momodirect_user_cap", { channel: "sms_credits", userId: user.id, paymentPhone: phone })
         return NextResponse.json({ error: "Too many payment attempts. Please try again later." }, { status: 429 })
       }
-      if (!otpRequired) {
+      if (!otpRequired || plan.gateway === "hubtel") {
         const phoneCap = await applyRateLimit(request, "momodirect_phone", 3, 60 * 60 * 1000, `mp:${phone.replace(/\D/g, "")}`)
         if (!phoneCap.allowed) {
           logSecurityEvent("momodirect_phone_cap", { channel: "sms_credits", userId: user.id, paymentPhone: phone })
           return NextResponse.json({ error: "Too many payment attempts for this number. Please try again later." }, { status: 429 })
         }
       }
-      const charge = await chargeMobileMoney({
-        email: user.email, amount: cost, phone, provider, reference, metadata,
-        channel: "sms_credits", purpose: "SMS Credits",
-      })
-      return NextResponse.json({ success: true, momoDirect: true, reference, status: charge.status, cost })
+      const replay = await decideAttemptReplay(supabaseAdmin, SMS_SURFACE, plan.gateway, { prefix: referencePrefix })
+      if (replay.kind === "refuse") return NextResponse.json(replay.body, { status: replay.status })
+      const reference = replay.kind === "replay" ? replay.reference : `${referencePrefix}${Date.now()}`
+      try {
+        const charge = await startMomoCharge(SMS_SURFACE, {
+          email: user.email, amount: cost, phone, provider, reference, metadata,
+          channel: "sms_credits", purpose: "SMS Credits",
+          verifiedPayer: plan.gateway === "hubtel", reusedReference: replay.kind === "replay",
+        })
+        return NextResponse.json({ success: true, momoDirect: true, reference, status: charge.status, cost })
+      } catch (e) {
+        const refusal = smsStartRefusal(e)
+        if (refusal) return NextResponse.json(refusal.body, { status: refusal.status })
+        throw e
+      }
     }
 
     // Hosted redirect. When direct charge IS the legit path, strip mobile_money so a
-    // hosted page can't prompt a victim number (mirrors /api/payments/initialize).
-    const init = await initializePayment({
+    // hosted page can't prompt a victim number (mirrors /api/payments/initialize). Only
+    // Paystack can strip it, so such a request stays there.
+    const gateway = await smsHostedGateway(directOn, cost)
+    const replay = await decideAttemptReplay(supabaseAdmin, SMS_SURFACE, gateway, { prefix: referencePrefix })
+    if (replay.kind === "refuse") return NextResponse.json(replay.body, { status: replay.status })
+    const reference = replay.kind === "replay" ? replay.reference : `${referencePrefix}${Date.now()}`
+    const hostedParams = {
       email: user.email, amount: cost, reference, purpose: "SMS Credits", metadata,
       channels: directOn ? ["card", "bank_transfer"] : undefined,
-    })
-    return NextResponse.json({ authorizationUrl: init.authorizationUrl, reference })
+      // Paystack returns to its dashboard's callback; Hubtel's return route needs somewhere to send the customer.
+      ...(gateway === "hubtel" ? { redirectUrl: `${await resolveTrustedBaseUrl(request.headers.get("host"))}/dashboard/sms` } : {}),
+    }
+    try {
+      const init = directOn
+        ? await initializePayment(hostedParams)
+        : await startHostedPayment(SMS_SURFACE, { ...hostedParams, reusedReference: replay.kind === "replay" })
+      return NextResponse.json({ authorizationUrl: init.authorizationUrl, reference })
+    } catch (e) {
+      const refusal = smsStartRefusal(e)
+      if (refusal) return NextResponse.json(refusal.body, { status: refusal.status })
+      throw e
+    }
   }
 
   const result = await purchaseUnitsByQuantity(user.id, account.id, credits)

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { revalidateTag } from "next/cache"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import {
   getNetworkStockMap,
@@ -60,6 +61,9 @@ export async function POST(request: NextRequest) {
     const result = outOfStock
       ? await setNetworkOutOfStock(adminClient, network)
       : await restockNetwork(adminClient, network)
+
+    // Stock flips change which packages the public price pages list.
+    if (result.affected > 0) revalidateTag("seo-live-facts")
 
     // Best-effort audit trail — never blocks the response on failure (same
     // fire-and-forget pattern as bulk-update-price's admin_audit_log insert).

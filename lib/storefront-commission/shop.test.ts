@@ -46,6 +46,21 @@ describe("storefrontGroupOn", () => {
   })
 })
 
+describe("loadAvailability when the gateway waives the payment fee", () => {
+  it("the terms the page prices from carry no fee", async () => {
+    const a = await loadAvailability(avDeps({ paymentFeeWaived: async () => true }))
+    expect(a.bills.billers[0].terms).toEqual({ applied: true, rate: 0.69, share: 20, feeRate: 0 })
+  })
+
+  it.each<[string, Partial<AvailabilityDeps>]>([
+    ["not waived", { paymentFeeWaived: async () => false }],
+    ["the check throws", { paymentFeeWaived: async () => { throw new Error("x") } }],
+  ])("%s: today's terms", async (_n, over) => {
+    const a = await loadAvailability(avDeps(over))
+    expect(a.bills.billers[0].terms.feeRate).toBe(1.95)
+  })
+})
+
 describe("loadAvailability", () => {
   it("lists only billers whose Hubtel service is on, with shop-facing terms", async () => {
     const a = await loadAvailability(avDeps())

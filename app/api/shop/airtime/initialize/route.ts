@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
       .from("user_shops")
       .select("id")
       .or(shopHandleOrFilter(shopSlug.trim()))
+      .eq("is_active", true)
       .single()
     if (shopErr || !shopRow) {
       console.warn(`[SHOP-AIRTIME] ❌ Shop not found for slug=${shopSlug}`)

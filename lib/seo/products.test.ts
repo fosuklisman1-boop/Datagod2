@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest"
 import { PRODUCTS, getProduct, type ProductKey } from "./products"
 import { BILLER_KEYS, BILLERS } from "@/lib/bills/billers"
+import { BANNED_COPY, metaProblems } from "./copy-rules"
 
 const REFUND = "If an order fails, you get your money back."
 const SPEED = "Usually delivered within minutes."
-const BANNED = /instant|in seconds|automatic(ally)? refund/i
+const BANNED = BANNED_COPY
 
 function allText(p: (typeof PRODUCTS)[number]): string {
   return [p.name, p.h1, p.title, p.description, p.summary, ...p.bullets, ...p.faqs.flatMap((f) => [f.question, f.answer])].join("\n")
@@ -18,9 +19,22 @@ describe("product registry", () => {
     expect(new Set(paths).size).toBe(paths.length)
   })
 
-  it("covers all 18 product keys with path = /key", () => {
-    expect(PRODUCTS).toHaveLength(18)
-    for (const p of PRODUCTS) expect(p.path).toBe(`/${p.key}`)
+  it("covers all 19 product keys with path = /key (comparison page excepted)", () => {
+    expect(PRODUCTS).toHaveLength(19)
+    for (const p of PRODUCTS) expect(p.path).toBe(p.key === "cheapest-data" ? "/cheapest-data-ghana" : `/${p.key}`)
+  })
+
+  it("defines the cheapest-data comparison entry", () => {
+    const p = getProduct("cheapest-data")
+    expect(p).toMatchObject({
+      path: "/cheapest-data-ghana",
+      h1: "Cheapest data bundles in Ghana today",
+      group: "data",
+      channels: ["web"],
+      related: ["mtn-data", "telecel-data", "at-data", "airtime"],
+      hasOwnPage: true,
+    })
+    expect(allText(p)).not.toMatch(/cheaper than|than (mtn|telecel|vodafone|airteltigo) /i)
   })
 
   it("only relates to keys that exist, never itself", () => {
@@ -39,10 +53,7 @@ describe("product registry", () => {
 
   it("keeps titles <= 60 chars ending in | DATAGOD and descriptions 120-160 chars", () => {
     for (const p of PRODUCTS) {
-      expect(p.title.length, `${p.key} title: ${p.title}`).toBeLessThanOrEqual(60)
-      expect(p.title.endsWith("| DATAGOD"), p.key).toBe(true)
-      expect(p.description.length, `${p.key} description (${p.description.length})`).toBeGreaterThanOrEqual(120)
-      expect(p.description.length, `${p.key} description (${p.description.length})`).toBeLessThanOrEqual(160)
+      expect(metaProblems(p.title, p.description), p.key).toEqual([])
     }
   })
 
@@ -116,7 +127,7 @@ describe("product registry", () => {
 
   it("uses the agreed sitemap priorities", () => {
     const expected: Record<ProductKey, number> = {
-      "mtn-data": 0.9, "telecel-data": 0.9, "at-data": 0.9,
+      "mtn-data": 0.9, "telecel-data": 0.9, "at-data": 0.9, "cheapest-data": 0.9,
       airtime: 0.8, "afa-registration": 0.8, "utility-bills": 0.8, "results-checker": 0.8, "bulk-sms": 0.8, join: 0.8,
       "ecg-prepaid": 0.7, "ghana-water": 0.7, "pay-dstv": 0.7, "pay-gotv": 0.7, startimes: 0.7, "telecel-broadband": 0.7,
       ussd: 0.6, whatsapp: 0.6, developers: 0.6,

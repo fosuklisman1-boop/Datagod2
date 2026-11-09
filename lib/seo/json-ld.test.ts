@@ -34,6 +34,36 @@ describe("buildProductJsonLd", () => {
     expect("offers" in service).toBe(false)
   })
 
+  it("emits an AggregateOffer across all price rows when groups are non-empty", () => {
+    const groups = [
+      { network: "MTN", rows: [{ size: "1GB", label: "1GB", price: 5.5, gb: 1, perGb: 5.5 }, { size: "2GB", label: "2GB", price: 20, gb: 2, perGb: 10 }] },
+    ]
+    const service = byType(buildProductJsonLd(mtn, facts(5.5), groups), "Service")
+    expect(service.offers["@type"]).toBe("AggregateOffer")
+    expect(service.offers.lowPrice).toBe("5.50")
+    expect(service.offers.highPrice).toBe("20.00")
+    expect(service.offers.offerCount).toBe(2)
+    expect(service.offers.priceCurrency).toBe("GHS")
+  })
+
+  it("counts offers across several groups", () => {
+    const groups = [
+      { network: "AT - iShare", rows: [{ size: "1GB", label: "1GB", price: 4, gb: 1, perGb: 4 }] },
+      { network: "AT - BigTime", rows: [{ size: "5GB", label: "5GB", price: 18, gb: 5, perGb: 3.6 }] },
+    ]
+    const service = byType(buildProductJsonLd(getProduct("at-data"), facts(4), groups), "Service")
+    expect(service.offers.offerCount).toBe(2)
+    expect(service.offers.lowPrice).toBe("4.00")
+    expect(service.offers.highPrice).toBe("18.00")
+  })
+
+  it("keeps the single Offer when there are no price rows", () => {
+    const service = byType(buildProductJsonLd(mtn, facts(3.5), [{ network: "MTN", rows: [] }]), "Service")
+    expect(service.offers["@type"]).toBe("Offer")
+    const none = byType(buildProductJsonLd(mtn, facts(3.5), []), "Service")
+    expect(none.offers["@type"]).toBe("Offer")
+  })
+
   it("names DATAGOD as provider and Ghana as the area served", () => {
     const service = byType(buildProductJsonLd(mtn, facts(1)), "Service")
     expect(service.provider).toMatchObject({ "@type": "Organization", name: "DATAGOD" })
@@ -123,7 +153,8 @@ describe("page helpers", () => {
   const allOn = () => {
     const f = buildLiveFacts({
       ...FAILED_RAW,
-      packages: [{ network: "MTN", price: 4, is_available: true }],
+      priceAdjustments: { price_adjustment_mtn: 0, price_adjustment_telecel: 0, price_adjustment_at_ishare: 0, price_adjustment_at_bigtime: 0 },
+      packages: [{ network: "MTN", size: "1GB", price: 4, is_available: true }],
       bills: resolveBillsConfig({
         enabled: true,
         billers: {

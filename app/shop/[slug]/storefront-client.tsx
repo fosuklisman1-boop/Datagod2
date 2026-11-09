@@ -62,9 +62,12 @@ import { BillsTab } from "@/components/storefront-commission/BillsTab"
 import { BILLER_KEYS } from "@/lib/bills/billers"
 import { parseStorefrontBillers, type StorefrontBiller } from "@/lib/storefront-commission/ui-helpers"
 import { SubAgentRequestForm } from "@/components/shop/SubAgentRequestForm"
+import { joinShopUrl } from "@/lib/sub-agents/join-url"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { toast } from "sonner"
+import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
+import { HubtelFeeNote, useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
 import { AnnouncementModal } from "@/components/announcement-modal"
 import { AIChatWidget } from "@/components/shop/AIChatWidget"
 import { StorefrontServicesCarousel, type StorefrontCarouselSlide } from "@/components/shop/StorefrontServicesCarousel"
@@ -120,9 +123,12 @@ interface ShopStorefrontProps {
   // component's own client-side fetch to complete first.
   initialLogoUrl: string | null
   initialShopName: string | null
+  // Server-computed (getShopPublicState) for a shop visitors can't load: "setting_up" is an unpriced storefront
+  // sub-agent shop, shown as "isn't open yet" instead of "not found".
+  publicState?: "open" | "setting_up" | "missing"
 }
 
-export default function ShopStorefront({ initialLogoUrl, initialShopName }: ShopStorefrontProps) {
+export default function ShopStorefront({ initialLogoUrl, initialShopName, publicState }: ShopStorefrontProps) {
   const params = useParams()
   const router = useRouter()
   const shopSlug = params.slug as string
@@ -155,6 +161,12 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
       })()
     : ["data", "airtime", "vouchers"]
   const subAgentRecruitHidden = isPageHidden("sub_agent_recruit", domainBranding.hiddenPages)
+
+  // Instant-join switch (app_settings.sub_agent_open_join_enabled): when on, "Join Now" opens the join page on the
+  // main domain and the request form goes away. Off until the config loads, so the old form shows meanwhile.
+  const [openJoinEnabled, setOpenJoinEnabled] = useState(false)
+  // A sub-agent's own storefront never recruits, whatever the switch says.
+  const showSubAgentRecruit = !subAgentRecruitHidden && !shop?.parent_shop_id
 
   const [activeTab, setActiveTab] = useState<"home" | "about" | "track-order">("home")
   // Which service's content shows below the persistent "Choose a Service"
@@ -279,6 +291,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
   // separate confirmation dialog handleSubmitOrder already shows on submit.
   const [checkoutVerifyStatus, setCheckoutVerifyStatus] = useState<"idle" | "checking" | "verified" | "unverified">("idle")
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
+  const storefrontGateway = useSurfaceGateway("storefront_gateway")
   const checkCheckoutPhoneUpfront = async () => {
     if (!selectedPackage || selectedPackage.packages.network.toUpperCase() !== "MTN") return
     const digits = orderData.customer_phone.replace(/\D/g, "")
@@ -336,6 +349,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
     fetch("/api/public/config")
       .then(r => r.ok ? r.json() : null)
       .then(d => {
+        setOpenJoinEnabled(d?.app_settings?.sub_agent_open_join_enabled === true)
         if (d?.app_settings?.storefront_show_ussd_card === true) {
           setShowUssdCard(true)
           setUssdDialCode(d.app_settings.ussd_shop_dial_code || null)
@@ -420,7 +434,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         } catch {
           /* fall through to the normal not-found message */
         }
-        toast.error("Shop not found")
+        if (publicState !== "setting_up") toast.error("Shop not found")
         return
       }
 
@@ -757,6 +771,8 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
         // order regardless of anything client-side), but don't reopen a view
         // they explicitly closed or keep polling for a UI no one's watching.
         if (paymentDismissedRef.current) return
+        const fallbackNote = fallbackChargeNotice(chargeData)
+        if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
         // Sheet is already showing the "sending" view (set at the top of this
         // function) -- just transition it now that the prompt has actually
         // been dispatched. Telecel Cash charges come back "send_otp" (needs a
@@ -1028,6 +1044,22 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
     )
   }
 
+  if (!shop && publicState === "setting_up") {
+    return (
+      <div className="min-h-screen bg-card p-4">
+        <div className="max-w-2xl lg:max-w-3xl mx-auto pt-20 lg:pt-32">
+          <Alert className="border-primary/30 bg-primary/5">
+            <AlertCircle className="h-4 w-4 text-primary" />
+            <AlertDescription className="text-foreground">
+              <span className="font-semibold">This shop isn&apos;t open yet.</span>{" "}
+              The owner is still setting it up. Please check back soon.
+            </AlertDescription>
+          </Alert>
+        </div>
+      </div>
+    )
+  }
+
   if (!shop) {
     return (
       <div className="min-h-screen bg-card p-4">
@@ -1120,10 +1152,12 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
       cta: "Contact Us", icon: MessageCircle, gradient: "from-[#1e1b4b] to-[#4f46e5]",
       onClick: () => { if (helpWhatsAppLink) window.open(helpWhatsAppLink, "_blank"); else if (shop?.phone) window.location.href = `tel:${shop.phone}` },
     }] : []),
-    ...(!subAgentRecruitHidden ? [{
+    ...(showSubAgentRecruit ? [{
       key: "sub-agent", badge: "PARTNER", title: "Become a Sub-Agent", description: "Start your own shop under this business and earn commission.",
-      cta: "Apply Now", icon: UserPlus, gradient: "from-[#083344] to-[#0891b2]",
-      onClick: goToSubAgentForm,
+      cta: openJoinEnabled ? "Join Now" : "Apply Now", icon: UserPlus, gradient: "from-[#083344] to-[#0891b2]",
+      onClick: openJoinEnabled
+        ? () => { window.location.href = joinShopUrl(shop?.shop_slug || shopSlug) }
+        : goToSubAgentForm,
     }] : []),
   ]
 
@@ -1377,6 +1411,30 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                           <span className="font-mono font-bold text-foreground">{shopUssdCode}</span> to buy Data Bundle, Airtime or a Results Checker.
                         </p>
                       </div>
+                    </div>
+                  </div>
+                )}
+                {showSubAgentRecruit && openJoinEnabled && (
+                  <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">
+                          <UserPlus className="w-5 h-5" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-foreground">Want to start your own shop?</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Join as a sub-agent under this shop. Get your own storefront and USSD code, and set your own prices.
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        asChild
+                        className="w-full shrink-0 text-white sm:w-auto"
+                        style={{ backgroundColor: "var(--shop-accent)" }}
+                      >
+                        <a href={joinShopUrl(shop?.shop_slug || shopSlug)}>Join Now</a>
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -1742,11 +1800,32 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
 
                 {/* Become a sub-agent under this shop — customer-initiated
                     request queue, reviewed by the shop owner in their dashboard. */}
-                {!subAgentRecruitHidden && (
+                {showSubAgentRecruit && (
                   <div ref={subAgentCardRef}>
                     <Card className="border-0 shadow-md">
                       <CardContent className="pt-6">
-                        <SubAgentRequestForm shopSlug={shopSlug} />
+                        {openJoinEnabled ? (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <span className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--shop-accent)]/10 text-[var(--shop-accent)]">
+                                <UserPlus className="h-4 w-4" />
+                              </span>
+                              <div>
+                                <p className="font-semibold text-foreground">Want to start your own shop?</p>
+                                <p className="text-xs text-muted-foreground">Join as a sub-agent under this shop and start selling today.</p>
+                              </div>
+                            </div>
+                            <Button
+                              asChild
+                              className="w-full text-white"
+                              style={{ backgroundColor: "var(--shop-accent)" }}
+                            >
+                              <a href={joinShopUrl(shop?.shop_slug || shopSlug)}>Join Now</a>
+                            </Button>
+                          </div>
+                        ) : (
+                          <SubAgentRequestForm shopSlug={shopSlug} />
+                        )}
                       </CardContent>
                     </Card>
                   </div>
@@ -1802,7 +1881,8 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
           // Same formula app/api/payments/initialize actually charges with
           // (data orders always carry the gateway fee -- only airtime is
           // exempted there), so this displayed total matches the real charge.
-          const gatewayFee = Math.round(total * (paystackFeePercentage / 100) * 100) / 100
+          // On Hubtel we charge no fee of our own: Hubtel adds its fee on top, and its rate isn't known here.
+          const gatewayFee = storefrontGateway === "hubtel" ? 0 : Math.round(total * (paystackFeePercentage / 100) * 100) / 100
           const totalWithFee = total + gatewayFee
           const showForm = !verifyWarningOpen && !momoModal
           return (
@@ -2002,8 +2082,9 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName }: Shop
                     <div className="shrink-0 space-y-3 border-t border-border p-5">
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Total <span className="text-xs">+ gateway fee</span></span>
-                        <span className="text-xl font-black text-foreground">GH₵{totalWithFee.toFixed(2)}</span>
+                        <span className="text-xl font-black text-foreground">GH₵{totalWithFee.toFixed(2)}{storefrontGateway === "hubtel" && <span className="text-xs font-medium"> + fee</span>}</span>
                       </div>
+                      <HubtelFeeNote gateway={storefrontGateway} />
                       {turnstileEnabled && (
                         <div className="flex justify-center">
                           <TurnstileWidget onToken={setTurnstileToken} onExpire={() => setTurnstileToken("")} />

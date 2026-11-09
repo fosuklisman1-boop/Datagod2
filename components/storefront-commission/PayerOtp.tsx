@@ -13,7 +13,9 @@ import { isOtpPhone } from "@/lib/storefront-commission/ui-helpers"
  * verified is the payer phone sent as `customerPhone`, which is the number the server gate checks.
  * `required` starts from the public checkout settings and is switched on if initialize answers OTP_REQUIRED.
  */
-export function usePayerOtp(phone: string) {
+export function usePayerOtp(phone: string, opts: { useStorefrontSettings?: boolean } = {}) {
+  // Off for a screen that isn't on the storefront surface: it asks only when the server answers OTP_REQUIRED.
+  const useStorefrontSettings = opts.useStorefrontSettings !== false
   const [required, setRequired] = useState(false)
   // Storefront direct MoMo charge toggle (same public settings): pay on-page instead of the hosted checkout.
   const [directCharge, setDirectCharge] = useState(false)
@@ -27,11 +29,12 @@ export function usePayerOtp(phone: string) {
   const verified = verifiedPhone !== null && verifiedPhone === digits
 
   useEffect(() => {
+    if (!useStorefrontSettings) return
     fetch("/api/public/turnstile-status")
       .then(r => (r.ok ? r.json() : null))
       .then(d => { setRequired(d?.otp_required === true); setDirectCharge(d?.direct_charge === true) })
       .catch(() => {})
-  }, [])
+  }, [useStorefrontSettings])
 
   // A different number means a fresh code.
   useEffect(() => { setSent(false); setCode("") }, [digits])

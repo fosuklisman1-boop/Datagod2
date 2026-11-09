@@ -187,6 +187,19 @@ export const SMSTemplates = {
   subAgentInvitation: (inviteUrl: string) =>
     `DTGOD: You have been invited to become a sub-agent! Join here: ${inviteUrl} (Expires in 7 days)`,
 
+  // Owner alert: a storefront visitor joined and the owner has no sub-agent prices yet
+  // No recruit name: it is typed on a public form and this goes out from the trusted DTGOD sender.
+  subAgentCatalogNeeded: (_shopName?: string) =>
+    `DTGOD: A new sub-agent joined your network but you have not set sub-agent prices yet. Set them in your dashboard so they can start selling.`,
+
+  // Storefront joiner who has not set prices yet: stage 1 (10 min), 2 (48 h), 3 (72 h, last). No user-chosen names.
+  subAgentPriceReminder: (stage: number) => {
+    const link = "https://www.datagod.store/dashboard/shop-pricing?setup=1"
+    if (stage >= 3) return `DTGOD: Last reminder: your sub-agent shop is still closed. Set your prices and go live: ${link}`
+    if (stage === 2) return `DTGOD: Your sub-agent shop is still closed. Set your prices and go live: ${link}`
+    return `DTGOD: Welcome! Your sub-agent shop is ready. Set your prices and go live: ${link}`
+  },
+
   // USSD order confirmed — sent to recipient phone
   ussdOrderConfirmed: (packageSize: string, network: string, channelLink?: string) => {
     const colour = networkColor(network)

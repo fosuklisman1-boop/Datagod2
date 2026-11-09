@@ -6,6 +6,7 @@ import type { RouterDeps } from "../flow-kit"
 import type { AfaServices, AirtimeServices, NetworkPlansServices, PayBillsServices, PayBillsVerifyInput, RcServices } from "../services"
 import type { BotContext } from "@/lib/bot-commission/context"
 import type { BotBillOrderInput, BotBundleOrderInput, BotOrderResult } from "@/lib/bot-commission/orders"
+import type { BotSpecialOrderInput, BotSpecialOrderResult } from "@/lib/bot-commission/special-orders"
 import type { BillerKey } from "@/lib/bills/billers"
 import type { StorefrontQuote } from "@/lib/cashback/quote"
 import type { StorefrontBundle } from "@/lib/storefront-commission/bundles"
@@ -154,6 +155,7 @@ export function fakeRc(over: Partial<RcServices> = {}): RcServices {
 }
 
 export const BOT_ORDER_ID = "22222222-3333-4444-8555-666666666666"
+export const BOT_GROUP_ID = "77777777-3333-4444-8555-666666666666"
 
 /** Bundle plans for the fake Network Plans catalog: `n` plans in `category`, face 10+i, pay 9.5+i. */
 export function fakePlans(category: string, n: number, display = (i: number) => `${i + 1}GB`): StorefrontBundle[] {
@@ -167,12 +169,15 @@ export function fakePlans(category: string, n: number, display = (i: number) => 
  * Network Plans engine fake. Default catalog: MTN-style "Video" + "Data" categories (out of CATEGORY_ORDER
  * order on purpose). createOrder dedupes by idempotency key like the engine; `createResult` overrides it.
  */
-export function fakeNetworkPlans(over: Partial<NetworkPlansServices> & { createResult?: BotOrderResult } = {}) {
+export function fakeNetworkPlans(over: Partial<NetworkPlansServices> & { createResult?: BotOrderResult; specialResult?: BotSpecialOrderResult } = {}) {
   const calls: { ctx: BotContext; input: BotBundleOrderInput }[] = []
+  const specialCalls: { ctx: BotContext; input: BotSpecialOrderInput }[] = []
   const byKey = new Map<string, BotOrderResult>()
-  const { createResult, ...rest } = over
-  const svc: NetworkPlansServices & { calls: typeof calls } = {
+  const specialByKey = new Map<string, BotSpecialOrderResult>()
+  const { createResult, specialResult, ...rest } = over
+  const svc: NetworkPlansServices & { calls: typeof calls; specialCalls: typeof specialCalls } = {
     calls,
+    specialCalls,
     catalog: async () => ({ ok: true, categories: [{ name: "Video", bundles: fakePlans("Video", 2) }, { name: "Data", bundles: fakePlans("Data", 7) }] }),
     createOrder: async (ctx, input) => {
       calls.push({ ctx, input })
@@ -189,6 +194,22 @@ export function fakeNetworkPlans(over: Partial<NetworkPlansServices> & { createR
     },
     findOrderId: async (_ctx, key) => {
       const r = byKey.get(key)
+      return r?.ok ? r.order.id : null
+    },
+    // Special Bundles: no plans by default (Special is not sold), so every existing menu stays unchanged.
+    specialPlans: async () => ({ ok: true, plans: [] }),
+    createSpecialOrder: async (ctx, input) => {
+      specialCalls.push({ ctx, input })
+      if (specialResult) return specialResult
+      const key = String(input.idempotencyKey)
+      const prior = specialByKey.get(key)
+      if (prior) return prior
+      const r: BotSpecialOrderResult = { ok: true, order: { id: BOT_ORDER_ID, groupId: BOT_GROUP_ID, n: 5, payAmount: Number(input.expectedPay) } }
+      specialByKey.set(key, r)
+      return r
+    },
+    findSpecialOrderId: async (_ctx, key) => {
+      const r = specialByKey.get(key)
       return r?.ok ? r.order.id : null
     },
     ...rest,

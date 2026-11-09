@@ -14,6 +14,7 @@ vi.mock("@/lib/ussd-hubtel/config", async importOriginal => ({
   ...(await importOriginal<typeof import("@/lib/ussd-hubtel/config")>()),
   getHubtelUssdConfig: (...a: any[]) => h.get(...a),
   setHubtelUssdConfig: (...a: any[]) => h.set(...a),
+  getHubtelMainLineConfig: async () => ({}), // GET now reads it too; covered in route.line.test.ts
   hubtelEnvReady: (...a: any[]) => h.envReady(...a),
 }))
 vi.mock("@supabase/supabase-js", () => ({

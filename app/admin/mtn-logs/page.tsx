@@ -40,6 +40,7 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { PROVIDER_DISPLAY, getProviderDisplay } from "@/lib/mtn-providers/provider-display"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
+import { KuntaniiDisputeControl } from "@/components/admin/kuntanii-dispute-control"
 
 interface MTNLog {
   id: string
@@ -647,6 +648,9 @@ export default function MTNFulfillmentLogsPage() {
                                       </>
                                     )}
                                   </Button>
+                                )}
+                                {log.provider === "kuntanii" && (
+                                  <KuntaniiDisputeControl trackingId={log.id} status={log.status} />
                                 )}
                               </div>
                             </TableCell>

@@ -68,6 +68,7 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
       { value: "agentportalgh", label: "AgentPortalGH" },
       { value: "apexprime", label: "Apex Prime" },
       { value: "bundleportal", label: "Bundle Portal" },
+      { value: "kuntanii", label: "Kuntanii" },
     ]
   }
   const isBigTime = upper.includes("BIGTIME") || upper.includes("BIG TIME")

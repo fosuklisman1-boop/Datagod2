@@ -21,7 +21,7 @@ describe("groupAvailableProducts", () => {
 
   it("puts MTN, Telecel, AT (and AFA, registry group data) in the data group, registry order", () => {
     const data = groupAvailableProducts(allOn())[0]
-    expect(data.items.map((p) => p.key)).toEqual(["mtn-data", "telecel-data", "at-data", "afa-registration"])
+    expect(data.items.map((p) => p.key)).toEqual(["mtn-data", "telecel-data", "at-data", "cheapest-data", "afa-registration"])
   })
 
   it("has no bills group when bills are off", () => {

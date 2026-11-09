@@ -4,6 +4,9 @@ import { loadPayerPhones } from "./payer-phone"
 import { BULK_PROOF_WINDOW_MS, proveBulkBatchPayment } from "./bulk-batch-proof"
 import { BILLERS, isBillerKey } from "@/lib/bills/billers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
+import { findHubtelAttempts, isLiveHubtelStatus, isManuallyRefundedPayment, type HubtelAttemptRow } from "@/lib/hubtel-pay/lookup"
+import { isLatePaidShopOrder } from "@/lib/payments/closed-order"
+import { loadHubtelWalletPayments, type HubtelWalletPaymentFact } from "./hubtel-wallet"
 
 /** A stored phone as 0XXXXXXXXX when it is a Ghana number (USSD rows store +233XXXXXXXXX), else as stored. */
 export function displayPhone(v: unknown): string | null {
@@ -12,7 +15,7 @@ export function displayPhone(v: unknown): string | null {
 }
 import {
   BOT_CHANNEL, isCommissionTable, isWalletOnlyTable, STOREFRONT_REFUNDS_FROM, type CommissionLedgerFact, type CommissionTable, type DispatchOutcome,
-  type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder,
+  type HubtelAttemptFacts, type OrderTable, type OwnerCut, type PaymentSource, type RefundableOrder,
 } from "./types"
 
 type ClassicTable = Exclude<OrderTable, CommissionTable>
@@ -80,7 +83,7 @@ const SELECT: Record<OrderTable, string> = {
   hubtel_bill_orders:
     "id, shop_id, user_id, channel, bot_surface, biller, account_number, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
   hubtel_data_orders:
-    "id, shop_id, user_id, channel, bot_surface, network, bundle_display, beneficiary_phone, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
+    "id, shop_id, user_id, channel, bot_surface, network, bundle_display, beneficiary_phone, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, special_group_id, created_at, updated_at",
 }
 
 /** Bot commission row (bills/bundles channel 'bots', anonymous buyer). Airtime has no bot rows here yet. */
@@ -129,7 +132,7 @@ const HUBTEL_CHECKOUT_TABLES: ReadonlySet<OrderTable> = new Set<OrderTable>(["us
  */
 async function loadPaidHubtelTx(db: SupabaseClient, table: OrderTable, ids: string[]): Promise<any[]> {
   if (ids.length === 0) return []
-  const rows = await inRows<any>(db, "hubtel_transactions", "order_id, hubtel_order_id, amount_paid, amount_after_charges, paid_at", "order_id", ids,
+  const rows = await inRows<any>(db, "hubtel_transactions", "order_id, hubtel_order_id, amount_paid, amount_after_charges, paid_at, mobile", "order_id", ids,
     (q) => q.eq("order_table", table).not("paid_at", "is", null))
   return rows.filter((t) => t.paid_at && t.hubtel_order_id && Number(t.amount_paid) > 0)
 }
@@ -142,6 +145,7 @@ function hubtelFactsOf(paidTx: any[], id: string): Pick<PaymentSource, "hubtel">
   const net = t.amount_after_charges == null ? NaN : Number(t.amount_after_charges)
   return {
     hubtel: {
+      ...(typeof t.mobile === "string" && t.mobile ? { mobile: t.mobile } : {}),
       orderId: String(t.hubtel_order_id),
       amountPaid: round2(Number(t.amount_paid)),
       amountAfterCharges: Number.isFinite(net) ? round2(net) : null,
@@ -186,7 +190,73 @@ export async function loadRefundableOrders(
     const rows = await inRows<any>(db, table, SELECT[table], "id", ids)
     out.push(...(isCommissionTable(table) ? await enrichCommission(db, table, rows) : await enrich(db, table, rows)))
   }
-  return out
+  return markHubtelCollections(db, out)
+}
+
+const UNSETTLED_ORDER = ["needs_review", "confirming", "pending"] as const
+
+/**
+ * Folds every live attempt (pending / confirming / paid / needs_review) of one order into the facts a refund needs,
+ * or null when there are none. An unsettled attempt wins over a paid one: its money may not have landed or may still
+ * land. The payer facts are taken from the single paid attempt only; with none or several they are null.
+ * Amount = amount_pesewas, what we asked Hubtel for. Not handler_amount_pesewas: when the merchant bears the fee that is
+ * the full price, more than the customer was asked for. Never Hubtel's gross either.
+ */
+export function foldHubtelAttempts(rows: HubtelAttemptRow[]): HubtelAttemptFacts | null {
+  const byRef = new Map<string, HubtelAttemptRow>()
+  for (const r of rows) byRef.set(r.reference, r)
+  const live = [...byRef.values()].filter((r) => isLiveHubtelStatus(r.status))
+  if (live.length === 0) return null
+  const paid = live.filter((r) => r.status === "paid")
+  const unsettled = UNSETTLED_ORDER.find((s) => live.some((r) => r.status === s))
+  const one = paid.length === 1 ? paid[0] : null
+  const requested = one ? one.amount_pesewas : null
+  return {
+    status: unsettled ?? "paid",
+    paidAttempts: paid.length,
+    msisdn: one && typeof one.msisdn === "string" && one.msisdn ? one.msisdn : null,
+    channel: one && typeof one.channel === "string" && one.channel ? one.channel : null,
+    requestedPesewas: typeof requested === "number" && Number.isInteger(requested) && requested > 0 ? requested : null,
+    paymentMethod: one && typeof one.payment_method === "string" && one.payment_method ? one.payment_method : null,
+  }
+}
+
+/**
+ * Orders with a Hubtel collection attempt that holds or may hold the customer's money. The payment then belongs to
+ * Hubtel whatever the row above looks like: Paystack never saw this reference, so it loses the reference and can't be
+ * offered a reversal. Eligibility refuses the refund unless the attempt is `paid` (hubtelAttempt carries what the
+ * Hubtel Send Money gateway needs). When exactly one paid attempt stored the payer's number, that number replaces
+ * whatever payer phone the row had. Looked up by the payment reference and the order id (USSD-style orders use their
+ * id). A failed lookup throws: never guess a payment is Paystack's.
+ */
+async function markHubtelCollections(db: SupabaseClient, orders: RefundableOrder[]): Promise<RefundableOrder[]> {
+  if (orders.length === 0) return orders
+  const attempts = await findHubtelAttempts(db, orders.flatMap((o) => [o.id, o.payment.reference]))
+  return orders.map((o) => {
+    const facts = foldHubtelAttempts([...(attempts.get(o.id) ?? []), ...(o.payment.reference ? attempts.get(o.payment.reference) ?? [] : [])])
+    if (!facts) return o
+    const payer = facts.status === "paid" && facts.paidAttempts === 1 && facts.msisdn ? normalizeGhanaPhone(facts.msisdn) : null
+    return {
+      ...o,
+      payment: {
+        ...o.payment, gateway: "hubtel" as const, reference: null, hubtelCollection: true, hubtelAttempt: facts,
+        ...(payer ? { payerPhone: payer } : {}),
+      },
+    }
+  })
+}
+
+/**
+ * Drops completed wallet rows whose money an admin already returned outside the app. A second payment on a closed order
+ * completes its own row before it parks, and the refund must go through the payment still held, whichever row comes first.
+ * Only an order with two or more completed rows can have one. A failed lookup throws, like markHubtelCollections.
+ */
+async function withoutHandRefundedPayments(db: SupabaseClient, walletPayments: any[]): Promise<any[]> {
+  const completed = walletPayments.filter((w) => w.status === "completed")
+  const refs = completed.filter((w) => completed.some((x) => x !== w && x.order_id === w.order_id)).map((w) => w.reference as string)
+  if (refs.length === 0) return walletPayments
+  const attempts = await findHubtelAttempts(db, refs)
+  return walletPayments.filter((w) => !(w.status === "completed" && isManuallyRefundedPayment(attempts.get(w.reference) ?? [])))
 }
 
 /** Per-shop credited/pending profit for one order, with each owner's balances (pesewa-exact sums). */
@@ -303,6 +373,7 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
       shopId: (r.shop_id as string | undefined) ?? null,
       shopName: r.shop_id ? (shopById.get(r.shop_id)?.shop_name as string | undefined) ?? null : null,
       ...(bot ? { botSurface: (r.bot_surface as string | null | undefined) ?? null } : {}),
+      ...(r.special_group_id ? { specialGroupId: String(r.special_group_id) } : {}),
       packageLabel: label.packageLabel,
       network: label.network,
       recipientPhone: displayPhone(label.recipient),
@@ -376,7 +447,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
   const walletOnly = isWalletOnlyTable(table)
   const fk = PROFIT_FK[table]
 
-  const [profits, tracking, claims, refunds, walletDebits, walletPayments, fulfillmentLogs, paidHubtelTx] = await Promise.all([
+  const [profits, tracking, claims, refunds, walletDebits, allWalletPayments, fulfillmentLogs, paidHubtelTx, hubtelWalletPayments] = await Promise.all([
     fk ? inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${fk}`, fk, ids, (q) => q.is("refund_id", null)) : Promise.resolve([] as any[]),
     inRows<any>(db, "mtn_fulfillment_tracking", `status, ${TRACKING_COL[table]}`, TRACKING_COL[table], ids),
     inRows<any>(db, "order_dispatch_claims", "order_id, last_outcome, attempts", "order_id", ids),
@@ -388,7 +459,10 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
     walletOnly ? inRows<any>(db, "fulfillment_logs", "order_id, status", "order_id", ids) : Promise.resolve([] as any[]),
     // Hubtel USSD checkout payments: any row of these tables may have been paid through Hubtel (no bot_surface here).
     HUBTEL_CHECKOUT_TABLES.has(table) ? loadPaidHubtelTx(db, table, ids) : Promise.resolve([] as any[]),
+    // Hubtel main-code wallet payments (0159). Of the four tables it covers, only ussd_orders is refundable here.
+    table === "ussd_orders" ? loadHubtelWalletPayments(db, "ussd_orders", ids) : Promise.resolve([] as HubtelWalletPaymentFact[]),
   ])
+  const walletPayments = await withoutHandRefundedPayments(db, allWalletPayments)
 
   const shopIds = [...new Set([
     ...profits.map((p) => p.shop_id as string),
@@ -495,6 +569,15 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
               walletUserId: null,
             }
       }
+    } else if (hubtelWalletPayments.some((w) => w.orderId === id)) {
+      // Paid from the wallet on the Hubtel main code. The payment row (written only by the paying RPC, with the debit)
+      // names the wallet and the amount debited; a transactions debit never overrides it. The wallet is the only rail.
+      const w = hubtelWalletPayments.find((x) => x.orderId === id)!
+      paid = w.amount
+      payment = {
+        gateway: "wallet", reference: null, payerPhone: displayPhone(r.dialing_phone), walletUserId: w.userId,
+        hubtelWallet: { paymentId: w.paymentId, state: w.state, amount: w.amount },
+      }
     } else {
       paid = Number(r.amount)
       const reference = (r.paystack_reference as string | null) ?? null
@@ -541,6 +624,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
         dispatchAttempts: claim ? Number(claim.attempts ?? 0) : null,
         trackingStatuses,
         externalOrderId: (r.external_order_id as string | null | undefined) != null ? String(r.external_order_id) : null,
+        ...(table === "shop_orders" ? { latePaid: isLatePaidShopOrder(r, walletPayments.some((w) => w.order_id === id && w.status === "completed")) } : {}),
       },
     })
   }
@@ -575,6 +659,21 @@ function commissionPendingQueries(db: SupabaseClient, table: CommissionTable): a
   ]
 }
 
+/**
+ * Shop orders closed before their payment landed (migration 0154). The list stays usable without them: until 0154 is
+ * applied, or if this read fails, they are left out (the admin alert still names the order).
+ */
+async function latePaidShopOrderIds(db: SupabaseClient, shopId?: string): Promise<string[]> {
+  try {
+    const { data, error } = await db.rpc("late_paid_shop_order_ids", { p_shop_id: shopId ?? null })
+    if (error) throw new Error(error.message)
+    return (data ?? []) as string[]
+  } catch (e) {
+    console.error("[REFUND] late-paid list unavailable:", e instanceof Error ? e.message : "unknown error")
+    return []
+  }
+}
+
 /** Newest-first merged page of paid+pending orders. Each table's top (page*pageSize) rows contain the global top. */
 export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuery): Promise<{ table: OrderTable; id: string; createdAt: string }[]> {
   const tables = (opts.table ? [opts.table] : (Object.keys(SELECT) as OrderTable[])).filter((t) => !(opts.shopId && (t === "ussd_orders" || isWalletOnlyTable(t)))) // these have no shop_id: never return them unscoped
@@ -586,6 +685,10 @@ export async function listPendingOrderRefs(db: SupabaseClient, opts: PendingQuer
       : isCommissionTable(table)
         ? commissionPendingQueries(db, table)
         : [db.from(table).select("id, created_at").eq("order_status", "pending").eq("payment_status", "completed")]
+    if (table === "shop_orders") {
+      const late = await latePaidShopOrderIds(db, opts.shopId)
+      if (late.length > 0) queries.push(db.from(table).select("id, created_at").in("id", late))
+    }
     for (let q of queries) {
       if (opts.shopId) q = q.eq("shop_id", opts.shopId)
       if (opts.q) {

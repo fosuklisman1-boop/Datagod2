@@ -71,6 +71,7 @@ export default function AirtimePage() {
   const [minAmount, setMinAmount]       = useState(1)
   const [maxAmount, setMaxAmount]       = useState(500)
   const [userRole, setUserRole]         = useState("user")
+  const [dealerRateLabel, setDealerRateLabel] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [phoneError, setPhoneError]     = useState("")
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -133,7 +134,16 @@ export default function AirtimePage() {
     setWalletBalance(walletRes.data?.balance ?? 0)
     const role = roleRes.data?.role || "user"
     setUserRole(role)
-    const isDealer = role === "dealer" || role === "sub_agent"
+    // Sub-agents get the dealer rate unless their own shop has dealer rates off or they have no shop at all.
+    // A failed read (e.g. the column not deployed yet) keeps today's behaviour: dealer. Mirrors lib/sub-agents/dealer-rates.ts.
+    let dealerRatesOn = true
+    if (role === "sub_agent") {
+      const { data: ownShop, error: ownShopError } = await supabase
+        .from("user_shops").select("dealer_rates_enabled").eq("user_id", session.user.id).limit(1).maybeSingle()
+      dealerRatesOn = ownShopError ? true : !!ownShop && ownShop.dealer_rates_enabled !== false
+    }
+    setDealerRateLabel(role === "dealer" || (role === "sub_agent" && dealerRatesOn))
+    const isDealer = role === "dealer" || (role === "sub_agent" && dealerRatesOn)
 
     // Fetch availability/fee/limit settings via curated public-config
     // (admin_settings is service-role only). Same real airtime_min_amount /
@@ -438,7 +448,7 @@ export default function AirtimePage() {
                       <span className="font-semibold text-foreground">GHS {airtimeToRecipient.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Service fee ({feeRateShown}%{(userRole === 'dealer' || userRole === 'sub_agent') ? ", dealer rate" : ""})</span>
+                      <span>Service fee ({feeRateShown}%{dealerRateLabel ? ", dealer rate" : ""})</span>
                       <span>GHS {feeAmount.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between border-t border-border pt-2 font-bold text-foreground">

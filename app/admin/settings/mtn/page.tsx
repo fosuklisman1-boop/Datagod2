@@ -17,6 +17,7 @@ import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import Link from "next/link"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
+import { KuntaniiCard } from "@/components/admin/kuntanii-card"
 
 interface MTNSettings {
   enabled: boolean
@@ -63,7 +64,7 @@ export default function MTNSettingsPage() {
   const [toggling, setToggling] = useState(false)
   const [gateSettings, setGateSettings] = useState<{ enabled: boolean; updated_at?: string } | null>(null)
   const [gateToggling, setGateToggling] = useState(false)
-  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal">("sykes")
+  const [mtnProvider, setMtnProvider] = useState<"sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal" | "kuntanii">("sykes")
   const [syncingPackages, setSyncingPackages] = useState(false)
   const [savingProvider, setSavingProvider] = useState(false)
   const [bisdelCategories, setBisdelCategories] = useState<string[]>([])
@@ -150,7 +151,7 @@ export default function MTNSettingsPage() {
   const [bpVerifyResult, setBpVerifyResult] = useState<any>(null)
   const [bpVerifying, setBpVerifying] = useState(false)
 
-  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal"
+  type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal" | "kuntanii"
   const [retrySequenceEnabled, setRetrySequenceEnabled] = useState(false)
   const [retrySequence, setRetrySequence] = useState<MTNProviderName[]>([])
   const [savingRetrySequence, setSavingRetrySequence] = useState(false)
@@ -1256,6 +1257,7 @@ export default function MTNSettingsPage() {
     sykes: "Sykes", datakazina: "DataKazina", xpress: "Xpress",
     eazyghdata: "EazyGhData", bisdel: "Bisdel", codecraft: "CodeCraft", agentportalgh: "AgentPortalGH",
     apexprime: "Apex Prime", bundleportal: "Bundle Portal",
+    kuntanii: "Kuntanii",
   }
 
   return (
@@ -2605,6 +2607,11 @@ export default function MTNSettingsPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="kuntanii" className="space-y-4 mt-6">
+            <ActivationCard providerKey="kuntanii" label="Kuntanii" />
+            <KuntaniiCard />
           </TabsContent>
         </Tabs>
       </div>

@@ -26,7 +26,10 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.chain }))
 vi.mock("../session", () => ({ setSession: h.setSession }))
 vi.mock("@/lib/shop-commerce/shop-code", () => ({
   resolveShopCode: async (code: string) =>
-    code === "1234" ? { status: "active", shopId: "shop-1", shopCodeId: "code-1", shopName: "Ama", parentShopId: null } : null,
+    code === "1234" ? { status: "active", shopId: "shop-1", shopCodeId: "code-1", shopName: "Ama", parentShopId: null }
+    : code === "5555" ? { status: "inactive", shopId: "shop-2", shopCodeId: "code-2", shopName: "Kofi", parentShopId: "p" }
+    : code === "6666" ? { status: "suspended", shopId: "shop-3", shopCodeId: "code-3", shopName: "Esi", parentShopId: null }
+    : null,
 }))
 vi.mock("../../ussd-service-visibility", () => ({ getUssdServiceVisibility: async () => ({ ...h.vis }) }))
 vi.mock("@/lib/ussd/bots/gate", () => ({ botMenusVisible: h.botMenusVisible, UZO_BOT_MENUS_HIDDEN: { networkPlans: false, payBills: false } }))
@@ -156,5 +159,18 @@ describe("handleEnterShopCode", () => {
   it("gate open: the bot items follow the legacy ones", async () => {
     h.bots = { networkPlans: true, payBills: true }
     expect((await handleEnterShopCode("1234", SID, ME)).message).toBe(expected({ np: true, pb: true }))
+  })
+
+  it("a closed shop (not open yet) never reaches the menu and says so", async () => {
+    const r = await handleEnterShopCode("5555", SID, ME)
+    expect(r).toEqual({ message: "This shop isn't open yet.\n\nEnter shop code:\n\n0. Exit", ussdServiceOp: 2 })
+    expect(h.setSession).toHaveBeenCalledWith(SID, { step: "ENTER_SHOP_CODE", dialingPhone: ME })
+    expect(r.message).not.toMatch(/data|bundle/i)
+  })
+
+  it("unknown and suspended codes keep the invalid-code reply", async () => {
+    const invalid = { message: "Invalid code. Try again.\n\nEnter shop code:\n\n0. Exit", ussdServiceOp: 2 }
+    expect(await handleEnterShopCode("9999", SID, ME)).toEqual(invalid)
+    expect(await handleEnterShopCode("6666", SID, ME)).toEqual(invalid)
   })
 })

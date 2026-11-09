@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { Resend } from 'resend'
+import { cleanDisplayName } from "@/lib/sub-agents/display-name"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -58,6 +59,15 @@ interface BrevoResponse {
  * Premium HTML Template Wrapper
  * Design: Dark Grid Header, Gold Accents, Clean White Card
  */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
 function wrapHtml(content: string, title: string, showHero: boolean = false): string {
   const logoUrl = `${APP_URL}/apple-touch-icon.png`
 
@@ -636,6 +646,54 @@ export const EmailTemplates = {
       <a href="${inviteUrl}" class="button-primary">Accept Invitation</a>
     `, "Invitation", true),
   }),
+
+  // shopName is typed on a public signup form: single-line, 40 chars, HTML-escaped. The subject carries no name.
+  subAgentCatalogNeeded: (shopName: string, catalogUrl: string) => ({
+    subject: "A new sub-agent joined your network - set your sub-agent prices",
+    html: wrapHtml(`
+      <div class="text-center">
+        <span class="icon-large">🤝</span>
+        <h2>New sub-agent waiting</h2>
+        <p><strong>${escapeHtml(cleanDisplayName(shopName))}</strong> just joined your network from your storefront.</p>
+      </div>
+
+      <div class="info-card">
+        <p>You have not set your sub-agent prices yet, so they cannot start selling.</p>
+      </div>
+
+      <a href="${escapeHtml(catalogUrl)}" class="button-primary">Set Sub-agent Prices</a>
+    `, "Sub-agent", true),
+  }),
+
+  // Storefront joiner who has not set prices yet: stage 1 (10 min), 2 (48 h), 3 (72 h, last). No user-chosen names.
+  subAgentPriceReminder: (stage: number, link: string) => {
+    const last = stage >= 3
+    const subject = last
+      ? "Last reminder: set your prices and go live"
+      : stage === 2
+        ? "Your shop is still closed - set your prices and go live"
+        : "Set your prices and go live"
+    const lead = last
+      ? "This is your last reminder. Your sub-agent shop is still closed."
+      : stage === 2
+        ? "Your sub-agent shop is still closed."
+        : "Welcome! Your sub-agent shop is ready."
+    return {
+      subject,
+      html: wrapHtml(`
+      <div class="text-center">
+        <h2>Set your prices and go live</h2>
+        <p>${escapeHtml(lead)}</p>
+      </div>
+
+      <div class="info-card">
+        <p>Set your selling prices and your shop opens straight away, so your customers can start buying.</p>
+      </div>
+
+      <a href="${escapeHtml(link)}" class="button-primary">Set My Prices</a>
+    `, "Sub-agent", true),
+    }
+  },
 
   subscriptionExpiry1Day: (planName: string, expiryDate: string) => ({
     subject: "Subscription Expiring Soon",

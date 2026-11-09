@@ -10,14 +10,21 @@ const byPath = (p: string) => specs.find((s) => s.path === p)!
 
 describe("buildJobSpecs", () => {
   it("builds one spec per real vercel.json cron, none unclassified", () => {
-    expect(specs).toHaveLength(41)
-    expect(new Set(specs.map((s) => s.path)).size).toBe(41)
+    expect(specs).toHaveLength(44)
+    expect(new Set(specs.map((s) => s.path)).size).toBe(44)
     expect(specs.every((s) => ["A", "B", "C"].includes(s.batch))).toBe(true)
   })
 
-  it("batch sizes match the plan (11 / 9 / 21)", () => {
+  it("batch sizes match the plan (12 / 9 / 23)", () => {
     const n = (b: string) => specs.filter((s) => s.batch === b).length
-    expect([n("A"), n("B"), n("C")]).toEqual([11, 9, 21])
+    expect([n("A"), n("B"), n("C")]).toEqual([12, 9, 23])
+  })
+
+  it("schedules the sub-agent price reminders every 5 minutes as an overlap-safe, non-fulfillment job", () => {
+    const s = byPath("/api/cron/sub-agent-price-reminders")
+    expect(s.cron).toBe("*/5 * * * *")
+    expect(s.batch).toBe("A")
+    expect(s.fulfillment).toBe(false)
   })
 
   it("uses the dg: ownership title prefix and full URL", () => {
@@ -35,9 +42,11 @@ describe("buildJobSpecs", () => {
       "/api/cron/withdrawals-status-check",
       "/api/cron/reconcile-paystack-refunds",
       "/api/cron/sync-mtn-status/xpress",
+      "/api/cron/sync-mtn-status/kuntanii",
       "/api/cron/sync-afa-status/apexprime",
       "/api/cron/sync-codecraft-status",
       "/api/cron/hubtel-callbacks",
+      "/api/cron/hubtel-payments-sweep",
     ]) {
       expect(byPath(p).batch).toBe("C")
       expect(byPath(p).fulfillment).toBe(true)

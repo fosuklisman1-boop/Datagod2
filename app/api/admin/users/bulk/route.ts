@@ -30,7 +30,7 @@ const AUDIT_CHUNK = 100
  *
  * Only a signed-in admin (the CRON bypass is refused: every change is audited under the acting admin). At most
  * 200 explicit userIds. `matching` (every user matching the list filters, resolved here) only for notify, up to
- * the broadcast limit of 5000. The acting admin is skipped, with an error, for role and suspension changes.
+ * NOTIFY_MATCHING_MAX (5000). The acting admin is skipped, with an error, for role and suspension changes.
  * Role / suspension changes write one admin_audit_log row per user changed (in the shared helpers); users already
  * in the requested state are reported ok with "unchanged" and get no row. notify writes one 'user_notify' row per
  * user notified.

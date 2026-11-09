@@ -5,8 +5,8 @@ import { checkBillAmount, type BillsConfig } from "@/lib/bills/config"
 import { billTokenHash, billsGate, billsHubtelGate, verifyBill, type BillsDeps, type VerifyResult } from "@/lib/bills/service"
 import { signBillToken, verifyBillToken } from "@/lib/bills/token"
 import {
-  checkPendingCaps, fail, normaliseBuyer, parseAmount, parseExpectedPay, priceMatches,
-  storefrontGroupOn, NOT_AVAILABLE, PRICE_UPDATED, UNAVAILABLE, type CapDeps, type Fail,
+  checkPendingCaps, fail, normaliseBuyer, parseAmount, parseExpectedPay, paymentFeeIsWaived, priceMatches,
+  storefrontGroupOn, withoutPaymentFee, NOT_AVAILABLE, PRICE_UPDATED, UNAVAILABLE, type CapDeps, type Fail,
 } from "./shop"
 import { maskName } from "./mask"
 
@@ -18,7 +18,9 @@ export interface StorefrontBillInsert {
   reference_code: string; user_id: null; channel: "storefront"; shop_id: string
   biller: BillerKey; account_number: string; phone: string | null; email: string | null; broadband_account: string | null
   session_id: string | null; customer_name: string | null; verified: boolean
-  amount: number; paid_amount: number; payment_fee_amount: number
+  amount: number; paid_amount: number
+  /** NULL: priced with no fee because the gateway waives it (commissionPriceChange reads this). */
+  payment_fee_amount: number | null
   status: "pending"; payment_status: "unpaid"
   buyer_name: string | null; buyer_email: string; buyer_phone: string
   cashback_amount: number | null; shop_share_amount: number | null; cashback_rate: number | null
@@ -40,6 +42,8 @@ export interface StorefrontBillsDeps extends BillsDeps {
   /** This shop's storefront order created from the verify token with this hash, or null. */
   findStorefrontOrderByHash(shopId: string, verifyTokenHash: string): Promise<StorefrontOrderRow | null>
   caps: CapDeps
+  /** Decided before the order is written: a waived fee never enters paid_amount. Absent or failing: not waived. */
+  paymentFeeWaived?(): Promise<boolean>
 }
 
 export interface InitializeResult {
@@ -147,8 +151,9 @@ export async function initializeStorefrontBill(d: StorefrontBillsDeps, shopId: s
   if (bad) return fail(400, bad)
   const face = Math.round(amount * 100) / 100
 
-  // Hubtel receives the face; the customer pays face − cashback + payment fee.
-  const q = quoteStorefront({ serviceKey: BILLERS[v.biller].serviceKey, provider: "hubtel", faceAmount: face, buyer: "customer" }, g.cfg)
+  // Hubtel receives the face; the customer pays face − cashback + payment fee, unless the payment gateway waives it.
+  const feeWaived = await paymentFeeIsWaived(d)
+  const q = quoteStorefront({ serviceKey: BILLERS[v.biller].serviceKey, provider: "hubtel", faceAmount: face, buyer: "customer" }, feeWaived ? withoutPaymentFee(g.cfg) : g.cfg)
   if (!priceMatches(expectedPay, q.payAmount)) {
     return {
       ...fail(409, PRICE_UPDATED),
@@ -164,7 +169,7 @@ export async function initializeStorefrontBill(d: StorefrontBillsDeps, shopId: s
       reference_code: reference, user_id: null, channel: "storefront", shop_id: shopId,
       biller: v.biller, account_number: v.account, phone: v.phone, email: v.email, broadband_account: v.broadbandAccount,
       session_id: v.sessionId, customer_name: v.customerName, verified: v.verified,
-      amount: face, paid_amount: q.payAmount, payment_fee_amount: q.paymentFee,
+      amount: face, paid_amount: q.payAmount, payment_fee_amount: feeWaived ? null : q.paymentFee,
       status: "pending", payment_status: "unpaid",
       buyer_name: b.buyer.name, buyer_email: b.buyer.email, buyer_phone: b.buyer.phone,
       cashback_amount: q.applied ? q.customerCashback : null,

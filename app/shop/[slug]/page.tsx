@@ -1,5 +1,6 @@
 import { shopService } from "@/lib/shop-service"
 import ShopStorefront from "./storefront-client"
+import { getShopPublicState } from "@/lib/sub-agents/open-shop"
 
 // Thin server shell: fetches just enough (logo_url, shop_name) so the
 // client component's initial loading screen can show the shop's OWN
@@ -15,11 +16,14 @@ export default async function ShopPage({
 }) {
   const { slug } = await params
   const shop = await shopService.getShopBySlug(slug).catch(() => null)
+  // Only for a shop visitors can't see: an unpriced storefront joiner shows "isn't open yet", not "not found".
+  const publicState = shop ? "open" : await getShopPublicState(slug)
 
   return (
     <ShopStorefront
       initialLogoUrl={shop?.logo_url ?? null}
       initialShopName={shop?.shop_name ?? null}
+      publicState={publicState}
     />
   )
 }

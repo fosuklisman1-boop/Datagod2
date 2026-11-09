@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
       .from("user_shops")
       .select("id")
       .or(shopHandleOrFilter(shopSlug))
+      .eq("is_active", true)
       .single()
     if (!shop) {
       return NextResponse.json({ active: false, code: null })

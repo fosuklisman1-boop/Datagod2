@@ -37,7 +37,7 @@ const pick = (label: string) => (screen: string): string => {
 
 const FLOWS: Record<string, { menu: string; steps: Step[] }> = {
   // MTN, first package, recipient
-  data: { menu: "Buy Data Bundle", steps: ["1", "1", recipient] },
+  data: { menu: "Internet Bundles", steps: [screen => (screen.startsWith("Internet Bundles") ? pick("Data Bundles")(screen) : ""), "1", "1", recipient] },
   // recipient, amount the caller pays (an unknown prefix would add a network-pick screen)
   airtime: { menu: "Buy Airtime", steps: [recipient, process.env.AMOUNT ?? "1"] },
   // Buy Vouchers, first board in stock, quantity 1
@@ -60,7 +60,7 @@ const shop = process.env.SHOP === "1"
 const shopCode = process.env.SHOP_CODE
 const SHOP_FLOWS: Record<string, { menu: string; steps: Step[] }> = {
   // first network the shop sells, first package, recipient
-  data: { menu: "Buy Data Bundle", steps: ["1", "1", recipient] },
+  data: { menu: "Internet Bundles", steps: [screen => (screen.startsWith("Internet Bundles") ? pick("Data Bundles")(screen) : ""), "1", "1", recipient] },
   // recipient, amount the caller pays (an unknown prefix would add a network-pick screen)
   airtime: { menu: "Buy Airtime", steps: [recipient, process.env.AMOUNT ?? "1"] },
   // first board in stock, quantity 1

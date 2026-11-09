@@ -20,8 +20,12 @@ export const NOTIFY_CHANNELS = ["in_app", "push", "sms"] as const
 export type NotifyChannel = (typeof NOTIFY_CHANNELS)[number]
 export const SUSPEND_REASON_MIN = 3
 export const SUSPEND_REASON_MAX = 500
-/** Most users one notify-all-matching may reach: the Broadcast page's per-broadcast limit. */
-export const NOTIFY_MATCHING_MAX = BROADCAST_LIMITS.recipientsMax
+/**
+ * Most users one notify-all-matching may reach. Kept at 5,000, below the Broadcast page's per-broadcast limit
+ * (BROADCAST_LIMITS.recipientsMax): this request also writes the in-app rows and audit rows itself, in paced
+ * chunks, so it is bounded by its own maxDuration. Larger audiences go through the Broadcast page.
+ */
+export const NOTIFY_MATCHING_MAX = Math.min(5000, BROADCAST_LIMITS.recipientsMax)
 
 export type BulkTarget = { kind: "ids"; ids: string[] } | { kind: "matching"; filters: UsersListFilters }
 

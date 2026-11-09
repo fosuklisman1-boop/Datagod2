@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { getWholesaleCredits } from "./wholesale"
 import { notifyAdminSmsShortfall } from "./notify"
 import { isSmsEnabled } from "./kill-switch"
+import type { Gateway } from "@/lib/payment-gateway/config"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,6 +14,15 @@ export interface ActivationResult {
   ok: boolean
   error?: string
   alreadyDone?: boolean
+}
+
+/** A start's answer. httpStatus and code are set when the gateway layer refused; the route defaults to 400. */
+export interface ActivationStartResult {
+  ok: boolean
+  reference?: string
+  error?: string
+  code?: string
+  httpStatus?: number
 }
 
 export interface BonusResult {
@@ -77,8 +87,9 @@ export async function initActivationPaystack(
   userId: string,
   accountId: string,
   userEmail: string,
-  channels?: string[]
-): Promise<{ ok: boolean; authorizationUrl?: string; reference?: string; error?: string }> {
+  channels?: string[],
+  opts: { redirectUrl?: () => Promise<string> } = {},
+): Promise<ActivationStartResult & { authorizationUrl?: string }> {
   if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   const account = await fetchAccount(accountId)
   if (!account) return { ok: false, error: "Account not found" }
@@ -89,24 +100,46 @@ export async function initActivationPaystack(
   const fee = await fetchActivationFee()
   if (fee <= 0) return { ok: false, error: "Activation fee not configured" }
 
-  const { initializePayment } = await import("@/lib/paystack")
-  const reference = `smsactivate-${accountId}-${Date.now()}`
-  const init = await initializePayment({
+  // When direct charge is the legit path, `channels` strips mobile_money so the hosted page
+  // can't prompt an arbitrary victim number (mirrors the Buy-Credits route). Only Paystack can
+  // strip it, so such a request stays there.
+  const { SMS_SURFACE, smsHostedGateway, smsStartRefusal } = await import("./gateway-start")
+  const gateway = await smsHostedGateway(!!channels, fee)
+  const reused = await activationReplay(accountId, gateway)
+  if (reused.kind === "refuse") return { ok: false, error: reused.body.error, code: reused.body.code, httpStatus: reused.status }
+  const reference = reused.kind === "replay" ? reused.reference : `smsactivate-${accountId}-${Date.now()}`
+  const params = {
     email: userEmail,
     amount: fee,
     reference,
     purpose: "SMS Account Activation",
-    // When direct charge is the legit path, strip mobile_money so the hosted page
-    // can't prompt an arbitrary victim number (mirrors the Buy-Credits route).
     channels,
     metadata: {
       type: "sms_activation",
       sms_account_id: accountId,
       fee,
     },
-  })
+    // Paystack returns to its dashboard's callback; Hubtel's return route needs somewhere to send the customer.
+    ...(gateway === "hubtel" && opts.redirectUrl ? { redirectUrl: await opts.redirectUrl() } : {}),
+  }
 
-  return { ok: true, authorizationUrl: init.authorizationUrl, reference: init.reference }
+  try {
+    const { initializePayment } = await import("@/lib/paystack")
+    const { startHostedPayment } = await import("@/lib/payment-gateway/start")
+    const init = channels
+      ? await initializePayment(params)
+      : await startHostedPayment(SMS_SURFACE, { ...params, reusedReference: reused.kind === "replay" })
+    return { ok: true, authorizationUrl: init.authorizationUrl, reference: init.reference }
+  } catch (e) {
+    const refusal = smsStartRefusal(e)
+    if (!refusal) throw e
+    return { ok: false, error: refusal.body.error, code: refusal.body.code, httpStatus: refusal.status }
+  }
+}
+
+async function activationReplay(accountId: string, gateway: Gateway) {
+  const { decideAttemptReplay } = await import("@/lib/payment-gateway/web-replay")
+  return decideAttemptReplay(supabaseAdmin, "sms", gateway, { prefix: `smsactivate-${accountId}-` })
 }
 
 /** Direct MoMo charge for activation (on-page prompt, no redirect). The
@@ -118,8 +151,10 @@ export async function initActivationDirectCharge(
   accountId: string,
   userEmail: string,
   phone: string,
-  provider: "mtn" | "vod" | "tgo"
-): Promise<{ ok: boolean; reference?: string; status?: string; error?: string }> {
+  provider: "mtn" | "vod" | "tgo",
+  /** Set by the route once it has checked the number; only then can the charge go to Hubtel. */
+  opts: { verifiedPayer?: boolean } = {},
+): Promise<ActivationStartResult & { status?: string }> {
   if (!(await isSmsEnabled())) return { ok: false, error: "SMS_DISABLED" }
   const account = await fetchAccount(accountId)
   if (!account) return { ok: false, error: "Account not found" }
@@ -130,14 +165,25 @@ export async function initActivationDirectCharge(
   const fee = await fetchActivationFee()
   if (fee <= 0) return { ok: false, error: "Activation is free — activate from your wallet." }
 
-  const { chargeMobileMoney } = await import("@/lib/paystack")
-  const reference = `smsactivate-${accountId}-${Date.now()}`
-  const charge = await chargeMobileMoney({
-    email: userEmail, amount: fee, phone, provider, reference,
-    metadata: { type: "sms_activation", sms_account_id: accountId, fee },
-    channel: "sms_activation_momo", purpose: "SMS Account Activation",
-  })
-  return { ok: true, reference, status: charge.status }
+  const verifiedPayer = opts.verifiedPayer === true
+  const reused = await activationReplay(accountId, verifiedPayer ? "hubtel" : "paystack")
+  if (reused.kind === "refuse") return { ok: false, error: reused.body.error, code: reused.body.code, httpStatus: reused.status }
+  const reference = reused.kind === "replay" ? reused.reference : `smsactivate-${accountId}-${Date.now()}`
+  const { SMS_SURFACE, smsStartRefusal } = await import("./gateway-start")
+  const { startMomoCharge } = await import("@/lib/payment-gateway/start")
+  try {
+    const charge = await startMomoCharge(SMS_SURFACE, {
+      email: userEmail, amount: fee, phone, provider, reference,
+      metadata: { type: "sms_activation", sms_account_id: accountId, fee },
+      channel: "sms_activation_momo", purpose: "SMS Account Activation",
+      verifiedPayer, reusedReference: reused.kind === "replay",
+    })
+    return { ok: true, reference, status: charge.status }
+  } catch (e) {
+    const refusal = smsStartRefusal(e)
+    if (!refusal) throw e
+    return { ok: false, error: refusal.body.error, code: refusal.body.code, httpStatus: refusal.status }
+  }
 }
 
 /** Finalize activation from the Paystack webhook. Idempotent via the account's status: a

@@ -253,7 +253,7 @@ export default function WalletPage() {
         // Remove from pending list
         setPendingPayments(prev => prev.filter(p => p.id !== payment.id))
       } else if (result.status === "failed" || result.status === "abandoned") {
-        toast.error(`Payment ${result.status}. This payment was not completed on Paystack.`)
+        toast.error(`Payment ${result.status}. This payment was not completed.`)
         setPendingPayments(prev => prev.filter(p => p.id !== payment.id))
       } else {
         toast.info("Payment is still processing. Please try again in a few minutes.")
@@ -429,7 +429,7 @@ export default function WalletPage() {
                 Pending Payments ({pendingPayments.length})
               </CardTitle>
               <CardDescription>
-                These payments are still processing. If you completed payment on Paystack, click &quot;Verify&quot; to credit your wallet.
+                These payments are still processing. If you completed the payment, click &quot;Verify&quot; to credit your wallet.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">

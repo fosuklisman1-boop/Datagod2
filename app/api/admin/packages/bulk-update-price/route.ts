@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { revalidateTag } from "next/cache"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import {
   computePackagePriceUpdate,
@@ -145,6 +146,8 @@ export async function POST(req: NextRequest) {
   }
 
   const skipped: SkippedResult[] = [...preSkipped, ...failedWrites]
+
+  if (updated.length > 0) revalidateTag("seo-live-facts")
 
   // Best-effort audit trail — never blocks the response on failure (same
   // fire-and-forget pattern as app/api/admin/update-balance/route.ts).

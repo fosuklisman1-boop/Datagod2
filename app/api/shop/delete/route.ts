@@ -55,6 +55,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Shop name confirmation does not match" }, { status: 400 })
   }
 
+  // Read before the delete. Separate from the ownership lookup so a deploy ahead of migration 0148
+  // (column missing) cannot break shop deletion: an error here just means "not a storefront joiner".
+  const { data: joinRow } = await supabaseAdmin
+    .from("user_shops")
+    .select("joined_via")
+    .eq("id", shopId)
+    .maybeSingle()
+  const joinedViaStorefront = joinRow?.joined_via === "storefront"
+
   const { data: balanceRow } = await supabaseAdmin
     .from("shop_available_balance")
     .select("available_balance")
@@ -89,6 +98,25 @@ export async function POST(request: NextRequest) {
   if (deleteErr) {
     console.error("[SHOP-DELETE] Delete failed:", deleteErr.message)
     return NextResponse.json({ error: "Failed to delete shop" }, { status: 500 })
+  }
+
+  // A storefront joiner became sub_agent only by owning this shop. Without it they must not keep the role
+  // (and its dealer rates). Conditional on role so an admin-changed role is never overwritten. Invited
+  // sub-agents and every other shop are untouched.
+  if (joinedViaStorefront) {
+    const { error: roleErr } = await supabaseAdmin
+      .from("users")
+      .update({ role: "user" })
+      .eq("id", user.id)
+      .eq("role", "sub_agent")
+    if (roleErr) {
+      console.error("[SHOP-DELETE] Role reset failed:", roleErr.message)
+    } else {
+      const { error: metaErr } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
+        user_metadata: { role: "user" },
+      })
+      if (metaErr) console.warn("[SHOP-DELETE] Could not update auth metadata:", metaErr.message)
+    }
   }
 
   console.log(`[SHOP-DELETE] Shop ${shopId} (${shop.shop_name}) deleted by owner ${user.id}`)

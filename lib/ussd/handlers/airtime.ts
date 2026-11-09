@@ -7,11 +7,15 @@ import {
   airtimeConfirmMenu, airtimePaymentMethodMenu, airtimeCashbackPaymentMethodMenu, waWalletShort,
 } from "../menus"
 import { setSession } from "../session"
+import { setWaSession } from "../../whatsapp-bot/session"
 import { networkNickname } from "../network-labels"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
+import { dialerGetsDealerRate } from "../../sub-agents/dealer-rates"
 import { liveWalletBalance } from "../wallet-balance"
-import { chargeMobileMoney } from "../../paystack"
+import {
+  guardedReprice, isUssdHubtelPayer, pendingOrderAmountFor, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdPrice,
+} from "../gateway-charge"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { secureReference } from "../../secure-random"
 import { sendSMS, SMSTemplates } from "../../sms-service"
@@ -80,9 +84,8 @@ function toLocal(phone: string): string {
   return phone
 }
 
-async function dialerFeeRate(network: string, dialerRole?: string): Promise<number> {
-  const isDealer = dialerRole === "dealer" || dialerRole === "sub_agent"
-  return airtimeBaseFeeRate(network, isDealer)
+async function dialerFeeRate(network: string, dialer: { role?: string; rateTier?: "customer" | "dealer" }): Promise<number> {
+  return airtimeBaseFeeRate(network, dialerGetsDealerRate(dialer))
 }
 
 // ── AIRTIME_ENTER_RECIPIENT ───────────────────────────────────────────────────
@@ -199,7 +202,7 @@ export async function handleAirtimeEnterAmount(
   }
 
   // Not applied: today's fee pricing, unchanged.
-  const rate = await dialerFeeRate(network, dialer.role)
+  const rate = await dialerFeeRate(network, dialer)
   const { fee, toDeliver } = splitInclusive(amount, rate)
 
   await setSession(sessionId, {
@@ -279,7 +282,7 @@ export async function handleAirtimeConfirm(
     fee = 0
     toDeliver = amount
   } else {
-    const rate = await dialerFeeRate(network, dialer.role)
+    const rate = await dialerFeeRate(network, dialer)
     ;({ fee, toDeliver } = splitInclusive(amount, rate))
   }
   // MoMo charge = the row's total_paid as inserted. With cashback the wallet pays the quote's base
@@ -299,6 +302,13 @@ export async function handleAirtimeConfirm(
     await setSession(sessionId, { step: "MAIN", dialingPhone })
     return end("Payment not available for your number.")
   }
+
+  // The MoMo price on each gateway: cashback carries a Paystack payment fee (Hubtel drops it); legacy airtime has none
+  // (its fee is margin). Resolved before the order is written.
+  const momoPrice: UssdPrice = { hubtel: cb ? cb.base : amount, paystack: price }
+  const verifiedPayer = !!provider && isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === "whatsapp" ? sessionId : dialingPhone, provider })
+  const written = await ussdOrderAmount(ussdChargeSurface(channel), verifiedPayer, momoPrice)
+  const pricedForHubtel = written !== momoPrice.paystack
 
   const referenceCode = secureReference("AT", 2, 3)
   const { data: order, error: orderErr } = await supabase
@@ -322,6 +332,8 @@ export async function handleAirtimeConfirm(
       channel: "ussd",
       // Applied: face delivered, total_paid = payAmount, fee_amount 0 (fee in payment_fee_amount), cashback snapshot, no shop share.
       ...(cb ? uzoCashbackAirtimeColumns(cb, false) : {}),
+      // Priced for Hubtel: no Paystack payment fee (Hubtel adds its own charge).
+      ...(pricedForHubtel ? { total_paid: written, payment_fee_amount: 0 } : {}),
     }])
     .select("id")
     .single()
@@ -332,7 +344,10 @@ export async function handleAirtimeConfirm(
   }
 
   // Pin the charged prices for the payment-method step: MoMo = the row's total_paid, wallet = base.
-  const priced = cb ? { airtimeCashbackPay: cb.payAmount, airtimeCashbackWalletPay: cb.base } : {}
+  const priced = {
+    ...(cb ? { airtimeCashbackPay: cb.payAmount, airtimeCashbackWalletPay: cb.base } : {}),
+    ...(pricedForHubtel ? { pendingOrderAmount: { orderId: order.id, amount: written } } : {}),
+  }
 
   if (walletEligible) {
     await setSession(sessionId, {
@@ -347,8 +362,8 @@ export async function handleAirtimeConfirm(
       ...priced,
     })
     return cont(cb
-      ? airtimeCashbackPaymentMethodMenu(walletPrice, price, payer.balance!)
-      : airtimePaymentMethodMenu(price, payer.balance!))
+      ? airtimeCashbackPaymentMethodMenu(walletPrice, written, payer.balance!)
+      : airtimePaymentMethodMenu(written, payer.balance!))
   }
 
   await setSession(sessionId, {
@@ -359,7 +374,7 @@ export async function handleAirtimeConfirm(
     pendingOrderTable: "airtime_orders",
     ...priced,
   })
-  return chargeAirtimeMomo(sessionId, session, order.id, price, provider!, channel)
+  return chargeAirtimeMomo(sessionId, session, order.id, momoPrice, written, provider!, channel)
 }
 
 // ── AIRTIME_PAYMENT_METHOD ────────────────────────────────────────────────────
@@ -387,7 +402,9 @@ export async function handleAirtimePaymentMethod(
   if (input.trim() === "2") {
     const provider = paystackProviderFromPhone(dialingPhone)
     if (!provider) return end("Payment not available for your number.")
-    return chargeAirtimeMomo(sessionId, session, orderId, amount, provider, channel)
+    // Charged as it was priced: the Hubtel price only when this order was written at it.
+    const momoPrice: UssdPrice = { hubtel: walletCashback ?? amount, paystack: amount }
+    return chargeAirtimeMomo(sessionId, session, orderId, momoPrice, pendingOrderAmountFor(session, orderId) ?? amount, provider, channel)
   }
 
   if (input.trim() === "1") {
@@ -459,29 +476,40 @@ async function chargeAirtimeMomo(
   sessionId: string,
   session: USSDSession,
   orderId: string,
-  amount: number,
+  price: UssdPrice,
+  written: number,
   provider: "mtn" | "vod" | "tgo",
   channel: Channel
 ): Promise<UzoResponse> {
   const dialingPhone = session.dialingPhone!
   const localDialing = toLocal(dialingPhone)
   const email = await resolveEmail(dialingPhone)
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === "whatsapp" ? sessionId : dialingPhone, provider })
+  const feeBack = Math.round((price.paystack - written) * 100) / 100
 
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount,
-        phone: dialingPhone,
-        provider,
-        reference: orderId,
-        metadata: {
-          source: "ussd_airtime",
-          airtime_order_id: orderId,
-          recipient_phone: session.airtimeRecipient,
-          network: session.airtimeNetwork,
+      const { status, amount } = await startUssdCharge({
+        surface: ussdChargeSurface(channel),
+        verifiedPayer,
+        price,
+        written,
+        params: {
+          email,
+          phone: dialingPhone,
+          provider,
+          reference: orderId,
+          metadata: {
+            source: "ussd_airtime",
+            airtime_order_id: orderId,
+            recipient_phone: session.airtimeRecipient,
+            network: session.airtimeNetwork,
+          },
         },
+        reprice: guardedReprice(supabase, "airtime_orders", orderId, {
+          from: { total_paid: written }, set: { total_paid: price.paystack, payment_fee_amount: feeBack }, guards: { payment_status: "pending_payment" },
+        }),
       })
       try {
         await supabase.from("payment_attempts").insert({
@@ -497,8 +525,9 @@ async function chargeAirtimeMomo(
           .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
           .eq("id", orderId)
         if (channel === "whatsapp") {
-          await setSession(dialingPhone, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: orderId, pendingOrderTable: "airtime_orders" })
-          await sendWhatsAppText(dialingPhone, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+          // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
+          await setWaSession(sessionId, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: orderId, pendingOrderTable: "airtime_orders" })
+          await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
         } else {
           sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: orderId }).catch(() => {})
         }

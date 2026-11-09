@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { revalidateTag } from "next/cache"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -35,6 +36,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
 
+    revalidateTag("seo-live-facts")
     return NextResponse.json({ success: true, message: "Package deleted successfully" })
   } catch (error: any) {
     console.error("API error:", error)

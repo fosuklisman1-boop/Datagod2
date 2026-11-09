@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import type { EmailOtpType } from "@supabase/supabase-js"
-import { resolvePostAuthRedirect } from "@/lib/auth-complete"
+import { joinConfirmationFrom, resolvePostAuthRedirect } from "@/lib/auth-complete"
 
 /**
  * Email confirmation / magic-link verifier on OUR domain.
@@ -70,6 +70,8 @@ export async function GET(request: NextRequest) {
     userMetadata: user.user_metadata,
     accessToken: session?.access_token,
     next,
+    // Only a signup confirmation can finalize a storefront join (nonce from the link, checked against the intent).
+    joinConfirmation: joinConfirmationFrom(type, searchParams, user),
   })
 
   return NextResponse.redirect(`${origin}${target}`)

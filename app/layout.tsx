@@ -15,6 +15,9 @@ import { BackgroundSyncRegister } from "@/components/background-sync-register";
 import { PushNotificationRegister } from "@/components/push-notification-register";
 import { PushOptInBanner } from "@/components/push-opt-in-banner";
 import { MaintenanceScreen } from "@/components/maintenance-screen";
+import { FirstTouchCapture } from "@/components/first-touch-capture";
+import { GoogleAnalyticsGuard } from "@/components/google-analytics-guard";
+import { gaBootstrapScript, shouldLoadGa } from "@/lib/analytics/google-analytics";
 import { generateOrganizationSchema, generateHomepageSchema, generateLocalBusinessSchema, generateSiteNavigationSchema } from "@/lib/structured-data";
 
 // Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
@@ -205,6 +208,8 @@ export default async function RootLayout({
   // env var (set to "true"); requires a redeploy to take effect on Vercel.
   const maintenanceMode = process.env.MAINTENANCE_MODE === "true";
 
+  const gaEnabled = shouldLoadGa({ host: headersList.get("host"), vercelEnv: process.env.VERCEL_ENV });
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -267,6 +272,8 @@ export default async function RootLayout({
             `,
           }}
         />
+        {/* Google Analytics: production main site, public pages only */}
+        {gaEnabled && <script nonce={nonce} dangerouslySetInnerHTML={{ __html: gaBootstrapScript() }} />}
         {/* Paystack Script */}
         <script nonce={nonce} src="https://js.paystack.co/v1/inline.js" async></script>
         {/* Service Worker Registration - inline for PWA detection */}
@@ -297,6 +304,8 @@ export default async function RootLayout({
                 <PushOptInBanner />
                 <ChristmasThemeProvider />
                 <InactivityLogoutProvider />
+                <FirstTouchCapture />
+                {gaEnabled && <GoogleAnalyticsGuard />}
                 {children}
                 <Toaster />
               </AuthProvider>

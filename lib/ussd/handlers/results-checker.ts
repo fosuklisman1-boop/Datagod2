@@ -9,11 +9,12 @@ import {
   rcCheckConfirmMenu, rcCheckPaymentMethodMenu, waWalletShort,
 } from "../menus"
 import { setSession } from "../session"
+import { setWaSession } from "../../whatsapp-bot/session"
 import { isValidDob } from "../../results-check-validation"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
 import { liveWalletBalance } from "../wallet-balance"
-import { chargeMobileMoney } from "../../paystack"
+import { isUssdHubtelPayer, samePrice, startUssdCharge, ussdChargeSurface } from "../gateway-charge"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { secureReference } from "../../secure-random"
 import { sendSMS, SMSTemplates } from "../../sms-service"
@@ -291,17 +292,24 @@ async function createRcOrderAndChargeMomo(
   }
 
   const email = await resolveEmail(dialingPhone)
+  // No Paystack fee on vouchers: the same amount on either gateway.
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === "whatsapp" ? sessionId : dialingPhone, provider })
 
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount: total,
-        phone: dialingPhone,
-        provider,
-        reference: order.id,
-        metadata: { source: "ussd_results_checker", results_checker_order_id: order.id, exam_board: board, quantity: qty },
+      const { status } = await startUssdCharge({
+        surface: ussdChargeSurface(channel),
+        verifiedPayer,
+        price: samePrice(total),
+        written: total,
+        params: {
+          email,
+          phone: dialingPhone,
+          provider,
+          reference: order.id,
+          metadata: { source: "ussd_results_checker", results_checker_order_id: order.id, exam_board: board, quantity: qty },
+        },
       })
       try {
         await supabase.from("payment_attempts").insert({ reference: order.id, amount: total, email, status: "pending", payment_type: "ussd_results_checker", order_id: order.id })
@@ -312,8 +320,9 @@ async function createRcOrderAndChargeMomo(
       if (status === "send_otp") {
         await supabase.from("results_checker_orders").update({ payment_status: "otp_required", updated_at: new Date().toISOString() }).eq("id", order.id)
         if (channel === "whatsapp") {
-          await setSession(dialingPhone, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: order.id, pendingOrderTable: "results_checker_orders" })
-          await sendWhatsAppText(dialingPhone, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+          // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
+          await setWaSession(sessionId, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: order.id, pendingOrderTable: "results_checker_orders" })
+          await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
         } else {
           sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: order.id }).catch(() => {})
         }
@@ -939,23 +948,30 @@ async function chargeRcCheckMomo(
   const dialingPhone = session.dialingPhone!
   const localDialing = toLocal(dialingPhone)
   const email = await resolveEmail(dialingPhone)
+  // USSD only (WhatsApp uses handleRcCheckConfirmMomo). No Paystack fee: the same amount on either gateway.
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: dialingPhone, provider })
 
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount,
-        phone: dialingPhone,
-        provider,
-        reference: requestId,
-        metadata: {
-          source: "ussd_results_check",
-          results_check_request_id: requestId,
-          exam_board: session.rcCheckBoard,
-          index_number: session.rcCheckIndex,
-          exam_year: session.rcCheckYear,
-          mode: session.rcCheckMode,
+      const { status } = await startUssdCharge({
+        surface: "ussd",
+        verifiedPayer,
+        price: samePrice(amount),
+        written: amount,
+        params: {
+          email,
+          phone: dialingPhone,
+          provider,
+          reference: requestId,
+          metadata: {
+            source: "ussd_results_check",
+            results_check_request_id: requestId,
+            exam_board: session.rcCheckBoard,
+            index_number: session.rcCheckIndex,
+            exam_year: session.rcCheckYear,
+            mode: session.rcCheckMode,
+          },
         },
       })
       if (status === 'send_otp') {
@@ -1033,30 +1049,37 @@ export async function handleRcCheckConfirmMomo(
   }
 
   const email = await resolveEmail(momoPhone)
+  // Hubtel only for the sender's own number (sessionId); no Paystack fee, so the same amount on either gateway.
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: momoPhone, ownerPhone: sessionId, provider })
 
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount,
-        phone: momoPhone,
-        provider,
-        reference: request.id,
-        metadata: {
-          source: "whatsapp_results_check",
-          results_check_request_id: request.id,
-          exam_board: session.rcCheckBoard,
-          index_number: session.rcCheckIndex,
-          exam_year: session.rcCheckYear,
-          mode,
+      const { status } = await startUssdCharge({
+        surface: "whatsapp",
+        verifiedPayer,
+        price: samePrice(amount),
+        written: amount,
+        params: {
+          email,
+          phone: momoPhone,
+          provider,
+          reference: request.id,
+          metadata: {
+            source: "whatsapp_results_check",
+            results_check_request_id: request.id,
+            exam_board: session.rcCheckBoard,
+            index_number: session.rcCheckIndex,
+            exam_year: session.rcCheckYear,
+            mode,
+          },
         },
       })
       if (status === "send_otp") {
         await supabase.from("results_check_requests")
           .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
           .eq("id", request.id)
-        await setSession(sessionId, { step: "SUBMIT_OTP", dialingPhone: waPhone, pendingOrderId: request.id, pendingOrderTable: "results_check_requests" })
+        await setWaSession(sessionId, { step: "SUBMIT_OTP", dialingPhone: waPhone, pendingOrderId: request.id, pendingOrderTable: "results_check_requests" })
         await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
       }
     } catch (err) {

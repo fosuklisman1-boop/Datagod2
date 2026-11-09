@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { refundRCOrder, fulfillPaidResultsCheckerOrder } from "@/lib/results-checker-service"
+import { loadHubtelWalletPayments } from "@/lib/refunds/hubtel-wallet"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,6 +56,25 @@ export async function POST(request: NextRequest) {
       }
       console.log(`[RC-ADMIN-ACTION] Order ${order.reference_code} delivered by admin`)
       return NextResponse.json({ success: true, message: "Vouchers assigned and delivered to customer" })
+    }
+
+    // Paid from the wallet on the Hubtel main code but never marked paid (the order's handler died or threw first): the
+    // branch below would mark it failed with no credit and tell everyone it was refunded. Refuse; a person refunds it.
+    // Only an order not marked paid is checked, so every other case runs exactly as before.
+    if (order.payment_status !== "completed") {
+      let walletPaid: boolean
+      try {
+        walletPaid = (await loadHubtelWalletPayments(supabase, "results_checker_orders", [orderId])).length > 0
+      } catch (e) {
+        console.error("[RC-ADMIN-ACTION] wallet payment check failed; nothing changed:", orderId, e instanceof Error ? e.message : "unknown error")
+        return NextResponse.json({ error: "Could not check whether this order was paid from the wallet. Nothing was changed; try again." }, { status: 409 })
+      }
+      if (walletPaid) {
+        console.warn("[RC-ADMIN-ACTION] refused: wallet-paid order never marked paid:", orderId)
+        return NextResponse.json({
+          error: "This order was paid from the wallet on the Hubtel main code but never marked paid. Nothing was changed: refund it by hand from the wallet (Admin > Refunds lists it under wallet payments to check).",
+        }, { status: 409 })
+      }
     }
 
     // Refund wallet if user exists (not a guest order)

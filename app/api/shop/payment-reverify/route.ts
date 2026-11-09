@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { alertClosedOrderPayment, isClosedUnpaidShopOrder } from "@/lib/payments/closed-order"
+import { confirmAndReadHubtelPayment, findHubtelPayments, hubtelReportStatus, isHubtelWalletPayment, isLiveHubtelStatus } from "@/lib/hubtel-pay/lookup"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,19 +40,21 @@ async function verifyWithPaystack(reference: string): Promise<{
   }
 }
 
-async function getWalletReferences(orderIds: string[]): Promise<Record<string, string>> {
+type WalletRef = { reference: string; payment_method: string | null }
+
+async function getWalletReferences(orderIds: string[]): Promise<Record<string, WalletRef>> {
   if (orderIds.length === 0) return {}
 
   const { data } = await supabase
     .from("wallet_payments")
-    .select("order_id, reference, created_at")
+    .select("order_id, reference, payment_method, created_at")
     .in("order_id", orderIds)
     .order("created_at", { ascending: false })
 
-  const map: Record<string, string> = {}
+  const map: Record<string, WalletRef> = {}
   for (const wp of data || []) {
     if (wp.order_id && !map[wp.order_id]) {
-      map[wp.order_id] = wp.reference
+      map[wp.order_id] = { reference: wp.reference, payment_method: wp.payment_method ?? null }
     }
   }
   return map
@@ -125,7 +129,7 @@ export async function GET(request: NextRequest) {
 
   const filteredOrders = orders
     .filter((o) => walletRefMap[o.id])
-    .map((o) => ({ ...o, wallet_reference: walletRefMap[o.id] }))
+    .map((o) => ({ ...o, wallet_reference: walletRefMap[o.id].reference }))
 
   const totalCount = count || 0
 
@@ -170,7 +174,17 @@ export async function POST(request: NextRequest) {
 
   // Resolve WALLET- reference
   const walletRefMap = await getWalletReferences([order.id])
-  const walletReference = walletRefMap[order.id]
+  const wallet = walletRefMap[order.id]
+  const walletReference = wallet?.reference
+
+  // Hubtel payments are confirmed through Hubtel: Paystack never saw them and would answer 404 ("abandoned").
+  const hubtelRows = await findHubtelPayments(supabase, [walletReference, order.id])
+  const hubtelRow = (walletReference ? hubtelRows.get(walletReference) : undefined) ?? hubtelRows.get(order.id)
+  if ((wallet && isHubtelWalletPayment(wallet, hubtelRow)) || isLiveHubtelStatus(hubtelRow?.status)) {
+    if (!hubtelRow) return NextResponse.json({ paystack_status: "unknown", action: "hubtel_no_record" })
+    const r = await confirmAndReadHubtelPayment(supabase, hubtelRow)
+    return NextResponse.json({ paystack_status: hubtelReportStatus(r.status), action: `hubtel_${r.status}` })
+  }
 
   if (!walletReference) {
     return NextResponse.json({
@@ -211,6 +225,13 @@ export async function POST(request: NextRequest) {
       current?.order_status === "completed"
     ) {
       return NextResponse.json({ paystack_status: "success", action: "already_processed" })
+    }
+
+    // Closed before this money landed: fulfilment would send nothing. Record the money and tell admins to refund.
+    if (isClosedUnpaidShopOrder(current)) {
+      await supabase.from("wallet_payments").update({ status: "completed", updated_at: new Date().toISOString() }).eq("reference", walletReference)
+      await alertClosedOrderPayment(supabase, { orderId: order.id, reference: walletReference, amountGhs: paidGhs })
+      return NextResponse.json({ paystack_status: "success", action: "order_closed" })
     }
 
     // Check fulfillment tracking to prevent double-fulfillment

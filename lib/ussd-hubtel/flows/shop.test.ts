@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest"
 import { hubtelRouter, type RouterDeps } from "../router"
 import { fakeShop, makeDeps, req, SHOP_CODE, SHOP_CONFIG } from "../testing/fakes"
 
-const PRODUCT_MENU = "Ama Data Hub\nWhat would you like to buy?\n1. Buy Data Bundle\n2. Buy Airtime\n3. Results Checker\n0. Exit"
+const PRODUCT_MENU = "Ama Data Hub\nWhat would you like to buy?\n1. Internet Bundles\n2. Buy Airtime\n3. Results Checker\n0. Exit"
 const INVALID_RETRY = "Invalid code. Try again.\nEnter shop code:\n0. Exit"
 
 /** Initiation in shop mode, then the code. Returns the reply to the code. */
