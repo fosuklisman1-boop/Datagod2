@@ -3,9 +3,10 @@ import { planClawback, type ClawbackPlan } from "./clawback"
 import { orderEligibility, type Eligibility } from "./eligibility"
 import { defaultRefundAmount, validateRefundAmount } from "./amounts"
 import { loadRefundableOrders } from "./orders"
-import { getGateway, listGateways } from "./gateways"
+import { getGateway, listGateways, supportOf } from "./gateways"
 import { notifyRefund, type RefundNotification } from "./notify"
 import { loadRefundContact } from "./contact"
+import { describeSendStatus, sendRefundReference, type SendStatusVerdict, type SendStatusView } from "./hubtel-send-client"
 import { FRESH_OTP_MS, isInFlight, isStale } from "./staleness"
 import { isCommissionTable, type CommissionTable, type GatewayOutcome, type OrderTable, type RefundContact, type RefundContext, type RefundGateway, type RefundableOrder } from "./types"
 
@@ -127,7 +128,7 @@ export interface RefundPreview {
   eligibility: Eligibility
   defaultAmount: number
   /** fixedAmount: set when the gateway can refund only that exact amount (Hubtel). */
-  gateways: { id: string; label: string; ok: boolean; reason?: string; fixedAmount?: number }[]
+  gateways: { id: string; label: string; ok: boolean; reason?: string; fixedAmount?: number; maxAmount?: number }[]
   clawback: ClawbackPlan
   /** Who to pay for a manual refund; null when unknown, not applicable, or the lookup failed. */
   contact: RefundContact | null
@@ -152,17 +153,22 @@ export async function previewRefund(deps: RefundDeps, ref: { table: OrderTable; 
     eligibility: eligibilityOf(order, nowOf(deps)),
     defaultAmount: defaultRefundAmount(order.paid, order.gatewayFee),
     gateways: listGateways().map((g) => {
-      const s = g.supports(order)
+      const s = supportOf(g, order)
       const entry: RefundPreview["gateways"][number] = { id: g.id, label: g.label, ok: s.ok, reason: s.ok ? undefined : s.reason }
       const fixed = g.fixedAmount?.(order)
       if (typeof fixed === "number") entry.fixedAmount = fixed
+      const max = s.ok ? g.maxAmount?.(order) : null
+      if (typeof max === "number") entry.maxAmount = max
       return entry
     }),
     clawback: planClawback(order.owners),
   }
 }
 
-export type Settled = { status: "completed" | "processing" | "awaiting_otp" | "failed"; message?: string }
+/** alreadySettled: this call found the refund already completed, so it must not tell the customer again. */
+export type Settled = { status: "completed" | "processing" | "awaiting_otp" | "failed"; message?: string; alreadySettled?: boolean }
+
+const ALREADY_COMPLETED = "already_completed"
 
 const refOf = (o: GatewayOutcome): string | null => ("ref" in o ? o.ref : null)
 
@@ -217,6 +223,8 @@ async function settle(deps: RefundDeps, refundId: string, outcome: GatewayOutcom
         await parkForReconcile(deps, refundId, outcome.ref)
         throw e
       }
+      // 0155: another caller (the callback or the cron) got there first. Done, and that caller told the customer.
+      if (ledgerStatus === ALREADY_COMPLETED) return { status: "completed", alreadySettled: true }
       if (ledgerStatus !== "completed") {
         throw new RefundError(
           "SETTLE_FAILED",
@@ -293,7 +301,7 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
 
   const gateway = deps.getGateway(input.gateway)
   if (!gateway) throw new RefundError("GATEWAY_UNSUPPORTED", `Unknown gateway "${input.gateway}"`)
-  const support = gateway.supports(order)
+  const support = supportOf(gateway, order)
   if (!support.ok) throw new RefundError("GATEWAY_UNSUPPORTED", support.reason)
 
   const amountError = validateRefundAmount(input.amount, order.paid)
@@ -301,6 +309,10 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
   const fixed = gateway.fixedAmount?.(order)
   if (typeof fixed === "number" && Math.abs(fixed - input.amount) > 0.005) {
     throw new RefundError("BAD_AMOUNT", `${gateway.label} refunds the full amount only (GHS ${fixed.toFixed(2)})`)
+  }
+  const max = gateway.maxAmount?.(order)
+  if (typeof max === "number" && input.amount > max + 0.005) {
+    throw new RefundError("BAD_AMOUNT", `${gateway.label} can refund at most GHS ${max.toFixed(2)} (what was requested from the payer)`)
   }
 
   if (elig.releaseStuck) await releaseStuck(deps, order, input.adminId)
@@ -329,7 +341,7 @@ export async function executeRefund(deps: RefundDeps, input: ExecuteInput): Prom
   }
 
   const settled = await settleSafely(deps, refundId, outcome)
-  if (settled.status === "completed") {
+  if (settled.status === "completed" && !settled.alreadySettled) {
     await notifySafely(deps, { refundId, order, amount: input.amount, gateway: gateway.id, clawbacks: Array.isArray(data.clawbacks) ? data.clawbacks : [] })
   }
   return { refundId, ...settled }
@@ -357,7 +369,7 @@ async function contextFor(deps: RefundDeps, stored: StoredRefund): Promise<Refun
 
 async function settleStored(deps: RefundDeps, stored: StoredRefund, ctx: RefundContext, outcome: GatewayOutcome): Promise<Settled> {
   const settled = await settleSafely(deps, stored.id, outcome)
-  if (settled.status === "completed") {
+  if (settled.status === "completed" && !settled.alreadySettled) {
     await notifySafely(deps, { refundId: stored.id, order: ctx.order, amount: ctx.amount, gateway: stored.gateway, clawbacks: stored.clawbacks ?? [] })
   }
   return settled
@@ -376,11 +388,13 @@ export async function applyGatewayOutcome(deps: RefundDeps, stored: StoredRefund
 }
 
 /** Re-checks a refund stuck in `reserved` / `processing` / `awaiting_otp` against its gateway and settles it. */
-export async function reconcileRefund(deps: RefundDeps, stored: StoredRefund): Promise<Settled> {
+export async function reconcileRefund(deps: RefundDeps, stored: StoredRefund, opts: { skipInFlightGuard?: boolean } = {}): Promise<Settled> {
   if (stored.status !== "processing" && stored.status !== "awaiting_otp" && stored.status !== "reserved") {
     throw new RefundError("ORDER_NOT_PENDING", "Only processing refunds can be reconciled")
   }
-  if (isInFlight(stored, nowOf(deps))) {
+  // skipInFlightGuard: only for a caller that already knows the original payout call has returned (a signed gateway
+  // callback on a row that is `processing`, never `reserved`). Everyone else waits out the 5 minutes.
+  if (!opts.skipInFlightGuard && isInFlight(stored, nowOf(deps))) {
     throw new RefundError("IN_FLIGHT", "The original payout request may still be running. Wait a few minutes before checking status.")
   }
   const gateway = deps.getGateway(stored.gateway)
@@ -450,6 +464,73 @@ export async function cancelRefund(deps: RefundDeps, stored: StoredRefund): Prom
   return settleStored(deps, stored, ctx, outcome)
 }
 
+/**
+ * A stuck Hubtel payout needs a human, but "failed" frees the order for a second payout, so it has to be true. Too soon
+ * after the send, a no-match can just mean Hubtel hasn't recorded it yet. Hubtel asks for 5 minutes; this waits longer.
+ */
+export const NEVER_PAID_MIN_AGE_MS = 60 * 60_000
+
+const NEVER_PAID_REFUSAL: Partial<Record<SendStatusVerdict, string>> = {
+  success: "Hubtel may have paid this. It was not marked failed: use Check status, or check Hubtel.",
+  no_answer: "Hubtel could not be asked. It was not marked failed: try again shortly.",
+  unclear: "Hubtel's answer does not show this payout failed. It was not marked failed: check Hubtel, and see the raw status.",
+}
+
+/** A stored Hubtel transaction id means Hubtel took the send. Our own reference doesn't: reconcile stores it on a no-match. */
+function hubtelAcceptedSend(stored: StoredRefund): boolean {
+  if (!stored.gateway_ref) return false
+  try {
+    return stored.gateway_ref !== sendRefundReference(stored.id)
+  } catch {
+    return true // Can't tell: treat it as taken.
+  }
+}
+
+/**
+ * Failed-by-admin allows a retry, which is a new refund with a new ClientReference, so being wrong pays twice. "No record"
+ * can't outweigh Hubtel having accepted this send; only Hubtel saying the payout failed can.
+ */
+const canFailFromVerdict = (stored: StoredRefund, verdict: SendStatusVerdict): boolean =>
+  verdict === "failed" || (verdict === "no_record" && !hubtelAcceptedSend(stored))
+
+/** Read-only: what Hubtel says about this payout right now. Settles nothing. */
+export async function inspectHubtelSend(stored: StoredRefund): Promise<SendStatusView & { canMarkFailed: boolean }> {
+  if (stored.gateway !== "hubtel_send") throw new RefundError("GATEWAY_UNSUPPORTED", "This is not a Hubtel payout")
+  const view = await describeSendStatus({ refundId: stored.id, amount: Number(stored.amount) })
+  return { ...view, canMarkFailed: canFailFromVerdict(stored, view.verdict) }
+}
+
+/**
+ * The exit for a stuck Hubtel payout: an admin confirms it never paid. Hubtel is asked again first, and this refuses
+ * unless the answer is a clear failure or no record at all. The ledger then fails the row and restores the owner's
+ * clawback, and the order can be refunded again by the normal Retry.
+ */
+export async function markHubtelSendNeverPaid(deps: RefundDeps, stored: StoredRefund): Promise<Settled & { verdict: SendStatusVerdict }> {
+  if (stored.gateway !== "hubtel_send") throw new RefundError("GATEWAY_UNSUPPORTED", "This is not a Hubtel payout")
+  if (stored.status !== "processing" && stored.status !== "reserved") {
+    throw new RefundError("ORDER_NOT_PENDING", "Only an unsettled Hubtel payout can be marked failed")
+  }
+  // Not `age < minimum`: an unreadable created_at must refuse too.
+  if (!(nowOf(deps) - Date.parse(stored.created_at ?? "") >= NEVER_PAID_MIN_AGE_MS)) {
+    throw new RefundError("IN_FLIGHT", "This payout is too recent to rule out. Try again an hour after it was started.")
+  }
+  let view: SendStatusView
+  try {
+    view = await describeSendStatus({ refundId: stored.id, amount: Number(stored.amount) })
+  } catch {
+    view = { verdict: "no_answer", upstreamStatus: null, raw: null }
+  }
+  if (!canFailFromVerdict(stored, view.verdict)) {
+    const why = view.verdict === "no_record"
+      ? "Hubtel accepted this payout but its status check finds no record. It was not marked failed: check with Hubtel."
+      : NEVER_PAID_REFUSAL[view.verdict] ?? "Not marked failed"
+    throw new RefundError("NOT_ELIGIBLE", why, { code: "HUBTEL_MAY_HAVE_PAID", verdict: view.verdict })
+  }
+  const error = view.verdict === "failed" ? "Hubtel reports the payout failed; marked failed by an admin" : "Hubtel has no record of this payout; marked failed by an admin"
+  await compensate(deps, stored.id, error, { kind: "failed", error })
+  return { status: "failed", message: "Marked failed and the owner's cut restored. You can now retry the refund.", verdict: view.verdict }
+}
+
 export const MANUAL_GATEWAY = "manual"
 
 export interface ManualRefundInput {
@@ -472,10 +553,11 @@ export interface ManualRefundResult {
 
 const manualRef = (note: string) => `manual: ${note}`.slice(0, 200)
 
-/** Completes the manual refund; returns false when the full note could not be stored on the order (refund still done). */
-async function completeManual(deps: RefundDeps, order: RefundableOrder, refundId: string, note: string, adminId: string): Promise<boolean> {
+/** Completes the manual refund. saved: false when the full note could not be stored on the order (refund still done). moved: false when another click finished it first, and told the customer. */
+async function completeManual(deps: RefundDeps, order: RefundableOrder, refundId: string, note: string, adminId: string): Promise<{ saved: boolean; moved: boolean }> {
   const { data, error } = await callRpc(deps, "complete_order_refund", { p_refund_id: refundId, p_gateway_ref: manualRef(note) })
-  if (error || data !== "completed") {
+  const moved = data !== ALREADY_COMPLETED
+  if (error || (data !== "completed" && moved)) {
     throw new RefundError(
       "SETTLE_FAILED",
       `The manual refund was reserved (owner's cut already removed) but could not be marked completed (${error?.message ?? `ledger says ${String(data)}`}). Click "Mark refunded manually" again to finish it.`,
@@ -490,10 +572,10 @@ async function completeManual(deps: RefundDeps, order: RefundableOrder, refundId
       await deps.recordManualNote(order.table, order.id, note, adminId)
     } catch (e) {
       console.error("[REFUND] manual note write failed:", e)
-      return false
+      return { saved: false, moved }
     }
   }
-  return true
+  return { saved: true, moved }
 }
 
 const NOTE_NOT_SAVED = " The note could not be saved on the order; it is in the admin audit log."
@@ -521,9 +603,9 @@ export async function executeManualRefund(deps: RefundDeps, input: ManualRefundI
   if (order.evidence.hasActiveRefund) {
     const active = deps.findActiveRefund ? await deps.findActiveRefund(order.id) : null
     if (active && active.gateway === MANUAL_GATEWAY && active.status === "reserved") {
-      const saved = await completeManual(deps, order, active.id, input.note, input.adminId)
+      const { saved, moved } = await completeManual(deps, order, active.id, input.note, input.adminId)
       // The clawback lines are on the stored refund row; the customer notice needs none.
-      await notifySafely(deps, { refundId: active.id, order, amount: order.paid, gateway: MANUAL_GATEWAY, clawbacks: [] })
+      if (moved) await notifySafely(deps, { refundId: active.id, order, amount: order.paid, gateway: MANUAL_GATEWAY, clawbacks: [] })
       return { refundId: active.id, status: "completed", alreadyRefunded: false, message: `Manual refund completed.${saved ? "" : NOTE_NOT_SAVED}` }
     }
     throw new RefundError("ALREADY_REFUNDED", "A refund is already in progress for this order — see History")
@@ -556,9 +638,9 @@ export async function executeManualRefund(deps: RefundDeps, input: ManualRefundI
     throw afterRelease(new RefundError("RESERVE_FAILED", "Reserve returned no refund id", { data }), !!elig.releaseStuck)
   }
   const refundId = data.refund_id as string
-  const saved = await completeManual(deps, order, refundId, input.note, input.adminId)
+  const { saved, moved } = await completeManual(deps, order, refundId, input.note, input.adminId)
   const clawbacks = Array.isArray(data.clawbacks) ? data.clawbacks : []
-  await notifySafely(deps, { refundId, order, amount: order.paid, gateway: MANUAL_GATEWAY, clawbacks })
+  if (moved) await notifySafely(deps, { refundId, order, amount: order.paid, gateway: MANUAL_GATEWAY, clawbacks })
   // A main-bot order has no shop share: say so instead of claiming a clawback.
   const head = clawbacks.length === 0 && order.owners.length === 0 ? "Marked refunded (no shop share to claw back)." : "Marked refunded; the shop's share was clawed back."
   return { refundId, status: "completed", alreadyRefunded: false, message: `${head}${saved ? "" : NOTE_NOT_SAVED}` }

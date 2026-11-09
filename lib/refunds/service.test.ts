@@ -41,6 +41,14 @@ const input = { table: "ussd_shop_orders" as const, orderId: "o1", gateway: "pay
 const names = (calls: { name: string }[]) => calls.map((c) => c.name)
 
 describe("executeRefund", () => {
+  it("a Hubtel-paid order is refused before any reserve or gateway call", async () => {
+    const paidOnHubtel = order({ payment: { gateway: "hubtel", reference: null, payerPhone: "0241112222", walletUserId: null, hubtelCollection: true } })
+    const { deps, calls, gateway } = setup({ kind: "completed", ref: "R1" }, paidOnHubtel)
+    await expect(executeRefund(deps, input)).rejects.toMatchObject({ code: "NOT_ELIGIBLE" })
+    expect(calls).toEqual([])
+    expect(gateway.refund).not.toHaveBeenCalled()
+  })
+
   it("reserves, pays out, then completes", async () => {
     const { deps, calls, gateway } = setup({ kind: "completed", ref: "R1" })
     const res = await executeRefund(deps, input)

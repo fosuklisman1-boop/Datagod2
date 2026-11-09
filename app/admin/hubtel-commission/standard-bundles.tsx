@@ -139,9 +139,9 @@ export function BundlesSettingsCard({ authed }: { authed: Authed }) {
   )
 }
 
-// Special Bundles (MTN): the dashboard-only "N x the unit bundle" category. Ships off.
-// The config RPC replaces `special` whole, so every save sends all four fields.
-function SpecialBundlesSection({ special, busy, onSave }: {
+// Special Bundles (MTN): the "N x the unit bundle" category. Ships off, and off on USSD.
+// The config RPC replaces `special` whole, so every save sends all five fields.
+export function SpecialBundlesSection({ special, busy, onSave }: {
   special: BundlesConfig["special"]; busy: boolean; onSave: (patch: object, okMsg?: string) => Promise<void>
 }) {
   const [multiples, setMultiples] = useState(special.multiples.join(", "))
@@ -155,7 +155,7 @@ function SpecialBundlesSection({ special, busy, onSave }: {
   const parts = multiples.split(",").map(s => s.trim()).filter(Boolean)
   const parsedMultiples = parts.map(p => (/^\d+$/.test(p) ? Number(p) : NaN))
   const parsedUnit = unit.trim() === "" ? NaN : Number(unit)
-  const draft = { enabled: special.enabled, multiples: parsedMultiples, unitAmount: parsedUnit, unitValue: unitValue.trim() }
+  const draft = { enabled: special.enabled, multiples: parsedMultiples, unitAmount: parsedUnit, unitValue: unitValue.trim(), ussdEnabled: special.ussdEnabled }
   const check = validateBundlesPatch({ special: draft })
   const dirty = !check.ok || JSON.stringify(check.patch.special) !== JSON.stringify(special)
 
@@ -164,10 +164,18 @@ function SpecialBundlesSection({ special, busy, onSave }: {
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="font-medium">Special Bundles (MTN)</div>
-          <div className="text-xs text-muted-foreground">Dashboard only. A &quot;Special Bundles&quot; category of multiples of the unit bundle, shown first for MTN.</div>
+          <div className="text-xs text-muted-foreground">A &quot;Special Bundles&quot; category of multiples of the unit bundle, shown first for MTN on the dashboard.</div>
         </div>
         <Switch aria-label="Special Bundles enabled" checked={special.enabled} disabled={busy}
           onCheckedChange={v => onSave({ special: { ...special, enabled: v } }, v ? "Special Bundles on" : "Special Bundles off")} />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-medium">Sell on Hubtel USSD</div>
+          <div className="text-xs text-muted-foreground">Also needs Special Bundles on. Turning this off does not stop dashboard sales.</div>
+        </div>
+        <Switch aria-label="Sell on Hubtel USSD" checked={special.ussdEnabled} disabled={busy}
+          onCheckedChange={v => onSave({ special: { ...special, ussdEnabled: v } }, v ? "Special Bundles on Hubtel USSD" : "Special Bundles off Hubtel USSD")} />
       </div>
       <div className="grid gap-3 lg:grid-cols-[2fr_1fr_2fr_auto] lg:items-end">
         <div>

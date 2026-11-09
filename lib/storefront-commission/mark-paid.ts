@@ -21,6 +21,32 @@ export async function markCommissionOrderPaid(
 }
 
 /**
+ * The same guarded write over every child of a Special group, in one statement: each row still needs its own
+ * `payment_status = 'unpaid'` and an accepted channel, so a child already paid is untouched. Returns rows changed; throws
+ * the PostgREST error.
+ */
+export async function markCommissionGroupPaid(
+  db: SupabaseClient,
+  table: StorefrontOrderTable,
+  groupId: string,
+  patch: { paid_at: string; payment_reference: string },
+  opts: { extra?: Record<string, unknown>; channels?: readonly string[] } = {},
+): Promise<number> {
+  const { data, error } = await db
+    .from(table)
+    .update({
+      ...(opts.extra ?? {}),
+      payment_status: "paid", paid_at: patch.paid_at, payment_reference: patch.payment_reference, updated_at: new Date().toISOString(),
+    })
+    .eq("special_group_id", groupId)
+    .in("channel", [...(opts.channels ?? PAYABLE_CHANNELS)])
+    .eq("payment_status", "unpaid")
+    .select("id")
+  if (error) throw error
+  return data?.length ?? 0
+}
+
+/**
  * The same guarded flip, also returning the `status` the flipped row has, read from the update itself (no second
  * read). The confirmation decides share + dispatch from it, so a row failed (e.g. by the stale sweep) after the
  * confirm's earlier read can never be credited or sent. `{ changed: 0, status: null }` when nothing flipped.

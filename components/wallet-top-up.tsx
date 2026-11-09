@@ -12,6 +12,7 @@ import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
 import { PaymentSheet } from "@/components/shop/PaymentSheet"
+import { fallbackChargeNotice, isOtpRequiredReply, walletTopupDisplay } from "@/lib/payment-gateway/wallet-topup-display"
 
 interface WalletTopUpProps {
   onSuccess?: (amount: number) => void
@@ -27,6 +28,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
   )
   const [errorMessage, setErrorMessage] = useState("")
   const [paystackFeePercentage, setPaystackFeePercentage] = useState(3.0)
+  const [walletGateway, setWalletGateway] = useState<"paystack" | "hubtel">("paystack")
+  const [walletFeeBearer, setWalletFeeBearer] = useState<"customer" | "merchant">("customer")
 
   // Wallet payment gates — OTP and direct charge are now INDEPENDENT toggles.
   //   • walletOtp    → the MoMo number must be SMS-OTP verified.
@@ -56,7 +59,12 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     // Wallet OTP + direct-charge gates (independent).
     fetch("/api/public/turnstile-status")
       .then(r => r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false })
-      .then(d => { setWalletOtp(d.wallet_lock === true); setWalletDirect(d.wallet_direct_charge === true) })
+      .then(d => {
+        setWalletOtp(d.wallet_lock === true)
+        setWalletDirect(d.wallet_direct_charge === true)
+        setWalletGateway(d.wallet_gateway === "hubtel" ? "hubtel" : "paystack")
+        setWalletFeeBearer(d.wallet_fee_bearer === "merchant" ? "merchant" : "customer")
+      })
       .catch(() => { setWalletOtp(false); setWalletDirect(false) })
   }, [])
 
@@ -187,6 +195,8 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
     }
   }
 
+  const display = walletTopupDisplay({ amount: parseFloat(amount || "0"), gateway: walletGateway, paystackFeePercent: paystackFeePercentage, feeBearer: walletFeeBearer })
+
   const handleTopUp = async () => {
     // Validation
     const amountValue = parseFloat(amount)
@@ -252,11 +262,23 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           body: JSON.stringify({ amount: parseFloat(amount), email, momoDirect: true, paymentPhone }),
         })
         const data = await res.json().catch(() => ({}))
+        // Hubtel needs a verified number even with the OTP gate off: show the verify step instead of a dead-end error.
+        // No charge started, and the verified-number check above then lets the same top-up through.
+        if (isOtpRequiredReply(res.status, data)) {
+          setMomoModal(null)
+          setWalletOtp(true)
+          setPaymentStatus("idle")
+          setIsLoading(false)
+          toast.info("Verify this Mobile Money number to continue")
+          return
+        }
         if (!res.ok || !data.success) { throw new Error(data?.error || "Could not start the Mobile Money charge. Please try again.") }
         // Customer already dismissed the sheet before this resolved -- the
         // charge may still have fired (the webhook completes the top-up
         // regardless), but don't reopen a view they already closed.
         if (paymentDismissedRef.current) { setIsLoading(false); return }
+        const fallbackNote = fallbackChargeNotice(data)
+        if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
         const summary = { amount: parseFloat(amount), paymentPhone, reference: data.reference }
         setMomoModal({ state: data.status === "send_otp" ? "otp" : "awaiting", reference: data.reference, summary })
         pollMomoStatus(data.reference, summary)
@@ -320,7 +342,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           <Zap className="h-5 w-5 text-primary" />
           Wallet Top Up
         </CardTitle>
-        <CardDescription>Add funds to your wallet using Paystack</CardDescription>
+        <CardDescription>{display.description}</CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-6">
@@ -394,15 +416,15 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
                 <span>GHS {parseFloat(amount || "0").toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-warning">
-                <span>Paystack Fee ({paystackFeePercentage}%):</span>
-                <span>GHS {(parseFloat(amount || "0") * paystackFeePercentage / 100).toFixed(2)}</span>
+                <span>{display.feeLabel}</span>
+                <span>{display.feeValue}</span>
               </div>
               <div className="pt-1 border-t border-border flex justify-between font-semibold text-foreground">
-                <span>Total Amount:</span>
-                <span>GHS {(parseFloat(amount || "0") * (1 + paystackFeePercentage / 100)).toFixed(2)}</span>
+                <span>{display.totalLabel}</span>
+                <span>{display.totalValue}</span>
               </div>
             </div>
-            <p className="text-xs text-warning mt-2">The {paystackFeePercentage}% fee is charged by Paystack for payment processing.</p>
+            {display.feeNote && <p className="text-xs text-warning mt-2">{display.feeNote}</p>}
           </div>
         )}
 
@@ -492,7 +514,7 @@ export function WalletTopUp({ onSuccess }: WalletTopUpProps) {
           ) : (
             <>
               <Zap className="h-4 w-4 mr-2" />
-              Pay GHS {(parseFloat(amount || "0") * (1 + paystackFeePercentage / 100)).toFixed(2)}
+              {display.payButton}
             </>
           )}
         </Button>

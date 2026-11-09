@@ -28,7 +28,7 @@ const allOn = (): BundlesConfig => ({
     TELECEL: { enabled: true, hiddenCategories: [], referenceNumber: "233206439599" },
     AT: { enabled: true, hiddenCategories: [], referenceNumber: "233273833933" },
   },
-  special: { enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3, unitValue: "RACT_Data_GHC_3_Others" },
+  special: { enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3, unitValue: "RACT_Data_GHC_3_Others", ussdEnabled: false },
 })
 
 function make(over: Partial<BundlesDeps> = {}) {

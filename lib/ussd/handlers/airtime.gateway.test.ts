@@ -8,6 +8,12 @@ const h = vi.hoisted(() => ({
   charge: null as any,
   quote: null as any,
   dialer: {} as any,
+  verified: new Set<string>(),
+}))
+vi.mock("@/lib/whatsapp-bot/cashback-visibility", () => ({ whatsappBotItemsVisible: vi.fn(async () => ({ cashbackAirtime: true })) }))
+vi.mock("@/lib/storefront-otp", async (orig) => ({
+  ...(await orig<object>()),
+  isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
 }))
 
 vi.mock("@supabase/supabase-js", async () => (await import("@/lib/ussd/gateway-test-kit")).supabaseMock())
@@ -22,6 +28,7 @@ vi.mock("@/lib/ussd/resolve-email", () => ({ resolveEmail: vi.fn(async () => "pa
 vi.mock("@/lib/paystack", async (orig) => ({ ...(await orig<object>()), chargeMobileMoney: vi.fn(async (p: any) => h.charge(p)) }))
 vi.mock("@/lib/sms-service", () => ({ sendSMS: vi.fn(async () => {}), SMSTemplates: { ussdAirtimePaymentReceived: () => "s", ussdOtpRequired: () => "otp" } }))
 vi.mock("@/lib/whatsapp-bot/send", () => ({ sendWhatsAppText: vi.fn(async () => {}) }))
+vi.mock("@/lib/whatsapp-bot/session", () => ({ setWaSession: vi.fn(async () => {}) }))
 vi.mock("@/lib/secure-random", () => ({ secureReference: () => "AT-REF-001" }))
 vi.mock("@/lib/ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({ airtime: true, cashbackAirtime: true })) }))
 vi.mock("@/lib/cashback/storefront-airtime", () => ({ quoteBotAirtime: vi.fn(async (_n: string, face: number) => (h.quote ? { ...h.quote, faceAmount: face } : null)) }))
@@ -35,6 +42,8 @@ vi.mock("@/lib/ussd/bots/gate", () => ({ botMenusVisible: async () => ({}), UZO_
 
 import { handleAirtimeConfirm, handleAirtimePaymentMethod } from "./airtime"
 import { chargeMobileMoney } from "@/lib/paystack"
+import { setWaSession } from "@/lib/whatsapp-bot/session"
+import { setSession } from "@/lib/ussd/session"
 import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "../gateway-test-kit"
 
 const DIALER = "0241112222"
@@ -62,6 +71,9 @@ beforeEach(() => {
   h.sessions.clear()
   h.quote = null
   h.dialer = {}
+  h.verified.clear()
+  vi.mocked(setWaSession).mockClear()
+  vi.mocked(setSession).mockClear()
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   vi.mocked(chargeMobileMoney).mockClear()
 })
@@ -92,6 +104,28 @@ describe("Uzo airtime on Paystack (unchanged)", () => {
     await handleAirtimeConfirm("1", "S1", legacy(), "ussd")
     await runAfter()
     expect(order()).toMatchObject({ payment_status: "failed", status: "failed" })
+  })
+})
+
+describe("which session store a send_otp uses", () => {
+  beforeEach(() => { h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference }) })
+
+  it("WhatsApp: SUBMIT_OTP is written by the WhatsApp store (30 min), not the USSD one (120 s)", async () => {
+    await handleAirtimeConfirm("1", "233201239999", legacy(), "whatsapp")
+    await runAfter()
+    expect(setWaSession).toHaveBeenCalledTimes(1)
+    expect(setWaSession).toHaveBeenCalledWith("233201239999", {
+      step: "SUBMIT_OTP", dialingPhone: DIALER, pendingOrderId: order().id, pendingOrderTable: "airtime_orders",
+    })
+    expect(vi.mocked(setSession).mock.calls.filter(([, s]) => s.step === "SUBMIT_OTP")).toHaveLength(0)
+  })
+
+  it("USSD: the USSD store only, never the WhatsApp one", async () => {
+    await handleAirtimeConfirm("1", "S1", legacy(), "ussd")
+    await runAfter()
+    expect(order().payment_status).toBe("otp_required")
+    expect(setSession).toHaveBeenCalled()
+    expect(setWaSession).not.toHaveBeenCalled()
   })
 })
 
@@ -166,5 +200,48 @@ describe("Uzo airtime on Hubtel", () => {
     await runAfter()
     expect(hubtelRows()[0].surface).toBe("whatsapp")
     expect(chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("WhatsApp cashback: another number, even an OTP-verified one, stays on Paystack at payAmount", async () => {
+    kit.config = gatewayConfig(["whatsapp"])
+    h.quote = QUOTE
+    h.verified.add(DIALER)
+    await handleAirtimeConfirm("1", "233201239999", cashback(), "whatsapp")
+    expect(order()).toMatchObject({ total_paid: 9.69, payment_fee_amount: 0.19 })
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: DIALER, amount: 9.69 })
+  })
+
+  it("WhatsApp cashback: the sender's own number goes to Hubtel without the fee", async () => {
+    kit.config = gatewayConfig(["whatsapp"])
+    h.quote = QUOTE
+    await handleAirtimeConfirm("1", "233241112222", cashback(), "whatsapp")
+    expect(order()).toMatchObject({ total_paid: 9.5, payment_fee_amount: 0 })
+    await runAfter()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: "233241112222", amount: 9.5 })
+  })
+
+  it("WhatsApp cashback: an unverified other number stays on Paystack at payAmount", async () => {
+    kit.config = gatewayConfig(["whatsapp"])
+    h.quote = QUOTE
+    await handleAirtimeConfirm("1", "233201239999", cashback(), "whatsapp")
+    expect(order()).toMatchObject({ total_paid: 9.69, payment_fee_amount: 0.19 })
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBe(9.69)
+  })
+
+  it("WhatsApp PAYMENT_METHOD: an OTP-verified other number goes to Paystack at payAmount", async () => {
+    kit.config = gatewayConfig(["whatsapp"])
+    h.quote = QUOTE
+    h.verified.add(DIALER)
+    h.dialer = { userId: "u1", balance: 50 }
+    await handleAirtimeConfirm("1", "233201239999", cashback(), "whatsapp")
+    await handleAirtimePaymentMethod("2", "233201239999", h.sessions.get("233201239999"), "whatsapp")
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBe(9.69)
   })
 })

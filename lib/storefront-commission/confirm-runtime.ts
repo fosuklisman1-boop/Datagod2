@@ -97,6 +97,22 @@ export async function confirmBotPayment(
   return confirmBotOrder(runtimeDeps(), table, orderId, p)
 }
 
+/**
+ * confirmBotPayment with the send held back: the id goes on `queue` instead of being dispatched (share, guards and
+ * resume logic unchanged). One Hubtel payment confirms N Special children, and the caller sends the queue afterwards.
+ */
+export async function confirmBotPaymentQueued(
+  table: StorefrontOrderTable,
+  orderId: string,
+  p: ConfirmPayment,
+  queue: string[],
+): Promise<ConfirmResult> {
+  return confirmBotOrder(
+    { ...runtimeDeps(), dispatch: async (_table, id) => { queue.push(id); return "pending" } },
+    table, orderId, p,
+  )
+}
+
 /** Paystack webhook (charge.success) for a cs_bill / cs_bundle payment. `paidAmount` in GHS. */
 export async function settleStorefrontWebhook(
   orderType: StorefrontOrderType,

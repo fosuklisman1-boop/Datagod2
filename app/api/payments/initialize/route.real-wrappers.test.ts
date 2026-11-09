@@ -838,3 +838,21 @@ describe("every surface on Paystack: unchanged, through the real wrappers", () =
     expect(phoneCaps).toEqual(["mp:0241234567"])
   })
 })
+
+describe("the amount charged after a fallback is returned (M6)", () => {
+  it("direct: chargedAmount is price + fee", async () => {
+    h.state.config = config({ wallet_topup: { mode: "direct" } })
+    h.state.gates.walletDirect = true
+    receiveMoney.mockImplementation(async () => REFUSED)
+    expect((await (await momoTopup("024 123 4567")).json()).chargedAmount).toBe(51.5)
+  })
+  it("hosted: chargedAmount is price + fee", async () => {
+    h.state.config = config({ wallet_topup: { mode: "checkout" } })
+    initiateCheckout.mockImplementation(async () => REFUSED)
+    expect((await (await topup()).json()).chargedAmount).toBe(51.5)
+  })
+  it("no fallback, no field: a Paystack start answers as before", async () => {
+    h.state.config = config()
+    expect("chargedAmount" in (await (await topup()).json())).toBe(false)
+  })
+})

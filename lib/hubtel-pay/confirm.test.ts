@@ -103,7 +103,7 @@ describe("confirmHubtelPayment — row lookup", () => {
     expect(await confirmHubtelPayment("WALLET-1", t.deps)).toBe("ignored")
     expect(load).not.toHaveBeenCalled()
   })
-  it.each(["paid", "needs_review"] as const)("final status %s → ignored, no status check", async (status) => {
+  it.each(["paid", "needs_review", "refunded_manually"] as const)("final status %s → ignored, no status check", async (status) => {
     const t = setup({ row: { status } })
     expect(await confirmHubtelPayment(REF, t.deps)).toBe("ignored")
     expect(t.checkStatus).not.toHaveBeenCalled()

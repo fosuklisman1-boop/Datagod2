@@ -21,7 +21,12 @@ import { getShopPref, setShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop
 import type { WaShopSession } from "./shop-types"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
-import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
+import { submitOtp } from "@/lib/paystack"
+import { claimShopCharge, releaseShopCharge } from "./shop-charge-claim"
+import { chargeGate } from "./charge-timeout"
+import {
+  guardedReprice, isUssdHubtelPayer, samePrice, startUssdCharge, ussdOrderAmount, type UssdPrice,
+} from "@/lib/ussd/gateway-charge"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
@@ -114,6 +119,14 @@ async function markOrderFailed(table: ShopOrderTable, orderId: string): Promise<
     console.error("[WA-SHOP] failed to mark order failed:", table, orderId, err)
   }
 }
+
+/**
+ * Can this shop charge go to Hubtel (surface `whatsapp`)? Only when the typed MoMo number is the sender's own (both
+ * canonicalised, the provider that number's network). Any other number pays on Paystack at the full fee, even an
+ * OTP-verified one: isPhoneOtpVerified isn't bound to the sender. The bot still always asks for the number.
+ */
+const shopHubtelPayer = (from: string, session: WaShopSession): boolean =>
+  isUssdHubtelPayer({ chargePhone: session.paymentPhone, ownerPhone: from, provider: session.paystackProvider })
 
 async function markOrderOtpRequired(table: ShopOrderTable, orderId: string): Promise<void> {
   try {
@@ -312,7 +325,63 @@ function shopNaturalToDigit(
   return null
 }
 
+// Also the reply when the earlier request has already ended, in any way, and its prompt may have gone to another number.
+const SHOP_CHARGE_BUSY_REPLY = "Please check for the payment prompt, or start again if you didn't get one."
+
+/**
+ * Takes the sender's charge claim before a confirm step writes an order. Returns null when this request may go on, or
+ * the reply to send instead: nothing is created and the session isn't written. The session is read again once the claim
+ * is held, because a request that read the step just before an earlier charge finished can win the claim after it.
+ */
+async function takeShopChargeClaim(
+  from: string, step: WaShopSession['step'], claim: { held: boolean }, onOutage: 'go' | 'busy' = 'go',
+): Promise<string | null> {
+  const result = await claimShopCharge(from)
+  // Owner decision 2026-11-08, same as the main bot (router.ts): a lock outage doesn't stop sales. No claim is held, so
+  // claim.held stays false and nothing is released; admins were alerted inside claimShopCharge. Two messages at once
+  // could mint two orders during that outage. A cancel ('busy') never answers "cancelled" while a charge may be running.
+  if (result === 'unavailable') return onOutage === 'busy' ? SHOP_CHARGE_BUSY_REPLY : null
+  if (result === 'held') return SHOP_CHARGE_BUSY_REPLY
+  claim.held = true
+  const fresh = await getSession(from)
+  return fresh?.step === step ? null : SHOP_CHARGE_BUSY_REPLY
+}
+
+/** A charge that outlived its time limit: a prompt may be on its way, so nothing here says it failed. */
+export const SHOP_CHARGE_PENDING_REPLY = "Your payment is being started. If a payment prompt arrives on your phone, approve it to complete your order."
+
+/**
+ * Right after the order write, before the charge: the chat leaves the confirm step, so a request killed mid-charge can't
+ * leave it there for a later "1" to mint a second order. The request's own final write follows as before. Best effort:
+ * while this request runs, the claim covers the step anyway.
+ */
+async function leaveConfirmStep(from: string): Promise<void> {
+  try {
+    await setSession(from, { step: 'AI_CONVERSATION' })
+  } catch (e) {
+    console.error("[WA-SHOP-CONFIRM] could not move the chat off the confirm step:", e instanceof Error ? e.message : "unknown error")
+  }
+}
+
+/**
+ * "2"/"0" on a confirm step takes the charge claim too: a cancel that read the step while another request is charging
+ * must not answer "cancelled" while that prompt goes out. Null means cancel; otherwise the reply to send instead.
+ */
+async function claimForCancel(from: string, step: WaShopSession['step'], claim: { held: boolean }): Promise<string | null> {
+  return takeShopChargeClaim(from, step, claim, 'busy')
+}
+
 export async function shopWaRouter(from: string, text: string, inboundMsgId: string | null): Promise<string> {
+  // Released only after the reply and the session write: until then the session still says the confirm step.
+  const claim = { held: false }
+  try {
+    return await routeShopMessage(from, text, inboundMsgId, claim)
+  } finally {
+    if (claim.held) await releaseShopCharge(from)
+  }
+}
+
+async function routeShopMessage(from: string, text: string, inboundMsgId: string | null, claim: { held: boolean }): Promise<string> {
   await logMessage(from, "inbound", text, inboundMsgId)
 
   let input = text.trim()
@@ -763,6 +832,12 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       // ── CONFIRM ──────────────────────────────────────────────────────────────
       case 'CONFIRM': {
         if (input === '2' || input === '0') {
+          const busy = await claimForCancel(from, 'CONFIRM', claim)
+          if (busy) {
+            reply = busy
+            skipPersist = true
+            break
+          }
           deleteAfter = true
           reply = 'Order cancelled.'
           break
@@ -776,12 +851,21 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             session.recipientPhone!,
             session.paymentPhone!
           )
+          // Nothing changed; writing this (possibly stale) session back could return the chat to the confirm step.
+          skipPersist = true
           break
         }
 
         if (!(await isShopStillOpen(session.shopCodeId!))) {
           deleteAfter = true
           reply = SHOP_CLOSED_REPLY
+          break
+        }
+
+        const dataRefusal = await takeShopChargeClaim(from, 'CONFIRM', claim)
+        if (dataRefusal) {
+          reply = dataRefusal
+          skipPersist = true
           break
         }
 
@@ -802,7 +886,10 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
 
         const feePercent = await fetchPaystackFeePercent()
         const fee = Math.round(verifiedPrice * feePercent * 100) / 100
-        const chargeAmount = verifiedPrice + fee
+        // The gateway decides the MoMo amount (Hubtel's has no Paystack fee), so it is resolved before the order.
+        const price: UssdPrice = { hubtel: verifiedPrice, paystack: verifiedPrice + fee }
+        const verifiedPayer = shopHubtelPayer(from, session)
+        const chargeAmount = await ussdOrderAmount('whatsapp', verifiedPayer, price)
 
         const [customerEmail, shopOwnerEmail] = await Promise.all([
           resolveEmail(from).catch(() => null),
@@ -837,24 +924,42 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         }
 
         const orderId = orderResult.orderId
+        await leaveConfirmStep(from)
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const { status } = await chargeMobileMoney({
-            email,
-            amount: chargeAmount,
-            phone: session.paymentPhone!,
-            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
-            reference: orderId,
-            metadata: {
-              source: 'whatsapp_shop',
-              whatsapp_shop_order_id: orderId,
-              recipient_phone: session.recipientPhone,
-              network: session.network,
-              package_size: session.bundleSize,
-              shop_id: session.shopId,
+          // Hubtel's unknown answers pay_offline (never throws); a fallback re-prices the order first or charges nothing.
+          const gate = chargeGate()
+          const timed = await gate.race(startUssdCharge({
+            surface: 'whatsapp',
+            verifiedPayer,
+            price,
+            written: chargeAmount,
+            params: {
+              email,
+              phone: session.paymentPhone!,
+              provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+              reference: orderId,
+              metadata: {
+                source: 'whatsapp_shop',
+                whatsapp_shop_order_id: orderId,
+                recipient_phone: session.recipientPhone,
+                network: session.network,
+                package_size: session.bundleSize,
+                shop_id: session.shopId,
+              },
             },
-          })
+            reprice: guardedReprice(supabase, 'ussd_shop_orders', orderId, {
+              from: { amount: chargeAmount }, set: { amount: price.paystack }, guards: { payment_status: 'pending' },
+            }),
+          }, gate.deps))
+          if (timed.kind === 'timeout') {
+            console.warn("[WA-SHOP-CONFIRM] charge timed out; outcome unknown, order left pending:", orderId)
+            deleteAfter = true
+            reply = SHOP_CHARGE_PENDING_REPLY
+            break
+          }
+          const { status } = timed.value
 
           if (status === 'send_otp') {
             await markOrderOtpRequired('ussd_shop_orders', orderId)
@@ -868,7 +973,8 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           }
         } catch (err) {
           console.error("[WA-SHOP-CONFIRM] Charge failed:", err)
-          // chargeMobileMoney throws whenever Paystack's HTTP response isn't ok —
+          // The charge throws whenever Paystack's HTTP response isn't ok (or a fallback couldn't re-price, so nothing
+          // was charged) —
           // meaning Paystack never registered the charge, so no charge.failed
           // webhook will ever arrive to reconcile this order. Without this write
           // it would sit at pending/pending forever (no cron covers this table).
@@ -1021,18 +1127,32 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       // ── AIRTIME_CONFIRM ─────────────────────────────────────────────────────
       case 'AIRTIME_CONFIRM': {
         if (input === '2' || input === '0') {
+          const busy = await claimForCancel(from, 'AIRTIME_CONFIRM', claim)
+          if (busy) {
+            reply = busy
+            skipPersist = true
+            break
+          }
           deleteAfter = true
           reply = 'Order cancelled.'
           break
         }
         if (input !== '1') {
           reply = shopAirtimeConfirmText(session, shopName)
+          skipPersist = true
           break
         }
 
         if (!(await isShopStillOpen(session.shopCodeId!))) {
           deleteAfter = true
           reply = SHOP_CLOSED_REPLY
+          break
+        }
+
+        const airtimeRefusal = await takeShopChargeClaim(from, 'AIRTIME_CONFIRM', claim)
+        if (airtimeRefusal) {
+          reply = airtimeRefusal
+          skipPersist = true
           break
         }
 
@@ -1075,6 +1195,13 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
           if (rq.kind === 'cashback') cb = rq.quote
         }
 
+        // The MoMo price on each gateway, resolved before the order: cashback carries a Paystack payment fee (Hubtel
+        // drops it); legacy airtime has none.
+        const momoPrice: UssdPrice = cb ? { hubtel: cb.base, paystack: cb.payAmount } : samePrice(amount)
+        const verifiedPayer = shopHubtelPayer(from, session)
+        const written = await ussdOrderAmount('whatsapp', verifiedPayer, momoPrice)
+        const pricedForHubtel = written !== momoPrice.paystack
+
         const referenceCode = secureReference("AT", 2, 3)
         let orderResult: Awaited<ReturnType<typeof createShopAirtimeOrder>>
         let customerEmail: string | null
@@ -1089,14 +1216,18 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             beneficiaryPhone: session.airtimeRecipient!,
             airtimeAmount: amount,
             feeAmount: 0,
-            totalPaid: cb.payAmount,
+            totalPaid: written,
             shopId: session.shopId!,
             merchantCommission: cb.shopShare,
             dialingPhone: from,
             channel: 'whatsapp_shop',
             customerName: 'WhatsApp Customer',
             customerEmail: customerEmail ?? null,
-            cashbackColumns: uzoCashbackAirtimeColumns(cb, true),
+            // Priced for Hubtel: no Paystack payment fee (Hubtel adds its own charge).
+            cashbackColumns: {
+              ...uzoCashbackAirtimeColumns(cb, true),
+              ...(pricedForHubtel ? { total_paid: written, payment_fee_amount: 0 } : {}),
+            },
           })
         } else {
           const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
@@ -1120,8 +1251,9 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             customerEmail: customerEmail ?? null,
           })
         }
-        // What the payer is charged = the row's total_paid.
-        const price = cb ? cb.payAmount : amount
+        // What the payer is charged = the row's total_paid; a fallback restores the fee it left out.
+        const price = written
+        const feeBack = Math.round((momoPrice.paystack - written) * 100) / 100
 
         if ('error' in orderResult) {
           console.error("[WA-SHOP-AIRTIME-CONFIRM] Failed to create order:", orderResult.error)
@@ -1131,23 +1263,42 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         }
 
         const orderId = orderResult.orderId
+        await leaveConfirmStep(from)
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const { status } = await chargeMobileMoney({
-            email,
-            amount: price,
-            phone: session.paymentPhone!,
-            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
-            reference: orderId,
-            metadata: {
-              source: 'whatsapp_shop_airtime',
-              airtime_order_id: orderId,
-              recipient_phone: session.airtimeRecipient,
-              network,
-              shop_id: session.shopId,
+          const gate = chargeGate()
+          const timed = await gate.race(startUssdCharge({
+            surface: 'whatsapp',
+            verifiedPayer,
+            price: momoPrice,
+            written: price,
+            params: {
+              email,
+              phone: session.paymentPhone!,
+              provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+              reference: orderId,
+              metadata: {
+                source: 'whatsapp_shop_airtime',
+                airtime_order_id: orderId,
+                recipient_phone: session.airtimeRecipient,
+                network,
+                shop_id: session.shopId,
+              },
             },
-          })
+            reprice: guardedReprice(supabase, 'airtime_orders', orderId, {
+              from: { total_paid: price },
+              set: { total_paid: momoPrice.paystack, payment_fee_amount: feeBack },
+              guards: { payment_status: 'pending_payment' },
+            }),
+          }, gate.deps))
+          if (timed.kind === 'timeout') {
+            console.warn("[WA-SHOP-AIRTIME-CONFIRM] charge timed out; outcome unknown, order left pending:", orderId)
+            deleteAfter = true
+            reply = SHOP_CHARGE_PENDING_REPLY
+            break
+          }
+          const { status } = timed.value
 
           if (status === 'send_otp') {
             await markOrderOtpRequired('airtime_orders', orderId)
@@ -1270,18 +1421,32 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       // ── RC_CONFIRM ───────────────────────────────────────────────────────────
       case 'RC_CONFIRM': {
         if (input === '2' || input === '0') {
+          const busy = await claimForCancel(from, 'RC_CONFIRM', claim)
+          if (busy) {
+            reply = busy
+            skipPersist = true
+            break
+          }
           deleteAfter = true
           reply = 'Order cancelled.'
           break
         }
         if (input !== '1') {
           reply = shopRcConfirmMenu(shopName, session.rcBoard!, session.rcQty!, session.rcTotal!, session.paymentPhone!)
+          skipPersist = true
           break
         }
 
         if (!(await isShopStillOpen(session.shopCodeId!))) {
           deleteAfter = true
           reply = SHOP_CLOSED_REPLY
+          break
+        }
+
+        const rcRefusal = await takeShopChargeClaim(from, 'RC_CONFIRM', claim)
+        if (rcRefusal) {
+          reply = rcRefusal
+          skipPersist = true
           break
         }
 
@@ -1326,23 +1491,38 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         }
 
         const orderId = orderResult.orderId
+        await leaveConfirmStep(from)
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const { status } = await chargeMobileMoney({
-            email,
-            amount: pricing.totalPaid,
-            phone: session.paymentPhone!,
-            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
-            reference: orderId,
-            metadata: {
-              source: 'whatsapp_shop_results_checker',
-              results_checker_order_id: orderId,
-              exam_board: board,
-              quantity: qty,
-              shop_id: session.shopId,
+          // No Paystack fee on vouchers: the same amount on either gateway, so a fallback re-prices nothing.
+          const gate = chargeGate()
+          const timed = await gate.race(startUssdCharge({
+            surface: 'whatsapp',
+            verifiedPayer: shopHubtelPayer(from, session),
+            price: samePrice(pricing.totalPaid),
+            written: pricing.totalPaid,
+            params: {
+              email,
+              phone: session.paymentPhone!,
+              provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+              reference: orderId,
+              metadata: {
+                source: 'whatsapp_shop_results_checker',
+                results_checker_order_id: orderId,
+                exam_board: board,
+                quantity: qty,
+                shop_id: session.shopId,
+              },
             },
-          })
+          }, gate.deps))
+          if (timed.kind === 'timeout') {
+            console.warn("[WA-SHOP-RC-CONFIRM] charge timed out; outcome unknown, order left pending:", orderId)
+            deleteAfter = true
+            reply = SHOP_CHARGE_PENDING_REPLY
+            break
+          }
+          const { status } = timed.value
 
           if (status === 'send_otp') {
             await markOrderOtpRequired('results_checker_orders', orderId)
@@ -1576,6 +1756,12 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
       // ── RCCHECK_CONFIRM ──────────────────────────────────────────────────────
       case 'RCCHECK_CONFIRM': {
         if (input === '2' || input === '0') {
+          const busy = await claimForCancel(from, 'RCCHECK_CONFIRM', claim)
+          if (busy) {
+            reply = busy
+            skipPersist = true
+            break
+          }
           deleteAfter = true
           reply = 'Order cancelled.'
           break
@@ -1586,12 +1772,20 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
             session.rcCheckIndex!, session.rcCheckYear!, session.rcCheckDob!,
             session.rcCheckMode ?? 'own_voucher', session.rcCheckAmount ?? 0, session.paymentPhone!
           )
+          skipPersist = true
           break
         }
 
         if (!(await isShopStillOpen(session.shopCodeId!))) {
           deleteAfter = true
           reply = SHOP_CLOSED_REPLY
+          break
+        }
+
+        const rcCheckRefusal = await takeShopChargeClaim(from, 'RCCHECK_CONFIRM', claim)
+        if (rcCheckRefusal) {
+          reply = rcCheckRefusal
+          skipPersist = true
           break
         }
 
@@ -1653,23 +1847,38 @@ export async function shopWaRouter(from: string, text: string, inboundMsgId: str
         }
 
         const orderId = orderResult.orderId
+        await leaveConfirmStep(from)
         const email = customerEmail ?? await resolveEmail(from).catch(() => `${from.replace(/\D/g, '')}@ussd.datagod.com`)
 
         try {
-          const { status } = await chargeMobileMoney({
-            email,
-            amount: pricing.totalPaid,
-            phone: session.paymentPhone!,
-            provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
-            reference: orderId,
-            metadata: {
-              source: 'whatsapp_shop_results_check',
-              results_check_request_id: orderId,
-              exam_board: board,
-              mode,
-              shop_id: session.shopId,
+          // No Paystack fee on a results check: the same amount on either gateway.
+          const gate = chargeGate()
+          const timed = await gate.race(startUssdCharge({
+            surface: 'whatsapp',
+            verifiedPayer: shopHubtelPayer(from, session),
+            price: samePrice(pricing.totalPaid),
+            written: pricing.totalPaid,
+            params: {
+              email,
+              phone: session.paymentPhone!,
+              provider: session.paystackProvider as 'mtn' | 'vod' | 'tgo',
+              reference: orderId,
+              metadata: {
+                source: 'whatsapp_shop_results_check',
+                results_check_request_id: orderId,
+                exam_board: board,
+                mode,
+                shop_id: session.shopId,
+              },
             },
-          })
+          }, gate.deps))
+          if (timed.kind === 'timeout') {
+            console.warn("[WA-SHOP-RCCHECK-CONFIRM] charge timed out; outcome unknown, request left pending:", orderId)
+            deleteAfter = true
+            reply = SHOP_CHARGE_PENDING_REPLY
+            break
+          }
+          const { status } = timed.value
 
           if (status === 'send_otp') {
             await markOrderOtpRequired('results_check_requests', orderId)

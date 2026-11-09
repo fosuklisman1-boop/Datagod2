@@ -11,6 +11,10 @@ import {
   ClipboardCheck, GraduationCap, Loader2, CheckCircle2, AlertCircle, Wallet, Smartphone,
 } from "lucide-react"
 import { toast } from "sonner"
+import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
+import { HubtelFeeNote, useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
+import { PayerOtpStep, usePayerOtp } from "@/components/storefront-commission/PayerOtp"
+import { isOtpRequiredReply } from "@/lib/payment-gateway/wallet-topup-display"
 import { supabase } from "@/lib/supabase"
 import { PaymentSheet } from "@/components/shop/PaymentSheet"
 import {
@@ -72,6 +76,8 @@ export default function DashboardResultsCheckPage() {
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const dashboardGateway = useSurfaceGateway("dashboard_gateway")
+  const payerOtp = usePayerOtp(formData.paymentPhone, { useStorefrontSettings: false })
 
   // Live "approve the prompt" sheet for the MoMo flow
   const [momoModal, setMomoModal] = useState<null | {
@@ -379,6 +385,14 @@ export default function DashboardResultsCheckPage() {
         }),
       })
       const chargeData = await chargeRes.json().catch(() => ({}))
+      // Hubtel needs a verified number even with the OTP gate off: show the verify step. Nothing was charged; the unpaid
+      // request just written stays unpaid, and paying after verifying writes a new one.
+      if (isOtpRequiredReply(chargeRes.status, chargeData)) {
+        payerOtp.require()
+        setMomoModal(null)
+        toast.info("Verify this Mobile Money number to continue")
+        return
+      }
       if (!chargeRes.ok || !chargeData.success) {
         if (!paymentDismissedRef.current) setMomoModal({ state: "failed", message: chargeData?.error ?? "Could not start the Mobile Money charge. Please try again." })
         return
@@ -396,6 +410,8 @@ export default function DashboardResultsCheckPage() {
       // charge may still have fired (the webhook completes the request
       // regardless), but don't reopen a view they already closed.
       if (paymentDismissedRef.current) return
+      const fallbackNote = fallbackChargeNotice(chargeData)
+      if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
       setMomoModal({ state: chargeData.status === "send_otp" ? "otp" : "awaiting", orderId, reference: chargeData.reference, summary })
       pollMomoStatus(orderId, chargeData.reference, summary, successInfo)
     } catch {
@@ -717,6 +733,8 @@ export default function DashboardResultsCheckPage() {
                             className="mt-1 font-mono"
                           />
                           <p className="text-xs text-muted-foreground mt-1">The payment prompt is sent to this number.</p>
+                          <HubtelFeeNote gateway={dashboardGateway} />
+                          <div className="mt-2"><PayerOtpStep otp={payerOtp} /></div>
                         </div>
                       )}
                     </div>
@@ -744,7 +762,7 @@ export default function DashboardResultsCheckPage() {
                         submitting ||
                         insufficient ||
                         !enabledBoards.includes(selectedBoard) ||
-                        (payFrom === "momo" && !/^0?\d{9}$/.test(formData.paymentPhone.replace(/\D/g, "")))
+                        (payFrom === "momo" && (payerOtp.blocking || !/^0?\d{9}$/.test(formData.paymentPhone.replace(/\D/g, ""))))
                       }
                       className="flex w-full items-center justify-center rounded-2xl bg-[#1b388b] py-4 text-base font-bold text-primary-foreground transition hover:bg-[#1b388b]/90 disabled:opacity-50"
                     >

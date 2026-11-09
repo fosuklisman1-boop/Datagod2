@@ -328,7 +328,7 @@ describe.each(STARTS)("Hubtel direct: $name", (s) => {
     expect(json).toMatchObject({ success: true, momoDirect: true, status: "pay_offline" })
     expect(json.reference.startsWith(s.prefix)).toBe(true)
     expect(receiveMoney).toHaveBeenCalledTimes(1)
-    expect(receiveMoney.mock.calls[0][0]).toMatchObject({ msisdn: "233241234567", channel: "mtn-gh", amount: s.price, description: "Payment" })
+    expect(receiveMoney.mock.calls[0][0]).toMatchObject({ msisdn: "233241234567", channel: "mtn-gh", amount: s.price, description: "Clingshub" })
     expect(chargeMobileMoney).not.toHaveBeenCalled()
     expect(hubtelRows()).toHaveLength(1)
     expect(hubtelRows()[0]).toMatchObject({ internal_reference: json.reference, surface: "sms", mode: "direct" })
@@ -444,7 +444,7 @@ describe.each(STARTS)("Hubtel hosted: $name", (s) => {
     const json = await res.json()
     expect(json.authorizationUrl).toBe("https://pay.hubtel.com/abc")
     expect(json.reference.startsWith(s.prefix)).toBe(true)
-    expect(initiateCheckout.mock.calls[0][0]).toMatchObject({ amount: s.price, description: "Payment" })
+    expect(initiateCheckout.mock.calls[0][0]).toMatchObject({ amount: s.price, description: "Clingshub" })
     expect(hubtelRows()[0]).toMatchObject({ internal_reference: json.reference, surface: "sms", mode: "checkout" })
     expect(hubtelRows()[0].metadata).toMatchObject({ type: s.type, sms_account_id: ACCOUNT, redirect_url: "https://www.example.com/dashboard/sms" })
     expect(initializePayment).not.toHaveBeenCalled()
@@ -733,5 +733,15 @@ describe("every route that awaits a start declares its time budget", () => {
     expect((await import("./units/purchase/route")).maxDuration).toBe(60)
     expect((await import("./units/purchase-paystack/route")).maxDuration).toBe(60)
     expect((await import("./activate/route")).maxDuration).toBe(60)
+  })
+})
+
+describe("hosted SMS on a Hubtel row set to direct (I3)", () => {
+  it("a bundle stays on Paystack, with no Hubtel row", async () => {
+    h.state.config = config({ mode: "direct" })
+    const res = await buyBundle()
+    expect(res.status).toBe(200)
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(hubtelRows()).toEqual([])
   })
 })

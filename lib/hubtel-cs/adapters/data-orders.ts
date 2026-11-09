@@ -21,6 +21,11 @@ export interface DataOrderRow {
   amount: number
   /** What the customer actually paid (cashback orders); null/absent on legacy rows. */
   paid_amount?: number | null
+  /** The order's human reference (for admin alerts). */
+  reference_code?: string | null
+  /** Special Bundles (0141): the group and this unit's 1-based number; null on every other row. */
+  special_group_id?: string | null
+  special_index?: number | null
 }
 
 /** The money to return to the customer: what they paid, falling back to the face amount on legacy rows. */
@@ -35,8 +40,10 @@ export interface DataOrdersAdapterDeps {
   creditWallet(userId: string, amount: number, referenceId: string, description: string): Promise<void>
   /** Best-effort customer notification (in-app + push). */
   notify(userId: string, title: string, message: string, orderId: string): Promise<void>
-  /** Best-effort admin alert. */
-  alertAdmin(message: string): Promise<void>
+  /** Best-effort admin alert. `urgent` keeps the email fallback when SMS cannot be sent. */
+  alertAdmin(message: string, urgent?: boolean): Promise<void>
+  /** How many rows a Special group has. Throws on DB error (the alert then names the unit without a size). */
+  groupSize?(groupId: string): Promise<number | null>
 }
 
 export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapter {
@@ -50,6 +57,35 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
       const o = await deps.get(orderId)
       if (o?.user_id) await deps.notify(o.user_id, title, text(o), orderId) // storefront buyers have no account to notify
     })
+  }
+  /**
+   * A bot buyer (USSD / WhatsApp) has no wallet and gets no notification, so this URGENT alert is their only protection.
+   * Ids and Hubtel's code only: never tx.failure_reason, whose raw Hubtel description can contain a phone number.
+   * Only called when the row actually changed, so a repeated callback or the re-notify sweep does not re-alert.
+   */
+  const alertBotFailure = async (id: string, tx: HubtelCsTx) => {
+    const code = tx.response_code ?? "none"
+    let o: DataOrderRow | null
+    try {
+      o = await deps.get(id)
+    } catch (e: any) {
+      // Cannot tell whether this is a bot order: an extra alert beats a paid buyer nobody hears about.
+      console.error(`[hubtel-cs] bundle failed-order read error for ${id}:`, e?.message ?? e)
+      await deps.alertAdmin(`URGENT: Standard bundle order ${id} failed at Hubtel (code ${code}) and could not be read. If it is a bot order, it is paid and not delivered: check it in Admin > Refunds.`, true)
+      return
+    }
+    if (o?.channel !== "bots") return
+    const action = "It is paid and not delivered, and the buyer has not been told. See Admin > Refunds: refund it there, or deliver by hand."
+    const ref = o.reference_code ?? id
+    if (!o.special_group_id) {
+      await deps.alertAdmin(`URGENT: Bot order ${ref} failed at Hubtel (code ${code}). ${action}`, true)
+      return
+    }
+    let size: number | null | undefined = null
+    try { size = await deps.groupSize?.(o.special_group_id) } catch (e: any) {
+      console.error(`[hubtel-cs] Special group size read error for ${o.special_group_id}:`, e?.message ?? e)
+    }
+    await deps.alertAdmin(`URGENT: Special group ${o.special_group_id}: unit ${o.special_index ?? "?"}${size ? `/${size}` : ""} (${ref}) failed at Hubtel (code ${code}). ${action}`, true)
   }
 
   return {
@@ -80,6 +116,7 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
       const n = await deps.update(id, { status: "failed", failure_reason: tx.failure_reason ?? tx.response_code ?? "unknown reason", notes: `Failed via Hubtel [hcsRef:${tx.client_reference}]` }, LIVE_STATUSES)
       if (n > 0) {
         await notifyCustomer(id, "Standard bundle failed", o => `Your ${summary(o)} failed — it's under review; a refund follows if nothing was delivered.`)
+        await quiet("bot failure alert", () => alertBotFailure(id, tx))
       }
     },
 
@@ -114,7 +151,7 @@ export function dataOrdersAdapterFor(db: SupabaseClient): OrderAdapter {
   return createDataOrdersAdapter({
     async get(orderId) {
       const { data, error } = await db.from(DATA_ORDERS_TABLE)
-        .select("status, payment_status, user_id, channel, network, bundle_display, beneficiary_phone, amount, paid_amount").eq("id", orderId).maybeSingle()
+        .select("status, payment_status, user_id, channel, network, bundle_display, beneficiary_phone, amount, paid_amount, reference_code, special_group_id, special_index").eq("id", orderId).maybeSingle()
       if (error) throw error
       return data ? (data as unknown as DataOrderRow) : null
     },
@@ -143,9 +180,14 @@ export function dataOrdersAdapterFor(db: SupabaseClient): OrderAdapter {
         await sendPushToUser(userId, { title, body: message, data: { url: "/dashboard/standard-bundles" } })
       } catch (e: any) { console.error("[hubtel-cs] bundle push error:", e?.message ?? e) }
     },
-    async alertAdmin(message) {
+    async alertAdmin(message, urgent = false) {
       const { notifyAdmins } = await import("@/lib/sms-service")
-      await notifyAdmins(message, "bills_review", undefined, true)
+      await notifyAdmins(message, "bills_review", undefined, !urgent)
+    },
+    async groupSize(groupId) {
+      const { count, error } = await db.from(DATA_ORDERS_TABLE).select("id", { count: "exact", head: true }).eq("special_group_id", groupId)
+      if (error) throw error
+      return count
     },
   })
 }

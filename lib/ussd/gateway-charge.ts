@@ -27,6 +27,8 @@ const SENDABLE = /^(\+?233|0)\d{9}$/
  * the dialling number on USSD, the sender on WhatsApp (whose router overwrites session.dialingPhone with the typed
  * MoMo number, so the owner there is the session id). Both are canonicalised once with normalizeGhanaPhone; no
  * canonical form means no. The provider must be the charged number's own network, because it picks Hubtel's channel.
+ * On WhatsApp no other number qualifies, not even an OTP-verified one: isPhoneOtpVerified isn't bound to the sender
+ * (anyone's past verification passes), so a typed number that isn't the sender's always pays on Paystack.
  */
 export function isUssdHubtelPayer(o: { chargePhone: string | undefined; ownerPhone: string | undefined; provider: string | undefined }): boolean {
   const charged = normalizeGhanaPhone(o.chargePhone ?? "")

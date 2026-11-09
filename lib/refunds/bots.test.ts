@@ -118,7 +118,7 @@ describe("loadRefundableOrders: bot commission orders", () => {
       expect(o.payment.hubtel).toEqual({ orderId: "HO-1", amountPaid: 10.33, amountAfterCharges: 10.03, paidAt: "2026-10-20T11:00:00Z", paidRows: 1 })
       expect(calls).toContainEqual(["hubtel_transactions", "eq", "order_table", "hubtel_data_orders"])
       expect(calls).toContainEqual(["hubtel_transactions", "not", "paid_at", "is", null])
-      expect(calls).toContainEqual(["hubtel_transactions", "select", "order_id, hubtel_order_id, amount_paid, amount_after_charges, paid_at"])
+      expect(calls).toContainEqual(["hubtel_transactions", "select", "order_id, hubtel_order_id, amount_paid, amount_after_charges, paid_at, mobile"])
     })
 
     it("amount_after_charges null or non-numeric: amountAfterCharges null (gateway then refuses)", async () => {

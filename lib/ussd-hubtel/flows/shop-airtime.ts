@@ -149,7 +149,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
     return say(ctx, shopAirtimeConfirmText(nameOf(ctx), label, session.airtimeRecipient, amount as number, shown as number, toLocalPhone(session.dialingPhone)), "SHOP_AIRTIME_CONFIRM", CONFIRM)
   }
 
-  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
+  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform, ctx.session.mode)
   if (replay) return replay
 
   // Stale-session guard (D11): availability, limits and the shop's markup may have changed.

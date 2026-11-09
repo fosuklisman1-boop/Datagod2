@@ -11,6 +11,9 @@ import {
   inboundOk, logHubtelCallback, withOutboundLogging, type CallbackLogEntry, type InboundLogOutcome,
 } from "@/lib/ussd-hubtel/callback-log"
 
+// One payment can send a whole Special Bundles group after the response (240s budget, see dispatchSpecialGroup).
+export const maxDuration = 300
+
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
 // Hubtel Service Fulfilment URL: https://<domain>/api/ussd-hubtel/fulfillment?secret=<HUBTEL_WEBHOOK_SECRET>
@@ -59,7 +62,7 @@ export async function POST(request: NextRequest) {
   const store = createSupabaseTxStore(supabase)
   let outcome: Awaited<ReturnType<typeof processFulfillment>>
   try {
-    outcome = await processFulfillment(store, createOrderHandlers(supabase), info, { paidReview: createPaidReviewHandlers(supabase) })
+    outcome = await processFulfillment(store, createOrderHandlers(supabase, { defer: after }), info, { paidReview: createPaidReviewHandlers(supabase) })
   } catch (e) {
     // Behaviour unchanged (the error propagates); only the log entry is added.
     logInbound({ outcome: "error", sessionId, hubtelOrderId, payload: body, error: e instanceof Error ? e.message : String(e) })

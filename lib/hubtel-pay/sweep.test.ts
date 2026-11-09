@@ -77,6 +77,7 @@ describe("listDueHubtelPayments", () => {
       { reference: ref(7), status: "confirming", created_at: ago(60 * MIN), claimed_at: null }, // no claim stamp
       { reference: ref(8), status: "paid", created_at: ago(60 * MIN), claimed_at: ago(30 * MIN) },
       { reference: ref(10), status: "needs_review", created_at: ago(60 * MIN), claimed_at: ago(30 * MIN) },
+      { reference: ref(11), status: "refunded_manually", created_at: ago(120 * MIN), claimed_at: ago(90 * MIN), updated_at: ago(90 * MIN) }, // terminal
     ]
     const { db, calls } = fakeDb(rows)
     const due = await listDueHubtelPayments(db as any, NOW)

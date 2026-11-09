@@ -202,7 +202,7 @@ describe("startMomoCharge — Hubtel accepted", () => {
     const t = setup()
     await startMomoCharge("ussd", VERIFIED, t.deps)
     const sent = t.receiveMoney.mock.calls[0][0]
-    expect(sent.description).toBe("Payment")
+    expect(sent.description).toBe("Clingshub")
     expect(sent.reference).toBe(t.onlyRow().reference)
     expect(sent.callbackUrl).toBe(`https://www.example.com/cb?ref=${sent.reference}`)
     expect(sent.msisdn).toBe("233244123456")

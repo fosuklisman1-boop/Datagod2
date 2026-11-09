@@ -1,5 +1,7 @@
 # Hubtel USSD — go-live runbook (Plans 1-3: data, airtime, results checker, AFA, shop mode)
 
+> **Two codes now.** The existing URL (no `line` parameter) serves `*713*235#`, in the mode set on the Shop code tab. A second code uses `line=main`: see "Two codes: the main code" at the end. Each has its own settings on `/admin/ussd-hubtel`.
+
 ## 0. Prerequisites you do manually
 - [ ] Hubtel merchant account; note the **Collection Account Number** and API credentials.
 - [ ] DigitalOcean droplet running the relay (`scripts/hubtel-relay/README.md`); give its **public IPv4** to your Hubtel Retail Systems Engineer to whitelist for the callback + status-check endpoints. Deploy layout is repo-relative: copy only `scripts/hubtel-relay/server.ts` and `lib/ussd-hubtel/relay-handler.ts` into `/opt/hubtel-relay/`, preserving those paths (the README has the full steps).
@@ -65,7 +67,7 @@
    - Set Mode = **Shop USSD** on `/admin/ussd-hubtel` (the confirm dialog is the only warning; the Mode applies to NEW dials, in-flight sessions keep theirs).
    - Pick a test shop whose code is `active` with a few tokens and note its balance: `select code, status, token_balance from ussd_shop_codes where code = '<CODE>';`.
    - **Billing table:** `0111_hubtel_shop_billing_claims.sql` must be applied or every shop code is refused with "Shop unavailable. Try again." (fails closed).
-   - Menu digits come from the shop menu (`Buy Data Bundle`, `Buy Airtime`, `Results Checker`, in that order, subject to the Hubtel visibility toggles; AFA and Check Results are NOT in the shop menu) and the simulator finds them by label. `FLOW=rccheck` and `FLOW=afa` are not available with `SHOP=1`.
+   - Menu digits come from the shop menu (`Internet Bundles`, `Buy Airtime`, `Results Checker`, in that order, subject to the Hubtel visibility toggles; AFA and Check Results are NOT in the shop menu) and the simulator finds them by label. `FLOW=rccheck` and `FLOW=afa` are not available with `SHOP=1`.
    - `SHOP_CODE` is REQUIRED with `SHOP=1` (the script stops with an error otherwise; there is no default code, so a guess can never spend a real shop's token). The script prints its `SessionId` at the start.
    - Three wrong / unknown / inactive codes in one session end it with "Too many attempts. Please try again later." (no token is spent on a wrong code).
 
@@ -157,3 +159,119 @@ After Phase B passes cleanly, leave the channel enabled and widen the audience (
 - Hubtel orders use `channel='ussd'` like Uzo orders; to report Hubtel separately, join `hubtel_transactions (order_table, order_id)`.
 - The status-check cron handles at most 50 awaiting rows per run (oldest first); a large backlog drains over several runs.
 - Still to do: live visual check of `/admin/ussd-hubtel` (incl. the Mark resolved dialog) and the live simulator runs on a non-production environment (Phase A).
+
+## Two codes: the main code
+
+The main code is a second Hubtel code on the same merchant account. It always opens the main menu, whatever Mode the Shop code tab is set to. Design: `docs/superpowers/specs/2026-11-07-hubtel-main-line-design.md`. Uzo codes are unaffected.
+
+### URLs to give Hubtel
+- Service Interaction URL: `https://www.datagod.store/api/ussd-hubtel/interaction?secret=<HUBTEL_WEBHOOK_SECRET>&line=main`
+- Service Fulfilment URL: `https://www.datagod.store/api/ussd-hubtel/fulfillment?secret=<HUBTEL_WEBHOOK_SECRET>` (the same as the existing code)
+
+The new code needs its **own** Service Interaction URL. If Hubtel cannot do this, stop: the routing needs another design. Do not attach the code to the existing URL, or callers get the shop-code prompt.
+
+### How `line` works
+- No `line`: the existing code's settings (`hubtel_ussd_config`).
+- `line=main`: the main code's settings (`hubtel_ussd_main_line_config`). No row means **off**.
+- Anything else, including a repeated `line`: "Service unavailable", and no menu opens. If callers report this, check the URL Hubtel holds.
+
+### Settings and switches
+- Each code has its own switch, services, brand and welcome line. A save changes only that code's row.
+- Switching one code off ends only that code's sessions. To roll back the main code, switch it off on the **Main code** tab. The shop code keeps working.
+- Fulfilment, callbacks, status checks and the relay are shared and need no change. So are prices (`ussd_price_tier`, shared with Uzo main) and Hubtel's charge, which the customer pays on top.
+- Standard Bundles and Pay Bills also need the cashback bots switches, which apply to every code.
+- **Internet Bundles screen (both codes):** the old top-level "Buy Data Bundle" and "Standard Bundles" items are now one item, **1. Internet Bundles**. With both types visible to the caller it opens `Internet Bundles / 1. Data Bundles / 2. Standard Bundles / 0. Back`; with only one visible it goes straight to that flow, and `0` there returns to the main (or shop) menu. If neither is visible the item is hidden and the rest renumber from 1. The two toggles on each code's tab are labelled `Internet Bundles: Data Bundles` and `Internet Bundles: Standard Bundles`; their keys and behaviour are unchanged.
+- **Digits moved:** Pay Bills is now **5** on the main menu (was 6) and **4** on the shop menu (was 5); AFA, Buy Airtime and Results Checker keep 2, 3 and 4 on main (Buy Airtime 2 and Results Checker 3 on shop). Tell testers and update any printed instructions.
+- The `/admin/utility-bills` Pay Bills status reflects the **shop code only**, not the main code.
+- `/admin/ussd-hubtel` shows transactions and sessions for both codes together. Main orders use `channel='ussd'`, like Uzo: join `hubtel_transactions` to tell them apart.
+
+### After deploying the code change (main code still off)
+1. New paid `hubtel_transactions` rows keep arriving, and the owner dials `*713*235#` once.
+2. `hubtel_ussd_main_line_config` has no row in `admin_settings`, which means off.
+3. A request with `line=main` and no secret, from a normal browser or allowed client, returns 401. The firewall may block scripted clients: if so, record that and rely on checks 1 and 2.
+4. Run this last, because a save creates the row that check 2 expects to be absent. Open `/admin/ussd-hubtel` and look at both tabs: Main code has no Mode selector, Shop code shows its live settings. On the **Main code** tab only, change one setting that keeps the code off (for example a service toggle), then restore it. The newest `admin_audit_log` action must be `hubtel_ussd_main_line_config_update`, and `hubtel_ussd_config.updated_at` must not have moved. If it moved, the Main tab is saving to the live shop code: stop and check `*713*235#` immediately.
+
+### Launch
+1. Register the two URLs above with Hubtel and keep the code restricted. Dial it while off and expect "Service unavailable".
+2. Switch on the **Main code** tab and test from the owner's phone with small purchases. Priority: **AFA (none ever sold through Hubtel), Pay Bills (one ever sold), Check Results**. Then one each of data, airtime, Standard Bundles and vouchers. Each row on `/admin/ussd-hubtel` must be `fulfilled` with `callback_status=sent`. Read the screens on a real handset.
+3. If anything is wrong, switch only the main code off.
+4. Ask Hubtel to remove the restriction. Watch `needs_review` and `callback_failed` for the first hours.
+5. Decide which main code to publish: `public_ussd_codes` in `/admin/settings` holds one code, and two main codes will be live.
+
+## Wallet payment on the main code
+
+Callers on the main code can pay from their Datagod wallet instead of MoMo, for Data Bundles, Buy Airtime, Buy Vouchers and Check Results. A wallet purchase has no Hubtel checkout, no Hubtel charge and no `hubtel_transactions` row. Design: `docs/superpowers/specs/2026-11-07-hubtel-main-wallet-design.md`.
+
+### The switch
+- **Wallet payment** on the **Main code** tab of `/admin/ussd-hubtel` (`walletPayment` on `hubtel_ussd_main_line_config`). Missing means off. The shop code has no such switch and never offers the wallet.
+- Turning it off stops new wallet offers at once. A caller already on the `Pay with:` screen who presses `1` gets "Service unavailable", with nothing created and nothing debited. `2` (MoMo) still works.
+
+### Who sees it
+All of these, checked on each request: the **main code** in main mode, `Platform` **USSD**, the dialling number resolves to an account whose **phone is verified** (`users.phone_verified = true`), and the account's live **balance covers the price**. Everyone else goes from Confirm to Hubtel's checkout exactly as before. If the verification or balance cannot be read, the caller gets MoMo. Verification and the price are checked again when `1` is pressed: if verification was lost in between, the caller gets "Service unavailable" and no order is created.
+
+### Deploy order
+1. Apply migration **0159** (`hubtel_wallet_payments` and `pay_hubtel_order_from_wallet`) with the prod change protocol.
+2. Read the table through the **service client** (PostgREST, not SQL), for example `select id from hubtel_wallet_payments limit 1` with the service-role key, and get an empty result with no error. This proves PostgREST's schema cache has the table.
+3. Only then push the code, with the switch off.
+
+If the code ever runs before the table is visible, the replay lookup treats a missing table (`42P01`, `PGRST205`, `PGRST202`) as "no wallet payment", so MoMo keeps working. Any other read error on that lookup ends the session with "Service unavailable" (fail closed), so watch for a run of those after a deploy.
+
+### Alerts and what to do
+URGENT admin alerts (SMS with email fallback, alert type `bills_review`; muting it in `disabled_sms_alert_types` silences them with no fallback):
+- **"wallet debited, but the order was not completed"**: the payment row is `needs_review`. Check the order. Deliver it by hand, or refund it to the wallet (see Refunds). Never pay it out to a phone.
+- **"the debit could not be confirmed ... left for the sweep"**: the RPC's outcome is unknown and the payment row could not be read. Check the wallet's `transactions` and `hubtel_wallet_payments` for the session. If a payment row exists, the sweep will deliver it after 10 minutes; if no row and no debit exists, nothing was taken.
+- The sweep (inside `/api/cron/hubtel-status-check`) re-runs delivery for `debited` rows older than 10 minutes and sends the first alert above if it fails again.
+
+### Refunds
+A wallet-paid order is refunded to the **same wallet only**. A payout on top of a wallet refund pays twice.
+- **Data orders** (`ussd_orders`): refund to the wallet from `/admin/refunds` (Pending orders, while the order is pending).
+- **Airtime** (`airtime_orders`): mark it Failed on `/admin/airtime`, which credits the buyer's wallet.
+- **Vouchers** (`results_checker_orders`): Refund on `/admin/results-checker`, which credits the buyer's wallet.
+- **Check Results** (`results_check_requests`): no in-app refund. Complete it on `/admin/results-check-requests`, or credit the wallet by hand.
+- **Failed or reversed data orders** (`order_status` `failed` or `reversed`): `/admin/refunds` does not take them. Credit the wallet by hand, after checking the order was not resent (a reversed order is never resent automatically, but someone may have resent it).
+- An order that was never marked paid (its handler failed before marking it) is refused by every refund tool: credit the wallet by hand, or deliver by hand.
+
+### The wallet attention card
+`/admin/refunds` shows a **wallet attention** card listing Hubtel wallet payments that need a person: `needs_review` rows whose order is not completed or refunded, `debited` rows older than the sweep window, and paid wallet orders whose data order has failed or been reversed. Each row gives the order, amount, why it is listed and where it can be refunded. While a row is still `debited` the sweep may still deliver it: do not refund yet. The card says when there are more rows than it shows.
+
+### Supervised test (plan Task 7 step 7)
+From the owner's phone (verified, small balance), with the switch on:
+1. One each of data, airtime, vouchers and Check Results paid from the wallet. For each: one debit, one `transactions` row, the payment row `fulfilled`, the order delivered, and **no** `hubtel_transactions` row. Confirm Hubtel accepts a session that ends with no checkout.
+2. A balance too short: the caller goes straight to the checkout, with no wallet screen.
+3. `0` (Cancel) on the `Pay with:` screen: "Order cancelled.", nothing created.
+4. `2` (MoMo) on the `Pay with:` screen: today's checkout, paid and delivered as usual.
+5. One deliberately failed post-payment, agreed with the developer beforehand (the stock and price checks run again before the debit, so a sold-out board fails at Confirm, not after payment): the screen still says payment successful, the payment row goes to `needs_review`, and the URGENT alert arrives. Then **wait more than 10 minutes** and check: the sweep did not deliver twice or move the row back, the alert did not repeat, and the order is listed on the wallet attention card. Refund it to the wallet from the page the card names, and check the card clears.
+6. Switch off and check the main code is unchanged for a MoMo caller.
+
+If anything is wrong, turn **Wallet payment** off. MoMo is unaffected.
+
+## Special Bundles on USSD
+
+Sold under Internet Bundles > Standard Bundles > MTN on both Hubtel codes. Off until an admin turns on **Sell on Hubtel USSD** on the Special card (Admin > Hubtel Commission > Standard Bundles). Sizes are the card's shared multiples list, so changing them also changes the dashboard. Migration 0158 is applied (2026-11-07).
+
+### How it works
+- One purchase is N unpaid rows in `hubtel_data_orders` (`channel='bots'`, `special_group_id`, `special_index`). The `hubtel_transactions` row points at child 1, with `expected_amount` = the total.
+- When Hubtel confirms payment, every child is confirmed at its own price and the units are sent one after another in the background. Each unit has its own shop share and Hubtel POST.
+- Any mismatch holds the whole group: nothing is sent, the units become paid + failed, and the row goes to `needs_review`.
+
+### Alerts and what to do
+All are URGENT admin alerts. Muting `bills_review` in `disabled_sms_alert_types` silences them with no email fallback.
+- **Unit failed at Hubtel:** refund that unit on `/admin/refunds`, or deliver by hand.
+- **Group held (underpaid, late, or amount differs):** refund the units on `/admin/refunds`, or deliver by hand.
+- **Paid units not sent:** send them from the Standard Bundles tab.
+- **Units stuck mid-send:** they may have reached Hubtel, so check before resending.
+- **Possibly paid:** check with Hubtel. Nothing is recorded on the order, and "not paid" cannot be resolved once the sweep has stamped `paid_at`.
+
+Refunds are per unit, to the payer's phone. The whole-transaction Hubtel refund is refused for any group row.
+
+### Hubtel code 2001 (open)
+The only failure so far: unit 10 of a size 10 dashboard purchase on 2026-11-03. Units 1 to 9 went out about 1.4 seconds apart and delivered. Hubtel's callback had `ResponseCode` 2001, an empty `Description` and `AmountDebited` 3, so the cause is unknown. A limit on rapid repeat purchases has not been ruled out. If there is one, sizes 10 and 15 would lose units on most sales. Asked of Hubtel: the reason, whether the GHS 3 was debited, and whether a limit exists. Do not add pacing or automatic retries until this is answered: a retry risks delivering twice.
+
+### Before turning it on
+1. Have Hubtel's answer on code 2001, and decide whether to lower the largest size.
+2. Turn the switch on and buy from the owner's phone on `*713*235*1#`: the smallest size, then the largest. Then one purchase on `*713*235#`.
+3. For each, check one `hubtel_transactions` row `fulfilled`, N children `completed`, the data on the handset, the callback sent, and on the shop purchase a share of N x the per-unit share.
+4. Also check: the stuck watch runs without error (`/api/cron/expire-stale-bot-orders`, because its `.or` filter has not run on the real server), an admin retry on a failed bot child works, and the time taken to confirm a large group.
+5. An admin tab left open from before this deploy turns the switch off when its Special card is saved. This fails safe: turn it back on.
+
+If anything is wrong, turn off **Sell on Hubtel USSD**. This does not stop dashboard sales.

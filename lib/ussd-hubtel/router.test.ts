@@ -1,7 +1,7 @@
 // lib/ussd-hubtel/router.test.ts
 import { describe, it, expect, vi } from "vitest"
-import { hubtelRouter, MAIN_MENU_ENTRIES, SHOP_PRODUCT_ENTRIES, type RouterDeps } from "./router"
-import { IMPLEMENTED_SERVICES, type MainMenuKey } from "./menus"
+import { hubtelRouter, MAIN_INTERNET_ENTRIES, MAIN_MENU_ENTRIES, SHOP_INTERNET_ENTRIES, SHOP_PRODUCT_ENTRIES, type RouterDeps } from "./router"
+import { IMPLEMENTED_SERVICES, type InternetType, type MainMenuKey } from "./menus"
 import { getHubtelUssdConfig } from "./config"
 import { digitFor, fakeShop, fakeSupabase, makeDeps, req } from "./testing/fakes"
 
@@ -37,7 +37,7 @@ describe("hubtelRouter: initiation and recovery", () => {
     const { deps, store } = makeDeps()
     const r = await hubtelRouter(req({ Type: "Initiation", Message: "*713#" }), deps)
     expect(r.Type).toBe("response")
-    expect(r.Message).toContain("1. Buy Data Bundle")
+    expect(r.Message).toContain("1. Internet Bundles")
     expect(r.ClientState).toBe("MAIN")
     expect(store.get("S1")).toMatchObject({ step: "MAIN", dialingPhone: "+233200585542", platform: "USSD" })
   })
@@ -55,7 +55,7 @@ describe("hubtelRouter: initiation and recovery", () => {
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("response")
     expect(r.Message).toContain("Session expired.")
-    expect(r.Message).toContain("Buy Data Bundle")
+    expect(r.Message).toContain("Internet Bundles")
   })
 })
 
@@ -76,7 +76,7 @@ describe("hubtelRouter: bad input keeps the session (review focus #5)", () => {
     await hubtelRouter(req({ Type: "Initiation" }), deps)
     for (const bad of ["9", "abc"]) {
       const r = await hubtelRouter(req({ Message: bad }), deps)
-      expect(r.Message).toContain("Buy Data Bundle")
+      expect(r.Message).toContain("Internet Bundles")
       expect(store.get("S1")?.step).toBe("MAIN")
     }
   })
@@ -305,7 +305,7 @@ describe("hubtelRouter: idempotent CONFIRM", () => {
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("AddToCart")
     expect(r.Item).toEqual({ ItemName: expect.stringMatching(/^CH order [a-z0-9]+$/), Qty: 1, Price: 10 })
-    expect(r.Message).not.toContain("Buy Data Bundle")
+    expect(r.Message).not.toContain("Internet Bundles")
   })
   it("an existing tx in another state releases 'already submitted'", async () => {
     const sup = fakeSupabase({
@@ -369,15 +369,19 @@ describe("hubtelRouter: other platforms", () => {
 })
 
 describe("hubtelRouter: flow registry", () => {
-  it("every implemented main-menu service has an entry handler", () => {
+  it("every implemented service is reached by a main-menu entry or an Internet Bundles entry", () => {
     for (const [key, on] of Object.entries(IMPLEMENTED_SERVICES)) {
-      if (on) expect(MAIN_MENU_ENTRIES[key as MainMenuKey], key).toBeTypeOf("function")
+      if (!on) continue
+      const reached = typeof MAIN_MENU_ENTRIES[key as MainMenuKey] === "function" || typeof MAIN_INTERNET_ENTRIES[key as InternetType] === "function"
+      expect(reached, key).toBe(true)
     }
   })
-  it("every shop product has an entry handler", () => {
-    for (const key of ["data", "airtime", "resultsChecker", "networkPlans", "payBills"] as const) {
+  it("every shop product is reached by a product entry or an Internet Bundles entry", () => {
+    for (const key of ["airtime", "resultsChecker", "payBills"] as const) {
       expect(SHOP_PRODUCT_ENTRIES[key], key).toBeTypeOf("function")
     }
+    expect(SHOP_PRODUCT_ENTRIES.internet).toBeTypeOf("function")
+    for (const key of ["data", "networkPlans"] as const) expect(SHOP_INTERNET_ENTRIES[key], key).toBeTypeOf("function")
   })
   it("replay with an unknown order table says already submitted instead of crashing (review focus #6)", async () => {
     const sup = fakeSupabase({ txRow: { order_table: "nope", order_id: "o1", expected_amount: 10, state: "awaiting_payment" } })
@@ -403,7 +407,7 @@ describe("hubtelRouter: flow registry", () => {
     store.set("S1", { step: "NOT_A_STEP" as any, dialingPhone: "+233200585542", platform: "USSD" })
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("response")
-    expect(r.Message).toContain("Buy Data Bundle")
+    expect(r.Message).toContain("Internet Bundles")
   })
 })
 
@@ -421,7 +425,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
     const menu = await hubtelRouter(req({ Type: "Initiation" }), deps)
     expect(store.get("S1")?.mode).toBe("main")
     mode = "shop"
-    const r = await hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Data Bundle") }), deps)
+    const r = await hubtelRouter(req({ Message: digitFor(menu.Message, "Internet Bundles") }), deps)
     expect(r.Message).toContain("Select Network:")
     expect(store.get("S1")?.step).toBe("SELECT_NETWORK")
   })
@@ -470,14 +474,14 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
     const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "shop", visibility: ALL_ON }) })
     store.set("S1", { step: "MAIN", dialingPhone: "+233200585542", platform: "USSD" })
     const menu = await hubtelRouter(req({ Type: "Initiation", SessionId: "S9" }), makeDeps().deps) // main menu text, for the digit
-    const r = await hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Data Bundle") }), deps)
+    const r = await hubtelRouter(req({ Message: digitFor(menu.Message, "Internet Bundles") }), deps)
     expect(r.Message).toContain("Select Network:")
   })
   it("a step unknown to the session's mode restarts in the current mode", async () => {
     const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: ALL_ON }) })
     store.set("S1", { mode: "shop", step: "SELECT_NETWORK", dialingPhone: "+233200585542", platform: "USSD" })
     const r = await hubtelRouter(req({ Message: "1" }), deps)
-    expect(r.Message).toContain("Buy Data Bundle")
+    expect(r.Message).toContain("Internet Bundles")
     expect(store.get("S1")?.mode).toBe("main")
   })
   it("a shop step in a main (or mode-less) session is never dispatched to the shop table", async () => {
@@ -485,7 +489,7 @@ describe("hubtelRouter: mode pinning (spec 4.2, review focus #3)", () => {
     const { deps, store } = makeDeps({ getConfig: async () => ({ welcome: "Welcome to Clingshub", welcomeCustom: false, brandName: "Clingshub", enabled: true, mode: "main", visibility: ALL_ON }), shop: fakeShop({ resolveCode }) })
     store.set("S1", { step: "SHOP_ENTER_CODE", dialingPhone: "+233200585542", platform: "USSD" })
     const r = await hubtelRouter(req({ Message: "1234" }), deps)
-    expect(r.Message).toContain("Buy Data Bundle")
+    expect(r.Message).toContain("Internet Bundles")
     expect(resolveCode).not.toHaveBeenCalled()
   })
   it("kill switch releases an in-flight shop session (review focus #8)", async () => {
@@ -531,7 +535,7 @@ describe("hubtelRouter: configurable welcome message", () => {
   it("main mode: Redis-miss restart shows 'Session expired.' then the custom welcome", async () => {
     const { deps } = makeDeps({ getConfig: cfg("main", CUSTOM) })
     const r = await hubtelRouter(req({ Message: "1" }), deps)
-    expect(r.Message.startsWith(`Session expired.\n${CUSTOM}\n1. Buy Data Bundle`)).toBe(true)
+    expect(r.Message.startsWith(`Session expired.\n${CUSTOM}\n1. Internet Bundles`)).toBe(true)
   })
   it("main mode: bad input re-shows the menu with the custom welcome", async () => {
     const { deps } = makeDeps({ getConfig: cfg("main", CUSTOM) })
@@ -542,12 +546,12 @@ describe("hubtelRouter: configurable welcome message", () => {
   it("main mode: '0' back to main from a sub-flow shows the custom welcome", async () => {
     const { deps, store } = makeDeps({ getConfig: cfg("main", CUSTOM) })
     const menu = await hubtelRouter(req({ Type: "Initiation" }), deps)
-    await hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Data Bundle") }), deps)
+    await hubtelRouter(req({ Message: digitFor(menu.Message, "Internet Bundles") }), deps)
     expect(store.get("S1")?.step).toBe("SELECT_NETWORK")
     const back = await hubtelRouter(req({ Message: "0" }), deps)
     expect(store.get("S1")?.step).toBe("MAIN")
     expect(back.Message.split("\n")[0]).toBe(CUSTOM)
-    expect(back.Message).toContain("Buy Data Bundle")
+    expect(back.Message).toContain("Internet Bundles")
   })
   it("shop mode: the custom welcome heads the shop-code prompt", async () => {
     const { deps } = makeDeps({ getConfig: cfg("shop", CUSTOM) })
@@ -578,7 +582,7 @@ describe("hubtelRouter: configurable welcome message", () => {
     for (const r of replies) {
       expect(r.Message.length).toBeLessThanOrEqual(182)
       expect(r.Message).toContain(longest)
-      for (const label of ["1. Buy Data Bundle", "2. AFA Registration", "3. Buy Airtime", "4. Results Checker"]) expect(r.Message).toContain(label)
+      for (const label of ["1. Internet Bundles", "2. AFA Registration", "3. Buy Airtime", "4. Results Checker"]) expect(r.Message).toContain(label)
       expect(r.Message.endsWith("\n0. Exit")).toBe(true)
     }
   })

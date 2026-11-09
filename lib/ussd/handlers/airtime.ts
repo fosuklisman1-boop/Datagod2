@@ -7,6 +7,7 @@ import {
   airtimeConfirmMenu, airtimePaymentMethodMenu, airtimeCashbackPaymentMethodMenu, waWalletShort,
 } from "../menus"
 import { setSession } from "../session"
+import { setWaSession } from "../../whatsapp-bot/session"
 import { networkNickname } from "../network-labels"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
@@ -524,8 +525,9 @@ async function chargeAirtimeMomo(
           .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
           .eq("id", orderId)
         if (channel === "whatsapp") {
-          await setSession(dialingPhone, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: orderId, pendingOrderTable: "airtime_orders" })
-          await sendWhatsAppText(dialingPhone, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+          // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
+          await setWaSession(sessionId, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: orderId, pendingOrderTable: "airtime_orders" })
+          await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
         } else {
           sendSMS({ phone: dialingPhone, message: SMSTemplates.ussdOtpRequired(), type: "otp_required", reference: orderId }).catch(() => {})
         }

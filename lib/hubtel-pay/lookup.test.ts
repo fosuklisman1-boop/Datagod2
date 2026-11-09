@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   confirmAndReadHubtelPayment, findHubtelPaymentByInternalRef, findHubtelPayments, hubtelReportStatus, isLiveHubtelStatus,
-  isHubtelWalletPayment,
+  isHubtelWalletPayment, isManuallyRefundedPayment,
 } from "./lookup"
 
 type Row = Record<string, any>
@@ -64,6 +64,16 @@ describe("findHubtelPayments", () => {
     expect((await findHubtelPayments(db2, ["WALLET-1"])).get("WALLET-1")?.reference).toBe(ref(2))
   })
 
+  it("a refunded_manually attempt ranks below every other status: it never speaks for a payment that has another attempt", async () => {
+    for (const other of ["failed", "pending", "needs_review", "paid"]) {
+      const { db } = fakeDb([
+        row({ reference: ref(1), status: other, created_at: "2026-11-04T09:00:00Z" }),
+        row({ reference: ref(2), status: "refunded_manually", created_at: "2026-11-04T12:00:00Z" }),
+      ])
+      expect((await findHubtelPayments(db, ["WALLET-1"])).get("WALLET-1")?.reference).toBe(ref(1))
+    }
+  })
+
   it("chunks very long lists", async () => {
     const { db, calls } = fakeDb([])
     await findHubtelPayments(db, Array.from({ length: 450 }, (_, i) => `R${i}`))
@@ -93,11 +103,13 @@ describe("status helpers", () => {
   it("live = pending, confirming, paid, needs_review", () => {
     expect(["pending", "confirming", "paid", "needs_review"].every(isLiveHubtelStatus)).toBe(true)
     expect(isLiveHubtelStatus("failed")).toBe(false)
+    expect(isLiveHubtelStatus("refunded_manually")).toBe(false)
     expect(isLiveHubtelStatus(undefined)).toBe(false)
   })
   it("report status", () => {
     expect(hubtelReportStatus("paid")).toBe("success")
     expect(hubtelReportStatus("failed")).toBe("failed")
+    expect(hubtelReportStatus("refunded_manually")).toBe("failed")
     expect(hubtelReportStatus("needs_review")).toBe("needs_review")
     expect(hubtelReportStatus("pending")).toBe("pending")
     expect(hubtelReportStatus("confirming")).toBe("pending")
@@ -108,6 +120,17 @@ describe("status helpers", () => {
     expect(isHubtelWalletPayment({ payment_method: "paystack" }, row({ status: "failed" }) as any)).toBe(false)
     expect(isHubtelWalletPayment({ payment_method: null }, null)).toBe(false)
     expect(isHubtelWalletPayment({}, undefined)).toBe(false)
+  })
+  it("a refunded_manually attempt is not what makes a wallet row Hubtel's: the row is closed", () => {
+    expect(isHubtelWalletPayment({ payment_method: "paystack" }, row({ status: "refunded_manually" }) as any)).toBe(false)
+  })
+  it("a payment went back by hand when an attempt says so and no other attempt holds money", () => {
+    expect(isManuallyRefundedPayment([{ status: "refunded_manually" }])).toBe(true)
+    expect(isManuallyRefundedPayment([{ status: "refunded_manually" }, { status: "failed" }])).toBe(true)
+    expect(isManuallyRefundedPayment([{ status: "refunded_manually" }, { status: "paid" }])).toBe(false)
+    expect(isManuallyRefundedPayment([{ status: "refunded_manually" }, { status: "needs_review" }])).toBe(false)
+    expect(isManuallyRefundedPayment([{ status: "paid" }])).toBe(false)
+    expect(isManuallyRefundedPayment([])).toBe(false)
   })
 })
 

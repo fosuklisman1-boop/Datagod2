@@ -120,4 +120,17 @@ describe("POST /api/shop/payment-reverify", () => {
     expect(out.body).toEqual({ paystack_status: "success", action: "verified", fulfillment: "triggered" })
     expect(h.tables.shop_orders[0].payment_status).toBe("completed")
   })
+
+  it("a Paystack success on an expired order: nothing flips, the wallet row records the money", async () => {
+    h.tables.shop_orders[0].order_status = "expired"
+    h.tables.shop_orders[0].payment_status = "expired"
+    h.tables.shop_orders[0].profit_amount = 2
+    h.tables.wallet_payments = [{ order_id: "o1", reference: "WALLET-P", status: "pending", created_at: "2026-11-04T09:00:00Z" }]
+    h.paystack["WALLET-P"] = { status: 200, body: { status: true, data: { status: "success", amount: 1000 } } }
+    const out = await post({ orderId: "o1" })
+    expect(out.body).toEqual({ paystack_status: "success", action: "order_closed" })
+    expect(h.tables.shop_orders[0].payment_status).toBe("expired")
+    expect(h.tables.wallet_payments[0].status).toBe("completed")
+    expect(h.tables.shop_profits ?? []).toEqual([])
+  })
 })

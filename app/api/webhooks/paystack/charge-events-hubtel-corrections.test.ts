@@ -36,6 +36,7 @@ const h = vi.hoisted(() => {
   return {
     tables, fake,
     markAirtimeOrderPaid: vi.fn(async (..._a: any[]) => ({ success: true })),
+    fulfillRc: vi.fn(async (..._a: any[]) => ({ success: true, status: "completed" }) as any),
     settle: vi.fn(async (..._a: any[]) => ({ outcome: "confirmed", status: "processing" }) as any),
     notifyAdmins: vi.fn(async () => {}),
     fetchMock: vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } })),
@@ -47,7 +48,11 @@ vi.mock("@/lib/sms-service", () => ({ sendSMS: vi.fn(async () => {}), notifyAdmi
 vi.mock("@/lib/app-settings", () => ({ getJoinCommunityLink: vi.fn(async () => null) }))
 vi.mock("@/lib/push-service", () => ({ sendPushToUser: vi.fn(async () => {}), notifyAdminsPush: vi.fn(async () => {}) }))
 vi.mock("@/lib/internal-url", () => ({ getInternalBaseUrl: () => "http://localhost" }))
-vi.mock("@/lib/results-checker-service", () => ({ notifyAdminsNewResultsCheckRequest: vi.fn(async () => {}) }))
+vi.mock("@/lib/results-checker-service", () => ({
+  notifyAdminsNewResultsCheckRequest: vi.fn(async () => {}),
+  fulfillPaidResultsCheckerOrder: (...a: any[]) => h.fulfillRc(...a),
+  fulfillPaidResultsCheckRequest: vi.fn(async () => ({ success: true })),
+}))
 vi.mock("@/lib/airtime-service", () => ({ markAirtimeOrderPaid: h.markAirtimeOrderPaid }))
 vi.mock("@/lib/customer-tracking-service", () => ({ customerTrackingService: { trackCustomer: vi.fn(async () => ({ customerId: null })) } }))
 vi.mock("@/lib/security-log", () => ({ logSecurityEvent: vi.fn() }))
@@ -250,5 +255,119 @@ describe("handleChargeFailed never fails a paid USSD order", () => {
     h.tables[table] = [{ id: ID, payment_status: "pending", order_status: "pending" }]
     await handleChargeFailed({ reference: ID, amount: 0, gateway_response: "Declined" })
     expect(h.tables[table][0]).toMatchObject({ payment_status: "failed", order_status: "failed" })
+  })
+})
+
+describe("a Hubtel payment on a closed shop order", () => {
+  const closed = { id: "so1", order_status: "expired", payment_status: "expired", total_price: 100, network: "MTN", volume_gb: "1", customer_phone: "0241234569", shop_id: "s1", profit_amount: 5 }
+  it("answers order_closed before the flip and before profit; the wallet row keeps the proof", async () => {
+    h.tables.shop_orders = [{ ...closed }]
+    h.tables.wallet_payments = [wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    const a = await answer({ metadata: HUBTEL })
+    expect(a?.status).toBe(200)
+    expect(a?.body).toMatchObject({ received: true, order_closed: true, closed_reason: "late_payment" })
+    expect(h.tables.shop_orders[0].payment_status).toBe("expired")
+    expect(h.tables.wallet_payments[0].status).toBe("completed")
+    expect(h.fetchMock).not.toHaveBeenCalled()
+    // Hubtel's confirm path raises its own alert.
+    expect(h.notifyAdmins).not.toHaveBeenCalled()
+  })
+  it("Paystack: the same order alerts admins, with no phone number in the message", async () => {
+    h.tables.shop_orders = [{ ...closed }]
+    h.tables.wallet_payments = [wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    const a = await answer({ id: 9, metadata: {} })
+    expect(a?.status).toBe(200)
+    expect(h.tables.shop_orders[0].payment_status).toBe("expired")
+    const calls = h.notifyAdmins.mock.calls as unknown as string[][]
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0]).toContain("/admin/refunds")
+    expect(calls[0][0]).not.toContain(closed.customer_phone)
+  })
+})
+
+describe("a second payment on a shop order that is already paid (I4)", () => {
+  const paidOrder = { id: "so1", order_status: "processing", payment_status: "completed", total_price: 100, network: "MTN", volume_gb: "1", customer_phone: "0241234572", shop_id: "s1", profit_amount: 5 }
+  const first = wp({ id: "wp0", reference: "WALLET-0", order_id: "so1", shop_id: "s1", order_type: "shop_order", status: "completed" })
+
+  it("Hubtel after another payment (Hubtel or Paystack): order_closed, its wallet row stays open, nothing re-runs", async () => {
+    h.tables.shop_orders = [{ ...paidOrder }]
+    h.tables.wallet_payments = [first, wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    const a = await answer({ metadata: HUBTEL })
+    expect(a).toEqual(CLOSED)
+    expect(h.tables.wallet_payments[1].status).toBe("pending")
+    expect(h.fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("the order paid some other way (no other payment row): still order_closed", async () => {
+    h.tables.shop_orders = [{ ...paidOrder }]
+    h.tables.wallet_payments = [wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    expect(await answer({ metadata: HUBTEL })).toEqual(CLOSED)
+  })
+
+  it("a replay of the payment that paid it is not closed", async () => {
+    h.tables.shop_orders = [{ ...paidOrder }]
+    h.tables.wallet_payments = [wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order", status: "completed" })]
+    expect(await answer({ metadata: HUBTEL })).toBeNull() // no early answer: the normal path
+  })
+
+  it("Paystack second payment: unchanged", async () => {
+    h.tables.shop_orders = [{ ...paidOrder, profit_amount: 0 }]
+    h.tables.wallet_payments = [first, wp({ order_id: "so1", shop_id: "s1", order_type: "shop_order" })]
+    expect(await answer({ id: 9, metadata: {} })).toBeNull()
+    expect(h.tables.wallet_payments[1].status).toBe("completed")
+  })
+})
+
+describe("a results-checker payment that could not be fulfilled (M4)", () => {
+  const USSD = "7f6c1f0e-1111-4222-8333-944455556670"
+  const refused = { success: false, status: "failed", message: "Order already failed", newlyPaid: false }
+  const walletRows = () => {
+    h.tables.wallet_payments = [wp({ order_id: "rc1", order_type: "results_checker" })]
+    h.tables.results_checker_orders = [{ id: "rc1", total_paid: 100 }]
+  }
+  const ussdRows = () => { h.tables.results_checker_orders = [{ id: USSD, total_paid: 10, status: "failed" }] }
+
+  it.each(["failed", "not_found"])("Hubtel, %s: order_closed on both paths", async (status) => {
+    h.fulfillRc.mockResolvedValue({ ...refused, status })
+    walletRows()
+    expect(await answer({ metadata: HUBTEL })).toEqual(CLOSED)
+    for (const k of Object.keys(h.tables)) delete h.tables[k]
+    ussdRows()
+    expect(await answer({ reference: USSD, amount: 1000, metadata: HUBTEL })).toEqual(CLOSED)
+  })
+  it("Hubtel, out of stock: paid and waiting for manual delivery, so not closed", async () => {
+    h.fulfillRc.mockResolvedValue({ success: false, status: "pending", message: "Stock exhausted", newlyPaid: true })
+    walletRows()
+    expect(await answer({ metadata: HUBTEL })).toBeNull()
+    for (const k of Object.keys(h.tables)) delete h.tables[k]
+    ussdRows()
+    expect((await answer({ reference: USSD, amount: 1000, metadata: HUBTEL }))?.body).toEqual({ received: true })
+  })
+  it("Paystack: unchanged", async () => {
+    h.fulfillRc.mockResolvedValue(refused)
+    walletRows()
+    expect(await answer({ id: 9, metadata: {} })).toBeNull()
+    for (const k of Object.keys(h.tables)) delete h.tables[k]
+    ussdRows()
+    expect((await answer({ reference: USSD, amount: 1000, id: 9, metadata: {} }))?.body).toEqual({ received: true })
+  })
+})
+
+describe("USSD airtime whose paid flip failed (M5)", () => {
+  const USSD = "7f6c1f0e-1111-4222-8333-944455556671"
+  const rows = () => { h.tables.airtime_orders = [{ id: USSD, payment_status: "pending", total_paid: 10, airtime_amount: 10, network: "MTN", beneficiary_phone: "0241234573", dialing_phone: "0241234573" }] }
+  it("Hubtel: order_closed, so the row parks instead of going paid", async () => {
+    rows()
+    h.markAirtimeOrderPaid.mockResolvedValue({ success: false })
+    expect(await answer({ reference: USSD, amount: 1000, metadata: HUBTEL })).toEqual(CLOSED)
+  })
+  it("Hubtel: a successful flip answers as before", async () => {
+    rows()
+    expect((await answer({ reference: USSD, amount: 1000, metadata: HUBTEL }))?.body).toEqual({ received: true })
+  })
+  it("Paystack: unchanged", async () => {
+    rows()
+    h.markAirtimeOrderPaid.mockResolvedValue({ success: false })
+    expect((await answer({ reference: USSD, amount: 1000, id: 9, metadata: {} }))?.body).toEqual({ received: true })
   })
 })

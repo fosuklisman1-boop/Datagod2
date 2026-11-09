@@ -5,6 +5,7 @@
 // migrations/0125_hubtel_ussd_bot_orders.sql (pinned by order-tables.test.ts).
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { safeDbError } from "./log-safe"
+import { readSpecialGroup } from "./special-group"
 
 export type HubtelOrderTable =
   | "ussd_orders" | "ussd_shop_orders" | "airtime_orders" | "results_checker_orders" | "results_check_requests" | "ussd_afa_orders"
@@ -86,6 +87,9 @@ export function isHubtelOrderTable(t: string): t is HubtelOrderTable {
  * Mark an order failed with its table's fail patch plus the table's guards, so only a still-open row is touched.
  * `engine` (an engine-created order: not ours, the engine may hand back an existing row) also guards on a payable
  * payment_status, as guardedFailUpdate in order-handlers.ts: a paid order is never failed. Never throws.
+ * An engine-created hubtel_data_orders row in a Special group fails the whole group (only pending, unpaid, channel
+ * 'bots' children match the guards); a group read error fails the row by id. Other tables and non-engine orders are
+ * never in a group and get no extra query.
  * (Re-exported from flow-kit.ts.)
  */
 export async function failOrderGuarded(
@@ -93,7 +97,15 @@ export async function failOrderGuarded(
 ): Promise<void> {
   const spec = ORDER_TABLES[table]
   try {
-    let q = supabase.from(table).update(spec.failPatch()).eq("id", id)
+    let groupId: string | null = null
+    if (engine && table === "hubtel_data_orders") {
+      try {
+        groupId = (await readSpecialGroup(supabase, table, id))?.groupId ?? null
+      } catch (e) {
+        console.error(`[${logTag}] Special group read failed; failing the order by id:`, id, safeDbError(e))
+      }
+    }
+    let q = supabase.from(table).update(spec.failPatch()).eq(groupId ? "special_group_id" : "id", groupId ?? id)
     if (engine) q = q.in("payment_status", [...spec.payableStatuses])
     for (const [column, values] of Object.entries(spec.failGuards ?? {})) q = q.in(column, [...values])
     const { error } = await q

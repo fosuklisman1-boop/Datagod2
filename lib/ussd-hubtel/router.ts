@@ -5,24 +5,28 @@ import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { BOT_MENUS_HIDDEN, getHubtelUssdConfig, type BotMenuGate, type HubtelUssdConfig } from "./config"
 import {
   defaultAfaServices, defaultAirtimeServices, defaultNetworkPlansServices, defaultPayBillsServices, defaultRcServices,
-  loadBotMenuGate, resolveDialer,
+  isPhoneVerified, loadBotMenuGate, resolveDialer,
 } from "./services"
 import { dbSessionStore } from "./session"
 import { defaultShopServices } from "./shop-services"
 import { fetchBundles, PAGE_SIZE, resolveCaller, isDataBlocked } from "./catalog"
-import { mainExitText, mainMenuText, type MainMenuKey, type ShopMenuKey } from "./menus"
-import { release, respond, toE164 } from "./protocol"
+import { mainExitText, mainMenuText, type InternetType, type MainMenuKey, type ShopMenuKey } from "./menus"
+import { release, respond, toE164, USSD_SCREEN_LIMIT } from "./protocol"
 import {
   finish, mainMenuReply, menuFor, replaySubmittedOrder,
   type FlowCtx, type RouterDeps, type StepHandler, type StepTable,
 } from "./flow-kit"
 import { AFA_STEPS, startAfa } from "./flows/afa"
-import { AIRTIME_STEPS, startAirtime } from "./flows/airtime"
-import { DATA_STEPS, startData } from "./flows/data"
+import { AIRTIME_PREPARES, AIRTIME_STEPS, startAirtime } from "./flows/airtime"
+import { DATA_PREPARES, DATA_STEPS, startData } from "./flows/data"
+import { payChoiceStep } from "./flows/pay-choice"
+import { createOrderHandlers } from "./order-handlers"
+import { urgentAlert } from "./special-payment"
+import { internetMenuStep, startInternetBundles } from "./flows/internet-bundles"
 import { NETWORK_PLANS_STEPS, startNetworkPlans } from "./flows/network-plans"
 import { PAY_BILLS_STEPS, startPayBills } from "./flows/pay-bills"
-import { RC_BUY_STEPS, startRc } from "./flows/rc-buy"
-import { RC_CHECK_STEPS } from "./flows/rc-check"
+import { RC_BUY_STEPS, RC_PREPARES, startRc } from "./flows/rc-buy"
+import { RC_CHECK_PREPARES, RC_CHECK_STEPS } from "./flows/rc-check"
 import { SHOP_AIRTIME_STEPS, startShopAirtime } from "./flows/shop-airtime"
 import { SHOP_DATA_STEPS, startShopData } from "./flows/shop-data"
 import { SHOP_RC_STEPS, startShopRc } from "./flows/shop-rc"
@@ -63,21 +67,29 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
       return verdict !== false
     },
     deliveryEstimate: async channel => confirmScreenText(await getCachedChannelEstimate(supabase, channel)),
+    // Built when a caller pays from the wallet (once per request), with the same URGENT alert the order handlers use.
+    walletPayDeps: () => ({ db: supabase, handlers: createOrderHandlers(supabase), alert: urgentAlert }),
+    // The wallet is offered and paid only for an account whose phone is verified.
+    isPhoneVerified: userId => isPhoneVerified(supabase, userId),
   }
 }
 
-/** First screen of each main-menu service. Every IMPLEMENTED_SERVICES key must have one (tested). */
+/** What each Internet Bundles type opens, per mode. Both start from the same Standard Bundles flow (it reads session.mode). */
+export const MAIN_INTERNET_ENTRIES: Partial<Record<InternetType, StepHandler>> = { data: startData, networkPlans: startNetworkPlans }
+export const SHOP_INTERNET_ENTRIES: Partial<Record<InternetType, StepHandler>> = { data: startShopData, networkPlans: startNetworkPlans }
+
+/** First screen of each main-menu item. Every IMPLEMENTED_SERVICES key is reached by an entry or an internet entry (tested). */
 export const MAIN_MENU_ENTRIES: Partial<Record<MainMenuKey, StepHandler>> = {
-  data: startData,
+  internet: startInternetBundles(MAIN_INTERNET_ENTRIES),
   airtime: startAirtime,
   resultsChecker: startRc,
   afa: startAfa,
-  networkPlans: startNetworkPlans,
   payBills: startPayBills,
 }
 
 const STEPS: StepTable = {
   MAIN: handleMain,
+  INTERNET_MENU: internetMenuStep(MAIN_INTERNET_ENTRIES),
   ...DATA_STEPS,
   ...AIRTIME_STEPS,
   ...RC_BUY_STEPS,
@@ -85,14 +97,15 @@ const STEPS: StepTable = {
   ...AFA_STEPS,
   ...NETWORK_PLANS_STEPS,
   ...PAY_BILLS_STEPS,
+  // Wallet or MoMo (main mode only: never in SHOP_STEPS).
+  PAY_CHOICE: payChoiceStep({ ...DATA_PREPARES, ...AIRTIME_PREPARES, ...RC_PREPARES, ...RC_CHECK_PREPARES }),
 }
 
 /** First screen of each shop product (Tasks 3, 5, 6 register theirs). Shop mode only. */
 export const SHOP_PRODUCT_ENTRIES: Partial<Record<ShopMenuKey, StepHandler>> = {
-  data: startShopData,
+  internet: startInternetBundles(SHOP_INTERNET_ENTRIES),
   airtime: startShopAirtime,
   resultsChecker: startShopRc,
-  networkPlans: startNetworkPlans, // the flows read session.mode for the shop split and the way back
   payBills: startPayBills,
 }
 
@@ -100,6 +113,7 @@ export const SHOP_PRODUCT_ENTRIES: Partial<Record<ShopMenuKey, StepHandler>> = {
 const SHOP_STEPS: StepTable = {
   ...SHOP_ENTRY_STEPS,
   SHOP_PRODUCT: handleShopProduct,
+  INTERNET_MENU: internetMenuStep(SHOP_INTERNET_ENTRIES),
   ...SHOP_DATA_STEPS,
   ...SHOP_AIRTIME_STEPS,
   ...SHOP_RC_STEPS,
@@ -165,7 +179,10 @@ async function startSession(req: HubtelRequest, deps: RouterDeps, config: Hubtel
     return release(req.SessionId, "No services available right now. Please try again later.", { platform: req.Platform })
   }
   await deps.sessions.set(req.SessionId, { mode: "main", step: "MAIN", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked })
-  return respond(req.SessionId, prefix + mainMenuText(resolved, config.welcome), { label: "Main menu", clientState: "MAIN", platform: req.Platform })
+  const menu = mainMenuText(resolved, config.welcome)
+  // A screen over the limit is cut off, which would lose "0. Exit": the menu matters more than the notice.
+  const text = (prefix + menu).length <= USSD_SCREEN_LIMIT ? prefix + menu : menu
+  return respond(req.SessionId, text, { label: "Main menu", clientState: "MAIN", platform: req.Platform })
 }
 
 /** New or restarted session: the CURRENT config mode decides, and is pinned by the start function. */

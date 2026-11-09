@@ -138,6 +138,53 @@ describe("flagReversal", () => {
     expect(updates).toContainEqual(expect.objectContaining({ table: "shop_orders", vals: expect.objectContaining({ order_status: "reversed" }) }))
   })
 
+  describe("when a database write fails", () => {
+    const row = { id: "trk9", order_type: "shop", order_id: null, shop_order_id: "shop9", api_order_id: null, provider: "bundleportal" }
+    function makeFailing(failOn: "mtn_fulfillment_tracking" | "shop_orders" | "sibling") {
+      const updates: string[] = []
+      const fake: any = {
+        from(table: string) {
+          return {
+            update() {
+              updates.push(table)
+              return { eq: () => Promise.resolve({ error: table === failOn ? { message: "boom" } : null }) }
+            },
+            select() {
+              const limit = () => Promise.resolve(failOn === "sibling" ? { data: null, error: { message: "boom" } } : { data: [], error: null })
+              return { eq: () => ({ neq: () => ({ eq: () => ({ limit }) }) }) }
+            },
+          }
+        },
+      }
+      return { fake, updates }
+    }
+
+    it("writes the order before the tracking row, so a failed order write can be retried", async () => {
+      const { fake, updates } = makeFake([])
+      await flagReversal(fake, row, { status: "failed" })
+      expect(updates.map((u: any) => u.table)).toEqual(["shop_orders", "mtn_fulfillment_tracking"])
+    })
+
+    it("reports not flagged and leaves tracking untouched when the order write fails", async () => {
+      const { fake, updates } = makeFailing("shop_orders")
+      const res = await flagReversal(fake, row, { status: "failed" })
+      expect(res.flagged).toBe(false)
+      expect(updates).not.toContain("mtn_fulfillment_tracking")
+    })
+
+    it("reports not flagged when the tracking write fails", async () => {
+      const { fake } = makeFailing("mtn_fulfillment_tracking")
+      expect((await flagReversal(fake, row, { status: "failed" })).flagged).toBe(false)
+    })
+
+    it("writes nothing when the sibling lookup fails, rather than assuming no newer delivery", async () => {
+      const { fake, updates } = makeFailing("sibling")
+      const res = await flagReversal(fake, row, { status: "failed" })
+      expect(res.flagged).toBe(false)
+      expect(updates).toEqual([])
+    })
+  })
+
   it("routes a legacy null-order_type row (order_id only) to the orders table", async () => {
     const { fake, updates } = makeFake([])
     const row = { id: "trk2", order_type: null, order_id: "bulk1", shop_order_id: null, api_order_id: null, provider: "sykes" }

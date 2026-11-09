@@ -1,0 +1,29 @@
+Hubtel Direct Receive Money — first live test (2026-11-05)
+
+Sent from the relay droplet (46.101.136.75) with a one-off curl; no app code involved.
+Collection account 2040747, channel mtn-gh, 1.00 GHS to a staff MTN number.
+
+1. Before whitelist: HTTP 403 Forbidden (HTML). IP not whitelisted.
+2. After whitelist, before scope: HTTP 401
+   {"Message":"supplied API keys does not have \"mobilemoney-receive-direct\" in scopes.","ResponseCode":"4101","Data":""}
+3. After Hubtel enabled the scope on the EXISTING key (the one in HUBTEL_STATUS_BASIC_AUTH):
+   Request field sent: PrimaryCallbackURL (table casing). Description "Payment". 32-hex ClientReference.
+   HTTP 200
+   {"Message":"Transaction pending. Expect callback request for final state.","ResponseCode":"0001",
+    "Data":{"TransactionId":"<32 hex>","Description":"Payment","ClientReference":"<ours>",
+            "Amount":1.01,"Charges":0.01,"AmountAfterCharges":1.00,"AmountCharged":1.01,
+            "DeliveryFee":0.0,"InvoiceNumber":null}}
+   -> Hubtel adds its fee ON TOP for the customer: we asked 1.00, customer charged 1.01, we receive 1.00.
+4. Customer approved on the phone. Status check (api-txnstatus ... /status?clientReference=<ours>):
+   {"responseCode":"0000","message":"Successful",
+    "data":{"status":"Paid","paymentMethod":"mobilemoney","amount":1.01,"charges":0.01,
+            "amountAfterCharges":1.0,"clientReference":"<ours>","transactionId":"<32 hex>",
+            "externalTransactionId":"<11 digits>","currencyCode":null,"isFulfilled":null}}
+   -> status-check `amount` INCLUDES Hubtel's charge. confirm.ts must (and does, since the Plan 3
+      final-review fix) pass the amount WE requested to the handler, not data.amount.
+   -> responseCode "0000" and data.clientReference present: matches the M1 check in checkPaymentStatus.
+   -> paymentMethod "mobilemoney" for MTN MoMo.
+
+Still unverified: whether the callback uses PrimaryCallbackURL vs PrimaryCallbackUrl (callback route
+not deployed at test time, so the callback was not received); 404 vs Unpaid for an ignored prompt or
+abandoned checkout; wallet/G-Money paymentMethod values; Online Checkout; card restriction.

@@ -2,7 +2,11 @@
 // adds a Paystack fee, so both gateways charge the same amount and a fallback re-prices nothing.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ afterFns: [] as Array<() => Promise<void>>, charge: null as any }))
+const h = vi.hoisted(() => ({ afterFns: [] as Array<() => Promise<void>>, charge: null as any, verified: new Set<string>() }))
+vi.mock("@/lib/storefront-otp", async (orig) => ({
+  ...(await orig<object>()),
+  isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
+}))
 
 vi.mock("@supabase/supabase-js", async () => (await import("@/lib/ussd/gateway-test-kit")).supabaseMock())
 vi.mock("@/lib/payment-gateway/read-config", async () => (await import("@/lib/ussd/gateway-test-kit")).readConfigMock())
@@ -17,6 +21,7 @@ vi.mock("../wallet-balance", () => ({ liveWalletBalance: vi.fn(async () => undef
 vi.mock("@/lib/paystack", async (orig) => ({ ...(await orig<object>()), chargeMobileMoney: vi.fn(async (p: any) => h.charge(p)) }))
 vi.mock("../../sms-service", () => ({ sendSMS: vi.fn(async () => {}), SMSTemplates: { ussdOtpRequired: () => "otp" } }))
 vi.mock("../../whatsapp-bot/send", () => ({ sendWhatsAppText: vi.fn(async () => {}) }))
+vi.mock("../../whatsapp-bot/session", () => ({ setWaSession: vi.fn(async () => {}) }))
 vi.mock("../../secure-random", () => ({ secureReference: () => "RC-REF" }))
 vi.mock("../../ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({})) }))
 vi.mock("../../results-checker-service", () => ({
@@ -27,6 +32,8 @@ vi.mock("../../results-checker-service", () => ({
 
 import { handleRcConfirm, handleRcCheckPaymentMethod, handleRcCheckConfirmMomo } from "./results-checker"
 import { chargeMobileMoney } from "@/lib/paystack"
+import { setWaSession } from "../../whatsapp-bot/session"
+import { setSession } from "../session"
 import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "../gateway-test-kit"
 
 const DIAL = "+233244123456"
@@ -45,6 +52,9 @@ beforeEach(() => {
   vi.useFakeTimers()
   resetKit()
   h.afterFns = []
+  h.verified.clear()
+  vi.mocked(setWaSession).mockClear()
+  vi.mocked(setSession).mockClear()
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   vi.mocked(chargeMobileMoney).mockClear()
   kit.db.results_check_requests = [{ id: "req-1", payment_status: "pending_payment", status: "pending" }]
@@ -134,5 +144,63 @@ describe("WhatsApp results check", () => {
     await runAfter()
     expect(kit.receive).not.toHaveBeenCalled()
     expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: "0551234567", amount: 2 })
+  })
+
+  it("another typed number, even an OTP-verified one, stays on Paystack", async () => {
+    h.verified.add("0551234567")
+    await handleRcCheckConfirmMomo("233244123456", checkSession({ dialingPhone: "0551234567" }))
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: "0551234567", amount: 2 })
+  })
+})
+
+describe("which session store a send_otp uses", () => {
+  beforeEach(() => { h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference }) })
+  const otpWritesByUssdStore = () => vi.mocked(setSession).mock.calls.filter(([, s]) => s.step === "SUBMIT_OTP")
+
+  it("WhatsApp vouchers: SUBMIT_OTP is written by the WhatsApp store (30 min), not the USSD one (120 s)", async () => {
+    await handleRcConfirm("1", "233244123456", rcSession({ dialingPhone: "0551234567" }), "whatsapp")
+    await runAfter()
+    expect(setWaSession).toHaveBeenCalledTimes(1)
+    expect(setWaSession).toHaveBeenCalledWith("233244123456", {
+      step: "SUBMIT_OTP", dialingPhone: "0551234567", pendingOrderId: rows("results_checker_orders")[0].id, pendingOrderTable: "results_checker_orders",
+    })
+    expect(otpWritesByUssdStore()).toHaveLength(0)
+  })
+
+  it("WhatsApp results check: the WhatsApp store too", async () => {
+    await handleRcCheckConfirmMomo("233244123456", checkSession({ dialingPhone: "0551234567" }))
+    await runAfter()
+    const r = rows("results_check_requests").find((x) => x.payment_status === "otp_required")!
+    expect(setWaSession).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(setWaSession).mock.calls[0][0]).toBe("233244123456")
+    expect(vi.mocked(setWaSession).mock.calls[0][1]).toMatchObject({ step: "SUBMIT_OTP", pendingOrderId: r.id, pendingOrderTable: "results_check_requests" })
+    expect(otpWritesByUssdStore()).toHaveLength(0)
+  })
+
+  it("USSD vouchers: the USSD store only, never the WhatsApp one", async () => {
+    await handleRcConfirm("1", "S1", rcSession())
+    await runAfter()
+    expect(rows("results_checker_orders")[0].payment_status).toBe("otp_required")
+    expect(setSession).toHaveBeenCalled()
+    expect(setWaSession).not.toHaveBeenCalled()
+  })
+})
+
+describe("WhatsApp vouchers (shared handler)", () => {
+  beforeEach(() => { kit.config = gatewayConfig(["whatsapp"]) })
+
+  it("the sender's own number goes to Hubtel; another number, even OTP-verified, to Paystack", async () => {
+    await handleRcConfirm("1", "233244123456", rcSession({ dialingPhone: "0244123456" }), "whatsapp")
+    await runAfter()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: "233244123456", amount: 40 })
+
+    h.verified.add("0551234567")
+    await handleRcConfirm("1", "233244123456", rcSession({ dialingPhone: "0551234567" }), "whatsapp")
+    await runAfter()
+    expect(kit.receive).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0]).toMatchObject({ phone: "0551234567", amount: 40 })
   })
 })

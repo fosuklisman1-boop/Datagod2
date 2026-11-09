@@ -107,6 +107,11 @@ export interface BotMomoDeps {
    * USSD reply may wait, so a Hubtel start never runs inside it. Paystack starts stay inline, as before.
    */
   defer?(fn: () => Promise<void>): void
+  /**
+   * A deferred start answered send_otp after the WhatsApp reply closed the chat: put the sender's chat (local form)
+   * back on SUBMIT_OTP and tell them. Called after the OTP pointer is stored; WhatsApp surfaces only.
+   */
+  reopenOtpChat?(channel: "whatsapp" | "whatsapp_shop", senderLocal: string): Promise<void>
 }
 
 /** Where a bot order's payment fee lives, and its rate (cashback config botFees.paystack, gated like quoteBots). */
@@ -330,6 +335,12 @@ export async function botChargeMomo(d: BotMomoDeps, i: BotChargeInput): Promise<
           await failBotCharge(d.db, i.orderType, i.orderId, reference, TAG)
         } else if (r.status === "send_otp") {
           await storeOtpPointer()
+          if (whatsapp) {
+            // The reply already went out with no pointer to see, so the chat is closed. The Paystack prompt stands
+            // either way, and the webhook's no-session fallback still takes a code, so a failure here fails nothing.
+            await d.reopenOtpChat?.(i.botSurface === "whatsapp_shop" ? "whatsapp_shop" : "whatsapp", dialLocal)
+              .catch((e) => console.error(`[${TAG}] could not reopen the OTP chat for ${i.orderId}:`, e instanceof Error ? e.message : "error"))
+          }
         }
       } catch (e) {
         // Only Paystack errors and a refused re-price reach here; Hubtel's unknown never throws (the order stays open).
@@ -410,5 +421,10 @@ export function getBotMomoRuntime(): BotMomoDeps {
     payerOtp: { required: readStorefrontOtpRequiredStrict, verified: isPhoneOtpVerified },
     now: Date.now,
     gateway: { getConfig: getGatewayConfig, isReady: isHubtelCollectionReady },
+    // Imported on use: the WhatsApp flow modules import this one through the shared bot flows.
+    reopenOtpChat: async (channel, senderLocal) => {
+      if (channel === "whatsapp_shop") await (await import("@/lib/whatsapp-bot/shop-bot-flows")).reopenShopBotOtp(senderLocal)
+      else await (await import("@/lib/whatsapp-bot/bot-flows")).reopenWaBotOtp(senderLocal)
+    },
   }
 }

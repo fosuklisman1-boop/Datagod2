@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { CheckCircle2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
 import { PaymentSheet, type PaymentSheetModal } from "@/components/shop/PaymentSheet"
 import { useShopBasePath } from "@/lib/shop-url"
 import type { StorefrontOrderType } from "@/lib/storefront-commission/payment"
@@ -119,6 +120,8 @@ export function useStorefrontPayment(shopSlug: string, orderType: StorefrontOrde
       show(id, { state: "failed", message: typeof json?.error === "string" && json.error ? json.error : "Could not start the Mobile Money payment. Please try again." })
       return "failed"
     }
+    const fallbackNote = fallbackChargeNotice(json)
+    if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
     const summary = { paymentPhone: a.paymentPhone, amount: a.amount, reference: json.reference }
     show(id, { state: json.status === "send_otp" ? "otp" : "awaiting", orderId: a.orderId, reference: json.reference, summary })
     poll(id, a.orderId, json.reference, summary)

@@ -93,6 +93,39 @@ function withRetryAfterSuffix(message: string, retryAfterSeconds: number | null)
   return retryAfterSeconds != null ? `${message} (retry after ${retryAfterSeconds}s)` : message
 }
 
+/** Attempt 0 is the order's own reference; later attempts get a stable UUID derived from it. */
+export function attemptReference(ref: string, attempt: number): string {
+  if (attempt === 0) return ref
+  const h = crypto.createHash("sha256").update(`${ref}:${attempt}`).digest("hex")
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`
+}
+
+const DEAD_ATTEMPT_STATUSES = new Set(["failed", "reversed"])
+const MAX_ATTEMPTS = 10
+
+/**
+ * Pick the reference for this send. Bundle Portal answers a reused order_id
+ * with the original order (duplicate: true) and mtn_order_id is UNIQUE, so
+ * re-sending a failed or reversed order under its old reference delivers
+ * nothing and leaves it stuck in processing. A dead attempt moves to the next
+ * derived reference; a live one keeps its reference so duplicates are still
+ * deduped. Derived, not random, so a network retry can't place a second order.
+ * Returns null when the history can't be read or attempts are exhausted.
+ */
+async function resolveOrderReference(ref: string): Promise<string | null> {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const candidate = attemptReference(ref, attempt)
+    const { data, error } = await supabase
+      .from("mtn_fulfillment_tracking")
+      .select("status")
+      .eq("mtn_order_id", candidate)
+      .maybeSingle()
+    if (error) return null
+    if (!data || !DEAD_ATTEMPT_STATUSES.has(data.status)) return candidate
+  }
+  return null
+}
+
 // ── Provider class ───────────────────────────────────────────────────────────
 
 export class BundlePortalProvider implements MTNProvider {
@@ -109,13 +142,17 @@ export class BundlePortalProvider implements MTNProvider {
     const phone = normalizePhoneNumber(request.recipient_phone)
     // Always sent, even though the docs mark it optional — it's the sole
     // idempotency key AND the sole status-lookup key for this provider.
-    const orderId = request.client_ref ?? (() => {
+    const baseRef = request.client_ref ?? (() => {
       console.warn(
         "[BundlePortal] createOrder called with no client_ref — generating a random UUID. " +
         "Idempotent retry-safety requires a stable reference; a caller-level retry after this could double-charge."
       )
       return crypto.randomUUID()
     })()
+    const orderId = await resolveOrderReference(baseRef)
+    if (!orderId) {
+      return { success: false, message: "Could not determine a safe Bundle Portal reference for this order", error_type: "API_ERROR" }
+    }
     const mtnRoute = await getActiveMtnRoute()
     const bpNetwork = mapNetworkToBundlePortal(request.network, request.isBigTime, mtnRoute)
 

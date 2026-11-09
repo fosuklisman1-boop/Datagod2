@@ -251,13 +251,13 @@ export function afaEnterRegionPrompt(): string {
   return 'Enter your region:\n(e.g. Ashanti,\nGreater Accra)\n\n0. Back'
 }
 
-export function afaConfirmMenu(name: string, card: string, price: number, localPhone: string): string {
+/** localPhone null: the number isn't known yet (WhatsApp asks for it after Pay now). */
+export function afaConfirmMenu(name: string, card: string, price: number, localPhone: string | null): string {
   return (
     `AFA Registration\n` +
     `${name}\n` +
     `Card: ${card}\n` +
-    `GHS ${price.toFixed(2)} from\n` +
-    `${localPhone}\n\n` +
+    (localPhone === null ? `GHS ${price.toFixed(2)}\n\n` : `GHS ${price.toFixed(2)} from\n${localPhone}\n\n`) +
     `1. Pay now\n2. Cancel`
   )
 }

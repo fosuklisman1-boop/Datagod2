@@ -22,7 +22,7 @@ const cfgOn = (): BundlesConfig => ({
     TELECEL: { enabled: true, hiddenCategories: [], referenceNumber: "233206439599" },
     AT: { enabled: true, hiddenCategories: [], referenceNumber: "233273833933" },
   },
-  special: { enabled: true, multiples: [3, 5, 8, 10, 15], unitAmount: 3, unitValue: UNIT.value },
+  special: { enabled: true, multiples: [3, 5, 8, 10, 15], unitAmount: 3, unitValue: UNIT.value, ussdEnabled: false },
 })
 
 // data_mtn at 3%, customer share 50%: one GHS 3 unit => 4.5 pesewas floored to 4 (pay 2.96). Pricing GHS 15 in one

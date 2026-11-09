@@ -10,7 +10,16 @@ vi.mock("@/lib/ussd-hubtel/router", () => ({
   defaultRouterDeps: () => ({}),
 }))
 
-import { POST } from "./route"
+import { maxDuration, POST } from "./route"
+import { WALLET_SWEEP_LEASE_MS, WALLET_SWEEP_MIN_AGE_MS } from "@/lib/ussd-hubtel/wallet-pay"
+
+describe("POST /api/ussd-hubtel/interaction: route config", () => {
+  it("allows 300s for wallet post-payment run in after(), under the wallet sweep's 10-minute window and lease", () => {
+    expect(maxDuration).toBe(300)
+    expect(maxDuration * 1000).toBeLessThan(WALLET_SWEEP_MIN_AGE_MS)
+    expect(maxDuration * 1000).toBeLessThan(WALLET_SWEEP_LEASE_MS)
+  })
+})
 
 const req = (body: unknown) =>
   new NextRequest("http://localhost/api/ussd-hubtel/interaction?secret=s3cret", { method: "POST", body: JSON.stringify(body) })

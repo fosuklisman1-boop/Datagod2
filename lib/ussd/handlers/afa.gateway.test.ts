@@ -2,7 +2,7 @@
 // Hubtel 50.00. The prompt always goes to the dialler on the MTN provider (as today).
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const h = vi.hoisted(() => ({ afterFns: [] as Array<() => Promise<void>>, charge: null as any }))
+const h = vi.hoisted(() => ({ afterFns: [] as Array<() => Promise<void>>, charge: null as any, verified: new Set<string>() }))
 
 vi.mock("@supabase/supabase-js", async () => (await import("@/lib/ussd/gateway-test-kit")).supabaseMock())
 vi.mock("@/lib/payment-gateway/read-config", async () => (await import("@/lib/ussd/gateway-test-kit")).readConfigMock())
@@ -14,9 +14,16 @@ vi.mock("../session", () => ({ setSession: vi.fn(async () => {}) }))
 vi.mock("../resolve-email", () => ({ resolveEmail: vi.fn(async () => "payer@example.com") }))
 vi.mock("@/lib/paystack", async (orig) => ({ ...(await orig<object>()), chargeMobileMoney: vi.fn(async (p: any) => h.charge(p)) }))
 vi.mock("../../ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({})) }))
+vi.mock("@/lib/storefront-otp", async (orig) => ({
+  ...(await orig<object>()),
+  isPhoneOtpVerified: vi.fn(async (p: string) => h.verified.has(p)),
+}))
+
+vi.mock("../../sms-service", () => ({ sendSMS: vi.fn(async () => {}), SMSTemplates: { ussdOtpRequired: () => "otp" } }))
 
 import { handleAfaConfirm } from "./afa"
 import { chargeMobileMoney } from "@/lib/paystack"
+import { sendSMS } from "../../sms-service"
 import { gatewayConfig, hubtelRows, kit, resetKit, rows } from "../gateway-test-kit"
 
 const session = (over: Record<string, unknown> = {}): any => ({
@@ -34,8 +41,10 @@ beforeEach(() => {
   vi.useFakeTimers()
   resetKit()
   h.afterFns = []
+  h.verified.clear()
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   vi.mocked(chargeMobileMoney).mockClear()
+  vi.mocked(sendSMS).mockClear()
   kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
 })
 
@@ -112,5 +121,87 @@ describe("Uzo AFA", () => {
       await runAfter()
       expect(hubtelRows()[0].surface).toBe("whatsapp")
     })
+
+    it("WhatsApp: another number, even an OTP-verified one, goes to Paystack at price + fee", async () => {
+      kit.config = gatewayConfig(["whatsapp"])
+      h.verified.add("0244123456")
+      await handleAfaConfirm("1", "233551234567", session({ dialingPhone: "0244123456" }), "whatsapp")
+      expect(order().amount).toBeCloseTo(51.5, 2)
+      await runAfter()
+      expect(kit.receive).not.toHaveBeenCalled()
+      expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBeCloseTo(51.5, 2)
+    })
+  })
+})
+
+describe("USSD AFA: Paystack asks for an OTP", () => {
+  beforeEach(() => { h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference }) })
+
+  it("marks otp_required and texts the dialler", async () => {
+    await handleAfaConfirm("1", "S1", session())
+    await runAfter()
+    expect(order().payment_status).toBe("otp_required")
+    expect(vi.mocked(sendSMS)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(sendSMS).mock.calls[0][0]).toMatchObject({ phone: "+233244123456", type: "otp_required", reference: order().id })
+  })
+  it("the status write refused (0156 not applied): no SMS sending the customer to a redial that finds nothing", async () => {
+    await handleAfaConfirm("1", "S1", session())
+    kit.failUpdates = ["ussd_afa_orders"]
+    await runAfter()
+    expect(order().payment_status).toBe("pending")
+    expect(vi.mocked(sendSMS)).not.toHaveBeenCalled()
+  })
+  it("a normal prompt sends no OTP SMS", async () => {
+    h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
+    await handleAfaConfirm("1", "S1", session())
+    await runAfter()
+    expect(order().payment_status).toBe("pending")
+    expect(vi.mocked(sendSMS)).not.toHaveBeenCalled()
+  })
+  it("WhatsApp is unchanged: stays pending and asks in the chat", async () => {
+    await handleAfaConfirm("1", "233551234567", session({ dialingPhone: "0244123456", paystackProvider: "mtn" }), "whatsapp")
+    await runAfter()
+    expect(order().payment_status).toBe("pending")
+    expect(vi.mocked(sendSMS)).not.toHaveBeenCalled()
+  })
+})
+
+describe("AFA on WhatsApp: the number's own network", () => {
+  beforeEach(() => { kit.config = gatewayConfig(["whatsapp"]) })
+
+  it.each([
+    ["Telecel", "0201234599", "233201234599", "vod", "vodafone-gh"],
+    ["AirtelTigo", "0271234599", "233271234599", "tgo", "tigo-gh"],
+  ])("a %s sender paying from their own number reaches Hubtel at the plain price", async (_n, local, sender, provider, channel) => {
+    await handleAfaConfirm("1", sender, session({ dialingPhone: local, paystackProvider: provider }), "whatsapp")
+    expect(order().amount).toBe(50)
+    await runAfter()
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(kit.receive.mock.calls[0][0]).toMatchObject({ msisdn: sender, channel, amount: 50 })
+  })
+  it("with no provider on the session the number decides, on Hubtel and on a Paystack fallback", async () => {
+    await handleAfaConfirm("1", "233201234598", session({ dialingPhone: "0201234598" }), "whatsapp")
+    expect(order().amount).toBe(50)
+    await runAfter()
+    expect(kit.receive).toHaveBeenCalledTimes(1)
+
+    resetKit()
+    kit.db.app_settings = [{ key: null, paystack_fee_percentage: 3 }]
+    await handleAfaConfirm("1", "233551234567", session({ dialingPhone: "0201234598" }), "whatsapp")
+    await runAfter()
+    expect(vi.mocked(chargeMobileMoney).mock.lastCall?.[0]).toMatchObject({ provider: "vod", amount: 51.5 })
+  })
+  it("an unknown prefix keeps today's MTN default and stays on Paystack", async () => {
+    await handleAfaConfirm("1", "233111234567", session({ dialingPhone: "0111234567" }), "whatsapp")
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].provider).toBe("mtn")
+  })
+  it("USSD stays on MTN: a non-MTN dialler keeps Paystack", async () => {
+    kit.config = gatewayConfig(["ussd"])
+    await handleAfaConfirm("1", "S1", session({ dialingPhone: "+233201234597" }))
+    await runAfter()
+    expect(kit.receive).not.toHaveBeenCalled()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].provider).toBe("mtn")
   })
 })

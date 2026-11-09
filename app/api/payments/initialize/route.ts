@@ -16,6 +16,7 @@ import {
   STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF, type CommissionPrice,
 } from "@/lib/storefront-commission/payment"
 import { airtimeRepriceSpec, commissionRepriceSpec, priceOrderForGateway, type RepriceSpec } from "@/lib/storefront-commission/reprice"
+import { closeRefusedHubtelWalletPayment } from "@/lib/payment-gateway/close-refused"
 import { FallbackRefusedError, HostedStartError, resolveSurfaceGateway, startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
 import { getSurfaceConfig } from "@/lib/payment-gateway/read-config"
 import type { FeeBearer, Gateway } from "@/lib/payment-gateway/config"
@@ -817,6 +818,8 @@ export async function POST(request: NextRequest) {
     // A payment priced for Hubtel carries no Paystack fee, so a fallback re-prices it before Paystack is called: the
     // row's amount, fee and method change together, in one update. If that can't happen, nothing is charged.
     let rowMethod: Gateway = gateway
+    // Set only after a fallback: the screen quoted Hubtel's price, so the answer says what is really being charged.
+    let chargedAfterFallback: { chargedAmount: number } | Record<string, never> = {}
     const repriceForPaystack = async (): Promise<{ amount: number }> => {
       const fee = initializeFee({ surface: gatewaySurface, gateway: "paystack", feeBearer, standardFee })
       // An order's own price with the fee inside moves first: if the payment row then fails, nothing is charged and
@@ -846,12 +849,20 @@ export async function POST(request: NextRequest) {
       paystackFee = fee
       rowMethod = "paystack"
       paymentMetadata.paystackFee = fee
+      chargedAfterFallback = { chargedAmount: amount }
       return { amount }
     }
     // Only a payment priced for Hubtel needs it; one priced for Paystack already charges the right amount.
     const fallbackHook = gateway === "hubtel" ? { onFallback: repriceForPaystack } : {}
-    const fallbackRefused = () =>
-      NextResponse.json({ error: "Could not start the payment. Please try again.", code: "try_again" }, { status: 503 })
+    // A start that refused after the row was written: close a fresh Hubtel row unless an attempt may hold money.
+    // A replayed row belongs to the earlier attempt and is left alone.
+    const closeRefusedRow = async () => {
+      if (!replay && gateway === "hubtel") await closeRefusedHubtelWalletPayment(supabase, reference)
+    }
+    const fallbackRefused = async () => {
+      await closeRefusedRow()
+      return NextResponse.json({ error: "Could not start the payment. Please try again.", code: "try_again" }, { status: 503 })
+    }
 
     // ── Direct MoMo charge path ──────────────────────────────────────────────
     // We charge a SERVER-SPECIFIED MoMo number directly via Paystack /charge — no
@@ -972,6 +983,7 @@ export async function POST(request: NextRequest) {
         reference,
         status: charge.status, // usually "pay_offline" / "send_otp" / "pending"; Hubtel is always "pay_offline"
         paymentId,
+        ...chargedAfterFallback,
       })
       Object.entries(corsHeaders).forEach(([k, v]) => resp.headers.set(k, v))
       resp.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -1029,6 +1041,7 @@ export async function POST(request: NextRequest) {
         if (e instanceof FallbackRefusedError) return fallbackRefused()
         // No safe link to give: Hubtel may hold the request, or this order already has a paid / in-review attempt.
         if (e instanceof HostedStartError) {
+          await closeRefusedRow()
           return NextResponse.json({ error: e.message, code: e.code }, { status: e.code === "already_processing" ? 409 : 503 })
         }
         throw e
@@ -1070,6 +1083,7 @@ export async function POST(request: NextRequest) {
       accessCode: paymentResult.accessCode,
       reference: paymentResult.reference,
       paymentId,
+      ...chargedAfterFallback,
     })
 
     Object.entries(corsHeaders).forEach(([k, v]) => response.headers.set(k, v))

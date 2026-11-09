@@ -5,6 +5,7 @@ import type { NextRequest } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import type { BotCapDeps } from "./caps"
 import type { BotBillsDeps, BotBundlesDeps, BotOrderRow } from "./orders"
+import { mapBotSpecialRpc, type BotSpecialChild, type BotSpecialDeps } from "./special-orders"
 
 /** Columns a bot order result is built from (BotOrderRow). */
 const ORDER_ROW = "id, reference_code, amount, paid_amount, payment_fee_amount, cashback_amount"
@@ -21,7 +22,7 @@ export function botCapDeps(db: SupabaseClient): BotCapDeps {
     limit: async (name, max, windowMs, id) => (await applyRateLimit(NO_REQUEST, name, max, windowMs, id)).allowed,
     async countPending(table, column, value, sinceIso) {
       try {
-        const { count, error } = await db
+        let q = db
           .from(table)
           .select("id", { count: "exact", head: true })
           .eq("channel", "bots")
@@ -29,6 +30,9 @@ export function botCapDeps(db: SupabaseClient): BotCapDeps {
           .eq("status", "pending")
           .eq("payment_status", "unpaid")
           .gte("created_at", sinceIso)
+        // A Special group is one purchase: count only child 1 (single orders have a NULL index). Bills have no such column.
+        if (table === "hubtel_data_orders") q = q.or("special_index.is.null,special_index.lte.1")
+        const { count, error } = await q
         return error ? 0 : count ?? 0
       } catch {
         return 0
@@ -63,6 +67,49 @@ export function getBotBillsRuntime(): { deps: BotBillsDeps; db: SupabaseClient }
         return (data as BotOrderRow | null) ?? null
       },
       caps: botCapDeps(db),
+    },
+  }
+}
+
+/**
+ * Service-role deps for bot Special groups (in-process): the bundle deps plus the 0158 RPC and the group read.
+ * RPC errors are mapped by mapBotSpecialRpc (documented outcomes only; anything else throws without database text).
+ */
+export function getBotSpecialRuntime(): { deps: BotSpecialDeps; db: SupabaseClient } {
+  const { deps, db } = getBotBundlesRuntime()
+  return {
+    db,
+    deps: {
+      ...deps,
+      async createBotSpecialOrders(a) {
+        const { data, error } = await db.rpc("create_bot_special_bundle_orders", {
+          p_surface: a.surface, p_buyer: a.buyer, p_shop: a.shop, p_group_key: a.groupKey, p_n: a.n, p_rows: a.rows, p_total: a.total,
+        })
+        return mapBotSpecialRpc(data, error)
+      },
+      async listBotSpecialGroup(botSurface, buyerPhone, key) {
+        const first = await db
+          .from("hubtel_data_orders")
+          .select("special_group_id")
+          .eq("channel", "bots")
+          .eq("bot_surface", botSurface)
+          .eq("buyer_phone", buyerPhone)
+          .eq("idempotency_key", `${key}:1`)
+          .maybeSingle()
+        if (first.error) throw first.error
+        const groupId = (first.data as { special_group_id: string | null } | null)?.special_group_id
+        if (!groupId) return []
+        const { data, error } = await db
+          .from("hubtel_data_orders")
+          .select("id, special_group_id, special_index, paid_amount")
+          .eq("special_group_id", groupId)
+          .eq("channel", "bots")
+          .eq("bot_surface", botSurface)
+          .eq("buyer_phone", buyerPhone)
+          .order("special_index", { ascending: true })
+        if (error) throw error
+        return (data ?? []) as BotSpecialChild[]
+      },
     },
   }
 }

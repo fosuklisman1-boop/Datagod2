@@ -1,7 +1,17 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { SpecialBundlesSection } from "@/app/admin/hubtel-commission/standard-bundles"
 import {
   BUNDLES_CONFIG_KEY, getBundlesConfig, isValidReferenceNumber, resolveBundlesConfig, setBundlesConfig, validateBundlesPatch,
+  type SpecialSetting,
 } from "./config"
+
+// There is no DOM in these tests: the Save button and the switches record their props as they render, so the test can
+// press the real handlers of the real card.
+const ui = vi.hoisted(() => ({ buttons: [] as any[], switches: [] as any[] }))
+vi.mock("@/components/ui/button", () => ({ Button: (p: any) => { ui.buttons.push(p); return null } }))
+vi.mock("@/components/ui/switch", () => ({ Switch: (p: any) => { ui.switches.push(p); return null } }))
 
 const ns = (o: Partial<{ enabled: any; hiddenCategories: any; referenceNumber: any }> = {}) =>
   ({ enabled: true, hiddenCategories: [], referenceNumber: "233246912184", ...o })
@@ -54,18 +64,18 @@ describe("bundles config", () => {
   })
   describe("special bundles", () => {
     const UV = "RACT_Data_GHC_3_Others"
-    const DEF = { enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3, unitValue: UV }
+    const DEF = { enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3, unitValue: UV, ussdEnabled: false }
     it("defaults to dark with the default multiples and unit value", () => {
       expect(resolveBundlesConfig(null).special).toEqual(DEF)
       expect(resolveBundlesConfig({ enabled: true }).special).toEqual(DEF)
     })
     it("resolves a valid special, sorted and deduped", () => {
       const c = resolveBundlesConfig({ special: { enabled: true, multiples: [10, 3, 3, 5], unitAmount: 2.5, unitValue: "db-Data_x9" } })
-      expect(c.special).toEqual({ enabled: true, multiples: [3, 5, 10], unitAmount: 2.5, unitValue: "db-Data_x9" })
+      expect(c.special).toEqual({ enabled: true, multiples: [3, 5, 10], unitAmount: 2.5, unitValue: "db-Data_x9", ussdEnabled: false })
     })
     it("a stored special without unitValue gets the default unit value", () => {
       const c = resolveBundlesConfig({ special: { enabled: true, multiples: [10, 3, 3, 5], unitAmount: 2.5 } })
-      expect(c.special).toEqual({ enabled: true, multiples: [3, 5, 10], unitAmount: 2.5, unitValue: UV })
+      expect(c.special).toEqual({ enabled: true, multiples: [3, 5, 10], unitAmount: 2.5, unitValue: UV, ussdEnabled: false })
     })
     it("an invalid unitValue resolves to disabled defaults", () => {
       for (const unitValue of ["", " ", "a b", "x".repeat(81), "RACT.Data", "ü", 3, null]) {
@@ -99,7 +109,7 @@ describe("bundles config", () => {
     })
     it("validates special patches", () => {
       const ok = validateBundlesPatch({ special: { enabled: true, multiples: [15, 3, 5, 3], unitAmount: 3, unitValue: UV } })
-      expect(ok).toEqual({ ok: true, patch: { special: { enabled: true, multiples: [3, 5, 15], unitAmount: 3, unitValue: UV } } })
+      expect(ok).toEqual({ ok: true, patch: { special: { enabled: true, multiples: [3, 5, 15], unitAmount: 3, unitValue: UV, ussdEnabled: false } } })
       expect(validateBundlesPatch({ enabled: true, special: { enabled: false, multiples: [3], unitAmount: 3.5, unitValue: UV } }).ok).toBe(true)
       expect(validateBundlesPatch({ special: { enabled: true, multiples: Array.from({ length: 10 }, (_, i) => i + 1), unitAmount: 3, unitValue: UV } }).ok).toBe(true)
       // Cap is 20 (dispatch time budget ruling); the 0141 RPC keeps 1..50 as the outer bound.
@@ -132,6 +142,66 @@ describe("bundles config", () => {
     it("existing patch shapes still validate unchanged", () => {
       expect(validateBundlesPatch({ enabled: true })).toEqual({ ok: true, patch: { enabled: true } })
       expect(validateBundlesPatch({ nope: 1 }).ok).toBe(false)
+    })
+
+    describe("ussdEnabled", () => {
+      const BASE = { enabled: true, multiples: [3, 5], unitAmount: 3, unitValue: UV }
+      const STORED: SpecialSetting = { ...BASE, ussdEnabled: true }
+
+      it("a stored special without it reads false, and only literal true turns it on", () => {
+        expect(resolveBundlesConfig({ special: BASE }).special.ussdEnabled).toBe(false)
+        expect(resolveBundlesConfig({ special: STORED }).special.ussdEnabled).toBe(true)
+        for (const ussdEnabled of ["true", "yes", 1, null]) {
+          expect(resolveBundlesConfig({ special: { ...BASE, ussdEnabled } }).special.ussdEnabled).toBe(false)
+        }
+      })
+      it("a bad stored value does not stop dashboard Special sales", () => {
+        expect(resolveBundlesConfig({ special: { ...BASE, ussdEnabled: "yes" } }).special.enabled).toBe(true)
+      })
+      it("a patch with true is kept, a missing one is false, anything else is refused", () => {
+        expect(validateBundlesPatch({ special: STORED })).toEqual({ ok: true, patch: { special: STORED } })
+        expect(validateBundlesPatch({ special: BASE })).toEqual({ ok: true, patch: { special: { ...BASE, ussdEnabled: false } } })
+        for (const ussdEnabled of ["yes", "true", 1, null]) {
+          expect(validateBundlesPatch({ special: { ...BASE, ussdEnabled } }).ok).toBe(false)
+        }
+      })
+
+      // Review Focus 5: `special` is replaced whole by the config RPC, so every save from the card must carry the switch.
+      describe("the Special card", () => {
+        const renderCard = (special: SpecialSetting) => {
+          ui.buttons.length = 0; ui.switches.length = 0
+          const onSave = vi.fn(async () => {})
+          const html = renderToStaticMarkup(createElement(SpecialBundlesSection, { special, busy: false, onSave }))
+          const saveButton = ui.buttons.find(b => b.children === "Save")
+          const toggle = (label: string) => ui.switches.find(s => s["aria-label"] === label)
+          return { html, onSave, saveButton, toggle }
+        }
+
+        it("saving the existing fields keeps the switch, on and off", () => {
+          for (const ussdEnabled of [true, false]) {
+            const { onSave, saveButton } = renderCard({ ...BASE, ussdEnabled })
+            saveButton.onClick()
+            expect(onSave).toHaveBeenCalledTimes(1)
+            expect((onSave.mock.calls[0] as any[])[0]).toEqual({ special: { ...BASE, ussdEnabled } })
+          }
+        })
+        it("the dashboard switch keeps the USSD switch", () => {
+          const { onSave, toggle } = renderCard(STORED)
+          toggle("Special Bundles enabled").onCheckedChange(false)
+          expect((onSave.mock.calls[0] as any[])[0]).toEqual({ special: { ...STORED, enabled: false } })
+        })
+        it("shows the switch off by default, and flipping it sends all the other fields", () => {
+          const { html, onSave, toggle } = renderCard({ ...BASE, ussdEnabled: false })
+          expect(html).toContain("Sell on Hubtel USSD")
+          const s = toggle("Sell on Hubtel USSD")
+          expect(s.checked).toBe(false)
+          s.onCheckedChange(true)
+          expect((onSave.mock.calls[0] as any[])[0]).toEqual({ special: { ...BASE, ussdEnabled: true } })
+        })
+        it("Save stays disabled while nothing changed, with the switch on", () => {
+          expect(renderCard(STORED).saveButton.disabled).toBe(true)
+        })
+      })
     })
   })
   it("setBundlesConfig calls the RPC with the validated patch", async () => {

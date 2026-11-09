@@ -123,7 +123,7 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
     return say(ctx, shopRcConfirmText(nameOf(ctx), board, qty, shown, toLocalPhone(session.dialingPhone), bulkUnit), "SHOP_RC_CONFIRM", CONFIRM)
   }
 
-  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform)
+  const replay = await replaySubmittedOrder(deps, req.SessionId, req.Platform, ctx.session.mode)
   if (replay) return replay
 
   // Stale-session guard: stock, board switch and the shop's markup may have moved since the

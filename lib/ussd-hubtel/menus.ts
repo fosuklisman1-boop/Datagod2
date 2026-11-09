@@ -7,20 +7,22 @@ import { USSD_SCREEN_LIMIT } from "./protocol"
 
 /** Commission Cashback bot menus: shown only when the admin visibility flag AND the cashback bots gate are on. */
 export type BotMenuKey = "networkPlans" | "payBills"
-export type MainMenuKey = "data" | "afa" | "airtime" | "resultsChecker" | BotMenuKey
+/** A service the admin can show or hide (the visibility keys). Data and Standard Bundles share one menu item. */
+export type ServiceKey = "data" | "afa" | "airtime" | "resultsChecker" | "networkPlans" | "payBills"
+/** The two kinds of internet bundle behind the single "Internet Bundles" menu item. */
+export type InternetType = "data" | "networkPlans"
+export type MainMenuKey = "internet" | "afa" | "airtime" | "resultsChecker" | "payBills"
 
-// Bot menus are APPENDED: hidden, the menu (text + numbering) is byte-identical to the pre-cashback one.
 const MAIN_ITEMS: MenuItemDef<MainMenuKey>[] = [
-  { key: "data", label: "Buy Data Bundle" },
+  { key: "internet", label: "Internet Bundles" },
   { key: "afa", label: "AFA Registration" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
-  { key: "networkPlans", label: "Standard Bundles" },
   { key: "payBills", label: "Pay Bills" },
 ]
 
 /** Flip each to true as its flow ships (Plan 2). Admin visibility is ANDed with this. */
-export const IMPLEMENTED_SERVICES: Record<MainMenuKey, boolean> = {
+export const IMPLEMENTED_SERVICES: Record<ServiceKey, boolean> = {
   data: true,
   afa: true,
   airtime: true,
@@ -30,11 +32,30 @@ export const IMPLEMENTED_SERVICES: Record<MainMenuKey, boolean> = {
 }
 
 /** Admin visibility; the bot keys are optional (missing = hidden). */
-export type MenuVisibility = Record<Exclude<MainMenuKey, BotMenuKey>, boolean> & Partial<Record<BotMenuKey, boolean>>
+export type MenuVisibility = Record<Exclude<ServiceKey, BotMenuKey>, boolean> & Partial<Record<BotMenuKey, boolean>>
 
 /** A bot menu shows only when built AND admin-visible AND the cashback bots gate is on (fail closed). */
 const botVisible = (key: BotMenuKey, visibility: MenuVisibility, bots: BotMenuGate): boolean =>
   IMPLEMENTED_SERVICES[key] && visibility[key] === true && bots[key] === true
+
+/** The internet bundle types this caller may open, always in the order data, networkPlans. */
+export function resolveInternetTypes(
+  visibility: MenuVisibility,
+  dataBlocked: boolean,
+  bots: BotMenuGate = BOT_MENUS_HIDDEN
+): InternetType[] {
+  const types: InternetType[] = []
+  if (visibility.data && IMPLEMENTED_SERVICES.data && !dataBlocked) types.push("data")
+  if (botVisible("networkPlans", visibility, bots)) types.push("networkPlans")
+  return types
+}
+
+const INTERNET_TYPE_LABEL: Record<InternetType, string> = { data: "Data Bundles", networkPlans: "Standard Bundles" }
+
+/** The "Internet Bundles" screen: one line per visible type, numbered in the order given. */
+export function internetMenuText(types: InternetType[]): string {
+  return renderMenuText("Internet Bundles", types.map((t, i) => ({ key: t, digit: i + 1, label: INTERNET_TYPE_LABEL[t] })), "0. Back")
+}
 
 export function resolveMainMenu(
   visibility: MenuVisibility,
@@ -42,11 +63,10 @@ export function resolveMainMenu(
   bots: BotMenuGate = BOT_MENUS_HIDDEN
 ): ResolvedMenuItem<MainMenuKey>[] {
   const visible: Record<MainMenuKey, boolean> = {
-    data: visibility.data && IMPLEMENTED_SERVICES.data && !dataBlocked,
+    internet: resolveInternetTypes(visibility, dataBlocked, bots).length > 0,
     afa: visibility.afa && IMPLEMENTED_SERVICES.afa,
     airtime: visibility.airtime && IMPLEMENTED_SERVICES.airtime,
     resultsChecker: visibility.resultsChecker && IMPLEMENTED_SERVICES.resultsChecker,
-    networkPlans: botVisible("networkPlans", visibility, bots),
     payBills: botVisible("payBills", visibility, bots),
   }
   return resolveMenuItems(MAIN_ITEMS, visible)
@@ -141,14 +161,12 @@ export function rcMenuText(): string {
 // -- Shop mode (Plan 3) -------------------------------------------------------
 // The shop product menu has no AFA (same as the Uzo shop code). Hubtel wording, not the Uzo
 // "Browse Services" rebrand.
-export type ShopMenuKey = "data" | "airtime" | "resultsChecker" | BotMenuKey
+export type ShopMenuKey = "internet" | "airtime" | "resultsChecker" | "payBills"
 
-// Bot menus appended, as in the main menu.
 const SHOP_ITEMS: MenuItemDef<ShopMenuKey>[] = [
-  { key: "data", label: "Buy Data Bundle" },
+  { key: "internet", label: "Internet Bundles" },
   { key: "airtime", label: "Buy Airtime" },
   { key: "resultsChecker", label: "Results Checker" },
-  { key: "networkPlans", label: "Standard Bundles" },
   { key: "payBills", label: "Pay Bills" },
 ]
 
@@ -159,10 +177,9 @@ export function resolveShopMenu(
   bots: BotMenuGate = BOT_MENUS_HIDDEN
 ): ResolvedMenuItem<ShopMenuKey>[] {
   return resolveMenuItems(SHOP_ITEMS, {
-    data: visibility.data && IMPLEMENTED_SERVICES.data && !dataBlocked,
+    internet: resolveInternetTypes(visibility, dataBlocked, bots).length > 0,
     airtime: visibility.airtime && IMPLEMENTED_SERVICES.airtime,
     resultsChecker: visibility.resultsChecker && IMPLEMENTED_SERVICES.resultsChecker,
-    networkPlans: botVisible("networkPlans", visibility, bots),
     payBills: botVisible("payBills", visibility, bots),
   })
 }

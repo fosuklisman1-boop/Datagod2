@@ -71,11 +71,11 @@ const toOrder = (r: InitializeResult): BotOrder => ({
 })
 const done = (r: { ok: true; value: InitializeResult } | Fail): BotOrderResult => (r.ok ? { ok: true, order: toOrder(r.value) } : r)
 
-const quoteFor = (c: ResolvedBotContext, serviceKey: string, face: number, cfg: Parameters<typeof quoteBots>[1]): StorefrontQuote =>
+export const quoteFor = (c: ResolvedBotContext, serviceKey: string, face: number, cfg: Parameters<typeof quoteBots>[1]): StorefrontQuote =>
   quoteBots({ serviceKey, provider: "hubtel", faceAmount: face, rail: c.rail, shop: c.shopId !== null }, cfg)
 
 /** Snapshot of the quote. A main-bot order (no shop) never carries a shop share. */
-function snapshot(q: StorefrontQuote, shopId: string | null): Snapshot {
+export function snapshot(q: StorefrontQuote, shopId: string | null): Snapshot {
   if (!q.applied) {
     return { cashback_amount: null, shop_share_amount: null, cashback_rate: null, cashback_share: null, cashback_provider: null, expected_commission: null }
   }

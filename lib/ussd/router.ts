@@ -64,6 +64,7 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       { data: pendingAirtime },
       { data: pendingRc },
       { data: pendingCheck },
+      { data: pendingAfa },
       { data: whitelistSetting },
       { data: hasPurchasedData },
       botPointer,
@@ -80,6 +81,10 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       supabase.from("results_check_requests").select("id, created_at")
         .or(phoneFilter).eq("payment_status", "otp_required").eq("channel", "ussd").gte("created_at", cutoff)
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      // No channel column here: only the Uzo USSD AFA handler ever writes otp_required on this table.
+      supabase.from("ussd_afa_orders").select("id, created_at")
+        .or(phoneFilter).eq("payment_status", "otp_required").gte("created_at", cutoff)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("admin_settings").select("value").eq("key", "ussd_data_whitelist_enabled").maybeSingle(),
       // Single function checks all order tables + manual whitelist in one DB round-trip
       supabase.rpc("has_completed_purchase", { local_phone: localPhone, msisdn }),
@@ -95,8 +100,9 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       pendingAirtime ? { id: pendingAirtime.id, created_at: pendingAirtime.created_at, table: 'airtime_orders' as const } : null,
       pendingRc ? { id: pendingRc.id, created_at: pendingRc.created_at, table: 'results_checker_orders' as const } : null,
       pendingCheck ? { id: pendingCheck.id, created_at: pendingCheck.created_at, table: 'results_check_requests' as const } : null,
+      pendingAfa ? { id: pendingAfa.id, created_at: pendingAfa.created_at, table: 'ussd_afa_orders' as const } : null,
       botPointer ? { id: '', created_at: botPointer.created_at, table: undefined, bot: true } : null,
-    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests'; bot?: true }>
+    ].filter(Boolean) as Array<{ id: string; created_at: string; table?: 'airtime_orders' | 'results_checker_orders' | 'results_check_requests' | 'ussd_afa_orders'; bot?: true }>
 
     if (candidates.length) {
       candidates.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -160,7 +166,8 @@ export async function router(req: UzoRequest): Promise<UzoResponse> {
       if (
         session.pendingOrderTable === 'airtime_orders' ||
         session.pendingOrderTable === 'results_checker_orders' ||
-        session.pendingOrderTable === 'results_check_requests'
+        session.pendingOrderTable === 'results_check_requests' ||
+        session.pendingOrderTable === 'ussd_afa_orders'
       ) {
         return handleOtpSubmit(input, session.pendingOrderId!, session.pendingOrderTable)
       }

@@ -25,6 +25,8 @@ const handle = createRelayHandler({
   // Payments (/receive, /checkout). Without HUBTEL_RELAY_APP_HOST both routes answer 501.
   appHost: process.env.HUBTEL_RELAY_APP_HOST || undefined,
   receiveBasicAuth: process.env.HUBTEL_RECEIVE_BASIC_AUTH || undefined,
+  // Direct Send Money (/send, /send-status): needs HUBTEL_DISBURSEMENT_ACCOUNT and HUBTEL_RELAY_APP_HOST, else 501.
+  sendBasicAuth: process.env.HUBTEL_SEND_BASIC_AUTH || undefined,
 })
 
 function reply(res: http.ServerResponse, status: number, body: unknown, after?: () => void) {

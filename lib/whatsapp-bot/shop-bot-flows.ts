@@ -23,8 +23,11 @@ import { handlePayBillsStep, livePayBillsDeps, startPayBills } from "@/lib/ussd/
 import { WHATSAPP_PROFILE } from "@/lib/ussd/bots/profile"
 import { botErrorText } from "@/lib/ussd/bots/screen"
 import type { USSDSession, UzoResponse } from "@/lib/ussd/types"
-import { handleWaBotOtp, waBotNaturalToDigit, waBotOtpPending, waBotOtpWithoutSession, WA_OTP_SHAPE } from "./bot-flows"
+import {
+  handleWaBotOtp, waBotNaturalToDigit, waBotOtpPending, waBotOtpWithoutSession, waSenderFromLocal, WA_LATE_OTP_TEXT, WA_OTP_SHAPE,
+} from "./bot-flows"
 import { whatsappBotItemsVisible } from "./cashback-visibility"
+import { sendWhatsAppText } from "./send"
 import { shopInvalidPaymentPhoneMenu, shopPaymentPhonePrompt, shopProductMenu, type ShopBotMenuItems } from "./shop-menus"
 import { getSession, setSession } from "./shop-session"
 import type { WaShopSession } from "./shop-types"
@@ -147,6 +150,18 @@ async function finish(sender: string, session: WaShopSession, r: UzoResponse, si
     await setSession(sender, { ...withoutFlow(session), step: "SUBMIT_OTP", botOtp: true })
   }
   return r.message
+}
+
+/**
+ * The charge answered send_otp after this chat's reply (a Hubtel refusal fell back to Paystack in the deferred start),
+ * so `finish` saw no pointer and left the closed session. Puts the chat back on SUBMIT_OTP, keeping the resolved shop,
+ * and tells the sender from the shop number. The pointer is already stored in the shop key space.
+ */
+export async function reopenShopBotOtp(senderLocal: string): Promise<void> {
+  const sender = waSenderFromLocal(senderLocal)
+  const s = await getSession(sender)
+  await setSession(sender, { ...(s && s.step !== "AI_CONVERSATION" ? withoutFlow(s) : {}), step: "SUBMIT_OTP", botOtp: true })
+  await sendWhatsAppText(sender, WA_LATE_OTP_TEXT, process.env.WHATSAPP_SHOP_PHONE_NUMBER_ID)
 }
 
 /**

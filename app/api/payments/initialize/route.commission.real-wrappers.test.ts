@@ -181,7 +181,8 @@ function config(hubtel: Record<string, { feeBearer?: string }> = {}, paystackMer
     surfaces[s] = { gateway: "paystack", mode: "checkout", feeBearer: "customer" }
   }
   if (paystackMerchant) surfaces.storefront.feeBearer = "merchant"
-  for (const [s, o] of Object.entries(hubtel)) surfaces[s] = { gateway: "hubtel", mode: "direct", feeBearer: o.feeBearer ?? "customer" }
+  // checkout: hosted Hubtel runs only on a checkout row. Direct charges here are decided by the direct gate, not this field.
+  for (const [s, o] of Object.entries(hubtel)) surfaces[s] = { gateway: "hubtel", mode: "checkout", feeBearer: o.feeBearer ?? "customer" }
   return { version: 1, surfaces, hubtelFeePercent: 2 }
 }
 const HUBTEL = () => config({ storefront: {} })
@@ -323,7 +324,7 @@ describe("priced for Hubtel, on Hubtel", () => {
     const res = await send()
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ authorizationUrl: "https://pay.hubtel.com/abc" })
-    expect(initiateCheckout.mock.calls[0][0]).toMatchObject({ amount: BASE, description: "Payment" })
+    expect(initiateCheckout.mock.calls[0][0]).toMatchObject({ amount: BASE, description: "Clingshub" })
     expect(walletRows()[0]).toMatchObject({ amount: BASE, fee: 0, payment_method: "hubtel" })
     expect(h.state.orderUpdates).toBe(0)
     expect(await confirmHubtelPayment(hubtelRows()[0].reference, confirmDeps(10186))).toBe("fulfilled")

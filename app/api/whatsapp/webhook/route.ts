@@ -35,6 +35,7 @@ async function verifyMetaSignature(request: NextRequest, rawBody: string): Promi
 }
 
 /** Shared USSD handlers and the bot charge start payments in after(); a Hubtel start can take 15 s on the relay. */
+// Keep below CLAIM_TTL_SECONDS (lib/whatsapp-bot/shop-charge-claim.ts); shop-charge-claim.test.ts fails otherwise.
 export const maxDuration = 60
 
 // ── GET: Meta webhook verification ───────────────────────────────────────────

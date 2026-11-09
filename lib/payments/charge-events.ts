@@ -11,6 +11,7 @@ import { getJoinCommunityLink } from "@/lib/app-settings"
 import { sendPushToUser } from "@/lib/push-service"
 import { getInternalBaseUrl } from "@/lib/internal-url"
 import { notifyAdminsNewResultsCheckRequest } from "@/lib/results-checker-service"
+import { alertClosedOrderPayment, isClosedUnpaidShopOrder } from "./closed-order"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -41,6 +42,12 @@ function alreadyProcessedResponse(paymentStatus: unknown): NextResponse {
 /** 200 for a payment that delivered nothing (order missing, refused, not applied). Paystack ignores the body. */
 const orderClosedBody = { received: true, order_closed: true }
 const orderClosedResponse = () => NextResponse.json(orderClosedBody)
+
+/**
+ * The results-checker service refused the order, so this payment delivered nothing: it failed earlier, or is gone.
+ * `pending` is not this: out of stock means the payment was recorded and the order waits for manual delivery.
+ */
+const rcOrderRefused = (r: { success: boolean; status: string }) => !r.success && (r.status === "failed" || r.status === "not_found")
 
 /** A storefront order status after which nothing is sent (the confirm path alerts admins to refund). */
 const STOREFRONT_CLOSED_STATUSES = new Set(["failed", "expired", "cancelled"])
@@ -483,7 +490,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
   if (ussdAfaOrder) {
     console.log("[WEBHOOK] Processing USSD AFA order:", ussdAfaOrder.id)
 
-    if (ussdAfaOrder.payment_status !== 'pending') {
+    if (ussdAfaOrder.payment_status !== 'pending' && ussdAfaOrder.payment_status !== 'otp_required') {
       console.log("[WEBHOOK] USSD AFA order already processed:", ussdAfaOrder.id)
       return alreadyProcessedResponse(ussdAfaOrder.payment_status)
     }
@@ -736,7 +743,9 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     }
 
     const { markAirtimeOrderPaid } = await import("@/lib/airtime-service")
-    await markAirtimeOrderPaid(ussdAirtimeOrder.id, gatewayTransactionId)
+    const airtimeMarked = await markAirtimeOrderPaid(ussdAirtimeOrder.id, gatewayTransactionId)
+    // The flip failed and the service has alerted admins. On Hubtel the row must not become paid over an unpaid order.
+    if (viaHubtel && !airtimeMarked?.success) return orderClosedResponse()
 
     await supabase
       .from("payment_attempts")
@@ -801,6 +810,7 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
     const rcResult = await fulfillPaidResultsCheckerOrder(ussdRcOrder.id)
     if (!rcResult.success) {
       console.warn("[WEBHOOK] USSD RC fulfillment incomplete:", rcResult.status, rcResult.message)
+      if (viaHubtel && rcOrderRefused(rcResult)) return orderClosedResponse()
     }
 
     return NextResponse.json({ received: true })
@@ -1037,6 +1047,24 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
 
   // Overpayments are accepted and flow as normal orders
 
+  // A Hubtel payment on a shop order something else already paid (another Hubtel attempt, Paystack, the wallet): the
+  // customer paid twice. This payment's wallet row stays open and it parks in review. A replay of the payment that paid
+  // the order is not this: its own row is completed and no other is. A failed read throws: confirm.ts leaves the row
+  // for the sweep to retry.
+  if (viaHubtel && paymentData.order_id && !isDealerUpgrade && !isAirtime && !isResultsChecker && !isResultsCheckService && !isUssdShopActivation && !isUssdShopToken) {
+    const { data: paidOrder, error: paidOrderError } = await supabase.from("shop_orders").select("payment_status").eq("id", paymentData.order_id).maybeSingle()
+    if (paidOrderError) throw new Error(`shop order read failed: ${paidOrderError.message}`)
+    if (paidOrder?.payment_status === "completed") {
+      const { data: others, error: othersError } = await supabase.from("wallet_payments").select("reference")
+        .eq("order_id", paymentData.order_id).eq("status", "completed").neq("reference", reference).limit(1)
+      if (othersError) throw new Error(`wallet payment read failed: ${othersError.message}`)
+      if (paymentData.status !== "completed" || (others?.length ?? 0) > 0) {
+        console.error(`[WEBHOOK] Second payment ${reference} on shop order ${paymentData.order_id}; not applied`)
+        return orderClosedResponse()
+      }
+    }
+  }
+
   // Update payment status
   await supabase
     .from("wallet_payments")
@@ -1171,6 +1199,13 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
       if (!shopOrderData) {
         console.error("[WEBHOOK] shop order not found for payment:", paymentData.order_id)
         return orderClosedResponse()
+      }
+      // Closed before this money arrived: fulfilment only claims `pending`, so nothing would be sent. No flip, no profit.
+      // Paystack gets its 2xx and admins are told once; Hubtel parks in review, and confirm.ts raises its own alert.
+      if (isClosedUnpaidShopOrder(shopOrderData)) {
+        console.error(`[WEBHOOK] Payment ${reference} landed on closed shop order ${paymentData.order_id}; not fulfilled`)
+        if (!viaHubtel) await alertClosedOrderPayment(supabase, { orderId: paymentData.order_id, reference, amountGhs: amount / 100 })
+        return NextResponse.json({ ...orderClosedBody, closed_reason: "late_payment" })
       }
       if (shopOrderData) {
         await supabase
@@ -1310,7 +1345,8 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
       // Results Checker voucher payment — assign/finalize/deliver + profit
       // (shared with the USSD path).
       const { fulfillPaidResultsCheckerOrder } = await import("@/lib/results-checker-service")
-      await fulfillPaidResultsCheckerOrder(paymentData.order_id)
+      const rcResult = await fulfillPaidResultsCheckerOrder(paymentData.order_id)
+      if (viaHubtel && rcOrderRefused(rcResult)) return orderClosedResponse()
     } else if (isResultsCheckService) {
       // Results Check Service storefront request — assign combo voucher (if
       // applicable), record merchant commission, send payment confirmation.

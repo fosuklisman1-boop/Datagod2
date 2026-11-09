@@ -130,7 +130,7 @@ const cfg = (special: Partial<BundlesConfig["special"]> = {}): BundlesConfig => 
     TELECEL: { enabled: true, hiddenCategories: [], referenceNumber: "233200000000" },
     AT: { enabled: true, hiddenCategories: [], referenceNumber: "233260000000" },
   },
-  special: { enabled: false, multiples: [3, 5], unitAmount: 3, unitValue: "x_Data_NE", ...special },
+  special: { enabled: false, multiples: [3, 5], unitAmount: 3, unitValue: "x_Data_NE", ussdEnabled: false, ...special },
 })
 
 const ITEMS = [

@@ -97,7 +97,7 @@ BEGIN
   ASSERT pg_temp.st('orders', v_o) = 'refunded', 'orders: guard keeps refunded';
   ASSERT fail_order_refund(v_rid2, 'late fail') = 'completed', 'orders: fail after complete is a no-op';
   ASSERT pg_temp.st('orders', v_o) = 'refunded', 'orders: stays refunded';
-  ASSERT complete_order_refund(v_rid2, 'AGAIN') = 'completed', 'orders: repeat complete returns completed';
+  ASSERT complete_order_refund(v_rid2, 'AGAIN') = 'already_completed', 'orders: repeat complete returns already_completed (0155)';
 
   -- (6) orders: only 'pending' is refundable
   v_o2 := pg_temp.mk_orders_row(v_user, v_pkg, 'processing');

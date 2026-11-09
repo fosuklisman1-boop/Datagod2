@@ -100,6 +100,16 @@ describe("hubtelGateway.supports", () => {
   })
 })
 
+describe("hubtelGateway on a Special group child", () => {
+  it("is refused with a clear reason, even when the net equals this child's price; no call on a direct refund", async () => {
+    const child = order({}, { specialGroupId: "g-1" })
+    expect(hubtelGateway.supports(child)).toEqual({ ok: false, reason: expect.stringContaining("Special Bundle") })
+    const out = await hubtelGateway.refund(ctx(child))
+    expect(out).toMatchObject({ kind: "failed" })
+    expect(requestHubtelRefund).not.toHaveBeenCalled()
+  })
+})
+
 describe("hubtelGateway.fixedAmount", () => {
   it("is the order price (net), never the gross Hubtel collected", () => {
     expect(hubtelGateway.fixedAmount!(order({ amountPaid: 10.3, amountAfterCharges: 10 }))).toBe(10)

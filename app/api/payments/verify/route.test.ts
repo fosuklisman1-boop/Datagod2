@@ -155,6 +155,19 @@ describe("POST /api/payments/verify, Paystack rows unchanged", () => {
     expect(h.tables.wallet_payments[0].status).toBe("abandoned")
   })
 
+  it("a Paystack success on an expired shop order: no flip, no fulfilment, the wallet row records the money", async () => {
+    h.tables.wallet_payments = [wp({ order_type: "shop_order", order_id: "so1", shop_id: "s1", amount: 10 })]
+    h.tables.shop_orders = [{ id: "so1", order_status: "expired", payment_status: "expired", shop_id: "s1", profit_amount: 2, network: "MTN", volume_gb: "1", customer_phone: "0241234571" }]
+    h.verifyPayment.mockImplementationOnce(async (ref: string) => ({ status: "success", amount: 10, reference: ref, transaction_id: null }))
+    h.fetchMock.mockClear()
+
+    await verify("WALLET-1")
+
+    expect(h.tables.wallet_payments[0].status).toBe("completed")
+    expect(h.tables.shop_orders[0].payment_status).toBe("expired")
+    expect((h.fetchMock.mock.calls as unknown[][]).map((c) => String(c[0])).filter((u) => u.includes("process-order"))).toEqual([])
+  })
+
   it("the Paystack storefront path is still used for a Paystack cs_bill payment", async () => {
     h.tables.wallet_payments = [wp({ order_type: "cs_bill", order_id: "b1" })]
     const out = await verify("WALLET-1")

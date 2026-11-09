@@ -19,7 +19,8 @@ import { checkPaymentStatus, type PaymentStatus } from "./client"
  * also counts it towards its hourly failure alert.
  */
 export type ConfirmOutcome = "fulfilled" | "failed" | "pending" | "check_error" | "needs_review" | "ignored"
-export type HubtelPaymentStatus = "pending" | "confirming" | "paid" | "failed" | "needs_review"
+/** refunded_manually is terminal: an admin returned this payment outside the app (review.ts). Nothing reads it as money held. */
+export type HubtelPaymentStatus = "pending" | "confirming" | "paid" | "failed" | "needs_review" | "refunded_manually"
 
 export interface HubtelPaymentRow {
   reference: string
@@ -111,10 +112,19 @@ const isOk = (res: HandlerResponse) => res === null || (res.status >= 200 && res
  * fulfilment can't report this: the order's payment_status is completed by then, and that answer has no order_closed.
  * Sent by charge-events.ts for USSD, AFA, shop and token-purchase rows; other order types never send it.
  */
-const reportsOrderClosed = async (res: HandlerResponse): Promise<boolean> => {
+export const reportsOrderClosed = async (res: HandlerResponse): Promise<boolean> => {
   if (!res) return false
   try {
     return (await res.clone().json())?.order_closed === true
+  } catch {
+    return false
+  }
+}
+/** The order closed before this payment landed: the money is held and only a refund can settle it. See charge-events.ts. */
+export const reportsLatePayment = async (res: HandlerResponse): Promise<boolean> => {
+  if (!res) return false
+  try {
+    return (await res.clone().json())?.closed_reason === "late_payment"
   } catch {
     return false
   }

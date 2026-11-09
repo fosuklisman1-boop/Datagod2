@@ -8,6 +8,8 @@ import { Loader2, CheckCircle2, Circle, ArrowRight } from "lucide-react"
 import { networkLogoService } from "@/lib/shop-service"
 import { validatePhoneNumber } from "@/lib/phone-validation"
 import { toast } from "sonner"
+import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
+import { SurfaceFeeNote } from "@/components/payment/hubtel-fee-note"
 import TurnstileWidget from "@/components/shop/TurnstileWidget"
 import HoneypotField from "@/components/shop/HoneypotField"
 import { useResendCooldown } from "@/lib/use-resend-cooldown"
@@ -388,6 +390,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
         // charge may still have fired (the webhook completes the order
         // regardless), but don't reopen a view they already closed.
         if (paymentDismissedRef.current) return
+        const fallbackNote = fallbackChargeNotice(chargeData)
+        if (fallbackNote) toast.info(fallbackNote, { duration: 15000 })
         setMomoModal({ state: chargeData.status === "send_otp" ? "otp" : "awaiting", orderId: data.orderId, reference: chargeData.reference, summary })
         pollMomoStatus(data.orderId, { ...summary, reference: chargeData.reference })
         return
@@ -613,6 +617,8 @@ export function AirtimeStorefrontForm({ shop, shopSlug }: AirtimeStorefrontFormP
           </div>
         </div>
       )}
+
+      <SurfaceFeeNote field="storefront_gateway" />
 
       {/* Fee breakdown -- same layout as the dashboard */}
       {!cbOn && parseFloat(formData.amount || "0") > 0 && (

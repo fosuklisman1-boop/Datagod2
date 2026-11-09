@@ -9,6 +9,7 @@ import { isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { isVerifiedWebPayer, momoPhoneText } from "@/lib/payment-gateway/initialize-gateway"
 import { FallbackRefusedError, HostedStartError, resolveSurfaceGateway } from "@/lib/payment-gateway/start"
+import { getSurfaceConfig } from "@/lib/payment-gateway/read-config"
 import { TRY_AGAIN_BODY } from "@/lib/payment-gateway/web-replay"
 import type { Gateway } from "@/lib/payment-gateway/config"
 
@@ -50,9 +51,18 @@ export async function planSmsDirect(
   return { ok: true, gateway: "paystack", phone: typed, provider }
 }
 
-/** The gateway a hosted start would use. `stripped`: MoMo must be off the hosted page, which only Paystack can do. */
+/**
+ * The gateway a hosted start would use. `stripped`: MoMo must be off the hosted page, which only Paystack can do.
+ * A row set to direct has no hosted Hubtel (startHostedPayment stays on Paystack), so this must answer the same. An
+ * unreadable config answers Paystack, as resolveSurfaceGateway does.
+ */
 export async function smsHostedGateway(stripped: boolean, amount?: number): Promise<Gateway> {
   if (stripped) return "paystack"
+  try {
+    if ((await getSurfaceConfig(SMS_SURFACE)).mode !== "checkout") return "paystack"
+  } catch {
+    return "paystack"
+  }
   return (await resolveSurfaceGateway(SMS_SURFACE, { verifiedPayer: true, amount })).gateway
 }
 

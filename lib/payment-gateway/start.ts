@@ -123,7 +123,7 @@ export class HostedStartError extends Error {
 const MIN_HUBTEL_PESEWAS = 10
 const EXPIRY_MS = 15 * 60_000
 const HOSTED_EXPIRY_MS = 60 * 60_000
-const DESCRIPTION = "Payment"
+const DESCRIPTION = "Clingshub" // Owner rule 2026-11-06: what the customer sees on a prompt.
 const CHANNELS: Record<string, string> = { mtn: "mtn-gh", vod: "vodafone-gh", tgo: "tigo-gh" }
 const ALERT_WINDOW_MS = 60 * 60_000
 /** A slow alert must not eat a USSD session. Past this the start carries on; the alert may still finish. */
@@ -632,6 +632,10 @@ export async function startHostedPayment(
     if (open && !(await freeStuckAttempt(d, params.reference))) throw new HostedStartError("try_again")
     return null
   }
+
+  // Hubtel's hosted page takes cards and we can't switch them off, so it runs only on a row an admin set to checkout.
+  // A row set to direct stays on Paystack here. An attempt from before the switch still holds the order, as above.
+  if (surfaceConfig.mode !== "checkout") return (await heldByOpenAttempt()) ?? viaPaystack()
 
   if (!d.isReady()) {
     const held = await heldByOpenAttempt()

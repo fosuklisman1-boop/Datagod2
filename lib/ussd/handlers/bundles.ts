@@ -6,6 +6,7 @@ import { subAgentBundles, subAgentCost, type SubAgentOffer } from "@/lib/shop-co
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, waWalletShort } from "../menus"
 import { networkNickname } from "../network-labels"
 import { setSession } from "../session"
+import { setWaSession } from "../../whatsapp-bot/session"
 import { resolveEmail } from "../resolve-email"
 import { liveWalletBalance } from "../wallet-balance"
 import { submitOtp } from "../../paystack"
@@ -445,8 +446,9 @@ export async function handleConfirm(
           // session is keyed by phone number and stays addressable — reopen it
           // directly into SUBMIT_OTP and push a follow-up message, rather than
           // relying on the USSD-only redial-resume lookup in lib/ussd/router.ts.
-          await setSession(dialingPhone!, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
-          await sendWhatsAppText(dialingPhone!, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+          // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
+          await setWaSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
+          await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
         } else {
           console.log("[USSD-CONFIRM] OTP required — user must redial to complete:", orderId)
           sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
@@ -523,8 +525,9 @@ export async function handlePaymentMethod(
         if (status === 'send_otp') {
           await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
           if (channel === 'whatsapp') {
-            await setSession(dialingPhone!, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
-            await sendWhatsAppText(dialingPhone!, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+            // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
+            await setWaSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId })
+            await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
           } else {
             console.log("[USSD-PAYMENT_METHOD] OTP required — user must redial to complete:", orderId)
             sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})

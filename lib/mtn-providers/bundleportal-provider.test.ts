@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 // Mutable so getActiveMtnRoute's tests can reconfigure it per-case without
 // vi.resetModules()/vi.doMock() gymnastics — this mutable-fixture pattern will
 // be reused by bundleportal-webhook-processor.test.ts (Task 7) for the same reason.
 const fakeSettings = vi.hoisted(() => ({ current: {} as Record<string, any> }))
+const fakeTracking = vi.hoisted(() => ({ rows: {} as Record<string, { status: string }>, error: null as null | { message: string } }))
 
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
@@ -15,8 +16,10 @@ vi.mock("@/lib/supabase", () => ({
               return {
                 maybeSingle: () =>
                   Promise.resolve({
-                    data: fakeSettings.current[key] ? { value: fakeSettings.current[key] } : null,
-                    error: null,
+                    data: _table === "mtn_fulfillment_tracking"
+                      ? (fakeTracking.rows[key] ?? null)
+                      : (fakeSettings.current[key] ? { value: fakeSettings.current[key] } : null),
+                    error: _table === "mtn_fulfillment_tracking" ? fakeTracking.error : null,
                   }),
               }
             },
@@ -31,6 +34,68 @@ import { mapNetworkToBundlePortal, mapBundlePortalStatus, isRetryableErrorCode, 
 
 beforeEach(() => {
   fakeSettings.current = { bundleportal_mtn_route: { route: "mtn_2" } }
+})
+
+describe("createOrder reference on a re-send", () => {
+  const ref = "11111111-2222-4333-8444-555555555555"
+  const request = { recipient_phone: "0241234567", network: "MTN", size_gb: 1, client_ref: ref } as any
+  let sent: Array<{ order_id: string }>
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  beforeEach(() => {
+    fakeTracking.rows = {}
+    fakeTracking.error = null
+    sent = []
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: { body: string }) => {
+      sent.push(JSON.parse(init.body))
+      return new Response(JSON.stringify({ success: true, data: {} }), { status: 200 })
+    }))
+  })
+
+  it("uses the order's own reference on a first attempt", async () => {
+    const res = await new BundlePortalProvider().createOrder(request)
+    expect(sent[0].order_id).toBe(ref)
+    expect(res.order_id).toBe(ref)
+  })
+
+  it("keeps the same reference while an earlier attempt is still live, so Bundle Portal dedupes it", async () => {
+    fakeTracking.rows[ref] = { status: "processing" }
+    await new BundlePortalProvider().createOrder(request)
+    expect(sent[0].order_id).toBe(ref)
+  })
+
+  it.each(["reversed", "failed"])("uses a new UUID-shaped reference after a %s attempt, and returns it for tracking", async (status) => {
+    fakeTracking.rows[ref] = { status }
+    const res = await new BundlePortalProvider().createOrder(request)
+    expect(sent[0].order_id).not.toBe(ref)
+    expect(sent[0].order_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(res.order_id).toBe(sent[0].order_id)
+  })
+
+  it("derives the same new reference on a network retry, so a retry can't double-order", async () => {
+    fakeTracking.rows[ref] = { status: "reversed" }
+    await new BundlePortalProvider().createOrder(request)
+    await new BundlePortalProvider().createOrder(request)
+    expect(sent[0].order_id).toBe(sent[1].order_id)
+  })
+
+  it("moves on again when the second attempt also died", async () => {
+    fakeTracking.rows[ref] = { status: "reversed" }
+    await new BundlePortalProvider().createOrder(request)
+    const second = sent[0].order_id
+    fakeTracking.rows[second] = { status: "reversed" }
+    await new BundlePortalProvider().createOrder(request)
+    expect(sent[1].order_id).not.toBe(second)
+    expect(sent[1].order_id).not.toBe(ref)
+  })
+
+  it("sends nothing when the attempt history can't be read", async () => {
+    fakeTracking.error = { message: "boom" }
+    const res = await new BundlePortalProvider().createOrder(request)
+    expect(res.success).toBe(false)
+    expect(sent).toEqual([])
+  })
 })
 
 describe("mapNetworkToBundlePortal", () => {

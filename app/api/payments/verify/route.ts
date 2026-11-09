@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyPayment } from "@/lib/paystack"
+import { alertClosedOrderPayment, isClosedUnpaidShopOrder } from "@/lib/payments/closed-order"
 import { createClient } from "@supabase/supabase-js"
 import { sendSMS, SMSTemplates, networkColor } from "@/lib/sms-service"
 import { atishareService } from "@/lib/at-ishare-service"
@@ -401,11 +402,14 @@ export async function POST(request: NextRequest) {
           // 3. Handle Shop Orders (Data)
           const { data: shopOrderData, error: shopOrderFetchError } = await supabase
             .from("shop_orders")
-            .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone, customer_name")
+            .select("id, shop_id, profit_amount, parent_shop_id, parent_profit_amount, network, volume_gb, customer_phone, customer_name, order_status, payment_status")
             .eq("id", paymentData.order_id)
             .single()
 
-          if (!shopOrderFetchError && shopOrderData) {
+          if (!shopOrderFetchError && isClosedUnpaidShopOrder(shopOrderData)) {
+            // Closed before this money landed: nothing would be sent. wallet_payments (written above) keeps the proof.
+            await alertClosedOrderPayment(supabase, { orderId: paymentData.order_id, reference, amountGhs: Number(verificationResult.amount) || 0 })
+          } else if (!shopOrderFetchError && shopOrderData) {
             // Update Data Order
             await supabase
               .from("shop_orders")

@@ -14,10 +14,13 @@ export const DEFAULT_REFERENCE_NUMBERS: Record<BundleNetwork, string> = {
 }
 
 export interface NetworkSetting { enabled: boolean; hiddenCategories: string[]; referenceNumber: string }
-/** `unitValue` is the exact Hubtel catalog Value of the unit bundle (e.g. RACT_Data_GHC_3_Others). */
-export interface SpecialSetting { enabled: boolean; multiples: number[]; unitAmount: number; unitValue: string }
+/**
+ * `unitValue` is the exact Hubtel catalog Value of the unit bundle (e.g. RACT_Data_GHC_3_Others).
+ * `ussdEnabled` sells Special Bundles on Hubtel USSD as well as the dashboard. Missing means false.
+ */
+export interface SpecialSetting { enabled: boolean; multiples: number[]; unitAmount: number; unitValue: string; ussdEnabled: boolean }
 export interface BundlesConfig { enabled: boolean; networks: Record<BundleNetwork, NetworkSetting>; special: SpecialSetting }
-// `special` is replaced whole by the config RPC (top-level shallow merge), so a patch always carries all four fields.
+// `special` is replaced whole by the config RPC (top-level shallow merge), so a patch always carries all five fields.
 export interface BundlesPatch { enabled?: boolean; networks?: Partial<Record<BundleNetwork, NetworkSetting>>; special?: SpecialSetting }
 
 export const SPECIAL_MAX_MULTIPLES = 10
@@ -26,7 +29,7 @@ export const SPECIAL_MAX_MULTIPLE = 20
 export const SPECIAL_MAX_UNIT_VALUE_LENGTH = 80
 export const DEFAULT_SPECIAL_UNIT_VALUE = "RACT_Data_GHC_3_Others"
 export const DEFAULT_SPECIAL: SpecialSetting = {
-  enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3, unitValue: DEFAULT_SPECIAL_UNIT_VALUE,
+  enabled: false, multiples: [3, 5, 8, 10, 15], unitAmount: 3, unitValue: DEFAULT_SPECIAL_UNIT_VALUE, ussdEnabled: false,
 }
 
 const UNIT_VALUE_RE = /^[A-Za-z0-9_-]+$/
@@ -54,7 +57,8 @@ function cleanSpecial(v: unknown): SpecialSetting | null {
   // A stored special from before unitValue existed gets the default; a present but invalid one is invalid.
   const unitValue = v.unitValue === undefined ? DEFAULT_SPECIAL_UNIT_VALUE : v.unitValue
   if (!validUnitValue(unitValue)) return null
-  return { enabled: v.enabled, multiples, unitAmount: v.unitAmount, unitValue }
+  // Only literal true: a bad stored value turns off USSD sales without stopping the dashboard.
+  return { enabled: v.enabled, multiples, unitAmount: v.unitAmount, unitValue, ussdEnabled: v.ussdEnabled === true }
 }
 
 const REFERENCE_RE = /^233\d{9}$/
@@ -108,8 +112,9 @@ export function validateBundlesPatch(body: unknown): { ok: true; patch: BundlesP
   if ("special" in body) {
     const s = body.special
     if (!isObj(s)) return { ok: false, error: "special must be an object" }
-    for (const k of Object.keys(s)) if (!["enabled", "multiples", "unitAmount", "unitValue"].includes(k)) return { ok: false, error: `special: unknown field ${k}` }
+    for (const k of Object.keys(s)) if (!["enabled", "multiples", "unitAmount", "unitValue", "ussdEnabled"].includes(k)) return { ok: false, error: `special: unknown field ${k}` }
     if (typeof s.enabled !== "boolean") return { ok: false, error: "special: enabled must be true or false" }
+    if ("ussdEnabled" in s && typeof s.ussdEnabled !== "boolean") return { ok: false, error: "special: ussdEnabled must be true or false" }
     const multiples = cleanMultiples(s.multiples)
     if (!multiples) {
       return { ok: false, error: `special: multiples must be 1 to ${SPECIAL_MAX_MULTIPLES} whole numbers between 1 and ${SPECIAL_MAX_MULTIPLE}` }
@@ -118,7 +123,7 @@ export function validateBundlesPatch(body: unknown): { ok: true; patch: BundlesP
     if (!validUnitValue(s.unitValue)) {
       return { ok: false, error: `special: Hubtel unit value must be 1 to ${SPECIAL_MAX_UNIT_VALUE_LENGTH} letters, digits, _ or -` }
     }
-    patch.special = { enabled: s.enabled, multiples, unitAmount: s.unitAmount, unitValue: s.unitValue }
+    patch.special = { enabled: s.enabled, multiples, unitAmount: s.unitAmount, unitValue: s.unitValue, ussdEnabled: s.ussdEnabled === true }
   }
   return { ok: true, patch }
 }
