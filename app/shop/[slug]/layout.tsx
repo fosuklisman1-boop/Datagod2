@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { lookupShop, resolveShopAlias } from '@/lib/shop-commerce/shop-lookup'
+import { getShopPublicState } from '@/lib/sub-agents/open-shop'
 import { SERVICE_LABELS, joinServiceLabels } from '@/lib/custom-domains'
 import { shopCanonicalBase, shopRequestContext } from '@/lib/seo/shop-canonical'
 import { shopIconUrl, shopPreviewDescription, shopPreviewImage } from '@/lib/shop-link-preview'
@@ -93,6 +94,8 @@ export default async function ShopLayout({
   // which redirects it. Blocked shops are handled by the pages (see page.tsx).
   const { slug } = await params
   const { shop, failed } = await lookupShop(slug)
-  if (!shop && !failed && !(await resolveShopAlias(slug))) notFound()
+  // An unpriced storefront sub-agent joiner is left to the page, which shows
+  // "This shop isn't open yet" (getShopPublicState) instead of a 404.
+  if (!shop && !failed && !(await resolveShopAlias(slug)) && (await getShopPublicState(slug)) !== "setting_up") notFound()
   return <ShopClientWrapper>{children}</ShopClientWrapper>
 }
