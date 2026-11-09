@@ -5,15 +5,13 @@ import type { BillOrderRow, BillsDeps } from "./service"
 import { BILLER_KEYS, BILLERS, isBillerKey, type BillerKey } from "./billers"
 import { getBillsConfig } from "./config"
 import { getCashbackConfig } from "@/lib/cashback/config"
+import { getDealerRateTier } from "@/lib/sub-agents/dealer-rates"
 
 const TABLE = "hubtel_bill_orders"
 
-/** Cashback tier: dealers and sub-agents get the dealer share. Throws on a read error (caller treats as not applied). */
+/** Cashback tier: dealers and sub-agents (unless their shop turned dealer rates off) get the dealer share. Throws on a read error (caller treats as not applied). */
 export async function getBuyerTier(db: SupabaseClient, userId: string): Promise<"customer" | "dealer"> {
-  const { data, error } = await db.from("users").select("role").eq("id", userId).maybeSingle()
-  if (error) throw error
-  const role = (data as { role?: string } | null)?.role
-  return role === "dealer" || role === "sub_agent" ? "dealer" : "customer"
+  return getDealerRateTier(db, userId)
 }
 const ORDER_STATUSES = ["pending", "processing", "completed", "failed", "refunded"] as const
 

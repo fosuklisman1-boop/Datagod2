@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       .from("user_shops")
       .select("id, user_id, airtime_markup_mtn, airtime_markup_telecel, airtime_markup_at")
       .or(shopHandleOrFilter(slug))
+      .eq("is_active", true)
       .single()
 
     if (!shop) {

@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest"
-import { DATA_PAGE_COPY, dataPageParagraphs, wordCount } from "./data-page-copy"
-import { DATA_NETS, type DataNet } from "./data-prices"
+import { DATA_PAGE_COPY, dataPageParagraphs, wordCount, type DataNet } from "./data-page-copy"
+
+const DATA_NETS = Object.keys(DATA_PAGE_COPY) as DataNet[]
 
 const BANNED = /instant|in seconds|automatic(ally)? refund/i
 
 const allParagraphs = (net: DataNet) => [...DATA_PAGE_COPY[net].paragraphs, ...DATA_PAGE_COPY[net].when.map((w) => w.text)]
-const text = (net: DataNet) => [DATA_PAGE_COPY[net].tableHeading, DATA_PAGE_COPY[net].aboutHeading, ...allParagraphs(net)].join("\n")
+const text = (net: DataNet) => [DATA_PAGE_COPY[net].aboutHeading, ...allParagraphs(net)].join("\n")
 
 describe("data page copy", () => {
   it("is 150-300 words per network, even with every conditional paragraph shown", () => {
@@ -40,7 +41,7 @@ describe("data page copy", () => {
     expect(text("MTN")).toMatch(/024, 025, 053, 054, 055 or 059/)
     expect(text("MTN")).toMatch(/MTN Mobile Money/)
     expect(text("Telecel")).toMatch(/Vodafone/)
-    expect(text("Telecel")).toMatch(/No expiry/)
+    expect(text("Telecel")).toMatch(/no-expiry/i)
     expect(text("Telecel")).toMatch(/020 or 050/)
     expect(text("AT")).toMatch(/AirtelTigo/)
     expect(text("AT")).toMatch(/iShare/)
@@ -62,16 +63,16 @@ describe("data page copy", () => {
     expect(DATA_PAGE_COPY.Telecel.paragraphs.join("\n")).not.toMatch(/no expiry/i)
   })
 
-  it("shows a conditional paragraph only when the table has matching rows", () => {
-    const none = dataPageParagraphs("AT", [])
+  it("shows a conditional paragraph only when matching bundles are on sale", () => {
+    const none = dataPageParagraphs("AT", { types: [], noExpiry: false })
     expect(none.join("\n")).not.toMatch(/iShare|BigTime/)
     expect(none).toEqual(DATA_PAGE_COPY.AT.paragraphs)
 
-    const ishareOnly = dataPageParagraphs("AT", [{ type: "iShare", validity: null }])
+    const ishareOnly = dataPageParagraphs("AT", { types: ["iShare"], noExpiry: false })
     expect(ishareOnly.join("\n")).toMatch(/iShare/)
     expect(ishareOnly.join("\n")).not.toMatch(/BigTime/)
 
-    expect(dataPageParagraphs("Telecel", [{ type: null, validity: "30 days" }]).join("\n")).not.toMatch(/No expiry/)
-    expect(dataPageParagraphs("Telecel", [{ type: null, validity: "No expiry" }]).join("\n")).toMatch(/No expiry/)
+    expect(dataPageParagraphs("Telecel", { types: [], noExpiry: false }).join("\n")).not.toMatch(/no-expiry/i)
+    expect(dataPageParagraphs("Telecel", { types: [], noExpiry: true }).join("\n")).toMatch(/no-expiry/i)
   })
 })

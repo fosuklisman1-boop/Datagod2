@@ -30,7 +30,7 @@ vi.mock("@/lib/supabase", () => ({
   },
 }))
 
-import { getCachedVerdicts, setCachedVerdicts, verdictCacheKey } from "./verdict-cache"
+import { getCachedVerdicts, setCachedVerdicts, verdictCacheKey, verifiedCacheKey, VERDICT_TTL_SECONDS } from "./verdict-cache"
 
 describe("verdict cache without Upstash (Supabase table)", () => {
   beforeEach(() => {
@@ -50,7 +50,31 @@ describe("verdict cache without Upstash (Supabase table)", () => {
     expect(verdictCacheKey("+233 55 999 9999", ["agentportalgh"])).toBe(verdictCacheKey("0559999999", ["agentportalgh"]))
   })
 
-  it("a different provider list (or order) is a miss", async () => {
+  it("a VERIFIED number is stored forever and survives a provider-list change", async () => {
+    await setCachedVerdicts(new Map([["0551111111", true]]), ["agentportalgh"])
+    const row = table.get(verifiedCacheKey("0551111111"))!
+    expect(row).toMatchObject({ verdict: true, expires_at: "infinity" })
+    expect((await getCachedVerdicts(["233551111111"], ["xpress", "codecraft"])).get("233551111111")).toBe(true)
+  })
+
+  it("a REJECTION only lasts VERDICT_TTL_SECONDS and is scoped to the provider list", async () => {
+    const before = Date.now()
+    await setCachedVerdicts(new Map([["0559999999", false]]), ["agentportalgh"])
+    const row = table.get(verdictCacheKey("0559999999", ["agentportalgh"]))!
+    expect(row.verdict).toBe(false)
+    const ttl = (Date.parse(row.expires_at) - before) / 1000
+    expect(ttl).toBeGreaterThan(VERDICT_TTL_SECONDS - 5)
+    expect(ttl).toBeLessThanOrEqual(VERDICT_TTL_SECONDS + 5)
+    expect(table.has(verifiedCacheKey("0559999999"))).toBe(false)
+  })
+
+  it("verified wins over an older rejection for the same number", async () => {
+    await setCachedVerdicts(new Map([["0559999999", false]]), ["agentportalgh"])
+    await setCachedVerdicts(new Map([["0559999999", true]]), ["agentportalgh"])
+    expect((await getCachedVerdicts(["0559999999"], ["agentportalgh"])).get("0559999999")).toBe(true)
+  })
+
+  it("a different provider list (or order) is a miss for a rejection", async () => {
     await setCachedVerdicts(new Map([["0559999999", false]]), ["agentportalgh", "xpress"])
     expect((await getCachedVerdicts(["0559999999"], ["xpress", "agentportalgh"])).size).toBe(0)
   })

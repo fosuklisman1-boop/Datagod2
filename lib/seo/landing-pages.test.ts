@@ -6,10 +6,9 @@ import {
   getLanding,
   landingAvailability,
   landingCopyText,
-  landingRows,
+  landingGroups,
   landingSections,
   landingsForProduct,
-  rowsByNetwork,
   type LandingEntry,
   type LandingKey,
   type ParagraphContext,
@@ -18,7 +17,13 @@ import { PRODUCTS, REFUND_LINE, SPEED_LINE } from "./products"
 import { buildLiveFacts, FAILED_RAW, FALLBACK_FACTS, type LiveFacts, type RawFacts } from "./live-facts"
 import { wordCount } from "./data-page-copy"
 import { buildLandingJsonLd, landingCrumbs } from "./json-ld"
-import type { RawPackageRow } from "./data-prices"
+
+type RawPackageRow = NonNullable<RawFacts["packages"]>[number]
+
+const ZERO_ADJ = { price_adjustment_mtn: 0, price_adjustment_telecel: 0, price_adjustment_at_ishare: 0, price_adjustment_at_bigtime: 0 }
+
+/** "network|label|price" for every row of every group, in order. */
+const flat = (gs: ReturnType<typeof landingGroups>) => gs.flatMap((g) => g.rows.map((r) => `${g.network}|${r.label}|${r.price}`))
 
 const BANNED = /instant|in seconds|automatic(ally)? refund/i
 
@@ -54,7 +59,7 @@ const PACKAGES: RawPackageRow[] = [
 ]
 
 function facts(over: Partial<RawFacts> = {}, failed: string[] = []): LiveFacts {
-  return buildLiveFacts({ ...FAILED_RAW, packages: PACKAGES, ...over }, failed)
+  return buildLiveFacts({ ...FAILED_RAW, priceAdjustments: ZERO_ADJ, packages: PACKAGES, ...over }, failed)
 }
 
 describe("landing page registry", () => {
@@ -166,7 +171,7 @@ describe("landing page registry", () => {
 describe("landingSections", () => {
   it("drops paragraphs whose condition does not hold, and empty sections", () => {
     const e: LandingEntry = {
-      ...getLanding("data-bundle-prices"),
+      ...getLanding("non-expiry-data-bundles"),
       sections: [
         { heading: "A", paragraphs: ["always", { when: "has-rows", text: "rows" }, { when: "no-rows", text: "none" }] },
         { heading: "B", paragraphs: [{ when: "standard-no-expiry", text: "standard" }] },
@@ -180,109 +185,59 @@ describe("landingSections", () => {
   })
 })
 
-describe("data-bundle-prices", () => {
-  const e = getLanding("data-bundle-prices")
-
-  it("shows every public row, network by network, at packages.price", () => {
-    const f = facts()
-    const rows = landingRows(e, f.dataPrices)
-    expect(rows.map((r) => `${r.network}|${r.type ?? ""}|${r.size}|${r.price}`)).toEqual([
-      "MTN||1GB|5",
-      "MTN||2GB|9",
-      "Telecel||5GB|20",
-      "Telecel||10GB|38",
-      "AT|iShare|1GB|4",
-      "AT|BigTime|20GB|60",
-    ])
-    expect(rowsByNetwork(rows).map((g) => [g.network, g.rows.length])).toEqual([
-      ["MTN", 2],
-      ["Telecel", 2],
-      ["AT", 2],
-    ])
+describe("no all-networks price page", () => {
+  it("leaves cross-network prices to /cheapest-data-ghana (main's comparison page)", () => {
+    expect(findLandingByPath("/data-bundle-prices")).toBeUndefined()
+    expect(PRODUCTS.find((p) => p.key === "cheapest-data")?.path).toBe("/cheapest-data-ghana")
+    for (const e of LANDING_PAGES.filter((x) => x.showsPrices)) expect(e.relatedProducts, e.key).toContain("cheapest-data")
   })
+})
 
-  it("never reads dealer_price", () => {
-    const f = buildLiveFacts({
-      ...FAILED_RAW,
-      packages: [{ network: "MTN", size: "1", price: 5, is_available: true, dealer_price: 1 } as RawPackageRow],
-    })
-    expect(landingRows(e, f.dataPrices).map((r) => r.price)).toEqual([5])
-  })
-
-  it("is ok with rows, off with none, failed when the packages read failed", () => {
-    expect(landingAvailability(e, facts())).toBe("ok")
-    expect(landingAvailability(e, facts({ packages: [] }))).toBe("off")
-    expect(landingAvailability(e, facts({ packages: null }, ["packages"]))).toBe("failed")
-    expect(landingAvailability(e, FALLBACK_FACTS)).toBe("failed")
-    // another source failing does not matter
-    expect(landingAvailability(e, facts({}, ["bills"]))).toBe("ok")
-  })
-
-  it("builds an OfferCatalog from the same rows, plus FAQ and breadcrumb JSON-LD from the page", () => {
-    const rows = landingRows(e, facts().dataPrices)
-    const crumbs = landingCrumbs(e)
-    const [catalog, faq, crumbsLd] = buildLandingJsonLd(e, rows, crumbs) as any[]
-    expect(catalog["@type"]).toBe("OfferCatalog")
-    expect(catalog["@context"]).toBe("https://schema.org")
-    expect(catalog.url).toBe("https://www.datagod.store/data-bundle-prices")
-    expect(catalog.itemListElement).toHaveLength(rows.length)
-    expect(catalog.itemListElement[0]).toMatchObject({
-      "@type": "Offer",
-      name: "MTN 1GB (30 days)",
-      price: "5.00",
-      priceCurrency: "GHS",
-      seller: { "@id": "https://www.datagod.store/#org" },
-    })
-    expect(catalog.itemListElement.map((o: any) => o.name)).toContain("AT iShare 1GB")
-    expect(faq["@type"]).toBe("FAQPage")
-    expect(faq.mainEntity.map((q: any) => q.name)).toEqual(e.faqs.map((f) => f.question))
-    expect(crumbsLd.itemListElement.map((c: any) => c.item)).toEqual([
-      "https://www.datagod.store",
-      "https://www.datagod.store/services",
-      "https://www.datagod.store/data-bundle-prices",
-    ])
-    expect(JSON.stringify(buildLandingJsonLd(e, rows, crumbs))).not.toMatch(/aggregateRating|review/i)
-  })
-
-  it("emits no OfferCatalog without rows", () => {
-    const nodes = buildLandingJsonLd(e, [], landingCrumbs(e)) as any[]
-    expect(nodes.map((n) => n["@type"])).toEqual(["FAQPage", "BreadcrumbList"])
+describe("landing JSON-LD", () => {
+  it("is FAQ and breadcrumb from the page, with no offers of its own", () => {
+    for (const e of LANDING_PAGES) {
+      const nodes = buildLandingJsonLd(e, landingCrumbs(e)) as any[]
+      expect(nodes.map((n) => n["@type"]), e.key).toEqual(["FAQPage", "BreadcrumbList"])
+      expect(nodes[0].mainEntity.map((q: any) => q.name)).toEqual(e.faqs.map((f) => f.question))
+      expect(JSON.stringify(nodes)).not.toMatch(/aggregateRating|review|Offer/i)
+    }
   })
 })
 
 describe("availableLandings", () => {
   it("lists only ok pages, in registry order", () => {
-    expect(availableLandings(facts({ packages: [] })).map((e) => e.key)).not.toContain("data-bundle-prices")
-    expect(availableLandings(facts()).map((e) => e.key)).toContain("data-bundle-prices")
-    expect(availableLandings(FALLBACK_FACTS).map((e) => e.key)).not.toContain("data-bundle-prices")
+    expect(availableLandings(facts()).map((e) => e.key)).toEqual(LANDING_PAGES.map((e) => e.key))
+    expect(availableLandings(FALLBACK_FACTS).map((e) => e.key)).toEqual(["become-a-data-reseller"])
   })
 })
 
 describe("non-expiry-data-bundles", () => {
   const e = getLanding("non-expiry-data-bundles")
 
-  it("shows only available rows whose description says no expiry", () => {
-    const rows = landingRows(e, facts().dataPrices)
-    expect(rows.map((r) => `${r.network}|${r.size}|${r.validity}`)).toEqual(["Telecel|5GB|No expiry", "Telecel|10GB|No expiry"])
-    // the unavailable MTN "No expiry" row and rows without a stated validity never show
-    expect(rows.some((r) => r.network === "MTN")).toBe(false)
+  it("shows only available rows whose description says no expiry, at the adjusted price", () => {
+    expect(flat(landingGroups(e, facts()))).toEqual(["Telecel|5GB|20", "Telecel|10GB|38"])
+    const adjusted = facts({ priceAdjustments: { ...ZERO_ADJ, price_adjustment_telecel: 10 } })
+    expect(flat(landingGroups(e, adjusted))).toEqual(["Telecel|5GB|22", "Telecel|10GB|41.8"])
+    // the unavailable MTN "No expiry" row and rows without a no-expiry description never show
+    expect(landingGroups(e, facts()).some((g) => g.network === "MTN")).toBe(false)
   })
 
-  it("stays ok (honest empty state) with no such rows, and fails only when the read failed", () => {
+  it("stays ok (honest empty state) with no such rows, and fails only when the prices could not be read", () => {
     const none = facts({ packages: [{ network: "MTN", size: "1", price: 5, is_available: true, description: "30 days" }] })
-    expect(landingRows(e, none.dataPrices)).toEqual([])
+    expect(landingGroups(e, none)).toEqual([])
     expect(landingAvailability(e, none)).toBe("ok")
     expect(landingAvailability(e, facts({ packages: [] }))).toBe("ok")
     expect(landingAvailability(e, facts({ packages: null }, ["packages"]))).toBe("failed")
+    expect(landingAvailability(e, facts({ priceAdjustments: null }, ["price-adjust"]))).toBe("failed")
   })
 
   it("says there are none, instead of claiming bundles, when there are no rows", () => {
     const empty = landingSections(e, { rows: 0, standardNoExpiry: false }).flatMap((s) => s.paragraphs).join("\n")
     expect(empty).toMatch(/no bundle in our catalogue is described as no-expiry/i)
-    expect(empty).not.toMatch(/The tables on this page show/)
+    expect(empty).not.toMatch(/The price lists on this page show/)
     expect(empty).not.toMatch(/Standard Bundles/)
     const some = landingSections(e, { rows: 2, standardNoExpiry: false }).flatMap((s) => s.paragraphs).join("\n")
-    expect(some).toMatch(/The tables on this page show/)
+    expect(some).toMatch(/The price lists on this page show/)
     expect(some).not.toMatch(/no bundle in our catalogue/i)
   })
 
@@ -291,23 +246,15 @@ describe("non-expiry-data-bundles", () => {
     expect(on).toMatch(/Standard Bundles/)
     expect(on).toMatch(/No Expiry category/)
   })
-
-  it("builds its OfferCatalog from the no-expiry rows only", () => {
-    const rows = landingRows(e, facts().dataPrices)
-    const [catalog] = buildLandingJsonLd(e, rows, landingCrumbs(e)) as any[]
-    expect(catalog.itemListElement.map((o: any) => o.name)).toEqual(["Telecel 5GB (No expiry)", "Telecel 10GB (No expiry)"])
-  })
 })
 
 describe("become-a-data-reseller", () => {
   const e = getLanding("become-a-data-reseller")
   const join = PRODUCTS.find((p) => p.key === "join")!
 
-  it("has no table, no OfferCatalog and no live data source", () => {
-    expect(e.source).toBeNull()
-    expect(landingRows(e, facts().dataPrices)).toEqual([])
-    const nodes = buildLandingJsonLd(e, [], landingCrumbs(e)) as any[]
-    expect(nodes.map((n) => n["@type"])).toEqual(["FAQPage", "BreadcrumbList"])
+  it("has no price list and no live price source", () => {
+    expect(e.showsPrices).toBe(false)
+    expect(landingGroups(e, facts())).toEqual([])
   })
 
   it("is ok whatever the packages read did (it shows no prices)", () => {
@@ -335,16 +282,17 @@ describe("become-a-data-reseller", () => {
 describe("at-ishare-data", () => {
   const e = getLanding("at-ishare-data")
 
-  it("shows only the AT iShare rows, whatever the network spelling", () => {
+  it("shows only the AT iShare group the dashboard sells, at the adjusted price", () => {
     const f = facts({
+      priceAdjustments: { ...ZERO_ADJ, price_adjustment_at_ishare: 10 },
       packages: [
         ...PACKAGES,
-        { network: "AT-iShare", size: "2", price: 7, is_available: true },
-        { network: "AT - ISHARE", size: "3", price: 10, is_available: true, description: "No expiry" },
+        { network: "AT - iShare", size: "2", price: 7, is_available: true },
+        // not a dashboard network value: main's price groups leave it out
+        { network: "AT-iShare", size: "3", price: 10, is_available: true },
       ],
     })
-    const rows = landingRows(e, f.dataPrices)
-    expect(rows.map((r) => `${r.type}|${r.size}|${r.price}`)).toEqual(["iShare|1GB|4", "iShare|2GB|7", "iShare|3GB|10"])
+    expect(flat(landingGroups(e, f))).toEqual(["AT - iShare|1GB|4.4", "AT - iShare|2GB|7.7"])
   })
 
   it("is off when no iShare row is on sale, failed when the read failed", () => {
@@ -353,12 +301,9 @@ describe("at-ishare-data", () => {
     expect(landingAvailability(e, facts({ packages: null }, ["packages"]))).toBe("failed")
   })
 
-  it("sits under the AT data page in the breadcrumb, and its catalog is iShare only", () => {
-    const rows = landingRows(e, facts().dataPrices)
+  it("sits under the AT data page in the breadcrumb", () => {
     const crumbs = landingCrumbs(e, PRODUCTS.find((p) => p.key === e.parent))
     expect(crumbs.map((c) => c.path)).toEqual(["/", "/services", "/at-data", "/at-ishare-data"])
-    const [catalog] = buildLandingJsonLd(e, rows, crumbs) as any[]
-    expect(catalog.itemListElement.map((o: any) => o.name)).toEqual(["AT iShare 1GB"])
   })
 })
 
@@ -366,8 +311,8 @@ describe("at-bigtime-data", () => {
   const e = getLanding("at-bigtime-data")
 
   it("shows only the AT BigTime rows", () => {
-    const f = facts({ packages: [...PACKAGES, { network: "AT-BigTime", size: "50", price: 120, is_available: true }] })
-    expect(landingRows(e, f.dataPrices).map((r) => `${r.type}|${r.size}|${r.price}`)).toEqual(["BigTime|20GB|60", "BigTime|50GB|120"])
+    const f = facts({ packages: [...PACKAGES, { network: "AT - BigTime", size: "50", price: 120, is_available: true }] })
+    expect(flat(landingGroups(e, f))).toEqual(["AT - BigTime|20GB|60", "AT - BigTime|50GB|120"])
   })
 
   it("is off when no BigTime row is on sale, failed when the read failed", () => {
@@ -407,14 +352,17 @@ describe("landingsForProduct (product pages' related guides row)", () => {
   it("links each product page back to the live landing pages that link it", () => {
     const f = facts()
     expect(landingsForProduct("at-data", f).map((e) => e.key)).toEqual([
-      "data-bundle-prices",
       "non-expiry-data-bundles",
       "become-a-data-reseller",
       "at-ishare-data",
       "at-bigtime-data",
     ])
+    expect(landingsForProduct("cheapest-data", f).map((e) => e.key)).toEqual([
+      "non-expiry-data-bundles",
+      "at-ishare-data",
+      "at-bigtime-data",
+    ])
     expect(landingsForProduct("join", f).map((e) => e.key)).toEqual([
-      "data-bundle-prices",
       "become-a-data-reseller",
       "at-ishare-data",
       "at-bigtime-data",

@@ -5,6 +5,7 @@ import { buildShopItemListJsonLd } from "@/lib/shop-commerce/price-table"
 import { shopCanonicalBase, shopRequestContext } from "@/lib/seo/shop-canonical"
 import ShopStorefront from "./storefront-client"
 import { StorefrontSummary } from "./storefront-summary"
+import { getShopPublicState } from "@/lib/sub-agents/open-shop"
 
 function JsonLd({ data }: { data: unknown }) {
   return (
@@ -45,6 +46,11 @@ export default async function ShopPage({
       const { domainConfig } = await shopRequestContext()
       permanentRedirect(shopCanonicalBase(alias, domainConfig?.domain))
     }
+    // An unpriced storefront sub-agent joiner shows "This shop isn't open yet"
+    // (getShopPublicState); every other inactive or unknown handle is a real 404.
+    if ((await getShopPublicState(slug)) === "setting_up") {
+      return <ShopStorefront initialLogoUrl={null} initialShopName={null} publicState="setting_up" />
+    }
     notFound()
   }
 
@@ -77,6 +83,7 @@ export default async function ShopPage({
       <ShopStorefront
         initialLogoUrl={shop.logo_url ?? null}
         initialShopName={shop.shop_name ?? null}
+        publicState="open"
         serverSummary={
           <StorefrontSummary
             shopName={shop.shop_name}

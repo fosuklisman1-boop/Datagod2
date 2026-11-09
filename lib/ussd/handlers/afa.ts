@@ -4,7 +4,13 @@ import { UzoResponse, USSDSession } from "../types"
 import { cont, end, mainMenu, afaEnterNamePrompt, afaEnterCardPrompt, afaEnterLocationPrompt, afaEnterRegionPrompt, afaConfirmMenu } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "../resolve-email"
-import { chargeMobileMoney } from "../../paystack"
+import { setWaSession } from "../../whatsapp-bot/session"
+import { sendWhatsAppText } from "../../whatsapp-bot/send"
+import { sendSMS, SMSTemplates } from "../../sms-service"
+import { paystackProviderFromPhone } from "../paystack-provider"
+import {
+  guardedReprice, isUssdHubtelPayer, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdChannel, type UssdPrice,
+} from "../gateway-charge"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 import { parseGhanaCardNumber } from "../../ghana-card"
 
@@ -85,7 +91,8 @@ export async function handleAfaEnterLocation(
 export async function handleAfaEnterRegion(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  channel: UssdChannel = 'ussd'
 ): Promise<UzoResponse> {
   if (input.trim() === '0') {
     await setSession(sessionId, { ...session, step: 'AFA_ENTER_LOCATION' })
@@ -108,14 +115,16 @@ export async function handleAfaEnterRegion(
     : session.dialingPhone ?? ''
 
   await setSession(sessionId, { ...session, step: 'AFA_CONFIRM_AFA', afaRegion: region, afaPrice: price })
-  return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, price, localPhone))
+  return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, price, channel === 'whatsapp' ? null : localPhone))
 }
 
 // ── AFA_CONFIRM_AFA ───────────────────────────────────────────────────────────
 export async function handleAfaConfirm(
   input: string,
   sessionId: string,
-  session: USSDSession
+  session: USSDSession,
+  /** 'whatsapp' from the WhatsApp router: the gateway surface, and the session owner is the sender (sessionId). */
+  channel: UssdChannel = 'ussd'
 ): Promise<UzoResponse> {
   if (input.trim() === '2') {
     await setSession(sessionId, { step: 'MAIN', dialingPhone: session.dialingPhone })
@@ -126,7 +135,7 @@ export async function handleAfaConfirm(
     const localPhone = session.dialingPhone?.startsWith('+233')
       ? '0' + session.dialingPhone.slice(4)
       : session.dialingPhone ?? ''
-    return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, session.afaPrice!, localPhone))
+    return cont(afaConfirmMenu(session.afaFullName!, session.afaGhCard!, session.afaPrice!, channel === 'whatsapp' ? null : localPhone))
   }
 
   const { afaFullName, afaGhCard, afaLocation, afaRegion, afaPrice, dialingPhone } = session
@@ -137,7 +146,15 @@ export async function handleAfaConfirm(
     .is("key", null)
     .single()
   const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
-  const chargeAmount = afaPrice! + Math.round(afaPrice! * feePercent * 100) / 100
+  const price: UssdPrice = { hubtel: afaPrice!, paystack: afaPrice! + Math.round(afaPrice! * feePercent * 100) / 100 }
+  // Resolved before the order is written: Hubtel's amount has no Paystack fee. USSD always prompts the dialler on the
+  // MTN provider (as today), so only an MTN dialler goes to Hubtel there. WhatsApp uses the paying number's own network.
+  const surface = ussdChargeSurface(channel)
+  const provider: 'mtn' | 'vod' | 'tgo' = channel === 'whatsapp'
+    ? (session.paystackProvider as 'mtn' | 'vod' | 'tgo' | undefined) ?? paystackProviderFromPhone(dialingPhone ?? '') ?? 'mtn'
+    : 'mtn'
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === 'whatsapp' ? sessionId : dialingPhone, provider })
+  const chargeAmount = await ussdOrderAmount(surface, verifiedPayer, price)
 
   const { data: order, error: orderErr } = await supabase
     .from("ussd_afa_orders")
@@ -168,24 +185,53 @@ export async function handleAfaConfirm(
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      await chargeMobileMoney({
-        email,
-        amount: chargeAmount,
-        phone: dialingPhone!,
-        provider: 'mtn',
-        reference: orderId,
-        metadata: {
-          source: 'ussd_afa',
-          ussd_afa_order_id: orderId,
-          full_name: afaFullName,
-          gh_card_number: afaGhCard,
+      const { status } = await startUssdCharge({
+        surface,
+        verifiedPayer,
+        price,
+        written: chargeAmount,
+        params: {
+          email,
+          phone: dialingPhone!,
+          provider,
+          reference: orderId,
+          metadata: {
+            source: 'ussd_afa',
+            ussd_afa_order_id: orderId,
+            full_name: afaFullName,
+            gh_card_number: afaGhCard,
+          },
         },
+        reprice: guardedReprice(supabase, "ussd_afa_orders", orderId, {
+          from: { amount: chargeAmount }, set: { amount: price.paystack }, guards: { payment_status: "pending" },
+        }),
       })
 
       await supabase
         .from("ussd_afa_orders")
         .update({ paystack_reference: orderId, updated_at: new Date().toISOString() })
         .eq("id", orderId)
+
+      // WhatsApp: Paystack wants an OTP. The reply has already closed the chat, so reopen it on SUBMIT_OTP for this
+      // order under the sender (sessionId), or the customer can never pay. payment_status stays 'pending': the AFA
+      // success handler accepts nothing else. USSD has no way to ask after the session ends (unchanged).
+      if (status === 'send_otp' && channel === 'whatsapp') {
+        await setWaSession(sessionId, { step: 'SUBMIT_OTP', dialingPhone, pendingOrderId: orderId, pendingOrderTable: 'ussd_afa_orders' })
+        await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
+      } else if (status === 'send_otp') {
+        // USSD can't ask once the session has ended: as bundles do, park the order for the redial and tell the customer.
+        const { error: otpErr } = await supabase
+          .from("ussd_afa_orders")
+          .update({ payment_status: 'otp_required', updated_at: new Date().toISOString() })
+          .eq("id", orderId)
+          .eq("payment_status", "pending")
+        if (otpErr) {
+          // A refused write leaves nothing for a redial to find, so no SMS sends the customer looking for it.
+          console.error("[USSD-AFA] Could not mark OTP required for order:", orderId, otpErr.code ?? "unknown")
+        } else {
+          sendSMS({ phone: dialingPhone!, message: SMSTemplates.ussdOtpRequired(), type: 'otp_required', reference: orderId }).catch(() => {})
+        }
+      }
 
       console.log("[USSD-AFA] ✓ MoMo charge initiated for AFA order:", orderId)
     } catch (err) {

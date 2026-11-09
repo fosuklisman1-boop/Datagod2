@@ -5,7 +5,8 @@ import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, payme
 import { networkNickname } from "@/lib/ussd/network-labels"
 import { setSession } from "../session"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
-import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
+import { submitOtp } from "@/lib/paystack"
+import { guardedReprice, isUssdHubtelPayer, startUssdCharge, ussdOrderAmount, type UssdPrice } from "@/lib/ussd/gateway-charge"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
@@ -234,7 +235,10 @@ export async function handleConfirm(
     .single()
   const feePercent = (feeSettings?.paystack_fee_percentage ?? 3.0) / 100
   const fee = Math.round(verifiedPrice * feePercent * 100) / 100
-  const chargeAmount = verifiedPrice + fee
+  // Resolved before the order is written: Hubtel's amount has no Paystack fee. The shop menu only charges the dialler.
+  const price: UssdPrice = { hubtel: verifiedPrice, paystack: verifiedPrice + fee }
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: dialingPhone, provider: paystackProvider })
+  const chargeAmount = await ussdOrderAmount("ussd", verifiedPayer, price)
 
   // Resolve customer email and shop owner email before inserting
   const [customerEmail, shopOwnerRow] = await Promise.all([
@@ -282,25 +286,33 @@ export async function handleConfirm(
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount: chargeAmount,
-        phone: dialingPhone!,
-        provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
-        reference: orderId,
-        metadata: {
-          source: 'ussd_shop',
-          ussd_shop_order_id: orderId,
-          recipient_phone: recipientPhone,
-          network,
-          package_size: bundleSize,
-          shop_id: shopId,
+      const { status, amount: charged } = await startUssdCharge({
+        surface: "ussd",
+        verifiedPayer,
+        price,
+        written: chargeAmount,
+        params: {
+          email,
+          phone: dialingPhone!,
+          provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
+          reference: orderId,
+          metadata: {
+            source: 'ussd_shop',
+            ussd_shop_order_id: orderId,
+            recipient_phone: recipientPhone,
+            network,
+            package_size: bundleSize,
+            shop_id: shopId,
+          },
         },
+        reprice: guardedReprice(supabase, "ussd_shop_orders", orderId, {
+          from: { amount: chargeAmount }, set: { amount: price.paystack }, guards: { payment_status: "pending" },
+        }),
       })
       try {
         await supabase.from("payment_attempts").insert({
           reference: orderId,
-          amount: chargeAmount,
+          amount: charged,
           email,
           status: 'pending',
           payment_type: 'ussd_shop',

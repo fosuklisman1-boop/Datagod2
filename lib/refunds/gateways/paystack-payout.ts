@@ -3,7 +3,7 @@ import {
   mapNetworkToPaystackBankCode, type PaystackTransferResult,
 } from "@/lib/paystack-transfer"
 import { momoNetworkForMoolre } from "./moolre"
-import { BOT_GATEWAY_REASON, isBotOrder, isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundGateway } from "../types"
+import { BOT_GATEWAY_REASON, hubtelRequestedCap, isBotOrder, isWalletOnlyTable, WALLET_ONLY_REASON, type GatewayOutcome, type RefundGateway } from "../types"
 
 const DEFINITIVE_FAILURE = new Set(["failed", "reversed", "rejected", "blocked"])
 const IN_FLIGHT = new Set(["pending", "processing", "queued", "received"])
@@ -34,13 +34,17 @@ export const paystackPayoutGateway: RefundGateway = {
   supports(order) {
     if (isWalletOnlyTable(order.table)) return { ok: false, reason: WALLET_ONLY_REASON }
     if (isBotOrder(order)) return { ok: false, reason: BOT_GATEWAY_REASON }
+    // A payout on a wallet-paid order would turn wallet balance into cash. USSD orders can be wallet-paid.
+    if (order.payment.gateway === "wallet") return { ok: false, reason: "Paid from the wallet — refund it to the wallet" }
     const phone = order.payment.payerPhone
     if (!phone) return { ok: false, reason: "No payer number on the order" }
     const network = momoNetworkForMoolre(phone)
     if (!network || !mapNetworkToPaystackBankCode(network)) return { ok: false, reason: "Payer number is not a recognised MoMo network" }
     return { ok: true }
   },
+  maxAmount: hubtelRequestedCap,
   async refund(ctx) {
+    if (ctx.order.payment.gateway === "wallet") return { kind: "failed", error: "Paid from the wallet — nothing was sent" }
     const phone = ctx.destinationPhone
     const network = phone ? momoNetworkForMoolre(phone) : null
     const bankCode = network ? mapNetworkToPaystackBankCode(network) : undefined

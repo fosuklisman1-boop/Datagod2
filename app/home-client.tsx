@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { BrandLogo, DEFAULT_LOGO } from "@/components/home/BrandLogo"
+import { supabase } from "@/lib/supabase"
+import { authUrl } from "@/lib/post-auth-redirect"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -400,6 +402,18 @@ export default function HomeClient({
   const [plans, setPlans] = useState<SubscriptionPlan[]>([])
   const [openFaq, setOpenFaq] = useState<number | null>(null)
 
+  // Installed (home-screen) app: opening it should resume the signed-in session,
+  // not show the marketing page. Browser visitors still see the landing page.
+  useEffect(() => {
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)").matches ||
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+    if (!standalone) return
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) window.location.replace("/dashboard")
+    })
+  }, [])
+
   useEffect(() => {
     fetch("/api/subscriptions/plans")
       .then((r) => (r.ok ? r.json() : null))
@@ -571,7 +585,7 @@ export default function HomeClient({
                 </li>
               ))}
             </ul>
-            <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Open Your Shop <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href={authUrl("signup", "/dashboard/my-shop")}><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Open Your Shop <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
           <div className="clay overflow-hidden">
             <MockShopLink />
@@ -630,7 +644,7 @@ export default function HomeClient({
             </ul>
             <div className="flex flex-wrap gap-3">
               <Link href="/developers"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Read the API docs <ArrowRight className="w-4 h-4" /></Button></Link>
-              <Link href="/auth/signup"><Button size="lg" variant="outline" className="clay-sm border-0 rounded-full gap-2">Get API Access <ArrowRight className="w-4 h-4" /></Button></Link>
+              <Link href={authUrl("signup", "/dashboard/developer")}><Button size="lg" variant="outline" className="clay-sm border-0 rounded-full gap-2">Get API Access <ArrowRight className="w-4 h-4" /></Button></Link>
             </div>
           </div>
         </div>
@@ -701,7 +715,7 @@ export default function HomeClient({
                 </li>
               ))}
             </ul>
-            <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Get Started <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href={authUrl("signup", "/dashboard/sms")}><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Get Started <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
           <div className="clay p-5 shadow-sm">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Delivery Report</p>
@@ -725,7 +739,7 @@ export default function HomeClient({
           <p className="text-muted-foreground text-sm sm:text-base mb-8">
             Register AFA / iShare numbers for your community — no queues, no paperwork, done right from your dashboard.
           </p>
-          <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Register Now <ArrowRight className="w-4 h-4" /></Button></Link>
+          <Link href={authUrl("signup", "/dashboard/afa-orders")}><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Register Now <ArrowRight className="w-4 h-4" /></Button></Link>
         </div>
       </section>
 
@@ -746,7 +760,7 @@ export default function HomeClient({
                     <p className="text-2xl font-black text-foreground mb-1">GHS {Number(plan.price).toFixed(2)}</p>
                     <p className="text-xs text-muted-foreground mb-3">{plan.duration_days} day{plan.duration_days === 1 ? "" : "s"} access</p>
                     {plan.description && <p className="text-sm text-muted-foreground mb-4">{plan.description}</p>}
-                    <Link href="/auth/signup"><Button variant="outline" className="clay-sm border-0 rounded-full w-full">Choose Plan</Button></Link>
+                    <Link href={authUrl("signup", "/dashboard/upgrade")}><Button variant="outline" className="clay-sm border-0 rounded-full w-full">Choose Plan</Button></Link>
                   </div>
                 ))}
               </div>
@@ -762,7 +776,7 @@ export default function HomeClient({
                 </div>
                 <div className="flex items-center gap-4 flex-shrink-0">
                   <p className="text-2xl font-black text-foreground">GHS {Number(dealerPlan.price).toFixed(2)}</p>
-                  <Link href="/auth/signup"><Button className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Become a Dealer <ArrowRight className="w-4 h-4" /></Button></Link>
+                  <Link href={authUrl("signup", "/dashboard/upgrade")}><Button className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">Become a Dealer <ArrowRight className="w-4 h-4" /></Button></Link>
                 </div>
               </div>
             )}
@@ -1015,7 +1029,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                   <Link key={l.href} href={l.href}><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">See all {l.label} packages <ArrowRight className="w-4 h-4" /></Button></Link>
                 ))
               ) : (
-                <Link href="/auth/signup"><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">See All Packages <ArrowRight className="w-4 h-4" /></Button></Link>
+                <Link href={authUrl("signup", "/dashboard/data-packages")}><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">See All Packages <ArrowRight className="w-4 h-4" /></Button></Link>
               )}
             </div>
           </div>
@@ -1055,7 +1069,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
             <div className="mb-4 grid h-12 w-12 place-items-center clay-icon bg-blue-100 text-blue-600"><FileCheck2 className="h-[22px] w-[22px]" /></div>
             <h3 className="mb-1.5 font-display font-bold text-foreground">Track Your Complaints</h3>
             <p className="text-sm text-muted-foreground mb-4">File a complaint and track it from start to resolution, right from your dashboard.</p>
-            <Link href="/auth/signup"><Button variant="outline" className="clay-sm border-0 rounded-full gap-2">Create Account <ArrowRight className="w-4 h-4" /></Button></Link>
+            <Link href={authUrl("signup", "/dashboard/complaints")}><Button variant="outline" className="clay-sm border-0 rounded-full gap-2">Create Account <ArrowRight className="w-4 h-4" /></Button></Link>
           </div>
         </div>
       </section>

@@ -14,6 +14,8 @@ import { resolveMainMenu, mainMenuText } from "./menus"
 import { cartItemNameFor, failOrderGuarded, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { addToCart, release, respond } from "./protocol"
 import { safeDbError } from "./log-safe"
+import { findWalletPaymentBySession, type WalletPayDeps } from "./wallet-pay"
+import { isMissingTable } from "@/lib/refunds/hubtel-wallet"
 import type { DeliveryChannel } from "@/lib/delivery-estimate/query"
 import type { HubtelFieldType, HubtelPlatform, HubtelReply, HubtelRequest, HubtelSession, HubtelStep } from "./types"
 
@@ -55,6 +57,16 @@ export interface RouterDeps {
    * Optional: without it the task is simply left to run detached.
    */
   defer?(task: () => Promise<unknown>): void
+  /**
+   * What a wallet payment needs (the order handlers and the URGENT alert), built per request when a caller pays from
+   * the wallet. Optional: without it the wallet is never offered, and every confirm goes to the checkout as before.
+   */
+  walletPayDeps?(): WalletPayDeps
+  /**
+   * Whether the account's phone is verified (users.phone_verified = true). The wallet is offered and paid only then.
+   * May throw on a read error. Optional: without it the wallet is never offered or paid (the caller goes to MoMo).
+   */
+  isPhoneVerified?(userId: string): Promise<boolean>
 }
 
 export interface FlowCtx {
@@ -118,25 +130,60 @@ export async function backToMain(ctx: FlowCtx): Promise<HubtelReply> {
   return mainMenuReply(ctx)
 }
 
+export const UNAVAILABLE_TEXT = "Service unavailable. Please try again later."
+
+/**
+ * The replay lookup's one tolerated error: hubtel_wallet_payments does not exist (42P01 / PGRST205, via the shared
+ * isMissingTable) or PostgREST's schema cache has not caught up (PGRST202 is accepted too, as asked for this lookup).
+ */
+function isWalletTableMissing(e: unknown): boolean {
+  const code = e != null && typeof e === "object" ? (e as { code?: unknown }).code : undefined
+  if (typeof code !== "string") return false
+  return isMissingTable({ code }) || code === "PGRST202"
+}
+
 /**
  * Idempotency guard shared by every CONFIRM and the no-session path. If this Hubtel session
  * already produced an order: replay the identical AddToCart while it awaits payment, else say it
- * was already submitted. Returns null when no order exists for the session.
+ * was already submitted. A session already paid from the wallet is "already submitted" and never
+ * carts; if that wallet lookup cannot be read, the session ends with the unavailable text (fail
+ * closed). The one exception: a missing hubtel_wallet_payments table (code deployed before migration
+ * 0159, or a PostgREST schema cache lagging after it) counts as no wallet payment, since none can
+ * exist without the table. Returns null when no order exists for the session.
+ * `mode`: the session's pinned mode when known. A shop session can never hold a wallet payment, so "shop" skips the
+ * wallet lookup (the shop line never depends on that table). Absent (the no-session path, main flows) = look it up.
  */
 export async function replaySubmittedOrder(
   deps: RouterDeps,
   sid: string,
-  platform: HubtelPlatform
+  platform: HubtelPlatform,
+  mode?: HubtelSession["mode"],
 ): Promise<HubtelReply | null> {
   const { data: tx } = await deps.supabase
     .from("hubtel_transactions")
     .select("order_table, order_id, expected_amount, state")
     .eq("session_id", sid)
     .maybeSingle()
-  if (!tx) return null
   const alreadySubmitted = async () => {
     await deps.sessions.del(sid)
     return release(sid, "This order was already submitted.", { platform })
+  }
+  if (!tx) {
+    if (mode === "shop") return null
+    // One order, one way to pay: a session the wallet already paid for must never reach Hubtel's checkout.
+    let walletPaid: boolean
+    try {
+      walletPaid = (await findWalletPaymentBySession(deps.supabase, sid)) !== null
+    } catch (e) {
+      if (isWalletTableMissing(e)) {
+        console.warn("[HUBTEL-REPLAY] hubtel_wallet_payments not found (migration 0159 not applied, or schema cache lag); no wallet payment:", sid)
+        return null
+      }
+      console.error("[HUBTEL-REPLAY] Wallet payment lookup failed; refusing to continue:", sid, e instanceof Error ? e.message : "error")
+      await deps.sessions.del(sid)
+      return release(sid, UNAVAILABLE_TEXT, { platform })
+    }
+    return walletPaid ? alreadySubmitted() : null
   }
   if (tx.state !== "awaiting_payment") return alreadySubmitted()
   if (!isHubtelOrderTable(tx.order_table)) {
@@ -185,6 +232,21 @@ export interface SubmitNewOrder { table: HubtelOrderTable; row: Record<string, u
  */
 export interface SubmitCreatedOrder { table: HubtelOrderTable; orderId: string; price: number; logTag: string; row?: never }
 
+export const ORDER_ERROR_TEXT = "Error creating order. Please try again."
+
+/**
+ * Insert the order row only: no hubtel_transactions row and no reply. Returns the new id, or null (logged) when the
+ * insert failed. submitOrder carts it; the wallet path pays it from the wallet.
+ */
+export async function createOrderRow(ctx: FlowCtx, args: SubmitNewOrder): Promise<{ id: string } | null> {
+  const { data: inserted, error: orderError } = await ctx.deps.supabase.from(args.table).insert([args.row]).select("id").single()
+  if (orderError || !inserted) {
+    console.error(`[${args.logTag}] Failed to create order:`, safeDbError(orderError))
+    return null
+  }
+  return inserted as { id: string }
+}
+
 /**
  * Inserts the order (unless `orderId` names an engine-created one) + its hubtel_transactions row and
  * answers with AddToCart at `price` (our price: Hubtel adds its own charge on top). Callers MUST have
@@ -211,11 +273,8 @@ export async function submitOrder(ctx: FlowCtx, args: SubmitNewOrder | SubmitCre
   if (created) {
     order = { id: args.orderId! }
   } else {
-    const { data: inserted, error: orderError } = await deps.supabase.from(args.table).insert([args.row]).select("id").single()
-    if (orderError || !inserted) {
-      console.error(`[${args.logTag}] Failed to create order:`, safeDbError(orderError))
-      return finish(ctx, "Error creating order. Please try again.")
-    }
+    const inserted = await createOrderRow(ctx, args)
+    if (!inserted) return finish(ctx, ORDER_ERROR_TEXT)
     order = inserted
   }
 

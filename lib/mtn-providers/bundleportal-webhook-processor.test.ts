@@ -30,6 +30,9 @@ const fakeDb = vi.hoisted(() => ({
   trackingRows: [] as Array<{
     id: string
     mtn_order_id: string | null
+    external_status?: string | null
+    updated_at?: string
+    provider?: string
     status: string
     order_type: string
     order_id: string | null
@@ -75,6 +78,12 @@ vi.mock("@supabase/supabase-js", () => ({
 
 vi.mock("@/lib/push-service", () => ({ sendPushToUser: vi.fn() }))
 
+const flagReversalMock = vi.hoisted(() => vi.fn(async () => ({ flagged: true, superseded: false })))
+vi.mock("@/lib/mtn-reversal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mtn-reversal")>()),
+  flagReversal: flagReversalMock,
+}))
+
 import { processWebhook } from "./bundleportal-webhook-processor"
 
 function seedTracking(overrides: Partial<(typeof fakeDb.trackingRows)[number]>) {
@@ -96,6 +105,7 @@ describe("processWebhook", () => {
   beforeEach(() => {
     fakeDb.trackingRows = []
     fakeDb.updates = []
+    flagReversalMock.mockClear()
   })
 
   it("looks up the tracking row directly by order_id (our own reference) and marks it completed", async () => {
@@ -144,14 +154,96 @@ describe("processWebhook", () => {
     expect(refunded.status).toBe("failed")
   })
 
-  it("re-delivering the SAME terminal status only stamps webhook_received_at, nothing else", async () => {
+  describe("late failure after a provider-confirmed completion", () => {
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60 * 1000).toISOString()
+    const confirmed = (ref: string, updatedHoursAgo = 2) =>
+      seedTracking({ mtn_order_id: ref, status: "completed", external_status: "completed", updated_at: hoursAgo(updatedHoursAgo), provider: "bundleportal" })
+
+    it("flags order.failed on a completed order as a reversal, passing the provider's reason", async () => {
+      const target = confirmed("late-1")
+
+      await processWebhook({ event: "order.failed", order_id: "late-1", status: "failed", failure_reason: "Delivery failed" })
+
+      expect(flagReversalMock).toHaveBeenCalledTimes(1)
+      const [, row, provider] = flagReversalMock.mock.calls[0] as unknown as [unknown, { id: string }, { status: string; message: string }]
+      expect(row.id).toBe(target.id)
+      expect(provider).toEqual({ status: "failed", message: "Delivery failed" })
+    })
+
+    it("flags order.refunded the same way, even when its status field is not 'failed'", async () => {
+      confirmed("late-2")
+
+      await processWebhook({ event: "order.refunded", order_id: "late-2", status: "refunded" })
+
+      expect(flagReversalMock).toHaveBeenCalledTimes(1)
+    })
+
+    it("treats order.failed as failed even when its status field says something else", async () => {
+      confirmed("late-7")
+
+      await processWebhook({ event: "order.failed", order_id: "late-7", status: "processing" })
+
+      expect(flagReversalMock).toHaveBeenCalledTimes(1)
+    })
+
+    it("does not also write the normal failed path, which would requeue the order", async () => {
+      const target = confirmed("late-3")
+
+      await processWebhook({ event: "order.failed", order_id: "late-3", status: "failed" })
+
+      expect(fakeDb.updates).toEqual([])
+      expect(target.status).toBe("completed")
+    })
+
+    it("does not flag a failure that arrives after the 72h window", async () => {
+      const target = confirmed("late-4", 73)
+
+      await processWebhook({ event: "order.failed", order_id: "late-4", status: "failed" })
+
+      expect(flagReversalMock).not.toHaveBeenCalled()
+      expect(target.status).toBe("completed")
+    })
+
+    it("does not flag a completion Bundle Portal never confirmed (admin-completed)", async () => {
+      const target = seedTracking({ mtn_order_id: "late-5", status: "completed", external_status: null, updated_at: hoursAgo(2), provider: "bundleportal" })
+
+      await processWebhook({ event: "order.failed", order_id: "late-5", status: "failed" })
+
+      expect(flagReversalMock).not.toHaveBeenCalled()
+      expect(target.status).toBe("completed")
+    })
+
+    it.each([
+      ["order.failed", "failed"],
+      ["order.completed", "completed"],
+    ])("leaves an already-reversed order alone when %s is delivered again", async (event, status) => {
+      const target = seedTracking({ mtn_order_id: "late-6", status: "reversed", external_status: "failed", updated_at: hoursAgo(1), provider: "bundleportal" })
+
+      await processWebhook({ event, order_id: "late-6", status })
+
+      expect(flagReversalMock).not.toHaveBeenCalled()
+      expect(fakeDb.updates).toEqual([])
+      expect(target.status).toBe("reversed")
+    })
+  })
+
+  it("writes nothing on a repeat order.completed, because any write restarts the 72h reversal window", async () => {
     const target = seedTracking({ mtn_order_id: "our-ref-6", status: "completed" })
 
     await processWebhook({ event: "order.completed", order_id: "our-ref-6", status: "completed" })
 
+    expect(fakeDb.updates).toEqual([])
+    expect(target.status).toBe("completed")
+  })
+
+  it("re-delivering failed only stamps webhook_received_at, nothing else", async () => {
+    const target = seedTracking({ mtn_order_id: "our-ref-8", status: "failed" })
+
+    await processWebhook({ event: "order.failed", order_id: "our-ref-8", status: "failed" })
+
     expect(fakeDb.updates).toHaveLength(1)
     expect(fakeDb.updates[0].id).toBe(target.id)
     expect(Object.keys(fakeDb.updates[0].payload)).toEqual(["webhook_received_at"])
-    expect(target.status).toBe("completed")
+    expect(target.status).toBe("failed")
   })
 })

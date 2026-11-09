@@ -29,12 +29,27 @@ interface Shop {
   owner_email?: string | null
   owner_phone?: string | null
   owner_name?: string | null
+  joined_via?: string | null
+  prices_set_at?: string | null
+  parent_shop_id?: string | null
+  parent_shop_name?: string | null
+}
+
+/** A storefront sub-agent that hasn't set prices yet: closed, opens by pricing, never by approval. */
+const isSettingUp = (shop: Shop) => shop.joined_via === "storefront" && !shop.prices_set_at && !shop.is_active
+
+function StatusBadge({ shop }: { shop: Shop }) {
+  if (shop.is_blocked) return <Badge className="bg-destructive">Blocked</Badge>
+  if (shop.is_active) return <Badge className="bg-success">Active</Badge>
+  if (isSettingUp(shop)) return <Badge variant="outline" className="border-primary text-primary">Setting up</Badge>
+  return <Badge className="bg-warning">Pending</Badge>
 }
 
 export default function AdminShopsPage() {
   const router = useRouter()
   const [allShops, setAllShops] = useState<Shop[]>([])
   const [pendingShops, setPendingShops] = useState<Shop[]>([])
+  const [joiners, setJoiners] = useState<Shop[]>([])
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null)
@@ -77,12 +92,14 @@ export default function AdminShopsPage() {
 
   const loadShops = async () => {
     try {
-      const [allData, pendingData] = await Promise.all([
+      const [allData, pendingData, joinerData] = await Promise.all([
         adminShopService.getAllShops(),
         adminShopService.getPendingShops(),
+        adminShopService.getStorefrontJoiners(),
       ])
       setAllShops(allData || [])
       setPendingShops(pendingData || [])
+      setJoiners(joinerData || [])
     } catch (error) {
       console.error("Error loading shops:", error)
       const errorMessage = error instanceof Error ? error.message : "Failed to load shops"
@@ -231,6 +248,12 @@ export default function AdminShopsPage() {
             >
               All Shops ({allShops.length})
             </TabsTrigger>
+            <TabsTrigger
+              value="joiners"
+              className="data-[state=active]:bg-card data-[state=active]:shadow-md transition-all"
+            >
+              Storefront Joiners ({joiners.length})
+            </TabsTrigger>
           </TabsList>
 
           {/* Pending Shops Tab */}
@@ -337,13 +360,7 @@ export default function AdminShopsPage() {
                           <td className="px-6 py-4 font-medium text-foreground">{shop.shop_name}</td>
                           <td className="px-6 py-4 text-sm text-muted-foreground"><code className="font-mono">{shop.shop_slug}</code></td>
                           <td className="px-6 py-4">
-                            {shop.is_blocked ? (
-                              <Badge className="bg-destructive">Blocked</Badge>
-                            ) : shop.is_active ? (
-                              <Badge className="bg-success">Active</Badge>
-                            ) : (
-                              <Badge className="bg-warning">Pending</Badge>
-                            )}
+                            <StatusBadge shop={shop} />
                           </td>
                           <td className="px-6 py-4 text-sm text-muted-foreground">{new Date(shop.created_at).toLocaleDateString()}</td>
                           <td className="px-6 py-4">
@@ -363,6 +380,55 @@ export default function AdminShopsPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Recent storefront joiners: they skip approval (the shop opens when they set prices), so review here */}
+          <TabsContent value="joiners" className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              People who joined a shop as a sub-agent from its storefront, newest first. Their shop opens when they set
+              prices, without approval. Open Details to block one.
+            </p>
+            {joiners.length === 0 ? (
+              <Card className="bg-card backdrop-blur-xl border border-border">
+                <CardContent className="pt-12 pb-12 text-center">
+                  <CheckCircle className="w-12 h-12 text-success mx-auto mb-4" />
+                  <p className="text-lg font-semibold text-foreground">No storefront joiners yet</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {joiners.map((shop) => (
+                  <Card key={shop.id} className="border-l-4 border-l-primary/40 bg-card backdrop-blur-xl border border-border hover:shadow-lg transition-all">
+                    <CardContent className="pt-6">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <h3 className="text-lg font-bold text-foreground break-words">{shop.shop_name}</h3>
+                            <StatusBadge shop={shop} />
+                          </div>
+                          <div className="space-y-1 text-xs text-muted-foreground">
+                            <div>Parent shop: <span className="font-medium text-foreground">{shop.parent_shop_name || "None"}</span></div>
+                            <div>Joined: {new Date(shop.created_at).toLocaleString()}</div>
+                            {shop.prices_set_at && <div>Opened: {new Date(shop.prices_set_at).toLocaleString()}</div>}
+                            <div>Slug: <code className="font-mono">{shop.shop_slug}</code></div>
+                            {shop.owner_name && <div>Owner: <span className="font-medium text-foreground">{shop.owner_name}</span></div>}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => handleViewDetails(shop)}
+                          variant="outline"
+                          className="text-primary hover:text-primary hover:bg-primary/5 shrink-0"
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          Details
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
         </Tabs>
 
@@ -400,13 +466,7 @@ export default function AdminShopsPage() {
                     </div>
                     <div>
                       <p className="text-muted-foreground">Status</p>
-                      {shopDetails.shop.is_blocked ? (
-                        <Badge className="bg-destructive">Blocked</Badge>
-                      ) : shopDetails.shop.is_active ? (
-                        <Badge className="bg-success">Active</Badge>
-                      ) : (
-                        <Badge className="bg-warning">Pending</Badge>
-                      )}
+                      <StatusBadge shop={{ ...selectedShop!, ...shopDetails.shop }} />
                     </div>
                     <div>
                       <p className="text-muted-foreground">Created</p>
@@ -512,8 +572,8 @@ export default function AdminShopsPage() {
                   </div>
                 </div>
 
-                {/* Block / Unblock — only for active shops */}
-                {selectedShop?.is_active && (
+                {/* Block / Unblock — active shops, and any storefront joiner (they skip approval) */}
+                {(selectedShop?.is_active || selectedShop?.joined_via === "storefront") && (
                   <div className="p-4 rounded-xl bg-card border border-white/60 dark:border-white/5  space-y-3 clay">
                     <h3 className="text-sm font-bold text-destructive flex items-center gap-2">
                       <ShieldOff className="w-3.5 h-3.5 text-destructive" />
@@ -556,8 +616,14 @@ export default function AdminShopsPage() {
                   </div>
                 )}
 
+                {selectedShop && isSettingUp(selectedShop) && (
+                  <p className="text-sm text-muted-foreground border-t pt-4">
+                    This storefront sub-agent hasn&apos;t set prices yet. The shop opens when they do; it doesn&apos;t need approval.
+                  </p>
+                )}
+
                 {/* Actions */}
-                {!selectedShop?.is_active && (
+                {selectedShop && !selectedShop.is_active && !isSettingUp(selectedShop) && (
                   <div className="flex flex-col sm:flex-row gap-2 border-t pt-4">
                     <Button
                       onClick={() => handleApprove(selectedShop!.id)}

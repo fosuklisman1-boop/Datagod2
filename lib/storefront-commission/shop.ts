@@ -12,6 +12,19 @@ import { storefrontAirtimeOn } from "@/lib/cashback/storefront-airtime"
 export const storefrontGroupOn = (cfg: CashbackConfig, group: CashbackGroup): boolean =>
   cfg.enabled === true && cfg.surfaces?.storefront === true && cfg.storefrontGroups?.[group] === true
 
+/** The config to quote from when the gateway waives the payment fee (see storefrontPaymentFeeWaived). Airtime keeps its own. */
+export const withoutPaymentFee = (cfg: CashbackConfig): CashbackConfig =>
+  ({ ...cfg, paymentFee: { ...cfg.paymentFee, bills: 0, bundles: 0 } })
+
+/** A failed check counts as not waived: today's price, and payment time still puts the order right. */
+export async function paymentFeeIsWaived(d: { paymentFeeWaived?: () => Promise<boolean> }): Promise<boolean> {
+  try {
+    return (await d.paymentFeeWaived?.()) === true
+  } catch {
+    return false
+  }
+}
+
 export type Fail = { ok: false; status: number; error: string }
 export const fail = (status: number, error: string): Fail => ({ ok: false, status, error })
 /** Deliberately vague: a public endpoint never says which switch is off. */
@@ -60,6 +73,8 @@ export interface AvailabilityDeps {
   /** Phase 2b master + per-network switches + Hubtel enabled + service on (never throws). */
   getBundlesAvailability(): Promise<BundlesAvailability>
   getHubtelConfig(): Promise<{ enabled: boolean; paused: boolean; services: Record<string, boolean> }>
+  /** The terms the page prices from must match what the order will charge. Absent or failing: not waived. */
+  paymentFeeWaived?(): Promise<boolean>
 }
 
 /** A probe face for the terms: eligibility does not depend on face (rate <= 20 %, shares <= 100 %). */
@@ -90,10 +105,11 @@ export async function loadAvailability(d: AvailabilityDeps): Promise<StorefrontA
 
   if (storefrontGroupOn(cfg, "bills")) {
     const b = await d.getBillsAvailability()
+    const termsCfg = (await paymentFeeIsWaived(d)) ? withoutPaymentFee(cfg) : cfg
     const billers = b.enabled
       ? b.billers
           .filter(x => hubtel.services?.[BILLERS[x.key].serviceKey] === true)
-          .map(x => ({ ...x, terms: billerTerms(x.key, cfg) }))
+          .map(x => ({ ...x, terms: billerTerms(x.key, termsCfg) }))
       : []
     out.bills = { enabled: billers.length > 0, billers }
   }

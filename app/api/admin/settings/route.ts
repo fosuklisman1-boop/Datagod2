@@ -178,6 +178,7 @@ export async function PUT(request: NextRequest) {
       'ussd_shop_activation_fee',
       'whatsapp_shop_activation_fee',
       'storefront_show_ussd_card',
+      'sub_agent_open_join_enabled',
     ]
 
     // Auto-stamp terms_last_updated when any terms section changes
@@ -253,6 +254,13 @@ export async function PUT(request: NextRequest) {
           { status: 400 }
         )
       }
+    }
+
+    if (updates.sub_agent_open_join_enabled !== undefined && typeof updates.sub_agent_open_join_enabled !== "boolean") {
+      return NextResponse.json(
+        { error: "sub_agent_open_join_enabled must be true or false" },
+        { status: 400 }
+      )
     }
 
     // Validate signup_default_role if present
@@ -389,8 +397,15 @@ export async function PUT(request: NextRequest) {
       result = data
     }
 
-    // The public /ussd page and /llms.txt show the shop dial code (lib/seo/live-facts.ts).
-    if (body.ussd_shop_dial_code !== undefined) revalidateTag("seo-live-facts")
+    // The public /ussd page and /llms.txt show the shop dial code, and the public price pages
+    // show the per-network price adjustments (lib/seo/live-facts.ts).
+    if (
+      body.ussd_shop_dial_code !== undefined ||
+      body.price_adjustment_mtn !== undefined ||
+      body.price_adjustment_telecel !== undefined ||
+      body.price_adjustment_at_ishare !== undefined ||
+      body.price_adjustment_at_bigtime !== undefined
+    ) revalidateTag("seo-live-facts")
 
     return NextResponse.json({
       success: true,

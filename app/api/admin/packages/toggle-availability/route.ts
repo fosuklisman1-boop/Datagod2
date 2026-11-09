@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { revalidateTag } from "next/cache"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabase = createClient(
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    revalidateTag("seo-live-facts")
     return NextResponse.json({
       success: true,
       package: data,

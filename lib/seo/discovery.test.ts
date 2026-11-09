@@ -3,14 +3,16 @@ import { buildSitemapEntries, buildLlmsTxt, STATIC_PAGE_UPDATED } from "./discov
 import { buildLiveFacts, FAILED_RAW, type LiveFacts, type RawFacts } from "./live-facts"
 import { getProduct, REFUND_LINE, SPEED_LINE } from "./products"
 import { getLanding } from "./landing-pages"
+import type { Guide } from "./guides"
 
 function facts(over: Partial<RawFacts> = {}): LiveFacts {
   return buildLiveFacts({
     ...FAILED_RAW,
+    priceAdjustments: { price_adjustment_mtn: 0, price_adjustment_telecel: 0, price_adjustment_at_ishare: 0, price_adjustment_at_bigtime: 0 },
     packages: [
-      { network: "MTN", price: 3.5, is_available: true },
-      { network: "Telecel", price: 5, is_available: true },
-      { network: "AT-iShare", price: 4, is_available: true },
+      { network: "MTN", size: "1GB", price: 3.5, is_available: true },
+      { network: "Telecel", size: "1GB", price: 5, is_available: true },
+      { network: "AT - iShare", size: "1GB", price: 4, is_available: true },
     ],
     airtimeEnabled: { MTN: true, Telecel: true, AT: true },
     airtimeMin: 1,
@@ -49,6 +51,13 @@ describe("buildSitemapEntries", () => {
     expect(urls).toContain("https://www.datagod.store/ai")
   })
 
+  it("includes /cheapest-data-ghana only when some network has prices", () => {
+    const on = buildSitemapEntries(facts()).map((e) => e.url)
+    const off = buildSitemapEntries(facts({ packages: [] })).map((e) => e.url)
+    expect(on).toContain("https://www.datagod.store/cheapest-data-ghana")
+    expect(off).not.toContain("https://www.datagod.store/cheapest-data-ghana")
+  })
+
   it("gates /developers on availability", () => {
     const off = buildSitemapEntries(facts()).map((e) => e.url)
     const on = buildSitemapEntries(facts({ apiV2Enabled: true })).map((e) => e.url)
@@ -84,16 +93,15 @@ describe("landing pages in the sitemap and llms.txt", () => {
 
   it("lists live landing pages with their registry lastmod and leaves off / failed ones out", () => {
     const byUrl = new Map(buildSitemapEntries(withRows()).map((e) => [e.url, e]))
-    const prices = getLanding("data-bundle-prices")
-    expect(byUrl.get("https://www.datagod.store/data-bundle-prices")).toMatchObject({ lastModified: prices.updated, priority: prices.priority })
-    expect(byUrl.has("https://www.datagod.store/at-bigtime-data")).toBe(true)
+    const bigtime = getLanding("at-bigtime-data")
+    expect(byUrl.get("https://www.datagod.store/at-bigtime-data")).toMatchObject({ lastModified: bigtime.updated, priority: bigtime.priority })
     expect(byUrl.has("https://www.datagod.store/non-expiry-data-bundles")).toBe(true)
     expect(byUrl.has("https://www.datagod.store/become-a-data-reseller")).toBe(true)
     // no iShare rows -> off -> not in the sitemap
     expect(byUrl.has("https://www.datagod.store/at-ishare-data")).toBe(false)
 
     const failed = buildSitemapEntries(buildLiveFacts(FAILED_RAW, ["packages"])).map((e) => e.url)
-    for (const path of ["/data-bundle-prices", "/non-expiry-data-bundles", "/at-ishare-data", "/at-bigtime-data"]) {
+    for (const path of ["/non-expiry-data-bundles", "/at-ishare-data", "/at-bigtime-data"]) {
       expect(failed).not.toContain(`https://www.datagod.store${path}`)
     }
     expect(failed).toContain("https://www.datagod.store/become-a-data-reseller")
@@ -102,7 +110,8 @@ describe("landing pages in the sitemap and llms.txt", () => {
   it("adds a guides section to llms.txt with the live landing pages only", () => {
     const t = buildLlmsTxt(withRows())
     expect(t).toContain("## Guides and price lists")
-    expect(t).toContain("[Data Bundle Prices](https://www.datagod.store/data-bundle-prices): ")
+    expect(t).toContain("[AT BigTime Data Bundles](https://www.datagod.store/at-bigtime-data): ")
+    expect(t).not.toContain("/data-bundle-prices")
     expect(t).toContain("(https://www.datagod.store/at-bigtime-data)")
     expect(t).not.toContain("/at-ishare-data")
     expect(t).not.toContain("..")
@@ -120,6 +129,11 @@ describe("buildLlmsTxt", () => {
     expect(t).not.toContain("..")
     expect(t.endsWith("\n")).toBe(true)
     expect(t.endsWith("\n\n")).toBe(false)
+  })
+
+  it("lists the comparison page only when available", () => {
+    expect(buildLlmsTxt(facts())).toContain("(https://www.datagod.store/cheapest-data-ghana)")
+    expect(buildLlmsTxt(facts({ packages: [] }))).not.toContain("cheapest-data-ghana")
   })
 
   it("omits USSD when there is no main code and shows it when set", () => {
@@ -143,5 +157,53 @@ describe("buildLlmsTxt", () => {
 
   it("never says instant", () => {
     expect(buildLlmsTxt(facts({ apiV2Enabled: true, ussd: { main: "*920#", shop: null } })).toLowerCase()).not.toContain("instant")
+  })
+})
+
+describe("guides in discovery", () => {
+  const guide = (slug: string, published: boolean): Guide => ({
+    slug,
+    title: "T | DATAGOD",
+    description: "d",
+    h1: "H",
+    published,
+    sections: [],
+    faqs: [],
+    related: [],
+    updated: "2026-10-28",
+  })
+
+  it("lists the hub and published guides in the sitemap", () => {
+    const urls = buildSitemapEntries(facts(), [guide("a-guide", true), guide("hidden", false)].filter((g) => g.published)).map((e) => e.url)
+    expect(urls).toContain("https://www.datagod.store/guides")
+    expect(urls).toContain("https://www.datagod.store/guides/a-guide")
+    expect(urls).not.toContain("https://www.datagod.store/guides/hidden")
+  })
+
+  it("dates guides by their own `updated`, and the hub by the newest guide", () => {
+    const byUrl = new Map(buildSitemapEntries(facts(), [guide("a", true), { ...guide("b", true), updated: "2026-11-02" }]).map((e) => [e.url, e.lastModified]))
+    expect(byUrl.get("https://www.datagod.store/guides/a")).toBe("2026-10-28")
+    expect(byUrl.get("https://www.datagod.store/guides")).toBe("2026-11-02")
+  })
+
+  it("omits the hub when no guide is published", () => {
+    const urls = buildSitemapEntries(facts(), []).map((e) => e.url)
+    expect(urls.some((u) => u.includes("/guides"))).toBe(false)
+  })
+
+  it("defaults to the real published guides", () => {
+    const urls = buildSitemapEntries(facts()).map((e) => e.url)
+    expect(urls).toContain("https://www.datagod.store/guides/buy-data-with-momo")
+    expect(urls).not.toContain("https://www.datagod.store/guides/check-data-balance")
+  })
+
+  it("lists guides in llms.txt only when published", () => {
+    const t = buildLlmsTxt(facts(), [guide("a-guide", true)])
+    expect(t).toContain("## Guides and price lists")
+    expect(t).toContain("https://www.datagod.store/guides/a-guide")
+    // one section for landing pages and guides, never a second "## Guides"
+    expect(t.match(/^## Guides/gm)).toHaveLength(1)
+    expect(buildLlmsTxt(facts(), [])).not.toContain("/guides/")
+    expect(buildLlmsTxt(facts())).not.toContain("check-data-balance")
   })
 })

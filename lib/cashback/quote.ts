@@ -46,6 +46,10 @@ export interface StorefrontQuote extends CashbackQuote {
   feeRate: number
 }
 
+/** The payment fee on a base amount, rounded UP to the pesewa. */
+export const paymentFeePesewas = (basePesewas: number, feeRate: number): number =>
+  feeRate > 0 ? Math.ceil((basePesewas * feeRate) / 100 - 1e-9) : 0
+
 /**
  * Shared fee step: quote the cashback split, then add the payment fee on the base, rounded UP to the pesewa.
  * `feeRate` is null when the surface/group gate is off (not applied, no fee).
@@ -57,7 +61,7 @@ function quoteWithFee(qi: QuoteInput, feeRate: number | null, cfg: CashbackConfi
   }
   const q = quoteCashback(qi, cfg)
   const basePesewas = toPesewas(q.payAmount)
-  const feePesewas = feeRate > 0 ? Math.ceil((basePesewas * feeRate) / 100 - 1e-9) : 0
+  const feePesewas = paymentFeePesewas(basePesewas, feeRate)
   return { ...q, base: q.payAmount, paymentFee: fromPesewas(feePesewas), feeRate, payAmount: fromPesewas(basePesewas + feePesewas) }
 }
 

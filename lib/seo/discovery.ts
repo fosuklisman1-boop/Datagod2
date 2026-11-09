@@ -8,6 +8,7 @@ import { absoluteUrl } from "./site"
 import { PRODUCTS, getProduct, REFUND_LINE, SPEED_LINE, type ProductEntry } from "./products"
 import { formatCedis, type LiveFacts } from "./live-facts"
 import { availableLandings } from "./landing-pages"
+import { publishedGuides, type Guide } from "./guides"
 
 type Entry = MetadataRoute.Sitemap[number]
 
@@ -31,7 +32,7 @@ export const STATIC_PAGE_UPDATED: Record<string, string> = {
  * customers: no content to rank, and the server HTML is an empty shell).
  * /ai stays: it is server-rendered with its own copy and canonical.
  */
-export function buildSitemapEntries(facts: LiveFacts): MetadataRoute.Sitemap {
+export function buildSitemapEntries(facts: LiveFacts, guides: readonly Guide[] = publishedGuides()): MetadataRoute.Sitemap {
   const entry = (path: string, updated: string, priority: number, changeFrequency: Entry["changeFrequency"]): Entry => ({
     url: absoluteUrl(path),
     lastModified: updated,
@@ -47,6 +48,13 @@ export function buildSitemapEntries(facts: LiveFacts): MetadataRoute.Sitemap {
     ...PRODUCTS.filter((p) => isAvailable(facts, p)).map((p) => entry(p.path, p.updated, p.priority, "weekly")),
     // Landing pages (lib/seo/landing-pages.ts): only "ok" ones, never an off or failed one.
     ...availableLandings(facts).map((e) => entry(e.path, e.updated, e.priority, "weekly")),
+    // Guides (lib/seo/guides.ts): each at its own `updated`; the hub at the newest of them.
+    ...(guides.length > 0
+      ? [
+          entry("/guides", guides.map((g) => g.updated).sort().at(-1) as string, 0.6, "weekly"),
+          ...guides.map((g) => entry(`/guides/${g.slug}`, g.updated, 0.6, "monthly")),
+        ]
+      : []),
     page("/ai", 0.6, "monthly"),
     page("/terms", 0.3, "yearly"),
     page("/privacy", 0.3, "yearly"),
@@ -62,7 +70,7 @@ function productLine(p: ProductEntry, facts: LiveFacts): string {
   return `- [${p.name}](${absoluteUrl(p.path)}): ${summary}.${price ? ` From ${price}.` : ""}`
 }
 
-export function buildLlmsTxt(facts: LiveFacts): string {
+export function buildLlmsTxt(facts: LiveFacts, guides: readonly Guide[] = publishedGuides()): string {
   const lines: string[] = ["# DATAGOD", "", `> ${SUMMARY_LINE}`, ""]
 
   // Products: everything customers buy. Business tools and channels have their own sections.
@@ -71,13 +79,14 @@ export function buildLlmsTxt(facts: LiveFacts): string {
   )
   lines.push("## Products", "", ...products.map((p) => productLine(p, facts)), "")
 
-  // Guides and price lists (landing pages that are live right now)
-  const guides = availableLandings(facts)
-  if (guides.length > 0) {
+  // Guides and price lists: the landing pages that are live right now, then the published guides.
+  const landings = availableLandings(facts)
+  if (landings.length > 0 || guides.length > 0) {
     lines.push(
       "## Guides and price lists",
       "",
-      ...guides.map((e) => `- [${e.name}](${absoluteUrl(e.path)}): ${e.description.trim().replace(/\.+$/, "")}.`),
+      ...landings.map((e) => `- [${e.name}](${absoluteUrl(e.path)}): ${e.description.trim().replace(/\.+$/, "")}.`),
+      ...guides.map((g) => `- [${g.h1}](${absoluteUrl(`/guides/${g.slug}`)}): ${g.description}`),
       "",
     )
   }

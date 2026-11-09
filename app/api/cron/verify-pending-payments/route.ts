@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { getInternalBaseUrl } from "@/lib/internal-url"
+import { findHubtelPayments, isHubtelWalletPayment, isLiveHubtelStatus } from "@/lib/hubtel-pay/lookup"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -17,19 +18,19 @@ const PENDING_THRESHOLD_MINUTES = 10
  * Batch-fetch the most recent WALLET- reference from wallet_payments for each order.
  * shop_orders.reference_code (ORD-...) is an internal reference Paystack never sees.
  */
-async function getWalletReferences(orderIds: string[]): Promise<Record<string, string>> {
+async function getWalletReferences(orderIds: string[]): Promise<Record<string, { reference: string; payment_method: string | null }>> {
   if (orderIds.length === 0) return {}
 
   const { data } = await supabase
     .from("wallet_payments")
-    .select("order_id, reference, created_at")
+    .select("order_id, reference, payment_method, created_at")
     .in("order_id", orderIds)
     .order("created_at", { ascending: false })
 
-  const map: Record<string, string> = {}
+  const map: Record<string, { reference: string; payment_method: string | null }> = {}
   for (const wp of data || []) {
     if (wp.order_id && !map[wp.order_id]) {
-      map[wp.order_id] = wp.reference
+      map[wp.order_id] = { reference: wp.reference, payment_method: wp.payment_method ?? null }
     }
   }
   return map
@@ -187,6 +188,19 @@ export async function GET(request: NextRequest) {
     // Resolve WALLET- references — shop_orders.reference_code (ORD-...) is not known to Paystack
     const walletRefMap = await getWalletReferences(pendingOrders.map((o) => o.id))
 
+    // Hubtel payments: Paystack never saw these references and would answer 404 ("abandoned"). The Hubtel sweep
+    // settles them. One lookup for the batch; if it fails, change nothing this run.
+    let hubtelRows: Awaited<ReturnType<typeof findHubtelPayments>>
+    try {
+      hubtelRows = await findHubtelPayments(supabase, [
+        ...Object.values(walletRefMap).map((w) => w.reference),
+        ...pendingOrders.map((o) => o.id),
+      ])
+    } catch (e) {
+      console.error("[VERIFY-PAYMENT] Hubtel payment lookup failed; nothing changed this run:", e instanceof Error ? e.message : e)
+      return NextResponse.json({ error: "Failed to check Hubtel payments" }, { status: 500 })
+    }
+
     let verified = 0
     let failed = 0
     let stillPending = 0
@@ -200,7 +214,15 @@ export async function GET(request: NextRequest) {
     }> = []
 
     for (const order of pendingOrders) {
-      const walletReference = walletRefMap[order.id]
+      const wallet = walletRefMap[order.id]
+      const walletReference = wallet?.reference
+
+      const hubtelRow = (walletReference ? hubtelRows.get(walletReference) : undefined) ?? hubtelRows.get(order.id)
+      if ((wallet && isHubtelWalletPayment(wallet, hubtelRow)) || isLiveHubtelStatus(hubtelRow?.status)) {
+        results.push({ id: order.id, reference: walletReference ?? order.reference_code, paystack_status: "skipped", action: "hubtel_payment" })
+        stillPending++
+        continue
+      }
 
       if (!walletReference) {
         console.log(`[VERIFY-PAYMENT] ⏭️ Order ${order.id} has no wallet_payments record, skipping`)

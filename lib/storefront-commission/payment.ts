@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto"
+import { paymentFeePesewas, toPesewas } from "@/lib/cashback/quote"
 
 /**
  * Paystack wiring for storefront bill / bundle orders. The order types are internal codes: nothing Paystack shows or
@@ -15,6 +16,28 @@ export const STOREFRONT_ORDER_TABLE: Record<StorefrontOrderType, StorefrontOrder
 
 export function isStorefrontOrderType(t: unknown): t is StorefrontOrderType {
   return typeof t === "string" && (STOREFRONT_ORDER_TYPES as readonly string[]).includes(t)
+}
+
+/** A commission order's price: `paid` is paid_amount, `fee` is payment_fee_amount. */
+export interface CommissionPrice {
+  paid: number
+  /** NULL means priced with no fee because the gateway config waived it. 0 means the fee rate itself was 0. */
+  fee: number | null | undefined
+}
+
+/**
+ * The new price when an order priced for one gateway is about to be charged on another, or null to leave it alone.
+ * Going fee-free takes the recorded fee out. Going to a customer-paid fee adds it only when the order says it was
+ * waived (NULL): a recorded fee, or a recorded 0, is what the customer was quoted, so it is never recomputed.
+ */
+export function commissionPriceChange(price: CommissionPrice, target: { feeless: boolean; feeRate?: number }): { paid: number; fee: number | null } | null {
+  const paidPesewas = toPesewas(price.paid)
+  if (target.feeless) {
+    return typeof price.fee === "number" && price.fee > 0 ? { paid: (paidPesewas - toPesewas(price.fee)) / 100, fee: null } : null
+  }
+  if (price.fee !== null) return null
+  const feePesewas = paymentFeePesewas(paidPesewas, target.feeRate ?? 0)
+  return feePesewas > 0 ? { paid: (paidPesewas + feePesewas) / 100, fee: feePesewas / 100 } : null
 }
 
 /** Opaque Paystack reference: 32 hex characters, never the order's BILL-/SB- reference code. */

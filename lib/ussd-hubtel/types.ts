@@ -27,7 +27,7 @@ export interface HubtelReply {
 }
 
 export type HubtelStep =
-  | "MAIN" | "SELECT_NETWORK" | "SELECT_BUNDLE" | "ENTER_RECIPIENT" | "CONFIRM"
+  | "MAIN" | "INTERNET_MENU" | "SELECT_NETWORK" | "SELECT_BUNDLE" | "ENTER_RECIPIENT" | "CONFIRM"
   | "AIRTIME_ENTER_RECIPIENT" | "AIRTIME_SELECT_NETWORK" | "AIRTIME_ENTER_AMOUNT" | "AIRTIME_CONFIRM"
   | "RC_MENU" | "RC_SELECT_BOARD" | "RC_ENTER_QTY" | "RC_CONFIRM" | "RC_MY_VOUCHERS" | "RC_VOUCHER_DETAIL"
   | "RC_CHECK_BOARD" | "RC_CHECK_CANDIDATE_TYPE" | "RC_CHECK_MODE" | "RC_CHECK_VOUCHER" | "RC_CHECK_INDEX"
@@ -39,6 +39,10 @@ export type HubtelStep =
   | "SHOP_RC_SELECT_BOARD" | "SHOP_RC_ENTER_QTY" | "SHOP_RC_CONFIRM"
   | "NP_NETWORK" | "NP_CATEGORY" | "NP_PLAN" | "NP_RECIPIENT" | "NP_CONFIRM"
   | "PB_BILLER" | "PB_ECG_MODE" | "PB_ACCOUNT" | "PB_METER_TYPE" | "PB_METERS" | "PB_CONSENT" | "PB_AMOUNT" | "PB_CONFIRM"
+  | "PAY_CHOICE"
+
+/** Which service's checks a PAY_CHOICE screen re-runs (main mode only). */
+export type PayKind = "data" | "airtime" | "rc" | "rc_check"
 
 /** One Network Plans plan as kept in the session: signed catalog token, display, face (Hubtel price), pay (our price). */
 export interface NpPlan { t: string; d: string; f: number; p: number }
@@ -118,6 +122,7 @@ export interface HubtelSession {
   npPage?: number
   npPlans?: NpPlan[] // the plans on the current page (at most 5)
   npPlan?: NpPlan // the chosen plan
+  npSpecial?: boolean // the plan list / confirm is the Special Bundles line (MTN), not a Hubtel category
   npOtherNumber?: boolean // NP_RECIPIENT is waiting for a typed number
   npRecipient?: string // local 0XXXXXXXXX
   // Pay Bills (Commission Cashback bots; Utility Bills). Ghana Water is never offered here.
@@ -138,6 +143,10 @@ export interface HubtelSession {
   pbDue?: number | null
   pbFace?: number // what the biller receives
   pbPay?: number // what the caller pays (engine quote)
+  // Wallet or MoMo choice (PAY_CHOICE, main mode only)
+  payKind?: PayKind // whose prepare the screen re-runs on 1 and 2
+  payBalance?: number // the balance shown, for repaints only (never used to decide a payment)
+  payWalletDeclined?: boolean // the wallet refused for balance: only 2. MoMo and 0. Cancel remain
 }
 
 export type HubtelTxState = "awaiting_payment" | "processing" | "fulfilled" | "needs_review" | "failed"

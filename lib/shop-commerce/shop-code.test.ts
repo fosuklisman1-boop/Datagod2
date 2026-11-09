@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { resolveShopCode, getCanonicalShopName } from "./shop-code"
 
 // Fake Supabase client injected directly into resolveShopCode (no @supabase/supabase-js
@@ -46,6 +46,27 @@ describe("resolveShopCode", () => {
       user_shops: { data: { shop_name: "Pending Shop", parent_shop_id: null, is_active: false, is_blocked: false } },
     })
     expect((await resolveShopCode("P1", client))?.status).toBe("inactive")
+  })
+  // Final review: a failed user_shops read must fail closed, not fall back to the code's own (active) status.
+  it("fails closed as inactive when the user_shops read errors", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const client = fakeClient({
+      ussd_shop_codes: { data: { id: "sc10", shop_id: "s10", status: "active", token_balance: 0, whatsapp_activated: true } },
+      user_shops: { data: null, error: { message: "connection reset" } },
+    })
+    const result = await resolveShopCode("E1", client)
+    expect(result?.status).toBe("inactive")
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+  it("fails closed as inactive when the shop row is missing", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const client = fakeClient({
+      ussd_shop_codes: { data: { id: "sc11", shop_id: "s11", status: "active", token_balance: 0, whatsapp_activated: true } },
+      user_shops: { data: null },
+    })
+    expect((await resolveShopCode("E2", client))?.status).toBe("inactive")
+    errSpy.mockRestore()
   })
   it("an approved, unblocked shop keeps the code's own status", async () => {
     const client = fakeClient({

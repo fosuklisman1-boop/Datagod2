@@ -42,11 +42,26 @@ export async function resolveShopCode(
   if (error) console.error("resolveShopCode: ussd_shop_codes query failed", error)
   if (!shopCode) return null
 
-  const { data: shopRow } = await client
+  const { data: shopRow, error: shopError } = await client
     .from("user_shops")
     .select("shop_name, parent_shop_id, ussd_display_name, is_active, is_blocked")
     .eq("id", shopCode.shop_id)
     .single()
+
+  // Fail closed: this resolver is the only gate on Uzo USSD, Hubtel USSD and the WhatsApp shop bot, so a
+  // failed or empty shop read must never fall back to the code's own (usually active) status.
+  if (shopError || !shopRow) {
+    console.error("resolveShopCode: user_shops read failed", { code: (shopError as any)?.code, message: (shopError as any)?.message })
+    return {
+      shopCodeId: shopCode.id,
+      shopId: shopCode.shop_id,
+      shopName: 'Shop',
+      parentShopId: null,
+      status: "inactive",
+      tokenBalance: shopCode.token_balance,
+      whatsappActivated: shopCode.whatsapp_activated === true,
+    }
+  }
 
   return {
     shopCodeId: shopCode.id,

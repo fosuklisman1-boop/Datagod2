@@ -26,6 +26,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   agentportalgh: "AgentPortalGH",
   apexprime: "Apex Prime",
   bundleportal: "Bundle Portal",
+  kuntanii: "Kuntanii",
 }
 
 interface Progress {

@@ -13,7 +13,7 @@
 import type { BillerKey } from "@/lib/bills/billers"
 
 export type ProductKey =
-  | "mtn-data" | "telecel-data" | "at-data" | "airtime" | "afa-registration"
+  | "mtn-data" | "telecel-data" | "at-data" | "cheapest-data" | "airtime" | "afa-registration"
   | "utility-bills" | "ecg-prepaid" | "ghana-water" | "pay-dstv" | "pay-gotv" | "startimes" | "telecel-broadband"
   | "results-checker" | "bulk-sms" | "join" | "ussd" | "whatsapp" | "developers"
 
@@ -57,15 +57,15 @@ export const SPEED_LINE = "Usually delivered within minutes."
 
 export const PAY_LINE = "Fund your DATAGOD wallet with Mobile Money (MoMo) or card through Paystack, then pay from your wallet."
 
-const refundFaq = (question = "What happens if my order fails?", extra = ""): Faq => ({
+export const refundFaq = (question = "What happens if my order fails?", extra = ""): Faq => ({
   question,
   answer: `${REFUND_LINE}${extra ? ` ${extra}` : ""}`,
 })
-const speedFaq = (question: string, extra = ""): Faq => ({
+export const speedFaq = (question: string, extra = ""): Faq => ({
   question,
   answer: `${SPEED_LINE}${extra ? ` ${extra}` : ""}`,
 })
-const payFaq = (question = "How do I pay?", extra = ""): Faq => ({
+export const payFaq = (question = "How do I pay?", extra = ""): Faq => ({
   question,
   answer: `${PAY_LINE}${extra ? ` ${extra}` : ""}`,
 })
@@ -153,8 +153,8 @@ export const PRODUCTS: readonly ProductEntry[] = [
   dataEntry("mtn-data", "MTN", {
     name: "MTN Data Bundles",
     h1: "Buy MTN data bundles in Ghana",
-    title: "Buy MTN Data Bundles Online in Ghana | DATAGOD",
-    description: "Buy cheap MTN data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD. Usually delivered within minutes.",
+    title: "MTN Data Prices Today - Cheap MTN Data in Ghana | DATAGOD",
+    description: "See today's MTN data bundle prices in Ghana and buy cheap MTN data from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD.",
     summary: "Buy MTN data bundles for yourself or anyone in Ghana. Pick a bundle, enter the MTN number, pay from your wallet (funded with MoMo or card), and the data is sent to that number.",
     extraBullet: "Works on MTN numbers starting 024, 025, 053, 054, 055 and 059",
     extraFaqs: [
@@ -163,13 +163,13 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Yes. Enter any MTN number when you order and the bundle goes to that number. Double-check the number first, because data sent to a wrong number cannot be taken back.",
       },
     ],
-    related: ["telecel-data", "at-data", "airtime", "afa-registration", "join"],
+    related: ["telecel-data", "at-data", "cheapest-data", "airtime", "afa-registration", "join"],
   }),
   dataEntry("telecel-data", "Telecel", {
     name: "Telecel Data Bundles",
     h1: "Buy Telecel data bundles in Ghana",
-    title: "Buy Telecel Data Bundles Online in Ghana | DATAGOD",
-    description: "Buy cheap Telecel data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD. Usually delivered within minutes.",
+    title: "Telecel Data Prices Today - Cheap Data in Ghana | DATAGOD",
+    description: "See today's Telecel data bundle prices in Ghana and buy cheap Telecel data from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD.",
     summary: "Buy Telecel (formerly Vodafone) data bundles for yourself or anyone in Ghana. Pick a bundle, enter the Telecel number, pay from your wallet (funded with MoMo or card), and the data is sent to that number.",
     extraBullet: "Works on Telecel numbers starting 020 and 050",
     extraFaqs: [
@@ -178,13 +178,13 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Yes. Vodafone Ghana is now Telecel, and the same numbers (020 and 050) work. Buy Telecel data here for any of those numbers.",
       },
     ],
-    related: ["mtn-data", "at-data", "afa-registration", "airtime", "telecel-broadband", "join"],
+    related: ["mtn-data", "at-data", "cheapest-data", "afa-registration", "airtime", "telecel-broadband", "join"],
   }),
   dataEntry("at-data", "AT", {
     name: "AT Data Bundles",
     h1: "Buy AT data bundles in Ghana",
-    title: "Buy AT (AirtelTigo) Data Bundles in Ghana | DATAGOD",
-    description: "Buy AT (AirtelTigo) data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Order on web, WhatsApp or USSD. Sent to the AT number you choose.",
+    title: "AT Data Prices Today - Cheap AT Data in Ghana | DATAGOD",
+    description: "See today's AT (AirtelTigo) data bundle prices in Ghana and buy cheap AT data from your DATAGOD wallet, paid with MoMo or card. Order on web, WhatsApp or USSD.",
     summary: "Buy AT (AirtelTigo) data bundles for yourself or anyone in Ghana. Pick a bundle, enter the AT number, pay from your wallet (funded with MoMo or card), and the data is sent to that number.",
     extraBullet: "AT data bundles for any AT number in Ghana",
     extraFaqs: [
@@ -193,8 +193,44 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "Yes. Enter that person's AT number when you order and the bundle is sent to them. The bundles on offer are shown on this page.",
       },
     ],
-    related: ["mtn-data", "telecel-data", "afa-registration", "airtime", "join"],
+    related: ["mtn-data", "telecel-data", "cheapest-data", "afa-registration", "airtime", "join"],
   }),
+
+  {
+    key: "cheapest-data",
+    path: "/cheapest-data-ghana",
+    name: "Cheapest Data Bundles",
+    h1: "Cheapest data bundles in Ghana today",
+    title: "Cheapest Data Bundles in Ghana Today | DATAGOD",
+    description: "Compare today's data bundle prices across MTN, Telecel and AT on DATAGOD and see the lowest price per GB. Fund your wallet with MoMo or card, then order.",
+    group: "data",
+    summary: "See our current data bundle prices side by side, with the lowest price per GB for each network. Prices come straight from our live price list.",
+    bullets: [
+      "Our live prices for each network side by side",
+      "Lowest price per GB shown for every network",
+      "Prices for the same bundle size lined up so they are easy to compare",
+      "Send data to any number, including your own",
+      "Fund your wallet with MoMo or card through Paystack",
+    ],
+    channels: ["web"],
+    faqs: [
+      speedFaq("How fast is data delivered?", "You can track every order from your dashboard or order history."),
+      refundFaq(),
+      payFaq(),
+      {
+        question: "How is the price per GB worked out?",
+        answer: "We divide the price of a bundle by its size in GB. Bundles that are not sold by size, such as time-based bundles, are left out of the per-GB figure.",
+      },
+      {
+        question: "Why is a size missing for some networks?",
+        answer: "A dash means we do not currently offer that exact bundle size on that network. See the network page for everything that is on offer.",
+      },
+    ],
+    related: ["mtn-data", "telecel-data", "at-data", "afa-registration", "airtime"],
+    priority: 0.9,
+    hasOwnPage: true,
+    updated: "2026-10-29",
+  },
 
   // ── Airtime ─────────────────────────────────────────────────────────
   {
@@ -263,7 +299,7 @@ export const PRODUCTS: readonly ProductEntry[] = [
         answer: "The full name, phone number, Ghana Card number (for example GHA-123456789-0) and location. Make sure the details match the Ghana Card before you submit.",
       },
     ],
-    related: ["mtn-data", "telecel-data", "at-data", "airtime", "join"],
+    related: ["mtn-data", "telecel-data", "at-data", "cheapest-data", "airtime", "join"],
     priority: 0.8,
     hasOwnPage: true,
     updated: "2026-10-27",

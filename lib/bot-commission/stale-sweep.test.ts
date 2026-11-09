@@ -138,6 +138,17 @@ describe("expireStaleBotOrders", () => {
     expect(tables).toEqual(before)
   })
 
+  it("a hubtel_ussd Special group child is never swept: that surface has its own expiry (the group fail path)", async () => {
+    const kids = [1, 2, 3].map(i => order(`sp${i}`, {
+      bot_surface: "hubtel_ussd", special_group_id: "g1", special_index: i, created_at: ago(120),
+    }))
+    const tables = { hubtel_bill_orders: [] as Row[], hubtel_data_orders: kids, wallet_payments: [] as Row[] }
+    const before = JSON.parse(JSON.stringify(tables))
+    const r = await expireStaleBotOrders(fakeDb(tables).db, { now: NOW })
+    expect(r.tables.hubtel_data_orders).toEqual({ found: 0, failed: 0, payments: 0 })
+    expect(tables).toEqual(before)
+  })
+
   it("never touches paid rows, Hubtel USSD rows, storefront / other-channel rows, fresh or closed rows", async () => {
     const keep = [
       order("paid", { payment_status: "paid" }),

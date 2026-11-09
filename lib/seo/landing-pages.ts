@@ -2,8 +2,13 @@
  * Landing-page registry: server-rendered keyword pages that sit next to the
  * product pages (lib/seo/products.ts) but are not products themselves. Each
  * one answers a search ("data bundle prices Ghana", "become a data reseller")
- * over data and products that already exist: the public price tables
- * (LiveFacts.dataPrices, i.e. packages.price) and the reseller features.
+ * over data and products that already exist: the adjusted customer price
+ * lists (LiveFacts.prices / nonExpiryPrices, lib/seo/data-prices.ts, the
+ * prices the network pages and the dashboard show) and the reseller features.
+ *
+ * There is no all-networks price page here: /cheapest-data-ghana (the
+ * "cheapest-data" product) compares the networks, and each network page
+ * carries its full price list.
  *
  * Why a sibling registry and not PRODUCTS: a ProductEntry is a thing we sell,
  * with its own LiveFacts.products entry, Service/Offer JSON-LD, a group whose
@@ -22,23 +27,22 @@
  *  - FAQs carry REFUND_LINE and SPEED_LINE verbatim
  */
 import { PAY_LINE, REFUND_LINE, SPEED_LINE, type Faq, type ProductKey } from "./products"
-import type { FactSource, LiveFacts } from "./live-facts"
-import { DATA_NETS, type DataNet, type DataPriceTables, type PriceRow } from "./data-prices"
+import type { LiveFacts } from "./live-facts"
+import { atTypeOf, type PriceGroup } from "./data-prices"
+import { sourcesLoaded, PRICE_SOURCES } from "./live-facts"
 
 export type LandingKey =
-  | "data-bundle-prices"
   | "non-expiry-data-bundles"
   | "become-a-data-reseller"
   | "at-ishare-data"
   | "at-bigtime-data"
 
 /**
- * - "prices":     every public data row, one table per network
  * - "non-expiry": only rows whose description says no expiry
  * - "reseller":   no table; the reseller guide
  * - "at-type":    the AT rows of one AT sub-product (atType)
  */
-export type LandingKind = "prices" | "non-expiry" | "reseller" | "at-type"
+export type LandingKind = "non-expiry" | "reseller" | "at-type"
 
 /**
  * When a conditional paragraph shows:
@@ -72,10 +76,10 @@ export interface LandingEntry {
   /** Opening paragraph under the H1. */
   lede: string
   kind: LandingKind
-  /** AT sub-product shown by an "at-type" page (matches PriceRow.type). */
+  /** AT sub-product shown by an "at-type" page (atTypeOf of the price group's network). */
   atType?: "iShare" | "BigTime"
-  /** The LiveFacts source the page's data comes from; null when it shows no live data. */
-  source: FactSource | null
+  /** True when the page shows live prices (and so needs the price sources loaded). */
+  showsPrices: boolean
   /** Numbered steps (the reseller guide). */
   steps?: LandingStep[]
   sections: LandingSection[]
@@ -111,67 +115,6 @@ const PREFIXES =
 
 export const LANDING_PAGES: readonly LandingEntry[] = [
   {
-    key: "data-bundle-prices",
-    path: "/data-bundle-prices",
-    name: "Data Bundle Prices",
-    h1: "Data bundle prices in Ghana (MTN, Telecel, AT)",
-    title: "Data Bundle Prices in Ghana (MTN, Telecel, AT) | DATAGOD",
-    description:
-      "Compare MTN, Telecel and AT data bundle prices in Ghana on one page. Live prices from the DATAGOD catalogue, paid from a wallet you fund with MoMo or card.",
-    lede:
-      "Compare every data bundle DATAGOD sells on MTN, Telecel and AT, side by side, with the price you pay for each one from your wallet. The tables come straight from our live catalogue, so a bundle that is out of stock is simply not listed.",
-    kind: "prices",
-    source: "packages",
-    sections: [
-      {
-        heading: "How to read these prices",
-        paragraphs: [
-          "Each price is the standard price a DATAGOD account pays from its wallet, in Ghana cedis. It is the price you see at checkout, with nothing added at the end. Bundles are listed from the smallest size to the largest, and where our catalogue records how long a bundle lasts, the validity sits next to the size so you can compare like with like.",
-          "Where a network sells more than one kind of data product, the table adds a Type column and lists each type separately. Compare sizes within the same type, because two bundles of the same size can be different products.",
-          "The tables are refreshed from our catalogue regularly. If a price changes or a bundle sells out in the meantime, the dashboard always shows the current price before you confirm an order.",
-        ],
-      },
-      {
-        heading: "Choosing the right bundle",
-        paragraphs: [
-          "Start with how you use data. Someone who mostly chats on WhatsApp needs far less than someone who streams video or works online, so a light user can be better off with a smaller bundle bought when needed than with one large bundle. If a bundle has a validity, compare it with how quickly you normally use data: a bundle that expires before you finish it is not good value, however low the price per gigabyte looks.",
-          `Check the network before you choose, because a bundle can only go to a number on its own network. ${PREFIXES}`,
-        ],
-      },
-      {
-        heading: "How to buy a bundle from these tables",
-        paragraphs: [
-          "Create a free DATAGOD account or log in, then fund your wallet with Mobile Money (MoMo) or a card through Paystack. Pick the network and the bundle, type the number that should receive the data and pay from your wallet balance. You approve one MoMo prompt when you top up, not one for every bundle, so buying for the whole family or office takes one sitting.",
-          "Every order is saved in your order history, where you can follow it until it is delivered. Each network page explains the other ways to order too, such as WhatsApp.",
-          "Selling data to friends or customers? A DATAGOD shop lets you set your own selling price for each bundle and keep the difference. Our reseller guide explains how it works.",
-        ],
-      },
-    ],
-    faqs: [
-      {
-        question: "Are these the prices I pay?",
-        answer:
-          "Yes. Each price is the standard price charged to your DATAGOD wallet for that bundle, in Ghana cedis. The dashboard shows the current price again before you confirm.",
-      },
-      {
-        question: "Which network has the cheapest data?",
-        answer:
-          "It depends on the size and how long the bundle lasts, so compare the same size across the tables. The prices come from our live catalogue, so you are always comparing what is on sale now.",
-      },
-      speedFaq("How fast is the data delivered?", "You can track every order from your order history."),
-      refundFaq(),
-      payFaq(),
-      {
-        question: "Why is a bundle missing from the table?",
-        answer: "Only bundles on sale right now are listed. When a size is out of stock it drops off the table until it is back.",
-      },
-    ],
-    relatedProducts: ["mtn-data", "telecel-data", "at-data", "join"],
-    footerLabel: "Data bundle prices",
-    priority: 0.8,
-    updated: "2026-11-01",
-  },
-  {
     key: "non-expiry-data-bundles",
     path: "/non-expiry-data-bundles",
     name: "Non-Expiry Data Bundles",
@@ -182,7 +125,7 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
     lede:
       "A non-expiry data bundle stays on your line until you use it up, instead of running out after a set number of days. This page lists every data bundle DATAGOD sells right now whose catalogue description says it does not expire, with the price you pay from your wallet.",
     kind: "non-expiry",
-    source: "packages",
+    showsPrices: true,
     sections: [
       {
         heading: "What a non-expiry bundle is",
@@ -197,13 +140,13 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
         paragraphs: [
           {
             when: "has-rows",
-            text: "The tables on this page show only bundles whose description in our catalogue says no expiry. Each table is one network, sorted from the smallest size to the largest, and the price is the standard price you pay from your DATAGOD wallet. When a bundle sells out it drops off the table until it is back.",
+            text: "The price lists on this page show only bundles whose description in our catalogue says no expiry. Each list is one network, sorted from the smallest size to the largest, and the price is what you pay from your DATAGOD wallet. When a bundle sells out it drops off the table until it is back.",
           },
           {
             when: "no-rows",
-            text: "Right now no bundle in our catalogue is described as no-expiry, so there is no table on this page. Rather than guess from a bundle's name, we wait until its description says so. The network pages list every bundle on sale, with its validity wherever our catalogue records one.",
+            text: "Right now no bundle in our catalogue is described as no-expiry, so there is no price list on this page. Rather than guess from a bundle's name, we wait until its description says so. The network pages list every bundle on sale.",
           },
-          "A bundle without a validity listed is not automatically non-expiry. If you need data that lasts, buy from the rows marked No expiry, or check the validity shown in the dashboard before you pay.",
+          "A bundle that is not listed here is not automatically non-expiry. If you need data that lasts, buy from the lists on this page, or check the bundle details shown in the dashboard before you pay.",
           {
             when: "standard-no-expiry",
             text: "Logged-in customers can also buy Telecel bundles from Standard Bundles in the DATAGOD dashboard. That section lists bundles from Telecel's own catalogue grouped by category, and Telecel bundles sold without an expiry date sit under the No Expiry category. The price of each one is shown in the dashboard before you pay.",
@@ -227,7 +170,7 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
       {
         question: "Which networks have non-expiry bundles on DATAGOD?",
         answer:
-          "The networks with a table on this page. We only list a bundle here when its description in our catalogue says no expiry, and the list changes as bundles go in and out of stock.",
+          "The networks with a price list on this page. We only list a bundle here when its description in our catalogue says no expiry, and the list changes as bundles go in and out of stock.",
       },
       {
         question: "Do non-expiry bundles ever run out?",
@@ -237,10 +180,10 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
       refundFaq(),
       payFaq(),
     ],
-    relatedProducts: ["mtn-data", "telecel-data", "at-data"],
+    relatedProducts: ["mtn-data", "telecel-data", "at-data", "cheapest-data"],
     footerLabel: "Non-expiry data",
     priority: 0.7,
-    updated: "2026-11-01",
+    updated: "2026-11-09",
   },
   {
     key: "become-a-data-reseller",
@@ -253,7 +196,7 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
     lede:
       "Reselling data means buying bundles at one price and selling them at a little more to people who already know you. This guide explains how that works on DATAGOD, from opening a shop and setting your margin to recruiting sub-agents and withdrawing your profit, so you know what to expect before you sign up.",
     kind: "reseller",
-    source: null,
+    showsPrices: false,
     steps: [
       { title: "Create your account", body: "Sign up for a free DATAGOD account. The same account runs your wallet, your orders and your shop." },
       {
@@ -283,7 +226,7 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
       {
         heading: "How your profit is worked out",
         paragraphs: [
-          "Every bundle has a cost price, what DATAGOD charges your shop for it, and a selling price, which you choose. For a normal account the cost price is the standard price on our data bundle price list; accounts upgraded to dealer pay dealer prices, a lower cost per bundle. You can price bundles one by one or update a whole network at once.",
+          "Every bundle has a cost price, what DATAGOD charges your shop for it, and a selling price, which you choose. For a normal account the cost price is the price on our data bundle price lists; accounts upgraded to dealer pay dealer prices, a lower cost per bundle. You can price bundles one by one or update a whole network at once.",
           "We cannot promise any level of sales or income. What you earn depends on your prices and on how many people buy from you, and customers do compare, so pick prices they will accept.",
         ],
       },
@@ -329,7 +272,7 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
     relatedProducts: ["join", "mtn-data", "telecel-data", "at-data", "ussd"],
     footerLabel: "Become a data reseller",
     priority: 0.8,
-    updated: "2026-11-01",
+    updated: "2026-11-09",
   },
   {
     key: "at-ishare-data",
@@ -340,10 +283,10 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
     description:
       "Buy AT iShare data bundles in Ghana from your DATAGOD wallet, funded with MoMo or card. Live iShare prices, sent to the AT number you choose.",
     lede:
-      "AT iShare bundles are one of the AT data products DATAGOD sells. Pick an iShare bundle from the table, enter the AT number it should go to and pay from your wallet. The table lists only the iShare bundles on sale right now, with the price you pay for each.",
+      "AT iShare bundles are one of the AT data products DATAGOD sells. Pick an iShare bundle from the price list, enter the AT number it should go to and pay from your wallet. The list shows only the iShare bundles on sale right now, with the price you pay for each.",
     kind: "at-type",
     atType: "iShare",
-    source: "packages",
+    showsPrices: true,
     parent: "at-data",
     sections: [
       {
@@ -351,13 +294,13 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
         paragraphs: [
           "iShare is AT's data-sharing service: the bundle you choose is shared onto the AT number you enter, which can be your own line or someone else's. You do not need an AT line yourself to buy, only the number the data should go to.",
           "AT numbers start with 026, 027, 056 or 057. Check the number twice before you pay, because data shared to the wrong line cannot be taken back.",
-          "Our catalogue lists iShare separately from AT's other data products, so every row here is an iShare bundle. Where a row's description records how long the bundle lasts, the validity appears next to the size.",
+          "Our catalogue lists iShare separately from AT's other data products, so every bundle here is an iShare bundle, with its price per GB beside it so sizes are easy to compare.",
         ],
       },
       {
         heading: "Choosing an iShare bundle",
         paragraphs: [
-          "The table runs from the smallest iShare bundle to the largest. Think about how much the person on the receiving line uses: a few messages a day needs far less than streaming or working online, and buying a smaller bundle more often avoids paying for data that goes unused.",
+          "The list runs from the smallest iShare bundle to the largest. Think about how much the person on the receiving line uses: a few messages a day needs far less than streaming or working online, and buying a smaller bundle more often avoids paying for data that goes unused.",
           "Comparing with other AT data? The AT data page lists every AT bundle we sell, grouped by type, so you can see the iShare rows next to the rest.",
         ],
       },
@@ -389,13 +332,13 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
       payFaq(),
       {
         question: "Why can't I see the iShare bundle I want?",
-        answer: "The table only lists iShare bundles on sale right now. A size that is out of stock drops off until it is back.",
+        answer: "The price list only shows iShare bundles on sale right now. A size that is out of stock drops off until it is back.",
       },
     ],
-    relatedProducts: ["at-data", "mtn-data", "telecel-data", "join"],
+    relatedProducts: ["at-data", "cheapest-data", "mtn-data", "telecel-data", "join"],
     footerLabel: "AT iShare data",
     priority: 0.7,
-    updated: "2026-11-01",
+    updated: "2026-11-09",
   },
   {
     key: "at-bigtime-data",
@@ -409,14 +352,14 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
       "AT BigTime is a separate AT data product with its own sizes and prices. This page lists the BigTime bundles DATAGOD sells right now, with the price you pay from your wallet, so you can compare them before you buy.",
     kind: "at-type",
     atType: "BigTime",
-    source: "packages",
+    showsPrices: true,
     parent: "at-data",
     sections: [
       {
         heading: "About AT BigTime bundles",
         paragraphs: [
-          "BigTime packages sit next to AT's other data products in our catalogue but are sold as a product of their own, so the table on this page shows BigTime rows only, from the smallest BigTime bundle on sale to the largest.",
-          "Where a BigTime row's description records its validity, it is shown beside the size. If no validity is listed, check the bundle details in the dashboard before you confirm rather than assuming how long it lasts.",
+          "BigTime packages sit next to AT's other data products in our catalogue but are sold as a product of their own, so the price list on this page shows BigTime bundles only, from the smallest BigTime bundle on sale to the largest.",
+          "Check how long a BigTime bundle lasts in the bundle details in the dashboard before you confirm, rather than assuming it from the size or the price.",
         ],
       },
       {
@@ -443,7 +386,7 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
     faqs: [
       {
         question: "What is AT BigTime?",
-        answer: "A separate AT data product with its own bundle sizes and prices. The BigTime bundles we sell right now are in the table on this page.",
+        answer: "A separate AT data product with its own bundle sizes and prices. The BigTime bundles we sell right now are in the price list on this page.",
       },
       {
         question: "Is BigTime the same as iShare?",
@@ -457,10 +400,10 @@ export const LANDING_PAGES: readonly LandingEntry[] = [
       refundFaq(),
       payFaq(),
     ],
-    relatedProducts: ["at-data", "mtn-data", "telecel-data", "join"],
+    relatedProducts: ["at-data", "cheapest-data", "mtn-data", "telecel-data", "join"],
     footerLabel: "AT BigTime data",
     priority: 0.7,
-    updated: "2026-11-01",
+    updated: "2026-11-09",
   },
 ]
 
@@ -472,7 +415,7 @@ export function getLanding(key: LandingKey): LandingEntry {
   return e
 }
 
-/** The landing page at `path` ("/data-bundle-prices", trailing slash ignored), if any. */
+/** The landing page at `path` ("/at-ishare-data", trailing slash ignored), if any. */
 export function findLandingByPath(path: string | null | undefined): LandingEntry | undefined {
   if (!path) return undefined
   const p = path.length > 1 ? path.replace(/\/+$/, "") : path
@@ -480,48 +423,38 @@ export function findLandingByPath(path: string | null | undefined): LandingEntry
 }
 
 /**
- * The rows a landing page shows, in network order (each network already
- * sorted by buildPriceTables). Empty when it shows none or the read failed.
+ * The price lists a landing page shows (main's adjusted price groups, each
+ * already sorted by buildPriceGroups), networks in MTN, Telecel, AT order and
+ * empty lists left out. Empty when it shows none or the prices could not be read.
  */
-export function landingRows(e: LandingEntry, tables: DataPriceTables | null): PriceRow[] {
-  if (!tables) return []
+export function landingGroups(e: LandingEntry, facts: Pick<LiveFacts, "prices" | "nonExpiryPrices">): PriceGroup[] {
+  const nonEmpty = (gs: readonly PriceGroup[] | undefined) => (gs ?? []).filter((g) => g.rows.length > 0)
   switch (e.kind) {
-    case "prices":
-      return DATA_NETS.flatMap((n) => tables[n])
     case "non-expiry":
-      return DATA_NETS.flatMap((n) => tables[n].filter((r) => r.validity === "No expiry"))
+      return (["MTN", "Telecel", "AT"] as const).flatMap((n) => nonEmpty(facts.nonExpiryPrices?.[n]))
     case "at-type":
-      return tables.AT.filter((r) => r.type === e.atType)
+      return nonEmpty(facts.prices?.AT).filter((g) => atTypeOf(g.network) === e.atType)
     case "reseller":
       return []
   }
-}
-
-/** Rows grouped per network, networks without rows left out, in DATA_NETS order. */
-export function rowsByNetwork(rows: readonly PriceRow[]): Array<{ network: DataNet; rows: PriceRow[] }> {
-  return DATA_NETS.map((network) => ({ network, rows: rows.filter((r) => r.network === network) })).filter(
-    (g) => g.rows.length > 0,
-  )
 }
 
 /** Same three states as product pages (lib/seo/page-meta.ts PageAvailability). */
 export type LandingAvailability = "ok" | "off" | "failed"
 
 /**
- * - "failed": the page's source could not be read -> 5xx (crawlers retry).
- * - "off":    nothing to show right now (no rows of a page that is a price
- *             list, or the reseller program is off) -> 200 with a notice,
- *             left out of the sitemap, footer and related rows.
+ * - "failed": the prices the page shows could not be read -> 5xx (crawlers retry).
+ * - "off":    nothing to show right now (no bundles of an AT product, or the
+ *             reseller program is off) -> 200 with a notice, left out of the
+ *             sitemap, footer and related rows.
  * - "ok":     render normally. The non-expiry page is always "ok" once read:
- *             with no rows it says so honestly.
+ *             with no bundles it says so honestly.
  */
 export function landingAvailability(e: LandingEntry, facts: LiveFacts): LandingAvailability {
-  if (e.source !== null && (facts.failedSources ?? []).includes(e.source)) return "failed"
-  if (e.source === "packages" && facts.dataPrices === null) return "failed"
+  if (e.showsPrices && !sourcesLoaded(PRICE_SOURCES, facts)) return "failed"
   switch (e.kind) {
-    case "prices":
     case "at-type":
-      return landingRows(e, facts.dataPrices).length > 0 ? "ok" : "off"
+      return landingGroups(e, facts).length > 0 ? "ok" : "off"
     case "non-expiry":
       return "ok"
     case "reseller":
@@ -541,7 +474,7 @@ export function landingsForProduct(key: ProductKey, facts: LiveFacts): LandingEn
 }
 
 export interface ParagraphContext {
-  /** Number of rows the page shows. */
+  /** Number of priced bundles the page shows. */
   rows: number
   /** The dashboard Standard Bundles sell Telecel with the No Expiry category visible. */
   standardNoExpiry: boolean

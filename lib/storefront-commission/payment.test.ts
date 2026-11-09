@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkStorefrontPayable,
+  commissionPriceChange, isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkStorefrontPayable,
   STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, storefrontMomoStatus, DIRECT_CHARGE_OFF,
 } from "./payment"
 
@@ -8,6 +8,31 @@ const row = (o: Record<string, unknown> = {}) => ({
   channel: "storefront", shop_id: "shop1", status: "pending", payment_status: "unpaid", paid_amount: 98.5,
   buyer_email: "buyer@example.com", ...o,
 }) as any
+
+describe("commissionPriceChange", () => {
+  it("fee-free takes a recorded fee out, and marks it waived", () => {
+    expect(commissionPriceChange({ paid: 101.82, fee: 1.95 }, { feeless: true })).toEqual({ paid: 99.87, fee: null })
+  })
+
+  it("adds the fee only to an order that says it was waived, rounded up to the pesewa", () => {
+    expect(commissionPriceChange({ paid: 99.87, fee: null }, { feeless: false, feeRate: 1.95 })).toEqual({ paid: 101.82, fee: 1.95 })
+  })
+
+  it("subtracts in pesewas, so binary noise can't change the price", () => {
+    expect(commissionPriceChange({ paid: 0.3, fee: 0.1 }, { feeless: true })).toEqual({ paid: 0.2, fee: null })
+  })
+
+  it.each<[string, { paid: number; fee: number | null | undefined }, { feeless: boolean; feeRate?: number }]>([
+    ["already fee-free, waived", { paid: 99.87, fee: null }, { feeless: true }],
+    ["already fee-free, rate was 0", { paid: 99.87, fee: 0 }, { feeless: true }],
+    ["a recorded fee stays what the customer was quoted", { paid: 101.82, fee: 1.95 }, { feeless: false, feeRate: 9 }],
+    ["a recorded 0 is not a waiver", { paid: 99.87, fee: 0 }, { feeless: false, feeRate: 9 }],
+    ["an unknown fee is left alone", { paid: 99.87, fee: undefined }, { feeless: false, feeRate: 9 }],
+    ["a rate of 0 adds nothing", { paid: 99.87, fee: null }, { feeless: false, feeRate: 0 }],
+  ])("no change: %s", (_n, price, target) => {
+    expect(commissionPriceChange(price, target)).toBeNull()
+  })
+})
 
 describe("storefront payment init helpers", () => {
   it("order types map to the commission tables; nothing else is a storefront type", () => {

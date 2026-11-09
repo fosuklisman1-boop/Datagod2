@@ -39,6 +39,7 @@ vi.mock("@/lib/airtime-pricing", async () => {
     airtimeBaseFeeRate: vi.fn(),
   }
 })
+vi.mock("@/lib/ussd/resolve-dialer", () => ({ resolveDialer: vi.fn() }))
 vi.mock("@/lib/results-checker-service", () => ({
   isExamBoardEnabled: vi.fn(),
   getAvailableCount: vi.fn(),
@@ -297,6 +298,29 @@ describe("executeToolCall get_shop_packages", () => {
     expect(result.error).toBe("no_shop")
     expect(fetchShopBundles).not.toHaveBeenCalled()
   })
+
+  // A remembered shop that has since closed (inactive, blocked) or lost WhatsApp must not quote or sell.
+  for (const [label, over] of [
+    ["inactive", { status: "inactive" }],
+    ["suspended", { status: "suspended" }],
+    ["not WhatsApp-activated", { whatsappActivated: false }],
+  ] as const) {
+    it(`a remembered shop that is ${label} is treated as no shop`, async () => {
+      vi.mocked(getShopPref).mockResolvedValue({ shopCodeId: "code-1" })
+      vi.mocked(resolveShopCode).mockResolvedValue(Object.assign({
+        shopCodeId: "code-1", shopId: "shop-1", shopName: "Kofi's Data Hub",
+        parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+      }, over))
+      const quote = await executeToolCall("get_shop_packages", {}, baseCtx) as Record<string, unknown>
+      expect(quote.error).toBe("no_shop")
+      const order = await executeToolCall("place_shop_order", {
+        service: "data", network: "MTN", size: "1", recipient_phone: "0244000000", payment_phone: "0244000000",
+      }, baseCtx) as Record<string, unknown>
+      expect(order.error).toBe("no_shop")
+      expect(fetchShopBundles).not.toHaveBeenCalled()
+      expect(setSession).not.toHaveBeenCalled()
+    })
+  }
 })
 
 describe("executeToolCall place_shop_order", () => {
@@ -585,6 +609,32 @@ describe("custom prices in AI tools", () => {
     }
     const r = await executeToolCall("get_available_packages", {}, { baseUrl: "x", userId: "u1", userRole: "sub_agent" }) as any[]
     expect(r.find(p => p.id === "p1").price).toBe(10)
+  })
+
+  describe("place_whatsapp_order airtime fee tier", () => {
+    const input = { service: "airtime", network: "MTN", recipient_phone: "0244123456", amount: "10" }
+    const ctx = { baseUrl: "x", phone: "233559919037", userId: "u1" }
+    const run = async (dialer: Record<string, unknown>) => {
+      const { resolveDialer } = await import("@/lib/ussd/resolve-dialer")
+      vi.mocked(resolveDialer).mockResolvedValue({ userId: "u1", ...dialer } as any)
+      vi.mocked(getWaSession).mockResolvedValue(null)
+      vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
+      vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
+      vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
+      vi.mocked(airtimeBaseFeeRate).mockClear()
+      fakeSupabase.tables = { airtime_orders: { list: [] } }
+      await executeToolCall("place_whatsapp_order", input, ctx)
+      return vi.mocked(airtimeBaseFeeRate)
+    }
+    it("sub_agent with dealer rates on is quoted the dealer rate", async () => {
+      expect(await run({ role: "sub_agent", rateTier: "dealer" })).toHaveBeenCalledWith("MTN", true)
+    })
+    it("sub_agent with dealer rates off is quoted the customer rate", async () => {
+      expect(await run({ role: "sub_agent", rateTier: "customer" })).toHaveBeenCalledWith("MTN", false)
+    })
+    it("sub_agent with no resolved tier fails closed to the customer rate", async () => {
+      expect(await run({ role: "sub_agent" })).toHaveBeenCalledWith("MTN", false)
+    })
   })
 
   describe("place_whatsapp_order seeding", () => {

@@ -38,7 +38,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const { data: shop, error: shopError } = await supabase
       .from("user_shops")
-      .select("id, shop_name, is_active")
+      .select("id, shop_name, is_active, parent_shop_id")
       .eq("user_id", user.id)
       .single()
     if (shopError || !shop) {
@@ -70,6 +70,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     // initiated POST /api/shop/invites), link it back, notify the requester. ──
     if (!shop.is_active) {
       return NextResponse.json({ error: "Your shop must be active to approve sub-agent requests" }, { status: 400 })
+    }
+    // Sub-agents can't recruit, whatever the open-join switch says. Pending requests from before the switch can
+    // still be approved by a top-level owner with the switch on (it is deliberately not read here).
+    const { data: ownerRow } = await supabase.from("users").select("role").eq("id", user.id).maybeSingle()
+    if (shop.parent_shop_id || ownerRow?.role === "sub_agent") {
+      return NextResponse.json({ error: "Sub-agents can't approve sub-agent requests." }, { status: 403 })
     }
 
     let inviteCode = generateInviteCode()

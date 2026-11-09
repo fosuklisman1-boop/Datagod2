@@ -12,7 +12,7 @@ if (!PAYSTACK_SECRET_KEY) {
   console.warn("[PAYSTACK] PAYSTACK_SECRET_KEY is not set — payment APIs will be unavailable")
 }
 
-interface InitializePaymentParams {
+export interface InitializePaymentParams {
   email: string
   amount: number
   reference: string
@@ -434,7 +434,7 @@ export function detectMomoProvider(phone: string): "mtn" | "vod" | "tgo" | null 
   return MOMO_PREFIX[local.slice(0, 3)] ?? null
 }
 
-interface ChargeMobileMoneyParams {
+export interface ChargeMobileMoneyParams {
   email: string
   amount: number        // in GHS — converted to pesewas internally
   phone: string         // e.g. "0244123456" or "+233244123456"

@@ -4,6 +4,10 @@ import { router } from "@/lib/ussd/router"
 
 // Uzo USSD gateway endpoint
 // Configure this URL in your Uzo dashboard as the application callback URL.
+
+/** Payment starts run in after() (3 s delay + up to 15 s on the Hubtel relay + a Paystack fallback). */
+export const maxDuration = 60
+
 export async function POST(request: NextRequest) {
   try {
     // Optional: validate Uzo shared secret

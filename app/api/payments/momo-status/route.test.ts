@@ -58,6 +58,34 @@ describe("momo-status for storefront bill / bundle orders", () => {
   })
 })
 
+describe("momo-status never asks a gateway (Hubtel and Paystack rows read the same way)", () => {
+  const fetchSpy = vi.fn(async () => new Response("{}"))
+  beforeEach(() => { fetchSpy.mockClear(); vi.stubGlobal("fetch", fetchSpy) })
+
+  it("a Hubtel wallet top-up reports from its wallet_payments row, with no gateway call", async () => {
+    h.state.rows.wallet_payments = { status: "pending", payment_method: "hubtel" }
+    expect(await (await get("reference=WALLET-H")).json()).toEqual({ status: "pending" })
+    h.state.rows.wallet_payments = { status: "completed", payment_method: "hubtel" }
+    expect(await (await get("reference=WALLET-H")).json()).toEqual({ status: "completed" })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(submitOtp).not.toHaveBeenCalled()
+    expect(h.state.ops.some((o) => o.op === "update")).toBe(false)
+  })
+
+  it("a Paystack wallet top-up reads exactly as before", async () => {
+    h.state.rows.wallet_payments = { status: "abandoned", payment_method: "paystack" }
+    expect(await (await get("reference=WALLET-P")).json()).toEqual({ status: "failed" })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("a data order paid through Hubtel reads the order row only", async () => {
+    h.state.rows.shop_orders = { payment_status: "completed", order_status: "processing" }
+    expect(await (await get("orderId=o1&orderType=data")).json()).toEqual({ status: "completed", order_status: "processing" })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(h.state.ops.some((o) => o.op === "update")).toBe(false)
+  })
+})
+
 describe("submit-otp rejection for storefront bill / bundle orders", () => {
   const post = (body: unknown) => submit(new NextRequest("http://x/api/payments/submit-otp", { method: "POST", body: JSON.stringify(body) }))
 

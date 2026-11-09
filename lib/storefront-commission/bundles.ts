@@ -7,8 +7,8 @@ import {
 } from "@/lib/standard-bundles/service"
 import { verifyBundleToken } from "@/lib/standard-bundles/token"
 import {
-  checkPendingCaps, fail, normaliseBuyer, parseExpectedPay, priceMatches,
-  storefrontGroupOn, NOT_AVAILABLE, PRICE_UPDATED, UNAVAILABLE, type CapDeps, type Fail,
+  checkPendingCaps, fail, normaliseBuyer, parseExpectedPay, paymentFeeIsWaived, priceMatches,
+  storefrontGroupOn, withoutPaymentFee, NOT_AVAILABLE, PRICE_UPDATED, UNAVAILABLE, type CapDeps, type Fail,
 } from "./shop"
 import { toInitializeResult, type InitializeResult, type InitResult, type StorefrontOrderRow } from "./bills"
 
@@ -17,7 +17,9 @@ export interface StorefrontBundleInsert {
   reference_code: string; user_id: null; channel: "storefront"; shop_id: string
   network: BundleNetwork; service_key: string; beneficiary_phone: string
   bundle_value: string; bundle_display: string; bundle_category: string
-  amount: number; paid_amount: number; payment_fee_amount: number
+  amount: number; paid_amount: number
+  /** NULL: priced with no fee because the gateway waives it (commissionPriceChange reads this). */
+  payment_fee_amount: number | null
   status: "pending"; payment_status: "unpaid"
   /** The raw client key; deduped per shop by uq_hubtel_data_orders_storefront_idem (shop_id, idempotency_key). */
   idempotency_key: string
@@ -34,6 +36,8 @@ export interface StorefrontBundlesDeps extends BundlesDeps {
   /** Throws with `code: "23505"` on a unique violation. */
   insertStorefrontOrder(row: StorefrontBundleInsert): Promise<StorefrontBundleRow>
   caps: CapDeps
+  /** Decided before the order is written: a waived fee never enters paid_amount. Absent or failing: not waived. */
+  paymentFeeWaived?(): Promise<boolean>
 }
 
 async function storefrontBundlesCfg(d: Pick<BundlesDeps, "getCashbackConfig">): Promise<{ ok: true; cfg: CashbackConfig } | Fail> {
@@ -48,10 +52,13 @@ export type StorefrontCatalogResult =
   | { ok: true; categories: { name: string; bundles: StorefrontBundle[] }[] }
   | Fail
 
-/** The dashboard catalog (same gates, cache and signed tokens) with the storefront price on every bundle. */
-export async function storefrontCatalog(d: BundlesDeps, network: BundleNetwork): Promise<StorefrontCatalogResult> {
+/**
+ * The dashboard catalog (same gates, cache and signed tokens) with the storefront price on every bundle.
+ * `feeWaived`: the gateway waives the payment fee, so these prices match what initialize will quote.
+ */
+export async function storefrontCatalog(d: BundlesDeps, network: BundleNetwork, feeWaived = false): Promise<StorefrontCatalogResult> {
   return pricedCatalog(d, network, () => storefrontBundlesCfg(d),
-    (cfg, serviceKey, face) => quoteStorefront({ serviceKey, provider: "hubtel", faceAmount: face, buyer: "customer" }, cfg))
+    (cfg, serviceKey, face) => quoteStorefront({ serviceKey, provider: "hubtel", faceAmount: face, buyer: "customer" }, feeWaived ? withoutPaymentFee(cfg) : cfg))
 }
 
 /**
@@ -116,7 +123,8 @@ export async function initializeStorefrontBundle(d: StorefrontBundlesDeps, shopI
   const prep = await prepareBundlePurchase(d, v, input.phone)
   if (!prep.ok) return prep.status === 403 ? fail(403, NOT_AVAILABLE) : prep
 
-  const q = quoteStorefront({ serviceKey: prep.serviceKey, provider: "hubtel", faceAmount: prep.amount, buyer: "customer" }, g.cfg)
+  const feeWaived = await paymentFeeIsWaived(d)
+  const q = quoteStorefront({ serviceKey: prep.serviceKey, provider: "hubtel", faceAmount: prep.amount, buyer: "customer" }, feeWaived ? withoutPaymentFee(g.cfg) : g.cfg)
   if (!priceMatches(expectedPay, q.payAmount)) {
     return {
       ...fail(409, PRICE_UPDATED),
@@ -131,7 +139,7 @@ export async function initializeStorefrontBundle(d: StorefrontBundlesDeps, shopI
       reference_code: d.newReference(), user_id: null, channel: "storefront", shop_id: shopId,
       network: v.network, service_key: prep.serviceKey, beneficiary_phone: prep.phone233,
       bundle_value: v.value, bundle_display: v.display, bundle_category: v.category,
-      amount: prep.amount, paid_amount: q.payAmount, payment_fee_amount: q.paymentFee,
+      amount: prep.amount, paid_amount: q.payAmount, payment_fee_amount: feeWaived ? null : q.paymentFee,
       status: "pending", payment_status: "unpaid", idempotency_key: key,
       buyer_name: b.buyer.name, buyer_email: b.buyer.email, buyer_phone: b.buyer.phone,
       cashback_amount: q.applied ? q.customerCashback : null,

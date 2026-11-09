@@ -556,6 +556,21 @@ export const adminShopService = {
     }
   },
 
+  // Recent storefront joiners (they skip approval; admins review and can block them here)
+  async getStorefrontJoiners() {
+    const { data: { session } } = await supabase.auth.getSession()
+    const headers: HeadersInit = {}
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`
+    }
+    const response = await fetch("/api/admin/shops?status=storefront_joiners&limit=200", { headers })
+    if (!response.ok) {
+      throw new Error("Failed to fetch storefront joiners")
+    }
+    const result = await response.json()
+    return result.data || []
+  },
+
   // Approve shop
   async approveShop(shopId: string) {
     try {

@@ -9,6 +9,7 @@ import HoneypotField from "@/components/shop/HoneypotField"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
 import { EcgMeterInput } from "@/components/bills/BillPayFlow"
 import { PayerOtpStep, usePayerOtp } from "@/components/storefront-commission/PayerOtp"
+import { SurfaceFeeNote } from "@/components/payment/hubtel-fee-note"
 import { MomoPayerHint, NOT_MOMO } from "@/components/storefront-commission/MomoPayerHint"
 import { useStorefrontPayment } from "@/components/storefront-commission/DirectMomo"
 import { useTurnstileGate } from "@/components/storefront-commission/use-turnstile-gate"
@@ -450,6 +451,7 @@ function BillSheet({ shopSlug, biller, onClose }: { shopSlug: string; biller: St
               )}
 
               <PayerOtpStep otp={otp} />
+              <SurfaceFeeNote field="storefront_gateway" />
               <HoneypotField value={honeypot} onChange={setHoneypot} />
               {widget}
               <ErrorLine msg={error} />

@@ -33,6 +33,22 @@ describe("evaluateEligibility", () => {
   })
 })
 
+describe("payment gateway does not change eligibility (Hubtel vs Paystack)", () => {
+  // The shared charge handler marks a Hubtel-paid order payment_status 'completed', exactly like a Paystack one.
+  it("a Hubtel-paid USSD order never sent anywhere is refundable like a Paystack one", () => {
+    expect(code({ table: "ussd_orders" })).toBe("ok")
+    expect(code({ table: "ussd_shop_orders" })).toBe("ok")
+  })
+  it("'abandoned' is only a provider TRACKING status here; it never stands for the payment", () => {
+    // a paid order whose only provider attempt was abandoned stays refundable
+    expect(code({ table: "ussd_orders", dispatchOutcome: "submitted", trackingStatuses: ["abandoned"] })).toBe("ok")
+  })
+  it("an order whose payment_status a verifier set to abandoned is never refundable (fails closed)", () => {
+    expect(code({ table: "shop_orders", paymentStatus: "abandoned" })).toBe("NOT_PENDING")
+    expect(code({ table: "ussd_orders", paymentStatus: "abandoned" })).toBe("NOT_PENDING")
+  })
+})
+
 describe("refundableStatuses / per-table status", () => {
   it("lists the refundable statuses per table", () => {
     expect(refundableStatuses("shop_orders")).toEqual(["pending"])
@@ -54,5 +70,49 @@ describe("refundableStatuses / per-table status", () => {
   })
   it("a table-less input behaves like the original tables (pending only)", () => {
     expect(code({ orderStatus: "held_registration" })).toBe("NOT_PENDING")
+  })
+  it("a Hubtel collection is refused on every table, with a message that says why", () => {
+    expect(code({ hubtelCollection: true })).toBe("HUBTEL_COLLECTION")
+    expect(code({ table: "hubtel_bill_orders", hubtelCollection: true })).toBe("HUBTEL_COLLECTION")
+    const r = evaluateEligibility({ ...base, hubtelCollection: true })
+    expect(r.eligible ? "" : r.reason).toMatch(/Hubtel/)
+  })
+
+  describe("Hubtel collections by attempt status", () => {
+    it.each(["pending", "confirming", "needs_review"])("a %s attempt stays refused: the money may not have landed, or may still land", (s) => {
+      expect(code({ hubtelCollection: true, hubtelAttemptStatus: s })).toBe("HUBTEL_COLLECTION")
+      expect(code({ table: "hubtel_bill_orders", hubtelCollection: true, hubtelAttemptStatus: s })).toBe("HUBTEL_COLLECTION")
+    })
+    it("an unknown or missing status fails closed", () => {
+      expect(code({ hubtelCollection: true })).toBe("HUBTEL_COLLECTION")
+      expect(code({ hubtelCollection: true, hubtelAttemptStatus: "weird" })).toBe("HUBTEL_COLLECTION")
+    })
+    it("a paid attempt falls through to the ordinary checks", () => {
+      expect(code({ hubtelCollection: true, hubtelAttemptStatus: "paid" })).toBe("ok")
+      expect(code({ hubtelCollection: true, hubtelAttemptStatus: "paid", orderStatus: "processing" })).toBe("NOT_PENDING")
+      expect(code({ hubtelCollection: true, hubtelAttemptStatus: "paid", hasActiveRefund: true })).toBe("ALREADY_REFUNDED")
+      expect(code({ hubtelCollection: true, hubtelAttemptStatus: "paid", trackingStatuses: ["completed"] })).toBe("SENT_TO_PROVIDER")
+      expect(code({ hubtelCollection: true, hubtelAttemptStatus: "paid", dispatchOutcome: "claimed" })).toBe("DISPATCH_IN_PROGRESS")
+    })
+    it("a Paystack-paid order (no Hubtel collection) is untouched by the attempt status", () => {
+      expect(code({})).toBe("ok")
+      expect(code({ hubtelAttemptStatus: "pending" })).toBe("ok")
+    })
+  })
+})
+
+describe("a shop order closed before its payment landed (C1)", () => {
+  const late: Partial<EligibilityInput> = { table: "shop_orders", orderStatus: "expired", paymentStatus: "expired", latePaid: true }
+  it("is refundable", () => expect(code(late)).toBe("ok"))
+  it("needs the proof of payment", () => expect(code({ ...late, latePaid: false })).toBe("NOT_PENDING"))
+  it("applies to shop_orders only", () => expect(code({ ...late, table: "ussd_orders" })).toBe("NOT_PENDING"))
+  it("keeps the other refusals", () => {
+    expect(code({ ...late, hasActiveRefund: true })).toBe("ALREADY_REFUNDED")
+    expect(code({ ...late, externalOrderId: "x1" })).toBe("SENT_TO_PROVIDER")
+    expect(code({ ...late, trackingStatuses: ["pending"] })).toBe("PROVIDER_IN_PROGRESS")
+  })
+  it("a Hubtel one still waits until its attempt is paid", () => {
+    expect(code({ ...late, hubtelCollection: true, hubtelAttemptStatus: "needs_review" })).toBe("HUBTEL_COLLECTION")
+    expect(code({ ...late, hubtelCollection: true, hubtelAttemptStatus: "paid" })).toBe("ok")
   })
 })

@@ -36,6 +36,10 @@ export interface MTNOrderResponse {
   /** Registration gate: number not yet registered with MTN — order should be
    *  HELD (lib/mtn-hold.ts), not treated as a provider failure. */
   held?: boolean
+  /** What the provider charged for the order (GHS). Only some providers report it. */
+  provider_cost_ghs?: number
+  /** The provider's own reference for the order. Only some providers report it. */
+  provider_reference?: string
 }
 
 export interface DataKazinaWebhookPayload {
@@ -1010,6 +1014,9 @@ export async function saveMTNTracking(
       api_response_payload: response,
       order_type: orderType,
       provider, // Track which provider was used
+      // Only providers that report them (Kuntanii) — absent keys leave the columns NULL.
+      ...(response.provider_cost_ghs !== undefined ? { provider_cost_ghs: response.provider_cost_ghs } : {}),
+      ...(response.provider_reference !== undefined ? { provider_reference: response.provider_reference } : {}),
     }
 
     // Set the appropriate order ID column based on type

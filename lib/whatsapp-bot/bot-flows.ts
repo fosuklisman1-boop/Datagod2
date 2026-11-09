@@ -15,9 +15,16 @@ import { handlePayBillsStep, livePayBillsDeps, startPayBills } from "@/lib/ussd/
 import { WHATSAPP_PROFILE } from "@/lib/ussd/bots/profile"
 import { botErrorText } from "@/lib/ussd/bots/screen"
 import type { USSDSession, UzoResponse } from "@/lib/ussd/types"
+import { sendWhatsAppText } from "./send"
 import { setWaSession } from "./session"
 
 const TAG = "WA-BOTS"
+
+/** The push when a charge asks for a code after the reply went out. Same words as the shared handlers' WhatsApp path. */
+export const WA_LATE_OTP_TEXT = "Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel"
+
+/** A sender's WhatsApp id (the chat's session key) from the local 0XXXXXXXXX form. */
+export const waSenderFromLocal = (local: string): string => `233${local.slice(1)}`
 
 /** The flows' engine context on the main WhatsApp bot; null for a sender that is not a Ghana number (fail closed). */
 export function waBotCtx(sender: string): BotFlowCtx | null {
@@ -93,6 +100,17 @@ export async function waBotOtpPending(sender: string, since: number, channel: Wa
 export async function handleWaBotOtp(sender: string, input: string, channel: WaBotOtpChannel = "whatsapp"): Promise<UzoResponse> {
   const local = normalizeGhanaPhone(String(sender ?? "")) ?? ""
   return handleBotOtpRedial(input, local, liveBotOtpRedialDeps(channel))
+}
+
+/**
+ * The charge answered send_otp after this chat's reply (a Hubtel refusal fell back to Paystack in the deferred start),
+ * so finishWaBotReply saw no pointer and closed the chat. Puts it back on SUBMIT_OTP and tells the sender. The pointer
+ * is already stored under the sender; the next reply looks it up again.
+ */
+export async function reopenWaBotOtp(senderLocal: string): Promise<void> {
+  const sender = waSenderFromLocal(senderLocal)
+  await setWaSession(sender, { step: "SUBMIT_OTP", dialingPhone: senderLocal, botOtp: true })
+  await sendWhatsAppText(sender, WA_LATE_OTP_TEXT)
 }
 
 /** A reply shaped like a Paystack MoMo OTP: 4 to 8 digits, nothing else (surrounding spaces ignored). */

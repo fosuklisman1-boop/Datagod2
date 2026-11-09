@@ -36,10 +36,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
 
+    // Owner role (users.role, never metadata) tells the page whether to offer the dealer-rates switch.
+    const { data: ownerRow } = await supabase.from("users").select("role").eq("id", user.id).single()
+    const ownerRole = String(ownerRow?.role ?? "")
+
     // Get sub-agents (shops with this shop as parent)
     const { data: subAgentShops, error: subAgentError } = await supabase
       .from("user_shops")
-      .select("id, shop_name, shop_slug, is_active, created_at, tier_level")
+      .select("id, shop_name, shop_slug, is_active, created_at, tier_level, joined_via, dealer_rates_enabled")
       .eq("parent_shop_id", shop.id)
       .order("created_at", { ascending: false })
 
@@ -51,7 +55,8 @@ export async function GET(request: NextRequest) {
     if (!subAgentShops || subAgentShops.length === 0) {
       return NextResponse.json({
         subAgents: [],
-        stats: { totalSubAgents: 0, activeSubAgents: 0, totalEarningsFromSubAgents: 0 }
+        stats: { totalSubAgents: 0, activeSubAgents: 0, totalEarningsFromSubAgents: 0 },
+        canSetDealerRates: ownerRole === "dealer" || ownerRole === "admin"
       })
     }
 
@@ -86,6 +91,8 @@ export async function GET(request: NextRequest) {
         is_active: sa.is_active,
         created_at: sa.created_at,
         tier_level: sa.tier_level,
+        joined_via: sa.joined_via ?? null,
+        dealer_rates_enabled: sa.dealer_rates_enabled === true,
         total_orders: stats.total_orders || 0,
         total_sales: stats.total_sales || 0,
         your_earnings: stats.your_earnings || 0,
@@ -99,7 +106,7 @@ export async function GET(request: NextRequest) {
       totalEarningsFromSubAgents: totalEarnings || 0,
     }
 
-    return NextResponse.json({ subAgents: subAgentsWithStats, stats })
+    return NextResponse.json({ subAgents: subAgentsWithStats, stats, canSetDealerRates: ownerRole === "dealer" || ownerRole === "admin" })
   } catch (error) {
     console.error("[SUB-AGENT-STATS] Error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

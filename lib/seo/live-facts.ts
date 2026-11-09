@@ -5,7 +5,7 @@
  * "seo-live-facts" tag. Each source is read independently and fails closed
  * (see FAILED_RAW): switches go off, prices go null, the data catalog stays
  * on. A result with any failed source is never cached, so a DB blip neither
- * 500s the site nor advertises a dark product for an hour.
+ * 500s a page nor advertises a dark product for an hour.
  *
  * The result also lists which sources failed (failedSources), so a product
  * page can tell "the admin switched this off" (render it, 200) apart from
@@ -21,9 +21,9 @@ import { getBillsConfig, type BillsConfig } from "@/lib/bills/config"
 import { BILLERS, type BillerKey } from "@/lib/bills/billers"
 import { readPublicUssdCodes, type PublicUssdCodes } from "./ussd-codes"
 import type { ProductKey } from "./products"
-import { buildPriceTables, networkOf, type DataPriceTables, type RawPackageRow } from "./data-prices"
-
-export { networkOf }
+import { buildPriceGroups, isNoExpiry, networkOf, type PriceGroups } from "./data-prices"
+import { buildComparison } from "./compare"
+import type { PriceAdjustments } from "@/lib/price-adjustment-service"
 
 export interface ProductFacts {
   available: boolean
@@ -33,15 +33,22 @@ export interface ProductFacts {
 }
 
 /** One independently-read source of live facts (see loadRawFacts). */
-export type FactSource = "packages" | "afa" | "airtime" | "bills" | "results" | "sms" | "api-v2" | "ussd"
+export type FactSource = "packages" | "price-adjust" | "afa" | "airtime" | "bills" | "results" | "sms" | "api-v2" | "ussd"
 
-export const FACT_SOURCES: readonly FactSource[] = ["packages", "afa", "airtime", "bills", "results", "sms", "api-v2", "ussd"]
+export const FACT_SOURCES: readonly FactSource[] = ["packages", "price-adjust", "afa", "airtime", "bills", "results", "sms", "api-v2", "ussd"]
 
 export type LiveFacts = {
   products: Record<ProductKey, ProductFacts>
   ussd: PublicUssdCodes
-  /** Public data price tables per network (packages.price); null when the packages read failed. */
-  dataPrices: DataPriceTables | null
+  /** adjusted customer price lists per network (empty when prices are unavailable) */
+  prices: PriceGroups
+  /**
+   * The same adjusted price lists, restricted to packages whose description
+   * says they do not expire (isNoExpiry). For /non-expiry-data-bundles.
+   */
+  nonExpiryPrices: PriceGroups
+  /** ISO timestamp of when these facts were built */
+  loadedAt: string
   /**
    * Sources whose read failed for this result. Their products carry fail-closed
    * values, so `available: false` there means "unknown", not "switched off".
@@ -49,35 +56,44 @@ export type LiveFacts = {
   failedSources: FactSource[]
 }
 
+/** The adjusted data prices need both the catalogue and the adjustment percentages. */
+export const PRICE_SOURCES: readonly FactSource[] = ["packages", "price-adjust"]
+
 /**
- * The source each product's own facts (availability, from-price) come from;
- * null for products that are always on and have no price.
+ * The sources each product's own facts (availability, from-price) come from;
+ * empty for products that are always on and have no price.
  */
-export const PRODUCT_SOURCE: Record<ProductKey, FactSource | null> = {
-  "mtn-data": "packages",
-  "telecel-data": "packages",
-  "at-data": "packages",
-  airtime: "airtime",
-  "afa-registration": "afa",
-  "utility-bills": "bills",
-  "ecg-prepaid": "bills",
-  "ghana-water": "bills",
-  "pay-dstv": "bills",
-  "pay-gotv": "bills",
-  startimes: "bills",
-  "telecel-broadband": "bills",
-  "results-checker": "results",
-  "bulk-sms": "sms",
-  developers: "api-v2",
-  ussd: "ussd",
-  join: null,
-  whatsapp: null,
+export const PRODUCT_SOURCES: Record<ProductKey, readonly FactSource[]> = {
+  "mtn-data": PRICE_SOURCES,
+  "telecel-data": PRICE_SOURCES,
+  "at-data": PRICE_SOURCES,
+  "cheapest-data": PRICE_SOURCES,
+  airtime: ["airtime"],
+  "afa-registration": ["afa"],
+  "utility-bills": ["bills"],
+  "ecg-prepaid": ["bills"],
+  "ghana-water": ["bills"],
+  "pay-dstv": ["bills"],
+  "pay-gotv": ["bills"],
+  startimes: ["bills"],
+  "telecel-broadband": ["bills"],
+  "results-checker": ["results"],
+  "bulk-sms": ["sms"],
+  developers: ["api-v2"],
+  ussd: ["ussd"],
+  join: [],
+  whatsapp: [],
 }
 
-/** False when the source behind this product's facts failed to load (its facts are fail-closed guesses). */
+/** True when none of `sources` failed for this result. */
+export function sourcesLoaded(sources: readonly FactSource[], facts: LiveFacts): boolean {
+  const failed = facts.failedSources ?? []
+  return !sources.some((s) => failed.includes(s))
+}
+
+/** False when a source behind this product's facts failed to load (its facts are fail-closed guesses). */
 export function productFactsLoaded(key: ProductKey, facts: LiveFacts): boolean {
-  const src = PRODUCT_SOURCE[key]
-  return src === null || !(facts.failedSources ?? []).includes(src)
+  return sourcesLoaded(PRODUCT_SOURCES[key] ?? [], facts)
 }
 
 /**
@@ -98,7 +114,16 @@ type Board = "WASSCE" | "BECE" | "NOVDEC"
 
 export interface RawFacts {
   /** null = the packages read failed (data pages stay on, no prices) */
-  packages: RawPackageRow[] | null
+  packages: Array<{
+    network: string
+    size?: string | null
+    price: number | string | null
+    is_available: boolean | null
+    /** admin-written; only read for the no-expiry list (isNoExpiry) */
+    description?: string | null
+  }> | null
+  /** null = the singleton app_settings adjustments read failed (no prices) */
+  priceAdjustments: PriceAdjustments | null
   airtimeEnabled: Record<Net, boolean>
   airtimeMin: number
   afaPrice: number | null
@@ -133,6 +158,8 @@ const BILLER_SHORT: Record<BillerKey, string> = {
   telecel_broadband: "Telecel Broadband",
 }
 
+export { networkOf }
+
 /** Finite, strictly positive number or null. Accepts numeric strings. */
 function positive(v: unknown): number | null {
   if (v === null || v === undefined) return null
@@ -145,26 +172,42 @@ const minOf = (xs: number[]): number | null => (xs.length ? Math.min(...xs) : nu
 const fact = (available: boolean, fromPrice: number | null = null, parts: string[] = []): ProductFacts => ({ available, fromPrice, parts })
 
 /** `failed`: names of sources whose read failed (unknown names are ignored). */
-export function buildLiveFacts(raw: RawFacts, failed: readonly string[] = []): LiveFacts {
+export function buildLiveFacts(
+  raw: RawFacts,
+  failed: readonly string[] = [],
+  loadedAt: string = new Date().toISOString(),
+): LiveFacts {
   const products = {} as Record<ProductKey, ProductFacts>
 
-  // Data — per network, lowest available positive price.
-  // packages === null means the catalog read failed: keep data pages on, without prices.
-  if (raw.packages === null) {
-    for (const net of NETS) products[DATA_KEY[net]] = fact(true, null, [net])
-  }
-  const prices: Record<Net, number[]> = { MTN: [], Telecel: [], AT: [] }
-  for (const row of raw.packages ?? []) {
-    if (row?.is_available !== true) continue
-    const net = networkOf(row.network)
-    const price = positive(row.price)
-    if (net && price !== null) prices[net].push(price)
-  }
+  // Data — per network, lowest available positive ADJUSTED price (the price shown on the customer dashboard).
+  // packages or priceAdjustments === null means a read failed: keep data pages on,
+  // without prices and with empty price groups.
+  const priced = raw.packages !== null && raw.priceAdjustments !== null
+  const groups: PriceGroups = priced
+    ? buildPriceGroups(raw.packages!, raw.priceAdjustments!)
+    : { MTN: [], Telecel: [], AT: [] }
+  const nonExpiryPrices: PriceGroups = priced
+    ? buildPriceGroups(raw.packages!.filter((r) => isNoExpiry(r.description)), raw.priceAdjustments!)
+    : { MTN: [], Telecel: [], AT: [] }
   for (const net of NETS) {
-    if (raw.packages === null) break
-    const from = minOf(prices[net])
+    if (raw.packages === null || raw.priceAdjustments === null) {
+      products[DATA_KEY[net]] = fact(true, null, [net])
+      continue
+    }
+    const from = minOf(groups[net].flatMap((g) => g.rows.map((r) => r.price)))
     products[DATA_KEY[net]] = fact(from !== null, from, from !== null ? [net] : [])
   }
+
+  // Cheapest-data comparison: live only when the comparison has something to show
+  // (a best per-GB figure or an exact-size row), so the page can never go live empty.
+  const allPrices = NETS.flatMap((n) => groups[n].flatMap((g) => g.rows.map((r) => r.price)))
+  const cheapestFrom = minOf(allPrices)
+  const cmp = buildComparison(groups)
+  products["cheapest-data"] = fact(
+    cmp.best.length > 0 || cmp.sizes.length > 0,
+    cheapestFrom,
+    NETS.filter((n) => groups[n].some((g) => g.rows.length > 0)),
+  )
 
   // Airtime
   const airtimeNets = NETS.filter((n) => raw.airtimeEnabled?.[n] === true)
@@ -205,7 +248,9 @@ export function buildLiveFacts(raw: RawFacts, failed: readonly string[] = []): L
   return {
     products,
     ussd: { main: raw.ussd?.main ?? null, shop: raw.ussd?.shop ?? null },
-    dataPrices: raw.packages === null ? null : buildPriceTables(raw.packages),
+    prices: groups,
+    nonExpiryPrices,
+    loadedAt,
     failedSources: FACT_SOURCES.filter((src) => failed.includes(src)),
   }
 }
@@ -217,6 +262,7 @@ export function buildLiveFacts(raw: RawFacts, failed: readonly string[] = []): L
  */
 export const FAILED_RAW: RawFacts = {
   packages: null,
+  priceAdjustments: null,
   airtimeEnabled: { MTN: false, Telecel: false, AT: false },
   airtimeMin: 0,
   afaPrice: null,
@@ -304,7 +350,7 @@ export async function loadRawFacts(
     }
   }
 
-  const [packages, afaPrice, airtime, bills, results, smsPricePerCredit, apiV2Enabled, ussd] = await Promise.all([
+  const [packages, priceAdjustments, afaPrice, airtime, bills, results, smsPricePerCredit, apiV2Enabled, ussd] = await Promise.all([
     source("packages", FAILED_RAW.packages, async () => {
       const { data, error } = await db
         .from("packages")
@@ -313,6 +359,29 @@ export async function loadRawFacts(
         .limit(2000)
       if (error) throw error
       return (data ?? []) as NonNullable<RawFacts["packages"]>
+    }),
+    // Singleton app_settings row (key IS NULL) — the same one the dashboard adjusts
+    // prices from. Direct read: getPriceAdjustments() swallows errors into zeros,
+    // which would cache unadjusted prices for an hour. A null column means 0%.
+    source("price-adjust", FAILED_RAW.priceAdjustments, async (): Promise<PriceAdjustments | null> => {
+      const { data, error } = await db
+        .from("app_settings")
+        .select("price_adjustment_mtn, price_adjustment_telecel, price_adjustment_at_ishare, price_adjustment_at_bigtime")
+        .is("key", null)
+        .maybeSingle()
+      if (error) throw error
+      if (!data) throw new Error("app_settings singleton row missing")
+      const d = data as Record<keyof PriceAdjustments, unknown>
+      const pct = (v: unknown) => {
+        const n = Number(v ?? 0)
+        return Number.isFinite(n) ? n : 0
+      }
+      return {
+        price_adjustment_mtn: pct(d.price_adjustment_mtn),
+        price_adjustment_telecel: pct(d.price_adjustment_telecel),
+        price_adjustment_at_ishare: pct(d.price_adjustment_at_ishare),
+        price_adjustment_at_bigtime: pct(d.price_adjustment_at_bigtime),
+      }
     }),
     source("afa", FAILED_RAW.afaPrice, async () => {
       // Same row app/api/afa/price/route.ts shows at checkout.
@@ -358,6 +427,7 @@ export async function loadRawFacts(
   return {
     raw: {
       packages,
+      priceAdjustments,
       airtimeEnabled: airtime.enabled,
       airtimeMin: airtime.min,
       afaPrice,
@@ -386,9 +456,9 @@ async function loadCompleteLiveFacts(): Promise<LiveFacts> {
   return buildLiveFacts(raw)
 }
 
-// "v3": the cached shape gained failedSources (v2: dataPrices); a new key so an
-// entry cached by an older deploy (without it) is never served.
-const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts", "v3"], {
+// "v3": the cached shape gained nonExpiryPrices and failedSources; a new key so an
+// entry cached by an older deploy (without them) is never served.
+const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts-v3"], {
   revalidate: 3600,
   tags: ["seo-live-facts"],
 })

@@ -10,7 +10,7 @@
 import { absoluteUrl, SITE_URL } from "./site"
 import type { Faq, ProductEntry } from "./products"
 import type { ProductFacts } from "./live-facts"
-import { rowLabel, type PriceRow } from "./data-prices"
+import type { PriceGroup } from "./data-prices"
 import type { LandingEntry } from "./landing-pages"
 
 const CONTEXT = "https://schema.org"
@@ -86,33 +86,39 @@ export function buildSiteJsonLd(): object[] {
   ]
 }
 
-/**
- * OfferCatalog over the same rows the page's price table shows: one GHS Offer
- * per row, at packages.price. null when there are no rows (no table, no catalog).
- */
-export function buildOfferCatalog(p: Pick<ProductEntry, "name" | "path">, rows: readonly PriceRow[]): object | null {
-  const valid = rows.filter((r) => typeof r.price === "number" && Number.isFinite(r.price) && r.price > 0)
-  if (valid.length === 0) return null
-  const url = absoluteUrl(p.path)
+/** AggregateOffer over every listed price, or null when there are none. */
+function aggregateOffer(groups: readonly PriceGroup[], url: string): object | null {
+  const prices = groups.flatMap((g) => g.rows.map((r) => r.price)).filter((n) => Number.isFinite(n) && n > 0)
+  if (prices.length === 0) return null
   return {
-    "@type": "OfferCatalog",
-    name: `${p.name} prices`,
-    itemListElement: valid.map((r) => ({
-      "@type": "Offer",
-      name: rowLabel(r),
-      price: offerPrice(r.price),
-      priceCurrency: "GHS",
-      availability: "https://schema.org/InStock",
-      url,
-    })),
+    "@type": "AggregateOffer",
+    lowPrice: offerPrice(Math.min(...prices)),
+    highPrice: offerPrice(Math.max(...prices)),
+    offerCount: prices.length,
+    priceCurrency: "GHS",
+    availability: "https://schema.org/InStock",
+    url,
   }
 }
 
-export function buildServiceJsonLd(p: ProductEntry, f: ProductFacts, rows: readonly PriceRow[] = []): object {
+export function buildServiceJsonLd(p: ProductEntry, f: ProductFacts, groups: readonly PriceGroup[] = []): object {
   const url = absoluteUrl(p.path)
-  // A product that is switched off has nothing on offer: no Offer, no OfferCatalog.
-  const catalog = f.available ? buildOfferCatalog(p, rows) : null
+  // A product that is switched off has nothing on offer: no Offer, no AggregateOffer.
   const hasPrice = f.available && typeof f.fromPrice === "number" && Number.isFinite(f.fromPrice) && f.fromPrice > 0
+  const aggregate = f.available && p.group === "data" ? aggregateOffer(groups, url) : null
+  if (aggregate) {
+    return {
+      "@context": CONTEXT,
+      "@type": "Service",
+      name: p.name,
+      description: p.description,
+      url,
+      serviceType: p.name,
+      provider: DATAGOD_ORGANIZATION,
+      areaServed: { "@type": "Country", name: "Ghana" },
+      offers: aggregate,
+    }
+  }
   return {
     "@context": CONTEXT,
     "@type": "Service",
@@ -131,7 +137,6 @@ export function buildServiceJsonLd(p: ProductEntry, f: ProductFacts, rows: reado
         url,
       },
     }),
-    ...(catalog && { hasOfferCatalog: catalog }),
   }
 }
 
@@ -171,9 +176,26 @@ export function productCrumbs(p: ProductEntry): Crumb[] {
   ]
 }
 
-/** `rows`: the page's live price-table rows (data pages only); adds a Service OfferCatalog. */
-export function buildProductJsonLd(p: ProductEntry, f: ProductFacts, rows: readonly PriceRow[] = []): object[] {
-  return [buildServiceJsonLd(p, f, rows), buildFaqJsonLd(p.faqs), buildBreadcrumbJsonLd(productCrumbs(p))]
+export function buildProductJsonLd(p: ProductEntry, f: ProductFacts, groups: readonly PriceGroup[] = []): object[] {
+  return [buildServiceJsonLd(p, f, groups), buildFaqJsonLd(p.faqs), buildBreadcrumbJsonLd(productCrumbs(p))]
+}
+
+export interface ArticleInput { slug: string; h1: string; description: string; updated: string }
+
+/** Article for a guide; dateModified is the guide's `updated` date. */
+export function buildArticleJsonLd(g: ArticleInput): object {
+  const url = absoluteUrl(`/guides/${g.slug}`)
+  return {
+    "@context": CONTEXT,
+    "@type": "Article",
+    headline: g.h1,
+    description: g.description,
+    url,
+    mainEntityOfPage: url,
+    dateModified: g.updated,
+    author: DATAGOD_ORGANIZATION,
+    publisher: DATAGOD_ORGANIZATION,
+  }
 }
 
 // ── Landing pages (lib/seo/landing-pages.ts) ──────────────────────────
@@ -188,28 +210,7 @@ export function landingCrumbs(e: Pick<LandingEntry, "name" | "path">, parent?: P
   ]
 }
 
-/**
- * Stand-alone OfferCatalog for a landing page's price tables: the same rows the
- * page shows, one GHS Offer per row at packages.price, each sold by DATAGOD.
- * null when there are no rows (no table, no catalog).
- */
-export function buildLandingOfferCatalog(e: Pick<LandingEntry, "name" | "path">, rows: readonly PriceRow[]): object | null {
-  const catalog = buildOfferCatalog(e, rows) as { itemListElement: object[] } | null
-  if (!catalog) return null
-  return {
-    "@context": CONTEXT,
-    ...catalog,
-    url: absoluteUrl(e.path),
-    itemListElement: catalog.itemListElement.map((o) => ({ ...o, seller: { "@id": ORG_ID } })),
-  }
-}
-
-/** [OfferCatalog when there are rows], FAQPage and BreadcrumbList, all from what the page shows. */
-export function buildLandingJsonLd(
-  e: Pick<LandingEntry, "name" | "path" | "faqs">,
-  rows: readonly PriceRow[],
-  crumbs: readonly Crumb[],
-): object[] {
-  const catalog = buildLandingOfferCatalog(e, rows)
-  return [...(catalog ? [catalog] : []), buildFaqJsonLd(e.faqs), buildBreadcrumbJsonLd(crumbs)]
+/** FAQPage and BreadcrumbList, from what the page shows. Prices are on the linked product pages' Service AggregateOffer. */
+export function buildLandingJsonLd(e: Pick<LandingEntry, "faqs">, crumbs: readonly Crumb[]): object[] {
+  return [buildFaqJsonLd(e.faqs), buildBreadcrumbJsonLd(crumbs)]
 }

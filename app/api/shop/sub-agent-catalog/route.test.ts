@@ -12,7 +12,7 @@ const h = vi.hoisted(() => {
     from(table: string) {
       const r = () => ({ error: null, ...(state.tables[table] ?? { data: null }) })
       const b: any = {
-        select: () => b, eq: () => b, in: () => b, order: () => b, limit: () => b,
+        select: () => b, insert: () => b, update: () => b, eq: () => b, in: () => b, order: () => b, limit: () => b,
         single: async () => first(r()),
         maybeSingle: async () => first(r()),
         then: (ok: any, ko: any) => Promise.resolve(r()).then(ok, ko),
@@ -25,7 +25,10 @@ const h = vi.hoisted(() => {
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.client }))
 
-import { GET } from "./route"
+import { GET, POST, PUT } from "./route"
+import * as openShop from "@/lib/sub-agents/open-shop"
+
+vi.mock("@/lib/sub-agents/open-shop", () => ({ openPricedShop: vi.fn() }))
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = "http://x"
 process.env.SUPABASE_SERVICE_ROLE_KEY = "k"
@@ -75,6 +78,70 @@ describe("GET /api/shop/sub-agent-catalog (sub-agent)", () => {
     const { status, body } = await get()
     expect(status).toBe(500)
     expect(body.error).toBe("Failed to fetch catalog")
+  })
+})
+
+describe("saving prices opens a closed storefront joiner's shop", () => {
+  const open = openShop.openPricedShop as unknown as ReturnType<typeof vi.fn>
+  const JOINER = { id: "sub-shop", parent_shop_id: "parent-shop", joined_via: "storefront", is_active: false, prices_set_at: null }
+  const post = async () => {
+    const res = await POST(new Request("http://x/api/shop/sub-agent-catalog", {
+      method: "POST", headers: { Authorization: "Bearer t" },
+      body: JSON.stringify({ package_id: "p1", sub_agent_profit_margin: 1 }),
+    }) as any)
+    return { status: res.status, body: await res.json() }
+  }
+  const put = async () => {
+    const res = await PUT(new Request("http://x/api/shop/sub-agent-catalog", {
+      method: "PUT", headers: { Authorization: "Bearer t" },
+      body: JSON.stringify({ catalog_id: "r1", sub_agent_profit_margin: 1 }),
+    }) as any)
+    return { status: res.status, body: await res.json() }
+  }
+  beforeEach(() => {
+    open.mockReset()
+    h.state.tables.sub_agent_shop_packages = { data: { id: "r1" } }
+  })
+
+  it("POST by a closed joiner opens the shop and returns the links", async () => {
+    h.state.tables.user_shops = { data: JOINER }
+    open.mockResolvedValue({ status: "opened", ussdCode: "4321", subdomain: "kofi" })
+    const { status, body } = await post()
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ success: true, opened: true, ussdCode: "4321", subdomain: "kofi" })
+    expect(open).toHaveBeenCalledWith(h.client, "sub-user")
+  })
+
+  it("PUT by a closed joiner opens the shop too", async () => {
+    h.state.tables.user_shops = { data: JOINER }
+    open.mockResolvedValue({ status: "opened", ussdCode: "4321", subdomain: "kofi" })
+    const { body } = await put()
+    expect(body).toMatchObject({ success: true, opened: true })
+  })
+
+  it("an invite sub-agent's save never calls open", async () => {
+    h.state.tables.user_shops = { data: { ...JOINER, joined_via: null } }
+    const { status, body } = await post()
+    expect(status).toBe(200)
+    expect(body.opened).toBeUndefined()
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it("a main shop's save never calls open", async () => {
+    h.state.userId = "parent-user"
+    h.state.tables.user_shops = { data: { id: "parent-shop", parent_shop_id: null, joined_via: null, is_active: true, prices_set_at: null } }
+    h.state.tables.sub_agent_catalog = { data: { id: "c1" } }
+    const { status } = await post()
+    expect(status).toBe(200)
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it("an open failure still returns the save as successful", async () => {
+    h.state.tables.user_shops = { data: JOINER }
+    open.mockRejectedValue(new Error("db down"))
+    const { status, body } = await post()
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ success: true, opened: false })
   })
 })
 

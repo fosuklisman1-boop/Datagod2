@@ -7,7 +7,7 @@ import {
 } from "../menus"
 import { setSession } from "../session"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
-import { chargeMobileMoney } from "@/lib/paystack"
+import { isUssdHubtelPayer, samePrice, startUssdCharge } from "@/lib/ussd/gateway-charge"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { secureReference } from "@/lib/secure-random"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
@@ -148,22 +148,29 @@ export async function handleShopRcConfirm(
   const orderId = orderResult.orderId
 
   const email = await resolveEmail(dialingPhone)
+  // No Paystack fee on vouchers: the same amount on either gateway. The shop menu only charges the dialler.
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: dialingPhone, provider })
 
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount: pricing.totalPaid,
-        phone: dialingPhone,
-        provider,
-        reference: orderId,
-        metadata: {
-          source: "ussd_shop_results_checker",
-          results_checker_order_id: orderId,
-          exam_board: board,
-          quantity: qty,
-          shop_id: session.shopId,
+      const { status } = await startUssdCharge({
+        surface: "ussd",
+        verifiedPayer,
+        price: samePrice(pricing.totalPaid),
+        written: pricing.totalPaid,
+        params: {
+          email,
+          phone: dialingPhone,
+          provider,
+          reference: orderId,
+          metadata: {
+            source: "ussd_shop_results_checker",
+            results_checker_order_id: orderId,
+            exam_board: board,
+            quantity: qty,
+            shop_id: session.shopId,
+          },
         },
       })
       try {

@@ -45,11 +45,15 @@ describe("assertProductFactsLoaded (root-layout status gate)", () => {
     }
   })
 
-  it("throws for a landing page when its packages read failed, passes when it is off", async () => {
-    state.headers = main("/data-bundle-prices")
+  it("throws for a landing page when its prices could not be read, passes when it is off", async () => {
+    state.headers = main("/at-ishare-data")
     state.facts = FALLBACK_FACTS
-    await expect(assertProductFactsLoaded()).rejects.toThrow(/data-bundle-prices/)
-    state.facts = buildLiveFacts({ ...FAILED_RAW, packages: [] })
+    await expect(assertProductFactsLoaded()).rejects.toThrow(/at-ishare-data/)
+    state.facts = buildLiveFacts({
+      ...FAILED_RAW,
+      packages: [],
+      priceAdjustments: { price_adjustment_mtn: 0, price_adjustment_telecel: 0, price_adjustment_at_ishare: 0, price_adjustment_at_bigtime: 0 },
+    })
     await expect(assertProductFactsLoaded()).resolves.toBeUndefined()
   })
 

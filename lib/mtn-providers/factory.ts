@@ -17,6 +17,7 @@ import { ApexPrimeProvider } from "./apexprime-provider"
 import { SPFastITProvider } from "./spfastit-provider"
 import { SPFastITTelecelProvider } from "./spfastit-telecel-provider"
 import { BundlePortalProvider } from "./bundleportal-provider"
+import { KuntaniiProvider } from "./kuntanii-provider"
 
 /**
  * Get the currently selected provider from database settings
@@ -37,7 +38,7 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
         const provider = data?.value?.provider as MTNProviderName | undefined
 
         // Validate provider name
-        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata" || provider === "bisdel" || provider === "codecraft" || provider === "agentportalgh" || provider === "apexprime" || provider === "bundleportal") {
+        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata" || provider === "bisdel" || provider === "codecraft" || provider === "agentportalgh" || provider === "apexprime" || provider === "bundleportal" || provider === "kuntanii") {
             return provider
         }
 
@@ -58,7 +59,7 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
  * then Bundle Portal), each rejecting the new provider with no indication
  * why. Add a provider here once; every consumer picks it up automatically.
  */
-export const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime", "bundleportal"]
+export const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime", "bundleportal", "kuntanii"]
 
 /** True only for a genuinely MTN-capable provider name (never "spfastit" or any other non-MTN-only provider). */
 export function isValidMtnProviderName(name: string): name is MTNProviderName {
@@ -117,6 +118,8 @@ export async function getMTNProvider(): Promise<MTNProvider> {
             return new ApexPrimeProvider()
         case "bundleportal":
             return new BundlePortalProvider()
+        case "kuntanii":
+            return new KuntaniiProvider()
         case "bisdel":
             return new BisdelProvider()
         case "codecraft":
@@ -247,6 +250,8 @@ export function getProviderByName(name: NonMTNProviderName): MTNProvider {
             return new ApexPrimeProvider()
         case "bundleportal":
             return new BundlePortalProvider()
+        case "kuntanii":
+            return new KuntaniiProvider()
         case "bisdel":
             return new BisdelProvider()
         case "codecraft":

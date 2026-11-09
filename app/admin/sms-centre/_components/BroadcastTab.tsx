@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetState
 import { api } from "../_lib/api"
 import { calculateSegments } from "@/lib/sms/segments"
 import { personalize, hasMergeTokens } from "@/lib/sms/personalize"
+import { renderShopTokens, hasShopTokens } from "@/lib/sms/shop-buyers"
+import ShopBuyersPicker, { type ShopBuyersSelection } from "./ShopBuyersPicker"
 import { adminMessagingService } from "@/lib/admin-service"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -49,7 +51,7 @@ const ALL_CHANNELS = ["sms", "whatsapp", "email", "push"] as const
 type Channel = (typeof ALL_CHANNELS)[number]
 
 const ALL_ROLES = ["user", "dealer", "sub_agent", "admin"] as const
-type Audience = "roles" | "specific" | "group" | "shop_owners"
+type Audience = "roles" | "specific" | "group" | "shop_owners" | "shop_buyers"
 
 export default function BroadcastTab() {
   const [groups, setGroups] = useState<Group[]>([])
@@ -63,6 +65,8 @@ export default function BroadcastTab() {
   const [roles, setRoles] = useState<string[]>(["user"])
   const [groupId, setGroupId] = useState("")
   const [mergeFields, setMergeFields] = useState(true)
+  const [shopSel, setShopSel] = useState<ShopBuyersSelection | null>(null)
+  const isShopBuyers = audienceType === "shop_buyers"
 
   // Specific-user targeting (search + multi-select)
   const [allUsers, setAllUsers] = useState<PlatformUser[]>([])
@@ -99,7 +103,16 @@ export default function BroadcastTab() {
     []
   )
 
-  const seg = useMemo(() => calculateSegments(message), [message])
+  // Shop buyers: size the SMS on the longest selected shop name/link (worst case).
+  const seg = useMemo(
+    () =>
+      calculateSegments(
+        isShopBuyers && shopSel
+          ? renderShopTokens(message, { shopName: shopSel.longestName, shopLink: shopSel.longestLink, shopCode: shopSel.longestCode, phone: "0241234567" })
+          : message
+      ),
+    [message, isShopBuyers, shopSel]
+  )
   const displaySegments = message.length === 0 ? 0 : seg.segments
   const subjectRequired = channels.includes("email") || channels.includes("push")
   const selectedGroup = groups.find((g) => g.id === groupId)
@@ -107,11 +120,14 @@ export default function BroadcastTab() {
   // Live personalised sample (group + merge fields), so the admin sees what a
   // recipient actually receives.
   const sample = useMemo(() => {
+    if (isShopBuyers && shopSel?.sampleShop && (hasShopTokens(message) || message.includes("[Phone]"))) {
+      return renderShopTokens(message, { shopName: shopSel.sampleShop.name, shopLink: shopSel.sampleShop.link, shopCode: shopSel.sampleShop.code, phone: "0241234567" })
+    }
     if (audienceType === "group" && mergeFields && hasMergeTokens(message)) {
       return personalize(message, { firstName: "Ama", lastName: "Mensah", phone: "0241234567" })
     }
     return message
-  }, [audienceType, mergeFields, message])
+  }, [audienceType, mergeFields, message, isShopBuyers, shopSel])
 
   const filteredSearch = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
@@ -131,9 +147,21 @@ export default function BroadcastTab() {
       ? selectedGroup?.contact_count
       : audienceType === "specific"
       ? selectedUsers.length
+      : isShopBuyers
+      ? shopSel?.total ?? 0
       : undefined
   const estimatedCredits =
     estimatedRecipients !== undefined ? seg.segments * estimatedRecipients : undefined
+
+  function chooseAudience(id: Audience) {
+    setAudienceType(id)
+    // Shop buyers have phone numbers only: SMS is the only channel.
+    if (id === "shop_buyers") setChannels(["sms"])
+  }
+
+  function insertToken(token: string) {
+    setMessage((m) => (m && !/\s$/.test(m) ? `${m} ${token}` : `${m}${token}`))
+  }
 
   function loadTemplate(id: string) {
     const t = templates.find((x) => x.id === id)
@@ -157,6 +185,8 @@ export default function BroadcastTab() {
       ? `${selectedUsers.length} selected user${selectedUsers.length === 1 ? "" : "s"}`
       : audienceType === "shop_owners"
       ? "all shop owners"
+      : isShopBuyers
+      ? `${(shopSel?.total ?? 0).toLocaleString("en-US")} shop buyer${shopSel?.total === 1 ? "" : "s"} across ${shopSel?.shopCount ?? 0} shop${shopSel?.shopCount === 1 ? "" : "s"}`
       : `all users in role${roles.length === 1 ? "" : "s"} ${roles.join(", ")}`
 
   function send() {
@@ -166,6 +196,10 @@ export default function BroadcastTab() {
     if (audienceType === "roles" && roles.length === 0) return toast.error("Select at least one role.")
     if (audienceType === "specific" && selectedUsers.length === 0) return toast.error("Select at least one user.")
     if (audienceType === "group" && !groupId) return toast.error("Select a group.")
+    if (isShopBuyers && !shopSel?.shopCount) return toast.error("Select at least one shop.")
+    if (isShopBuyers && !hasShopTokens(message)) {
+      toast.warning("Tip: add [ShopLink] so each buyer gets their shop's link.")
+    }
 
     setConfirmOpen(true)
   }
@@ -188,6 +222,8 @@ export default function BroadcastTab() {
           }
         : audienceType === "shop_owners"
         ? { type: "shop_owners" as const }
+        : isShopBuyers
+        ? { type: "shop_buyers" as const, shopIds: shopSel?.shopIds ?? [], sinceDays: shopSel?.sinceDays }
         : { type: "roles" as const, roles }
 
     setSending(true)
@@ -231,12 +267,17 @@ export default function BroadcastTab() {
           <CardContent>
             <div className="flex flex-wrap gap-4">
               {ALL_CHANNELS.map((ch) => (
-                <label key={ch} className="flex items-center gap-2 text-sm capitalize cursor-pointer">
-                  <Checkbox checked={channels.includes(ch)} onCheckedChange={() => toggle(setChannels, ch)} />
+                <label key={ch} className={`flex items-center gap-2 text-sm capitalize ${isShopBuyers && ch !== "sms" ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
+                  <Checkbox
+                    checked={channels.includes(ch)}
+                    onCheckedChange={() => toggle(setChannels, ch)}
+                    disabled={isShopBuyers && ch !== "sms"}
+                  />
                   {ch}
                 </label>
               ))}
             </div>
+            {isShopBuyers && <p className="mt-2 text-xs text-muted-foreground">Shop buyers can only be reached by SMS.</p>}
           </CardContent>
         </Card>
 
@@ -258,11 +299,12 @@ export default function BroadcastTab() {
                 { id: "specific", label: "Specific users" },
                 { id: "group", label: "Address-book group" },
                 { id: "shop_owners", label: "Shop Owners" },
+                { id: "shop_buyers", label: "Shop buyers" },
               ] as { id: Audience; label: string }[]).map((opt) => (
                 <button
                   key={opt.id}
                   type="button"
-                  onClick={() => setAudienceType(opt.id)}
+                  onClick={() => chooseAudience(opt.id)}
                   className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
                     audienceType === opt.id
                       ? "bg-background text-foreground shadow-sm"
@@ -354,6 +396,8 @@ export default function BroadcastTab() {
               </div>
             )}
 
+            {isShopBuyers && <ShopBuyersPicker onChange={setShopSel} />}
+
             {audienceType === "shop_owners" && (
               <p className="text-sm text-muted-foreground">
                 Sends to every user who owns a shop — dealers and sub-agents alike. No further selection needed.
@@ -397,12 +441,27 @@ export default function BroadcastTab() {
               </div>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="message">Message body</Label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="message">Message body</Label>
+                {isShopBuyers && (
+                  <div className="flex gap-1">
+                    {["[ShopName]", "[ShopLink]", "[ShopCode]"].map((t) => (
+                      <Button key={t} type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertToken(t)}>
+                        + {t}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <Textarea
                 id="message"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Type your message… use [FirstName], [LastName], [Phone] for group personalisation"
+                placeholder={
+                  isShopBuyers
+                    ? "e.g. Cheap data again at [ShopName]: [ShopLink]"
+                    : "Type your message… use [FirstName], [LastName], [Phone] for group personalisation"
+                }
                 rows={6}
               />
             </div>
@@ -427,6 +486,14 @@ export default function BroadcastTab() {
             {audienceType === "group" && mergeFields && hasMergeTokens(message) && (
               <p className="text-xs text-muted-foreground">Sample personalisation shown (Ama Mensah · 0241234567).</p>
             )}
+            {isShopBuyers && shopSel?.sampleShop && hasShopTokens(message) && (
+              <p className="text-xs text-muted-foreground">Shown for {shopSel.sampleShop.name}. Each buyer gets their own shop&apos;s name, link and code.</p>
+            )}
+            {isShopBuyers && shopSel && message.includes("[ShopCode]") && shopSel.buyersWithoutCode > 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {shopSel.buyersWithoutCode.toLocaleString("en-US")} buyers will be skipped: their shop has no active shop code.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -435,7 +502,7 @@ export default function BroadcastTab() {
             <CardTitle className="text-sm">Estimate</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1 text-sm">
-            <Row label="Characters" value={String(message.length)} />
+            <Row label={isShopBuyers ? "Characters (longest link)" : "Characters"} value={String(isShopBuyers && shopSel ? renderShopTokens(message, { shopName: shopSel.longestName, shopLink: shopSel.longestLink, shopCode: shopSel.longestCode, phone: "0241234567" }).length : message.length)} />
             <Row label="Encoding" value={seg.encoding.toUpperCase()} />
             <Row label="Segments / recipient" value={String(displaySegments)} />
             <Row

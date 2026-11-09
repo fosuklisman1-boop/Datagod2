@@ -15,6 +15,7 @@ import GoogleAuthButton from "@/components/GoogleAuthButton"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { useCommunityLink } from "@/hooks/use-community-link"
 import { isPageHidden } from "@/lib/custom-domains"
+import { safeRedirectPath, authUrl } from "@/lib/post-auth-redirect"
 import { MessageCircle, Mail, Lock, Eye, EyeOff, Check } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -36,9 +37,7 @@ export default function LoginForm() {
   // relative) or a full URL — to prevent post-login open-redirect to attacker
   // sites. Mirrors the OAuth `next` guard in lib/auth-complete.ts.
   useEffect(() => {
-    const raw = searchParams.get("redirect")
-    const redirect = raw && /^\/(?!\/)/.test(raw) ? raw : "/dashboard"
-    setRedirectTo(redirect)
+    setRedirectTo(safeRedirectPath(searchParams.get("redirect")))
   }, [searchParams])
 
   // Handle form input changes
@@ -205,7 +204,7 @@ export default function LoginForm() {
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link href="/auth/signup" className="font-medium text-primary hover:underline">Create an account</Link>
+            <Link href={authUrl("signup", redirectTo === "/dashboard" ? null : redirectTo)} className="font-medium text-primary hover:underline">Create an account</Link>
           </p>
 
           {!isPageHidden("guest_purchase", domainBranding.hiddenPages) && (

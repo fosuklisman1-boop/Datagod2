@@ -28,11 +28,27 @@ export interface ReconcileRunResult {
 function isProcessable(row: StoredRefund): boolean {
   if (row.status !== "processing") return false
   if (row.gateway === "paystack") return isLookupableRefundId(row.gateway_ref)
-  return row.gateway === "paystack_payout" || row.gateway === "moolre"
+  // Hubtel Send Money payouts are looked up by the refund id (their ClientReference), after Hubtel's 5 minutes
+  // (reconcileRefund waits that out). A `pending` one past 24 hours alerts admins and changes nothing.
+  return row.gateway === "paystack_payout" || row.gateway === "moolre" || row.gateway === "hubtel_send"
 }
 
-export async function reconcileProcessingPaystackRefunds(deps: RefundDeps, rows: StoredRefund[], now: number = Date.now()): Promise<ReconcileRunResult> {
+/** Ids only: no number, no amount. Says what to do: the row has its own actions on /admin/refunds. */
+export function staleHubtelSendAlert(stale: Pick<StoredRefund, "id">[]): string {
+  const ids = stale.slice(0, 5).map((r) => r.id.slice(0, 8)).join(", ")
+  return `${stale.length} Hubtel payout refund(s) still unconfirmed after 24 hours (${ids}). On /admin/refunds, History: press "Hubtel status" to see what Hubtel says. If it failed or has no record, use "Hubtel confirms this never paid: mark failed", then Retry. If it says paid, check Hubtel and contact the developer.`
+}
+
+export interface ReconcileOptions {
+  /** Called once per run with the hubtel_send refunds still unsettled 24 hours after creation. Never allowed to throw into the run. */
+  onStaleHubtelSend?: (rows: StoredRefund[]) => Promise<void>
+}
+
+export async function reconcileProcessingPaystackRefunds(
+  deps: RefundDeps, rows: StoredRefund[], now: number = Date.now(), opts: ReconcileOptions = {},
+): Promise<ReconcileRunResult> {
   const r: ReconcileRunResult = { checked: 0, completed: 0, failed: 0, stillProcessing: 0, errors: 0, skipped: 0, stale24h: 0 }
+  const staleHubtel: StoredRefund[] = []
   for (const row of rows) {
     if (!isProcessable(row)) { r.skipped++; continue }
     if (r.checked >= MAX_PER_RUN) break
@@ -48,6 +64,7 @@ export async function reconcileProcessingPaystackRefunds(deps: RefundDeps, rows:
         if (Number.isFinite(t) && now - t >= STALE_MS) {
           r.stale24h++
           console.error(`[REFUND-CRON] needs attention: ${row.id}`)
+          if (row.gateway === "hubtel_send") staleHubtel.push(row)
         }
       }
     } catch (err) {
@@ -61,6 +78,13 @@ export async function reconcileProcessingPaystackRefunds(deps: RefundDeps, rows:
         r.errors++
         console.error(`[REFUND-CRON] unexpected error for refund ${row.id}:`, err)
       }
+    }
+  }
+  if (staleHubtel.length > 0 && opts.onStaleHubtelSend) {
+    try {
+      await opts.onStaleHubtelSend(staleHubtel)
+    } catch (err) {
+      console.error("[REFUND-CRON] stale Hubtel payout alert failed:", err instanceof Error ? err.name : "unknown")
     }
   }
   return r

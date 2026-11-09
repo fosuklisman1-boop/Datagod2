@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { SurfaceFeeNote } from "@/components/payment/hubtel-fee-note"
 import { AlertCircle, CheckCircle, Loader2, Smartphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,8 +19,8 @@ export function useWalletGates(): { walletDirect: boolean; walletOtp: boolean } 
   useEffect(() => {
     let alive = true
     fetch("/api/public/turnstile-status")
-      .then((r) => (r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false }))
-      .then((d) => { if (alive) setGates({ walletDirect: d.wallet_direct_charge === true, walletOtp: d.wallet_lock === true }) })
+      .then((r) => (r.ok ? r.json() : { wallet_lock: false, wallet_direct_charge: false, sms_direct_charge: false }))
+      .then((d) => { if (alive) setGates({ walletDirect: d.sms_direct_charge === true, walletOtp: d.wallet_lock === true }) })
       .catch(() => { if (alive) setGates({ walletDirect: false, walletOtp: false }) })
     return () => { alive = false }
   }, [])
@@ -188,6 +189,7 @@ export function MomoDialog({ open, onClose, cost, walletOtp }: MomoDialogProps) 
                 className="font-mono"
               />
               <p className="text-xs text-muted-foreground">The payment prompt is sent to this number.</p>
+              <SurfaceFeeNote field="sms_gateway" />
             </div>
 
             {walletOtp && (!f.otpVerified ? (

@@ -2,6 +2,7 @@
 // kyc-rules and sender-name are pure (no server imports), so client and server share one set of rules.
 import { validateKycDraft, docExtension, type KycStatus } from "@/lib/sms/kyc-rules"
 import { validateSenderName, SENDER_NAME_MAX } from "@/lib/sms/sender-name"
+import type { SmsLimits } from "./api"
 
 export interface ShopTokens { shop_name: string; shop_link: string; shop_phone: string; shop_whatsapp: string }
 export type VerifyStatus = "unverified" | "pending" | "verified" | "invalid"
@@ -12,8 +13,14 @@ export interface Contact {
 }
 export type BulkRow = { phone_number: string; first_name?: string; last_name?: string }
 
-/** Mirrors server SMS_MAX_TOTAL. */
+/** Mirrors server SMS_HARD_MAX_PER_SEND (the most one send can carry). */
 export const MAX_RECIPIENTS = 5000
+
+/** Recipients one send may carry: the account's admin per-send limit (from Home), within the ceiling. */
+export function recipientLimit(limits: SmsLimits | null): number {
+  const n = limits?.perSend
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 ? Math.min(n, MAX_RECIPIENTS) : MAX_RECIPIENTS
+}
 
 // Quick-insert chips: {shop_*} tokens are resolved server-side (and previewed
 // client-side); Promo / Order now drop in handy starter text.

@@ -9,21 +9,9 @@ export function absoluteUrl(path: string): string {
   return p === "/" ? SITE_URL : `${SITE_URL}${p}`
 }
 
-/**
- * True when the request is on the DATAGOD marketing site (root, www, local
- * dev, preview deployments). False for shop subdomains, reserved
- * app/admin/api subdomains, custom domains, and empty hosts.
- *
- * `siteKind` is the x-site-kind header middleware set for this request; when
- * it is present it decides. Without it this falls back to the host check.
- */
-export function isMainSiteHost(
-  host: string | null,
-  rootDomain?: string,
-  siteKind?: string | null,
-): boolean {
-  return isMainSiteFromHeaders({ siteKind, host }, rootDomain)
-}
+// Lives in a client-safe module (this file imports next/headers) so client
+// components can use it too; re-exported here for existing server importers.
+export { isMainSiteHost } from "./main-site-host"
 
 /**
  * Server-only: true only on the main DATAGOD host. Reads middleware's

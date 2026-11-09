@@ -1,0 +1,32 @@
+Hubtel Direct Send Money and Online Checkout: first live test (2026-11-06)
+
+Sent from the relay droplet with one-off curl over ssh; no app code involved. The existing key was used.
+
+1. Rejected on purpose (Amount 0, bad channel): HTTP 400, ResponseCode "4000", with an Errors list by field.
+   -> The body has no Data. Key has send permission. Channels accepted include mtn-gh, mtn-gh-cbg, vodafone-gh,
+      airtel-gh, tigo-gh, airteltigo-gh, hubtel-gh (list cut off in our log).
+
+2. Status of an unknown reference: HTTP 400
+   {"ResponseCode":"error","Data":"Your status check did not match any records, please check your request and try again."}
+
+3. Online Checkout initiate, GHS 1.00, not paid: HTTP 200
+   {"responseCode":"0000","status":"Success","data":{"checkoutUrl":"<link>","checkoutId":"<id>",
+    "clientReference":"<ours>","message":"","checkoutDirectUrl":"<link>"}}
+   -> Enabled. Fee semantics and card restriction are still untested: this link was never paid.
+
+4. Real send: GHS 1.00 to the owner's MTN number, Description "Refund", 32-hex ClientReference. HTTP 200
+   {"ResponseCode":"0001","Data":{"AmountDebited":0.0,"TransactionId":"<32 hex>","ClientReference":"<ours>",
+    "Description":"Your request has been accepted. We'll notify you when the transaction is completed.",
+    "ExternalTransactionId":"","Amount":1.00,"Charges":0.0,"Meta":null,"RecipientName":null}}
+
+5. Status check moments later: HTTP 200
+   {"ResponseCode":"success","Data":{"TransactionId":"<32 hex>","networkTransactionId":"<11 digits>","Amount":1.0,
+    "fees":0.01,"ClientReference":"<ours>","Channel":"mtn-gh","customerNumber":"<233...>","Description":"Refund",
+    "transactionStatus":"success","CreatedAt":"2026-11-06 10:41:10"}}
+   -> `Amount` excludes the fee: classifySendStatus's exact amount match holds.
+   -> Live field names are `fees` and `customerNumber`, not the docs' `Fees` and `CustomerNumber`.
+   -> Fee is on us: disbursement balance went 135.6481 -> 134.6381, so GHS 1.01 for a GHS 1.00 send.
+   -> 0001 carried a TransactionId, so a stored non-reference gateway_ref does mean accepted.
+
+Still unverified: a real failed status word, and the callback (this send's callback URL had no signature, so our
+route answers 401 by design; its casing wasn't seen).

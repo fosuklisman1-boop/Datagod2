@@ -19,6 +19,9 @@ import { HTML_LANG, ROOT_DESCRIPTION, ROOT_LOCALE, ROOT_TITLE, siteVerification 
 import { buildSiteJsonLd } from "@/lib/seo/json-ld";
 import { isMainSiteRequest } from "@/lib/seo/site";
 import { assertProductFactsLoaded } from "@/lib/seo/product-status";
+import { FirstTouchCapture } from "@/components/first-touch-capture";
+import { GoogleAnalyticsGuard } from "@/components/google-analytics-guard";
+import { gaBootstrapScript, shouldLoadGa } from "@/lib/analytics/google-analytics";
 
 // Per design spec: Inter = display/headings, DM Sans = body, JetBrains Mono = labels/metadata.
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -217,6 +220,8 @@ export default async function RootLayout({
   // app/loading.tsx Suspense boundary, so Next turns it into a 500.
   if (!maintenanceMode) await assertProductFactsLoaded();
 
+  const gaEnabled = shouldLoadGa({ host: headersList.get("host"), vercelEnv: process.env.VERCEL_ENV });
+
   return (
     <html lang={HTML_LANG} suppressHydrationWarning>
       <head>
@@ -263,6 +268,8 @@ export default async function RootLayout({
             `,
           }}
         />
+        {/* Google Analytics: production main site, public pages only */}
+        {gaEnabled && <script nonce={nonce} dangerouslySetInnerHTML={{ __html: gaBootstrapScript() }} />}
         {/* No global Paystack inline.js: every payment flow redirects to Paystack's
             hosted checkout or charges MoMo server-side. The only PaystackPop user,
             components/paystack-inline-modal.tsx, loads the script itself before use.
@@ -282,6 +289,8 @@ export default async function RootLayout({
                 <PushOptInBanner />
                 <ChristmasThemeProvider />
                 <InactivityLogoutProvider />
+                <FirstTouchCapture />
+                {gaEnabled && <GoogleAnalyticsGuard />}
                 {children}
                 <Toaster />
               </AuthProvider>

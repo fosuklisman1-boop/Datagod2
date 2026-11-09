@@ -9,7 +9,7 @@ async function toProduct(deps: RouterDeps) {
 }
 async function toNetworks(deps: RouterDeps) {
   const menu = await toProduct(deps)
-  return hubtelRouter(req({ Message: digitFor(menu.Message, "Buy Data Bundle") }), deps)
+  return hubtelRouter(req({ Message: digitFor(menu.Message, "Internet Bundles") }), deps)
 }
 /** MTN (first shop network), first package, recipient -> confirm screen. */
 async function toConfirm(deps: RouterDeps, recipient = "0244123456") {

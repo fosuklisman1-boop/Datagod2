@@ -1,5 +1,5 @@
 // lib/ussd-hubtel/status-check.ts
-import { processFulfillment, recordReviewReason, type OrderHandlers, type PaidReviewHandlers } from "./payment"
+import { hubtelPaymentRef, processFulfillment, recordReviewReason, type OrderHandlers, type PaidReviewHandlers, type PossiblyPaidAlerts } from "./payment"
 import type { HubtelTxRow, HubtelTxStore } from "./types"
 import { safeDbError } from "./log-safe"
 
@@ -7,6 +7,7 @@ export const STATUS_CHECK_MIN_AGE_MS = 5 * 60_000
 export const STATUS_CHECK_MAX_AGE_MS = 60 * 60_000
 export const STATUS_CHECK_MAX_ATTEMPTS = 6
 export const STATUS_CHECK_GAP_MS = 5 * 60_000
+// The sweep is safe only while the handler routes' maxDuration (300 seconds) stays under this 10-minute stale window.
 const STALE_PROCESSING_MINUTES = 10
 export const SWEEP_REVIEW_REASON =
   "handler did not finish (crash/timeout after payment was recorded): check the order's payment status, shop/parent profit and fulfilment"
@@ -58,6 +59,8 @@ export async function runStatusChecks(args: {
   failHandlers: OrderHandlers
   /** Records a held successful payment on the order (late success / underpayment); see processFulfillment. */
   paidReviewHandlers?: PaidReviewHandlers
+  /** Tells admins a swept row with no paid_at may have been paid; see createPossiblyPaidAlerts. */
+  possiblyPaidAlerts?: PossiblyPaidAlerts
   check: StatusChecker
   now?: number
   limit?: number
@@ -89,6 +92,23 @@ export async function runStatusChecks(args: {
       })
       await recordReviewReason(args.store, row.session_id, SWEEP_REVIEW_REASON)
       console.error("[HUBTEL-STATUS] stale processing row moved to needs_review:", row.session_id)
+      // The handler died and is never re-run. With a proven payment, the guarded recorder makes whatever it never flipped
+      // paid + failed (refundable, never sent) and tells admins about a Special group; what it flipped stays as it is.
+      const record = args.paidReviewHandlers?.[fresh.order_table]
+      if (record && fresh.paid_at) {
+        try {
+          await record(fresh.order_id, { reference: hubtelPaymentRef(fresh.hubtel_order_id, row.session_id), reason: SWEEP_REVIEW_REASON, urgent: true })
+        } catch (e) {
+          console.error("[HUBTEL-STATUS] could not record the held payment on the order:", row.session_id, fresh.order_table, fresh.order_id, safeDbError(e))
+        }
+      } else if (!fresh.paid_at) {
+        // No proof of payment (this state can also follow a crash in the expiry path), so nothing is recorded: only told.
+        try {
+          await args.possiblyPaidAlerts?.[fresh.order_table]?.(fresh.order_id, row.session_id)
+        } catch (e) {
+          console.error("[HUBTEL-STATUS] could not send the possibly paid alert:", row.session_id, fresh.order_table, fresh.order_id, safeDbError(e))
+        }
+      }
       out.swept++
     } catch (e) { console.error("[HUBTEL-STATUS] sweep error:", row.session_id, safeDbError(e)) }
   }

@@ -8,19 +8,21 @@ const h = vi.hoisted(() => {
   const state = {
     orders: {} as Record<string, any>,
     inserts: [] as { table: string; rows: any[] }[],
-    gates: { storefrontOtp: false, storefrontDirect: true, walletOtp: false, walletDirect: false },
+    gates: { storefrontOtp: false, storefrontDirect: true, walletOtp: false, walletDirect: false, dashboardDirect: false },
     otpVerified: true,
+    authUser: null as { id: string } | null,
     /** Pending wallet_payments rows returned by the "payment still in progress" lookup. */
     livePayments: [] as { id: string }[],
   }
   const chain = (table: string) => {
     const c: any = {}
     let inserting = false
-    for (const m of ["select", "or", "eq", "is", "in", "update", "gte"]) c[m] = () => c
+    for (const m of ["select", "or", "eq", "is", "in", "update", "gte", "gt", "order"]) c[m] = () => c
     c.limit = () => (table === "wallet_payments" && !inserting
       ? Promise.resolve({ data: state.livePayments, error: null })
       : c)
     c.single = async () => {
+      if (table === "subscription_plans") return { data: { price: 50 }, error: null }
       if (table === "user_shops") return { data: { id: "shop1" }, error: null }
       if (table === "app_settings") return { data: { paystack_fee_percentage: 3, wallet_topups_enabled: true, upgrades_enabled: true }, error: null }
       return { data: null, error: null }
@@ -30,7 +32,7 @@ const h = vi.hoisted(() => {
     c.then = (res: any, rej: any) => Promise.resolve({ data: [{ id: "wp1" }], error: null }).then(res, rej)
     return c
   }
-  return { state, fake: { from: chain, auth: { getUser: async () => ({ data: { user: null } }) } } }
+  return { state, fake: { from: chain, auth: { getUser: async (t: string) => ({ data: { user: t === "valid-token" ? { id: "u1", email: "dealer@example.com" } : state.authUser } }) } } }
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
@@ -49,6 +51,7 @@ vi.mock("@/lib/storefront-otp", () => ({
   isStorefrontOtpRequired: async () => h.state.gates.storefrontOtp,
   isStorefrontDirectChargeEnabled: async () => h.state.gates.storefrontDirect,
   isWalletDirectChargeEnabled: async () => h.state.gates.walletDirect,
+  isDashboardDirectChargeEnabled: async () => h.state.gates.dashboardDirect,
 }))
 vi.mock("@/lib/security-log", () => ({ logSecurityEvent: vi.fn() }))
 vi.mock("@/lib/phone-verify-guard", () => ({ checkPhoneVerified: async () => ({ allowed: true }) }))
@@ -57,6 +60,7 @@ const recordPayerPhone = vi.fn(async (..._a: any[]) => {})
 vi.mock("@/lib/refunds/payer-phone", () => ({ recordPayerPhone: (...a: any[]) => recordPayerPhone(...a) }))
 
 import { POST } from "./route"
+import { applyRateLimit } from "@/lib/rate-limiter"
 
 const ORDER_ID = "11111111-2222-3333-4444-555555555555"
 const row = (o: Record<string, unknown> = {}) => ({
@@ -76,12 +80,69 @@ const PRODUCT_WORDS = /bill|bundle|data|airtime|ecg|water|broadband|dstv|gotv|st
 beforeEach(() => {
   h.state.orders = { hubtel_bill_orders: row(), hubtel_data_orders: row({ paid_amount: 12.3 }) }
   h.state.inserts = []
-  h.state.gates = { storefrontOtp: false, storefrontDirect: true, walletOtp: false, walletDirect: false }
+  h.state.gates = { storefrontOtp: false, storefrontDirect: true, walletOtp: false, walletDirect: false, dashboardDirect: false }
   h.state.otpVerified = true
+  h.state.authUser = null
   h.state.livePayments = []
+  vi.mocked(applyRateLimit).mockClear()
   chargeMobileMoney.mockClear()
   initializePayment.mockClear()
   recordPayerPhone.mockClear()
+})
+
+describe("payments/initialize: dealer upgrade request shape", () => {
+  const upgrade = (body: Record<string, unknown>, token: string | null = "valid-token") =>
+    POST(new NextRequest("http://x/api/payments/initialize", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ type: "dealer_upgrade", email: "dealer@example.com", amount: 1, ...body }),
+    }))
+
+  const PLAN_ID = "4d05cda6-4e1b-42ec-841d-f4c9a41fb79b"
+
+  it("refuses orderType dealer_upgrade sent without the matching type", async () => {
+    const res = await upgrade({ type: undefined, orderType: "dealer_upgrade", planId: PLAN_ID, orderId: ORDER_ID })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Invalid upgrade request")
+    expect(initializePayment).not.toHaveBeenCalled()
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("refuses a planId sent as an array", async () => {
+    const res = await upgrade({ planId: [PLAN_ID] })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Please choose a subscription plan")
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("refuses an upgrade carrying an orderId, before any payment is created", async () => {
+    const res = await upgrade({ planId: PLAN_ID, orderId: ORDER_ID })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Invalid upgrade request")
+    expect(initializePayment).not.toHaveBeenCalled()
+    expect(h.state.inserts).toHaveLength(0)
+  })
+
+  it("refuses an upgrade with no planId", async () => {
+    const res = await upgrade({})
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe("Please choose a subscription plan")
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("refuses an upgrade with no logged-in user", async () => {
+    const res = await upgrade({ planId: PLAN_ID }, null)
+    expect(res.status).toBe(401)
+    expect(initializePayment).not.toHaveBeenCalled()
+  })
+
+  it("a normal upgrade is still priced from the plan, ignoring the client amount", async () => {
+    const res = await upgrade({ planId: PLAN_ID, amount: 1 })
+    expect(res.status).toBe(200)
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    const walletRow = h.state.inserts.find(i => i.table === "wallet_payments")?.rows[0]
+    expect(walletRow).toMatchObject({ order_type: "dealer_upgrade", order_id: null, amount: 51.5, fee: 1.5 })
+  })
 })
 
 describe("payments/initialize momoDirect: storefront bill / bundle orders", () => {
@@ -167,5 +228,98 @@ describe("payments/initialize momoDirect: storefront bill / bundle orders", () =
     await post({ orderType: "cs_bill" })
     expect(initializePayment.mock.calls[0][0].channels).toContain("mobile_money")
     expect(initializePayment.mock.calls[0][0].amount).toBe(98.5)
+  })
+})
+
+describe("payments/initialize: dealer upgrade follows dashboard_direct, not wallet_topup", () => {
+  const upgrade = (body: Record<string, unknown> = {}) =>
+    POST(new NextRequest("http://x/api/payments/initialize", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: "Bearer tok" },
+      body: JSON.stringify({ type: "dealer_upgrade", planId: "4d05cda6-4e1b-42ec-841d-f4c9a41fb79b", email: "dealer@example.com", amount: 50, momoDirect: true, paymentPhone: "0241234567", ...body }),
+    }))
+
+  beforeEach(() => {
+    h.state.authUser = { id: "user1" }
+  })
+
+  it("dashboard_direct ON while wallet_topup is checkout => upgrade direct charge is allowed", async () => {
+    h.state.gates.dashboardDirect = true
+    h.state.gates.walletDirect = false
+    const res = await upgrade()
+    expect(res.status).not.toBe(400)
+    expect(chargeMobileMoney).toHaveBeenCalledTimes(1)
+  })
+
+  it("dashboard_direct OFF while wallet_topup is direct => upgrade direct charge is refused (DIRECT_CHARGE_OFF)", async () => {
+    h.state.gates.dashboardDirect = false
+    h.state.gates.walletDirect = true
+    const res = await upgrade()
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ code: "DIRECT_CHARGE_OFF" })
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+  })
+
+  it("per-user rate cap applies when ONLY dashboardDirectOn is true", async () => {
+    h.state.gates.dashboardDirect = true
+    h.state.gates.walletDirect = false
+    h.state.gates.walletOtp = false
+    await upgrade()
+    const keys = vi.mocked(applyRateLimit).mock.calls.map((c) => c[1])
+    expect(keys).toContain("payment_init_topup_user")
+  })
+
+  it("per-user rate cap is NOT applied when every wallet gate is off", async () => {
+    await upgrade({ momoDirect: false })
+    const keys = vi.mocked(applyRateLimit).mock.calls.map((c) => c[1])
+    expect(keys).not.toContain("payment_init_topup_user")
+  })
+})
+
+describe("payments/initialize: hosted mobile_money strip follows the per-surface direct flag", () => {
+  const hosted = (body: Record<string, unknown>) =>
+    POST(new NextRequest("http://x/api/payments/initialize", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: "Bearer tok" },
+      body: JSON.stringify({ email: "dealer@example.com", amount: 50, ...body }),
+    }))
+  const upgrade = () => hosted({ type: "dealer_upgrade", planId: "4d05cda6-4e1b-42ec-841d-f4c9a41fb79b" })
+  const topup = () => hosted({})
+
+  beforeEach(() => {
+    h.state.authUser = { id: "user1" }
+    h.state.gates.storefrontDirect = false
+  })
+
+  it("upgrade, dashboard_direct=direct, wallet_topup=checkout => mobile_money stripped", async () => {
+    h.state.gates.dashboardDirect = true
+    h.state.gates.walletDirect = false
+    await upgrade()
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(initializePayment.mock.calls[0][0].channels).not.toContain("mobile_money")
+  })
+
+  it("upgrade, dashboard_direct=checkout, wallet_topup=direct => mobile_money kept", async () => {
+    h.state.gates.dashboardDirect = false
+    h.state.gates.walletDirect = true
+    await upgrade()
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(initializePayment.mock.calls[0][0].channels).toContain("mobile_money")
+  })
+
+  it("topup, wallet_topup=direct, dashboard_direct=checkout => mobile_money stripped", async () => {
+    h.state.gates.dashboardDirect = false
+    h.state.gates.walletDirect = true
+    await topup()
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(initializePayment.mock.calls[0][0].channels).not.toContain("mobile_money")
+  })
+
+  it("topup, wallet_topup=checkout, dashboard_direct=direct => mobile_money kept", async () => {
+    h.state.gates.dashboardDirect = true
+    h.state.gates.walletDirect = false
+    await topup()
+    expect(initializePayment).toHaveBeenCalledTimes(1)
+    expect(initializePayment.mock.calls[0][0].channels).toContain("mobile_money")
   })
 })

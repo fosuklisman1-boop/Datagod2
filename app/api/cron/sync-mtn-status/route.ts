@@ -340,7 +340,7 @@ export async function GET(request: NextRequest) {
     // it's deliberately NOT in this set.
     const PROVIDERS_WITH_DEDICATED_CRON = new Set([
       "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft",
-      "agentportalgh", "apexprime", "spfastit", "spfastit_telecel",
+      "agentportalgh", "apexprime", "spfastit", "spfastit_telecel", "kuntanii",
     ])
 
     // Step 3: Process each pending order by looking up in the CORRECT provider map

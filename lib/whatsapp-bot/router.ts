@@ -39,6 +39,7 @@ import {
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { handleWaBotOtp, handleWaBotStep, isWaBotStep, waBotNaturalToDigit, waBotOtpPending } from "./bot-flows"
 import { whatsappBotItemsVisible } from "./cashback-visibility"
+import { claimShopCharge, releaseShopCharge } from "./shop-charge-claim"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -407,7 +408,13 @@ export async function waRouter(phone: string, text: string): Promise<string> {
         break
       }
 
-      if (session.pendingOrderTable === 'airtime_orders' || session.pendingOrderTable === 'results_checker_orders') {
+      // Same tables as the USSD router: each closes its own row (handleSubmitOtp writes ussd_orders only).
+      if (
+        session.pendingOrderTable === 'airtime_orders' ||
+        session.pendingOrderTable === 'results_checker_orders' ||
+        session.pendingOrderTable === 'results_check_requests' ||
+        session.pendingOrderTable === 'ussd_afa_orders'
+      ) {
         if (!session.pendingOrderId) {
           result = { message: 'Session error. Please start a new order.', ussdServiceOp: 17 }
         } else {
@@ -433,10 +440,16 @@ export async function waRouter(phone: string, text: string): Promise<string> {
       result = await handleAfaEnterLocation(input, sessionId, session)
       break
     case 'AFA_ENTER_REGION':
-      result = await handleAfaEnterRegion(input, sessionId, session)
+      result = await handleAfaEnterRegion(input, sessionId, session, 'whatsapp')
       break
     case 'AFA_CONFIRM_AFA':
-      result = await handleAfaConfirm(input, sessionId, session)
+      if (input === '1') {
+        // Always ask for MoMo number — don't auto-use the WhatsApp number
+        await setWaSession(sessionId, { ...session, step: 'WA_ENTER_PAYMENT_PHONE', waNextStep: 'CONFIRM_AFA' })
+        result = { message: 'Enter MoMo number to charge:\n(e.g. 0244123456)\n\n0. Cancel', ussdServiceOp: 2 }
+      } else {
+        result = await handleAfaConfirm(input, sessionId, session, 'whatsapp')
+      }
       break
 
     case 'AIRTIME_ENTER_RECIPIENT':
@@ -660,7 +673,34 @@ async function waMainMenuText(sessionId: string, session: USSDSession): Promise<
 
 // ── WA_ENTER_PAYMENT_PHONE ────────────────────────────────────────────────────
 
-async function handleWaEnterPaymentPhone(
+/**
+ * The typed MoMo number writes the order and starts the charge, so two messages arriving together (both reading this
+ * step) would mint two orders and two prompts. One at a time per sender, on every gateway: the same claim as the shop
+ * bot, in its own scope. The session is read again once the claim is held, because a message that read the step just
+ * before an earlier one finished can win the claim after it.
+ */
+const WA_CHARGE_BUSY_REPLY = "Please check for the payment prompt, or start again if you didn't get one."
+
+async function handleWaEnterPaymentPhone(input: string, sessionId: string, session: USSDSession): Promise<UzoResponse> {
+  if (input.trim() === '0') return enterPaymentPhone(input, sessionId, session)
+  const claim = await claimShopCharge(sessionId, 'main')
+  // Owner decision 2026-11-05: on the main bot a lock outage doesn't stop sales. No claim is held, so nothing to release,
+  // and admins were alerted inside claimShopCharge. Two messages at once could mint two orders during that outage.
+  if (claim === 'unavailable') return enterPaymentPhone(input, sessionId, session)
+  // Op 2 on the busy answers: op 17 would delete the session the other request is still writing.
+  if (claim === 'held') return { message: WA_CHARGE_BUSY_REPLY, ussdServiceOp: 2 }
+  try {
+    const fresh = await getWaSession(sessionId)
+    if (fresh?.step !== 'WA_ENTER_PAYMENT_PHONE') {
+      return { message: WA_CHARGE_BUSY_REPLY, ussdServiceOp: 2 }
+    }
+    return await enterPaymentPhone(input, sessionId, fresh)
+  } finally {
+    await releaseShopCharge(sessionId, 'main')
+  }
+}
+
+async function enterPaymentPhone(
   input: string,
   sessionId: string,
   session: USSDSession
@@ -670,6 +710,7 @@ async function handleWaEnterPaymentPhone(
     : session.waNextStep === 'CONFIRM_RC' ? 'RC_CONFIRM'
     : session.waNextStep === 'CONFIRM_BUNDLE' ? 'CONFIRM'
     : session.waNextStep === 'CONFIRM_CHECK' ? 'RC_CHECK_CONFIRM'
+    : session.waNextStep === 'CONFIRM_AFA' ? 'AFA_CONFIRM_AFA'
     : session.pendingOrderTable === 'airtime_orders' ? 'AIRTIME_PAYMENT_METHOD'
     : session.pendingOrderTable === 'results_checker_orders' ? 'RC_PAYMENT_METHOD'
     : 'PAYMENT_METHOD'
@@ -677,7 +718,7 @@ async function handleWaEnterPaymentPhone(
   if (input.trim() === '0') {
     if (
       parentStep === 'CONFIRM' || parentStep === 'AIRTIME_CONFIRM' ||
-      parentStep === 'RC_CONFIRM' || parentStep === 'RC_CHECK_CONFIRM'
+      parentStep === 'RC_CONFIRM' || parentStep === 'RC_CHECK_CONFIRM' || parentStep === 'AFA_CONFIRM_AFA'
     ) {
       // Return to the confirm step by resetting step (user can re-review the order)
       await setWaSession(sessionId, { ...session, step: parentStep as USSDSession['step'], waNextStep: undefined })
@@ -763,6 +804,11 @@ async function handleWaEnterPaymentPhone(
     return { ...res, message: fixWaMomoMsg(res.message) }
   }
 
+  if (session.waNextStep === 'CONFIRM_AFA') {
+    const res = await handleAfaConfirm('1', sessionId, updatedSession, 'whatsapp')
+    return { ...res, message: fixWaMomoMsg(res.message) }
+  }
+
   // Standard MoMo payment-method paths
   if (parentStep === 'PAYMENT_METHOD') {
     const res = await handlePaymentMethod('2', sessionId, updatedSession, 'whatsapp')
@@ -782,9 +828,12 @@ async function isOrderPaymentComplete(orderId: string, table?: string): Promise<
   try {
     const tbl = table === 'airtime_orders' ? 'airtime_orders'
       : table === 'results_checker_orders' ? 'results_checker_orders'
+      : table === 'results_check_requests' ? 'results_check_requests'
+      : table === 'ussd_afa_orders' ? 'ussd_afa_orders'
       : 'ussd_orders'
     const { data } = await supabase.from(tbl).select('payment_status').eq('id', orderId).maybeSingle()
-    return data?.payment_status === 'completed'
+    // results_check_requests says 'paid' (charge-events.ts); the order tables say 'completed'.
+    return data?.payment_status === (tbl === 'results_check_requests' ? 'paid' : 'completed')
   } catch {
     return false
   }

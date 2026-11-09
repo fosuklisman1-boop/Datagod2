@@ -105,7 +105,7 @@ export default function ShopOverviewPage() {
         shopProfitService.getShopBalanceFromTable(userShop.id).catch(() => null),
         shopOrderService.getShopOrders(userShop.id).catch(() => []),
         fetch(`/api/shop/settings/${userShop.id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        supabase.from("ussd_shop_codes").select("id, code, activation_fee_paid").eq("shop_id", userShop.id).maybeSingle(),
+        supabase.from("ussd_shop_codes").select("id, code, activation_fee_paid").eq("shop_id", userShop.id).order("created_at", { ascending: true }).limit(1).maybeSingle(),
         fetch("/api/public/config").then((r) => (r.ok ? r.json() : { app_settings: {} })).catch(() => ({ app_settings: {} })),
         token ? supabase.from("sms_accounts").select("id").eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
       ])
@@ -338,9 +338,16 @@ export default function ShopOverviewPage() {
               <div className="min-w-0">
                 <p className="truncate text-lg font-bold text-foreground">{shop.shop_name}</p>
                 <div className="mt-1 flex flex-wrap gap-1.5">
-                  <Badge className={shop.is_active ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}>
-                    {shop.is_active ? "Active" : "Pending Approval"}
-                  </Badge>
+                  {!shop.is_active && shop.joined_via === "storefront" && !shop.prices_set_at ? (
+                    // Storefront joiners open by setting prices, never by admin approval.
+                    <Link href="/dashboard/shop-pricing?setup=1">
+                      <Badge className="bg-primary/10 text-primary hover:bg-primary/15">Setting up: set your prices to open</Badge>
+                    </Link>
+                  ) : (
+                    <Badge className={shop.is_active ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}>
+                      {shop.is_active ? "Active" : "Pending Approval"}
+                    </Badge>
+                  )}
                   {isDealer && <Badge className="bg-[#1b388b]/10 text-[#1b388b]">Dealer</Badge>}
                 </div>
               </div>

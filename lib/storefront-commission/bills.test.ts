@@ -135,6 +135,36 @@ describe("verifyStorefrontBill", () => {
   })
 })
 
+describe("initializeStorefrontBill when the gateway waives the payment fee", () => {
+  const init = async (over: Partial<StorefrontBillsDeps>, expectedPay: number) => {
+    const h = harness(over)
+    const r = await initializeStorefrontBill(h.d, "shop-A", { token: await tokenFor(h.d), amount: 100, expectedPay, ...BUYER })
+    return { ...h, r }
+  }
+
+  it("charges the base with no fee and records the fee as NULL, not 0", async () => {
+    const { r, inserts } = await init({ paymentFeeWaived: async () => true }, 99.87)
+    expect(r).toMatchObject({ ok: true, value: { payAmount: 99.87, paymentFee: 0 } })
+    expect(inserts[0]).toMatchObject({ paid_amount: 99.87, payment_fee_amount: null, cashback_amount: 0.13 })
+  })
+
+  it("the old price with the fee in it => 409 with the live quote", async () => {
+    const { r, inserts } = await init({ paymentFeeWaived: async () => true }, 101.82)
+    expect(r).toMatchObject({ ok: false, status: 409, quote: { payAmount: 99.87, paymentFee: 0 } })
+    expect(inserts).toHaveLength(0)
+  })
+
+  it.each<[string, Partial<StorefrontBillsDeps>]>([
+    ["not waived", { paymentFeeWaived: async () => false }],
+    ["no hook", {}],
+    ["the check throws", { paymentFeeWaived: async () => { throw new Error("x") } }],
+  ])("%s: today's price and recorded fee", async (_n, over) => {
+    const { r, inserts } = await init(over, 101.82)
+    expect(r).toMatchObject({ ok: true, value: { payAmount: 101.82, paymentFee: 1.95 } })
+    expect(inserts[0]).toMatchObject({ paid_amount: 101.82, payment_fee_amount: 1.95 })
+  })
+})
+
 describe("initializeStorefrontBill", () => {
   it("creates an unpaid storefront row: face to Hubtel, pay incl. fee, buyer_* and snapshot", async () => {
     const { d, inserts, limits } = harness()

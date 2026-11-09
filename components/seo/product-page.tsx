@@ -26,7 +26,10 @@ import { FaqSection } from "./faq-section"
 import { RelatedProducts } from "./related-products"
 import { RelatedGuides } from "./related-guides"
 import { landingsForProduct } from "@/lib/seo/landing-pages"
-import { CompareNetworks, DataNetworkCopy, DataPriceTable } from "./data-network-sections"
+import { DataNetworkCopy } from "./data-network-sections"
+import { BuyButton } from "./buy-button"
+import { PriceTable } from "./price-table"
+import { Comparison } from "./comparison"
 
 const GROUP_LABEL: Record<ProductGroup, string> = {
   data: "Data bundles",
@@ -87,14 +90,14 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
 
   const isBuy = p.group === "data" || p.group === "airtime" || p.group === "bills" || p.group === "education"
   const crumbs = productCrumbs(p)
-  // Network data pages: the live price table rows (empty when the packages read failed).
+  // Network data pages: the live adjusted price lists. An off product has
+  // nothing on sale: no price list (and so no AggregateOffer).
   const net = p.group === "data" ? p.network : undefined
-  // An off product has nothing on sale: no price rows (and so no OfferCatalog).
-  const priceRows = net && !off ? (facts.dataPrices?.[net] ?? []) : []
+  const priceGroups = net && !off ? facts.prices[net] : []
 
   return (
     <div className="min-h-screen bg-background">
-      <JsonLd data={buildProductJsonLd(p, f, priceRows)} />
+      <JsonLd data={buildProductJsonLd(p, f, priceGroups)} />
       <div className="mx-auto max-w-6xl px-4 py-10 sm:py-16">
         <nav aria-label="Breadcrumb" className="mb-8 text-sm text-muted-foreground">
           <ol className="flex flex-wrap items-center gap-1">
@@ -117,7 +120,11 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
 
         <Hero p={p} f={f} isBuy={isBuy} off={off} ussdMain={p.key === "ussd" ? facts.ussd.main : null} />
 
-        {net && !off && <DataPriceTable network={net} rows={priceRows} />}
+        {(key === "mtn-data" || key === "telecel-data" || key === "at-data") && p.network && (
+          <PriceTable name={p.name} groups={priceGroups} loadedAt={facts.loadedAt} />
+        )}
+
+        {key === "cheapest-data" && !off && <Comparison prices={facts.prices} loadedAt={facts.loadedAt} />}
 
         <section aria-labelledby="bullets-heading" className="mt-16">
           <h2 id="bullets-heading" className="font-display text-2xl sm:text-3xl font-bold text-foreground">
@@ -135,9 +142,7 @@ export async function renderProductPage(key: ProductKey): Promise<JSX.Element> {
 
         {key === "utility-bills" && <BillerCards facts={facts} />}
 
-        {net && <DataNetworkCopy network={net} rows={priceRows} />}
-
-        {net && <CompareNetworks current={key} facts={facts} />}
+        {net && <DataNetworkCopy network={net} facts={facts} />}
 
         <HowToOrder p={p} facts={facts} />
 
@@ -186,11 +191,15 @@ function Hero({ p, f, isBuy, off, ussdMain }: { p: ProductEntry; f: ProductFacts
         ) : (
           <>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
-                <Link href="/auth/signup">
-                  {isBuy ? "Buy now" : "Get started"} <ArrowRight className="h-4 w-4" aria-hidden />
-                </Link>
-              </Button>
+              {p.group === "data" ? (
+                <BuyButton />
+              ) : (
+                <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
+                  <Link href="/auth/signup">
+                    {isBuy ? "Buy now" : "Get started"} <ArrowRight className="h-4 w-4" aria-hidden />
+                  </Link>
+                </Button>
+              )}
             </div>
             <p className="mt-4 text-sm text-muted-foreground">
               Already have an account?{" "}

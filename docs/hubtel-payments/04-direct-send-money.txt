@@ -1,0 +1,229 @@
+Direct Send Money
+Last updated October 12th, 2026
+(Saved verbatim from user paste, 2026-11-04)
+
+Overview
+The Hubtel Sales API allows you to sell goods and services online, instore and on mobile. With a single integration, you can:
+
+Accept mobile money payments on your application, sell services in-store, online and on mobile as well as process all your sales on your Hubtel account.
+Send money to your customers.
+This API can be used to provide a range of services including: processing e-commerce payments, mobile banking, bulk payments and more. You can also accept payments for goods and services into your account.
+
+The following provides an overview of the Send Money API endpoints for interacting programmatically within your application.
+
+Available Channels
+The following are the available channels through which a merchant can send mobile money from a Hubtel Merchant Account.
+
+Mobile Money Provider	Channel Name
+MTN Ghana	mtn-gh
+Telecel Ghana	vodafone-gh
+AirtelTigo Ghana	tigo-gh
+
+Getting Started
+
+Business IP Whitelisting
+You must share your public IP address with your Retail System Engineer for whitelisting.
+
+Note
+All API Endpoints are live and only requests from whitelisted IP(s) can reach these endpoints shared in this reference.
+
+Requests from IP addresses that have not been whitelisted will return a 403 Forbidden error response or a timeout.
+
+We permit a maximum of 4 IP addresses per service.
+
+Understanding the Service Flow
+The Hubtel Sales API allows you to integrate multiple functionalities into your applications. This document focuses on:
+
+Direct Send Money API: REST API to send money to any mobile money wallet for all networks.
+Transaction Status Check API: REST API to check for the status of a send money transaction initiated previously after after five (5) or more minutes of the transaction's completion. It is mandatory to implement the Transaction Status Check API only for transactions that you do not receive a callback from Hubtel.
+The entire process is asynchronous. The figure below demonstrates the service flow using these two endpoints:
+
+[diagram: Service Flow]
+
+The table below describes the steps involved in Sending Money using the API:
+
+Step	Description
+1	Client App makes a Send Money request to Hubtel.
+2	Hubtel performs authentication on the request and sends a response to Client App accordingly.
+3	A final callback is sent to Client App via the PrimaryCallbackURL provided in the request. (See sample callback here)
+4	In instances where a merchant does not receive the final status of the transaction after five (5) minutes from Hubtel, it is mandatory to perform a status check using the Status Check API to determine the final status of the transaction. (Refer here)
+
+API Reference
+Direct Send Money allows you to send money to a Mobile Money wallet. You need to have enough balance in your Disbursement Account to use this functionality.
+
+You can fund your Disbursement Account online here or by transferring money from your Hubtel Collection Account. Kindly contact your Account / Relationship Manager for more info.
+
+To initiate a Send Money transaction, send an HTTP POST request to the below URL with the required parameters. It is also mandatory to pass your Disbursement Account Number for Send Money requests in the endpoint. Find your Disbursement Account Number here.
+
+API Endpoint	https://smp.hubtel.com/api/merchants/{Disbursement_Account_Number}/send/mobilemoney
+Request Type	POST
+Content Type	JSON
+
+REQUEST PARAMETERS
+Parameter	Type	Requirement	Description
+RecipientName	String	Mandatory	The name on the recipient's mobile money wallet. Recipient msisdn can be used instead if name is unknown.
+RecipientMsisdn	String	Mandatory	The recipient's mobile money number. This should be in the international format. E.g.: "233249111411"
+CustomerEmail	String	Optional	Email of mobile money recipient..
+Channel	String	Mandatory	The mobile money channel provider. Available channels are: mtn-gh, vodafone-gh, tigo-gh.
+Amount	Float	Mandatory	Amount of money to be sent during this transaction. NB: Only 2 decimal places is allowed E.g.: 0.50.
+PrimaryCallbackURL	String	Mandatory	URL expected to receive callback payload of Send Money transactions from Hubtel. Callbacks are sent for transactions with 0001 response code.
+Description	String	Mandatory	A brief description of the transaction.
+ClientReference	String	Mandatory	The reference provided by the API user and must be unique for every transaction and preferably be alphanumeric characters. Maximum length is 36 characters.
+
+Note
+Kindly note that a clientReference must never be duplicated for any transaction.
+
+SAMPLE REQUEST (HTTP)
+POST /api/merchants/11691/send/mobilemoney HTTP/1.1
+Host: smp.hubtel.com
+Accept: application/json
+Content-Type: application/json
+Authorization: Basic endjeOBiZHhza250fT3==
+Cache-Control: no-cache
+
+{
+    "RecipientName": "Joe Doe",
+    "RecipientMsisdn": "233200000000",
+    "CustomerEmail": "username@example.com",
+    "Channel": "vodafone-gh",
+    "Amount": 10.0,
+    "PrimaryCallbackURL": "https://webhook.site/b503d1a9-e726-f315254a6ede",
+    "Description": "Union Dues",
+    "ClientReference": "25335r45pch53544044"
+}
+
+RESPONSE PARAMETERS
+Parameter	Type	Description
+ResponseCode	String	The unique response code on the status of the transaction.
+Data	Object	An object containing the required data response from the API.
+AmountDebited	Float	The actual amount that is charged from your Disbursement Account before transaction is completed.
+Charges	Float	The charge/fee for the transaction.
+Amount	Float	Amount to be sent during the transaction.
+Description	String	The description of the ResponseCode received from the request.
+ClientReference	String	The reference ID that is initially provided by the client/API user in the request payload (from merchant).
+TransactionId	String	The unique ID used to identify a Hubtel transaction (from Hubtel).
+ExternalTransactionId	String	The transaction reference from the mobile money provider (from Telco).
+Meta	Object	Some metadata about transaction. Could be null.
+RecipientName	String	The name of the recipient of the transaction before the transaction is complete. Could be null.
+
+SAMPLE RESPONSE
+200 OK
+  {
+    "ResponseCode": "0001",
+    "Data": {
+        "AmountDebited": 0.0,
+        "TransactionId": "8a545e5c7357714b80b65f76",
+        "Description": "Your request has been accepted. We will notify you when the transaction is completed.",
+        "ClientReference": "25335r45pch53544044",
+        "ExternalTransactionId": "",
+        "Amount": 10.0,
+        "Charges": 0.0,
+        "Meta": null,
+        "RecipientName": null
+    }
+  }
+
+
+Send Money Callback
+The Hubtel Send Money API mandatorily sends a payload to the callbackURL provided in each request. The callback payload determines final status of a pending transaction response i.e.; transaction with 0001 ResponseCode. The callback URL you specified in the Receive Money request should be implemented to listen for an HTTP POST payload from Hubtel.
+
+Sending money to a mobile money wallet has an asynchronous flow on all networks. This means that the final status of a transaction cannot be determined immediately after a request. It may take some time (usually less than 30 seconds). Hence, it is paramount and required to implement an HTTP callback on your server to be able to receive the final status of each transaction.
+
+Note
+Businesses that want to add an extra layer of security to ensure callbacks reach their endpoint securely can whitelist Hubtel's callback IP address: 18.202.122.131
+
+SAMPLE CALLBACK (Successful)
+  {
+    "ResponseCode": "0000",
+    "Data": {
+      "AmountDebited": 10.1,
+      "TransactionId": "8a545e5c7357714b80b65f76",
+      "ClientReference": "25335r45pch53544044",
+      "Description": "The MTN Mobile Money payment has been approved and processed successfully.",
+      "ExternalTransactionId": "6654233478",
+      "Amount": 10.0,
+      "Charges": 0.10,
+      "Meta": null,
+      "RecipientName": "John Doe"
+    }
+  }
+
+SAMPLE CALLBACK (Failed)
+  {
+    "ResponseCode": "4075",
+    "Data": {
+      "AmountDebited": 14.0,
+      "TransactionId": "813723564a42bdb516392edf2ead5c",
+      "ClientReference": "dfb4B863C4C69",
+      "Description": "Insufficient prepaid balance.",
+      "ExternalTransactionId": null,
+      "Amount": 13.5,
+      "Charges": 0.5,
+      "Meta": null,
+      "RecipientName": "233241234567"
+    }
+  }
+
+
+Send Money Status Check
+It is mandatory to implement the Send Money Transaction Status Check API as it allows merchants to check for the status of a send money transaction in rare instances where a merchant does not receive the final status of the transaction after five (5) minutes from Hubtel.
+
+To check a send money transaction status, send an HTTP GET request to the below URL with either one or more unique transaction identifiers as parameters.
+
+It is also mandatory to parse your Disbursement Account Number for Status Check requests in the endpoint. Find your Disbursement Account Number here.
+
+Note
+Only requests from whitelisted IP(s) can reach the endpoint. Requests from IP addresses that have not been whitelisted will return a 403 Forbidden error response or a timeout. Submit your public IP(s) to your Retail Systems Engineer to be whitelisted.
+
+We permit a maximum of 4 IP addresses per service.
+
+API Endpoint	https://smrsc.hubtel.com/api/merchants/{Disbursement_Account_Number}/transactions/status
+Request Type	GET
+Content Type	JSON
+
+REQUEST PARAMETERS
+Parameter	Type	Requirement	Description
+clientReference	String	Mandatory (preferred)	The clientReference of the transaction specified in the request payload.
+hubtelTransactionId	String	Optional	TransactionId from Hubtel after successful send money request.
+networkTransactionId	String	Optional	The transaction reference from the mobile money provider.
+
+Note
+Although either one of the unique transaction identifiers above could be passed as parameters, clientReference is recommended to be used often.
+
+SAMPLE REQUEST (HTTP)
+GET /api/merchants/11691/transactions/status?clientReference=3jL2KlUy3vt21 HTTP/1.1
+Host: smrsc.hubtel.com
+Authorization: Basic QmdfaWghe22NU6bXVhaHdpYW8pfQ==
+
+SAMPLE RESPONSE
+200 OK
+  {
+    "ResponseCode": "success",
+    "Data": {
+        "TransactionId": "09f84e20a283942e807128e8c21d0303",
+        "networkTransactionId": "142116938399",
+        "Amount": 0.8,
+        "Fees": 0.010,
+        "ClientReference": "3jL2KlUy3vt21",
+        "Channel": "vodafone-gh",
+        "CustomerNumber": "233200000000",
+        "transactionStatus": "success",
+        "CreatedAt": "2021-08-23 11:31:06"
+    }
+  }
+
+
+Response Codes
+The Hubtel Sales API uses standard HTTP error reporting. Successful requests return HTTP status codes in the 2xx. Failed requests return status codes in 4xx and 5xx. Response codes are included in the JSON response body, which contain information about the response.
+
+Response Code	Description	Required Action
+0000	The transaction has been processed successfully.	None
+0001	Request has been accepted. A callback will be sent on final state	None
+2001	- Transaction failed due to an error with the Payment Processor. Please review your request or retry in a few minutes
+	- Unable to verify if this is a valid Mobile Money Number. Please try again in a few minutes.
+	- Transaction not honoured.Denied by Rule : do not honour : HT-S0001 : Ensures there are no duplicates in Client Reference
+	Required action: Inspect your request and try again later.
+3050	Mobile Number is not registered for Mobile Payment.	Ensure to pass the appropriate payment channel.
+4000	Validation errors	Validation errors. Something is not quite right with this request. Please check again.
+4075	Insufficient prepaid balance	You don't have enough funds in your Disbursement Account to send money to your customers. You can top-up your Disbursement Account by transferring funds from your available balance or bank deposit.
+5000	Something went wrong while processing this request. Please try again later. We're working to resolve this.	Inspect your request and try again or contact your Retail Systems Engineer for support

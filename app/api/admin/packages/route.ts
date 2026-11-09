@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { revalidateTag } from "next/cache"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -77,6 +78,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
 
+      revalidateTag("seo-live-facts")
       return NextResponse.json({ success: true, data: data?.[0], message: "Package updated successfully" })
     } else {
       // Create package
@@ -90,6 +92,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 400 })
       }
 
+      revalidateTag("seo-live-facts")
       return NextResponse.json({ success: true, data: data?.[0], message: "Package created successfully" })
     }
   } catch (error: any) {

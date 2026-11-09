@@ -10,8 +10,9 @@
 import type { LiveFacts } from "./live-facts"
 import { getProduct, type ProductKey } from "./products"
 import { availableEntries } from "./page-meta"
-import { cheapestRows } from "./data-prices"
+import { atTypeOf } from "./data-prices"
 import { availableLandings } from "./landing-pages"
+import { publishedGuides, type Guide } from "./guides"
 
 export type HomeLinkKey =
   | "data" | "airtime" | "afa" | "bills" | "results" | "results-service"
@@ -58,6 +59,7 @@ const FOOTER: ReadonlyArray<[ProductKey, string]> = [
   ["mtn-data", "MTN data"],
   ["telecel-data", "Telecel data"],
   ["at-data", "AT data"],
+  ["cheapest-data", "Cheapest data in Ghana"],
   ["airtime", "Airtime"],
   ["utility-bills", "Utility bills"],
   ["results-checker", "Results checker"],
@@ -68,13 +70,19 @@ const FOOTER: ReadonlyArray<[ProductKey, string]> = [
 
 /**
  * Footer "Buy online" block: the live product pages above, then the live
- * landing pages (lib/seo/landing-pages.ts, registry order, footerLabel).
+ * landing pages (lib/seo/landing-pages.ts, registry order, footerLabel),
+ * then the guides hub (lib/seo/guides.ts) when a guide is published.
  */
-export function homeFooterLinks(facts: LiveFacts, isMainSite: boolean): HomeLink[] {
+export function homeFooterLinks(
+  facts: LiveFacts,
+  isMainSite: boolean,
+  guides: readonly Guide[] = publishedGuides(),
+): HomeLink[] {
   if (!isMainSite) return []
   return [
     ...FOOTER.filter(([k]) => facts.products[k]?.available === true).map(([k, label]) => ({ label, href: getProduct(k).path })),
     ...availableLandings(facts).map((e) => ({ label: e.footerLabel, href: e.path })),
+    ...(guides.length > 0 ? [{ label: "Guides", href: "/guides" }] : []),
   ]
 }
 
@@ -90,19 +98,27 @@ export interface PopularPackage {
 const NET_KEY = { MTN: "mtn-data", Telecel: "telecel-data", AT: "at-data" } as const
 
 /**
- * "Popular Data Packages": the cheapest bundle per network (and AT type) from
- * the public price tables (packages.price). Empty when the packages read failed.
+ * "Popular Data Packages": the cheapest bundle per network (and per AT
+ * product) from the adjusted customer price lists (LiveFacts.prices, the
+ * prices the network pages and the dashboard show). Empty when the prices
+ * could not be read.
  */
 export function homePopularPackages(facts: LiveFacts, isMainSite: boolean): PopularPackage[] {
-  if (!facts.dataPrices) return []
-  return cheapestRows(facts.dataPrices).map((r) => {
-    const key = NET_KEY[r.network]
+  const out: PopularPackage[] = []
+  for (const net of ["MTN", "Telecel", "AT"] as const) {
+    const key = NET_KEY[net]
     const linked = isMainSite && facts.products[key]?.available === true
-    return {
-      network: r.type ? `${r.network} ${r.type}` : r.network,
-      size: r.size,
-      price: r.price,
-      ...(linked && { href: getProduct(key).path }),
+    for (const g of facts.prices?.[net] ?? []) {
+      const cheapest = g.rows.reduce<(typeof g.rows)[number] | null>((m, r) => (m === null || r.price < m.price ? r : m), null)
+      if (!cheapest) continue
+      const type = atTypeOf(g.network)
+      out.push({
+        network: type ? `${net} ${type}` : net,
+        size: cheapest.label,
+        price: cheapest.price,
+        ...(linked && { href: getProduct(key).path }),
+      })
     }
-  })
+  }
+  return out
 }

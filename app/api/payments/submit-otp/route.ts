@@ -40,6 +40,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "reference and otp are required" }, { status: 400 })
   }
 
+  // Hubtel never asks for an OTP, so its references never come here from the page. Refuse one anyway: Paystack doesn't
+  // know it, and the failure path below would fail a live Hubtel payment's order. A failed read keeps today's path.
+  const { data: payment, error: paymentErr } = await supabase
+    .from("wallet_payments")
+    .select("payment_method")
+    .eq("reference", reference)
+    .maybeSingle()
+  if (paymentErr) console.error("[SUBMIT-OTP] payment lookup failed:", paymentErr.message)
+  if ((payment as { payment_method?: string | null } | null)?.payment_method === "hubtel") {
+    return NextResponse.json({ success: false, error: "This payment does not need a code." }, { status: 400 })
+  }
+
   try {
     const { status } = await submitOtp(reference, otp)
 

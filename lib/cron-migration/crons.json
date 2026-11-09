@@ -50,6 +50,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/sync-mtn-status/kuntanii",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/sync-afa-status/apexprime",
       "schedule": "* * * * *"
     },
@@ -95,6 +99,10 @@
     },
     {
       "path": "/api/cron/leaderboard-refresh",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sub-agent-price-reminders",
       "schedule": "*/5 * * * *"
     },
     {
@@ -168,6 +176,10 @@
     {
       "path": "/api/cron/expire-stale-bot-orders",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/hubtel-payments-sweep",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

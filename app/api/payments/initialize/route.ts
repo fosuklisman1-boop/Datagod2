@@ -1,19 +1,31 @@
 import { NextRequest, NextResponse } from "next/server"
+import { checkUpgradeInitRequest } from "@/lib/dealer-upgrade-payment"
 import { initializePayment, chargeMobileMoney } from "@/lib/paystack"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import crypto from "crypto"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { verifyShopSession } from "@/lib/shop-token"
-import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired, isStorefrontDirectChargeEnabled, isWalletDirectChargeEnabled } from "@/lib/storefront-otp"
+import { isPhoneOtpVerified, isWalletOtpRequired, isStorefrontOtpRequired, isStorefrontDirectChargeEnabled, isWalletDirectChargeEnabled, isDashboardDirectChargeEnabled } from "@/lib/storefront-otp"
 import { logSecurityEvent } from "@/lib/security-log"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { resolveTrustedBaseUrl } from "@/lib/custom-domain-lookup"
 import { recordPayerPhone } from "@/lib/refunds/payer-phone"
 import {
   isStorefrontOrderType, STOREFRONT_ORDER_TABLE, newPaystackReference, extraPaystackFeeRate, checkCommissionPayable,
-  STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF,
+  STOREFRONT_PAYMENT_CHANNEL, STOREFRONT_PAYMENT_PURPOSE, STOREFRONT_CONFIRMATION_PATH, DIRECT_CHARGE_OFF, type CommissionPrice,
 } from "@/lib/storefront-commission/payment"
+import { airtimeRepriceSpec, commissionRepriceSpec, priceOrderForGateway, type RepriceSpec } from "@/lib/storefront-commission/reprice"
+import { closeRefusedHubtelWalletPayment } from "@/lib/payment-gateway/close-refused"
+import { FallbackRefusedError, HostedStartError, resolveSurfaceGateway, startHostedPayment, startMomoCharge } from "@/lib/payment-gateway/start"
+import { getSurfaceConfig } from "@/lib/payment-gateway/read-config"
+import type { FeeBearer, Gateway } from "@/lib/payment-gateway/config"
+import { initializeFee, initializeSurface, isVerifiedWebPayer, momoPhoneText, pickHubtelReplay, HUBTEL_REPLAY_LOOKBACK_MS, type OpenAttemptReplayRow } from "@/lib/payment-gateway/initialize-gateway"
+import { normalizeGhanaPhone } from "@/lib/phone-format"
+import { sendThrottledAlert } from "@/lib/hubtel-pay/alert-throttle"
+
+// A Hubtel start awaits the relay.
+export const maxDuration = 60
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -29,6 +41,29 @@ function detectMomoProvider(phone: string): "mtn" | "vod" | "tgo" | null {
   const d = phone.replace(/\D/g, "")
   const local = d.startsWith("233") ? "0" + d.slice(3) : (d.startsWith("0") ? d : "0" + d)
   return MOMO_PREFIX[local.slice(0, 3)] ?? null
+}
+
+/**
+ * wallet_payments.payment_method must name the gateway that actually took the payment. A fallback to Paystack fixes
+ * its row in onFallback; what's left is the config changing between resolving and starting. The row is fixed right
+ * after the start returns. The money has already moved on, so a failed fix can't refuse: it alerts the admins.
+ */
+async function syncPaymentMethod(reference: string, written: Gateway, used: Gateway): Promise<void> {
+  if (written === used) return
+  let problem: string | null = null
+  try {
+    const { data, error } = await supabase.from("wallet_payments").update({ payment_method: used }).eq("reference", reference).select("id")
+    if (error) problem = error.message
+    else if (!data?.length) problem = "no row changed"
+  } catch (e) {
+    problem = e instanceof Error ? e.message : "unknown error"
+  }
+  if (!problem) return
+  console.error(`[PAYMENT-INIT] ❌ Could not set payment_method=${used} for ${reference}:`, problem)
+  await sendThrottledAlert(supabase, `Payment ${reference} was taken by ${used}, but its record could not be updated. Check it by hand.`, {
+    key: "last_payment_method_sync_alert", type: "hubtel_payment_start", description: "Payment method correction alert throttle",
+    windowMs: 60 * 60 * 1000, logPrefix: "[PAYMENT-INIT]",
+  })
 }
 
 const ALLOWED_ORIGINS = [
@@ -88,6 +123,7 @@ export async function POST(request: NextRequest) {
         .from("user_shops")
         .select("id")
         .or(shopHandleOrFilter(shopSlug))
+        .eq("is_active", true)
         .single()
       if (shopErr || !shopRow) {
         console.warn(`[PAYMENT-INIT] ❌ Shop not found for slug=${shopSlug}`)
@@ -259,6 +295,12 @@ export async function POST(request: NextRequest) {
     const isTopup = !orderId && type !== "dealer_upgrade" && orderType !== "airtime"
     const isUpgrade = type === "dealer_upgrade"
 
+    const upgradeCheck = checkUpgradeInitRequest({ type, orderType, orderId, planId, userId })
+    if (!upgradeCheck.ok) {
+      logSecurityEvent("dealer_upgrade_init_refused", { reason: upgradeCheck.error, hasOrderId: !!orderId, userId, ip: clientIp })
+      return NextResponse.json({ error: upgradeCheck.error }, { status: upgradeCheck.status })
+    }
+
     // Phone gate (account holder's own money paths only). Wallet top-up and dealer
     // upgrade move the LOGGED-IN user's money — block them for an unverified account.
     // Storefront customer payments (orderId / shopSlug) are gated by the separate
@@ -280,20 +322,27 @@ export async function POST(request: NextRequest) {
     // legit path = a bypass), not the OTP gate.
     const isShopOrderSurface = !!orderId
     const isWalletSurface = isTopup || isUpgrade
-    const [walletGateOn, walletDirectOn, storefrontGateOn, storefrontDirectOn] = await Promise.all([
+    const [walletGateOn, walletDirectOn, dashboardDirectOn, storefrontGateOn, storefrontDirectOn] = await Promise.all([
       isWalletOtpRequired(),
       isWalletDirectChargeEnabled(),
+      isDashboardDirectChargeEnabled(),
       isStorefrontOtpRequired(),
       isStorefrontDirectChargeEnabled(),
     ])
 
     // Per-surface flags for the request in hand.
     const surfaceOtpOn = isShopOrderSurface ? storefrontGateOn : isWalletSurface ? walletGateOn : false
-    const surfaceDirectOn = isShopOrderSurface ? storefrontDirectOn : isWalletSurface ? walletDirectOn : false
+    const surfaceDirectOn = isShopOrderSurface
+      ? storefrontDirectOn
+      : isUpgrade
+        ? dashboardDirectOn
+        : isTopup
+          ? walletDirectOn
+          : false
 
     // Order-free per-user burst cap: keep it active when EITHER wallet gate (OTP
     // or direct charge) is on. Admins bypass for support/testing.
-    if ((walletGateOn || walletDirectOn) && (isTopup || isUpgrade) && !isAdmin && userId) {
+    if ((walletGateOn || walletDirectOn || dashboardDirectOn) && (isTopup || isUpgrade) && !isAdmin && userId) {
       const perUser = await applyRateLimit(request, "payment_init_topup_user", 5, 30 * 60 * 1000, `tu:${userId}`)
       if (!perUser.allowed) {
         logSecurityEvent("wallet_topup_user_cap", { channel: type === "dealer_upgrade" ? "dealer_upgrade" : "wallet_topup", userId, email, ip: clientIp })
@@ -357,6 +406,9 @@ export async function POST(request: NextRequest) {
     let recipient: string | undefined // product beneficiary (data/airtime recipient) for metadata
     // A channel 'bots' commission order (USSD / WhatsApp bots): no storefront slug, neutral payer email.
     let botOrder = false
+    // An order whose stored price has the payment fee inside it (storefront commission: paid_amount; storefront
+    // cashback airtime: total_paid), so that price moves with the gateway.
+    let movablePrice: { spec: RepriceSpec; price: CommissionPrice } | null = null
 
     // Commission order: amount = paid_amount from the DB (the payment fee is already inside it), and only a row that
     // is still pending AND unpaid. Storefront rows: this shop's row, payer email = the buyer's. Bot rows: payer email =
@@ -364,7 +416,7 @@ export async function POST(request: NextRequest) {
     if (orderId && storefrontType) {
       const { data: csRow, error: csErr } = await supabase
         .from(STOREFRONT_ORDER_TABLE[storefrontType])
-        .select("channel, shop_id, status, payment_status, paid_amount, buyer_email, buyer_phone")
+        .select("channel, shop_id, status, payment_status, paid_amount, payment_fee_amount, buyer_email, buyer_phone")
         .eq("id", orderId)
         .maybeSingle()
       if (csErr) console.error("[PAYMENT-INIT] ❌ Could not read storefront order:", csErr)
@@ -388,6 +440,10 @@ export async function POST(request: NextRequest) {
       email = payable.email
       shopId = payable.shopId
       botOrder = payable.bot
+      if (!payable.bot && storefrontType) {
+        const recordedFee = (csRow as { payment_fee_amount?: number | string | null } | null)?.payment_fee_amount
+        movablePrice = { spec: commissionRepriceSpec(storefrontType), price: { paid: payable.amount, fee: recordedFee === null ? null : Number(recordedFee ?? 0) } }
+      }
     } else if (orderId) {
       // SECURITY ENHANCEMENT: For shop orders, ignore client amount & fetch from DB
       const table = orderType === "airtime" ? "airtime_orders"
@@ -406,7 +462,8 @@ export async function POST(request: NextRequest) {
       const phoneColumn = orderType === "airtime" ? "beneficiary_phone"
         : orderType === "results_check_service" ? "phone_number"
         : "customer_phone"
-      const selectColumns = `${amountColumn}, ${statusField}, payment_status, ${phoneColumn}`
+      // Airtime also reads its cashback snapshot: only a cashback order has a payment fee inside total_paid.
+      const selectColumns = `${amountColumn}, ${statusField}, payment_status, ${phoneColumn}${orderType === "airtime" ? ", payment_fee_amount, cashback_rate, channel, shop_id" : ""}`
       const { data: orderData, error: orderError } = await supabase
         .from(table)
         .select(selectColumns)
@@ -437,6 +494,17 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      // Airtime here is storefront airtime only: this shop's row (the slug was resolved above) with no channel. Bot
+      // airtime (ussd, ussd_shop, whatsapp_shop, ...) is paid inside its own bot and never comes through this route;
+      // a request naming one, or another shop's order, is refused before any start or price change.
+      if (orderType === "airtime") {
+        const row = orderData as { channel?: string | null; shop_id?: string | null }
+        if (row.channel != null || !shopId || row.shop_id !== shopId) {
+          console.warn(`[PAYMENT-INIT] ❌ Airtime order ${orderId} is not a storefront order of this shop`)
+          return NextResponse.json({ error: "Invalid order ID" }, { status: 400 })
+        }
+      }
+
       // Beneficiary number (for the Paystack "Recipient" custom field).
       recipient = (orderData as any)[phoneColumn] || undefined
 
@@ -454,6 +522,12 @@ export async function POST(request: NextRequest) {
 
       console.log(`[PAYMENT-INIT] ✓ Price verified. Client sent: ${amount}, DB has: ${verifiedAmount}. Enforcing DB value.`)
       finalAmount = verifiedAmount
+      // A legacy airtime order (no cashback snapshot) has no payment fee in total_paid: its fee_amount is margin.
+      const cashbackAirtime = orderType === "airtime" && (orderData as any).cashback_rate !== null && (orderData as any).cashback_rate !== undefined
+      if (cashbackAirtime) {
+        const recordedFee = (orderData as any).payment_fee_amount
+        movablePrice = { spec: airtimeRepriceSpec(shopId!), price: { paid: verifiedAmount, fee: recordedFee === null ? null : Number(recordedFee ?? 0) } }
+      }
     } else if (type === "dealer_upgrade" && planId) {
       console.log(`[PAYMENT-INIT] Dealer Upgrade detected. Verifying plan ${planId}...`)
       const { data: plan, error: planError } = await supabase
@@ -499,19 +573,142 @@ export async function POST(request: NextRequest) {
 
 
 
+    // ── Gateway choice (Paystack or Hubtel) ─────────────────────────────────
+    // Only server config decides: any gateway / mode / feeBearer in the body is ignored. Resolved before the fee and
+    // the payment row, because a Hubtel payment carries no Paystack fee. A request that maps to no surface (bot
+    // commission rows, wired separately) keeps today's Paystack path exactly. Every order here was checked payable above.
+    const gatewaySurface = initializeSurface({ storefrontType, botOrder, orderId, orderType, isTopup, isUpgrade })
+    // When direct charge is the legit path, Paystack's hosted page has MoMo stripped (below). Hubtel's page can't strip
+    // MoMo, so such a hosted request stays on Paystack.
+    const hostedMomoStripped = !momoDirect && !isAdmin &&
+      ((surfaceDirectOn && (isTopup || isUpgrade)) || (storefrontDirectOn && !!orderId))
+    // A direct charge only runs when its gate is on (or for an admin); otherwise it is refused below, as today.
+    // Canonicalised once, here: Hubtel gets this form. A number with none is "not Hubtel", so it carries the standard
+    // Paystack fee from the start. The Paystack path keeps the raw value, as today.
+    const canonicalPhone = momoDirect ? normalizeGhanaPhone(momoPhoneText(paymentPhone)) : null
+    const directRuns = !!momoDirect && (surfaceDirectOn || isAdmin) && !!canonicalPhone && detectMomoProvider(canonicalPhone) !== null
+    let gateway: Gateway = "paystack"
+    let feeBearer: FeeBearer = "customer"
+    if (gatewaySurface) {
+      // Hubtel if the payer is verified; the direct check below decides that.
+      const potential = await resolveSurfaceGateway(gatewaySurface, { verifiedPayer: true, amount: finalAmount })
+      feeBearer = potential.feeBearer
+      if (potential.gateway === "hubtel" && !hostedMomoStripped && (!momoDirect || directRuns)) {
+        if (momoDirect && canonicalPhone) {
+          // No unsolicited prompts (Hubtel's rule): a verified number is required even when the surface's OTP gate is
+          // off, for admins too. Same answer as the OTP gate gives, before anything is written. When that gate is on,
+          // it wants a real OTP, so an account's own verified number alone can't pass it further down with a row left behind.
+          const verified = await isVerifiedWebPayer(canonicalPhone, {
+            isPhoneOtpVerified,
+            ownVerifiedPhone: async () => {
+              if (!userId) return null
+              const { data, error } = await supabase.from("users").select("phone_number, phone_verified").eq("id", userId).single()
+              if (error || !data?.phone_verified) return null
+              return (data.phone_number as string | null) ?? null
+            },
+          })
+          const otpGatePassed = !surfaceOtpOn || isAdmin || await isPhoneOtpVerified(canonicalPhone)
+          if (!verified || !otpGatePassed) {
+            logSecurityEvent("momodirect_unverified_payment_number", {
+              channel: "hubtel_direct", ip: clientIp, email, paymentPhone: canonicalPhone, orderId: orderId || null,
+            })
+            return NextResponse.json(
+              { error: "Please verify your payment number to continue.", code: "OTP_REQUIRED" },
+              { status: 403 }
+            )
+          }
+          // Hubtel direct always takes the per-phone cap, OTP gate on or off and for admins too, keyed on the canonical
+          // number so a reformatted number can't get a fresh budget. Checked before anything is written.
+          const hubtelPhoneCap = await applyRateLimit(request, "momodirect_phone", 3, 60 * 60 * 1000, `mp:${canonicalPhone}`)
+          if (!hubtelPhoneCap.allowed) {
+            logSecurityEvent("momodirect_phone_cap", {
+              channel: "hubtel_direct", ip: clientIp, email, paymentPhone: canonicalPhone, orderId: orderId || null,
+            })
+            return NextResponse.json(
+              { error: "Too many payment attempts for this number. Please try again later." },
+              { status: 429, headers: { "X-RateLimit-Reset": new Date(hubtelPhoneCap.resetAt).toISOString() } }
+            )
+          }
+        }
+        gateway = "hubtel"
+      }
+    }
+
+    // R2: an order whose Hubtel attempt is still live (pending in the last 15 minutes, or an attempt that still holds
+    // the order: see pickHubtelReplay) reuses that attempt's reference, so the wrapper's one-attempt-per-order rule
+    // applies (no second prompt / the same link). Paystack rows replay nothing, as today; but a live Hubtel attempt is
+    // never joined by a Paystack one.
+    let replay: { id: string; reference: string } | null = null
+    if (gatewaySurface && orderId) {
+      const { data: liveRows, error: liveErr } = await supabase
+        .from("wallet_payments")
+        .select("id, reference, payment_method, status, created_at")
+        .eq("order_id", orderId)
+        .eq("status", "pending")
+        .eq("payment_method", "hubtel")
+        .gte("created_at", new Date(Date.now() - HUBTEL_REPLAY_LOOKBACK_MS).toISOString())
+        .order("created_at", { ascending: false })
+        .limit(5)
+      let openAttempts: OpenAttemptReplayRow[] = []
+      const liveReferences = (liveRows ?? []).map((r) => r.reference).filter(Boolean)
+      if (!liveErr && liveReferences.length > 0) {
+        const { data: attempts, error: attemptsErr } = await supabase
+          .from("hubtel_payments")
+          .select("internal_reference, expires_at, status, mode, checkout_url")
+          .in("internal_reference", liveReferences)
+          .in("status", ["pending", "confirming"])
+        if (attemptsErr) {
+          // These rows may have a live attempt behind them, whatever the surface says now: no fresh reference, no Paystack.
+          console.error("[PAYMENT-INIT] Hubtel attempt lookup failed:", attemptsErr.message)
+          return NextResponse.json({ error: "Could not start the payment. Please try again." }, { status: 503 })
+        }
+        openAttempts = attempts ?? []
+      }
+      if (liveErr) {
+        console.error("[PAYMENT-INIT] Hubtel replay lookup failed:", liveErr.message)
+        // A live attempt can't be ruled out, so no fresh reference. A surface on Paystack proceeds as today.
+        if (gateway === "hubtel" || (await getSurfaceConfig(gatewaySurface)).gateway === "hubtel") {
+          return NextResponse.json({ error: "Could not start the payment. Please try again." }, { status: 503 })
+        }
+      } else {
+        replay = pickHubtelReplay(liveRows, Date.now(), openAttempts)
+        if (replay && gateway !== "hubtel") {
+          return NextResponse.json(
+            {
+              error: "A payment for this order is still in progress. Finish it, or try again a little later.",
+              code: "PAYMENT_IN_PROGRESS",
+            },
+            { status: 409 }
+          )
+        }
+      }
+    }
+
+    // The gateway is settled and the order isn't held by a live attempt, so its price can match: confirm checks
+    // the stored price, so nothing is charged unless the two agree.
+    if (movablePrice && gatewaySurface) {
+      const priced = await priceOrderForGateway(supabase, movablePrice.spec, orderId, movablePrice.price, gateway === "hubtel" || feeBearer === "merchant")
+      if (!priced.ok) return NextResponse.json({ error: "Could not start the payment. Please try again.", code: "try_again" }, { status: 503 })
+      movablePrice.price = priced.price
+      finalAmount = priced.price.paid
+    }
+
     // Generate unique reference
     // Storefront commission orders use an opaque 32-hex reference (never the BILL-/SB- order code).
-    const reference = storefrontType
-      ? newPaystackReference()
-      : `WALLET-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
+    const reference = replay
+      ? replay.reference
+      : storefrontType
+        ? newPaystackReference()
+        : `WALLET-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
 
     // For airtime orders, we remove the additional Paystack fee as requested
     // The platform base fee is expected to absorb the payment processor cost.
     // Storefront commission orders add none either: their payment fee is already inside paid_amount.
     const paystackFeePercentage = extraPaystackFeeRate(orderType, settings?.paystack_fee_percentage)
-    
-    // Use finalAmount (verified) for calculation
-    const paystackFee = Math.round(finalAmount * paystackFeePercentage * 100) / 100
+
+    // Use finalAmount (verified) for calculation. Hubtel, or a merchant-borne fee, adds none.
+    const standardFee = Math.round(finalAmount * paystackFeePercentage * 100) / 100
+    let paystackFee = initializeFee({ surface: gatewaySurface, gateway, feeBearer, standardFee })
     const totalAmount = finalAmount + paystackFee
 
     console.log("[PAYMENT-INIT] Fee Calculation:")
@@ -519,35 +716,43 @@ export async function POST(request: NextRequest) {
     console.log(`  Paystack Fee (${paystackFeePercentage * 100}%):`, paystackFee)
     console.log("  Total Amount:", totalAmount)
 
-    // Store payment record with total amount (including fee)
-    console.log("[PAYMENT-INIT] Creating payment record...")
-    const { data: paymentData, error: paymentError } = await supabase
-      .from("wallet_payments")
-      .insert([
-        {
-          user_id: userId,
-          shop_id: shopId || null,
-          order_id: orderId || null,
-          order_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType || "data"),
-          amount: parseFloat(totalAmount.toString()),
-          fee: parseFloat(paystackFee.toString()),
-          reference,
-          status: "pending",
-          payment_method: "paystack",
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select()
+    // Store payment record with total amount (including fee). A replayed Hubtel attempt already has its row.
+    let paymentId: string
+    if (replay) {
+      paymentId = replay.id
+      console.log("[PAYMENT-INIT] ✓ Replaying live Hubtel payment record:", paymentId)
+    } else {
+      console.log("[PAYMENT-INIT] Creating payment record...")
+      const { data: paymentData, error: paymentError } = await supabase
+        .from("wallet_payments")
+        .insert([
+          {
+            user_id: userId,
+            shop_id: shopId || null,
+            order_id: orderId || null,
+            order_type: type === "dealer_upgrade" ? "dealer_upgrade" : (orderType || "data"),
+            amount: parseFloat(totalAmount.toString()),
+            fee: parseFloat(paystackFee.toString()),
+            reference,
+            status: "pending",
+            // The resolved gateway; fixed after the start if the payment ended on the other one (syncPaymentMethod).
+            payment_method: gateway,
+            created_at: new Date().toISOString(),
+          },
+        ])
+        .select()
 
-    if (paymentError || !paymentData || paymentData.length === 0) {
-      console.error("[PAYMENT-INIT] Database error:", paymentError)
-      console.error("[PAYMENT-INIT] Error code:", paymentError?.code)
-      console.error("[PAYMENT-INIT] Error message:", paymentError?.message)
-      console.error("[PAYMENT-INIT] Error details:", JSON.stringify(paymentError, null, 2))
-      throw new Error(`Failed to create payment record: ${paymentError?.message || "Unknown error"}`)
+      if (paymentError || !paymentData || paymentData.length === 0) {
+        console.error("[PAYMENT-INIT] Database error:", paymentError)
+        console.error("[PAYMENT-INIT] Error code:", paymentError?.code)
+        console.error("[PAYMENT-INIT] Error message:", paymentError?.message)
+        console.error("[PAYMENT-INIT] Error details:", JSON.stringify(paymentError, null, 2))
+        throw new Error(`Failed to create payment record: ${paymentError?.message || "Unknown error"}`)
+      }
+
+      paymentId = paymentData[0].id
+      console.log("[PAYMENT-INIT] ✓ Payment record created:", paymentId)
     }
-
-    console.log("[PAYMENT-INIT] ✓ Payment record created:", paymentData[0].id)
 
     // Initialize Paystack with redirect URL
     console.log("[PAYMENT-INIT] Calling Paystack...")
@@ -610,6 +815,54 @@ export async function POST(request: NextRequest) {
         : orderId ? "Data bundle"
         : "Wallet Top-up"
 
+    // A payment priced for Hubtel carries no Paystack fee, so a fallback re-prices it before Paystack is called: the
+    // row's amount, fee and method change together, in one update. If that can't happen, nothing is charged.
+    let rowMethod: Gateway = gateway
+    // Set only after a fallback: the screen quoted Hubtel's price, so the answer says what is really being charged.
+    let chargedAfterFallback: { chargedAmount: number } | Record<string, never> = {}
+    const repriceForPaystack = async (): Promise<{ amount: number }> => {
+      const fee = initializeFee({ surface: gatewaySurface, gateway: "paystack", feeBearer, standardFee })
+      // An order's own price with the fee inside moves first: if the payment row then fails, nothing is charged and
+      // the next start puts the price right again for whichever gateway it resolves to.
+      if (movablePrice && feeBearer === "customer") {
+        const priced = await priceOrderForGateway(supabase, movablePrice.spec, orderId, movablePrice.price, false)
+        if (!priced.ok) throw new FallbackRefusedError()
+        movablePrice.price = priced.price
+        finalAmount = priced.price.paid
+        paymentMetadata.originalAmount = finalAmount
+      }
+      const amount = finalAmount + fee
+      let changed = false
+      try {
+        const { data, error } = await supabase
+          .from("wallet_payments")
+          .update({ amount, fee, payment_method: "paystack" })
+          .eq("reference", reference)
+          .eq("status", "pending")
+          .select("id")
+        if (error) console.error(`[PAYMENT-INIT] ❌ Could not re-price ${reference} for Paystack:`, error.message)
+        changed = !error && (data?.length ?? 0) > 0
+      } catch (e) {
+        console.error(`[PAYMENT-INIT] ❌ Could not re-price ${reference} for Paystack:`, e instanceof Error ? e.message : "unknown error")
+      }
+      if (!changed) throw new FallbackRefusedError()
+      paystackFee = fee
+      rowMethod = "paystack"
+      paymentMetadata.paystackFee = fee
+      chargedAfterFallback = { chargedAmount: amount }
+      return { amount }
+    }
+    // Only a payment priced for Hubtel needs it; one priced for Paystack already charges the right amount.
+    const fallbackHook = gateway === "hubtel" ? { onFallback: repriceForPaystack } : {}
+    // A start that refused after the row was written: close a fresh Hubtel row unless an attempt may hold money.
+    // A replayed row belongs to the earlier attempt and is left alone.
+    const closeRefusedRow = async () => {
+      if (!replay && gateway === "hubtel") await closeRefusedHubtelWalletPayment(supabase, reference)
+    }
+    const fallbackRefused = async () => {
+      await closeRefusedRow()
+      return NextResponse.json({ error: "Could not start the payment. Please try again.", code: "try_again" }, { status: 503 })
+    }
 
     // ── Direct MoMo charge path ──────────────────────────────────────────────
     // We charge a SERVER-SPECIFIED MoMo number directly via Paystack /charge — no
@@ -639,7 +892,7 @@ export async function POST(request: NextRequest) {
       if (!orderId && !isTopup && !isUpgrade) {
         return NextResponse.json({ error: "Direct MoMo charge requires an order." }, { status: 400 })
       }
-      const payPhone = String(paymentPhone || "").trim()
+      const payPhone = gateway === "hubtel" && canonicalPhone ? canonicalPhone : momoPhoneText(paymentPhone)
       const provider = detectMomoProvider(payPhone)
       if (!provider) {
         return NextResponse.json({ error: "Could not detect mobile money network from the payment number." }, { status: 400 })
@@ -659,7 +912,8 @@ export async function POST(request: NextRequest) {
             { status: 403 }
           )
         }
-      } else if (!isAdmin) {
+      } else if (!isAdmin && gateway !== "hubtel") {
+        // (Hubtel direct took this cap before its row was written, above.)
         // OTP gate OFF (direct charge only): no SMS verification, so the typed
         // number is the sole guardrail target. Apply a tight per-phone cap on top
         // of the existing per-IP (3/min, 30/hr) and per-email (5/hr) limits to
@@ -676,7 +930,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const charge = await chargeMobileMoney({
+      const chargeParams = {
         email,
         amount: totalAmount,
         phone: payPhone,
@@ -687,7 +941,19 @@ export async function POST(request: NextRequest) {
         purpose: paymentPurpose,
         recipient,
         ip: clientIp,
-      })
+      }
+      // verifiedPayer only when Hubtel was resolved (the number was checked above), so the wrapper can't go to Hubtel
+      // with an amount that includes Paystack's fee. On a Paystack surface the wrapper calls chargeMobileMoney as is.
+      let charge: { status: string; gateway: Gateway }
+      try {
+        charge = gatewaySurface
+          ? await startMomoCharge(gatewaySurface, { ...chargeParams, verifiedPayer: gateway === "hubtel", reusedReference: !!replay, ...fallbackHook })
+          : { ...(await chargeMobileMoney(chargeParams)), gateway: "paystack" }
+      } catch (e) {
+        if (e instanceof FallbackRefusedError) return fallbackRefused()
+        throw e
+      }
+      await syncPaymentMethod(reference, rowMethod, charge.gateway)
 
       // [REFUND] Record the payer MoMo number for storefront shop orders so refund payout gateways know
       // where to pay. Non-fatal and never throws (see recordPayerPhone).
@@ -715,8 +981,9 @@ export async function POST(request: NextRequest) {
         success: true,
         momoDirect: true,
         reference,
-        status: charge.status, // usually "pay_offline" / "send_otp" / "pending"
-        paymentId: paymentData[0].id,
+        status: charge.status, // usually "pay_offline" / "send_otp" / "pending"; Hubtel is always "pay_offline"
+        paymentId,
+        ...chargedAfterFallback,
       })
       Object.entries(corsHeaders).forEach(([k, v]) => resp.headers.set(k, v))
       resp.headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -738,7 +1005,8 @@ export async function POST(request: NextRequest) {
     // (even if OTP is on — order creation already gated the number), so momo stays.
     //
     // Wallet/upgrade (order-free) paths.
-    if (walletDirectOn && (isTopup || isUpgrade) && !isAdmin) {
+    // surfaceDirectOn is per-surface: wallet_topup for top-ups, dashboard_direct for upgrades.
+    if (surfaceDirectOn && (isTopup || isUpgrade) && !isAdmin) {
       hostedChannels = hostedChannels.filter((c) => c !== "mobile_money")
       if (hostedChannels.length === 0) hostedChannels = ["bank_transfer"]
       // Someone reached the hosted checkout for an order-free path while direct
@@ -753,7 +1021,7 @@ export async function POST(request: NextRequest) {
       logSecurityEvent("shop_hosted_momo_blocked", { channel: paymentChannel, ip: clientIp, email, orderId, recipient })
     }
 
-    const paymentResult = await initializePayment({
+    const hostedParams = {
       email,
       amount: totalAmount,
       reference,
@@ -764,7 +1032,24 @@ export async function POST(request: NextRequest) {
       recipient,
       ip: clientIp,
       channels: hostedChannels,
-    })
+    }
+    let paymentResult: { authorizationUrl: string; accessCode: string; reference: string; gateway: Gateway }
+    if (gatewaySurface && !hostedMomoStripped) {
+      try {
+        paymentResult = await startHostedPayment(gatewaySurface, { ...hostedParams, reusedReference: !!replay, ...fallbackHook })
+      } catch (e) {
+        if (e instanceof FallbackRefusedError) return fallbackRefused()
+        // No safe link to give: Hubtel may hold the request, or this order already has a paid / in-review attempt.
+        if (e instanceof HostedStartError) {
+          await closeRefusedRow()
+          return NextResponse.json({ error: e.message, code: e.code }, { status: e.code === "already_processing" ? 409 : 503 })
+        }
+        throw e
+      }
+    } else {
+      paymentResult = { ...(await initializePayment(hostedParams)), gateway: "paystack" }
+    }
+    await syncPaymentMethod(reference, rowMethod, paymentResult.gateway)
 
     console.log("[PAYMENT-INIT] ✓ Success")
 
@@ -797,7 +1082,8 @@ export async function POST(request: NextRequest) {
       authorizationUrl: paymentResult.authorizationUrl,
       accessCode: paymentResult.accessCode,
       reference: paymentResult.reference,
-      paymentId: paymentData[0].id,
+      paymentId,
+      ...chargedAfterFallback,
     })
 
     Object.entries(corsHeaders).forEach(([k, v]) => response.headers.set(k, v))

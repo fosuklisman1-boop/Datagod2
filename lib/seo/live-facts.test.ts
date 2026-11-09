@@ -2,15 +2,23 @@ import { describe, it, expect } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import {
   buildLiveFacts, FALLBACK_FACTS, formatCedis, networkOf, readSmsPricePerCredit, loadRawFacts,
-  resolveLiveFacts, PartialFactsError, productFactsLoaded, FACT_SOURCES, PRODUCT_SOURCE, LiveFactsUnavailableError,
+  resolveLiveFacts, PartialFactsError, productFactsLoaded, FACT_SOURCES, PRODUCT_SOURCES, LiveFactsUnavailableError,
   type RawFacts,
 } from "./live-facts"
 import { resolveBillsConfig } from "@/lib/bills/config"
 import { PRODUCTS } from "./products"
 
+const ZERO_ADJ = {
+  price_adjustment_mtn: 0,
+  price_adjustment_telecel: 0,
+  price_adjustment_at_ishare: 0,
+  price_adjustment_at_bigtime: 0,
+}
+
 function raw(over: Partial<RawFacts> = {}): RawFacts {
   return {
     packages: [],
+    priceAdjustments: ZERO_ADJ,
     airtimeEnabled: { MTN: true, Telecel: true, AT: true },
     airtimeMin: 1,
     afaPrice: 50,
@@ -56,8 +64,8 @@ describe("buildLiveFacts — data", () => {
   it("takes the lowest available, positive price per network", () => {
     const f = buildLiveFacts(raw({
       packages: [
-        { network: "MTN", price: 5, is_available: true },
-        { network: "MTN", price: 3.5, is_available: true },
+        { network: "MTN", size: "2GB", price: 5, is_available: true },
+        { network: "MTN", size: "1GB", price: 3.5, is_available: true },
         { network: "MTN", price: 2, is_available: false },
       ],
     }))
@@ -78,10 +86,10 @@ describe("buildLiveFacts — data", () => {
   it("ignores null, non-numeric and zero prices (no NaN, no 0)", () => {
     const f = buildLiveFacts(raw({
       packages: [
-        { network: "AT-iShare", price: null, is_available: true },
-        { network: "AT-iShare", price: "abc", is_available: true },
-        { network: "AT - BigTime", price: 0, is_available: true },
-        { network: "AT - BigTime", price: "4.20", is_available: true },
+        { network: "AT - iShare", size: "1GB", price: null, is_available: true },
+        { network: "AT - iShare", size: "2GB", price: "abc", is_available: true },
+        { network: "AT - BigTime", size: "1GB", price: 0, is_available: true },
+        { network: "AT - BigTime", size: "2GB", price: "4.20", is_available: true },
       ],
     }))
     expect(f.products["at-data"]).toMatchObject({ available: true, fromPrice: 4.2 })
@@ -96,6 +104,61 @@ describe("buildLiveFacts — data", () => {
     }))
     expect(f.products["mtn-data"].available).toBe(false)
     expect(f.products["mtn-data"].fromPrice).toBeNull()
+  })
+})
+
+describe("buildLiveFacts — adjusted prices and groups", () => {
+  it("fromPrice is the minimum ADJUSTED price", () => {
+    const f = buildLiveFacts(raw({
+      priceAdjustments: { ...ZERO_ADJ, price_adjustment_mtn: 10 },
+      packages: [{ network: "MTN", size: "1GB", price: 4, is_available: true }],
+    }))
+    expect(f.products["mtn-data"]).toMatchObject({ available: true, fromPrice: 4.4 })
+    expect(f.prices.MTN[0].rows[0]).toMatchObject({ size: "1GB", price: 4.4 })
+  })
+
+  it("cheapest-data is available for bare-number sizes, dark when no row yields a per-GB figure", () => {
+    const bare = buildLiveFacts(raw({
+      priceAdjustments: ZERO_ADJ,
+      packages: [{ network: "MTN", size: "1", price: 5, is_available: true }],
+    }))
+    expect(bare.products["cheapest-data"]).toMatchObject({ available: true, fromPrice: 5 })
+    const unparseable = buildLiveFacts(raw({
+      priceAdjustments: ZERO_ADJ,
+      packages: [{ network: "MTN", size: "Unlimited", price: 50, is_available: true }],
+    }))
+    expect(unparseable.products["mtn-data"].available).toBe(true)
+    expect(unparseable.products["cheapest-data"].available).toBe(false)
+  })
+
+  it("cheapest-data is available when any network has a price row, otherwise dark", () => {
+    const on = buildLiveFacts(raw({
+      priceAdjustments: ZERO_ADJ,
+      packages: [{ network: "Telecel", size: "1GB", price: 5, is_available: true }],
+    }))
+    expect(on.products["cheapest-data"]).toMatchObject({ available: true, fromPrice: 5 })
+    const off = buildLiveFacts(raw({
+      priceAdjustments: ZERO_ADJ,
+      packages: [{ network: "Telecel", size: "1GB", price: 5, is_available: false }],
+    }))
+    expect(off.products["cheapest-data"].available).toBe(false)
+    const failed = buildLiveFacts(raw({ priceAdjustments: null, packages: [] }))
+    expect(failed.products["cheapest-data"].available).toBe(false)
+  })
+
+  it("priceAdjustments null → data pages on, no prices, empty groups", () => {
+    const f = buildLiveFacts(raw({
+      priceAdjustments: null,
+      packages: [{ network: "MTN", size: "1GB", price: 4, is_available: true }],
+    }))
+    expect(f.products["mtn-data"]).toMatchObject({ available: true, fromPrice: null })
+    expect(f.prices).toEqual({ MTN: [], Telecel: [], AT: [] })
+  })
+
+  it("loadedAt defaults to now and can be pinned", () => {
+    expect(buildLiveFacts(raw(), [], "2026-10-28T00:00:00.000Z").loadedAt).toBe("2026-10-28T00:00:00.000Z")
+    expect(Number.isNaN(Date.parse(buildLiveFacts(raw()).loadedAt))).toBe(false)
+    expect(FALLBACK_FACTS.prices).toEqual({ MTN: [], Telecel: [], AT: [] })
   })
 })
 
@@ -227,7 +290,7 @@ const keyOf = (q: { eqs: Array<[string, unknown]> }) => q.eqs.find(([c]) => c ==
 
 function healthyHandlers(): Record<string, Handler> {
   return {
-    packages: () => ({ data: [{ network: "MTN", price: 4, is_available: true }], error: null }),
+    packages: () => ({ data: [{ network: "MTN", size: "1GB", price: 4, is_available: true }], error: null }),
     afa_registration_prices: () => ({ data: { price: "45.00" }, error: null }),
     admin_settings: (q) => {
       const k = String(keyOf(q))
@@ -238,10 +301,11 @@ function healthyHandlers(): Record<string, Handler> {
     },
     tenant_global_settings: () => ({ data: { value: { amount: 0.035 } }, error: null }),
     api_v2_config: () => ({ data: { enabled: true }, error: null }),
-    app_settings: (q) =>
-      keyOf(q) === null
-        ? { data: { ussd_shop_dial_code: "*426*203#" }, error: null }
-        : { data: { value: { main: "*920#" } }, error: null },
+    app_settings: (q) => {
+      if (keyOf(q) !== null) return { data: { value: { main: "*920#" } }, error: null }
+      if (q.select.includes("price_adjustment_mtn")) return { data: { ...ZERO_ADJ }, error: null }
+      return { data: { ussd_shop_dial_code: "*426*203#" }, error: null }
+    },
   }
 }
 
@@ -287,6 +351,40 @@ describe("loadRawFacts", () => {
     expect(pkg.eqs).toContainEqual(["is_available", true])
     expect(pkg.select).toBe("network, size, price, is_available, description")
     expect(pkg.select).not.toContain("dealer_price")
+    // singleton adjustments row
+    const adj = calls.find((c) => c.table === "app_settings" && c.select.includes("price_adjustment_mtn"))!
+    expect(adj.select).toBe("price_adjustment_mtn, price_adjustment_telecel, price_adjustment_at_ishare, price_adjustment_at_bigtime")
+    expect(adj.eqs).toContainEqual(["key", null])
+  })
+
+  it("applies the MTN adjustment to the from price", async () => {
+    const h = healthyHandlers()
+    const { db } = fakeDb({
+      ...h,
+      app_settings: (q) =>
+        keyOf(q) === null && q.select.includes("price_adjustment_mtn")
+          ? { data: { ...ZERO_ADJ, price_adjustment_mtn: 10, price_adjustment_telecel: null }, error: null }
+          : h.app_settings(q),
+    })
+    const { raw: r, failed } = await loadRawFacts(db, deps)
+    expect(failed).toEqual([])
+    expect(r.priceAdjustments).toEqual({ ...ZERO_ADJ, price_adjustment_mtn: 10 })
+    expect(buildLiveFacts(r).products["mtn-data"]).toMatchObject({ available: true, fromPrice: 4.4 })
+  })
+
+  it("adjustments read failing → price-adjust failed, data on without prices", async () => {
+    const h = healthyHandlers()
+    const { db } = fakeDb({
+      ...h,
+      app_settings: (q) =>
+        keyOf(q) === null && q.select.includes("price_adjustment_mtn")
+          ? { data: null, error: { message: "boom" } }
+          : h.app_settings(q),
+    })
+    const { raw: r, failed } = await loadRawFacts(db, deps)
+    expect(failed).toEqual(["price-adjust"])
+    expect(r.priceAdjustments).toBeNull()
+    expect(buildLiveFacts(r).products["mtn-data"]).toMatchObject({ available: true, fromPrice: null })
   })
 
   it("fails each switchable source closed, independently", async () => {
@@ -300,7 +398,7 @@ describe("loadRawFacts", () => {
       admin_settings: (q) => (String(keyOf(q)) === "utility_bills_config" || String(keyOf(q)).startsWith("results_") ? err() : h.admin_settings(q)),
     })
     const { raw: r, failed } = await loadRawFacts(db, deps)
-    expect(failed.sort()).toEqual(["afa", "api-v2", "bills", "results", "ussd"])
+    expect(failed.sort()).toEqual(["afa", "api-v2", "bills", "price-adjust", "results", "ussd"])
     const f = buildLiveFacts(r)
     expect(f.products["afa-registration"].available).toBe(false)
     expect(f.products.developers.available).toBe(false)
@@ -308,16 +406,19 @@ describe("loadRawFacts", () => {
     expect(f.ussd).toEqual({ main: null, shop: null })
     // ...and with the failure list, those are "unknown", not "off"
     const known = buildLiveFacts(r, failed)
-    expect(known.failedSources.sort()).toEqual(["afa", "api-v2", "bills", "results", "ussd"])
+    expect(known.failedSources.sort()).toEqual(["afa", "api-v2", "bills", "price-adjust", "results", "ussd"])
     for (const k of ["afa-registration", "developers", "ussd", "utility-bills", "pay-dstv", "results-checker"] as const) {
       expect(productFactsLoaded(k, known), k).toBe(false)
     }
-    for (const k of ["mtn-data", "airtime", "join", "whatsapp", "bulk-sms"] as const) expect(productFactsLoaded(k, known), k).toBe(true)
+    // the adjustments read failed too, so the data prices are unknown
+    for (const k of ["mtn-data", "cheapest-data"] as const) expect(productFactsLoaded(k, known), k).toBe(false)
+    for (const k of ["airtime", "join", "whatsapp", "bulk-sms"] as const) expect(productFactsLoaded(k, known), k).toBe(true)
     expect(f.products["utility-bills"].available).toBe(false)
     expect(f.products["pay-dstv"].available).toBe(false)
     expect(f.products["results-checker"].available).toBe(false)
+    // app_settings is also the adjustments source, so prices go null; the catalog stays on
+    expect(f.products["mtn-data"]).toMatchObject({ available: true, fromPrice: null })
     // untouched sources still live
-    expect(f.products["mtn-data"]).toMatchObject({ available: true, fromPrice: 4 })
     expect(f.products.airtime.available).toBe(true)
   })
 
@@ -367,15 +468,15 @@ describe("failed vs off", () => {
 
   it("FALLBACK_FACTS marks every source failed, so only always-on products count as loaded", () => {
     expect([...FALLBACK_FACTS.failedSources].sort()).toEqual([...FACT_SOURCES].sort())
-    for (const p of PRODUCTS) expect(productFactsLoaded(p.key, FALLBACK_FACTS), p.key).toBe(PRODUCT_SOURCE[p.key] === null)
+    for (const p of PRODUCTS) expect(productFactsLoaded(p.key, FALLBACK_FACTS), p.key).toBe(PRODUCT_SOURCES[p.key].length === 0)
   })
 
   it("ignores unknown source names", () => {
     expect(buildLiveFacts(raw(), ["nope", "ussd"]).failedSources).toEqual(["ussd"])
   })
 
-  it("maps every registry product to a source (or null)", () => {
-    for (const p of PRODUCTS) expect(PRODUCT_SOURCE[p.key], p.key).not.toBeUndefined()
+  it("maps every registry product to its sources (empty for always-on)", () => {
+    for (const p of PRODUCTS) expect(PRODUCT_SOURCES[p.key], p.key).not.toBeUndefined()
   })
 
   it("LiveFactsUnavailableError names the product and sources", () => {
@@ -401,5 +502,26 @@ describe("formatCedis", () => {
     expect(formatCedis(-2)).toBe("")
     expect(formatCedis(NaN)).toBe("")
     expect(formatCedis(Infinity)).toBe("")
+  })
+})
+
+describe("buildLiveFacts — no-expiry prices", () => {
+  it("lists only packages described as no-expiry, adjusted like the main list", () => {
+    const f = buildLiveFacts(raw({
+      priceAdjustments: { ...ZERO_ADJ, price_adjustment_telecel: 10 },
+      packages: [
+        { network: "Telecel", size: "5", price: 20, is_available: true, description: "No expiry" },
+        { network: "Telecel", size: "2", price: 8, is_available: true, description: "30 days" },
+        { network: "MTN", size: "1", price: 5, is_available: true, description: null },
+      ],
+    }))
+    expect(f.nonExpiryPrices.MTN).toEqual([])
+    expect(f.nonExpiryPrices.Telecel).toHaveLength(1)
+    expect(f.nonExpiryPrices.Telecel[0].rows.map((r) => [r.label, r.price])).toEqual([["5GB", 22]])
+    expect(f.prices.Telecel[0].rows).toHaveLength(2)
+  })
+  it("is empty when the prices could not be read", () => {
+    const f = buildLiveFacts(raw({ priceAdjustments: null }))
+    expect(f.nonExpiryPrices).toEqual({ MTN: [], Telecel: [], AT: [] })
   })
 })

@@ -12,18 +12,21 @@ import {
   availableLandings,
   getLanding,
   landingAvailability,
-  landingRows,
+  landingGroups,
   landingSections,
-  rowsByNetwork,
   type LandingEntry,
   type LandingKey,
 } from "@/lib/seo/landing-pages"
-import type { DataNet } from "@/lib/seo/data-prices"
+import { networkOf, type PriceGroup } from "@/lib/seo/data-prices"
+import { authUrl } from "@/lib/post-auth-redirect"
 import { JsonLd } from "./json-ld-script"
 import { FaqSection } from "./faq-section"
 import { RelatedProducts } from "./related-products"
 import { RelatedGuides } from "./related-guides"
-import { DataPriceTable } from "./data-network-sections"
+import { PriceTable } from "./price-table"
+import { BuyButton } from "./buy-button"
+
+type DataNet = "MTN" | "Telecel" | "AT"
 
 const CARD = "rounded-xl border border-white/60 dark:border-white/5 bg-card clay"
 
@@ -63,17 +66,18 @@ export async function renderLandingPage(key: LandingKey, extras: LandingExtras =
   const { e, facts, off } = await resolveLandingPage(key)
   const parent = e.parent ? getProduct(e.parent) : undefined
   const crumbs = landingCrumbs(e, parent)
-  // An off page has nothing on sale: no tables, no OfferCatalog.
-  const rows = off ? [] : landingRows(e, facts.dataPrices)
-  const groups = rowsByNetwork(rows)
+  // An off page has nothing on sale: no price lists.
+  const groups = off ? [] : landingGroups(e, facts)
+  const rowCount = groups.reduce((n, g) => n + g.rows.length, 0)
+  const byNet = groupsByNetwork(groups)
   const standardNoExpiry = extras.standardNoExpiry ? await extras.standardNoExpiry() : false
-  const sections = landingSections(e, { rows: rows.length, standardNoExpiry })
+  const sections = landingSections(e, { rows: rowCount, standardNoExpiry })
   const others = availableLandings(facts).filter((o) => o.key !== e.key)
   const liveNetPages = (Object.keys(NET_PRODUCT) as DataNet[]).filter((n) => facts.products[NET_PRODUCT[n]]?.available === true)
 
   return (
     <div className="min-h-screen bg-background">
-      <JsonLd data={buildLandingJsonLd(e, rows, crumbs)} />
+      <JsonLd data={buildLandingJsonLd(e, crumbs)} />
       <div className="mx-auto max-w-6xl px-4 py-10 sm:py-16">
         <nav aria-label="Breadcrumb" className="mb-8 text-sm text-muted-foreground">
           <ol className="flex flex-wrap items-center gap-1">
@@ -94,7 +98,7 @@ export async function renderLandingPage(key: LandingKey, extras: LandingExtras =
           </ol>
         </nav>
 
-        <Hero e={e} off={off} networks={groups.map((g) => g.network)} />
+        <Hero e={e} off={off} networks={byNet.map((g) => g.network)} />
 
         {e.steps && e.steps.length > 0 && (
           <section aria-labelledby="steps-heading" className="mt-16">
@@ -115,29 +119,21 @@ export async function renderLandingPage(key: LandingKey, extras: LandingExtras =
           </section>
         )}
 
-        {groups.map((g) => (
-          <DataPriceTable
-            key={g.network}
-            network={g.network}
-            rows={g.rows}
-            heading={tableHeading(e, g.network)}
-            headingId={`prices-${g.network.toLowerCase()}`}
-            caption={`${tableHeading(e, g.network)} on DATAGOD, with the price you pay from your wallet in Ghana cedis`}
-          >
-            {e.kind !== "at-type" && facts.products[NET_PRODUCT[g.network]]?.available === true && (
-              <NetLink net={g.network} />
-            )}
-          </DataPriceTable>
+        {byNet.map(({ network, groups: gs }) => (
+          <div key={network}>
+            <PriceTable name={tableName(e, network)} groups={gs} loadedAt={facts.loadedAt} headingId={`prices-${network.toLowerCase()}`} />
+            {e.kind !== "at-type" && facts.products[NET_PRODUCT[network]]?.available === true && <NetLink net={network} />}
+          </div>
         ))}
 
-        {e.kind === "non-expiry" && rows.length === 0 && (
+        {e.kind === "non-expiry" && rowCount === 0 && (
           <div role="status" className={`${CARD} mt-16 flex items-start gap-3 p-5 text-sm text-foreground`}>
             <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden />
             <div>
               <p className="font-semibold">No bundle in our catalogue is marked no-expiry right now.</p>
               {liveNetPages.length > 0 && (
                 <p className="mt-1 text-muted-foreground">
-                  See every bundle on sale, with its validity where we have it:{" "}
+                  See every bundle on sale:{" "}
                   {liveNetPages.map((n, i) => (
                     <span key={n}>
                       {i > 0 && ", "}
@@ -168,11 +164,11 @@ export async function renderLandingPage(key: LandingKey, extras: LandingExtras =
 
         {e.kind === "non-expiry" && standardNoExpiry && (
           <p className="mt-4 max-w-3xl text-sm text-muted-foreground">
-            <Link href="/auth/login?redirect=/dashboard/standard-bundles" className="font-medium text-primary hover:underline">
+            <Link href={authUrl("login", "/dashboard/standard-bundles")} className="font-medium text-primary hover:underline">
               Log in to open Standard Bundles
             </Link>{" "}
             or{" "}
-            <Link href="/auth/signup" className="font-medium text-primary hover:underline">
+            <Link href={authUrl("signup", "/dashboard/standard-bundles")} className="font-medium text-primary hover:underline">
               create a free account
             </Link>
             .
@@ -195,10 +191,17 @@ export async function renderLandingPage(key: LandingKey, extras: LandingExtras =
   )
 }
 
-function tableHeading(e: LandingEntry, net: DataNet): string {
-  if (e.kind === "at-type") return `AT ${e.atType} data bundle prices`
-  if (e.kind === "non-expiry") return `${net} no-expiry data bundles`
-  return `${net} data bundle prices`
+/** PriceTable heading is "<name> prices". */
+function tableName(e: LandingEntry, net: DataNet): string {
+  if (e.kind === "at-type") return `AT ${e.atType} data bundle`
+  return `${net} no-expiry data bundle`
+}
+
+/** Price groups per network (MTN, Telecel, AT), networks without groups left out. */
+function groupsByNetwork(groups: readonly PriceGroup[]): Array<{ network: DataNet; groups: PriceGroup[] }> {
+  return (["MTN", "Telecel", "AT"] as const)
+    .map((network) => ({ network, groups: groups.filter((g) => networkOf(g.network) === network) }))
+    .filter((x) => x.groups.length > 0)
 }
 
 function NetLink({ net }: { net: DataNet }) {
@@ -237,11 +240,15 @@ function Hero({ e, off, networks }: { e: LandingEntry; off: boolean; networks: D
         ) : (
           <>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
-                <Link href={reseller ? "/join" : "/auth/signup"}>
-                  {reseller ? "Open your shop" : "Buy data now"} <ArrowRight className="h-4 w-4" aria-hidden />
-                </Link>
-              </Button>
+              {reseller ? (
+                <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
+                  <Link href="/join">
+                    Open your shop <ArrowRight className="h-4 w-4" aria-hidden />
+                  </Link>
+                </Button>
+              ) : (
+                <BuyButton label="Buy data now" />
+              )}
             </div>
             <p className="mt-4 text-sm text-muted-foreground">
               Already have an account?{" "}

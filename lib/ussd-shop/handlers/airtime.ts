@@ -8,7 +8,7 @@ import {
 import { setSession } from "../session"
 import { networkNickname } from "@/lib/ussd/network-labels"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
-import { chargeMobileMoney } from "@/lib/paystack"
+import { guardedReprice, isUssdHubtelPayer, startUssdCharge, ussdOrderAmount, type UssdPrice } from "@/lib/ussd/gateway-charge"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { secureReference } from "@/lib/secure-random"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
@@ -245,6 +245,13 @@ export async function handleShopAirtimeConfirm(
     if (rq.kind === "cashback") cb = rq.quote
   }
 
+  // The MoMo price on each gateway: cashback carries a Paystack payment fee (Hubtel drops it); legacy airtime has none.
+  // Resolved before the order is written. The shop menu only charges the dialler.
+  const momoPrice: UssdPrice = cb ? { hubtel: cb.base, paystack: cb.payAmount } : { hubtel: amount, paystack: amount }
+  const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: dialingPhone, provider })
+  const written = await ussdOrderAmount("ussd", verifiedPayer, momoPrice)
+  const pricedForHubtel = written !== momoPrice.paystack
+
   const referenceCode = secureReference("AT", 2, 3)
   let orderResult: Awaited<ReturnType<typeof createShopAirtimeOrder>>
   if (cb) {
@@ -256,12 +263,13 @@ export async function handleShopAirtimeConfirm(
       beneficiaryPhone: session.airtimeRecipient!,
       airtimeAmount: amount,
       feeAmount: 0, // the Paystack fee lives in payment_fee_amount only
-      totalPaid: cb.payAmount,
+      totalPaid: written,
       shopId: session.shopId!,
       merchantCommission: cb.shopShare,
       dialingPhone,
       channel: "ussd_shop",
-      cashbackColumns: uzoCashbackAirtimeColumns(cb, true),
+      // Priced for Hubtel: no Paystack payment fee (Hubtel adds its own charge).
+      cashbackColumns: { ...uzoCashbackAirtimeColumns(cb, true), ...(pricedForHubtel ? { total_paid: written, payment_fee_amount: 0 } : {}) },
     })
   } else {
     const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
@@ -281,7 +289,8 @@ export async function handleShopAirtimeConfirm(
     })
   }
   // What the caller is charged = the row's total_paid.
-  const price = cb ? cb.payAmount : amount
+  const price = written
+  const feeBack = Math.round((momoPrice.paystack - written) * 100) / 100
 
   if ("error" in orderResult) {
     console.error("[USSD-SHOP-AIRTIME] Failed to create order:", orderResult.error)
@@ -295,23 +304,31 @@ export async function handleShopAirtimeConfirm(
   after(async () => {
     await new Promise(r => setTimeout(r, 3000))
     try {
-      const { status } = await chargeMobileMoney({
-        email,
-        amount: price,
-        phone: dialingPhone,
-        provider,
-        reference: orderId,
-        metadata: {
-          source: "ussd_shop_airtime",
-          airtime_order_id: orderId,
-          recipient_phone: session.airtimeRecipient,
-          network,
-          shop_id: session.shopId,
+      const { status, amount: charged } = await startUssdCharge({
+        surface: "ussd",
+        verifiedPayer,
+        price: momoPrice,
+        written: price,
+        params: {
+          email,
+          phone: dialingPhone,
+          provider,
+          reference: orderId,
+          metadata: {
+            source: "ussd_shop_airtime",
+            airtime_order_id: orderId,
+            recipient_phone: session.airtimeRecipient,
+            network,
+            shop_id: session.shopId,
+          },
         },
+        reprice: guardedReprice(supabase, "airtime_orders", orderId, {
+          from: { total_paid: price }, set: { total_paid: momoPrice.paystack, payment_fee_amount: feeBack }, guards: { payment_status: "pending_payment" },
+        }),
       })
       try {
         await supabase.from("payment_attempts").insert({
-          reference: orderId, amount: price, email,
+          reference: orderId, amount: charged, email,
           status: "pending", payment_type: "ussd_shop_airtime", order_id: orderId,
         })
       } catch (paErr) {

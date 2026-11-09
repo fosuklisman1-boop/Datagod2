@@ -198,6 +198,14 @@ export default function DashboardPage() {
   const [currentPhone, setCurrentPhone] = useState("")
   const [phoneVerifyDeadline, setPhoneVerifyDeadline] = useState<string | null>(null)
   const [sendActivity, setSendActivity] = useState<SendActivityDay[]>([])
+  // /dashboard?join=closed|error: where the storefront join flow lands when it couldn't finish. Read from
+  // window (not useSearchParams) so this page needs no Suspense boundary.
+  const [joinNotice, setJoinNotice] = useState<string | null>(null)
+  useEffect(() => {
+    const j = new URLSearchParams(window.location.search).get("join")
+    if (j === "closed") setJoinNotice("That shop isn't taking sub-agents right now.")
+    else if (j === "error") setJoinNotice("We couldn't finish setting up your sub-agent shop. Please try joining again.")
+  }, [])
   const [promoIndex, setPromoIndex] = useState(0)
   const promoScrollRef = useRef<HTMLDivElement>(null)
 
@@ -457,6 +465,12 @@ export default function DashboardPage() {
         onDismiss={() => setShowPhoneVerify(false)}
       />
       <div className="mx-auto max-w-5xl space-y-5">
+        {joinNotice && (
+          <div role="status" className="flex items-start justify-between gap-3 rounded-lg border bg-card p-3 text-sm text-foreground">
+            <span>{joinNotice}</span>
+            <button type="button" onClick={() => setJoinNotice(null)} className="text-muted-foreground hover:text-foreground">Dismiss</button>
+          </div>
+        )}
         <div>
           <h1 className="text-2xl font-bold text-[#1e2537]">{getGreeting()}, {firstName}</h1>
           <p className="mt-0.5 text-sm text-[#6b7280]">

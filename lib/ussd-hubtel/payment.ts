@@ -11,6 +11,10 @@ export interface PaidReviewInfo {
   reference: string
   /** Fixed text naming why the payment is held (ids and numbers only, no row data). */
   reason: string
+  /** No handler will ever finish this payment (the sweep): a Special group's admins get an URGENT alert. */
+  urgent?: boolean
+  /** A real payment held without running a handler (late, short): a Special group's admins get an URGENT alert naming `reason`. */
+  held?: boolean
 }
 
 /**
@@ -20,6 +24,9 @@ export interface PaidReviewInfo {
  * (never dispatched, no shop share) so it can be refunded. Best effort: a throw is logged, never changes the outcome.
  */
 export type PaidReviewHandlers = Record<string, (orderId: string, p: PaidReviewInfo) => Promise<void>>
+
+/** Per order table: tell admins a row with no paid_at went stale, so its payment is unknown. Records nothing. */
+export type PossiblyPaidAlerts = Record<string, (orderId: string, sessionId: string) => Promise<void>>
 
 /** The payment reference a Hubtel checkout payment is recorded under (stable per tx row). */
 export function hubtelPaymentRef(hubtelOrderId: string | null | undefined, sessionId: string): string {
@@ -80,7 +87,7 @@ export async function processFulfillment(
     const rec = opts.paidReview?.[orderTable]
     if (!rec) return
     try {
-      await rec(orderId, { reference: hubtelPaymentRef(info.hubtelOrderId, sid), reason })
+      await rec(orderId, { reference: hubtelPaymentRef(info.hubtelOrderId, sid), reason, held: true })
     } catch (e) {
       console.error("[HUBTEL-PAYMENT] could not record the held payment on the order:", sid, orderTable, orderId, safeDbError(e))
     }

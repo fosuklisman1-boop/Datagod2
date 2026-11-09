@@ -3,7 +3,21 @@ import {
   addNumbers, costSummary, bestValueId, perSms, ledgerLabel, sendErrorMessage, logStatus, isInFlight,
   limitsLine, MOMO_PHONE, resolveTokens, splitNumbers, parseRows, contactName, senderSuggestions,
   MAX_RECIPIENTS, INSERT_CHIPS, HELD_SEND_MESSAGE, sendOutcomeMessage, partialStopReason, recipientErrorText,
+  recipientLimit,
 } from "./view"
+
+describe("recipientLimit", () => {
+  it("uses the account's admin per-send limit", () => {
+    expect(recipientLimit({ perSend: 2000, perHour: 600, perDay: 2000 })).toBe(2000)
+  })
+  it("falls back to the system ceiling while limits are loading", () => {
+    expect(recipientLimit(null)).toBe(MAX_RECIPIENTS)
+  })
+  it("never exceeds the system ceiling or drops below 1", () => {
+    expect(recipientLimit({ perSend: 10000, perHour: 1, perDay: 1 })).toBe(MAX_RECIPIENTS)
+    expect(recipientLimit({ perSend: 0, perHour: 1, perDay: 1 })).toBe(MAX_RECIPIENTS)
+  })
+})
 
 describe("addNumbers", () => {
   it("dedupes against existing and within input", () => {

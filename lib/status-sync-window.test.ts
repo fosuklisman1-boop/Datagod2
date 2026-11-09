@@ -31,7 +31,7 @@ describe("isDailySweep", () => {
 
 describe("provider status syncs use the window", () => {
   const root = join(__dirname, "../app/api/cron/sync-mtn-status")
-  const providers = ["xpress", "spfastit-telecel", "spfastit", "eazyghdata", "datakazina", "codecraft", "apexprime", "agentportalgh", "bisdel", "bundleportal"]
+  const providers = ["xpress", "spfastit-telecel", "spfastit", "eazyghdata", "datakazina", "codecraft", "apexprime", "agentportalgh", "bisdel", "bundleportal", "kuntanii"]
 
   it.each(providers)("%s only polls pending/processing rows inside the sync window", (p) => {
     const src = readFileSync(join(root, p, "route.ts"), "utf8")
