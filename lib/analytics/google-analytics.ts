@@ -91,7 +91,8 @@ window.gtag=function(){window.dataLayer.push(arguments)};
 window.__dgGaSync=function(p){
 var off=blocked(p);
 window['ga-disable-'+id]=off;
-if(off||loaded)return;
+if(off)return;
+if(loaded){window.gtag('set',{page_location:isSignup(p)?trimmed():location.href});return}
 loaded=true;
 window.gtag('js',new Date());
 if(isSignup(p)){window.gtag('config',id,{page_location:trimmed()})}else{window.gtag('config',id)}

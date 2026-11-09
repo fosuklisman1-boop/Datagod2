@@ -151,6 +151,28 @@ describe("gaBootstrapScript", () => {
     expect(appended).toHaveLength(1)
   })
 
+  it("reports a trimmed URL after a client-side move into sign-up, and the full URL again after leaving", () => {
+    const { win, commands, location } = runBootstrap("/mtn-data")
+    location.pathname = "/auth/signup"
+    location.search = "?redirect=%2Fdashboard&gclid=abc"
+    win.__dgGaSync("/auth/signup")
+    const sets = () => commands().filter((c) => c[0] === "set")
+    expect(sets().at(-1)).toEqual(["set", { page_location: "https://www.datagod.store/auth/signup?gclid=abc" }])
+
+    location.pathname = "/cheapest-data-ghana"
+    location.search = "?utm_source=x"
+    ;(location as any).href = "https://www.datagod.store/cheapest-data-ghana?utm_source=x"
+    win.__dgGaSync("/cheapest-data-ghana")
+    expect(sets().at(-1)).toEqual(["set", { page_location: "https://www.datagod.store/cheapest-data-ghana?utm_source=x" }])
+  })
+
+  it("sets nothing on a private page", () => {
+    const { win, commands, location } = runBootstrap("/mtn-data")
+    location.pathname = "/dashboard"
+    win.__dgGaSync("/dashboard")
+    expect(commands().filter((c) => c[0] === "set")).toHaveLength(0)
+  })
+
   it("loads once when a visitor moves from a private page to a public one", () => {
     const { win, appended, disabled } = runBootstrap("/dashboard")
     expect(appended).toHaveLength(0)

@@ -31,7 +31,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-foreground mb-3">3. Data Sharing</h2>
-            <p>We share your information only with service providers necessary to fulfil your orders (telecommunications networks, payment processors such as Paystack, and SMS providers). These fulfilment partners are contractually bound to protect your data and use it only for the purposes we specify. On our public pages we also use Google Analytics to measure site traffic, and we use Google Ads to advertise. Google receives technical data such as the pages viewed, device type and approximate location, and a notice when an account is created so we can measure our advertising. It does not receive your name, phone number or order details from us. Google uses this data under its own privacy policy.</p>
+            <p>We share your information only with service providers necessary to fulfil your orders (telecommunications networks, payment processors such as Paystack, and SMS providers). These fulfilment partners are contractually bound to protect your data and use it only for the purposes we specify. On our public and sign-up pages we also use Google Analytics to measure site traffic, and we use Google Ads to advertise. Google receives technical data such as the pages viewed, device type and approximate location, and a notice when an account is created so we can measure our advertising. It does not receive your name, phone number or order details from us. Google uses this data under its own privacy policy.</p>
           </section>
 
           <section>
@@ -56,7 +56,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-foreground mb-3">8. Cookies</h2>
-            <p>We use essential cookies to maintain your session and keep you logged in. On our public pages and when you create an account, Google Analytics and Google Ads also set cookies that help us understand how visitors find our site and measure our advertising. You can control ad personalisation in your Google account settings.</p>
+            <p>We use essential cookies to maintain your session and keep you logged in. On our public and sign-up pages, Google Analytics and Google Ads also set cookies that help us understand how visitors find our site and measure our advertising. You can control ad personalisation in your Google account settings.</p>
           </section>
 
           <section>
