@@ -10,10 +10,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Wallet, Plus, TrendingUp, TrendingDown, AlertCircle, Loader2, CheckCircle, LayoutGrid, History as HistoryIcon } from "lucide-react"
+import { Wallet, Plus, TrendingUp, TrendingDown, AlertCircle, Loader2, CheckCircle, LayoutGrid, History as HistoryIcon, Send } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { WalletTopUp } from "@/components/wallet-top-up"
 import { SuccessModal } from "@/components/success-modal"
+import { SendAndClaimTab } from "@/components/wallet/send-and-claim/send-and-claim-tab"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -44,6 +45,7 @@ interface PendingPayment {
 const TABS = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
   { id: "topup", label: "Top Up", icon: Plus },
+  { id: "sendclaim", label: "Send & Claim", icon: Send },
   { id: "history", label: "History", icon: HistoryIcon },
 ] as const
 
@@ -52,7 +54,8 @@ export default function WalletPage() {
   const searchParams = useSearchParams()
   const { user, loading: authLoading } = useAuth()
   const { isDealer } = useUserRole()
-  const [tab, setTab] = useState<"overview" | "topup" | "history">("overview")
+  const [tab, setTab] = useState<"overview" | "topup" | "sendclaim" | "history">("overview")
+  const [momoEnabled, setMomoEnabled] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [walletData, setWalletData] = useState<WalletData>({
     balance: 0,
@@ -103,8 +106,32 @@ export default function WalletPage() {
           }
         })
         .catch((err) => console.error("Failed to load toggles", err))
+
+      // Send & Claim tab only shows when the feature is enabled
+      supabase.auth
+        .getSession()
+        .then(({ data }) =>
+          fetch("/api/wallet/momo-sessions", {
+            headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` },
+          }),
+        )
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => setMomoEnabled(data?.enabled === true))
+        .catch(() => setMomoEnabled(false))
     }
   }, [user])
+
+  const handleMomoCredited = async (netAmount: number) => {
+    setSuccessModal({
+      open: true,
+      title: "Top-Up Successful!",
+      message: "Your payment was received and your wallet has been credited.",
+      details: [{ label: "Amount", value: `GHS ${netAmount.toFixed(2)}` }],
+    })
+    if (userId) {
+      await Promise.all([fetchWalletData(userId), fetchTransactions(userId)])
+    }
+  }
 
   const fetchUserAndWallet = async () => {
     try {
@@ -378,7 +405,7 @@ export default function WalletPage() {
 
         {/* Tabs */}
         <div className="inline-flex w-full rounded-2xl bg-muted p-1">
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {TABS.filter((t) => t.id !== "sendclaim" || momoEnabled).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -506,6 +533,8 @@ export default function WalletPage() {
             </div>
           )
         )}
+
+        {tab === "sendclaim" && momoEnabled && <SendAndClaimTab onCredited={handleMomoCredited} />}
 
         {tab === "history" && (
           <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
