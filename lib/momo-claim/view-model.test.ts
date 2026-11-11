@@ -1,11 +1,20 @@
 import { describe, it, expect } from "vitest"
 import { buildSendAndClaimView, momoErrorCopy } from "./view-model"
+import { MAX_OPEN_SESSIONS } from "./window"
 
 describe("momoErrorCopy", () => {
   const limits = { minNet: 2, maxSent: 500 }
+  it("maps remaining codes to customer copy", () => {
+    expect(momoErrorCopy("phone_not_verified", limits)).toBe("Verify your phone number to use Send & Claim.")
+    expect(momoErrorCopy("no_wallet", limits)).toBe("Your wallet isn't ready yet. Refresh the page or contact support.")
+    expect(momoErrorCopy("invalid", limits)).toBe("Enter a valid amount (up to 2 decimals).")
+    expect(momoErrorCopy("too_many_open", limits)).toBe(
+      `You have ${MAX_OPEN_SESSIONS} open payments. A new one unlocks when one expires or is credited.`,
+    )
+  })
   it("maps known codes to customer copy", () => {
-    expect(momoErrorCopy("below_min", limits)).toBe("Amount too small. The minimum after the fee is GHS 2.")
-    expect(momoErrorCopy("above_max", limits)).toBe("Amount too large. The maximum per payment is GHS 500.")
+    expect(momoErrorCopy("below_min", limits)).toBe("Amount too small. The minimum after the fee is GHS 2.00.")
+    expect(momoErrorCopy("above_max", limits)).toBe("Amount too large. The maximum per payment is GHS 500.00.")
     expect(momoErrorCopy("rate_limited", limits)).toBe("Please wait a moment and try again.")
   })
   it("falls back for unknown codes", () => {

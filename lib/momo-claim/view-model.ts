@@ -1,4 +1,5 @@
 import { openSessions, nextSlotFreeAt, MAX_OPEN_SESSIONS, type SessionLite } from "./window"
+// MAX_OPEN_SESSIONS also used in customer copy below
 
 export type SendAndClaimView<T extends SessionLite> = {
   boxes: T[]
@@ -17,13 +18,13 @@ export function momoErrorCopy(code: string | undefined, limits: MomoLimits): str
     case "no_wallet":
       return "Your wallet isn't ready yet. Refresh the page or contact support."
     case "below_min":
-      return `Amount too small. The minimum after the fee is GHS ${limits.minNet}.`
+      return `Amount too small. The minimum after the fee is GHS ${limits.minNet.toFixed(2)}.`
     case "above_max":
-      return `Amount too large. The maximum per payment is GHS ${limits.maxSent}.`
+      return `Amount too large. The maximum per payment is GHS ${limits.maxSent.toFixed(2)}.`
     case "invalid":
       return "Enter a valid amount (up to 2 decimals)."
     case "too_many_open":
-      return "You have 5 open payments. A new one unlocks when one expires or is credited."
+      return `You have ${MAX_OPEN_SESSIONS} open payments. A new one unlocks when one expires or is credited.`
     case "rate_limited":
       return "Please wait a moment and try again."
     default:

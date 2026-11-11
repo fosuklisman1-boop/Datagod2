@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { supabase } from "@/lib/supabase"
 import { computeFee } from "@/lib/momo-claim/money"
 import { buildSendAndClaimView, momoErrorCopy } from "@/lib/momo-claim/view-model"
+import { startPoller } from "@/lib/momo-claim/poller"
+import { MAX_OPEN_SESSIONS } from "@/lib/momo-claim/window"
 import { HowItWorks } from "./how-it-works"
 import { PaymentModal, type PaymentModalData } from "./payment-modal"
 import { ClaimBox, formatCountdown } from "./claim-box"
@@ -51,7 +53,7 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
   const [modal, setModal] = useState<PaymentModalData | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const seen = useRef<Map<string, string>>(new Map())
-  const pollStart = useRef<number | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const creditedRef = useRef(onCredited)
   creditedRef.current = onCredited
 
@@ -59,9 +61,16 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
     try {
       const token = await getToken()
       const res = await fetch("/api/wallet/momo-sessions", { headers: { Authorization: `Bearer ${token}` } })
-      if (!res.ok) return
+      if (!res.ok) {
+        setLoadFailed(true)
+        return
+      }
       const body = await res.json()
-      if (!body.enabled) return
+      if (!body.enabled) {
+        setLoadFailed(true)
+        return
+      }
+      setLoadFailed(false)
       setInfo({ accounts: body.accounts, accountName: body.accountName, feePercent: body.feePercent, minNet: body.minNet, maxSent: body.maxSent })
       const list: Session[] = body.sessions ?? []
       for (const s of list) {
@@ -70,7 +79,7 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
       }
       setSessions(list)
     } catch {
-      /* transient network error; next poll retries */
+      setLoadFailed(true)
     }
   }, [])
 
@@ -90,26 +99,20 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
   const hasPending = sessions.some((s) => s.status === "pending")
 
   useEffect(() => {
-    if (!hasPending) {
-      pollStart.current = null
-      return
-    }
-    if (pollStart.current === null) pollStart.current = Date.now()
-    let timer: ReturnType<typeof setTimeout>
-    const tick = () => {
-      const slow = Date.now() - (pollStart.current ?? Date.now()) > BACKOFF_AFTER_MS
-      timer = setTimeout(async () => {
-        if (!document.hidden) await load()
-        tick()
-      }, slow ? SLOW_MS : FAST_MS)
-    }
+    if (!hasPending) return
+    const poller = startPoller({
+      load,
+      isHidden: () => document.hidden,
+      fastMs: FAST_MS,
+      slowMs: SLOW_MS,
+      backoffAfterMs: BACKOFF_AFTER_MS,
+    })
     const onVisible = () => {
       if (!document.hidden) void load()
     }
     document.addEventListener("visibilitychange", onVisible)
-    tick()
     return () => {
-      clearTimeout(timer)
+      poller.stop()
       document.removeEventListener("visibilitychange", onVisible)
     }
   }, [hasPending, load])
@@ -161,9 +164,21 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
     await load()
   }
 
-  if (!info) return <div className="h-40 animate-pulse rounded-2xl bg-muted" />
+  if (!info) {
+    return loadFailed ? (
+      <div className="flex items-center gap-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-sm text-foreground clay">
+        Couldn&apos;t load Send &amp; Claim.
+        <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setLoadFailed(false); void load() }}>
+          Retry
+        </Button>
+      </div>
+    ) : (
+      <div className="h-40 animate-pulse rounded-2xl bg-muted" />
+    )
+  }
 
-  const disabled = busy || !valid || !mtn || view.generateDisabled
+  const overMax = valid && Number(amount) > info.maxSent
+  const disabled = busy || !valid || !mtn || view.generateDisabled || overMax
 
   return (
     <div className="space-y-4">
@@ -185,20 +200,21 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
             </p>
           )}
           <p className="text-xs text-muted-foreground">
-            Minimum GHS {info.minNet} credited · Maximum GHS {info.maxSent} per payment
+            Minimum GHS {info.minNet.toFixed(2)} credited · Maximum GHS {info.maxSent.toFixed(2)} per payment
           </p>
+          {overMax && <p className="text-sm text-destructive">{momoErrorCopy("above_max", info)}</p>}
           {!mtn && <p className="text-sm text-destructive">Payment number not set — contact support</p>}
           {error && (
             <p className="text-sm text-destructive">
               {error}{" "}
               {needsVerify && (
-                <Link href="/dashboard" className="font-semibold underline">Verify now</Link>
+                <Link href="/dashboard/profile"className="font-semibold underline">Verify now</Link>
               )}
             </p>
           )}
           {view.generateDisabled && view.nextSlotFreeAt && (
             <p className="text-sm text-muted-foreground">
-              You have 5 open payments. A new one unlocks when one expires or is credited. Next slot in{" "}
+              You have {MAX_OPEN_SESSIONS} open payments. A new one unlocks when one expires or is credited. Next slot in{" "}
               <span className="font-mono tabular-nums">{formatCountdown(view.nextSlotFreeAt, nowMs)}</span>
             </p>
           )}
