@@ -149,6 +149,21 @@ describe("POST /api/webhooks/sms-forward", () => {
     expect(await bodyText(res)).not.toContain("JANE")
   })
 
+  it("logs only the error name and code on failure, never the message", async () => {
+    const err = Object.assign(new Error('duplicate key value violates unique constraint (transaction_id)=(80000000123)'), {
+      name: "PostgrestError",
+      code: "23505",
+    })
+    ingestMock.mockRejectedValueOnce(err)
+    const res = await POST(jsonReq({ text: SMS, from: "MobileMoney" }))
+    expect(res.status).toBe(503)
+    const errorSpy = logSpies[3]
+    const dump = JSON.stringify(errorSpy.mock.calls)
+    expect(dump).toContain("PostgrestError")
+    expect(dump).toContain("23505")
+    expect(dump).not.toContain("duplicate key")
+  })
+
   it("503s when the service role key is absent", async () => {
     delete process.env.SUPABASE_SERVICE_ROLE_KEY
     const res = await POST(jsonReq({ text: SMS, from: "MobileMoney" }))

@@ -87,8 +87,11 @@ export async function POST(request: NextRequest) {
   try {
     const settings = await loadMomoClaimSettings(supabaseAdmin)
     await ingestForwardedSms(supabaseAdmin, input, settings)
-  } catch {
-    console.error(`${TAG} SMS could not be stored`)
+  } catch (err) {
+    // Name and PostgREST/PG code only: an error message can carry the full txid or SMS text.
+    const e = (err && typeof err === "object" ? err : {}) as { name?: unknown; code?: unknown }
+    const safe = (v: unknown) => (typeof v === "string" ? v.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : "-")
+    console.error(`${TAG} SMS could not be stored name=${safe(e.name)} code=${safe(e.code)}`)
     return unavailable()
   }
   return ok()

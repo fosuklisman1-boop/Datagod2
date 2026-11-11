@@ -68,13 +68,31 @@ describe("ingestForwardedSms", () => {
     const rows = db.tables.momo_transactions
     expect(rows).toHaveLength(1)
     expect(rows[0].status).toBe("rejected_sender")
-    expect(String(rows[0].transaction_id)).toMatch(/^X[0-9a-f-]{36}$/)
-    expect(rows[0].raw_sms).toBe(payment())
+    expect(String(rows[0].transaction_id)).toMatch(/^X[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(rows[0].raw_sms).toBe("[redacted]")
     expect(rows[0].sms_sender).toBe("+233200000000")
     expect(rows[0].amount ?? null).toBeNull()
     expect(rows[0].sender_name ?? null).toBeNull()
     expect(db.rpcCalls).toHaveLength(0)
     expect(alerts).toHaveLength(0)
+  })
+
+  it("stores a repeated rejected_sender delivery once (deterministic synthetic id)", async () => {
+    const { db, client } = makeFakeDb()
+    expect(await run(client, "hello there", "Friend")).toBe("rejected_sender")
+    expect(await run(client, "hello there", " Friend ")).toBe("duplicate")
+    expect(db.tables.momo_transactions).toHaveLength(1)
+    expect(await run(client, "hello again", "Friend")).toBe("rejected_sender")
+    expect(await run(client, "hello there", "Other")).toBe("rejected_sender")
+    expect(db.tables.momo_transactions).toHaveLength(3)
+    expect(alerts).toHaveLength(0)
+  })
+
+  it("matches allowlist entries that carry stray spaces", async () => {
+    const { client } = makeFakeDb()
+    expect(await run(client, payment({ ref: "none" }), "MobileMoney", settings({ senderAllowlist: [" MobileMoney "] }))).toBe(
+      "stored_pending",
+    )
   })
 
   it("treats a null sender as not allowlisted", async () => {
@@ -114,6 +132,17 @@ describe("ingestForwardedSms", () => {
     expect(String(rows[0].transaction_id)).toMatch(/^X[0-9a-f-]{36}$/)
     expect(rows[0].raw_sms).toBe(text)
     expect(alerts).toEqual([{ kind: "unparsed" }])
+  })
+
+  it("stores a repeated unparsed delivery once and alerts once", async () => {
+    const { db, client } = makeFakeDb()
+    const text = "You have GHS 5 bonus. Transaction ID: 123"
+    expect(await run(client, text)).toBe("unparsed")
+    expect(await run(client, text)).toBe("duplicate")
+    expect(db.tables.momo_transactions).toHaveLength(1)
+    expect(alerts).toEqual([{ kind: "unparsed" }])
+    expect(await run(client, text + " ")).toBe("unparsed")
+    expect(db.tables.momo_transactions).toHaveLength(2)
   })
 
   it("stores a parsed SMS as pending with GHS amounts", async () => {
@@ -197,12 +226,84 @@ describe("ingestForwardedSms", () => {
     expect(alerts[0]).toMatchObject({ kind: "flagged", reasons: ["intake_check_error"] })
   })
 
-  it("still alerts when the flag update fails, and never calls the RPC", async () => {
+  it("intake flags are present in the inserted row (no separate update)", async () => {
     const { db, client } = makeFakeDb({ wallet_topup_sessions: [session("KXR4829")] })
-    db.failUpdate = true
+    db.failUpdate = true // any UPDATE would fail: the flag must already be in the insert
     expect(await run(client, payment({ amount: "2,500.00" }))).toBe("flagged")
+    expect(db.tables.momo_transactions[0]).toMatchObject({ status: "flagged", flag_reasons: ["above_max"] })
     expect(db.rpcCalls).toHaveLength(0)
-    expect(alerts[0]).toMatchObject({ kind: "flagged", reasons: ["above_max", "flag_update_failed"] })
+    expect(alerts).toEqual([{ kind: "flagged", amountPesewas: 250000, txidLast4: "0123", reasons: ["above_max"] }])
+  })
+
+  it("a duplicate of a flagged-worthy txid does not alert again", async () => {
+    const { client } = makeFakeDb()
+    expect(await run(client, payment({ amount: "2,500.00" }))).toBe("flagged")
+    expect(await run(client, payment({ amount: "2,500.00" }))).toBe("duplicate")
+    expect(alerts).toHaveLength(1)
+  })
+
+  it("re-runs auto-credit for a still-pending duplicate using the stored text", async () => {
+    const { db, client } = makeFakeDb({
+      momo_transactions: [{ transaction_id: TXID, status: "pending", amount: 50, raw_sms: payment(), flag_reasons: [] }],
+      wallet_topup_sessions: [session("KXR4829")],
+    })
+    db.rpcImpl = () => ({ data: "credited", error: null })
+    expect(await run(client, payment())).toBe("credited")
+    expect(db.rpcCalls).toEqual([{ name: "claim_via_wallet_topup_session", args: { p_code: "KXR4829", p_txid: TXID } }])
+    expect(alerts).toEqual([{ kind: "credited", amountPesewas: 5000, txidLast4: "0123" }])
+    expect(db.tables.momo_transactions).toHaveLength(1)
+  })
+
+  it("a pending duplicate carrying a different code still uses the stored text's code", async () => {
+    const { db, client } = makeFakeDb({
+      momo_transactions: [{ transaction_id: TXID, status: "pending", amount: 50, raw_sms: payment(), flag_reasons: [] }],
+      wallet_topup_sessions: [session("KXR4829"), session("ABC2345")],
+    })
+    db.rpcImpl = () => ({ data: "credited", error: null })
+    await run(client, payment({ ref: "ABC2345" }))
+    expect(db.rpcCalls).toHaveLength(1)
+    expect(db.rpcCalls[0].args.p_code).toBe("KXR4829")
+  })
+
+  it("a pending duplicate whose stored text has no code does not use the new text's code", async () => {
+    const { db, client } = makeFakeDb({
+      momo_transactions: [
+        { transaction_id: TXID, status: "pending", amount: 50, raw_sms: payment({ ref: "none" }), flag_reasons: [] },
+      ],
+      wallet_topup_sessions: [session("ABC2345")],
+    })
+    expect(await run(client, payment({ ref: "ABC2345" }))).toBe("duplicate")
+    expect(db.rpcCalls).toHaveLength(0)
+  })
+
+  it.each(["flagged", "claimed", "voided", "unparsed", "rejected_sender"])(
+    "never re-runs auto-credit for a %s duplicate",
+    async (status) => {
+      const { db, client } = makeFakeDb({
+        momo_transactions: [{ transaction_id: TXID, status, amount: 50, raw_sms: payment(), flag_reasons: [] }],
+        wallet_topup_sessions: [session("KXR4829")],
+      })
+      db.rpcImpl = () => ({ data: "credited", error: null })
+      expect(await run(client, payment())).toBe("duplicate")
+      expect(db.rpcCalls).toHaveLength(0)
+    },
+  )
+
+  it("does not re-run auto-credit for a pending duplicate while the feature is off", async () => {
+    const { db, client } = makeFakeDb({
+      momo_transactions: [{ transaction_id: TXID, status: "pending", amount: 50, raw_sms: payment(), flag_reasons: [] }],
+      wallet_topup_sessions: [session("KXR4829")],
+    })
+    expect(await run(client, payment(), "MobileMoney", settings({ enabled: false }))).toBe("duplicate")
+    expect(db.rpcCalls).toHaveLength(0)
+  })
+
+  it("alerts auto_credit_error when the session lookup fails", async () => {
+    const { db, client } = makeFakeDb({ wallet_topup_sessions: [session("KXR4829")] })
+    db.failSelect.add("wallet_topup_sessions")
+    expect(await run(client, payment())).toBe("stored_pending")
+    expect(db.rpcCalls).toHaveLength(0)
+    expect(alerts).toEqual([{ kind: "flagged", amountPesewas: 5000, txidLast4: "0123", reasons: ["auto_credit_error"] }])
   })
 
   it("auto-credits when exactly one live code is in the text", async () => {

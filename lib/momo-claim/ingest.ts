@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto"
+import { createHash } from "crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { parseMomoSms, passesPrefilter, type ParsedSms } from "./parse-sms"
 import { scanCodeCandidates } from "./codes"
@@ -12,6 +12,10 @@ import { notifyMomoAdmins, type MomoAdminAlert } from "@/lib/admin-actions/momo-
  *
  * Never logs: the SMS holds payer names, phone numbers and amounts. Alerts carry only the amount
  * and the last 4 transaction-ID digits.
+ *
+ * Every write is idempotent (ON CONFLICT DO NOTHING on transaction_id; synthetic ids are derived
+ * from sender + text), so forwarder retries never create a second row or a second alert.
+ * Intake flags go into the same single insert: a row is never pending while it should be flagged.
  *
  * Throws MomoStoreError only when the SMS row could not be written (the caller answers 503 so the
  * forwarder retries). Every later failure is contained: auto-credit is fail-closed.
@@ -28,11 +32,15 @@ export type IngestOutcome =
   | "under_review"
 
 export type IngestDeps = { notifyAdmins?: (alert: MomoAdminAlert) => Promise<void> }
+type Notify = (alert: MomoAdminAlert) => Promise<void>
 
 export class MomoStoreError extends Error {
-  constructor() {
+  /** PostgREST/PG error code of the failed write, if any. Never the message (it can hold the txid). */
+  readonly code: string | undefined
+  constructor(code?: unknown) {
     super("momo sms row could not be stored")
     this.name = "MomoStoreError"
+    this.code = typeof code === "string" && /^[A-Za-z0-9_]{1,20}$/.test(code) ? code : undefined
   }
 }
 
@@ -40,8 +48,14 @@ export const MAX_SMS_LENGTH = 2000
 const MAX_SENDER_LENGTH = 100
 const TXID_RE = /^\d{8,15}$/
 const TABLE = "momo_transactions"
+const REDACTED = "[redacted]"
 
-const syntheticId = () => `X${randomUUID()}`
+/** 'X' + UUID-shaped first 32 hex chars of sha256(sender + "\n" + text): same delivery, same id. */
+export function syntheticId(sender: string | null, text: string): string {
+  const h = createHash("sha256").update(`${sender ?? ""}\n${text}`, "utf8").digest("hex").slice(0, 32)
+  return `X${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
+}
+
 const ghs = (pesewas: number) => pesewas / 100
 const last4 = (txid: string) => txid.slice(-4)
 
@@ -56,16 +70,17 @@ export async function ingestForwardedSms(
   if (text.trim().length === 0 || text.length > MAX_SMS_LENGTH) return "ignored"
 
   const from = typeof input.from === "string" ? input.from.trim().slice(0, MAX_SENDER_LENGTH) : null
+  const allowed = settings.senderAllowlist.map((s) => s.trim()).filter((s) => s.length > 0)
 
-  // 1. Sender allowlist: exact match. Anything else is kept for the audit trail, never parsed.
-  if (!from || !settings.senderAllowlist.includes(from)) {
-    await insertOrThrow(client, {
-      transaction_id: syntheticId(),
-      raw_sms: text,
+  // 1. Sender allowlist: exact match. Anything else is kept (text redacted) for the audit trail, never parsed.
+  if (!from || !allowed.includes(from)) {
+    const stored = await storeOrThrow(client, {
+      transaction_id: syntheticId(from, text),
+      raw_sms: REDACTED,
       sms_sender: from,
       status: "rejected_sender",
     })
-    return "rejected_sender"
+    return stored ? "rejected_sender" : "duplicate"
   }
 
   // 2. Prefilter: not a MoMo receipt at all.
@@ -74,40 +89,18 @@ export async function ingestForwardedSms(
   // 3. Parse. A MoMo-looking SMS we cannot read must reach the admin queue, never be dropped.
   const sms = parseMomoSms(text)
   if (!sms) {
-    await insertOrThrow(client, {
-      transaction_id: syntheticId(),
+    const stored = await storeOrThrow(client, {
+      transaction_id: syntheticId(from, text),
       raw_sms: text,
       sms_sender: from,
       status: "unparsed",
     })
+    if (!stored) return "duplicate"
     await notify({ kind: "unparsed" })
     return "unparsed"
   }
 
-  // 4. Store first (ON CONFLICT DO NOTHING). A replayed txid stops here.
-  const { data: inserted, error: insertError } = await client
-    .from(TABLE)
-    .upsert(
-      {
-        transaction_id: sms.transactionId,
-        network: sms.network,
-        pattern: sms.pattern,
-        amount: ghs(sms.amountPesewas),
-        sender_name: sms.senderName,
-        sms_sender: from,
-        sms_balance: sms.balancePesewas === null ? null : ghs(sms.balancePesewas),
-        raw_sms: text,
-        status: "pending",
-      },
-      { onConflict: "transaction_id", ignoreDuplicates: true },
-    )
-    .select("transaction_id")
-  if (insertError || !Array.isArray(inserted)) throw new MomoStoreError()
-  if (inserted.length === 0) return "duplicate"
-
-  const base = { amountPesewas: sms.amountPesewas, txidLast4: last4(sms.transactionId) }
-
-  // 5. Intake checks against OTHER rows. Unreadable state = flag (fail closed).
+  // 4. Intake checks against OTHER rows, before the insert. Unreadable state = flag (fail closed).
   let flags: string[]
   try {
     flags = intakeFlags(sms, {
@@ -118,39 +111,91 @@ export async function ingestForwardedSms(
   } catch {
     flags = ["intake_check_error"]
   }
+
+  // 5. One insert, flags included (ON CONFLICT DO NOTHING).
+  const stored = await storeOrThrow(client, {
+    transaction_id: sms.transactionId,
+    network: sms.network,
+    pattern: sms.pattern,
+    amount: ghs(sms.amountPesewas),
+    sender_name: sms.senderName,
+    sms_sender: from,
+    sms_balance: sms.balancePesewas === null ? null : ghs(sms.balancePesewas),
+    raw_sms: text,
+    status: flags.length > 0 ? "flagged" : "pending",
+    flag_reasons: flags,
+  })
+  if (!stored) return retryDuplicate(client, sms.transactionId, settings, notify)
+
+  const base = { amountPesewas: sms.amountPesewas, txidLast4: last4(sms.transactionId) }
   if (flags.length > 0) {
-    let reasons = flags
-    try {
-      const { error } = await client
-        .from(TABLE)
-        .update({ status: "flagged", flag_reasons: flags })
-        .eq("transaction_id", sms.transactionId)
-      if (error) reasons = [...flags, "flag_update_failed"]
-    } catch {
-      reasons = [...flags, "flag_update_failed"]
-    }
-    await notify({ kind: "flagged", ...base, reasons })
+    await notify({ kind: "flagged", ...base, reasons: flags })
     return "flagged"
   }
 
   // 6. Feature off: stored and checked, never auto-credited.
   if (!settings.enabled) return "stored_pending"
 
-  // 7. Exactly one live session code in the text, or nothing.
-  const code = await findSingleLiveCode(client, text)
-  if (!code) return "stored_pending"
+  const outcome = await autoCredit(client, text, sms.transactionId, base, notify)
+  return outcome ?? "stored_pending"
+}
+
+/**
+ * A txid we already hold. Only a row still 'pending' gets another auto-credit attempt, and only
+ * with the STORED text: a replay carrying a different code must never steer the payment.
+ */
+async function retryDuplicate(
+  client: SupabaseClient,
+  txid: string,
+  settings: MomoClaimSettings,
+  notify: Notify,
+): Promise<IngestOutcome> {
+  if (!settings.enabled) return "duplicate"
+  let row: { status?: unknown; raw_sms?: unknown; amount?: unknown } | null
+  try {
+    const { data, error } = await client
+      .from(TABLE)
+      .select("status, raw_sms, amount")
+      .eq("transaction_id", txid)
+      .maybeSingle()
+    if (error) return "duplicate"
+    row = data as typeof row
+  } catch {
+    return "duplicate"
+  }
+  if (!row || row.status !== "pending" || typeof row.raw_sms !== "string") return "duplicate"
+  const amount = Number(row.amount)
+  const base = {
+    ...(Number.isFinite(amount) ? { amountPesewas: Math.round(amount * 100) } : {}),
+    txidLast4: last4(txid),
+  }
+  const outcome = await autoCredit(client, row.raw_sms, txid, base, notify)
+  return outcome === "credited" || outcome === "under_review" ? outcome : "duplicate"
+}
+
+/** Code matching + RPC. Returns null when nothing was credited or sent to review. */
+async function autoCredit(
+  client: SupabaseClient,
+  text: string,
+  txid: string,
+  base: { amountPesewas?: number; txidLast4: string },
+  notify: Notify,
+): Promise<"credited" | "under_review" | null> {
+  const match = await findSingleLiveCode(client, text)
+  if (match === "error") {
+    await notify({ kind: "flagged", ...base, reasons: ["auto_credit_error"] })
+    return null
+  }
+  if (!match) return null
 
   let result: unknown
   try {
-    const { data, error } = await client.rpc("claim_via_wallet_topup_session", {
-      p_code: code,
-      p_txid: sms.transactionId,
-    })
+    const { data, error } = await client.rpc("claim_via_wallet_topup_session", { p_code: match, p_txid: txid })
     if (error) throw new Error("rpc error")
     result = data
   } catch {
     await notify({ kind: "flagged", ...base, reasons: ["auto_credit_error"] })
-    return "stored_pending"
+    return null
   }
 
   if (result === "credited") {
@@ -158,21 +203,26 @@ export async function ingestForwardedSms(
     return "credited"
   }
   if (result === "under_review") {
-    await notify({ kind: "flagged", ...base, reasons: await readFlagReasons(client, sms.transactionId) })
+    await notify({ kind: "flagged", ...base, reasons: await readFlagReasons(client, txid) })
     return "under_review"
   }
-  return "stored_pending"
+  return null
 }
 
-async function insertOrThrow(client: SupabaseClient, row: Record<string, unknown>): Promise<void> {
-  let failed = false
+/** Insert with ON CONFLICT (transaction_id) DO NOTHING. true = new row, false = already there. */
+async function storeOrThrow(client: SupabaseClient, row: Record<string, unknown>): Promise<boolean> {
+  let result: { data: unknown; error: unknown }
   try {
-    const { error } = await client.from(TABLE).insert(row)
-    failed = Boolean(error)
-  } catch {
-    failed = true
+    result = await client
+      .from(TABLE)
+      .upsert(row, { onConflict: "transaction_id", ignoreDuplicates: true })
+      .select("transaction_id")
+  } catch (err) {
+    throw new MomoStoreError((err as { code?: unknown } | null)?.code)
   }
-  if (failed) throw new MomoStoreError()
+  if (result.error) throw new MomoStoreError((result.error as { code?: unknown }).code)
+  if (!Array.isArray(result.data)) throw new MomoStoreError()
+  return result.data.length > 0
 }
 
 /** Throws on any read error; the caller turns that into a flag. */
@@ -218,8 +268,8 @@ async function readIntakeState(
   return { newestTxid, balanceSeenOnOtherTxid }
 }
 
-/** The one pending, unexpired session whose code is in the text; null for zero, several, or a read error. */
-async function findSingleLiveCode(client: SupabaseClient, text: string): Promise<string | null> {
+/** The one pending, unexpired session whose code is in the text; null for zero or several; "error" on a read failure. */
+async function findSingleLiveCode(client: SupabaseClient, text: string): Promise<string | null | "error"> {
   const candidates = scanCodeCandidates(text)
   if (candidates.length === 0) return null
   try {
@@ -229,13 +279,13 @@ async function findSingleLiveCode(client: SupabaseClient, text: string): Promise
       .eq("status", "pending")
       .gt("expires_at", new Date().toISOString())
       .in("code", candidates)
-    if (error || !Array.isArray(data)) return null
+    if (error || !Array.isArray(data)) return "error"
     const ids = new Set((data as { id: unknown }[]).map((r) => r.id))
     if (ids.size !== 1) return null
     const code = (data[0] as { code?: unknown }).code
-    return typeof code === "string" ? code : null
+    return typeof code === "string" && candidates.includes(code) ? code : null
   } catch {
-    return null
+    return "error"
   }
 }
 
