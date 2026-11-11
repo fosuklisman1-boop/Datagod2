@@ -7,7 +7,9 @@
 -- One transaction. Idempotent (re-runnable).
 --
 --   wallet_topup_sessions     a code the customer gets before paying: amount, fee, net credit, expiry. Created first,
---                             because momo_transactions.session_id references it.
+--                             because momo_transactions.session_id references it. Deleting the auth user deletes their
+--                             sessions (ON DELETE CASCADE); a MoMo row is never deleted with them, only unlinked
+--                             (session_id ON DELETE SET NULL), so the payment record survives.
 --   momo_transactions         one row per MoMo SMS received. transaction_id is unique and is the MoMo id (8-15 digits).
 --                             A row with no parsed id (unparsed, rejected sender) gets the synthetic id 'X' || uuid. That
 --                             id is kept for life: an admin can credit an unparsed row later, so the CHECK does not look
@@ -60,7 +62,7 @@ SET LOCAL statement_timeout = '120s';
 -- 1. Sessions. Before momo_transactions, which references this table.
 CREATE TABLE IF NOT EXISTS public.wallet_topup_sessions (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id               uuid NOT NULL REFERENCES auth.users(id),
+  user_id               uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   code                  text NOT NULL UNIQUE CHECK (code ~ '^[A-HJKMNP-Z]{3}[2-9]{4}$'),
   amount                numeric(12,2) NOT NULL CHECK (amount > 0),
   fee                   numeric(12,2) NOT NULL,
@@ -88,7 +90,7 @@ CREATE TABLE IF NOT EXISTS public.momo_transactions (
   raw_sms             text NOT NULL,
   status              text NOT NULL CHECK (status IN ('pending','claimed','flagged','voided','unparsed','rejected_sender')),
   flag_reasons        text[] NOT NULL DEFAULT '{}',
-  session_id          uuid REFERENCES public.wallet_topup_sessions(id),
+  session_id          uuid REFERENCES public.wallet_topup_sessions(id) ON DELETE SET NULL,
   claimed_by          uuid,
   claimed_at          timestamptz,
   fee                 numeric(12,2),

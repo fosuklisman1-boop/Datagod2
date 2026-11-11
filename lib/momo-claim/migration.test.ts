@@ -65,6 +65,12 @@ describe("0160 migration text", () => {
     expect(c).toContain("GRANT SELECT, INSERT ON TABLE public.momo_reconciliation_runs TO service_role;")
   })
 
+  it("sessions cascade with their auth user; MoMo rows are unlinked, never deleted", () => {
+    const c = code(migration())
+    expect(c).toMatch(/user_id\s+uuid NOT NULL REFERENCES auth\.users\(id\) ON DELETE CASCADE/)
+    expect(c).toMatch(/session_id\s+uuid REFERENCES public\.wallet_topup_sessions\(id\) ON DELETE SET NULL/)
+  })
+
   it("seeds every default setting with ON CONFLICT DO NOTHING", () => {
     const c = code(migration())
     for (const k of ["momo_claim_enabled", "momo_payment_accounts", "momo_account_name", "momo_claim_fee_customer", "momo_claim_fee_dealer",
@@ -96,7 +102,7 @@ describe("0160 run string (migration + self-test)", () => {
 
   it("self-test covers every required scenario", () => {
     const st = read(SELFTEST_FILE)
-    for (const label of ["catalog", "grants", "deny_anon", "deny_authenticated", "settings_defaults", "txid_check", "code_check"]) {
+    for (const label of ["catalog", "fk_rules", "grants", "deny_anon", "deny_authenticated", "settings_defaults", "txid_check", "code_check"]) {
       expect(st).toContain(label)
     }
   })
@@ -307,6 +313,19 @@ describe.skipIf(!PGliteCtor)("0160 in PGlite", () => {
         .rejects.toThrow(/foreign key/)
     })
 
+    it("deleting an auth user removes their sessions and unlinks (keeps) their MoMo rows", async () => {
+      const gone = "5f0c1a9e-0160-4160-8160-0000000000de"
+      await db.query("INSERT INTO auth.users VALUES ($1)", [gone])
+      const sid = (await one(`INSERT INTO public.wallet_topup_sessions (user_id, code, amount, fee, net_amount, expires_at)
+                              VALUES ($1, 'DEW2345', 10, 0, 10, now() + interval '1 hour') RETURNING id`, [gone])).id
+      const id = txid()
+      await db.query("INSERT INTO public.momo_transactions (transaction_id, raw_sms, status, session_id) VALUES ($1, 's', 'flagged', $2)", [id, sid])
+      await db.query("DELETE FROM auth.users WHERE id = $1", [gone])
+      expect(await count("SELECT count(*) AS n FROM public.wallet_topup_sessions WHERE id = $1", [sid])).toBe(0)
+      const row = await one("SELECT status, session_id FROM public.momo_transactions WHERE transaction_id = $1", [id])
+      expect(row).toEqual({ status: "flagged", session_id: null })
+    })
+
     it("momo_claim_attempts accepts the eight results and nothing else", async () => {
       for (const r of ["credited", "under_review", "already_credited", "not_matched", "no_session", "rate_limited", "daily_limit", "feature_off"]) {
         await db.query("INSERT INTO public.momo_claim_attempts (user_id, transaction_id, result) VALUES ($1, 'NOSESSION', $2)", [USER, r])
@@ -321,11 +340,12 @@ describe.skipIf(!PGliteCtor)("0160 in PGlite", () => {
     })
 
     it("the agreed indexes exist", async () => {
-      const idx = async (t: string) => (await db.query("SELECT indexdef AS d FROM pg_indexes WHERE tablename = $1", [t])).rows.map((r: any) => r.d as string)
-      expect((await idx("wallet_topup_sessions")).some(d => /\(user_id, status, expires_at\)/.test(d))).toBe(true)
+      const idx = async (t: string): Promise<string[]> =>
+        (await db.query("SELECT indexdef AS d FROM pg_indexes WHERE tablename = $1", [t])).rows.map((r: any) => r.d as string)
+      expect((await idx("wallet_topup_sessions")).some((d: string) => /\(user_id, status, expires_at\)/.test(d))).toBe(true)
       const a = await idx("momo_claim_attempts")
-      expect(a.some(d => /\(user_id, created_at\)/.test(d))).toBe(true)
-      expect(a.some(d => /\(transaction_id, created_at\)/.test(d))).toBe(true)
+      expect(a.some((d: string) => /\(user_id, created_at\)/.test(d))).toBe(true)
+      expect(a.some((d: string) => /\(transaction_id, created_at\)/.test(d))).toBe(true)
     })
 
     // ─────────────── Money functions (Task 5) ───────────────

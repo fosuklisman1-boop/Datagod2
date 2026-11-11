@@ -16,7 +16,7 @@
 -- and every test row are rolled back. PASSES when the error text starts with 'SELFTEST_OK'; any 'FAIL ...' or other error
 -- means it failed. If the client keeps the session open, send `ROLLBACK;`.
 --
--- Scenarios (labels): catalog, grants, deny_anon / deny_authenticated (a real table read under SET LOCAL ROLE),
+-- Scenarios (labels): catalog, fk_rules, grants, deny_anon / deny_authenticated (a real table read under SET LOCAL ROLE),
 -- settings_defaults, txid_check, code_check. The code check needs no user: it fires before the foreign key.
 --
 -- Money functions (labels): setup_money, fn_catalog, fn_grants, fn_deny, first_claim, admin_credit_flagged,
@@ -88,6 +88,16 @@ BEGIN
    WHERE schemaname = 'public' AND tablename = 'momo_claim_attempts'
      AND (indexdef LIKE '%(user_id, created_at)%' OR indexdef LIKE '%(transaction_id, created_at)%');
   IF v_n <> 2 THEN RAISE EXCEPTION 'FAIL catalog: attempts indexes found %', v_n; END IF;
+
+  -- fk_rules: sessions cascade with their auth user; a MoMo row is only unlinked from a deleted session ----
+  SELECT count(*) INTO v_n FROM pg_constraint
+   WHERE contype = 'f' AND conrelid = 'public.wallet_topup_sessions'::regclass
+     AND confrelid = 'auth.users'::regclass AND confdeltype = 'c';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL fk_rules: wallet_topup_sessions.user_id ON DELETE CASCADE found %', v_n; END IF;
+  SELECT count(*) INTO v_n FROM pg_constraint
+   WHERE contype = 'f' AND conrelid = 'public.momo_transactions'::regclass
+     AND confrelid = 'public.wallet_topup_sessions'::regclass AND confdeltype = 'n';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL fk_rules: momo_transactions.session_id ON DELETE SET NULL found %', v_n; END IF;
 
   -- grants: nothing for anon or authenticated, exactly the agreed set for service_role, never DELETE ----
   FOREACH v_t IN ARRAY v_tables LOOP
