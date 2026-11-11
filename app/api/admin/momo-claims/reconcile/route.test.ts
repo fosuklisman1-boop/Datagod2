@@ -145,6 +145,7 @@ describe("POST /api/admin/momo-claims/reconcile", () => {
       { ...GOOD, csv: 5 },
       { ...GOOD, column: "" },
       { ...GOOD, periodStart: "2026-13-01" },
+      { ...GOOD, periodStart: "2026-02-31" },
       { ...GOOD, periodStart: "11/01/2026" },
       { ...GOOD, periodStart: "2026-11-03", periodEnd: "2026-11-02" },
       { ...GOOD, periodStart: "2026-01-01", periodEnd: "2026-03-30" },
@@ -154,17 +155,30 @@ describe("POST /api/admin/momo-claims/reconcile", () => {
     expect(calls).toHaveLength(0)
   })
 
-  it("accepts a 62-day span", async () => {
-    const res = await POST(post({ ...GOOD, periodStart: "2026-09-01", periodEnd: "2026-11-01" }))
-    expect(res.status).toBe(200)
+  // The span counts both end days: 2026-09-01..2026-11-01 is 62 calendar days (accepted), one more day is 63 (rejected).
+  it("accepts a 62-day inclusive span and rejects 63", async () => {
+    const ok = await POST(post({ ...GOOD, periodStart: "2026-09-01", periodEnd: "2026-11-01" }))
+    expect(ok.status).toBe(200)
+    const tooLong = await POST(post({ ...GOOD, periodStart: "2026-09-01", periodEnd: "2026-11-02" }))
+    expect(tooLong.status).toBe(400)
   })
 
-  it("500 with a safe body when the insert fails, and logs no ids", async () => {
+  it("insert failure still alerts on missing ids and returns them with run_not_saved; logs no ids", async () => {
     insertError = { code: "XX000", message: "99999999999 secret" }
     const res = await POST(post(GOOD))
     expect(res.status).toBe(500)
-    expect(JSON.stringify(await res.json())).not.toContain("99999999999")
+    expect(await res.json()).toEqual({ error: "run_not_saved", missing: ["99999999999"] })
+    expect(notifyMock).toHaveBeenCalledTimes(1)
+    expect(notifyMock.mock.calls[0][0]).toEqual({ kind: "reconciliation_missing", reasons: ["1 missing"] })
     expect(JSON.stringify((console.error as unknown as { mock: { calls: unknown[] } }).mock.calls)).not.toContain("99999999999")
+  })
+
+  it("insert failure with nothing missing returns plain run_not_saved without an alert", async () => {
+    insertError = { code: "XX000" }
+    claimedRows = [{ transaction_id: "12345678901", claimed_at: "2026-11-01T10:00:00Z" }]
+    const res = await POST(post(GOOD))
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: "run_not_saved", missing: [] })
     expect(notifyMock).not.toHaveBeenCalled()
   })
 })

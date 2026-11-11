@@ -64,7 +64,8 @@ export async function POST(request: NextRequest) {
   const startMs = dayMs(periodStart)
   const endMs = dayMs(periodEnd)
   if (startMs === null || endMs === null || startMs > endMs) return fail("invalid_period", 400)
-  if ((endMs - startMs) / 86_400_000 > MAX_SPAN_DAYS) return fail("period_too_long", 400)
+  // Inclusive: both the start and end day count, so same-day is 1 day.
+  if ((endMs - startMs) / 86_400_000 + 1 > MAX_SPAN_DAYS) return fail("period_too_long", 400)
   const start = periodStart as string
   const end = periodEnd as string
 
@@ -99,6 +100,9 @@ export async function POST(request: NextRequest) {
 
     const missing = findMissingClaims(claimed, new Set(statementIds), { start, end })
 
+    // Alert first: a failed audit-row insert must never swallow possible forged credits.
+    if (missing.length > 0) await notifyMomoAdmins({ kind: "reconciliation_missing", reasons: [`${missing.length} missing`] })
+
     const { data: run, error: insErr } = await db
       .from("momo_reconciliation_runs")
       .insert({
@@ -113,10 +117,8 @@ export async function POST(request: NextRequest) {
       .single()
     if (insErr || !run) {
       logError("insert", insErr)
-      return fail("server_error", 500)
+      return NextResponse.json({ error: "run_not_saved", missing }, { status: 500 })
     }
-
-    if (missing.length > 0) await notifyMomoAdmins({ kind: "reconciliation_missing", reasons: [`${missing.length} missing`] })
 
     return NextResponse.json({
       runId: (run as { id: string }).id,

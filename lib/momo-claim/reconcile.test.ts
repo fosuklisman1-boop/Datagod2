@@ -26,6 +26,23 @@ describe("extractStatementTxids", () => {
     expect(() => extractStatementTxids("A,B\n1,2\n", "Id")).toThrow(UnknownColumnError)
   })
 
+  it("treats an unbalanced quote as one field to the end without hanging or throwing", () => {
+    const csv = 'Id,Note\n12345678901,"unterminated\n12345678902,x\n'
+    expect(extractStatementTxids(csv, "Id")).toEqual(["12345678901"])
+  })
+
+  it("returns no ids for a header-only CSV", () => {
+    expect(extractStatementTxids("Id,Amount\n", "Id")).toEqual([])
+    expect(extractStatementTxids("Id,Amount", "id")).toEqual([])
+  })
+
+  it("parses a 1 MB single-line input quickly", () => {
+    const csv = "Id," + "x".repeat(1024 * 1024)
+    const t0 = Date.now()
+    expect(extractStatementTxids(csv, "Id")).toEqual([])
+    expect(Date.now() - t0).toBeLessThan(1000)
+  })
+
   it("throws UnknownColumnError for empty input", () => {
     expect(() => extractStatementTxids("", "Id")).toThrow(UnknownColumnError)
   })
