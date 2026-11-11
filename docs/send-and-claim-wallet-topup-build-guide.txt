@@ -1,0 +1,180 @@
+Send and Claim plus Wallet Top-Up Build Guide
+A reference build plan for a mobile-money wallet top-up system with a manual claim-by-transaction-ID fallback, written up from a live implementation on Next.js and Supabase, built with Claude Code.
+What you are building
+Two ways for a customer to fund a wallet, so the business keeps taking money when either one breaks. One Wallet page, two tabs: Top Up and Send & Claim.
+1. Wallet top-up through a payment provider
+The customer enters an amount and a mobile-money number. Your server asks the provider to charge that number, the customer approves with their PIN, and the provider confirms by webhook. Your server credits the wallet once. It is automatic, but it needs the provider to be up and it costs a fee.
+1. The server creates a pending payment row with an opaque, random reference. Never put the product name in a reference: provider fraud monitors flag merchants that do.
+2. The server calls the provider's charge endpoint. The page moves through charging, OTP (if asked), pending and verifying.
+3. The provider webhook (verify its signature) and a status poll both end in ONE settle function. It re-verifies with the provider, then credits through a database function, once.
+4. The page always offers an 'I've paid, check now' button, so a slow webhook never strands a customer.
+5. An admin kill-switch pauses the Top Up tab. A missing or mistyped setting must show the paused notice, never a Pay button the server would refuse.
+2. Send & Claim
+The customer enters an amount and receives a short reference code (for example KFT4821) plus your business MoMo number. They send exactly that amount with the code in the reference field. The confirmation SMS lands on a phone you own, and an SMS-forwarding app posts it to your webhook. The webhook reads the transaction ID, amount and reference, and credits the matching user. No provider, no card fee, and it still works when the provider is down.
+1. Customer enters an amount. The server checks your minimum and maximum, then creates a session: a unique reference, the amount, and a 60-minute expiry.
+2. Customer sends the money and types the reference in the MoMo reference or narration field.
+3. Your phone receives the confirmation SMS and forwards it to the webhook. The webhook stores the transaction, then looks for a live session whose reference appears in the SMS.
+4. A match credits the wallet automatically through one database function. The page polls and shows a success screen.
+5. Forgot the reference? Each open payment has a claim box on the page. The customer enters the MoMo transaction ID from their SMS. The server checks it against that payment's amount before crediting.
+Why keep both: Send & Claim is your fallback when the provider is paused, and the provider rail is the fast path when it works.
+Data model
+Six tables, three database functions, and a handful of admin settings. Every money table is written only by your server, never by the browser.
+Table
+What it holds
+Rules that matter
+wallets
+One balance row per user: balance, total credited, total spent
+Changed only inside database functions, never by a direct UPDATE
+wallet_transactions
+The ledger: type, amount, description, reference, source, status
+Credit reference is MOMO-<transaction id>, a traceable key per SMS. The row lock plus status check is what stops a double credit
+momo_transactions
+One row per forwarded SMS: transaction ID (unique), amount, sender name, network, raw SMS, status, claimed by, fee and net amount
+Status is pending, claimed, flagged or voided. Insert with ON CONFLICT DO NOTHING so a re-forwarded SMS changes nothing
+wallet_topup_sessions
+One row per started Send & Claim payment: user, reference code, amount, status, created and expiry time, claimed transaction ID
+Reference is unique, 4 to 12 letters or digits. Status is pending, claimed or expired. RLS on, no policies, no client grants
+momo_claim_attempts
+One row per claim attempt: user, transaction ID typed, result
+Result has a CHECK constraint with a fixed list of values. Drives the rate limits
+pending payments table
+One row per provider charge: opaque reference, amount, provider IDs, status
+Server-write-only. Settled once by the settle function
+Admin settings (one key each): claim feature on or off, minimum and maximum claimable amount, your MoMo account name and numbers, claim fee for customers and for agents, and the failed-attempts cap per transaction. Add a separate on or off key for the provider top-up rail.
+The three functions
+1. claim_momo_transaction is the one place money moves for a claim. It locks the transaction row, checks status, locks the wallet row, updates both, and writes the ledger row. Both claim paths call it.
+2. claim_via_wallet_topup_session is the SMS-webhook path. It locks the session, then calls the function above in automatic mode (the reference identifies the user, so no amount typed).
+3. claim_momo_via_session is the manual claim-box path. It requires the caller's own unexpired session, takes the amount from that session, and calls the first function with the amount check on.
+Sessions are matched to a transaction by reference in the SMS, or by the claim box. A credited session is marked claimed in the same database transaction as the credit.
+Security rules (and the mistakes behind them)
+Give Claude Code every rule below up front. Each one came from a real bug or a review finding on this build.
+1. Money tables are server-write-only. No INSERT, UPDATE or DELETE grant and no write policy for anon or authenticated on wallets, ledger, claim or session tables. Verify with has_table_privilege, not by reading the SQL. A client write policy on an orders table once let any user forge an order and refund it into their wallet.
+2. Wallet balance changes only through one database function. Never a direct UPDATE from a route.
+3. Lock the row, then check. Inside the function, SELECT ... FOR UPDATE first, then check status or idempotency. Checking first lets two concurrent calls both pass.
+4. One lock order everywhere: session, then transaction, then wallet. The webhook path and the manual path use the same order, so they cannot deadlock or double credit.
+5. The browser never supplies the amount for a claim. The manual claim takes the amount from the session row. A disabled input in the page is decoration only.
+6. Gate the manual claim by the caller's own session. No open session, no claim. The session must be theirs, uncredited, inside its window, and created at or before the money arrived. This stops people claiming someone else's older unclaimed payment.
+7. Rate limits at three levels: 3 claim attempts per 30 seconds per user, 20 failed claims per 24 hours per user, and 5 failed attempts per transaction ID (any user) before that transaction is flagged for admin review. A payment above your maximum is flagged for review too.
+8. The minimum applies to the amount after the fee. Say so on the page, or customers sending exactly the minimum get rejected and do not know why.
+9. If a CHECK constraint limits a log column, only log allowed values. My first draft logged two new result values, the function would have thrown, and the route would have returned 500. A live check of the constraint caught it before it shipped.
+10. Log early rejections under a placeholder transaction ID. The per-transaction cap counts rows by transaction ID across all users. A row keyed to a real ID lets a user with no session push someone else's payment over the cap and get it locked.
+11. A new SECURITY DEFINER function is executable by everyone by default. REVOKE from public, anon and authenticated, GRANT to service_role, and confirm with has_function_privilege. A new overload counts as a new function.
+12. Authenticate every webhook. Verify provider webhook signatures. Protect the SMS webhook with a secret sent in a custom header (never the query string, which leaks into proxy and CDN logs), compare it in constant time, and reject every request if the secret is not configured. The SMS webhook always answers 200 so the forwarder app does not retry forever. A provider webhook should answer 500 on a database error so the provider retries.
+13. Do not leak whether an ID exists. An old payment that predates the session gets the same 'not found' answer as an unknown ID.
+14. A new payment must not cancel the old unclaimed one. The first version expired the older session when a new payment started, and the manual claim then compared everything against the newest session. A customer who paid without the reference and then started a second payment could never claim the first. Now every open payment keeps its own claim box until its own window ends, with a cap of 5 open payments at once.
+15. Window length is a product decision. It started at 20 minutes and is now 60. Keep it in one constant that the route, the page text and the tests all read.
+The build method
+The method matters as much as the code. Anything that touches wallets, payments or auth gets the full process. Copy this order.
+1. Write your rules into CLAUDE.md first. Stack, which database client to use where, 'money tables are server-write-only', 'wallet changes only through database functions', 'lock before checking', 'never force-push main', 'do feature work in a git worktree'. Claude Code reads this every session, so you state the rules once.
+2. Tier the task. Small copy or layout changes need no ceremony. Anything touching money, wallet or auth is always the full lifecycle, however small it looks. Write that down in CLAUDE.md so Claude escalates on its own.
+3. Explore before designing. Ask Claude to read the existing wallet page, the routes and the functions, then report what exists and what is missing. No code yet.
+4. Agree the design in plain words, with no code. Claude proposes; you answer the real choices (window length, minimum, maximum, fee, what happens to old unclaimed payments). Use selectable options for these, not paragraphs. Do not start building until you say go.
+5. Work in an isolated git worktree off the latest origin/main, never in your main checkout. Two sessions in one checkout caused a real collision once.
+6. Migration first, then code, and say the order out loud. The database function must exist before the code that calls it is deployed. Save the same SQL in supabase/migrations/ for history.
+7. Test the SQL before applying it. Run the real scenarios inside BEGIN ... ROLLBACK: a payment under its own session, one that arrived before any session, one with the wrong amount, no session at all. Then confirm nothing was left behind.
+8. Run a security review with a separate reviewer agent. Give it the exact goals ('a user with no session cannot claim', 'amount never comes from the client', 'no double credit under concurrency') and ask for exploit scenarios. It found a blocking bug on this build.
+9. Verify the live database, not the file. After applying, query privileges with has_function_privilege, and constraints with pg_get_constraintdef.
+10. Typecheck, lint and run a small pure-logic test for the rules that can be tested without a database (window length, which boxes show, the cap of 5).
+11. Commit on the branch, merge locally, re-check, push. Review what is staged before every commit and never commit secrets.
+12. Test on a phone with a real payment, then write a short plain-language announcement for customers.
+Two habits that paid off: ask Claude to restate your request when you are unsure it understood, and ask it to answer 'can an attacker do X?' questions from the actual code and live data, not from memory.
+The prompts, in order
+Replace the words in [brackets] with your own. Paste them one at a time and read each answer before sending the next.
+Before the first prompt (Claude cannot do these):
+• A phone that receives your MoMo confirmation SMS, with an SMS-forwarding app that can POST to a URL with a custom header.
+• Environment variables: a long random secret for the SMS webhook (this build calls it SMS_FORWARD_SECRET), plus your provider's API keys and webhook secret.
+• A Supabase project you can run migrations on, and a provider account with a mobile-money charge API.
+Prompt 0: project rules (paste into CLAUDE.md)
+# Project rules (money and auth work always gets the full process)
+- Stack: Next.js App Router, Supabase (Postgres + RLS), Tailwind. [your extras]
+- Route handlers identify the user with the cookie/RLS client. The service-role client is server-side only and never imported in client components.
+- Money tables (wallets, wallet_transactions, payment tables, claim tables) are server-write-only: never grant anon/authenticated INSERT/UPDATE/DELETE and never add a client write policy. Verify with has_table_privilege.
+- Wallet balance changes only through database functions, never a direct UPDATE from a route.
+- Inside those functions, lock the row (FOR UPDATE) BEFORE checking status or idempotency.
+- Every new SECURITY DEFINER function: REVOKE from public, anon and authenticated; GRANT to service_role; set search_path to empty; verify with has_function_privilege.
+- Payment references are opaque random strings. Never put a product name in one.
+- Authenticate every webhook: provider signature, or a secret header compared in constant time.
+- Migrations: save SQL in supabase/migrations/ and apply BEFORE deploying code that needs it. If a tool call to apply is declined, paste the SQL for me and wait.
+- Feature work happens in a git worktree off origin/main. Never force-push main. Run git fetch before branching or merging.
+- For anything touching money, wallet or auth: explore, propose a design, wait for my go, build in a worktree, run a separate security-review agent, typecheck + lint + tests, then finish.
+- Ask me decisions as selectable options with a recommendation.
+- After every change give me: before/after per file, manual actions for me, and a short customer-facing announcement.
+Prompt 1: explore and design (no code)
+I run [a digital-services platform for X] on Next.js, Supabase and Tailwind. I want two ways for customers to fund a wallet:
+
+A) Top Up: the customer enters an amount and a mobile-money number, we charge it through [provider]'s charge API, and we credit the wallet when the provider confirms.
+
+B) Send & Claim: the customer enters an amount and gets a short reference code plus our MoMo number. They send the money with the code in the reference field. The confirmation SMS lands on our phone, an SMS-forwarding app posts it to our webhook, and we credit the matching user automatically. If they forgot the reference, each open payment has a claim box where they enter the MoMo transaction ID.
+
+Do NOT write code yet. First:
+1. Read the existing wallet page, wallet routes, database functions and tables. Tell me what already exists and what is missing.
+2. Propose a design: tables, database functions, routes, the Wallet page UI (two tabs), admin settings, and an admin kill-switch for the Top Up tab.
+3. List every decision I must make as selectable options with your recommendation (payment window, minimum and maximum amount, fees, what happens to older unclaimed payments, how many open payments are allowed).
+4. List the security risks you see: double credit, forged or stolen claims, guessing transaction IDs, race conditions, webhook spoofing.
+Follow CLAUDE.md. Stop after the design and wait for my go.
+Prompt 2: build Send & Claim
+Go. My decisions: payment window 60 minutes; at most 5 open payments per user (the 6th is refused until one expires or is credited); minimum GHS [x], maximum GHS [y] (above the maximum is flagged for admin review; the minimum applies after the fee); the amount in a claim box is locked to that payment and never sent by the browser.
+
+Build in a new worktree off origin/main. Order:
+1. Migrations (save under supabase/migrations/, do not apply them, paste the SQL for me): wallet_topup_sessions, momo_transactions, momo_claim_attempts (with a CHECK on result), and the three functions: claim_momo_transaction (locks the transaction row, then the wallet row, writes the ledger), claim_via_wallet_topup_session (webhook path), claim_momo_via_session (manual path: needs the caller's own unexpired uncredited session, uses THAT session's amount, rejects transactions that arrived before the session was created, locks the session first, 20 failed claims per user per 24 hours). Lock order everywhere: session, transaction, wallet.
+2. Routes: create/list/expire sessions (rate limit 5 per minute, cap of 5 open), manual claim by transaction ID (3 attempts per 30 seconds, ignore any amount sent by the browser, accept an optional validated session code), and the SMS webhook (secret header, constant-time compare, always answer 200, store the transaction with ON CONFLICT DO NOTHING, then match a live session by reference).
+3. Wallet page: Top Up and Send & Claim tabs; a collapsible how-it-works guide (open for first-timers); a permanent minimum/maximum panel; a payment modal that leads with the reference and tells the user to type it in the reference/narration field; one claim box per open payment (locked amount, own countdown, transaction ID field) shown only while the modal is closed; Generate disabled at 5 open payments with a countdown; desktop two-column layout, mobile stacked.
+4. A small pure-logic test for the window length, the cap and which boxes show.
+Follow CLAUDE.md. Run typecheck and lint. Then give me the before/after, manual actions and an announcement.
+Prompt 3: build the provider Top Up
+Now add the Top Up tab using [provider]'s mobile-money charge API.
+- Create a pending payment row with an opaque random reference before calling the provider.
+- The page states: charging, OTP required, pending, verifying, failed. Always show an 'I've paid, check now' button. Poll every 5 seconds at first, then back off.
+- ONE settle function ends both the webhook and the status poll: re-verify with the provider, then credit through a database function exactly once. Verify the webhook signature. A database error in the webhook returns 500 so the provider retries.
+- Never credit from the browser. Check the provider-reported amount against what we expected.
+- Admin kill-switch setting, default PAUSED: only an explicit 'true' enables it, and a missing or mistyped value shows the paused notice. When paused, show a 'Use Send & Claim' button and a 'Show me how' link to the guide.
+- Minimum and maximum top-up and the fee percent come from admin settings, shown on the page.
+Same process as before: worktree, migration SQL pasted for me, tests, typecheck, lint.
+Prompt 4: test the SQL before I apply it
+Before I apply the migration, test it against the live database inside BEGIN ... ROLLBACK. Cover: a payment claimed under its own session; a payment that arrived before every session (must answer 'Transaction not found'); the wrong amount (must answer amount_mismatch); no session at all (must answer no_active_session); and the daily cap. Then confirm nothing was left behind (no function, no stray rows). Also check the CHECK constraint on momo_claim_attempts.result against every value the function can log.
+Prompt 5: security review
+Run your security-review agent on the new routes and migration. Its goals: (1) a user with no live session cannot claim anything; (2) the amount never comes from the browser; (3) no double credit under concurrent webhook and manual claims; (4) lock order is the same on every path; (5) every rejection is logged and counts toward the rate limits, without letting one user poison the cap on another user's transaction; (6) EXECUTE on the new functions is revoked from anon and authenticated; (7) what the longer window exposes. Give exploit scenarios, not generalities. Do not modify files. Then answer from the code: can a bot guess transaction IDs, and what stops it?
+Prompt 6: finish
+I have applied the migration. Verify it on the live database (function signature, privileges with has_function_privilege). Then merge the worktree branch into main locally, re-run typecheck and tests on main, and push (normal push, never force). Tell me what to check after deploy on a phone, and leave the worktree in place.
+Decisions and trade-offs to settle before you ship
+The first six rows are product choices. The rest are risks this build accepts knowingly, so decide whether you accept them too.
+Topic
+What this build does
+Trade-off or alternative
+Payment window
+60 minutes (started at 20)
+Longer gives slow payers time, but more live codes means a typo'd reference is more likely to match a stranger's code
+Open payments
+Up to 5 per user. An older unclaimed payment stays claimable until its own window ends
+Cancelling the old one on a new payment is simpler, but strands customers who paid without the reference
+Claim amount
+Locked to the payment, never sent by the browser
+An editable field is friendlier but lets a customer claim an amount they never generated
+Minimum
+Applies to the amount after the fee
+Applying it to the gross amount reads simpler but needs a database rule change
+Maximum
+A payment above it is flagged for admin review, not rejected
+A hard reject loses the customer's money in limbo
+Admin force-expire
+A force-expired payment can still be claimed by ID inside its original window
+Add a marker column if force-expire must be a hard stop
+Reference codes
+4 digits from a standard random function (about 10,000 values)
+Use cryptographic randomness and longer codes before widening the window further
+Transaction IDs
+MoMo IDs in this data rise almost in sequence
+A bot only has to search today's range, not every possible number
+Error wording
+'Amount mismatch' versus 'not found' shows whether an ID exists
+One message for both closes the leak but costs clarity for honest customers
+Many accounts
+Limits are per account, so cheap signup multiplies guesses
+Require a verified phone number at signup
+Hardening not built
+Require the reference (no auto-match), a per-IP limit, alerts on repeated failures
+Add them if you see abuse in the attempts table
+SMS dependency
+One phone, one forwarding app, one parser
+Test with a real SMS from every network you accept. If the phone dies, customers fall back to the claim box and support
+Watch the claim attempts table from day one. A user with many failed rows is the early warning.

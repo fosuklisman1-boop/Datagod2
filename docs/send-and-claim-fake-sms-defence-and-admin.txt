@@ -1,0 +1,106 @@
+=== PART 1 ===
+FAKE-SMS DEFENCE FOR SEND & CLAIM (read before launch)
+
+THE RISK
+The webhook credits wallets from the TEXT of an SMS. Anyone who can get a message that looks like a MoMo confirmation to your forwarder can try to forge a payment. In our own audit we found a forgery pattern: auto-claimed messages whose transaction IDs were far OLDER than the message just before them, yet which copied that earlier message's exact balance line.
+
+LAYER 1: FORWARDER APP RULES (your main gate, set on the business phone)
+The server never sees who sent the SMS, so this layer is what stops fake messages.
+1. Sender: forward ONLY messages whose sender name EXACTLY equals the network's MoMo sender ID. Use 'equals', never 'contains'.
+   - MTN: MobileMoney   (confirm exact spelling and case in your inbox)
+   - Telecel: open a real received payment SMS and copy the sender name
+   - AirtelTigo: same
+2. Content: the message must also contain 'GHS' and 'Transaction ID', plus one of:
+   'Cash In received for GHS' | 'Payment received for GHS' | 'has been received from' | 'received GHS'
+   (these are exactly what the server's four patterns need, so anything else would be dropped anyway)
+3. Incoming SMS only. Not WhatsApp, not calls, not group or RCS messages.
+4. Never forward from a phone-number sender or a saved contact. A genuine confirmation never comes from a phone number.
+5. Post over HTTPS with a custom header: x-sms-forward-secret: <long random secret>. Never put the secret in the URL.
+6. Keep the SIM number and the phone locked down. Whoever controls the forwarder phone can forge anything.
+Test it: text your own business number from another phone with a fake 'Payment received for GHS 10.00 ... Transaction ID: 12345678901' message. It must NOT reach the webhook.
+Caveat: sender names can sometimes be imitated through bulk-SMS services. Treat the sender rule as strong, not unbeatable. That is why layers 2 and 3 exist.
+
+LAYER 2: WHAT OUR SERVER DOES (in our code today)
+1. Rejects every request without the correct secret header (timing-safe comparison). If the secret is not configured, it rejects ALL requests.
+2. Drops anything that does not contain 'Transaction ID' and 'GHS', or does not match one of the four patterns (status parse_failed).
+3. Validates: amount greater than 0, transaction ID 8 to 15 digits, sender name at least 2 characters.
+4. Stores each transaction ID once. A repeated or re-forwarded SMS changes nothing (unique ID plus ON CONFLICT DO NOTHING).
+5. A payment above your maximum is stored as 'flagged' for admin review and is never auto-claimed.
+6. Auto-claims ONLY when a live (pending, unexpired) session reference appears in the SMS. The credit runs through one database function with row locks, so one transaction can be credited once.
+7. Never logs the raw SMS body (it holds the payer's name, amount and ID).
+8. Always answers 200, so a rejected message tells an attacker nothing and the forwarder app does not retry forever.
+9. Admin tools: void a transaction, flag/unflag with a reason, view the original SMS text, see users with 5 or more claim attempts in 24 hours.
+
+WHAT IT DOES NOT DO (honest gaps)
+- It does not check who sent the SMS, even if the forwarder passes a sender.
+- It cannot tell whether a transaction ID is genuine. A well-formed fake with a live reference will be credited.
+
+LAYER 3: RECOMMENDED SERVER HARDENING (NOT in our code, build these)
+a. Have the forwarder include the SMS sender in the POST, and have the server reject anything not on an allowlist you keep in admin settings. Then a misconfigured forwarder cannot let fakes in.
+b. Transaction-ID sanity: keep the newest genuine ID per network. Flag a new SMS whose ID is far below it (our forgery fingerprint was an ID about 57 million lower).
+c. Balance continuity: parse the 'Current Balance' line and flag a message that repeats an earlier message's balance with a different transaction ID.
+d. Auto-claim limits: flag the first auto-claim of a new account, flag anything above a smaller threshold than your maximum, and cap total auto-claimed per user per day.
+e. Daily reconciliation, the ground truth: export your MoMo statement and match every claimed transaction ID against it. A claimed ID missing from the statement is a fake.
+f. Alert the owner (push or SMS) on flagged, unusual or large auto-claims.
+
+=== PART 2 ===
+ADMIN PANEL FOR SEND & CLAIM (what we built, so you can build the same)
+
+ACCESS
+- Page: /admin/momo-claims, linked in the admin sidebar as 'MoMo Claims'.
+- The admin API routes check the caller's role in your users table (role admin or sub-admin). Sub-admins are read-only. Only a full admin can save settings, void, restore, unflag or force-expire.
+
+THE FOUR TABS
+1. Monitoring
+   - Stat cards by status: pending, claimed, flagged, voided.
+   - Search by transaction ID, sender or claimer. Filters: status, network (MTN, Telecel, AirtelTigo), custom date range.
+   - Table of the latest 200 SMS transactions: ID, sender, network, amount, fee, net, status, claimed by, received time.
+   - Row actions: Void (stops a customer claiming it), Restore (voided back to pending), Unflag (flagged back to pending), and View raw SMS (the original text from the forwarder app).
+   - A red 'suspicious' list of users with 5 or more claim attempts in the last 24 hours.
+2. User References: legacy permanent reference codes per user (admin only). New builds can skip this.
+3. Payment Sessions: every started payment (reference, amount, status, expiry). Force-expire ends a pending session so it can no longer be auto-credited. Sub-admins see it read-only.
+4. Settings (admin only): claim on/off switch, your MoMo account name (max 80 characters), your MoMo numbers per network, claim fee for customers and for agents (0 to 100 percent), minimum and maximum claimable (maximum must be at least the minimum).
+
+RULES THE ADMIN API ENFORCES
+- A claimed transaction can never be voided: the wallet is already credited.
+- A flagged transaction can only be released through Unflag. It needs a reason (1 to 200 characters), records who and when, and resets the failed-attempt window so the 5-attempt cap starts fresh.
+- Force-expire only works on pending sessions, as one conditional update that checks the status in the same statement.
+- Settings are validated server-side. Saving writes admin_settings keys: momo_claim_enabled, momo_payment_accounts, momo_account_name, momo_claim_fee_customer, momo_claim_fee_agent, momo_min_claimable, momo_max_claimable.
+- Every successful claim notifies admins by push, and by email if you configure it.
+
+PROMPT TO GIVE CLAUDE CODE (after the customer side exists)
+Build the admin page for Send & Claim at /admin/momo-claims, in a git worktree off origin/main.
+- API: GET returns the latest 200 momo_transactions, the last 24 hours of momo_claim_attempts (only user IDs) and the settings. POST saves the settings (full admin only, validated). PATCH supports void, restore and unflag (full admin only). Unflag goes through an admin database function that needs a reason, records the admin and time, and resets attempts_reset_at. Never let void touch a claimed or flagged row.
+- A second API lists wallet_topup_sessions (limit 200) and force-expires a pending session with one conditional UPDATE (admin only).
+- UI: four tabs (Monitoring, User References optional, Payment Sessions, Settings), stat cards, search and filters, void/restore/unflag buttons with confirmation, a raw-SMS dialog, a suspicious-users list. Sub-admins read-only.
+- Add the sidebar link. Follow CLAUDE.md. Any new database function gets REVOKE from public, anon and authenticated and GRANT to service_role. Paste the SQL for me instead of applying it. Run typecheck and lint, then give me before/after per file.
+
+=== PART 3 ===
+LAYER 1: FORWARDER APP RULES (your main gate, set on the business phone)
+The server never sees who sent the SMS, so this layer is what stops fake messages.
+
+RULE FOR AN MTN NUMBER (this is the rule we run):
+  AND IS PHONE_NUM EQUALS MobileMoney
+  AND IS MSG_CONTENT CONTAIN GHS
+  AND IS MSG_CONTENT CONTAIN received for
+Recommended extra line (makes it exact):
+  AND IS MSG_CONTENT CONTAIN Transaction ID
+
+Why it works:
+- EQUALS on the sender name is an exact match, never 'contains'.
+- 'received for' matches both MTN formats the server parses ('Cash In received for GHS...' and 'Payment received for GHS...').
+- A Telecel or AirtelTigo customer paying your MTN number still arrives as an MTN message, so it passes.
+
+IF YOU ALSO PUBLISH A TELECEL OR AIRTELTIGO NUMBER
+This rule will NOT forward their native messages. Their wording and sender names differ.
+1. Open a real received payment SMS on each network and copy the exact sender name.
+2. Add a separate rule per network: PHONE_NUM EQUALS <that exact sender name>, MSG_CONTENT CONTAIN GHS, MSG_CONTENT CONTAIN Transaction ID, plus:
+   - Telecel: 'has been received from'
+   - AirtelTigo: 'received GHS'
+   (taken from the server's patterns, so confirm against a real SMS first)
+
+Also:
+- Incoming SMS only. Never forward from phone-number senders or saved contacts.
+- Post over HTTPS with the header x-sms-forward-secret: <long random secret>. Never put the secret in the URL.
+- Test it: text your own business number from another phone with a fake 'Payment received for GHS 10.00 ... Transaction ID: 12345678901'. It must NOT reach the webhook.
+- Sender names can sometimes be imitated through bulk-SMS services. Treat this as strong, not unbeatable. The server does not check the sender, so layer 3 (transaction-ID sanity check, daily statement reconciliation) matters.
