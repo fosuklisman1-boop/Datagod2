@@ -208,7 +208,7 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
             <p className="text-sm text-destructive">
               {error}{" "}
               {needsVerify && (
-                <Link href="/dashboard/profile"className="font-semibold underline">Verify now</Link>
+                <Link href="/dashboard/profile" className="font-semibold underline">Verify now</Link>
               )}
             </p>
           )}

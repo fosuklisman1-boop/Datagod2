@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { loadMomoClaimSettings } from "@/lib/momo-claim/settings"
+import { notifyMomoAdmins } from "@/lib/admin-actions/momo-claim"
 
 // Send & Claim manual claim: the customer types the MoMo Transaction ID; the SQL function
 // claim_momo_via_session does all matching, crediting and DB-backed attempt limits.
-// This route only authenticates, validates shape, and maps results to fixed copy.
+// This route only authenticates, validates shape, maps results to fixed copy, and alerts admins on
+// 'credited' / 'under_review' (amount, last 4 txid digits and flag reasons only).
 // Never log the transaction id, session id or user id.
 export const dynamic = "force-dynamic"
 
@@ -78,9 +80,41 @@ export async function POST(request: NextRequest) {
       logError(error)
       return reply("not_matched")
     }
-    return reply(typeof data === "string" && Object.hasOwn(COPY, data) ? (data as ClaimResult) : "not_matched")
+    const result = typeof data === "string" && Object.hasOwn(COPY, data) ? (data as ClaimResult) : "not_matched"
+    if (result === "credited" || result === "under_review") await alertAdmins(db, txid, result)
+    return reply(result)
   } catch (err) {
     logError(err)
     return reply("not_matched")
+  }
+}
+
+/**
+ * Tells admins about a credit or a payment sent to review. Amount, last 4 txid digits and flag reasons only.
+ * Never throws and never logs: a failed read or alert must not change the customer's answer.
+ */
+async function alertAdmins(db: NonNullable<typeof supabaseAdmin>, txid: string, result: "credited" | "under_review") {
+  let amountPesewas: number | undefined
+  let reasons: string[] = []
+  try {
+    const { data, error } = await db
+      .from("momo_transactions")
+      .select("amount, flag_reasons")
+      .eq("transaction_id", txid)
+      .maybeSingle()
+    if (!error && data) {
+      const row = data as { amount?: unknown; flag_reasons?: unknown }
+      const amount = Number(row.amount)
+      if (row.amount !== null && row.amount !== undefined && Number.isFinite(amount)) amountPesewas = Math.round(amount * 100)
+      if (Array.isArray(row.flag_reasons)) reasons = row.flag_reasons.filter((r): r is string => typeof r === "string")
+    }
+  } catch {
+    // alert without the amount
+  }
+  const base = { ...(amountPesewas === undefined ? {} : { amountPesewas }), txidLast4: txid.slice(-4) }
+  try {
+    await notifyMomoAdmins(result === "credited" ? { kind: "credited", ...base } : { kind: "flagged", ...base, reasons })
+  } catch {
+    // notifyMomoAdmins never throws; belt and braces
   }
 }

@@ -28,6 +28,8 @@ const authMock = vi.fn()
 vi.mock("@/lib/admin-auth", () => ({ verifyAdminAccess: (...a: unknown[]) => authMock(...a) }))
 const settingsMock = vi.fn()
 vi.mock("@/lib/momo-claim/settings", () => ({ loadMomoClaimSettings: (...a: unknown[]) => settingsMock(...a) }))
+const notifyMock = vi.fn()
+vi.mock("@/lib/admin-actions/momo-claim", () => ({ notifyMomoAdmins: (...a: unknown[]) => notifyMock(...a) }))
 
 import { GET, POST, PATCH } from "./route"
 
@@ -68,6 +70,8 @@ type World = {
   session?: { user_id: string } | null
   userExists?: boolean
   upsertError?: unknown
+  amountRow?: unknown
+  amountError?: unknown
 }
 function setWorld(w: World = {}) {
   handler = (c) => {
@@ -83,6 +87,10 @@ function setWorld(w: World = {}) {
       if (has("maybeSingle")) {
         const cols = String(sel?.args[0] ?? "")
         if (cols.includes("raw_sms")) return { data: w.rawRow ?? null, error: null }
+        if (cols === "amount") {
+          if (w.amountError) return { data: null, error: w.amountError }
+          return { data: w.amountRow === undefined ? { amount: 50 } : w.amountRow, error: null }
+        }
         return { data: w.txSession === undefined ? { session_id: "s1" } : w.txSession, error: null }
       }
       return { data: w.txRows ?? [], error: null }
@@ -105,7 +113,8 @@ beforeEach(() => {
     fn === "momo_suspicious_claimers" ? { data: [], error: null } : { data: "credited", error: null },
   )
   setWorld()
-  spies = (["log", "info", "warn", "error", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}))
+  notifyMock.mockResolvedValue(undefined)
+  spies =(["log", "info", "warn", "error", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}))
 })
 afterEach(() => {
   for (const s of spies) {
@@ -525,5 +534,64 @@ describe("credit RPC error mapping", () => {
   it("an unexpected rpc result -> 500 credit_failed", async () => {
     rpcMock.mockResolvedValue({ data: "weird", error: null })
     expect((await credit()).status).toBe(500)
+  })
+
+  it("BAD_SETTING -> 409 bad_setting", async () => {
+    raise("BAD_SETTING")
+    const res = await credit()
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "bad_setting" })
+  })
+
+  it("errors never alert", async () => {
+    raise("BAD_STATE")
+    await credit()
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("PATCH credit/assign admin alerts", () => {
+  it("credit 'credited' -> one 'credited' alert with pesewas, last 4 digits and 'admin credit', no target PII", async () => {
+    setWorld({ amountRow: { amount: "12.30" } })
+    const res = await PATCH(req("PATCH", { action: "credit", transactionId: TX, reason: "ok" }))
+    expect(await res.json()).toEqual({ result: "credited" })
+    expect(notifyMock).toHaveBeenCalledTimes(1)
+    expect(notifyMock.mock.calls[0][0]).toEqual({
+      kind: "credited",
+      amountPesewas: 1230,
+      txidLast4: "8901",
+      reasons: ["admin credit"],
+    })
+    const dump = JSON.stringify(notifyMock.mock.calls)
+    for (const s of [TX, USER, ADMIN, "ok"]) expect(dump).not.toContain(`"${s}"`)
+  })
+
+  it("assign 'credited' -> the same alert shape", async () => {
+    const res = await PATCH(req("PATCH", { action: "assign", transactionId: TX, reason: "why", targetUserId: USER, amount: 25.5 }))
+    expect(res.status).toBe(200)
+    expect(notifyMock.mock.calls[0][0]).toEqual({ kind: "credited", amountPesewas: 5000, txidLast4: "8901", reasons: ["admin credit"] })
+  })
+
+  it("already_credited and unflag never alert", async () => {
+    rpcMock.mockResolvedValue({ data: "already_credited", error: null })
+    await PATCH(req("PATCH", { action: "credit", transactionId: TX, reason: "ok" }))
+    rpcMock.mockResolvedValue({ data: "unflagged", error: null })
+    await PATCH(req("PATCH", { action: "unflag", transactionId: TX, reason: "ok" }))
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+
+  it("a failed amount read still alerts without the amount; response unchanged", async () => {
+    setWorld({ amountError: { code: "XX000" } })
+    const res = await PATCH(req("PATCH", { action: "credit", transactionId: TX, reason: "ok" }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ result: "credited" })
+    expect(notifyMock.mock.calls[0][0]).toEqual({ kind: "credited", txidLast4: "8901", reasons: ["admin credit"] })
+  })
+
+  it("a throwing alert never changes the response", async () => {
+    notifyMock.mockRejectedValue(new Error("down " + TX))
+    const res = await PATCH(req("PATCH", { action: "credit", transactionId: TX, reason: "ok" }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ result: "credited" })
   })
 })

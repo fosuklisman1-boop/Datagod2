@@ -3,12 +3,32 @@ import { NextRequest } from "next/server"
 
 const getUser = vi.fn()
 const rpc = vi.fn()
+// Row read-back after the RPC: select(cols).eq("transaction_id", txid).maybeSingle()
+const rowRead = vi.fn()
+const fromCalls: { table: string; ops: { m: string; args: unknown[] }[] }[] = []
+function fromChain(table: string) {
+  const call = { table, ops: [] as { m: string; args: unknown[] }[] }
+  fromCalls.push(call)
+  const p: Record<string, unknown> = {}
+  for (const m of ["select", "eq", "maybeSingle"]) {
+    p[m] = (...args: unknown[]) => {
+      call.ops.push({ m, args })
+      return p
+    }
+  }
+  p.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
+    Promise.resolve().then(() => rowRead(call)).then(res, rej)
+  return p
+}
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
     rpc: (...a: unknown[]) => rpc(...a),
+    from: (t: string) => fromChain(t),
     auth: { getUser: (...a: unknown[]) => getUser(...a) },
   },
 }))
+const notifyMock = vi.fn()
+vi.mock("@/lib/admin-actions/momo-claim", () => ({ notifyMomoAdmins: (...a: unknown[]) => notifyMock(...a) }))
 const settingsMock = vi.fn()
 vi.mock("@/lib/momo-claim/settings", () => ({
   loadMomoClaimSettings: (...a: unknown[]) => settingsMock(...a),
@@ -49,6 +69,9 @@ beforeEach(() => {
   settingsMock.mockResolvedValue({ enabled: true })
   limitMock.mockResolvedValue({ allowed: true })
   rpc.mockResolvedValue({ data: "credited", error: null })
+  fromCalls.length = 0
+  rowRead.mockReturnValue({ data: { amount: 50, flag_reasons: [] }, error: null })
+  notifyMock.mockResolvedValue(undefined)
 })
 afterEach(() => {
   if (ORIG_KEY === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -157,6 +180,82 @@ describe("POST /api/wallet/momo-claim", () => {
     const logged = JSON.stringify(spy.mock.calls)
     for (const secret of [TX, SID, UID, "NO_WALLET", "network"]) expect(logged).not.toContain(secret)
     spy.mockRestore()
+  })
+
+  describe("admin alerts", () => {
+    it("credited -> one 'credited' alert with the row's amount in pesewas and the last 4 txid digits only", async () => {
+      rowRead.mockReturnValue({ data: { amount: "12.30", flag_reasons: [] }, error: null })
+      const res = await POST(req({ transactionId: TX, sessionId: SID }))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ result: "credited", message: MSG.credited })
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+      expect(notifyMock.mock.calls[0][0]).toEqual({ kind: "credited", amountPesewas: 1230, txidLast4: "8901" })
+      const read = fromCalls.find((c) => c.table === "momo_transactions")!
+      expect(read.ops).toContainEqual({ m: "eq", args: ["transaction_id", TX] })
+    })
+
+    it("under_review -> one 'flagged' alert carrying the row's flag reasons", async () => {
+      rpc.mockResolvedValue({ data: "under_review", error: null })
+      rowRead.mockReturnValue({ data: { amount: 50, flag_reasons: ["amount_mismatch", 7] }, error: null })
+      const res = await POST(req({ transactionId: TX }))
+      expect(await res.json()).toEqual({ result: "under_review", message: MSG.under_review })
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+      expect(notifyMock.mock.calls[0][0]).toEqual({
+        kind: "flagged",
+        amountPesewas: 5000,
+        txidLast4: "8901",
+        reasons: ["amount_mismatch"],
+      })
+    })
+
+    it.each(["already_credited", "not_matched", "no_session", "rate_limited", "daily_limit", "weird"])(
+      "%s -> no alert and no row read",
+      async (r) => {
+        rpc.mockResolvedValue({ data: r, error: null })
+        await POST(req({ transactionId: TX }))
+        expect(notifyMock).not.toHaveBeenCalled()
+        expect(fromCalls).toHaveLength(0)
+      },
+    )
+
+    it("RPC error -> no alert", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+      rpc.mockResolvedValue({ data: null, error: { code: "P0001" } })
+      await POST(req({ transactionId: TX }))
+      expect(notifyMock).not.toHaveBeenCalled()
+      spy.mockRestore()
+    })
+
+    it("a failed row read still alerts (without amount) and keeps the customer response", async () => {
+      rowRead.mockReturnValue({ data: null, error: { code: "XX000" } })
+      let res = await POST(req({ transactionId: TX }))
+      expect(await res.json()).toEqual({ result: "credited", message: MSG.credited })
+      expect(notifyMock.mock.calls[0][0]).toEqual({ kind: "credited", txidLast4: "8901" })
+      rpc.mockResolvedValue({ data: "under_review", error: null })
+      rowRead.mockImplementation(() => {
+        throw new Error("boom " + TX)
+      })
+      res = await POST(req({ transactionId: TX }))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ result: "under_review", message: MSG.under_review })
+      expect(notifyMock.mock.calls[1][0]).toEqual({ kind: "flagged", txidLast4: "8901", reasons: [] })
+    })
+
+    it("a throwing alert never changes the response or status", async () => {
+      notifyMock.mockRejectedValue(new Error("mail down " + TX))
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const res = await POST(req({ transactionId: TX }))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ result: "credited", message: MSG.credited })
+      expect(JSON.stringify(spy.mock.calls)).not.toContain(TX)
+      spy.mockRestore()
+    })
+
+    it("the alert never carries the full txid, session id or user id", async () => {
+      await POST(req({ transactionId: TX, sessionId: SID }))
+      const dump = JSON.stringify(notifyMock.mock.calls)
+      for (const s of [TX, SID, UID]) expect(dump).not.toContain(s)
+    })
   })
 
   it("limiter degraded:true still relies on the RPC's DB limits (4th call -> rate_limited)", async () => {

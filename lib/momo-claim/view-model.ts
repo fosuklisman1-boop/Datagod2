@@ -27,6 +27,8 @@ export function momoErrorCopy(code: string | undefined, limits: MomoLimits): str
       return `You have ${MAX_OPEN_SESSIONS} open payments. A new one unlocks when one expires or is credited.`
     case "rate_limited":
       return "Please wait a moment and try again."
+    case "feature_off":
+      return "Send & Claim is not available right now."
     default:
       return "Something went wrong. Please try again."
   }

@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { loadMomoClaimSettings } from "@/lib/momo-claim/settings"
 import { validateSettings, hasAtMostTwoDecimals, UUID_RE } from "@/lib/momo-claim/admin-validate"
+import { notifyMomoAdmins } from "@/lib/admin-actions/momo-claim"
 
 // Send & Claim admin API: monitor forwarded MoMo SMS rows, void/restore/unflag, credit or assign a flagged
 // payment, and edit settings. Never log transaction ids, phone numbers, names or raw SMS.
@@ -195,18 +196,30 @@ function mapRaise(err: unknown, fallback: string): NextResponse {
       return fail("invalid_state", 409)
     case "CONFLICT":
       return fail("conflict", 409)
+    case "BAD_SETTING":
+      return fail("bad_setting", 409)
     default:
       logError("rpc", err)
       return fail(fallback, 500)
   }
 }
 
-async function callRpc(db: Db, fn: string, args: Record<string, unknown>, ok: string[]): Promise<NextResponse> {
+async function callRpc(
+  db: Db,
+  fn: string,
+  args: Record<string, unknown>,
+  ok: string[],
+  onOk?: (result: string) => Promise<void>,
+): Promise<NextResponse> {
   const failCode = fn === "admin_credit_momo_transaction" ? "credit_failed" : "unflag_failed"
   try {
     const { data, error } = await db.rpc(fn, args)
     if (error) return mapRaise(error, failCode)
-    if (typeof data === "string" && ok.includes(data)) return NextResponse.json({ result: data })
+    if (typeof data === "string" && ok.includes(data)) {
+      // onOk must never throw (alertAdminCredit swallows everything): the money already moved.
+      if (onOk) await onOk(data).catch(() => undefined)
+      return NextResponse.json({ result: data })
+    }
     logError("rpc-result", null)
     return fail(failCode, 500)
   } catch (err) {
@@ -309,5 +322,29 @@ export async function PATCH(request: NextRequest) {
     "admin_credit_momo_transaction",
     { p_txid: txid, p_target_user: target, p_admin: userId, p_reason: reason, p_amount: amount },
     ["credited", "already_credited"],
+    (result) => (result === "credited" ? alertAdminCredit(db, txid) : Promise.resolve()),
   )
+}
+
+/** Admin credit alert: amount, last 4 txid digits and a fixed reason. Never the target user. Never throws or logs. */
+async function alertAdminCredit(db: Db, txid: string): Promise<void> {
+  let amountPesewas: number | undefined
+  try {
+    const { data, error } = await db.from("momo_transactions").select("amount").eq("transaction_id", txid).maybeSingle()
+    const raw = (data as { amount?: unknown } | null)?.amount
+    const n = Number(raw)
+    if (!error && raw !== null && raw !== undefined && Number.isFinite(n)) amountPesewas = Math.round(n * 100)
+  } catch {
+    // alert without the amount
+  }
+  try {
+    await notifyMomoAdmins({
+      kind: "credited",
+      ...(amountPesewas === undefined ? {} : { amountPesewas }),
+      txidLast4: txid.slice(-4),
+      reasons: ["admin credit"],
+    })
+  } catch {
+    // notifyMomoAdmins never throws; belt and braces
+  }
 }

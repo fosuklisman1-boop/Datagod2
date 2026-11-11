@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { UUID_RE } from "@/lib/momo-claim/admin-validate"
-import { actionNeedsReason, adminErrorMessage, formatGhs, type RowAction } from "@/lib/momo-claim/admin-view"
+import { actionNeedsAmount, actionNeedsReason, adminErrorMessage, formatGhs, type RowAction } from "@/lib/momo-claim/admin-view"
 import { adminFetch, ApiError, MOMO_API, type Tx } from "./api"
 
 const TITLES: Record<RowAction, string> = {
@@ -53,7 +53,7 @@ export function ActionDialog({
   const { tx, action } = target
   const needsReason = actionNeedsReason(action)
   const needsUser = action === "assign"
-  const needsAmount = action === "assign" && tx.status === "unparsed"
+  const needsAmount = actionNeedsAmount(action, tx.amount)
 
   const reasonOk = !needsReason || (reason.trim().length >= 1 && reason.trim().length <= 200)
   const userOk = !needsUser || UUID_RE.test(userId.trim())

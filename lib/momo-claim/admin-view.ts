@@ -49,7 +49,11 @@ const UNFLAG_HINT = "Unflag only releases the row; it will just re-flag on the n
 export function rowActions(status: string, flagReasons: string[] | null | undefined): RowActionSpec[] {
   switch (status) {
     case "pending":
-      return [{ action: "void", label: "Void" }]
+      // A pending row whose SMS named no live code can still be credited to the right user by hand.
+      return [
+        { action: "void", label: "Void" },
+        { action: "assign", label: "Assign to user" },
+      ]
     case "unparsed":
       return [
         { action: "void", label: "Void" },
@@ -72,6 +76,11 @@ export function rowActions(status: string, flagReasons: string[] | null | undefi
 
 export function actionNeedsReason(action: RowAction): boolean {
   return action === "unflag" || action === "credit" || action === "assign"
+}
+
+/** Assign asks for the sent amount only when the row has none (an unreadable SMS); otherwise the SMS amount is used. */
+export function actionNeedsAmount(action: RowAction, rowAmount: number | string | null | undefined): boolean {
+  return action === "assign" && rowAmount == null
 }
 
 /** "GHS 12.30"; "-" when the value is missing or not a number. */
@@ -112,6 +121,9 @@ const ERROR_COPY: Record<string, string> = {
   unavailable: "The service is unavailable right now. Try again shortly.",
   server_error: "The server hit an error. Try again.",
   invalid_setting: "One of the settings is not valid.",
+  bad_setting: "A Send & Claim setting is invalid — fix it in Settings",
+  Unauthorized: "Your session expired — sign in again.",
+  "Invalid token": "Your session expired — sign in again.",
 }
 
 export const FIELD_LABELS: Record<string, string> = {

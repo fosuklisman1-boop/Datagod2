@@ -17,6 +17,9 @@ describe("momoErrorCopy", () => {
     expect(momoErrorCopy("above_max", limits)).toBe("Amount too large. The maximum per payment is GHS 500.00.")
     expect(momoErrorCopy("rate_limited", limits)).toBe("Please wait a moment and try again.")
   })
+  it("maps feature_off", () => {
+    expect(momoErrorCopy("feature_off", limits)).toBe("Send & Claim is not available right now.")
+  })
   it("falls back for unknown codes", () => {
     expect(momoErrorCopy("weird", limits)).toMatch(/try again/)
   })

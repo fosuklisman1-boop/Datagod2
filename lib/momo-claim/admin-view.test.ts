@@ -9,6 +9,7 @@ import {
   inclusiveSpanDays,
   isReviewOnlyFlag,
   actionNeedsReason,
+  actionNeedsAmount,
 } from "./admin-view"
 
 describe("flag reasons", () => {
@@ -42,8 +43,9 @@ describe("isReviewOnlyFlag", () => {
 })
 
 describe("rowActions", () => {
-  it("pending -> void only", () => {
-    expect(rowActions("pending", []).map((a) => a.action)).toEqual(["void"])
+  it("pending -> void, assign (a pending row with no code can still be credited to a user)", () => {
+    expect(rowActions("pending", []).map((a) => a.action)).toEqual(["void", "assign"])
+    expect(rowActions("pending", []).map((a) => a.label)).toEqual(["Void", "Assign to user"])
   })
   it("unparsed -> void, assign", () => {
     expect(rowActions("unparsed", null).map((a) => a.action)).toEqual(["void", "assign"])
@@ -81,6 +83,19 @@ describe("actionNeedsReason", () => {
   })
 })
 
+describe("actionNeedsAmount", () => {
+  it("assign asks for an amount only when the row has none", () => {
+    expect(actionNeedsAmount("assign", null)).toBe(true)
+    expect(actionNeedsAmount("assign", undefined)).toBe(true)
+    expect(actionNeedsAmount("assign", 50)).toBe(false)
+    expect(actionNeedsAmount("assign", "12.30")).toBe(false)
+    expect(actionNeedsAmount("assign", 0)).toBe(false)
+  })
+  it("other actions never ask for an amount", () => {
+    for (const a of ["void", "restore", "unflag", "credit"] as const) expect(actionNeedsAmount(a, null)).toBe(false)
+  })
+})
+
 describe("formatGhs", () => {
   it("always 2 decimals", () => {
     expect(formatGhs(5)).toBe("GHS 5.00")
@@ -101,6 +116,11 @@ describe("adminErrorMessage", () => {
     expect(adminErrorMessage("settings_unavailable")).toMatch(/saving is disabled/i)
     expect(adminErrorMessage("run_not_saved")).toMatch(/not saved/i)
     expect(adminErrorMessage("mtn_account_required")).toMatch(/MTN/)
+  })
+  it("maps bad_setting and expired-session codes", () => {
+    expect(adminErrorMessage("bad_setting")).toBe("A Send & Claim setting is invalid — fix it in Settings")
+    expect(adminErrorMessage("Unauthorized")).toBe("Your session expired — sign in again.")
+    expect(adminErrorMessage("Invalid token")).toBe("Your session expired — sign in again.")
   })
   it("never echoes unknown text", () => {
     expect(adminErrorMessage("SELECT * FROM secrets")).toBe("Something went wrong. Please try again.")
