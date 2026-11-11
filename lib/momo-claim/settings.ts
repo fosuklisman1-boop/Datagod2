@@ -17,6 +17,8 @@ export type MomoClaimSettings = {
   regressionThreshold: number
   reviewThresholdPesewas: number
   dailyCapPesewas: number
+  /** "defaults" when the DB read failed or threw, so callers can tell fallback values from saved ones. */
+  source: "db" | "defaults"
 }
 
 const KEYS = [
@@ -45,6 +47,7 @@ const DEFAULTS: MomoClaimSettings = {
   regressionThreshold: 1000000,
   reviewThresholdPesewas: 50000,
   dailyCapPesewas: 300000,
+  source: "defaults",
 }
 
 function defaults(): MomoClaimSettings {
@@ -115,6 +118,7 @@ export async function loadMomoClaimSettings(client: SupabaseClient): Promise<Mom
       regressionThreshold: plainNumber(raw.momo_txid_regression_threshold, d.regressionThreshold),
       reviewThresholdPesewas: pesewas(raw.momo_auto_claim_review_threshold, d.reviewThresholdPesewas),
       dailyCapPesewas: pesewas(raw.momo_auto_claim_daily_cap, d.dailyCapPesewas),
+      source: "db",
     }
   } catch {
     return defaults()

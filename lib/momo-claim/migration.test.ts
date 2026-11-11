@@ -107,7 +107,7 @@ describe("0160 run string (migration + self-test)", () => {
                          "manual_amount_mismatch", "no_session", "webhook_no_session", "first_claim", "above_review_threshold", "daily_cap",
                          "flagged_not_claimable", "rate_limited", "daily_limit", "too_many_attempts", "admin_credit_flagged",
                          "admin_reason_required", "admin_credit_unparsed", "admin_unflag", "webhook_then_manual", "dealer_fee", "session_quote",
-                         "admin_quote_mismatch", "bad_quote", "wallet_lock_first", "ledger_scoped", "setting_descriptions", "final_balance"]) {
+                         "admin_quote_mismatch", "bad_quote", "wallet_lock_first", "ledger_scoped", "setting_descriptions", "suspicious_claimers", "final_balance"]) {
       expect(st).toMatch(new RegExp(`-- ${label}\\b`))
     }
   })
@@ -853,6 +853,40 @@ describe.skipIf(!PGliteCtor)("0160 in PGlite", () => {
           expect(def).toContain(`'${r}'`)
           expect([...seen]).toContain(r)
         }
+      })
+
+      it("momo_suspicious_claimers: counts per user in the last 24 h, honours threshold and limit, service_role only", async () => {
+        const mk = async (n: number, hoursAgo = 0) => {
+          const u = (await one("SELECT gen_random_uuid() AS u")).u
+          await db.query(
+            `INSERT INTO public.momo_claim_attempts (user_id, transaction_id, result, created_at)
+             SELECT $1, '88888888', 'not_matched', now() - ($3 || ' hours')::interval FROM generate_series(1, $2::int)`,
+            [u, n, String(hoursAgo)],
+          )
+          return u
+        }
+        const a = await mk(8)
+        const b = await mk(5)
+        const c = await mk(4)
+        const old = await mk(9, 30)
+        const res = (await db.query("SELECT user_id, attempts FROM public.momo_suspicious_claimers(5, 100)")).rows
+        const got = Object.fromEntries(res.map((r: any) => [r.user_id, Number(r.attempts)]))
+        expect(got[a]).toBe(8)
+        expect(got[b]).toBe(5)
+        expect(got[c]).toBeUndefined()
+        expect(got[old]).toBeUndefined()
+        const order = res.map((r: any) => Number(r.attempts))
+        expect(order).toEqual([...order].sort((x: number, y: number) => y - x))
+        expect((await db.query("SELECT * FROM public.momo_suspicious_claimers(5, 1)")).rows).toHaveLength(1)
+        expect((await db.query("SELECT * FROM public.momo_suspicious_claimers(5, 0)")).rows).toHaveLength(1)
+        const f = "public.momo_suspicious_claimers(int,int)"
+        for (const role of ["anon", "authenticated", "public"]) {
+          expect((await one("SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok", [role, f])).ok, role).toBe(false)
+        }
+        expect((await one("SELECT has_function_privilege('service_role', $1, 'EXECUTE') AS ok", [f])).ok).toBe(true)
+        const sec = await one("SELECT prosecdef AS d, proconfig AS c FROM pg_proc WHERE oid = $1::regprocedure", [f])
+        expect(sec.d).toBe(true)
+        expect(sec.c).toEqual(['search_path=""'])
       })
 
       it("EXECUTE: nobody may call claim_momo_transaction or the helpers; only service_role calls the four entry points", async () => {

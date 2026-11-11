@@ -13,7 +13,6 @@ const STATUSES = ["pending", "claimed", "flagged", "voided", "unparsed", "reject
 const LIST_COLUMNS =
   "id, transaction_id, network, pattern, amount, sender_name, sms_sender, sms_balance, status, flag_reasons, session_id, claimed_by, claimed_at, fee, net_amount, credited_by_admin, admin_reason, unflagged_by, unflagged_at, unflag_reason, received_at"
 const SUSPICIOUS_ATTEMPTS = 5
-const DAY_MS = 24 * 60 * 60 * 1000
 
 const fail = (error: string, status: number, extra: Record<string, unknown> = {}) =>
   NextResponse.json({ error, ...extra }, { status })
@@ -46,10 +45,11 @@ function isoOrNull(v: string | null, endOfDay: boolean): string | null {
 }
 
 export async function GET(request: NextRequest) {
-  const ctx = await gate(request, false)
+  const params = new URL(request.url).searchParams
+  // Raw SMS holds names and numbers: only a real admin user (not the cron bypass) may open it.
+  const ctx = await gate(request, Boolean(params.get("raw")))
   if (isResponse(ctx)) return ctx
   const { db } = ctx
-  const params = new URL(request.url).searchParams
 
   try {
     const raw = params.get("raw")
@@ -80,15 +80,15 @@ export async function GET(request: NextRequest) {
     }
     list = list.order("received_at", { ascending: false }).limit(200)
 
-    const since = new Date(Date.now() - DAY_MS).toISOString()
-    const [listRes, attemptsRes, settings, ...countRes] = await Promise.all([
+    const [listRes, suspiciousRes, settings, ...countRes] = await Promise.all([
       list,
-      db.from("momo_claim_attempts").select("user_id").gte("created_at", since).limit(20000),
+      db.rpc("momo_suspicious_claimers", { p_min_attempts: SUSPICIOUS_ATTEMPTS, p_limit: 100 }),
       loadMomoClaimSettings(db),
       ...STATUSES.map((s) => db.from("momo_transactions").select("id", { count: "exact", head: true }).eq("status", s)),
     ])
-    if (listRes.error || attemptsRes.error) {
-      logError("list", listRes.error ?? attemptsRes.error)
+    const firstError = listRes.error ?? suspiciousRes.error ?? countRes.find((c) => c.error)?.error
+    if (firstError) {
+      logError("get", firstError)
       return fail("server_error", 500)
     }
 
@@ -97,16 +97,13 @@ export async function GET(request: NextRequest) {
       counts[s] = countRes[i]?.count ?? 0
     })
 
-    const perUser = new Map<string, number>()
-    for (const r of (attemptsRes.data ?? []) as { user_id: string }[]) {
-      perUser.set(r.user_id, (perUser.get(r.user_id) ?? 0) + 1)
-    }
-    const suspicious = [...perUser.entries()]
-      .filter(([, n]) => n >= SUSPICIOUS_ATTEMPTS)
-      .map(([userId, attempts]) => ({ userId, attempts }))
-      .sort((a, b) => b.attempts - a.attempts)
+    const suspicious = ((suspiciousRes.data ?? []) as { user_id: string; attempts: number | string }[]).map((r) => ({
+      userId: r.user_id,
+      attempts: Number(r.attempts),
+    }))
 
     return NextResponse.json({
+      settingsDefaulted: settings.source === "defaults",
       transactions: listRes.data ?? [],
       counts,
       suspicious,
@@ -142,8 +139,12 @@ export async function POST(request: NextRequest) {
     return fail("invalid_json", 400)
   }
   const v = validateSettings(body)
-  if (!v.ok) return fail("invalid_setting", 400, { field: v.field })
+  if (!v.ok) return fail(v.error ?? "invalid_setting", 400, { field: v.field })
   const s = v.value
+
+  // A whole-form save after a failed load would write the fallback values over the real ones.
+  const current = await loadMomoClaimSettings(db)
+  if (current.source === "defaults") return fail("settings_unavailable", 409)
 
   const now = new Date().toISOString()
   const entries: [string, unknown][] = [

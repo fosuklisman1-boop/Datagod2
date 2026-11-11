@@ -562,6 +562,24 @@ BEGIN
    WHERE s.key = 'momo_auto_claim_review_threshold' AND s.description ILIKE '%above%' AND s.description NOT ILIKE '%at or above%';
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL setting_descriptions: threshold description'; END IF;
 
+  -- suspicious_claimers: counts per user, 24 h window, threshold, ordering, grants -----------------------------
+  v_s := gen_random_uuid();
+  v_s2 := gen_random_uuid();
+  INSERT INTO public.momo_claim_attempts (user_id, transaction_id, result) SELECT v_s, '99999999', 'not_matched' FROM generate_series(1, 6);
+  INSERT INTO public.momo_claim_attempts (user_id, transaction_id, result, created_at)
+    SELECT v_s2, '99999999', 'not_matched', now() - interval '25 hours' FROM generate_series(1, 9);
+  SELECT f.attempts::int INTO v_n FROM public.momo_suspicious_claimers(5, 100) f WHERE f.user_id = v_s;
+  IF v_n IS DISTINCT FROM 6 THEN RAISE EXCEPTION 'FAIL suspicious_claimers: expected 6 attempts, got %', v_n; END IF;
+  SELECT count(*) INTO v_n FROM public.momo_suspicious_claimers(5, 100) f WHERE f.user_id = v_s2;
+  IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL suspicious_claimers: attempts older than 24 h were counted'; END IF;
+  SELECT count(*) INTO v_n FROM public.momo_suspicious_claimers(7, 100) f WHERE f.user_id = v_s;
+  IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL suspicious_claimers: the threshold was ignored'; END IF;
+  IF has_function_privilege('anon', 'public.momo_suspicious_claimers(int,int)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.momo_suspicious_claimers(int,int)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.momo_suspicious_claimers(int,int)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL suspicious_claimers: grants are wrong';
+  END IF;
+
   -- final_balance: the wallet and total_credited moved by exactly the credits; one ledger row per credit -------------
   SELECT w.balance, COALESCE(w.total_credited, 0) INTO v_bal, v_cred FROM public.wallets w WHERE w.user_id = v_user;
   IF v_bal <> v_bal0 + v_paid OR v_cred <> v_cred0 + v_paid THEN

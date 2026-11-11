@@ -16,7 +16,7 @@ export type SettingsInput = {
   dailyCap: number
 }
 
-export type ValidationResult = { ok: true; value: SettingsInput } | { ok: false; field: string }
+export type ValidationResult = { ok: true; value: SettingsInput } | { ok: false; field: string; error?: string }
 
 const isNum = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x)
 
@@ -42,13 +42,17 @@ export function validateSettings(body: unknown): ValidationResult {
     accounts.push({ network: r.network as (typeof NETWORKS)[number], number: r.number })
   }
 
+  if (b.enabled && !accounts.some((a) => a.network === "MTN")) {
+    return { ok: false, field: "accounts", error: "mtn_account_required" }
+  }
+
   if (typeof b.accountName !== "string" || b.accountName.length > 80) return bad("accountName")
 
   if (!isNum(b.feeCustomerPercent) || b.feeCustomerPercent < 0 || b.feeCustomerPercent > 100) return bad("feeCustomerPercent")
   if (!isNum(b.feeDealerPercent) || b.feeDealerPercent < 0 || b.feeDealerPercent > 100) return bad("feeDealerPercent")
 
-  if (!isNum(b.minNet) || b.minNet < 0) return bad("minNet")
-  if (!isNum(b.maxSent) || b.maxSent < b.minNet) return bad("maxSent")
+  if (!isNum(b.minNet) || b.minNet < 0 || !hasAtMostTwoDecimals(b.minNet)) return bad("minNet")
+  if (!isNum(b.maxSent) || b.maxSent < b.minNet || !hasAtMostTwoDecimals(b.maxSent)) return bad("maxSent")
 
   if (!Array.isArray(b.senderAllowlist) || b.senderAllowlist.length === 0) return bad("senderAllowlist")
   const allow: string[] = []
@@ -62,8 +66,8 @@ export function validateSettings(body: unknown): ValidationResult {
   if (!isNum(b.regressionThreshold) || !Number.isInteger(b.regressionThreshold) || b.regressionThreshold < 0) {
     return bad("regressionThreshold")
   }
-  if (!isNum(b.reviewThreshold) || b.reviewThreshold < 0) return bad("reviewThreshold")
-  if (!isNum(b.dailyCap) || b.dailyCap < 0) return bad("dailyCap")
+  if (!isNum(b.reviewThreshold) || b.reviewThreshold < 0 || !hasAtMostTwoDecimals(b.reviewThreshold)) return bad("reviewThreshold")
+  if (!isNum(b.dailyCap) || b.dailyCap < 0 || !hasAtMostTwoDecimals(b.dailyCap)) return bad("dailyCap")
 
   return {
     ok: true,

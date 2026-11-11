@@ -55,12 +55,13 @@ const SETTINGS = {
   regressionThreshold: 1000000,
   reviewThresholdPesewas: 50000,
   dailyCapPesewas: 300000,
+  source: "db",
 }
 
 type World = {
   txRows?: unknown[]
   counts?: Record<string, number>
-  attempts?: { user_id: string }[]
+  countError?: boolean
   rawRow?: unknown
   updateRows?: unknown[]
   txSession?: { session_id: string | null } | null
@@ -76,6 +77,7 @@ function setWorld(w: World = {}) {
       if (has("update")) return { data: w.updateRows ?? [], error: null }
       const sel = c.ops.find((o) => o.method === "select")
       if ((sel?.args[1] as { head?: boolean } | undefined)?.head) {
+        if (w.countError && eqVal("status") === "voided") return { count: null, error: { code: "XX000", message: "secret" } }
         return { count: w.counts?.[String(eqVal("status"))] ?? 0, error: null }
       }
       if (has("maybeSingle")) {
@@ -85,7 +87,6 @@ function setWorld(w: World = {}) {
       }
       return { data: w.txRows ?? [], error: null }
     }
-    if (c.table === "momo_claim_attempts") return { data: w.attempts ?? [], error: null }
     if (c.table === "wallet_topup_sessions") return { data: w.session === undefined ? { user_id: USER } : w.session, error: null }
     if (c.table === "users") return { data: w.userExists === false ? null : { id: USER }, error: null }
     if (c.table === "admin_settings") return { data: null, error: w.upsertError ?? null }
@@ -100,7 +101,9 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-placeholder"
   authMock.mockResolvedValue({ isAdmin: true, userId: ADMIN })
   settingsMock.mockResolvedValue({ ...SETTINGS })
-  rpcMock.mockResolvedValue({ data: "credited", error: null })
+  rpcMock.mockImplementation(async (fn: string) =>
+    fn === "momo_suspicious_claimers" ? { data: [], error: null } : { data: "credited", error: null },
+  )
   setWorld()
   spies = (["log", "info", "warn", "error", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}))
 })
@@ -142,7 +145,7 @@ describe("auth", () => {
       expect((await res.json()).error).toBe("admin_user_required")
     }
     expect(updates()).toHaveLength(0)
-    expect(rpcMock).not.toHaveBeenCalled()
+    expect(rpcMock.mock.calls.every((c) => c[0] === "momo_suspicious_claimers")).toBe(true)
   })
 })
 
@@ -151,15 +154,15 @@ describe("GET", () => {
     setWorld({
       txRows: [{ transaction_id: TX, status: "pending" }],
       counts: { pending: 3, flagged: 2 },
-      attempts: [
-        ...Array(6).fill({ user_id: "u6" }),
-        ...Array(5).fill({ user_id: "u5" }),
-        ...Array(4).fill({ user_id: "u4" }),
-        ...Array(7).fill({ user_id: "u7" }),
-      ],
+    })
+    rpcMock.mockResolvedValue({
+      data: [{ user_id: "u7", attempts: "7" }, { user_id: "u6", attempts: 6 }, { user_id: "u5", attempts: 5 }],
+      error: null,
     })
     const res = await GET(req("GET"))
     const j = await res.json()
+    expect(rpcMock).toHaveBeenCalledWith("momo_suspicious_claimers", { p_min_attempts: 5, p_limit: 100 })
+    expect(j.settingsDefaulted).toBe(false)
     expect(j.transactions).toEqual([{ transaction_id: TX, status: "pending" }])
     expect(j.counts).toEqual({ pending: 3, claimed: 0, flagged: 2, voided: 0, unparsed: 0, rejected_sender: 0 })
     expect(j.suspicious).toEqual([
@@ -180,6 +183,23 @@ describe("GET", () => {
       reviewThreshold: 500,
       dailyCap: 3000,
     })
+  })
+
+  it("500s with a sanitized body when a count query or the suspicious RPC errors", async () => {
+    setWorld({ countError: true })
+    let res = await GET(req("GET"))
+    expect(res.status).toBe(500)
+    expect(JSON.stringify(await res.json())).not.toContain("secret")
+    setWorld()
+    rpcMock.mockResolvedValue({ data: null, error: { code: "XX000", message: "secret" } })
+    res = await GET(req("GET"))
+    expect(res.status).toBe(500)
+    expect(JSON.stringify(await res.json())).not.toContain("secret")
+  })
+
+  it("flags settingsDefaulted when the loader fell back to defaults", async () => {
+    settingsMock.mockResolvedValue({ ...SETTINGS, source: "defaults" })
+    expect((await (await GET(req("GET"))).json()).settingsDefaulted).toBe(true)
   })
 
   it("never selects raw_sms for the list, and caps at 200 newest first", async () => {
@@ -223,6 +243,15 @@ describe("GET", () => {
     expect(await res.json()).toEqual({ rawSms: "hello sms" })
   })
 
+  it("GET ?raw= needs a real admin user id (cron bypass is refused)", async () => {
+    authMock.mockResolvedValue({ isAdmin: true })
+    setWorld({ rawRow: { raw_sms: "hello sms" } })
+    const res = await GET(req("GET", undefined, `${URL_}?raw=${TX}`))
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toBe("admin_user_required")
+    expect(calls).toHaveLength(0)
+  })
+
   it("GET ?raw= 404s for an unknown txid", async () => {
     expect((await GET(req("GET", undefined, `${URL_}?raw=${TX}`))).status).toBe(404)
   })
@@ -253,6 +282,20 @@ describe("POST settings", () => {
   it("400s on a malformed JSON body", async () => {
     const bad = new NextRequest(URL_, { method: "POST", headers: { authorization: "Bearer tok" }, body: "{nope" })
     expect((await POST(bad)).status).toBe(400)
+  })
+
+  it("400 mtn_account_required when enabling with no MTN account", async () => {
+    const res = await POST(req("POST", { ...GOOD, accounts: [] }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "mtn_account_required", field: "accounts" })
+  })
+
+  it("409 settings_unavailable when a fresh load reports defaults, and nothing is written", async () => {
+    settingsMock.mockResolvedValue({ ...SETTINGS, source: "defaults" })
+    const res = await POST(req("POST", GOOD))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe("settings_unavailable")
+    expect(calls.some((c) => c.ops.some((o) => o.method === "upsert"))).toBe(false)
   })
 
   it("upserts every key as {value} with updated_by and updated_at", async () => {

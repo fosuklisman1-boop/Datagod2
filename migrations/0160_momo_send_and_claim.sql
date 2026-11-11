@@ -666,6 +666,26 @@ GRANT EXECUTE ON FUNCTION public.claim_momo_via_session(uuid, text, uuid) TO ser
 GRANT EXECUTE ON FUNCTION public.admin_credit_momo_transaction(text, uuid, uuid, text, numeric) TO service_role;
 GRANT EXECUTE ON FUNCTION public.admin_unflag_momo_transaction(text, uuid, text) TO service_role;
 
+-- 7k. Admin fraud list: users with many claim attempts in the last 24 hours. Aggregated here so the API never depends on
+-- PostgREST's row cap. service_role only.
+CREATE OR REPLACE FUNCTION public.momo_suspicious_claimers(p_min_attempts int DEFAULT 5, p_limit int DEFAULT 100)
+RETURNS TABLE(user_id uuid, attempts bigint)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+  SELECT a.user_id, count(*) AS attempts
+    FROM public.momo_claim_attempts a
+   WHERE a.created_at >= now() - interval '24 hours'
+   GROUP BY a.user_id
+  HAVING count(*) >= p_min_attempts
+   ORDER BY 2 DESC, 1
+   LIMIT least(greatest(p_limit, 1), 500)
+$fn$;
+REVOKE ALL ON FUNCTION public.momo_suspicious_claimers(int, int) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.momo_suspicious_claimers(int, int) TO service_role;
+
 COMMIT;
 
 -- Verify after apply (read-only):

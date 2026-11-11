@@ -51,8 +51,23 @@ describe("validateSettings", () => {
     expect(r).toEqual({ ok: false, field })
   })
 
+  it.each(["minNet", "maxSent", "reviewThreshold", "dailyCap"])("rejects more than 2 decimals in %s", (field) => {
+    expect(validateSettings({ ...GOOD, [field]: 10.123 })).toEqual({ ok: false, field })
+    expect(validateSettings({ ...GOOD, [field]: 10.25 }).ok).toBe(true)
+  })
+
+  it("rejects enabled with no MTN account, with a dedicated error", () => {
+    const r = validateSettings({ ...GOOD, accounts: [{ network: "Telecel", number: "0200000000" }] })
+    expect(r).toEqual({ ok: false, field: "accounts", error: "mtn_account_required" })
+    expect(validateSettings({ ...GOOD, accounts: [] })).toEqual({ ok: false, field: "accounts", error: "mtn_account_required" })
+  })
+
+  it("allows no MTN account while disabled", () => {
+    expect(validateSettings({ ...GOOD, enabled: false, accounts: [] }).ok).toBe(true)
+  })
+
   it("accepts boundary values", () => {
-    const r = validateSettings({ ...GOOD, feeCustomerPercent: 0, feeDealerPercent: 100, minNet: 0, maxSent: 0, accountName: "", regressionThreshold: 0, reviewThreshold: 0, dailyCap: 0 })
+    const r = validateSettings({ ...GOOD, enabled: false, feeCustomerPercent: 0, feeDealerPercent: 100, minNet: 0, maxSent: 0, accountName: "", regressionThreshold: 0, reviewThreshold: 0, dailyCap: 0 })
     expect(r.ok).toBe(true)
   })
 

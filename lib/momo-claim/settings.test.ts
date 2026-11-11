@@ -38,7 +38,20 @@ describe("loadMomoClaimSettings", () => {
       regressionThreshold: 1000000,
       reviewThresholdPesewas: 50000,
       dailyCapPesewas: 300000,
+      source: "db",
     })
+  })
+
+  it("source is 'defaults' whenever the DB read errored, returned no array, or threw", async () => {
+    expect((await loadMomoClaimSettings(settingsClient(null, { message: "boom" }))).source).toBe("defaults")
+    expect((await loadMomoClaimSettings(settingsClient(null))).source).toBe("defaults")
+    const t = await loadMomoClaimSettings({
+      from: () => {
+        throw new Error("down")
+      },
+    } as never)
+    expect(t.source).toBe("defaults")
+    expect((await loadMomoClaimSettings(settingsClient([v("momo_claim_enabled", true)]))).source).toBe("db")
   })
 
   it("reads everything in one query", async () => {
