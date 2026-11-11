@@ -106,7 +106,8 @@ describe("0160 run string (migration + self-test)", () => {
     for (const label of ["fn_catalog", "fn_grants", "fn_deny", "credited", "already_credited", "payment_before_session", "webhook_amount_mismatch",
                          "manual_amount_mismatch", "no_session", "webhook_no_session", "first_claim", "above_review_threshold", "daily_cap",
                          "flagged_not_claimable", "rate_limited", "daily_limit", "too_many_attempts", "admin_credit_flagged",
-                         "admin_reason_required", "admin_credit_unparsed", "admin_unflag", "webhook_then_manual", "dealer_fee", "final_balance"]) {
+                         "admin_reason_required", "admin_credit_unparsed", "admin_unflag", "webhook_then_manual", "dealer_fee", "session_quote",
+                         "admin_quote_mismatch", "bad_quote", "wallet_lock_first", "ledger_scoped", "setting_descriptions", "final_balance"]) {
       expect(st).toMatch(new RegExp(`-- ${label}\\b`))
     }
   })
@@ -356,11 +357,12 @@ describe.skipIf(!PGliteCtor)("0160 in PGlite", () => {
                         VALUES ($1, 'sms', $2, $3, now() - $4::interval)`, [id, opts.status ?? "pending", amount, opts.receivedAgo ?? "5 minutes"])
         return id
       }
-      const session = async (user: string, amount: number, opts: { createdAgo?: string; expiresIn?: string; status?: string } = {}) => {
+      const session = async (user: string, amount: number, opts: { createdAgo?: string; expiresIn?: string; status?: string; fee?: number } = {}) => {
         const code = nextCode()
+        const fee = opts.fee ?? 0
         const r = await one(`INSERT INTO public.wallet_topup_sessions (user_id, code, amount, fee, net_amount, status, created_at, expires_at)
-                             VALUES ($1, $2, $3, 0, $3, $4, now() - $5::interval, now() + $6::interval) RETURNING id`,
-          [user, code, amount, opts.status ?? "pending", opts.createdAgo ?? "10 minutes", opts.expiresIn ?? "1 hour"])
+                             VALUES ($1, $2, $3, $7, $3::numeric - $7::numeric, $4, now() - $5::interval, now() + $6::interval) RETURNING id`,
+          [user, code, amount, opts.status ?? "pending", opts.createdAgo ?? "10 minutes", opts.expiresIn ?? "1 hour", fee])
         return { id: r.id as string, code }
       }
       const rec = (r: string) => { seen.add(r); return r }
@@ -718,34 +720,128 @@ describe.skipIf(!PGliteCtor)("0160 in PGlite", () => {
         expect((await row(id)).status).toBe("pending")
       })
 
-      it("dealer pays the dealer fee, others the customer fee, rounded up to the pesewa", async () => {
+      it("admin credit with no linked session: dealer pays the dealer fee, others the customer fee, rounded up to the pesewa", async () => {
         try {
           await setSetting("momo_claim_fee_customer", 1)
           await setSetting("momo_claim_fee_dealer", 1.5)
-          const d = await mkUser({ role: "dealer" }); await season(d)
-          const c = await mkUser({ role: "user" }); await season(c)
-          const sd = await session(d, 10.01)
+          const d = await mkUser({ role: "dealer" })
+          const c = await mkUser({ role: "user" })
           const idd = await momo(10.01)
-          expect(await manual(d, idd, sd.id)).toBe("credited")
+          expect(await adminCredit(idd, d, "fee check")).toBe("credited")
           // 10.01 * 1.5% = 0.15015 -> 0.16
           expect(Number((await row(idd)).fee)).toBe(0.16)
           expect((await wallet(d)).balance).toBe(9.85)
-          const sc = await session(c, 10.01)
           const idc = await momo(10.01)
-          expect(await manual(c, idc, sc.id)).toBe("credited")
+          expect(await adminCredit(idc, c, "fee check")).toBe("credited")
           // 10.01 * 1% = 0.1001 -> 0.11
           expect(Number((await row(idc)).fee)).toBe(0.11)
           expect((await wallet(c)).balance).toBe(9.9)
           // A non-number setting falls back to the default (0).
           await setSetting("momo_claim_fee_dealer", "2")
-          const sd2 = await session(d, 10)
           const idd2 = await momo(10)
-          expect(await manual(d, idd2, sd2.id)).toBe("credited")
+          expect(await adminCredit(idd2, d, "fee check")).toBe("credited")
           expect(Number((await row(idd2)).fee)).toBe(0)
         } finally {
           await setSetting("momo_claim_fee_customer", 0)
           await setSetting("momo_claim_fee_dealer", 0)
         }
+      })
+
+      it("manual and webhook credits use the session's quoted fee and net, even after the fee setting changes", async () => {
+        try {
+          const u = await mkUser({ role: "dealer" }); await season(u)
+          const s1 = await session(u, 10, { fee: 0.5 }) // quoted 5 %
+          const s2 = await session(u, 20, { fee: 0.3 })
+          await setSetting("momo_claim_fee_dealer", 1)
+          await setSetting("momo_claim_fee_customer", 1)
+          const id1 = await momo(10)
+          expect(await manual(u, id1, s1.id)).toBe("credited")
+          expect(Number((await row(id1)).fee)).toBe(0.5)
+          expect(Number((await row(id1)).net_amount)).toBe(9.5)
+          const id2 = await momo(20)
+          expect(await webhook(s2.code, id2)).toBe("credited")
+          expect(Number((await row(id2)).net_amount)).toBe(19.7)
+          expect((await wallet(u)).balance).toBe(29.2)
+          expect(Number((await ledger(id2))[0].amount)).toBe(19.7)
+        } finally {
+          await setSetting("momo_claim_fee_customer", 0)
+          await setSetting("momo_claim_fee_dealer", 0)
+        }
+      })
+
+      it("the review threshold and daily cap look at the quoted net", async () => {
+        const u = await mkUser(); await season(u)
+        const s = await session(u, 500.5, { fee: 0.5 }) // net 500.00: not above 500
+        const id = await momo(500.5)
+        expect(await manual(u, id, s.id)).toBe("credited")
+        expect((await wallet(u)).balance).toBe(500)
+      })
+
+      it("admin approve of a first claim uses the linked session's quote", async () => {
+        try {
+          const u = await mkUser()
+          const s = await session(u, 10, { fee: 0.4 })
+          const id = await momo(10)
+          expect(await manual(u, id, s.id)).toBe("under_review")
+          await setSetting("momo_claim_fee_customer", 2)
+          expect(await adminCredit(id, u, "approve")).toBe("credited")
+          expect(Number((await row(id)).net_amount)).toBe(9.6)
+          expect((await wallet(u)).balance).toBe(9.6)
+        } finally {
+          await setSetting("momo_claim_fee_customer", 0)
+        }
+      })
+
+      it("admin approve of an amount_mismatch row never pays the session's (bigger) quote: it recomputes on the sent amount", async () => {
+        const u = await mkUser(); await season(u)
+        const s = await session(u, 100, { fee: 1 })
+        const id = await momo(10)
+        expect(await webhook(s.code, id)).toBe("under_review")
+        expect(await adminCredit(id, u, "paid less than quoted")).toBe("credited")
+        expect(Number((await row(id)).net_amount)).toBe(10)
+        expect((await wallet(u)).balance).toBe(10)
+        expect((await sess(s.id)).status).toBe("pending") // the 100 quote was not paid
+      })
+
+      it("a session whose quote does not add up is refused (BAD_STATE), nothing written", async () => {
+        const u = await mkUser(); await season(u)
+        const s = await session(u, 10)
+        await db.query("UPDATE public.wallet_topup_sessions SET net_amount = 11 WHERE id = $1", [s.id])
+        const id = await momo(10)
+        await expect(db.query("SELECT public.claim_momo_via_session($1, $2, $3)", [u, id, s.id])).rejects.toThrow(/BAD_STATE/)
+        expect((await wallet(u)).balance).toBe(0)
+        expect((await row(id)).status).toBe("pending")
+      })
+
+      it("per-user checks run under the wallet lock: a first claim by a user with no wallet raises NO_WALLET instead of flagging", async () => {
+        const u = await mkUser({ wallet: false })
+        const s = await session(u, 10)
+        const id = await momo(10)
+        await expect(db.query("SELECT public.claim_momo_via_session($1, $2, $3)", [u, id, s.id])).rejects.toThrow(/NO_WALLET/)
+        await expect(db.query("SELECT public.claim_via_wallet_topup_session($1, $2)", [s.code, id])).rejects.toThrow(/NO_WALLET/)
+        expect((await row(id)).status).toBe("pending")
+        // And in the source, the wallet lock comes before the first per-user check.
+        const src = (await one("SELECT prosrc AS s FROM pg_proc WHERE oid = 'public.claim_momo_transaction(text,uuid,uuid,boolean,text)'::regprocedure")).s as string
+        const lock = src.search(/FROM public\.wallets w WHERE w\.user_id = p_user FOR UPDATE/)
+        expect(lock).toBeGreaterThan(-1)
+        expect(lock).toBeLessThan(src.indexOf("first_claim"))
+        expect(lock).toBeLessThan(src.indexOf("momo_auto_claim_daily_cap"))
+      })
+
+      it("the ledger check is scoped to the credited user (uses the unique index): another user's MOMO-<txid> row does not block", async () => {
+        const src = (await one("SELECT prosrc AS s FROM pg_proc WHERE oid = 'public.momo_credit_wallet(text,uuid,numeric)'::regprocedure")).s as string
+        expect(src).toMatch(/t\.user_id = p_user AND t\.reference_id = v_ref AND t\.type = 'credit'/)
+        // Cross-user safety comes from the momo row lock + status, proven by the "claimed by someone else" test.
+      })
+
+      it("setting descriptions match the code: fee is a percent, review threshold is 'above'", async () => {
+        const d = async (k: string) => (await one("SELECT description AS d FROM public.admin_settings WHERE key = $1", [k])).d as string
+        for (const k of ["momo_claim_fee_customer", "momo_claim_fee_dealer"]) {
+          expect(await d(k)).toMatch(/percent/i)
+          expect(await d(k)).not.toMatch(/GHS/)
+        }
+        expect(await d("momo_auto_claim_review_threshold")).toMatch(/above/i)
+        expect(await d("momo_auto_claim_review_threshold")).not.toMatch(/at or above/i)
       })
 
       it("every attempt is logged with the result returned, and every result is in the CHECK list", async () => {

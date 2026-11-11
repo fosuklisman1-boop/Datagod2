@@ -22,7 +22,8 @@
 -- Money functions (labels): setup_money, fn_catalog, fn_grants, fn_deny, first_claim, admin_credit_flagged,
 -- admin_reason_required, credited, already_credited, webhook_then_manual, payment_before_session, manual_amount_mismatch,
 -- webhook_amount_mismatch, flagged_not_claimable, no_session, webhook_no_session, above_review_threshold, daily_cap,
--- rate_limited, daily_limit, too_many_attempts, admin_unflag, admin_credit_unparsed, dealer_fee, final_balance.
+-- rate_limited, daily_limit, too_many_attempts, admin_unflag, admin_credit_unparsed, dealer_fee, session_quote,
+-- admin_quote_mismatch, bad_quote, wallet_lock_first, ledger_scoped, setting_descriptions, final_balance.
 -- Picks the admin (public.users.role = 'admin', joined to auth.users and public.wallets) with the largest wallet and holds
 -- that wallet's row lock from the start; reads one dealer (role 'dealer') for the fee only. Credits a few pesewas to the
 -- admin, all rolled back. now() is fixed inside one transaction, so the scenarios clear the admin's attempt rows between
@@ -499,6 +500,67 @@ BEGIN
   IF v_res <> 'credited' OR v_row.fee <> 0.01 OR v_row.net_amount <> 0.99 THEN RAISE EXCEPTION 'FAIL dealer_fee: % fee %', v_res, v_row.fee; END IF;
   v_paid := v_paid + 0.99; v_credits := v_credits + 1;
   UPDATE public.admin_settings SET value = '{"value": 0}'::jsonb WHERE key IN ('momo_claim_fee_customer', 'momo_claim_fee_dealer');
+
+  -- session_quote: the claim credits the session's quoted net even after the fee setting changed -----------------
+  DELETE FROM public.momo_claim_attempts a WHERE a.user_id = v_user;
+  INSERT INTO public.wallet_topup_sessions (user_id, code, amount, fee, net_amount, expires_at)
+  VALUES (v_user, 'SAA2235', 2.00, 0.10, 1.90, now() + interval '1 hour') RETURNING id INTO v_s;
+  UPDATE public.admin_settings SET value = '{"value": 3}'::jsonb WHERE key IN ('momo_claim_fee_customer', 'momo_claim_fee_dealer');
+  INSERT INTO public.momo_transactions (transaction_id, raw_sms, status, amount) VALUES ('910000000017', 'selftest', 'pending', 2.00);
+  v_res := public.claim_momo_via_session(v_user, '910000000017', v_s);
+  SELECT * INTO v_row FROM public.momo_transactions m WHERE m.transaction_id = '910000000017';
+  IF v_res <> 'credited' OR v_row.fee <> 0.10 OR v_row.net_amount <> 1.90 THEN RAISE EXCEPTION 'FAIL session_quote: % fee % net %', v_res, v_row.fee, v_row.net_amount; END IF;
+  v_paid := v_paid + 1.90; v_credits := v_credits + 1;
+
+  -- admin_quote_mismatch: approving an amount_mismatch row recomputes on the SENT amount, never pays the session's quote --
+  INSERT INTO public.wallet_topup_sessions (user_id, code, amount, fee, net_amount, expires_at)
+  VALUES (v_user, 'SAA2236', 5.00, 0, 5.00, now() + interval '1 hour') RETURNING id INTO v_s;
+  INSERT INTO public.momo_transactions (transaction_id, raw_sms, status, amount) VALUES ('910000000018', 'selftest', 'pending', 0.20);
+  v_res := public.claim_via_wallet_topup_session('SAA2236', '910000000018');
+  IF v_res <> 'under_review' THEN RAISE EXCEPTION 'FAIL admin_quote_mismatch: webhook %', v_res; END IF;
+  v_res := public.admin_credit_momo_transaction('910000000018', v_user, v_user, 'selftest mismatch approve');
+  SELECT * INTO v_row FROM public.momo_transactions m WHERE m.transaction_id = '910000000018';
+  -- 0.20 at 3 % = 0.006 -> 0.01; net 0.19
+  IF v_res <> 'credited' OR v_row.fee <> 0.01 OR v_row.net_amount <> 0.19 THEN RAISE EXCEPTION 'FAIL admin_quote_mismatch: % net %', v_res, v_row.net_amount; END IF;
+  IF (SELECT s.status FROM public.wallet_topup_sessions s WHERE s.id = v_s) <> 'pending' THEN RAISE EXCEPTION 'FAIL admin_quote_mismatch: session closed'; END IF;
+  v_paid := v_paid + 0.19; v_credits := v_credits + 1;
+  UPDATE public.admin_settings SET value = '{"value": 0}'::jsonb WHERE key IN ('momo_claim_fee_customer', 'momo_claim_fee_dealer');
+
+  -- bad_quote: a session whose fee + net do not add up to its amount is refused, nothing written ---------------------
+  INSERT INTO public.wallet_topup_sessions (user_id, code, amount, fee, net_amount, expires_at)
+  VALUES (v_user, 'SAA2237', 0.20, 0, 0.30, now() + interval '1 hour') RETURNING id INTO v_s;
+  INSERT INTO public.momo_transactions (transaction_id, raw_sms, status, amount) VALUES ('910000000019', 'selftest', 'pending', 0.20);
+  v_got := NULL;
+  <<bad_quote>>
+  BEGIN
+    PERFORM public.claim_momo_via_session(v_user, '910000000019', v_s);
+    v_got := 'NO_ERROR';
+  EXCEPTION WHEN OTHERS THEN
+    v_got := SQLERRM;
+  END bad_quote;
+  IF v_got IS DISTINCT FROM 'BAD_STATE' THEN RAISE EXCEPTION 'FAIL bad_quote: got %', v_got; END IF;
+  IF (SELECT m.status FROM public.momo_transactions m WHERE m.transaction_id = '910000000019') <> 'pending' THEN RAISE EXCEPTION 'FAIL bad_quote: row moved'; END IF;
+
+  -- wallet_lock_first: the wallet is locked before the per-user checks -----------------------------------
+  -- ledger_scoped: the ledger check is per user (the UNIQUE (user_id, reference_id, type) index) ----------------
+  SELECT p.prosrc INTO v_got FROM pg_proc p WHERE p.oid = 'public.claim_momo_transaction(text,uuid,uuid,boolean,text)'::regprocedure;
+  IF strpos(v_got, 'FROM public.wallets w WHERE w.user_id = p_user FOR UPDATE') = 0
+     OR strpos(v_got, 'FROM public.wallets w WHERE w.user_id = p_user FOR UPDATE') > strpos(v_got, 'first_claim')
+     OR strpos(v_got, 'FROM public.wallets w WHERE w.user_id = p_user FOR UPDATE') > strpos(v_got, 'momo_auto_claim_daily_cap') THEN
+    RAISE EXCEPTION 'FAIL wallet_lock_first: the per-user checks are not under the wallet lock';
+  END IF;
+  SELECT p.prosrc INTO v_got FROM pg_proc p WHERE p.oid = 'public.momo_credit_wallet(text,uuid,numeric)'::regprocedure;
+  IF strpos(v_got, 't.user_id = p_user AND t.reference_id = v_ref AND t.type = ''credit''') = 0 THEN
+    RAISE EXCEPTION 'FAIL ledger_scoped: the ledger check is not scoped to the user';
+  END IF;
+
+  -- setting_descriptions: fee is a percent; the review threshold is "above" ---------------------------------
+  SELECT count(*) INTO v_n FROM public.admin_settings s
+   WHERE s.key IN ('momo_claim_fee_customer', 'momo_claim_fee_dealer') AND s.description ILIKE '%percent%' AND s.description NOT LIKE '%GHS%';
+  IF v_n <> 2 THEN RAISE EXCEPTION 'FAIL setting_descriptions: fee descriptions'; END IF;
+  SELECT count(*) INTO v_n FROM public.admin_settings s
+   WHERE s.key = 'momo_auto_claim_review_threshold' AND s.description ILIKE '%above%' AND s.description NOT ILIKE '%at or above%';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL setting_descriptions: threshold description'; END IF;
 
   -- final_balance: the wallet and total_credited moved by exactly the credits; one ledger row per credit -------------
   SELECT w.balance, COALESCE(w.total_credited, 0) INTO v_bal, v_cred FROM public.wallets w WHERE w.user_id = v_user;

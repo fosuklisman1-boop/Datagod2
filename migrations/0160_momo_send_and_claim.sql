@@ -44,8 +44,8 @@
 --    WHERE conrelid = 'public.transactions'::regclass AND contype = 'c';               -- any CHECK allows type 'credit', status 'completed'
 --   SELECT count(*) FROM transactions WHERE reference_id LIKE 'MOMO-%';                -- 0 (the self-test needs this)
 --   SELECT count(*) FROM users WHERE role = 'dealer';                                  -- >= 1 (the self-test reads one)
---   SELECT indexdef FROM pg_indexes WHERE tablename = 'transactions' AND indexdef LIKE '%reference_id%';
---     -- note it: momo_credit_wallet looks up reference_id for ANY user; without a reference_id-led index that is a scan
+--   SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'unique_transaction_reference';
+--     -- UNIQUE (user_id, reference_id, type): momo_credit_wallet's ledger check (user_id, reference_id, type 'credit') uses it
 --   SELECT tgname FROM pg_trigger WHERE tgrelid = 'public.wallets'::regclass AND NOT tgisinternal;
 --     -- sec_detect_wallet_trg (0085); anything else: read it before applying
 --
@@ -155,13 +155,13 @@ INSERT INTO public.admin_settings (key, value, description) VALUES
   ('momo_claim_enabled',               '{"value": false}'::jsonb,          'Send & Claim master switch. Off: no claims, no SMS intake credit.'),
   ('momo_payment_accounts',            '{"value": []}'::jsonb,             'MoMo numbers customers send to (list of {network, number}).'),
   ('momo_account_name',                '{"value": ""}'::jsonb,             'Account name shown to customers beside the MoMo number.'),
-  ('momo_claim_fee_customer',          '{"value": 0}'::jsonb,              'Send & Claim fee for customers, GHS.'),
-  ('momo_claim_fee_dealer',            '{"value": 0}'::jsonb,              'Send & Claim fee for dealers, GHS.'),
+  ('momo_claim_fee_customer',          '{"value": 0}'::jsonb,              'Send & Claim fee for customers, percent of the amount sent (0-100), rounded up to the pesewa.'),
+  ('momo_claim_fee_dealer',            '{"value": 0}'::jsonb,              'Send & Claim fee for dealers, percent of the amount sent (0-100), rounded up to the pesewa.'),
   ('momo_min_claimable',               '{"value": 10}'::jsonb,             'Smallest amount a claim may credit, GHS.'),
   ('momo_max_claimable',               '{"value": 2000}'::jsonb,           'Largest amount a claim may credit, GHS.'),
   ('momo_sms_sender_allowlist',        '{"value": ["MobileMoney"]}'::jsonb, 'SMS sender names accepted by intake; anything else is parked as rejected_sender.'),
   ('momo_txid_regression_threshold',   '{"value": 1000000}'::jsonb,        'A transaction id this far below the highest seen is flagged.'),
-  ('momo_auto_claim_review_threshold', '{"value": 500}'::jsonb,            'Claims at or above this amount, GHS, go to review instead of auto-credit.'),
+  ('momo_auto_claim_review_threshold', '{"value": 500}'::jsonb,            'Claims whose credited (net) amount is above this, GHS, go to review instead of auto-credit.'),
   ('momo_auto_claim_daily_cap',        '{"value": 3000}'::jsonb,           'Most a user may auto-claim in a day, GHS.')
 ON CONFLICT (key) DO NOTHING;
 
@@ -180,8 +180,11 @@ ON CONFLICT (key) DO NOTHING;
 -- Settings come from admin_settings (value->'value'), falling back to the default when missing or not a JSON number:
 --   momo_claim_fee_customer 0, momo_claim_fee_dealer 0 (percent; public.users.role = 'dealer' pays the dealer one),
 --   momo_auto_claim_review_threshold 500, momo_auto_claim_daily_cap 3000 (GHS).
--- Fee = ceil(sent * round(pct, 2)) / 100 GHS (rounded UP to the pesewa, as lib/momo-claim/money.ts); net = sent - fee.
--- A fee percent outside 0..100 raises BAD_SETTING (fail closed).
+-- Fee: claim box and webhook credit the SESSION's quoted fee and net_amount (what the customer was shown; it must add up
+-- to the session amount, else BAD_STATE). Admin credit uses the linked session's quote when that session is the target's
+-- and quoted this exact amount; otherwise it recomputes: fee = ceil(sent * round(pct, 2)) / 100 GHS (rounded UP to the
+-- pesewa, as lib/momo-claim/money.ts), net = sent - fee. A fee percent outside 0..100 raises BAD_SETTING (fail closed).
+-- The per-user checks run AFTER the wallet row is locked, so two claims for one user read the day's total in turn.
 --
 -- Per-user checks (claim box and webhook; never admin credit). Any hit: the momo row becomes 'flagged', the reasons
 -- are appended to flag_reasons, session_id is linked, claimed_by stays NULL, the session stays 'pending', and the
@@ -264,8 +267,9 @@ BEGIN
     RAISE EXCEPTION 'NO_WALLET';
   END IF;
 
-  -- Any user: one MoMo transaction id is credited once, whoever got it.
-  IF EXISTS (SELECT 1 FROM public.transactions t WHERE t.reference_id = v_ref) THEN
+  -- This user's ledger, through the UNIQUE (user_id, reference_id, type) index. Cross-user double credit is blocked
+  -- earlier, by the momo row lock and its status check.
+  IF EXISTS (SELECT 1 FROM public.transactions t WHERE t.user_id = p_user AND t.reference_id = v_ref AND t.type = 'credit') THEN
     RETURN 'already_credited';
   END IF;
 
@@ -341,10 +345,21 @@ BEGIN
     RETURN 'not_matched';
   END IF;
 
-  -- 4. Fee for this user.
-  SELECT f.fee, f.net INTO v_fee, v_net FROM public.momo_claim_fee(p_user, v_tx.amount) f;
+  -- 4. The session's quote (what the customer was shown), never recomputed here. It must add up.
+  v_fee := v_sess.fee;
+  v_net := v_sess.net_amount;
+  IF v_fee IS NULL OR v_net IS NULL OR v_fee < 0 OR NOT (v_net > 0) OR v_fee + v_net <> v_sess.amount OR v_sess.amount <> v_tx.amount THEN
+    RAISE EXCEPTION 'BAD_STATE' USING DETAIL = 'the session quote does not add up';
+  END IF;
 
-  -- 5. Per-user checks.
+  -- 5. Lock the wallet BEFORE the per-user checks, so concurrent claims for one user (webhook and claim box) read the
+  --    day's total one at a time. Lock order stays session -> row -> wallet. No wallet: the whole call rolls back.
+  PERFORM 1 FROM public.wallets w WHERE w.user_id = p_user FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NO_WALLET';
+  END IF;
+
+  -- 6. Per-user checks, under the wallet lock.
   IF NOT EXISTS (SELECT 1 FROM public.momo_transactions m WHERE m.claimed_by = p_user AND m.status = 'claimed') THEN
     v_reasons := v_reasons || ARRAY['first_claim'];
   END IF;
@@ -365,7 +380,7 @@ BEGIN
     RETURN 'under_review';
   END IF;
 
-  -- 6. Credit (wallet lock last), then close the row and the session.
+  -- 7. Credit (the wallet lock is already held; momo_credit_wallet takes it again, a no-op), then close the row and session.
   v_res := public.momo_credit_wallet(p_txid, p_user, v_net);
   IF v_res <> 'credited' THEN
     RETURN v_res;
@@ -534,6 +549,7 @@ DECLARE
   v_fee  numeric;
   v_net  numeric;
   v_res  text;
+  v_quote boolean;
 BEGIN
   IF p_txid IS NULL OR p_target_user IS NULL OR p_admin IS NULL THEN
     RAISE EXCEPTION 'BAD_INPUT' USING DETAIL = 'txid, target user and admin required';
@@ -574,7 +590,18 @@ BEGIN
     v_amt := v_tx.amount;
   END IF;
 
-  SELECT f.fee, f.net INTO v_fee, v_net FROM public.momo_claim_fee(p_target_user, v_amt) f;
+  -- The linked session's quote when it is the target's and quoted this very amount (an amount_mismatch session quoted
+  -- another amount, so paying its net could pay more than was sent). Otherwise recompute from the target's role.
+  v_quote := v_sess.id IS NOT NULL AND v_sess.user_id = p_target_user AND v_sess.amount = v_amt;
+  IF v_quote THEN
+    v_fee := v_sess.fee;
+    v_net := v_sess.net_amount;
+    IF v_fee IS NULL OR v_net IS NULL OR v_fee < 0 OR NOT (v_net > 0) OR v_fee + v_net <> v_amt THEN
+      RAISE EXCEPTION 'BAD_STATE' USING DETAIL = 'the session quote does not add up';
+    END IF;
+  ELSE
+    SELECT f.fee, f.net INTO v_fee, v_net FROM public.momo_claim_fee(p_target_user, v_amt) f;
+  END IF;
 
   v_res := public.momo_credit_wallet(p_txid, p_target_user, v_net);
   IF v_res <> 'credited' THEN
@@ -585,7 +612,7 @@ BEGIN
      SET status = 'claimed', amount = v_amt, claimed_by = p_target_user, claimed_at = now(), fee = v_fee, net_amount = v_net,
          credited_by_admin = p_admin, admin_reason = btrim(p_reason)
    WHERE m.id = v_tx.id;
-  IF v_sess.id IS NOT NULL AND v_sess.user_id = p_target_user AND v_sess.status = 'pending' THEN
+  IF v_quote AND v_sess.status = 'pending' THEN
     UPDATE public.wallet_topup_sessions s
        SET status = 'claimed', claimed_transaction_id = p_txid
      WHERE s.id = v_sess.id;
