@@ -1,4 +1,4 @@
-import { createHash } from "crypto"
+import { createHmac } from "crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { parseMomoSms, passesPrefilter, type ParsedSms } from "./parse-sms"
 import { scanCodeCandidates } from "./codes"
@@ -13,8 +13,8 @@ import { notifyMomoAdmins, type MomoAdminAlert } from "@/lib/admin-actions/momo-
  * Never logs: the SMS holds payer names, phone numbers and amounts. Alerts carry only the amount
  * and the last 4 transaction-ID digits.
  *
- * Every write is idempotent (ON CONFLICT DO NOTHING on transaction_id; synthetic ids are derived
- * from sender + text), so forwarder retries never create a second row or a second alert.
+ * Every write is idempotent (ON CONFLICT DO NOTHING on transaction_id; synthetic ids are an HMAC of
+ * sender + text keyed with SMS_FORWARD_SECRET), so forwarder retries never create a second row or a second alert.
  * Intake flags go into the same single insert: a row is never pending while it should be flagged.
  *
  * Throws MomoStoreError only when the SMS row could not be written (the caller answers 503 so the
@@ -50,11 +50,18 @@ const TXID_RE = /^\d{8,15}$/
 const TABLE = "momo_transactions"
 const REDACTED = "[redacted]"
 
-/** 'X' + UUID-shaped first 32 hex chars of sha256(sender + "\n" + text): same delivery, same id. */
-export function syntheticId(sender: string | null, text: string): string {
-  const h = createHash("sha256").update(`${sender ?? ""}\n${text}`, "utf8").digest("hex").slice(0, 32)
+/**
+ * 'X' + UUID-shaped first 32 hex chars of HMAC-SHA256(key, sender + "\n" + text): same delivery, same id.
+ * Keyed so nobody without the key can precompute the id of a given SMS. Throws on an empty key.
+ */
+export function syntheticId(sender: string | null, text: string, key: string): string {
+  if (typeof key !== "string" || key.length === 0) throw new Error("syntheticId: key required")
+  const h = createHmac("sha256", key).update(`${sender ?? ""}\n${text}`, "utf8").digest("hex").slice(0, 32)
   return `X${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
 }
+
+/** The sms-forward route refuses every request while SMS_FORWARD_SECRET is unset, so it is always present here. */
+const syntheticKey = () => process.env.SMS_FORWARD_SECRET ?? ""
 
 const ghs = (pesewas: number) => pesewas / 100
 const last4 = (txid: string) => txid.slice(-4)
@@ -75,7 +82,7 @@ export async function ingestForwardedSms(
   // 1. Sender allowlist: exact match. Anything else is kept (text redacted) for the audit trail, never parsed.
   if (!from || !allowed.includes(from)) {
     const stored = await storeOrThrow(client, {
-      transaction_id: syntheticId(from, text),
+      transaction_id: syntheticId(from, text, syntheticKey()),
       raw_sms: REDACTED,
       sms_sender: from,
       status: "rejected_sender",
@@ -90,7 +97,7 @@ export async function ingestForwardedSms(
   const sms = parseMomoSms(text)
   if (!sms) {
     const stored = await storeOrThrow(client, {
-      transaction_id: syntheticId(from, text),
+      transaction_id: syntheticId(from, text, syntheticKey()),
       raw_sms: text,
       sms_sender: from,
       status: "unparsed",
@@ -112,8 +119,17 @@ export async function ingestForwardedSms(
     flags = ["intake_check_error"]
   }
 
-  // 5. One insert, flags included (ON CONFLICT DO NOTHING).
+  // 5a. A flagged row whose text names exactly one live session code is linked to it (same lookup as auto-match),
+  // so the admin's "Approve & credit" knows the user. Linking never credits. A failed lookup just stores it unlinked.
+  let flaggedSessionId: string | null = null
+  if (flags.length > 0) {
+    const match = await findSingleLiveSession(client, text)
+    if (match && match !== "error") flaggedSessionId = match.id
+  }
+
+  // 5b. One insert, flags (and the link) included (ON CONFLICT DO NOTHING).
   const stored = await storeOrThrow(client, {
+    ...(flaggedSessionId ? { session_id: flaggedSessionId } : {}),
     transaction_id: sms.transactionId,
     network: sms.network,
     pattern: sms.pattern,
@@ -269,7 +285,10 @@ async function readIntakeState(
 }
 
 /** The one pending, unexpired session whose code is in the text; null for zero or several; "error" on a read failure. */
-async function findSingleLiveCode(client: SupabaseClient, text: string): Promise<string | null | "error"> {
+async function findSingleLiveSession(
+  client: SupabaseClient,
+  text: string,
+): Promise<{ id: string; code: string } | null | "error"> {
   const candidates = scanCodeCandidates(text)
   if (candidates.length === 0) return null
   try {
@@ -282,11 +301,16 @@ async function findSingleLiveCode(client: SupabaseClient, text: string): Promise
     if (error || !Array.isArray(data)) return "error"
     const ids = new Set((data as { id: unknown }[]).map((r) => r.id))
     if (ids.size !== 1) return null
-    const code = (data[0] as { code?: unknown }).code
-    return typeof code === "string" && candidates.includes(code) ? code : null
+    const { id, code } = data[0] as { id?: unknown; code?: unknown }
+    return typeof id === "string" && typeof code === "string" && candidates.includes(code) ? { id, code } : null
   } catch {
     return "error"
   }
+}
+
+async function findSingleLiveCode(client: SupabaseClient, text: string): Promise<string | null | "error"> {
+  const match = await findSingleLiveSession(client, text)
+  return match === null || match === "error" ? match : match.code
 }
 
 async function readFlagReasons(client: SupabaseClient, txid: string): Promise<string[]> {

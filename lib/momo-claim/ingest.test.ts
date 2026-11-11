@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { ingestForwardedSms, MomoStoreError } from "./ingest"
+import { ingestForwardedSms, MomoStoreError, syntheticId } from "./ingest"
 import { makeFakeDb } from "./fake-db.test-helper"
 import type { MomoClaimSettings } from "./settings"
 import type { MomoAdminAlert } from "@/lib/admin-actions/momo-claim"
@@ -43,7 +43,9 @@ const run = (client: never, text: string, from: string | null = "MobileMoney", s
   ingestForwardedSms(client, { text, from }, s, { notifyAdmins })
 
 let logSpies: ReturnType<typeof vi.spyOn>[]
+const ORIG_SECRET = process.env.SMS_FORWARD_SECRET
 beforeEach(() => {
+  process.env.SMS_FORWARD_SECRET = "test-forward-secret"
   alerts = []
   logSpies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
     vi.spyOn(console, m).mockImplementation(() => {}),
@@ -59,6 +61,41 @@ afterEach(() => {
     expect(dump).not.toContain("KXR4829")
     spy.mockRestore()
   }
+  if (ORIG_SECRET === undefined) delete process.env.SMS_FORWARD_SECRET
+  else process.env.SMS_FORWARD_SECRET = ORIG_SECRET
+})
+
+describe("syntheticId", () => {
+  const FORMAT = /^X[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+  it("is deterministic for the same sender, text and key", () => {
+    const a = syntheticId("MobileMoney", "hello", "k1")
+    expect(a).toBe(syntheticId("MobileMoney", "hello", "k1"))
+    expect(a).toMatch(FORMAT)
+    expect(a).toMatch(/^X[0-9a-f-]{36}$/)
+  })
+  it("changes with the key (keyed HMAC, not a bare hash)", () => {
+    expect(syntheticId("MobileMoney", "hello", "k1")).not.toBe(syntheticId("MobileMoney", "hello", "k2"))
+  })
+  it("is not the bare sha256 of sender + text", async () => {
+    const { createHash } = await import("crypto")
+    const h = createHash("sha256").update("MobileMoney\nhello", "utf8").digest("hex").slice(0, 32)
+    const bare = `X${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
+    expect(syntheticId("MobileMoney", "hello", "k1")).not.toBe(bare)
+  })
+  it("changes with sender or text; a null sender is allowed", () => {
+    const base = syntheticId("A", "t", "k")
+    expect(syntheticId("B", "t", "k")).not.toBe(base)
+    expect(syntheticId("A", "u", "k")).not.toBe(base)
+    expect(syntheticId(null, "t", "k")).toMatch(FORMAT)
+  })
+  it("throws on an empty key", () => {
+    expect(() => syntheticId("A", "t", "")).toThrow()
+  })
+  it("ingest uses SMS_FORWARD_SECRET as the key", async () => {
+    const { db, client } = makeFakeDb()
+    await run(client, "hello there", "Friend")
+    expect(db.tables.momo_transactions[0].transaction_id).toBe(syntheticId("Friend", "hello there", "test-forward-secret"))
+  })
 })
 
 describe("ingestForwardedSms", () => {
@@ -234,6 +271,51 @@ describe("ingestForwardedSms", () => {
     expect(db.tables.momo_transactions[0]).toMatchObject({ status: "flagged", flag_reasons: ["above_max"] })
     expect(db.rpcCalls).toHaveLength(0)
     expect(alerts).toEqual([{ kind: "flagged", amountPesewas: 250000, txidLast4: "0123", reasons: ["above_max"] }])
+  })
+
+  it("links a flagged row to the one live session code in its text, in the same insert, without crediting", async () => {
+    const { db, client } = makeFakeDb({ wallet_topup_sessions: [session("KXR4829")] })
+    db.failUpdate = true // the link must be part of the insert
+    db.rpcImpl = () => ({ data: "credited", error: null })
+    expect(await run(client, payment({ amount: "2,500.00" }))).toBe("flagged")
+    expect(db.tables.momo_transactions[0]).toMatchObject({ status: "flagged", session_id: "sess-KXR4829" })
+    expect(db.rpcCalls).toHaveLength(0)
+    expect(alerts).toEqual([{ kind: "flagged", amountPesewas: 250000, txidLast4: "0123", reasons: ["above_max"] }])
+  })
+
+  it("links a flagged row even while the feature is off (still never credits)", async () => {
+    const { db, client } = makeFakeDb({ wallet_topup_sessions: [session("KXR4829")] })
+    expect(await run(client, payment({ amount: "2,500.00" }), "MobileMoney", settings({ enabled: false }))).toBe("flagged")
+    expect(db.tables.momo_transactions[0].session_id).toBe("sess-KXR4829")
+    expect(db.rpcCalls).toHaveLength(0)
+  })
+
+  it("does not link a flagged row when zero or several live codes are in the text", async () => {
+    const two = makeFakeDb({ wallet_topup_sessions: [session("KXR4829"), session("ABC2345")] })
+    expect(await run(two.client, payment({ amount: "2,500.00", ref: "KXR4829 ABC2345" }))).toBe("flagged")
+    expect(two.db.tables.momo_transactions[0].session_id ?? null).toBeNull()
+
+    const expired = makeFakeDb({ wallet_topup_sessions: [session("KXR4829", { expires_at: PAST() })] })
+    expect(await run(expired.client, payment({ amount: "2,500.00" }))).toBe("flagged")
+    expect(expired.db.tables.momo_transactions[0].session_id ?? null).toBeNull()
+
+    const none = makeFakeDb({ wallet_topup_sessions: [session("KXR4829")] })
+    expect(await run(none.client, payment({ amount: "2,500.00", ref: "JANE" }))).toBe("flagged")
+    expect(none.db.tables.momo_transactions[0].session_id ?? null).toBeNull()
+  })
+
+  it("a failed session lookup on a flagged row stores it unlinked and still alerts once", async () => {
+    const { db, client } = makeFakeDb({ wallet_topup_sessions: [session("KXR4829")] })
+    db.failSelect.add("wallet_topup_sessions")
+    expect(await run(client, payment({ amount: "2,500.00" }))).toBe("flagged")
+    expect(db.tables.momo_transactions[0].session_id ?? null).toBeNull()
+    expect(alerts).toEqual([{ kind: "flagged", amountPesewas: 250000, txidLast4: "0123", reasons: ["above_max"] }])
+  })
+
+  it("a pending (unflagged) row is never linked at insert", async () => {
+    const { db, client } = makeFakeDb({ wallet_topup_sessions: [session("KXR4829")] })
+    expect(await run(client, payment())).toBe("stored_pending") // RPC default: no_session
+    expect(db.tables.momo_transactions[0].session_id ?? null).toBeNull()
   })
 
   it("a duplicate of a flagged-worthy txid does not alert again", async () => {
