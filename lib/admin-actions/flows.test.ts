@@ -11,6 +11,7 @@ const ctxFor: Record<FlowId, any> = {
   shop: { shopId: "s1", shopName: EVIL, reason: EVIL + LONG },
   sender_id: { senderIdId: "x1", senderId: EVIL, reason: EVIL + LONG },
   complaint: { complaintId: "c1", orderId: "o1", priority: "high", summary: EVIL + LONG, resolutionNotes: EVIL + LONG },
+  momo_claim: { kind: "flagged", amountPesewas: 1250, txidLast4: "3322", reasons: [EVIL] },
 }
 const SUPPORTED: Record<FlowId, Outcome[]> = {
   withdrawal: ["approved", "rejected", "completed"],
@@ -19,6 +20,7 @@ const SUPPORTED: Record<FlowId, Outcome[]> = {
   shop: ["approved", "rejected"],
   sender_id: ["approved", "rejected"],
   complaint: ["resolved", "rejected"],
+  momo_claim: [],
 }
 const ALL: Outcome[] = ["approved", "rejected", "completed", "resolved"]
 
@@ -44,7 +46,7 @@ describe.each(Object.keys(FLOWS) as FlowId[])("flow %s", (flow) => {
     expect(m!.sms.length).toBeLessThanOrEqual(160)
     expect(m!.sms.length).toBeGreaterThan(10)
   })
-  it("rejection messages carry the admin's reason (clipped in SMS) and fall back gracefully without one", () => {
+  it.skipIf(!SUPPORTED[flow].includes("rejected"))("rejection messages carry the admin's reason (clipped in SMS) and fall back gracefully without one", () => {
     const withReason = def.userMessage("rejected", { ...ctxFor[flow], reason: "Bad number", resolutionNotes: "Bad number" })
     expect(withReason!.emailHtml).toContain("Bad number")
     const without = def.userMessage("rejected", { ...ctxFor[flow], reason: undefined, resolutionNotes: undefined })

@@ -46,6 +46,14 @@ export interface ComplaintCtx {
   customerLabel?: string | null
 }
 
+export interface MomoClaimCtx {
+  kind: "credited" | "flagged" | "unparsed" | "reconciliation_missing"
+  amountPesewas?: number
+  /** Last 4 digits only; the full transaction ID must never reach an alert. */
+  txidLast4?: string
+  reasons?: string[]
+}
+
 export interface FlowCtx {
   withdrawal: WithdrawalCtx
   afa: AfaCtx
@@ -53,5 +61,6 @@ export interface FlowCtx {
   shop: ShopCtx
   sender_id: SenderIdCtx
   complaint: ComplaintCtx
+  momo_claim: MomoClaimCtx
 }
 export type _FlowCtxKeysMatchFlowId = keyof FlowCtx extends FlowId ? (FlowId extends keyof FlowCtx ? true : never) : never

@@ -1,5 +1,6 @@
 import { afaFlow } from "./flows/afa"
 import { complaintFlow } from "./flows/complaint"
+import { momoClaimFlow } from "./flows/momo-claim"
 import { resultsCheckFlow } from "./flows/results-check"
 import { senderIdFlow } from "./flows/sender-id"
 import { shopFlow } from "./flows/shop"
@@ -13,4 +14,5 @@ export const FLOWS: Record<FlowId, FlowDef<any>> = {
   shop: shopFlow,
   sender_id: senderIdFlow,
   complaint: complaintFlow,
+  momo_claim: momoClaimFlow,
 }
