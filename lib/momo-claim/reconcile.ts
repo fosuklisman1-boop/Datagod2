@@ -60,6 +60,17 @@ export function extractStatementTxids(csv: string, column: string): string[] {
   return [...out]
 }
 
+/**
+ * Claimed rows with a synthetic id ('X' + uuid: an admin credited an unreadable SMS) can never appear on a statement,
+ * so they are not checkable. Returns the checkable rows and how many synthetic ones were set aside.
+ */
+export function splitSyntheticClaims<T extends { transactionId: string }>(
+  claimed: T[],
+): { checkable: T[]; syntheticClaimed: number } {
+  const checkable = claimed.filter((c) => !c.transactionId.startsWith("X"))
+  return { checkable, syntheticClaimed: claimed.length - checkable.length }
+}
+
 /** Claimed ids inside [start 00:00 UTC, end 23:59:59.999 UTC] that the statement does not contain. Sorted, unique. */
 export function findMissingClaims(
   claimed: { transactionId: string; claimedAt: string }[],

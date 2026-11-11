@@ -88,7 +88,7 @@ describe("POST /api/admin/momo-claims/reconcile", () => {
   it("reports missing claims, stores a run and alerts with a count only", async () => {
     const res = await POST(post(GOOD))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ runId: "run-1", statementTxids: 2, claimedChecked: 2, missing: ["99999999999"] })
+    expect(await res.json()).toEqual({ runId: "run-1", statementTxids: 2, claimedChecked: 2, missing: ["99999999999"], syntheticClaimed: 0 })
     const ins = calls.find((c) => c.table === "momo_reconciliation_runs")!.ops.find((o) => o.method === "insert")!.args[0] as Record<string, unknown>
     expect(ins).toMatchObject({
       admin_id: ADMIN,
@@ -102,6 +102,19 @@ describe("POST /api/admin/momo-claims/reconcile", () => {
     const alert = notifyMock.mock.calls[0][0]
     expect(alert).toEqual({ kind: "reconciliation_missing", reasons: ["1 missing"] })
     expect(JSON.stringify(alert)).not.toContain("99999999999")
+  })
+
+  it("never reports synthetic (admin-credited unreadable SMS) ids as missing; counts them separately", async () => {
+    claimedRows = [
+      { transaction_id: "12345678901", claimed_at: "2026-11-01T10:00:00Z" },
+      { transaction_id: "Xabcdef01-2345-6789-abcd-ef0123456789", claimed_at: "2026-11-01T11:00:00Z" },
+    ]
+    const res = await POST(post(GOOD))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ runId: "run-1", statementTxids: 2, claimedChecked: 1, missing: [], syntheticClaimed: 1 })
+    expect(notifyMock).not.toHaveBeenCalled()
+    const ins = calls.find((c) => c.table === "momo_reconciliation_runs")!.ops.find((o) => o.method === "insert")!.args[0] as Record<string, unknown>
+    expect(ins).toMatchObject({ claimed_checked: 1, missing_txids: [] })
   })
 
   it("does not alert when nothing is missing", async () => {
@@ -167,7 +180,7 @@ describe("POST /api/admin/momo-claims/reconcile", () => {
     insertError = { code: "XX000", message: "99999999999 secret" }
     const res = await POST(post(GOOD))
     expect(res.status).toBe(500)
-    expect(await res.json()).toEqual({ error: "run_not_saved", missing: ["99999999999"] })
+    expect(await res.json()).toEqual({ error: "run_not_saved", missing: ["99999999999"], syntheticClaimed: 0 })
     expect(notifyMock).toHaveBeenCalledTimes(1)
     expect(notifyMock.mock.calls[0][0]).toEqual({ kind: "reconciliation_missing", reasons: ["1 missing"] })
     expect(JSON.stringify((console.error as unknown as { mock: { calls: unknown[] } }).mock.calls)).not.toContain("99999999999")
@@ -178,7 +191,7 @@ describe("POST /api/admin/momo-claims/reconcile", () => {
     claimedRows = [{ transaction_id: "12345678901", claimed_at: "2026-11-01T10:00:00Z" }]
     const res = await POST(post(GOOD))
     expect(res.status).toBe(500)
-    expect(await res.json()).toEqual({ error: "run_not_saved", missing: [] })
+    expect(await res.json()).toEqual({ error: "run_not_saved", missing: [], syntheticClaimed: 0 })
     expect(notifyMock).not.toHaveBeenCalled()
   })
 })

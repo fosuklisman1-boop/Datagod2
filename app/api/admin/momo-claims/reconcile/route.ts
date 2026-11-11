@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { notifyMomoAdmins } from "@/lib/admin-actions/momo-claim"
-import { extractStatementTxids, findMissingClaims, UnknownColumnError } from "@/lib/momo-claim/reconcile"
+import { extractStatementTxids, findMissingClaims, splitSyntheticClaims, UnknownColumnError } from "@/lib/momo-claim/reconcile"
 
 // Send & Claim statement reconciliation: every wallet credit made from a forwarded SMS in the period must appear in
 // the admin's MTN statement. A claimed id missing from it means a forged SMS was credited. Never log ids or CSV text.
@@ -98,7 +98,9 @@ export async function POST(request: NextRequest) {
       if (rows.length < PAGE) break
     }
 
-    const missing = findMissingClaims(claimed, new Set(statementIds), { start, end })
+    // Synthetic ids (admin-credited unreadable SMS) can never be on a statement: count them, do not report them missing.
+    const { checkable, syntheticClaimed } = splitSyntheticClaims(claimed)
+    const missing = findMissingClaims(checkable, new Set(statementIds), { start, end })
 
     // Alert first: a failed audit-row insert must never swallow possible forged credits.
     if (missing.length > 0) await notifyMomoAdmins({ kind: "reconciliation_missing", reasons: [`${missing.length} missing`] })
@@ -110,21 +112,22 @@ export async function POST(request: NextRequest) {
         period_start: start,
         period_end: end,
         statement_txids: statementIds.length,
-        claimed_checked: claimed.length,
+        claimed_checked: checkable.length,
         missing_txids: missing,
       })
       .select("id")
       .single()
     if (insErr || !run) {
       logError("insert", insErr)
-      return NextResponse.json({ error: "run_not_saved", missing }, { status: 500 })
+      return NextResponse.json({ error: "run_not_saved", missing, syntheticClaimed }, { status: 500 })
     }
 
     return NextResponse.json({
       runId: (run as { id: string }).id,
       statementTxids: statementIds.length,
-      claimedChecked: claimed.length,
+      claimedChecked: checkable.length,
       missing,
+      syntheticClaimed,
     })
   } catch (err) {
     logError("reconcile", err)

@@ -12,7 +12,7 @@ import { adminFetch, ApiError } from "./api"
 const API = "/api/admin/momo-claims/reconcile"
 const MAX_DAYS = 62
 
-type Result = { statementTxids: number; claimedChecked: number; missing: string[]; saved: boolean }
+type Result = { statementTxids: number; claimedChecked: number; missing: string[]; syntheticClaimed: number; saved: boolean }
 type Run = {
   id: string
   period_start: string
@@ -69,15 +69,21 @@ export function ReconcileTab() {
     setError(null)
     setResult(null)
     try {
-      const r = await adminFetch<{ statementTxids: number; claimedChecked: number; missing: string[] }>(API, {
+      const r = await adminFetch<{ statementTxids: number; claimedChecked: number; missing: string[]; syntheticClaimed?: number }>(API, {
         method: "POST",
         body: { csv, column, periodStart: start, periodEnd: end },
       })
-      setResult({ ...r, saved: true })
+      setResult({ ...r, syntheticClaimed: Number(r.syntheticClaimed) || 0, saved: true })
       void loadRuns()
     } catch (e) {
       if (e instanceof ApiError && e.code === "run_not_saved" && Array.isArray(e.body.missing)) {
-        setResult({ statementTxids: 0, claimedChecked: 0, missing: e.body.missing as string[], saved: false })
+        setResult({
+          statementTxids: 0,
+          claimedChecked: 0,
+          missing: e.body.missing as string[],
+          syntheticClaimed: Number(e.body.syntheticClaimed) || 0,
+          saved: false,
+        })
       } else {
         setError(adminErrorMessage(e instanceof ApiError ? e.code : undefined))
       }
@@ -138,6 +144,9 @@ export function ReconcileTab() {
               )}
               {result.saved && (
                 <p>Statement IDs: <b>{result.statementTxids}</b> · Claimed in period: <b>{result.claimedChecked}</b></p>
+              )}
+              {result.syntheticClaimed > 0 && (
+                <p className="text-muted-foreground">{result.syntheticClaimed} admin-credited unreadable SMS not checkable</p>
               )}
               {result.missing.length === 0 ? (
                 <p className="text-emerald-700 dark:text-emerald-400">Nothing missing: every claimed ID is in the statement.</p>
