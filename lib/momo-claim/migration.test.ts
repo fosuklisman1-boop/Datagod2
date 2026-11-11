@@ -100,6 +100,16 @@ describe("0160 run string (migration + self-test)", () => {
       expect(st).toContain(label)
     }
   })
+
+  it("self-test covers every money-function scenario", () => {
+    const st = read(SELFTEST_FILE)
+    for (const label of ["fn_catalog", "fn_grants", "fn_deny", "credited", "already_credited", "payment_before_session", "webhook_amount_mismatch",
+                         "manual_amount_mismatch", "no_session", "webhook_no_session", "first_claim", "above_review_threshold", "daily_cap",
+                         "flagged_not_claimable", "rate_limited", "daily_limit", "too_many_attempts", "admin_credit_flagged",
+                         "admin_reason_required", "admin_credit_unparsed", "admin_unflag", "webhook_then_manual", "dealer_fee", "final_balance"]) {
+      expect(st).toMatch(new RegExp(`-- ${label}\\b`))
+    }
+  })
 })
 
 // ───────────────────────────────────────── Behaviour, in PGlite ─────────────────────────────────────────
@@ -124,7 +134,8 @@ const FIXTURES = `
   CREATE SCHEMA auth;
   CREATE TABLE auth.users (id uuid PRIMARY KEY);
   CREATE TABLE public.users (id uuid PRIMARY KEY, role text);
-  CREATE TABLE public.wallets (user_id uuid PRIMARY KEY, balance numeric NOT NULL, total_spent numeric NOT NULL DEFAULT 0, updated_at timestamptz);
+  CREATE TABLE public.wallets (user_id uuid PRIMARY KEY, balance numeric NOT NULL, total_spent numeric NOT NULL DEFAULT 0,
+    total_credited numeric DEFAULT 0, updated_at timestamptz);
   CREATE TABLE public.transactions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, type varchar(50) NOT NULL, source varchar(100),
     amount numeric(15,2) NOT NULL, balance_before numeric(15,2), balance_after numeric(15,2), description text,
@@ -135,6 +146,10 @@ const FIXTURES = `
     updated_at timestamptz DEFAULT now(), updated_by uuid REFERENCES auth.users(id));
   INSERT INTO auth.users VALUES ('5f0c1a9e-0160-4160-8160-000000000001');
   INSERT INTO public.users VALUES ('5f0c1a9e-0160-4160-8160-000000000001', 'admin');
+  -- The self-test credits the admin with the largest wallet and reads one dealer's fee.
+  INSERT INTO public.wallets (user_id, balance) VALUES ('5f0c1a9e-0160-4160-8160-000000000001', 100);
+  INSERT INTO auth.users VALUES ('5f0c1a9e-0160-4160-8160-000000000002');
+  INSERT INTO public.users VALUES ('5f0c1a9e-0160-4160-8160-000000000002', 'dealer');
 `
 
 const USER = "5f0c1a9e-0160-4160-8160-000000000001"
@@ -159,12 +174,15 @@ describe.skipIf(!PGliteCtor)("0160 in PGlite", () => {
 
   it("the self-rolling-back run string reports SELFTEST_OK and leaves nothing behind", async () => {
     try {
-      await expect(db.exec(runString())).rejects.toThrow(/SELFTEST_OK 0160/)
+      await expect(db.exec(runString())).rejects.toThrow(/SELFTEST_OK 0160 tables, grants, settings, checks and money functions/)
     } finally {
       await db.exec("ROLLBACK")
     }
     for (const t of TABLES) expect((await one("SELECT to_regclass($1) AS t", [`public.${t}`])).t).toBeNull()
     expect(await count("SELECT count(*) AS n FROM public.admin_settings WHERE key LIKE 'momo_%'")).toBe(0)
+    expect(await count("SELECT count(*) AS n FROM pg_proc WHERE proname LIKE '%momo%'")).toBe(0)
+    expect(await count("SELECT count(*) AS n FROM public.transactions")).toBe(0)
+    expect(Number((await one("SELECT balance AS b FROM public.wallets WHERE user_id = $1", [USER])).b)).toBe(100)
   })
 
   describe("after apply", () => {
@@ -307,6 +325,470 @@ describe.skipIf(!PGliteCtor)("0160 in PGlite", () => {
       const a = await idx("momo_claim_attempts")
       expect(a.some(d => /\(user_id, created_at\)/.test(d))).toBe(true)
       expect(a.some(d => /\(transaction_id, created_at\)/.test(d))).toBe(true)
+    })
+
+    // ─────────────── Money functions (Task 5) ───────────────
+    describe("money functions", () => {
+      const RESULTS = ["credited", "under_review", "already_credited", "not_matched", "no_session", "rate_limited", "daily_limit", "feature_off"]
+      const seen = new Set<string>()
+      let codeSeq = 0
+      const nextCode = () => {
+        const n = codeSeq++
+        const d = (k: number) => String(2 + (Math.floor(n / 8 ** k) % 8))
+        return "TST" + d(3) + d(2) + d(1) + d(0)
+      }
+      const mkUser = async (opts: { role?: string; balance?: number; wallet?: boolean } = {}) => {
+        const id = crypto.randomUUID()
+        await db.query("INSERT INTO auth.users VALUES ($1)", [id])
+        await db.query("INSERT INTO public.users VALUES ($1, $2)", [id, opts.role ?? "user"])
+        if (opts.wallet !== false) await db.query("INSERT INTO public.wallets (user_id, balance) VALUES ($1, $2)", [id, opts.balance ?? 0])
+        return id
+      }
+      /** A prior claimed row for the user today, so first_claim does not fire. */
+      const season = async (user: string, net = 1) => {
+        await db.query(`INSERT INTO public.momo_transactions (transaction_id, raw_sms, status, amount, net_amount, fee, claimed_by, claimed_at)
+                        VALUES ($1, 'sms', 'claimed', $2, $2, 0, $3, now())`, [txid(), net, user])
+      }
+      /** A MoMo row received 5 minutes ago (after a session created 10 minutes ago). */
+      const momo = async (amount: number | null, opts: { status?: string; receivedAgo?: string } = {}) => {
+        const id = txid()
+        await db.query(`INSERT INTO public.momo_transactions (transaction_id, raw_sms, status, amount, received_at)
+                        VALUES ($1, 'sms', $2, $3, now() - $4::interval)`, [id, opts.status ?? "pending", amount, opts.receivedAgo ?? "5 minutes"])
+        return id
+      }
+      const session = async (user: string, amount: number, opts: { createdAgo?: string; expiresIn?: string; status?: string } = {}) => {
+        const code = nextCode()
+        const r = await one(`INSERT INTO public.wallet_topup_sessions (user_id, code, amount, fee, net_amount, status, created_at, expires_at)
+                             VALUES ($1, $2, $3, 0, $3, $4, now() - $5::interval, now() + $6::interval) RETURNING id`,
+          [user, code, amount, opts.status ?? "pending", opts.createdAgo ?? "10 minutes", opts.expiresIn ?? "1 hour"])
+        return { id: r.id as string, code }
+      }
+      const rec = (r: string) => { seen.add(r); return r }
+      /** Move a user's attempts out of the 30-second window (the 24-hour count is unchanged). */
+      const cool = (user: string) =>
+        db.query("UPDATE public.momo_claim_attempts SET created_at = created_at - interval '1 minute' WHERE user_id = $1", [user])
+      const manual = async (user: string, id: string, sessionId: string | null = null) =>
+        rec((await one("SELECT public.claim_momo_via_session($1, $2, $3) AS r", [user, id, sessionId])).r)
+      const webhook = async (code: string, id: string) =>
+        rec((await one("SELECT public.claim_via_wallet_topup_session($1, $2) AS r", [code, id])).r)
+      const adminCredit = async (id: string, target: string, reason: string, amount: number | null = null) =>
+        rec((await one("SELECT public.admin_credit_momo_transaction($1, $2, $3, $4, $5) AS r", [id, target, USER, reason, amount])).r)
+      const wallet = async (user: string) => {
+        const r = await one("SELECT balance::numeric AS b, total_credited::numeric AS c FROM public.wallets WHERE user_id = $1", [user])
+        return { balance: Number(r.b), credited: Number(r.c) }
+      }
+      const row = (id: string) => one("SELECT * FROM public.momo_transactions WHERE transaction_id = $1", [id])
+      const sess = (id: string) => one("SELECT * FROM public.wallet_topup_sessions WHERE id = $1", [id])
+      const ledger = (id: string) => db.query("SELECT * FROM public.transactions WHERE reference_id = $1", ["MOMO-" + id]).then((r: any) => r.rows)
+      const setSetting = (key: string, v: unknown) =>
+        db.query("UPDATE public.admin_settings SET value = jsonb_build_object('value', $2::jsonb) WHERE key = $1", [key, JSON.stringify(v)])
+
+      it("credited under own session: wallet +net, one ledger row MOMO-<txid>, row and session claimed", async () => {
+        const u = await mkUser({ balance: 5 })
+        await season(u)
+        const s = await session(u, 20)
+        const id = await momo(20)
+        expect(await manual(u, id, s.id)).toBe("credited")
+        expect(await wallet(u)).toEqual({ balance: 25, credited: 20 })
+        const l = await ledger(id)
+        expect(l).toHaveLength(1)
+        expect(l[0]).toMatchObject({ user_id: u, type: "credit", source: "momo_claim", status: "completed" })
+        expect(Number(l[0].amount)).toBe(20)
+        expect(Number(l[0].balance_before)).toBe(5)
+        expect(Number(l[0].balance_after)).toBe(25)
+        const r = await row(id)
+        expect(r).toMatchObject({ status: "claimed", claimed_by: u, session_id: s.id })
+        expect(Number(r.fee)).toBe(0)
+        expect(Number(r.net_amount)).toBe(20)
+        expect(r.claimed_at).not.toBeNull()
+        expect(await sess(s.id)).toMatchObject({ status: "claimed", claimed_transaction_id: id })
+      })
+
+      it("a second call on the same txid answers already_credited and credits nothing", async () => {
+        const u = await mkUser()
+        await season(u)
+        const s = await session(u, 15)
+        const id = await momo(15)
+        expect(await manual(u, id, s.id)).toBe("credited")
+        await session(u, 15)
+        expect(await manual(u, id)).toBe("already_credited")
+        expect(await webhook(s.code, id)).toBe("no_session")
+        expect((await wallet(u)).balance).toBe(15)
+        expect(await ledger(id)).toHaveLength(1)
+      })
+
+      it("without a session id it uses the caller's newest open session", async () => {
+        const u = await mkUser()
+        await season(u)
+        await session(u, 30)
+        const id = await momo(30)
+        expect(await manual(u, id)).toBe("credited")
+        expect((await wallet(u)).balance).toBe(30)
+      })
+
+      it("payment received before the session was created -> not_matched", async () => {
+        const u = await mkUser()
+        await season(u)
+        const s = await session(u, 10, { createdAgo: "1 minute" })
+        const id = await momo(10, { receivedAgo: "5 minutes" })
+        expect(await manual(u, id, s.id)).toBe("not_matched")
+        expect((await row(id)).status).toBe("pending")
+        expect((await wallet(u)).balance).toBe(0)
+      })
+
+      it("webhook with the wrong amount flags amount_mismatch, links the session, credits nothing", async () => {
+        const u = await mkUser()
+        await season(u)
+        const s = await session(u, 10)
+        const id = await momo(10.01)
+        expect(await webhook(s.code, id)).toBe("under_review")
+        const r = await row(id)
+        expect(r).toMatchObject({ status: "flagged", session_id: s.id, claimed_by: null })
+        expect(r.flag_reasons).toEqual(["amount_mismatch"])
+        expect((await sess(s.id)).status).toBe("pending")
+        expect((await wallet(u)).balance).toBe(0)
+        expect(await ledger(id)).toHaveLength(0)
+      })
+
+      it("manual claim with the wrong amount -> not_matched, row unchanged", async () => {
+        const u = await mkUser()
+        await season(u)
+        const s = await session(u, 10)
+        const id = await momo(9.99)
+        expect(await manual(u, id, s.id)).toBe("not_matched")
+        const r = await row(id)
+        expect(r).toMatchObject({ status: "pending", session_id: null })
+        expect(r.flag_reasons).toEqual([])
+        expect((await wallet(u)).balance).toBe(0)
+      })
+
+      it("manual with no open session -> no_session, logged under NOSESSION", async () => {
+        const u = await mkUser()
+        const id = await momo(10)
+        expect(await manual(u, id)).toBe("no_session")
+        await session(u, 10, { expiresIn: "-1 minute" })
+        expect(await manual(u, id)).toBe("no_session")
+        const other = await mkUser()
+        const s = await session(other, 10)
+        expect(await manual(u, id, s.id)).toBe("no_session") // someone else's session
+        const a = (await db.query("SELECT transaction_id, result FROM public.momo_claim_attempts WHERE user_id = $1", [u])).rows
+        expect(a).toHaveLength(3)
+        for (const x of a) expect(x).toEqual({ transaction_id: "NOSESSION", result: "no_session" })
+        expect((await row(id)).status).toBe("pending")
+      })
+
+      it("webhook with no live session -> no_session and nothing changes (unknown, expired, claimed, created after payment)", async () => {
+        const u = await mkUser()
+        await season(u)
+        const id = await momo(10)
+        const expired = await session(u, 10, { expiresIn: "-1 minute" })
+        const claimed = await session(u, 10, { status: "claimed" })
+        const late = await session(u, 10, { createdAgo: "1 minute" })
+        for (const c of ["ZZZ9999", expired.code, claimed.code, late.code]) expect(await webhook(c, id)).toBe("no_session")
+        const r = await row(id)
+        expect(r).toMatchObject({ status: "pending", session_id: null })
+        expect((await wallet(u)).balance).toBe(0)
+        expect(await count("SELECT count(*) AS n FROM public.momo_claim_attempts WHERE user_id = $1", [u])).toBe(0)
+      })
+
+      it("first claim of a user -> under_review with first_claim; admin approve credits the linked session's user", async () => {
+        const u = await mkUser()
+        const s = await session(u, 12)
+        const id = await momo(12)
+        expect(await manual(u, id, s.id)).toBe("under_review")
+        const r = await row(id)
+        expect(r).toMatchObject({ status: "flagged", session_id: s.id, claimed_by: null })
+        expect(r.flag_reasons).toEqual(["first_claim"])
+        expect((await sess(s.id)).status).toBe("pending")
+        expect((await wallet(u)).balance).toBe(0)
+        expect(await adminCredit(id, u, "approved first claim")).toBe("credited")
+        expect((await wallet(u)).balance).toBe(12)
+        expect(await row(id)).toMatchObject({ status: "claimed", claimed_by: u, credited_by_admin: USER, admin_reason: "approved first claim" })
+        expect(await sess(s.id)).toMatchObject({ status: "claimed", claimed_transaction_id: id })
+      })
+
+      it("webhook first claim also goes to review", async () => {
+        const u = await mkUser()
+        const s = await session(u, 12)
+        const id = await momo(12)
+        expect(await webhook(s.code, id)).toBe("under_review")
+        expect((await row(id)).flag_reasons).toEqual(["first_claim"])
+      })
+
+      it("net 500.01 -> above_review_threshold; net 500.00 -> credited", async () => {
+        const u = await mkUser()
+        await season(u)
+        const s1 = await session(u, 500.01)
+        const id1 = await momo(500.01)
+        expect(await manual(u, id1, s1.id)).toBe("under_review")
+        expect((await row(id1)).flag_reasons).toEqual(["above_review_threshold"])
+        const s2 = await session(u, 500)
+        const id2 = await momo(500)
+        expect(await manual(u, id2, s2.id)).toBe("credited")
+        expect((await wallet(u)).balance).toBe(500)
+      })
+
+      it("crossing the daily cap -> daily_cap", async () => {
+        const u = await mkUser()
+        await season(u, 2950)
+        const s = await session(u, 50.01)
+        const id = await momo(50.01)
+        expect(await manual(u, id, s.id)).toBe("under_review")
+        expect((await row(id)).flag_reasons).toEqual(["daily_cap"])
+        const s2 = await session(u, 50)
+        const id2 = await momo(50)
+        expect(await manual(u, id2, s2.id)).toBe("credited") // exactly at the cap
+      })
+
+      it("a flagged row cannot be claimed manually or by webhook", async () => {
+        const u = await mkUser()
+        await season(u)
+        const s = await session(u, 10)
+        const id = await momo(10, { status: "flagged" })
+        expect(await manual(u, id, s.id)).toBe("not_matched")
+        expect(await webhook(s.code, id)).toBe("not_matched")
+        for (const st of ["voided", "unparsed", "rejected_sender"]) {
+          await cool(u)
+          const other = await momo(10, { status: st })
+          expect(await manual(u, other, s.id)).toBe("not_matched")
+        }
+        expect((await wallet(u)).balance).toBe(0)
+        expect((await row(id)).status).toBe("flagged")
+      })
+
+      it("a row claimed by someone else -> not_matched for the other user", async () => {
+        const a = await mkUser(); await season(a)
+        const b = await mkUser(); await season(b)
+        const sa = await session(a, 10)
+        const sb = await session(b, 10)
+        const id = await momo(10)
+        expect(await manual(a, id, sa.id)).toBe("credited")
+        expect(await manual(b, id, sb.id)).toBe("not_matched")
+        expect((await wallet(b)).balance).toBe(0)
+        expect((await sess(sb.id)).status).toBe("pending")
+      })
+
+      it("4th attempt within 30 s -> rate_limited (logged NOSESSION)", async () => {
+        const u = await mkUser()
+        for (let i = 0; i < 3; i++) expect(await manual(u, txid())).toBe("no_session")
+        expect(await manual(u, txid())).toBe("rate_limited")
+        const last = await one("SELECT transaction_id, result FROM public.momo_claim_attempts WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1", [u])
+        expect(last).toEqual({ transaction_id: "NOSESSION", result: "rate_limited" })
+      })
+
+      it("20 failed attempts in 24 h -> daily_limit; successes do not count", async () => {
+        const u = await mkUser()
+        await db.query(`INSERT INTO public.momo_claim_attempts (user_id, transaction_id, result, created_at)
+                        SELECT $1, 'NOSESSION', CASE WHEN g <= 19 THEN 'not_matched' ELSE 'credited' END, now() - interval '1 hour'
+                        FROM generate_series(1, 25) g`, [u])
+        await db.query(`INSERT INTO public.momo_claim_attempts (user_id, transaction_id, result, created_at)
+                        VALUES ($1, 'NOSESSION', 'not_matched', now() - interval '25 hours')`, [u])
+        expect(await manual(u, txid())).toBe("no_session") // 19 + this one = 20 failed
+        expect(await manual(u, txid())).toBe("daily_limit")
+      })
+
+      it("5 failed attempts on one txid (any users) flag it too_many_attempts", async () => {
+        const id = await momo(10)
+        for (let i = 0; i < 5; i++) {
+          const u = await mkUser()
+          const s = await session(u, 11) // wrong amount
+          expect(await manual(u, id, s.id)).toBe("not_matched")
+          expect((await row(id)).status).toBe(i < 4 ? "pending" : "flagged")
+        }
+        expect((await row(id)).flag_reasons).toEqual(["too_many_attempts"])
+        expect(await count("SELECT count(*) AS n FROM public.momo_claim_attempts WHERE transaction_id = $1", [id])).toBe(5)
+      })
+
+      it("admin unflag: flagged -> pending, records who/why, resets the per-txid counter", async () => {
+        const id = await momo(10)
+        for (let i = 0; i < 5; i++) {
+          const u = await mkUser()
+          const s = await session(u, 11)
+          await manual(u, id, s.id)
+        }
+        expect((await row(id)).status).toBe("flagged")
+        await expect(db.query("SELECT public.admin_unflag_momo_transaction($1, $2, '')", [id, USER])).rejects.toThrow(/BAD_INPUT/)
+        expect((await one("SELECT public.admin_unflag_momo_transaction($1, $2, 'customer called') AS r", [id, USER])).r).toBe("unflagged")
+        const r = await row(id)
+        expect(r).toMatchObject({ status: "pending", unflagged_by: USER, unflag_reason: "customer called" })
+        expect(r.unflagged_at).not.toBeNull()
+        // The counter restarts: one more failure does not re-flag.
+        const u = await mkUser()
+        const s = await session(u, 11)
+        expect(await manual(u, id, s.id)).toBe("not_matched")
+        expect((await row(id)).status).toBe("pending")
+        await expect(db.query("SELECT public.admin_unflag_momo_transaction($1, $2, 'again')", [id, USER])).rejects.toThrow(/BAD_STATE/)
+      })
+
+      it("admin credit of a flagged row credits once; a second admin call -> already_credited", async () => {
+        const u = await mkUser({ balance: 1 })
+        const id = await momo(40, { status: "flagged" })
+        expect(await adminCredit(id, u, "checked statement")).toBe("credited")
+        expect(await adminCredit(id, u, "checked statement")).toBe("already_credited")
+        expect(await wallet(u)).toEqual({ balance: 41, credited: 40 })
+        expect(await ledger(id)).toHaveLength(1)
+        expect(await row(id)).toMatchObject({ status: "claimed", claimed_by: u, credited_by_admin: USER })
+      })
+
+      it("admin credit skips the per-user checks (first claim, threshold, cap)", async () => {
+        const u = await mkUser()
+        const id = await momo(3500)
+        expect(await adminCredit(id, u, "big payment checked")).toBe("credited")
+        expect((await wallet(u)).balance).toBe(3500)
+      })
+
+      it("admin credit with an empty, blank or 201-char reason -> error, nothing written", async () => {
+        const u = await mkUser()
+        const id = await momo(10)
+        for (const bad of ["", "   ", "x".repeat(201)]) {
+          await expect(db.query("SELECT public.admin_credit_momo_transaction($1, $2, $3, $4)", [id, u, USER, bad])).rejects.toThrow(/BAD_INPUT/)
+        }
+        await expect(db.query("SELECT public.admin_credit_momo_transaction($1, $2, $3, NULL)", [id, u, USER])).rejects.toThrow(/BAD_INPUT/)
+        expect((await row(id)).status).toBe("pending")
+        expect((await wallet(u)).balance).toBe(0)
+      })
+
+      it("admin credit of an unparsed row needs p_amount (the sent amount), and sets it", async () => {
+        const u = await mkUser()
+        const id = await momo(null, { status: "unparsed" })
+        await expect(adminCredit(id, u, "read the SMS")).rejects.toThrow(/BAD_INPUT/)
+        await expect(adminCredit(id, u, "read the SMS", 0)).rejects.toThrow(/BAD_INPUT/)
+        await expect(adminCredit(id, u, "read the SMS", 1.005)).rejects.toThrow(/BAD_INPUT/)
+        expect(await adminCredit(id, u, "read the SMS", 25.5)).toBe("credited")
+        const r = await row(id)
+        expect(Number(r.amount)).toBe(25.5)
+        expect(Number(r.net_amount)).toBe(25.5)
+        expect((await wallet(u)).balance).toBe(25.5)
+      })
+
+      it("admin credit with p_amount different from the parsed amount -> error; equal is fine", async () => {
+        const u = await mkUser()
+        const id = await momo(10)
+        await expect(adminCredit(id, u, "typo", 11)).rejects.toThrow(/BAD_INPUT/)
+        expect(await adminCredit(id, u, "matches", 10)).toBe("credited")
+      })
+
+      it("admin credit refuses voided and rejected_sender rows, and unknown txids", async () => {
+        const u = await mkUser()
+        for (const st of ["voided", "rejected_sender"]) {
+          const id = await momo(10, { status: st })
+          await expect(adminCredit(id, u, "no")).rejects.toThrow(/BAD_STATE/)
+        }
+        await expect(adminCredit(txid(), u, "no")).rejects.toThrow(/NOT_FOUND/)
+        expect((await wallet(u)).balance).toBe(0)
+      })
+
+      it("a user with no wallet: the claim raises and nothing is written", async () => {
+        const u = await mkUser({ wallet: false })
+        await season(u)
+        const s = await session(u, 10)
+        const id = await momo(10)
+        await expect(db.query("SELECT public.claim_momo_via_session($1, $2, $3)", [u, id, s.id])).rejects.toThrow(/NO_WALLET/)
+        expect((await row(id)).status).toBe("pending")
+        expect((await sess(s.id)).status).toBe("pending")
+        expect(await count("SELECT count(*) AS n FROM public.momo_claim_attempts WHERE user_id = $1", [u])).toBe(0)
+        await expect(adminCredit(id, u, "no wallet")).rejects.toThrow(/NO_WALLET/)
+      })
+
+      it("webhook then manual on the same txid -> exactly one credit (Review Focus 2)", async () => {
+        const u = await mkUser()
+        await season(u)
+        const s = await session(u, 25)
+        const id = await momo(25)
+        expect(await webhook(s.code, id)).toBe("credited")
+        await session(u, 25)
+        expect(await manual(u, id)).toBe("already_credited")
+        const other = await mkUser(); await season(other)
+        const so = await session(other, 25)
+        expect(await manual(other, id, so.id)).toBe("not_matched")
+        expect(await webhook(so.code, id)).toBe("not_matched")
+        expect((await wallet(u)).balance).toBe(25)
+        expect((await wallet(other)).balance).toBe(0)
+        expect(await ledger(id)).toHaveLength(1)
+      })
+
+      it("a ledger row MOMO-<txid> already present -> already_credited, nothing changes", async () => {
+        const u = await mkUser()
+        await season(u)
+        const s = await session(u, 10)
+        const id = await momo(10)
+        await db.query("INSERT INTO public.transactions (user_id, type, source, amount, reference_id) VALUES ($1, 'credit', 'momo_claim', 10, $2)", [u, "MOMO-" + id])
+        expect(await manual(u, id, s.id)).toBe("already_credited")
+        expect((await wallet(u)).balance).toBe(0)
+        expect((await row(id)).status).toBe("pending")
+      })
+
+      it("dealer pays the dealer fee, others the customer fee, rounded up to the pesewa", async () => {
+        try {
+          await setSetting("momo_claim_fee_customer", 1)
+          await setSetting("momo_claim_fee_dealer", 1.5)
+          const d = await mkUser({ role: "dealer" }); await season(d)
+          const c = await mkUser({ role: "user" }); await season(c)
+          const sd = await session(d, 10.01)
+          const idd = await momo(10.01)
+          expect(await manual(d, idd, sd.id)).toBe("credited")
+          // 10.01 * 1.5% = 0.15015 -> 0.16
+          expect(Number((await row(idd)).fee)).toBe(0.16)
+          expect((await wallet(d)).balance).toBe(9.85)
+          const sc = await session(c, 10.01)
+          const idc = await momo(10.01)
+          expect(await manual(c, idc, sc.id)).toBe("credited")
+          // 10.01 * 1% = 0.1001 -> 0.11
+          expect(Number((await row(idc)).fee)).toBe(0.11)
+          expect((await wallet(c)).balance).toBe(9.9)
+          // A non-number setting falls back to the default (0).
+          await setSetting("momo_claim_fee_dealer", "2")
+          const sd2 = await session(d, 10)
+          const idd2 = await momo(10)
+          expect(await manual(d, idd2, sd2.id)).toBe("credited")
+          expect(Number((await row(idd2)).fee)).toBe(0)
+        } finally {
+          await setSetting("momo_claim_fee_customer", 0)
+          await setSetting("momo_claim_fee_dealer", 0)
+        }
+      })
+
+      it("every attempt is logged with the result returned, and every result is in the CHECK list", async () => {
+        const rows = (await db.query("SELECT DISTINCT result FROM public.momo_claim_attempts")).rows.map((r: any) => r.result)
+        for (const r of rows) expect(RESULTS).toContain(r)
+        for (const r of seen) if (r !== "unflagged") expect(RESULTS).toContain(r)
+        const def = (await one("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'momo_claim_attempts_result_check'")).d
+        for (const r of ["credited", "under_review", "already_credited", "not_matched", "no_session", "rate_limited", "daily_limit"]) {
+          expect(def).toContain(`'${r}'`)
+          expect([...seen]).toContain(r)
+        }
+      })
+
+      it("EXECUTE: nobody may call claim_momo_transaction or the helpers; only service_role calls the four entry points", async () => {
+        const entry = [
+          "public.claim_via_wallet_topup_session(text,text)",
+          "public.claim_momo_via_session(uuid,text,uuid)",
+          "public.admin_credit_momo_transaction(text,uuid,uuid,text,numeric)",
+          "public.admin_unflag_momo_transaction(text,uuid,text)",
+        ]
+        const internal = [
+          "public.claim_momo_transaction(text,uuid,uuid,boolean,text)",
+          "public.momo_credit_wallet(text,uuid,numeric)",
+          "public.momo_claim_fee(uuid,numeric)",
+          "public.momo_setting_numeric(text,numeric)",
+        ]
+        for (const f of [...entry, ...internal]) {
+          for (const role of ["anon", "authenticated", "public"]) {
+            expect((await one("SELECT has_function_privilege($1, $2, 'EXECUTE') AS ok", [role, f])).ok, `${role} ${f}`).toBe(false)
+          }
+          const sec = await one("SELECT prosecdef AS d, proconfig AS c FROM pg_proc WHERE oid = $1::regprocedure", [f])
+          expect(sec.d).toBe(true)
+          expect(sec.c).toEqual(['search_path=""'])
+        }
+        for (const f of entry) expect((await one("SELECT has_function_privilege('service_role', $1, 'EXECUTE') AS ok", [f])).ok).toBe(true)
+        for (const f of internal) expect((await one("SELECT has_function_privilege('service_role', $1, 'EXECUTE') AS ok", [f])).ok, f).toBe(false)
+        await db.exec("SET ROLE authenticated")
+        try {
+          await expect(db.query("SELECT public.claim_momo_via_session(gen_random_uuid(), '12345678', NULL)")).rejects.toThrow(/permission denied for function/)
+        } finally {
+          await db.exec("RESET ROLE")
+        }
+      })
     })
   })
 })
