@@ -1,6 +1,3 @@
-// NOT SCHEDULED. This job permanently deletes rows and files. Do not add it to
-// lib/cron-migration/crons.json or any scheduler until the owner has reviewed a
-// `?dry=1` count and approved the first run.
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
