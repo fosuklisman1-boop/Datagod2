@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
+import { HomeAIChatWidget } from "@/components/home/AIChatWidgetLazy"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"

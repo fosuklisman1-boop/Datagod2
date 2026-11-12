@@ -7,34 +7,57 @@ import type { MetadataRoute } from "next"
 import { absoluteUrl } from "./site"
 import { PRODUCTS, getProduct, REFUND_LINE, SPEED_LINE, type ProductEntry } from "./products"
 import { formatCedis, type LiveFacts } from "./live-facts"
+import { availableLandings } from "./landing-pages"
 import { publishedGuides, type Guide } from "./guides"
 
 type Entry = MetadataRoute.Sitemap[number]
 
 const isAvailable = (facts: LiveFacts, p: ProductEntry): boolean => facts.products[p.key]?.available === true
 
-export function buildSitemapEntries(facts: LiveFacts, now: Date, guides: readonly Guide[] = publishedGuides()): MetadataRoute.Sitemap {
-  const entry = (path: string, priority: number, changeFrequency: Entry["changeFrequency"]): Entry => ({
+/**
+ * lastmod for the pages outside the product registry: the date their content
+ * last changed. Bump by hand with the content (never `new Date()`, which made
+ * every URL look changed on every crawl and taught Google to ignore lastmod).
+ */
+export const STATIC_PAGE_UPDATED: Record<string, string> = {
+  "/": "2026-11-01",
+  "/services": "2026-11-01",
+  "/ai": "2026-10-27",
+  "/terms": "2026-11-01",
+  "/privacy": "2026-11-01",
+}
+
+/**
+ * Not listed: /vouchers (a client-rendered PIN lookup form for existing
+ * customers: no content to rank, and the server HTML is an empty shell).
+ * /ai stays: it is server-rendered with its own copy and canonical.
+ */
+export function buildSitemapEntries(facts: LiveFacts, guides: readonly Guide[] = publishedGuides()): MetadataRoute.Sitemap {
+  const entry = (path: string, updated: string, priority: number, changeFrequency: Entry["changeFrequency"]): Entry => ({
     url: absoluteUrl(path),
-    lastModified: now,
+    lastModified: updated,
     changeFrequency,
     priority,
   })
+  const page = (path: string, priority: number, changeFrequency: Entry["changeFrequency"]): Entry =>
+    entry(path, STATIC_PAGE_UPDATED[path], priority, changeFrequency)
 
   return [
-    entry("/", 1, "daily"),
-    entry("/services", 0.9, "weekly"),
-    ...PRODUCTS.filter((p) => isAvailable(facts, p)).map((p) => entry(p.path, p.priority, "weekly")),
+    page("/", 1, "daily"),
+    page("/services", 0.9, "weekly"),
+    ...PRODUCTS.filter((p) => isAvailable(facts, p)).map((p) => entry(p.path, p.updated, p.priority, "weekly")),
+    // Landing pages (lib/seo/landing-pages.ts): only "ok" ones, never an off or failed one.
+    ...availableLandings(facts).map((e) => entry(e.path, e.updated, e.priority, "weekly")),
+    // Guides (lib/seo/guides.ts): each at its own `updated`; the hub at the newest of them.
     ...(guides.length > 0
       ? [
-          entry("/guides", 0.6, "weekly"),
-          ...guides.map((g) => entry(`/guides/${g.slug}`, 0.6, "monthly")),
+          entry("/guides", guides.map((g) => g.updated).sort().at(-1) as string, 0.6, "weekly"),
+          ...guides.map((g) => entry(`/guides/${g.slug}`, g.updated, 0.6, "monthly")),
         ]
       : []),
-    entry("/vouchers", 0.5, "monthly"),
-    entry("/ai", 0.6, "monthly"),
-    entry("/terms", 0.3, "yearly"),
-    entry("/privacy", 0.3, "yearly"),
+    page("/ai", 0.6, "monthly"),
+    page("/terms", 0.3, "yearly"),
+    page("/privacy", 0.3, "yearly"),
   ]
 }
 
@@ -55,6 +78,18 @@ export function buildLlmsTxt(facts: LiveFacts, guides: readonly Guide[] = publis
     (p) => isAvailable(facts, p) && (p.group === "data" || p.group === "airtime" || p.group === "bills" || p.group === "education" || p.key === "bulk-sms"),
   )
   lines.push("## Products", "", ...products.map((p) => productLine(p, facts)), "")
+
+  // Guides and price lists: the landing pages that are live right now, then the published guides.
+  const landings = availableLandings(facts)
+  if (landings.length > 0 || guides.length > 0) {
+    lines.push(
+      "## Guides and price lists",
+      "",
+      ...landings.map((e) => `- [${e.name}](${absoluteUrl(e.path)}): ${e.description.trim().replace(/\.+$/, "")}.`),
+      ...guides.map((g) => `- [${g.h1}](${absoluteUrl(`/guides/${g.slug}`)}): ${g.description}`),
+      "",
+    )
+  }
 
   // Ways to order
   lines.push("## Ways to order", "")
@@ -87,10 +122,6 @@ export function buildLlmsTxt(facts: LiveFacts, guides: readonly Guide[] = publis
   const dev = getProduct("developers")
   if (isAvailable(facts, dev)) {
     lines.push("## For developers", "", `- [${dev.name}](${absoluteUrl(dev.path)}): sell data and airtime from your own app or website with simple API calls.`, "")
-  }
-
-  if (guides.length > 0) {
-    lines.push("## Guides", "", ...guides.map((g) => `- [${g.h1}](${absoluteUrl(`/guides/${g.slug}`)}): ${g.description}`), "")
   }
 
   lines.push(

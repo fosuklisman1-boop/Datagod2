@@ -5,16 +5,27 @@
 import type { Metadata } from "next"
 import { absoluteUrl } from "./site"
 import { PRODUCTS, getProduct, type ProductEntry, type ProductKey } from "./products"
-import type { LiveFacts } from "./live-facts"
+import { productFactsLoaded, type LiveFacts } from "./live-facts"
 
 export const OG_IMAGE = "/og-image.png"
 
-/** "missing" means the page must 404 (product dark or its facts unavailable). */
-export function pageAvailability(key: ProductKey, facts: LiveFacts): "ok" | "missing" {
-  return facts.products[key]?.available ? "ok" : "missing"
+/**
+ * - "ok":     live; render normally.
+ * - "off":    the admin switched it off; render (200) with a "temporarily
+ *             unavailable" notice, no buy CTA and no Offer.
+ * - "failed": its facts could not be read, so on/off is unknown; the page
+ *             answers 5xx so crawlers retry instead of dropping it.
+ * (A product retired from the registry has no ProductKey at all: 404.)
+ */
+export type PageAvailability = "ok" | "off" | "failed"
+
+export function pageAvailability(key: ProductKey, facts: LiveFacts): PageAvailability {
+  if (!productFactsLoaded(key, facts)) return "failed"
+  return facts.products[key]?.available ? "ok" : "off"
 }
 
-export function buildProductMetadata(p: ProductEntry): Metadata {
+/** Also used by the landing pages (lib/seo/landing-pages.ts), which carry the same three fields. */
+export function buildProductMetadata(p: Pick<ProductEntry, "path" | "title" | "description">): Metadata {
   const url = absoluteUrl(p.path)
   return {
     title: p.title,

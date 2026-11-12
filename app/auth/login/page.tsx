@@ -2,7 +2,7 @@
 
 import { Suspense } from "react"
 import LoginForm from "../login-form"
-import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
+import { HomeAIChatWidget } from "@/components/home/AIChatWidgetLazy"
 
 export default function LoginPage() {
   return (

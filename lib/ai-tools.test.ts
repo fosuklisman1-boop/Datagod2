@@ -169,6 +169,77 @@ describe("USSD shop tools: sessions retired (spec 2026-10-14)", () => {
     expect(String(result.error)).toMatch(/Unknown action/)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+  it("list_users asks the paged users API for just `limit` rows and maps its fields", async () => {
+    const fetchSpy = vi.fn(async (_url: string) => new Response(JSON.stringify({
+      users: [{ id: "u1", first_name: "Ama", last_name: "B", email: "a@x.com", phoneNumber: "0244000000", role: "dealer",
+        is_suspended: true, walletBalance: 12.5, shopBalance: 3, balance: 15.5 }],
+      total: 900, page: 1, pageSize: 5,
+    }), { status: 200 }))
+    vi.stubGlobal("fetch", fetchSpy)
+    const result = await executeToolCall(
+      "list_users", { limit: 5 },
+      { baseUrl: "http://localhost:3000", jwtToken: "t", userId: "admin1", userRole: "admin" } as any,
+    )
+    const big = await executeToolCall("list_users", { limit: 5000 }, { baseUrl: "http://localhost:3000", jwtToken: "t", userId: "admin1", userRole: "admin" } as any)
+    vi.unstubAllGlobals()
+    expect(fetchSpy.mock.calls[0][0]).toBe("http://localhost:3000/api/admin/users?page=1&pageSize=5")
+    expect(fetchSpy.mock.calls[1][0]).toBe("http://localhost:3000/api/admin/users?page=1&pageSize=200")
+    expect(result).toEqual([{ id: "u1", name: "Ama B", email: "a@x.com", phone: "0244000000", role: "dealer", suspended: true, balance: 12.5 }])
+    expect(big).toHaveLength(1)
+  })
+  describe("adjust_wallet_balance", () => {
+    const ADMIN_CTX = { baseUrl: "http://localhost:3000", jwtToken: "t", userId: "admin1", userRole: "admin" } as any
+    const INPUT = { user_id: "u1", amount: 5, type: "credit", reason: "Refund for DG-1" }
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+
+    it("reads the live balance first and sends it as expectedBalance, so a retried call cannot apply twice", async () => {
+      const fetchSpy = vi.fn(async (url: string, _init?: RequestInit) =>
+        url.includes("/transactions") ? json({ wallet: { balance: 10 } }) : json({ success: true, balance: 15, data: { balance: 15, balanceBefore: 10 } }))
+      vi.stubGlobal("fetch", fetchSpy)
+      const result = await executeToolCall("adjust_wallet_balance", INPUT, ADMIN_CTX) as Record<string, unknown>
+      vi.unstubAllGlobals()
+      expect(fetchSpy.mock.calls[0][0]).toBe("http://localhost:3000/api/admin/users/u1/transactions?page=1&pageSize=1")
+      expect(fetchSpy.mock.calls[1][0]).toBe("http://localhost:3000/api/admin/update-balance")
+      expect(JSON.parse(String(fetchSpy.mock.calls[1][1]!.body))).toEqual({ userId: "u1", amount: 5, type: "credit", reason: "Refund for DG-1", expectedBalance: 10 })
+      expect(result).toMatchObject({ success: true, balance_before: 10, new_balance: 15 })
+    })
+
+    it("tells the model a signed-in admin is needed instead of passing on a raw 403 (scheduled tasks, WhatsApp bot)", async () => {
+      const prev = process.env.CRON_SECRET
+      process.env.CRON_SECRET = "cron-s3cret"
+      const fetchSpy = vi.fn()
+      vi.stubGlobal("fetch", fetchSpy)
+      const viaCron = await executeToolCall("adjust_wallet_balance", INPUT, { ...ADMIN_CTX, jwtToken: "cron-s3cret" }) as Record<string, unknown>
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(viaCron.success).toBe(false)
+      expect(String(viaCron.error)).toMatch(/wallet adjustments need a signed-in admin/i)
+
+      // And if the server refuses anyway, the same message.
+      vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+        url.includes("/transactions") ? json({ wallet: { balance: 10 } }) : json({ error: "Admin session required" }, 403)))
+      const refused = await executeToolCall("adjust_wallet_balance", INPUT, ADMIN_CTX) as Record<string, unknown>
+      vi.unstubAllGlobals()
+      process.env.CRON_SECRET = prev
+      expect(String(refused.error)).toMatch(/wallet adjustments need a signed-in admin/i)
+    })
+
+    it("passes other refusals through as the server's message", async () => {
+      vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+        url.includes("/transactions") ? json({ wallet: { balance: 1 } }) : json({ error: "Debit refused: the wallet balance is too low" }, 409)))
+      const r = await executeToolCall("adjust_wallet_balance", { ...INPUT, type: "debit" }, ADMIN_CTX) as Record<string, unknown>
+      vi.unstubAllGlobals()
+      expect(r).toMatchObject({ success: false, error: "Debit refused: the wallet balance is too low" })
+    })
+
+    it("stops when the user has no wallet", async () => {
+      const fetchSpy = vi.fn(async () => json({ wallet: null }))
+      vi.stubGlobal("fetch", fetchSpy)
+      const r = await executeToolCall("adjust_wallet_balance", INPUT, ADMIN_CTX) as Record<string, unknown>
+      vi.unstubAllGlobals()
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(String(r.error)).toMatch(/no wallet/i)
+    })
+  })
   it("manage_my_ussd_shop rejects buy_sessions without calling any API", async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal("fetch", fetchSpy)

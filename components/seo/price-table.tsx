@@ -43,7 +43,18 @@ function Table({ group, caption }: { group: PriceGroup; caption: string | null }
 }
 
 /** Live price list for a network data page. Renders nothing when there are no rows. */
-export function PriceTable({ name, groups, loadedAt }: { name: string; groups: PriceGroup[]; loadedAt: string }) {
+export function PriceTable({
+  name,
+  groups,
+  loadedAt,
+  headingId = "prices-heading",
+}: {
+  name: string
+  groups: PriceGroup[]
+  loadedAt: string
+  /** Distinct per table when a page shows several (the landing pages). */
+  headingId?: string
+}) {
   const shown = groups.filter((g) => g.rows.length > 0)
   if (shown.length === 0) return null
   const date = updatedOn(loadedAt)
@@ -51,8 +62,8 @@ export function PriceTable({ name, groups, loadedAt }: { name: string; groups: P
   const multi = shown.length > 1
 
   return (
-    <section aria-labelledby="prices-heading" className="mt-16">
-      <h2 id="prices-heading" className="font-display text-2xl sm:text-3xl font-bold text-foreground">
+    <section aria-labelledby={headingId} className="mt-16">
+      <h2 id={headingId} className="font-display text-2xl sm:text-3xl font-bold text-foreground">
         {name} prices
       </h2>
       <div className={`mt-6 grid grid-cols-1 gap-4 ${multi ? "lg:grid-cols-2" : "lg:max-w-3xl"}`}>
