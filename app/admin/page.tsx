@@ -121,6 +121,22 @@ export default function AdminDashboardPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
   const [navigating, setNavigating] = useState<string | null>(null)
   const [range, setRange] = useState<RangeId>("7d")
+  const [supportOpen, setSupportOpen] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!isAdmin || adminLoading) return
+    void (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        const res = await fetch("/api/admin/support/counts", { headers: { Authorization: `Bearer ${session.access_token}` } })
+        const json = await res.json()
+        if (res.ok && json?.success) setSupportOpen((json.data.openThreads ?? 0) + (json.data.legacyPending ?? 0))
+      } catch {
+        // The card falls back to the dashboard stat below.
+      }
+    })()
+  }, [isAdmin, adminLoading])
 
   useEffect(() => {
     if (isAdmin && !adminLoading) {
@@ -254,8 +270,8 @@ export default function AdminDashboardPage() {
                 <div className="flex items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pink-500/10 text-pink-600"><MessageCircle className="h-5 w-5" /></span>
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Complaints</p>
-                    <p className="font-bold text-foreground">{formatCount(stats.complaintsPending ?? 0)} Issues</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Support & Complaints</p>
+                    <p className="font-bold text-foreground">{formatCount(supportOpen ?? stats.complaintsPending ?? 0)} Issues</p>
                   </div>
                 </div>
                 {navigating === "/admin/complaints" ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
