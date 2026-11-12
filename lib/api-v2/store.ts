@@ -34,20 +34,22 @@ export function getAdminClient(): SupabaseLike {
   })
 }
 
-export async function findKeyByHash(client: SupabaseLike, hash: string): Promise<V2KeyRow | null> {
+/** null = no such key; "error" = the lookup itself failed (outage), which must never read as a bad key. */
+export async function findKeyByHash(client: SupabaseLike, hash: string): Promise<V2KeyRow | null | "error"> {
   try {
     const { data, error } = await client
       .from("api_v2_keys")
       .select(KEY_COLUMNS)
       .eq("key_hash", hash)
       .maybeSingle()
-    if (error || !data) return null
+    if (error) return "error"
+    if (!data) return null
     // Defensive: never hand key_hash back, whatever the client returned.
     const { key_hash: _omit, ...row } = data as V2KeyRow & { key_hash?: string }
     void _omit
     return row
   } catch {
-    return null
+    return "error"
   }
 }
 

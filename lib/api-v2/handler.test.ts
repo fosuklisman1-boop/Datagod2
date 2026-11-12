@@ -19,7 +19,7 @@ function makeDeps(over: any = {}) {
     ...(over.row ?? {}),
   }
   const store = {
-    findKeyByHash: vi.fn(async () => (over.noKey ? null : row)),
+    findKeyByHash: vi.fn(async (): Promise<any> => (over.storeError ? "error" : over.noKey ? null : row)),
     getUserForKey: vi.fn(async () =>
       over.noUser ? null : { id: "user-1", role: over.role ?? "dealer", first_name: "Ama", suspended: over.suspended ?? false }
     ),
@@ -30,7 +30,13 @@ function makeDeps(over: any = {}) {
     touchLastUsed: vi.fn(async () => {}),
     logRequest: vi.fn(async () => {}),
   }
-  const rateLimit = vi.fn(async () => ({ allowed: over.allowed ?? true, remaining: 1, resetAt: 0, degraded: over.degraded }))
+  const rateLimit = vi.fn(async (..._a: any[]) => ({
+    allowed: over.allowed ?? true,
+    remaining: 1,
+    resetAt: 0,
+    degraded: over.degraded,
+    fallback: over.fallback,
+  }))
   return { store, rateLimit, now: () => new Date("2026-01-01T00:00:00Z") }
 }
 
@@ -62,6 +68,60 @@ describe("runV2", () => {
     const r = await runV2(deps, OPTS, ok, input(validKey()))
     expect(r.status).toBe(401)
     expect(deps.store.logRequest).not.toHaveBeenCalled()
+  })
+
+  it("503 (never 401) when the key store errors, and does not log", async () => {
+    const deps = makeDeps({ storeError: true })
+    const r = await runV2(deps, OPTS, ok, input(validKey()))
+    expect(r.status).toBe(503)
+    expect(r.body).toMatchObject({ success: false, error: { code: 503 } })
+    expect(deps.store.logRequest).not.toHaveBeenCalled()
+    expect(deps.rateLimit).not.toHaveBeenCalled()
+  })
+
+  it("rate-limits an active key on its user id and a revoked key on key-<id>", async () => {
+    const active = makeDeps()
+    await runV2(active, OPTS, ok, input(validKey()))
+    expect((active.rateLimit.mock.calls as any)[0][4]).toBe("user-1")
+    const revoked = makeDeps({ row: { status: "revoked" } })
+    await runV2(revoked, OPTS, ok, input(validKey()))
+    expect((revoked.rateLimit.mock.calls as any)[0][4]).toBe("key-key-1")
+    const pending = makeDeps({ row: { status: "pending" } })
+    await runV2(pending, OPTS, ok, input(validKey()))
+    expect((pending.rateLimit.mock.calls as any)[0][4]).toBe("key-key-1")
+  })
+
+  it("purchase routes pass { pgFallback: true }; read routes pass no opts", async () => {
+    const buy = makeDeps()
+    await runV2(buy, { ...OPTS, failClosedWhenLimiterDegraded: true }, ok, input(validKey()))
+    expect((buy.rateLimit.mock.calls as any)[0][5]).toEqual({ pgFallback: true })
+    const read = makeDeps()
+    await runV2(read, OPTS, ok, input(validKey()))
+    expect((read.rateLimit.mock.calls as any)[0][5]).toBeUndefined()
+  })
+
+  it("purchase proceeds when the Postgres fallback counted it", async () => {
+    const handler = vi.fn(ok)
+    const r = await runV2(
+      makeDeps({ degraded: false, fallback: true }),
+      { ...OPTS, failClosedWhenLimiterDegraded: true },
+      handler,
+      input(validKey())
+    )
+    expect(r.status).toBe(200)
+    expect(handler).toHaveBeenCalled()
+  })
+
+  it("purchase gets 503 when the limiter is degraded (both stores down)", async () => {
+    const handler = vi.fn(ok)
+    const r = await runV2(
+      makeDeps({ degraded: true }),
+      { ...OPTS, failClosedWhenLimiterDegraded: true },
+      handler,
+      input(validKey())
+    )
+    expect(r.status).toBe(503)
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it("403 for pending key", async () => {

@@ -163,9 +163,14 @@ describe("reads", () => {
     expect(row).toEqual({ id: "k" })
     expect(ops[0].filters).toContainEqual(["key_hash", "eq", "h"])
   })
-  it("findKeyByHash returns null on miss/error", async () => {
+  it("findKeyByHash returns null on a genuine miss", async () => {
     expect(await findKeyByHash(makeFake().client, "h")).toBeNull()
-    expect(await findKeyByHash(makeFake({ throwOnAny: true }).client, "h")).toBeNull()
+  })
+  it("findKeyByHash returns \"error\" on a DB error or exception (outage, not a bad key)", async () => {
+    expect(await findKeyByHash(makeFake({ throwOnAny: true }).client, "h")).toBe("error")
+    expect(
+      await findKeyByHash(makeFake({ selectResult: { data: null, error: { message: "x" } } }).client, "h")
+    ).toBe("error")
   })
   it("findKeyByHash never returns key_hash even if the client does", async () => {
     const { client } = makeFake({ selectResult: { data: { id: "k", key_hash: "secret" }, error: null } })
