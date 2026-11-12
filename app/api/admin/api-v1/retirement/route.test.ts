@@ -12,6 +12,9 @@ const h = vi.hoisted(() => ({
   sms: [] as { phone: string; message: string; type: string }[],
   emails: [] as { to: { email: string }[]; textContent?: string }[],
   failPhone: "",
+  events: [] as string[],
+  afterRead: null as null | (() => void),
+  failAll: false,
 }))
 
 vi.mock("@/lib/api-v2/store", () => ({
@@ -19,23 +22,41 @@ vi.mock("@/lib/api-v2/store", () => ({
     from(table: string) {
       let rows: any[] = []
       let mode = "select"
+      let patch: any = null
+      const conds: [string, any][] = []
+      let applied = false
+      const apply = () => {
+        if (mode !== "update" || applied) return
+        applied = true
+        const ok = conds.every(([c, v]) => (h.cfg[c] ?? null) === v)
+        if (!ok) return (rows = [])
+        h.updates.push(patch)
+        h.events.push("claim-or-update")
+        h.cfg = { ...h.cfg, ...patch }
+        rows = [h.cfg]
+      }
       const q: any = {
         select: () => {
-          if (table === "api_v2_config") rows = [h.cfg]
+          if (table === "api_v2_config" && mode !== "update") rows = [{ ...h.cfg }]
           if (table === "users") rows = h.users
           if (table === "user_api_keys") rows = h.keys
           if (table === "user_api_logs" || table === "api_orders") rows = []
           return q
         },
-        update: (p: any) => ((mode = "update"), h.updates.push(p), (h.cfg = { ...h.cfg, ...p }), q),
+        update: (p: any) => ((mode = "update"), (patch = p), q),
         in: (_c: string, v: string[]) => ((rows = rows.filter((r) => v.includes(r.id))), q),
-        eq: () => q,
-        is: () => q,
+        eq: (c: string, v: any) => (c !== "id" && conds.push([c, v]), q),
+        is: (c: string, v: any) => (table === "api_v2_config" && conds.push([c, v]), q),
         gte: () => q,
         order: () => q,
         limit: () => q,
-        maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
-        then: (res: any) => res({ data: mode === "update" ? null : rows, error: null }),
+        maybeSingle: async () => {
+          apply()
+          const r = { data: rows[0] ?? null, error: null }
+          if (table === "api_v2_config" && mode === "select" && h.afterRead) h.afterRead()
+          return r
+        },
+        then: (res: any) => (apply(), res({ data: mode === "update" ? null : rows, error: null })),
       }
       return q
     },
@@ -43,13 +64,14 @@ vi.mock("@/lib/api-v2/store", () => ({
 }))
 vi.mock("@/lib/sms-service", () => ({
   sendSMS: async (p: any) => {
-    if (p.phone === h.failPhone) throw new Error("boom")
+    h.events.push("send")
+    if (h.failAll || p.phone === h.failPhone) throw new Error("boom")
     h.sms.push(p)
     return { success: true }
   },
 }))
 vi.mock("@/lib/email-service", () => ({
-  sendEmail: async (p: any) => (h.emails.push(p), { success: true }),
+  sendEmail: async (p: any) => (h.events.push("send"), h.emails.push(p), { success: !h.failAll }),
 }))
 
 import { GET, PUT } from "./route"
@@ -75,6 +97,9 @@ beforeEach(() => {
   h.sms = []
   h.emails = []
   h.failPhone = ""
+  h.events = []
+  h.afterRead = null
+  h.failAll = false
 })
 
 const deny = () => verifyMock.mockResolvedValue({ isAdmin: false, errorResponse: NextResponse.json({ error: "Forbidden" }, { status: 403 }) })
@@ -138,5 +163,42 @@ describe("admin api-v1 retirement routes", () => {
     expect(h.emails.map((e) => e.to[0].email).sort()).toEqual(["a@x.com", "b@x.com"])
     expect(await res.json()).toEqual({ sms_sent: 2, email_sent: 2, failed: 1 })
     expect(h.updates.at(-1).v1_notice_sent_at).toBeTruthy()
+  })
+
+  it("claims the notice before any message is sent", async () => {
+    await POST(req("POST", {}))
+    expect(h.events[0]).toBe("claim-or-update")
+    expect(h.events.indexOf("send")).toBeGreaterThan(0)
+    expect(h.cfg.v1_notice_sent_at).toBeTruthy()
+  })
+
+  it("a lost claim race (first send) is 409 with zero sends", async () => {
+    h.afterRead = () => { h.cfg.v1_notice_sent_at = "2026-11-12T09:00:00Z" }
+    const res = await POST(req("POST", {}))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe("already_sent")
+    expect(h.events.filter((e) => e === "send")).toHaveLength(0)
+  })
+
+  it("confirm_resend with a stale previous stamp is 409 with zero sends", async () => {
+    h.cfg.v1_notice_sent_at = "2026-11-10T00:00:00Z"
+    h.afterRead = () => { h.cfg.v1_notice_sent_at = "2026-11-12T09:00:00Z" }
+    const res = await POST(req("POST", { confirm_resend: true }))
+    expect(res.status).toBe(409)
+    expect(h.events.filter((e) => e === "send")).toHaveLength(0)
+  })
+
+  it("restores the previous stamp when every send fails", async () => {
+    h.cfg.v1_notice_sent_at = "2026-11-10T00:00:00Z"
+    h.failAll = true
+    const res = await POST(req("POST", { confirm_resend: true }))
+    expect(await res.json()).toMatchObject({ sms_sent: 0, email_sent: 0 })
+    expect(h.cfg.v1_notice_sent_at).toBe("2026-11-10T00:00:00Z")
+  })
+
+  it("restores null when the first-ever notice sends nothing", async () => {
+    h.failAll = true
+    await POST(req("POST", {}))
+    expect(h.cfg.v1_notice_sent_at).toBeNull()
   })
 })

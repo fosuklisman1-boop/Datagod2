@@ -62,6 +62,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Claim atomically BEFORE sending so concurrent requests cannot double-send.
+    const prev: string | null = cfg.v1_notice_sent_at ?? null
+    let claim = supabase.from("api_v2_config").update({ v1_notice_sent_at: new Date().toISOString() }).eq("id", true)
+    claim = prev === null ? claim.is("v1_notice_sent_at", null) : claim.eq("v1_notice_sent_at", prev)
+    const { data: claimed, error: claimErr } = await claim.select("v1_notice_sent_at").maybeSingle()
+    if (claimErr) throw new Error("claim failed")
+    if (!claimed) {
+      const { data: now } = await supabase.from("api_v2_config").select("v1_notice_sent_at").eq("id", true).maybeSingle()
+      return NextResponse.json({ error: "already_sent", sent_at: now?.v1_notice_sent_at ?? prev }, { status: 409 })
+    }
+
     const result = await sendNotices(recipients, exemptIds, sunsetAt, {
       sms: ({ phone, message, userId }) => sendSMS({ phone, message, type: NOTICE_TYPE, userId }),
       email: ({ email, name, subject, text, userId }) =>
@@ -75,11 +86,14 @@ export async function POST(request: NextRequest) {
         }),
     })
 
-    const { error: stampErr } = await supabase
-      .from("api_v2_config")
-      .update({ v1_notice_sent_at: new Date().toISOString() })
-      .eq("id", true)
-    if (stampErr) console.error("[ADMIN API V1] Failed to stamp notice_sent_at")
+    if (result.sms_sent + result.email_sent === 0) {
+      // Nothing went out: undo the claim so the admin can retry.
+      const { error: restoreErr } = await supabase
+        .from("api_v2_config")
+        .update({ v1_notice_sent_at: prev })
+        .eq("id", true)
+      if (restoreErr) console.error("[ADMIN API V1] Failed to restore notice_sent_at")
+    }
     console.log(`[ADMIN API V1] Retirement notice: recipients=${recipients.length} sms=${result.sms_sent} email=${result.email_sent} failed=${result.failed}`)
     return NextResponse.json(result)
   } catch (e) {
