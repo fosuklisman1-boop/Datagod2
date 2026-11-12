@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase"
 import {
   countUnreadByThread,
   mergeMessage,
+  mergeReloadedThreads,
   mergeThread,
   realtimeReceipt,
   receiptPlan,
@@ -53,6 +54,7 @@ export function useSupportThreads(userId: string | undefined) {
     if (!userId) return
     try {
       setLoading(true)
+      const idsAtStart = new Set(threadIdsRef.current)
       const { data: t, error: tErr } = await supabase
         .from("support_threads")
         .select(THREAD_COLUMNS)
@@ -61,17 +63,20 @@ export function useSupportThreads(userId: string | undefined) {
         .limit(100)
       if (tErr) throw new Error(tErr.message)
       const list = (t ?? []) as ClientThread[]
-      threadIdsRef.current = new Set(list.map((x) => x.id))
-      setThreads(list)
+      // Keep ids Realtime added while this reload was in flight.
+      const addedSince = [...threadIdsRef.current].filter((id) => !idsAtStart.has(id))
+      const allIds = [...new Set([...list.map((x) => x.id), ...addedSince])]
+      threadIdsRef.current = new Set(allIds)
+      setThreads((prev) => mergeReloadedThreads(list, prev, idsAtStart))
 
-      if (list.length === 0) {
+      if (allIds.length === 0) {
         setUnreadByThread({})
       } else {
         // Lightweight: only the thread id of each unread support-side message.
         const { data: u, error: uErr } = await supabase
           .from("support_messages")
           .select("thread_id")
-          .in("thread_id", list.map((x) => x.id))
+          .in("thread_id", allIds)
           .neq("sender_role", "user")
           .is("read_by_user_at", null)
           .limit(5000)
@@ -160,7 +165,11 @@ export function useSupportThreads(userId: string | undefined) {
           setMessagesByThread((prev) => ({
             ...prev,
             // A thread that was never opened has no loaded history; it is fetched on open.
-            ...(prev[clean.thread_id] ? { [clean.thread_id]: mergeMessage(prev[clean.thread_id], clean) } : {}),
+            // The thread being opened right now gets an entry so the message is not lost
+            // while its history request is in flight (the history response merges by id).
+            ...(prev[clean.thread_id] || openIdRef.current === clean.thread_id
+              ? { [clean.thread_id]: mergeMessage(prev[clean.thread_id] ?? [], clean) }
+              : {}),
           }))
           if (decision === "none") return
           if (decision === "delivered") {
@@ -242,7 +251,14 @@ export function useSupportThreads(userId: string | undefined) {
       let merged = messagesRef.current[id] ?? []
       for (const m of fetched) merged = mergeMessage(merged, m)
       messagesRef.current = { ...messagesRef.current, [id]: merged }
-      setMessagesByThread((prev) => ({ ...prev, [id]: merged }))
+      setMessagesByThread((prev) => {
+        // Also fold in anything Realtime put in state that the ref has not caught up with.
+        let next = prev[id] ?? []
+        for (const m of merged) next = mergeMessage(next, m)
+        return { ...prev, [id]: next }
+      })
+      // The user may have switched threads while this history was loading: cache it, no receipts.
+      if (openIdRef.current !== id) return
       if (document.visibilityState === "visible") await applyThreadReceipts(id)
     },
     [applyThreadReceipts],

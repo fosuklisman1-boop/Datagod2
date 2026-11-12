@@ -44,6 +44,20 @@ export function mergeThread(list: ClientThread[], incoming: ClientThread): Clien
   )
 }
 
+/**
+ * Result of reloading the thread list: the reloaded rows, plus any thread in `current`
+ * that was not known when the reload started (inserted by Realtime meanwhile).
+ */
+export function mergeReloadedThreads(
+  reloaded: ClientThread[],
+  current: ClientThread[],
+  idsAtStart: ReadonlySet<string>,
+): ClientThread[] {
+  const seen = new Set(reloaded.map((t) => t.id))
+  const addedSince = current.filter((t) => !idsAtStart.has(t.id) && !seen.has(t.id))
+  return [...reloaded, ...addedSince].sort((a, b) => b.last_message_at.localeCompare(a.last_message_at))
+}
+
 /** Turn the lightweight "unread support messages" rows into a count per thread. */
 export function countUnreadByThread(rows: { thread_id: string }[]): Record<string, number> {
   const out: Record<string, number> = {}

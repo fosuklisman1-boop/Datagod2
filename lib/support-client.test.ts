@@ -9,6 +9,7 @@ import {
   validateScreenshot,
   complaintTargetForOrder,
   mergeThread,
+  mergeReloadedThreads,
   countUnreadByThread,
   chunk,
   receiptPlan,
@@ -184,6 +185,28 @@ describe("mergeThread", () => {
     )
     expect(out).toHaveLength(2)
     expect(out[0]).toMatchObject({ id: "b", status: "closed" })
+  })
+})
+
+describe("mergeReloadedThreads", () => {
+  it("keeps a thread Realtime added after the reload started", () => {
+    const reloaded = [thread("a", "2026-11-12T10:00:00Z")]
+    const current = [thread("n", "2026-11-12T12:00:00Z"), thread("a", "2026-11-12T10:00:00Z")]
+    const out = mergeReloadedThreads(reloaded, current, new Set(["a"]))
+    expect(out.map((t) => t.id)).toEqual(["n", "a"])
+  })
+  it("drops a thread that existed at the start but is gone from the server", () => {
+    const out = mergeReloadedThreads([], [thread("a", "2026-11-12T10:00:00Z")], new Set(["a"]))
+    expect(out).toEqual([])
+  })
+  it("prefers the reloaded row when both have the id", () => {
+    const out = mergeReloadedThreads(
+      [{ ...thread("a", "2026-11-12T10:00:00Z"), status: "closed" }],
+      [thread("a", "2026-11-12T10:00:00Z")],
+      new Set(["a"]),
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0].status).toBe("closed")
   })
 })
 

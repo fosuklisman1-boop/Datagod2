@@ -66,7 +66,10 @@ export default function ShopDashboardPage() {
   // Which of the loaded orders already have an open support thread.
   useEffect(() => {
     const ids = orders.map((o: any) => o.id).filter(Boolean)
-    if (ids.length === 0) return
+    if (ids.length === 0) {
+      setOpenComplaintOrderIds(new Set())
+      return
+    }
     let cancelled = false
     ;(async () => {
       const open = new Set<string>()

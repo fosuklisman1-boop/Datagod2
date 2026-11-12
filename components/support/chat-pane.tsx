@@ -45,6 +45,8 @@ export function ChatPane({ thread, messages, onSend, onBack, onNew }: Props) {
   }, [messages.length, thread.id])
 
   const refetched = useRef(false)
+  const currentThreadId = useRef(thread.id)
+  currentThreadId.current = thread.id
 
   // Signed URL lives 10 minutes: fetch on open, never cache across sessions.
   useEffect(() => {
@@ -65,8 +67,10 @@ export function ChatPane({ thread, messages, onSend, onBack, onNew }: Props) {
   const onImageError = async () => {
     if (refetched.current) return
     refetched.current = true
-    const url = await fetchAttachmentUrl(thread.id)
-    if (url) setAttachmentUrl(url)
+    const requestedFor = thread.id
+    const url = await fetchAttachmentUrl(requestedFor)
+    // A late result for a thread that is no longer shown is dropped.
+    if (url && currentThreadId.current === requestedFor) setAttachmentUrl(url)
   }
 
   const send = async () => {
