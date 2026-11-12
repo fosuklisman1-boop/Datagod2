@@ -5,7 +5,15 @@ import { CalendarClock, Loader2, Megaphone, Undo2, UserMinus, UserPlus } from "l
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { formatGhanaDate, isEarlierThanNotice, isoToPicker, isUuid, pickerToIso } from "@/lib/api-v1/retirement-ui"
+import {
+  buildRetirementPutBody,
+  formatGhanaDate,
+  isEarlierThanNotice,
+  isoToPicker,
+  isUuid,
+  pickerToIso,
+  STALE_MESSAGE,
+} from "@/lib/api-v1/retirement-ui"
 import { adminFetch } from "./admin-fetch"
 import { ConfirmAction } from "./ConfirmAction"
 import { Eyebrow, IconChip, InlineError, Panel } from "./ui"
@@ -28,6 +36,8 @@ export interface RetirementData {
   sunset_at: string | null
   exempt_users: RetirementExemptUser[]
   notice_sent_at: string | null
+  /** Concurrency token: sent back as expected_updated_at on save. */
+  updated_at: string | null
   stragglers: RetirementStraggler[]
 }
 
@@ -321,11 +331,15 @@ export function V1RetirementCard() {
     setError(null)
     const r = await adminFetch<unknown>("/api/admin/api-v1/retirement", {
       method: "PUT",
-      body: JSON.stringify({ sunset_at: sunsetAt, exempt_user_ids: exemptIds }),
+      body: JSON.stringify(buildRetirementPutBody(sunsetAt, exemptIds, data?.updated_at ?? null)),
     })
     if (r.ok) {
       toast.success("Retirement settings saved")
       await load()
+    } else if (r.status === 409) {
+      // Stale: someone else saved first. Show the reloaded settings; never retry with the old list.
+      await load()
+      setError(STALE_MESSAGE)
     } else setError(r.error)
     setBusy(false)
   }

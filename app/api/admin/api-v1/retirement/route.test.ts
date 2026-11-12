@@ -81,12 +81,13 @@ import { buildExemptMessage, buildNoticeMessage } from "@/lib/api-v1/retirement-
 const U1 = "11111111-1111-4111-8111-111111111111"
 const U2 = "22222222-2222-4222-8222-222222222222"
 const U3 = "33333333-3333-4333-8333-333333333333"
+const UPD = "2026-11-12T08:00:00.123456+00:00"
 const req = (method: string, body?: unknown) =>
   new NextRequest("http://x/api/admin/api-v1/retirement", { method, body: body === undefined ? undefined : JSON.stringify(body) })
 
 beforeEach(() => {
   verifyMock.mockResolvedValue({ isAdmin: true, userId: "admin-1" })
-  h.cfg = { v1_sunset_at: "2026-12-01T00:00:00Z", v1_exempt_user_ids: [U2], v1_notice_sent_at: null }
+  h.cfg = { v1_sunset_at: "2026-12-01T00:00:00Z", v1_exempt_user_ids: [U2], v1_notice_sent_at: null, updated_at: UPD }
   h.users = [
     { id: U1, email: "a@x.com", phone_number: "0240000001", first_name: "A" },
     { id: U2, email: "b@x.com", phone_number: "0240000002", first_name: "B" },
@@ -108,7 +109,7 @@ describe("admin api-v1 retirement routes", () => {
   it("non-admin gets 403 on GET, PUT and notify", async () => {
     deny()
     expect((await GET(req("GET"))).status).toBe(403)
-    expect((await PUT(req("PUT", { sunset_at: null, exempt_user_ids: [] }))).status).toBe(403)
+    expect((await PUT(req("PUT", { sunset_at: null, exempt_user_ids: [], expected_updated_at: UPD }))).status).toBe(403)
     expect((await POST(req("POST", {}))).status).toBe(403)
     expect(h.sms).toHaveLength(0)
   })
@@ -119,25 +120,45 @@ describe("admin api-v1 retirement routes", () => {
   })
 
   it("PUT with an invalid body is 400 and writes nothing", async () => {
-    expect((await PUT(req("PUT", { sunset_at: "garbage", exempt_user_ids: [] }))).status).toBe(400)
-    expect((await PUT(req("PUT", { sunset_at: null, exempt_user_ids: ["nope"] }))).status).toBe(400)
+    expect((await PUT(req("PUT", { sunset_at: "garbage", exempt_user_ids: [], expected_updated_at: UPD }))).status).toBe(400)
+    expect((await PUT(req("PUT", { sunset_at: null, exempt_user_ids: ["nope"], expected_updated_at: UPD }))).status).toBe(400)
     expect(h.updates).toHaveLength(0)
   })
 
   it("PUT rejects exempt ids that are not users", async () => {
-    const res = await PUT(req("PUT", { sunset_at: null, exempt_user_ids: ["44444444-4444-4444-8444-444444444444"] }))
+    const res = await PUT(req("PUT", { sunset_at: null, exempt_user_ids: ["44444444-4444-4444-8444-444444444444"], expected_updated_at: UPD }))
     expect(res.status).toBe(400)
     expect(h.updates).toHaveLength(0)
   })
 
-  it("PUT saves valid settings", async () => {
-    const res = await PUT(req("PUT", { sunset_at: "2026-12-05T00:00:00Z", exempt_user_ids: [U1] }))
+  it("PUT saves valid settings when expected_updated_at matches, and bumps updated_at", async () => {
+    const res = await PUT(req("PUT", { sunset_at: "2026-12-05T00:00:00Z", exempt_user_ids: [U1], expected_updated_at: UPD }))
     expect(res.status).toBe(200)
     expect(h.updates[0]).toMatchObject({ v1_sunset_at: "2026-12-05T00:00:00.000Z", v1_exempt_user_ids: [U1] })
+    const body = await res.json()
+    expect(body.updated_at).not.toBe(UPD)
+    expect(h.cfg.updated_at).toBe(body.updated_at)
   })
 
-  it("GET returns settings and exempt users", async () => {
+  it("PUT with a stale expected_updated_at is 409 stale and writes nothing", async () => {
+    h.cfg.updated_at = "2026-11-12T09:00:00.000000+00:00" // another admin saved meanwhile
+    const res = await PUT(req("PUT", { sunset_at: null, exempt_user_ids: [], expected_updated_at: UPD }))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "stale", message: "Settings changed since you loaded them. Reload and try again." })
+    expect(h.updates).toHaveLength(0)
+    expect(h.cfg.v1_exempt_user_ids).toEqual([U2])
+  })
+
+  it("PUT without a valid expected_updated_at is 400 and writes nothing", async () => {
+    expect((await PUT(req("PUT", { sunset_at: null, exempt_user_ids: [] }))).status).toBe(400)
+    expect((await PUT(req("PUT", { sunset_at: null, exempt_user_ids: [], expected_updated_at: "nope" }))).status).toBe(400)
+    expect((await PUT(req("PUT", { sunset_at: null, exempt_user_ids: [], expected_updated_at: null }))).status).toBe(400)
+    expect(h.updates).toHaveLength(0)
+  })
+
+  it("GET returns settings, updated_at and exempt users", async () => {
     const body = await (await GET(req("GET"))).json()
+    expect(body.updated_at).toBe(UPD)
     expect(body.sunset_at).toBe("2026-12-01T00:00:00Z")
     expect(body.exempt_users).toEqual([{ id: U2, email: "b@x.com", phone: "0240000002", first_name: "B" }])
     expect(body.stragglers).toEqual([])

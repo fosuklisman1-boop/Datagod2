@@ -33,6 +33,7 @@ describe("V1RetirementCardView", () => {
   const data: RetirementData = {
     sunset_at: SUNSET,
     notice_sent_at: "2026-11-12T10:00:00.000Z",
+    updated_at: "2026-11-12T08:00:00.123456+00:00",
     exempt_users: [{ id: "3f2b8c1e-9a4d-4e6b-8c1d-2a3b4c5d6e7f", email: "big@example.com", phone: null, first_name: "Big" }],
     stragglers: [
       { user_id: "u1", email: "a@example.com", last_call: "2026-11-11T08:00:00.000Z", calls_7d: 120, orders_7d: 9, exempt: false },

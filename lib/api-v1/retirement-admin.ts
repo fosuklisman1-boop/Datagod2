@@ -32,6 +32,18 @@ export function parseRetirementUpdate(
   return { ok: true, value: { sunset_at: sunset, exempt_user_ids: Array.from(new Set(ids.map((i) => (i as string).toLowerCase()))) } }
 }
 
+/**
+ * The `updated_at` the admin's form was loaded with. Returned verbatim (never re-formatted) because the
+ * route compares it to the stored timestamptz string for optimistic concurrency.
+ */
+export function parseExpectedUpdatedAt(body: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  const v = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>).expected_updated_at : undefined
+  if (typeof v !== "string" || v.trim() === "" || Number.isNaN(new Date(v).getTime())) {
+    return { ok: false, error: "expected_updated_at is required (reload the settings and try again)" }
+  }
+  return { ok: true, value: v }
+}
+
 export function buildNoticeMessage(sunsetAt: Date): string {
   return `Datagod API notice: API v1 will be retired on ${formatGhanaDate(sunsetAt)}. After that, v1 requests will be refused. Please move to API v2: ${DOCS_URL}`
 }

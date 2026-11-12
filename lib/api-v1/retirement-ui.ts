@@ -36,6 +36,13 @@ export function isEarlierThanNotice(iso: string, now: Date, days: number = MIN_N
   return new Date(iso).getTime() < now.getTime() + days * DAY_MS
 }
 
+export const STALE_MESSAGE = "Settings changed since you loaded them. Reload and try again."
+
+/** PUT body for the admin retirement route; `expectedUpdatedAt` is the updated_at of the last load. */
+export function buildRetirementPutBody(sunsetAt: string | null, exemptIds: string[], expectedUpdatedAt: string | null) {
+  return { sunset_at: sunsetAt, exempt_user_ids: exemptIds, expected_updated_at: expectedUpdatedAt }
+}
+
 export function isUuid(s: string): boolean {
   return UUID_RE.test(s.trim())
 }

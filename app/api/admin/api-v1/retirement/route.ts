@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { getAdminClient } from "@/lib/api-v2/store"
 import { clearV1RetirementCache } from "@/lib/api-v1/retirement"
-import { findMissingUserIds, loadStragglers, parseRetirementUpdate } from "@/lib/api-v1/retirement-admin"
+import { findMissingUserIds, loadStragglers, parseExpectedUpdatedAt, parseRetirementUpdate } from "@/lib/api-v1/retirement-admin"
 
-const CONFIG_COLS = "v1_sunset_at, v1_exempt_user_ids, v1_notice_sent_at"
+const CONFIG_COLS = "v1_sunset_at, v1_exempt_user_ids, v1_notice_sent_at, updated_at"
 
 async function exemptUsers(supabase: ReturnType<typeof getAdminClient>, ids: string[]) {
   if (ids.length === 0) return []
@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
       sunset_at: data.v1_sunset_at ?? null,
       exempt_users,
       notice_sent_at: data.v1_notice_sent_at ?? null,
+      updated_at: data.updated_at ?? null,
       stragglers,
     })
   } catch (e) {
@@ -62,6 +63,8 @@ export async function PUT(request: NextRequest) {
   }
   const parsed = parseRetirementUpdate(body, new Date())
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
+  const expected = parseExpectedUpdatedAt(body)
+  if (!expected.ok) return NextResponse.json({ error: expected.error }, { status: 400 })
 
   const supabase = getAdminClient()
   try {
@@ -76,14 +79,23 @@ export async function PUT(request: NextRequest) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", true)
+      .eq("updated_at", expected.value)
       .select(CONFIG_COLS)
       .maybeSingle()
-    if (error || !data) throw new Error("config update failed")
+    if (error) throw new Error("config update failed")
+    if (!data) {
+      // Someone else saved since this form loaded (or the row is gone): write nothing, make the admin reload.
+      return NextResponse.json(
+        { error: "stale", message: "Settings changed since you loaded them. Reload and try again." },
+        { status: 409 }
+      )
+    }
     clearV1RetirementCache()
     return NextResponse.json({
       sunset_at: data.v1_sunset_at ?? null,
       exempt_user_ids: Array.isArray(data.v1_exempt_user_ids) ? data.v1_exempt_user_ids : [],
       notice_sent_at: data.v1_notice_sent_at ?? null,
+      updated_at: data.updated_at ?? null,
     })
   } catch (e) {
     console.error("[ADMIN API V1] Retirement update error:", e instanceof Error ? e.message : "unknown")

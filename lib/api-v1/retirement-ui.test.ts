@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  buildRetirementPutBody,
   bannerKind, bannerText, formatGhanaDate, isEarlierThanNotice, isoToPicker, isUuid, pickerToIso,
 } from "./retirement-ui"
 
@@ -49,6 +50,16 @@ describe("banner", () => {
     expect(bannerText("exempt", "2026-11-26T00:00:00.000Z")).toBe(
       "API v1 retires on 26 Nov 2026, 00:00 GMT. Your access continues for now; please plan your move to v2."
     )
+  })
+})
+
+describe("buildRetirementPutBody", () => {
+  it("carries expected_updated_at from the loaded data", () => {
+    expect(buildRetirementPutBody("2026-11-26T00:00:00.000Z", ["u1"], "2026-11-12T08:00:00.123456+00:00")).toEqual({
+      sunset_at: "2026-11-26T00:00:00.000Z",
+      exempt_user_ids: ["u1"],
+      expected_updated_at: "2026-11-12T08:00:00.123456+00:00",
+    })
   })
 })
 
