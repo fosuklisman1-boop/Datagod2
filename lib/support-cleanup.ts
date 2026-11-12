@@ -15,18 +15,21 @@ export interface SupportCleanupResult {
   errors?: number
 }
 
-/** Every attachment path of the given threads' messages, or null when a read failed. */
-async function threadFilePaths(db: SupabaseClient, threadIds: string[]): Promise<string[] | null> {
-  const paths: string[] = []
+/** Attachment paths of the given threads' messages, keyed by thread id, or null when a read failed. */
+async function threadFilePaths(db: SupabaseClient, threadIds: string[]): Promise<Map<string, string[]> | null> {
+  const byThread = new Map<string, string[]>()
   let last = ""
   for (;;) {
-    let q = db.from("support_messages").select("id, attachment_path").in("thread_id", threadIds).not("attachment_path", "is", null)
+    let q = db.from("support_messages").select("id, thread_id, attachment_path").in("thread_id", threadIds).not("attachment_path", "is", null)
     if (last) q = q.gt("id", last)
     const { data, error } = await q.order("id", { ascending: true }).limit(MESSAGE_PAGE)
     if (error) return null
-    const rows = (data ?? []) as { id: string; attachment_path: string | null }[]
-    for (const r of rows) if (r.attachment_path) paths.push(r.attachment_path)
-    if (rows.length < MESSAGE_PAGE) return paths
+    const rows = (data ?? []) as { id: string; thread_id: string; attachment_path: string | null }[]
+    for (const r of rows) {
+      if (!r.attachment_path) continue
+      byThread.set(r.thread_id, [...(byThread.get(r.thread_id) ?? []), r.attachment_path])
+    }
+    if (rows.length < MESSAGE_PAGE) return byThread
     last = rows[rows.length - 1].id
   }
 }
@@ -37,11 +40,14 @@ function evidencePaths(evidence: unknown): string[] {
   return ["balance_image_path", "momo_receipt_path"].flatMap((k) => (typeof e[k] === "string" && e[k] !== "" ? [e[k] as string] : []))
 }
 
-type Page = { ids: string[]; files: string[] }
+/** Files per row id, read before the delete (thread messages cascade away with their thread). */
+type Page = { ids: string[]; filesById: Map<string, string[]> }
+
+const filesOf = (page: Page, ids: string[]) => ids.flatMap((id) => page.filesById.get(id) ?? [])
 
 /**
- * Walks one table in id order, 200 rows at a time. For each page: collect files, remove them, then
- * delete the rows. Keyset paging (id > last) keeps a dry run, and a failed delete, from re-reading
+ * Walks one table in id order, 200 rows at a time. For each page: delete the rows with the guarded
+ * delete, then remove the files of only the rows it actually deleted. Keyset paging (id > last) keeps a dry run, and a failed delete, from re-reading
  * the same rows; a failure ends that table's loop.
  */
 async function sweep(
@@ -65,20 +71,31 @@ async function sweep(
     if (page.ids.length === 0) break
     after = page.ids[page.ids.length - 1]
     if (!dryRun) {
-      // Files go first; a failed removal never blocks the row delete (the helper never throws).
-      if (page.files.length > 0) await removeAttachments(db, page.files)
       const { data, error } = await deleteGuarded(page.ids)
       if (error) {
         console.error("[SUPPORT-CLEANUP] delete failed", { table, batch: page.ids.length })
         errors++
         break
       }
-      // Count what was actually deleted; rows that changed meanwhile were skipped by the guard.
-      rows += (data ?? []).length
+      // Count what was actually deleted; rows that changed meanwhile were skipped by the guard
+      // and keep their files.
+      const deletedIds = (data ?? []).map((r) => r.id)
+      rows += deletedIds.length
+      const deletedFiles = filesOf(page, deletedIds)
+      files += deletedFiles.length
+      if (deletedFiles.length > 0) {
+        try {
+          await removeAttachments(db, deletedFiles)
+        } catch {
+          // Rows are already gone; a storage failure must not stop the sweep.
+          console.error("[SUPPORT-CLEANUP] file removal failed", { table, files: deletedFiles.length })
+        }
+      }
     } else {
+      // Dry run: what is currently eligible, rows and their files.
       rows += page.ids.length
+      files += filesOf(page, page.ids).length
     }
-    files += page.files.length
     if (page.ids.length < BATCH) break
   }
   return { rows, files, errors }
@@ -102,10 +119,10 @@ export async function deleteOldSupportData(
       const { data, error } = await q.order("id", { ascending: true }).limit(BATCH)
       if (error) return null
       const ids = ((data ?? []) as { id: string }[]).map((r) => r.id)
-      if (ids.length === 0) return { ids, files: [] }
-      const files = await threadFilePaths(db, ids)
+      if (ids.length === 0) return { ids, filesById: new Map() }
+      const filesById = await threadFilePaths(db, ids)
       // Without the file list, deleting would orphan the screenshots: leave the batch for the next run.
-      return files ? { ids, files } : null
+      return filesById ? { ids, filesById } : null
     },
     "support_threads",
     (ids) => db.from("support_threads").delete().in("id", ids).eq("status", "closed").lt("closed_at", cutoff).select("id"),
@@ -120,7 +137,7 @@ export async function deleteOldSupportData(
       const { data, error } = await q.order("id", { ascending: true }).limit(BATCH)
       if (error) return null
       const rows = (data ?? []) as { id: string; evidence: unknown }[]
-      return { ids: rows.map((r) => r.id), files: rows.flatMap((r) => evidencePaths(r.evidence)) }
+      return { ids: rows.map((r) => r.id), filesById: new Map(rows.map((r) => [r.id, evidencePaths(r.evidence)] as const)) }
     },
     "complaints",
     (ids) => db.from("complaints").delete().in("id", ids).in("status", ["resolved", "rejected"]).lt("updated_at", cutoff).select("id"),

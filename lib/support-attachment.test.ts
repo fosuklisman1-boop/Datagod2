@@ -36,27 +36,34 @@ describe("sniffImage", () => {
   })
 })
 
+const U1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+const T1 = "44444444-4444-4444-8444-444444444444"
+
 describe("buildAttachmentPath", () => {
   it("is threads/<user>/<thread>/<uuid>.<ext>", () => {
-    expect(buildAttachmentPath("u1", "t1", "png")).toMatch(/^threads\/u1\/t1\/[0-9a-f-]{36}\.png$/)
+    expect(buildAttachmentPath(U1, T1, "png")).toMatch(new RegExp(`^threads/${U1}/${T1}/[0-9a-f-]{36}\\.png$`))
+  })
+  it("throws when the user or thread id is not a UUID", () => {
+    expect(() => buildAttachmentPath("u1", T1, "png")).toThrow()
+    expect(() => buildAttachmentPath(U1, "../x", "png")).toThrow()
   })
 })
 
 describe("storeThreadAttachment", () => {
   it("uploads a valid image with the sniffed content type and no upsert", async () => {
     const { db, upload, from } = fakeDb()
-    const r = await storeThreadAttachment(db, { userId: "u1", threadId: "t1", file: file(PNG, "my secret name.png") })
+    const r = await storeThreadAttachment(db, { userId: U1, threadId: T1, file: file(PNG, "my secret name.png") })
     expect(r).toHaveProperty("path")
     expect(from).toHaveBeenCalledWith(SUPPORT_ATTACHMENT_BUCKET)
     const [path, , opts] = upload.mock.calls[0]
-    expect(path).toMatch(/^threads\/u1\/t1\//)
+    expect(path).toMatch(new RegExp(`^threads/${U1}/${T1}/`))
     expect(path).not.toContain("secret")
     expect(opts).toEqual({ contentType: "image/png", upsert: false })
     expect((r as any).path).toBe(path)
   })
   it("rejects HTML declared as image/png without uploading", async () => {
     const { db, upload } = fakeDb()
-    const r = await storeThreadAttachment(db, { userId: "u1", threadId: "t1", file: file(text("<html>alert(1)</html>")) })
+    const r = await storeThreadAttachment(db, { userId: U1, threadId: T1, file: file(text("<html>alert(1)</html>")) })
     expect(r).toEqual({ error: "not_image" })
     expect(upload).not.toHaveBeenCalled()
   })
@@ -64,7 +71,7 @@ describe("storeThreadAttachment", () => {
     const { db, upload } = fakeDb()
     const big = file(new Uint8Array(SUPPORT_ATTACHMENT_MAX_BYTES + 1))
     const spy = vi.spyOn(big, "arrayBuffer")
-    expect(await storeThreadAttachment(db, { userId: "u1", threadId: "t1", file: big })).toEqual({ error: "too_large" })
+    expect(await storeThreadAttachment(db, { userId: U1, threadId: T1, file: big })).toEqual({ error: "too_large" })
     expect(spy).not.toHaveBeenCalled()
     expect(upload).not.toHaveBeenCalled()
   })
@@ -72,15 +79,28 @@ describe("storeThreadAttachment", () => {
     const { db } = fakeDb()
     const bytes = new Uint8Array(SUPPORT_ATTACHMENT_MAX_BYTES)
     bytes.set(JPEG)
-    expect(await storeThreadAttachment(db, { userId: "u1", threadId: "t1", file: file(bytes, "a.jpg", "image/jpeg") })).toHaveProperty("path")
+    expect(await storeThreadAttachment(db, { userId: U1, threadId: T1, file: file(bytes, "a.jpg", "image/jpeg") })).toHaveProperty("path")
   })
   it("reports upload_failed on a storage error", async () => {
     const { db } = fakeDb({ uploadError: { message: "nope" } })
-    expect(await storeThreadAttachment(db, { userId: "u1", threadId: "t1", file: file(PNG) })).toEqual({ error: "upload_failed" })
+    expect(await storeThreadAttachment(db, { userId: U1, threadId: T1, file: file(PNG) })).toEqual({ error: "upload_failed" })
+  })
+  it("reports upload_failed when reading the file throws", async () => {
+    const { db, upload } = fakeDb()
+    const f = file(PNG)
+    vi.spyOn(f, "arrayBuffer").mockRejectedValue(new Error("read failed"))
+    expect(await storeThreadAttachment(db, { userId: U1, threadId: T1, file: f })).toEqual({ error: "upload_failed" })
+    expect(upload).not.toHaveBeenCalled()
+  })
+  it("reports upload_failed, without uploading, when an id is not a UUID", async () => {
+    const { db, upload } = fakeDb()
+    expect(await storeThreadAttachment(db, { userId: "u1", threadId: T1, file: file(PNG) })).toEqual({ error: "upload_failed" })
+    expect(await storeThreadAttachment(db, { userId: U1, threadId: "t1", file: file(PNG) })).toEqual({ error: "upload_failed" })
+    expect(upload).not.toHaveBeenCalled()
   })
   it("reports upload_failed when storage throws", async () => {
     const db: any = { storage: { from: () => ({ upload: () => Promise.reject(new Error("x")) }) } }
-    expect(await storeThreadAttachment(db, { userId: "u1", threadId: "t1", file: file(PNG) })).toEqual({ error: "upload_failed" })
+    expect(await storeThreadAttachment(db, { userId: U1, threadId: T1, file: file(PNG) })).toEqual({ error: "upload_failed" })
   })
 })
 

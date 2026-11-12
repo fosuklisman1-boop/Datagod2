@@ -56,7 +56,7 @@ export function runAfterResponse(task: () => Promise<void>): void {
   try {
     after(task)
   } catch {
-    void task().catch(() => {
+    void Promise.resolve().then(task).catch(() => {
       console.error("[SUPPORT] deferred task failed")
     })
   }

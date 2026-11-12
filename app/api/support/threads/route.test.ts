@@ -6,13 +6,17 @@ const h = vi.hoisted(() => ({
   client: null as any,
   rateAllowed: true,
   store: vi.fn(),
+  remove: vi.fn(),
   alert: vi.fn(),
   notify: vi.fn(),
 }))
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => new Proxy({}, { get: (_t, k) => h.client[k] }) }))
 vi.mock("@/lib/support-rate-limit", () => ({ checkSupportRateLimit: vi.fn(async () => ({ allowed: h.rateAllowed })) }))
-vi.mock("@/lib/support-attachment", () => ({ storeThreadAttachment: (...a: any[]) => h.store(...a) }))
+vi.mock("@/lib/support-attachment", () => ({
+  storeThreadAttachment: (...a: any[]) => h.store(...a),
+  removeAttachments: (...a: any[]) => h.remove(...a),
+}))
 vi.mock("@/lib/support-notify", () => ({
   alertAdminsNewThread: (...a: any[]) => h.alert(...a),
   notifyUserSupportEvent: (...a: any[]) => h.notify(...a),
@@ -74,6 +78,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   h.rateAllowed = true
   h.store.mockReset()
+  h.remove.mockReset().mockResolvedValue(undefined)
   h.alert.mockReset().mockResolvedValue(undefined)
   h.notify.mockReset().mockResolvedValue(undefined)
   install()
@@ -195,6 +200,22 @@ describe("POST /api/support/threads", () => {
     expect(h.store).not.toHaveBeenCalled()
   })
 
+  it("logs ids only when the compensating thread delete also fails", async () => {
+    install((c) => {
+      if (c.table === "support_messages" && c.op === "insert") return { error: { message: "boom secret-detail" } }
+      if (c.table === "support_threads" && c.op === "delete") return { error: { message: "delete failed secret-detail" } }
+      return undefined
+    })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await POST(req(valid))
+    expect(res.status).toBe(500)
+    const logged = spy.mock.calls.find((a) => String(a[0]).includes("compensating"))
+    expect(logged).toBeDefined()
+    expect(logged![1]).toEqual({ userId: CALLER, threadId: THREAD })
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("secret-detail")
+    spy.mockRestore()
+  })
+
   it("500 on an unexpected throw, generic message", async () => {
     install((c) => {
       if (c.table === "support_threads" && c.op === "insert") throw new Error("kaboom")
@@ -250,6 +271,25 @@ describe("POST /api/support/threads", () => {
     const res = await POST(req(null, "good", formWith(file)))
     expect(res.status).toBe(201)
     expect((await res.json()).data.attachment_saved).toBe(false)
+  })
+
+  it("removes the uploaded file when the attachment path update fails, so no orphan stays", async () => {
+    const path = `threads/${CALLER}/${THREAD}/abc.png`
+    h.store.mockResolvedValue({ path })
+    install((c) =>
+      c.table === "support_messages" && c.op === "update" ? { error: { message: "x" } } : undefined,
+    )
+    const file = new File([new Uint8Array([0x89, 0x50])], "x.png", { type: "image/png" })
+    await POST(req(null, "good", formWith(file)))
+    expect(h.remove).toHaveBeenCalledTimes(1)
+    expect(h.remove.mock.calls[0][1]).toEqual([path])
+  })
+
+  it("does not remove the file when the path update succeeds", async () => {
+    h.store.mockResolvedValue({ path: `threads/${CALLER}/${THREAD}/abc.png` })
+    const file = new File([new Uint8Array([0x89, 0x50])], "x.png", { type: "image/png" })
+    await POST(req(null, "good", formWith(file)))
+    expect(h.remove).not.toHaveBeenCalled()
   })
 
   it("an empty file field is ignored (attachment_saved null)", async () => {

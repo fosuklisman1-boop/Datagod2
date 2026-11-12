@@ -52,6 +52,16 @@ describe("GET /api/cron/delete-old-complaints", () => {
     expect(vi.mocked(deleteOldSupportData).mock.calls[0][2]).toEqual({ dryRun: false })
   })
 
+  it.each(["?dry=0&dry=1", "?dry=1&dry=0", "?dry=false&dry=", "?dry=0&dry=false&dry=x"])("%s is a dry run when any value is not 0/false", async (qs) => {
+    await get(qs)
+    expect(vi.mocked(deleteOldSupportData).mock.calls[0][2]).toEqual({ dryRun: true })
+  })
+
+  it("?dry=0&dry=false runs for real", async () => {
+    await get("?dry=0&dry=false")
+    expect(vi.mocked(deleteOldSupportData).mock.calls[0][2]).toEqual({ dryRun: false })
+  })
+
   it("500 generic when the cleanup throws", async () => {
     vi.mocked(deleteOldSupportData).mockRejectedValueOnce(new Error("secret detail"))
     const res = await get()

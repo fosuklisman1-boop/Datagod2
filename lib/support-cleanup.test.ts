@@ -88,7 +88,60 @@ describe("deleteOldSupportData", () => {
     expect(h.removed.flat().sort()).toEqual(["u/b.jpg", "u/m.png", "u/r.png"])
   })
 
-  it("collects message attachment paths for closed threads and removes them before the rows are deleted", async () => {
+  it("keeps the files of a thread that reopened between select and delete; removes files of deleted ones", async () => {
+    const t: Tables = {
+      support_threads: [thread("t-1", "closed", 100), thread("t-2", "closed", 100)],
+      support_messages: [
+        { id: "m1", thread_id: "t-1", attachment_path: "threads/u/t-1/a.png" },
+        { id: "m2", thread_id: "t-2", attachment_path: "threads/u/t-2/b.png" },
+      ],
+      complaints: [],
+    }
+    let flipped = false
+    const fake = sim(t, [], (table, tb) => {
+      if (table === "support_threads" && !flipped) {
+        flipped = true
+        tb.support_threads.find((r) => r.id === "t-1")!.status = "open"
+      }
+    })
+    await deleteOldSupportData(fake.db as any, NOW)
+    expect(h.removed.flat()).toEqual(["threads/u/t-2/b.png"])
+  })
+
+  it("keeps the evidence of a complaint that went back to pending between select and delete", async () => {
+    const t: Tables = {
+      support_threads: [],
+      support_messages: [],
+      complaints: [
+        complaint("c-1", "resolved", 100, { balance_image_path: "u/keep.jpg" }),
+        complaint("c-2", "resolved", 100, { balance_image_path: "u/gone.jpg" }),
+      ],
+    }
+    let flipped = false
+    const fake = sim(t, [], (table, tb) => {
+      if (table === "complaints" && !flipped) {
+        flipped = true
+        tb.complaints.find((r) => r.id === "c-1")!.status = "pending"
+      }
+    })
+    await deleteOldSupportData(fake.db as any, NOW)
+    expect(h.removed.flat()).toEqual(["u/gone.jpg"])
+  })
+
+  it("a storage failure after the delete does not stop the loop", async () => {
+    const t: Tables = {
+      support_threads: Array.from({ length: 250 }, (_, i) => thread(`t-${pad(i)}`, "closed", 100)),
+      support_messages: [{ id: "m1", thread_id: "t-0001", attachment_path: "threads/a.png" }],
+      complaints: [],
+    }
+    const { removeAttachments } = await import("@/lib/support-attachment")
+    vi.mocked(removeAttachments).mockRejectedValueOnce(new Error("storage down"))
+    const res = await deleteOldSupportData(sim(t).db as any, NOW)
+    expect(res.closedThreads).toBe(250)
+    expect(t.support_threads).toHaveLength(0)
+  })
+
+  it("collects message attachment paths for closed threads and removes them after the rows are deleted", async () => {
     const order: string[] = []
     const t: Tables = {
       support_threads: [thread("t-1", "closed", 100)],
@@ -105,7 +158,7 @@ describe("deleteOldSupportData", () => {
       order.push(`remove:${paths.join(",")}:threadsLeft=${t.support_threads.length}`)
     })
     const res = await deleteOldSupportData(fake.db as any, NOW)
-    expect(order).toEqual(["remove:threads/u/t-1/a.png:threadsLeft=1"])
+    expect(order).toEqual(["remove:threads/u/t-1/a.png:threadsLeft=0"])
     expect(res).toMatchObject({ closedThreads: 1, filesRemoved: 1 })
     expect(t.support_threads).toHaveLength(0)
   })

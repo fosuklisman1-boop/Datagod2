@@ -64,6 +64,14 @@ describe("loadSupportOrders", () => {
     expect(calls.filter((c) => c.table === "orders")).toHaveLength(3)
   })
 
+  it("orders the tracking query newest first and caps it at 2000 rows per chunk", async () => {
+    const { db, calls } = makeFakeDb((c) => (c.table === "orders" ? { data: [{ id: "o1", status: "completed" }] } : { data: [] }))
+    await loadSupportOrders(db as any, [{ id: "t1", order_id: "o1", shop_order_id: null }])
+    const tracking = calls.find((c) => c.table === "mtn_fulfillment_tracking")!
+    expect(tracking.orders).toEqual([["created_at", { ascending: false }]])
+    expect(tracking.limitN).toBe(2000)
+  })
+
   it("issues at most four queries when everything fits one chunk", async () => {
     const { db, calls } = makeFakeDb((c) => (c.table === "shop_orders" ? { data: [{ id: "s1", shop_id: "sh1" }] } : { data: [] }))
     await loadSupportOrders(db as any, [

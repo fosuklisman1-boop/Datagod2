@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
   if (!authorized) return errorResponse!
 
   // Fail safe: any `dry` value except an explicit "0" / "false" means dry run.
-  const dryParam = request.nextUrl.searchParams.get("dry")
-  const dryRun = dryParam !== null && !["0", "false"].includes(dryParam.trim().toLowerCase())
+  // Every repeated `dry` value is read; one non-"0"/"false" value is enough.
+  const dryRun = request.nextUrl.searchParams.getAll("dry").some((v) => !["0", "false"].includes(v.trim().toLowerCase()))
   try {
     const { closedThreads, legacyComplaints, filesRemoved, errors = 0 } = await deleteOldSupportData(supabase, new Date(), { dryRun })
     console.log("[SUPPORT-CLEANUP] done", { dryRun, closedThreads, legacyComplaints, filesRemoved, errors })

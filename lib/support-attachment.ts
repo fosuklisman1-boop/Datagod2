@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { isUuid } from "@/lib/support-validation"
 
 export const SUPPORT_ATTACHMENT_BUCKET = "complaint-evidence"
 export const SUPPORT_ATTACHMENT_MAX_BYTES = 4 * 1024 * 1024
@@ -20,6 +21,7 @@ export function sniffImage(bytes: Uint8Array): SniffedImage | null {
 
 /** Storage path built from ids and a random name; the uploader's file name is never used. */
 export function buildAttachmentPath(userId: string, threadId: string, ext: SniffedImage["ext"]): string {
+  if (!isUuid(userId) || !isUuid(threadId)) throw new Error("attachment path needs UUID ids")
   return `threads/${userId}/${threadId}/${crypto.randomUUID()}.${ext}`
 }
 
@@ -29,12 +31,24 @@ export async function storeThreadAttachment(
 ): Promise<{ path: string } | { error: "too_large" | "not_image" | "upload_failed" }> {
   const { userId, threadId, file } = args
   if (file.size > SUPPORT_ATTACHMENT_MAX_BYTES) return { error: "too_large" }
-  const bytes = new Uint8Array(await file.arrayBuffer())
+  let bytes: Uint8Array
+  try {
+    bytes = new Uint8Array(await file.arrayBuffer())
+  } catch {
+    console.error("[SUPPORT] attachment read failed", { userId, threadId })
+    return { error: "upload_failed" }
+  }
   // Re-check on the real bytes in case the declared size was wrong.
   if (bytes.byteLength > SUPPORT_ATTACHMENT_MAX_BYTES) return { error: "too_large" }
   const sniffed = sniffImage(bytes)
   if (!sniffed) return { error: "not_image" }
-  const path = buildAttachmentPath(userId, threadId, sniffed.ext)
+  let path: string
+  try {
+    path = buildAttachmentPath(userId, threadId, sniffed.ext)
+  } catch {
+    console.error("[SUPPORT] attachment path rejected", { userId, threadId })
+    return { error: "upload_failed" }
+  }
   try {
     const { error } = await db.storage.from(SUPPORT_ATTACHMENT_BUCKET).upload(path, bytes, { contentType: sniffed.mime, upsert: false })
     if (error) {

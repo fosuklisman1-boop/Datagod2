@@ -111,7 +111,7 @@ export async function loadSupportOrders(
       .map((ids, i) => (ids.length ? `${i === 0 ? "order_id" : "shop_order_id"}.in.(${ids.join(",")})` : null))
       .filter(Boolean)
       .join(",")
-    const { data, error } = await db.from("mtn_fulfillment_tracking").select("provider, created_at, order_id, shop_order_id").or(clauses)
+    const { data, error } = await db.from("mtn_fulfillment_tracking").select("provider, created_at, order_id, shop_order_id").or(clauses).order("created_at", { ascending: false }).limit(2000)
     if (error) throw new Error("tracking lookup failed")
     tracking.push(...((data ?? []) as TrackingRow[]))
   }
@@ -162,6 +162,7 @@ export async function loadAdminThreadList(
   const lastMessage = new Map<string, AdminThreadRow["last_message"]>()
   const unread = new Map<string, number>()
   for (const part of chunks(ids)) {
+    // Capped at MESSAGE_CAP: on a very busy inbox the oldest threads in a chunk can have their unread count undercounted.
     // Newest first, so the first row seen per thread is its last message.
     const { data: msgs, error: msgError } = await db
       .from("support_messages")

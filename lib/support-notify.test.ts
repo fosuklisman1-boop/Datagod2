@@ -88,9 +88,24 @@ describe("runAfterResponse", () => {
     await Promise.resolve()
     expect(task).toHaveBeenCalledTimes(1)
   })
-  it("swallows a rejection from the detached fallback", async () => {
+  it("swallows a rejection from the detached fallback and logs it", async () => {
     after.mockImplementation(() => { throw new Error("x") })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     expect(() => runAfterResponse(() => Promise.reject(new Error("task failed")))).not.toThrow()
     await new Promise((r) => setTimeout(r, 0))
+    expect(spy).toHaveBeenCalledWith("[SUPPORT] deferred task failed")
+    spy.mockRestore()
+  })
+  it("swallows a task that throws synchronously in the fallback and logs it", async () => {
+    after.mockImplementation(() => { throw new Error("x") })
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(() =>
+      runAfterResponse((() => {
+        throw new Error("sync boom")
+      }) as () => Promise<void>),
+    ).not.toThrow()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(spy).toHaveBeenCalledWith("[SUPPORT] deferred task failed")
+    spy.mockRestore()
   })
 })

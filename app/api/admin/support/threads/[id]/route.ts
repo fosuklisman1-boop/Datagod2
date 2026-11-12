@@ -157,15 +157,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // close
     if (thread.status !== "open") return fail("This complaint is already closed", 409)
-    if (action.note) {
-      const { error: noteError } = await db
-        .from("support_messages")
-        .insert({ thread_id: id, sender_role: "admin", sender_id: adminId, body: action.note })
-      if (noteError) {
-        console.error("[SUPPORT] closing note insert failed", { adminId, threadId: id })
-        return fail(GENERIC, 500)
-      }
-    }
     // The status guard makes two concurrent closes safe: only one gets a row back.
     const { data: closed, error: closeError } = await db
       .from("support_threads")
@@ -178,6 +169,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return fail(GENERIC, 500)
     }
     if (!Array.isArray(closed) || closed.length === 0) return fail("This complaint is already closed", 409)
+    // Only the close that won leaves a note. A note that fails to save never undoes the close.
+    if (action.note) {
+      const { error: noteError } = await db
+        .from("support_messages")
+        .insert({ thread_id: id, sender_role: "admin", sender_id: adminId, body: action.note })
+      if (noteError) console.error("[SUPPORT] closing note insert failed", { adminId, threadId: id })
+    }
     runAfterResponse(() => notifyUserSupportEvent(db, thread.user_id, "closed", id))
     return NextResponse.json({ success: true, data: { ok: true } })
   } catch {

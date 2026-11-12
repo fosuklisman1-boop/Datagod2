@@ -3,7 +3,7 @@ import { getSupportDb, getSupportUser } from "@/lib/support-auth"
 import { createThreadSchema } from "@/lib/support-validation"
 import { checkSupportRateLimit } from "@/lib/support-rate-limit"
 import { callerOwnsOrder, callerOwnsShopOrder } from "@/lib/support-ownership"
-import { storeThreadAttachment } from "@/lib/support-attachment"
+import { removeAttachments, storeThreadAttachment } from "@/lib/support-attachment"
 import { alertAdminsNewThread, notifyUserSupportEvent, runAfterResponse } from "@/lib/support-notify"
 
 export const dynamic = "force-dynamic"
@@ -79,7 +79,8 @@ export async function POST(request: NextRequest) {
       .single()
     if (messageError || !message) {
       console.error("[SUPPORT] first message insert failed", { userId, threadId })
-      await db.from("support_threads").delete().eq("id", threadId).eq("user_id", userId)
+      const { error: cleanupError } = await db.from("support_threads").delete().eq("id", threadId).eq("user_id", userId)
+      if (cleanupError) console.error("[SUPPORT] compensating thread delete failed", { userId, threadId })
       return fail("Something went wrong. Please try again.", 500)
     }
 
@@ -93,8 +94,11 @@ export async function POST(request: NextRequest) {
           .update({ attachment_path: stored.path })
           .eq("id", message.id)
           .eq("thread_id", threadId)
-        if (error) console.error("[SUPPORT] attachment path update failed", { userId, threadId })
-        else attachmentSaved = true
+        if (error) {
+          console.error("[SUPPORT] attachment path update failed", { userId, threadId })
+          // The file is uploaded but no row points at it: remove it so no orphan stays.
+          await removeAttachments(db, [stored.path])
+        } else attachmentSaved = true
       }
     }
 

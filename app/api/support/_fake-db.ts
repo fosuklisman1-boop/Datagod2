@@ -9,6 +9,8 @@ export type FakeCall = {
   selectOpts?: any
   /** Last argument given to limit(). */
   limitN?: number
+  /** Every order() call as [column, options]. */
+  orders?: [string, unknown][]
 }
 export type FakeResult = { data?: any; error?: { message: string } | null; count?: number | null }
 
@@ -34,7 +36,7 @@ export function makeFakeDb(handler: (call: FakeCall) => FakeResult | undefined) 
       gt: (c: string, v: unknown) => { call.filters.push([`${c}:gt`, v]); return b },
       not: (c: string, op: string, v: unknown) => { call.filters.push([`${c}:not.${op}`, v]); return b },
       is: (c: string, v: unknown) => { call.filters.push([`${c}:is`, v]); return b },
-      order: () => b,
+      order: (c?: string, o?: unknown) => { (call.orders ??= []).push([c as string, o]); return b },
       limit: (n: number) => { call.limitN = n; return b },
       maybeSingle: run,
       single: run,

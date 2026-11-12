@@ -49,13 +49,14 @@ export async function checkSupportRateLimit(
   userId: string,
 ): Promise<{ allowed: boolean }> {
   const { max, windowMs } = LIMITS[kind]
-  let result: { allowed: boolean; degraded?: boolean } | null = null
+  let result: { allowed?: unknown; degraded?: unknown } | null = null
   try {
     result = await applyRateLimit(request, `support_${kind}`, max, windowMs, userId)
   } catch (e) {
     console.error("[SUPPORT] rate limiter threw, using memory fallback", { kind })
   }
-  if (result && !result.degraded) return { allowed: result.allowed }
+  // Trust the shared verdict only when it explicitly says it is healthy and gives a real boolean.
+  if (result && result.degraded === false && typeof result.allowed === "boolean") return { allowed: result.allowed }
   sweepExpired()
   return { allowed: memoryAllows(kind, userId) }
 }

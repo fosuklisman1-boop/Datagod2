@@ -22,6 +22,19 @@ describe("checkSupportRateLimit", () => {
     expect(applyRateLimit).toHaveBeenCalledWith(req, "support_message_send", 10, 60_000, "u1")
   })
 
+  it("does not trust a result whose degraded flag is missing or whose allowed is not a boolean", async () => {
+    applyRateLimit.mockResolvedValue({ allowed: true })
+    const results = []
+    for (let i = 0; i < 4; i++) results.push((await checkSupportRateLimit(req, "thread_create", "u1")).allowed)
+    expect(results).toEqual([true, true, true, false])
+
+    __resetSupportRateLimitMemory()
+    applyRateLimit.mockResolvedValue({ allowed: "yes", degraded: false })
+    const second = []
+    for (let i = 0; i < 4; i++) second.push((await checkSupportRateLimit(req, "thread_create", "u1")).allowed)
+    expect(second).toEqual([true, true, true, false])
+  })
+
   it("refuses when the healthy limiter refuses", async () => {
     applyRateLimit.mockResolvedValue({ allowed: false, remaining: 0, resetAt: 0, degraded: false })
     expect(await checkSupportRateLimit(req, "message_send", "u1")).toEqual({ allowed: false })

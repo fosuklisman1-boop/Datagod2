@@ -134,11 +134,11 @@ describe("POST /threads/[id]", () => {
     expect(notifyUserSupportEvent).toHaveBeenCalledWith(expect.anything(), OWNER, "replied", THREAD)
   })
 
-  it("close with a note inserts the note before the guarded update, then notifies the owner", async () => {
+  it("close with a note runs the guarded update first, then inserts the note, then notifies the owner", async () => {
     const res = await post({ action: "close", note: "Resolved, thanks", user_id: OTHER })
     expect(res.status).toBe(200)
     const order = fake.calls.map((c) => `${c.table}:${c.op}`)
-    expect(order.indexOf("support_messages:insert")).toBeLessThan(order.lastIndexOf("support_threads:update"))
+    expect(order.indexOf("support_threads:update")).toBeLessThan(order.indexOf("support_messages:insert"))
     const upd = fake.calls.find((c) => c.table === "support_threads" && c.op === "update")!
     expect(upd.payload).toMatchObject({ status: "closed", closed_by: ADMIN })
     expect(upd.filters).toContainEqual(["id", THREAD])
@@ -160,6 +160,28 @@ describe("POST /threads/[id]", () => {
     expect(res.status).toBe(409)
     expect((await res.json()).error).toBe("This complaint is already closed")
     expect(notifyUserSupportEvent).not.toHaveBeenCalled()
+  })
+
+  it("a close that loses the race inserts no closing note", async () => {
+    install({ id: THREAD, user_id: OWNER, status: "open" }, (c) =>
+      c.table === "support_threads" && c.op === "update" ? { data: [] } : undefined,
+    )
+    const res = await post({ action: "close", note: "Resolved, thanks" })
+    expect(res.status).toBe(409)
+    expect(fake.calls.some((c) => c.table === "support_messages" && c.op === "insert")).toBe(false)
+  })
+
+  it("a failed closing-note insert after a successful close still succeeds and logs ids only", async () => {
+    install({ id: THREAD, user_id: OWNER, status: "open" }, (c) =>
+      c.table === "support_messages" && c.op === "insert" ? { error: { message: "secret detail" } } : undefined,
+    )
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await post({ action: "close", note: "Resolved, thanks" })
+    expect(res.status).toBe(200)
+    expect(notifyUserSupportEvent).toHaveBeenCalledWith(expect.anything(), OWNER, "closed", THREAD)
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("Resolved")
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("secret")
+    spy.mockRestore()
   })
 
   it("read marks only the thread's unread user messages", async () => {
