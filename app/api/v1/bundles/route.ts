@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { classifyServiceError } from "@/lib/api-v1-errors"
@@ -18,7 +19,9 @@ export const maxDuration = 60
 export const dynamic = "force-dynamic"
 
 /** GET /api/v1/bundles?network=MTN|TELECEL|AT */
-export async function GET(request: NextRequest) {
+export const GET = withV1Retirement("GET /api/v1/bundles", v1GET)
+
+async function v1GET(request: NextRequest) {
   const start = Date.now()
   const user = await authenticateApiKey(request)
   if (!user) return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })
@@ -68,7 +71,9 @@ export async function GET(request: NextRequest) {
 }
 
 /** POST /api/v1/bundles  { bundle_token, phone, idempotency_key, expected_pay? } */
-export async function POST(request: NextRequest) {
+export const POST = withV1Retirement("POST /api/v1/bundles", v1POST)
+
+async function v1POST(request: NextRequest) {
   const start = Date.now()
   const user = await authenticateApiKey(request)
   if (!user) return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })

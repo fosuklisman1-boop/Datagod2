@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { purchaseAirtime } from "@/lib/airtime-service"
@@ -18,7 +19,9 @@ const ALLOWED_NETWORKS = ["MTN", "AirtelTigo", "AT", "Telecel"]
 /**
  * GET /api/v1/airtime?reference=<ref>
  */
-export async function GET(request: NextRequest) {
+export const GET = withV1Retirement("GET /api/v1/airtime", v1GET)
+
+async function v1GET(request: NextRequest) {
   const start = Date.now()
 
   const user = await authenticateApiKey(request)
@@ -83,7 +86,9 @@ export async function GET(request: NextRequest) {
  * POST /api/v1/airtime
  * Body: { network: "MTN"|"AirtelTigo"|"Telecel", recipient: string, amount: number, pay_separately?: boolean }
  */
-export async function POST(request: NextRequest) {
+export const POST = withV1Retirement("POST /api/v1/airtime", v1POST)
+
+async function v1POST(request: NextRequest) {
   const start = Date.now()
 
   const user = await authenticateApiKey(request)

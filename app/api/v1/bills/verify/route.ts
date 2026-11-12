@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { classifyServiceError } from "@/lib/api-v1-errors"
@@ -12,7 +13,9 @@ import { parseVerifyBody, sandboxVerify, verifyResponse } from "@/lib/api-v1/bil
  * POST /api/v1/bills/verify
  * Body: { biller, account?, phone?, email?, broadband_account?, meter_type?, add_meter?, consent? }
  */
-export async function POST(request: NextRequest) {
+export const POST = withV1Retirement("POST /api/v1/bills/verify", v1POST)
+
+async function v1POST(request: NextRequest) {
   const start = Date.now()
   const user = await authenticateApiKey(request)
   if (!user) {

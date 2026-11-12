@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { resetSandboxBalance, SANDBOX_STARTING_BALANCE } from "@/lib/sandbox"
 
@@ -9,7 +10,9 @@ import { resetSandboxBalance, SANDBOX_STARTING_BALANCE } from "@/lib/sandbox"
  * starting credit -- for when a test suite has drained it. Has no real
  * effect on a live key.
  */
-export async function POST(request: NextRequest) {
+export const POST = withV1Retirement("POST /api/v1/sandbox/reset-balance", v1POST)
+
+async function v1POST(request: NextRequest) {
   const start = Date.now()
 
   const user = await authenticateApiKey(request)

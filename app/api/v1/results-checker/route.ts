@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { purchaseResultsCheckerVouchers, isValidExamBoard, isExamBoardEnabled, getMaxQuantity, calculateRCPrice } from "@/lib/results-checker-service"
@@ -17,7 +18,9 @@ const supabase = createClient(
 /**
  * GET /api/v1/results-checker?reference=<reference_code>
  */
-export async function GET(request: NextRequest) {
+export const GET = withV1Retirement("GET /api/v1/results-checker", v1GET)
+
+async function v1GET(request: NextRequest) {
   const start = Date.now()
 
   const user = await authenticateApiKey(request)
@@ -82,7 +85,9 @@ export async function GET(request: NextRequest) {
  * POST /api/v1/results-checker
  * Body: { exam_board: "WASSCE"|"BECE"|"NOVDEC", quantity: number }
  */
-export async function POST(request: NextRequest) {
+export const POST = withV1Retirement("POST /api/v1/results-checker", v1POST)
+
+async function v1POST(request: NextRequest) {
   const start = Date.now()
 
   const user = await authenticateApiKey(request)

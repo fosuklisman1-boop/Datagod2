@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { getSandboxBalance } from "@/lib/sandbox"
@@ -13,7 +14,9 @@ const supabase = createClient(
  * GET /api/v1/balance
  * Returns the authenticated user's wallet balance
  */
-export async function GET(request: NextRequest) {
+export const GET = withV1Retirement("GET /api/v1/balance", v1GET)
+
+async function v1GET(request: NextRequest) {
   const start = Date.now()
 
   // Authenticate first — rate limit keyed to user ID not IP

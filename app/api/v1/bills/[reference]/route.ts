@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { classifyServiceError } from "@/lib/api-v1-errors"
 import { getSandboxOrder } from "@/lib/sandbox"
@@ -14,7 +15,9 @@ const supabase = createClient(
 /**
  * GET /api/v1/bills/{reference} -- only the key owner's own order.
  */
-export async function GET(request: NextRequest, { params }: { params: Promise<{ reference: string }> }) {
+export const GET = withV1Retirement("GET /api/v1/bills/[reference]", v1GET)
+
+async function v1GET(request: NextRequest, { params }: { params: Promise<{ reference: string }> }) {
   const start = Date.now()
   const user = await authenticateApiKey(request)
   if (!user) {

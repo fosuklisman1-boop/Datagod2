@@ -42,7 +42,20 @@ export function generateApiKey(environment: "test" | "live"): { key: string; pre
  * Returns the authenticated user (with which environment their key belongs
  * to) or null.
  */
-export async function authenticateApiKey(request: NextRequest): Promise<ApiUser | null> {
+export function authenticateApiKey(request: NextRequest): Promise<ApiUser | null> {
+  // Memoised per request object so the v1 retirement wrapper and the route
+  // handler share a single DB lookup.
+  let p = authMemo.get(request)
+  if (!p) {
+    p = authenticateApiKeyUncached(request)
+    authMemo.set(request, p)
+  }
+  return p
+}
+
+const authMemo = new WeakMap<object, Promise<ApiUser | null>>()
+
+async function authenticateApiKeyUncached(request: NextRequest): Promise<ApiUser | null> {
   const apiKey = request.headers.get("X-API-Key") || request.headers.get("x-api-key")
   if (!apiKey || !(apiKey.startsWith("dg_live_") || apiKey.startsWith("dg_test_"))) {
     return null

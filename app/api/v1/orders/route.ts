@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { createMTNOrder, saveMTNTracking, normalizePhoneNumber, isAutoFulfillmentEnabled as isMTNAutoEnabled } from "@/lib/mtn-fulfillment"
@@ -17,7 +18,9 @@ const supabase = createClient(
  * GET /api/v1/orders?reference=<ref>
  * Check order status by reference
  */
-export async function GET(request: NextRequest) {
+export const GET = withV1Retirement("GET /api/v1/orders", v1GET)
+
+async function v1GET(request: NextRequest) {
   const start = Date.now()
 
   const user = await authenticateApiKey(request)
@@ -94,7 +97,9 @@ export async function GET(request: NextRequest) {
  * POST /api/v1/orders
  * Place a new data order
  */
-export async function POST(request: NextRequest) {
+export const POST = withV1Retirement("POST /api/v1/orders", v1POST)
+
+async function v1POST(request: NextRequest) {
   const start = Date.now()
 
   const user = await authenticateApiKey(request)
