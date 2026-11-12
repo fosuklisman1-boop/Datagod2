@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { generateApiKey } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { getV1RetirementConfig, formatGhanaDate } from "@/lib/api-v1/retirement"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,7 +37,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch API keys" }, { status: 500 })
   }
 
-  return NextResponse.json({ keys })
+  const cfg = await getV1RetirementConfig()
+  return NextResponse.json({
+    keys,
+    retirement: {
+      sunset_at: cfg?.sunsetAt ? cfg.sunsetAt.toISOString() : null,
+      exempt: !!cfg?.exemptUserIds.includes(sessionUser.id),
+    },
+  })
 }
 
 /**
@@ -73,6 +81,19 @@ export async function POST(request: NextRequest) {
   const environment = body.environment === "test" ? "test" : body.environment === "live" ? "live" : null
   if (!environment) {
     return NextResponse.json({ error: "environment must be 'test' or 'live'" }, { status: 400 })
+  }
+
+  // v1 retirement: once a sunset is scheduled, no new v1 keys (exempt users
+  // included). Must run BEFORE the deactivate below so a refused request never
+  // revokes the user's working key.
+  const retirement = await getV1RetirementConfig()
+  if (retirement?.sunsetAt) {
+    return NextResponse.json(
+      {
+        error: `API v1 key creation has ended. v1 will be retired on ${formatGhanaDate(retirement.sunsetAt)}. Create a v2 key on the Developer page: https://www.datagod.store/developers`,
+      },
+      { status: 410 }
+    )
   }
 
   // Deactivate any existing active key for this environment -- generating a
