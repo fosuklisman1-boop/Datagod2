@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { nextNavVisible } from "@/lib/scroll-direction"
+import { nextNavVisible, shouldForceNavVisible } from "@/lib/scroll-direction"
 import { usePathname } from "next/navigation"
 import { Home, Package, Wallet, ShoppingBag, Store, User, Users, CreditCard, Bot, Signal, Smartphone } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -36,6 +36,8 @@ export function BottomNav() {
   const { isDealer, isAdmin, isSubAgent } = useUserRole()
   const domainBranding = useDomainBranding()
   const [navVisible, setNavVisible] = useState(true)
+  const stateRef = useRef({ visible: true, anchorY: 0 })
+  const forceVisibleRef = useRef<(() => void) | null>(null)
 
   // Auto-hide on scroll down, show on scroll up. The dashboard page scrolls
   // inside <main data-scroll-container="dashboard">, not window; fall back to
@@ -50,28 +52,49 @@ export function BottomNav() {
         ? container.scrollHeight - container.clientHeight > 1
         : document.documentElement.scrollHeight - window.innerHeight > 1
 
-    let state = { visible: true, anchorY: readY() }
+    const commit = (visible: boolean, anchorY: number) => {
+      stateRef.current.anchorY = anchorY
+      if (stateRef.current.visible !== visible) {
+        stateRef.current.visible = visible
+        setNavVisible(visible)
+      }
+    }
+    commit(true, readY())
+
     let frame = 0
     const onScroll = () => {
       if (frame) return
       frame = requestAnimationFrame(() => {
         frame = 0
         const next = nextNavVisible({
-          visible: state.visible,
-          anchorY: state.anchorY,
+          visible: stateRef.current.visible,
+          anchorY: stateRef.current.anchorY,
           currentY: readY(),
           threshold: 10,
           topOffset: 16,
           scrollable: isScrollable(),
         })
-        state = next
-        setNavVisible(next.visible)
+        commit(next.visible, next.anchorY)
       })
     }
-    setNavVisible(true)
+    // Layout changes (accordion collapse, keyboard dismiss) can make the page
+    // non-scrollable without any scroll event; re-evaluate so the nav can't stay hidden.
+    const onResize = () => {
+      if (shouldForceNavVisible({ scrollable: isScrollable(), currentY: readY(), topOffset: 16 })) {
+        commit(true, readY())
+      }
+    }
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null
+    if (ro) {
+      ro.observe(container ?? document.documentElement)
+      if (container?.firstElementChild) ro.observe(container.firstElementChild)
+    }
+    forceVisibleRef.current = () => commit(true, readY())
     target.addEventListener("scroll", onScroll, { passive: true })
     return () => {
       target.removeEventListener("scroll", onScroll)
+      ro?.disconnect()
+      forceVisibleRef.current = null
       if (frame) cancelAnimationFrame(frame)
     }
   }, [isMobile, pathname])
@@ -140,7 +163,8 @@ export function BottomNav() {
         skin === "admin" ? "clay-dark" : "clay",
         c.bar
       )}
-      aria-hidden={!navVisible || undefined}
+      inert={!navVisible}
+      onFocus={() => forceVisibleRef.current?.()}
       style={{
         bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))",
         // Hidden: slide fully off-screen (own height + bottom offset + safe area + FAB overhang).

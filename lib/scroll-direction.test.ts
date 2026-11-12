@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest"
-import { nextNavVisible } from "./scroll-direction"
+import { nextNavVisible, shouldForceNavVisible } from "./scroll-direction"
+
+describe("shouldForceNavVisible", () => {
+  it("forces visible when not scrollable", () => {
+    expect(shouldForceNavVisible({ scrollable: false, currentY: 400, topOffset: 16 })).toBe(true)
+  })
+  it("forces visible at the top", () => {
+    expect(shouldForceNavVisible({ scrollable: true, currentY: 10, topOffset: 16 })).toBe(true)
+  })
+  it("does not force when scrolled down in a scrollable page", () => {
+    expect(shouldForceNavVisible({ scrollable: true, currentY: 400, topOffset: 16 })).toBe(false)
+  })
+})
 
 const base = { threshold: 10, topOffset: 16, scrollable: true }
 

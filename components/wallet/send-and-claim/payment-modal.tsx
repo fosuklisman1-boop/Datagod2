@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
 import { Copy, Check, Loader2, X } from "lucide-react"
 import { formatCountdownMmSs, formatPlainAmount } from "@/lib/momo-claim/view-model"
 import { WINDOW_MINUTES } from "@/lib/momo-claim/window"
@@ -52,24 +53,38 @@ export function PaymentModal({ data, onClose }: { data: PaymentModalData; onClos
     return () => clearInterval(t)
   }, [])
 
-  // Lock page scroll behind the modal; restore whatever was there on unmount.
+  // Portal target only exists on the client; render nothing until mounted.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
+  // Lock page scroll behind the modal. On dashboard pages the real scroller is
+  // <main data-scroll-container="dashboard">, not body, so lock that element
+  // (fall back to body). Restore the previous value on unmount.
   useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = "hidden"
+    const el =
+      document.querySelector<HTMLElement>('[data-scroll-container="dashboard"]') ?? document.body
+    const prev = el.style.overflow
+    el.style.overflow = "hidden"
     return () => {
-      document.body.style.overflow = prev
+      el.style.overflow = prev
     }
   }, [])
 
   const amountText = formatPlainAmount(data.amount)
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-contain bg-black/50 p-4">
+  if (!mounted) return null
+
+  // Portal to body at z-[60] so it sits above the fixed bottom nav (z-50) and is
+  // not trapped inside <main>'s stacking/overflow context.
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto overscroll-contain bg-black/50 p-4">
+      {/* Backdrop-only touch lock so drags outside the panel don't chain to the page. */}
+      <div aria-hidden="true" className="absolute inset-0 touch-none" />
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Payment details"
-        className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-card p-6 shadow-2xl"
+        className="relative max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-card p-6 shadow-2xl"
       >
         <div className="flex items-start justify-between">
           <h2 className="text-lg font-bold text-foreground">Payment details</h2>
@@ -144,6 +159,7 @@ export function PaymentModal({ data, onClose }: { data: PaymentModalData; onClos
           Close
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

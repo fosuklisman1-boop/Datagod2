@@ -11,6 +11,15 @@ export type NavVisibilityInput = {
   scrollable: boolean
 }
 
+/** True when the nav must be visible regardless of scroll direction (no scroll event needed). */
+export function shouldForceNavVisible(input: {
+  scrollable: boolean
+  currentY: number
+  topOffset: number
+}): boolean {
+  return !input.scrollable || input.currentY <= input.topOffset
+}
+
 /**
  * Decide whether a bottom nav should be visible after a scroll event.
  * Returns the new visibility and the new anchor position. Movement smaller
