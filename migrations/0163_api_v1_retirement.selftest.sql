@@ -1,11 +1,11 @@
--- 0162_api_v1_retirement.selftest.sql
+-- 0163_api_v1_retirement.selftest.sql
 --
--- NOT A MIGRATION. Self-rolling-back dry run for 0162_api_v1_retirement.sql (on a database where 0128 is applied).
+-- NOT A MIGRATION. Self-rolling-back dry run for 0163_api_v1_retirement.sql (on a database where 0128 is applied).
 --
 -- IMPORTANT: the run string must be built by CODE, never by hand or by a regex strip, and that code must ASSERT before
 -- anything is sent to production that the run string contains no COMMIT and no bare `END;` statement, and that it ends
--- with this DO block (which always RAISEs). (The 0130 incident lesson.) Build it as lib/api-v1/migration-0162.test.ts does:
---   1. 0162_api_v1_retirement.sql with BEGIN kept (and both SET LOCALs) and ONLY its final COMMIT line removed;
+-- with this DO block (which always RAISEs). (The 0130 incident lesson.) Build it as lib/api-v1/migration-0163.test.ts does:
+--   1. 0163_api_v1_retirement.sql with BEGIN kept (and both SET LOCALs) and ONLY its final COMMIT line removed;
 --   2. followed by this file from the line that STARTS (column 0) with the DO keyword onward.
 -- The DO body has no bare `END;`: the block closes with `END $selftest$;`.
 --
@@ -59,5 +59,5 @@ BEGIN
     RAISE EXCEPTION 'FAIL anon_locked: anon or authenticated can SELECT api_v2_config';
   END IF;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0162';
+  RAISE EXCEPTION 'SELFTEST_OK 0163';
 END $selftest$;

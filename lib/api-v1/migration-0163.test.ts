@@ -1,5 +1,5 @@
-// lib/api-v1/migration-0162.test.ts
-// migrations/0162_api_v1_retirement.sql and its self-test: three retirement columns on api_v2_config.
+// lib/api-v1/migration-0163.test.ts
+// migrations/0163_api_v1_retirement.sql and its self-test: three retirement columns on api_v2_config.
 // Same harness style as lib/momo-claim/migration-0161.test.ts (self-rolling-back run string, PGlite).
 import { describe, it, expect, beforeAll } from "vitest"
 import { readFileSync } from "fs"
@@ -7,8 +7,8 @@ import { join } from "path"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
 
-const FILE = "0162_api_v1_retirement.sql"
-const SELFTEST_FILE = "0162_api_v1_retirement.selftest.sql"
+const FILE = "0163_api_v1_retirement.sql"
+const SELFTEST_FILE = "0163_api_v1_retirement.selftest.sql"
 const BASE = "0128_api_v2_foundation.sql"
 const migration = () => read(FILE)
 
@@ -19,20 +19,20 @@ const code = (sql: string) => sql.split("\n").map(l => l.replace(/--.*$/, "")).j
 function buildRunString(migrationSql: string, selftestSql: string): string {
   const lines = migrationSql.split("\n")
   const commitAt = lines.map(l => l.trim()).lastIndexOf("COMMIT;")
-  if (commitAt < 0) throw new Error("0162: no COMMIT line")
+  if (commitAt < 0) throw new Error("0163: no COMMIT line")
   const head = lines.filter((_, i) => i !== commitAt).join("\n")
   const st = selftestSql.split("\n")
   const doAt = st.findIndex(l => /^DO\b/.test(l))
   if (doAt < 0) throw new Error("selftest: no column-0 DO line")
   const run = head + "\n" + st.slice(doAt).join("\n")
   const c = code(run)
-  if (/\bCOMMIT\b/i.test(c) || /^\s*END\s*;/im.test(c)) throw new Error("0162: run string could commit")
-  if (!/RAISE EXCEPTION 'SELFTEST_OK[^']*';\s*END\s*\$selftest\$;\s*$/.test(c)) throw new Error("0162: run string does not end by raising")
+  if (/\bCOMMIT\b/i.test(c) || /^\s*END\s*;/im.test(c)) throw new Error("0163: run string could commit")
+  if (!/RAISE EXCEPTION 'SELFTEST_OK[^']*';\s*END\s*\$selftest\$;\s*$/.test(c)) throw new Error("0163: run string does not end by raising")
   return run
 }
 const runString = () => buildRunString(migration(), read(SELFTEST_FILE))
 
-describe("0162 migration text", () => {
+describe("0163 migration text", () => {
   it("is one transaction with timeouts and exactly one COMMIT", () => {
     const c = code(migration())
     expect(c).toMatch(/^BEGIN;\s*$/m)
@@ -51,12 +51,12 @@ describe("0162 migration text", () => {
   })
 })
 
-describe("0162 run string (migration + self-test)", () => {
+describe("0163 run string (migration + self-test)", () => {
   it("has no COMMIT and no bare END; statement, and ends with the always-raising DO block", () => {
     const s = code(runString())
     expect(s).not.toMatch(/\bCOMMIT\b/i)
     expect(s).not.toMatch(/^\s*END\s*;/im)
-    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0162[^']*';\s*END\s*\$selftest\$;$/)
+    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0163[^']*';\s*END\s*\$selftest\$;$/)
   })
 
   it("the builder refuses a second COMMIT and a self-test that does not raise last", () => {
@@ -87,7 +87,7 @@ const SETUP = `
   CREATE TABLE auth.users (id uuid PRIMARY KEY);
 `
 
-describe.skipIf(!PGliteCtor)("0162 in PGlite (on top of 0128)", () => {
+describe.skipIf(!PGliteCtor)("0163 in PGlite (on top of 0128)", () => {
   let db: any
   const cols = async () =>
     (await db.query(`SELECT column_name AS c, data_type AS t, is_nullable AS n, column_default AS d
@@ -103,7 +103,7 @@ describe.skipIf(!PGliteCtor)("0162 in PGlite (on top of 0128)", () => {
     const before = (await cols()).map((r: any) => r.c)
     expect(before).not.toContain("v1_sunset_at")
     try {
-      await expect(db.exec(runString())).rejects.toThrow(/SELFTEST_OK 0162/)
+      await expect(db.exec(runString())).rejects.toThrow(/SELFTEST_OK 0163/)
     } finally {
       await db.exec("ROLLBACK")
     }
