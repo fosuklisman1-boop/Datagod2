@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import type { SupplierResult } from "@/lib/order-supplier"
 import { getMessageTickState, type TickState } from "@/lib/support-ticks"
 import type { SupportOrder } from "@/lib/support-order"
-import { mailtoHref, telHref, userDisplayName, whatsappHref } from "@/lib/support-admin-client"
+import { mailtoHref, safeAttachmentUrl, shouldApplyResponse, telHref, userDisplayName, whatsappHref } from "@/lib/support-admin-client"
 import { cn } from "@/lib/utils"
 import { adminApi, usePolling } from "./support-api"
 import { OrderDetailsDialog, formatDateTime } from "./order-details-dialog"
@@ -96,13 +96,20 @@ export function ConversationDialog({
   const loadGuard = useRef(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeId = useRef<string | null>(null)
+  const loadSeq = useRef(0)
+  const lastAppliedSeq = useRef(0)
+  const [sessionExpired, setSessionExpired] = useState(false)
 
   const load = useCallback(async (id: string) => {
+    const seq = ++loadSeq.current
     const r = await adminApi<ConversationDetail>(`/api/admin/support/threads/${id}`)
-    if (activeId.current !== id) return
+    if (!shouldApplyResponse(seq, lastAppliedSeq.current, id, activeId.current)) return
+    lastAppliedSeq.current = seq
     if (r.ok && r.data) {
       setDetail(r.data)
       setLoadError(null)
+    } else if (r.status === 401 || r.status === 403) {
+      setSessionExpired(true)
     } else {
       setLoadError(r.error ?? "Could not load this conversation")
     }
@@ -118,6 +125,7 @@ export function ConversationDialog({
     setConfirmClose(false)
     setNote("")
     setShowOrder(false)
+    setSessionExpired(false)
     sendGuard.current = false
     closeGuard.current = false
     if (!threadId) return
@@ -140,7 +148,7 @@ export function ConversationDialog({
       }
     },
     CONVERSATION_POLL_MS,
-    open,
+    open && !sessionExpired,
   )
 
   const messageCount = detail?.messages.length ?? 0
@@ -208,7 +216,7 @@ export function ConversationDialog({
 
   const isOpen = detail?.status === "open"
   const order = detail?.order ?? null
-  const firstAttachment = detail?.messages[0]?.attachment_url ?? null
+  const firstAttachment = safeAttachmentUrl(detail?.messages[0]?.attachment_url)
   const pkg = order ? [order.network, order.size].filter(Boolean).join(" ") : ""
 
   return (
@@ -295,6 +303,7 @@ export function ConversationDialog({
                 <div ref={bottomRef} />
               </div>
 
+              {sessionExpired && <p className="shrink-0 text-sm text-destructive">Your session has expired. Please sign in again.</p>}
               {actionError && <p className="shrink-0 text-sm text-destructive">{actionError}</p>}
 
               {isOpen ? (

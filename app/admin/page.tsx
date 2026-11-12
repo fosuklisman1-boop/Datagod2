@@ -106,7 +106,7 @@ const MANAGEMENT_SECTIONS = [
   { href: "/admin/order-history", label: "Order History", description: "View completed order stats and history", icon: TrendingUp },
   { href: "/admin/sub-agent-profits", label: "Sub-Agent Profits", description: "View parent shops and sub-agent profit contributions", icon: TrendingUp },
   { href: "/admin/subscribers", label: "Dealer Subscriptions", description: "Monitor active and expired dealer plans", icon: Crown },
-  { href: "/admin/complaints", label: "Customer Complaints", description: "View and resolve customer complaints", icon: MessageSquare },
+  { href: "/admin/complaints", label: "Support & Complaints", description: "Chat with customers and resolve complaints", icon: MessageSquare },
   { href: "/admin/afa-management", label: "AFA Management", description: "Configure AFA price and view submissions", icon: Settings },
   { href: "/admin/broadcast", label: "Broadcast Messaging", description: "Send bulk SMS and Emails to users", icon: Send },
   { href: "/admin/airtime", label: "Airtime Orders", description: "Manage and fulfil airtime top-up orders", icon: Banknote },

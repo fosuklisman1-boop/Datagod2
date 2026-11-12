@@ -47,7 +47,7 @@ export function usePolling(task: () => Promise<void>, intervalMs: number, enable
   useEffect(() => {
     if (!enabled) return
     let inFlight = false
-    const id = setInterval(async () => {
+    const run = async () => {
       if (inFlight || document.hidden) return
       inFlight = true
       try {
@@ -55,7 +55,13 @@ export function usePolling(task: () => Promise<void>, intervalMs: number, enable
       } finally {
         inFlight = false
       }
-    }, intervalMs)
-    return () => clearInterval(id)
+    }
+    const id = setInterval(run, intervalMs)
+    // Catch up as soon as the tab is visible again instead of waiting for the next tick.
+    document.addEventListener("visibilitychange", run)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener("visibilitychange", run)
+    }
   }, [intervalMs, enabled])
 }

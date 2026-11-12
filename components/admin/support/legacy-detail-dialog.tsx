@@ -67,8 +67,8 @@ export function LegacyDetailDialog({
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
           body: JSON.stringify({
-            balanceImagePath: complaint.evidence_paths.balance_image_path,
-            momoReceiptPath: complaint.evidence_paths.momo_receipt_path,
+            balanceImagePath: complaint.evidence_paths?.balance_image_path ?? null,
+            momoReceiptPath: complaint.evidence_paths?.momo_receipt_path ?? null,
           }),
         })
         if (res.ok && alive) setEvidence(await res.json())

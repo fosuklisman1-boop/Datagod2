@@ -7,6 +7,8 @@ import {
   mergeThreadList,
   normalizeWhatsappDigits,
   previewText,
+  safeAttachmentUrl,
+  shouldApplyResponse,
   supplierBadgeModel,
   telHref,
   threadMatchesSearch,
@@ -45,6 +47,48 @@ describe("contact links", () => {
     expect(isPlausibleEmail("x@y")).toBe(true)
     expect(isPlausibleEmail("x@y@z")).toBe(false)
     expect(isPlausibleEmail("x@y\n")).toBe(false)
+  })
+  it("rejects characters that could inject mailto parameters", () => {
+    expect(isPlausibleEmail("a@b.com?bcc=x")).toBe(false)
+    expect(isPlausibleEmail("a@b.com&x=1")).toBe(false)
+    expect(isPlausibleEmail("a#b@c.com")).toBe(false)
+    expect(isPlausibleEmail("a%40b@c.com")).toBe(false)
+    expect(isPlausibleEmail("a,b@c.com")).toBe(false)
+    expect(isPlausibleEmail("a<b@c.com")).toBe(false)
+    expect(isPlausibleEmail("a>b@c.com")).toBe(false)
+    expect(isPlausibleEmail('a"b@c.com')).toBe(false)
+    expect(isPlausibleEmail("a'b@c.com")).toBe(false)
+    expect(isPlausibleEmail("a\u0000b@c.com")).toBe(false)
+    expect(isPlausibleEmail("first.last+tag@example.co.uk")).toBe(true)
+    expect(mailtoHref("a@b.com?bcc=x")).toBeNull()
+  })
+})
+
+describe("shouldApplyResponse", () => {
+  it("applies only a newer response for the open thread", () => {
+    expect(shouldApplyResponse(2, 1, "t1", "t1")).toBe(true)
+    expect(shouldApplyResponse(1, 2, "t1", "t1")).toBe(false)
+    expect(shouldApplyResponse(2, 2, "t1", "t1")).toBe(false)
+    expect(shouldApplyResponse(3, 1, "t1", "t2")).toBe(false)
+    expect(shouldApplyResponse(3, 1, "t1", null)).toBe(false)
+  })
+  it("a load started after a poll is not discarded in favour of the poll", () => {
+    // poll takes seq 1, reply reload takes seq 2; reload lands first, then the poll
+    let last = 0
+    expect(shouldApplyResponse(2, last, "t1", "t1")).toBe(true)
+    last = 2
+    expect(shouldApplyResponse(1, last, "t1", "t1")).toBe(false)
+  })
+})
+
+describe("safeAttachmentUrl", () => {
+  it("allows only https urls", () => {
+    expect(safeAttachmentUrl("https://x.supabase.co/a.png?token=1")).toBe("https://x.supabase.co/a.png?token=1")
+    expect(safeAttachmentUrl("http://x.com/a.png")).toBeNull()
+    expect(safeAttachmentUrl("javascript:alert(1)")).toBeNull()
+    expect(safeAttachmentUrl("data:image/png;base64,AAAA")).toBeNull()
+    expect(safeAttachmentUrl(null)).toBeNull()
+    expect(safeAttachmentUrl(undefined)).toBeNull()
   })
 })
 

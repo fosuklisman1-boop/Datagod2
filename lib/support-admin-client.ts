@@ -20,15 +20,38 @@ export function telHref(raw: string | null | undefined): string | null {
   return typeof raw === "string" && GH_PHONE_RE.test(raw) ? `tel:${raw}` : null
 }
 
-/** Exactly one `@`, something on both sides, no whitespace. */
+/**
+ * Exactly one `@`, something on both sides, no whitespace, no control characters and none of
+ * `? & # % , < > " '` (a customer-controlled value must not add parameters to a mailto link).
+ */
 export function isPlausibleEmail(raw: string | null | undefined): boolean {
-  if (typeof raw !== "string" || /\s/.test(raw)) return false
+  // eslint-disable-next-line no-control-regex
+  if (typeof raw !== "string" || /[\s?&#%,<>"'\u0000-\u001f\u007f]/.test(raw)) return false
   const parts = raw.split("@")
   return parts.length === 2 && parts[0].length > 0 && parts[1].length > 0
 }
 
 export function mailtoHref(raw: string | null | undefined): string | null {
   return isPlausibleEmail(raw) ? `mailto:${raw}` : null
+}
+
+/** An attachment url is shown only when it is https; anything else renders nothing. */
+export function safeAttachmentUrl(raw: string | null | undefined): string | null {
+  return typeof raw === "string" && raw.startsWith("https://") ? raw : null
+}
+
+/**
+ * Stale-response guard for loads that can overlap. Each load takes the next sequence number;
+ * a response is applied only if it is newer than the last applied one and still belongs to
+ * the thread (or window key) that is currently open.
+ */
+export function shouldApplyResponse(
+  seq: number,
+  lastApplied: number,
+  responseThreadId: string,
+  openThreadId: string | null,
+): boolean {
+  return seq > lastApplied && responseThreadId === openThreadId
 }
 
 /* ---------- Threads ---------- */

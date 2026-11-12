@@ -11,6 +11,7 @@ import type { SupplierResult } from "@/lib/order-supplier"
 import {
   filterLegacy,
   legacyStatusCounts,
+  shouldApplyResponse,
   userDisplayName,
   type DatePreset,
   type LegacyListItem,
@@ -62,14 +63,19 @@ export function LegacyTab() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const inFlight = useRef(false)
+  const loadSeq = useRef(0)
+  const lastAppliedSeq = useRef(0)
+  const daysRef = useRef(days)
+  daysRef.current = days
 
   const load = useCallback(async () => {
-    if (inFlight.current) return
-    inFlight.current = true
+    const seq = ++loadSeq.current
+    const startedFor = days
     setLoading(true)
     try {
-      const r = await adminApi<{ complaints: LegacyComplaint[] }>(`/api/admin/complaints?days=${days}`)
+      const r = await adminApi<{ complaints: LegacyComplaint[] }>(`/api/admin/complaints?days=${startedFor}`)
+      if (!shouldApplyResponse(seq, lastAppliedSeq.current, startedFor, daysRef.current)) return
+      lastAppliedSeq.current = seq
       if (r.ok && r.data) {
         setItems(r.data.complaints)
         setError(null)
@@ -77,8 +83,8 @@ export function LegacyTab() {
         setError(r.error ?? "Could not load complaints")
       }
     } finally {
-      inFlight.current = false
-      setLoading(false)
+      // Only the latest load clears the spinner.
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [days])
 
