@@ -22,6 +22,7 @@ type Form = {
   regressionThreshold: string
   reviewThreshold: string
   dailyCap: string
+  firstClaimReview: boolean
 }
 
 const toForm = (s: Settings): Form => ({
@@ -36,6 +37,7 @@ const toForm = (s: Settings): Form => ({
   regressionThreshold: String(s.regressionThreshold),
   reviewThreshold: s.reviewThreshold.toFixed(2),
   dailyCap: s.dailyCap.toFixed(2),
+  firstClaimReview: s.firstClaimReview,
 })
 
 // Empty strings become NaN-safe values the API rejects with a field error rather than silently becoming 0.
@@ -81,6 +83,7 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
           regressionThreshold: num(f.regressionThreshold),
           reviewThreshold: num(f.reviewThreshold),
           dailyCap: num(f.dailyCap),
+          firstClaimReview: f.firstClaimReview,
         },
       })
       toast.success("Settings saved")
@@ -125,6 +128,22 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
             </p>
           )}
           <FieldError field="enabled" errField={errField} message={errMsg} />
+
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <label className="text-sm font-medium" htmlFor="st-firstClaimReview">Review each customer&apos;s first claim</label>
+              <p className="text-xs text-muted-foreground">
+                When off, a customer&apos;s first Send &amp; Claim top-up is credited automatically. Large amounts and daily limits are still reviewed.
+              </p>
+            </div>
+            <Switch
+              id="st-firstClaimReview"
+              checked={f.firstClaimReview}
+              onCheckedChange={(v) => patch({ firstClaimReview: v })}
+              aria-label="Review each customer's first claim"
+            />
+          </div>
+          <FieldError field="firstClaimReview" errField={errField} message={errMsg} />
 
           <div className="space-y-2">
             <div className="text-sm font-medium">Payment accounts</div>

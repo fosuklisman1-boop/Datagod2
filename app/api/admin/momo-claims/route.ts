@@ -120,6 +120,7 @@ export async function GET(request: NextRequest) {
         regressionThreshold: settings.regressionThreshold,
         reviewThreshold: settings.reviewThresholdPesewas / 100,
         dailyCap: settings.dailyCapPesewas / 100,
+        firstClaimReview: settings.firstClaimReview,
       },
     })
   } catch (err) {
@@ -160,6 +161,7 @@ export async function POST(request: NextRequest) {
     ["momo_txid_regression_threshold", s.regressionThreshold],
     ["momo_auto_claim_review_threshold", s.reviewThreshold],
     ["momo_auto_claim_daily_cap", s.dailyCap],
+    ["momo_first_claim_review", s.firstClaimReview],
   ]
   const rows = entries.map(([key, value]) => ({ key, value: { value }, updated_by: userId, updated_at: now }))
   try {

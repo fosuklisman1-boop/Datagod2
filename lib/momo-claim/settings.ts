@@ -17,6 +17,8 @@ export type MomoClaimSettings = {
   regressionThreshold: number
   reviewThresholdPesewas: number
   dailyCapPesewas: number
+  /** Review each user's first claim. On unless the stored value is exactly false (fail safe). Enforced in SQL (0161). */
+  firstClaimReview: boolean
   /** "defaults" when the DB read failed or threw, so callers can tell fallback values from saved ones. */
   source: "db" | "defaults"
 }
@@ -33,6 +35,7 @@ const KEYS = [
   "momo_txid_regression_threshold",
   "momo_auto_claim_review_threshold",
   "momo_auto_claim_daily_cap",
+  "momo_first_claim_review",
 ] as const
 
 const DEFAULTS: MomoClaimSettings = {
@@ -47,6 +50,7 @@ const DEFAULTS: MomoClaimSettings = {
   regressionThreshold: 1000000,
   reviewThresholdPesewas: 50000,
   dailyCapPesewas: 300000,
+  firstClaimReview: true,
   source: "defaults",
 }
 
@@ -118,6 +122,7 @@ export async function loadMomoClaimSettings(client: SupabaseClient): Promise<Mom
       regressionThreshold: plainNumber(raw.momo_txid_regression_threshold, d.regressionThreshold),
       reviewThresholdPesewas: pesewas(raw.momo_auto_claim_review_threshold, d.reviewThresholdPesewas),
       dailyCapPesewas: pesewas(raw.momo_auto_claim_daily_cap, d.dailyCapPesewas),
+      firstClaimReview: raw.momo_first_claim_review !== false,
       source: "db",
     }
   } catch {

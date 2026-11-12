@@ -138,6 +138,7 @@ export const FIELD_LABELS: Record<string, string> = {
   regressionThreshold: "Old-ID threshold",
   reviewThreshold: "Review threshold",
   dailyCap: "Daily cap",
+  firstClaimReview: "Review each customer's first claim",
 }
 
 export function adminErrorMessage(code: string | undefined | null): string {

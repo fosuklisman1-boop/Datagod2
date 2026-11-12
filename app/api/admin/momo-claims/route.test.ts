@@ -57,6 +57,7 @@ const SETTINGS = {
   regressionThreshold: 1000000,
   reviewThresholdPesewas: 50000,
   dailyCapPesewas: 300000,
+  firstClaimReview: false,
   source: "db",
 }
 
@@ -191,6 +192,7 @@ describe("GET", () => {
       regressionThreshold: 1000000,
       reviewThreshold: 500,
       dailyCap: 3000,
+      firstClaimReview: false,
     })
   })
 
@@ -279,7 +281,15 @@ describe("POST settings", () => {
     regressionThreshold: 1000000,
     reviewThreshold: 500,
     dailyCap: 3000,
+    firstClaimReview: false,
   }
+
+  it("400s when firstClaimReview is not a boolean, and writes nothing", async () => {
+    const res = await POST(req("POST", { ...GOOD, firstClaimReview: "off" }))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "invalid_setting", field: "firstClaimReview" })
+    expect(calls.some((c) => c.ops.some((o) => o.method === "upsert"))).toBe(false)
+  })
 
   it("400s with the field on a bad body and writes nothing", async () => {
     const res = await POST(req("POST", { ...GOOD, feeCustomerPercent: "2" }))
@@ -325,6 +335,7 @@ describe("POST settings", () => {
       momo_txid_regression_threshold: 1000000,
       momo_auto_claim_review_threshold: 500,
       momo_auto_claim_daily_cap: 3000,
+      momo_first_claim_review: false,
     })
     for (const r of rows) {
       expect(r.updated_by).toBe(ADMIN)

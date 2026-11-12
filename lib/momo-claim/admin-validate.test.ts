@@ -13,6 +13,7 @@ const GOOD = {
   regressionThreshold: 1000000,
   reviewThreshold: 500,
   dailyCap: 3000,
+  firstClaimReview: true,
 }
 
 describe("validateSettings", () => {
@@ -46,6 +47,10 @@ describe("validateSettings", () => {
     ["regressionThreshold", { regressionThreshold: -1 }],
     ["reviewThreshold", { reviewThreshold: -1 }],
     ["dailyCap", { dailyCap: "3000" }],
+    ["firstClaimReview", { firstClaimReview: "false" }],
+    ["firstClaimReview", { firstClaimReview: 0 }],
+    ["firstClaimReview", { firstClaimReview: null }],
+    ["firstClaimReview", { firstClaimReview: undefined }],
   ])("rejects bad %s", (field, patch) => {
     const r = validateSettings({ ...GOOD, ...patch })
     expect(r).toEqual({ ok: false, field })
@@ -69,6 +74,14 @@ describe("validateSettings", () => {
   it("accepts boundary values", () => {
     const r = validateSettings({ ...GOOD, enabled: false, feeCustomerPercent: 0, feeDealerPercent: 100, minNet: 0, maxSent: 0, accountName: "", regressionThreshold: 0, reviewThreshold: 0, dailyCap: 0 })
     expect(r.ok).toBe(true)
+  })
+
+  it("passes firstClaimReview through as a boolean, both ways", () => {
+    for (const b of [true, false]) {
+      const r = validateSettings({ ...GOOD, firstClaimReview: b })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.value.firstClaimReview).toBe(b)
+    }
   })
 
   it("rejects non-objects", () => {

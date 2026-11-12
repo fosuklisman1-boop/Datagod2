@@ -16,6 +16,7 @@ const settings = (over: Partial<MomoClaimSettings> = {}): MomoClaimSettings => (
   regressionThreshold: 1000000,
   reviewThresholdPesewas: 50000,
   dailyCapPesewas: 300000,
+  firstClaimReview: true,
   source: "db",
   ...over,
 })

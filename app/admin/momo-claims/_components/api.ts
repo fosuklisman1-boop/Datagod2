@@ -62,6 +62,7 @@ export type Settings = {
   regressionThreshold: number
   reviewThreshold: number
   dailyCap: number
+  firstClaimReview: boolean
 }
 
 export type ListResponse = {

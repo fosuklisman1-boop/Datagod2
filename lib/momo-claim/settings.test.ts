@@ -38,8 +38,31 @@ describe("loadMomoClaimSettings", () => {
       regressionThreshold: 1000000,
       reviewThresholdPesewas: 50000,
       dailyCapPesewas: 300000,
+      firstClaimReview: true,
       source: "db",
     })
+  })
+
+  it("firstClaimReview is on unless the stored value is exactly false", async () => {
+    const off = await loadMomoClaimSettings(settingsClient([v("momo_first_claim_review", false)]))
+    expect(off.firstClaimReview).toBe(false)
+    for (const other of [true, "false", 0, null, "no", {}, []]) {
+      const s = await loadMomoClaimSettings(settingsClient([v("momo_first_claim_review", other)]))
+      expect(s.firstClaimReview).toBe(true)
+    }
+    // bare (unwrapped) false is not accepted, and a missing row means on
+    expect((await loadMomoClaimSettings(settingsClient([{ key: "momo_first_claim_review", value: false }]))).firstClaimReview).toBe(true)
+    expect((await loadMomoClaimSettings(settingsClient([]))).firstClaimReview).toBe(true)
+  })
+
+  it("firstClaimReview is on when the DB read fails", async () => {
+    expect((await loadMomoClaimSettings(settingsClient(null, { message: "boom" }))).firstClaimReview).toBe(true)
+    const t = await loadMomoClaimSettings({
+      from: () => {
+        throw new Error("down")
+      },
+    } as never)
+    expect(t.firstClaimReview).toBe(true)
   })
 
   it("source is 'defaults' whenever the DB read errored, returned no array, or threw", async () => {
@@ -59,7 +82,8 @@ describe("loadMomoClaimSettings", () => {
     await loadMomoClaimSettings(settingsClient([], null, calls))
     expect(calls.n).toBe(1)
     expect(calls.keys).toContain("momo_claim_enabled")
-    expect(calls.keys).toHaveLength(11)
+    expect(calls.keys).toContain("momo_first_claim_review")
+    expect(calls.keys).toHaveLength(12)
   })
 
   it("enabled only for exact boolean true", async () => {
