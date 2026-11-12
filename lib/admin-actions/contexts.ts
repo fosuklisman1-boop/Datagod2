@@ -47,7 +47,7 @@ export interface ComplaintCtx {
 }
 
 export interface MomoClaimCtx {
-  kind: "credited" | "flagged" | "unparsed" | "reconciliation_missing"
+  kind: "credited" | "flagged" | "unparsed" | "reconciliation_missing" | "setting_changed"
   amountPesewas?: number
   /** Last 4 digits only; the full transaction ID must never reach an alert. */
   txidLast4?: string

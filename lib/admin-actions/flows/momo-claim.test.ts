@@ -51,6 +51,16 @@ describe("momo_claim admin alert", () => {
     expect(momoClaimFlow.adminAlert({ kind: "reconciliation_missing" }).pushTitle).toBe("Claimed payments missing from MoMo statement")
   })
 
+  it("setting_changed: own title, the change in plain words, deep link", () => {
+    const a = momoClaimFlow.adminAlert({ kind: "setting_changed", reasons: ["first-claim review turned OFF"] })
+    expect(a.subject).toBe("Send & Claim setting changed")
+    expect(a.pushTitle).toBe("Send & Claim setting changed")
+    expect(a.pushBody).toContain("first-claim review turned OFF")
+    expect(a.pushBody).not.toContain("Reasons")
+    expect(a.html).toContain("first-claim review turned OFF")
+    expect(a.url).toBe("/admin/momo-claims")
+  })
+
   it("escapes unknown reasons and handles missing fields without undefined/null/NaN", () => {
     const a = momoClaimFlow.adminAlert({ kind: "flagged", reasons: ["<script>x</script>"] })
     expect(a.html).not.toContain("<script>")

@@ -14,7 +14,8 @@ export type SettingsInput = {
   regressionThreshold: number
   reviewThreshold: number
   dailyCap: number
-  firstClaimReview: boolean
+  /** Optional: undefined means "keep the current value" (the route fills it in). */
+  firstClaimReview?: boolean
 }
 
 export type ValidationResult = { ok: true; value: SettingsInput } | { ok: false; field: string; error?: string }
@@ -69,7 +70,7 @@ export function validateSettings(body: unknown): ValidationResult {
   }
   if (!isNum(b.reviewThreshold) || b.reviewThreshold < 0 || !hasAtMostTwoDecimals(b.reviewThreshold)) return bad("reviewThreshold")
   if (!isNum(b.dailyCap) || b.dailyCap < 0 || !hasAtMostTwoDecimals(b.dailyCap)) return bad("dailyCap")
-  if (typeof b.firstClaimReview !== "boolean") return bad("firstClaimReview")
+  if (b.firstClaimReview !== undefined && typeof b.firstClaimReview !== "boolean") return bad("firstClaimReview")
 
   return {
     ok: true,
@@ -85,7 +86,7 @@ export function validateSettings(body: unknown): ValidationResult {
       regressionThreshold: b.regressionThreshold,
       reviewThreshold: b.reviewThreshold,
       dailyCap: b.dailyCap,
-      firstClaimReview: b.firstClaimReview,
+      firstClaimReview: b.firstClaimReview as boolean | undefined,
     },
   }
 }

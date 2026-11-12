@@ -50,7 +50,6 @@ describe("validateSettings", () => {
     ["firstClaimReview", { firstClaimReview: "false" }],
     ["firstClaimReview", { firstClaimReview: 0 }],
     ["firstClaimReview", { firstClaimReview: null }],
-    ["firstClaimReview", { firstClaimReview: undefined }],
   ])("rejects bad %s", (field, patch) => {
     const r = validateSettings({ ...GOOD, ...patch })
     expect(r).toEqual({ ok: false, field })
@@ -82,6 +81,16 @@ describe("validateSettings", () => {
       expect(r.ok).toBe(true)
       if (r.ok) expect(r.value.firstClaimReview).toBe(b)
     }
+  })
+
+  it("firstClaimReview is optional: absent stays undefined (the route keeps the current value)", () => {
+    const body: Record<string, unknown> = { ...GOOD }
+    delete body.firstClaimReview
+    const r = validateSettings(body)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.value.firstClaimReview).toBeUndefined()
+    const u = validateSettings({ ...GOOD, firstClaimReview: undefined })
+    expect(u.ok).toBe(true)
   })
 
   it("rejects non-objects", () => {

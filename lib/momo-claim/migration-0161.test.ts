@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeAll } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
+import { createHash } from "crypto"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
 
@@ -44,6 +45,34 @@ function fnBody(sql: string): string[] {
   return c.slice(start, end + 5).split("\n").map(l => l.trim()).filter(Boolean)
 }
 
+const DECL = "v_review  boolean;"
+const ASSIGN = "v_review := (SELECT s.value -> 'value' FROM public.admin_settings s WHERE s.key = 'momo_first_claim_review') IS DISTINCT FROM 'false'::jsonb;"
+const GATE = "IF v_review AND NOT EXISTS (SELECT 1 FROM public.momo_transactions m WHERE m.claimed_by = p_user AND m.status = 'claimed') THEN"
+const BASE_GATE = "IF NOT EXISTS (SELECT 1 FROM public.momo_transactions m WHERE m.claimed_by = p_user AND m.status = 'claimed') THEN"
+
+/** Undo exactly the three 0161 changes (each must occur exactly once); every other line must then equal 0160's. */
+function undo0161(lines: string[]): string[] {
+  const out = [...lines]
+  for (const [line, replacement] of [[DECL, null], [ASSIGN, null], [GATE, BASE_GATE]] as const) {
+    const hits = out.filter(l => l === line).length
+    if (hits !== 1) throw new Error(`expected exactly one [${line}], found ${hits}`)
+    const i = out.indexOf(line)
+    if (replacement === null) out.splice(i, 1)
+    else out[i] = replacement
+  }
+  return out
+}
+
+/** md5 of a function body with the pre-check's normalisation: CR removed, leading/trailing newlines trimmed. */
+const bodyMd5 = (src: string) => createHash("md5").update(src.replace(/\r/g, "").replace(/^\n+|\n+$/g, "")).digest("hex")
+/** The raw text between $fn$ and $fn$; of claim_momo_transaction in a migration file. */
+function rawBody(sql: string): string {
+  const start = sql.indexOf("CREATE OR REPLACE FUNCTION public.claim_momo_transaction(")
+  const a = sql.indexOf("$fn$", start) + 4
+  return sql.slice(a, sql.indexOf("$fn$;", a))
+}
+const headerMd5 = () => migration().match(/-- must equal ([0-9a-f]{32})/)?.[1]
+
 describe("0161 migration text", () => {
   it("is one transaction with lock and statement timeouts and exactly one COMMIT", () => {
     const c = code(migration())
@@ -75,17 +104,29 @@ describe("0161 migration text", () => {
   })
 
   it("the body is 0160's except the first_claim gate on the setting", () => {
+    expect(undo0161(fnBody(migration()))).toEqual(fnBody(read(BASE)))
+  })
+
+  it("the body comparison catches any extra line, including a second v_review assignment", () => {
     const base = fnBody(read(BASE))
     const next = fnBody(migration())
-    expect(next).toContain("v_review  boolean;")
-    expect(next).toContain(
-      "v_review := (SELECT s.value -> 'value' FROM public.admin_settings s WHERE s.key = 'momo_first_claim_review') IS DISTINCT FROM 'false'::jsonb;",
-    )
-    expect(next).toContain("IF v_review AND NOT EXISTS (SELECT 1 FROM public.momo_transactions m WHERE m.claimed_by = p_user AND m.status = 'claimed') THEN")
-    const undone = next
-      .filter(l => l !== "v_review  boolean;" && !l.startsWith("v_review := "))
-      .map(l => l.replace("IF v_review AND NOT EXISTS", "IF NOT EXISTS"))
-    expect(undone).toEqual(base)
+    const at = next.indexOf(GATE)
+    const withExtraAssign = [...next.slice(0, at), "v_review := false;", ...next.slice(at)]
+    expect(undo0161(withExtraAssign)).not.toEqual(base)
+    const withExtraLine = [...next.slice(0, at), "PERFORM 1;", ...next.slice(at)]
+    expect(undo0161(withExtraLine)).not.toEqual(base)
+    expect(() => undo0161([...next, ASSIGN])).toThrow(/exactly one/)
+    expect(() => undo0161(next.filter(l => l !== DECL))).toThrow(/exactly one/)
+  })
+
+  it("the header's body md5 pre-check constant equals the md5 of the committed 0160 body", () => {
+    const want = headerMd5()
+    expect(want).toMatch(/^[0-9a-f]{32}$/)
+    expect(bodyMd5(rawBody(read(BASE)))).toBe(want)
+    // the CRLF form of the same file hashes the same after the pre-check's normalisation
+    expect(bodyMd5(rawBody(read(BASE).replace(/\n/g, "\r\n")))).toBe(want)
+    expect(migration()).toContain("SELECT md5(btrim(replace(prosrc, E'\\r', ''), E'\\n')) FROM pg_proc")
+    expect(migration()).toContain("SELECT pg_get_userbyid(proowner) FROM pg_proc")
   })
 
   it("reads the setting after the wallet lock (the per-user checks stay under it)", () => {
@@ -222,6 +263,11 @@ describe.skipIf(!PGliteCtor)("0161 in PGlite (on top of 0160)", () => {
     await db.exec(FIXTURES)
     await db.exec(read(BASE))
   }, 60_000)
+
+  it("the pre-check md5 run in SQL on applied 0160 matches the header constant", async () => {
+    const r = await one("SELECT md5(btrim(replace(prosrc, E'\\r', ''), E'\\n')) AS h FROM pg_proc WHERE oid = $1::regprocedure", [FN_SIG])
+    expect(r.h).toBe(headerMd5())
+  })
 
   it("the self-rolling-back run string reports SELFTEST_OK and leaves 0160 exactly as it was", async () => {
     const before = await prosrc()

@@ -18,6 +18,12 @@
 --     FROM pg_proc p WHERE p.oid = 'public.claim_momo_transaction(text,uuid,uuid,boolean,text)'::regprocedure;
 --     -- p_txid text, p_user uuid, p_session_id uuid, p_check_amount boolean, p_mode text | text | true | {search_path=""}
 --   SELECT count(*) FROM pg_proc WHERE proname = 'claim_momo_transaction';                       -- 1 (no overload)
+--   SELECT pg_get_userbyid(proowner) FROM pg_proc
+--    WHERE oid = 'public.claim_momo_transaction(text,uuid,uuid,boolean,text)'::regprocedure;   -- the applying role (postgres)
+--   SELECT md5(btrim(replace(prosrc, E'\r', ''), E'\n')) FROM pg_proc
+--    WHERE oid = 'public.claim_momo_transaction(text,uuid,uuid,boolean,text)'::regprocedure;
+--     -- must equal fdee23191c27ae1df91aa6d8263867a0 (md5 of the committed 0160 body; lib/momo-claim/migration-0161.test.ts
+--     --  recomputes it from the 0160 file and from 0160 applied in PGlite, so this constant cannot drift)
 --   SELECT strpos(p.prosrc, 'ARRAY[''first_claim'']') > 0, strpos(p.prosrc, 'momo_first_claim_review') = 0
 --     FROM pg_proc p WHERE p.oid = 'public.claim_momo_transaction(text,uuid,uuid,boolean,text)'::regprocedure;   -- true, true
 --   SELECT count(*) FROM admin_settings WHERE key = 'momo_first_claim_review';   -- 0

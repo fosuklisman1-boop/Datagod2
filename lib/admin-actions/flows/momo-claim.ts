@@ -9,6 +9,7 @@ const TITLES: Record<MomoClaimCtx["kind"], string> = {
   flagged: "MoMo claim needs review",
   unparsed: "Unreadable MoMo SMS",
   reconciliation_missing: "Claimed payments missing from MoMo statement",
+  setting_changed: "Send & Claim setting changed",
 }
 
 const REASON_WORDS: Record<string, string> = {
@@ -34,7 +35,7 @@ function details(c: MomoClaimCtx): string[] {
   const last4 = String(c.txidLast4 ?? "").replace(/\D/g, "").slice(-4)
   if (last4) out.push(`Transaction ID ending ${last4}`)
   const reasons = (c.reasons ?? []).map((r) => REASON_WORDS[r] ?? String(r).replace(/_/g, " "))
-  if (reasons.length) out.push(`Reasons: ${reasons.join(", ")}`)
+  if (reasons.length) out.push(`${c.kind === "setting_changed" ? "Change" : "Reasons"}: ${reasons.join(", ")}`)
   return out
 }
 

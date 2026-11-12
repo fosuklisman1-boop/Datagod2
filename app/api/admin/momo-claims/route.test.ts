@@ -284,11 +284,75 @@ describe("POST settings", () => {
     firstClaimReview: false,
   }
 
-  it("400s when firstClaimReview is not a boolean, and writes nothing", async () => {
+  const savedReview = () => {
+    const up = calls.find((c) => c.table === "admin_settings" && c.ops.some((o) => o.method === "upsert"))!
+    const rows = up.ops.find((o) => o.method === "upsert")!.args[0] as { key: string; value: { value: unknown } }[]
+    return rows.find((r) => r.key === "momo_first_claim_review")?.value.value
+  }
+
+  it("400s when firstClaimReview is not a boolean, and writes nothing and alerts nobody", async () => {
     const res = await POST(req("POST", { ...GOOD, firstClaimReview: "off" }))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: "invalid_setting", field: "firstClaimReview" })
     expect(calls.some((c) => c.ops.some((o) => o.method === "upsert"))).toBe(false)
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+
+  it("firstClaimReview absent: keeps the current value and sends no alert", async () => {
+    const body: Record<string, unknown> = { ...GOOD }
+    delete body.firstClaimReview
+    for (const current of [true, false]) {
+      calls = []
+      settingsMock.mockResolvedValue({ ...SETTINGS, firstClaimReview: current })
+      expect((await POST(req("POST", body))).status).toBe(200)
+      expect(savedReview()).toBe(current)
+    }
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+
+  it("firstClaimReview unchanged: saved as is, no alert", async () => {
+    settingsMock.mockResolvedValue({ ...SETTINGS, firstClaimReview: true })
+    expect((await POST(req("POST", { ...GOOD, firstClaimReview: true }))).status).toBe(200)
+    expect(savedReview()).toBe(true)
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+
+  it("turning first-claim review OFF saves false and alerts admins (no PII)", async () => {
+    settingsMock.mockResolvedValue({ ...SETTINGS, firstClaimReview: true })
+    const res = await POST(req("POST", { ...GOOD, firstClaimReview: false }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(savedReview()).toBe(false)
+    expect(notifyMock).toHaveBeenCalledTimes(1)
+    expect(notifyMock).toHaveBeenCalledWith({ kind: "setting_changed", reasons: ["first-claim review turned OFF"] })
+  })
+
+  it("turning first-claim review ON saves true and alerts admins", async () => {
+    settingsMock.mockResolvedValue({ ...SETTINGS, firstClaimReview: false })
+    expect((await POST(req("POST", { ...GOOD, firstClaimReview: true }))).status).toBe(200)
+    expect(savedReview()).toBe(true)
+    expect(notifyMock).toHaveBeenCalledWith({ kind: "setting_changed", reasons: ["first-claim review turned ON"] })
+  })
+
+  it("a failing alert never changes the response", async () => {
+    settingsMock.mockResolvedValue({ ...SETTINGS, firstClaimReview: true })
+    notifyMock.mockRejectedValue(new Error("push down"))
+    let res = await POST(req("POST", { ...GOOD, firstClaimReview: false }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    notifyMock.mockImplementation(() => {
+      throw new Error("boom")
+    })
+    res = await POST(req("POST", { ...GOOD, firstClaimReview: false }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+  })
+
+  it("no alert when the save fails", async () => {
+    settingsMock.mockResolvedValue({ ...SETTINGS, firstClaimReview: true })
+    setWorld({ upsertError: { message: "x", code: "XX000" } })
+    expect((await POST(req("POST", { ...GOOD, firstClaimReview: false }))).status).toBe(500)
+    expect(notifyMock).not.toHaveBeenCalled()
   })
 
   it("400s with the field on a bad body and writes nothing", async () => {

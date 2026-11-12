@@ -147,6 +147,8 @@ export async function POST(request: NextRequest) {
   // A whole-form save after a failed load would write the fallback values over the real ones.
   const current = await loadMomoClaimSettings(db)
   if (current.source === "defaults") return fail("settings_unavailable", 409)
+  // Optional in the body: absent keeps what is saved now.
+  const firstClaimReview = s.firstClaimReview ?? current.firstClaimReview
 
   const now = new Date().toISOString()
   const entries: [string, unknown][] = [
@@ -161,7 +163,7 @@ export async function POST(request: NextRequest) {
     ["momo_txid_regression_threshold", s.regressionThreshold],
     ["momo_auto_claim_review_threshold", s.reviewThreshold],
     ["momo_auto_claim_daily_cap", s.dailyCap],
-    ["momo_first_claim_review", s.firstClaimReview],
+    ["momo_first_claim_review", firstClaimReview],
   ]
   const rows = entries.map(([key, value]) => ({ key, value: { value }, updated_by: userId, updated_at: now }))
   try {
@@ -170,10 +172,20 @@ export async function POST(request: NextRequest) {
       logError("settings", error)
       return fail("save_failed", 500)
     }
+    if (firstClaimReview !== current.firstClaimReview) await alertReviewToggle(firstClaimReview)
     return NextResponse.json({ ok: true })
   } catch (err) {
     logError("settings", err)
     return fail("save_failed", 500)
+  }
+}
+
+/** Admin alert when first-claim review is switched. No PII. Never throws, never changes the response. */
+async function alertReviewToggle(on: boolean): Promise<void> {
+  try {
+    await notifyMomoAdmins({ kind: "setting_changed", reasons: [on ? "first-claim review turned ON" : "first-claim review turned OFF"] })
+  } catch {
+    // notifyMomoAdmins never throws; belt and braces
   }
 }
 
