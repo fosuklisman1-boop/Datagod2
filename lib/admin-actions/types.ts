@@ -1,4 +1,4 @@
-export type FlowId = "withdrawal" | "afa" | "results_check" | "shop" | "sender_id" | "complaint"
+export type FlowId = "withdrawal" | "afa" | "results_check" | "shop" | "sender_id" | "complaint" | "momo_claim"
 export type Outcome = "approved" | "rejected" | "completed" | "resolved"
 
 export interface AdminAlert {

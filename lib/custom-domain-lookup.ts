@@ -1,11 +1,13 @@
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { supabaseAdmin } from "@/lib/supabase"
 import { normalizeDomainHost, type CustomDomainConfig } from "@/lib/custom-domains"
 
-const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+const redisEnv = getRedisRestEnv()
+const redis = redisEnv
   ? new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: redisEnv.url,
+      token: redisEnv.token,
     })
   : null
 

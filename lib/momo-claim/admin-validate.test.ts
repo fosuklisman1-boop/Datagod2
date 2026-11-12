@@ -1,0 +1,108 @@
+import { describe, it, expect } from "vitest"
+import { validateSettings, hasAtMostTwoDecimals } from "./admin-validate"
+
+const GOOD = {
+  enabled: true,
+  accounts: [{ network: "MTN", number: "0240000000" }],
+  accountName: "Datagod Ltd",
+  feeCustomerPercent: 2,
+  feeDealerPercent: 1,
+  minNet: 5,
+  maxSent: 2000,
+  senderAllowlist: [" MobileMoney "],
+  regressionThreshold: 1000000,
+  reviewThreshold: 500,
+  dailyCap: 3000,
+  firstClaimReview: true,
+}
+
+describe("validateSettings", () => {
+  it("accepts a good body and trims the allowlist", () => {
+    const r = validateSettings(GOOD)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.value.senderAllowlist).toEqual(["MobileMoney"])
+  })
+
+  it.each([
+    ["enabled", { enabled: "true" }],
+    ["accounts", { accounts: "x" }],
+    ["accounts", { accounts: [{ network: "Vodafone", number: "0240000000" }] }],
+    ["accounts", { accounts: [{ network: "MTN", number: "240000000" }] }],
+    ["accounts", { accounts: [{ network: "MTN", number: "02400000001" }] }],
+    ["accountName", { accountName: "x".repeat(81) }],
+    ["accountName", { accountName: 5 }],
+    ["feeCustomerPercent", { feeCustomerPercent: "2" }],
+    ["feeCustomerPercent", { feeCustomerPercent: 100.5 }],
+    ["feeCustomerPercent", { feeCustomerPercent: -1 }],
+    ["feeDealerPercent", { feeDealerPercent: "1" }],
+    ["feeDealerPercent", { feeDealerPercent: NaN }],
+    ["minNet", { minNet: -1 }],
+    ["minNet", { minNet: "5" }],
+    ["maxSent", { maxSent: 4 }],
+    ["senderAllowlist", { senderAllowlist: [] }],
+    ["senderAllowlist", { senderAllowlist: ["  "] }],
+    ["senderAllowlist", { senderAllowlist: ["x".repeat(41)] }],
+    ["senderAllowlist", { senderAllowlist: [5] }],
+    ["regressionThreshold", { regressionThreshold: 1.5 }],
+    ["regressionThreshold", { regressionThreshold: -1 }],
+    ["reviewThreshold", { reviewThreshold: -1 }],
+    ["dailyCap", { dailyCap: "3000" }],
+    ["firstClaimReview", { firstClaimReview: "false" }],
+    ["firstClaimReview", { firstClaimReview: 0 }],
+    ["firstClaimReview", { firstClaimReview: null }],
+  ])("rejects bad %s", (field, patch) => {
+    const r = validateSettings({ ...GOOD, ...patch })
+    expect(r).toEqual({ ok: false, field })
+  })
+
+  it.each(["minNet", "maxSent", "reviewThreshold", "dailyCap"])("rejects more than 2 decimals in %s", (field) => {
+    expect(validateSettings({ ...GOOD, [field]: 10.123 })).toEqual({ ok: false, field })
+    expect(validateSettings({ ...GOOD, [field]: 10.25 }).ok).toBe(true)
+  })
+
+  it("rejects enabled with no MTN account, with a dedicated error", () => {
+    const r = validateSettings({ ...GOOD, accounts: [{ network: "Telecel", number: "0200000000" }] })
+    expect(r).toEqual({ ok: false, field: "accounts", error: "mtn_account_required" })
+    expect(validateSettings({ ...GOOD, accounts: [] })).toEqual({ ok: false, field: "accounts", error: "mtn_account_required" })
+  })
+
+  it("allows no MTN account while disabled", () => {
+    expect(validateSettings({ ...GOOD, enabled: false, accounts: [] }).ok).toBe(true)
+  })
+
+  it("accepts boundary values", () => {
+    const r = validateSettings({ ...GOOD, enabled: false, feeCustomerPercent: 0, feeDealerPercent: 100, minNet: 0, maxSent: 0, accountName: "", regressionThreshold: 0, reviewThreshold: 0, dailyCap: 0 })
+    expect(r.ok).toBe(true)
+  })
+
+  it("passes firstClaimReview through as a boolean, both ways", () => {
+    for (const b of [true, false]) {
+      const r = validateSettings({ ...GOOD, firstClaimReview: b })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.value.firstClaimReview).toBe(b)
+    }
+  })
+
+  it("firstClaimReview is optional: absent stays undefined (the route keeps the current value)", () => {
+    const body: Record<string, unknown> = { ...GOOD }
+    delete body.firstClaimReview
+    const r = validateSettings(body)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.value.firstClaimReview).toBeUndefined()
+    const u = validateSettings({ ...GOOD, firstClaimReview: undefined })
+    expect(u.ok).toBe(true)
+  })
+
+  it("rejects non-objects", () => {
+    expect(validateSettings(null).ok).toBe(false)
+    expect(validateSettings([]).ok).toBe(false)
+  })
+})
+
+describe("hasAtMostTwoDecimals", () => {
+  it("works", () => {
+    expect(hasAtMostTwoDecimals(10.25)).toBe(true)
+    expect(hasAtMostTwoDecimals(0.1 + 0.2)).toBe(true)
+    expect(hasAtMostTwoDecimals(10.123)).toBe(false)
+  })
+})

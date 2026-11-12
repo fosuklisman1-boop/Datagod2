@@ -5,15 +5,16 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { useUserRole } from "@/hooks/use-user-role"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Wallet, Plus, TrendingUp, TrendingDown, AlertCircle, Loader2, CheckCircle, LayoutGrid, History as HistoryIcon } from "lucide-react"
+import { TrendingUp, TrendingDown, AlertCircle, Loader2, CheckCircle, TriangleAlert } from "lucide-react"
+import { pausedPanelCopy } from "@/lib/momo-claim/view-model"
 import { Skeleton } from "@/components/ui/skeleton"
 import { WalletTopUp } from "@/components/wallet-top-up"
 import { SuccessModal } from "@/components/success-modal"
+import { SendAndClaimTab } from "@/components/wallet/send-and-claim/send-and-claim-tab"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -42,9 +43,8 @@ interface PendingPayment {
 }
 
 const TABS = [
-  { id: "overview", label: "Overview", icon: LayoutGrid },
-  { id: "topup", label: "Top Up", icon: Plus },
-  { id: "history", label: "History", icon: HistoryIcon },
+  { id: "topup", label: "Top Up Wallet" },
+  { id: "sendclaim", label: "Send & Claim" },
 ] as const
 
 export default function WalletPage() {
@@ -52,7 +52,9 @@ export default function WalletPage() {
   const searchParams = useSearchParams()
   const { user, loading: authLoading } = useAuth()
   const { isDealer } = useUserRole()
-  const [tab, setTab] = useState<"overview" | "topup" | "history">("overview")
+  const [tab, setTab] = useState<"topup" | "sendclaim">("topup")
+  const [guideSignal, setGuideSignal] = useState(0)
+  const [momoEnabled, setMomoEnabled] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [walletData, setWalletData] = useState<WalletData>({
     balance: 0,
@@ -103,8 +105,32 @@ export default function WalletPage() {
           }
         })
         .catch((err) => console.error("Failed to load toggles", err))
+
+      // Send & Claim tab only shows when the feature is enabled
+      supabase.auth
+        .getSession()
+        .then(({ data }) =>
+          fetch("/api/wallet/momo-sessions", {
+            headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` },
+          }),
+        )
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => setMomoEnabled(data?.enabled === true))
+        .catch(() => setMomoEnabled(false))
     }
   }, [user])
+
+  const handleMomoCredited = async (netAmount: number) => {
+    setSuccessModal({
+      open: true,
+      title: "Top-Up Successful!",
+      message: "Your payment was received and your wallet has been credited.",
+      details: [{ label: "Amount", value: `GH₵ ${netAmount.toFixed(2)}` }],
+    })
+    if (userId) {
+      await Promise.all([fetchWalletData(userId), fetchTransactions(userId)])
+    }
+  }
 
   const fetchUserAndWallet = async () => {
     try {
@@ -330,7 +356,7 @@ export default function WalletPage() {
 
   const handleTopUpSuccess = async (amount: number) => {
     console.log("[WALLET-PAGE] Top up successful, amount:", amount)
-    setTab("overview")
+    setTab("topup")
 
     // Show success modal
     setSuccessModal({
@@ -338,7 +364,7 @@ export default function WalletPage() {
       title: "Top-Up Successful!",
       message: "Your wallet has been credited successfully.",
       details: [
-        { label: "Amount", value: `GHS ${amount.toFixed(2)}` },
+        { label: "Amount", value: `GH₵ ${amount.toFixed(2)}` },
       ],
     })
 
@@ -354,6 +380,8 @@ export default function WalletPage() {
       console.log("[WALLET-PAGE] Wallet data refreshed")
     }
   }
+
+  const paused = pausedPanelCopy(momoEnabled)
 
   if (loading) {
     return (
@@ -374,53 +402,61 @@ export default function WalletPage() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl lg:max-w-4xl mx-auto space-y-5">
-        <DashboardHeroBanner title="Wallet" subtitle="Manage your account balance and funds" icon={Wallet} />
+        {/* Balance + lifetime stats (one row on lg) */}
+        <div className="space-y-3 lg:grid lg:grid-cols-[1.4fr_1fr_1fr] lg:gap-3 lg:space-y-0">
+          <div
+            className={`flex items-center justify-between rounded-2xl border bg-card p-5 shadow-sm ${
+              isDealer ? "border-l-4 border-border border-l-amber-500" : "border-border"
+            }`}
+          >
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Wallet Balance</p>
+              <p className="mt-1 text-3xl font-black tracking-tight text-foreground">
+                GH₵{Math.max(0, walletData.balance).toFixed(2)}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">Available now</p>
+            </div>
+            <span className="flex items-center gap-2 text-sm font-semibold text-green-600 dark:text-green-400">
+              <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+              Active
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:col-span-2">
+            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+              <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <TrendingUp className="h-4 w-4 text-green-600" /> Total Credited
+              </p>
+              <p className="mt-2 text-xl font-bold text-foreground">GH₵{walletData.totalCredited.toFixed(2)}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Lifetime</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+              <p className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <TrendingDown className="h-4 w-4 text-red-500" /> Total Spent
+              </p>
+              <p className="mt-2 text-xl font-bold text-foreground">GH₵{walletData.totalDebited.toFixed(2)}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Lifetime</p>
+            </div>
+          </div>
+        </div>
 
         {/* Tabs */}
-        <div className="inline-flex w-full rounded-2xl bg-muted p-1">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${
-                tab === id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
-              }`}
-            >
-              <Icon className="h-4 w-4" /> {label}
-            </button>
-          ))}
-        </div>
-
-        {tab === "overview" && (
-        <>
-        {/* Balance hero -- same navy-gradient language as the rest of this
-            rebuild (dashboard banner, etc.), dealer keeps its own amber
-            identity like everywhere else in this app. */}
-        <div className={`rounded-2xl p-5 text-white ${isDealer ? "bg-warning" : "bg-gradient-to-br from-[#1b388b] to-[#2a5ce8]"}`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={`text-sm ${isDealer ? "text-amber-100" : "text-white/70"}`}>Available Balance</p>
-              <p className="mt-1 text-3xl font-black">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
-            </div>
-            <Wallet className={`h-12 w-12 opacity-40 ${isDealer ? "text-amber-100" : "text-white"}`} />
-          </div>
-          <div className="mt-4">
-            {walletTopupsEnabled || isDealer ? (
+        {momoEnabled && (
+          <div className="flex w-full rounded-2xl bg-muted p-1">
+            {TABS.map(({ id, label }) => (
               <button
-                onClick={() => setTab("topup")}
-                className={`flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-bold hover:bg-white/90 ${isDealer ? "text-amber-600" : "text-[#1b388b]"}`}
+                key={id}
+                onClick={() => setTab(id)}
+                className={`flex-1 rounded-xl py-3 text-sm font-bold transition ${
+                  tab === id ? "bg-[#1b388b] text-white shadow-sm dark:bg-blue-600" : "text-muted-foreground"
+                }`}
               >
-                <Plus className="h-4 w-4" /> Add Funds
+                {label}
               </button>
-            ) : (
-              <div className="rounded-2xl border border-white/20 bg-white/10 p-3 text-sm text-white/90 backdrop-blur-sm">
-                ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
-              </div>
-            )}
+            ))}
           </div>
-        </div>
+        )}
 
-        {/* Pending Payments Alert */}
+        {/* Pending Payments Alert (shown on both tabs) */}
         {pendingPayments.length > 0 && (
           <Card className="border-warning/40 bg-warning/10">
             <CardHeader className="pb-3">
@@ -441,7 +477,7 @@ export default function WalletPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-foreground">
-                        GHS {(payment.amount || 0).toFixed(2)}
+                        GH₵ {(payment.amount || 0).toFixed(2)}
                       </span>
                       <Badge className="bg-warning/15 text-warning text-xs">
                         {payment.status}
@@ -470,44 +506,47 @@ export default function WalletPage() {
           </Card>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success">
-              <TrendingUp className="h-4 w-4" />
-            </span>
-            <p className="mt-2 text-lg font-black text-foreground">GHS {walletData.totalCredited.toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">Total Credited</p>
+        {(tab === "topup" || !momoEnabled) && (
+        <>
+        {walletTopupsEnabled || isDealer ? (
+          <WalletTopUp onSuccess={handleTopUpSuccess} />
+        ) : (
+          <div className="flex flex-col items-center rounded-2xl border border-border bg-card p-6 text-center shadow-sm">
+            <TriangleAlert className="h-8 w-8 text-amber-500" />
+            <p className="mt-3 text-base font-bold text-foreground">{paused.title}</p>
+            <p className="mt-2 max-w-sm text-sm text-muted-foreground">{paused.text}</p>
+            {paused.showButton && (
+              <>
+                <button
+                  onClick={() => setTab("sendclaim")}
+                  className="mt-4 w-full max-w-xs rounded-xl bg-[#1b388b] py-3 text-sm font-bold text-white hover:bg-[#1b388b]/90 dark:bg-blue-600 dark:hover:bg-blue-500"
+                >
+                  Use Send &amp; Claim
+                </button>
+                <button
+                  onClick={() => {
+                    setTab("sendclaim")
+                    setGuideSignal((n) => n + 1)
+                  }}
+                  className="mt-3 text-sm font-medium text-muted-foreground underline"
+                >
+                  Show me how
+                </button>
+              </>
+            )}
           </div>
-          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-              <TrendingDown className="h-4 w-4" />
-            </span>
-            <p className="mt-2 text-lg font-black text-foreground">GHS {walletData.totalDebited.toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">Total Spent</p>
-          </div>
-          <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1b388b]/10 text-[#1b388b]">
-              <Wallet className="h-4 w-4" />
-            </span>
-            <p className="mt-2 text-lg font-black text-foreground">GHS {Math.max(0, walletData.balance).toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">Available</p>
-          </div>
-        </div>
+        )}
         </>
         )}
 
-        {tab === "topup" && (
-          walletTopupsEnabled || isDealer ? (
-            <WalletTopUp onSuccess={handleTopUpSuccess} />
-          ) : (
-            <div className="rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 text-sm text-muted-foreground clay">
-              ⚠️ Wallet top-ups are currently temporarily disabled for maintenance.
-            </div>
-          )
+        {momoEnabled && (
+          <div className={tab === "sendclaim" ? "" : "hidden"} aria-hidden={tab !== "sendclaim"}>
+            <SendAndClaimTab onCredited={handleMomoCredited} openGuideSignal={guideSignal} />
+          </div>
         )}
 
-        {tab === "history" && (
+        <section className="space-y-3">
+          <h2 className="text-base font-bold text-foreground">Recent transactions</h2>
           <div className="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
             {transactions.length === 0 ? (
               <Alert>
@@ -531,14 +570,14 @@ export default function WalletPage() {
                       </div>
                     </div>
                     <p className={`whitespace-nowrap font-semibold tabular-nums ${credit ? "text-success" : "text-destructive"}`}>
-                      {credit ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
+                      {credit ? "+" : "-"}GH₵ {(transaction.amount || 0).toFixed(2)}
                     </p>
                   </div>
                 )
               })
             )}
           </div>
-        )}
+        </section>
       </div>
 
       {/* Success Modal */}

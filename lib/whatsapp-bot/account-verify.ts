@@ -7,6 +7,7 @@
 // challenge lives in Redis keyed by the WhatsApp sender.
 import { createClient } from "@supabase/supabase-js"
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { phoneVariants } from "@/lib/phone-format"
 import { linkWhatsAppToAccount } from "./account-link"
@@ -18,10 +19,11 @@ const supabase = createClient(
 
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
     redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: redisEnv.url,
+      token: redisEnv.token,
     })
   }
 } catch { /* no redis → verification unavailable, handled by callers */ }

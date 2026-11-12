@@ -1,4 +1,5 @@
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { safeDbError } from "./log-safe"
 import type { HubtelSession } from "./types"
@@ -7,8 +8,9 @@ const SESSION_TTL = 120 // seconds
 
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN })
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
+    redis = new Redis({ url: redisEnv.url, token: redisEnv.token })
   } else {
     console.warn("[HUBTEL-SESSION] Upstash env vars not set — using in-process sessions (dev only)")
   }

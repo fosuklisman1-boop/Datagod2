@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { isRedisRestConfigured } from "@/lib/redis-env"
 import {
   DEFAULT_BRAND, getHubtelMainLineConfig, getHubtelUssdConfig, hubtelEnvReady, setHubtelMainLineConfig,
   setHubtelUssdConfig, validateBrandName, validateWelcome, VISIBILITY_KEYS,
@@ -12,7 +13,7 @@ const adminClient = () =>
   })
 
 /** Redis configured (the USSD session store; shop billing is guarded in Postgres, migration 0111). */
-const redisConfigured = () => !!process.env.UPSTASH_REDIS_REST_URL && !!process.env.UPSTASH_REDIS_REST_TOKEN
+const redisConfigured = () => isRedisRestConfigured()
 
 const FORBIDDEN = () => NextResponse.json({ error: "Admin access required" }, { status: 403 })
 

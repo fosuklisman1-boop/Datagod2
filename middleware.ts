@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr"
 import { generateShopSession } from "@/lib/shop-token-edge"
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { safeRedirectPath } from "@/lib/post-auth-redirect"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
@@ -12,10 +13,11 @@ import { subagentsHostRedirect, SUBAGENTS_SUBDOMAIN } from "@/lib/sub-agents/joi
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
 // per browsing session (visit, navigate to checkout, etc.). Attackers harvesting
 // fresh cookies for each scripted order burn through this in seconds → 429.
-const cookieIssuanceRedis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+const cookieIssuanceRedisEnv = getRedisRestEnv()
+const cookieIssuanceRedis = cookieIssuanceRedisEnv
   ? new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: cookieIssuanceRedisEnv.url,
+      token: cookieIssuanceRedisEnv.token,
     })
   : null
 const cookieIssuanceLimiter = cookieIssuanceRedis

@@ -3,12 +3,16 @@ import { applyAndCommit } from "./apply"
 import { applyResolve, applyStatusCheck, RECHECK_GAP_MS } from "./state-machine"
 import type { HubtelCsStore } from "./store"
 import type { HubtelCsTx } from "./types"
+import type { LedgerFact } from "@/lib/bills/admin"
+import { supersededBy } from "./retry"
 
 export interface AdminDeps {
   store: HubtelCsStore
   checkStatus(ref: string): Promise<{ ok: boolean; status?: string; data?: any; error?: string }>
   onTransition(tx: HubtelCsTx): Promise<void>
   now?: () => Date
+  /** Every attempt for an order (throws on DB error). When set, refunds of a superseded attempt are refused. */
+  getOrderLedger?(orderTable: string, orderId: string): Promise<LedgerFact[]>
 }
 type Out = { ok: boolean; message: string; tx: HubtelCsTx | null; provenance?: { resolved_by: string | null; resolution_note: string | null } }
 
@@ -67,6 +71,14 @@ export async function adminRefund(deps: AdminDeps, ref: string, adminId: string,
   if (!adapter?.refundToWallet || !tx.order_id) return { ok: false, message: "No refund handler is registered for this order type", tx, provenance }
   if (tx.resolved_by && !opts.force) {
     return { ok: false, message: `This row was marked failed by an admin override (${tx.resolved_by}: ${tx.resolution_note ?? "no note"}), not by Hubtel. Pass force to refund anyway.`, tx, provenance }
+  }
+  // A retried order belongs to its newest attempt: refunding an older failed one could pay out while the retry delivers.
+  if (deps.getOrderLedger) {
+    let newer: { ref: string; state: string } | null
+    try { newer = supersededBy(tx, await deps.getOrderLedger(tx.order_table!, tx.order_id)) } catch {
+      return { ok: false, message: "Could not read this order's Hubtel attempts; try again", tx, provenance }
+    }
+    if (newer) return { ok: false, message: `A newer attempt exists for this order (${newer.ref}, ${newer.state.replace("_", " ")}); act on that one instead`, tx, provenance }
   }
   const claimed = await deps.store.claimRefund(tx.id, adminId)
   if (!claimed) return { ok: false, message: "Refund already claimed or row not failed", tx: (await deps.store.getByRef(ref)) ?? tx, provenance }

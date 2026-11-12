@@ -1,4 +1,5 @@
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { WaShopSession } from "./shop-types"
 
 // 30 minutes, not the USSD shop's 120s — WhatsApp is asynchronous (the customer
@@ -8,10 +9,11 @@ const SESSION_TTL = 1800 // seconds
 
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
     redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: redisEnv.url,
+      token: redisEnv.token,
     })
   } else {
     console.warn("[WA-SHOP-SESSION] Upstash env vars not set — sessions will not persist")

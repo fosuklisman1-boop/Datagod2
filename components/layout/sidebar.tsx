@@ -617,6 +617,33 @@ export function Sidebar() {
                 </Button>
               </Link>
 
+              <Link href="/admin/momo-claims" onClick={() => { markClicked("/admin/momo-claims"); handleNavigation("/admin/momo-claims") }}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "relative w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/momo-claims" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/momo-claims" && "opacity-70"
+                  )}
+                  title={!isOpen ? "MoMo Claims" : undefined}
+                  disabled={loadingPath === "/admin/momo-claims"}
+                >
+                  {loadingPath === "/admin/momo-claims" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <Smartphone className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">MoMo Claims</span>
+                      {isNew("/admin/momo-claims") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/momo-claims") && <NewTag compact />}
+                </Button>
+              </Link>
+
               <Link href="/admin/leaderboard" onClick={() => { markClicked("/admin/leaderboard"); handleNavigation("/admin/leaderboard") }}>
                 <Button
                   variant="ghost"

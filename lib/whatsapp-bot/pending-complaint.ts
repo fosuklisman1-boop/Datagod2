@@ -6,13 +6,15 @@
 // Kept in its own Redis key (NOT the bot session) so it doesn't trip the session
 // → waRouter routing. TTL-bounded so a never-completed staging eventually clears.
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
     redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: redisEnv.url,
+      token: redisEnv.token,
     })
   }
 } catch { /* no redis → staging unavailable; file_complaint falls back (see handler) */ }
