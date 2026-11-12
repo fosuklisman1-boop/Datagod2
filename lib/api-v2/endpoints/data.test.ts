@@ -12,6 +12,7 @@ import {
   orderLookupHandler,
   BULK_DEADLINE_MS,
   BULK_ITEM_ERRORS,
+  MAX_NEW_MTN_PER_BULK,
   type DataDeps,
   type SandboxOrderLike,
 } from "./data"
@@ -555,6 +556,59 @@ describe("bulk (live)", () => {
       expect(r.status).toBe(400)
       expectNothingCalled(d)
     }
+  })
+
+  describe("MTN cap per bulk call", () => {
+    const MSG = "A bulk call can include at most 20 new MTN orders; split the batch"
+    const mtn = (n: number) => Array.from({ length: n }, (_, i) => item(i))
+    const tel = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        item(100 + i, { network: "Telecel", volume_gb: 2, recipient: `02099904${String(10 + i).padStart(2, "0")}` })
+      )
+
+    it("exports the constant", () => {
+      expect(MAX_NEW_MTN_PER_BULK).toBe(20)
+    })
+
+    it("21 new MTN items -> 400, no RPC, whitelist, balance or catalog call", async () => {
+      const d = makeDeps()
+      const r = await bulkHandler(d)({ orders: mtn(21) }, LIVE)
+      expect(r.status).toBe(400)
+      expect(r.error?.message).toBe(MSG)
+      expectNoMoney(d)
+      expect(d.verifyMtn).not.toHaveBeenCalled()
+      expect(d.store.getWalletBalance).not.toHaveBeenCalled()
+      expect(d.store.listAvailablePackages).not.toHaveBeenCalled()
+    })
+
+    it("20 new MTN + 30 Telecel proceeds", async () => {
+      const d = makeDeps()
+      const r = await bulkHandler(d)({ orders: [...mtn(20), ...tel(30)] }, LIVE)
+      expect(r.status).toBe(200)
+      expect(d.store.placeV2Order).toHaveBeenCalledTimes(50)
+    })
+
+    it("25 MTN of which 5 new -> replays do not count", async () => {
+      const d = makeDeps()
+      const existing = new Map<string, OrderRow>()
+      for (let i = 0; i < 20; i++) {
+        existing.set(`BULK-${i}`, row({ api_reference: `BULK-${i}`, recipient_phone: `02499904${String(30 + i).padStart(2, "0")}` }))
+      }
+      d.store.getOrdersByReferences.mockResolvedValue(existing)
+      const r = await bulkHandler(d)({ orders: mtn(25) }, LIVE)
+      expect(r.status).toBe(200)
+      expect(d.store.placeV2Order).toHaveBeenCalledTimes(5)
+    })
+
+    it("sandbox applies the same cap (no replay exemption needed for the rejection)", async () => {
+      const d = makeDeps()
+      const r = await bulkHandler(d)({ orders: mtn(21) }, TEST)
+      expect(r.status).toBe(400)
+      expect(r.error?.message).toBe(MSG)
+      expect(d.sandbox.place).not.toHaveBeenCalled()
+      expect(d.sandbox.balance).not.toHaveBeenCalled()
+      expect(d.store.listAvailablePackages).not.toHaveBeenCalled()
+    })
   })
 
   it("duplicate reference in the batch -> 400 naming the index, nothing called", async () => {

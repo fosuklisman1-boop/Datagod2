@@ -496,6 +496,18 @@ export function bulkHandler(deps: DataDeps) {
   }
 }
 
+/**
+ * One MTN provider call can take ~30 s and a bulk dispatches 4 at a time inside
+ * a 300 s function budget, so a call may carry only this many NEW MTN items.
+ */
+export const MAX_NEW_MTN_PER_BULK = 20
+const MSG_MTN_CAP = `A bulk call can include at most ${MAX_NEW_MTN_PER_BULK} new MTN orders; split the batch`
+
+/** Replays never count: they dispatch nothing. */
+function overMtnCap(classified: Classified[]): boolean {
+  return classified.filter((c) => c.kind === "new" && c.input.network === "MTN").length > MAX_NEW_MTN_PER_BULK
+}
+
 function pastDeadline(deps: DataDeps, startedAt: number): boolean {
   return deps.now().getTime() - startedAt > BULK_DEADLINE_MS
 }
@@ -515,6 +527,8 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
     else if (liveMatches(input, row)) classified.push({ kind: "replay", reference: input.reference, order: mapOrder(row) })
     else return fail(409, `orders[${i}]: ${MSG_REFERENCE_REUSED}`)
   }
+
+  if (overMtnCap(classified)) return fail(400, MSG_MTN_CAP)
 
   // 3. Validate the NEW items (package, price, prefix); any failure rejects the batch.
   const v = await priceNewItems(deps, classified, ctx)
@@ -612,6 +626,8 @@ async function sandboxBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Contex
     else if (sandboxMatches(input, prior)) classified.push({ kind: "replay", reference: input.reference, order: mapSandboxOrder(prior) })
     else return fail(409, `orders[${i}]: ${MSG_REFERENCE_REUSED}`)
   }
+
+  if (overMtnCap(classified)) return fail(400, MSG_MTN_CAP)
 
   const v = await priceNewItems(deps, classified, ctx)
   if (!v.ok) return v.result

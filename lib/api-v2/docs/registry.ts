@@ -22,6 +22,7 @@ import {
   MSG_PHONE_GATE,
   MSG_NOT_ATTEMPTED,
   BULK_DEADLINE_MS,
+  MAX_NEW_MTN_PER_BULK,
 } from "../endpoints/data"
 
 export type DocLang = "curl" | "node" | "php" | "python"
@@ -368,6 +369,7 @@ const BULK_ENDPOINT: V2Endpoint = {
     "The wallet must cover every item that will be placed (402 otherwise, nothing charged). Live bulk purchases require a verified account phone number (403 PHONE_NOT_VERIFIED).",
     `Orders are placed one after another and a request stops starting new placements after ${BULK_DEADLINE_TEXT}. Items not reached come back failed with ${MSG_NOT_ATTEMPTED}; resend the same batch and the placed ones are replayed without a second charge.`,
     `A failed item carries an error value: INSUFFICIENT_BALANCE (the wallet ran short during the batch), REFERENCE_REUSED (the reference was taken by a different order in the meantime), FAILED (the order could not be placed) or ${MSG_NOT_ATTEMPTED} (the deadline was reached before it started). Resending the same batch is safe for all of them: an item that was in fact placed comes back replayed and is never charged twice.`,
+    `A bulk call can include at most ${MAX_NEW_MTN_PER_BULK} new MTN orders (400 otherwise, nothing charged); replayed items do not count, so split larger MTN batches across calls.`,
     "Never send prices; the server prices every item from your role.",
     "A test key uses a sandbox wallet: the response carries sandbox: true and no real order is placed.",
   ],
