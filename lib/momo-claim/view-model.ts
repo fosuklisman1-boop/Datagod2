@@ -83,3 +83,41 @@ export function buildSendAndClaimView<T extends SessionLite>(
     guideOpenByDefault: !hasCredited,
   }
 }
+
+/** "mm:ss" until `target`, never negative. Minutes are zero-padded (60 min window). */
+export function formatCountdownMmSs(target: string | Date, nowMs: number): string {
+  const ms = new Date(target).getTime() - nowMs
+  const s = ms > 0 ? Math.floor(ms / 1000) : 0
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/** "12 Nov 2026, 12:28 am" in the viewer's local time. */
+export function formatStartedAt(value: string | Date): string {
+  const d = new Date(value)
+  const h = d.getHours()
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  const mm = String(d.getMinutes()).padStart(2, "0")
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}, ${h12}:${mm} ${h < 12 ? "am" : "pm"}`
+}
+
+/** Pieces of "You have **n** of 5 payments open." (the count is bolded by the component). */
+export function openPaymentsLine(n: number) {
+  return { lead: "You have", count: String(n), rest: `of ${MAX_OPEN_SESSIONS} payments open.` }
+}
+
+/** Check button gate: a MoMo transaction ID is 8-15 digits. */
+export function isValidTransactionId(value: string): boolean {
+  return /^\d{8,15}$/.test(value.trim())
+}
+
+/** Help text under the read-only amount field. */
+export function claimHelpLine(limits: { minNet: number; maxSent: number }): string {
+  return `This must match the amount you actually sent. Min ${formatGhs(limits.minNet, { fixed: true })} · Max ${formatGhs(limits.maxSent)}.`
+}
+
+/** Plain 2dp number (what the Amount "Copy" button copies). */
+export function formatPlainAmount(value: number): string {
+  return value.toFixed(2)
+}

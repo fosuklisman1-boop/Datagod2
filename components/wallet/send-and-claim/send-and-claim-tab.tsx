@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { supabase } from "@/lib/supabase"
 import { computeFee } from "@/lib/momo-claim/money"
-import { buildSendAndClaimView, limitsLine, momoErrorCopy } from "@/lib/momo-claim/view-model"
+import { buildSendAndClaimView, formatCountdownMmSs, limitsLine, momoErrorCopy, openPaymentsLine } from "@/lib/momo-claim/view-model"
 import { startPoller } from "@/lib/momo-claim/poller"
 import { MAX_OPEN_SESSIONS } from "@/lib/momo-claim/window"
 import { HowItWorks } from "./how-it-works"
 import { PaymentModal, type PaymentModalData } from "./payment-modal"
-import { ClaimBox, formatCountdown } from "./claim-box"
+import { ClaimBox } from "./claim-box"
 
 type Session = {
   id: string
@@ -151,7 +151,14 @@ export function SendAndClaimTab({
         return
       }
       seen.current.set(body.session.id, "pending")
-      setModal({ code: body.session.code, amount: body.session.amount, number: mtn.number, accountName: info.accountName })
+      setModal({
+        sessionId: body.session.id,
+        code: body.session.code,
+        amount: body.session.amount,
+        number: mtn.number,
+        accountName: info.accountName,
+        expiresAt: body.session.expiresAt,
+      })
       setAmount("")
       await load()
     } catch {
@@ -159,6 +166,12 @@ export function SendAndClaimTab({
     } finally {
       setBusy(false)
     }
+  }
+
+  const showDetails = (id: string) => {
+    const s = sessions.find((x) => x.id === id)
+    if (!s || !info) return
+    setModal({ sessionId: s.id, code: s.code, amount: s.amount, number: mtn?.number ?? null, accountName: info.accountName, expiresAt: s.expiresAt })
   }
 
   const cancel = async (id: string) => {
@@ -183,6 +196,7 @@ export function SendAndClaimTab({
     )
   }
 
+  const openLine = openPaymentsLine(view.boxes.length)
   const overMax = valid && Number(amount) > info.maxSent
   const disabled = busy || !valid || !mtn || view.generateDisabled || overMax
 
@@ -236,7 +250,7 @@ export function SendAndClaimTab({
           {view.generateDisabled && view.nextSlotFreeAt && (
             <p className="text-sm text-muted-foreground">
               You have {MAX_OPEN_SESSIONS} open payments. A new one unlocks when one expires or is credited. Next slot in{" "}
-              <span className="font-mono tabular-nums">{formatCountdown(view.nextSlotFreeAt, nowMs)}</span>
+              <span className="font-mono tabular-nums">{formatCountdownMmSs(view.nextSlotFreeAt, nowMs)}</span>
             </p>
           )}
           <Button onClick={generate} disabled={disabled} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
@@ -246,9 +260,21 @@ export function SendAndClaimTab({
         </div>
         {view.boxes.length > 0 && (
           <div className="space-y-3">
-            <p className="text-sm font-bold text-foreground">Open payments ({view.boxes.length})</p>
+            <p className="text-sm text-muted-foreground">
+              Sent money without the reference code? Pick the payment you made and enter your MoMo transaction ID.{" "}
+              {openLine.lead} <b className="text-foreground">{openLine.count}</b> {openLine.rest}
+            </p>
             {view.boxes.map((s) => (
-              <ClaimBox key={s.id} session={s} nowMs={nowMs} getToken={getToken} onDone={load} onCancel={cancel} />
+              <ClaimBox
+                key={s.id}
+                session={s}
+                limits={info}
+                nowMs={nowMs}
+                getToken={getToken}
+                onDone={load}
+                onCancel={cancel}
+                onShowDetails={(id) => showDetails(id)}
+              />
             ))}
           </div>
         )}

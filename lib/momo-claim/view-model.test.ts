@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { buildSendAndClaimView, momoErrorCopy, formatGhs, limitsLine, pausedPanelCopy, beforeYouSendLines } from "./view-model"
+import { buildSendAndClaimView, momoErrorCopy, formatGhs, limitsLine, pausedPanelCopy, beforeYouSendLines, formatCountdownMmSs, formatStartedAt, openPaymentsLine, isValidTransactionId, claimHelpLine, formatPlainAmount } from "./view-model"
 import { MAX_OPEN_SESSIONS, WINDOW_MINUTES } from "./window"
 
 describe("formatGhs", () => {
@@ -109,5 +109,49 @@ describe("buildSendAndClaimView", () => {
   it("keeps the guide open until the first credited claim", () => {
     expect(buildSendAndClaimView([], now, false, false).guideOpenByDefault).toBe(true)
     expect(buildSendAndClaimView([], now, false, true).guideOpenByDefault).toBe(false)
+  })
+})
+
+describe("formatCountdownMmSs", () => {
+  const now = Date.UTC(2026, 10, 12, 0, 0, 0)
+  it("pads minutes and seconds", () => {
+    expect(formatCountdownMmSs(new Date(now + 59 * 60000 + 53000), now)).toBe("59:53")
+    expect(formatCountdownMmSs(new Date(now + 5 * 60000 + 3000), now)).toBe("05:03")
+  })
+  it("never goes negative", () => {
+    expect(formatCountdownMmSs(new Date(now - 5000), now)).toBe("00:00")
+  })
+})
+
+describe("formatStartedAt", () => {
+  it("formats like '12 Nov 2026, 12:28 am' in local time", () => {
+    expect(formatStartedAt(new Date(2026, 10, 12, 0, 28))).toBe("12 Nov 2026, 12:28 am")
+    expect(formatStartedAt(new Date(2026, 0, 3, 13, 5))).toBe("3 Jan 2026, 1:05 pm")
+    expect(formatStartedAt(new Date(2026, 5, 9, 12, 0))).toBe("9 Jun 2026, 12:00 pm")
+  })
+  it("accepts an ISO string", () => {
+    expect(formatStartedAt(new Date(2026, 10, 12, 0, 28).toISOString())).toBe("12 Nov 2026, 12:28 am")
+  })
+})
+
+describe("openPaymentsLine", () => {
+  it("returns the parts for the 'You have n of 5' sentence", () => {
+    expect(openPaymentsLine(1)).toEqual({ lead: "You have", count: "1", rest: `of ${MAX_OPEN_SESSIONS} payments open.` })
+  })
+})
+
+describe("claim box copy", () => {
+  it("gates the Check button on 8-15 digits", () => {
+    expect(isValidTransactionId("12345678")).toBe(true)
+    expect(isValidTransactionId(" 123456789012345 ")).toBe(true)
+    expect(isValidTransactionId("1234567")).toBe(false)
+    expect(isValidTransactionId("1234567890123456")).toBe(false)
+    expect(isValidTransactionId("1234abcd5678")).toBe(false)
+  })
+  it("builds the help line and amount text", () => {
+    expect(claimHelpLine({ minNet: 10, maxSent: 10000 })).toBe(
+      "This must match the amount you actually sent. Min GH₵ 10.00 · Max GH₵ 10,000.",
+    )
+    expect(formatPlainAmount(10)).toBe("10.00")
   })
 })
