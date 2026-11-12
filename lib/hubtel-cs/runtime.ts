@@ -5,6 +5,7 @@ import { airtimeOrdersAdapterFor } from "./adapters/airtime-orders"
 import { billOrdersAdapterFor } from "./adapters/bill-orders"
 import { dataOrdersAdapterFor } from "./adapters/data-orders"
 import { makeOrderHook } from "./order-hook"
+import { fetchOrderLedger } from "./retry"
 import type { AdminDeps } from "./admin-actions"
 import { createHubtelCsClient } from "./client"
 import { getHubtelCsConfig, setHubtelCsPaused } from "./config"
@@ -62,7 +63,10 @@ export function getHubtelCsRuntime() {
     onFloat,
     onTransition: orderHook,
   })
-  const adminDeps: AdminDeps = { store, checkStatus: checkTransactionStatus, onTransition: orderHook }
+  const adminDeps: AdminDeps = {
+    store, checkStatus: checkTransactionStatus, onTransition: orderHook,
+    getOrderLedger: (table, id) => fetchOrderLedger(db, table, id),
+  }
   return {
     db, store, getConfig, client, floatDeps, adminDeps, onFloat,
     onTransition: orderHook,
