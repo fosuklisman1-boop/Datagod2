@@ -15,7 +15,7 @@ type Row = Record<string, any>
 type Tables = { support_threads: Row[]; support_messages: Row[]; complaints: Row[] }
 
 /** In-memory tables that honour the filters the cleanup uses. `failDelete` makes deletes on a table error. */
-function sim(tables: Tables, failDelete: string[] = []) {
+function sim(tables: Tables, failDelete: string[] = [], afterSelect?: (table: string, t: Tables) => void) {
   const fake = makeFakeDb((c: FakeCall): FakeResult | undefined => {
     const rows = (tables as any)[c.table] as Row[]
     const matches = (r: Row) =>
@@ -35,7 +35,9 @@ function sim(tables: Tables, failDelete: string[] = []) {
       return { data: gone.map((r) => ({ id: r.id })) }
     }
     const sorted = rows.filter(matches).sort((a, b) => (a.id < b.id ? -1 : 1))
-    return { data: sorted.slice(0, c.limitN ?? sorted.length) }
+    const out = sorted.slice(0, c.limitN ?? sorted.length)
+    if (c.table !== "support_messages") afterSelect?.(c.table, tables)
+    return { data: out }
   })
   return fake
 }
@@ -171,6 +173,78 @@ describe("deleteOldSupportData", () => {
     expect(res.errors).toBe(1)
     expect(res.closedThreads).toBe(0)
     expect(fake.calls.some((c) => c.op === "delete")).toBe(false)
+  })
+
+  it("never selects or deletes a closed thread whose closed_at is null", async () => {
+    const t: Tables = {
+      support_threads: [{ id: "t-null", status: "closed", closed_at: null }, thread("t-old", "closed", 100)],
+      support_messages: [],
+      complaints: [],
+    }
+    const res = await deleteOldSupportData(sim(t).db as any, NOW)
+    expect(res.closedThreads).toBe(1)
+    expect(t.support_threads.map((r) => r.id)).toEqual(["t-null"])
+  })
+
+  it("does not delete or count a thread that reopened between select and delete", async () => {
+    const t: Tables = {
+      support_threads: [thread("t-1", "closed", 100), thread("t-2", "closed", 100)],
+      support_messages: [],
+      complaints: [],
+    }
+    let flipped = false
+    const fake = sim(t, [], (table, tb) => {
+      if (table === "support_threads" && !flipped) {
+        flipped = true
+        tb.support_threads.find((r) => r.id === "t-1")!.status = "open"
+      }
+    })
+    const res = await deleteOldSupportData(fake.db as any, NOW)
+    expect(t.support_threads.map((r) => r.id)).toEqual(["t-1"])
+    expect(res.closedThreads).toBe(1)
+    const del = fake.calls.find((c) => c.table === "support_threads" && c.op === "delete")!
+    expect(del.filters).toContainEqual(["status", "closed"])
+    expect(del.filters.some(([k]) => k === "closed_at:lt")).toBe(true)
+  })
+
+  it("does not delete or count a complaint that went back to pending between select and delete", async () => {
+    const t: Tables = {
+      support_threads: [],
+      support_messages: [],
+      complaints: [complaint("c-1", "resolved", 100), complaint("c-2", "resolved", 100)],
+    }
+    let flipped = false
+    const fake = sim(t, [], (table, tb) => {
+      if (table === "complaints" && !flipped) {
+        flipped = true
+        tb.complaints.find((r) => r.id === "c-1")!.status = "pending"
+      }
+    })
+    const res = await deleteOldSupportData(fake.db as any, NOW)
+    expect(t.complaints.map((r) => r.id)).toEqual(["c-1"])
+    expect(res.legacyComplaints).toBe(1)
+    const del = fake.calls.find((c) => c.table === "complaints" && c.op === "delete")!
+    expect(del.filters).toContainEqual(["status:in", ["resolved", "rejected"]])
+    expect(del.filters.some(([k]) => k === "updated_at:lt")).toBe(true)
+  })
+
+  it("terminates when a guarded delete removes fewer rows than were selected", async () => {
+    const t: Tables = {
+      support_threads: Array.from({ length: 450 }, (_, i) => thread(`t-${pad(i)}`, "closed", 100)),
+      support_messages: [],
+      complaints: [],
+    }
+    let flipped = false
+    const fake = sim(t, [], (table, tb) => {
+      if (table === "support_threads" && !flipped) {
+        flipped = true
+        tb.support_threads[0].status = "open"
+      }
+    })
+    const res = await deleteOldSupportData(fake.db as any, NOW)
+    expect(res.closedThreads).toBe(449)
+    expect(t.support_threads.map((r) => r.id)).toEqual(["t-0000"])
+    expect(fake.calls.filter((c) => c.table === "support_threads" && c.op === "select").length).toBeLessThanOrEqual(4)
   })
 
   it("still deletes rows when file removal reports nothing (helper never throws)", async () => {

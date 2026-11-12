@@ -12,7 +12,9 @@ export async function GET(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse!
 
-  const dryRun = request.nextUrl.searchParams.get("dry") === "1"
+  // Fail safe: any `dry` value except an explicit "0" / "false" means dry run.
+  const dryParam = request.nextUrl.searchParams.get("dry")
+  const dryRun = dryParam !== null && !["0", "false"].includes(dryParam.trim().toLowerCase())
   try {
     const { closedThreads, legacyComplaints, filesRemoved, errors = 0 } = await deleteOldSupportData(supabase, new Date(), { dryRun })
     console.log("[SUPPORT-CLEANUP] done", { dryRun, closedThreads, legacyComplaints, filesRemoved, errors })

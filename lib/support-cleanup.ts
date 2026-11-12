@@ -49,6 +49,8 @@ async function sweep(
   dryRun: boolean,
   fetchPage: (after: string) => Promise<Page | null>,
   table: "support_threads" | "complaints",
+  /** Delete by id, repeating the selection predicates so a row that changed since the select survives. */
+  deleteGuarded: (ids: string[]) => PromiseLike<{ data: { id: string }[] | null; error: unknown }>,
 ): Promise<{ rows: number; files: number; errors: number }> {
   let rows = 0
   let files = 0
@@ -65,14 +67,17 @@ async function sweep(
     if (!dryRun) {
       // Files go first; a failed removal never blocks the row delete (the helper never throws).
       if (page.files.length > 0) await removeAttachments(db, page.files)
-      const { error } = await db.from(table).delete().in("id", page.ids)
+      const { data, error } = await deleteGuarded(page.ids)
       if (error) {
         console.error("[SUPPORT-CLEANUP] delete failed", { table, batch: page.ids.length })
         errors++
         break
       }
+      // Count what was actually deleted; rows that changed meanwhile were skipped by the guard.
+      rows += (data ?? []).length
+    } else {
+      rows += page.ids.length
     }
-    rows += page.ids.length
     files += page.files.length
     if (page.ids.length < BATCH) break
   }
@@ -103,6 +108,7 @@ export async function deleteOldSupportData(
       return files ? { ids, files } : null
     },
     "support_threads",
+    (ids) => db.from("support_threads").delete().in("id", ids).eq("status", "closed").lt("closed_at", cutoff).select("id"),
   )
 
   const complaints = await sweep(
@@ -117,6 +123,7 @@ export async function deleteOldSupportData(
       return { ids: rows.map((r) => r.id), files: rows.flatMap((r) => evidencePaths(r.evidence)) }
     },
     "complaints",
+    (ids) => db.from("complaints").delete().in("id", ids).in("status", ["resolved", "rejected"]).lt("updated_at", cutoff).select("id"),
   )
 
   return {
