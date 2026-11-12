@@ -15,7 +15,7 @@ const ALLOWED = new Set([
   "app/api/admin/packages/route.ts",
   "app/api/admin/packages/bulk-update-price/route.ts",
   // Role change: recalculates role-based data, not a charge.
-  "app/api/admin/users/update-role/route.ts",
+  "lib/admin-users/account-ops.ts",
   // Custom-prices admin route and dialog: show the dealer price as a reference and warning.
   "app/api/admin/users/[id]/custom-prices/route.ts",
   "components/admin/CustomPricesDialog.tsx",

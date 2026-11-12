@@ -1,27 +1,66 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
-import { verifyAdminAccess } from "@/lib/admin-auth"
+import { gateAdmin, serviceClient } from "@/lib/admin-users/route-utils"
+import { isUuid } from "@/lib/admin-users/drawer-params"
 
+/**
+ * DELETE /api/admin/remove-user { userId }: permanently delete a user and their data.
+ *
+ * - Signed-in admins only: the CRON bypass is refused (gateAdmin write), so every deletion is attributed.
+ *   Its callers are the admin users page and the phone-audit page, both with the admin's session.
+ * - An admin cannot delete their own account, and no account with role 'admin' (users.role or the auth
+ *   metadata) can be deleted here: remove the admin role first (POST /api/admin/remove-admin).
+ * - Before anything is deleted, one admin_audit_log row 'user_removed' records who deleted whom, with the
+ *   deleted account's email, phone and role. If that row cannot be written, nothing is deleted.
+ *   admin_audit_log keeps the raw ids (0176 dropped its foreign keys), so the row survives the deletion.
+ */
 export async function DELETE(req: NextRequest) {
   try {
-    // Verify admin access (checks both user_metadata and users table)
-    const { isAdmin, errorResponse } = await verifyAdminAccess(req)
-    if (!isAdmin) {
-      return errorResponse
-    }
+    const gate = await gateAdmin(req, { write: true })
+    if (!gate.ok) return gate.response
+    const adminId = gate.adminId!
 
-    const { userId } = await req.json()
-
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    if (!userId || !UUID_RE.test(userId)) {
+    const { userId } = await req.json().catch(() => ({}))
+    if (!isUuid(userId)) {
       return NextResponse.json({ error: "Valid user ID is required" }, { status: 400 })
     }
+    if (String(userId).toLowerCase() === adminId.toLowerCase()) {
+      return NextResponse.json({ error: "You cannot delete your own account" }, { status: 403 })
+    }
 
-    // Create Supabase client with service role for admin operations
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-      process.env.SUPABASE_SERVICE_ROLE_KEY || ""
-    )
+    const supabaseAdmin = serviceClient()
+
+    // Who is being deleted: the profile row, else the auth user.
+    const [{ data: profile, error: profileReadError }, authRes] = await Promise.all([
+      supabaseAdmin.from("users").select("email, phone_number, role").eq("id", userId).maybeSingle(),
+      supabaseAdmin.auth.admin.getUserById(userId),
+    ])
+    if (profileReadError) {
+      console.error("[REMOVE-USER] profile read failed:", profileReadError.message)
+      return NextResponse.json({ error: "Failed to load the user" }, { status: 500 })
+    }
+    const p = profile as { email: string | null; phone_number: string | null; role: string | null } | null
+    const authUser = authRes.error ? null : authRes.data?.user ?? null
+    if (!p && !authUser) return NextResponse.json({ error: "User not found" }, { status: 404 })
+    const metaRole = (authUser?.user_metadata as { role?: unknown } | undefined)?.role
+    if (p?.role === "admin" || metaRole === "admin") {
+      return NextResponse.json({ error: "Admin accounts cannot be deleted. Remove their admin role first." }, { status: 403 })
+    }
+
+    const { error: auditError } = await supabaseAdmin.from("admin_audit_log").insert([{
+      admin_id: adminId,
+      action: "user_removed",
+      target_user_id: userId,
+      old_value: null,
+      new_value: {
+        email: p?.email ?? authUser?.email ?? null,
+        phone: p?.phone_number ?? authUser?.phone ?? null,
+        role: p?.role || (typeof metaRole === "string" ? metaRole : null) || "user",
+      },
+    }])
+    if (auditError) {
+      console.error("[REMOVE-USER] audit insert failed, not deleting:", auditError.message)
+      return NextResponse.json({ error: "Could not record the deletion in the audit log, so nothing was deleted" }, { status: 500 })
+    }
 
     console.log(`[REMOVE-USER] Admin removing user ${userId}`)
 
