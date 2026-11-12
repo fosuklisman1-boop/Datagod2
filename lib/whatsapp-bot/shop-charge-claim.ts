@@ -1,4 +1,5 @@
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 
 // One shop-bot charge at a time per sender. The session stays on the confirm step while the charge is awaited (the relay
 // alone can take 15 s), so a second "1" would otherwise read that step and mint a second order and a second prompt. The
@@ -10,14 +11,15 @@ import { Redis } from "@upstash/redis"
 // Keep above maxDuration in app/api/whatsapp/webhook/route.ts; shop-charge-claim.test.ts fails otherwise.
 const CLAIM_TTL_SECONDS = 75
 
-const configured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
+const redisEnv = getRedisRestEnv()
+const configured = !!redisEnv
 
 let redis: Redis | null = null
 try {
   if (configured) {
     redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+      url: redisEnv!.url,
+      token: redisEnv!.token,
     })
   }
 } catch (e) {

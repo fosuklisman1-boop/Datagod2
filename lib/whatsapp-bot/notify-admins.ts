@@ -7,6 +7,7 @@
 // conversation so a burst of messages can't spam everyone. Best-effort: never
 // throws, so it can't break message processing.
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { createClient } from "@supabase/supabase-js"
 import { notifyAdminsPush, sendPushToUser } from "@/lib/push-service"
 
@@ -17,10 +18,11 @@ const supabase = createClient(
 
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
     redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: redisEnv.url,
+      token: redisEnv.token,
     })
   }
 } catch { /* no redis → no throttle, still functions */ }

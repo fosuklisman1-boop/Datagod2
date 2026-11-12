@@ -15,6 +15,7 @@
 // Any backend error is a cache miss. To forget a verified number, delete its
 // "mtnverify:ok:<last 9 digits>" key / row.
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { supabaseAdmin } from "@/lib/supabase"
 
 /** How long a REJECTION is remembered. Verified numbers never expire. */
@@ -26,8 +27,9 @@ const PURGE_EVERY = 50
 
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN })
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
+    redis = new Redis({ url: redisEnv.url, token: redisEnv.token })
   }
 } catch (e) {
   console.error("[VERDICT-CACHE] Failed to initialise Redis:", e instanceof Error ? e.name : "UnknownError")

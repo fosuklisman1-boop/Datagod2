@@ -1,14 +1,16 @@
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { USSDSession } from "./types"
 
 const SESSION_TTL = 120 // seconds — matches Uzo's session timeout
 
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
     redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: redisEnv.url,
+      token: redisEnv.token,
     })
   } else {
     console.warn("[USSD-SESSION] Upstash env vars not set — sessions will not persist")

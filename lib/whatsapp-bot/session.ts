@@ -1,15 +1,17 @@
 // lib/whatsapp-bot/session.ts
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { USSDSession } from "@/lib/ussd/types"
 
 const WA_SESSION_TTL = 1800 // 30 minutes
 
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
     redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: redisEnv.url,
+      token: redisEnv.token,
     })
   }
 } catch (e) {
