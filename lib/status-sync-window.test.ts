@@ -58,6 +58,13 @@ describe("isDailySweep", () => {
   })
 })
 
+describe("AFA apexprime sync uses the window", () => {
+  it("filters pending AFA rows by created_at >= syncWindowStartIso()", () => {
+    const src = readFileSync(join(__dirname, "../app/api/cron/sync-afa-status/apexprime/route.ts"), "utf8")
+    expect(src).toMatch(/\.eq\("fulfillment_status", "pending"\)[\s\S]{0,120}\.gte\("created_at", syncWindowStartIso\(\)\)/)
+  })
+})
+
 describe("provider status syncs use the window", () => {
   const root = join(__dirname, "../app/api/cron/sync-mtn-status")
   const providers = ["xpress", "spfastit-telecel", "spfastit", "eazyghdata", "datakazina", "codecraft", "apexprime", "agentportalgh", "bisdel", "bundleportal", "kuntanii"]
