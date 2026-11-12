@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { buildSendAndClaimView, momoErrorCopy, formatGhs, limitsLine, pausedPanelCopy, beforeYouSendLines, formatCountdownMmSs, formatStartedAt, openPaymentsLine, isValidTransactionId, claimHelpLine, formatPlainAmount } from "./view-model"
-import { MAX_OPEN_SESSIONS, WINDOW_MINUTES } from "./window"
+import { buildSendAndClaimView, momoErrorCopy, formatGhs, limitsLine, pausedPanelCopy, shouldCloseModal, formatCountdownMmSs, formatStartedAt, openPaymentsLine, isValidTransactionId, claimHelpLine, formatPlainAmount } from "./view-model"
+import { MAX_OPEN_SESSIONS } from "./window"
 
 describe("formatGhs", () => {
   it("drops decimals for whole amounts and adds thousands separators", () => {
@@ -22,11 +22,28 @@ describe("limitsLine", () => {
   })
 })
 
-describe("beforeYouSendLines", () => {
-  it("uses the window minutes and limits", () => {
-    const l = beforeYouSendLines({ minNet: 10, maxSent: 10000 })
-    expect(l.window).toContain(`${WINDOW_MINUTES} minutes`)
-    expect(l.between).toBe("Send between GH₵ 10.00 and GH₵ 10,000.")
+describe("shouldCloseModal", () => {
+  const now = Date.UTC(2026, 10, 12, 0, 0, 0)
+  const modal = { sessionId: "s1", expiresAt: new Date(now + 60000).toISOString() }
+  const pending = { id: "s1", status: "pending" }
+  it("stays open while the session is pending and unexpired", () => {
+    expect(shouldCloseModal(modal, [pending], now)).toBe(false)
+  })
+  it("closes when the session is credited", () => {
+    expect(shouldCloseModal(modal, [{ id: "s1", status: "claimed" }], now)).toBe(true)
+  })
+  it("closes when the session is cancelled", () => {
+    expect(shouldCloseModal(modal, [{ id: "s1", status: "cancelled" }], now)).toBe(true)
+  })
+  it("closes at expiry even if the list is stale", () => {
+    expect(shouldCloseModal(modal, [pending], now + 60000)).toBe(true)
+  })
+  it("ignores other sessions and a missing modal", () => {
+    expect(shouldCloseModal(modal, [pending, { id: "s2", status: "claimed" }], now)).toBe(false)
+    expect(shouldCloseModal(null, [], now)).toBe(false)
+  })
+  it("does not close a freshly opened modal before the list has caught up", () => {
+    expect(shouldCloseModal(modal, [], now)).toBe(false)
   })
 })
 
@@ -57,8 +74,8 @@ describe("momoErrorCopy", () => {
     )
   })
   it("maps known codes to customer copy", () => {
-    expect(momoErrorCopy("below_min", limits)).toBe("Amount too small. The minimum after the fee is GHS 2.00.")
-    expect(momoErrorCopy("above_max", limits)).toBe("Amount too large. The maximum per payment is GHS 500.00.")
+    expect(momoErrorCopy("below_min", limits)).toBe("Amount too small. The minimum after the fee is GH₵ 2.00.")
+    expect(momoErrorCopy("above_max", limits)).toBe("Amount too large. The maximum per payment is GH₵ 500.00.")
     expect(momoErrorCopy("rate_limited", limits)).toBe("Please wait a moment and try again.")
   })
   it("maps feature_off", () => {

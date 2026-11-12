@@ -95,14 +95,14 @@ describe("parseMomoSms", () => {
 
   it("parses the real MTN payment SMS (2026-11-12 shape)", () => {
     const sms =
-      "Payment received for GHS 10.00 from JOHN KWAME DOE  Current Balance: GHS 1271.15 . Available Balance: GHS 1271.15. Reference: XQH7925. Transaction ID: 93600000001. TRANSACTION FEE: 0.00";
+      "Payment received for GHS 10.00 from JOHN KWAME DOE  Current Balance: GHS 1234.56 . Available Balance: GHS 1234.56. Reference: TST2345. Transaction ID: 93600000001. TRANSACTION FEE: 0.00";
     expect(parseMomoSms(sms)).toEqual({
       pattern: "mtn_payment",
       network: "MTN",
       amountPesewas: 1000,
       senderName: "JOHN KWAME DOE",
       transactionId: "93600000001",
-      balancePesewas: 127115,
+      balancePesewas: 123456,
     });
   });
 
@@ -110,8 +110,8 @@ describe("parseMomoSms", () => {
     const mk = (bal: string) =>
       `Payment received for GHS 3.00 from JANE DOE  Current Balance${bal}. Transaction ID: 80000000002.`;
     expect(parseMomoSms(mk(" GHS 272.65"))?.balancePesewas).toBe(27265);
-    expect(parseMomoSms(mk(": GHS 1271.15"))?.balancePesewas).toBe(127115);
-    expect(parseMomoSms(mk(":GHS 1,271.15"))?.balancePesewas).toBe(127115);
+    expect(parseMomoSms(mk(": GHS 1234.56"))?.balancePesewas).toBe(123456);
+    expect(parseMomoSms(mk(":GHS 1,234.56"))?.balancePesewas).toBe(123456);
   });
 
   it("rejects amounts with more than 2 decimal places", () => {

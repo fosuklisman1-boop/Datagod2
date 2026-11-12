@@ -44,8 +44,8 @@ describe("scanCodeCandidates", () => {
   })
   it("finds the reference code in the real MTN payment SMS shape", () => {
     const sms =
-      "Payment received for GHS 10.00 from JOHN KWAME DOE  Current Balance: GHS 1271.15 . Available Balance: GHS 1271.15. Reference: XQH7925. Transaction ID: 93600000001. TRANSACTION FEE: 0.00"
-    expect(scanCodeCandidates(sms)).toContain("XQH7925")
+      "Payment received for GHS 10.00 from JOHN KWAME DOE  Current Balance: GHS 1234.56 . Available Balance: GHS 1234.56. Reference: TST2345. Transaction ID: 93600000001. TRANSACTION FEE: 0.00"
+    expect(scanCodeCandidates(sms)).toContain("TST2345")
   })
   it("returns unique values in order of appearance", () => {
     expect(scanCodeCandidates("ZZZ2222, abc 3333, ZZZ-2222")).toEqual(["ZZZ2222", "ABC3333"])

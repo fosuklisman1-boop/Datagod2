@@ -1,4 +1,4 @@
-import { openSessions, nextSlotFreeAt, MAX_OPEN_SESSIONS, WINDOW_MINUTES, type SessionLite } from "./window"
+import { openSessions, nextSlotFreeAt, MAX_OPEN_SESSIONS, type SessionLite } from "./window"
 // MAX_OPEN_SESSIONS also used in customer copy below
 
 /** "GH₵ 10,000" for whole amounts, "GH₵ 2,000.50" otherwise; `fixed` forces 2 decimals. */
@@ -14,12 +14,16 @@ export function limitsLine(limits: { minNet: number; maxSent: number }): string 
   return `Minimum ${formatGhs(limits.minNet, { fixed: true })} · Maximum ${formatGhs(limits.maxSent)}`
 }
 
-/** Plain-text pieces of the "Before you send" box (numbers are bolded by the component). */
-export function beforeYouSendLines(limits: { minNet: number; maxSent: number }) {
-  return {
-    window: `Your payment details stay valid for ${WINDOW_MINUTES} minutes.`,
-    between: `Send between ${formatGhs(limits.minNet, { fixed: true })} and ${formatGhs(limits.maxSent)}.`,
-  }
+/** True when the open payment modal should close: its session was credited/cancelled, or its window ran out. */
+export function shouldCloseModal(
+  modal: { sessionId: string; expiresAt: string } | null,
+  sessions: { id: string; status: string }[],
+  nowMs: number,
+): boolean {
+  if (!modal) return false
+  if (nowMs >= new Date(modal.expiresAt).getTime()) return true
+  const s = sessions.find((x) => x.id === modal.sessionId)
+  return !!s && s.status !== "pending"
 }
 
 /** Copy for the "Top-ups are paused" panel on the Top Up Wallet tab. */
@@ -51,9 +55,9 @@ export function momoErrorCopy(code: string | undefined, limits: MomoLimits): str
     case "no_wallet":
       return "Your wallet isn't ready yet. Refresh the page or contact support."
     case "below_min":
-      return `Amount too small. The minimum after the fee is GHS ${limits.minNet.toFixed(2)}.`
+      return `Amount too small. The minimum after the fee is GH₵ ${limits.minNet.toFixed(2)}.`
     case "above_max":
-      return `Amount too large. The maximum per payment is GHS ${limits.maxSent.toFixed(2)}.`
+      return `Amount too large. The maximum per payment is GH₵ ${limits.maxSent.toFixed(2)}.`
     case "invalid":
       return "Enter a valid amount (up to 2 decimals)."
     case "too_many_open":

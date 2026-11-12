@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { supabase } from "@/lib/supabase"
 import { computeFee } from "@/lib/momo-claim/money"
-import { buildSendAndClaimView, formatCountdownMmSs, limitsLine, momoErrorCopy, openPaymentsLine } from "@/lib/momo-claim/view-model"
+import { buildSendAndClaimView, formatCountdownMmSs, limitsLine, momoErrorCopy, openPaymentsLine, shouldCloseModal } from "@/lib/momo-claim/view-model"
 import { startPoller } from "@/lib/momo-claim/poller"
 import { MAX_OPEN_SESSIONS } from "@/lib/momo-claim/window"
 import { HowItWorks } from "./how-it-works"
@@ -80,7 +80,10 @@ export function SendAndClaimTab({
       setInfo({ accounts: body.accounts, accountName: body.accountName, feePercent: body.feePercent, minNet: body.minNet, maxSent: body.maxSent })
       const list: Session[] = body.sessions ?? []
       for (const s of list) {
-        if (seen.current.get(s.id) === "pending" && s.status === "claimed") creditedRef.current(s.netAmount)
+        if (seen.current.get(s.id) === "pending" && s.status === "claimed") {
+          creditedRef.current(s.netAmount)
+          setModal((m) => (m && m.sessionId === s.id ? null : m))
+        }
         seen.current.set(s.id, s.status)
       }
       setSessions(list)
@@ -97,6 +100,10 @@ export function SendAndClaimTab({
     const t = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(t)
   }, [])
+
+  useEffect(() => {
+    if (shouldCloseModal(modal, sessions, nowMs)) setModal(null)
+  }, [modal, sessions, nowMs])
 
   const view = useMemo(
     () => buildSendAndClaimView(sessions, new Date(nowMs), modal !== null, sessions.some((s) => s.status === "claimed")),
@@ -234,7 +241,7 @@ export function SendAndClaimTab({
           />
           {preview && (
             <p className="text-sm font-medium text-foreground">
-              Fee: GHS {preview.fee.toFixed(2)} · You get: GHS {preview.net.toFixed(2)}
+              Fee: GH₵ {preview.fee.toFixed(2)} · You get: GH₵ {preview.net.toFixed(2)}
             </p>
           )}
           {overMax && <p className="text-sm text-destructive">{momoErrorCopy("above_max", info)}</p>}
@@ -253,7 +260,7 @@ export function SendAndClaimTab({
               <span className="font-mono tabular-nums">{formatCountdownMmSs(view.nextSlotFreeAt, nowMs)}</span>
             </p>
           )}
-          <Button onClick={generate} disabled={disabled} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+          <Button onClick={generate} disabled={disabled} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90 dark:bg-blue-600 dark:hover:bg-blue-500">
             {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Generate Payment Details
           </Button>

@@ -125,7 +125,7 @@ export default function WalletPage() {
       open: true,
       title: "Top-Up Successful!",
       message: "Your payment was received and your wallet has been credited.",
-      details: [{ label: "Amount", value: `GHS ${netAmount.toFixed(2)}` }],
+      details: [{ label: "Amount", value: `GH₵ ${netAmount.toFixed(2)}` }],
     })
     if (userId) {
       await Promise.all([fetchWalletData(userId), fetchTransactions(userId)])
@@ -364,7 +364,7 @@ export default function WalletPage() {
       title: "Top-Up Successful!",
       message: "Your wallet has been credited successfully.",
       details: [
-        { label: "Amount", value: `GHS ${amount.toFixed(2)}` },
+        { label: "Amount", value: `GH₵ ${amount.toFixed(2)}` },
       ],
     })
 
@@ -447,7 +447,7 @@ export default function WalletPage() {
                 key={id}
                 onClick={() => setTab(id)}
                 className={`flex-1 rounded-xl py-3 text-sm font-bold transition ${
-                  tab === id ? "bg-[#1b388b] text-white shadow-sm" : "text-muted-foreground"
+                  tab === id ? "bg-[#1b388b] text-white shadow-sm dark:bg-blue-600" : "text-muted-foreground"
                 }`}
               >
                 {label}
@@ -456,9 +456,7 @@ export default function WalletPage() {
           </div>
         )}
 
-        {(tab === "topup" || !momoEnabled) && (
-        <>
-        {/* Pending Payments Alert */}
+        {/* Pending Payments Alert (shown on both tabs) */}
         {pendingPayments.length > 0 && (
           <Card className="border-warning/40 bg-warning/10">
             <CardHeader className="pb-3">
@@ -479,7 +477,7 @@ export default function WalletPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-foreground">
-                        GHS {(payment.amount || 0).toFixed(2)}
+                        GH₵ {(payment.amount || 0).toFixed(2)}
                       </span>
                       <Badge className="bg-warning/15 text-warning text-xs">
                         {payment.status}
@@ -508,6 +506,8 @@ export default function WalletPage() {
           </Card>
         )}
 
+        {(tab === "topup" || !momoEnabled) && (
+        <>
         {walletTopupsEnabled || isDealer ? (
           <WalletTopUp onSuccess={handleTopUpSuccess} />
         ) : (
@@ -519,7 +519,7 @@ export default function WalletPage() {
               <>
                 <button
                   onClick={() => setTab("sendclaim")}
-                  className="mt-4 w-full max-w-xs rounded-xl bg-[#1b388b] py-3 text-sm font-bold text-white hover:bg-[#1b388b]/90"
+                  className="mt-4 w-full max-w-xs rounded-xl bg-[#1b388b] py-3 text-sm font-bold text-white hover:bg-[#1b388b]/90 dark:bg-blue-600 dark:hover:bg-blue-500"
                 >
                   Use Send &amp; Claim
                 </button>
@@ -539,8 +539,10 @@ export default function WalletPage() {
         </>
         )}
 
-        {tab === "sendclaim" && momoEnabled && (
-          <SendAndClaimTab onCredited={handleMomoCredited} openGuideSignal={guideSignal} />
+        {momoEnabled && (
+          <div className={tab === "sendclaim" ? "" : "hidden"} aria-hidden={tab !== "sendclaim"}>
+            <SendAndClaimTab onCredited={handleMomoCredited} openGuideSignal={guideSignal} />
+          </div>
         )}
 
         <section className="space-y-3">
@@ -568,7 +570,7 @@ export default function WalletPage() {
                       </div>
                     </div>
                     <p className={`whitespace-nowrap font-semibold tabular-nums ${credit ? "text-success" : "text-destructive"}`}>
-                      {credit ? "+" : "-"}GHS {(transaction.amount || 0).toFixed(2)}
+                      {credit ? "+" : "-"}GH₵ {(transaction.amount || 0).toFixed(2)}
                     </p>
                   </div>
                 )

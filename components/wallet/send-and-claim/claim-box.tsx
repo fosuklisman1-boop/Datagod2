@@ -78,7 +78,7 @@ export function ClaimBox({ session, limits, nowMs, getToken, onDone, onShowDetai
           id={`claim-amount-${session.id}`}
           value={formatPlainAmount(session.amount)}
           readOnly
-          disabled
+          aria-readonly="true"
           className="h-12 rounded-xl bg-muted text-lg"
         />
         <p className="text-xs text-muted-foreground">{claimHelpLine(limits)}</p>
@@ -101,7 +101,7 @@ export function ClaimBox({ session, limits, nowMs, getToken, onDone, onShowDetai
             type="button"
             onClick={submit}
             disabled={busy || !isValidTransactionId(txId)}
-            className="inline-flex h-11 items-center justify-center rounded-xl bg-[#1b388b] px-5 font-semibold text-white shadow-md hover:bg-[#1b388b]/90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-[#1b388b] px-5 font-semibold text-white shadow-md hover:bg-[#1b388b]/90 dark:bg-blue-600 dark:hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Check
