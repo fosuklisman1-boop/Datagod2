@@ -53,3 +53,15 @@ describe("fromLegacyOrderDetails", () => {
     expect(fromLegacyOrderDetails([])).toBeNull()
   })
 })
+
+describe("fix round 1", () => {
+  it("whitespace-only size gives null", () => {
+    expect(fromOrderRow({ ...orderRow, size: "  " }).size).toBeNull()
+  })
+  it("whitespace-only price gives null, not 0", () => {
+    expect(fromOrderRow({ ...orderRow, price: "  " }).price).toBeNull()
+  })
+  it("numeric legacy package becomes 5GB", () => {
+    expect(fromLegacyOrderDetails({ package: 5 })?.size).toBe("5GB")
+  })
+})

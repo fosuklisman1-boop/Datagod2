@@ -122,3 +122,32 @@ describe("isUuid", () => {
     expect(isUuid(null)).toBe(false)
   })
 })
+
+describe("fix round 1", () => {
+  const ok = ["my phone = 0241234567", "money = 50", "Monday = busy", "only = this", "reason = unknown"]
+  const bad = ["x onerror=alert(1)", "onclick = foo"]
+  it("accepts ordinary words followed by =", () => {
+    for (const t of ok) {
+      expect(createThreadSchema.safeParse({ ...base, message: t + " please" }).success).toBe(true)
+      expect(userMessageSchema.safeParse({ message: t }).success).toBe(true)
+      expect(adminActionSchema.safeParse({ action: "reply", message: t }).success).toBe(true)
+    }
+  })
+  it("still rejects event-handler patterns", () => {
+    for (const t of bad) {
+      expect(createThreadSchema.safeParse({ ...base, message: t }).success).toBe(false)
+      expect(userMessageSchema.safeParse({ message: t }).success).toBe(false)
+      expect(adminActionSchema.safeParse({ action: "reply", message: t }).success).toBe(false)
+    }
+  })
+  it("treats null order ids as absent", () => {
+    expect(createThreadSchema.safeParse({ ...base, order_id: null }).success).toBe(true)
+    expect(createThreadSchema.safeParse({ ...base, order_id: UUID, shop_order_id: null }).success).toBe(true)
+    expect(createThreadSchema.safeParse({ ...base, order_id: null, shop_order_id: UUID }).success).toBe(true)
+  })
+  it("trims parsed output and rejects scripts in close note", () => {
+    const r = resolveComplaintSchema.parse({ id: UUID, status: "resolved", resolution_notes: "  ok  " })
+    expect(r.resolution_notes).toBe("ok")
+    expect(adminActionSchema.safeParse({ action: "close", note: "javascript:x" }).success).toBe(false)
+  })
+})

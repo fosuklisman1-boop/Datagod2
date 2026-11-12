@@ -4,7 +4,7 @@ export const GH_PHONE_RE = /^(0|\+233)[2-9][0-9]{8}$/
 
 export const SUPPORT_CATEGORIES = ["order", "payment", "account", "other"] as const
 
-const SCRIPT_PATTERNS = [/javascript:/i, /<script/i, /on\w+\s*=/i]
+const SCRIPT_PATTERNS = [/javascript:/i, /<script/i, /\bon(?!(?:ly|ce|e|es|line|to|going)\b)\w+\s*=/i]
 const hasScript = (s: string) => SCRIPT_PATTERNS.some((re) => re.test(s))
 const hasMarkup = (s: string) => /[<>&]/.test(s)
 
@@ -37,8 +37,8 @@ export const createThreadSchema = z
     message: customerText(5, 5000),
     phone_number: phone,
     whatsapp_number: phone,
-    order_id: z.string().uuid().optional(),
-    shop_order_id: z.string().uuid().optional(),
+    order_id: z.string().uuid().nullish(),
+    shop_order_id: z.string().uuid().nullish(),
   })
   .refine((v) => !(v.order_id && v.shop_order_id), {
     message: "Link either an order or a shop order, not both",

@@ -5,8 +5,8 @@ export type SupplierResult =
   | { kind: "manual" }
   | null
 
-/** Statuses where the supplier did not (yet) deliver: the provider was only tried. */
-const ATTEMPTED_ONLY_STATUSES = new Set(["failed", "pending"])
+/** Only these statuses mean the supplier actually took the order; anything else is "only attempted". */
+const HANDLED_STATUSES = new Set(["processing", "completed", "refunded", "reversed"])
 
 function time(created_at: string | null): number {
   if (!created_at) return -Infinity
@@ -34,9 +34,9 @@ export function resolveSupplier(
     return {
       kind: "supplier",
       provider: known[0].provider,
-      attemptedOnly: ATTEMPTED_ONLY_STATUSES.has(orderStatus ?? ""),
+      attemptedOnly: !HANDLED_STATUSES.has((orderStatus ?? "").trim().toLowerCase()),
     }
   }
-  if (trackingRows.length === 0 && fulfillmentMethod === "manual") return { kind: "manual" }
+  if (fulfillmentMethod === "manual") return { kind: "manual" }
   return null
 }

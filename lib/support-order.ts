@@ -36,7 +36,8 @@ export interface ShopOrdersRow {
 }
 
 function toNumber(v: unknown): number | null {
-  if (v === null || v === undefined || v === "") return null
+  if (v === null || v === undefined) return null
+  if (typeof v === "string" && v.trim() === "") return null
   const n = typeof v === "number" ? v : Number(v)
   return Number.isFinite(n) ? n : null
 }
@@ -47,8 +48,9 @@ function str(v: unknown): string | null {
 
 /** `orders.size` is stored as a bare number of GB; never double a unit already present. */
 function gb(v: string | number | null | undefined): string | null {
-  if (v === null || v === undefined || v === "") return null
+  if (v === null || v === undefined) return null
   const s = String(v).trim()
+  if (s === "") return null
   return /[a-z]/i.test(s) ? s : `${s}GB`
 }
 
@@ -93,7 +95,7 @@ export function fromLegacyOrderDetails(details: unknown): SupportOrder | null {
     reference: ref,
     beneficiary: str(d.phone),
     network: str(d.network),
-    size: str(d.package),
+    size: typeof d.package === "number" || typeof d.package === "string" ? gb(d.package) : null,
     price: toNumber(d.amount),
     status: null,
     created_at: str(d.date),

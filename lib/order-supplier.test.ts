@@ -46,3 +46,20 @@ describe("resolveSupplier", () => {
     ).toBeNull()
   })
 })
+
+describe("resolveSupplier fix round 1", () => {
+  const unknownOnly = [{ provider: "mystery", created_at: "2026-11-01T10:00:00Z" }]
+  const nullOnly = [{ provider: null, created_at: null }]
+  it("manual applies when there is no known provider row", () => {
+    expect(resolveSupplier(unknownOnly, "completed", "manual")).toEqual({ kind: "manual" })
+    expect(resolveSupplier(nullOnly, "completed", "manual")).toEqual({ kind: "manual" })
+    expect(resolveSupplier(unknownOnly, "completed", "auto_mtn")).toBeNull()
+  })
+  it("normalises status; only the four delivered-ish statuses are not attemptedOnly", () => {
+    expect(resolveSupplier(rows, "Completed", null)).toMatchObject({ attemptedOnly: false })
+    expect(resolveSupplier(rows, " completed ", null)).toMatchObject({ attemptedOnly: false })
+    expect(resolveSupplier(rows, null, null)).toMatchObject({ attemptedOnly: true })
+    expect(resolveSupplier(rows, "", null)).toMatchObject({ attemptedOnly: true })
+    expect(resolveSupplier(rows, "cancelled", null)).toMatchObject({ attemptedOnly: true })
+  })
+})
