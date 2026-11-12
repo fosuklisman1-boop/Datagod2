@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
-import type { NextRequest } from "next/server"
+import { NextResponse, type NextRequest } from "next/server"
+import { verifyAdminAccess } from "@/lib/admin-auth"
 
 let client: SupabaseClient | null = null
 
@@ -24,4 +25,17 @@ export async function getSupportUser(request: NextRequest): Promise<{ userId: st
   } catch {
     return null
   }
+}
+
+/**
+ * Admin gate for support routes. verifyAdminAccess also admits the cron-secret bearer, which has
+ * no user id; replies and closes are attributed to a person, so that caller is refused here.
+ */
+export async function requireSupportAdmin(request: NextRequest): Promise<{ adminId: string } | { response: NextResponse }> {
+  const auth = await verifyAdminAccess(request)
+  if (!auth.isAdmin) {
+    return { response: auth.errorResponse ?? NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 }) }
+  }
+  if (!auth.userId) return { response: NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 }) }
+  return { adminId: auth.userId }
 }
