@@ -9,9 +9,12 @@ const supabase = createClient(
 // GET: the caller's own wholesale-margin history from sub-agent data orders.
 // Sourced from parent_profit_amount on BOTH shop_orders (web storefront) and
 // ussd_shop_orders (USSD shop code / WhatsApp bot) via
-// get_sub_agent_profit_history() (migration 0162) -- the SAME tables
+// get_sub_agent_profit_history() (migration 0162) -- the same two tables
 // get_sub_agent_earnings_stats() sums for the "Your Earnings from
-// Sub-Agents" stat card, so this list stays consistent with that total.
+// Sub-Agents" stat card. The list shows only orders tagged to this parent
+// with a profit > 0, so its count can be lower than the card's order count;
+// the GHS totals normally agree (the card also counts untagged sales by a
+// current sub-agent, which carry no parent profit in practice).
 // (Before 0162 both read shop_orders only, hiding every USSD/WhatsApp sale.)
 // Deliberately NOT sourced from shop_profits: that table also holds the
 // shop's OWN direct-sale profit under the same shop_id, with nothing to

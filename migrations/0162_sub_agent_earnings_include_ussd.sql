@@ -20,17 +20,15 @@
 
 BEGIN;
 
+-- Was LANGUAGE plpgsql scanning the orders twice; now one pass in plain SQL (same arguments, same json result).
+-- Order count is every paid order (profit 0 included), exactly as before; the history list shows only profit > 0.
 CREATE OR REPLACE FUNCTION public.get_sub_agent_earnings_stats(p_parent_shop_id uuid)
 RETURNS json
-LANGUAGE plpgsql
+LANGUAGE sql
+STABLE
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $fn$
-DECLARE
-  v_total_earnings numeric;
-  v_total_orders   bigint;
-  v_breakdown      json;
-BEGIN
   -- Same row filter as before for each table: orders by a current sub-agent of this parent, or tagged to it.
   WITH o AS (
     SELECT so.shop_id, so.total_price AS sale, so.parent_profit_amount AS profit
@@ -44,39 +42,20 @@ BEGIN
      WHERE (uo.shop_id IN (SELECT s.id FROM public.user_shops s WHERE s.parent_shop_id = p_parent_shop_id)
             OR uo.parent_shop_id = p_parent_shop_id)
        AND uo.payment_status = 'completed'
-  )
-  SELECT COALESCE(SUM(o.profit), 0), COUNT(*)
-    INTO v_total_earnings, v_total_orders
-    FROM o;
-
-  WITH o AS (
-    SELECT so.shop_id, so.total_price AS sale, so.parent_profit_amount AS profit
-      FROM public.shop_orders so
-     WHERE (so.shop_id IN (SELECT s.id FROM public.user_shops s WHERE s.parent_shop_id = p_parent_shop_id)
-            OR so.parent_shop_id = p_parent_shop_id)
-       AND so.payment_status = 'completed'
-    UNION ALL
-    SELECT uo.shop_id, uo.amount, uo.parent_profit_amount
-      FROM public.ussd_shop_orders uo
-     WHERE (uo.shop_id IN (SELECT s.id FROM public.user_shops s WHERE s.parent_shop_id = p_parent_shop_id)
-            OR uo.parent_shop_id = p_parent_shop_id)
-       AND uo.payment_status = 'completed'
-  )
-  SELECT json_agg(t) INTO v_breakdown FROM (
+  ),
+  g AS (
     SELECT o.shop_id,
            COUNT(*)                    AS total_orders,
            COALESCE(SUM(o.sale), 0)    AS total_sales,
            COALESCE(SUM(o.profit), 0)  AS your_earnings
       FROM o
      GROUP BY o.shop_id
-  ) t;
-
-  RETURN json_build_object(
-    'totalEarnings', v_total_earnings,
-    'totalOrders',   v_total_orders,
-    'breakdown',     COALESCE(v_breakdown, '[]'::json)
+  )
+  SELECT json_build_object(
+    'totalEarnings', COALESCE((SELECT SUM(g.your_earnings) FROM g), 0),
+    'totalOrders',   COALESCE((SELECT SUM(g.total_orders) FROM g), 0)::bigint,
+    'breakdown',     COALESCE((SELECT json_agg(g) FROM g), '[]'::json)
   );
-END;
 $fn$;
 
 CREATE OR REPLACE FUNCTION public.get_sub_agent_profit_history(p_parent_shop_id uuid, p_limit integer, p_offset integer)
@@ -96,7 +75,10 @@ AS $fn$
        AND so.parent_profit_amount > 0
     UNION ALL
     SELECT uo.id, uo.shop_id, uo.paystack_reference::text, uo.network::text,
-           CASE WHEN uo.package_size ~ '^[0-9]+(\.[0-9]+)?$' THEN uo.package_size::numeric END,
+           -- All 2,221 prod values were plain numbers ("1".."8") on 2026-11-12; the original DDL documents '2GB', so
+           -- a trailing GB is accepted too. Anything else is NULL (shown blank), never a cast error.
+           CASE WHEN btrim(uo.package_size) ~* '^[0-9]+(\.[0-9]+)?\s*(gb)?$'
+                THEN substring(btrim(uo.package_size) FROM '^[0-9]+(?:\.[0-9]+)?')::numeric END,
            uo.amount, uo.parent_profit_amount, uo.created_at, 'ussd'::text
       FROM public.ussd_shop_orders uo
      WHERE uo.parent_shop_id = p_parent_shop_id

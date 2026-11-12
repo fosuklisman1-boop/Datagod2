@@ -143,6 +143,34 @@ describe.skipIf(!PGliteCtor)("0162 in PGlite", () => {
     expect(r.records[0].reference_code).toBe("USSD-1")
   })
 
+  it("history: a '2GB'-style package size still gives a number; garbage gives null, never an error", async () => {
+    const LONE = "00000000-0000-0000-0000-0000000000c1"
+    await db.exec(`
+      INSERT INTO public.ussd_shop_orders VALUES
+        ('${id(21)}', '${S1}', '${LONE}', 'GB-1', 'MTN', '2GB', 11.00, 1.00, 'completed', '2026-11-12 12:00:00+00'),
+        ('${id(22)}', '${S1}', '${LONE}', 'GB-2', 'MTN', '1.5 gb', 8.00, 1.00, 'completed', '2026-11-12 11:00:00+00'),
+        ('${id(23)}', '${S1}', '${LONE}', 'GB-3', 'MTN', 'big', 8.00, 1.00, 'completed', '2026-11-12 10:00:00+00');`)
+    const { r } = await one(`SELECT public.get_sub_agent_profit_history('${LONE}', 20, 0) AS r`)
+    expect(r.records.map((x: any) => x.volume_gb === null ? null : Number(x.volume_gb))).toEqual([2, 1.5, null])
+  })
+
+  it("history: NULL limit/offset fall back to 20/0", async () => {
+    const { r } = await one(`SELECT public.get_sub_agent_profit_history('${P}', NULL, NULL) AS r`)
+    expect(r.records.map((x: any) => x.reference_code)).toEqual(["USSD-1", "USSD-3", "WEB-1", "USSD-2"])
+  })
+
+  it("stats: a sale by a current sub-agent with no parent tag still counts", async () => {
+    const LP = "00000000-0000-0000-0000-0000000000d1"
+    const LS = "00000000-0000-0000-0000-0000000000d2"
+    await db.exec(`
+      INSERT INTO public.user_shops VALUES ('${LP}', NULL, 'LP'), ('${LS}', '${LP}', 'LS');
+      INSERT INTO public.ussd_shop_orders VALUES
+        ('${id(31)}', '${LS}', NULL, 'NT-1', 'MTN', '1', 5.00, 0.75, 'completed', '2026-11-12 12:00:00+00');`)
+    const { r } = await one(`SELECT public.get_sub_agent_earnings_stats('${LP}') AS r`)
+    expect(Number(r.totalEarnings)).toBeCloseTo(0.75, 2)
+    expect(Number(r.totalOrders)).toBe(1)
+  })
+
   it("history: an empty parent returns no records", async () => {
     const { r } = await one(`SELECT public.get_sub_agent_profit_history('${id(999)}', 20, 0) AS r`)
     expect(Number(r.total)).toBe(0)
