@@ -37,9 +37,56 @@ export function countUnread(list: ClientMessage[] | undefined): number {
   return list.filter((m) => m.sender_role !== "user" && !m.read_by_user_at).length
 }
 
+/** Insert or replace a thread by id, newest activity first. */
+export function mergeThread(list: ClientThread[], incoming: ClientThread): ClientThread[] {
+  return [...list.filter((t) => t.id !== incoming.id), incoming].sort((a, b) =>
+    b.last_message_at.localeCompare(a.last_message_at),
+  )
+}
+
+/** Turn the lightweight "unread support messages" rows into a count per thread. */
+export function countUnreadByThread(rows: { thread_id: string }[]): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const r of rows) out[r.thread_id] = (out[r.thread_id] ?? 0) + 1
+  return out
+}
+
+export function chunk<T>(items: T[], size: number): T[][] {
+  if (!Number.isInteger(size) || size < 1) throw new Error("chunk size must be a positive integer")
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
+/** Which receipt UPDATEs an opened thread needs. No unread support messages means no UPDATE at all. */
+export function receiptPlan(list: ClientMessage[]): { markRead: boolean; markDelivered: boolean } {
+  const support = list.filter((m) => m.sender_role !== "user")
+  return {
+    markRead: support.some((m) => !m.read_by_user_at),
+    markDelivered: support.some((m) => !m.delivered_to_user_at),
+  }
+}
+
+/** Receipt for one support message that just arrived over Realtime. */
+export function realtimeReceipt(state: {
+  senderRole: SenderRole
+  threadOpen: boolean
+  tabVisible: boolean
+}): "read" | "delivered" | "none" {
+  if (state.senderRole === "user") return "none"
+  return state.threadOpen && state.tabVisible ? "read" : "delivered"
+}
+
+/** The thread named by `?thread=<id>`, only if it is one of the user's own. */
+export function threadFromSearch(search: string, threads: ClientThread[]): string | null {
+  const id = new URLSearchParams(search).get("thread")
+  return id && threads.some((t) => t.id === id) ? id : null
+}
+
 export function orderSubject(reference: string | null | undefined, id: string): string {
-  const ref = reference && reference.trim() ? reference.trim() : id.slice(0, 8)
-  return `Issue with order ${ref.replace(/[<>&]/g, "")}`.slice(0, 200)
+  const cleaned = stripMarkup((reference ?? "").trim())
+  const ref = cleaned || id.slice(0, 8)
+  return `Issue with order ${ref}`.slice(0, 200)
 }
 
 /** The server rejects <, > and &; say so before the request. */
@@ -74,7 +121,7 @@ export function complaintTargetForOrder(row: {
   package_name: string
   phone_number: string
 }): ComplaintTarget {
-  const ref = stripMarkup(row.reference && row.reference.trim() ? row.reference.trim() : row.id.slice(0, 8))
+  const ref = stripMarkup((row.reference ?? "").trim()) || stripMarkup(row.id.slice(0, 8))
   const kind = row.type === "bulk" ? "order" : row.type === "shop" ? "shop_order" : "none"
   const subject =
     kind === "none"

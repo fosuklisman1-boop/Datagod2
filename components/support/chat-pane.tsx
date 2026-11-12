@@ -18,6 +18,20 @@ interface Props {
   onNew: () => void
 }
 
+async function fetchAttachmentUrl(threadId: string): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (!token) return null
+    const res = await fetch(`/api/support/threads/${threadId}/attachment`, { headers: { Authorization: `Bearer ${token}` } })
+    const json = await res.json()
+    return res.ok ? (json?.data?.url ?? null) : null
+  } catch {
+    // The screenshot is a nicety; the chat still works without it.
+    return null
+  }
+}
+
 export function ChatPane({ thread, messages, onSend, onBack, onNew }: Props) {
   const [text, setText] = useState("")
   const [sending, setSending] = useState(false)
@@ -30,27 +44,30 @@ export function ChatPane({ thread, messages, onSend, onBack, onNew }: Props) {
     endRef.current?.scrollIntoView({ block: "end" })
   }, [messages.length, thread.id])
 
+  const refetched = useRef(false)
+
   // Signed URL lives 10 minutes: fetch on open, never cache across sessions.
   useEffect(() => {
     setAttachmentUrl(null)
+    refetched.current = false
     if (!hasAttachment) return
     let cancelled = false
     ;(async () => {
-      try {
-        const { data } = await supabase.auth.getSession()
-        const token = data.session?.access_token
-        if (!token) return
-        const res = await fetch(`/api/support/threads/${thread.id}/attachment`, { headers: { Authorization: `Bearer ${token}` } })
-        const json = await res.json()
-        if (!cancelled && res.ok) setAttachmentUrl(json?.data?.url ?? null)
-      } catch {
-        // The screenshot is a nicety; the chat still works without it.
-      }
+      const url = await fetchAttachmentUrl(thread.id)
+      if (!cancelled) setAttachmentUrl(url)
     })()
     return () => {
       cancelled = true
     }
   }, [thread.id, hasAttachment])
+
+  // The link expired while the chat stayed open: refetch it once, never in a loop.
+  const onImageError = async () => {
+    if (refetched.current) return
+    refetched.current = true
+    const url = await fetchAttachmentUrl(thread.id)
+    if (url) setAttachmentUrl(url)
+  }
 
   const send = async () => {
     if (inFlight.current) return
@@ -89,7 +106,7 @@ export function ChatPane({ thread, messages, onSend, onBack, onNew }: Props) {
         {attachmentUrl && (
           <a href={attachmentUrl} target="_blank" rel="noopener noreferrer" className="mb-2 block w-fit">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={attachmentUrl} alt="Screenshot you attached" className="max-h-40 rounded-xl border border-border" />
+            <img src={attachmentUrl} onError={() => void onImageError()} alt="Screenshot you attached" className="max-h-40 rounded-xl border border-border" />
           </a>
         )}
         {messages.map((m) => (

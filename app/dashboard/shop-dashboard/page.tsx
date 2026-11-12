@@ -17,6 +17,7 @@ import { supabase } from "@/lib/supabase"
 import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy, Loader2, CheckCircle, Search, Package, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
+import { chunk } from "@/lib/support-client"
 
 export default function ShopDashboardPage() {
   const { user } = useAuth()
@@ -64,17 +65,26 @@ export default function ShopDashboardPage() {
 
   // Which of the loaded orders already have an open support thread.
   useEffect(() => {
-    const ids = orders.map((o: any) => o.id).filter(Boolean).slice(0, 300)
+    const ids = orders.map((o: any) => o.id).filter(Boolean)
     if (ids.length === 0) return
     let cancelled = false
-    supabase
-      .from("support_threads")
-      .select("shop_order_id, status")
-      .in("shop_order_id", ids)
-      .eq("status", "open")
-      .then(({ data }) => {
-        if (!cancelled) setOpenComplaintOrderIds(new Set((data ?? []).map((r: any) => r.shop_order_id as string)))
-      })
+    ;(async () => {
+      const open = new Set<string>()
+      for (const part of chunk<string>(ids, 100)) {
+        const { data, error } = await supabase
+          .from("support_threads")
+          .select("shop_order_id")
+          .in("shop_order_id", part)
+          .eq("status", "open")
+        if (error) {
+          // Buttons stay visible; ids and rows are not logged.
+          console.error("Could not check open complaints for some orders")
+          continue
+        }
+        for (const r of data ?? []) open.add((r as any).shop_order_id as string)
+      }
+      if (!cancelled) setOpenComplaintOrderIds(open)
+    })()
     return () => {
       cancelled = true
     }

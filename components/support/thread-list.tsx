@@ -1,23 +1,23 @@
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { countUnread, type ClientMessage, type ClientThread } from "@/lib/support-client"
+import type { ClientThread } from "@/lib/support-client"
 import { formatTime } from "./message-bubble"
 
 interface Props {
   threads: ClientThread[]
-  messagesByThread: Record<string, ClientMessage[]>
+  unreadByThread: Record<string, number>
   selectedId: string | null
   onSelect: (id: string) => void
 }
 
-export function ThreadList({ threads, messagesByThread, selectedId, onSelect }: Props) {
+export function ThreadList({ threads, unreadByThread, selectedId, onSelect }: Props) {
   if (threads.length === 0) {
     return <p className="p-6 text-center text-sm text-muted-foreground">No conversations yet. Tap New Complaint to start one.</p>
   }
   return (
     <ul className="divide-y divide-border">
       {threads.map((t) => {
-        const unread = t.id === selectedId ? 0 : countUnread(messagesByThread[t.id])
+        const unread = t.id === selectedId ? 0 : (unreadByThread[t.id] ?? 0)
         return (
           <li key={t.id}>
             <button

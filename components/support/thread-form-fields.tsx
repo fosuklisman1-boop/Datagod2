@@ -36,6 +36,7 @@ export function ThreadFormFields({ form }: { form: Form }) {
       <div className="space-y-1.5">
         <Label htmlFor="support-image">Add a screenshot (optional)</Label>
         <Input
+          key={form.fileKey}
           id="support-image"
           type="file"
           accept="image/jpeg,image/png,image/webp"

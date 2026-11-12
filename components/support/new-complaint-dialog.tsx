@@ -21,13 +21,23 @@ const CATEGORY_LABELS: Record<(typeof SUPPORT_CATEGORIES)[number], string> = {
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** On the chat page: refresh the list and select the new thread instead of navigating. */
+  onCreated?: (threadId: string) => void | Promise<void>
 }
 
 /** A complaint not tied to a specific order. */
-export function NewComplaintDialog({ open, onOpenChange }: Props) {
-  const form = useThreadForm(open, () => onOpenChange(false))
+export function NewComplaintDialog({ open, onOpenChange, onCreated }: Props) {
   const [subject, setSubject] = useState("")
   const [category, setCategory] = useState<string>("other")
+  const form = useThreadForm(
+    open,
+    () => {
+      setSubject("")
+      setCategory("other")
+      onOpenChange(false)
+    },
+    onCreated,
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

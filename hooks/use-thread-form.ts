@@ -14,8 +14,14 @@ import {
 } from "@/lib/support-client"
 
 /** Shared state and submit for the two "create a complaint" dialogs. */
-export function useThreadForm(open: boolean, onDone: () => void) {
+export function useThreadForm(
+  open: boolean,
+  onDone: () => void,
+  /** When given (the chat page itself), called instead of navigating. */
+  onCreated?: (threadId: string) => void | Promise<void>,
+) {
   const router = useRouter()
+  const [fileKey, setFileKey] = useState(0)
   const [message, setMessage] = useState("")
   const [phone, setPhone] = useState("")
   const [whatsapp, setWhatsapp] = useState("")
@@ -80,8 +86,15 @@ export function useThreadForm(open: boolean, onDone: () => void) {
       else toast.success("Complaint sent. Support will reply here.")
       setMessage("")
       setImage(null)
+      setFileKey((k) => k + 1)
       onDone()
-      router.push("/dashboard/complaints")
+      if (onCreated) {
+        void Promise.resolve(onCreated(result.threadId)).catch(() => {
+          // The complaint was sent; a failed list refresh must not look like a failed send.
+        })
+      } else {
+        router.push(`/dashboard/complaints?thread=${encodeURIComponent(result.threadId)}`)
+      }
     } catch {
       setError("Network problem. Please try again.")
     } finally {
@@ -90,5 +103,5 @@ export function useThreadForm(open: boolean, onDone: () => void) {
     }
   }
 
-  return { message, setMessage, phone, setPhone, whatsapp, setWhatsapp, image, pickImage, error, submitting, submit }
+  return { message, setMessage, phone, setPhone, whatsapp, setWhatsapp, image, pickImage, fileKey, error, submitting, submit }
 }

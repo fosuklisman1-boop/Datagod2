@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2, MessageSquareText, Plus } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
@@ -15,24 +15,36 @@ import { PastComplaints } from "@/components/support/past-complaints"
 import { PresenceBadge } from "@/components/support/presence-badge"
 import { ThreadList } from "@/components/support/thread-list"
 import { cn } from "@/lib/utils"
-import { visiblePanes } from "@/lib/support-client"
+import { threadFromSearch, visiblePanes } from "@/lib/support-client"
 
 export default function SupportPage() {
   const router = useRouter()
   const { user, loading: authLoading } = useAuth()
-  const { threads, messagesByThread, openThread, sendMessage, loading, error } = useSupportThreads(user?.id)
+  const { threads, messagesByThread, unreadByThread, openThread, closeThread, sendMessage, reload, loading, error } =
+    useSupportThreads(user?.id)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [newOpen, setNewOpen] = useState(false)
+  const paramHandled = useRef(false)
 
   useEffect(() => {
     if (!authLoading && !user) router.push("/auth/login")
   }, [user, authLoading, router])
 
-  // Opening a thread, and any message arriving while it is open, marks support messages read.
-  const selectedMessageCount = selectedId ? (messagesByThread[selectedId]?.length ?? 0) : 0
+  // Opening a thread loads its messages and sends receipts only if something is unread.
+  // Messages arriving while it is open are handled by the hook's Realtime handler.
   useEffect(() => {
-    if (selectedId) void openThread(selectedId)
-  }, [selectedId, selectedMessageCount, openThread])
+    if (!selectedId) return
+    void openThread(selectedId)
+    return () => closeThread()
+  }, [selectedId, openThread, closeThread])
+
+  // Arriving from another page with ?thread=<id>: select it once, if it is the user's own.
+  useEffect(() => {
+    if (loading || paramHandled.current) return
+    paramHandled.current = true
+    const id = threadFromSearch(window.location.search, threads)
+    if (id) setSelectedId(id)
+  }, [loading, threads])
 
   if (authLoading || !user) {
     return (
@@ -75,7 +87,7 @@ export default function SupportPage() {
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
             ) : (
-              <ThreadList threads={threads} messagesByThread={messagesByThread} selectedId={selectedId} onSelect={setSelectedId} />
+              <ThreadList threads={threads} unreadByThread={unreadByThread} selectedId={selectedId} onSelect={setSelectedId} />
             )}
           </div>
           <div className={cn("h-[70vh] lg:h-full", !panes.chat && "hidden lg:block")}>
@@ -97,7 +109,14 @@ export default function SupportPage() {
 
         <PastComplaints userId={user.id} />
       </div>
-      <NewComplaintDialog open={newOpen} onOpenChange={setNewOpen} />
+      <NewComplaintDialog
+        open={newOpen}
+        onOpenChange={setNewOpen}
+        onCreated={async (threadId) => {
+          await reload()
+          setSelectedId(threadId)
+        }}
+      />
     </DashboardLayout>
   )
 }
