@@ -166,13 +166,14 @@ describe("sender-id wiring fixes", () => {
 
 describe("complaint wiring", () => {
   it("both creation paths alert admins", () => {
-    expect(read("app/api/complaints/create/route.ts")).toContain('alertAdminsOfRequest("complaint"')
+    expect(read("lib/support-notify.ts")).toContain('alertAdminsOfRequest("complaint"')
     expect(read("lib/whatsapp-bot/complaints.ts")).toContain('alertAdminsOfRequest("complaint"')
   })
-  it("admin update route notifies the user only on a status change to a terminal status", () => {
-    const src = read("app/api/admin/complaints/update/route.ts")
-    expect(src).toContain('notifyUserOfOutcome("complaint"')
-    expect(src).toMatch(/previousStatus !== newStatus/)
+  it("admin resolve route notifies the user only through a guarded transition to a terminal status", () => {
+    const src = read("app/api/admin/complaints/resolve/route.ts")
+    expect(src).toContain('notifyUserOfOutcome(')
+    expect(src).toContain('"complaint"')
+    expect(src).toContain('.in("status", ["pending", "in_review"])')
     expect(src).not.toMatch(/in_progress/)
   })
   it("WhatsApp inbox resolution notifies the complainant via the shared helper (covers resolve-complaint route)", () => {
