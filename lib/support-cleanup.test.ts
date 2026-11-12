@@ -311,3 +311,105 @@ describe("deleteOldSupportData", () => {
     expect(t.complaints).toHaveLength(0)
   })
 })
+
+describe("deleteOldSupportData with legacyAnyAge", () => {
+  const opts = { legacyAnyAge: true }
+
+  it("deletes resolved and rejected complaints of any age and removes their evidence; keeps pending and in_review", async () => {
+    const t: Tables = {
+      support_threads: [],
+      support_messages: [],
+      complaints: [
+        complaint("c-res", "resolved", 1, { balance_image_path: "u/b.jpg", momo_receipt_path: "u/m.png" }),
+        complaint("c-rej", "rejected", 1),
+        complaint("c-pending", "pending", 400, { balance_image_path: "keep/p.jpg" }),
+        complaint("c-review", "in_review", 400, { momo_receipt_path: "keep/r.png" }),
+      ],
+    }
+    const fake = sim(t)
+    const res = await deleteOldSupportData(fake.db as any, NOW, opts)
+    expect(res).toMatchObject({ legacyComplaints: 2, filesRemoved: 2, closedThreads: 0, errors: 0 })
+    expect(t.complaints.map((r) => r.id).sort()).toEqual(["c-pending", "c-review"])
+    expect(h.removed.flat().sort()).toEqual(["u/b.jpg", "u/m.png"])
+    for (const c of fake.calls.filter((x) => x.table === "complaints")) {
+      expect(c.filters).toContainEqual(["status:in", ["resolved", "rejected"]])
+      expect(c.filters.some(([k]) => k === "updated_at:lt")).toBe(false)
+    }
+  })
+
+  it("keeps the evidence of a complaint that went back to pending between select and delete", async () => {
+    const t: Tables = {
+      support_threads: [],
+      support_messages: [],
+      complaints: [
+        complaint("c-1", "resolved", 1, { balance_image_path: "u/keep.jpg" }),
+        complaint("c-2", "resolved", 1, { balance_image_path: "u/gone.jpg" }),
+      ],
+    }
+    let flipped = false
+    const fake = sim(t, [], (table, tb) => {
+      if (table === "complaints" && !flipped) {
+        flipped = true
+        tb.complaints.find((r) => r.id === "c-1")!.status = "pending"
+      }
+    })
+    const res = await deleteOldSupportData(fake.db as any, NOW, opts)
+    expect(res.legacyComplaints).toBe(1)
+    expect(t.complaints.map((r) => r.id)).toEqual(["c-1"])
+    expect(h.removed.flat()).toEqual(["u/gone.jpg"])
+    const del = fake.calls.find((c) => c.table === "complaints" && c.op === "delete")!
+    expect(del.filters).toContainEqual(["status:in", ["resolved", "rejected"]])
+  })
+
+  it("never touches support_threads, even with an old closed thread", async () => {
+    const t: Tables = {
+      support_threads: [thread("t-old", "closed", 200)],
+      support_messages: [{ id: "m1", thread_id: "t-old", attachment_path: "threads/a.png" }],
+      complaints: [complaint("c-1", "resolved", 1)],
+    }
+    const fake = sim(t)
+    const res = await deleteOldSupportData(fake.db as any, NOW, opts)
+    expect(res.closedThreads).toBe(0)
+    expect(res.legacyComplaints).toBe(1)
+    expect(t.support_threads).toHaveLength(1)
+    expect(fake.calls.filter((c) => c.table === "support_threads" || c.table === "support_messages")).toHaveLength(0)
+    expect(h.removed).toHaveLength(0)
+  })
+
+  it("dryRun deletes nothing, calls no storage removal and returns the same counts as a real run", async () => {
+    const make = (): Tables => ({
+      support_threads: [thread("t-old", "closed", 200)],
+      support_messages: [],
+      complaints: [
+        complaint("c-1", "resolved", 1, { balance_image_path: "u/b.jpg" }),
+        complaint("c-2", "rejected", 2),
+        complaint("c-3", "pending", 2, { balance_image_path: "u/p.jpg" }),
+      ],
+    })
+    const dryTables = make()
+    const dryFake = sim(dryTables)
+    const dry = await deleteOldSupportData(dryFake.db as any, NOW, { dryRun: true, legacyAnyAge: true })
+    expect(dryFake.calls.some((c) => c.op !== "select")).toBe(false)
+    expect(h.removed).toHaveLength(0)
+    expect(dryTables.complaints).toHaveLength(3)
+    const real = await deleteOldSupportData(sim(make()).db as any, NOW, opts)
+    expect(dry).toEqual(real)
+    expect(dry).toMatchObject({ legacyComplaints: 2, filesRemoved: 1, closedThreads: 0 })
+  })
+
+  it("processes 450 resolved rows in batches of at most 200 and terminates", async () => {
+    const t: Tables = {
+      support_threads: [],
+      support_messages: [],
+      complaints: Array.from({ length: 450 }, (_, i) => complaint(`c-${pad(i)}`, "resolved", 1)),
+    }
+    const fake = sim(t)
+    const res = await deleteOldSupportData(fake.db as any, NOW, opts)
+    expect(res.legacyComplaints).toBe(450)
+    expect(t.complaints).toHaveLength(0)
+    const deletes = fake.calls.filter((c) => c.op === "delete")
+    expect(deletes).toHaveLength(3)
+    for (const d of deletes) expect((d.filters.find(([k]) => k === "id:in")![1] as string[]).length).toBeLessThanOrEqual(200)
+    for (const s of fake.calls.filter((c) => c.op === "select")) expect(s.limitN).toBe(200)
+  })
+})

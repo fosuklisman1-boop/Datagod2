@@ -105,34 +105,42 @@ async function sweep(
 export async function deleteOldSupportData(
   db: SupabaseClient,
   now: Date,
-  opts: { dryRun?: boolean } = {},
+  /**
+   * `legacyAnyAge` is a one-off purge switch: complaints are swept whatever their age (status stays
+   * resolved/rejected) and the support_threads sweep is skipped entirely.
+   */
+  opts: { dryRun?: boolean; legacyAnyAge?: boolean } = {},
 ): Promise<SupportCleanupResult> {
   const dryRun = opts.dryRun === true
+  const legacyAnyAge = opts.legacyAnyAge === true
   const cutoff = new Date(now.getTime() - SUPPORT_RETENTION_DAYS * DAY_MS).toISOString()
 
-  const threads = await sweep(
-    db,
-    dryRun,
-    async (after) => {
-      let q = db.from("support_threads").select("id").eq("status", "closed").lt("closed_at", cutoff)
-      if (after) q = q.gt("id", after)
-      const { data, error } = await q.order("id", { ascending: true }).limit(BATCH)
-      if (error) return null
-      const ids = ((data ?? []) as { id: string }[]).map((r) => r.id)
-      if (ids.length === 0) return { ids, filesById: new Map() }
-      const filesById = await threadFilePaths(db, ids)
-      // Without the file list, deleting would orphan the screenshots: leave the batch for the next run.
-      return filesById ? { ids, filesById } : null
-    },
-    "support_threads",
-    (ids) => db.from("support_threads").delete().in("id", ids).eq("status", "closed").lt("closed_at", cutoff).select("id"),
-  )
+  const threads = legacyAnyAge
+    ? { rows: 0, files: 0, errors: 0 }
+    : await sweep(
+        db,
+        dryRun,
+        async (after) => {
+          let q = db.from("support_threads").select("id").eq("status", "closed").lt("closed_at", cutoff)
+          if (after) q = q.gt("id", after)
+          const { data, error } = await q.order("id", { ascending: true }).limit(BATCH)
+          if (error) return null
+          const ids = ((data ?? []) as { id: string }[]).map((r) => r.id)
+          if (ids.length === 0) return { ids, filesById: new Map() }
+          const filesById = await threadFilePaths(db, ids)
+          // Without the file list, deleting would orphan the screenshots: leave the batch for the next run.
+          return filesById ? { ids, filesById } : null
+        },
+        "support_threads",
+        (ids) => db.from("support_threads").delete().in("id", ids).eq("status", "closed").lt("closed_at", cutoff).select("id"),
+      )
 
   const complaints = await sweep(
     db,
     dryRun,
     async (after) => {
-      let q = db.from("complaints").select("id, evidence").in("status", ["resolved", "rejected"]).lt("updated_at", cutoff)
+      let q = db.from("complaints").select("id, evidence").in("status", ["resolved", "rejected"])
+      if (!legacyAnyAge) q = q.lt("updated_at", cutoff)
       if (after) q = q.gt("id", after)
       const { data, error } = await q.order("id", { ascending: true }).limit(BATCH)
       if (error) return null
@@ -140,7 +148,10 @@ export async function deleteOldSupportData(
       return { ids: rows.map((r) => r.id), filesById: new Map(rows.map((r) => [r.id, evidencePaths(r.evidence)] as const)) }
     },
     "complaints",
-    (ids) => db.from("complaints").delete().in("id", ids).in("status", ["resolved", "rejected"]).lt("updated_at", cutoff).select("id"),
+    (ids) => {
+      const q = db.from("complaints").delete().in("id", ids).in("status", ["resolved", "rejected"])
+      return (legacyAnyAge ? q : q.lt("updated_at", cutoff)).select("id")
+    },
   )
 
   return {
