@@ -1,8 +1,8 @@
 // lib/admin-users/notes-tags-migration.test.ts
 //
-// Structural checks of 0164_admin_user_notes_tags.sql and 0165_admin_user_signals_indexes.sql. Behaviour
+// Structural checks of 0174_admin_user_notes_tags.sql and 0175_admin_user_signals_indexes.sql. Behaviour
 // (constraints, RLS, cascades, every signal count and window) is tested against a real Postgres by
-// migrations/tests/0164_admin_user_notes_tags_local_test.sql.
+// migrations/tests/0174_admin_user_notes_tags_local_test.sql.
 import { describe, it, expect } from "vitest"
 import { readFileSync, readdirSync } from "fs"
 import { join } from "path"
@@ -10,16 +10,16 @@ import { RISK_THRESHOLDS } from "./risk-signals"
 import { SUGGESTED_TAGS, TAG_RE } from "./notes-tags"
 
 const read = (...p: string[]) => readFileSync(join(process.cwd(), ...p), "utf8")
-const sql = read("migrations", "0164_admin_user_notes_tags.sql")
-const idx = read("migrations", "0165_admin_user_signals_indexes.sql")
-const localTest = read("migrations", "tests", "0164_admin_user_notes_tags_local_test.sql")
+const sql = read("migrations", "0174_admin_user_notes_tags.sql")
+const idx = read("migrations", "0175_admin_user_signals_indexes.sql")
+const localTest = read("migrations", "tests", "0174_admin_user_notes_tags_local_test.sql")
 const code = (s: string) => s.replace(/--.*$/gm, "")
 
-describe("0164_admin_user_notes_tags.sql structure", () => {
-  it("is the only migration numbered 0164 / 0165", () => {
+describe("0174_admin_user_notes_tags.sql structure", () => {
+  it("is the only migration numbered 0174 / 0175", () => {
     const files = readdirSync(join(process.cwd(), "migrations"))
-    expect(files.filter((f) => f.startsWith("0164_") && f.endsWith(".sql"))).toEqual(["0164_admin_user_notes_tags.sql"])
-    expect(files.filter((f) => f.startsWith("0165_") && f.endsWith(".sql"))).toEqual(["0165_admin_user_signals_indexes.sql"])
+    expect(files.filter((f) => f.startsWith("0174_") && f.endsWith(".sql"))).toEqual(["0174_admin_user_notes_tags.sql"])
+    expect(files.filter((f) => f.startsWith("0175_") && f.endsWith(".sql"))).toEqual(["0175_admin_user_signals_indexes.sql"])
   })
 
   it("is one transaction, comment header first, idempotent and additive", () => {
@@ -101,7 +101,7 @@ describe("0164_admin_user_notes_tags.sql structure", () => {
   })
 })
 
-describe("0165_admin_user_signals_indexes.sql", () => {
+describe("0175_admin_user_signals_indexes.sql", () => {
   it("builds the transactions (user_id, created_at DESC) index concurrently, outside a transaction", () => {
     const c = code(idx)
     expect(c).not.toMatch(/\bBEGIN\b|\bCOMMIT\b/)
@@ -112,8 +112,8 @@ describe("0165_admin_user_signals_indexes.sql", () => {
 
 describe("local Postgres test", () => {
   it("applies both migrations twice and prints its OK marker", () => {
-    expect(localTest.match(/\\i migrations\/0164_admin_user_notes_tags\.sql/g)).toHaveLength(2)
-    expect(localTest.match(/\\i migrations\/0165_admin_user_signals_indexes\.sql/g)).toHaveLength(2)
+    expect(localTest.match(/\\i migrations\/0174_admin_user_notes_tags\.sql/g)).toHaveLength(2)
+    expect(localTest.match(/\\i migrations\/0175_admin_user_signals_indexes\.sql/g)).toHaveLength(2)
     expect(localTest).toContain("ADMIN_USER_NOTES_TAGS_LOCAL_TEST_OK")
   })
 })

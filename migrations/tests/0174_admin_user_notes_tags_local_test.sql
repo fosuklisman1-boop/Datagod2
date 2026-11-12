@@ -1,11 +1,11 @@
 -- LOCAL ONLY. Never run against production: it creates stub tables and an auth schema.
 -- Renamed from 0149_admin_user_notes_tags_local_test.sql. The migration it tests was already applied to production on 2026-11-09 (as 0149_admin_user_notes_tags.sql).
 --
--- Exercises 0164_admin_user_notes_tags.sql (and 0165's index) against a stub schema in an EMPTY database, with
+-- Exercises 0174_admin_user_notes_tags.sql (and 0175's index) against a stub schema in an EMPTY database, with
 -- fixtures whose expected results are worked out by hand. Run from the repo root:
 --
 --   createdb notes_tags_test
---   psql -v ON_ERROR_STOP=1 -d notes_tags_test -f migrations/tests/0164_admin_user_notes_tags_local_test.sql
+--   psql -v ON_ERROR_STOP=1 -d notes_tags_test -f migrations/tests/0174_admin_user_notes_tags_local_test.sql
 --
 -- Passes when it prints ADMIN_USER_NOTES_TAGS_LOCAL_TEST_OK. Any failed ASSERT aborts.
 
@@ -25,7 +25,7 @@ CREATE TABLE public.transactions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 CREATE TABLE public.admin_audit_log (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), admin_id uuid NOT NULL REFERENCES auth.users(id),
   action text NOT NULL, target_user_id uuid REFERENCES auth.users(id), old_value jsonb, new_value jsonb,
   created_at timestamptz NOT NULL DEFAULT now());
--- The 7 order tables admin_user_orders (0162) reads; orders.created_at is timestamp without time zone, as in some environments.
+-- The 7 order tables admin_user_orders (0172) reads; orders.created_at is timestamp without time zone, as in some environments.
 CREATE TABLE public.orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, status varchar(50), created_at timestamp);
 CREATE TABLE public.api_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, status text, created_at timestamptz);
 CREATE TABLE public.hubtel_data_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, status text, created_at timestamptz);
@@ -34,11 +34,11 @@ CREATE TABLE public.hubtel_bill_orders (id uuid PRIMARY KEY DEFAULT gen_random_u
 CREATE TABLE public.results_checker_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, status text, created_at timestamptz);
 CREATE TABLE public.afa_orders (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, status varchar(50), created_at timestamptz);
 
-\i migrations/0164_admin_user_notes_tags.sql
+\i migrations/0174_admin_user_notes_tags.sql
 -- Idempotent: a second apply succeeds.
-\i migrations/0164_admin_user_notes_tags.sql
-\i migrations/0165_admin_user_signals_indexes.sql
-\i migrations/0165_admin_user_signals_indexes.sql
+\i migrations/0174_admin_user_notes_tags.sql
+\i migrations/0175_admin_user_signals_indexes.sql
+\i migrations/0175_admin_user_signals_indexes.sql
 
 -- A: busy, risky account: new (2h old), 600 in the wallet, 7 failed orders today across tables (incl. a cancelled
 --    AFA order; +1 older, +1 completed, +1 cancelled data order), 3 refunds this week (+1 older; clawbacks,

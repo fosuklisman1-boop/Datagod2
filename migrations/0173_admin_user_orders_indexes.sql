@@ -1,8 +1,8 @@
--- 0163_admin_user_orders_indexes.sql
+-- 0173_admin_user_orders_indexes.sql
 -- Already applied to production on 2026-11-09 (as 0148_admin_user_orders_indexes.sql)
 --
 -- (user_id, created_at DESC) indexes for the per-table top-N branches of public.admin_user_orders
--- (0162_admin_user_orders.sql): each branch is
+-- (0172_admin_user_orders.sql): each branch is
 --   WHERE user_id = $1 [AND lower(status) = $2] ORDER BY created_at DESC, id DESC LIMIT offset + limit + 1
 -- which these indexes answer by reading only the newest entries for that user, instead of fetching every
 -- order the user has (the existing single-column user_id indexes) and sorting them.
@@ -16,7 +16,7 @@
 -- If a build fails or is cancelled it leaves an INVALID index with the same name, which IF NOT EXISTS would
 -- then skip: check with the query at the end, DROP INDEX CONCURRENTLY the invalid one, and run this again.
 --
--- Apply after 0162 (which works without these indexes, just slower for users with many orders).
+-- Apply after 0172 (which works without these indexes, just slower for users with many orders).
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_user_created_at
   ON public.orders (user_id, created_at DESC);

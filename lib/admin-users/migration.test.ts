@@ -2,14 +2,14 @@
 //
 // Structural checks only. Behaviour (filters, search escaping, sorts, keyset paging,
 // stats numbers) is tested against a real Postgres by
-// migrations/tests/0160_admin_list_users_local_test.sql.
+// migrations/tests/0170_admin_list_users_local_test.sql.
 import { describe, it, expect } from "vitest"
 import { readFileSync, readdirSync } from "fs"
 import { join } from "path"
 
 const read = (...p: string[]) => readFileSync(join(process.cwd(), ...p), "utf8")
-const sql = read("migrations", "0160_admin_list_users.sql")
-const localTest = read("migrations", "tests", "0160_admin_list_users_local_test.sql")
+const sql = read("migrations", "0170_admin_list_users.sql")
+const localTest = read("migrations", "tests", "0170_admin_list_users_local_test.sql")
 
 /** Every function the migration defines: name -> { header (up to AS $fn$), body }. */
 function functions(text: string) {
@@ -26,10 +26,10 @@ const fns = functions(sql)
 const PUBLIC_RPCS = ["admin_list_users", "admin_export_users", "admin_user_stats"]
 const HELPERS = ["admin_users_search_terms", "admin_users_filtered"]
 
-describe("0160_admin_list_users.sql structure", () => {
-  it("is the only migration numbered 0160", () => {
-    const same = readdirSync(join(process.cwd(), "migrations")).filter((f) => f.startsWith("0160_") && f.endsWith(".sql"))
-    expect(same).toEqual(["0160_admin_list_users.sql"])
+describe("0170_admin_list_users.sql structure", () => {
+  it("is the only migration numbered 0170", () => {
+    const same = readdirSync(join(process.cwd(), "migrations")).filter((f) => f.startsWith("0170_") && f.endsWith(".sql"))
+    expect(same).toEqual(["0170_admin_list_users.sql"])
   })
 
   it("is one transaction, comment header first, additive only", () => {
@@ -56,7 +56,7 @@ describe("0160_admin_list_users.sql structure", () => {
       expect(f.body, name).toMatch(/v_tag IS NULL\s+OR EXISTS \(SELECT 1 FROM public\.admin_user_tags tg WHERE tg\.user_id = f\.id AND tg\.tag = v_tag\)/)
       expect(f.body, name).toMatch(/'tags',\s+coalesce\(\(SELECT jsonb_agg\(tg\.tag ORDER BY tg\.tag\) FROM public\.admin_user_tags tg/)
     }
-    // the inlinable helper stays free of the tags table (it only exists after 0164)
+    // the inlinable helper stays free of the tags table (it only exists after 0174)
     expect(fns.get("admin_users_filtered")!.body).not.toMatch(/admin_user_tags/)
   })
 
@@ -130,7 +130,7 @@ describe("0160_admin_list_users.sql structure", () => {
 
 describe("local Postgres test", () => {
   it("applies the migration and prints its OK marker", () => {
-    expect(localTest).toContain("\\i migrations/0160_admin_list_users.sql")
+    expect(localTest).toContain("\\i migrations/0170_admin_list_users.sql")
     expect(localTest).toContain("ADMIN_LIST_USERS_LOCAL_TEST_OK")
   })
 

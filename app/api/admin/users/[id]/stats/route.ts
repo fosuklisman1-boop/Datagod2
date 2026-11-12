@@ -7,14 +7,14 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** PostgREST "function not found in the schema cache" (e.g. migration 0160 not applied yet). */
+/** PostgREST "function not found in the schema cache" (e.g. migration 0170 not applied yet). */
 const FUNCTION_NOT_FOUND = "PGRST202"
 
 /**
  * GET /api/admin/users/[id]/stats
  *
  * { userId, wallet, orders, shop, withdrawals } from public.admin_user_stats
- * (migrations/0160): every sum and count is a SQL aggregate. If that function is
+ * (migrations/0170): every sum and count is a SQL aggregate. If that function is
  * not deployed yet, falls back to get_user_financial_summary, which returns the
  * same JSON. (The old in-JS fallback, which loaded up to 5,000 transactions and
  * 10,000 shop orders and filtered on shop_orders columns that do not exist, is gone.)

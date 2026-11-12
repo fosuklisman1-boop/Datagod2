@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic"
  * GET /api/admin/users/[id]/orders?page=1&pageSize=20&source=&status=
  *
  * The user's orders across every order table with a user_id column, newest first, from
- * public.admin_user_orders (migrations/0162): paging and the per-source counts are SQL. Counts stop at
+ * public.admin_user_orders (migrations/0172): paging and the per-source counts are SQL. Counts stop at
  * countCap (1000) per source; cappedSources / totalCapped say when they did, and hasMore drives "Next".
  * → { rows, total, totalCapped, hasMore, counts: { <source>: n }, cappedSources, countCap, page, pageSize }
  */

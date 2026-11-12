@@ -22,11 +22,11 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
  * 200: { users, total, page, pageSize, signalsUnavailable? }   400: { error, details }
  *
  * Each user carries its admin `tags` and, for the users on this page only, `signals` (last order, phone
- * verified / blacklisted, risk flags: lib/admin-users/risk-signals.ts) from public.admin_user_signals (0164)
+ * verified / blacklisted, risk flags: lib/admin-users/risk-signals.ts) from public.admin_user_signals (0174)
  * and the blacklist, fetched in parallel after the page. If that second step fails the page is still returned,
  * with signals null and signalsUnavailable true.
  *
- * One call to public.admin_list_users (migrations/0160) does the filtering,
+ * One call to public.admin_list_users (migrations/0170) does the filtering,
  * sorting, paging and joins in the database. Callers that need every match page
  * through this endpoint (the users page export does, 200 at a time).
  */

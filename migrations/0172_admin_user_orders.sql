@@ -1,11 +1,11 @@
--- 0162_admin_user_orders.sql
+-- 0172_admin_user_orders.sql
 -- Already applied to production on 2026-11-09 (as 0147_admin_user_orders.sql)
 --
 -- One user's orders across every order table that has a user_id column, for the Orders tab of the admin
 -- user drawer (GET /api/admin/users/[id]/orders). Newest first, paged in SQL. Nothing is loaded into Node to
 -- be counted or merged.
 -- ADDITIVE. Idempotent (CREATE OR REPLACE). One transaction. No tables, columns or indexes are changed here;
--- the (user_id, created_at DESC) indexes the branches use are in 0163_admin_user_orders_indexes.sql.
+-- the (user_id, created_at DESC) indexes the branches use are in 0173_admin_user_orders_indexes.sql.
 -- Must be applied BEFORE the code that calls it is deployed.
 --
 --   admin_user_orders(p_user_id uuid, p_source text, p_status text, p_limit int, p_offset int)
@@ -44,7 +44,7 @@
 --
 -- Cost: each branch is its own ORDER BY created_at DESC, id DESC LIMIT p_offset + p_limit + 1 on
 -- (user_id = p_user_id), which an index on (user_id, created_at DESC) serves by reading only that many index
--- entries (0163); the page is then picked from at most 7 x (offset + limit + 1) rows. A branch for a source other
+-- entries (0173); the page is then picked from at most 7 x (offset + limit + 1) rows. A branch for a source other
 -- than p_source is skipped by a one-time filter. Each count reads at most count_cap + 1 matching rows of its
 -- table, so a user with 500k orders costs the same as one with 1,001.
 -- SECURITY DEFINER (it reads every user's orders), search_path pinned, EXECUTE for service_role only.

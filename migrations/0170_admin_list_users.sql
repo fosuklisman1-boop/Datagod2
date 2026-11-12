@@ -1,4 +1,4 @@
--- 0160_admin_list_users.sql
+-- 0170_admin_list_users.sql
 -- Already applied to production on 2026-11-09 (as 0145_admin_list_users.sql)
 --
 -- Server-side list, export and stats for the admin users page (app/admin/users, GET /api/admin/users,
@@ -7,7 +7,7 @@
 -- shop_available_balance query per shop owner.
 -- ADDITIVE. Idempotent (re-runnable). One transaction. No tables, columns or indexes are changed.
 -- Must be applied BEFORE the code that calls it is deployed. list and export also read public.admin_user_tags
--- (0164_admin_user_notes_tags.sql) when they are called: apply 0164 before deploying the code too.
+-- (0174_admin_user_notes_tags.sql) when they are called: apply 0174 before deploying the code too.
 --
 --   admin_list_users(p_search, p_role, p_suspended, p_has_shop, p_pricing_mode,
 --                    p_created_from, p_created_to, p_sort, p_dir, p_limit, p_offset, p_tag DEFAULT NULL)
@@ -51,12 +51,12 @@
 --               p_pricing_mode 'role' | 'custom'; p_created_from inclusive, p_created_to EXCLUSIVE
 --               (on auth.users.created_at).
 --     Tag       p_tag NULL = no filter; otherwise only users carrying that admin tag
---               (public.admin_user_tags, created by 0164_admin_user_notes_tags.sql). Trimmed and lower-cased;
+--               (public.admin_user_tags, created by 0174_admin_user_notes_tags.sql). Trimmed and lower-cased;
 --               anything that is not 1..32 of [a-z0-9-] is 'BAD_INPUT'. Applied by list and export (one EXISTS
 --               on the (user_id, tag) primary key per candidate row), not inside admin_users_filtered: that
 --               helper is plain LANGUAGE sql, whose body is checked when it is created, and the tags table only
---               exists once 0164 has run. The plpgsql wrappers resolve the table when they are called.
---               => list and export need 0164 applied before they are CALLED (apply every migration before
+--               exists once 0174 has run. The plpgsql wrappers resolve the table when they are called.
+--               => list and export need 0174 applied before they are CALLED (apply every migration before
 --               deploying the code). Rows carry their tags the same way.
 --     Search    trimmed, first 100 chars, case-insensitive substring of email, phone_number or shop_name.
 --               LIKE wildcards (\ % _) in the term are escaped, so they match literally.

@@ -1,5 +1,5 @@
 // Activity and risk signals for the admin users page: the thresholds, and the pure rules that turn the counts
-// from public.admin_user_signals (migrations/0164_admin_user_notes_tags.sql) into explainable flags.
+// from public.admin_user_signals (migrations/0174_admin_user_notes_tags.sql) into explainable flags.
 // The database only counts, over the windows passed from here; every threshold lives in this file.
 
 export const RISK_THRESHOLDS = {

@@ -17,7 +17,7 @@ const supabase = createClient(
  * expectedBalance is the balance the admin confirmed; the change is refused (409) if it has moved since.
  * The wallet update, the transactions row (admin_credit / admin_debit) and the admin_audit_log row
  * (wallet_credit / wallet_debit, with the reason and before/after) are written in ONE transaction by
- * public.admin_wallet_adjust (migrations/0161), with the wallet row locked; a debit below 0 is refused (409).
+ * public.admin_wallet_adjust (migrations/0171), with the wallet row locked; a debit below 0 is refused (409).
  * The CRON_SECRET bypass is refused: every adjustment is attributed to the acting admin, and an admin cannot
  * adjust their own wallet (403, also enforced in the RPC).
  * Notifications (in-app, SMS, email, push) follow as before, best-effort.

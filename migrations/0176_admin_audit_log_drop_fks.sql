@@ -1,4 +1,4 @@
--- 0166_admin_audit_log_drop_fks.sql
+-- 0176_admin_audit_log_drop_fks.sql
 -- Already applied to production on 2026-11-09 (as 0151_admin_audit_log_drop_fks.sql)
 --
 -- Lets a user (or an admin) be deleted while admin_audit_log rows point at them, WITHOUT losing who acted on whom.
@@ -26,7 +26,7 @@
 --   app/api/admin/whatsapp/cashback-visibility/route.ts  admin_id: userId (undefined under the bypass)
 --   app/api/admin/ussd-hubtel/config/route.ts            admin_id: userId (undefined under the bypass)
 -- With the column nullable those actions are recorded, with admin_id NULL meaning "no signed-in admin (CRON
--- bypass)". Every other writer (writeAudit, the admin users routes, 0142, 0161, refunds, hubtel-cs, sms
+-- bypass)". Every other writer (writeAudit, the admin users routes, 0142, 0171, refunds, hubtel-cs, sms
 -- moderation, ussd-hubtel resolve) always supplies an admin id or skips the row.
 --
 -- Drops the constraints by their real names (IF EXISTS), and also any other foreign key on these two columns

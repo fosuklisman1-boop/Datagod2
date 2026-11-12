@@ -1,5 +1,5 @@
 // Structural checks of the admin user drawer migrations. Behaviour is tested against a real Postgres by
-// migrations/tests/0161_admin_wallet_adjust_local_test.sql and migrations/tests/0162_admin_user_orders_local_test.sql.
+// migrations/tests/0171_admin_wallet_adjust_local_test.sql and migrations/tests/0172_admin_user_orders_local_test.sql.
 import { describe, it, expect } from "vitest"
 import { readFileSync, readdirSync } from "fs"
 import { join } from "path"
@@ -16,8 +16,8 @@ function fn(sql: string, name: string) {
 }
 
 const MIGRATIONS = {
-  "0161": { file: "0161_admin_wallet_adjust.sql", test: "0161_admin_wallet_adjust_local_test.sql", rpcs: ["admin_wallet_adjust"], helpers: [] as string[] },
-  "0162": { file: "0162_admin_user_orders.sql", test: "0162_admin_user_orders_local_test.sql", rpcs: ["admin_user_orders"], helpers: [] as string[] },
+  "0171": { file: "0171_admin_wallet_adjust.sql", test: "0171_admin_wallet_adjust_local_test.sql", rpcs: ["admin_wallet_adjust"], helpers: [] as string[] },
+  "0172": { file: "0172_admin_user_orders.sql", test: "0172_admin_user_orders_local_test.sql", rpcs: ["admin_user_orders"], helpers: [] as string[] },
 }
 
 describe.each(Object.entries(MIGRATIONS))("migration %s", (num, m) => {
@@ -70,8 +70,8 @@ describe.each(Object.entries(MIGRATIONS))("migration %s", (num, m) => {
   })
 })
 
-describe("0161 admin_wallet_adjust", () => {
-  const sql = read("migrations", "0161_admin_wallet_adjust.sql")
+describe("0171 admin_wallet_adjust", () => {
+  const sql = read("migrations", "0171_admin_wallet_adjust.sql")
   const { body, header } = fn(sql, "admin_wallet_adjust")
 
   it("locks the wallet row before reading the balance and refuses ambiguous or missing wallets", () => {
@@ -111,8 +111,8 @@ describe("0161 admin_wallet_adjust", () => {
   })
 })
 
-describe("0162 admin_user_orders", () => {
-  const sql = read("migrations", "0162_admin_user_orders.sql")
+describe("0172 admin_user_orders", () => {
+  const sql = read("migrations", "0172_admin_user_orders.sql")
   const { body } = fn(sql, "admin_user_orders")
   const TABLES = [
     "public.afa_orders", "public.airtime_orders", "public.api_orders", "public.hubtel_bill_orders",
@@ -150,14 +150,14 @@ describe("0162 admin_user_orders", () => {
   })
 })
 
-describe("0163 admin_user_orders indexes", () => {
-  const sql = read("migrations", "0163_admin_user_orders_indexes.sql")
+describe("0173 admin_user_orders indexes", () => {
+  const sql = read("migrations", "0173_admin_user_orders_indexes.sql")
   const statements = code(sql).split(";").map((x) => x.trim()).filter(Boolean)
 
-  it("is the only 0163 migration, has a local test, and says why it has no transaction", () => {
-    expect(readdirSync(join(process.cwd(), "migrations")).filter((f) => f.startsWith("0163_") && f.endsWith(".sql")))
-      .toEqual(["0163_admin_user_orders_indexes.sql"])
-    expect(read("migrations", "tests", "0163_admin_user_orders_indexes_local_test.sql")).toMatch(/\\i migrations\/0163_admin_user_orders_indexes\.sql/)
+  it("is the only 0173 migration, has a local test, and says why it has no transaction", () => {
+    expect(readdirSync(join(process.cwd(), "migrations")).filter((f) => f.startsWith("0173_") && f.endsWith(".sql")))
+      .toEqual(["0173_admin_user_orders_indexes.sql"])
+    expect(read("migrations", "tests", "0173_admin_user_orders_indexes_local_test.sql")).toMatch(/\\i migrations\/0173_admin_user_orders_indexes\.sql/)
     expect(sql).toMatch(/NO BEGIN\/COMMIT: CREATE INDEX CONCURRENTLY cannot run inside a transaction block/)
   })
 

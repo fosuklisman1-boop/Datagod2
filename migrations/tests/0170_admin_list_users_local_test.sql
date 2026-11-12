@@ -1,11 +1,11 @@
 -- LOCAL ONLY. Never run against production: it creates stub tables and an auth schema.
 -- Renamed from 0145_admin_list_users_local_test.sql. The migration it tests was already applied to production on 2026-11-09 (as 0145_admin_list_users.sql).
 --
--- Exercises 0160_admin_list_users.sql against a stub schema in an EMPTY database,
+-- Exercises 0170_admin_list_users.sql against a stub schema in an EMPTY database,
 -- with fixtures whose expected results are worked out by hand.
 --
 --   createdb users_test
---   psql -v ON_ERROR_STOP=1 -d users_test -f migrations/tests/0160_admin_list_users_local_test.sql
+--   psql -v ON_ERROR_STOP=1 -d users_test -f migrations/tests/0170_admin_list_users_local_test.sql
 --
 -- Passes when it prints ADMIN_LIST_USERS_LOCAL_TEST_OK. Any failed ASSERT aborts.
 
@@ -93,7 +93,7 @@ INSERT INTO withdrawal_requests (user_id, amount, fee_amount, net_amount, status
   ('00000000-0000-0000-0000-00000000000a',  4, 0, 4, 'pending',   'mobile_money', '2026-05-03', 'W3'),
   ('00000000-0000-0000-0000-00000000000a',  3, 0, 3, 'rejected',  'mobile_money', '2026-05-04', 'W4');
 
--- The function the stats route served before 0160, for an equality check against admin_user_stats.
+-- The function the stats route served before 0170, for an equality check against admin_user_stats.
 -- BEGIN COPY: migrations/optimize_admin_stats.sql get_user_financial_summary
 CREATE OR REPLACE FUNCTION get_user_financial_summary(p_user_id UUID)
 RETURNS JSON AS $$
@@ -204,11 +204,11 @@ CREATE FUNCTION public.admin_list_users(text, text, boolean, boolean, text, time
 CREATE FUNCTION public.admin_export_users(text, text, boolean, boolean, text, timestamptz, timestamptz, timestamptz, uuid, int)
   RETURNS jsonb LANGUAGE sql AS $$ SELECT '{}'::jsonb $$;
 
-\i migrations/0160_admin_list_users.sql
+\i migrations/0170_admin_list_users.sql
 -- Idempotent: a second apply succeeds.
-\i migrations/0160_admin_list_users.sql
--- list and export read public.admin_user_tags (0164) when called.
-\i migrations/0164_admin_user_notes_tags.sql
+\i migrations/0170_admin_list_users.sql
+-- list and export read public.admin_user_tags (0174) when called.
+\i migrations/0174_admin_user_notes_tags.sql
 
 DO $$ BEGIN
   ASSERT (SELECT count(*) FROM pg_proc WHERE proname = 'admin_list_users') = 1, 'one admin_list_users overload';

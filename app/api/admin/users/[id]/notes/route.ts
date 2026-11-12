@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic"
  * POST /api/admin/users/[id]/notes { body }   -> 201 { note }
  *      Signed-in admin only (no CRON bypass). Audited: 'user_note_create'.
  * Edit / delete: /api/admin/users/[id]/notes/[noteId].
- * public.admin_user_notes (0164) has RLS on and no policies: only these service-role routes reach it.
+ * public.admin_user_notes (0174) has RLS on and no policies: only these service-role routes reach it.
  */
 export async function GET(req: NextRequest, ctx: IdCtx) {
   const gate = await gateAdmin(req)

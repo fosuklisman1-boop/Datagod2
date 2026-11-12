@@ -1,10 +1,10 @@
 -- LOCAL ONLY. Never run against production: it creates stub tables.
 -- Renamed from 0147_admin_user_orders_local_test.sql. The migration it tests was already applied to production on 2026-11-09 (as 0147_admin_user_orders.sql).
 --
--- Exercises 0162_admin_user_orders.sql against a stub schema in an EMPTY database. Run from the repo root:
+-- Exercises 0172_admin_user_orders.sql against a stub schema in an EMPTY database. Run from the repo root:
 --
 --   createdb user_orders_test
---   psql -v ON_ERROR_STOP=1 -d user_orders_test -f migrations/tests/0162_admin_user_orders_local_test.sql
+--   psql -v ON_ERROR_STOP=1 -d user_orders_test -f migrations/tests/0172_admin_user_orders_local_test.sql
 --
 -- Passes when it prints ADMIN_USER_ORDERS_LOCAL_TEST_OK. Any failed ASSERT aborts.
 
@@ -59,8 +59,8 @@ INSERT INTO public.airtime_orders (user_id, reference_code, network, beneficiary
   ('00000000-0000-0000-0000-0000000000cc', 'AT-W1', 'MTN', '0244', 1, 1, 'completed', '2026-01-01 05:34+00'),
   ('00000000-0000-0000-0000-0000000000cc', 'AT-W2', 'MTN', '0244', 1, 1, 'completed', '2030-01-01 00:00+00');
 
-\i migrations/0162_admin_user_orders.sql
-\i migrations/0162_admin_user_orders.sql
+\i migrations/0172_admin_user_orders.sql
+\i migrations/0172_admin_user_orders.sql
 
 SET TIME ZONE 'UTC';
 
