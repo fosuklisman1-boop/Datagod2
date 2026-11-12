@@ -23,6 +23,7 @@ export const PROVIDER_DISPLAY: Record<string, { label: string; badgeClassName: s
   spfastit: { label: "SPFastIT", badgeClassName: "bg-fuchsia-100 text-fuchsia-800 border-border" },
   bundleportal: { label: "Bundle Portal", badgeClassName: "bg-sky-100 text-sky-800 border-border" },
   kuntanii: { label: "Kuntanii", badgeClassName: "bg-orange-100 text-orange-800 border-border" },
+  spfastit_telecel: { label: "SPFastIT Telecel", badgeClassName: "bg-fuchsia-100 text-fuchsia-800 border-border" },
 }
 
 const UNKNOWN_DISPLAY = { label: "Unknown", badgeClassName: "bg-muted text-muted-foreground border-border" }

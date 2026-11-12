@@ -35,6 +35,11 @@ describe("getProviderDisplay", () => {
     expect(result.label).toBe("some_future_provider_not_yet_added")
   })
 
+  it("labels kuntanii and spfastit_telecel", () => {
+    expect(getProviderDisplay("kuntanii").label).toBe("Kuntanii")
+    expect(getProviderDisplay("spfastit_telecel").label).toBe("SPFastIT Telecel")
+  })
+
   it("labels a missing/null provider as Unknown, not Sykes", () => {
     expect(getProviderDisplay(null).label).toBe("Unknown")
     expect(getProviderDisplay(undefined).label).toBe("Unknown")
