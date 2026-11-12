@@ -61,13 +61,14 @@
   - `noticeText(sunsetAt: Date): string` (the "will be retired on <date>" sentence)
   - `formatGhanaDate(d: Date): string`, e.g. `"26 Nov 2026, 00:00 GMT"`
   - `getV1RetirementConfig(): Promise<V1RetirementConfig | null>`: service-role read of `api_v2_config`, 60 s module cache, `null` on any error (with `console.warn`)
-  - `__resetV1RetirementCacheForTests(): void`
+  - `clearV1RetirementCache(): void`: used by the Task 5 PUT route and by tests
 
 - [ ] **Step 1: Write failing tests.**
   - `cfg null ⇒ mode "normal"` (config unreadable, Review Focus 1)
   - `sunsetAt null ⇒ "normal"`
-  - `now < sunsetAt ⇒ "notice"` for exempt and non-exempt alike
-  - `now == sunsetAt ⇒ "blocked"` (Review Focus 4); `now > sunsetAt` and user in `exemptUserIds` ⇒ `"exempt"`
+  - `now < sunsetAt` and user NOT exempt ⇒ `"notice"`
+  - user in `exemptUserIds` ⇒ `"exempt"` whenever a sunset is set, before **and** after it (exempt users never get the body `notice` field, per Global Constraints)
+  - `now == sunsetAt` and not exempt ⇒ `"blocked"` (Review Focus 4)
   - `retiredBody(new Date("2026-11-26T00:00:00Z")).message === "API v1 was retired on 26 Nov 2026, 00:00 GMT. Please move to API v2: https://www.datagod.store/developers"`
   - `retirementHeaders(d)` gives exactly the three Global Constraints headers, with `Sunset === d.toUTCString()`
   - `getV1RetirementConfig` with a client stub that throws ⇒ `null`. Two calls within 60 s ⇒ one DB read.
@@ -134,7 +135,7 @@ Behaviour:
 - Consumes: `verifyAdminAccess`, `sendSMS` (`lib/sms-service.ts`), `sendEmail` (`lib/email-service.ts`), `formatGhanaDate`
 - Produces:
   - GET ⇒ `{ sunset_at, exempt_users: {id,email,phone,first_name}[], notice_sent_at, stragglers: {user_id,email,last_call,calls_7d,orders_7d,exempt}[] }`. Stragglers come from `user_api_logs` plus `api_orders` (where `api_v2_key_id is null`) over the last 7 days, grouped by user. Use explicit columns only, never `key_hash`.
-  - PUT body `{ sunset_at: string | null, exempt_user_ids: string[] }` ⇒ validated by `parseRetirementUpdate(body, now): {ok:true, value} | {ok:false, error}` (ISO date or null, each id a UUID that exists in `users`, max 50 ids). It clears the loader cache in this instance.
+  - PUT body `{ sunset_at: string | null, exempt_user_ids: string[] }` ⇒ validated by `parseRetirementUpdate(body, now): {ok:true, value} | {ok:false, error}` (ISO date or null, each id a UUID that exists in `users`, max 50 ids). It calls `clearV1RetirementCache()` (Task 2) in this instance.
   - POST notify `{ confirm_resend?: boolean }` ⇒ 409 `{ error: "already_sent", sent_at }` if `v1_notice_sent_at` is set and not `confirm_resend`. Otherwise it sends to every user with an active `user_api_keys` row: non-exempt get `buildNoticeMessage(sunsetAt)`, exempt get `buildExemptMessage(sunsetAt)`. Each goes by SMS when a phone is on file and by email when an email is on file. It sets `v1_notice_sent_at = now()` and returns `{ sms_sent, email_sent, failed }`. Sending happens in batches of 10 with per-recipient try/catch, and a failure never aborts the run.
 - `buildNoticeMessage` text: `"Datagod API notice: API v1 will be retired on <date>. After that, v1 requests will be refused. Please move to API v2: https://www.datagod.store/developers"`. `buildExemptMessage`: `"Datagod API notice: API v1 retires for most users on <date>. Your v1 access will keep working for now while you move to API v2: https://www.datagod.store/developers. We'll contact you before it ends."`
 
