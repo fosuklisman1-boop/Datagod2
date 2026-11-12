@@ -1,6 +1,50 @@
 import { describe, it, expect } from "vitest"
-import { buildSendAndClaimView, momoErrorCopy } from "./view-model"
-import { MAX_OPEN_SESSIONS } from "./window"
+import { buildSendAndClaimView, momoErrorCopy, formatGhs, limitsLine, pausedPanelCopy, beforeYouSendLines } from "./view-model"
+import { MAX_OPEN_SESSIONS, WINDOW_MINUTES } from "./window"
+
+describe("formatGhs", () => {
+  it("drops decimals for whole amounts and adds thousands separators", () => {
+    expect(formatGhs(10000)).toBe("GH₵ 10,000")
+    expect(formatGhs(2000)).toBe("GH₵ 2,000")
+  })
+  it("keeps 2 decimals otherwise", () => {
+    expect(formatGhs(2000.5)).toBe("GH₵ 2,000.50")
+    expect(formatGhs(10.25)).toBe("GH₵ 10.25")
+  })
+  it("can force 2 decimals", () => {
+    expect(formatGhs(10, { fixed: true })).toBe("GH₵ 10.00")
+  })
+})
+
+describe("limitsLine", () => {
+  it("formats min with 2dp and max compactly", () => {
+    expect(limitsLine({ minNet: 10, maxSent: 10000 })).toBe("Minimum GH₵ 10.00 · Maximum GH₵ 10,000")
+  })
+})
+
+describe("beforeYouSendLines", () => {
+  it("uses the window minutes and limits", () => {
+    const l = beforeYouSendLines({ minNet: 10, maxSent: 10000 })
+    expect(l.window).toContain(`${WINDOW_MINUTES} minutes`)
+    expect(l.between).toBe("Send between GH₵ 10.00 and GH₵ 10,000.")
+  })
+})
+
+describe("pausedPanelCopy", () => {
+  it("offers Send & Claim when enabled", () => {
+    const c = pausedPanelCopy(true)
+    expect(c.title).toBe("Top-ups are paused")
+    expect(c.text).toBe(
+      "Card and MoMo top-ups are temporarily unavailable. You can still fund your wallet instantly with Send & Claim.",
+    )
+    expect(c.showButton).toBe(true)
+  })
+  it("says check back soon when Send & Claim is off", () => {
+    const c = pausedPanelCopy(false)
+    expect(c.text).toBe("Card and MoMo top-ups are temporarily unavailable. Please check back soon.")
+    expect(c.showButton).toBe(false)
+  })
+})
 
 describe("momoErrorCopy", () => {
   const limits = { minNet: 2, maxSent: 500 }

@@ -54,7 +54,8 @@ export function ClaimBox({ session, nowMs, getToken, onDone, onCancel }: Props) 
   }
 
   return (
-    <div className="space-y-3 rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
+    <div className="space-y-3 rounded-2xl border border-border bg-card p-4 shadow-sm">
+      <p className="text-sm font-bold text-foreground">Sent money but not credited?</p>
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-mono text-lg font-black tracking-widest text-[#1b388b] dark:text-foreground">{session.code}</p>
@@ -73,7 +74,7 @@ export function ClaimBox({ session, nowMs, getToken, onDone, onCancel }: Props) 
         aria-label="MoMo Transaction ID"
         className="rounded-xl"
       />
-      <p className="text-xs text-muted-foreground">Forgot the code? Paste the Transaction ID from your MoMo receipt.</p>
+      <p className="text-xs text-muted-foreground">Enter the transaction ID from your MoMo confirmation SMS.</p>
       {message && <p className="rounded-xl bg-muted p-3 text-sm text-foreground">{message}</p>}
       <div className="flex gap-2">
         <Button

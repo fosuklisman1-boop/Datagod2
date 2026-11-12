@@ -1,5 +1,38 @@
-import { openSessions, nextSlotFreeAt, MAX_OPEN_SESSIONS, type SessionLite } from "./window"
+import { openSessions, nextSlotFreeAt, MAX_OPEN_SESSIONS, WINDOW_MINUTES, type SessionLite } from "./window"
 // MAX_OPEN_SESSIONS also used in customer copy below
+
+/** "GH₵ 10,000" for whole amounts, "GH₵ 2,000.50" otherwise; `fixed` forces 2 decimals. */
+export function formatGhs(value: number, opts: { fixed?: boolean } = {}): string {
+  const whole = Number.isInteger(value)
+  const digits = opts.fixed || !whole ? 2 : 0
+  const body = value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  return `GH₵ ${body}`
+}
+
+/** Amber notice headline: min (2dp) and max (compact). */
+export function limitsLine(limits: { minNet: number; maxSent: number }): string {
+  return `Minimum ${formatGhs(limits.minNet, { fixed: true })} · Maximum ${formatGhs(limits.maxSent)}`
+}
+
+/** Plain-text pieces of the "Before you send" box (numbers are bolded by the component). */
+export function beforeYouSendLines(limits: { minNet: number; maxSent: number }) {
+  return {
+    window: `Your payment details stay valid for ${WINDOW_MINUTES} minutes.`,
+    between: `Send between ${formatGhs(limits.minNet, { fixed: true })} and ${formatGhs(limits.maxSent)}.`,
+  }
+}
+
+/** Copy for the "Top-ups are paused" panel on the Top Up Wallet tab. */
+export function pausedPanelCopy(sendAndClaimEnabled: boolean) {
+  const base = "Card and MoMo top-ups are temporarily unavailable."
+  return {
+    title: "Top-ups are paused",
+    text: sendAndClaimEnabled
+      ? `${base} You can still fund your wallet instantly with Send & Claim.`
+      : `${base} Please check back soon.`,
+    showButton: sendAndClaimEnabled,
+  }
+}
 
 export type SendAndClaimView<T extends SessionLite> = {
   boxes: T[]

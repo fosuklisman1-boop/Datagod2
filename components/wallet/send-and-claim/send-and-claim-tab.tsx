@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { Loader2 } from "lucide-react"
+import { CircleAlert, Loader2, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { supabase } from "@/lib/supabase"
 import { computeFee } from "@/lib/momo-claim/money"
-import { buildSendAndClaimView, momoErrorCopy } from "@/lib/momo-claim/view-model"
+import { buildSendAndClaimView, limitsLine, momoErrorCopy } from "@/lib/momo-claim/view-model"
 import { startPoller } from "@/lib/momo-claim/poller"
 import { MAX_OPEN_SESSIONS } from "@/lib/momo-claim/window"
 import { HowItWorks } from "./how-it-works"
@@ -43,7 +43,13 @@ async function getToken(): Promise<string | null> {
   return data.session?.access_token ?? null
 }
 
-export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number) => void }) {
+export function SendAndClaimTab({
+  onCredited,
+  openGuideSignal = 0,
+}: {
+  onCredited: (netAmount: number) => void
+  openGuideSignal?: number
+}) {
   const [info, setInfo] = useState<Info | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [amount, setAmount] = useState("")
@@ -181,17 +187,35 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
   const disabled = busy || !valid || !mtn || view.generateDisabled || overMax
 
   return (
-    <div className="space-y-4">
-      <HowItWorks defaultOpen={view.guideOpenByDefault} />
-      <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
-        <div className="space-y-3 self-start rounded-2xl border border-white/60 dark:border-white/5 bg-card p-4 clay">
-          <label htmlFor="momo-amount" className="text-sm font-bold text-foreground">Amount you will send (GHS)</label>
+    <div className="space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0">
+      <HowItWorks defaultOpen={view.guideOpenByDefault} limits={info} openSignal={openGuideSignal} />
+      <div className="space-y-4">
+        <div className="space-y-3 rounded-2xl border border-border bg-card p-4 shadow-sm">
+          <div>
+            <p className="flex items-center gap-2 text-sm font-bold text-foreground">
+              <Zap className="h-4 w-4 text-amber-500" />
+              Send &amp; Claim
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Enter an amount and we&apos;ll generate a payment reference — send the money and your wallet is credited automatically.
+            </p>
+          </div>
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+            <p className="flex items-center gap-2 text-sm font-bold">
+              <CircleAlert className="h-4 w-4 flex-shrink-0" />
+              {limitsLine(info)}
+            </p>
+            <p className="mt-1 text-xs">
+              The minimum applies to the amount credited after any fee. Payments above the maximum are held for admin review.
+            </p>
+          </div>
+          <label htmlFor="momo-amount" className="block text-sm font-bold text-foreground">Amount (GHS)</label>
           <Input
             id="momo-amount"
             inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.00"
+            placeholder="Enter amount"
             className="rounded-xl"
           />
           {preview && (
@@ -199,9 +223,6 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
               Fee: GHS {preview.fee.toFixed(2)} · You get: GHS {preview.net.toFixed(2)}
             </p>
           )}
-          <p className="text-xs text-muted-foreground">
-            Minimum GHS {info.minNet.toFixed(2)} credited · Maximum GHS {info.maxSent.toFixed(2)} per payment
-          </p>
           {overMax && <p className="text-sm text-destructive">{momoErrorCopy("above_max", info)}</p>}
           {!mtn && <p className="text-sm text-destructive">Payment number not set — contact support</p>}
           {error && (
@@ -220,21 +241,17 @@ export function SendAndClaimTab({ onCredited }: { onCredited: (netAmount: number
           )}
           <Button onClick={generate} disabled={disabled} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
             {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Get payment code
+            Generate Payment Details
           </Button>
         </div>
-        <div className="space-y-3">
-          <p className="text-sm font-bold text-foreground">Open payments ({view.boxes.length})</p>
-          {view.boxes.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-              No open payments. Get a code to start.
-            </p>
-          ) : (
-            view.boxes.map((s) => (
+        {view.boxes.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-sm font-bold text-foreground">Open payments ({view.boxes.length})</p>
+            {view.boxes.map((s) => (
               <ClaimBox key={s.id} session={s} nowMs={nowMs} getToken={getToken} onDone={load} onCancel={cancel} />
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
       {modal && <PaymentModal data={modal} onClose={() => setModal(null)} />}
     </div>
