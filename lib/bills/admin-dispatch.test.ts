@@ -141,6 +141,10 @@ describe("executeBillRetry", () => {
     expect(await executeBillRetry(d, "o1")).toMatchObject({ ok: true, orderStatus: "processing" })
     expect(calls).toEqual(["reopen:Retrying after Hubtel failure: Invalid meter", "dispatch"])
   })
+  it("Hubtel failing the retry again is reported as not ok (nothing delivered)", async () => {
+    const { d } = makeRetry({ sent: "failed" })
+    expect(await executeBillRetry(d, "o1")).toMatchObject({ ok: false, orderStatus: "failed", message: expect.stringMatching(/failed again/i) })
+  })
   it("refuses orders that are not paid and failed, or never reached Hubtel", async () => {
     expect((await executeBillRetry(makeRetry({ order: null }).d, "o1")).status).toBe(404)
     for (const order of [failedOrder({ status: "pending" }), failedOrder({ payment_status: "refunded" })]) {
