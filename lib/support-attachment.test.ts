@@ -18,7 +18,7 @@ function fakeDb(opts: { uploadError?: any } = {}) {
   return { db: { storage: { from } } as any, upload, createSignedUrl, remove, from }
 }
 const file = (bytes: number[] | Uint8Array, name = "evil name.png", type = "image/png") =>
-  new File([bytes instanceof Uint8Array ? bytes : u8(bytes)], name, { type })
+  new File([(bytes instanceof Uint8Array ? bytes : u8(bytes)) as BlobPart], name, { type })
 
 describe("sniffImage", () => {
   it("recognises JPEG, PNG and WebP by magic bytes", () => {

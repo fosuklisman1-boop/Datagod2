@@ -1,6 +1,6 @@
 import { supabase } from "./supabase"
 
-export type NotificationType = "order_update" | "complaint_resolved" | "payment_success" | "withdrawal_approved" | "withdrawal_rejected" | "balance_updated" | "admin_action"
+export type NotificationType = "order_update" | "complaint_resolved" | "payment_success" | "withdrawal_approved" | "withdrawal_rejected" | "balance_updated" | "admin_action" | "support_reply"
 
 export interface Notification {
   id: string
