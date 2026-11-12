@@ -45,7 +45,8 @@ export async function GET(request: NextRequest) {
         status,
         network,
         volume_gb,
-        type
+        type,
+        payment_reference
         `,
         { count: "exact" }
       )
@@ -132,7 +133,11 @@ export async function GET(request: NextRequest) {
       order_status: order.status ?? "pending",
       package_name: order.volume_gb ? `${order.volume_gb}GB` : "Unknown",
       network_name: order.network || "Unknown",
-      type: order.type
+      type: order.type,
+      reference:
+        typeof order.payment_reference === "string" && order.payment_reference.trim() !== "" && order.payment_reference !== "-"
+          ? order.payment_reference
+          : null,
     }))
 
     return NextResponse.json({

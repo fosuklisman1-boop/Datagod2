@@ -7,9 +7,11 @@ import { useThreadForm } from "@/hooks/use-thread-form"
 import { ThreadFormFields } from "./thread-form-fields"
 
 export interface ReportProblemOrder {
-  kind: "order" | "shop_order"
-  id: string
+  /** "none" = order type that cannot be linked; the subject names the order instead. */
+  kind: "order" | "shop_order" | "none"
+  id: string | null
   reference: string | null
+  subject?: string
   summary: string
 }
 
@@ -36,7 +38,12 @@ export function ReportProblemDialog({ open, onOpenChange, order }: Props) {
           </Button>
           <Button
             disabled={form.submitting}
-            onClick={() => form.submit({ kind: order.kind, id: order.id, reference: order.reference })}
+            onClick={() => form.submit({
+                kind: order.kind,
+                id: order.id ?? undefined,
+                reference: order.reference,
+                subject: order.subject,
+              })}
           >
             {form.submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Send complaint

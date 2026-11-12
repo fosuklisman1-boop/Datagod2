@@ -39,7 +39,7 @@ export function countUnread(list: ClientMessage[] | undefined): number {
 
 export function orderSubject(reference: string | null | undefined, id: string): string {
   const ref = reference && reference.trim() ? reference.trim() : id.slice(0, 8)
-  return `Issue with order ${ref}`
+  return `Issue with order ${ref.replace(/[<>&]/g, "")}`.slice(0, 200)
 }
 
 /** The server rejects <, > and &; say so before the request. */
@@ -53,9 +53,39 @@ export function validateScreenshot(file: { type: string; size: number }): string
   return null
 }
 
+const stripMarkup = (s: string) => s.replace(/[<>&]/g, "")
+
+export interface ComplaintTarget {
+  kind: "order" | "shop_order" | "none"
+  id: string | null
+  subject: string
+}
+
+/**
+ * Which support link a My Orders row supports. Only `bulk` (orders) and `shop`
+ * (shop_orders) rows can be linked; other types get an unlinked thread whose
+ * subject names the order so an admin can find it.
+ */
+export function complaintTargetForOrder(row: {
+  id: string
+  type: string | null
+  reference: string | null
+  network_name: string
+  package_name: string
+  phone_number: string
+}): ComplaintTarget {
+  const ref = stripMarkup(row.reference && row.reference.trim() ? row.reference.trim() : row.id.slice(0, 8))
+  const kind = row.type === "bulk" ? "order" : row.type === "shop" ? "shop_order" : "none"
+  const subject =
+    kind === "none"
+      ? `Issue with order ${ref} - ${stripMarkup(row.network_name)} ${stripMarkup(row.package_name)} to ${stripMarkup(row.phone_number)}`
+      : `Issue with order ${ref}`
+  return { kind, id: kind === "none" ? null : row.id, subject: subject.slice(0, 200) }
+}
+
 export interface ThreadFormInput {
-  /** "general" = not linked to an order; subject and category come from the form. */
-  kind: "order" | "shop_order" | "general"
+  /** "general" = form-supplied subject/category; "none" = order complaint with a precomputed subject, no link. */
+  kind: "order" | "shop_order" | "general" | "none"
   id?: string
   reference?: string | null
   subject?: string
@@ -71,8 +101,11 @@ export function buildThreadFormData(input: ThreadFormInput): FormData {
   if (input.kind === "general") {
     fd.set("subject", input.subject ?? "")
     fd.set("category", input.category ?? "other")
+  } else if (input.kind === "none") {
+    fd.set("subject", input.subject ?? "")
+    fd.set("category", "order")
   } else {
-    fd.set("subject", orderSubject(input.reference, input.id ?? ""))
+    fd.set("subject", input.subject ?? orderSubject(input.reference, input.id ?? ""))
     fd.set("category", "order")
     fd.set(input.kind === "order" ? "order_id" : "shop_order_id", input.id ?? "")
   }

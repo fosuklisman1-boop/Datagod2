@@ -14,6 +14,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
+import { complaintTargetForOrder } from "@/lib/support-client"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -48,6 +49,8 @@ interface Order {
   order_status: string
   network_name: string
   package_name: string
+  type: string | null
+  reference: string | null
 }
 
 const DATE_PILLS = [
@@ -382,13 +385,16 @@ export default function MyOrdersPage() {
             setComplaintModalOpen(o)
             if (!o) setSelectedOrder(null)
           }}
-          order={{
-            kind: "order",
-            id: selectedOrder.id,
-            // The list endpoint carries no order code; the dialog falls back to a short id.
-            reference: null,
-            summary: `${selectedOrder.network_name} ${selectedOrder.package_name} to ${selectedOrder.phone_number}`,
-          }}
+          order={(() => {
+            const target = complaintTargetForOrder(selectedOrder)
+            return {
+              kind: target.kind,
+              id: target.id,
+              reference: selectedOrder.reference,
+              subject: target.subject,
+              summary: `${selectedOrder.network_name} ${selectedOrder.package_name} to ${selectedOrder.phone_number}`,
+            }
+          })()}
         />
       )}
     </DashboardLayout>

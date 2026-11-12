@@ -7,6 +7,7 @@ import {
   orderSubject,
   visiblePanes,
   validateScreenshot,
+  complaintTargetForOrder,
   type ClientMessage,
 } from "./support-client"
 
@@ -97,6 +98,55 @@ describe("buildThreadFormData", () => {
     expect(fd.get("shop_order_id")).toBe("s1")
     expect(fd.get("order_id")).toBeNull()
     expect((fd.get("image") as File).name).toBe("s.png")
+  })
+})
+
+describe("complaintTargetForOrder", () => {
+  const row = (over: Partial<Parameters<typeof complaintTargetForOrder>[0]> = {}) => ({
+    id: "abcdef12-3456-7890",
+    type: "bulk" as string | null,
+    reference: "REF1" as string | null,
+    network_name: "MTN",
+    package_name: "5GB",
+    phone_number: "0241234567",
+    ...over,
+  })
+
+  it("maps each of the five types", () => {
+    expect(complaintTargetForOrder(row({ type: "bulk" }))).toMatchObject({ kind: "order", id: "abcdef12-3456-7890" })
+    expect(complaintTargetForOrder(row({ type: "shop" }))).toMatchObject({ kind: "shop_order", id: "abcdef12-3456-7890" })
+    for (const t of ["ussd_shop", "ussd", "api"]) {
+      expect(complaintTargetForOrder(row({ type: t }))).toMatchObject({ kind: "none", id: null })
+    }
+  })
+  it("treats a null type as none", () => {
+    expect(complaintTargetForOrder(row({ type: null }))).toMatchObject({ kind: "none", id: null })
+  })
+  it("uses the reference, or the id prefix when absent", () => {
+    expect(complaintTargetForOrder(row()).subject).toBe("Issue with order REF1")
+    expect(complaintTargetForOrder(row({ reference: null })).subject).toBe("Issue with order abcdef12")
+  })
+  it("unlinked subject carries network, package and phone", () => {
+    const s = complaintTargetForOrder(row({ type: "api" })).subject
+    expect(s).toBe("Issue with order REF1 - MTN 5GB to 0241234567")
+  })
+  it("strips <, > and & from every piece", () => {
+    const s = complaintTargetForOrder(row({ type: "api", reference: "A&B<x>", network_name: "M&N" })).subject
+    expect(s).not.toMatch(/[<>&]/)
+    expect(s).toContain("ABx")
+  })
+  it("truncates to 200 characters", () => {
+    expect(complaintTargetForOrder(row({ reference: "R".repeat(500) })).subject).toHaveLength(200)
+  })
+})
+
+describe("buildThreadFormData none", () => {
+  it("sends neither order id when kind is none", () => {
+    const fd = buildThreadFormData({ kind: "none", subject: "S ok", message: "m", phone: "p", whatsapp: "w", image: null })
+    expect(fd.get("order_id")).toBeNull()
+    expect(fd.get("shop_order_id")).toBeNull()
+    expect(fd.get("category")).toBe("order")
+    expect(fd.get("subject")).toBe("S ok")
   })
 })
 
