@@ -3,6 +3,7 @@ import { Redis } from "@upstash/redis"
 import { getRedisRestEnv } from "@/lib/redis-env"
 import { NextRequest } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { pgFallbackLimit } from "@/lib/rate-limit-fallback"
 
 // Upstash Redis client — used only if env vars are set
 let redis: Redis | null = null
@@ -25,6 +26,12 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// Postgres fallback (opt-in per call). Replaceable in tests.
+let pgFallback: typeof pgFallbackLimit = pgFallbackLimit
+export function __setPgFallbackForTests(fn: typeof pgFallbackLimit | null): void {
+  pgFallback = fn ?? pgFallbackLimit
+}
 
 // Cache Ratelimit instances keyed by "maxRequests:windowSeconds"
 // Each instance holds only config — actual state lives in Redis
@@ -76,12 +83,23 @@ export async function applyRateLimit(
   endpointName: string,
   maxRequests: number,
   windowMs: number,
-  userId?: string
-): Promise<{ allowed: boolean; remaining: number; resetAt: number; degraded?: boolean }> {
+  userId?: string,
+  opts?: { pgFallback?: boolean }
+): Promise<{ allowed: boolean; remaining: number; resetAt: number; degraded?: boolean; fallback?: boolean }> {
+  // Opt-in Postgres counter, same key string as Redis. Null (any error) => caller reports degraded as before.
+  const tryPgFallback = async () => {
+    if (!opts?.pgFallback) return null
+    const key = `${endpointName}:${getClientIdentifier(request, userId)}`
+    const r = await pgFallback(key, maxRequests, windowMs)
+    return r ? { ...r, degraded: false, fallback: true } : null
+  }
+
   // No Redis configured — fail open. `degraded` lets security-critical callers
   // (e.g. OTP verify) detect that this limiter provided no real protection and
   // fall back to a different cap instead of trusting the allow.
   if (!redis) {
+    const fb = await tryPgFallback()
+    if (fb) return fb
     return { allowed: true, remaining: maxRequests, resetAt: Date.now() + windowMs, degraded: true }
   }
 
@@ -118,6 +136,8 @@ export async function applyRateLimit(
   } catch (error) {
     // Fail open — Upstash down should never block legitimate traffic
     console.error("[RATE-LIMIT] Upstash error, failing open:", error)
+    const fb = await tryPgFallback()
+    if (fb) return fb
     return { allowed: true, remaining: 1, resetAt: Date.now() + windowMs, degraded: true }
   }
 }
