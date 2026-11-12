@@ -93,6 +93,35 @@ describe("parseMomoSms", () => {
     expect(parseMomoSms(both)?.pattern).toBe("mtn_cash_in");
   });
 
+  it("parses the real MTN payment SMS (2026-11-12 shape)", () => {
+    const sms =
+      "Payment received for GHS 10.00 from JOHN KWAME DOE  Current Balance: GHS 1271.15 . Available Balance: GHS 1271.15. Reference: XQH7925. Transaction ID: 93600000001. TRANSACTION FEE: 0.00";
+    expect(parseMomoSms(sms)).toEqual({
+      pattern: "mtn_payment",
+      network: "MTN",
+      amountPesewas: 1000,
+      senderName: "JOHN KWAME DOE",
+      transactionId: "93600000001",
+      balancePesewas: 127115,
+    });
+  });
+
+  it("reads the balance with optional colon and thousands separators", () => {
+    const mk = (bal: string) =>
+      `Payment received for GHS 3.00 from JANE DOE  Current Balance${bal}. Transaction ID: 80000000002.`;
+    expect(parseMomoSms(mk(" GHS 272.65"))?.balancePesewas).toBe(27265);
+    expect(parseMomoSms(mk(": GHS 1271.15"))?.balancePesewas).toBe(127115);
+    expect(parseMomoSms(mk(":GHS 1,271.15"))?.balancePesewas).toBe(127115);
+  });
+
+  it("rejects amounts with more than 2 decimal places", () => {
+    expect(
+      parseMomoSms(
+        "Cash In received for GHS 10.005 from JOHN DOE. Current Balance GHS 1.00. Transaction ID: 80000000003.",
+      ),
+    ).toBeNull();
+  });
+
   it("returns null for unrelated text", () => {
     expect(parseMomoSms("hello")).toBeNull();
   });

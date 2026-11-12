@@ -19,13 +19,13 @@ const TELECEL =
 const AIRTELTIGO =
   /received\s+GHS\s+([\d,]+\.?\d*)\s+from\s+(.+?)[\.\n].*?Transaction\s+ID[:\s]*([\d]+)/i;
 
-const BALANCE = /Current\s+Balance\s+GHS\s+([\d,]+\.?\d*)/i;
+const BALANCE = /Current\s+Balance\s*:?\s*GHS\s*([\d,]+\.?\d*)/i;
 
-/** "1,200.5" -> 120050 without floating point. Null if not a number. */
+/** "1,200.5" -> 120050 without floating point. Null if not a number or more than 2 decimals. */
 function toPesewas(raw: string): number | null {
   const cleaned = raw.replace(/,/g, "");
   const [whole, frac = ""] = cleaned.split(".");
-  if (!/^\d+$/.test(whole) || !/^\d*$/.test(frac)) return null;
+  if (!/^\d+$/.test(whole) || !/^\d{0,2}$/.test(frac)) return null;
   const pesewas = Number(whole) * 100 + Number((frac + "00").slice(0, 2));
   return Number.isSafeInteger(pesewas) ? pesewas : null;
 }
