@@ -97,3 +97,107 @@ export async function fulfillAirtimeViaHubtel(order: AirtimeOrderMinimal, deps: 
     return notSent(e?.message ?? "error")
   }
 }
+
+export interface AirtimeRetryOrder extends AirtimeOrderMinimal {
+  status: string
+  payment_status: string
+  notes: string | null
+}
+
+export interface AirtimeRetryDeps {
+  getOrder(orderId: string): Promise<AirtimeRetryOrder | null>
+  /** Status-guarded write; MUST apply only while the order is in one of onlyFromStatuses. Returns rows changed. */
+  markOrder(orderId: string, patch: { status?: string; notes: string }, onlyFromStatuses: string[]): Promise<number>
+  purchase(input: PurchaseInput): Promise<HubtelCsTx>
+  refreshTx(clientReference: string): Promise<HubtelCsTx | null>
+  /** Re-apply a terminal ledger row to the order (the idempotent order hook). */
+  settle(tx: HubtelCsTx): Promise<void>
+  alert(message: string, kind?: "manual" | "review"): Promise<void>
+}
+
+export interface AirtimeRetryResult { ok: boolean; status: number; message: string; orderStatus?: string }
+
+/**
+ * Admin re-send of a paid airtime order whose last Hubtel attempt (`failedRef`) failed. The caller has already
+ * checked the ledger (lib/hubtel-cs/retry.ts ledgerRetryCheck). Unlike first-time fulfilment, the order is claimed
+ * (pending -> processing) BEFORE the POST, so a concurrent /admin/refunds refund or manual fulfilment loses the race
+ * instead of running alongside a new Hubtel send. Never throws.
+ */
+export async function retryAirtimeViaHubtel(d: AirtimeRetryDeps, orderId: string, failedRef: string): Promise<AirtimeRetryResult> {
+  const refuse = (message: string): AirtimeRetryResult => ({ ok: false, status: 409, message })
+  let order: AirtimeRetryOrder | null
+  try { order = await d.getOrder(orderId) } catch { return { ok: false, status: 503, message: "Could not read the airtime order; try again" } }
+  if (!order) return { ok: false, status: 404, message: "Order not found" }
+  if (order.payment_status !== "completed") return refuse("This airtime order was never paid")
+  if (order.status !== "pending") return refuse(`Only airtime orders returned to pending by a Hubtel failure can be retried; this one is ${order.status}`)
+  // onFailed leaves "[hcsRef:<failed ref>]" in the notes. Anything else means an admin or another provider has
+  // touched the order since (e.g. a manual Digiwapy send): do not send a second value on top of that.
+  if (!(order.notes ?? "").includes(`hcsRef:${failedRef}`)) return refuse("This order was handled since that Hubtel failure (see its notes); retry it from Airtime orders instead")
+  const id = airtimeNetId(order.network)
+  if (!id) return refuse(`Unsupported network "${order.network}"`)
+  if (!(order.airtime_amount <= HUBTEL_AIRTIME_MAX)) return refuse(`Amount is over the Hubtel limit of GHS ${HUBTEL_AIRTIME_MAX}`)
+
+  const originalNotes = order.notes ?? ""
+  let claimed = 0
+  try {
+    claimed = await d.markOrder(orderId, { status: "processing", notes: `Retrying via Hubtel after failure [prevRef:${failedRef}]` }, ["pending"])
+  } catch { claimed = 0 }
+  if (claimed === 0) return refuse("The order changed; reload and try again")
+
+  const tag = `${order.reference_code} (${order.network} ${order.beneficiary_phone} GHS ${order.airtime_amount})`
+  const stamp = (notes: string) => d.markOrder(orderId, { notes }, ["processing"]).catch(() => 0)
+  let tx: HubtelCsTx
+  try {
+    tx = await d.purchase({
+      serviceKey: `airtime_${id}` as HubtelCsServiceKey,
+      destination: order.beneficiary_phone,
+      amount: order.airtime_amount,
+      orderTable: "airtime_orders",
+      orderId,
+    })
+  } catch (e: any) {
+    if (e instanceof HubtelDuplicateOrderError) {
+      await quiet(d.alert(`Airtime ${tag}: retry refused, a live Hubtel transaction already exists. The order is left processing - reconcile it by hand on /admin/airtime once that transaction settles; do not resend`, "review"), "alert")
+      return refuse("A live Hubtel transaction already exists for this order; check the review queue")
+    }
+    if (e instanceof HubtelOutcomeUnknownError) {
+      await stamp(`Hubtel retry: outcome unknown [hcsRef:${e.clientReference}]. Do not resend.`)
+      await quiet(d.alert(`Airtime ${tag}: Hubtel retry outcome unknown (ref ${e.clientReference}) - check the review queue, do not resend`, "review"), "alert")
+      return { ok: true, status: 200, orderStatus: "processing", message: "Retry sent but the outcome is unknown; it is in the review queue" }
+    }
+    // Raised before the POST: nothing reached Hubtel. Restore the order exactly so it can be retried again.
+    const why = e?.message ?? "error"
+    const back = await d.markOrder(orderId, { status: "pending", notes: `Retry not sent: ${why}. ${originalNotes}` }, ["processing"]).catch(() => 0)
+    if (back === 0) await quiet(d.alert(`Airtime ${tag}: a Hubtel retry was not sent and the order could not be put back to pending. Check it by hand.`), "alert")
+    return { ok: false, status: 200, orderStatus: back === 0 ? "processing" : "pending", message: `Retry not sent: ${why}` }
+  }
+
+  const reconcile = (why: string) => quiet(d.alert(
+    `Airtime ${tag}: Hubtel retry ref ${tx.client_reference} was sent but ${why}. The order may stay processing - reconcile it by hand on /admin/airtime; do not resend`, "review"), "alert")
+  const stamped = await stamp(tx.state === "needs_review"
+    ? `Hubtel retry: outcome unknown, in review [hcsRef:${tx.client_reference}]. Do not resend.`
+    : `Sent via Hubtel (admin retry) [hcsRef:${tx.client_reference}]`)
+  // Without the new hcsRef in its notes the airtime adapter will not fail this order later: never leave that silent.
+  if (stamped === 0) await reconcile("its reference could not be written to the order")
+  if (tx.state === "needs_review") {
+    await quiet(d.alert(`Airtime ${tag}: Hubtel retry outcome unknown (ref ${tx.client_reference}) - check the review queue, do not resend`, "review"), "alert")
+  }
+  // The order hook may have run while the order still carried the claim note (the airtime adapter only fails an
+  // order whose notes name the attempt), so re-apply the latest ledger state now that the new ref is stamped.
+  let latest: HubtelCsTx = tx
+  try {
+    const fresh = await d.refreshTx(tx.client_reference)
+    if (fresh) latest = fresh
+    if (latest.state === "fulfilled" || latest.state === "failed") await d.settle(latest)
+  } catch (e: any) {
+    console.error("[AIRTIME-HUBTEL] retry settle failed:", e?.message ?? e)
+    await reconcile("its result could not be re-applied to the order")
+  }
+
+  if (latest.state === "failed") {
+    return { ok: false, status: 200, orderStatus: "pending", message: `Hubtel failed again: ${latest.failure_reason ?? latest.response_code ?? "unknown reason"}` }
+  }
+  if (latest.state === "fulfilled") return { ok: true, status: 200, orderStatus: "completed", message: "Retried and delivered" }
+  if (latest.state === "needs_review") return { ok: true, status: 200, orderStatus: "processing", message: "Retry sent; outcome unknown, it is in the review queue" }
+  return { ok: true, status: 200, orderStatus: "processing", message: "Retry sent; waiting for Hubtel's callback" }
+}

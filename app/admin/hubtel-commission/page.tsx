@@ -21,7 +21,14 @@ import type { HubtelCsTx } from "@/lib/hubtel-cs/types"
 import { BundlesOrdersTab, BundlesSettingsCard } from "./standard-bundles"
 import { CashbackTab } from "./cashback"
 
-type Row = HubtelCsTx & { refundable: boolean }
+type Row = HubtelCsTx & {
+  refundable: boolean
+  /** Server's ledgerRetryCheck verdict; retry_block says why not. */
+  retryable?: boolean
+  retry_block?: string | null
+  /** A later attempt for the same order replaced this one. */
+  superseded?: { ref: string; state: string } | null
+}
 type Stats = { total: number; in_flight: number; needs_review: number; failed: number; fulfilled: number; commission_earned: number }
 type EnvStatus = { ready: boolean; missing: string[] }
 type ServiceInfo = { key: HubtelCsServiceKey; label: string; kind: string }
@@ -81,19 +88,23 @@ function Stat({ label, value, hint, tone }: { label: string; value: string; hint
   )
 }
 
-function TxRow({ r, review, busy, onCheck, onResolve, onRefund }: {
+function TxRow({ r, review, busy, onCheck, onResolve, onRefund, onRetry }: {
   r: Row
   review?: boolean
   busy: boolean
   onCheck: (r: Row) => void
   onResolve: (r: Row, outcome: "fulfilled" | "failed") => void
   onRefund: (r: Row) => void
+  onRetry: (r: Row) => void
 }) {
   const svc = isServiceKey(r.service_key) ? HUBTEL_CS_SERVICES[r.service_key] : undefined
+  const sup = r.superseded ?? null
   const canCheck = r.state === "pending" || r.state === "needs_review"
-  const canMarkFulfilled = review && (r.state === "needs_review" || (r.state === "failed" && !r.refund_claimed_at))
+  const canMarkFulfilled = review && !sup && (r.state === "needs_review" || (r.state === "failed" && !r.refund_claimed_at))
   const canMarkFailed = review && r.state === "needs_review"
   const claimed = !!r.refund_claimed_at
+  // Linked, failed, not refunded and not already replaced: offer Retry (disabled with the server's reason if blocked).
+  const showRetry = r.state === "failed" && !sup && !claimed && !!r.order_id
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 lg:flex-row lg:items-center lg:gap-6">
       <div className="lg:w-44">
@@ -118,6 +129,12 @@ function TxRow({ r, review, busy, onCheck, onResolve, onRefund }: {
           </div>
         )}
         {claimed && <div className="mt-1 text-xs font-medium text-emerald-700">Refund claimed/processed ({when(r.refund_claimed_at)})</div>}
+        {sup && (
+          <div className={`mt-1 text-xs font-medium ${sup.state === "fulfilled" ? "text-emerald-700" : "text-blue-700"}`}>
+            Retried → {sup.state.replace("_", " ")} <span className="font-mono">({sup.ref.slice(0, 8)})</span>
+          </div>
+        )}
+        {showRetry && !r.retryable && r.retry_block && <div className="mt-1 text-xs text-muted-foreground">Retry unavailable: {r.retry_block}</div>}
       </div>
       <div className="lg:w-36">
         <div className="text-xs uppercase tracking-wide text-muted-foreground">{when(r.created_at)}</div>
@@ -128,7 +145,12 @@ function TxRow({ r, review, busy, onCheck, onResolve, onRefund }: {
         {canCheck && <Button size="sm" variant="outline" disabled={busy} onClick={() => onCheck(r)}>Check status</Button>}
         {canMarkFulfilled && <Button size="sm" variant="outline" disabled={busy} onClick={() => onResolve(r, "fulfilled")}>Mark delivered</Button>}
         {canMarkFailed && <Button size="sm" variant="outline" disabled={busy} onClick={() => onResolve(r, "failed")}>Mark failed</Button>}
-        {review && r.state === "failed" && !claimed && (
+        {showRetry && (
+          <Button size="sm" variant="outline" disabled={busy || !r.retryable} title={r.retryable ? "Send this order to Hubtel again" : (r.retry_block ?? "")} onClick={() => onRetry(r)}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />Retry
+          </Button>
+        )}
+        {review && r.state === "failed" && !claimed && !sup && (
           <Button size="sm" disabled={busy || !r.refundable} title={r.refundable ? "" : "No refund handler is registered for this order type"} onClick={() => onRefund(r)}>
             Refund to wallet
           </Button>
@@ -177,6 +199,7 @@ export default function HubtelCommissionPage() {
   const [ack, setAck] = useState(false)
   const [refunding, setRefunding] = useState<Row | null>(null)
   const [refundAck, setRefundAck] = useState(false)
+  const [retrying, setRetrying] = useState<Row | null>(null)
   const [banner, setBanner] = useState<{ ok: boolean; text: string } | null>(null)
   const [tab, setTab] = useState("settings")
   const seq = useRef({ transactions: 0, review: 0 })
@@ -297,6 +320,23 @@ export default function HubtelCommissionPage() {
       toast.error(errMsg(e))
       setRefunding(null)
     } finally { actionInFlight.current = false; setBusy(null); await refreshLists() }
+  }
+
+  async function confirmRetry() {
+    if (!retrying) return
+    const row = retrying
+    if (actionInFlight.current) return
+    actionInFlight.current = true
+    setBusy("retry")
+    try {
+      const j = await authed("/api/admin/hubtel-cs/retry", { method: "POST", body: JSON.stringify({ ref: row.client_reference }) })
+      // 200 with ok:false = nothing new delivered (not sent, or Hubtel failed again): show it, it is not an error.
+      setBanner({ ok: !!j.ok, text: `${row.client_reference}: ${j.message}` })
+      if (j.ok) toast.success(j.message ?? "Retried"); else toast.error(j.message ?? "Retry did not go through")
+    } catch (e) {
+      setBanner({ ok: false, text: `${row.client_reference}: ${errMsg(e)}` })
+      toast.error(errMsg(e))
+    } finally { setRetrying(null); actionInFlight.current = false; setBusy(null); await refreshLists() }
   }
 
   const testAmount = Number(test.amount)
@@ -544,18 +584,18 @@ export default function HubtelCommissionPage() {
             {txList.rows.length === 0 && !loading && <div className="rounded-xl border p-8 text-center text-muted-foreground">No Hubtel transactions found.</div>}
             <div className="space-y-3">
               {txList.rows.map(r => <TxRow key={r.id} r={r} busy={rowBusy} onCheck={checkStatus}
-                onResolve={() => {}} onRefund={() => {}} />)}
+                onResolve={() => {}} onRefund={() => {}} onRetry={setRetrying} />)}
             </div>
           </TabsContent>
 
           <TabsContent value="review" className="mt-4 space-y-3">
-            <p className="text-sm text-muted-foreground">Needs-review and failed transactions. Nothing here is refunded or resent automatically; refunds are manual only.</p>
+            <p className="text-sm text-muted-foreground">Needs-review and failed transactions. Nothing here is refunded or resent automatically; Retry and refunds are manual only.</p>
             <Pager listing={reviewList} loading={loading} onPage={o => { void loadList("review", o) }} />
             {reviewList.rows.length === 0 && !loading && <div className="rounded-xl border p-8 text-center text-muted-foreground">Nothing needs attention.</div>}
             {reviewList.rows.map(r => (
               <TxRow key={r.id} r={r} review busy={rowBusy} onCheck={checkStatus}
                 onResolve={(row, outcome) => { setNote(""); setAck(false); setResolving({ row, outcome }) }}
-                onRefund={row => { setRefundAck(false); setRefunding(row) }} />
+                onRefund={row => { setRefundAck(false); setRefunding(row) }} onRetry={setRetrying} />
             ))}
           </TabsContent>
         </Tabs>
@@ -612,6 +652,33 @@ export default function HubtelCommissionPage() {
           <DialogFooter>
             <Button variant="outline" disabled={busy === "refund"} onClick={() => setRefunding(null)}>Cancel</Button>
             <Button disabled={anyBusy || (!!refundProv && !refundAck)} onClick={confirmRefund}>{busy === "refund" ? "Refunding..." : "Refund"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!retrying} onOpenChange={o => { if (!o && busy !== "retry") setRetrying(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Retry with Hubtel</DialogTitle>
+            <DialogDescription>
+              Sends this order to Hubtel again as a new transaction. The customer is not charged again. If it fails again you can retry or refund.
+              {retrying && <span className="mt-1 block break-all font-mono text-xs">{retrying.client_reference}</span>}
+            </DialogDescription>
+          </DialogHeader>
+          {retrying && (
+            <div className="space-y-1 rounded-lg border p-3 text-sm">
+              <div><span className="text-muted-foreground">Service:</span> {isServiceKey(retrying.service_key) ? HUBTEL_CS_SERVICES[retrying.service_key].label : retrying.service_key}</div>
+              <div><span className="text-muted-foreground">Destination:</span> <span className="font-mono">{retrying.destination}</span></div>
+              <div><span className="text-muted-foreground">Amount:</span> {money(retrying.amount)}</div>
+              <div><span className="text-muted-foreground">Last failure:</span> {retrying.failure_reason ?? retrying.response_code ?? "unknown"}</div>
+              {/4075|insufficient prepaid/i.test(`${retrying.response_code} ${retrying.failure_reason}`) && (
+                <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">This failed for low Hubtel float. Top up the Disbursement balance (and Resume if paused) first, or it will fail again.</div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" disabled={busy === "retry"} onClick={() => setRetrying(null)}>Cancel</Button>
+            <Button disabled={anyBusy} onClick={confirmRetry}>{busy === "retry" ? "Retrying..." : "Retry"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

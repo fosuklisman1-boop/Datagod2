@@ -15,7 +15,7 @@ const ALLOWED = new Set([
   "app/api/admin/packages/route.ts",
   "app/api/admin/packages/bulk-update-price/route.ts",
   // Role change: recalculates role-based data, not a charge.
-  "app/api/admin/users/update-role/route.ts",
+  "lib/admin-users/account-ops.ts",
   // Custom-prices admin route and dialog: show the dealer price as a reference and warning.
   "app/api/admin/users/[id]/custom-prices/route.ts",
   "components/admin/CustomPricesDialog.tsx",
@@ -24,7 +24,9 @@ const ALLOWED = new Set([
   "lib/api-v2/order-store.ts",
   "lib/api-v2/bundles.ts",
   // Selling prices stay role price + margin, so these show the role price on purpose.
-  "app/api/shop/public-packages/route.ts",
+  // The storefront package list (moved out of app/api/shop/public-packages/route.ts; also feeds the
+  // server-rendered storefront price table). Its exact-price check uses the resolver.
+  "lib/shop-commerce/public-packages.ts",
   "app/api/shop/invites/[code]/route.ts",
   "app/api/shop/dealer-price-list/route.ts",
   "app/api/shop/sub-agent-catalog/route.ts",

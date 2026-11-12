@@ -87,7 +87,7 @@ export interface BillRetryDeps {
  * reopening we re-read the ledger, and any claim that appeared means a refund may be crediting: put the order back.
  * A storefront refund (reserve RPC) locks the order row and moves it to 'refunding', which the dispatch claim loses to.
  */
-export async function executeBillRetry(d: BillRetryDeps, orderId: string): Promise<BillDispatchResult> {
+export async function executeBillRetry(d: BillRetryDeps, orderId: string, label = "bill order"): Promise<BillDispatchResult> {
   const order = await d.getOrder(orderId)
   if (!order) return { ok: false, status: 404, message: "Order not found" }
   let ledger: LedgerFact[]
@@ -107,7 +107,7 @@ export async function executeBillRetry(d: BillRetryDeps, orderId: string): Promi
     let back = 0
     try { back = await d.revertToFailed(orderId, order.notes ?? "Retry aborted") } catch { back = 0 }
     if (back === 0) {
-      try { await d.alert(`URGENT: bill order ${order.reference_code} (${orderId}) was reopened for a retry while a refund or Hubtel transaction appeared, and could NOT be put back to failed. Check it by hand; do not resend or refund until resolved.`, true) } catch { /* never break the flow */ }
+      try { await d.alert(`URGENT: ${label} ${order.reference_code} (${orderId}) was reopened for a retry while a refund or Hubtel transaction appeared, and could NOT be put back to failed. Check it by hand; do not resend or refund until resolved.`, true) } catch { /* never break the flow */ }
       return { ok: false, status: 500, message: "A refund or Hubtel transaction appeared during the retry and the order could not be restored. Admins were alerted." }
     }
     return { ok: false, status: 409, message: "A refund or Hubtel transaction appeared for this order (or the ledger could not be read). Retry cancelled." }
@@ -124,9 +124,10 @@ export async function executeBillRetry(d: BillRetryDeps, orderId: string): Promi
     let back = 0
     try { back = await d.revertToFailed(orderId, `Retry not sent: ${why}`) } catch { back = 0 }
     if (back === 0) {
-      try { await d.alert(`Bill order ${order.reference_code} (${orderId}): a retry was not sent and the order could not be put back to failed. Check it in Utility Bills.`) } catch { /* never break the flow */ }
+      try { await d.alert(`${label[0].toUpperCase()}${label.slice(1)} ${order.reference_code} (${orderId}): a retry was not sent and the order could not be put back to failed. Check it by hand.`) } catch { /* never break the flow */ }
     }
     return { ok: false, status: 200, orderStatus: back === 0 ? "pending" : "failed", message: `Retry not sent: ${why}` }
   }
+  if (status === "failed") return { ok: false, status: 200, orderStatus: status, message: "Retried, but Hubtel failed again; retry later or refund" }
   return { ok: true, status: 200, orderStatus: status, message: `Retried; order is ${status}` }
 }

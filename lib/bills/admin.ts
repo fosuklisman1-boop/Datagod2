@@ -133,6 +133,8 @@ export interface LedgerFact {
   refund_claimed_at: string | null
   resolved_by: string | null
   created_at: string
+  /** Only selected by lib/hubtel-cs/retry.ts; null = settled but its order hook has not succeeded yet. */
+  order_synced_at?: string | null
 }
 export interface RefundOrderFacts {
   status: string

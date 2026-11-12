@@ -237,31 +237,4 @@ export const complaintService = {
     return data
   },
 
-  async createComplaint(complaintData: any) {
-    const { data, error } = await supabase
-      .from("complaints")
-      .insert([complaintData])
-      .select()
-
-    if (error) throw error
-    return data[0]
-  },
-
-  async updateComplaint(complaintId: string, updates: any) {
-    console.log(`[Database] Updating complaint ${complaintId} with:`, updates)
-
-    const { data, error } = await supabase
-      .from("complaints")
-      .update(updates)
-      .eq("id", complaintId)
-      .select()
-
-    if (error) {
-      console.error(`[Database] Error updating complaint:`, error)
-      throw error
-    }
-
-    console.log(`[Database] Update successful, returned:`, data)
-    return data[0]
-  },
 }

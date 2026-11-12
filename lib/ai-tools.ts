@@ -261,11 +261,11 @@ const bulkManualFulfillTool: Anthropic.Tool = {
 
 const listUsersTool: Anthropic.Tool = {
   name: "list_users",
-  description: "Admin only: list platform users with their wallet balances and suspension status. Use get_user_info for a single lookup by phone/email.",
+  description: "Admin only: list the most recently registered platform users with their wallet balances and suspension status. Use get_user_info for a single lookup by phone/email.",
   input_schema: {
     type: "object" as const,
     properties: {
-      limit: { type: "number", description: "Max users to return (default 20)" },
+      limit: { type: "number", description: "Max users to return (default 20, max 200)" },
     },
     required: [],
   },
@@ -300,15 +300,16 @@ const updateUserRoleTool: Anthropic.Tool = {
 
 const adjustWalletBalanceTool: Anthropic.Tool = {
   name: "adjust_wallet_balance",
-  description: "Admin only: manually credit or debit a user's wallet balance. Always confirm amount, direction, and user before calling.",
+  description: "Admin only: manually credit or debit a user's wallet balance, with a reason. Always confirm amount, direction, reason and user before calling. A debit that would take the balance below 0 is refused. Not available to scheduled tasks or the WhatsApp bot (it needs a signed-in admin).",
   input_schema: {
     type: "object" as const,
     properties: {
       user_id: { type: "string", description: "The user ID whose wallet to adjust" },
       amount: { type: "number", description: "Amount in GHS (positive number)" },
       type: { type: "string", enum: ["credit", "debit"], description: "credit to add funds, debit to remove funds" },
+      reason: { type: "string", description: "Why the balance is being adjusted (5-500 characters); recorded in the wallet ledger and the admin audit log" },
     },
-    required: ["user_id", "amount", "type"],
+    required: ["user_id", "amount", "type", "reason"],
   },
 }
 
@@ -2452,20 +2453,22 @@ export async function executeToolCall(
       }
 
       case "list_users": {
-        const res = await fetch(`${ctx.baseUrl}/api/admin/users`, {
+        // The list API is paged (newest signups first); ask for just the rows we need.
+        const limit = Math.min(Math.max(Math.trunc(Number(input.limit ?? 20)) || 20, 1), 200)
+        const res = await fetch(`${ctx.baseUrl}/api/admin/users?page=1&pageSize=${limit}`, {
           headers: { Authorization: `Bearer ${ctx.jwtToken}` },
         })
         const data = await res.json()
         if (!res.ok) return { error: data.error ?? "Failed to fetch users" }
-        const users = (data.users ?? data ?? []).slice(0, Number(input.limit ?? 20))
+        const users = (data.users ?? data ?? []).slice(0, limit)
         return sanitize(users.map((u: Record<string, unknown>) => ({
           id: u.id,
           name: `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim(),
           email: u.email,
-          phone: u.phone_number,
+          phone: u.phoneNumber ?? u.phone_number,
           role: u.role,
           suspended: u.is_suspended,
-          balance: u.wallet_balance ?? u.balance,
+          balance: u.walletBalance ?? u.wallet_balance ?? u.balance,
         })))
       }
 
@@ -2486,17 +2489,39 @@ export async function executeToolCall(
           body: JSON.stringify({ userId: input.user_id, role: input.role }),
         })
         const data = await res.json()
-        return { success: res.ok, message: data.message ?? data.error, new_role: data.newRole }
+        return { success: res.ok, message: data.message ?? data.error, new_role: data.newRole, ...(data.note ? { note: data.note } : {}) }
       }
 
       case "adjust_wallet_balance": {
+        // Wallet adjustments are attributed to the acting admin (audit log), so the scheduled-task / WhatsApp
+        // bot path, which authenticates with CRON_SECRET and has no admin, is refused by the API. Say so plainly.
+        const NEEDS_ADMIN = "Wallet adjustments need a signed-in admin. Scheduled tasks and the WhatsApp bot cannot adjust wallets; ask an admin to do it from the admin users page or the admin AI chat."
+        if (process.env.CRON_SECRET && ctx.jwtToken === process.env.CRON_SECRET) {
+          return { success: false, error: NEEDS_ADMIN }
+        }
+        const userId = encodeURIComponent(String(input.user_id ?? ""))
+        // Read the live balance and send it as expectedBalance: if this call is retried after it already
+        // applied, the balance no longer matches and the server refuses instead of adjusting twice.
+        const balRes = await fetch(`${ctx.baseUrl}/api/admin/users/${userId}/transactions?page=1&pageSize=1`, {
+          headers: { Authorization: `Bearer ${ctx.jwtToken}` },
+        })
+        const bal = await balRes.json().catch(() => null)
+        if (balRes.status === 403) return { success: false, error: NEEDS_ADMIN }
+        if (!balRes.ok) return { success: false, error: bal?.error ?? "Could not read the wallet balance" }
+        if (!bal?.wallet) return { success: false, error: "This user has no wallet" }
+        const expectedBalance = Number(bal.wallet.balance)
+
         const res = await fetch(`${ctx.baseUrl}/api/admin/update-balance`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.jwtToken}` },
-          body: JSON.stringify({ userId: input.user_id, amount: input.amount, type: input.type }),
+          body: JSON.stringify({ userId: input.user_id, amount: input.amount, type: input.type, reason: input.reason, expectedBalance }),
         })
-        const data = await res.json()
-        return sanitize({ success: res.ok, message: data.message ?? data.error, new_balance: data.balance ?? data.newBalance })
+        const data = await res.json().catch(() => null)
+        if (res.status === 403 && /admin session required/i.test(String(data?.error ?? ""))) {
+          return { success: false, error: NEEDS_ADMIN }
+        }
+        if (!res.ok) return sanitize({ success: false, error: data?.error ?? "Failed to adjust the wallet" })
+        return sanitize({ success: true, balance_before: data?.data?.balanceBefore ?? expectedBalance, new_balance: data?.balance ?? data?.data?.balance })
       }
 
       case "list_shops": {

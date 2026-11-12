@@ -40,10 +40,6 @@
     {
       "path": "/api/cron/reconcile-paystack-refunds",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/api-v2-stuck",
-      "schedule": "*/10 * * * *"
     }
   ]
 }

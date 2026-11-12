@@ -1,10 +1,26 @@
+import type { Metadata } from "next"
 import Link from "next/link"
 import { Shield } from "lucide-react"
 
-export const metadata = {
+const TITLE = "Privacy Policy | DATAGOD"
+const DESCRIPTION = "DATAGOD Privacy Policy — how we collect, use, and protect your personal information."
+
+// openGraph / twitter are set here because a page that leaves them out inherits
+// the root layout's, i.e. the homepage URL and title.
+export const metadata: Metadata = {
   alternates: { canonical: "https://www.datagod.store/privacy" },
-  title: "Privacy Policy | DATAGOD",
-  description: "DATAGOD Privacy Policy — how we collect, use, and protect your personal information.",
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: {
+    type: "website",
+    siteName: "DATAGOD",
+    locale: "en_GH",
+    url: "https://www.datagod.store/privacy",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: ["/og-image.png"],
+  },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: ["/og-image.png"] },
 }
 
 export default function PrivacyPage() {

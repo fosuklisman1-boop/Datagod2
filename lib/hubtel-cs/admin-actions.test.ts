@@ -94,6 +94,36 @@ describe("adminRefund", () => {
   })
 })
 
+describe("adminRefund refuses superseded attempts (server-side, not just UI)", () => {
+  const fact = (ref: string, state: string, created_at: string) => ({ client_reference: ref, state, refund_claimed_at: null, resolved_by: null, created_at })
+  it("refuses when a newer attempt exists for the order; adapter never runs", async () => {
+    const refundToWallet = vi.fn(async () => ({ refunded: true, message: "done" }))
+    registerOrderAdapter({ table: "airtime_orders", onFulfilled: async () => {}, onFailed: async () => {}, refundToWallet })
+    const { deps, store } = setup({ state: "failed", order_table: "airtime_orders", order_id: "o1", created_at: "2026-11-10T10:00:00Z" })
+    const getOrderLedger = vi.fn(async () => [fact(REF, "failed", "2026-11-10T10:00:00Z"), fact("NEWER", "pending", "2026-11-11T10:00:00Z")])
+    const out = await adminRefund({ ...deps, getOrderLedger } as any, REF, "admin-1")
+    expect(out.ok).toBe(false)
+    expect(out.message).toMatch(/newer attempt/i)
+    expect(refundToWallet).not.toHaveBeenCalled()
+    expect((await store.getByRef(REF))!.refund_claimed_at).toBeNull()
+  })
+  it("fails closed when the ledger cannot be read", async () => {
+    const refundToWallet = vi.fn(async () => ({ refunded: true, message: "done" }))
+    registerOrderAdapter({ table: "airtime_orders", onFulfilled: async () => {}, onFailed: async () => {}, refundToWallet })
+    const { deps } = setup({ state: "failed", order_table: "airtime_orders", order_id: "o1" })
+    const out = await adminRefund({ ...deps, getOrderLedger: async () => { throw new Error("db") } } as any, REF, "admin-1")
+    expect(out.ok).toBe(false)
+    expect(refundToWallet).not.toHaveBeenCalled()
+  })
+  it("still refunds the latest attempt", async () => {
+    const refundToWallet = vi.fn(async () => ({ refunded: true, message: "done" }))
+    registerOrderAdapter({ table: "airtime_orders", onFulfilled: async () => {}, onFailed: async () => {}, refundToWallet })
+    const { deps } = setup({ state: "failed", order_table: "airtime_orders", order_id: "o1" })
+    const out = await adminRefund({ ...deps, getOrderLedger: async () => [fact(REF, "failed", "2026-11-10T10:00:00Z")] } as any, REF, "admin-1")
+    expect(out.ok).toBe(true)
+  })
+})
+
 describe("adminRefund atomic claim", () => {
   const reg = (refundToWallet: any) => registerOrderAdapter({ table: "airtime_orders", onFulfilled: async () => {}, onFailed: async () => {}, refundToWallet })
   const failedRow = { state: "failed", order_table: "airtime_orders", order_id: "o1" }

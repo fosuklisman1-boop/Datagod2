@@ -1,5 +1,14 @@
 import { supabase } from "./supabase"
 import { refreshUserSession } from "./session-refresh"
+import {
+  listParamsToSearchParams,
+  type AdminUserListItem,
+  type UsersListFilters,
+  type UsersListParams,
+  type UsersListResponse,
+} from "./admin-users/list-params"
+import { exportAllUsers } from "./admin-users/export-client"
+import { adminJson } from "./admin-users/drawer-client"
 
 // Admin Package Management
 export const adminPackageService = {
@@ -282,29 +291,49 @@ export const adminUssdService = {
 
 // Admin User Management
 export const adminUserService = {
-  // Get all users with their shop and balance info
-  async getAllUsers() {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
+  // One page of users matching the filters: { users, total, page, pageSize }
+  async listUsers(params: Partial<UsersListParams> = {}, init?: { signal?: AbortSignal }): Promise<UsersListResponse> {
+    const { data: { session } } = await supabase.auth.getSession()
 
-      if (!session?.access_token) {
-        throw new Error("No authentication token available")
-      }
-
-      const response = await fetch("/api/admin/users", {
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-      })
-      if (!response.ok) {
-        throw new Error("Failed to fetch users")
-      }
-      const users = await response.json()
-      return users
-    } catch (error: any) {
-      console.error("Error in getAllUsers:", error)
-      throw error
+    if (!session?.access_token) {
+      throw new Error("No authentication token available")
     }
+
+    const qs = listParamsToSearchParams(params).toString()
+    const response = await fetch(`/api/admin/users${qs ? `?${qs}` : ""}`, {
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+      },
+      signal: init?.signal,
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(body?.error || "Failed to fetch users")
+    }
+    return response.json()
+  },
+
+  // Every user matching the filters (all users with no filters), oldest signup first, via the
+  // keyset export endpoint (5000 per request, 429s retried). Rejects with UsersExportError rather
+  // than returning a partial list.
+  async getAllUsers(
+    filters: Partial<UsersListFilters> = {},
+    onProgress?: (loaded: number) => void,
+  ): Promise<AdminUserListItem[]> {
+    // sort/dir don't apply to the export (fixed created_at, id order)
+    const { sort: _sort, dir: _dir, ...rest } = filters
+    const qs = listParamsToSearchParams(rest)
+    return exportAllUsers<AdminUserListItem>(async (cursor) => {
+      // Fresh token per request: a long export can outlive an access token.
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("No authentication token available")
+      const sp = new URLSearchParams(qs)
+      if (cursor) sp.set("cursor", cursor)
+      const q = sp.toString()
+      return fetch(`/api/admin/users/export${q ? `?${q}` : ""}`, {
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      })
+    }, { onProgress })
   },
 
   // Update user role
@@ -343,35 +372,35 @@ export const adminUserService = {
     }
   },
 
-  // Update user balance (credit/debit)
-  async updateUserBalance(userId: string, amount: number, type: "credit" | "debit") {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
+  // Credit or debit a user's wallet, with a reason. expectedBalance is the balance the admin confirmed;
+  // the server refuses (409) if it has changed. Atomic and audited (admin_wallet_adjust, migrations/0171).
+  async updateUserBalance(
+    userId: string,
+    amount: number,
+    type: "credit" | "debit",
+    reason: string,
+    expectedBalance?: number,
+  ): Promise<{ balance: number; balanceBefore: number; transactionId: string | null; referenceId: string | null }> {
+    const data = await adminJson<{ data: { balance: number; balanceBefore: number; transactionId: string | null; referenceId: string | null } }>(
+      "/api/admin/update-balance",
+      { method: "POST", body: { userId, amount, type, reason, expectedBalance } },
+    )
+    return data.data
+  },
 
-      if (!session?.access_token) {
-        throw new Error("No authentication token available")
-      }
+  // Sign the user out of every device (deletes their auth sessions). Audited.
+  async forceLogout(userId: string): Promise<{ sessionsRevoked: number; audited: boolean }> {
+    return adminJson(`/api/admin/users/${userId}/force-logout`, { method: "POST", body: {} })
+  },
 
-      const response = await fetch("/api/admin/update-balance", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ userId, amount, type }),
-      })
+  // Email the user the app's password reset link. Audited.
+  async sendPasswordReset(userId: string): Promise<{ email: string; expiresInMinutes: number; audited: boolean }> {
+    return adminJson(`/api/admin/users/${userId}/password-reset`, { method: "POST", body: {} })
+  },
 
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to update balance")
-      }
-
-      return data.data
-    } catch (error: any) {
-      console.error("Error in updateUserBalance:", error)
-      throw error
-    }
+  // Mark the user's phone number verified or unverified (users.phone_verified). Audited.
+  async setPhoneVerified(userId: string, verified: boolean): Promise<{ phoneVerified: boolean; changed: boolean; audited: boolean }> {
+    return adminJson(`/api/admin/users/${userId}/phone-verified`, { method: "POST", body: { verified } })
   },
 
   // Toggle user suspension status

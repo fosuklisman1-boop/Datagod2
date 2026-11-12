@@ -13,7 +13,8 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { ComplaintModal } from "@/components/complaint-modal"
+import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
+import { complaintTargetForOrder } from "@/lib/support-client"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -48,6 +49,8 @@ interface Order {
   order_status: string
   network_name: string
   package_name: string
+  type: string | null
+  reference: string | null
 }
 
 const DATE_PILLS = [
@@ -374,23 +377,24 @@ export default function MyOrdersPage() {
         </div>
       </div>
 
-      {/* Complaint Modal */}
+      {/* Report a problem: opens a support chat thread linked to this order */}
       {selectedOrder && (
-        <ComplaintModal
-          isOpen={complaintModalOpen}
-          onClose={() => {
-            setComplaintModalOpen(false)
-            setSelectedOrder(null)
+        <ReportProblemDialog
+          open={complaintModalOpen}
+          onOpenChange={(o) => {
+            setComplaintModalOpen(o)
+            if (!o) setSelectedOrder(null)
           }}
-          orderId={selectedOrder.id}
-          orderType="regular"
-          orderDetails={{
-            networkName: selectedOrder.network_name,
-            packageName: selectedOrder.package_name,
-            phoneNumber: selectedOrder.phone_number,
-            totalPrice: selectedOrder.total_price,
-            createdAt: selectedOrder.created_at,
-          }}
+          order={(() => {
+            const target = complaintTargetForOrder(selectedOrder)
+            return {
+              kind: target.kind,
+              id: target.id,
+              reference: selectedOrder.reference,
+              subject: target.subject,
+              summary: `${selectedOrder.network_name} ${selectedOrder.package_name} to ${selectedOrder.phone_number}`,
+            }
+          })()}
         />
       )}
     </DashboardLayout>

@@ -13,7 +13,6 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { shopService, shopPackageService, shopOrderService, networkLogoService } from "@/lib/shop-service"
 import { shopOrigin } from "@/lib/shop-url"
-import { generateProductSchema } from "@/lib/structured-data"
 import { supabase } from "@/lib/supabase"
 import { useShopSettings } from "@/hooks/use-shop-settings"
 import { validatePhoneNumber } from "@/lib/phone-validation"
@@ -69,8 +68,11 @@ import { toast } from "sonner"
 import { fallbackChargeNotice } from "@/lib/payment-gateway/wallet-topup-display"
 import { HubtelFeeNote, useSurfaceGateway } from "@/components/payment/hubtel-fee-note"
 import { AnnouncementModal } from "@/components/announcement-modal"
-import { AIChatWidget } from "@/components/shop/AIChatWidget"
+import dynamic from "next/dynamic"
 import { StorefrontServicesCarousel, type StorefrontCarouselSlide } from "@/components/shop/StorefrontServicesCarousel"
+
+// Chat widget pulls in react-markdown: load it client-only, after hydration.
+const AIChatWidget = dynamic(() => import("@/components/shop/AIChatWidget").then((m) => m.AIChatWidget), { ssr: false })
 
 // Real public brand colors for the 3 Ghana MoMo providers -- used to tint the
 // checkout sheet by the package's data network, not the shop's own branding.
@@ -123,12 +125,17 @@ interface ShopStorefrontProps {
   // component's own client-side fetch to complete first.
   initialLogoUrl: string | null
   initialShopName: string | null
+  // Server-rendered summary (shop info, price table, contact) from page.tsx.
+  // Shown in place of the loading screen, so it is in the server HTML for
+  // crawlers and no-JS visitors, and replaced by the interactive UI below
+  // once this component's own data has loaded (never both at once).
+  serverSummary?: React.ReactNode
   // Server-computed (getShopPublicState) for a shop visitors can't load: "setting_up" is an unpriced storefront
   // sub-agent shop, shown as "isn't open yet" instead of "not found".
   publicState?: "open" | "setting_up" | "missing"
 }
 
-export default function ShopStorefront({ initialLogoUrl, initialShopName, publicState }: ShopStorefrontProps) {
+export default function ShopStorefront({ initialLogoUrl, initialShopName, serverSummary, publicState }: ShopStorefrontProps) {
   const params = useParams()
   const router = useRouter()
   const shopSlug = params.slug as string
@@ -1030,6 +1037,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
   // (server-fetched in page.tsx) when known, falling back to the platform's
   // for a shop that doesn't have one set, or one not found yet.
   if (loading) {
+    if (serverSummary) return <>{serverSummary}</>
     return (
       <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="text-center">
@@ -1163,58 +1171,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, public
 
   return (
     <div className="min-h-screen bg-card" style={{ "--shop-accent": accentColor } as React.CSSProperties}>
-      {/* Breadcrumb Schema */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          // shop_name is shop-owner-controlled input embedded in raw HTML — escape "<"
-          // so a literal "</script>" in the name can't break out of the tag.
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "BreadcrumbList",
-            itemListElement: [
-              {
-                "@type": "ListItem",
-                position: "1",
-                name: "Home",
-                item: "https://www.datagod.store",
-              },
-              {
-                "@type": "ListItem",
-                position: "2",
-                name: "Shop",
-                item: "https://www.datagod.store/shop",
-              },
-              {
-                "@type": "ListItem",
-                position: "3",
-                name: shop?.shop_name || shop?.name || "Shop",
-                item: shop?.subdomain ? shopOrigin(shop.subdomain, shop?.linked_custom_domain) : `https://www.datagod.store/shop/${shopSlug}`,
-              },
-            ],
-          }).replace(/</g, "\\u003c"),
-        }}
-      />
-      {/* Product Schema — one entry per package currently listed for this shop */}
-      {packages.length > 0 && (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(
-              packages.map((shopPkg) => {
-                const pkg = shopPkg.packages
-                return generateProductSchema(
-                  `${pkg.size}GB ${pkg.network} Data Bundle`,
-                  pkg.price + shopPkg.profit_margin,
-                  shop?.subdomain ? shopOrigin(shop.subdomain, shop?.linked_custom_domain) : `https://www.datagod.store/shop/${shopSlug}`,
-                  "GHS",
-                  pkg.description || undefined
-                )
-              })
-            ).replace(/</g, "\\u003c"),
-          }}
-        />
-      )}
+      {/* Breadcrumb and Product JSON-LD are rendered on the server by page.tsx. */}
       {/* Navigation Bar */}
       <nav className="bg-card rounded-b-[1.75rem] clay-bar sticky top-0 z-40" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { fulfillAirtimeViaHubtel, HUBTEL_AIRTIME_MAX } from "./airtime-hubtel"
+import { fulfillAirtimeViaHubtel, HUBTEL_AIRTIME_MAX, retryAirtimeViaHubtel } from "./airtime-hubtel"
 import { HubtelDuplicateOrderError, HubtelOutcomeUnknownError, HubtelPausedError, HubtelDisabledError } from "./hubtel-cs/errors"
 import { makeTx } from "./hubtel-cs/testing/fixtures"
 
@@ -135,5 +135,145 @@ describe("fulfillAirtimeViaHubtel", () => {
       await fulfillAirtimeViaHubtel(order(), d)
       expect(d.alert).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe("retryAirtimeViaHubtel", () => {
+  const FAILED = "oldref"
+  /** In-memory order with real status guards, so claim/revert behave like the DB. */
+  const harness = (purchase: any, over: any = {}) => {
+    const row: any = { ...order(), status: "pending", payment_status: "completed", notes: `Hubtel failed: x [hcsRef:${FAILED}]. Fulfil manually; not resent.`, ...over }
+    const d: any = {
+      getOrder: vi.fn(async () => ({ ...row })),
+      markOrder: vi.fn(async (_id: string, patch: any, only: string[]) => {
+        if (!only.includes(row.status)) return 0
+        Object.assign(row, patch); return 1
+      }),
+      purchase: vi.fn(purchase),
+      refreshTx: vi.fn(async () => null),
+      settle: vi.fn(async () => {}),
+      alert: vi.fn(async () => {}),
+    }
+    return { row, d }
+  }
+
+  it("claims the order BEFORE sending, then stamps the new ref", async () => {
+    const { row, d } = harness(async () => {
+      expect(row.status).toBe("processing") // claimed before the POST
+      return makeTx({ state: "pending", client_reference: "newref" })
+    })
+    const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(out.ok).toBe(true)
+    expect(d.purchase).toHaveBeenCalledWith({ serviceKey: "airtime_mtn", destination: "0241234567", amount: 5, orderTable: "airtime_orders", orderId: "o1" })
+    expect(row.status).toBe("processing")
+    expect(row.notes).toContain("hcsRef:newref")
+  })
+
+  it("refuses an order that is not pending (e.g. refunding/completed/processing) without sending", async () => {
+    for (const status of ["processing", "completed", "refunding", "refunded", "failed"]) {
+      const { d } = harness(async () => makeTx(), { status })
+      const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+      expect(out).toMatchObject({ ok: false, status: 409 })
+      expect(d.purchase).not.toHaveBeenCalled()
+    }
+  })
+
+  it("refuses an unpaid order", async () => {
+    const { d } = harness(async () => makeTx(), { payment_status: "pending" })
+    expect((await retryAirtimeViaHubtel(d, "o1", FAILED)).ok).toBe(false)
+    expect(d.purchase).not.toHaveBeenCalled()
+  })
+
+  it("refuses when the order was handled since this failure (notes no longer carry the failed ref)", async () => {
+    const { d } = harness(async () => makeTx(), { notes: "Digiwapy error: timeout" })
+    const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(out).toMatchObject({ ok: false, status: 409, message: expect.stringMatching(/handled since/i) })
+    expect(d.purchase).not.toHaveBeenCalled()
+  })
+
+  it("loses the claim race (someone else moved the order) -> nothing sent", async () => {
+    const { row, d } = harness(async () => makeTx())
+    d.getOrder = vi.fn(async () => { const snap = { ...row }; row.status = "refunding"; return snap })
+    const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(out).toMatchObject({ ok: false, status: 409 })
+    expect(d.purchase).not.toHaveBeenCalled()
+  })
+
+  it("nothing sent (paused/disabled) -> order restored to pending with the old ref so it can be retried again", async () => {
+    const { row, d } = harness(async () => { throw new HubtelPausedError("4075") })
+    const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(out.ok).toBe(false)
+    expect(out.message).toMatch(/not sent/i)
+    expect(row.status).toBe("pending")
+    expect(row.notes).toContain(`hcsRef:${FAILED}`)
+  })
+
+  it("outcome unknown -> stays processing with the new ref, review alert", async () => {
+    const { row, d } = harness(async () => { throw new HubtelOutcomeUnknownError("unk", new Error("net")) })
+    const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(out.ok).toBe(true)
+    expect(row.status).toBe("processing")
+    expect(row.notes).toMatch(/outcome unknown.*hcsRef:unk/i)
+    expect(d.alert).toHaveBeenCalledWith(expect.any(String), "review")
+  })
+
+  it("a live transaction already exists -> left processing, review alert, reported as not retried", async () => {
+    const { row, d } = harness(async () => { throw new HubtelDuplicateOrderError("airtime_orders", "o1") })
+    const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(out).toMatchObject({ ok: false, status: 409 })
+    expect(row.status).toBe("processing")
+    expect(d.alert).toHaveBeenCalledWith(expect.stringMatching(/do not resend/i), "review")
+  })
+
+  it("Hubtel fails again synchronously -> ledger re-applied so the order returns to pending with the NEW ref", async () => {
+    const failedAgain = makeTx({ state: "failed", client_reference: "newref", order_table: "airtime_orders", order_id: "o1" })
+    const { d } = harness(async () => failedAgain)
+    d.refreshTx = vi.fn(async () => failedAgain)
+    const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(d.settle).toHaveBeenCalledWith(failedAgain)
+    expect(out.ok).toBe(false)
+    expect(out.message).toMatch(/failed again/i)
+  })
+
+  it("delivered -> settle applied, ok", async () => {
+    const done = makeTx({ state: "fulfilled", client_reference: "newref" })
+    const { d } = harness(async () => done)
+    d.refreshTx = vi.fn(async () => done)
+    const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(out.ok).toBe(true)
+    expect(d.settle).toHaveBeenCalledWith(done)
+  })
+
+  it("stamp write fails after the send -> admins alerted that the order needs reconciling (never silent)", async () => {
+    const { row, d } = harness(async () => makeTx({ state: "pending", client_reference: "newref" }))
+    const real = d.markOrder
+    d.markOrder = vi.fn(async (id: string, patch: any, only: string[]) => (patch.status ? real(id, patch, only) : Promise.reject(new Error("db"))))
+    await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(row.status).toBe("processing")
+    expect(d.alert).toHaveBeenCalledWith(expect.stringMatching(/reconcile/i), "review")
+    expect(d.alert).toHaveBeenCalledWith(expect.stringContaining("newref"), "review")
+  })
+
+  it("ledger re-read fails after the send -> admins alerted to reconcile", async () => {
+    const { d } = harness(async () => makeTx({ state: "pending", client_reference: "newref" }))
+    d.refreshTx = vi.fn(async () => { throw new Error("db") })
+    const out = await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(out.ok).toBe(true)
+    expect(d.alert).toHaveBeenCalledWith(expect.stringMatching(/reconcile/i), "review")
+  })
+
+  it("duplicate live transaction -> alert says the order is left processing and must be reconciled", async () => {
+    const { d } = harness(async () => { throw new HubtelDuplicateOrderError("airtime_orders", "o1") })
+    await retryAirtimeViaHubtel(d, "o1", FAILED)
+    expect(d.alert).toHaveBeenCalledWith(expect.stringMatching(/processing.*reconcile/i), "review")
+  })
+
+  it("unsupported network / over the cap -> refused before any claim", async () => {
+    for (const over of [{ network: "Glo" }, { airtime_amount: 150 }]) {
+      const { row, d } = harness(async () => makeTx(), over)
+      expect((await retryAirtimeViaHubtel(d, "o1", FAILED)).ok).toBe(false)
+      expect(d.purchase).not.toHaveBeenCalled()
+      expect(row.status).toBe("pending")
+    }
   })
 })

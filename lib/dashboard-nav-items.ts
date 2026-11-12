@@ -39,7 +39,7 @@ export const menuItems: NavItem[] = [
   { href: "/dashboard/broadband", label: "Telecel Broadband", icon: Wifi, roles: ["user", "admin", "dealer", "sub_agent"], feature: "broadband" },
   { href: "/dashboard/standard-bundles", label: "Standard Bundles", icon: Package, roles: ["user", "admin", "dealer", "sub_agent"], feature: "standard-bundles" },
   { href: "/dashboard/developer", label: "Developer / API", icon: Code2, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/complaints", label: "My Complaints", icon: AlertCircle, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard/complaints", label: "Support & Complaints", icon: AlertCircle, roles: ["user", "admin", "dealer"] },
   { href: "/dashboard/upgrade", label: "Upgrade to Dealer", icon: Sparkles, roles: ["user", "admin", "dealer"] },
 ]
 

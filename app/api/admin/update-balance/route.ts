@@ -2,145 +2,61 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
-import { verifyAdminAccess } from "@/lib/admin-auth"
+import { gateAdmin } from "@/lib/admin-users/route-utils"
+import { parseWalletAdjustBody, walletAdjustError } from "@/lib/admin-users/drawer-params"
 import { sendPushToUser } from "@/lib/push-service"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+/**
+ * POST /api/admin/update-balance   { userId, type: "credit" | "debit", amount, reason, expectedBalance? }
+ *
+ * Admin wallet credit / debit. amount > 0 with at most 2 decimals (max 50000); reason 5-500 characters.
+ * expectedBalance is the balance the admin confirmed; the change is refused (409) if it has moved since.
+ * The wallet update, the transactions row (admin_credit / admin_debit) and the admin_audit_log row
+ * (wallet_credit / wallet_debit, with the reason and before/after) are written in ONE transaction by
+ * public.admin_wallet_adjust (migrations/0171), with the wallet row locked; a debit below 0 is refused (409).
+ * The CRON_SECRET bypass is refused: every adjustment is attributed to the acting admin, and an admin cannot
+ * adjust their own wallet (403, also enforced in the RPC).
+ * Notifications (in-app, SMS, email, push) follow as before, best-effort.
+ */
 export async function POST(request: NextRequest) {
-  // Server-side admin check
-  const { isAdmin, errorResponse, userId: adminUserId } = await verifyAdminAccess(request)
-  if (!isAdmin) {
-    return errorResponse
-  }
+  const gate = await gateAdmin(request, { write: true })
+  if (!gate.ok) return gate.response
+  const adminUserId = gate.adminId!
 
   try {
-    const { userId, amount, type } = await request.json()
-
-    if (!userId || amount === undefined || !type) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      )
+    const body = await request.json().catch(() => null)
+    const parsed = parseWalletAdjustBody(body)
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 })
+    }
+    const { userId, amount, type, reason, expectedBalance } = parsed.value
+    if (userId === adminUserId) {
+      return NextResponse.json({ error: "You cannot adjust your own wallet; ask another admin" }, { status: 403 })
     }
 
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    if (!UUID_REGEX.test(userId)) {
-      return NextResponse.json({ error: "Invalid userId format" }, { status: 400 })
-    }
-    if (typeof amount !== "number" || !isFinite(amount) || amount <= 0) {
-      return NextResponse.json({ error: "amount must be a positive number" }, { status: 400 })
-    }
-    if (amount > 50000) {
-      return NextResponse.json({ error: "amount exceeds maximum allowed (50000)" }, { status: 400 })
-    }
-    if (type !== "credit" && type !== "debit") {
-      return NextResponse.json({ error: "type must be 'credit' or 'debit'" }, { status: 400 })
-    }
+    const { data: result, error: rpcError } = await supabase.rpc("admin_wallet_adjust", {
+      p_admin_id: adminUserId,
+      p_user_id: userId,
+      p_type: type,
+      p_amount: amount,
+      p_reason: reason,
+      p_expected_balance: expectedBalance,
+    })
 
-    // Get current wallet balance (select only needed columns)
-    const { data: wallet, error: walletError } = await supabase
-      .from("wallets")
-      .select("balance, total_credited, total_spent")
-      .eq("user_id", userId)
-      .maybeSingle()
-
-    if (walletError) {
-      console.error("Wallet fetch error:", walletError)
-      return NextResponse.json(
-        { error: "Failed to fetch wallet" },
-        { status: 400 }
-      )
+    if (rpcError) {
+      const mapped = walletAdjustError(rpcError.message, rpcError.details)
+      if (mapped.status === 500) console.error("[ADMIN-BALANCE] admin_wallet_adjust failed:", rpcError.message)
+      return NextResponse.json({ error: mapped.error }, { status: mapped.status })
     }
 
-    if (!wallet) {
-      return NextResponse.json(
-        { error: "Wallet not found for user" },
-        { status: 404 }
-      )
-    }
-
-    const currentBalance = wallet.balance || 0
-    const newBalance = type === "credit"
-      ? currentBalance + amount
-      : Math.max(0, currentBalance - amount)
-
-    // Calculate updated total_credited and total_spent
-    const currentTotalCredited = wallet.total_credited || 0
-    const currentTotalSpent = wallet.total_spent || 0
-
-    const newTotalCredited = type === "credit"
-      ? currentTotalCredited + amount
-      : currentTotalCredited
-
-    const newTotalSpent = type === "debit"
-      ? currentTotalSpent + amount
-      : currentTotalSpent
-
-    // Update wallet balance and totals
-    const { data: updated, error: updateError } = await supabase
-      .from("wallets")
-      .update({
-        balance: newBalance,
-        total_credited: newTotalCredited,
-        total_spent: newTotalSpent,
-      })
-      .eq("user_id", userId)
-      .select()
-
-    if (updateError) {
-      console.error("Wallet update error:", updateError)
-      return NextResponse.json(
-        { error: `Failed to update wallet: ${updateError.message}` },
-        { status: 400 }
-      )
-    }
-
-    // Create transaction history record
-    const transactionType = type === "credit" ? "admin_credit" : "admin_debit"
-    const description = type === "credit"
-      ? `Admin credited GHS ${amount.toFixed(2)}`
-      : `Admin debited GHS ${amount.toFixed(2)}`
-
-    const { error: transactionError } = await supabase
-      .from("transactions")
-      .insert([{
-        user_id: userId,
-        amount: amount,
-        type: transactionType,
-        status: "completed",
-        description: description,
-        reference_id: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
-        source: "admin_operation",
-        balance_before: currentBalance,
-        balance_after: newBalance,
-        created_at: new Date().toISOString(),
-      }])
-
-    if (transactionError) {
-      console.error("Error creating transaction record:", transactionError)
-      // Log but don't fail - wallet was already updated successfully
-    } else {
-      console.log(`[ADMIN] Transaction record created for ${transactionType} of GHS ${amount.toFixed(2)}`)
-    }
-
-    // Audit trail: record the admin action (admin_audit_log was previously never
-    // written — wired 2026-06-22). Best-effort; never fails the operation.
-    supabase
-      .from("admin_audit_log")
-      .insert([{
-        admin_id: adminUserId || null,
-        action: type === "credit" ? "wallet_credit" : "wallet_debit",
-        target_user_id: userId,
-        old_value: { balance: currentBalance },
-        new_value: { balance: newBalance, amount, type },
-        created_at: new Date().toISOString(),
-      }])
-      .then(({ error }) => {
-        if (error) console.warn("[ADMIN-AUDIT] log insert failed:", error.message)
-      })
+    const balanceBefore = Number(result?.balance_before ?? 0)
+    const newBalance = Number(result?.balance_after ?? 0)
+    const reference: string = result?.reference_id ?? `ADMIN_${type.toUpperCase()}_${Date.now()}`
+    console.log(`[ADMIN] ${type} of GHS ${amount.toFixed(2)} for ${userId} by ${adminUserId}: ${balanceBefore} -> ${newBalance}`)
 
     // Send notification to user about the balance update
     try {
@@ -162,7 +78,7 @@ export async function POST(request: NextRequest) {
             title: notificationTitle,
             message: notificationMessage,
             type: notificationType,
-            reference_id: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
+            reference_id: reference,
             action_url: "/dashboard/wallet",
             read: false,
           },
@@ -197,7 +113,7 @@ export async function POST(request: NextRequest) {
           phone: userProfile.phone_number,
           message: smsMessage,
           type: type === "credit" ? "admin_credit" : "admin_debit",
-          reference: `ADMIN_${type.toUpperCase()}_${Date.now()}`,
+          reference: reference,
           userId: userId,
         })
 
@@ -211,7 +127,7 @@ export async function POST(request: NextRequest) {
         const { sendEmail, EmailTemplates } = await import("@/lib/email-service")
 
         const emailPayload = type === "credit"
-          ? EmailTemplates.walletTopUpSuccess(amount.toFixed(2), newBalance.toFixed(2), `ADMIN_${type.toUpperCase()}_${Date.now()}`)
+          ? EmailTemplates.walletTopUpSuccess(amount.toFixed(2), newBalance.toFixed(2), reference)
           : {
             subject: "Wallet Debited",
             html: `Your wallet has been debited GHS ${amount.toFixed(2)}. New Balance: GHS ${newBalance.toFixed(2)}`
@@ -243,7 +159,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: updated?.[0]
+      balance: newBalance,
+      data: {
+        balance: newBalance,
+        balanceBefore,
+        transactionId: result?.transaction_id ?? null,
+        referenceId: result?.reference_id ?? null,
+      },
     })
   } catch (error: any) {
     console.error("Error in update-balance route:", error)

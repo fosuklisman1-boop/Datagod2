@@ -8,6 +8,8 @@ import { resolveCustomDomain } from "@/lib/custom-domain-lookup"
 import { safeRedirectPath } from "@/lib/post-auth-redirect"
 import { getServiceRedirect, isPageHidden, normalizeDomainHost } from "@/lib/custom-domains"
 import { apiHostRewrite } from "@/lib/api-v2/host"
+import { REQUEST_PATH_HEADER, SHOP_ROBOTS_TAG, SITE_KIND_HEADER, classifySiteKind, shouldNoindexRequest } from "@/lib/seo/site-kind"
+import { legacyHostRedirect } from "@/lib/seo/host-redirect"
 import { subagentsHostRedirect, SUBAGENTS_SUBDOMAIN } from "@/lib/sub-agents/join-host"
 
 // Per-IP cookie-issuance rate limit. Real customers refresh a handful of cookies
@@ -81,6 +83,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 308)
   }
 
+  // ── app./admin. hosts ────────────────────────────────────────────────────
+  // These reserved subdomains served the whole main site as duplicate hosts.
+  // 308 them to the same path on www (see lib/seo/host-redirect.ts for what is
+  // kept). The query string is preserved.
+  const legacyTarget = legacyHostRedirect(request.headers.get("host"), path, ROOT_DOMAIN)
+  if (legacyTarget) {
+    const target = new URL(legacyTarget)
+    target.search = request.nextUrl.search
+    return NextResponse.redirect(target, 308)
+  }
+
   // ── Sub-agent sign-up link host ──────────────────────────────────────────
   // https://subagents.<root>/<shop> redirects to that shop's join page on the main site.
   const subagentsTarget = subagentsHostRedirect(request.headers.get("host"), path, ROOT_DOMAIN)
@@ -95,7 +108,9 @@ export async function middleware(request: NextRequest) {
   if (apiRewrite) {
     const url = request.nextUrl.clone()
     url.pathname = apiRewrite
-    return NextResponse.rewrite(url)
+    const apiHeaders = new Headers(request.headers)
+    apiHeaders.set(SITE_KIND_HEADER, classifySiteKind(request.headers.get("host"), { shopSubdomain: null, customDomain: false }, ROOT_DOMAIN))
+    return NextResponse.rewrite(url, { request: { headers: apiHeaders } })
   }
 
   // ── Subdomain storefront rewrite ────────────────────────────────────────────
@@ -221,11 +236,26 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // ── Host kind ──────────────────────────────────────────────────────────────
+  // One signal for "which kind of host is this" (main | shop | custom), read by
+  // lib/seo/site.ts (isMainSiteRequest / isMainSiteHost). Set on every request
+  // that passes through below, overwriting any client-supplied value.
+  // x-domain-site-name alone can't answer this: it is only set for custom
+  // domains, not for <shop>.<root> subdomains.
+  const siteKind = classifySiteKind(
+    request.headers.get("host"),
+    { shopSubdomain, customDomain: !!customDomainConfig },
+    ROOT_DOMAIN,
+  )
+
   // Builds request headers that include the nonce for the layout server component,
   // plus the resolved custom-domain branding (if any) for app/layout.tsx to read.
   const buildRequestHeaders = () => {
     const h = new Headers(request.headers)
     h.set("x-nonce", nonce)
+    h.set(SITE_KIND_HEADER, siteKind)
+    // Lets the root layout answer 5xx for a product page whose live facts failed (lib/seo/product-status.ts).
+    h.set(REQUEST_PATH_HEADER, path)
     // Always clear any inherited/client-supplied x-domain-* headers first, then
     // re-set them only when genuinely resolved below. Without this, a request
     // to the main site that happens to carry a client-supplied x-domain-services
@@ -347,6 +377,8 @@ export async function middleware(request: NextRequest) {
   ].join("; ")
 
   response.headers.set("Content-Security-Policy", csp)
+  // Shops (and every non-main host) stay out of search indexes so data-bundle searches land on the main site.
+  if (shouldNoindexRequest(siteKind, path)) response.headers.set("X-Robots-Tag", SHOP_ROBOTS_TAG)
   // Isolates the top-level window from cross-origin pop-ups (e.g. XS-Leaks).
   // 'same-origin-allow-popups' keeps Paystack's checkout pop-up working.
   response.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
