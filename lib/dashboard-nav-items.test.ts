@@ -86,6 +86,13 @@ describe("pickFirstVisiblePath", () => {
   })
 })
 
+describe("menuItems labels", () => {
+  it("labels the complaints entry Support & Complaints", () => {
+    const item = menuItems.find((i) => i.href === "/dashboard/complaints")
+    expect(item?.label).toBe("Support & Complaints")
+  })
+})
+
 describe("isNavActive", () => {
   it("matches exactly", () => {
     expect(isNavActive("/dashboard/airtime", "/dashboard/airtime")).toBe(true)

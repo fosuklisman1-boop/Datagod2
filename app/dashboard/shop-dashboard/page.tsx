@@ -16,7 +16,7 @@ import { shopService, shopOrderService, shopProfitService, withdrawalService } f
 import { supabase } from "@/lib/supabase"
 import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy, Loader2, CheckCircle, Search, Package, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
-import { ComplaintModal } from "@/components/complaint-modal"
+import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
 
 export default function ShopDashboardPage() {
   const { user } = useAuth()
@@ -60,6 +60,25 @@ export default function ShopDashboardPage() {
   const [searchPhoneNumber, setSearchPhoneNumber] = useState("")
   const [selectedComplaintOrder, setSelectedComplaintOrder] = useState<any>(null)
   const [showComplaintModal, setShowComplaintModal] = useState(false)
+  const [openComplaintOrderIds, setOpenComplaintOrderIds] = useState<Set<string>>(new Set())
+
+  // Which of the loaded orders already have an open support thread.
+  useEffect(() => {
+    const ids = orders.map((o: any) => o.id).filter(Boolean).slice(0, 300)
+    if (ids.length === 0) return
+    let cancelled = false
+    supabase
+      .from("support_threads")
+      .select("shop_order_id, status")
+      .in("shop_order_id", ids)
+      .eq("status", "open")
+      .then(({ data }) => {
+        if (!cancelled) setOpenComplaintOrderIds(new Set((data ?? []).map((r: any) => r.shop_order_id as string)))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [orders])
 
   useEffect(() => {
     if (!user) return
@@ -1111,18 +1130,17 @@ export default function ShopDashboardPage() {
                                   <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
                                 </td>
                                 <td className="py-3 px-4">
-                                  {order.order_status === "completed" &&
+                                  {openComplaintOrderIds.has(order.id) ? (
+                                    <Badge variant="outline">Complaint: open</Badge>
+                                  ) : order.order_status === "completed" &&
                                     order.updated_at &&
                                     Date.now() - new Date(order.updated_at).getTime() >= 30 * 60 * 1000 && (
                                     <Button
                                       onClick={() => {
                                         setSelectedComplaintOrder({
                                           id: order.id,
-                                          networkName: order.network || "Unknown",
-                                          packageName: `${order.volume_gb || 0}GB`,
-                                          phoneNumber: order.customer_phone || "N/A",
-                                          totalPrice: parseFloat(order.total_price?.toString() || "0") || 0,
-                                          createdAt: order.created_at || new Date().toISOString(),
+                                          reference: order.reference_code || null,
+                                          summary: `${order.network || "Unknown"} ${order.volume_gb || 0}GB to ${order.customer_phone || "N/A"}`,
                                         })
                                         setShowComplaintModal(true)
                                       }}
@@ -1149,15 +1167,18 @@ export default function ShopDashboardPage() {
       </div>
 
       {selectedComplaintOrder && (
-        <ComplaintModal
-          isOpen={showComplaintModal}
-          onClose={() => {
-            setShowComplaintModal(false)
-            setSelectedComplaintOrder(null)
+        <ReportProblemDialog
+          open={showComplaintModal}
+          onOpenChange={(o) => {
+            setShowComplaintModal(o)
+            if (!o) setSelectedComplaintOrder(null)
           }}
-          orderId={selectedComplaintOrder.id}
-          orderType="shop"
-          orderDetails={selectedComplaintOrder}
+          order={{
+            kind: "shop_order",
+            id: selectedComplaintOrder.id,
+            reference: selectedComplaintOrder.reference,
+            summary: selectedComplaintOrder.summary,
+          }}
         />
       )}
     </DashboardLayout>

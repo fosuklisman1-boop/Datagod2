@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { ComplaintModal } from "@/components/complaint-modal"
+import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -374,22 +374,20 @@ export default function MyOrdersPage() {
         </div>
       </div>
 
-      {/* Complaint Modal */}
+      {/* Report a problem: opens a support chat thread linked to this order */}
       {selectedOrder && (
-        <ComplaintModal
-          isOpen={complaintModalOpen}
-          onClose={() => {
-            setComplaintModalOpen(false)
-            setSelectedOrder(null)
+        <ReportProblemDialog
+          open={complaintModalOpen}
+          onOpenChange={(o) => {
+            setComplaintModalOpen(o)
+            if (!o) setSelectedOrder(null)
           }}
-          orderId={selectedOrder.id}
-          orderType="regular"
-          orderDetails={{
-            networkName: selectedOrder.network_name,
-            packageName: selectedOrder.package_name,
-            phoneNumber: selectedOrder.phone_number,
-            totalPrice: selectedOrder.total_price,
-            createdAt: selectedOrder.created_at,
+          order={{
+            kind: "order",
+            id: selectedOrder.id,
+            // The list endpoint carries no order code; the dialog falls back to a short id.
+            reference: null,
+            summary: `${selectedOrder.network_name} ${selectedOrder.package_name} to ${selectedOrder.phone_number}`,
           }}
         />
       )}
