@@ -19,7 +19,7 @@
 - Config read failure ⇒ v1 serves as normal (fail-safe), with `console.warn`. Config cache about 60 s.
 - Dates: stored as UTC `timestamptz`, shown in Ghana time (UTC+0, label "GMT").
 - The Postgres limiter fallback is **opt-in**. v1, USSD and page limiters are unchanged. Redis healthy ⇒ no Postgres call. Both down ⇒ v2 purchase 503 as today.
-- Migrations: next free number at execution time (0162/0163 at time of writing; re-check `migrations/`). Each ships with a `.selftest.sql`. Prod apply follows the prod change protocol: assert no COMMIT in the dry run, get owner OK, apply, verify.
+- Migrations: next free number at execution time (0163 retirement / 0164 rate-limit fallback after 0162 was taken on main 2026-11-12; re-check `migrations/` before merge). Each ships with a `.selftest.sql`. Prod apply follows the prod change protocol: assert no COMMIT in the dry run, get owner OK, apply, verify.
 - Logs never contain phone numbers, keys or payloads beyond what `logApiRequest` already stores.
 - Use the Edit/Write tools for code changes, never sed or shell rewrites.
 
@@ -148,7 +148,7 @@ Behaviour:
 ### Task 6: Postgres fallback for the rate limiter (opt-in)
 
 **Files:**
-- Create: `migrations/0163_rate_limit_fallback.sql` + `.selftest.sql`
+- Create: `migrations/0164_rate_limit_fallback.sql` + `.selftest.sql` (0162 was taken on main by another session; retirement is 0163)
 - Create: `lib/rate-limit-fallback.ts`, `lib/rate-limit-fallback.test.ts`
 - Modify: `lib/rate-limiter.ts` (`applyRateLimit` gains an options parameter), `lib/rate-limiter.test.ts` (create if absent)
 
@@ -169,7 +169,7 @@ Behaviour:
 - [ ] **Step 2:** Run `npx vitest run lib/rate-limiter.test.ts lib/rate-limit-fallback.test.ts` and the PGlite selftest. Expected: FAIL.
 - [ ] **Step 3:** Implement. `pgFallbackLimit` uses the service-role client and is injected into `applyRateLimit` through a module-level setter for tests.
 - [ ] **Step 4:** Run again. Expected: PASS.
-- [ ] **Step 5:** Commit: `feat(rate-limit): opt-in Postgres fallback when Redis is unavailable (migration 0163)`.
+- [ ] **Step 5:** Commit: `feat(rate-limit): opt-in Postgres fallback when Redis is unavailable (migration 0164)`.
 
 ### Task 7: v2 handler: fallback, per-key bucket for non-active keys, outage vs bad key
 
@@ -267,7 +267,7 @@ Layout rules from project feedback:
 - [ ] **Step 1:** Run the full `npx vitest run`. Expected: only the known pre-existing failures (9 order-health, `pricing/migration` 0142 drift, `standard-bundles/runtime` cashback).
 - [ ] **Step 2:** Do a real build with placeholder env (`NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder SUPABASE_SERVICE_ROLE_KEY=placeholder npm run build`). Expected: "Generating static pages (N/N)", exit 0.
 - [ ] **Step 3:** Get a fresh reviewer on the whole branch (money, auth and gate changes). Fix verified findings with failing tests first.
-- [ ] **Step 4:** Apply migrations 0162 and 0163 to prod via the protocol (assert no COMMIT in the dry run, owner OK, apply, verify columns, RPC grants, anon denied).
+- [ ] **Step 4:** Re-check that the numbers are still free on origin/main (rename if not), then apply migrations 0163 (retirement) and 0164 (rate-limit fallback) to prod via the protocol (assert no COMMIT in the dry run, owner OK, apply, verify columns, RPC grants, anon denied).
 - [ ] **Step 5:** Merge to main after `git fetch` and checking local main for other sessions' commits. Push, and watch the deployment until READY.
 - [ ] **Step 6:** Live checks with `v1_sunset_at` still null:
   - a v1 key call is unchanged (no `Sunset` header)
