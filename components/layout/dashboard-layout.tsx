@@ -203,7 +203,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <Header />
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto md:overflow-y-auto md:overflow-x-hidden pt-safe-header p-2 sm:p-3 md:p-4 lg:p-6 pb-24 md:pb-6">
+        <main data-scroll-container="dashboard" className="flex-1 overflow-auto md:overflow-y-auto md:overflow-x-hidden pt-safe-header p-2 sm:p-3 md:p-4 lg:p-6 pb-24 md:pb-6">
           <div className="w-full max-w-7xl mx-auto">
             {children}
           </div>

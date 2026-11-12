@@ -1,6 +1,8 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
+import { nextNavVisible } from "@/lib/scroll-direction"
 import { usePathname } from "next/navigation"
 import { Home, Package, Wallet, ShoppingBag, Store, User, Users, CreditCard, Bot, Signal, Smartphone } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -33,6 +35,46 @@ export function BottomNav() {
   const isMobile = useIsMobile()
   const { isDealer, isAdmin, isSubAgent } = useUserRole()
   const domainBranding = useDomainBranding()
+  const [navVisible, setNavVisible] = useState(true)
+
+  // Auto-hide on scroll down, show on scroll up. The dashboard page scrolls
+  // inside <main data-scroll-container="dashboard">, not window; fall back to
+  // window if that container is absent (e.g. pages outside DashboardLayout).
+  useEffect(() => {
+    if (!isMobile) return
+    const container = document.querySelector<HTMLElement>('[data-scroll-container="dashboard"]')
+    const target: HTMLElement | Window = container ?? window
+    const readY = () => (container ? container.scrollTop : window.scrollY)
+    const isScrollable = () =>
+      container
+        ? container.scrollHeight - container.clientHeight > 1
+        : document.documentElement.scrollHeight - window.innerHeight > 1
+
+    let state = { visible: true, anchorY: readY() }
+    let frame = 0
+    const onScroll = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const next = nextNavVisible({
+          visible: state.visible,
+          anchorY: state.anchorY,
+          currentY: readY(),
+          threshold: 10,
+          topOffset: 16,
+          scrollable: isScrollable(),
+        })
+        state = next
+        setNavVisible(next.visible)
+      })
+    }
+    setNavVisible(true)
+    target.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      target.removeEventListener("scroll", onScroll)
+      if (frame) cancelAnimationFrame(frame)
+    }
+  }, [isMobile, pathname])
 
   if (!isMobile) return null
 
@@ -93,11 +135,19 @@ export function BottomNav() {
   return (
     <nav
       className={cn(
-        "fixed left-3 right-3 z-50 md:hidden rounded-[28px]",
+        "fixed left-3 right-3 z-50 md:hidden rounded-[28px] transition-transform duration-200 ease-out motion-reduce:transition-none",
+        !navVisible && "pointer-events-none",
         skin === "admin" ? "clay-dark" : "clay",
         c.bar
       )}
-      style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
+      aria-hidden={!navVisible || undefined}
+      style={{
+        bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))",
+        // Hidden: slide fully off-screen (own height + bottom offset + safe area + FAB overhang).
+        transform: navVisible
+          ? "translateY(0)"
+          : "translateY(calc(100% + 0.75rem + env(safe-area-inset-bottom, 0px) + 3rem))",
+      }}
     >
       <div className="flex items-end justify-around h-[68px] px-1">
         {items.map((item) => {
