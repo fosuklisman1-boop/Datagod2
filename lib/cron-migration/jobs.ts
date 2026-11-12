@@ -48,6 +48,7 @@ const BATCH_B = new Set(
     "sms-hubtel-dlr",
     "security-alerts",
     "phone-verify",
+    "api-v2-stuck", // report-only: alerts admins, never changes rows
   ].map((n) => P + n),
 )
 
