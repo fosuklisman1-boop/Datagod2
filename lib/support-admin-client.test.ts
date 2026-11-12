@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
   filterLegacy,
+  hasUnreadUserMessages,
   isPlausibleEmail,
+  keepSignedUrls,
+  needsOwnershipCheck,
   legacyStatusCounts,
   mailtoHref,
   mergeThreadList,
@@ -213,5 +216,59 @@ describe("supplierBadgeModel", () => {
     expect(supplierBadgeModel({ kind: "supplier", provider: "datakazina", attemptedOnly: true }).label).toBe(
       "Last tried: DataKazina",
     )
+  })
+})
+
+describe("keepSignedUrls", () => {
+  const msg = (id: string, attachment_url: string | null) => ({ id, attachment_url })
+
+  it("keeps the first URL for the same message across two polls", () => {
+    const first = keepSignedUrls(new Map(), [msg("m1", "https://s/a?t=1")])
+    expect(first[0].attachment_url).toBe("https://s/a?t=1")
+    const previous = new Map([["m1", first[0].attachment_url as string]])
+    const second = keepSignedUrls(previous, [msg("m1", "https://s/a?t=2")])
+    expect(second[0].attachment_url).toBe("https://s/a?t=1")
+  })
+
+  it("gives a new message its own URL and leaves messages without one null", () => {
+    const previous = new Map([["m1", "https://s/a?t=1"]])
+    const out = keepSignedUrls(previous, [msg("m1", "https://s/a?t=2"), msg("m2", "https://s/b?t=2"), msg("m3", null)])
+    expect(out.map((m) => m.attachment_url)).toEqual(["https://s/a?t=1", "https://s/b?t=2", null])
+  })
+
+  it("takes the new URL for a message flagged as errored", () => {
+    const previous = new Map([["m1", "https://s/a?t=1"]])
+    const out = keepSignedUrls(previous, [msg("m1", "https://s/a?t=2")], new Set(["m1"]))
+    expect(out[0].attachment_url).toBe("https://s/a?t=2")
+  })
+})
+
+describe("needsOwnershipCheck", () => {
+  it("is true for an order complaint with no linked order", () => {
+    expect(needsOwnershipCheck({ order: null, category: "order" })).toBe(true)
+  })
+  it("is false when an order is linked", () => {
+    expect(needsOwnershipCheck({ order: { source: "order" } as never, category: "order" })).toBe(false)
+  })
+  it("is false for another category", () => {
+    expect(needsOwnershipCheck({ order: null, category: "payment" })).toBe(false)
+  })
+})
+
+describe("hasUnreadUserMessages", () => {
+  it("is true when a user message has no read_at", () => {
+    expect(hasUnreadUserMessages([{ sender_role: "user", read_at: null }])).toBe(true)
+  })
+  it("ignores read user messages and admin or ai messages", () => {
+    expect(
+      hasUnreadUserMessages([
+        { sender_role: "user", read_at: "2026-11-12T10:00:00Z" },
+        { sender_role: "admin", read_at: null },
+        { sender_role: "ai", read_at: null },
+      ]),
+    ).toBe(false)
+  })
+  it("is false for an empty list", () => {
+    expect(hasUnreadUserMessages([])).toBe(false)
   })
 })

@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic"
 
 const fail = (error: string, status: number) => NextResponse.json({ success: false, error }, { status })
 const GENERIC = "Something went wrong. Please try again."
+const MESSAGE_LIMIT = 1000
 
 type MessageRow = {
   id: string
@@ -56,7 +57,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .from("support_messages")
       .select("id, sender_role, body, attachment_path, created_at, delivered_to_user_at, delivered_to_admin_at, read_by_user_at, read_by_admin_at")
       .eq("thread_id", id)
-      .order("created_at", { ascending: true })
+      // Newest first so the row cap can only drop the oldest messages of a very long thread.
+      .order("created_at", { ascending: false })
+      .limit(MESSAGE_LIMIT)
     if (msgError) {
       console.error("[SUPPORT] admin messages lookup failed", { adminId, threadId: id })
       return fail(GENERIC, 500)
@@ -66,7 +69,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       loadThreadUsers(db, [thread.user_id]),
       loadSupportOrders(db, [thread]),
       Promise.all(
-        ((rows ?? []) as MessageRow[]).map(async (m) => ({
+        [...((rows ?? []) as MessageRow[])].reverse().map(async (m) => ({
           id: m.id,
           sender_role: m.sender_role,
           body: m.body,

@@ -77,9 +77,10 @@ describe("GET /threads/[id]", () => {
       if (c.table === "users") return { data: [{ id: OWNER, first_name: "A", last_name: "B", email: "a@b.c", phone_number: "0241234567" }] }
       if (c.table === "support_messages" && c.op === "select")
         return {
+          // The query is newest-first; the route returns oldest-first.
           data: [
-            { id: "m1", sender_role: "user", body: "help", attachment_path: "threads/x.png", created_at: "1", delivered_to_user_at: null, delivered_to_admin_at: "d", read_by_user_at: null, read_by_admin_at: "r" },
             { id: "m2", sender_role: "admin", body: "ok", attachment_path: null, created_at: "2", delivered_to_user_at: "du", delivered_to_admin_at: null, read_by_user_at: null, read_by_admin_at: null },
+            { id: "m1", sender_role: "user", body: "help", attachment_path: "threads/x.png", created_at: "1", delivered_to_user_at: null, delivered_to_admin_at: "d", read_by_user_at: null, read_by_admin_at: "r" },
           ],
         }
       return undefined
@@ -94,6 +95,21 @@ describe("GET /threads/[id]", () => {
     expect(JSON.stringify(data.messages)).not.toContain("attachment_path")
     expect(JSON.stringify(data.messages)).not.toContain("read_by_admin_at")
     expect(touchAdminPresence).toHaveBeenCalled()
+  })
+
+  it("reads the newest 1000 messages (descending query) and returns them oldest-first", async () => {
+    install({ id: THREAD, user_id: OWNER, status: "open", order_id: null, shop_order_id: null }, (c) => {
+      if (c.table === "support_messages" && c.op === "select")
+        return {
+          data: ["c", "b", "a"].map((id) => ({ id, sender_role: "user", body: id, attachment_path: null, created_at: id, delivered_to_user_at: null, delivered_to_admin_at: null, read_by_user_at: null, read_by_admin_at: null })),
+        }
+      return undefined
+    })
+    const { data } = await (await get()).json()
+    expect(data.messages.map((m: any) => m.id)).toEqual(["a", "b", "c"])
+    const q = fake.calls.find((c) => c.table === "support_messages" && c.op === "select")!
+    expect(q.orders).toEqual([["created_at", { ascending: false }]])
+    expect(q.limitN).toBe(1000)
   })
 
   it("marks unread-delivery user messages as delivered to admin, scoped to the thread", async () => {

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-/** An admin counts as "support active" if seen within this window. */
-export const SUPPORT_ACTIVE_WINDOW_MS = 180_000
+/** An admin counts as "support active" if seen within this window (longer than the 180 s admin list poll, so the badge does not flicker). */
+export const SUPPORT_ACTIVE_WINDOW_MS = 240_000
 
 /** Record that an admin is looking at support. Never throws. */
 export async function touchAdminPresence(db: SupabaseClient, adminId: string): Promise<void> {

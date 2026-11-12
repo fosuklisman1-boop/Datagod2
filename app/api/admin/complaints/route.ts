@@ -55,15 +55,26 @@ export async function GET(request: NextRequest) {
     const since = new Date(Date.now() - days * DAY_MS).toISOString()
     const db = getSupportDb()
 
-    // Open rows are always listed; everything else only inside the window.
-    const { data, error } = await db
-      .from("complaints")
-      .select(COLUMNS)
-      .or(`status.in.(pending,in_review),created_at.gte.${since}`)
-      .order("created_at", { ascending: false })
-      .limit(LIST_LIMIT)
-    if (error) throw new Error("complaint list failed")
-    const rows = (data ?? []) as ComplaintRow[]
+    // Open rows are always listed (their own query, so a busy window can never push the oldest
+    // pending rows past the limit); everything else only inside the window.
+    const [open, windowed] = await Promise.all([
+      db
+        .from("complaints")
+        .select(COLUMNS)
+        .in("status", ["pending", "in_review"])
+        .order("created_at", { ascending: false })
+        .limit(LIST_LIMIT),
+      db
+        .from("complaints")
+        .select(COLUMNS)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(LIST_LIMIT),
+    ])
+    if (open.error || windowed.error) throw new Error("complaint list failed")
+    const byId = new Map<string, ComplaintRow>()
+    for (const r of [...((open.data ?? []) as ComplaintRow[]), ...((windowed.data ?? []) as ComplaintRow[])]) byId.set(r.id, r)
+    const rows = [...byId.values()].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
     if (rows.length === 0) return NextResponse.json({ success: true, data: { complaints: [] } })
 
     const [users, orders] = await Promise.all([

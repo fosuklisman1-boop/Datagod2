@@ -41,7 +41,11 @@ describe("isSupportActive", () => {
     const db: any = { from: () => { throw new Error("down") } }
     expect(await isSupportActive(db, NOW)).toBe(false)
   })
-  it("window is 3 minutes", () => expect(SUPPORT_ACTIVE_WINDOW_MS).toBe(180_000))
+  it("window is 4 minutes, longer than the 3-minute admin list poll", () => expect(SUPPORT_ACTIVE_WINDOW_MS).toBe(240_000))
+  it("a row 3.5 minutes old is inside the window, 4.5 minutes old is outside", () => {
+    expect(210_000).toBeLessThan(SUPPORT_ACTIVE_WINDOW_MS)
+    expect(270_000).toBeGreaterThan(SUPPORT_ACTIVE_WINDOW_MS)
+  })
 })
 
 describe("touchAdminPresence", () => {

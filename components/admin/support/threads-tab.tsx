@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   mergeThreadList,
+  needsOwnershipCheck,
   previewText,
   threadMatchesSearch,
   userDisplayName,
@@ -44,6 +45,14 @@ function UnreadBubble({ count }: { count: number }) {
     <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground">
       {count}
     </span>
+  )
+}
+
+function UnlinkedBadge() {
+  return (
+    <Badge variant="outline" className="shrink-0 border-amber-500/50 text-[10px] text-amber-600 dark:text-amber-400">
+      Order not linked - verify ownership
+    </Badge>
   )
 }
 
@@ -191,6 +200,11 @@ export function ThreadsTab() {
                           <span className={cn("truncate", t.unread_count > 0 && "font-bold")}>{t.subject}</span>
                           <UnreadBubble count={t.unread_count} />
                         </div>
+                        {needsOwnershipCheck(t) && (
+                          <div className="mt-1">
+                            <UnlinkedBadge />
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="max-w-[200px]">
                         <p className="truncate text-sm font-medium">{userDisplayName(t.user)}</p>
@@ -228,6 +242,11 @@ export function ThreadsTab() {
                   {userDisplayName(t.user)}
                   {t.user?.email ? ` · ${t.user.email}` : ""}
                 </p>
+                {needsOwnershipCheck(t) && (
+                  <div className="mt-1">
+                    <UnlinkedBadge />
+                  </div>
+                )}
                 <p className="mt-1 truncate text-sm text-muted-foreground">{previewText(t.last_message)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {formatDateTime(t.last_message_at)}

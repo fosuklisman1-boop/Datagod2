@@ -56,16 +56,45 @@ describe("GET /api/admin/complaints", () => {
     expect(fake.calls).toHaveLength(0)
   })
 
-  it("always asks for open rows regardless of age, plus rows inside the clamped window", async () => {
+  it("runs one query for open rows regardless of age and one for rows inside the clamped window, each limited to 500", async () => {
     await get("?days=9999")
-    const q = fake.calls.find((c) => c.table === "complaints")!
-    const or = String(q.filters.find(([k]) => k === "or")?.[1])
-    expect(or).toContain("status.in.(pending,in_review)")
-    const since = /created_at\.gte\.(.+)$/.exec(or)![1]
+    const qs = fake.calls.filter((c) => c.table === "complaints")
+    expect(qs).toHaveLength(2)
+    const open = qs.find((c) => c.filters.some(([k]) => k === "status:in"))!
+    expect(open.filters.find(([k]) => k === "status:in")?.[1]).toEqual(["pending", "in_review"])
+    expect(open.filters.some(([k]) => k === "created_at:gte")).toBe(false)
+    const windowed = qs.find((c) => c.filters.some(([k]) => k === "created_at:gte"))!
+    const since = String(windowed.filters.find(([k]) => k === "created_at:gte")![1])
     const days = (Date.now() - Date.parse(since)) / 86_400_000
     expect(days).toBeGreaterThan(89.9)
     expect(days).toBeLessThan(90.1)
-    expect(q.limitN).toBe(500)
+    for (const q of qs) {
+      expect(q.limitN).toBe(500)
+      expect(q.orders).toEqual([["created_at", { ascending: false }]])
+    }
+  })
+
+  it("returns an old pending row even when the windowed query alone fills its limit, newest first", async () => {
+    const filler = Array.from({ length: 500 }, (_, i) => ({
+      ...baseRow, id: `w${i}`, order_id: null, evidence: null, order_details: null, status: "resolved",
+      created_at: new Date(Date.UTC(2026, 10, 1) - i * 1000).toISOString(),
+    }))
+    const oldPending = { ...baseRow, id: "old-pending", order_id: null, evidence: null, order_details: null, created_at: "2026-01-01T00:00:00.000Z" }
+    install([], (c) => {
+      if (c.table !== "complaints") return undefined
+      return c.filters.some(([k]) => k === "status:in") ? { data: [oldPending] } : { data: filler }
+    })
+    const ids = (await (await get("?days=7")).json()).data.complaints.map((r: any) => r.id)
+    expect(ids).toHaveLength(501)
+    expect(ids).toContain("old-pending")
+    expect(ids[0]).toBe("w0")
+    expect(ids[ids.length - 1]).toBe("old-pending")
+  })
+
+  it("lists a row once when both queries return it", async () => {
+    install([{ ...baseRow, id: "dup", order_id: null, evidence: null, order_details: null }])
+    const ids = (await (await get()).json()).data.complaints.map((r: any) => r.id)
+    expect(ids).toEqual(["dup"])
   })
 
   it("returns a pending row older than the window", async () => {

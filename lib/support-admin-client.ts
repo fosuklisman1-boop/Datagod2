@@ -54,11 +54,39 @@ export function shouldApplyResponse(
   return seq > lastApplied && responseThreadId === openThreadId
 }
 
+/**
+ * Keep the first signed URL seen per message so a 30 s poll does not change the image `src`.
+ * A message in `errored` (its image failed to load) takes the freshly signed URL instead.
+ * Callers rebuild their map from the returned messages.
+ */
+export function keepSignedUrls<T extends { id: string; attachment_url: string | null }>(
+  previous: ReadonlyMap<string, string>,
+  messages: T[],
+  errored: ReadonlySet<string> = new Set(),
+): T[] {
+  return messages.map((m) => {
+    const kept = previous.get(m.id)
+    if (!kept || errored.has(m.id)) return m
+    return { ...m, attachment_url: kept }
+  })
+}
+
+/** Any user can type someone else's order reference into a subject; flag order complaints with no linked order. */
+export function needsOwnershipCheck(t: { order: unknown | null; category?: string | null }): boolean {
+  return t.order == null && t.category === "order"
+}
+
+/** True when a user message has not been read by an admin yet. */
+export function hasUnreadUserMessages(messages: { sender_role: string; read_at: string | null }[]): boolean {
+  return messages.some((m) => m.sender_role === "user" && !m.read_at)
+}
+
 /* ---------- Threads ---------- */
 
 export interface AdminThreadListItem {
   id: string
   subject: string
+  category?: string
   phone_number: string
   status: "open" | "closed"
   unread_count: number

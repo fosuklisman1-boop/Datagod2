@@ -10,7 +10,17 @@ import { Textarea } from "@/components/ui/textarea"
 import type { SupplierResult } from "@/lib/order-supplier"
 import { getMessageTickState, type TickState } from "@/lib/support-ticks"
 import type { SupportOrder } from "@/lib/support-order"
-import { mailtoHref, safeAttachmentUrl, shouldApplyResponse, telHref, userDisplayName, whatsappHref } from "@/lib/support-admin-client"
+import {
+  hasUnreadUserMessages,
+  keepSignedUrls,
+  mailtoHref,
+  needsOwnershipCheck,
+  safeAttachmentUrl,
+  shouldApplyResponse,
+  telHref,
+  userDisplayName,
+  whatsappHref,
+} from "@/lib/support-admin-client"
 import { cn } from "@/lib/utils"
 import { adminApi, usePolling } from "./support-api"
 import { OrderDetailsDialog, formatDateTime } from "./order-details-dialog"
@@ -31,6 +41,7 @@ export interface ConversationMessage {
 export interface ConversationDetail {
   id: string
   subject: string
+  category?: string
   status: "open" | "closed"
   phone_number: string
   whatsapp_number: string
@@ -99,6 +110,14 @@ export function ConversationDialog({
   const loadSeq = useRef(0)
   const lastAppliedSeq = useRef(0)
   const [sessionExpired, setSessionExpired] = useState(false)
+  const expiredRef = useRef(false)
+  const onChangedRef = useRef(onChanged)
+  onChangedRef.current = onChanged
+  // First signed URL per message for the thread on screen, and messages whose image failed to load.
+  const signedUrls = useRef<Map<string, string>>(new Map())
+  const erroredImages = useRef<Set<string>>(new Set())
+  const loadedOnce = useRef(false)
+  const readGuard = useRef(false)
 
   const load = useCallback(async (id: string) => {
     const seq = ++loadSeq.current
@@ -106,9 +125,28 @@ export function ConversationDialog({
     if (!shouldApplyResponse(seq, lastAppliedSeq.current, id, activeId.current)) return
     lastAppliedSeq.current = seq
     if (r.ok && r.data) {
-      setDetail(r.data)
+      const messages = keepSignedUrls(signedUrls.current, r.data.messages, erroredImages.current)
+      for (const m of messages) {
+        if (m.attachment_url) signedUrls.current.set(m.id, m.attachment_url)
+        erroredImages.current.delete(m.id)
+      }
+      setDetail({ ...r.data, messages })
       setLoadError(null)
+      // The open effect marks read on the first load; later polls mark read only when new user messages arrived.
+      const firstLoad = !loadedOnce.current
+      loadedOnce.current = true
+      if (!firstLoad && !readGuard.current && !expiredRef.current && hasUnreadUserMessages(messages)) {
+        readGuard.current = true
+        void adminApi(`/api/admin/support/threads/${id}`, { method: "POST", body: { action: "read" } })
+          .then((rr) => {
+            if (rr.ok && activeId.current === id) onChangedRef.current()
+          })
+          .finally(() => {
+            readGuard.current = false
+          })
+      }
     } else if (r.status === 401 || r.status === 403) {
+      expiredRef.current = true
       setSessionExpired(true)
     } else {
       setLoadError(r.error ?? "Could not load this conversation")
@@ -126,6 +164,10 @@ export function ConversationDialog({
     setNote("")
     setShowOrder(false)
     setSessionExpired(false)
+    expiredRef.current = false
+    signedUrls.current = new Map()
+    erroredImages.current = new Set()
+    loadedOnce.current = false
     sendGuard.current = false
     closeGuard.current = false
     if (!threadId) return
@@ -232,12 +274,23 @@ export function ConversationDialog({
                 </Badge>
               )}
             </div>
+            {detail && needsOwnershipCheck(detail) && (
+              <Badge variant="outline" className="w-fit border-amber-500/50 text-amber-600 dark:text-amber-400">
+                Order not linked - verify ownership
+              </Badge>
+            )}
             <DialogDescription className="sr-only">Conversation with the customer</DialogDescription>
           </DialogHeader>
 
           {!detail ? (
             <div className="flex flex-1 items-center justify-center py-10">
-              {loadError ? <p className="text-sm text-destructive">{loadError}</p> : <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />}
+              {sessionExpired ? (
+                <p className="text-sm text-destructive">Your session has expired. Please sign in again.</p>
+              ) : loadError ? (
+                <p className="text-sm text-destructive">{loadError}</p>
+              ) : (
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              )}
             </div>
           ) : (
             <>
@@ -285,7 +338,12 @@ export function ConversationDialog({
                         {i === 0 && firstAttachment && (
                           <a href={firstAttachment} target="_blank" rel="noopener noreferrer">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={firstAttachment} alt="Screenshot from the customer" className="mt-2 max-h-56 rounded-lg" />
+                            <img
+                              src={firstAttachment}
+                              alt="Screenshot from the customer"
+                              className="mt-2 max-h-56 rounded-lg"
+                              onError={() => erroredImages.current.add(m.id)}
+                            />
                           </a>
                         )}
                         <p className={cn("mt-1 flex items-center justify-end text-[11px]", mine ? "text-primary-foreground/70" : "text-muted-foreground")}>
@@ -312,7 +370,7 @@ export function ConversationDialog({
                     <p className="text-sm font-medium">Close this complaint?</p>
                     <Input
                       value={note}
-                      maxLength={5000}
+                      maxLength={2000}
                       onChange={(e) => setNote(e.target.value)}
                       placeholder="Closing note (optional, sent to the customer)"
                     />
