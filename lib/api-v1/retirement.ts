@@ -1,11 +1,11 @@
 import { getAdminClient, type SupabaseLike } from "@/lib/api-v2/store"
+import { formatGhanaDate } from "./retirement-ui"
 
 export type V1RetirementConfig = { sunsetAt: Date | null; exemptUserIds: string[] }
 export type V1RetirementMode = "normal" | "notice" | "blocked" | "exempt"
 
 const DOCS_URL = "https://www.datagod.store/developers"
 const CACHE_MS = 60_000
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 export function v1RetirementState(
   cfg: V1RetirementConfig | null,
@@ -18,11 +18,8 @@ export function v1RetirementState(
   return { mode: now.getTime() >= sunsetAt.getTime() ? "blocked" : "notice", sunsetAt }
 }
 
-/** Ghana is UTC+0 year-round; always uses UTC getters, never machine-local time. */
-export function formatGhanaDate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} GMT`
-}
+// Implemented in retirement-ui.ts (no server imports) so client components can share it.
+export { formatGhanaDate }
 
 export function retirementHeaders(sunsetAt: Date): Record<string, string> {
   return {

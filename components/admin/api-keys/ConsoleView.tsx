@@ -14,6 +14,8 @@ import { FeatureControls } from "./FeatureControls"
 import { KeyList } from "./KeyList"
 import { RequestLogs } from "./RequestLogs"
 import { Segmented } from "./ui"
+import { V1RetirementCard } from "./V1RetirementCard"
+import { StuckV2Panel } from "./StuckV2Panel"
 
 export interface ConsoleViewProps {
   keys: ConsoleKey[]
@@ -66,6 +68,10 @@ export function ConsoleView(p: ConsoleViewProps) {
         onRetry={() => void p.refresh()}
         onGlobalKill={p.globalKill}
       />
+
+      <V1RetirementCard />
+
+      <StuckV2Panel />
 
       <Segmented<"keys" | "logs">
         label="Console section"

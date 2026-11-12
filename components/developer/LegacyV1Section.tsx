@@ -1,8 +1,10 @@
 // components/developer/LegacyV1Section.tsx
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ChevronDown, History, ShieldCheck } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { V1RetirementBanner } from "@/components/developer/V1RetirementBanner"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DeveloperKeysCard } from "@/components/developer/DeveloperKeysCard"
@@ -20,12 +22,57 @@ export interface LegacyV1SectionProps {
   v2Open: boolean
 }
 
+interface RetirementInfo {
+  sunsetAt: string | null
+  exempt: boolean
+  hasActiveKey: boolean
+}
+
+/**
+ * Loads the caller's v1 retirement status (the keys card is unmounted while the section is collapsed,
+ * so the banner fetches for itself). Any failure shows nothing.
+ */
+export function V1RetirementNotice() {
+  const [info, setInfo] = useState<RetirementInfo | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        const res = await fetch("/api/user/keys", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        const keys: { is_active?: boolean }[] = Array.isArray(data.keys) ? data.keys : []
+        if (cancelled) return
+        setInfo({
+          sunsetAt: typeof data.retirement?.sunset_at === "string" ? data.retirement.sunset_at : null,
+          exempt: data.retirement?.exempt === true,
+          hasActiveKey: keys.some((k) => k.is_active),
+        })
+      } catch {
+        /* no banner on failure */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  if (!info) return null
+  return <V1RetirementBanner sunsetAt={info.sunsetAt} exempt={info.exempt} hasActiveKey={info.hasActiveKey} />
+}
+
 /** The v1 keys card and v1 documentation, unchanged, behind a collapsible section. */
 export function LegacyV1Section({ defaultOpen, v2Open }: LegacyV1SectionProps) {
   // null until the user toggles; until then the section follows the (possibly still loading) default.
   const [userOpen, setUserOpen] = useState<boolean | null>(null)
   const open = userOpen ?? defaultOpen
   return (
+    <div className="space-y-4">
+    <V1RetirementNotice />
     <Collapsible open={open} onOpenChange={setUserOpen} className="rounded-2xl border border-border bg-card/60">
       <CollapsibleTrigger className="flex w-full items-center gap-3 rounded-2xl p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-5">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
@@ -97,5 +144,6 @@ export function LegacyV1Section({ defaultOpen, v2Open }: LegacyV1SectionProps) {
         </div>
       </CollapsibleContent>
     </Collapsible>
+    </div>
   )
 }
