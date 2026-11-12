@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
+import { BrandLogo, DEFAULT_LOGO } from "@/components/home/BrandLogo"
 import { Zap, Download, Apple, Bot, Laptop, Share } from "lucide-react"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPageHidden } from "@/lib/custom-domains"
@@ -59,7 +60,7 @@ export function HeroCarousel() {
   const siteName = domainBranding.siteName || "DATAGOD"
   // DATAGOD's own logo on the main site; a custom domain without its own logo
   // gets the neutral placeholder, never DATAGOD branding.
-  const logoSrc = domainBranding.logoUrl || (domainBranding.siteName ? null : "/icons/icon-512x512.png")
+  const logoSrc = domainBranding.logoUrl || (domainBranding.siteName ? null : DEFAULT_LOGO)
   const [wordA, wordB] = splitWordmark(siteName)
   const guestHidden = isPageHidden("guest_purchase", domainBranding.hiddenPages)
   const communityHidden = isPageHidden("join_channel", domainBranding.hiddenPages)
@@ -314,7 +315,7 @@ export function HeroCarousel() {
         <div className="text-center">
           <div className="mx-auto grid h-28 w-28 place-items-center clay-sm">
             {logoSrc ? (
-              <img src={logoSrc} alt={`${siteName} logo`} className="h-24 w-24 rounded-full object-cover" />
+              <BrandLogo src={logoSrc} alt={`${siteName} logo`} size={96} className="h-24 w-24 rounded-full object-cover" />
             ) : (
               <div aria-hidden className="h-16 w-16 rounded-2xl bg-gradient-to-br from-[#1b388b] to-brand-accent" />
             )}

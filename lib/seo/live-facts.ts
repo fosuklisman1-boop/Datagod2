@@ -6,7 +6,13 @@
  * (see FAILED_RAW): switches go off, prices go null, the data catalog stays
  * on. A result with any failed source is never cached, so a DB blip neither
  * 500s a page nor advertises a dark product for an hour.
+ *
+ * The result also lists which sources failed (failedSources), so a product
+ * page can tell "the admin switched this off" (render it, 200) apart from
+ * "we could not read whether it is on" (answer 5xx so crawlers retry); see
+ * productFactsLoaded().
  */
+import { cache } from "react"
 import { unstable_cache } from "next/cache"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { supabaseAdmin } from "@/lib/supabase"
@@ -15,7 +21,7 @@ import { getBillsConfig, type BillsConfig } from "@/lib/bills/config"
 import { BILLERS, type BillerKey } from "@/lib/bills/billers"
 import { readPublicUssdCodes, type PublicUssdCodes } from "./ussd-codes"
 import type { ProductKey } from "./products"
-import { buildPriceGroups, networkOf, type PriceGroups } from "./data-prices"
+import { buildPriceGroups, isNoExpiry, networkOf, type PriceGroups } from "./data-prices"
 import { buildComparison } from "./compare"
 import type { PriceAdjustments } from "@/lib/price-adjustment-service"
 
@@ -26,13 +32,81 @@ export interface ProductFacts {
   parts: string[]
 }
 
+/** One independently-read source of live facts (see loadRawFacts). */
+export type FactSource = "packages" | "price-adjust" | "afa" | "airtime" | "bills" | "results" | "sms" | "api-v2" | "ussd"
+
+export const FACT_SOURCES: readonly FactSource[] = ["packages", "price-adjust", "afa", "airtime", "bills", "results", "sms", "api-v2", "ussd"]
+
 export type LiveFacts = {
   products: Record<ProductKey, ProductFacts>
   ussd: PublicUssdCodes
   /** adjusted customer price lists per network (empty when prices are unavailable) */
   prices: PriceGroups
+  /**
+   * The same adjusted price lists, restricted to packages whose description
+   * says they do not expire (isNoExpiry). For /non-expiry-data-bundles.
+   */
+  nonExpiryPrices: PriceGroups
   /** ISO timestamp of when these facts were built */
   loadedAt: string
+  /**
+   * Sources whose read failed for this result. Their products carry fail-closed
+   * values, so `available: false` there means "unknown", not "switched off".
+   */
+  failedSources: FactSource[]
+}
+
+/** The adjusted data prices need both the catalogue and the adjustment percentages. */
+export const PRICE_SOURCES: readonly FactSource[] = ["packages", "price-adjust"]
+
+/**
+ * The sources each product's own facts (availability, from-price) come from;
+ * empty for products that are always on and have no price.
+ */
+export const PRODUCT_SOURCES: Record<ProductKey, readonly FactSource[]> = {
+  "mtn-data": PRICE_SOURCES,
+  "telecel-data": PRICE_SOURCES,
+  "at-data": PRICE_SOURCES,
+  "cheapest-data": PRICE_SOURCES,
+  airtime: ["airtime"],
+  "afa-registration": ["afa"],
+  "utility-bills": ["bills"],
+  "ecg-prepaid": ["bills"],
+  "ghana-water": ["bills"],
+  "pay-dstv": ["bills"],
+  "pay-gotv": ["bills"],
+  startimes: ["bills"],
+  "telecel-broadband": ["bills"],
+  "results-checker": ["results"],
+  "bulk-sms": ["sms"],
+  developers: ["api-v2"],
+  ussd: ["ussd"],
+  join: [],
+  whatsapp: [],
+}
+
+/** True when none of `sources` failed for this result. */
+export function sourcesLoaded(sources: readonly FactSource[], facts: LiveFacts): boolean {
+  const failed = facts.failedSources ?? []
+  return !sources.some((s) => failed.includes(s))
+}
+
+/** False when a source behind this product's facts failed to load (its facts are fail-closed guesses). */
+export function productFactsLoaded(key: ProductKey, facts: LiveFacts): boolean {
+  return sourcesLoaded(PRODUCT_SOURCES[key] ?? [], facts)
+}
+
+/**
+ * Thrown by a product (or landing) page whose facts could not be read. Not
+ * caught by the page, so Next answers 500 and nothing is cached; see
+ * components/seo/product-page.tsx and components/seo/landing-page.tsx.
+ * `key` is a ProductKey or a LandingKey (lib/seo/landing-pages.ts).
+ */
+export class LiveFactsUnavailableError extends Error {
+  constructor(readonly key: string, readonly failedSources: readonly FactSource[]) {
+    super(`seo live facts unavailable for ${key} (failed: ${failedSources.join(", ") || "unknown"})`)
+    this.name = "LiveFactsUnavailableError"
+  }
 }
 
 type Net = "MTN" | "Telecel" | "AT"
@@ -40,7 +114,14 @@ type Board = "WASSCE" | "BECE" | "NOVDEC"
 
 export interface RawFacts {
   /** null = the packages read failed (data pages stay on, no prices) */
-  packages: Array<{ network: string; size?: string | null; price: number | string | null; is_available: boolean | null }> | null
+  packages: Array<{
+    network: string
+    size?: string | null
+    price: number | string | null
+    is_available: boolean | null
+    /** admin-written; only read for the no-expiry list (isNoExpiry) */
+    description?: string | null
+  }> | null
   /** null = the singleton app_settings adjustments read failed (no prices) */
   priceAdjustments: PriceAdjustments | null
   airtimeEnabled: Record<Net, boolean>
@@ -90,7 +171,12 @@ function positive(v: unknown): number | null {
 const minOf = (xs: number[]): number | null => (xs.length ? Math.min(...xs) : null)
 const fact = (available: boolean, fromPrice: number | null = null, parts: string[] = []): ProductFacts => ({ available, fromPrice, parts })
 
-export function buildLiveFacts(raw: RawFacts, loadedAt: string = new Date().toISOString()): LiveFacts {
+/** `failed`: names of sources whose read failed (unknown names are ignored). */
+export function buildLiveFacts(
+  raw: RawFacts,
+  failed: readonly string[] = [],
+  loadedAt: string = new Date().toISOString(),
+): LiveFacts {
   const products = {} as Record<ProductKey, ProductFacts>
 
   // Data — per network, lowest available positive ADJUSTED price (the price shown on the customer dashboard).
@@ -99,6 +185,9 @@ export function buildLiveFacts(raw: RawFacts, loadedAt: string = new Date().toIS
   const priced = raw.packages !== null && raw.priceAdjustments !== null
   const groups: PriceGroups = priced
     ? buildPriceGroups(raw.packages!, raw.priceAdjustments!)
+    : { MTN: [], Telecel: [], AT: [] }
+  const nonExpiryPrices: PriceGroups = priced
+    ? buildPriceGroups(raw.packages!.filter((r) => isNoExpiry(r.description)), raw.priceAdjustments!)
     : { MTN: [], Telecel: [], AT: [] }
   for (const net of NETS) {
     if (raw.packages === null || raw.priceAdjustments === null) {
@@ -156,7 +245,14 @@ export function buildLiveFacts(raw: RawFacts, loadedAt: string = new Date().toIS
   products.developers = fact(raw.apiV2Enabled === true)
   products.ussd = fact(raw.ussd?.main != null)
 
-  return { products, ussd: { main: raw.ussd?.main ?? null, shop: raw.ussd?.shop ?? null }, prices: groups, loadedAt }
+  return {
+    products,
+    ussd: { main: raw.ussd?.main ?? null, shop: raw.ussd?.shop ?? null },
+    prices: groups,
+    nonExpiryPrices,
+    loadedAt,
+    failedSources: FACT_SOURCES.filter((src) => failed.includes(src)),
+  }
 }
 
 /**
@@ -181,7 +277,7 @@ export const FAILED_RAW: RawFacts = {
  * "Every read failed": data pages on (no prices); bills, results, AFA,
  * airtime, developers and USSD off; join, whatsapp and bulk-sms on.
  */
-export const FALLBACK_FACTS: LiveFacts = buildLiveFacts(FAILED_RAW)
+export const FALLBACK_FACTS: LiveFacts = buildLiveFacts(FAILED_RAW, FACT_SOURCES)
 
 /**
  * "GH₵3.50" for amounts >= 1; below 1 keep up to 3 decimals, trimming
@@ -243,9 +339,9 @@ const DEFAULT_DEPS: LoaderDeps = { isAirtimeEnabled, getAirtimeLimits }
 export async function loadRawFacts(
   db: Db,
   deps: LoaderDeps = DEFAULT_DEPS,
-): Promise<{ raw: RawFacts; failed: string[] }> {
-  const failed: string[] = []
-  async function source<T>(name: string, fallback: T, read: () => Promise<T>): Promise<T> {
+): Promise<{ raw: RawFacts; failed: FactSource[] }> {
+  const failed: FactSource[] = []
+  async function source<T>(name: FactSource, fallback: T, read: () => Promise<T>): Promise<T> {
     try {
       return await read()
     } catch {
@@ -258,7 +354,7 @@ export async function loadRawFacts(
     source("packages", FAILED_RAW.packages, async () => {
       const { data, error } = await db
         .from("packages")
-        .select("network, size, price, is_available")
+        .select("network, size, price, is_available, description")
         .eq("is_available", true)
         .limit(2000)
       if (error) throw error
@@ -360,7 +456,9 @@ async function loadCompleteLiveFacts(): Promise<LiveFacts> {
   return buildLiveFacts(raw)
 }
 
-const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts-v2"], {
+// "v3": the cached shape gained nonExpiryPrices and failedSources; a new key so an
+// entry cached by an older deploy (without them) is never served.
+const cachedLiveFacts = unstable_cache(loadCompleteLiveFacts, ["seo-live-facts-v3"], {
   revalidate: 3600,
   tags: ["seo-live-facts"],
 })
@@ -374,11 +472,16 @@ export async function resolveLiveFacts(load: () => Promise<LiveFacts>): Promise<
     const pe = e as Partial<PartialFactsError> | null
     if (pe?.name === "PartialFactsError" && pe.raw && Array.isArray(pe.failed)) {
       console.error("[seo-live-facts] partial read, not cached; failed sources:", pe.failed.join(", "))
-      return buildLiveFacts(pe.raw)
+      return buildLiveFacts(pe.raw, pe.failed)
     }
     console.error("[seo-live-facts] falling back to defaults:", e instanceof Error ? e.message : "unknown error")
     return FALLBACK_FACTS
   }
 }
 
-export const getLiveFacts = (): Promise<LiveFacts> => resolveLiveFacts(cachedLiveFacts)
+/**
+ * React cache(): one read per request, so the root layout's product-page gate,
+ * generateMetadata and the page all see the same result (a partial result is
+ * not in the data cache, so separate calls could otherwise disagree).
+ */
+export const getLiveFacts = cache((): Promise<LiveFacts> => resolveLiveFacts(cachedLiveFacts))

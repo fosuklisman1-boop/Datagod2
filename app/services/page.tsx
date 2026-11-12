@@ -9,6 +9,8 @@ import { buildBreadcrumbJsonLd } from "@/lib/seo/json-ld"
 import { OG_IMAGE } from "@/lib/seo/page-meta"
 import { buildItemListJsonLd, groupAvailableProducts } from "@/lib/seo/services-hub"
 import { JsonLd } from "@/components/seo/json-ld-script"
+import { RelatedGuides } from "@/components/seo/related-guides"
+import { availableLandings } from "@/lib/seo/landing-pages"
 
 const TITLE = "All DATAGOD Services: Data, Airtime, Bills & More | DATAGOD"
 const DESCRIPTION =
@@ -106,6 +108,8 @@ export default async function ServicesPage() {
             </ul>
           </section>
         ))}
+
+        <RelatedGuides entries={availableLandings(facts)} />
 
         <section className={`${CARD} mt-16 p-6 text-center sm:p-10`}>
           <h2 className="font-display text-2xl font-bold text-foreground sm:text-3xl">Ready to get started?</h2>

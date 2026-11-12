@@ -77,7 +77,7 @@ export default function ResultsCheckerConfirmationPage() {
     try {
       const { utils, write } = await import("xlsx")
       const rows = [
-        ["DATAGOD — Results Checker Voucher Receipt"],
+        ["Results Checker Voucher Receipt"],
         [],
         ["Reference", ord.reference_code],
         ["Exam Board", ord.exam_board],
@@ -250,7 +250,7 @@ export default function ResultsCheckerConfirmationPage() {
           Back to Store
         </Button>
 
-        <p className="text-center text-xs text-muted-foreground">Powered by DATAGOD · Secure Transaction</p>
+        <p className="text-center text-xs text-muted-foreground">Secure Transaction</p>
       </div>
     </div>
   )

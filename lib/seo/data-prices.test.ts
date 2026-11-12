@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest"
 vi.mock("@/lib/supabase", () => ({ supabase: {}, supabaseAdmin: {} }))
 vi.mock("../supabase", () => ({ supabase: {}, supabaseAdmin: {} }))
 
-import { parseSizeGb, buildPriceGroups, DASHBOARD_NETWORKS } from "./data-prices"
+import { parseSizeGb, buildPriceGroups, DASHBOARD_NETWORKS, isNoExpiry, atTypeOf } from "./data-prices"
 
 const ADJ = {
   price_adjustment_mtn: 10,
@@ -121,5 +121,25 @@ describe("buildPriceGroups", () => {
   it("ignores unknown networks", () => {
     const g = buildPriceGroups([row("Vodafone", "1GB", 5)], ADJ)
     expect(g).toEqual({ MTN: [], Telecel: [], AT: [] })
+  })
+})
+
+describe("isNoExpiry", () => {
+  it("reads only an explicit no-expiry description", () => {
+    expect(isNoExpiry("No expiry")).toBe(true)
+    expect(isNoExpiry("Non-Expiry bundle")).toBe(true)
+    expect(isNoExpiry("non expiry")).toBe(true)
+    expect(isNoExpiry("30 days")).toBe(false)
+    expect(isNoExpiry("")).toBe(false)
+    expect(isNoExpiry(null)).toBe(false)
+  })
+})
+
+describe("atTypeOf", () => {
+  it("names the AT sub-product of a dashboard network value", () => {
+    expect(atTypeOf("AT - iShare")).toBe("iShare")
+    expect(atTypeOf("AT - BigTime")).toBe("BigTime")
+    expect(atTypeOf("AT")).toBeNull()
+    expect(atTypeOf("MTN")).toBeNull()
   })
 })
