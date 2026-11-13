@@ -26,9 +26,9 @@ const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] 
 ]
 
 const SENDER_ID_HINT =
-  "The name or number customers see replies come from. Up to 11 letters, digits or spaces. Must be approved with the SMS provider first. Leave empty to use the platform default."
+  "The name or number customers see replies come from. Up to 11 letters, digits or spaces. Some SMS providers only deliver sender IDs they have approved, so send yourself a test reply on MTN, Telecel and AT before relying on it. Leave empty to use the platform default."
 
-const toForm =(s: Settings): Form => ({
+const toForm = (s: Settings): Form => ({
   mainNumber: s.mainNumber,
   replySenderId: s.replySenderId,
   shopReplySenderId: s.shopReplySenderId,
