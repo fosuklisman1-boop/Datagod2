@@ -17,6 +17,7 @@ import { supabase } from "@/lib/supabase"
 import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy, Loader2, CheckCircle, Search, Package, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
+import { complaintEligibility } from "@/lib/support-eligibility"
 import { chunk } from "@/lib/support-client"
 
 export default function ShopDashboardPage() {
@@ -1145,9 +1146,11 @@ export default function ShopDashboardPage() {
                                 <td className="py-3 px-4">
                                   {openComplaintOrderIds.has(order.id) ? (
                                     <Badge variant="outline">Complaint: open</Badge>
-                                  ) : order.order_status === "completed" &&
-                                    order.updated_at &&
-                                    Date.now() - new Date(order.updated_at).getTime() >= 30 * 60 * 1000 && (
+                                  ) : complaintEligibility({
+                                      status: order.order_status,
+                                      createdAt: order.created_at,
+                                      updatedAt: order.updated_at,
+                                    }).eligible && (
                                     <Button
                                       onClick={() => {
                                         setSelectedComplaintOrder({

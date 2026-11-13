@@ -15,6 +15,7 @@ import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
 import { complaintTargetForOrder } from "@/lib/support-client"
+import { complaintEligibility } from "@/lib/support-eligibility"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -337,16 +338,19 @@ export default function MyOrdersPage() {
                   <p className="text-xs text-muted-foreground">
                     {new Date(order.created_at).toLocaleDateString()} · {new Date(order.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => { setSelectedOrder(order); setComplaintModalOpen(true) }}
-                    className="gap-1 rounded-full"
-                    title="File a complaint for this order"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    Complain
-                  </Button>
+                  {/* Owner rule: completed for 15 minutes, or processing for 3 hours. The server re-checks. */}
+                  {complaintEligibility({ status: order.order_status, createdAt: order.created_at }).eligible && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { setSelectedOrder(order); setComplaintModalOpen(true) }}
+                      className="gap-1 rounded-full"
+                      title="File a complaint for this order"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Complain
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}

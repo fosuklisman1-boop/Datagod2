@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupportDb, getSupportUser } from "@/lib/support-auth"
 import { createThreadSchema } from "@/lib/support-validation"
 import { checkSupportRateLimit } from "@/lib/support-rate-limit"
-import { callerOwnsOrder, callerOwnsShopOrder } from "@/lib/support-ownership"
+import { ownedOrderTiming, ownedShopOrderTiming } from "@/lib/support-ownership"
+import { complaintEligibility } from "@/lib/support-eligibility"
 import { removeAttachments, storeThreadAttachment } from "@/lib/support-attachment"
 import { alertAdminsNewThread, notifyUserSupportEvent, runAfterResponse } from "@/lib/support-notify"
 
@@ -49,8 +50,15 @@ export async function POST(request: NextRequest) {
     if (!limit.allowed) return fail("Too many requests. Please try again later.", 429)
 
     const db = getSupportDb()
-    if (input.order_id && !(await callerOwnsOrder(db, userId, input.order_id))) return fail("Order not found", 404)
-    if (input.shop_order_id && !(await callerOwnsShopOrder(db, userId, input.shop_order_id))) return fail("Order not found", 404)
+    // Ownership first (404 reveals nothing), then the owner's complaint window on the caller's own order.
+    if (input.order_id || input.shop_order_id) {
+      const timing = input.order_id
+        ? await ownedOrderTiming(db, userId, input.order_id)
+        : await ownedShopOrderTiming(db, userId, input.shop_order_id as string)
+      if (!timing) return fail("Order not found", 404)
+      const window = complaintEligibility(timing)
+      if (!window.eligible) return fail(window.reason, 422)
+    }
 
     const { data: thread, error: threadError } = await db
       .from("support_threads")
