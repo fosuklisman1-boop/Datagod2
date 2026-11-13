@@ -1,6 +1,6 @@
 // In-memory stand-in for the slice of supabase-js the Text-to-Buy store uses. Test-only.
-// Unlike a schema-blind fake, it REFUSES any table, column or RPC argument that migration 0163 does not define, so a typo
-// in store.ts fails a test instead of passing silently. Keep the lists below in step with migrations/0163_text_to_buy.sql.
+// Unlike a schema-blind fake, it REFUSES any table, column or RPC argument that migration 0177 does not define, so a typo
+// in store.ts fails a test instead of passing silently. Keep the lists below in step with migrations/0177_text_to_buy.sql.
 
 type Row = Record<string, unknown>
 type Filter = (r: Row) => boolean
@@ -11,9 +11,9 @@ export const SCHEMA: Record<string, string[]> = {
   ttb_orders: ["id", "line", "sender", "service", "order_table", "order_id", "state", "size", "recipient", "gift", "amount", "notices", "created_at", "paid_at", "delivered_at", "closed_at"],
   ttb_blocked: ["sender", "reason", "blocked_by", "created_at"],
   ttb_heartbeat: ["line", "last_seen_at"],
-  // Not a 0163 table: the existing USSD order table, only the columns the Text-to-Buy lane reads or guards.
+  // Not a 0177 table: the existing USSD order table, only the columns the Text-to-Buy lane reads or guards.
   ussd_orders: ["id", "order_status", "payment_status", "amount", "updated_at"],
-  // Not a 0163 table: the shared settings table (migration 0163 seeds the ttb_ keys into it).
+  // Not a 0177 table: the shared settings table (migration 0177 seeds the ttb_ keys into it).
   admin_settings: ["key", "value", "description", "updated_by", "updated_at"],
 }
 
@@ -121,7 +121,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
         return { data: null, error: null }
       }
       if (mode === "delete") {
-        // Migration 0163 grants service_role DELETE on ttb_blocked only (messages and orders are removed by ttb_purge or never).
+        // Migration 0177 grants service_role DELETE on ttb_blocked only (messages and orders are removed by ttb_purge or never).
         if (table !== "ttb_blocked") throw new Error(`fake: service_role has no DELETE on ${table}`)
         const hit = rows().filter((r) => filters.every((f) => f(r)))
         db.tables[table] = rows().filter((r) => !hit.includes(r))

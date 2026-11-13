@@ -1,12 +1,12 @@
-// lib/text-to-buy/migration-0163.test.ts
-// migrations/0163_text_to_buy.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
+// lib/text-to-buy/migration-0177.test.ts
+// migrations/0177_text_to_buy.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
 import { describe, it, expect, beforeAll } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
-const FILE = "0163_text_to_buy.sql"
-const SELFTEST_FILE = "0163_text_to_buy.selftest.sql"
+const FILE = "0177_text_to_buy.sql"
+const SELFTEST_FILE = "0177_text_to_buy.selftest.sql"
 const migration = () => read(FILE)
 
 /** SQL with `--` comments removed (comments mention the forbidden words on purpose). */
@@ -16,19 +16,19 @@ const code = (sql: string) => sql.split("\n").map((l) => l.replace(/--.*$/, ""))
 function buildRunString(migrationSql: string, selftestSql: string): string {
   const lines = migrationSql.split("\n")
   const commitAt = lines.map((l) => l.trim()).lastIndexOf("COMMIT;")
-  if (commitAt < 0) throw new Error("0163: no COMMIT line")
+  if (commitAt < 0) throw new Error("0177:no COMMIT line")
   const head = lines.filter((_, i) => i !== commitAt).join("\n")
   const st = selftestSql.split("\n")
   const doAt = st.findIndex((l) => /^DO\b/.test(l))
   if (doAt < 0) throw new Error("selftest: no column-0 DO line")
   const run = head + "\n" + st.slice(doAt).join("\n")
   const c = code(run)
-  if (/\bCOMMIT\b/i.test(c) || /^\s*END\s*;/im.test(c)) throw new Error("0163: run string could commit")
-  if (!/RAISE EXCEPTION 'SELFTEST_OK[^']*';\s*END\s*\$selftest\$;\s*$/.test(c)) throw new Error("0163: run string does not end by raising")
+  if (/\bCOMMIT\b/i.test(c) || /^\s*END\s*;/im.test(c)) throw new Error("0177:run string could commit")
+  if (!/RAISE EXCEPTION 'SELFTEST_OK[^']*';\s*END\s*\$selftest\$;\s*$/.test(c)) throw new Error("0177:run string does not end by raising")
   return run
 }
 
-describe("0163 migration text", () => {
+describe("0177 migration text", () => {
   it("is one transaction with timeouts and exactly one COMMIT", () => {
     const c = code(migration())
     expect(c).toMatch(/^BEGIN;\s*$/m)
@@ -47,7 +47,7 @@ describe("0163 migration text", () => {
     const s = code(buildRunString(migration(), read(SELFTEST_FILE)))
     expect(s).not.toMatch(/\bCOMMIT\b/i)
     expect(s).not.toMatch(/^\s*END\s*;/im)
-    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0163[^']*';\s*END\s*\$selftest\$;$/)
+    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0177[^']*';\s*END\s*\$selftest\$;$/)
   })
 })
 
@@ -84,7 +84,7 @@ const FUNCS = [
 const SENDER = "0200000101"
 const OTHER = "0200000102"
 
-describe.skipIf(!PGliteCtor)("0163 in PGlite", () => {
+describe.skipIf(!PGliteCtor)("0177 in PGlite", () => {
   let db: any
   const one = async (sql: string, params: unknown[] = []) => (await db.query(sql, params)).rows[0]
   const count = async (sql: string, params: unknown[] = []) => Number((await one(sql, params)).n)
@@ -374,7 +374,7 @@ describe.skipIf(!PGliteCtor)("0163 in PGlite", () => {
     const fresh = new PGliteCtor()
     await fresh.exec(ROLES)
     await fresh.exec(FIXTURES)
-    await expect(fresh.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/SELFTEST_OK 0163/)
+    await expect(fresh.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/SELFTEST_OK 0177/)
     await fresh.exec("ROLLBACK")
     expect((await fresh.query("SELECT to_regclass('public.ttb_messages') AS t")).rows[0].t).toBeNull()
     expect((await fresh.query("SELECT count(*)::int AS n FROM public.admin_settings")).rows[0].n).toBe(0)

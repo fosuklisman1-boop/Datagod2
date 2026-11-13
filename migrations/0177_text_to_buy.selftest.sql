@@ -1,12 +1,12 @@
--- 0163_text_to_buy.selftest.sql
+-- 0177_text_to_buy.selftest.sql
 --
--- NOT A MIGRATION. Self-rolling-back dry run for 0163_text_to_buy.sql.
+-- NOT A MIGRATION. Self-rolling-back dry run for 0177_text_to_buy.sql.
 --
 -- IMPORTANT: the run string must be built by CODE, never by hand or by a regex strip, and that code must
 -- ASSERT before anything is sent to production that the run string contains no COMMIT and no bare `END;`
 -- statement, and that it ends with this DO block (which always RAISEs). (The 0130 incident lesson.)
--- Build it as lib/text-to-buy/migration-0163.test.ts does:
---   1. 0163_text_to_buy.sql with BEGIN kept (and both SET LOCALs) and ONLY its final COMMIT line removed;
+-- Build it as lib/text-to-buy/migration-0177.test.ts does:
+--   1. 0177_text_to_buy.sql with BEGIN kept (and both SET LOCALs) and ONLY its final COMMIT line removed;
 --   2. followed by this file from the line that STARTS (column 0) with the DO keyword onward. The header
 --      is not part of the run string (it names the forbidden words).
 --   The DO body has no bare `END;`: every sub-block is labelled and the block closes with `END $selftest$;`.
@@ -142,5 +142,5 @@ BEGIN
     IF NOT has_function_privilege('service_role', v_t, 'EXECUTE') THEN RAISE EXCEPTION 'FAIL fn_grants: service_role cannot execute %', v_t; END IF;
   END LOOP;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0163 tables, grants, settings, constraints and functions';
+  RAISE EXCEPTION 'SELFTEST_OK 0177 tables, grants, settings, constraints and functions';
 END $selftest$;

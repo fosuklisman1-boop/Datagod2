@@ -1,4 +1,4 @@
--- 0163_text_to_buy.sql
+-- 0177_text_to_buy.sql
 --
 -- Text-to-Buy, Stage 1: a customer texts an order to Datagod's number and gets a MoMo prompt. This file holds the TABLES,
 -- the SQL FUNCTIONS and the default SETTINGS. Nothing reads these until the later tasks of the plan.
@@ -51,9 +51,9 @@
 --   SELECT data_type FROM information_schema.columns
 --    WHERE table_schema = 'public' AND table_name = 'admin_settings' AND column_name = 'value';     -- jsonb
 --
--- Self-test (self-rolling-back dry run): migrations/0163_text_to_buy.selftest.sql
+-- Self-test (self-rolling-back dry run): migrations/0177_text_to_buy.selftest.sql
 -- The run string must be built by CODE which asserts it contains no COMMIT and no bare END; statement
--- (the 0130 incident lesson); lib/text-to-buy/migration-0163.test.ts builds and checks it.
+-- (the 0130 incident lesson); lib/text-to-buy/migration-0177.test.ts builds and checks it.
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';

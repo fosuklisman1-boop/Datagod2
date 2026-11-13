@@ -4,7 +4,7 @@ import { encodeCursor, MESSAGE_COLUMNS, toAdminMessage, type AdminMessage, type 
 import type { Line, Outcome, ReadResult } from "./types"
 
 /**
- * Text-to-Buy database access (tables and functions of migration 0163). Server-only, service-role client.
+ * Text-to-Buy database access (tables and functions of migration 0177). Server-only, service-role client.
  * Never logs: not message bodies, not phone numbers, not database error text (which can echo row values).
  * Every failure is a TtbStoreError with a fixed message, so callers decide whether to fail closed.
  */
@@ -19,7 +19,7 @@ export class TtbStoreError extends Error {
 type DbError = { code?: string } | null | undefined
 const isUnique = (e: DbError) => e?.code === "23505"
 
-// Constraint names from migration 0163 (a PGlite test pins that they exist).
+// Constraint names from migration 0177 (a PGlite test pins that they exist).
 const OPEN_INDEX = "ttb_orders_one_open"
 const ORDER_ID_KEY = "ttb_orders_order_id_key"
 
@@ -472,7 +472,7 @@ export async function blockSender(db: SupabaseClient, sender: string, reason: st
   if (error) throw new TtbStoreError("could not block a sender")
 }
 
-/** True when a block was removed (service_role may delete from ttb_blocked, see migration 0163). */
+/** True when a block was removed (service_role may delete from ttb_blocked, see migration 0177). */
 export async function unblockSender(db: SupabaseClient, sender: string): Promise<boolean> {
   const { data, error } = await db.from("ttb_blocked").delete().eq("sender", sender).select("sender")
   if (error || !Array.isArray(data)) throw new TtbStoreError("could not unblock a sender")

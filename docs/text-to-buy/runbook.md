@@ -1,6 +1,6 @@
 # Text-to-Buy (Stage 1, main number, data only) - owner runbook
 
-Status: built on branch `feat/text-to-buy`, NOT merged, migration 0163 NOT applied. Ships DARK: the switch is off and, with it off, the SMS webhook behaves exactly as it does today.
+Status: built on branch `feat/text-to-buy`, NOT merged, migration 0177 NOT applied. Ships DARK: the switch is off and, with it off, the SMS webhook behaves exactly as it does today.
 Spec: `docs/superpowers/specs/2026-11-13-sms-text-to-buy-design.md`. Plan: `docs/superpowers/plans/2026-11-13-text-to-buy-stage1-main-data.md`.
 
 Everything marked **OWNER ACTION** changes production and needs your explicit OK. Nothing in this document has been run.
@@ -19,7 +19,7 @@ NOT in Stage 1:
 - The shop number, shop credits for replies, shop pausing, the shop owner "Text Orders" page (Stage 3).
 - Paying from a wallet, paying from a different number, AFA registration.
 
-## 2. Key settings (admin_settings rows, all set by migration 0163)
+## 2. Key settings (admin_settings rows, all set by migration 0177)
 
 Edit them on `/admin/text-to-buy`, tab Settings. Each is stored as `{"value": x}`.
 
@@ -49,7 +49,7 @@ Edit them on `/admin/text-to-buy`, tab Settings. Each is stored as `{"value": x}
 | Admin page and APIs | `app/admin/text-to-buy/`, `app/api/admin/text-to-buy/` (`route.ts`, `messages/route.ts`, `try/route.ts`) |
 | Gateway surface `sms_order` | `lib/payment-gateway/config.ts`, `app/admin/gateway/_components/SurfacesCard.tsx` |
 | SMS category "Text-to-Buy replies" | `lib/sms/categories.ts` |
-| Migration | `migrations/0163_text_to_buy.sql` (self-test: `0163_text_to_buy.selftest.sql`) |
+| Migration | `migrations/0177_text_to_buy.sql` (self-test: `0177_text_to_buy.selftest.sql`) |
 | Cron definition | `lib/cron-migration/crons.json`, `lib/cron-migration/jobs.ts` (batch B) |
 
 ## 4. Forwarder phone setup (OWNER ACTION, on the phone)
@@ -73,22 +73,22 @@ Every step follows the production change protocol: precheck counts, a self-rolli
 
 **Order matters: apply the migration BEFORE deploying the code.** If the code is live first, every inbound SMS logs "heartbeat not recorded" until the migration is applied. It is harmless but noisy.
 
-**Migration number collision.** The branch `feat/retire-api-v1` also adds a migration numbered 0163 (and 0164), and main already has 0170 to 0176. At merge time, renumber this migration to the next free number: the file names (`migrations/0163_text_to_buy.sql` and `.selftest.sql`), the header comments, the references in this runbook, and the tests that read the file by name (grep for `0163` under `lib/text-to-buy`, `app/api/admin/text-to-buy` and `migrations`). Then update this runbook. Everything below says 0163; read it as the new number.
+**Migration number.** This migration is numbered **0177**. It was first numbered 0163, which clashed with `feat/retire-api-v1` (0163 and 0164); main already has 0160 to 0162 and 0170 to 0176. 0177 is above every number on every branch checked on 2026-11-13. Before applying, re-check that nothing newer has taken 0177 (list `migrations/` on `origin/main` and on any open branch that adds migrations).
 
-### 5.1 Apply migration 0163
+### 5.1 Apply migration 0177
 
 Precheck (read-only). All must return nothing or zero:
 
 ```sql
 select to_regclass('public.ttb_messages'), to_regclass('public.ttb_conversations'),
        to_regclass('public.ttb_orders'), to_regclass('public.ttb_blocked'), to_regclass('public.ttb_heartbeat');
--- expected: five NULLs. If any is not NULL, STOP: 0163 was already applied (or partly). Do not re-run it blindly.
+-- expected: five NULLs. If any is not NULL, STOP: 0177 was already applied (or partly). Do not re-run it blindly.
 
 select count(*) from admin_settings where key like 'ttb\_%';
 -- expected: 0
 ```
 
-Dry run: run the whole file inside a transaction that ends in a RAISE so it rolls back, then run `migrations/0163_text_to_buy.selftest.sql` the same way. Expected: no error. Then your OK, then apply.
+Dry run: run the whole file inside a transaction that ends in a RAISE so it rolls back, then run `migrations/0177_text_to_buy.selftest.sql` the same way. Expected: no error. Then your OK, then apply.
 
 After applying, verify (read-only):
 
@@ -127,7 +127,7 @@ select p.proname, r.rolname
                                                 -- expected: 0 rows
 ```
 
-Note for re-running: 0163 repeats `REVOKE ALL ... FROM service_role` then re-grants; if it is ever re-applied, run it whole, not in pieces.
+Note for re-running: 0177 repeats `REVOKE ALL ... FROM service_role` then re-grants; if it is ever re-applied, run it whole, not in pieces.
 
 ### 5.2 Create the cron job
 
@@ -193,7 +193,7 @@ To change one, edit that string in `PAYER_TIPS` (and the matching expectations i
 - [ ] Gateway row "Text orders (SMS)" set (Hubtel before promoting to Telecel customers).
 - [ ] Supervised paid test passed on each network (section 8).
 - [ ] Browser pass of `/admin/text-to-buy` at 500px and 1280px. NOT yet done: the page was built without a browser check. (The detail lists in Overview and Try it were fixed to `grid-cols-[auto_1fr]`: confirm they show two columns.)
-- [ ] Migration 0163 applied and verified; cron job created and enabled (section 5).
+- [ ] Migration 0177 applied and verified; cron job created and enabled (section 5).
 - [ ] Whole-branch review done (money, auth and schema are touched: a fresh reviewer is mandatory).
 
 ## 8. Supervised paid test script
@@ -254,7 +254,7 @@ Repeat tests 1 and 3 on each of MTN, Telecel and AT payer numbers (Telecel only 
 1. Switch off: `/admin/text-to-buy`, Overview, main line switch (or set `ttb_main_enabled` to false). The webhook then behaves exactly as before: a text from a personal number on the primary secret is stored as `rejected_sender` with the text redacted, as today. Texts already in flight finish normally.
 2. No data migration to undo. The five tables and 12 settings rows can stay.
 3. The cron job can stay (harmless) or be disabled: `npx tsx scripts/sync-cronjob-org.ts --disable B --only /api/cron/text-to-buy-notify`.
-4. To remove the feature fully, revert the merge; migration 0163 is additive and unused when off.
+4. To remove the feature fully, revert the merge; migration 0177 is additive and unused when off.
 
 ## 11. Announcement (hold until launch)
 
