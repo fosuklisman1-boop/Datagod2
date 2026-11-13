@@ -51,10 +51,14 @@ export async function POST(request: NextRequest) {
 
     const db = getSupportDb()
     // Ownership first (404 reveals nothing), then the owner's complaint window on the caller's own order.
-    if (input.order_id || input.shop_order_id) {
-      const timing = input.order_id
-        ? await ownedOrderTiming(db, userId, input.order_id)
-        : await ownedShopOrderTiming(db, userId, input.shop_order_id as string)
+    // Every supplied id is verified on its own; the schema also refuses a request carrying both.
+    if (input.order_id && input.shop_order_id) return fail("Provide only one order", 400)
+    const timings = [
+      input.order_id ? await ownedOrderTiming(db, userId, input.order_id) : undefined,
+      input.shop_order_id ? await ownedShopOrderTiming(db, userId, input.shop_order_id) : undefined,
+    ]
+    for (const timing of timings) {
+      if (timing === undefined) continue
       if (!timing) return fail("Order not found", 404)
       const window = complaintEligibility(timing)
       if (!window.eligible) return fail(window.reason, 422)
