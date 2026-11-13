@@ -11,6 +11,8 @@ export const SCHEMA: Record<string, string[]> = {
   ttb_orders: ["id", "line", "sender", "service", "order_table", "order_id", "state", "size", "recipient", "gift", "amount", "notices", "created_at", "paid_at", "delivered_at", "closed_at"],
   ttb_blocked: ["sender", "reason", "blocked_by", "created_at"],
   ttb_heartbeat: ["line", "last_seen_at"],
+  // Not a 0163 table: the existing USSD order table, only the columns the Text-to-Buy lane reads or guards.
+  ussd_orders: ["id", "order_status", "payment_status", "amount", "updated_at"],
 }
 
 export const RPC_ARGS: Record<string, string[]> = {
@@ -113,8 +115,9 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
       }
       if (mode === "update") {
         checkRow(payload!)
-        for (const r of rows()) if (filters.every((f) => f(r))) Object.assign(r, payload)
-        return { data: null, error: null }
+        const hit = rows().filter((r) => filters.every((f) => f(r)))
+        for (const r of hit) Object.assign(r, payload)
+        return { data: returning ? hit.map((r) => ({ ...r })) : null, error: null }
       }
       let out = rows().filter((r) => filters.every((f) => f(r)))
       if (order) {
@@ -131,7 +134,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     const b = {
       select: (cols = "*") => {
         if (cols !== "*") for (const c of cols.split(",")) col(table, c.trim())
-        if (mode === "insert") returning = true
+        if (mode === "insert" || mode === "update") returning = true
         return b
       },
       insert: (row: Row) => ((mode = "insert"), (payload = row), b),

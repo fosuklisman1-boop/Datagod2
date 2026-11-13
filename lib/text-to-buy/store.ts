@@ -238,3 +238,90 @@ export async function touchHeartbeat(db: SupabaseClient, line: Line, now: Date):
   const { error } = await db.from("ttb_heartbeat").upsert({ line, last_seen_at: now.toISOString() }, { onConflict: "line" })
   if (error) throw new TtbStoreError("could not record the heartbeat")
 }
+
+/** The link already written for this order id, or null. */
+export async function linkByOrderId(db: SupabaseClient, orderId: string): Promise<{ id: string } | null> {
+  const { data, error } = await db.from("ttb_orders").select("id").eq("order_id", orderId).maybeSingle()
+  if (error) throw new TtbStoreError("could not look up a link by order")
+  const id = (data as { id?: string } | null)?.id
+  return id ? { id } : null
+}
+
+/**
+ * Closes this sender's awaiting_payment links created before windowStart, so the one-open-order index only ever holds a
+ * live link. Returns how many were closed.
+ */
+export async function closeStaleLinks(db: SupabaseClient, line: Line, sender: string, windowStart: Date, now: Date): Promise<number> {
+  const { data, error } = await db
+    .from("ttb_orders")
+    .update({ state: "closed", closed_at: now.toISOString() })
+    .eq("line", line)
+    .eq("sender", sender)
+    .eq("state", "awaiting_payment")
+    .lt("created_at", windowStart.toISOString())
+    .select("id")
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not close stale links")
+  return data.length
+}
+
+/** The outcome recorded on an inbound row, or null when it has none yet (or the row is missing). */
+export async function getInboundOutcome(db: SupabaseClient, id: string): Promise<string | null> {
+  const { data, error } = await db.from("ttb_messages").select("outcome").eq("id", id).maybeSingle()
+  if (error) throw new TtbStoreError("could not read an inbound outcome")
+  const outcome = (data as { outcome?: unknown } | null)?.outcome
+  return typeof outcome === "string" ? outcome : null
+}
+
+export type OrderLink = {
+  id: string
+  orderId: string
+  state: string
+  size: string
+  recipient: string
+  notices: string[]
+  createdAt: string
+}
+
+/** The sender's newest link on this line (any state), or null. */
+export async function latestOrderLink(db: SupabaseClient, line: Line, sender: string): Promise<OrderLink | null> {
+  const { data, error } = await db
+    .from("ttb_orders")
+    .select("id, order_id, state, size, recipient, notices, created_at")
+    .eq("line", line)
+    .eq("sender", sender)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw new TtbStoreError("could not read the latest link")
+  const r = data as Record<string, unknown> | null
+  if (!r || typeof r.id !== "string") return null
+  return {
+    id: r.id,
+    orderId: String(r.order_id),
+    state: String(r.state),
+    size: String(r.size),
+    recipient: String(r.recipient),
+    notices: Array.isArray(r.notices) ? r.notices.filter((n): n is string => typeof n === "string") : [],
+    createdAt: String(r.created_at),
+  }
+}
+
+/** The USSD order row's two status columns, or null when it is gone. */
+export async function ussdOrderStatus(db: SupabaseClient, orderId: string): Promise<{ orderStatus: string; paymentStatus: string } | null> {
+  const { data, error } = await db.from("ussd_orders").select("order_status, payment_status").eq("id", orderId).maybeSingle()
+  if (error) throw new TtbStoreError("could not read an order status")
+  const r = data as { order_status?: unknown; payment_status?: unknown } | null
+  return r ? { orderStatus: String(r.order_status), paymentStatus: String(r.payment_status) } : null
+}
+
+/** Fails a USSD order row, guarded on payment_status = 'pending'. True when this call changed the row. */
+export async function failPendingUssdOrder(db: SupabaseClient, orderId: string, now: Date): Promise<boolean> {
+  const { data, error } = await db
+    .from("ussd_orders")
+    .update({ order_status: "failed", payment_status: "failed", updated_at: now.toISOString() })
+    .eq("id", orderId)
+    .eq("payment_status", "pending")
+    .select("id")
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not fail a losing order")
+  return data.length > 0
+}

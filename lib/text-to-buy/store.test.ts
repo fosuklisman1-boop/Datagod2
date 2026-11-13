@@ -4,6 +4,7 @@ import { makeFakeTtb } from "./fake-db.test-helper"
 import {
   dedupeKey, storeInbound, setInboundResult, storeOutbound, isBlocked, counts, globalPrompts, hasOpenOrder, linkOrder,
   loadConversation, saveConversation, touchHeartbeat, TtbStoreError,
+  linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus, failPendingUssdOrder,
 } from "./store"
 
 const S = "0200000101"
@@ -311,5 +312,107 @@ describe("logging", () => {
     db.failOn.ttb_messages = { message: "down secret body" }
     await storeInbound(c, { line: "main", sender: S, body: "secret body 2", receivedAt: null, now }).catch(() => {})
     for (const s of spies) expect(s).not.toHaveBeenCalled()
+  })
+})
+
+describe("Task 10 store additions", () => {
+  const O1 = "6f0c1a9e-0163-4163-8163-0000000000b1"
+  const O2 = "6f0c1a9e-0163-4163-8163-0000000000b2"
+
+  it("linkByOrderId finds a link by its order id, else null", async () => {
+    const { c } = mk({ ttb_orders: [{ id: "L1", line: "main", sender: S, order_id: O1, state: "awaiting_payment" }] })
+    expect(await linkByOrderId(c, O1)).toEqual({ id: "L1" })
+    expect(await linkByOrderId(c, O2)).toBeNull()
+  })
+
+  it("linkByOrderId throws TtbStoreError on a read error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_orders = { message: "down" }
+    await expect(linkByOrderId(c, O1)).rejects.toBeInstanceOf(TtbStoreError)
+  })
+
+  it("closeStaleLinks closes only this sender's awaiting_payment links older than the window, and counts them", async () => {
+    const start = new Date("2026-11-13T11:55:00Z")
+    const { db, c } = mk({
+      ttb_orders: [
+        { id: "old", line: "main", sender: S, state: "awaiting_payment", created_at: "2026-11-13T11:50:00.000Z" },
+        { id: "fresh", line: "main", sender: S, state: "awaiting_payment", created_at: "2026-11-13T11:56:00.000Z" },
+        { id: "other", line: "main", sender: "0200000102", state: "awaiting_payment", created_at: "2026-11-13T11:50:00.000Z" },
+        { id: "shop", line: "shop", sender: S, state: "awaiting_payment", created_at: "2026-11-13T11:50:00.000Z" },
+        { id: "paid", line: "main", sender: S, state: "paid", created_at: "2026-11-13T11:40:00.000Z" },
+      ],
+    })
+    expect(await closeStaleLinks(c, "main", S, start, now)).toBe(1)
+    const by = (id: string) => db.tables.ttb_orders.find((r) => r.id === id)!
+    expect(by("old")).toMatchObject({ state: "closed", closed_at: now.toISOString() })
+    expect(by("fresh").state).toBe("awaiting_payment")
+    expect(by("other").state).toBe("awaiting_payment")
+    expect(by("shop").state).toBe("awaiting_payment")
+    expect(by("paid").state).toBe("paid")
+  })
+
+  it("closeStaleLinks frees the open-order slot for a new link", async () => {
+    const { c } = mk({ ttb_orders: [{ id: "old", line: "main", sender: S, order_id: O1, state: "awaiting_payment", created_at: "2026-11-13T11:00:00.000Z" }] })
+    await closeStaleLinks(c, "main", S, new Date("2026-11-13T11:55:00Z"), now)
+    const r = await linkOrder(c, { line: "main", sender: S, orderId: O2, size: "1GB", recipient: S, gift: false, amount: 5 })
+    expect(r).not.toBe("conflict")
+  })
+
+  it("closeStaleLinks throws TtbStoreError on an error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_orders = { message: "down" }
+    await expect(closeStaleLinks(c, "main", S, now, now)).rejects.toBeInstanceOf(TtbStoreError)
+  })
+
+  it("getInboundOutcome returns the outcome, null when not yet processed, null when the row is missing", async () => {
+    const { c } = mk({ ttb_messages: [{ id: "m1", outcome: "prompted" }, { id: "m2", outcome: null }] })
+    expect(await getInboundOutcome(c, "m1")).toBe("prompted")
+    expect(await getInboundOutcome(c, "m2")).toBeNull()
+    expect(await getInboundOutcome(c, "nope")).toBeNull()
+  })
+
+  it("getInboundOutcome throws TtbStoreError on a read error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_messages = { message: "down" }
+    await expect(getInboundOutcome(c, "m1")).rejects.toBeInstanceOf(TtbStoreError)
+  })
+
+  it("latestOrderLink returns this sender's newest link on this line, mapped to camelCase; null when none", async () => {
+    const { c } = mk({
+      ttb_orders: [
+        { id: "a", line: "main", sender: S, order_id: O1, state: "closed", size: "1GB", recipient: S, notices: [], created_at: "2026-11-13T10:00:00.000Z" },
+        { id: "b", line: "main", sender: S, order_id: O2, state: "awaiting_payment", size: "5GB", recipient: "0200000150", notices: ["unpaid"], created_at: "2026-11-13T11:00:00.000Z" },
+        { id: "c", line: "shop", sender: S, order_id: "x", state: "paid", size: "9GB", recipient: S, notices: [], created_at: "2026-11-13T11:30:00.000Z" },
+      ],
+    })
+    expect(await latestOrderLink(c, "main", S)).toEqual({
+      id: "b", orderId: O2, state: "awaiting_payment", size: "5GB", recipient: "0200000150", notices: ["unpaid"], createdAt: "2026-11-13T11:00:00.000Z",
+    })
+    expect(await latestOrderLink(c, "main", "0200000199")).toBeNull()
+  })
+
+  it("latestOrderLink throws TtbStoreError on a read error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_orders = { message: "down" }
+    await expect(latestOrderLink(c, "main", S)).rejects.toBeInstanceOf(TtbStoreError)
+  })
+
+  it("ussdOrderStatus reads the two status columns, null when the row is missing", async () => {
+    const { c } = mk({ ussd_orders: [{ id: O1, order_status: "processing", payment_status: "paid" }] })
+    expect(await ussdOrderStatus(c, O1)).toEqual({ orderStatus: "processing", paymentStatus: "paid" })
+    expect(await ussdOrderStatus(c, O2)).toBeNull()
+  })
+
+  it("failPendingUssdOrder fails the row only while payment_status is still pending", async () => {
+    const { db, c } = mk({
+      ussd_orders: [
+        { id: O1, order_status: "pending", payment_status: "pending" },
+        { id: O2, order_status: "processing", payment_status: "paid" },
+      ],
+    })
+    expect(await failPendingUssdOrder(c, O1, now)).toBe(true)
+    expect(await failPendingUssdOrder(c, O2, now)).toBe(false)
+    expect(db.tables.ussd_orders[0]).toMatchObject({ order_status: "failed", payment_status: "failed", updated_at: now.toISOString() })
+    expect(db.tables.ussd_orders[1]).toMatchObject({ order_status: "processing", payment_status: "paid" })
   })
 })
