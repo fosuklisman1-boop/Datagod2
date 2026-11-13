@@ -710,20 +710,68 @@ describe("overall reply cap (globalRepliesPerHour)", () => {
     expect(t.deps.reply).toHaveBeenCalledTimes(1)
   })
 
-  it("alerts once at the crossing (count equals the cap), with a message that carries no numbers or text", async () => {
+  it("alerts once when a reply is suppressed at the cap, with a message that carries no numbers or text", async () => {
     const t = capped(CAP)
     await t.run("help", { settings: { globalRepliesPerHour: CAP } })
     expect(t.deps.alert).toHaveBeenCalledTimes(1)
     expect(t.deps.alert).toHaveBeenCalledWith("Text-to-Buy: hourly reply cap reached")
-    // the count did not move (suppressed replies write no rows): no second alert while it stays at the cap
     await t.run("prices", { settings: { globalRepliesPerHour: CAP } })
     expect(t.deps.alert).toHaveBeenCalledTimes(1)
   })
 
-  it("does not alert when the count is already past the cap", async () => {
+  it("alerts even when the first suppression already sees a count well above the cap", async () => {
     const t = capped(CAP + 3)
     await t.run("help", { settings: { globalRepliesPerHour: CAP } })
-    expect(t.deps.alert).not.toHaveBeenCalled()
+    expect(t.deps.alert).toHaveBeenCalledTimes(1)
+  })
+
+  it("no alert storm: a dip below the cap and back does not alert again within the hour, but it does after an hour", async () => {
+    const t = capped(CAP)
+    const s = { globalRepliesPerHour: CAP }
+    await t.run("help", { settings: s })
+    expect(t.deps.alert).toHaveBeenCalledTimes(1)
+    // one row ages out: a reply goes through, then the count is back at the cap
+    t.f.db.tables.ttb_messages.splice(t.f.db.tables.ttb_messages.findIndex((m) => m.direction === "out"), 1)
+    expect((await t.run("prices", { settings: s })).result.reply).not.toBeNull()
+    t.f.db.tables.ttb_messages.push(...outRows(1).map((r) => ({ ...r, id: "again" })))
+    await t.run("how do i buy", { settings: s })
+    expect(t.deps.alert).toHaveBeenCalledTimes(1)
+    // an hour later, in the injected clock
+    const later = new Date(now.getTime() + 61 * 60_000)
+    t.f.db.tables.ttb_messages.forEach((m) => { m.created_at = later.toISOString() })
+    await t.run("hello", { settings: s, input: { now: later } })
+    expect(t.deps.alert).toHaveBeenCalledTimes(2)
+  })
+
+  it("post-confirm replies are transactional: over the cap the race-loser open_order and the unusable-amount reply still go out", async () => {
+    const t = capped(CAP + 5)
+    const s = { globalRepliesPerHour: CAP }
+    t.confirm.mockResolvedValueOnce({ type: "end", message: "", orderId: ORDER, amount: Number.NaN as number })
+    const bad = await t.run("5gb", { settings: s })
+    expect(bad.result).toMatchObject({ outcome: "unavailable" })
+    expect(bad.result.reply).not.toBeNull()
+
+  })
+
+  it("a pre-confirm open_order reply (hasOpenOrder) is still capped", async () => {
+    const t = capped(CAP + 5)
+    t.f.db.tables.ttb_orders.push({ id: "x", line: "main", sender: S, state: "awaiting_payment", order_id: "other", created_at: now.toISOString() })
+    const pre = await t.run("5gb", { settings: { globalRepliesPerHour: CAP } })
+    expect(pre.result).toMatchObject({ outcome: "limited", reply: null })
+    expect(t.confirm).not.toHaveBeenCalled()
+  })
+
+  it("the race-loser open_order reply (after confirm) is sent over the cap", async () => {
+    const t = setup({
+      seed: { ttb_messages: outRows(CAP + 5), ussd_orders: [{ id: ORDER, order_status: "pending", payment_status: "pending" }] },
+    })
+    t.confirm.mockImplementation(async () => {
+      t.f.db.tables.ttb_orders.push({ id: "winner", line: "main", sender: S, order_id: "other-order", state: "awaiting_payment", created_at: now.toISOString() })
+      return { type: "end", message: "", orderId: ORDER, amount: 23.69 }
+    })
+    const { result } = await t.run("5gb", { settings: { globalRepliesPerHour: CAP } })
+    expect(result).toMatchObject({ outcome: "open_order", reply: openOrderReply() })
+    expect(t.deps.reply).toHaveBeenCalledTimes(1)
   })
 
   it("an alert that throws never throws out of processInbound and the reply is still suppressed", async () => {

@@ -138,7 +138,7 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
             <div className="flex items-start justify-between gap-3 lg:col-span-2">
               <div>
                 <label className="text-sm font-medium" htmlFor="ttb-unclearRepliesEnabled">{FIELD_LABELS.unclearRepliesEnabled}</label>
-                <p className="text-xs text-muted-foreground">When off, texts that are not orders get no reply, so unrelated or promotional texts cost nothing.</p>
+                <p className="text-xs text-muted-foreground">When off, texts that are not orders get no reply, so unrelated or promotional texts cost nothing. A bare YES or AGAIN with nothing to act on counts as unclear.</p>
               </div>
               <Switch id="ttb-unclearRepliesEnabled" checked={f.unclearRepliesEnabled} onCheckedChange={(v) => patch({ unclearRepliesEnabled: v })} aria-label={FIELD_LABELS.unclearRepliesEnabled} />
             </div>

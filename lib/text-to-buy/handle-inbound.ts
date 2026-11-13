@@ -54,9 +54,9 @@ const CAP_ALERT = "Text-to-Buy: global prompt cap reached"
 const REPLY_CAP_ALERT = "Text-to-Buy: hourly reply cap reached"
 
 /**
- * When each line last alerted about the hourly reply cap (best effort, per server instance). It re-arms when a check sees the
- * count back under the cap, or after an hour. Suppressed replies write no rows, so the count can sit exactly at the cap for a
- * while: without this every suppressed text would alert.
+ * When each line last alerted about the hourly reply cap. One alert per line per hour, measured on the injected clock, with no
+ * re-arming when the count dips below the cap (that would alert once per aged-out reply). The state is per server instance, so
+ * with several serverless instances each may alert once an hour at most: bounded, not exactly once.
  */
 const capAlerted = new Map<Line, number>()
 export function resetReplyCapAlert(): void {
@@ -113,7 +113,7 @@ export async function processInbound(
   /**
    * True when this non-quote reply must be suppressed because the line already sent its hourly cap of replies.
    * Fail safe: an unreadable count counts as reached (stay silent rather than spend blindly). Never throws.
-   * The first suppression (count exactly at the cap) alerts admins once, never in a dry run.
+   * A suppression alerts admins at most once per line per hour (never in a dry run).
    */
   async function replyCapReached(): Promise<boolean> {
     const cap = settings.globalRepliesPerHour
@@ -124,11 +124,8 @@ export async function processInbound(
       console.error("[text-to-buy] reply cap count error", { messageId, error: e instanceof Error ? e.name : "unknown" })
       return true
     }
-    if (sent < cap) {
-      if (!dry) capAlerted.delete(i.line)
-      return false
-    }
-    if (!dry && sent === cap) {
+    if (sent < cap) return false
+    if (!dry) {
       const last = capAlerted.get(i.line)
       if (last === undefined || now - last >= HOUR) {
         capAlerted.set(i.line, now)
@@ -142,9 +139,14 @@ export async function processInbound(
     return true
   }
 
-  async function finish(outcome: Outcome, text: string | null, extra: { orderLinkId?: string; orderId?: string } = {}): Promise<InboundResult> {
-    // Every reply goes through here, so the overall cap cannot be bypassed. The order quote ("prompted") is never held back.
-    if (text && outcome !== "prompted" && (await replyCapReached())) {
+  async function finish(
+    outcome: Outcome,
+    text: string | null,
+    extra: { orderLinkId?: string; orderId?: string; transactional?: boolean } = {},
+  ): Promise<InboundResult> {
+    // Every reply goes through here, so the overall cap cannot be bypassed. The order quote ("prompted") and replies sent after
+    // an order already exists and its MoMo prompt has started (transactional) are never held back.
+    if (text && outcome !== "prompted" && !extra.transactional && (await replyCapReached())) {
       outcome = "limited"
       text = null
     }
@@ -351,7 +353,7 @@ export async function processInbound(
     const amount = response.amount
     if (typeof amount !== "number" || !Number.isFinite(amount)) {
       await alertOrder("order placed without a usable amount")
-      return await finish("unavailable", unavailableReply(offer.networkLabel, []))
+      return await finish("unavailable", unavailableReply(offer.networkLabel, []), { transactional: true })
     }
 
     let linked: { id: string } | "race" | "link_failed"
@@ -368,7 +370,7 @@ export async function processInbound(
       // Another text won the open-order slot. A prompt is already out for this row; if the customer approves both they pay
       // twice and both orders are fulfilled (see the runbook).
       await alertOrder("duplicate order left pending (open-order race)")
-      return await finish("open_order", openOrderReply())
+      return await finish("open_order", openOrderReply(), { transactional: true })
     }
     if (linked === "link_failed") {
       // The order and its prompt are real, so the quote is accurate: send it. There is no link row, so no follow-up SMS.
