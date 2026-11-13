@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { checkMTNOrderStatus, syncMTNOrderStatus } from "@/lib/mtn-fulfillment"
-import { classifyRecheck, redactPhoneNumbers, type RecheckVerdict } from "@/lib/stale-tracking-recheck"
+import { runStaleRecheck } from "@/lib/stale-tracking-recheck"
 
 /**
  * POST /api/admin/stale-tracking/recheck
@@ -19,7 +19,6 @@ export const maxDuration = 300
 const PROVIDERS = ["agentportalgh", "sykes"] as const
 const MIN_AGE_DAYS = 7
 const MAX_LIMIT = 40
-const DELAY_BETWEEN_REQUESTS_MS = 1000
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -62,7 +61,7 @@ export async function POST(request: NextRequest) {
   const cutoffIso = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
   let query = adminClient
     .from("mtn_fulfillment_tracking")
-    .select("id, mtn_order_id, provider, order_type, status, created_at")
+    .select("id, mtn_order_id, provider, order_type, status, created_at, order_id, shop_order_id, api_order_id")
     .in("provider", [...PROVIDERS])
     .in("status", ["pending", "processing"])
     .lt("created_at", cutoffIso)
@@ -77,50 +76,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to load stale rows" }, { status: 500 })
   }
 
-  const counts: Record<RecheckVerdict | "applied", number> = {
-    confirm_completed: 0,
-    confirm_failed: 0,
-    unresolved: 0,
-    applied: 0,
-  }
-  const report: {
-    id: string
-    provider: string
-    order_type: string | null
-    created_at: string
-    providerStatus: string | null
-    providerMessage: string | null
-    verdict: RecheckVerdict
-    applied: boolean
-  }[] = []
-
   const list = (rows as any[]) ?? []
-  for (let i = 0; i < list.length; i++) {
-    const row = list[i]
-    const result = await checkMTNOrderStatus(row.mtn_order_id, row.provider)
-    const verdict = classifyRecheck(result)
-    counts[verdict]++
 
-    let applied = false
-    if (apply && verdict === "confirm_completed") {
-      const synced = await syncMTNOrderStatus(row.id)
-      applied = synced.success && synced.newStatus === "completed"
-      if (applied) counts.applied++
-    }
-
-    report.push({
-      id: row.id,
-      provider: row.provider,
-      order_type: row.order_type ?? null,
-      created_at: row.created_at,
-      providerStatus: result.status ?? null,
-      providerMessage: redactPhoneNumbers(result.message ?? null),
-      verdict,
-      applied,
-    })
-
-    if (i < list.length - 1) await sleep(DELAY_BETWEEN_REQUESTS_MS)
+  // The linked order's current status, branched exactly like syncMTNOrderStatus's order-table mirror
+  // (USSD/USSD-shop ids live in order_id, so order_type is checked first).
+  const orderStatus = async (row: any): Promise<string | null> => {
+    let table: string | null = null
+    let col = "order_status"
+    let id: string | null = null
+    if (row.order_type === "bulk" && row.order_id) { table = "orders"; col = "status"; id = row.order_id }
+    else if (row.order_type === "api" && (row.api_order_id || row.order_id)) { table = "api_orders"; col = "status"; id = row.api_order_id || row.order_id }
+    else if (row.order_type === "ussd" && row.order_id) { table = "ussd_orders"; id = row.order_id }
+    else if (row.order_type === "ussd_shop" && row.order_id) { table = "ussd_shop_orders"; id = row.order_id }
+    else if (row.shop_order_id) { table = "shop_orders"; id = row.shop_order_id }
+    if (!table || !id) return null
+    const { data } = await adminClient.from(table).select(col).eq("id", id).maybeSingle()
+    return ((data as any)?.[col] as string | undefined) ?? null
   }
+
+  const { counts, rows: report } = await runStaleRecheck(list, { apply }, {
+    check: (row) => checkMTNOrderStatus(row.mtn_order_id, row.provider),
+    orderStatus,
+    sync: (trackingId) => syncMTNOrderStatus(trackingId),
+    sleep,
+  })
 
   if (apply) {
     adminClient

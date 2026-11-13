@@ -30,7 +30,7 @@
 ## Review Focus
 
 1. **A */5 cron hits the hourly slot exactly once an hour.** cron-job.org fires `*/5` crons at :00, :05 and so on, so the :00 run lands in minutes 0-4. Test: a :00 run gets the 7-day window and a :05 run gets 6 h.
-2. **A row aged 6 h to 7 d isn't polled for up to an hour.** This is accepted; the test pins the tier boundaries so nobody "fixes" it by accident.
+2. **A row aged 6 h to 7 d isn't polled for up to an hour.** This is accepted; the test pins the tier boundaries so nobody "fixes" it by accident. Caveat (final review): this holds only while the 7-day backlog is at most BATCH_SIZE (50); routes take the oldest rows first, so with a bigger backlog newer 6h-7d rows wait until it shrinks. Pre-existing behavior, not made worse here.
 3. **Clock skew or a late cron-job.org fire (:05:30 instead of :05:00)** stays a normal run, not a missed slot. The slot depends only on the minute value, so nothing breaks.
 4. **AFA rows can legitimately stay pending for days** while MTN approves them. They still get checked hourly (inside 7 d) and daily (older), never dropped. Test: the AFA route's select uses `syncWindowStartIso()`.
 5. **The daily sweep must still win at 03:00-03:04** even though that is also an hourly slot. Test: 03:00 returns the all-time start, not 7 days.

@@ -12,7 +12,9 @@
 // alone held ~120 open agentportalgh rows while only ~9 were from the last 6 hours. So there are now
 // three tiers: a normal run polls the last RECENT_WINDOW_HOURS; the hourly slot (minutes 00-04 UTC) polls
 // the full 7 days; the daily sweep still polls everything. Orders normally finish within minutes, so an
-// order older than 6 hours waits at most an hour for its next check.
+// order older than 6 hours is re-checked in the hourly slot - but only if it is among the oldest BATCH_SIZE
+// open rows in the window (every route takes the oldest rows first). With a bigger backlog the newer
+// 6h-7d rows are not reached until the backlog shrinks; that starvation predates this change.
 
 export const SYNC_WINDOW_DAYS = 7
 export const RECENT_WINDOW_HOURS = 6
