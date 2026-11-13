@@ -42,33 +42,48 @@ const NETWORK_OPTIONS: Record<string, { dbName: string; paystackProvider: 'mtn' 
   '4': { dbName: 'AT-BigTime', paystackProvider: 'tgo' },
 }
 
-export async function fetchBundles(
+/**
+ * The one price list behind the bundle menu and the SMS lane. `page` null = every package (no paging).
+ * `strict` false (the menu): a failed read lists nothing / shows role prices, because handleConfirm re-prices and
+ * refuses on failure. `strict` true (a lane that quotes a price in text): any failed read throws, so a price is never
+ * quoted from a fallback.
+ */
+async function loadBundles(
   network: string,
-  page: number,
+  page: number | null,
   priceTier: string,
-  parentShopId?: string,
-  userId?: string
+  parentShopId: string | undefined,
+  userId: string | undefined,
+  strict: boolean
 ): Promise<{ bundles: BundleOption[]; total: number }> {
   // Sub-agents see only packages their parent actively offers, at the parent's LIVE cost (role price + current
   // wholesale margin; the stored parent_price is not trusted). Priced and sorted in code, then paged.
   // Display: a read failure lists nothing; handleConfirm re-prices and refuses on failure.
   if (priceTier === 'sub_agent' && parentShopId) {
-    const all = await subAgentBundles(parentShopId, network, supabase).catch(() => [] as BundleOption[])
-    return { bundles: all.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE), total: all.length }
+    const pending = subAgentBundles(parentShopId, network, supabase)
+    const all = await (strict ? pending : pending.catch(() => [] as BundleOption[]))
+    return {
+      bundles: page === null ? all : all.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
+      total: all.length,
+    }
   }
 
   // Regular / dealer — query packages table directly
-  const { data, count } = await supabase
+  let query = supabase
     .from("packages")
     .select("id, size, price, dealer_price", { count: 'exact' })
     .eq("network", network)
     .eq("is_available", true)
     .order("price", { ascending: true })
     .order("id", { ascending: true })
-    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+  if (page !== null) query = query.range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+  const { data, count, error } = await query
+  if (strict && (error || !Array.isArray(data))) throw new Error("Could not read packages")
 
   // Display: a failed read shows role prices; handleConfirm re-prices and refuses on failure.
-  const custom = await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
+  const custom = strict
+    ? await getCustomPrices(supabase, userId)
+    : await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
   const bundles: BundleOption[] = (data ?? []).map((row: any) => ({
     id: row.id,
     size: row.size,
@@ -76,6 +91,26 @@ export async function fetchBundles(
   }))
 
   return { bundles, total: count ?? 0 }
+}
+
+export function fetchBundles(
+  network: string,
+  page: number,
+  priceTier: string,
+  parentShopId?: string,
+  userId?: string
+): Promise<{ bundles: BundleOption[]; total: number }> {
+  return loadBundles(network, page, priceTier, parentShopId, userId, false)
+}
+
+/** Every package of a network at the buyer's price (same query and pricing as fetchBundles), throwing when any read fails. */
+export async function fetchAllBundles(
+  network: string,
+  priceTier: string,
+  parentShopId?: string,
+  userId?: string
+): Promise<BundleOption[]> {
+  return (await loadBundles(network, null, priceTier, parentShopId, userId, true)).bundles
 }
 
 // ── SELECT_NETWORK ────────────────────────────────────────────────────────────
