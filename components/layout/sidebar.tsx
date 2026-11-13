@@ -644,6 +644,33 @@ export function Sidebar() {
                 </Button>
               </Link>
 
+              <Link href="/admin/text-to-buy" onClick={() => { markClicked("/admin/text-to-buy"); handleNavigation("/admin/text-to-buy") }}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "relative w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/text-to-buy" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/text-to-buy" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Text-to-Buy" : undefined}
+                  disabled={loadingPath === "/admin/text-to-buy"}
+                >
+                  {loadingPath === "/admin/text-to-buy" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <MessageSquare className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">Text-to-Buy</span>
+                      {isNew("/admin/text-to-buy") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/text-to-buy") && <NewTag compact />}
+                </Button>
+              </Link>
+
               <Link href="/admin/leaderboard" onClick={() => { markClicked("/admin/leaderboard"); handleNavigation("/admin/leaderboard") }}>
                 <Button
                   variant="ghost"
