@@ -34,6 +34,8 @@ export type FakeTtb = {
   rpcImpl: (name: string, args: Record<string, unknown>) => { data: unknown; error: DbError | null }
   /** Force the next write/read on this table to fail with this error. */
   failOn: Record<string, DbError | undefined>
+  /** Like failOn, but only for inserts (later reads on the table work normally). */
+  failInsert: Record<string, DbError | undefined>
 }
 
 export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; client: never } {
@@ -42,6 +44,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     rpcCalls: [],
     rpcImpl: () => ({ data: null, error: null }),
     failOn: {},
+    failInsert: {},
   }
   Object.assign(db.tables, seed)
 
@@ -67,23 +70,25 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
       for (const k of Object.keys(row)) col(table, k)
     }
 
-    function conflict(row: Row, ignore?: Row): boolean {
-      const others = rows().filter((r) => r !== ignore)
-      if (table === "ttb_messages" && row.dedupe_key != null && others.some((r) => r.dedupe_key === row.dedupe_key)) return true
+    /** The violated constraint's name (as Postgres puts it in the error message), or null. */
+    function conflict(row: Row): string | null {
+      const others = rows()
+      if (table === "ttb_messages" && row.dedupe_key != null && others.some((r) => r.dedupe_key === row.dedupe_key)) return "ttb_messages_dedupe_key_key"
       if (table === "ttb_orders") {
-        if (others.some((r) => r.order_id === row.order_id)) return true
+        if (others.some((r) => r.order_id === row.order_id)) return "ttb_orders_order_id_key"
         const open = (r: Row) => (r.state ?? "awaiting_payment") === "awaiting_payment"
-        if (open(row) && others.some((r) => open(r) && r.line === row.line && r.sender === row.sender)) return true
+        if (open(row) && others.some((r) => open(r) && r.line === row.line && r.sender === row.sender)) return "ttb_orders_one_open"
       }
       const pk = PRIMARY[table]
-      if (pk && others.some((r) => pk.every((k) => r[k] === row[k]))) return true
-      return false
+      if (pk && others.some((r) => pk.every((k) => r[k] === row[k]))) return `${table}_pkey`
+      return null
     }
 
     const run = (): { data: unknown; error: DbError | null } => {
       const forced = db.failOn[table]
       if (forced) return { data: null, error: forced }
       if (mode === "insert") {
+        if (db.failInsert[table]) return { data: null, error: db.failInsert[table]! }
         checkRow(payload!)
         const row: Row = { ...payload! }
         if ((table === "ttb_messages" || table === "ttb_orders") && row.id === undefined) row.id = crypto.randomUUID()
@@ -92,7 +97,8 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
             if (row[k] === undefined) row[k] = v
           }
         }
-        if (conflict(row)) return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } }
+        const violated = conflict(row)
+        if (violated) return { data: null, error: { code: "23505", message: `duplicate key value violates unique constraint "${violated}"` } }
         rows().push(row)
         return { data: returning ? { ...row } : null, error: null }
       }

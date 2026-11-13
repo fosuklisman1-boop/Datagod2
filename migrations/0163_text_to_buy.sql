@@ -22,7 +22,7 @@
 --   ttb_messages SELECT, INSERT, UPDATE (rows are removed only by ttb_purge)   ttb_orders SELECT, INSERT, UPDATE (never deleted)
 --   ttb_conversations, ttb_heartbeat SELECT, INSERT, UPDATE                    ttb_blocked SELECT, INSERT, UPDATE, DELETE
 --
--- Functions (SECURITY DEFINER, search_path = public, EXECUTE for service_role only), every table name schema-qualified:
+-- Functions (SECURITY DEFINER, search_path = public, pg_temp, EXECUTE for service_role only), every table name schema-qualified:
 --   ttb_counts(p_line, p_sender, p_since)  rows since p_since for one line and sender:
 --       prompts_unpaid  orders created since p_since that are awaiting_payment or have 'unpaid' in notices
 --       replies         outbound messages
@@ -77,7 +77,7 @@ CREATE INDEX IF NOT EXISTS ttb_messages_outcome_created_idx     ON public.ttb_me
 
 -- 2. Conversations.
 CREATE TABLE IF NOT EXISTS public.ttb_conversations (
-  line        text NOT NULL,
+  line        text NOT NULL CHECK (line IN ('main', 'shop')),
   sender      text NOT NULL,
   turns       jsonb NOT NULL DEFAULT '[]'::jsonb,
   pending     jsonb,
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS public.ttb_conversations (
 -- 3. Orders placed by text.
 CREATE TABLE IF NOT EXISTS public.ttb_orders (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  line         text NOT NULL,
+  line         text NOT NULL CHECK (line IN ('main', 'shop')),
   sender       text NOT NULL,
   service      text NOT NULL DEFAULT 'data',
   order_table  text NOT NULL DEFAULT 'ussd_orders',
@@ -118,9 +118,10 @@ CREATE TABLE IF NOT EXISTS public.ttb_blocked (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- 5. Forwarder heartbeat.
+-- 5. Forwarder heartbeat. Besides the two lines it holds the bookkeeping rows 'purge' and 'quiet_alert' (when the retention
+--    purge last ran and when the quiet-line alert last fired), which is why the check lists more than 'main' and 'shop'.
 CREATE TABLE IF NOT EXISTS public.ttb_heartbeat (
-  line         text PRIMARY KEY,
+  line         text PRIMARY KEY CHECK (line IN ('main', 'shop', 'purge', 'quiet_alert')),
   last_seen_at timestamptz NOT NULL
 );
 
@@ -149,7 +150,7 @@ RETURNS TABLE(prompts_unpaid int, replies int, ai_reads int, not_understood int)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $fn$
   SELECT
     (SELECT count(*)::int FROM public.ttb_orders o
@@ -168,7 +169,7 @@ RETURNS int
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $fn$
   SELECT count(*)::int FROM public.ttb_orders o WHERE o.created_at >= p_since
 $fn$;
@@ -178,7 +179,7 @@ RETURNS TABLE(line text, texts int, prompts int, paid int, delivered int, replie
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $fn$
   SELECT l.line,
     (SELECT count(*)::int FROM public.ttb_messages m WHERE m.line = l.line AND m.created_at >= p_from AND m.direction = 'in'),
@@ -196,7 +197,7 @@ CREATE OR REPLACE FUNCTION public.ttb_purge(p_before timestamptz)
 RETURNS int
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $fn$
 DECLARE
   v_msgs int;

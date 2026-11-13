@@ -189,19 +189,46 @@ describe("hasOpenOrder / linkOrder", () => {
     })
   })
 
-  it("linkOrder returns 'conflict' when the open-order index or the order id already exists", async () => {
+  it("linkOrder returns 'conflict' only when the open-order index is violated (another text won)", async () => {
     const { c } = mk()
     await linkOrder(c, o)
     expect(await linkOrder(c, { ...o, orderId: "6f0c1a9e-0163-4163-8163-0000000000a2" })).toBe("conflict") // same (line, sender) open
-    expect(await linkOrder(c, { ...o, sender: "0200000102" })).toBe("conflict") // same order id
   })
 
-  it("linkOrder returns 'conflict' on a raw 23505 and throws on any other error", async () => {
+  it("linkOrder returns alreadyLinked with the existing id when the order_id key is violated (a retry)", async () => {
     const { db, c } = mk()
-    db.failOn.ttb_orders = dup
+    const first = (await linkOrder(c, o)) as { id: string }
+    expect(await linkOrder(c, o)).toEqual({ id: first.id, alreadyLinked: true })
+    // a different sender with the same order id is the same case
+    expect(await linkOrder(c, { ...o, sender: "0200000102" })).toEqual({ id: first.id, alreadyLinked: true })
+    expect(db.tables.ttb_orders).toHaveLength(1)
+  })
+
+  it("linkOrder decides an unnamed 23505 by whether a row with that order_id exists", async () => {
+    const { db, c } = mk({ ttb_orders: [{ id: "existing-link", line: "main", sender: S, order_id: o.orderId, state: "paid" }] })
+    db.failInsert.ttb_orders = dup // no constraint name; the lookup afterwards reads normally
+    expect(await linkOrder(c, o)).toEqual({ id: "existing-link", alreadyLinked: true })
+  })
+
+  it("linkOrder: an unnamed 23505 with no row for that order_id is 'conflict'", async () => {
+    const { db, c } = mk()
+    db.failInsert.ttb_orders = dup
     expect(await linkOrder(c, o)).toBe("conflict")
+  })
+
+  it("linkOrder throws if the order_id violation's existing row cannot be found, and on any other error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_orders = { code: "23505", message: 'duplicate key value violates unique constraint "ttb_orders_order_id_key"' }
+    await expect(linkOrder(c, o)).rejects.toBeInstanceOf(TtbStoreError)
     db.failOn.ttb_orders = { code: "08006", message: "down" }
     await expect(linkOrder(c, o)).rejects.toBeInstanceOf(TtbStoreError)
+  })
+
+  it("linkOrder never puts the database error text in the thrown error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_orders = { code: "08006", message: `secret ${S}` }
+    const err = await linkOrder(c, o).catch((e) => e)
+    expect(String(err.message)).not.toContain(S)
   })
 })
 

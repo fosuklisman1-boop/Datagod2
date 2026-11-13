@@ -18,6 +18,10 @@ export class TtbStoreError extends Error {
 type DbError = { code?: string } | null | undefined
 const isUnique = (e: DbError) => e?.code === "23505"
 
+// Constraint names from migration 0163 (a PGlite test pins that they exist).
+const OPEN_INDEX = "ttb_orders_one_open"
+const ORDER_ID_KEY = "ttb_orders_order_id_key"
+
 const TWO_MINUTES_MS = 2 * 60_000
 const CONVERSATION_TTL_MS = 20 * 60_000
 const MAX_TURNS = 6
@@ -123,13 +127,18 @@ export async function hasOpenOrder(db: SupabaseClient, line: Line, sender: strin
 }
 
 /**
- * Links a placed order to its sender. "conflict" means the one-open-order index (or the order id) already holds a row:
- * a concurrent text won, and the caller closes the order it just placed.
+ * Links a placed order to its sender. Two different unique violations, two different results:
+ *  - "conflict": the one-open-order index (ttb_orders_one_open) holds a row, so a concurrent text won; the caller closes
+ *    the order it just placed.
+ *  - { id, alreadyLinked: true }: this order_id is already linked (ttb_orders_order_id_key), e.g. a retry after a timeout
+ *    whose first insert committed. The existing link stands and the caller must NOT fail the order.
+ * The constraint name is read from the error to decide, and never copied anywhere. If the error does not name it, a lookup
+ * of the order_id decides.
  */
 export async function linkOrder(
   db: SupabaseClient,
   o: { line: Line; sender: string; orderId: string; size: string; recipient: string; gift: boolean; amount: number },
-): Promise<{ id: string } | "conflict"> {
+): Promise<{ id: string } | { id: string; alreadyLinked: true } | "conflict"> {
   const { data, error } = await db
     .from("ttb_orders")
     .insert({
@@ -143,7 +152,17 @@ export async function linkOrder(
     })
     .select("id")
     .single()
-  if (isUnique(error)) return "conflict"
+  if (isUnique(error)) {
+    const text = `${(error as { message?: unknown }).message ?? ""} ${(error as { details?: unknown }).details ?? ""}`
+    const named = text.includes(OPEN_INDEX) ? "open" : text.includes(ORDER_ID_KEY) ? "order_id" : null
+    if (named === "open") return "conflict"
+    const existing = await db.from("ttb_orders").select("id").eq("order_id", o.orderId).maybeSingle()
+    if (existing.error) throw new TtbStoreError("could not look up an already-linked order")
+    const existingId = (existing.data as { id?: string } | null)?.id
+    if (existingId) return { id: existingId, alreadyLinked: true }
+    if (named === "order_id") throw new TtbStoreError("an already-linked order could not be found")
+    return "conflict"
+  }
   const id = (data as { id?: string } | null)?.id
   if (error || !id) throw new TtbStoreError("could not link an order")
   return { id }

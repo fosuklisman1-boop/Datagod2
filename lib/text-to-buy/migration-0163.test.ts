@@ -169,6 +169,40 @@ describe.skipIf(!PGliteCtor)("0163 in PGlite", () => {
     expect(await count("SELECT count(*) AS n FROM pg_constraint WHERE conrelid = 'public.ttb_orders'::regclass AND contype = 'f'")).toBe(0)
   })
 
+  it("has the constraint names store.ts matches on (so the string matching cannot rot silently)", async () => {
+    for (const name of ["ttb_orders_one_open", "ttb_orders_order_id_key"]) {
+      expect(await count("SELECT count(*) AS n FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1", [name])).toBe(1)
+    }
+    // and a real violation names them in the error message
+    const id = "6f0c1a9e-0163-4163-8163-0000000000b1"
+    const ins = (sender: string, orderId: string) =>
+      db.query(
+        `INSERT INTO public.ttb_orders (line, sender, order_id, size, recipient, gift, amount) VALUES ('shop', $1, $2, '1GB', 'r', false, 1)`,
+        [sender, orderId],
+      )
+    await ins("0200000130", id)
+    await expect(ins("0200000131", id)).rejects.toThrow(/ttb_orders_order_id_key/)
+    await expect(ins("0200000130", "6f0c1a9e-0163-4163-8163-0000000000b2")).rejects.toThrow(/ttb_orders_one_open/)
+  })
+
+  it("refuses a line outside the allowed set on orders, conversations and heartbeat", async () => {
+    await fails(
+      `INSERT INTO public.ttb_orders (line, sender, order_id, state, size, recipient, gift, amount) VALUES ('typo', $1, gen_random_uuid(), 'closed', '1GB', 'r', false, 1)`,
+      [SENDER],
+    )
+    await fails("INSERT INTO public.ttb_conversations (line, sender, expires_at) VALUES ('typo', $1, now())", [SENDER])
+    await fails("INSERT INTO public.ttb_heartbeat (line, last_seen_at) VALUES ('typo', now())")
+    for (const line of ["main", "shop", "purge", "quiet_alert"]) {
+      await db.query("INSERT INTO public.ttb_heartbeat (line, last_seen_at) VALUES ($1, now())", [line])
+    }
+  })
+
+  it("every ttb_ function pins search_path to public, pg_temp", async () => {
+    const r = await db.query("SELECT proname, proconfig FROM pg_proc WHERE proname LIKE 'ttb\\_%'")
+    expect(r.rows).toHaveLength(FUNCS.length)
+    for (const f of r.rows) expect(f.proconfig).toEqual(["search_path=public, pg_temp"])
+  })
+
   it("rejects a bad line, direction, state or reader", async () => {
     await fails("INSERT INTO public.ttb_messages (line, sender, direction, body) VALUES ('web', $1, 'in', 'x')", [SENDER])
     await fails("INSERT INTO public.ttb_messages (line, sender, direction, body) VALUES ('main', $1, 'sideways', 'x')", [SENDER])
