@@ -110,6 +110,13 @@ describe("GET overview", () => {
     })
     expect(body.overview.shop).toMatchObject({ enabled: false, lastHeardAt: null, today: { texts: 0, aiReads: 0, ruleReads: 0 } })
   })
+  it("includes both sender IDs in settings (shop empty by default, stored value returned)", async () => {
+    let body = await (await GET(req("GET"))).json()
+    expect(body.settings).toMatchObject({ replySenderId: "", shopReplySenderId: "" })
+    world([setting("ttb_reply_sender_id", "MainName"), setting("ttb_shop_reply_sender_id", "ShopName")])
+    body = await (await GET(req("GET"))).json()
+    expect(body.settings).toMatchObject({ replySenderId: "MainName", shopReplySenderId: "ShopName" })
+  })
   it("a failed settings read is flagged as defaulted, not hidden", async () => {
     fake.db.failOn.admin_settings = { message: "x" }
     const body = await (await GET(req("GET"))).json()
@@ -172,6 +179,29 @@ describe("PUT settings", () => {
     expect(JSON.stringify(settingsRows())).toBe(before)
     expect(notifyMock).not.toHaveBeenCalled()
     expect((await res.json()).settings.staleMinutes).toBe(15)
+  })
+  it("saves shopReplySenderId under ttb_shop_reply_sender_id as { value } and returns it", async () => {
+    const res = await PUT(req("PUT", { shopReplySenderId: "Shop Name 1" }))
+    expect(res.status).toBe(200)
+    expect(settingsRows().find((r) => r.key === "ttb_shop_reply_sender_id")).toMatchObject({ value: { value: "Shop Name 1" }, updated_by: ADMIN })
+    expect(notifyMock).toHaveBeenCalledWith({ kind: "setting_changed", keys: ["ttb_shop_reply_sender_id"] })
+    expect((await res.json()).settings.shopReplySenderId).toBe("Shop Name 1")
+  })
+  it("an invalid shopReplySenderId writes nothing and alerts nobody", async () => {
+    for (const v of ["ABCDEFGHIJKL", "Shop-1", "Shop.1", 5, null]) {
+      const res = await PUT(req("PUT", { shopReplySenderId: v }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe("invalid_shopReplySenderId")
+    }
+    expect(settingsRows()).toEqual([])
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+  it("an unchanged shopReplySenderId writes nothing and sends no alert", async () => {
+    world([setting("ttb_shop_reply_sender_id", "ShopName")])
+    const before = JSON.stringify(settingsRows())
+    expect((await PUT(req("PUT", { shopReplySenderId: "ShopName" }))).status).toBe(200)
+    expect(JSON.stringify(settingsRows())).toBe(before)
+    expect(notifyMock).not.toHaveBeenCalled()
   })
   it("an empty patch is a no-op", async () => {
     expect((await PUT(req("PUT", {}))).status).toBe(200)

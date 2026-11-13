@@ -37,6 +37,7 @@ export type Settings = {
   mainEnabled: boolean
   mainNumber: string
   replySenderId: string
+  shopReplySenderId: string
   aiEnabled: boolean
   staleMinutes: number
   promptsPerHour: number

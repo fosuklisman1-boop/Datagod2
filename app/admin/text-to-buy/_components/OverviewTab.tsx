@@ -109,7 +109,10 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
               <Switch checked={false} disabled aria-label="Shop line on or off (not available yet)" />
             </div>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">Coming in a later stage</CardContent>
+          <CardContent className="space-y-1 text-sm text-muted-foreground">
+            <p>Coming in a later stage</p>
+            <p>Reply sender ID: {data.settings.shopReplySenderId || "default"}</p>
+          </CardContent>
         </Card>
       </div>
 

@@ -42,6 +42,21 @@ describe("sendReply", () => {
     expect(send.mock.calls[1][0].senderId).toBe("DATAGOD")
   })
 
+  it("picks the sender ID from the line: shop uses shopReplySenderId, main uses replySenderId, never crossed", async () => {
+    const send = vi.fn().mockResolvedValue({ success: true })
+    const both = settings({ replySenderId: "MAINID", shopReplySenderId: "SHOPID" })
+    await sendReply(db, { ...base, line: "shop", settings: both }, { send })
+    expect(send.mock.calls[0][0].senderId).toBe("SHOPID")
+    await sendReply(db, { ...base, line: "main", settings: both }, { send })
+    expect(send.mock.calls[1][0].senderId).toBe("MAINID")
+    // An empty shop value is undefined, even when the main one is set.
+    await sendReply(db, { ...base, line: "shop", settings: settings({ replySenderId: "MAINID", shopReplySenderId: "" }) }, { send })
+    expect(send.mock.calls[2][0].senderId).toBeUndefined()
+    // An empty main value is undefined, even when the shop one is set.
+    await sendReply(db, { ...base, line: "main", settings: settings({ replySenderId: "", shopReplySenderId: "SHOPID" }) }, { send })
+    expect(send.mock.calls[3][0].senderId).toBeUndefined()
+  })
+
   it("refuses a two-segment body: nothing sent, nothing stored", async () => {
     const send = vi.fn().mockResolvedValue({ success: true })
     const r = await sendReply(db, { ...base, body: "a".repeat(161), settings: settings() }, { send })

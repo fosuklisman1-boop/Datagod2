@@ -26,7 +26,7 @@ const rows = (o: Record<string, unknown>) => ({
 describe("TTB_DEFAULTS", () => {
   it("is off, with the seeded limits", () => {
     expect(TTB_DEFAULTS).toEqual({
-      mainEnabled: false, mainNumber: "", replySenderId: "", aiEnabled: true, staleMinutes: 10, promptsPerHour: 3,
+      mainEnabled: false, mainNumber: "", replySenderId: "", shopReplySenderId: "", aiEnabled: true, staleMinutes: 10, promptsPerHour: 3,
       repliesPerHour: 6, aiReadsPerHour: 10, globalPromptsPerMinute: 30, promptWindowMinutes: 5, quietAlertMinutes: 60,
       retentionDays: 30, source: "defaults",
     })
@@ -57,12 +57,12 @@ describe("loadTtbSettings", () => {
 
   it("reads every stored value", async () => {
     const s = await loadTtbSettings(client(rows({
-      ttb_main_enabled: true, ttb_main_number: "0200000100", ttb_reply_sender_id: "Datagod", ttb_ai_enabled: false,
+      ttb_main_enabled: true, ttb_main_number: "0200000100", ttb_reply_sender_id: "Datagod", ttb_shop_reply_sender_id: "DatagodShop", ttb_ai_enabled: false,
       ttb_stale_minutes: 15, ttb_prompts_per_hour: 4, ttb_replies_per_hour: 8, ttb_ai_reads_per_hour: 12,
       ttb_global_prompts_per_minute: 40, ttb_prompt_window_minutes: 7, ttb_quiet_alert_minutes: 90, ttb_retention_days: 14,
     })))
     expect(s).toEqual({
-      mainEnabled: true, mainNumber: "0200000100", replySenderId: "Datagod", aiEnabled: false, staleMinutes: 15,
+      mainEnabled: true, mainNumber: "0200000100", replySenderId: "Datagod", shopReplySenderId: "DatagodShop", aiEnabled: false, staleMinutes: 15,
       promptsPerHour: 4, repliesPerHour: 8, aiReadsPerHour: 12, globalPromptsPerMinute: 40, promptWindowMinutes: 7,
       quietAlertMinutes: 90, retentionDays: 14, source: "db",
     })
@@ -92,13 +92,19 @@ describe("loadTtbSettings", () => {
 
   it("exports one key table covering every setting field", () => {
     expect(Object.keys(TTB_SETTING_KEYS).sort()).toEqual(Object.keys(TTB_DEFAULTS).filter((k) => k !== "source").sort())
-    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(12)
+    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(13)
+    expect(TTB_SETTING_KEYS.shopReplySenderId).toBe("ttb_shop_reply_sender_id")
     expect(TTB_SETTING_KEYS.mainEnabled).toBe("ttb_main_enabled")
   })
 
   it("keeps the default for the text settings and ai flag when the stored type is wrong", async () => {
-    const s = await loadTtbSettings(client(rows({ ttb_main_number: 5, ttb_reply_sender_id: null, ttb_ai_enabled: "no" })))
-    expect(s).toMatchObject({ mainNumber: "", replySenderId: "", aiEnabled: true })
+    const s = await loadTtbSettings(client(rows({ ttb_main_number: 5, ttb_reply_sender_id: null, ttb_shop_reply_sender_id: 7, ttb_ai_enabled: "no" })))
+    expect(s).toMatchObject({ mainNumber: "", replySenderId: "", shopReplySenderId: "", aiEnabled: true })
+  })
+
+  it("shopReplySenderId is empty when its row is missing and read when stored", async () => {
+    expect((await loadTtbSettings(client(rows({ ttb_reply_sender_id: "Main" })))).shopReplySenderId).toBe("")
+    expect((await loadTtbSettings(client(rows({ ttb_shop_reply_sender_id: "ShopName" })))).shopReplySenderId).toBe("ShopName")
   })
 
   it("ignores a row whose value is not an object", async () => {

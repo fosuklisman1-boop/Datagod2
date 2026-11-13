@@ -10,8 +10,8 @@ import { Switch } from "@/components/ui/switch"
 import { adminFetch, ApiError, TTB_API, type Settings } from "./api"
 import { FIELD_LABELS, ttbErrorMessage } from "./format"
 
-type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "replySenderId" | "aiEnabled">
-type Form = { mainNumber: string; replySenderId: string; aiEnabled: boolean } & Record<IntField, string>
+type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled">
+type Form = { mainNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean } & Record<IntField, string>
 
 // Ranges mirror lib/text-to-buy/admin-validate.ts. The server is the authority; these are helper text.
 const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] = [
@@ -25,9 +25,13 @@ const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] 
   { field: "retentionDays", min: 1, max: 90, hint: "Message text is deleted after this many days." },
 ]
 
-const toForm = (s: Settings): Form => ({
+const SENDER_ID_HINT =
+  "The name or number customers see replies come from. Up to 11 letters, digits or spaces. Must be approved with the SMS provider first. Leave empty to use the platform default."
+
+const toForm =(s: Settings): Form => ({
   mainNumber: s.mainNumber,
   replySenderId: s.replySenderId,
+  shopReplySenderId: s.shopReplySenderId,
   aiEnabled: s.aiEnabled,
   staleMinutes: String(s.staleMinutes),
   promptsPerHour: String(s.promptsPerHour),
@@ -66,6 +70,7 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
     const body: Record<string, unknown> = {}
     if (f.mainNumber !== saved.mainNumber) body.mainNumber = f.mainNumber
     if (f.replySenderId !== saved.replySenderId) body.replySenderId = f.replySenderId
+    if (f.shopReplySenderId !== saved.shopReplySenderId) body.shopReplySenderId = f.shopReplySenderId
     if (f.aiEnabled !== saved.aiEnabled) body.aiEnabled = f.aiEnabled
     for (const { field } of INT_FIELDS) if (f[field] !== saved[field]) body[field] = num(f[field])
     try {
@@ -106,12 +111,14 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
               <p className="text-[11px] text-muted-foreground">A Ghana mobile number, or empty. The number customers text.</p>
               {fieldErr("mainNumber")}
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium" htmlFor="ttb-replySenderId">{FIELD_LABELS.replySenderId}</label>
-              <Input id="ttb-replySenderId" value={f.replySenderId} maxLength={11} onChange={(e) => patch({ replySenderId: e.target.value })} aria-invalid={errField === "replySenderId"} />
-              <p className="text-[11px] text-muted-foreground">Up to 11 letters, digits or spaces, or empty.</p>
-              {fieldErr("replySenderId")}
-            </div>
+            {(["replySenderId", "shopReplySenderId"] as const).map((field) => (
+              <div key={field} className="space-y-1">
+                <label className="text-xs font-medium" htmlFor={`ttb-${field}`}>{FIELD_LABELS[field]}</label>
+                <Input id={`ttb-${field}`} value={f[field]} maxLength={11} onChange={(e) => patch({ [field]: e.target.value } as Partial<Form>)} aria-invalid={errField === field} />
+                <p className="text-[11px] text-muted-foreground">{SENDER_ID_HINT}</p>
+                {fieldErr(field)}
+              </div>
+            ))}
 
             <div className="flex items-start justify-between gap-3 lg:col-span-2">
               <div>

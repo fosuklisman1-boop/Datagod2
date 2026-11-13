@@ -9,6 +9,8 @@ export type TtbSettings = {
   mainEnabled: boolean
   mainNumber: string
   replySenderId: string
+  /** Sender ID for replies on the shop line. Empty means the platform default. */
+  shopReplySenderId: string
   aiEnabled: boolean
   staleMinutes: number
   promptsPerHour: number
@@ -29,6 +31,7 @@ export const TTB_SETTING_KEYS = {
   mainEnabled: "ttb_main_enabled",
   mainNumber: "ttb_main_number",
   replySenderId: "ttb_reply_sender_id",
+  shopReplySenderId: "ttb_shop_reply_sender_id",
   aiEnabled: "ttb_ai_enabled",
   staleMinutes: "ttb_stale_minutes",
   promptsPerHour: "ttb_prompts_per_hour",
@@ -48,6 +51,7 @@ export const TTB_DEFAULTS: TtbSettings = {
   mainEnabled: false,
   mainNumber: "",
   replySenderId: "",
+  shopReplySenderId: "",
   aiEnabled: true,
   staleMinutes: 10,
   promptsPerHour: 3,
@@ -85,6 +89,7 @@ export async function loadTtbSettings(db: SupabaseClient): Promise<TtbSettings> 
       mainEnabled: raw.ttb_main_enabled === true,
       mainNumber: text(raw.ttb_main_number, d.mainNumber),
       replySenderId: text(raw.ttb_reply_sender_id, d.replySenderId),
+      shopReplySenderId: text(raw.ttb_shop_reply_sender_id, d.shopReplySenderId),
       aiEnabled: typeof raw.ttb_ai_enabled === "boolean" ? raw.ttb_ai_enabled : d.aiEnabled,
       staleMinutes: limit(raw.ttb_stale_minutes, d.staleMinutes, 1),
       promptsPerHour: limit(raw.ttb_prompts_per_hour, d.promptsPerHour),

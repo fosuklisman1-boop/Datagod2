@@ -39,7 +39,7 @@ export async function sendReply(
       phone: r.sender,
       message: r.body,
       type: "text_to_buy_reply",
-      senderId: r.settings.replySenderId || undefined,
+      senderId: (r.line === "shop" ? r.settings.shopReplySenderId : r.settings.replySenderId) || undefined,
       skipLogging: true,
     })
     if (res?.skipped) return { sent: false, skipped: true }

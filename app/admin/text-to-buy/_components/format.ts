@@ -130,7 +130,8 @@ export function ttbErrorMessage(code: string | undefined | null): string {
 export const FIELD_LABELS: Record<string, string> = {
   mainEnabled: "Text-to-Buy enabled",
   mainNumber: "Main number",
-  replySenderId: "Reply sender ID",
+  replySenderId: "Main line reply sender ID",
+  shopReplySenderId: "Shop line reply sender ID",
   aiEnabled: "AI reading enabled",
   staleMinutes: "Stale order minutes",
   promptsPerHour: "Prompts per hour per phone",

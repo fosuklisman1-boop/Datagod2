@@ -90,6 +90,19 @@ describe("validateTtbSettings: replySenderId", () => {
   })
 })
 
+describe("validateTtbSettings: shopReplySenderId", () => {
+  it("accepts empty, 11 chars, digits-only numbers and spaces", () => {
+    for (const v of ["", "A", "Shop Name 1", "0200000101", "ABCDEFGHIJK"]) {
+      expect(ok({ shopReplySenderId: v })).toEqual({ ttb_shop_reply_sender_id: v })
+    }
+  })
+  it("rejects 12 chars, punctuation and non-strings", () => {
+    for (const v of ["ABCDEFGHIJKL", "Data-God", "Data.God", "Daté", "<b>", null, 5, undefined]) {
+      expect(bad({ shopReplySenderId: v })).toBe("invalid_shopReplySenderId")
+    }
+  })
+})
+
 describe("validateTtbSettings: whole patch or nothing", () => {
   it("one bad field fails the lot", () => {
     expect(bad({ staleMinutes: 15, promptsPerHour: 99 })).toBe("invalid_promptsPerHour")

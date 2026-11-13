@@ -11,6 +11,7 @@ const RULES: Record<TtbSettingField, Rule> = {
   mainEnabled: { kind: "bool" },
   mainNumber: { kind: "phone" },
   replySenderId: { kind: "senderId" },
+  shopReplySenderId: { kind: "senderId" },
   aiEnabled: { kind: "bool" },
   staleMinutes: { kind: "int", min: 1, max: 120 },
   promptsPerHour: { kind: "int", min: 1, max: 20 },
