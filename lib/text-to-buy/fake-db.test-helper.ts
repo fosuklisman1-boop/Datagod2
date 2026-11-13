@@ -20,6 +20,7 @@ export const RPC_ARGS: Record<string, string[]> = {
   ttb_global_prompts: ["p_since"],
   ttb_overview: ["p_from"],
   ttb_purge: ["p_before"],
+  ttb_add_notice: ["p_id", "p_key"],
 }
 
 const PRIMARY: Record<string, string[]> = {
@@ -188,6 +189,15 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
       for (const k of Object.keys(args)) if (!allowed.includes(k)) throw new Error(`fake: unknown argument ${name}(${k})`)
       for (const k of allowed) if (!(k in args)) throw new Error(`fake: missing argument ${name}(${k})`)
       db.rpcCalls.push({ name, args })
+      // ttb_add_notice is implemented faithfully (array_append guarded by NOT (key = ANY(notices))); the others use rpcImpl.
+      if (name === "ttb_add_notice") {
+        if (db.failOn.ttb_orders) return Promise.resolve({ data: null, error: db.failOn.ttb_orders })
+        const row = db.tables.ttb_orders.find((r) => r.id === args.p_id)
+        const notices = row && Array.isArray(row.notices) ? (row.notices as unknown[]) : null
+        if (!row || !notices || notices.includes(args.p_key)) return Promise.resolve({ data: false, error: null })
+        row.notices = [...notices, args.p_key]
+        return Promise.resolve({ data: true, error: null })
+      }
       return Promise.resolve(db.rpcImpl(name, args))
     },
   }

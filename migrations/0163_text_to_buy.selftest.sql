@@ -22,7 +22,8 @@ DO $selftest$
 DECLARE
   v_tables CONSTANT text[] := ARRAY['ttb_messages','ttb_conversations','ttb_orders','ttb_blocked','ttb_heartbeat'];
   v_funcs  CONSTANT text[] := ARRAY['public.ttb_counts(text,text,timestamptz)','public.ttb_global_prompts(timestamptz)',
-                                    'public.ttb_overview(timestamptz)','public.ttb_purge(timestamptz)'];
+                                    'public.ttb_overview(timestamptz)','public.ttb_purge(timestamptz)',
+                                    'public.ttb_add_notice(uuid,text)'];
   v_t      text;
   v_p      text;
   v_bad    text;

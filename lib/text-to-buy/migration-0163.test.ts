@@ -79,6 +79,7 @@ const FUNCS = [
   "public.ttb_global_prompts(timestamptz)",
   "public.ttb_overview(timestamptz)",
   "public.ttb_purge(timestamptz)",
+  "public.ttb_add_notice(uuid,text)",
 ]
 const SENDER = "0200000101"
 const OTHER = "0200000102"
@@ -298,6 +299,17 @@ describe.skipIf(!PGliteCtor)("0163 in PGlite", () => {
         ["main", 0, 0, 0, 0, 0, 0, 0],
         ["shop", 0, 0, 0, 0, 0, 0, 0],
       ])
+    })
+
+    it("ttb_add_notice appends atomically: different keys are both kept, the same key is true then false, a missing id is false", async () => {
+      await order("main", "0200000130", { state: "paid" })
+      const id = (await one("SELECT id FROM public.ttb_orders WHERE sender = '0200000130'")).id
+      const add = async (k: string) => (await one("SELECT public.ttb_add_notice($1::uuid, $2) AS ok", [id, k])).ok
+      expect(await add("repriced")).toBe(true)
+      expect(await add("unpaid")).toBe(true)
+      expect(await add("unpaid")).toBe(false)
+      expect((await one("SELECT notices FROM public.ttb_orders WHERE id = $1", [id])).notices).toEqual(["repriced", "unpaid"])
+      expect((await one("SELECT public.ttb_add_notice(gen_random_uuid(), 'x') AS ok")).ok).toBe(false)
     })
 
     it("ttb_purge deletes old messages and expired conversations, never orders", async () => {

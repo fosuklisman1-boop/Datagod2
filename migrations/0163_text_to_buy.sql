@@ -39,6 +39,8 @@
 --       rule_reads  inbound messages with read_by = 'rules'
 --   ttb_purge(p_before)                    deletes ttb_messages created before p_before and ttb_conversations that expired
 --                                          before p_before; returns the number of rows deleted. Never touches ttb_orders.
+--   ttb_add_notice(p_id, p_key)            appends p_key to ttb_orders.notices unless it is already there; true when this
+--                                          call added it, false otherwise (a repeat or an unknown id).
 --
 -- PRE-CHECKS (each must return the stated value before applying):
 --   SELECT to_regclass('public.ttb_messages'), to_regclass('public.ttb_conversations'), to_regclass('public.ttb_orders'),
@@ -213,15 +215,36 @@ BEGIN
 END
 $fn$;
 
+-- Records one follow-up notice atomically: true only when THIS call added the key. Two overlapping cron runs cannot both win,
+-- and adding a different key never loses an earlier one (array_append happens inside the UPDATE, not in the client).
+CREATE OR REPLACE FUNCTION public.ttb_add_notice(p_id uuid, p_key text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $fn$
+DECLARE
+  v_hit boolean;
+BEGIN
+  UPDATE public.ttb_orders o
+     SET notices = array_append(o.notices, p_key)
+   WHERE o.id = p_id AND NOT (p_key = ANY (o.notices))
+  RETURNING true INTO v_hit;
+  RETURN COALESCE(v_hit, false);
+END
+$fn$;
+
 -- 8. EXECUTE: service_role only.
 REVOKE ALL ON FUNCTION public.ttb_counts(text, text, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.ttb_global_prompts(timestamptz)     FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.ttb_overview(timestamptz)           FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.ttb_purge(timestamptz)              FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.ttb_add_notice(uuid, text)          FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.ttb_counts(text, text, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.ttb_global_prompts(timestamptz)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.ttb_overview(timestamptz)           TO service_role;
 GRANT EXECUTE ON FUNCTION public.ttb_purge(timestamptz)              TO service_role;
+GRANT EXECUTE ON FUNCTION public.ttb_add_notice(uuid, text)          TO service_role;
 
 -- 9. Default settings (value JSONB as {"value": x}). A re-run never overwrites an admin's change.
 INSERT INTO public.admin_settings (key, value, description) VALUES
@@ -247,4 +270,4 @@ COMMIT;
 --   SELECT count(*) FROM pg_policies WHERE tablename LIKE 'ttb\_%';                                        -- 0
 --   SELECT key, value FROM admin_settings WHERE key LIKE 'ttb\_%' ORDER BY key;                            -- 12 rows; ttb_main_enabled = {"value": false}
 --   SELECT p.proname, has_function_privilege('anon', p.oid, 'EXECUTE'), has_function_privilege('authenticated', p.oid, 'EXECUTE'),
---          has_function_privilege('service_role', p.oid, 'EXECUTE') FROM pg_proc p WHERE p.proname LIKE 'ttb\_%';   -- 4 rows: false, false, true
+--          has_function_privilege('service_role', p.oid, 'EXECUTE') FROM pg_proc p WHERE p.proname LIKE 'ttb\_%';   -- 5 rows: false, false, true

@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const active = result.unpaid + result.repriced + result.delivered + result.delayed + result.closed + result.recovered + result.purged
     if (active > 0 || result.quietAlert) {
       console.log(
-        `[CRON-TTB-NOTIFY] checked=${result.checked} unpaid=${result.unpaid} repriced=${result.repriced} delivered=${result.delivered} delayed=${result.delayed} closed=${result.closed} recovered=${result.recovered} purged=${result.purged} quietAlert=${result.quietAlert}`,
+        `[CRON-TTB-NOTIFY] checked=${result.checked} unpaid=${result.unpaid} repriced=${result.repriced} delivered=${result.delivered} delayed=${result.delayed} skipped=${result.skipped} closed=${result.closed} recovered=${result.recovered} purged=${result.purged} quietAlert=${result.quietAlert}`,
       )
     }
     return NextResponse.json(result)

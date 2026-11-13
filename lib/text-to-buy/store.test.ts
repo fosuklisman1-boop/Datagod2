@@ -492,6 +492,14 @@ describe("notifier reads and writes", () => {
     expect(db.tables.ttb_orders[0].notices).toEqual(["repriced", "unpaid"])
   })
 
+  it("addNotice goes through the ttb_add_notice RPC and throws TtbStoreError on error", async () => {
+    const { db, c } = mk({ ttb_orders: [link({ id: "x" })] })
+    expect(await addNotice(c, "x", [], "unpaid")).toBe(true)
+    expect(db.rpcCalls).toEqual([{ name: "ttb_add_notice", args: { p_id: "x", p_key: "unpaid" } }])
+    db.failOn.ttb_orders = { message: "down" }
+    await expect(addNotice(c, "x", [], "delivered")).rejects.toBeInstanceOf(TtbStoreError)
+  })
+
   it("patchLink updates only a row still in one of the allowed states", async () => {
     const { db, c } = mk({ ttb_orders: [link({ id: "x" })] })
     expect(await patchLink(c, "x", { state: "paid", paid_at: now.toISOString() }, ["closed"])).toBe(false)

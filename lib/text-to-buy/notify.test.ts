@@ -47,9 +47,15 @@ describe("classifyOrder (the real ussd_orders vocabulary)", () => {
     for (const o of ["pending", "processing", "held_registration", "something_new"]) expect(k("completed", o)).toBe("paid")
   })
   it("delivered", () => expect(k("completed", "completed")).toBe("delivered"))
-  it("paid but delivery failed, reversed or refunded", () => {
-    for (const o of ["failed", "reversed", "refunded", "refunding"]) expect(k("completed", o)).toBe("delivery_failed")
-    expect(k("refunded", "refunded")).toBe("delivery_failed")
+  it("paid but delivery failed or reversed", () => {
+    for (const o of ["failed", "reversed"]) expect(k("completed", o)).toBe("delivery_failed")
+  })
+  it("refunded or refunding is its own kind, checked before delivery_failed", () => {
+    expect(k("completed", "refunding")).toBe("refunded")
+    expect(k("completed", "refunded")).toBe("refunded")
+    expect(k("refunded", "refunded")).toBe("refunded")
+    expect(k("refunded", "failed")).toBe("refunded")
+    expect(k("refunded", "pending")).toBe("refunded")
   })
   it("any unknown value is still processing, never a failure notice", () => {
     expect(k("weird", "pending")).toBe("waiting")
@@ -191,7 +197,80 @@ describe("paid", () => {
   })
 })
 
+describe("paid orders never get an unpaid notice", () => {
+  it("past the prompt window, order paid and still in progress: no SMS, link becomes paid with paid_at", async () => {
+    const t = setup([link({ created_at: iso(-6 * MIN) })], [order({ payment_status: "completed", order_status: "processing" })])
+    const r = await t.run()
+    expect(t.reply).not.toHaveBeenCalled()
+    expect(t.f.db.tables.ttb_orders[0]).toMatchObject({ state: "paid", paid_at: now.toISOString(), notices: [] })
+    expect(r.unpaid).toBe(0)
+  })
+  it("mirror: same age, order still pending: exactly one unpaid SMS", async () => {
+    const t = setup([link({ created_at: iso(-6 * MIN) })], [order()])
+    await t.run()
+    expect(bodies(t.reply)).toEqual([unpaidReply("1GB")])
+  })
+})
+
+describe("refunded orders", () => {
+  for (const [label, notices] of [["no prior delay notice", []], ["after a delay notice", ["paid_not_delivered"]]] as const) {
+    for (const [pay, ord] of [["completed", "refunding"], ["completed", "refunded"], ["refunded", "refunded"]] as const) {
+      it(`${pay}/${ord}, ${label}: no SMS, paid_at set, link closed`, async () => {
+        const t = setup([link({ state: "paid", paid_at: null, notices: [...notices] })], [order({ payment_status: pay, order_status: ord })])
+        const r = await t.run()
+        expect(t.reply).not.toHaveBeenCalled()
+        expect(t.f.db.tables.ttb_orders[0]).toMatchObject({ state: "closed", paid_at: now.toISOString(), closed_at: now.toISOString(), notices })
+        expect(r).toMatchObject({ closed: 1, delayed: 0 })
+      })
+    }
+  }
+  it("an awaiting link whose order is refunded keeps an earlier paid_at and sends nothing", async () => {
+    const t = setup([link({ created_at: iso(-20 * MIN), paid_at: iso(-10 * MIN) })], [order({ payment_status: "completed", order_status: "refunded" })])
+    await t.run()
+    expect(t.reply).not.toHaveBeenCalled()
+    expect(t.f.db.tables.ttb_orders[0]).toMatchObject({ state: "closed", paid_at: iso(-10 * MIN) })
+  })
+})
+
+describe("counting real sends", () => {
+  it("a skipped send (SMS off globally) records the notice, counts skipped, not unpaid", async () => {
+    // A global SMS-off period drops follow-up notices: the notice stays recorded and is not retried.
+    const t = setup([link({ created_at: iso(-6 * MIN) })], [order()])
+    t.reply.mockResolvedValue({ sent: false, skipped: true } as never)
+    const r = await t.run()
+    expect(t.f.db.tables.ttb_orders[0].notices).toEqual(["unpaid"])
+    expect(r).toMatchObject({ unpaid: 0, skipped: 1 })
+  })
+  it("a failed send (not skipped) counts as neither", async () => {
+    const t = setup([link({ created_at: iso(-6 * MIN) })], [order()])
+    t.reply.mockResolvedValue({ sent: false } as never)
+    expect(await t.run()).toMatchObject({ unpaid: 0, skipped: 0 })
+  })
+  it("delivered, delayed and repriced count only on sent", async () => {
+    const a = setup([link({ gift: true, recipient: "0200000150", state: "paid", paid_at: iso(-5 * MIN) })], [order({ payment_status: "completed", order_status: "completed" })])
+    a.reply.mockResolvedValue({ sent: false, skipped: true } as never)
+    expect(await a.run()).toMatchObject({ delivered: 0, skipped: 1 })
+    const b = setup([link({ state: "paid", paid_at: iso(-2 * MIN) })], [order({ payment_status: "completed", order_status: "failed" })])
+    b.reply.mockResolvedValue({ sent: false, skipped: true } as never)
+    expect(await b.run()).toMatchObject({ delayed: 0, skipped: 1 })
+    const c = setup([link()], [order({ amount: 5.5 })])
+    c.reply.mockResolvedValue({ sent: false, skipped: true } as never)
+    expect(await c.run()).toMatchObject({ repriced: 0, skipped: 1 })
+  })
+})
+
 describe("missing order and repricing", () => {
+  it("a repriced notice already sent does not hold back the unpaid notice later", async () => {
+    const t = setup([link({ created_at: iso(-6 * MIN), notices: ["repriced"] })], [order({ amount: 5.5 })])
+    await t.run()
+    expect(bodies(t.reply)).toEqual([unpaidReply("1GB")])
+  })
+  it("no repriced notice once the prompt has expired (30 minutes); the unpaid notice goes out instead", async () => {
+    const t = setup([link({ created_at: iso(-31 * MIN) })], [order({ amount: 5.5 })])
+    await t.run()
+    expect(bodies(t.reply)).toEqual([unpaidReply("1GB")])
+    expect(t.f.db.tables.ttb_orders[0].notices).toEqual(["unpaid"])
+  })
   it("ussd_orders row missing: link closed", async () => {
     const t = setup([link()], [])
     const r = await t.run()
@@ -227,6 +306,13 @@ describe("recovery sweep", () => {
     expect(id).toBe("m1")
     expect(input).toEqual({ line: "main", from: S, text: "1GB", receivedAt: new Date(iso(-5 * MIN)), now })
     expect(settings).toBe(on)
+    expect(r.recovered).toBe(1)
+  })
+  it("recovered counts only rows processInbound actually handled, not a lost claim", async () => {
+    const t = setup([], [], { ttb_messages: [msg("a", 6 * MIN), msg("b", 5 * MIN)] })
+    t.processInbound.mockResolvedValueOnce({ outcome: "duplicate", readBy: null, reply: null } as never)
+    const r = await t.run()
+    expect(t.processInbound).toHaveBeenCalledTimes(2)
     expect(r.recovered).toBe(1)
   })
   it("skips fresh rows, finished rows, outbound rows and rows older than 15 minutes", async () => {

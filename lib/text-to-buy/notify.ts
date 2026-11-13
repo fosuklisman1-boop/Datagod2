@@ -23,6 +23,8 @@ export type NotifyResult = {
   repriced: number
   delivered: number
   delayed: number
+  /** Notices recorded but not sent because SMS is switched off globally (sendReply skipped). Not retried. */
+  skipped: number
   closed: number
   recovered: number
   purged: number
@@ -46,7 +48,7 @@ const ALERT_EVERY_MS = 6 * HOUR
 const ACCRA_OPEN_HOUR = 7 // Africa/Accra is UTC+0 all year: alert only 07:00..21:59
 const ACCRA_CLOSE_HOUR = 22
 
-export type OrderKind = "waiting" | "payment_failed" | "paid" | "delivered" | "delivery_failed"
+export type OrderKind = "waiting" | "payment_failed" | "paid" | "delivered" | "delivery_failed" | "refunded"
 
 /*
  * ussd_orders status vocabulary, read from the writers (lib/ussd/handlers/bundles.ts, lib/ussd/fulfill.ts,
@@ -58,7 +60,8 @@ export type OrderKind = "waiting" | "payment_failed" | "paid" | "delivered" | "d
  */
 const PAYMENT_WAITING = new Set(["pending", "otp_required"])
 const PAYMENT_FAILED = new Set(["failed", "expired", "abandoned", "cancelled"])
-const ORDER_DELIVERY_FAILED = new Set(["failed", "reversed", "refunded", "refunding"])
+const ORDER_DELIVERY_FAILED = new Set(["failed", "reversed"])
+const ORDER_REFUNDED = new Set(["refunding", "refunded"])
 const ORDER_NEVER_STARTED = new Set(["failed", "expired", "cancelled"]) // with an unpaid payment: it will not be paid
 
 /** The one place the order's two status columns become a notice decision. */
@@ -66,8 +69,8 @@ export function classifyOrder(row: { paymentStatus: string; orderStatus: string 
   const pay = row.paymentStatus.trim().toLowerCase()
   const ord = row.orderStatus.trim().toLowerCase()
   if (ord === "completed") return "delivered"
+  if (pay === "refunded" || ORDER_REFUNDED.has(ord)) return "refunded" // money is back or on its way: never "delayed, no need to pay again"
   if (pay === "completed") return ORDER_DELIVERY_FAILED.has(ord) ? "delivery_failed" : "paid"
-  if (pay === "refunded") return "delivery_failed"
   if (PAYMENT_FAILED.has(pay)) return "payment_failed"
   if (PAYMENT_WAITING.has(pay) && ORDER_NEVER_STARTED.has(ord)) return "payment_failed"
   return "waiting"
@@ -88,19 +91,26 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
   const inbound = deps.processInbound ?? processInbound
   const nowMs = now.getTime()
   const nowIso = now.toISOString()
-  const result: NotifyResult = { checked: 0, unpaid: 0, repriced: 0, delivered: 0, delayed: 0, closed: 0, recovered: 0, purged: 0, quietAlert: false }
+  const result: NotifyResult = {
+    checked: 0, unpaid: 0, repriced: 0, delivered: 0, delayed: 0, skipped: 0, closed: 0, recovered: 0, purged: 0, quietAlert: false,
+  }
 
-  /** Records the notice, THEN sends. False when another run already recorded it. A failed send is never retried. */
+  /**
+   * Records the notice, THEN sends. Returns true only when the SMS was actually sent (the caller counts it). Not recorded by this
+   * call (another run won) or send failed: false. A failed send is never retried, and neither is a skipped one: a global
+   * SMS-off period drops follow-up notices (counted in `skipped`).
+   */
   async function notice(l: WatchedLink, key: string, body: string): Promise<boolean> {
     if (l.notices.includes(key)) return false
     if (!(await addNotice(db, l.id, l.notices, key))) return false
     l.notices = [...l.notices, key]
     try {
-      await reply(db, { line: l.line, sender: l.sender, body, settings, orderLinkId: l.id })
+      const r = await reply(db, { line: l.line, sender: l.sender, body, settings, orderLinkId: l.id })
+      if (r?.skipped) result.skipped++
+      return r?.sent === true
     } catch {
-      // sendReply never throws; if a stub does, the notice stays recorded and nothing is retried.
+      return false // sendReply never throws; if a stub does, the notice stays recorded and nothing is retried.
     }
-    return true
   }
 
   async function close(l: WatchedLink, extra: { delivered_at?: string } = {}): Promise<void> {
@@ -119,11 +129,10 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
     if (kind === "waiting" || kind === "payment_failed") {
       if (l.state !== "awaiting_payment") return // a closed unpaid link is left alone; a paid link never goes back
       let repricedNow = false
-      if (kind === "waiting" && Number.isFinite(order.amount) && Math.abs(order.amount - l.amount) > REPRICE_EPSILON) {
-        if (await notice(l, "repriced", repricedReply(order.amount))) {
-          result.repriced++
-          repricedNow = true
-        }
+      // Not once the prompt has expired: then the unpaid notice goes out as normal.
+      if (kind === "waiting" && age < UNPAID_CLOSE_MS && Number.isFinite(order.amount) && Math.abs(order.amount - l.amount) > REPRICE_EPSILON) {
+        repricedNow = !l.notices.includes("repriced") // first time only; then the unpaid notice waits for the next run
+        if (await notice(l, "repriced", repricedReply(order.amount))) result.repriced++
       }
       if (kind === "payment_failed" || (!repricedNow && age >= settings.promptWindowMinutes * MINUTE)) {
         if (await notice(l, "unpaid", unpaidReply(l.size))) result.unpaid++
@@ -139,6 +148,11 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
       if (!(await patchLink(db, l.id, { state: "paid", paid_at: l.paidAt ?? nowIso }, ["awaiting_payment", "closed", "paid"]))) return
       l.state = "paid"
       l.paidAt = new Date(paidAtMs).toISOString()
+    }
+
+    if (kind === "refunded") {
+      await close(l) // the refund has its own channel: no SMS, whatever was sent before
+      return
     }
 
     if (kind === "delivered") {
@@ -161,8 +175,8 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
     try {
       for (const m of await strandedInbound(db, now, SWEEP_LIMIT)) {
         try {
-          await inbound(db, m.id, { line: m.line, from: m.sender, text: m.body, receivedAt: m.receivedAt, now }, settings)
-          result.recovered++
+          const r = await inbound(db, m.id, { line: m.line, from: m.sender, text: m.body, receivedAt: m.receivedAt, now }, settings)
+          if (r?.outcome !== "duplicate") result.recovered++ // a lost claim is not a recovery
         } catch (e) {
           logError("sweep", m.id, e)
         }

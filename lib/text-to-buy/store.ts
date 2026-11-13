@@ -430,18 +430,14 @@ export async function ussdOrderForNotify(
 }
 
 /**
- * Records a notice with one guarded UPDATE (`WHERE NOT (key = ANY(notices))`). True only when THIS call added the key, so two
- * overlapping runs cannot both send. The caller sends only on true.
+ * Records a notice atomically through ttb_add_notice (array_append guarded by `NOT (key = ANY(notices))`, in one UPDATE).
+ * True only when THIS call added the key, so two overlapping runs cannot both send and a different key is never lost.
+ * The caller sends only on true. `_current` is kept for the call sites; the database is the source of truth.
  */
-export async function addNotice(db: SupabaseClient, linkId: string, current: string[], key: string): Promise<boolean> {
-  const { data, error } = await db
-    .from("ttb_orders")
-    .update({ notices: [...current.filter((n) => n !== key), key] })
-    .eq("id", linkId)
-    .not("notices", "cs", `{${key}}`)
-    .select("id")
-  if (error || !Array.isArray(data)) throw new TtbStoreError("could not record a notice")
-  return data.length === 1
+export async function addNotice(db: SupabaseClient, linkId: string, _current: string[], key: string): Promise<boolean> {
+  const { data, error } = await db.rpc("ttb_add_notice", { p_id: linkId, p_key: key })
+  if (error || typeof data !== "boolean") throw new TtbStoreError("could not record a notice")
+  return data
 }
 
 /** Updates a link only while it is still in one of the given states. True when a row changed. */
