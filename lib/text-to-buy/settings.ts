@@ -22,20 +22,27 @@ export type TtbSettings = {
   source: "db" | "defaults"
 }
 
-const KEYS = [
-  "ttb_main_enabled",
-  "ttb_main_number",
-  "ttb_reply_sender_id",
-  "ttb_ai_enabled",
-  "ttb_stale_minutes",
-  "ttb_prompts_per_hour",
-  "ttb_replies_per_hour",
-  "ttb_ai_reads_per_hour",
-  "ttb_global_prompts_per_minute",
-  "ttb_prompt_window_minutes",
-  "ttb_quiet_alert_minutes",
-  "ttb_retention_days",
-] as const
+export type TtbSettingField = Exclude<keyof TtbSettings, "source">
+
+/** The ONE mapping from a settings field to its admin_settings key (each stored as { "value": x }). */
+export const TTB_SETTING_KEYS = {
+  mainEnabled: "ttb_main_enabled",
+  mainNumber: "ttb_main_number",
+  replySenderId: "ttb_reply_sender_id",
+  aiEnabled: "ttb_ai_enabled",
+  staleMinutes: "ttb_stale_minutes",
+  promptsPerHour: "ttb_prompts_per_hour",
+  repliesPerHour: "ttb_replies_per_hour",
+  aiReadsPerHour: "ttb_ai_reads_per_hour",
+  globalPromptsPerMinute: "ttb_global_prompts_per_minute",
+  promptWindowMinutes: "ttb_prompt_window_minutes",
+  quietAlertMinutes: "ttb_quiet_alert_minutes",
+  retentionDays: "ttb_retention_days",
+} as const satisfies Record<TtbSettingField, string>
+
+export type TtbSettingKey = (typeof TTB_SETTING_KEYS)[TtbSettingField]
+
+const KEYS: readonly TtbSettingKey[] = Object.values(TTB_SETTING_KEYS)
 
 export const TTB_DEFAULTS: TtbSettings = {
   mainEnabled: false,
@@ -53,8 +60,9 @@ export const TTB_DEFAULTS: TtbSettings = {
   source: "defaults",
 }
 
-function limit(x: unknown, fallback: number): number {
-  return typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : fallback
+/** min 0 is for the hourly caps (0 fails closed); minutes and days use min 1 (0 would purge everything or switch a protection off). */
+function limit(x: unknown, fallback: number, min = 0): number {
+  return typeof x === "number" && Number.isFinite(x) && x >= min ? x : fallback
 }
 
 function text(x: unknown, fallback: string): string {
@@ -78,14 +86,14 @@ export async function loadTtbSettings(db: SupabaseClient): Promise<TtbSettings> 
       mainNumber: text(raw.ttb_main_number, d.mainNumber),
       replySenderId: text(raw.ttb_reply_sender_id, d.replySenderId),
       aiEnabled: typeof raw.ttb_ai_enabled === "boolean" ? raw.ttb_ai_enabled : d.aiEnabled,
-      staleMinutes: limit(raw.ttb_stale_minutes, d.staleMinutes),
+      staleMinutes: limit(raw.ttb_stale_minutes, d.staleMinutes, 1),
       promptsPerHour: limit(raw.ttb_prompts_per_hour, d.promptsPerHour),
       repliesPerHour: limit(raw.ttb_replies_per_hour, d.repliesPerHour),
       aiReadsPerHour: limit(raw.ttb_ai_reads_per_hour, d.aiReadsPerHour),
       globalPromptsPerMinute: limit(raw.ttb_global_prompts_per_minute, d.globalPromptsPerMinute),
-      promptWindowMinutes: limit(raw.ttb_prompt_window_minutes, d.promptWindowMinutes),
-      quietAlertMinutes: limit(raw.ttb_quiet_alert_minutes, d.quietAlertMinutes),
-      retentionDays: limit(raw.ttb_retention_days, d.retentionDays),
+      promptWindowMinutes: limit(raw.ttb_prompt_window_minutes, d.promptWindowMinutes, 1),
+      quietAlertMinutes: limit(raw.ttb_quiet_alert_minutes, d.quietAlertMinutes, 1),
+      retentionDays: limit(raw.ttb_retention_days, d.retentionDays, 1),
       source: "db",
     }
   } catch {

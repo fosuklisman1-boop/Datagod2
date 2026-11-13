@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { loadTtbSettings, TTB_DEFAULTS } from "./settings"
+import { loadTtbSettings, TTB_DEFAULTS, TTB_SETTING_KEYS } from "./settings"
 
 type Result = { data: unknown; error: unknown }
 function client(result: Result | (() => never)): SupabaseClient {
@@ -77,6 +77,23 @@ describe("loadTtbSettings", () => {
       staleMinutes: 10, promptsPerHour: 3, repliesPerHour: 6, aiReadsPerHour: 10, globalPromptsPerMinute: 30,
       promptWindowMinutes: 5, quietAlertMinutes: 60, retentionDays: 30,
     })
+  })
+
+  it("floors the minute and day settings at 1 (a 0 would purge everything or switch a protection off) but lets the hourly caps be 0", async () => {
+    const s = await loadTtbSettings(client(rows({
+      ttb_stale_minutes: 0, ttb_prompt_window_minutes: 0, ttb_quiet_alert_minutes: 0, ttb_retention_days: 0,
+      ttb_prompts_per_hour: 0, ttb_replies_per_hour: 0, ttb_ai_reads_per_hour: 0, ttb_global_prompts_per_minute: 0,
+    })))
+    expect(s).toMatchObject({ staleMinutes: 10, promptWindowMinutes: 5, quietAlertMinutes: 60, retentionDays: 30 })
+    expect(s).toMatchObject({ promptsPerHour: 0, repliesPerHour: 0, aiReadsPerHour: 0, globalPromptsPerMinute: 0 })
+    const one = await loadTtbSettings(client(rows({ ttb_retention_days: 1, ttb_stale_minutes: 1 })))
+    expect(one).toMatchObject({ retentionDays: 1, staleMinutes: 1 })
+  })
+
+  it("exports one key table covering every setting field", () => {
+    expect(Object.keys(TTB_SETTING_KEYS).sort()).toEqual(Object.keys(TTB_DEFAULTS).filter((k) => k !== "source").sort())
+    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(12)
+    expect(TTB_SETTING_KEYS.mainEnabled).toBe("ttb_main_enabled")
   })
 
   it("keeps the default for the text settings and ai flag when the stored type is wrong", async () => {

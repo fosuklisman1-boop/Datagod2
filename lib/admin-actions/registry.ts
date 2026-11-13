@@ -4,6 +4,7 @@ import { momoClaimFlow } from "./flows/momo-claim"
 import { resultsCheckFlow } from "./flows/results-check"
 import { senderIdFlow } from "./flows/sender-id"
 import { shopFlow } from "./flows/shop"
+import { textToBuyFlow } from "./flows/text-to-buy"
 import { withdrawalFlow } from "./flows/withdrawal"
 import type { FlowDef, FlowId } from "./types"
 
@@ -15,4 +16,5 @@ export const FLOWS: Record<FlowId, FlowDef<any>> = {
   sender_id: senderIdFlow,
   complaint: complaintFlow,
   momo_claim: momoClaimFlow,
+  text_to_buy: textToBuyFlow,
 }

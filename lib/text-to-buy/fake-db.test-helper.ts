@@ -13,6 +13,8 @@ export const SCHEMA: Record<string, string[]> = {
   ttb_heartbeat: ["line", "last_seen_at"],
   // Not a 0163 table: the existing USSD order table, only the columns the Text-to-Buy lane reads or guards.
   ussd_orders: ["id", "order_status", "payment_status", "amount", "updated_at"],
+  // Not a 0163 table: the shared settings table (migration 0163 seeds the ttb_ keys into it).
+  admin_settings: ["key", "value", "description", "updated_by", "updated_at"],
 }
 
 export const RPC_ARGS: Record<string, string[]> = {
@@ -60,13 +62,13 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
   function builder(table: string) {
     if (!SCHEMA[table]) throw new Error(`fake: unknown table ${table}`)
     const filters: Filter[] = []
-    let mode: "select" | "insert" | "upsert" | "update" = "select"
-    let payload: Row | null = null
+    let mode: "select" | "insert" | "upsert" | "update" | "delete" = "select"
+    let payload: Row | Row[] | null = null
     let onConflict: string[] = []
     let returning = false
     let single: "one" | "maybe" | null = null
     let lim: number | null = null
-    let order: { c: string; asc: boolean } | null = null
+    const orders: { c: string; asc: boolean }[] = []
     const rows = () => db.tables[table]
 
     const checkRow = (row: Row) => {
@@ -92,8 +94,8 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
       if (forced) return { data: null, error: forced }
       if (mode === "insert") {
         if (db.failInsert[table]) return { data: null, error: db.failInsert[table]! }
-        checkRow(payload!)
-        const row: Row = { ...payload! }
+        checkRow(payload as Row)
+        const row: Row = { ...(payload as Row) }
         if ((table === "ttb_messages" || table === "ttb_orders") && row.id === undefined) row.id = crypto.randomUUID()
         if (table === "ttb_orders") {
           for (const [k, v] of Object.entries({ state: "awaiting_payment", service: "data", order_table: "ussd_orders", notices: [] })) {
@@ -106,24 +108,41 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
         return { data: returning ? { ...row } : null, error: null }
       }
       if (mode === "upsert") {
-        checkRow(payload!)
         const pk = onConflict.length ? onConflict : PRIMARY[table] ?? ["id"]
         for (const k of pk) col(table, k)
-        const existing = rows().find((r) => pk.every((k) => r[k] === payload![k]))
-        if (existing) Object.assign(existing, payload)
-        else rows().push({ ...payload! })
+        // An array payload is one statement: validate every row first so nothing is written if any is bad.
+        const batch = (Array.isArray(payload) ? payload : [payload!]) as Row[]
+        for (const p of batch) checkRow(p)
+        for (const p of batch) {
+          const existing = rows().find((r) => pk.every((k) => r[k] === p[k]))
+          if (existing) Object.assign(existing, p)
+          else rows().push({ ...p })
+        }
         return { data: null, error: null }
       }
+      if (mode === "delete") {
+        // Migration 0163 grants service_role DELETE on ttb_blocked only (messages and orders are removed by ttb_purge or never).
+        if (table !== "ttb_blocked") throw new Error(`fake: service_role has no DELETE on ${table}`)
+        const hit = rows().filter((r) => filters.every((f) => f(r)))
+        db.tables[table] = rows().filter((r) => !hit.includes(r))
+        return { data: returning ? hit.map((r) => ({ ...r })) : null, error: null }
+      }
       if (mode === "update") {
-        checkRow(payload!)
+        checkRow(payload as Row)
         const hit = rows().filter((r) => filters.every((f) => f(r)))
         for (const r of hit) Object.assign(r, payload)
         return { data: returning ? hit.map((r) => ({ ...r })) : null, error: null }
       }
       let out = rows().filter((r) => filters.every((f) => f(r)))
-      if (order) {
-        const { c, asc } = order
-        out = [...out].sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0) * (asc ? 1 : -1))
+      if (orders.length) {
+        out = [...out].sort((a, b) => {
+          for (const { c, asc } of orders) {
+            const x = String(a[c])
+            const y = String(b[c])
+            if (x !== y) return (x < y ? -1 : 1) * (asc ? 1 : -1)
+          }
+          return 0
+        })
       }
       if (lim !== null) out = out.slice(0, lim)
       out = out.map((r) => ({ ...r }))
@@ -135,7 +154,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     const b = {
       select: (cols = "*") => {
         if (cols !== "*") for (const c of cols.split(",")) col(table, c.trim())
-        if (mode === "insert" || mode === "update") returning = true
+        if (mode === "insert" || mode === "update" || mode === "delete") returning = true
         return b
       },
       insert: (row: Row) => ((mode = "insert"), (payload = row), b),
@@ -148,16 +167,36 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
       update: (patch: Row) => ((mode = "update"), (payload = patch), b),
       eq: (c: string, v: unknown) => (col(table, c), filters.push((r) => r[c] === v), b),
       is: (c: string, v: null) => (col(table, c), filters.push((r) => (r[c] ?? null) === v), b),
-      // Only the shape store.ts uses: "<col>.is.null,<col>.lt.<iso>" (either side may be either operator).
+      // Only the shapes store.ts uses: "<col>.is.null", "<col>.lt.<v>", "<col>.eq.<v>" and "and(<term>,<term>)", comma-separated.
       or: (expr: string) => {
-        const parts = expr.split(",").map((p) => {
+        const split = (s: string): string[] => {
+          const out: string[] = []
+          let depth = 0
+          let cur = ""
+          for (const ch of s) {
+            if (ch === "(") depth++
+            if (ch === ")") depth--
+            if (ch === "," && depth === 0) {
+              out.push(cur)
+              cur = ""
+            } else cur += ch
+          }
+          return [...out, cur]
+        }
+        const term = (p: string): Filter => {
+          if (p.startsWith("and(") && p.endsWith(")")) {
+            const inner = split(p.slice(4, -1)).map(term)
+            return (r) => inner.every((f) => f(r))
+          }
           const [c, op, ...rest] = p.split(".")
           const v = rest.join(".")
           col(table, c)
-          if (op === "is" && v === "null") return (r: Row) => (r[c] ?? null) === null
-          if (op === "lt") return (r: Row) => r[c] != null && String(r[c]) < v
+          if (op === "is" && v === "null") return (r) => (r[c] ?? null) === null
+          if (op === "lt") return (r) => r[c] != null && String(r[c]) < v
+          if (op === "eq") return (r) => r[c] != null && String(r[c]) === v
           throw new Error(`fake: or(${p}) is not supported`)
-        })
+        }
+        const parts = split(expr).map(term)
         filters.push((r) => parts.some((f) => f(r)))
         return b
       },
@@ -172,7 +211,9 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
       gte: (c: string, v: string) => (col(table, c), filters.push((r) => String(r[c]) >= v), b),
       lt: (c: string, v: string) => (col(table, c), filters.push((r) => String(r[c]) < v), b),
       in: (c: string, vs: unknown[]) => (col(table, c), filters.push((r) => vs.includes(r[c])), b),
-      order: (c: string, o?: { ascending?: boolean }) => (col(table, c), (order = { c, asc: o?.ascending !== false }), b),
+      // Chained .order() calls sort by the first column, then the next (as PostgREST does).
+      order: (c: string, o?: { ascending?: boolean }) => (col(table, c), orders.push({ c, asc: o?.ascending !== false }), b),
+      delete: () => ((mode = "delete"), b),
       limit: (n: number) => ((lim = n), b),
       maybeSingle: () => ((single = "maybe"), b),
       single: () => ((single = "one"), b),

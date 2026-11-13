@@ -1,5 +1,6 @@
 import { createHash } from "crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { encodeCursor, MESSAGE_COLUMNS, toAdminMessage, type AdminMessage, type OverviewRow } from "./admin-view"
 import type { Line, Outcome, ReadResult } from "./types"
 
 /**
@@ -473,4 +474,83 @@ export async function strandedInbound(db: SupabaseClient, now: Date, limit = 20)
     const t = typeof x.received_at === "string" ? Date.parse(x.received_at) : NaN
     return { id: String(x.id), line: x.line === "shop" ? "shop" : "main", sender: String(x.sender), body: String(x.body), receivedAt: Number.isNaN(t) ? null : new Date(t) }
   })
+}
+
+// ---- Admin API (task 13) -------------------------------------------------------------------------------------------------
+
+/** Adds or updates a block. blocked_by is the admin's user id. */
+export async function blockSender(db: SupabaseClient, sender: string, reason: string | null, adminId: string): Promise<void> {
+  const { error } = await db.from("ttb_blocked").upsert({ sender, reason, blocked_by: adminId }, { onConflict: "sender" })
+  if (error) throw new TtbStoreError("could not block a sender")
+}
+
+/** True when a block was removed (service_role may delete from ttb_blocked, see migration 0163). */
+export async function unblockSender(db: SupabaseClient, sender: string): Promise<boolean> {
+  const { data, error } = await db.from("ttb_blocked").delete().eq("sender", sender).select("sender")
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not unblock a sender")
+  return data.length > 0
+}
+
+/** Flags an INBOUND row as misread by the bot. False when the id is not an inbound row. */
+export async function markMisread(db: SupabaseClient, id: string): Promise<boolean> {
+  const { data, error } = await db.from("ttb_messages").update({ misread: true }).eq("id", id).eq("direction", "in").select("id")
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not flag a message")
+  return data.length > 0
+}
+
+/**
+ * Inbound rows newest first, keyset paged on (created_at desc, id desc). The cursor timestamp is spliced into an or() filter,
+ * so decodeCursor only ever hands over a strictly validated one.
+ */
+export async function listInbound(
+  db: SupabaseClient,
+  q: { limit: number; line?: Line; sender?: string; outcome?: Outcome; cursor?: { createdAt: string; id: string } },
+): Promise<{ rows: AdminMessage[]; nextCursor: string | null }> {
+  let query = db.from("ttb_messages").select(MESSAGE_COLUMNS).eq("direction", "in")
+  if (q.line) query = query.eq("line", q.line)
+  if (q.sender) query = query.eq("sender", q.sender)
+  if (q.outcome) query = query.eq("outcome", q.outcome)
+  if (q.cursor) {
+    const at = q.cursor.createdAt.replace("+00:00", "Z")
+    query = query.or(`created_at.lt.${at},and(created_at.eq.${at},id.lt.${q.cursor.id})`)
+  }
+  const { data, error } = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(q.limit + 1)
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not read messages")
+  const page = data.slice(0, q.limit).map((r) => toAdminMessage(r as Record<string, unknown>))
+  const last = page[page.length - 1]
+  return { rows: page, nextCursor: data.length > q.limit && last ? encodeCursor(last.createdAt, last.id) : null }
+}
+
+const THREAD_CAP = 200
+
+/** Both directions for one sender, oldest first; the latest 200 when there are more. */
+export async function listThread(db: SupabaseClient, sender: string, line?: Line): Promise<AdminMessage[]> {
+  let query = db.from("ttb_messages").select(MESSAGE_COLUMNS).eq("sender", sender)
+  if (line) query = query.eq("line", line)
+  const { data, error } = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(THREAD_CAP)
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not read a thread")
+  return data.map((r) => toAdminMessage(r as Record<string, unknown>)).reverse()
+}
+
+/** ttb_overview: one row per line, both always present, counted since `from`. */
+export async function overviewRows(db: SupabaseClient, from: Date): Promise<OverviewRow[]> {
+  const { data, error } = await db.rpc("ttb_overview", { p_from: from.toISOString() })
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not read the overview")
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0)
+  return data.map((r) => {
+    const x = r as Record<string, unknown>
+    return {
+      line: x.line === "shop" ? "shop" : "main",
+      texts: n(x.texts), prompts: n(x.prompts), paid: n(x.paid), delivered: n(x.delivered),
+      replies: n(x.replies), aiReads: n(x.ai_reads), ruleReads: n(x.rule_reads),
+    }
+  })
+}
+
+/** Writes the given admin_settings keys as { "value": x } in ONE upsert statement. An empty set writes nothing. */
+export async function saveSettingRows(db: SupabaseClient, values: Record<string, unknown>, adminId: string, now: Date): Promise<void> {
+  const rows = Object.entries(values).map(([key, value]) => ({ key, value: { value }, updated_by: adminId, updated_at: now.toISOString() }))
+  if (rows.length === 0) return
+  const { error } = await db.from("admin_settings").upsert(rows, { onConflict: "key" })
+  if (error) throw new TtbStoreError("could not save settings")
 }
