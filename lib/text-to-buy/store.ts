@@ -333,18 +333,6 @@ export async function ussdOrderStatus(db: SupabaseClient, orderId: string): Prom
   return r ? { orderStatus: String(r.order_status), paymentStatus: String(r.payment_status) } : null
 }
 
-/** Fails a USSD order row, guarded on payment_status = 'pending'. True when this call changed the row. */
-export async function failPendingUssdOrder(db: SupabaseClient, orderId: string, now: Date): Promise<boolean> {
-  const { data, error } = await db
-    .from("ussd_orders")
-    .update({ order_status: "failed", payment_status: "failed", updated_at: now.toISOString() })
-    .eq("id", orderId)
-    .eq("payment_status", "pending")
-    .select("id")
-  if (error || !Array.isArray(data)) throw new TtbStoreError("could not fail a losing order")
-  return data.length > 0
-}
-
 /**
  * Takes the processing lease on an inbound row: one guarded UPDATE, true only when exactly this call set claimed_at.
  * A row that already has an outcome is never claimed; a lease older than leaseSeconds (a crashed run) can be taken again.

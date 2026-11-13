@@ -15,7 +15,7 @@ import {
 import { sendReply } from "./send-reply"
 import type { TtbSettings } from "./settings"
 import {
-  claimInbound, closeStaleLinks, counts, failPendingUssdOrder, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
+  claimInbound, closeStaleLinks, counts, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
   linkOrder, loadConversation, saveConversation, setInboundResult, storeInbound, ussdOrderStatus, type Conversation,
 } from "./store"
 import {
@@ -284,18 +284,28 @@ export async function processInbound(
     // The preview can only know the offer price: the charged amount is fixed when the order row is written.
     if (dry) return await finish("prompted", quote(offer.price))
 
-    const response = await confirm("1", `sms:${i.line}:${i.from}`, session, "sms", { momoOnly: true })
+    // The session id is opaque on purpose: lib/ussd/session.ts logs it when Redis fails, so it must carry no phone number or text.
+    const response = await confirm("1", `sms:${messageId}`, session, "sms", { momoOnly: true })
     const orderId = response.orderId
     if (!orderId) return await finish("unavailable", unavailableReply(offer.networkLabel, []))
+
+    // From here an order exists and its MoMo charge has ALREADY started (confirm schedules it). Failing the row would not stop
+    // the prompt or the payment, and a payment for a failed row is silently ignored: so the order is never failed. A paid one is
+    // fulfilled by the normal path. Admins get the order id only (no phone, text or amount).
+    const alertOrder = async (what: string) => {
+      try {
+        await alert(`Text-to-Buy: ${what}: ${orderId}`)
+      } catch {
+        // an alert must never throw out of the lane
+      }
+    }
     const amount = response.amount
     if (typeof amount !== "number" || !Number.isFinite(amount)) {
-      await failPendingUssdOrder(db, orderId, i.now)
+      await alertOrder("order placed without a usable amount")
       return await finish("unavailable", unavailableReply(offer.networkLabel, []))
     }
 
-    // From here an order exists and a prompt may be out. A failure to link it must not leave it invisible to the
-    // open-order guard: fail the row (guarded, best-effort) and tell the customer it did not go through.
-    let linked: { id: string } | "race"
+    let linked: { id: string } | "race" | "link_failed"
     try {
       const l = await linkOrder(db, {
         line: i.line, sender: i.from, orderId, size: offer.size, recipient: offer.recipientLocal, gift: offer.gift, amount,
@@ -303,14 +313,18 @@ export async function processInbound(
       linked = l === "conflict" ? (await linkByOrderId(db, orderId)) ?? "race" : l
     } catch (e) {
       console.error("[text-to-buy] link error", { messageId, error: e instanceof Error ? e.name : "unknown" })
-      await failPendingUssdOrder(db, orderId, i.now).catch(() => {})
-      return await finish("unavailable", unavailableReply(offer.networkLabel, []))
+      linked = "link_failed"
     }
     if (linked === "race") {
-      // Another text won the open-order slot. A prompt may already be out for this row; approving it lands in the
-      // paid-but-failed review path (see the runbook).
-      await failPendingUssdOrder(db, orderId, i.now)
+      // Another text won the open-order slot. A prompt is already out for this row; if the customer approves both they pay
+      // twice and both orders are fulfilled (see the runbook).
+      await alertOrder("duplicate order left pending (open-order race)")
       return await finish("open_order", openOrderReply())
+    }
+    if (linked === "link_failed") {
+      // The order and its prompt are real, so the quote is accurate: send it. There is no link row, so no follow-up SMS.
+      await alertOrder("order placed but link failed")
+      return await finish("prompted", quote(amount), { orderId })
     }
 
     // The quote goes out first; remembering the conversation is best-effort and never suppresses it.

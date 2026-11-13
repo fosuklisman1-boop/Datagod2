@@ -262,12 +262,23 @@ describe.skipIf(!PGliteCtor)("0163 in PGlite", () => {
       await msg("shop", S, "in", { readBy: "ai", at: fresh }) // another line
       await msg("main", T, "in", { readBy: "ai", at: fresh }) // another sender
       await order("main", S, { state: "closed", notices: ["unpaid"], at: fresh }) // counts
-      await order("main", S, { state: "closed", notices: ["delivered"], at: fresh }) // not unpaid
+      await order("main", S, { state: "closed", notices: ["delivered"], at: fresh, paidAt: fresh }) // paid: not counted
       await order("main", S, { state: "closed", notices: ["unpaid"], at: old }) // before since
       await order("main", T, { state: "closed", notices: ["unpaid"], at: fresh }) // another sender
     }, 30_000)
 
-    it("ttb_counts counts only rows since p_since (awaiting_payment or an 'unpaid' notice)", async () => {
+    it("prompts_unpaid counts every prompt in the window with paid_at NULL, whatever its state or notices", async () => {
+      const U = "0200000115" // own sender; 2088 dates stay outside the overview test's window
+      const s = "2088-01-10T00:00:00Z"
+      await order("main", U, { state: "closed", at: "2088-01-15T00:00:00Z" }) // closed by closeStaleLinks, no notice: counts
+      await order("main", U, { state: "closed", at: "2088-01-15T00:01:00Z", notices: ["unpaid"] }) // counts
+      await order("main", U, { state: "closed", at: "2088-01-15T00:02:00Z", paidAt: "2088-01-15T00:03:00Z" }) // paid: not counted
+      await order("main", U, { state: "closed", at: "2088-01-01T00:00:00Z" }) // before the window: not counted
+      const r = await one("SELECT * FROM public.ttb_counts('main', $1, $2::timestamptz)", [U, s])
+      expect(r.prompts_unpaid).toBe(2)
+    })
+
+    it("ttb_counts counts only rows since p_since (unpaid prompts, closed or not)", async () => {
       await order("main", S, { state: "awaiting_payment", at: fresh })
       const r = await one("SELECT * FROM public.ttb_counts('main', $1, $2::timestamptz)", [S, since])
       expect(r).toEqual({ prompts_unpaid: 2, replies: 2, ai_reads: 2, not_understood: 1 })
@@ -288,7 +299,7 @@ describe.skipIf(!PGliteCtor)("0163 in PGlite", () => {
       const r = (await db.query("SELECT * FROM public.ttb_overview('2089-01-14T00:00:00Z'::timestamptz) ORDER BY line")).rows
       expect(r.map((x: any) => x.line)).toEqual(["main", "shop"])
       // main since 01-14: texts = S ai, S ai, S rules, T ai = 4; replies 2; prompts = S x3 (one closed by the counts test) + T x1 = 4, none paid
-      expect(r[0]).toMatchObject({ texts: 4, prompts: 4, paid: 0, delivered: 0, replies: 2, ai_reads: 3, rule_reads: 1 })
+      expect(r[0]).toMatchObject({ texts: 4, prompts: 4, paid: 1, delivered: 0, replies: 2, ai_reads: 3, rule_reads: 1 })
       // shop since 01-14: texts = S ai + the rules read = 2; prompts 3 (2 paid, 1 delivered)
       expect(r[1]).toMatchObject({ texts: 2, prompts: 3, paid: 2, delivered: 1, replies: 0, ai_reads: 1, rule_reads: 1 })
     })

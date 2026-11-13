@@ -77,7 +77,7 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
             </div>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
-            <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
               <dt className="text-muted-foreground">Number</dt>
               <dd className="font-mono break-all">{main.number || "Not set"}</dd>
               <dt className="text-muted-foreground">Phone last heard</dt>

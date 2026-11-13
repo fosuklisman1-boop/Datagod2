@@ -71,6 +71,10 @@ The phone is the one already running SmsForwarder for Send & Claim.
 
 Every step follows the production change protocol: precheck counts, a self-rolling-back dry run, your OK, apply, verify, build, push, watch the deploy, live check. Nothing happens until you approve each step.
 
+**Order matters: apply the migration BEFORE deploying the code.** If the code is live first, every inbound SMS logs "heartbeat not recorded" until the migration is applied. It is harmless but noisy.
+
+**Migration number collision.** The branch `feat/retire-api-v1` also adds a migration numbered 0163 (and 0164), and main already has 0170 to 0176. At merge time, renumber this migration to the next free number: the file names (`migrations/0163_text_to_buy.sql` and `.selftest.sql`), the header comments, the references in this runbook, and the tests that read the file by name (grep for `0163` under `lib/text-to-buy`, `app/api/admin/text-to-buy` and `migrations`). Then update this runbook. Everything below says 0163; read it as the new number.
+
 ### 5.1 Apply migration 0163
 
 Precheck (read-only). All must return nothing or zero:
@@ -188,7 +192,7 @@ To change one, edit that string in `PAYER_TIPS` (and the matching expectations i
 - [ ] Telecel and AT "no prompt? dial ..." paths confirmed on handsets (section 6).
 - [ ] Gateway row "Text orders (SMS)" set (Hubtel before promoting to Telecel customers).
 - [ ] Supervised paid test passed on each network (section 8).
-- [ ] Browser pass of `/admin/text-to-buy` at 500px and 1280px. NOT yet done: the page was built without a browser check. Known cosmetic issue to fix in the same pass: `grid-cols-[auto,1fr]` should be `grid-cols-[auto_1fr]` in `app/admin/text-to-buy/_components/OverviewTab.tsx` and `TryItTab.tsx` (the detail lists stack instead of two columns).
+- [ ] Browser pass of `/admin/text-to-buy` at 500px and 1280px. NOT yet done: the page was built without a browser check. (The detail lists in Overview and Try it were fixed to `grid-cols-[auto_1fr]`: confirm they show two columns.)
 - [ ] Migration 0163 applied and verified; cron job created and enabled (section 5).
 - [ ] Whole-branch review done (money, auth and schema are touched: a fresh reviewer is mandatory).
 
@@ -232,7 +236,7 @@ Repeat tests 1 and 3 on each of MTN, Telecel and AT payer numbers (Telecel only 
 
 ## 9. Known limits and accepted risks (in plain words)
 
-1. Two texts at once. If one customer's two texts arrive almost together, both can pass the "one open order" check. The loser's order is failed, but its MoMo prompt was already started and cannot be stopped. If the customer approves both they are charged twice; the second payment lands in the existing paid-but-failed review path. There is no automatic refund: an admin refunds it from `/admin/refunds`.
+1. Two texts at once. If one customer's two texts arrive almost together, both can pass the "one open order" check. The loser's order is LEFT PENDING (never failed: its MoMo prompt was already started and cannot be stopped, and a payment for a failed order would be ignored with no refund path). If the customer approves both prompts they are charged twice and BOTH orders are fulfilled: two bundles, no lost money, but the customer paid twice for the same text. Admins get an alert naming the order id only. The second order has no Text-to-Buy link row, so it gets no follow-up SMS. There is no automatic refund; `/admin/refunds` handles completed orders in the normal way if you decide to refund one. The same applies if linking an order fails after it was placed: the quote is still sent, an admin alert names the order id, and there is no follow-up SMS for it.
 2. Sizes whose text cannot be parsed are not orderable by text. A bare number as a size (for example `5`) is read as GB.
 3. A Hubtel quote shows "+ MoMo charge". If Hubtel refuses the prompt and the charge falls back to Paystack, the prompt amount can differ from the quote; the customer then gets one corrective SMS (`Total is now GHS x.xx. Approve the MoMo prompt or ignore it.`).
 4. Follow-up SMS (didn't go through, delivered gift, delayed, repriced) are dropped, not queued, while SMS is globally disabled.

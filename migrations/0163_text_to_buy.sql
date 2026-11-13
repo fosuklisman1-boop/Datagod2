@@ -24,7 +24,8 @@
 --
 -- Functions (SECURITY DEFINER, search_path = public, pg_temp, EXECUTE for service_role only), every table name schema-qualified:
 --   ttb_counts(p_line, p_sender, p_since)  rows since p_since for one line and sender:
---       prompts_unpaid  orders created since p_since that are awaiting_payment or have 'unpaid' in notices
+--       prompts_unpaid  orders created since p_since with paid_at NULL, whatever their state
+--                       (state-independent: closing a stale link must not free the per-sender cap)
 --       replies         outbound messages
 --       ai_reads        inbound messages with read_by = 'ai'
 --       not_understood  inbound messages with outcome = 'not_order'
@@ -159,7 +160,7 @@ AS $fn$
   SELECT
     (SELECT count(*)::int FROM public.ttb_orders o
       WHERE o.line = p_line AND o.sender = p_sender AND o.created_at >= p_since
-        AND (o.state = 'awaiting_payment' OR 'unpaid' = ANY (o.notices))),
+        AND o.paid_at IS NULL),
     (SELECT count(*)::int FROM public.ttb_messages m
       WHERE m.line = p_line AND m.sender = p_sender AND m.created_at >= p_since AND m.direction = 'out'),
     (SELECT count(*)::int FROM public.ttb_messages m

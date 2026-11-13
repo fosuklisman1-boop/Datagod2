@@ -34,6 +34,8 @@ export type NotifyDeps = {
   reply?: typeof sendReply
   alert?: (message: string) => Promise<void>
   processInbound?: typeof processInbound
+  /** Monotonic-enough milliseconds for the sweep time budget only (all notice logic uses `now`). Default Date.now. */
+  clock?: () => number
 }
 
 const MINUTE = 60_000
@@ -43,6 +45,7 @@ const PAID_DELAY_MS = 30 * MINUTE // a paid order not completed this long after 
 const PAID_WATCH_MS = 48 * HOUR // a paid order is followed until delivered or this long after payment
 const REPRICE_EPSILON = 0.005
 const SWEEP_LIMIT = 20
+const SWEEP_BUDGET_MS = 30_000 // the cron route allows 60 s and each text may spend up to 10 s on the AI: leave the rest to the next minute
 const PURGE_EVERY_MS = HOUR
 const ALERT_EVERY_MS = 6 * HOUR
 const ACCRA_OPEN_HOUR = 7 // Africa/Accra is UTC+0 all year: alert only 07:00..21:59
@@ -173,7 +176,10 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
   // 1. Recovery sweep: a text the webhook stored but a crash left unprocessed. processInbound re-claims by itself.
   if (settings.mainEnabled) {
     try {
+      const clock = deps.clock ?? Date.now
+      const sweepStart = clock()
       for (const m of await strandedInbound(db, now, SWEEP_LIMIT)) {
+        if (clock() - sweepStart >= SWEEP_BUDGET_MS) break
         try {
           const r = await inbound(db, m.id, { line: m.line, from: m.sender, text: m.body, receivedAt: m.receivedAt, now }, settings)
           if (r?.outcome !== "duplicate") result.recovered++ // a lost claim is not a recovery

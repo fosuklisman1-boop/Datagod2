@@ -63,7 +63,7 @@ export function TryItTab() {
           {!result && <p className="text-muted-foreground">The result appears here.</p>}
           {result && (
             <>
-              <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1">
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
                 <dt className="text-muted-foreground">Read by</dt>
                 <dd>{result.readBy === "ai" ? "AI" : result.readBy === "rules" ? "Rules" : "-"}</dd>
                 <dt className="text-muted-foreground">Outcome</dt>

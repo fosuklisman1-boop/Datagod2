@@ -330,6 +330,17 @@ describe("recovery sweep", () => {
     await t.run()
     expect(t.processInbound).toHaveBeenCalledTimes(20)
   })
+  it("stops the sweep after its 30 s budget: with 12 s per text only 3 of 5 are processed, the rest wait for the next run", async () => {
+    const t = setup([], [], { ttb_messages: Array.from({ length: 5 }, (_, i) => msg(`m${i}`, 5 * MIN + i)) })
+    let elapsed = 0
+    t.processInbound.mockImplementation((async () => {
+      elapsed += 12_000
+      return { outcome: "prompted", readBy: null, reply: null }
+    }) as never)
+    const r = await runTtbNotify(t.db, now, on, { reply: t.reply, alert: t.alert, processInbound: t.processInbound, clock: () => elapsed } as never)
+    expect(t.processInbound).toHaveBeenCalledTimes(3)
+    expect(r.recovered).toBe(3)
+  })
   it("a failing processInbound does not stop the other rows or the rest of the run", async () => {
     const t = setup([link({ created_at: iso(-6 * MIN) })], [order()], { ttb_messages: [msg("a", 6 * MIN), msg("b", 5 * MIN)] })
     t.processInbound.mockRejectedValueOnce(new Error("x") as never)

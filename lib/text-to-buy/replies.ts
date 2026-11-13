@@ -177,7 +177,7 @@ export function containsMoney(text: string): boolean {
   if (/ghs|ghc|usd|₵|\$/i.test(text)) return true
   if (/\b(cedis?|pesewas?|dollars?)\b/i.test(text)) return true
   if (/\bgh\s*\d/i.test(text)) return true
-  const stripped = text.replace(/\d+(\.\d+)?\s?(gb|mb)\b/gi, " ").replace(/\d+\)/g, " ")
+  const stripped = text.replace(/\d+(\.\d+)?\s?(gb|mb)\b/gi, " ").replace(/(?<![\w.,(])[1-9]\)/g, " ")
   if (/\d/.test(stripped)) return true
   const numberWord = new RegExp(`\\b(${NUMBER_WORDS})\\b`, "i")
   const priceWord = new RegExp(`\\b(${PRICE_WORDS})\\b`, "i")

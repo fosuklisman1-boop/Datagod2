@@ -5,7 +5,7 @@ import {
   dedupeKey, storeInbound, setInboundResult, storeOutbound, isBlocked, counts, globalPrompts, hasOpenOrder, linkOrder,
   loadConversation, saveConversation, touchHeartbeat, TtbStoreError,
   watchedLinks, ussdOrderForNotify, addNotice, patchLink, strandedInbound, getHeartbeat, purgeOld,
-  claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus, failPendingUssdOrder,
+  claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus,
 } from "./store"
 
 const S = "0200000101"
@@ -404,18 +404,6 @@ describe("Task 10 store additions", () => {
     expect(await ussdOrderStatus(c, O2)).toBeNull()
   })
 
-  it("failPendingUssdOrder fails the row only while payment_status is still pending", async () => {
-    const { db, c } = mk({
-      ussd_orders: [
-        { id: O1, order_status: "pending", payment_status: "pending" },
-        { id: O2, order_status: "processing", payment_status: "paid" },
-      ],
-    })
-    expect(await failPendingUssdOrder(c, O1, now)).toBe(true)
-    expect(await failPendingUssdOrder(c, O2, now)).toBe(false)
-    expect(db.tables.ussd_orders[0]).toMatchObject({ order_status: "failed", payment_status: "failed", updated_at: now.toISOString() })
-    expect(db.tables.ussd_orders[1]).toMatchObject({ order_status: "processing", payment_status: "paid" })
-  })
 })
 
 describe("claimInbound", () => {

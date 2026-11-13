@@ -194,9 +194,11 @@ describe("containsMoney", () => {
     "GHS20", "20ghs", "twenty cedis", "5 GHC", "12,50", "12.5", "1,200", "is 20, ok?",
     "$20", "USD 5", "GH 20", "5GB costs 20 only", "12.50 GBP", "twenty only for 5GB",
     "12.50 MBs", "call 0241234567",
+    "the price (20)", "5GB for (20)", "costs 20)", "(20)",
   ])("true: %s", (t) => expect(containsMoney(t)).toBe(true))
   it.each([
     "Which size? 1) 1GB 2) 2GB 3) 5GB",
+    "1) 1GB 2) 2GB",
     "Which number should receive the 2GB?",
     "Do you want 1.5GB?",
     "1.5GB or 500MB?",

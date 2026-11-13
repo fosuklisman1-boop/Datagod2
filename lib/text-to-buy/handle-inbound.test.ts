@@ -103,7 +103,9 @@ describe("placing an order from rules", () => {
     const { result, id } = await t.run("5gb")
     expect(t.confirm).toHaveBeenCalledTimes(1)
     const [input, sessionId, session, channel, opts] = t.confirm.mock.calls[0] as unknown as [string, string, { recipientPhone: string }, string, object]
-    expect([input, sessionId, channel, opts]).toEqual(["1", `sms:main:${S}`, "sms", { momoOnly: true }])
+    expect([input, sessionId, channel, opts]).toEqual(["1", `sms:${id}`, "sms", { momoOnly: true }])
+    expect(sessionId).not.toContain(S) // opaque: session.ts logs this id when Redis fails
+    expect(sessionId).not.toContain("5gb")
     expect(session.recipientPhone).toBe(S)
     const expected = quoteReply({ size: "5GB", networkLabel: "MTN", recipientLocal: S, amountGhs: 23.69, feeOnTop: false, payerNetwork: "MTN" })
     expect(result).toMatchObject({ outcome: "prompted", readBy: "rules", reply: expected, orderId: ORDER })
@@ -340,27 +342,40 @@ describe("stale, blocked and limits", () => {
 describe("race and link results", () => {
   const pendingSeed = () => ({ ussd_orders: [{ id: ORDER, order_status: "pending", payment_status: "pending" }] })
 
-  it("a true race for the open-order slot: the loser's order row is failed with the guard, reply is the open-order reply", async () => {
-    const t = setup({ seed: pendingSeed() })
+  const raceConfirm = (t: ReturnType<typeof setup>) =>
     t.confirm.mockImplementation(async () => {
       t.f.db.tables.ttb_orders.push({ id: "winner", line: "main", sender: S, order_id: "other-order", state: "awaiting_payment", created_at: now.toISOString() })
       return { type: "end", message: "", orderId: ORDER, amount: 23.69 }
     })
+
+  it("a true race for the open-order slot: the loser's order row is left PENDING (its charge already started), reply is the open-order reply", async () => {
+    const t = setup({ seed: pendingSeed() })
+    raceConfirm(t)
     const { result, id } = await t.run("5gb")
     expect(result).toMatchObject({ outcome: "open_order", reply: openOrderReply() })
-    expect(t.f.db.tables.ussd_orders[0]).toMatchObject({ order_status: "failed", payment_status: "failed" })
+    expect(t.f.db.tables.ussd_orders[0]).toEqual({ id: ORDER, order_status: "pending", payment_status: "pending" })
     expect(t.f.db.tables.ttb_orders).toHaveLength(1)
     expect(t.message(id).outcome).toBe("open_order")
   })
 
-  it("the guard leaves an order that has already moved past pending untouched", async () => {
-    const t = setup({ seed: { ussd_orders: [{ id: ORDER, order_status: "processing", payment_status: "paid" }] } })
-    t.confirm.mockImplementation(async () => {
-      t.f.db.tables.ttb_orders.push({ id: "winner", line: "main", sender: S, order_id: "other-order", state: "awaiting_payment", created_at: now.toISOString() })
-      return { type: "end", message: "", orderId: ORDER, amount: 23.69 }
-    })
+  it("the race alerts admins with the order id only: no phone, no text, no amount", async () => {
+    const t = setup({ seed: pendingSeed() })
+    raceConfirm(t)
     await t.run("5gb")
-    expect(t.f.db.tables.ussd_orders[0]).toMatchObject({ order_status: "processing", payment_status: "paid" })
+    expect(t.deps.alert).toHaveBeenCalledTimes(1)
+    const msg = String((t.deps.alert.mock.calls[0] as unknown[])[0])
+    expect(msg).toContain(ORDER)
+    expect(msg).not.toContain(S)
+    expect(msg).not.toContain("5gb")
+    expect(msg).not.toContain("23.69")
+  })
+
+  it("an alert that throws never throws out of processInbound: the open-order reply still goes out", async () => {
+    const t = setup({ seed: pendingSeed() })
+    raceConfirm(t)
+    t.deps.alert.mockRejectedValue(new Error("notifier down"))
+    const { result } = await t.run("5gb")
+    expect(result).toMatchObject({ outcome: "open_order", reply: openOrderReply() })
   })
 
   it("an order id that is already linked carries on as prompted and does not fail the order", async () => {
@@ -743,32 +758,28 @@ describe("failures after confirm has placed the order", () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
   })
 
-  it("linkOrder throwing: the pending order is failed (guarded), the customer gets the unavailable reply, nothing throws", async () => {
+  it("linkOrder throwing: the order is NOT failed (the prompt is real), the accurate quote goes out, outcome prompted, admins alerted with the order id only", async () => {
     const t = setup({ seed: pending() })
     t.f.db.failInsert.ttb_orders = { message: "db down" }
     const { result, id } = await t.run("5gb")
-    expect(result).toMatchObject({ outcome: "unavailable", reply: unavailableReply("MTN", []) })
-    expect(t.f.db.tables.ussd_orders[0]).toMatchObject({ order_status: "failed", payment_status: "failed" })
-    expect(t.message(id).outcome).toBe("unavailable")
+    const expected = quoteReply({ size: "5GB", networkLabel: "MTN", recipientLocal: S, amountGhs: 23.69, feeOnTop: false, payerNetwork: "MTN" })
+    expect(result).toMatchObject({ outcome: "prompted", reply: expected })
+    expect(t.f.db.tables.ussd_orders[0]).toEqual({ id: ORDER, order_status: "pending", payment_status: "pending" })
+    expect(t.message(id).outcome).toBe("prompted")
+    expect(t.deps.alert).toHaveBeenCalledTimes(1)
+    const msg = String((t.deps.alert.mock.calls[0] as unknown[])[0])
+    expect(msg).toContain(ORDER)
+    expect(msg).not.toContain(S)
+    expect(msg).not.toContain("23.69")
   })
 
-  it("the guard still protects an order that already moved past pending when the link step throws", async () => {
-    const t = setup({ seed: { ussd_orders: [{ id: ORDER, order_status: "processing", payment_status: "paid" }] } })
+  it("an alert that throws in the link-error branch still sends the quote and does not throw", async () => {
+    const t = setup({ seed: pending() })
     t.f.db.failInsert.ttb_orders = { message: "db down" }
+    t.deps.alert.mockRejectedValue(new Error("notifier down"))
     const { result } = await t.run("5gb")
-    expect(result.outcome).toBe("unavailable")
-    expect(t.f.db.tables.ussd_orders[0]).toMatchObject({ order_status: "processing", payment_status: "paid" })
-  })
-
-  it("failing the order is best-effort: if that throws too, the customer still gets the reply", async () => {
-    const t = setup()
-    t.f.db.failInsert.ttb_orders = { message: "db down" }
-    t.confirm.mockImplementation(async () => {
-      t.f.db.failOn.ussd_orders = { message: "db down" }
-      return { type: "end", message: "", orderId: ORDER, amount: 23.69 }
-    })
-    const { result } = await t.run("5gb")
-    expect(result).toMatchObject({ outcome: "unavailable", reply: unavailableReply("MTN", []) })
+    expect(result.outcome).toBe("prompted")
+    expect(t.deps.reply).toHaveBeenCalledTimes(1)
   })
 
   it("saving the conversation failing never suppresses the quote: outcome stays prompted", async () => {
