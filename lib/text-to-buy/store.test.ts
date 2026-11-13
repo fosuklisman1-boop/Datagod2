@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { makeFakeTtb } from "./fake-db.test-helper"
 import {
-  dedupeKey, storeInbound, setInboundResult, storeOutbound, isBlocked, counts, globalPrompts, hasOpenOrder, linkOrder,
+  dedupeKey, storeInbound, setInboundResult, storeOutbound, isBlocked, counts, globalPrompts, countOutbound, hasOpenOrder, linkOrder,
   loadConversation, saveConversation, touchHeartbeat, TtbStoreError,
   watchedLinks, ussdOrderForNotify, addNotice, patchLink, strandedInbound, getHeartbeat, purgeOld,
   claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus,
@@ -159,6 +159,29 @@ describe("counts / globalPrompts", () => {
     db.rpcImpl = () => ({ data: 7, error: null })
     expect(await globalPrompts(c, now)).toBe(7)
     expect(db.rpcCalls[0]).toEqual({ name: "ttb_global_prompts", args: { p_since: now.toISOString() } })
+  })
+})
+
+describe("countOutbound", () => {
+  const since = new Date("2026-11-13T11:00:00Z")
+  it("counts only outbound rows of that line created at or after since", async () => {
+    const { c } = mk({
+      ttb_messages: [
+        { id: "1", line: "main", direction: "out", created_at: since.toISOString() },
+        { id: "2", line: "main", direction: "out", created_at: now.toISOString() },
+        { id: "3", line: "main", direction: "out", created_at: "2026-11-13T10:59:59.000Z" },
+        { id: "4", line: "main", direction: "in", created_at: now.toISOString() },
+        { id: "5", line: "shop", direction: "out", created_at: now.toISOString() },
+      ],
+    })
+    expect(await countOutbound(c, "main", since)).toBe(2)
+    expect(await countOutbound(c, "shop", since)).toBe(1)
+    expect(await countOutbound(c, "main", new Date("2026-11-13T13:00:00Z"))).toBe(0)
+  })
+  it("throws TtbStoreError on a read error (the caller decides the fail-safe)", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_messages = { message: "down" }
+    await expect(countOutbound(c, "main", since)).rejects.toBeInstanceOf(TtbStoreError)
   })
 })
 

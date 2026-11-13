@@ -141,4 +141,6 @@ export const FIELD_LABELS: Record<string, string> = {
   promptWindowMinutes: "Prompt window minutes",
   quietAlertMinutes: "Quiet-phone alert minutes",
   retentionDays: "Keep messages (days)",
+  unclearRepliesEnabled: "Reply to unclear texts",
+  globalRepliesPerHour: "Max replies per hour (all senders)",
 }

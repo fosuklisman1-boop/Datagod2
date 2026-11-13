@@ -34,7 +34,7 @@ describe("validateTtbSettings: shape", () => {
 })
 
 describe("validateTtbSettings: booleans", () => {
-  for (const f of ["mainEnabled", "aiEnabled"] as const) {
+  for (const f of ["mainEnabled", "aiEnabled", "unclearRepliesEnabled"] as const) {
     it(`${f} must be a real boolean`, () => {
       expect(ok({ [f]: true })).toBeTruthy()
       expect(ok({ [f]: false })).toBeTruthy()
@@ -53,6 +53,7 @@ describe("validateTtbSettings: numeric ranges", () => {
     ["promptWindowMinutes", 2, 30],
     ["quietAlertMinutes", 10, 1440],
     ["retentionDays", 1, 90],
+    ["globalRepliesPerHour", 10, 5000],
   ]
   for (const [f, min, max] of table) {
     it(`${f} accepts ${min}..${max} and nothing outside or non-integer`, () => {
@@ -64,6 +65,18 @@ describe("validateTtbSettings: numeric ranges", () => {
       for (const v of [String(min), null, Number.NaN, Number.POSITIVE_INFINITY, true, []]) expect(bad({ [f]: v })).toBe(`invalid_${f}`)
     })
   }
+})
+
+describe("validateTtbSettings: reply cost settings", () => {
+  it("maps to their admin_settings keys", () => {
+    expect(ok({ unclearRepliesEnabled: false, globalRepliesPerHour: 5000 })).toEqual({ ttb_reply_to_unclear: false, ttb_global_replies_per_hour: 5000 })
+  })
+  it("edges of globalRepliesPerHour: 9 and 5001 rejected, 10 and 5000 accepted", () => {
+    expect(bad({ globalRepliesPerHour: 9 })).toBe("invalid_globalRepliesPerHour")
+    expect(bad({ globalRepliesPerHour: 5001 })).toBe("invalid_globalRepliesPerHour")
+    expect(ok({ globalRepliesPerHour: 10 })).toEqual({ ttb_global_replies_per_hour: 10 })
+    expect(ok({ globalRepliesPerHour: 5000 })).toEqual({ ttb_global_replies_per_hour: 5000 })
+  })
 })
 
 describe("validateTtbSettings: mainNumber", () => {

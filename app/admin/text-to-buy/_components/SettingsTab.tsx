@@ -10,8 +10,8 @@ import { Switch } from "@/components/ui/switch"
 import { adminFetch, ApiError, TTB_API, type Settings } from "./api"
 import { FIELD_LABELS, ttbErrorMessage } from "./format"
 
-type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled">
-type Form = { mainNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean } & Record<IntField, string>
+type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled" | "unclearRepliesEnabled">
+type Form = { mainNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean } & Record<IntField, string>
 
 // Ranges mirror lib/text-to-buy/admin-validate.ts. The server is the authority; these are helper text.
 const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] = [
@@ -23,6 +23,10 @@ const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] 
   { field: "promptWindowMinutes", min: 2, max: 30, hint: "How long a customer has to approve a prompt." },
   { field: "quietAlertMinutes", min: 10, max: 1440, hint: "Alert when the forwarding phone is silent this long." },
   { field: "retentionDays", min: 1, max: 90, hint: "Message text is deleted after this many days." },
+  {
+    field: "globalRepliesPerHour", min: 10, max: 5000,
+    hint: "Stops help replies, questions and price lists once this many replies went out in the last hour. Order quotes and payment notices are never stopped.",
+  },
 ]
 
 const SENDER_ID_HINT =
@@ -33,6 +37,8 @@ const toForm = (s: Settings): Form => ({
   replySenderId: s.replySenderId,
   shopReplySenderId: s.shopReplySenderId,
   aiEnabled: s.aiEnabled,
+  unclearRepliesEnabled: s.unclearRepliesEnabled,
+  globalRepliesPerHour: String(s.globalRepliesPerHour),
   staleMinutes: String(s.staleMinutes),
   promptsPerHour: String(s.promptsPerHour),
   repliesPerHour: String(s.repliesPerHour),
@@ -72,6 +78,7 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
     if (f.replySenderId !== saved.replySenderId) body.replySenderId = f.replySenderId
     if (f.shopReplySenderId !== saved.shopReplySenderId) body.shopReplySenderId = f.shopReplySenderId
     if (f.aiEnabled !== saved.aiEnabled) body.aiEnabled = f.aiEnabled
+    if (f.unclearRepliesEnabled !== saved.unclearRepliesEnabled) body.unclearRepliesEnabled = f.unclearRepliesEnabled
     for (const { field } of INT_FIELDS) if (f[field] !== saved[field]) body[field] = num(f[field])
     try {
       await adminFetch(TTB_API, { method: "PUT", body })
@@ -126,6 +133,14 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
                 <p className="text-xs text-muted-foreground">When off, only the fixed rules read texts. Anything they cannot read gets a help reply.</p>
               </div>
               <Switch id="ttb-aiEnabled" checked={f.aiEnabled} onCheckedChange={(v) => patch({ aiEnabled: v })} aria-label={FIELD_LABELS.aiEnabled} />
+            </div>
+
+            <div className="flex items-start justify-between gap-3 lg:col-span-2">
+              <div>
+                <label className="text-sm font-medium" htmlFor="ttb-unclearRepliesEnabled">{FIELD_LABELS.unclearRepliesEnabled}</label>
+                <p className="text-xs text-muted-foreground">When off, texts that are not orders get no reply, so unrelated or promotional texts cost nothing.</p>
+              </div>
+              <Switch id="ttb-unclearRepliesEnabled" checked={f.unclearRepliesEnabled} onCheckedChange={(v) => patch({ unclearRepliesEnabled: v })} aria-label={FIELD_LABELS.unclearRepliesEnabled} />
             </div>
 
             {INT_FIELDS.map(({ field, min, max, hint }) => (

@@ -43,7 +43,7 @@ vi.mock("./catalogue", () => {
   }
 })
 
-import { acceptInbound, processInbound, type InboundDeps, type InboundInput } from "./handle-inbound"
+import { acceptInbound, processInbound, resetReplyCapAlert, type InboundDeps, type InboundInput } from "./handle-inbound"
 
 const S = "0200000101"
 const R = "0200000150"
@@ -627,6 +627,159 @@ describe("dry run", () => {
     expect(r.outcome).toBe("asked")
     expect(t.f.db.tables.ttb_conversations).toHaveLength(0)
     expect(t.f.db.tables.ttb_messages.find((m) => m.id === id)!.outcome).toBeUndefined()
+  })
+})
+
+describe("silent on unclear texts (unclearRepliesEnabled)", () => {
+  it("off: a text that is not an order gets no reply and the outcome stays not_order", async () => {
+    const t = setup()
+    const { result, id } = await t.run("hello there", { settings: { aiEnabled: false, unclearRepliesEnabled: false } })
+    expect(result).toMatchObject({ outcome: "not_order", reply: null })
+    expect(t.deps.reply).not.toHaveBeenCalled()
+    expect(t.message(id)).toMatchObject({ outcome: "not_order" })
+  })
+  it("on: the how-to reply still goes out", async () => {
+    const t = setup()
+    const { result } = await t.run("hello there", { settings: { aiEnabled: false, unclearRepliesEnabled: true } })
+    expect(result).toMatchObject({ outcome: "not_order", reply: notUnderstoodReply() })
+    expect(t.deps.reply).toHaveBeenCalledTimes(1)
+  })
+  it("off: clarifying questions, keywords and price answers are untouched", async () => {
+    const t = setup()
+    t.deps.resolve.mockResolvedValue({ ok: false, reason: "need_recipient", networkLabel: "MTN" })
+    const asked = await t.run("5gb mtn", { settings: { unclearRepliesEnabled: false } })
+    expect(asked.result.outcome).toBe("asked")
+    expect(asked.result.reply).not.toBeNull()
+    const help = await t.run("help", { settings: { unclearRepliesEnabled: false } })
+    expect(help.result).toMatchObject({ outcome: "keyword", reply: helpReply() })
+  })
+})
+
+describe("overall reply cap (globalRepliesPerHour)", () => {
+  const CAP = 10
+  const outRows = (n: number, at = minutesAgo(5)) =>
+    Array.from({ length: n }, (_, k) => ({ id: `o${k}`, line: "main", direction: "out", created_at: at.toISOString() }))
+  const capped = (n: number) => setup({ seed: { ttb_messages: outRows(n) } })
+
+  beforeEach(() => resetReplyCapAlert())
+
+  it("under the cap: a help reply is sent", async () => {
+    const t = capped(CAP - 1)
+    const { result } = await t.run("help", { settings: { globalRepliesPerHour: CAP } })
+    expect(result).toMatchObject({ outcome: "keyword", reply: helpReply() })
+    expect(t.deps.reply).toHaveBeenCalledTimes(1)
+    expect(t.deps.alert).not.toHaveBeenCalled()
+  })
+
+  it("at the cap: a non-order reply is suppressed, nothing is sent and the row is recorded as limited", async () => {
+    const t = capped(CAP)
+    const { result, id } = await t.run("help", { settings: { globalRepliesPerHour: CAP } })
+    expect(result).toMatchObject({ outcome: "limited", reply: null })
+    expect(t.deps.reply).not.toHaveBeenCalled()
+    expect(t.message(id)).toMatchObject({ outcome: "limited" })
+  })
+
+  it("replies older than an hour or on the other line do not count", async () => {
+    const t = setup({
+      seed: {
+        ttb_messages: [
+          ...outRows(CAP, minutesAgo(61)),
+          ...outRows(CAP).map((r, k) => ({ ...r, id: `s${k}`, line: "shop" })),
+        ],
+      },
+    })
+    const { result } = await t.run("help", { settings: { globalRepliesPerHour: CAP } })
+    expect(result.reply).toBe(helpReply())
+  })
+
+  it("suppresses every non-quote reply: not understood, question, price list, limited and open order", async () => {
+    const t = capped(CAP)
+    const s = { globalRepliesPerHour: CAP, aiEnabled: false }
+    expect((await t.run("hello there", { settings: s })).result).toMatchObject({ outcome: "limited", reply: null })
+    t.deps.resolve.mockResolvedValue({ ok: false, reason: "need_recipient", networkLabel: "MTN" })
+    expect((await t.run("5gb mtn", { settings: s })).result).toMatchObject({ outcome: "limited", reply: null })
+    expect((await t.run("prices", { settings: s })).result).toMatchObject({ outcome: "limited", reply: null })
+    expect(t.deps.reply).not.toHaveBeenCalled()
+  })
+
+  it("the order quote is never suppressed, even over the cap", async () => {
+    const t = capped(CAP + 5)
+    const { result } = await t.run("5gb", { settings: { globalRepliesPerHour: CAP } })
+    expect(result).toMatchObject({ outcome: "prompted", orderId: ORDER })
+    expect(result.reply).not.toBeNull()
+    expect(t.deps.reply).toHaveBeenCalledTimes(1)
+  })
+
+  it("alerts once at the crossing (count equals the cap), with a message that carries no numbers or text", async () => {
+    const t = capped(CAP)
+    await t.run("help", { settings: { globalRepliesPerHour: CAP } })
+    expect(t.deps.alert).toHaveBeenCalledTimes(1)
+    expect(t.deps.alert).toHaveBeenCalledWith("Text-to-Buy: hourly reply cap reached")
+    // the count did not move (suppressed replies write no rows): no second alert while it stays at the cap
+    await t.run("prices", { settings: { globalRepliesPerHour: CAP } })
+    expect(t.deps.alert).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not alert when the count is already past the cap", async () => {
+    const t = capped(CAP + 3)
+    await t.run("help", { settings: { globalRepliesPerHour: CAP } })
+    expect(t.deps.alert).not.toHaveBeenCalled()
+  })
+
+  it("an alert that throws never throws out of processInbound and the reply is still suppressed", async () => {
+    const t = capped(CAP)
+    t.deps.alert.mockRejectedValue(new Error("notifier down"))
+    const { result } = await t.run("help", { settings: { globalRepliesPerHour: CAP } })
+    expect(result).toMatchObject({ outcome: "limited", reply: null })
+    expect(t.deps.reply).not.toHaveBeenCalled()
+  })
+
+  it("count read fails: the quote still goes, a non-order reply is suppressed, nothing throws, the log has no text", async () => {
+    const t = setup()
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const real = t.c.from.bind(t.c)
+    const broken = {
+      ...t.c,
+      from: (table: string) => {
+        const b = real(table) as unknown as { select: (c?: string, o?: { head?: boolean }) => unknown }
+        const sel = b.select
+        b.select = (c, o) => {
+          if (o?.head) throw new Error("count down")
+          return sel(c, o)
+        }
+        return b
+      },
+    } as unknown as SupabaseClient
+    const run = async (text: string) => {
+      const input: InboundInput = { line: "main", from: S, text, receivedAt: null, now }
+      const { id } = await acceptInbound(broken, input)
+      return processInbound(broken, id, input, settings(), t.deps as unknown as InboundDeps)
+    }
+    const help = await run("help")
+    expect(help).toMatchObject({ outcome: "limited", reply: null })
+    const quote = await run("5gb")
+    expect(quote).toMatchObject({ outcome: "prompted", orderId: ORDER })
+    expect(t.deps.reply).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(err.mock.calls)).not.toContain("help")
+    expect(JSON.stringify(err.mock.calls)).not.toContain(S)
+  })
+
+  it("dry run: same decision, no writes, no send, no alert", async () => {
+    const t = capped(CAP)
+    const input: InboundInput = { line: "main", from: S, text: "help", receivedAt: null, now }
+    const { id } = await acceptInbound(t.c, input)
+    const before = JSON.stringify(t.f.db.tables)
+    const r = await processInbound(t.c, id, input, settings({ globalRepliesPerHour: CAP }), { ...t.deps, dryRun: true } as unknown as InboundDeps)
+    expect(r).toMatchObject({ outcome: "limited", reply: null })
+    expect(t.deps.reply).not.toHaveBeenCalled()
+    expect(t.deps.alert).not.toHaveBeenCalled()
+    expect(JSON.stringify(t.f.db.tables)).toBe(before)
+
+    const under = capped(CAP - 1)
+    const i2: InboundInput = { line: "main", from: S, text: "help", receivedAt: null, now }
+    const { id: id2 } = await acceptInbound(under.c, i2)
+    const r2 = await processInbound(under.c, id2, i2, settings({ globalRepliesPerHour: CAP }), { ...under.deps, dryRun: true } as unknown as InboundDeps)
+    expect(r2).toMatchObject({ outcome: "keyword", reply: helpReply() })
   })
 })
 

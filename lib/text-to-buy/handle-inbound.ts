@@ -15,7 +15,7 @@ import {
 import { sendReply } from "./send-reply"
 import type { TtbSettings } from "./settings"
 import {
-  claimInbound, closeStaleLinks, counts, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
+  claimInbound, closeStaleLinks, counts, countOutbound, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
   linkOrder, loadConversation, saveConversation, setInboundResult, storeInbound, ussdOrderStatus, type Conversation,
 } from "./store"
 import {
@@ -51,6 +51,17 @@ const CONVERSATION_WINDOW_MS = 20 * MINUTE // the same 20 minutes saveConversati
 const AI_BUDGET_MS = 10_000
 const NOT_ORDER: ReadResult = { kind: "not_order" }
 const CAP_ALERT = "Text-to-Buy: global prompt cap reached"
+const REPLY_CAP_ALERT = "Text-to-Buy: hourly reply cap reached"
+
+/**
+ * When each line last alerted about the hourly reply cap (best effort, per server instance). It re-arms when a check sees the
+ * count back under the cap, or after an hour. Suppressed replies write no rows, so the count can sit exactly at the cap for a
+ * while: without this every suppressed text would alert.
+ */
+const capAlerted = new Map<Line, number>()
+export function resetReplyCapAlert(): void {
+  capAlerted.clear()
+}
 
 /** Phase 1, awaited by the webhook. processed = this message already has a recorded outcome (a retry after a crash is not). */
 export async function acceptInbound(db: SupabaseClient, i: InboundInput): Promise<{ id: string; duplicate: boolean; processed: boolean }> {
@@ -99,7 +110,44 @@ export async function processInbound(
   const now = i.now.getTime()
   let readBy: "rules" | "ai" | null = null
 
+  /**
+   * True when this non-quote reply must be suppressed because the line already sent its hourly cap of replies.
+   * Fail safe: an unreadable count counts as reached (stay silent rather than spend blindly). Never throws.
+   * The first suppression (count exactly at the cap) alerts admins once, never in a dry run.
+   */
+  async function replyCapReached(): Promise<boolean> {
+    const cap = settings.globalRepliesPerHour
+    let sent: number
+    try {
+      sent = await countOutbound(db, i.line, new Date(now - HOUR))
+    } catch (e) {
+      console.error("[text-to-buy] reply cap count error", { messageId, error: e instanceof Error ? e.name : "unknown" })
+      return true
+    }
+    if (sent < cap) {
+      if (!dry) capAlerted.delete(i.line)
+      return false
+    }
+    if (!dry && sent === cap) {
+      const last = capAlerted.get(i.line)
+      if (last === undefined || now - last >= HOUR) {
+        capAlerted.set(i.line, now)
+        try {
+          await alert(REPLY_CAP_ALERT)
+        } catch {
+          // an alert must never throw out of the lane
+        }
+      }
+    }
+    return true
+  }
+
   async function finish(outcome: Outcome, text: string | null, extra: { orderLinkId?: string; orderId?: string } = {}): Promise<InboundResult> {
+    // Every reply goes through here, so the overall cap cannot be bypassed. The order quote ("prompted") is never held back.
+    if (text && outcome !== "prompted" && (await replyCapReached())) {
+      outcome = "limited"
+      text = null
+    }
     if (!dry) {
       if (text) await reply(db, { line: i.line, sender: i.from, body: text, settings, orderLinkId: extra.orderLinkId })
       await setInboundResult(db, messageId, { readBy, outcome, orderLinkId: extra.orderLinkId })
@@ -197,7 +245,8 @@ export async function processInbound(
 
     // ---- 5-7. things that are not an order -------------------------------------------------------------------------
     if (read.kind === "not_order" || read.kind === "unknown" || read.kind === "keyword") {
-      return await finish("not_order", c.notUnderstood >= 1 ? null : notUnderstoodReply())
+      // With the switch off an unclear text costs nothing: no reply at all.
+      return await finish("not_order", !settings.unclearRepliesEnabled || c.notUnderstood >= 1 ? null : notUnderstoodReply())
     }
     if (read.kind === "ask") {
       await remember(i.text, read.question)

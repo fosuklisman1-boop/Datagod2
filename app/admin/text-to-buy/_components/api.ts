@@ -47,6 +47,8 @@ export type Settings = {
   promptWindowMinutes: number
   quietAlertMinutes: number
   retentionDays: number
+  unclearRepliesEnabled: boolean
+  globalRepliesPerHour: number
 }
 
 export type LineOverview = {

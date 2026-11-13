@@ -20,6 +20,10 @@ export type TtbSettings = {
   promptWindowMinutes: number
   quietAlertMinutes: number
   retentionDays: number
+  /** When false, a text that is not an order gets no reply (no SMS spend on unrelated or promotional texts). */
+  unclearRepliesEnabled: boolean
+  /** Replies per hour across ALL senders of a line. At the cap, everything except the order quote goes silent. */
+  globalRepliesPerHour: number
   /** "defaults" when the DB read failed or threw, so callers can tell fallback values from saved ones. */
   source: "db" | "defaults"
 }
@@ -41,6 +45,8 @@ export const TTB_SETTING_KEYS = {
   promptWindowMinutes: "ttb_prompt_window_minutes",
   quietAlertMinutes: "ttb_quiet_alert_minutes",
   retentionDays: "ttb_retention_days",
+  unclearRepliesEnabled: "ttb_reply_to_unclear",
+  globalRepliesPerHour: "ttb_global_replies_per_hour",
 } as const satisfies Record<TtbSettingField, string>
 
 export type TtbSettingKey = (typeof TTB_SETTING_KEYS)[TtbSettingField]
@@ -61,12 +67,19 @@ export const TTB_DEFAULTS: TtbSettings = {
   promptWindowMinutes: 5,
   quietAlertMinutes: 60,
   retentionDays: 30,
+  unclearRepliesEnabled: true,
+  globalRepliesPerHour: 300,
   source: "defaults",
 }
 
 /** min 0 is for the hourly caps (0 fails closed); minutes and days use min 1 (0 would purge everything or switch a protection off). */
 function limit(x: unknown, fallback: number, min = 0): number {
   return typeof x === "number" && Number.isFinite(x) && x >= min ? x : fallback
+}
+
+/** A whole number inside the admin range; anything else (wrong type, fraction, out of range) keeps the default. */
+function intIn(x: unknown, fallback: number, min: number, max: number): number {
+  return typeof x === "number" && Number.isInteger(x) && x >= min && x <= max ? x : fallback
 }
 
 function text(x: unknown, fallback: string): string {
@@ -99,6 +112,8 @@ export async function loadTtbSettings(db: SupabaseClient): Promise<TtbSettings> 
       promptWindowMinutes: limit(raw.ttb_prompt_window_minutes, d.promptWindowMinutes, 1),
       quietAlertMinutes: limit(raw.ttb_quiet_alert_minutes, d.quietAlertMinutes, 1),
       retentionDays: limit(raw.ttb_retention_days, d.retentionDays, 1),
+      unclearRepliesEnabled: typeof raw.ttb_reply_to_unclear === "boolean" ? raw.ttb_reply_to_unclear : d.unclearRepliesEnabled,
+      globalRepliesPerHour: intIn(raw.ttb_global_replies_per_hour, d.globalRepliesPerHour, 10, 5000),
       source: "db",
     }
   } catch {

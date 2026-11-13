@@ -21,6 +21,8 @@ const RULES: Record<TtbSettingField, Rule> = {
   promptWindowMinutes: { kind: "int", min: 2, max: 30 },
   quietAlertMinutes: { kind: "int", min: 10, max: 1440 },
   retentionDays: { kind: "int", min: 1, max: 90 },
+  unclearRepliesEnabled: { kind: "bool" },
+  globalRepliesPerHour: { kind: "int", min: 10, max: 5000 },
 }
 
 const SENDER_ID_RE = /^[A-Za-z0-9 ]{1,11}$/

@@ -68,6 +68,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     let returning = false
     let single: "one" | "maybe" | null = null
     let lim: number | null = null
+    let countOnly = false
     const orders: { c: string; asc: boolean }[] = []
     const rows = () => db.tables[table]
 
@@ -134,6 +135,8 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
         return { data: returning ? hit.map((r) => ({ ...r })) : null, error: null }
       }
       let out = rows().filter((r) => filters.every((f) => f(r)))
+      // select(cols, { count: "exact", head: true }): no rows, only the count of the matching ones.
+      if (countOnly) return { data: null, count: out.length, error: null } as { data: unknown; error: DbError | null }
       if (orders.length) {
         out = [...out].sort((a, b) => {
           for (const { c, asc } of orders) {
@@ -152,8 +155,9 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     }
 
     const b = {
-      select: (cols = "*") => {
+      select: (cols = "*", opts?: { count?: string; head?: boolean }) => {
         if (cols !== "*") for (const c of cols.split(",")) col(table, c.trim())
+        if (opts?.head === true && opts.count === "exact") countOnly = true
         if (mode === "insert" || mode === "update" || mode === "delete") returning = true
         return b
       },

@@ -113,6 +113,18 @@ export async function globalPrompts(db: SupabaseClient, since: Date): Promise<nu
   return data
 }
 
+/** Outbound reply rows of a line created at or after since (a count query, no rows fetched). Throws TtbStoreError on a read error. */
+export async function countOutbound(db: SupabaseClient, line: Line, since: Date): Promise<number> {
+  const { count, error } = await db
+    .from("ttb_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("line", line)
+    .eq("direction", "out")
+    .gte("created_at", since.toISOString())
+  if (error || typeof count !== "number" || !Number.isFinite(count)) throw new TtbStoreError("could not read the outbound count")
+  return count
+}
+
 /** An awaiting_payment link created at or after windowStart. */
 export async function hasOpenOrder(db: SupabaseClient, line: Line, sender: string, windowStart: Date): Promise<boolean> {
   const { data, error } = await db

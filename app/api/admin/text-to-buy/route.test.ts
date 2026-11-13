@@ -203,6 +203,36 @@ describe("PUT settings", () => {
     expect(JSON.stringify(settingsRows())).toBe(before)
     expect(notifyMock).not.toHaveBeenCalled()
   })
+  it("saves the reply cost settings under their keys as { value } and alerts by key names only", async () => {
+    const res = await PUT(req("PUT", { unclearRepliesEnabled: false, globalRepliesPerHour: 500 }))
+    expect(res.status).toBe(200)
+    expect(settingsRows().find((r) => r.key === "ttb_reply_to_unclear")).toMatchObject({ value: { value: false }, updated_by: ADMIN })
+    expect(settingsRows().find((r) => r.key === "ttb_global_replies_per_hour")).toMatchObject({ value: { value: 500 }, updated_by: ADMIN })
+    expect(notifyMock).toHaveBeenCalledTimes(1)
+    const call = notifyMock.mock.calls[0][0] as { keys: string[] }
+    expect([...call.keys].sort()).toEqual(["ttb_global_replies_per_hour", "ttb_reply_to_unclear"])
+    expect((await res.json()).settings).toMatchObject({ unclearRepliesEnabled: false, globalRepliesPerHour: 500 })
+  })
+  it("an invalid reply cost value writes nothing and alerts nobody", async () => {
+    for (const [body, err] of [
+      [{ globalRepliesPerHour: 9 }, "invalid_globalRepliesPerHour"],
+      [{ globalRepliesPerHour: 5001 }, "invalid_globalRepliesPerHour"],
+      [{ globalRepliesPerHour: "300" }, "invalid_globalRepliesPerHour"],
+      [{ unclearRepliesEnabled: "no" }, "invalid_unclearRepliesEnabled"],
+    ] as const) {
+      const res = await PUT(req("PUT", body))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe(err)
+    }
+    expect(settingsRows()).toEqual([])
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
+  it("unchanged reply cost values (the defaults) write nothing and send no alert", async () => {
+    const res = await PUT(req("PUT", { unclearRepliesEnabled: true, globalRepliesPerHour: 300 }))
+    expect(res.status).toBe(200)
+    expect(settingsRows()).toEqual([])
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
   it("an empty patch is a no-op", async () => {
     expect((await PUT(req("PUT", {}))).status).toBe(200)
     expect(settingsRows()).toEqual([])

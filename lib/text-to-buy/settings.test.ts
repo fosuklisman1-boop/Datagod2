@@ -28,7 +28,7 @@ describe("TTB_DEFAULTS", () => {
     expect(TTB_DEFAULTS).toEqual({
       mainEnabled: false, mainNumber: "", replySenderId: "", shopReplySenderId: "", aiEnabled: true, staleMinutes: 10, promptsPerHour: 3,
       repliesPerHour: 6, aiReadsPerHour: 10, globalPromptsPerMinute: 30, promptWindowMinutes: 5, quietAlertMinutes: 60,
-      retentionDays: 30, source: "defaults",
+      retentionDays: 30, unclearRepliesEnabled: true, globalRepliesPerHour: 300, source: "defaults",
     })
   })
 })
@@ -60,12 +60,31 @@ describe("loadTtbSettings", () => {
       ttb_main_enabled: true, ttb_main_number: "0200000100", ttb_reply_sender_id: "Datagod", ttb_shop_reply_sender_id: "DatagodShop", ttb_ai_enabled: false,
       ttb_stale_minutes: 15, ttb_prompts_per_hour: 4, ttb_replies_per_hour: 8, ttb_ai_reads_per_hour: 12,
       ttb_global_prompts_per_minute: 40, ttb_prompt_window_minutes: 7, ttb_quiet_alert_minutes: 90, ttb_retention_days: 14,
+      ttb_reply_to_unclear: false, ttb_global_replies_per_hour: 50,
     })))
     expect(s).toEqual({
       mainEnabled: true, mainNumber: "0200000100", replySenderId: "Datagod", shopReplySenderId: "DatagodShop", aiEnabled: false, staleMinutes: 15,
       promptsPerHour: 4, repliesPerHour: 8, aiReadsPerHour: 12, globalPromptsPerMinute: 40, promptWindowMinutes: 7,
-      quietAlertMinutes: 90, retentionDays: 14, source: "db",
+      quietAlertMinutes: 90, retentionDays: 14, unclearRepliesEnabled: false, globalRepliesPerHour: 50, source: "db",
     })
+  })
+
+  it("unclearRepliesEnabled defaults to true when missing and keeps the default for a non-boolean", async () => {
+    expect((await loadTtbSettings(client({ data: [], error: null }))).unclearRepliesEnabled).toBe(true)
+    for (const v of ["false", 0, null, [], {}]) {
+      expect((await loadTtbSettings(client(rows({ ttb_reply_to_unclear: v })))).unclearRepliesEnabled).toBe(true)
+    }
+    expect((await loadTtbSettings(client(rows({ ttb_reply_to_unclear: false })))).unclearRepliesEnabled).toBe(false)
+  })
+
+  it("globalRepliesPerHour defaults to 300 and ignores wrong types, non-integers and out-of-range values", async () => {
+    expect((await loadTtbSettings(client({ data: [], error: null }))).globalRepliesPerHour).toBe(300)
+    for (const v of ["50", null, [], {}, Number.NaN, 9, 0, -5, 5001, 10.5]) {
+      expect((await loadTtbSettings(client(rows({ ttb_global_replies_per_hour: v })))).globalRepliesPerHour).toBe(300)
+    }
+    for (const v of [10, 5000, 123]) {
+      expect((await loadTtbSettings(client(rows({ ttb_global_replies_per_hour: v })))).globalRepliesPerHour).toBe(v)
+    }
   })
 
   it("falls back to the default for a non-numeric, negative or non-finite limit", async () => {
@@ -92,7 +111,7 @@ describe("loadTtbSettings", () => {
 
   it("exports one key table covering every setting field", () => {
     expect(Object.keys(TTB_SETTING_KEYS).sort()).toEqual(Object.keys(TTB_DEFAULTS).filter((k) => k !== "source").sort())
-    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(13)
+    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(15)
     expect(TTB_SETTING_KEYS.shopReplySenderId).toBe("ttb_shop_reply_sender_id")
     expect(TTB_SETTING_KEYS.mainEnabled).toBe("ttb_main_enabled")
   })
