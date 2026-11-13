@@ -1,9 +1,9 @@
 # Text-to-Buy (Stage 1, main number, data only) - owner runbook
 
-Status: built on branch `feat/text-to-buy`, NOT merged, migration 0177 NOT applied. Ships DARK: the switch is off and, with it off, the SMS webhook behaves exactly as it does today.
+Status (2026-11-13, late): merged to `main` and deployed; migration 0177 applied to production; the follow-up cron (cron-job.org job 8859910) is created and enabled; the switch was turned on by the owner for the first live test, which worked end to end for an own-number MTN order. Still to do before telling customers: the pre-launch gates in section 7. With the switch off, the SMS webhook behaves exactly as it did before this feature.
 Spec: `docs/superpowers/specs/2026-11-13-sms-text-to-buy-design.md`. Plan: `docs/superpowers/plans/2026-11-13-text-to-buy-stage1-main-data.md`.
 
-Everything marked **OWNER ACTION** changes production and needs your explicit OK. Nothing in this document has been run.
+Everything marked **OWNER ACTION** changes production and needs your explicit OK. Sections 5.1 (migration) and 5.2 (cron) have been run, with the owner's OK, on 2026-11-13; the rest of the steps are the checklist for launch.
 
 ## 1. What it is, and what is not in Stage 1
 
@@ -167,9 +167,9 @@ For each of MTN, Telecel, AT, from a real handset on that network (record the re
 
 | Network | Delivered | Sender shown | Same thread | Notes |
 |---|---|---|---|---|
-| MTN | TO TEST | TO TEST | TO TEST | A past sender ID (`CLINGSDTGOD` style) was accepted by Hubtel but NOT delivered on MTN. |
+| MTN | Yes | still to record | still to record | 2026-11-13: Hubtel accepted the owner's number as sender ID to an MTN number and reported Delivered within about 9 seconds (Hubtel network code 62001 = MTN Ghana; 62002 = Telecel; 62003 = AT). The live Text-to-Buy replies (AI question, quote, unpaid notice) also reached the owner's MTN handset. What the handset displays as the sender, and whether it threads with the customer's own messages, is still to be recorded. A past alphanumeric sender ID (`CLINGSDTGOD` style) was accepted by Hubtel but NOT delivered on MTN, so numeric IDs behave differently. |
 | Telecel | TO TEST | TO TEST | TO TEST | |
-| AT | Yes (Hubtel) | still to record | still to record | 2026-11-13: Hubtel accepted sender 0555773910 to the AT number 0546961942 (HTTP 201, rate GHS 0.0243) and reported Delivered within about 9 seconds, `from` unchanged as the 10-digit number. What the handset displayed and whether it threaded is still to be recorded. |
+| AT | TO TEST | TO TEST | TO TEST | NOT yet tested. (An earlier note here called the first test "AT": that was wrong. The test number was MTN, see the MTN row.) |
 
 If a network fails, the fallbacks in order: replies sent from the SIM by the forwarder app; an alphanumeric sender ID with the number written in the text.
 
@@ -182,8 +182,8 @@ To change one, edit that string in `PAYER_TIPS` (and the matching expectations i
 
 ## 7. Pre-launch gates (tick each)
 
-- [ ] Receive time arrives: a real text shows `received_at` in the Messages tab (section 4 step 6).
-- [ ] Sender ID verified on MTN, Telecel and AT (section 6 table filled in).
+- [x] Receive time arrives: a real text shows `received_at` in the Messages tab (section 4 step 6). Done 2026-11-13 (the forwarder Params use `received=[receive_time]`).
+- [ ] Sender ID verified on MTN, Telecel and AT (section 6 table filled in). MTN delivery proven; Telecel and AT still to test, and the handset display/threading is still to record.
 - [ ] Real catalogue query run, and every size spelling confirmed parseable. Read-only:
   ```sql
   select network, size, count(*) from packages where is_available group by 1, 2 order by 1, 2;
@@ -193,8 +193,8 @@ To change one, edit that string in `PAYER_TIPS` (and the matching expectations i
 - [ ] Gateway row "Text orders (SMS)" set (Hubtel before promoting to Telecel customers).
 - [ ] Supervised paid test passed on each network (section 8).
 - [ ] Browser pass of `/admin/text-to-buy` at 500px and 1280px. NOT yet done: the page was built without a browser check. (The detail lists in Overview and Try it were fixed to `grid-cols-[auto_1fr]`: confirm they show two columns.)
-- [ ] Migration 0177 applied and verified; cron job created and enabled (section 5).
-- [ ] Whole-branch review done (money, auth and schema are touched: a fresh reviewer is mandatory).
+- [x] Migration 0177 applied and verified; cron job created and enabled (section 5). Done 2026-11-13.
+- [x] Whole-branch review done (money, auth and schema are touched: a fresh reviewer is mandatory). Done 2026-11-13; its Important findings were fixed.
 
 ## 8. Supervised paid test script
 
@@ -260,4 +260,27 @@ Repeat tests 1 and 3 on each of MTN, Telecel and AT payer numbers (Telecel only 
 
 Hold until every gate in section 7 is ticked. Ready-to-paste text for the customer channel, with the number filled in:
 
-> New: order data by text. Send a text to <number> with the size you want, for example `5GB`. You will get a MoMo prompt on your phone; approve with your PIN and your data arrives. For someone else, add their number: `5GB 0241234567`. Text PRICES for the price list. No app, no data, no menu needed.
+> 📢 NEW: Buy data by SMS 🎉
+>
+> No internet, no app, no code to dial. Just text us.
+>
+> HOW IT WORKS
+> 1️⃣ Text <number> with the size you want, in your own words. Example: `5GB`, or "please send me 5 gig"
+> 2️⃣ We reply with the price, and a MoMo prompt comes to your phone
+> 3️⃣ Enter your MoMo PIN. Your data arrives ✅
+>
+> BUYING FOR SOMEONE ELSE?
+> Add their number: `5GB 0241234567`. You pay with your MoMo and they get the data. You get a message when it has been sent.
+>
+> OTHER THINGS YOU CAN TEXT
+> • PRICES: see the price list
+> • AGAIN: repeat your last order
+> • STATUS: check your last order
+> • YES: try again if a payment did not go through
+>
+> GOOD TO KNOW
+> • The MoMo prompt goes to the number you text from. Nothing is taken until you enter your PIN.
+> • No prompt? On MTN dial *170#, choose 6, then 3 to approve.
+> • Save <number> and try it today 📲
+>
+> (Before posting: fill in the number, and check the "No prompt?" line for Telecel and AT customers matches what the quote SMS says for those networks.)
