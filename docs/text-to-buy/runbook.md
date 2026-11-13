@@ -145,7 +145,7 @@ The cron can stay enabled or be disabled (`--disable B --only ...`) at any time.
 
 ### 5.4 SMS Provider Control
 
-`/admin/sms` (SMS Provider Control), category "Text-to-Buy replies": default Hubtel. Keep Hubtel unless a test in section 6 shows otherwise.
+`/admin/sms-centre`, Providers tab (SMS Provider Control), category "Text-to-Buy replies": default Hubtel. Keep Hubtel unless a test in section 6 shows otherwise.
 
 ### 5.5 Admin settings, then the switch
 
