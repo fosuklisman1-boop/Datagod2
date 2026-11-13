@@ -28,7 +28,10 @@ Edit them on `/admin/text-to-buy`, tab Settings. Each is stored as `{"value": x}
 | `ttb_main_enabled` | false | Master switch. Off = webhook behaves as before. |
 | `ttb_main_number` | "" | The number customers text (shown in replies and pages). |
 | `ttb_reply_sender_id` | "" | Sender ID used for replies. Empty = whatever the SMS Provider Control chain uses. |
+| `ttb_shop_reply_sender_id` | "" | Sender ID for the SHOP line's replies (used from Stage 3). Created the first time you save it; no migration. |
 | `ttb_ai_enabled` | true | Off = rules only; unreadable texts get the help reply. |
+| `ttb_reply_to_unclear` | true | Off = a text that is not an order gets NO reply, so unrelated or promotional texts cost nothing. (A bare YES or AGAIN with nothing to act on counts as unclear.) Created the first time you save it. |
+| `ttb_global_replies_per_hour` | 300 | Cap on non-order replies across ALL senders per hour (10 to 5000). Help replies, questions and price lists go quiet once reached; order quotes, payment notices and replies after a MoMo prompt has started are never stopped. One admin alert per hour when reached. Created the first time you save it. |
 | `ttb_stale_minutes` | 10 | A text received longer ago than this gets the "arrived late" reply, no prompt. |
 | `ttb_prompts_per_hour` | 3 | Most MoMo prompts one sender can trigger per hour. |
 | `ttb_replies_per_hour` | 6 | Most replies one sender is sent per hour. |
