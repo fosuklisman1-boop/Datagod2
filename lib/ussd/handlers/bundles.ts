@@ -11,6 +11,7 @@ import { resolveEmail } from "../resolve-email"
 import { liveWalletBalance } from "../wallet-balance"
 import { submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
+import { resolveBuyerTier } from "../buyer-tier"
 import {
   guardedReprice, isUssdHubtelPayer, pendingOrderAmountFor, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdPrice,
 } from "../gateway-charge"
@@ -99,51 +100,9 @@ export async function handleSelectNetwork(
 
   // Resolve effective price tier from user's account role
   const dialingPhone = session.dialingPhone ?? ''
-  const localPhone = dialingPhone.startsWith('+233') ? '0' + dialingPhone.slice(4)
-    : dialingPhone.startsWith('233') ? '0' + dialingPhone.slice(3)
-    : dialingPhone
+  const tier = await resolveBuyerTier(supabase, dialingPhone, net.dbName)
 
-  const [{ data: userRow }, { data: settingsRow }, { data: mtnProviderRow }] = await Promise.all([
-    supabase.from("users").select("id, role").eq("phone_number", localPhone).maybeSingle(),
-    supabase.from("app_settings").select("ussd_price_tier").is("key", null).single(),
-    net.dbName === 'MTN'
-      ? supabase.from("admin_settings").select("value").eq("key", "mtn_provider_selection").maybeSingle()
-      : Promise.resolve({ data: null }),
-  ])
-  const mtnWhitelistActive = net.dbName === 'MTN' &&
-    ['xpress', 'codecraft'].includes(mtnProviderRow?.value?.provider ?? '')
-
-  let effectivePriceTier: string = settingsRow?.ussd_price_tier ?? 'regular'
-  let subAgentParentShopId: string | undefined
-  let walletBalance: number | undefined
-
-  if (userRow) {
-    if (userRow.role === 'dealer') {
-      effectivePriceTier = 'dealer'
-      const { data: walletRow } = await supabase
-        .from("wallets").select("balance").eq("user_id", userRow.id).maybeSingle()
-      walletBalance = walletRow ? Number(walletRow.balance) : undefined
-    } else if (userRow.role === 'sub_agent') {
-      const [{ data: shopRow }, { data: walletRow }] = await Promise.all([
-        supabase.from("user_shops").select("parent_shop_id").eq("user_id", userRow.id).not("parent_shop_id", "is", null).maybeSingle(),
-        supabase.from("wallets").select("balance").eq("user_id", userRow.id).maybeSingle(),
-      ])
-      walletBalance = walletRow ? Number(walletRow.balance) : undefined
-      if (shopRow?.parent_shop_id) {
-        effectivePriceTier = 'sub_agent'
-        subAgentParentShopId = shopRow.parent_shop_id
-      } else {
-        effectivePriceTier = 'regular'
-      }
-    } else {
-      effectivePriceTier = 'regular'
-      const { data: walletRow } = await supabase
-        .from("wallets").select("balance").eq("user_id", userRow.id).maybeSingle()
-      walletBalance = walletRow ? Number(walletRow.balance) : undefined
-    }
-  }
-
-  const { bundles, total } = await fetchBundles(net.dbName, 0, effectivePriceTier, subAgentParentShopId, userRow?.id)
+  const { bundles, total } = await fetchBundles(net.dbName, 0, tier.effectivePriceTier, tier.subAgentParentShopId, tier.userId)
   if (bundles.length === 0) {
     return cont(`No ${networkNickname(net.dbName)} packages available.\n\n${networkMenu()}`)
   }
@@ -155,14 +114,10 @@ export async function handleSelectNetwork(
     step: 'SELECT_BUNDLE',
     network: net.dbName,
     paystackProvider,
-    effectivePriceTier,
-    subAgentParentShopId,
-    userId: userRow?.id,
-    walletBalance,
+    ...tier,
     bundlePage: 0,
     bundleCache: bundles,
     bundleTotal: total,
-    mtnWhitelistActive,
   })
 
   return cont(bundleMenu(bundles, 0, total))
