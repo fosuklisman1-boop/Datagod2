@@ -156,14 +156,29 @@ export function statusReply(
   }
 }
 
-/** True for GHS/GHC/cedi(s)/pesewa(s)/the cedi sign, or a two-decimal amount like 12.50. */
+const NUMBER_WORDS =
+  "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand"
+const PRICE_WORDS = "cost|costs|price|priced|pay|charge|fee|total|only|for|is"
+
+/**
+ * Allow-list money check for AI-written text. True when the text names a currency, or
+ * contains ANY digit outside an allowed form (a size like 5GB / 1.5GB / 500MB, or a
+ * list marker like "1)"). Phone numbers are not allowed. Spelled-out numbers (twenty,
+ * fifty, hundred ...) are caught only when a price-like word (cost, price, pay, only,
+ * for, is, at ...) also appears; a spelled number with no digit and no price word
+ * ("which of the two?") passes. Over-blocking is the safe direction.
+ */
 export function containsMoney(text: string): boolean {
-  if (/ghs|ghc/i.test(text)) return true
-  if (/₵/.test(text)) return true
-  if (/\b(cedis?|pesewas?)\b/i.test(text)) return true
-  // "12.50" reads as an amount; "1.5GB" and "2.50GB" are sizes.
-  if (/\d+\.\d{2}(?!\d|\s?(gb|mb))/i.test(text)) return true
-  return false
+  if (/ghs|ghc|usd|₵|\$/i.test(text)) return true
+  if (/\b(cedis?|pesewas?|dollars?)\b/i.test(text)) return true
+  if (/\bgh\s*\d/i.test(text)) return true
+  const stripped = text.replace(/\d+(\.\d+)?\s?(gb|mb)\b/gi, " ").replace(/\d+\)/g, " ")
+  if (/\d/.test(stripped)) return true
+  const numberWord = new RegExp(`\\b(${NUMBER_WORDS})\\b`, "i")
+  const priceWord = new RegExp(`\\b(${PRICE_WORDS})\\b`, "i")
+  // "at" is also the AT network name, so it only counts directly before a number word.
+  const atNumber = new RegExp(`\\bat\\s+(${NUMBER_WORDS})\\b`, "i")
+  return (numberWord.test(text) && priceWord.test(text)) || atNumber.test(text)
 }
 
 /** AI text if it states no money and fits one GSM-7 segment, else the safe fallback. */

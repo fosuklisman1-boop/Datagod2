@@ -185,10 +185,19 @@ describe("one segment", () => {
 })
 
 describe("containsMoney", () => {
-  it.each(["GHS 5", "ghc5", "5 cedis", "₵5", "50 pesewas", "it costs 12.50"])("true: %s", (t) =>
-    expect(containsMoney(t)).toBe(true),
-  )
-  it.each(["Which size? 1) 1GB 2) 2GB 3) 5GB", "Which number should receive the 2GB?", "Do you want 1.5GB?"])(
+  it.each([
+    "GHS 5", "ghc5", "5 cedis", "₵5", "50 pesewas", "it costs 12.50",
+    "GHS20", "20ghs", "twenty cedis", "5 GHC", "12,50", "12.5", "1,200", "is 20, ok?",
+    "$20", "USD 5", "GH 20", "5GB costs 20 only", "12.50 GBP", "twenty only for 5GB",
+    "12.50 MBs", "call 0241234567",
+  ])("true: %s", (t) => expect(containsMoney(t)).toBe(true))
+  it.each([
+    "Which size? 1) 1GB 2) 2GB 3) 5GB",
+    "Which number should receive the 2GB?",
+    "Do you want 1.5GB?",
+    "1.5GB or 500MB?",
+    "Which one? 1) AT iShare 5GB 2) AT BigTime 5GB",
+  ])(
     "false: %s",
     (t) => expect(containsMoney(t)).toBe(false),
   )
@@ -199,6 +208,12 @@ describe("safeAiQuestion", () => {
     expect(safeAiQuestion("Which number should receive the 2GB?")).toBe("Which number should receive the 2GB?"))
   it("replaces a reply that states a price", () =>
     expect(safeAiQuestion("5GB is GHS 20, shall I proceed?")).toBe(notUnderstoodReply()))
+  it("replaces a reply with a bare amount and no currency word", () => {
+    expect(safeAiQuestion("5GB is 20, shall I proceed?")).toBe(notUnderstoodReply())
+    expect(safeAiQuestion("twenty only for 5GB, ok?")).toBe(notUnderstoodReply())
+  })
+  it("replaces a reply that echoes a phone number", () =>
+    expect(safeAiQuestion("Send to 0241234567?")).toBe(notUnderstoodReply()))
   it("replaces a reply longer than one segment", () =>
     expect(safeAiQuestion("x".repeat(161))).toBe(notUnderstoodReply()))
   it("replaces a non-GSM-7 reply", () =>
