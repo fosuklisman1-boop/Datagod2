@@ -3,7 +3,7 @@ import { getSupportDb, getSupportUser } from "@/lib/support-auth"
 import { createThreadSchema } from "@/lib/support-validation"
 import { checkSupportRateLimit } from "@/lib/support-rate-limit"
 import { ownedOrderTiming, ownedShopOrderTiming } from "@/lib/support-ownership"
-import { complaintEligibility } from "@/lib/support-eligibility"
+import { complaintEligibility, type OrderTiming } from "@/lib/support-eligibility"
 import { removeAttachments, storeThreadAttachment } from "@/lib/support-attachment"
 import { alertAdminsNewThread, notifyUserSupportEvent, runAfterResponse } from "@/lib/support-notify"
 
@@ -53,12 +53,11 @@ export async function POST(request: NextRequest) {
     // Ownership first (404 reveals nothing), then the owner's complaint window on the caller's own order.
     // Every supplied id is verified on its own; the schema also refuses a request carrying both.
     if (input.order_id && input.shop_order_id) return fail("Provide only one order", 400)
-    const timings = [
-      input.order_id ? await ownedOrderTiming(db, userId, input.order_id) : undefined,
-      input.shop_order_id ? await ownedShopOrderTiming(db, userId, input.shop_order_id) : undefined,
-    ]
-    for (const timing of timings) {
-      if (timing === undefined) continue
+    // Only supplied ids are looked up, and ANY falsy lookup result is a refusal (never a skip).
+    const lookups: (OrderTiming | null)[] = []
+    if (input.order_id) lookups.push(await ownedOrderTiming(db, userId, input.order_id))
+    if (input.shop_order_id) lookups.push(await ownedShopOrderTiming(db, userId, input.shop_order_id))
+    for (const timing of lookups) {
       if (!timing) return fail("Order not found", 404)
       const window = complaintEligibility(timing)
       if (!window.eligible) return fail(window.reason, 422)
