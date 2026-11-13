@@ -63,6 +63,25 @@ describe("sendReply", () => {
     expect(store.storeOutbound).not.toHaveBeenCalled()
   })
 
+  it.each([["empty", ""], ["whitespace", "   "], ["newlines", "\n \t"], ["non-string", undefined as unknown as string], ["number", 5 as unknown as string]])(
+    "refuses a %s body: nothing sent, nothing stored",
+    async (_n, body) => {
+      const send = vi.fn().mockResolvedValue({ success: true })
+      const r = await sendReply(db, { ...base, body, settings: settings() }, { send })
+      expect(r).toEqual({ sent: false })
+      expect(send).not.toHaveBeenCalled()
+      expect(store.storeOutbound).not.toHaveBeenCalled()
+    },
+  )
+
+  it("a skipped send (SMS switched off) is not sent and is not stored", async () => {
+    const send = vi.fn().mockResolvedValue({ success: true, skipped: true })
+    const r = await sendReply(db, { ...base, settings: settings() }, { send })
+    expect(r).toEqual({ sent: false, skipped: true })
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(store.storeOutbound).not.toHaveBeenCalled()
+  })
+
   it("send rejecting does not throw; returns sent:false and records the out row", async () => {
     const send = vi.fn().mockRejectedValue(new Error("boom"))
     const r = await sendReply(db, { ...base, settings: settings() }, { send })
