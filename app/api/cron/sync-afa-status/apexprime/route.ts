@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
+import { syncWindowStartIso } from "@/lib/status-sync-window"
 import { alertAdminsOfRequest, notifyUserOfOutcome } from "@/lib/admin-actions"
 
 export const maxDuration = 300
@@ -39,6 +40,7 @@ async function syncTable(table: AfaTable, statusCol: "status" | "order_status"):
     .eq("fulfillment_provider", "apexprime")
     .eq("fulfillment_status", "pending")
     .not("fulfillment_ref", "is", null)
+    .gte("created_at", syncWindowStartIso())
     .order("created_at", { ascending: true })
     .limit(BATCH_SIZE)
 

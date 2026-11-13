@@ -1,18 +1,47 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync, readdirSync } from "fs"
 import { join } from "path"
-import { SYNC_WINDOW_DAYS, isDailySweep, syncWindowStartIso } from "./status-sync-window"
+import { RECENT_WINDOW_HOURS, SYNC_WINDOW_DAYS, isDailySweep, isHourlySlot, syncWindowStartIso } from "./status-sync-window"
 
 const at = (iso: string) => new Date(iso)
 const DAY = 24 * 60 * 60 * 1000
+const HOUR = 60 * 60 * 1000
 
-describe("syncWindowStartIso", () => {
-  it("is 7 days back on a normal run", () => {
+describe("syncWindowStartIso tiers", () => {
+  it("is 6 hours back on a normal run", () => {
     const now = at("2026-10-21T12:34:00Z")
-    expect(SYNC_WINDOW_DAYS).toBe(7)
-    expect(syncWindowStartIso(now)).toBe(new Date(now.getTime() - 7 * DAY).toISOString())
+    expect(RECENT_WINDOW_HOURS).toBe(6)
+    expect(syncWindowStartIso(now)).toBe(new Date(now.getTime() - 6 * HOUR).toISOString())
   })
 
+  it("is 7 days back during the hourly slot (minutes 0-4)", () => {
+    for (const iso of ["2026-10-21T12:00:00Z", "2026-10-21T12:04:59Z"]) {
+      const now = at(iso)
+      expect(SYNC_WINDOW_DAYS).toBe(7)
+      expect(syncWindowStartIso(now)).toBe(new Date(now.getTime() - 7 * DAY).toISOString())
+    }
+  })
+
+  it("a */5 cron gets the 6-hour window at :05", () => {
+    const now = at("2026-10-21T12:05:00Z")
+    expect(syncWindowStartIso(now)).toBe(new Date(now.getTime() - 6 * HOUR).toISOString())
+  })
+
+  it("daily sweep wins over the hourly slot at 03:00", () => {
+    expect(new Date(syncWindowStartIso(at("2026-10-21T03:00:00Z"))).getUTCFullYear()).toBeLessThan(2010)
+  })
+})
+
+describe("isHourlySlot", () => {
+  it("is true only for minutes 0-4", () => {
+    expect(isHourlySlot(at("2026-10-21T15:00:00Z"))).toBe(true)
+    expect(isHourlySlot(at("2026-10-21T15:04:59Z"))).toBe(true)
+    expect(isHourlySlot(at("2026-10-21T15:05:00Z"))).toBe(false)
+    expect(isHourlySlot(at("2026-10-21T15:59:59Z"))).toBe(false)
+  })
+})
+
+describe("syncWindowStartIso", () => {
   it("reaches back to the start of time during the daily sweep, so old orders are still checked", () => {
     expect(new Date(syncWindowStartIso(at("2026-10-21T03:00:00Z"))).getUTCFullYear()).toBeLessThan(2010)
     expect(new Date(syncWindowStartIso(at("2026-10-21T03:04:59Z"))).getUTCFullYear()).toBeLessThan(2010)
@@ -26,6 +55,13 @@ describe("isDailySweep", () => {
     expect(isDailySweep(at("2026-10-21T03:05:00Z"))).toBe(false)
     expect(isDailySweep(at("2026-10-21T02:59:59Z"))).toBe(false)
     expect(isDailySweep(at("2026-10-21T15:02:00Z"))).toBe(false)
+  })
+})
+
+describe("AFA apexprime sync uses the window", () => {
+  it("filters pending AFA rows by created_at >= syncWindowStartIso()", () => {
+    const src = readFileSync(join(__dirname, "../app/api/cron/sync-afa-status/apexprime/route.ts"), "utf8")
+    expect(src).toMatch(/\.eq\("fulfillment_status", "pending"\)[\s\S]{0,120}\.gte\("created_at", syncWindowStartIso\(\)\)/)
   })
 })
 
