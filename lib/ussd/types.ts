@@ -16,6 +16,10 @@ export interface UzoResponse {
    * created or charged; the WhatsApp router must ask for a MoMo number (never charge the sender's own number).
    */
   walletShort?: true
+  /** sms channel only: the ussd_orders row handleConfirm created and is charging. Never set for ussd/whatsapp. */
+  orderId?: string
+  /** sms channel only: the amount written on that order row. */
+  amount?: number
 }
 
 export type USSDStep =

@@ -5,9 +5,18 @@ import { describe, expect, it, vi } from "vitest"
 const otp = vi.hoisted(() => ({ isPhoneOtpVerified: vi.fn(async () => true) }))
 vi.mock("@/lib/storefront-otp", () => otp)
 
-import { isUssdHubtelPayer } from "./gateway-charge"
+import { isUssdHubtelPayer, ussdChargeSurface } from "./gateway-charge"
 
 const SENDER = "233244123456"
+
+describe("ussdChargeSurface", () => {
+  it("maps each channel to its gateway surface; unknown defaults to ussd", () => {
+    expect(ussdChargeSurface("ussd")).toBe("ussd")
+    expect(ussdChargeSurface("whatsapp")).toBe("whatsapp")
+    expect(ussdChargeSurface("sms")).toBe("sms_order")
+    expect(ussdChargeSurface(undefined)).toBe("ussd")
+  })
+})
 
 describe("isUssdHubtelPayer on WhatsApp (owner = sender)", () => {
   it("the sender's own number, in any form, is a Hubtel payer", () => {

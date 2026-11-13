@@ -13,7 +13,7 @@ import { submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
 import { resolveBuyerTier } from "../buyer-tier"
 import {
-  guardedReprice, isUssdHubtelPayer, pendingOrderAmountFor, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdPrice,
+  guardedReprice, isUssdHubtelPayer, pendingOrderAmountFor, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdChannel, type UssdPrice,
 } from "../gateway-charge"
 import { fulfillUssdOrder } from "../fulfill"
 import { sendSMS, SMSTemplates } from "../../sms-service"
@@ -266,13 +266,14 @@ export async function handleConfirm(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel: 'ussd' | 'whatsapp' = 'ussd',
+  channel: UssdChannel = 'ussd',
   /**
    * WhatsApp "Pay via Wallet": if the wallet cannot cover the verified price, create nothing and return
    * `walletShort` (the router asks for a MoMo number) instead of charging `dialingPhone`, the sender's own number
    * there. USSD never passes it.
+   * `momoOnly` (sms channel only): no wallet detour at all; the order is charged to `dialingPhone`, the sender.
    */
-  opts: { walletOnly?: boolean } = {}
+  opts: { walletOnly?: boolean; momoOnly?: boolean } = {}
 ): Promise<UzoResponse> {
   if (input.trim() === '2') {
     // Cancel
@@ -358,7 +359,8 @@ export async function handleConfirm(
   // behind; the Uzo path keeps the session's cached balance exactly as before.
   let walletBalance = session.walletBalance
   if (opts.walletOnly) walletBalance = await liveWalletBalance(session.userId)
-  const walletEligible = !!session.userId && walletBalance !== undefined && walletBalance >= verifiedPrice
+  const smsMomoOnly = channel === 'sms' && opts.momoOnly === true
+  const walletEligible = !smsMomoOnly && !!session.userId && walletBalance !== undefined && walletBalance >= verifiedPrice
   if (opts.walletOnly && !walletEligible) return waWalletShort()
 
   // The gateway decides the MoMo amount, so it is resolved before the order is written.
@@ -406,7 +408,8 @@ export async function handleConfirm(
 
   const email = await resolveEmail(dialingPhone!)
   after(async () => {
-    await new Promise(r => setTimeout(r, 3000))
+    // The wait lets the USSD/WhatsApp session close before the prompt lands (a7afbdd1). A text has no session.
+    if (channel !== 'sms') await new Promise(r => setTimeout(r, 3000))
     try {
       const { status } = await startUssdCharge({
         surface,
@@ -418,7 +421,7 @@ export async function handleConfirm(
           phone: dialingPhone!,
           provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
           reference: orderId,
-          metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+          metadata: { source: channel === 'sms' ? 'sms' : 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
         },
         reprice: repriceUssdOrder(orderId, chargeAmount, price.paystack),
       })
@@ -431,7 +434,9 @@ export async function handleConfirm(
       console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId, "status:", status)
       if (status === 'send_otp') {
         await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
-        if (channel === 'whatsapp') {
+        if (channel === 'sms') {
+          // Nothing is sent here: the text-to-buy notifier owns every customer message for this channel.
+        } else if (channel === 'whatsapp') {
           // Unlike USSD (stateless per-dial, must redial to resume), WhatsApp's
           // session is keyed by phone number and stays addressable — reopen it
           // directly into SUBMIT_OTP and push a follow-up message, rather than
@@ -450,9 +455,10 @@ export async function handleConfirm(
     }
   })
 
-  return end(
+  const sent = end(
     `MoMo prompt sent to ${localDialing}. Approve to complete.\n\nReceived an OTP instead? Redial and enter the code.`
   )
+  return channel === 'sms' ? { ...sent, orderId, amount: chargeAmount } : sent
 }
 
 // ── PAYMENT_METHOD ────────────────────────────────────────────────────────────
