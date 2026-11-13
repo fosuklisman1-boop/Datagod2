@@ -64,6 +64,7 @@ export interface HubtelSession {
   shopId?: string
   parentShopId?: string // sub-agent shops: the catalog lives under the parent shop
   shopName?: string // display name (ussd_display_name || shop_name), screen header only
+  shopHelpline?: string // shop owner's number (local 0XXXXXXXXX), shown under the name on the product menu
   shopNetworks?: string[] // packages.network values the shop sells, in menu order
   shopCodeAttempts?: number // wrong / invalid / inactive codes entered in this session (capped)
   dataBlocked?: boolean

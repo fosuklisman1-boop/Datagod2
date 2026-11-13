@@ -97,6 +97,23 @@ describe("shop mode: shop code (review focus #2)", () => {
     expect(again.Message.split("\n")[0]).toBe("Ama Data Hub & More Super Long")
     expect(store.get("S1")?.step).toBe("SHOP_PRODUCT")
   })
+  it("shows the owner's Helpline under the shop name, on entry and on every re-shown product menu", async () => {
+    const { deps, store } = makeDeps({
+      getConfig: SHOP_CONFIG,
+      shop: fakeShop({ resolveCode: async () => ({ ...SHOP_CODE, ownerPhone: "0241234567" }) }),
+    })
+    const withHelp = PRODUCT_MENU.replace("Ama Data Hub\n", "Ama Data Hub\nHelpline: 0241234567\n")
+    expect((await enterShop(deps)).Message).toBe(withHelp)
+    expect(store.get("S1")?.shopHelpline).toBe("0241234567")
+    expect((await hubtelRouter(req({ Message: "9" }), deps)).Message).toBe(withHelp)
+    // Into Buy Airtime and back ("0"): the clean session keeps the helpline.
+    await hubtelRouter(req({ Message: "2" }), deps)
+    expect((await hubtelRouter(req({ Message: "0" }), deps)).Message).toBe(withHelp)
+  })
+  it("no usable owner number: the product menu is unchanged", async () => {
+    const { deps } = makeDeps({ getConfig: SHOP_CONFIG })
+    expect((await enterShop(deps)).Message).toBe(PRODUCT_MENU)
+  })
   const refused: Array<[string, Partial<typeof SHOP_CODE> | null, string]> = [
     ["unknown code", null, "1234"],
     ["inactive code", { status: "inactive" }, "1234"],

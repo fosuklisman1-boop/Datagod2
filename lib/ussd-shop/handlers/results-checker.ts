@@ -40,7 +40,7 @@ export async function handleShopRcSelectBoard(
   if (input.trim() === "0") {
     await setSession(sessionId, { ...session, step: "SELECT_PRODUCT" })
     // As before: the whitelist flag is not applied on this back path (only the admin toggles + the bot menus gate).
-    return cont(productMenu(shopName, await productMenuVisibility(false)))
+    return cont(productMenu(shopName, await productMenuVisibility(false), session.shopHelpline))
   }
 
   const options = session.rcBoardOptions ?? []

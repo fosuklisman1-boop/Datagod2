@@ -154,6 +154,18 @@ describe("shop menus", () => {
       "Ama Data Hub\nWhat would you like to buy?\n1. Internet Bundles\n2. Buy Airtime\n3. Results Checker\n0. Exit"
     )
   })
+  it("product menu shows the owner's Helpline under the shop name; none = unchanged", () => {
+    expect(shopMenuText("Ama Data Hub", resolveShopMenu(on, false), "0241234567")).toBe(
+      "Ama Data Hub\nHelpline: 0241234567\nWhat would you like to buy?\n1. Internet Bundles\n2. Buy Airtime\n3. Results Checker\n0. Exit"
+    )
+    expect(shopMenuText("Ama Data Hub", resolveShopMenu(on, false), null)).toBe(shopMenuText("Ama Data Hub", resolveShopMenu(on, false)))
+  })
+  it("the Helpline line fits the 182-char screen with the longest name and every item", () => {
+    const all = resolveShopMenu({ ...on, payBills: true }, false, { networkPlans: true, payBills: true })
+    const text = shopMenuText("X".repeat(60), all, "0241234567")
+    expect(text).toContain("\nHelpline: 0241234567\n")
+    expect(text.length).toBeLessThanOrEqual(182)
+  })
   it("network labels and order: real names, known networks first, others as stored", () => {
     expect(shopNetworkLabel("AT-iShare")).toBe("AT iShare")
     expect(shopNetworkLabel("AirtelTigo")).toBe("AirtelTigo")

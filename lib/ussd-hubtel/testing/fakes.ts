@@ -290,7 +290,7 @@ export const SHOP_CONFIG = async (): Promise<HubtelUssdConfig> => ({
 /** An active shop code owned by a regular (non-sub-agent) shop. tokenBalance is unused since 2026-10-14. */
 export const SHOP_CODE: ResolvedShopCode = {
   shopCodeId: "code-1", shopId: "shop-1", shopName: "Ama Data Hub", parentShopId: null,
-  status: "active", tokenBalance: 50, whatsappActivated: false,
+  status: "active", tokenBalance: 50, whatsappActivated: false, ownerPhone: null,
 }
 
 /** Shop lookups. Only code "1234" resolves (to SHOP_CODE). Numbers are chosen for readable assertions. */
