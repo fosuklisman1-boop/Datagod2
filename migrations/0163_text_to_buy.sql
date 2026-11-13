@@ -69,8 +69,10 @@ CREATE TABLE IF NOT EXISTS public.ttb_messages (
   outcome       text,
   order_link_id uuid,
   misread       boolean NOT NULL DEFAULT false,
-  created_at    timestamptz NOT NULL DEFAULT now()
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  claimed_at    timestamptz                                      -- inbound only: lease taken by the run processing it
 );
+ALTER TABLE public.ttb_messages ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
 CREATE INDEX IF NOT EXISTS ttb_messages_line_sender_created_idx ON public.ttb_messages (line, sender, created_at DESC);
 CREATE INDEX IF NOT EXISTS ttb_messages_created_idx             ON public.ttb_messages (created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS ttb_messages_outcome_created_idx     ON public.ttb_messages (outcome, created_at DESC);

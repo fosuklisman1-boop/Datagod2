@@ -325,3 +325,20 @@ export async function failPendingUssdOrder(db: SupabaseClient, orderId: string, 
   if (error || !Array.isArray(data)) throw new TtbStoreError("could not fail a losing order")
   return data.length > 0
 }
+
+/**
+ * Takes the processing lease on an inbound row: one guarded UPDATE, true only when exactly this call set claimed_at.
+ * A row that already has an outcome is never claimed; a lease older than leaseSeconds (a crashed run) can be taken again.
+ */
+export async function claimInbound(db: SupabaseClient, id: string, now: Date, leaseSeconds = 60): Promise<boolean> {
+  const expired = new Date(now.getTime() - leaseSeconds * 1000).toISOString()
+  const { data, error } = await db
+    .from("ttb_messages")
+    .update({ claimed_at: now.toISOString() })
+    .eq("id", id)
+    .is("outcome", null)
+    .or(`claimed_at.is.null,claimed_at.lt.${expired}`)
+    .select("id")
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not claim an inbound message")
+  return data.length === 1
+}

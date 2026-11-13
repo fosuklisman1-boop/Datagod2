@@ -4,7 +4,7 @@ import { makeFakeTtb } from "./fake-db.test-helper"
 import {
   dedupeKey, storeInbound, setInboundResult, storeOutbound, isBlocked, counts, globalPrompts, hasOpenOrder, linkOrder,
   loadConversation, saveConversation, touchHeartbeat, TtbStoreError,
-  linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus, failPendingUssdOrder,
+  claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus, failPendingUssdOrder,
 } from "./store"
 
 const S = "0200000101"
@@ -414,5 +414,37 @@ describe("Task 10 store additions", () => {
     expect(await failPendingUssdOrder(c, O2, now)).toBe(false)
     expect(db.tables.ussd_orders[0]).toMatchObject({ order_status: "failed", payment_status: "failed", updated_at: now.toISOString() })
     expect(db.tables.ussd_orders[1]).toMatchObject({ order_status: "processing", payment_status: "paid" })
+  })
+})
+
+describe("claimInbound", () => {
+  const id = "m1"
+  it("claims an unprocessed, unclaimed row once; a second claim inside the lease fails", async () => {
+    const { db, c } = mk({ ttb_messages: [{ id, outcome: null, claimed_at: null }] })
+    expect(await claimInbound(c, id, now)).toBe(true)
+    expect(db.tables.ttb_messages[0].claimed_at).toBe(now.toISOString())
+    expect(await claimInbound(c, id, new Date(now.getTime() + 30_000))).toBe(false)
+  })
+
+  it("claims again once the lease (default 60 s) has expired and the outcome is still null", async () => {
+    const { c } = mk({ ttb_messages: [{ id, outcome: null, claimed_at: now.toISOString() }] })
+    expect(await claimInbound(c, id, new Date(now.getTime() + 61_000))).toBe(true)
+  })
+
+  it("honours a custom lease", async () => {
+    const { c } = mk({ ttb_messages: [{ id, outcome: null, claimed_at: now.toISOString() }] })
+    expect(await claimInbound(c, id, new Date(now.getTime() + 20_000), 10)).toBe(true)
+  })
+
+  it("never claims a row that already has an outcome, or a missing row", async () => {
+    const { c } = mk({ ttb_messages: [{ id, outcome: "prompted", claimed_at: null }] })
+    expect(await claimInbound(c, id, now)).toBe(false)
+    expect(await claimInbound(c, "nope", now)).toBe(false)
+  })
+
+  it("throws TtbStoreError on a database error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_messages = { message: "down" }
+    await expect(claimInbound(c, id, now)).rejects.toBeInstanceOf(TtbStoreError)
   })
 })

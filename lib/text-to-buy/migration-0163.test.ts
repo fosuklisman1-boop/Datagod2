@@ -213,6 +213,28 @@ describe.skipIf(!PGliteCtor)("0163 in PGlite", () => {
     )
   })
 
+  it("ttb_messages.claimed_at exists, is nullable, and a guarded claim succeeds only once per lease", async () => {
+    const col = await one(
+      "SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ttb_messages' AND column_name = 'claimed_at'",
+    )
+    expect(col).toEqual({ data_type: "timestamp with time zone", is_nullable: "YES" })
+    const id = (await one("INSERT INTO public.ttb_messages (line, sender, direction, body) VALUES ('main', $1, 'in', 'claim me') RETURNING id", [SENDER])).id
+    const claim = `UPDATE public.ttb_messages SET claimed_at = now()
+       WHERE id = $1 AND outcome IS NULL AND (claimed_at IS NULL OR claimed_at < now() - interval '60 seconds') RETURNING id`
+    expect((await db.query(claim, [id])).rows).toHaveLength(1)
+    expect((await db.query(claim, [id])).rows).toHaveLength(0) // second claim inside the lease
+    await db.query("UPDATE public.ttb_messages SET claimed_at = now() - interval '2 minutes' WHERE id = $1", [id])
+    expect((await db.query(claim, [id])).rows).toHaveLength(1) // lease expired
+    await db.query("UPDATE public.ttb_messages SET outcome = 'prompted', claimed_at = NULL WHERE id = $1", [id])
+    expect((await db.query(claim, [id])).rows).toHaveLength(0) // processed rows are never claimed
+  })
+
+  it("re-applying the migration on a table that predates claimed_at adds the column", async () => {
+    await db.exec("ALTER TABLE public.ttb_messages DROP COLUMN claimed_at")
+    await db.exec(migration())
+    expect(await count("SELECT count(*) AS n FROM information_schema.columns WHERE table_name = 'ttb_messages' AND column_name = 'claimed_at'")).toBe(1)
+  })
+
   it("a duplicate dedupe_key fails, but many NULL keys are fine (outbound rows)", async () => {
     await db.query("INSERT INTO public.ttb_messages (line, sender, direction, body, dedupe_key) VALUES ('main', $1, 'in', 'x', 'k1')", [SENDER])
     await fails("INSERT INTO public.ttb_messages (line, sender, direction, body, dedupe_key) VALUES ('main', $1, 'in', 'x', 'k1')", [SENDER])

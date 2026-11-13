@@ -673,3 +673,141 @@ describe("failure handling", () => {
     expect(result.outcome).toBe("error")
   })
 })
+
+describe("claiming the inbound row", () => {
+  const inputFor = (text = "5gb", at = now): InboundInput => ({ line: "main", from: S, text, receivedAt: null, now: at })
+  const accept = async (t: ReturnType<typeof setup>) => (await acceptInbound(t.c, inputFor())).id
+  const go = (t: ReturnType<typeof setup>, id: string, at = now, over: Partial<InboundDeps> = {}) =>
+    processInbound(t.c, id, inputFor("5gb", at), settings(), { ...t.deps, ...over } as unknown as InboundDeps)
+
+  it("two concurrent runs on one message place exactly one order; the other is a duplicate no-op", async () => {
+    const t = setup()
+    const id = await accept(t)
+    const [a, b] = await Promise.all([go(t, id), go(t, id)])
+    expect([a.outcome, b.outcome].sort()).toEqual(["duplicate", "prompted"])
+    expect(t.confirm).toHaveBeenCalledTimes(1)
+    expect(t.deps.reply).toHaveBeenCalledTimes(1)
+    expect(t.message(id).outcome).toBe("prompted")
+    const loser = a.outcome === "duplicate" ? a : b
+    expect(loser).toEqual({ outcome: "duplicate", readBy: null, reply: null })
+  })
+
+  it("a second call inside the lease is a no-op: nothing sent, nothing recorded", async () => {
+    const t = setup()
+    const id = await accept(t)
+    t.message(id).claimed_at = new Date(now.getTime() - 10_000).toISOString()
+    const r = await go(t, id)
+    expect(r).toEqual({ outcome: "duplicate", readBy: null, reply: null })
+    expect(t.confirm).not.toHaveBeenCalled()
+    expect(t.deps.reply).not.toHaveBeenCalled()
+    expect(t.message(id).outcome).toBeUndefined()
+  })
+
+  it("after the lease expires (i.now past 60 s) a still-unprocessed message is claimed and processed", async () => {
+    const t = setup()
+    const id = await accept(t)
+    t.message(id).claimed_at = new Date(now.getTime() - 61_000).toISOString()
+    expect((await go(t, id)).outcome).toBe("prompted")
+    expect(t.message(id).claimed_at).toBe(now.toISOString())
+  })
+
+  it("a message that already has an outcome is never claimed", async () => {
+    const t = setup()
+    const id = await accept(t)
+    t.message(id).outcome = "prompted"
+    const r = await go(t, id, new Date(now.getTime() + 600_000))
+    expect(r.outcome).toBe("duplicate")
+    expect(t.confirm).not.toHaveBeenCalled()
+  })
+
+  it("a failed claim reads nothing else (no counts, no AI, no resolve)", async () => {
+    const t = setup()
+    const id = await accept(t)
+    t.message(id).claimed_at = now.toISOString()
+    await go(t, id)
+    expect(t.f.db.rpcCalls).toHaveLength(0)
+    expect(t.deps.resolve).not.toHaveBeenCalled()
+  })
+
+  it("dryRun never claims", async () => {
+    const t = setup()
+    const id = await accept(t)
+    await go(t, id, now, { dryRun: true })
+    expect(t.message(id).claimed_at).toBeUndefined()
+  })
+})
+
+describe("failures after confirm has placed the order", () => {
+  const pending = () => ({ ussd_orders: [{ id: ORDER, order_status: "pending", payment_status: "pending" }] })
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+  })
+
+  it("linkOrder throwing: the pending order is failed (guarded), the customer gets the unavailable reply, nothing throws", async () => {
+    const t = setup({ seed: pending() })
+    t.f.db.failInsert.ttb_orders = { message: "db down" }
+    const { result, id } = await t.run("5gb")
+    expect(result).toMatchObject({ outcome: "unavailable", reply: unavailableReply("MTN", []) })
+    expect(t.f.db.tables.ussd_orders[0]).toMatchObject({ order_status: "failed", payment_status: "failed" })
+    expect(t.message(id).outcome).toBe("unavailable")
+  })
+
+  it("the guard still protects an order that already moved past pending when the link step throws", async () => {
+    const t = setup({ seed: { ussd_orders: [{ id: ORDER, order_status: "processing", payment_status: "paid" }] } })
+    t.f.db.failInsert.ttb_orders = { message: "db down" }
+    const { result } = await t.run("5gb")
+    expect(result.outcome).toBe("unavailable")
+    expect(t.f.db.tables.ussd_orders[0]).toMatchObject({ order_status: "processing", payment_status: "paid" })
+  })
+
+  it("failing the order is best-effort: if that throws too, the customer still gets the reply", async () => {
+    const t = setup()
+    t.f.db.failInsert.ttb_orders = { message: "db down" }
+    t.confirm.mockImplementation(async () => {
+      t.f.db.failOn.ussd_orders = { message: "db down" }
+      return { type: "end", message: "", orderId: ORDER, amount: 23.69 }
+    })
+    const { result } = await t.run("5gb")
+    expect(result).toMatchObject({ outcome: "unavailable", reply: unavailableReply("MTN", []) })
+  })
+
+  it("saving the conversation failing never suppresses the quote: outcome stays prompted", async () => {
+    const t = setup()
+    t.confirm.mockImplementation(async () => {
+      t.f.db.failOn.ttb_conversations = { message: "db down" }
+      return { type: "end", message: "", orderId: ORDER, amount: 23.69 }
+    })
+    const { result } = await t.run("5gb")
+    expect(result.outcome).toBe("prompted")
+    expect(result.reply).toContain("GHS 23.69")
+    expect(t.deps.reply).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("the price guarantee in the quote", () => {
+  it("feeOnTop is forced off when the written amount is above the offer price (a Paystack-priced row already holds the fee)", async () => {
+    const t = setup()
+    t.deps.resolve.mockResolvedValue(ok({ price: 23.0 }))
+    t.deps.feeOnTop.mockResolvedValue(true)
+    t.confirm.mockResolvedValue({ type: "end", message: "", orderId: ORDER, amount: 23.69 } as never)
+    const { result } = await t.run("5gb")
+    expect(result.reply).toContain("GHS 23.69")
+    expect(result.reply).not.toContain("+ MoMo charge")
+  })
+
+  it("feeOnTop still applies when the written amount equals the offer price", async () => {
+    const t = setup()
+    t.deps.resolve.mockResolvedValue(ok({ price: 23.69 }))
+    t.deps.feeOnTop.mockResolvedValue(true)
+    const { result } = await t.run("5gb")
+    expect(result.reply).toContain("+ MoMo charge")
+  })
+
+  it("a throwing injected feeOnTop is caught like the default: treated as false, the order still goes ahead", async () => {
+    const t = setup()
+    t.deps.feeOnTop.mockRejectedValue(new Error("down"))
+    const { result } = await t.run("5gb")
+    expect(result.outcome).toBe("prompted")
+    expect(result.reply).not.toContain("+ MoMo charge")
+  })
+})

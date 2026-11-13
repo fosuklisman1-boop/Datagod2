@@ -15,7 +15,7 @@ import {
 import { sendReply } from "./send-reply"
 import type { TtbSettings } from "./settings"
 import {
-  closeStaleLinks, counts, failPendingUssdOrder, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
+  claimInbound, closeStaleLinks, counts, failPendingUssdOrder, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
   linkOrder, loadConversation, saveConversation, setInboundResult, storeInbound, ussdOrderStatus, type Conversation,
 } from "./store"
 import {
@@ -105,6 +105,17 @@ export async function processInbound(
       await setInboundResult(db, messageId, { readBy, outcome, orderLinkId: extra.orderLinkId })
     }
     return { outcome, readBy, reply: text, ...(!dry && extra.orderId ? { orderId: extra.orderId } : {}) }
+  }
+
+  // The lease comes first: a retry that overlaps a running (or crashed, within the lease) run must not place a second order.
+  // A failed claim records nothing, so the forwarder's retry can still be processed.
+  if (!dry) {
+    try {
+      if (!(await claimInbound(db, messageId, i.now))) return { outcome: "duplicate", readBy: null, reply: null }
+    } catch (e) {
+      console.error("[text-to-buy] inbound error", { messageId, error: e instanceof Error ? e.name : "unknown" })
+      return { outcome: "error", readBy: null, reply: null }
+    }
   }
 
   try {
@@ -250,15 +261,25 @@ export async function processInbound(
     }
 
     const session = sessionForOffer(i.from, offer)
-    const feeOnTop = await (deps.feeOnTop ?? ((o: Offer) => defaultFeeOnTop(session.dialingPhone as string, o)))(offer)
+    let feeOnTop = false
+    try {
+      feeOnTop = await (deps.feeOnTop ?? ((o: Offer) => defaultFeeOnTop(session.dialingPhone as string, o)))(offer)
+    } catch {
+      feeOnTop = false
+    }
     let payerNetwork: "MTN" | "TELECEL" | "AT" | "UNKNOWN" = "UNKNOWN"
     try {
       payerNetwork = detectNetworkWithMap(i.from, (await getPrefixValidationConfig()).map)
     } catch {
       payerNetwork = "UNKNOWN"
     }
+    // A written amount above the offer price is a Paystack-priced row: it already holds the fee, so "+ MoMo charge" would
+    // state it twice. (feeOnTop is resolved before confirm and independently of it.)
     const quote = (amountGhs: number) =>
-      quoteReply({ size: sizeLabel(offer.size), networkLabel: offer.networkLabel, recipientLocal: offer.recipientLocal, amountGhs, feeOnTop, payerNetwork })
+      quoteReply({
+        size: sizeLabel(offer.size), networkLabel: offer.networkLabel, recipientLocal: offer.recipientLocal, amountGhs,
+        feeOnTop: feeOnTop && !(amountGhs > offer.price + 0.005), payerNetwork,
+      })
 
     // The preview can only know the offer price: the charged amount is fixed when the order row is written.
     if (dry) return await finish("prompted", quote(offer.price))
@@ -272,23 +293,35 @@ export async function processInbound(
       return await finish("unavailable", unavailableReply(offer.networkLabel, []))
     }
 
-    let linked = await linkOrder(db, {
-      line: i.line, sender: i.from, orderId, size: offer.size, recipient: offer.recipientLocal, gift: offer.gift, amount,
-    })
-    if (linked === "conflict") {
-      const existing = await linkByOrderId(db, orderId)
-      if (!existing) {
-        // Another text won the open-order slot. A prompt may already be out for this row; approving it lands in the
-        // paid-but-failed review path (see the runbook).
-        await failPendingUssdOrder(db, orderId, i.now)
-        return await finish("open_order", openOrderReply())
-      }
-      linked = existing
+    // From here an order exists and a prompt may be out. A failure to link it must not leave it invisible to the
+    // open-order guard: fail the row (guarded, best-effort) and tell the customer it did not go through.
+    let linked: { id: string } | "race"
+    try {
+      const l = await linkOrder(db, {
+        line: i.line, sender: i.from, orderId, size: offer.size, recipient: offer.recipientLocal, gift: offer.gift, amount,
+      })
+      linked = l === "conflict" ? (await linkByOrderId(db, orderId)) ?? "race" : l
+    } catch (e) {
+      console.error("[text-to-buy] link error", { messageId, error: e instanceof Error ? e.name : "unknown" })
+      await failPendingUssdOrder(db, orderId, i.now).catch(() => {})
+      return await finish("unavailable", unavailableReply(offer.networkLabel, []))
+    }
+    if (linked === "race") {
+      // Another text won the open-order slot. A prompt may already be out for this row; approving it lands in the
+      // paid-but-failed review path (see the runbook).
+      await failPendingUssdOrder(db, orderId, i.now)
+      return await finish("open_order", openOrderReply())
     }
 
+    // The quote goes out first; remembering the conversation is best-effort and never suppresses it.
     const text = quote(amount)
-    await remember(i.text, text, { lastOrder: lastOrderOf(offer, orderForOffer.sizeMb) })
-    return await finish("prompted", text, { orderLinkId: linked.id, orderId })
+    const result = await finish("prompted", text, { orderLinkId: linked.id, orderId })
+    try {
+      await remember(i.text, text, { lastOrder: lastOrderOf(offer, orderForOffer.sizeMb) })
+    } catch (e) {
+      console.error("[text-to-buy] conversation save error", { messageId, error: e instanceof Error ? e.name : "unknown" })
+    }
+    return result
   } catch (e) {
     console.error("[text-to-buy] inbound error", { messageId, error: e instanceof Error ? e.name : "unknown" })
     if (!dry) await setInboundResult(db, messageId, { readBy, outcome: "error" }).catch(() => {})

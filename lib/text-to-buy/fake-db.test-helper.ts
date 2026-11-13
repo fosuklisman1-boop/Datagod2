@@ -6,7 +6,7 @@ type Row = Record<string, unknown>
 type Filter = (r: Row) => boolean
 
 export const SCHEMA: Record<string, string[]> = {
-  ttb_messages: ["id", "line", "sender", "direction", "body", "received_at", "dedupe_key", "read_by", "outcome", "order_link_id", "misread", "created_at"],
+  ttb_messages: ["id", "line", "sender", "direction", "body", "received_at", "dedupe_key", "read_by", "outcome", "order_link_id", "misread", "created_at", "claimed_at"],
   ttb_conversations: ["line", "sender", "turns", "pending", "last_order", "expires_at", "updated_at"],
   ttb_orders: ["id", "line", "sender", "service", "order_table", "order_id", "state", "size", "recipient", "gift", "amount", "notices", "created_at", "paid_at", "delivered_at", "closed_at"],
   ttb_blocked: ["sender", "reason", "blocked_by", "created_at"],
@@ -146,6 +146,20 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
       },
       update: (patch: Row) => ((mode = "update"), (payload = patch), b),
       eq: (c: string, v: unknown) => (col(table, c), filters.push((r) => r[c] === v), b),
+      is: (c: string, v: null) => (col(table, c), filters.push((r) => (r[c] ?? null) === v), b),
+      // Only the shape store.ts uses: "<col>.is.null,<col>.lt.<iso>" (either side may be either operator).
+      or: (expr: string) => {
+        const parts = expr.split(",").map((p) => {
+          const [c, op, ...rest] = p.split(".")
+          const v = rest.join(".")
+          col(table, c)
+          if (op === "is" && v === "null") return (r: Row) => (r[c] ?? null) === null
+          if (op === "lt") return (r: Row) => r[c] != null && String(r[c]) < v
+          throw new Error(`fake: or(${p}) is not supported`)
+        })
+        filters.push((r) => parts.some((f) => f(r)))
+        return b
+      },
       gte: (c: string, v: string) => (col(table, c), filters.push((r) => String(r[c]) >= v), b),
       lt: (c: string, v: string) => (col(table, c), filters.push((r) => String(r[c]) < v), b),
       in: (c: string, vs: unknown[]) => (col(table, c), filters.push((r) => vs.includes(r[c])), b),
