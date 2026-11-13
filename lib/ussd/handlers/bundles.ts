@@ -358,10 +358,12 @@ export async function handleConfirm(
   // OTP-linked one; the debit uses that same id), so a balance spent since the menu never leaves a pending order row
   // behind; the Uzo path keeps the session's cached balance exactly as before.
   let walletBalance = session.walletBalance
-  if (opts.walletOnly) walletBalance = await liveWalletBalance(session.userId)
-  const smsMomoOnly = channel === 'sms' && opts.momoOnly === true
+  // The sms channel never pays from a wallet, whatever the caller passes (opts.momoOnly / walletOnly are ignored there).
+  const smsMomoOnly = channel === 'sms'
+  const walletOnly = opts.walletOnly && !smsMomoOnly
+  if (walletOnly) walletBalance = await liveWalletBalance(session.userId)
   const walletEligible = !smsMomoOnly && !!session.userId && walletBalance !== undefined && walletBalance >= verifiedPrice
-  if (opts.walletOnly && !walletEligible) return waWalletShort()
+  if (walletOnly && !walletEligible) return waWalletShort()
 
   // The gateway decides the MoMo amount, so it is resolved before the order is written.
   const surface = ussdChargeSurface(channel)

@@ -179,7 +179,32 @@ describe("sms channel (text-to-buy)", () => {
     await runNoWait() // timers NOT advanced
     expect(startUssdCharge).toHaveBeenCalledTimes(1)
     expect(vi.mocked(startUssdCharge).mock.calls[0][0]).toMatchObject({ surface: "sms_order", verifiedPayer: true })
-    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].metadata).toMatchObject({ source: "sms", ussd_order_id: order().id })
+    const call = vi.mocked(chargeMobileMoney).mock.calls[0][0]
+    expect(call.metadata).toMatchObject({ source: "sms", ussd_order_id: order().id })
+    expect(call.phone).toBe(DIAL) // the sender pays, never the recipient
+    expect(call.phone).not.toBe("0200000102")
+    expect(call.metadata).toMatchObject({ recipient_phone: "0200000102" })
+  })
+
+  it.each([
+    ["no opts", {}],
+    ["momoOnly false", { momoOnly: false }],
+    ["walletOnly true", { walletOnly: true }],
+  ])("a wallet-eligible sms session with %s still skips PAYMENT_METHOD and starts the charge", async (_n, opts) => {
+    const r = await handleConfirm("1", "sms-S1", session(WALLET), "sms", opts)
+    expect(r.orderId).toBe(order().id)
+    expect(r.walletShort).toBeUndefined()
+    expect(setSession).not.toHaveBeenCalled()
+    await runNoWait()
+    expect(startUssdCharge).toHaveBeenCalledTimes(1)
+  })
+
+  it("Hubtel-priced: the response amount is the amount written to the order row, not the Paystack price", async () => {
+    kit.config.surfaces.sms_order = { gateway: "hubtel", mode: "direct", feeBearer: "customer" }
+    const r = await SMS()
+    expect(order().amount).toBe(10)
+    expect(r.amount).toBe(order().amount)
+    expect(r.amount).not.toBeCloseTo(10.3, 2)
   })
 
   it("send_otp marks otp_required and sends nothing", async () => {
