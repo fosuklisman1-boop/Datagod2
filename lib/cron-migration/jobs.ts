@@ -49,6 +49,7 @@ const BATCH_B = new Set(
     "sms-hubtel-dlr",
     "security-alerts",
     "phone-verify",
+    "text-to-buy-notify", // overlap-safe: every notice is recorded with a guarded update before it is sent
   ].map((n) => P + n),
 )
 

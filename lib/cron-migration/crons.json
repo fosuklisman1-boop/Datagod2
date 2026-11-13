@@ -184,6 +184,10 @@
     {
       "path": "/api/cron/delete-old-complaints",
       "schedule": "15 3 * * *"
+    },
+    {
+      "path": "/api/cron/text-to-buy-notify",
+      "schedule": "* * * * *"
     }
   ]
 }

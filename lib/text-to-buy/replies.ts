@@ -76,6 +76,11 @@ export function paidNotDeliveredReply(): string {
   ])
 }
 
+/** The prompt's total changed after the quote (the charge fell back to a different price). The figure comes from the order row. */
+export function repricedReply(amountGhs: number): string {
+  return fitOneSegment([`Total is now ${formatGhs(amountGhs)}.`, "Approve the MoMo prompt or ignore it."])
+}
+
 export function lateReply(): string {
   return fitOneSegment(["Your message arrived late so we did not charge you.", "Please text again."])
 }

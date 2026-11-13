@@ -234,9 +234,27 @@ export async function saveConversation(db: SupabaseClient, line: Line, sender: s
   if (error) throw new TtbStoreError("could not save a conversation")
 }
 
-export async function touchHeartbeat(db: SupabaseClient, line: Line, now: Date): Promise<void> {
+/** Besides the two lines the table holds the notifier's bookkeeping rows: when the purge and the quiet-line alert last ran. */
+export type HeartbeatLine = Line | "purge" | "quiet_alert"
+
+export async function touchHeartbeat(db: SupabaseClient, line: HeartbeatLine, now: Date): Promise<void> {
   const { error } = await db.from("ttb_heartbeat").upsert({ line, last_seen_at: now.toISOString() }, { onConflict: "line" })
   if (error) throw new TtbStoreError("could not record the heartbeat")
+}
+
+export async function getHeartbeat(db: SupabaseClient, line: HeartbeatLine): Promise<Date | null> {
+  const { data, error } = await db.from("ttb_heartbeat").select("last_seen_at").eq("line", line).maybeSingle()
+  if (error) throw new TtbStoreError("could not read the heartbeat")
+  const at = (data as { last_seen_at?: unknown } | null)?.last_seen_at
+  const t = typeof at === "string" ? Date.parse(at) : NaN
+  return Number.isNaN(t) ? null : new Date(t)
+}
+
+/** ttb_purge: deletes old messages and expired conversations; returns the number of rows deleted. */
+export async function purgeOld(db: SupabaseClient, before: Date): Promise<number> {
+  const { data, error } = await db.rpc("ttb_purge", { p_before: before.toISOString() })
+  if (error || typeof data !== "number" || !Number.isFinite(data)) throw new TtbStoreError("could not purge old data")
+  return data
 }
 
 /** The link already written for this order id, or null. */
@@ -341,4 +359,122 @@ export async function claimInbound(db: SupabaseClient, id: string, now: Date, le
     .select("id")
   if (error || !Array.isArray(data)) throw new TtbStoreError("could not claim an inbound message")
   return data.length === 1
+}
+
+export type WatchedLink = {
+  id: string
+  line: Line
+  sender: string
+  orderId: string
+  state: string
+  size: string
+  recipient: string
+  gift: boolean
+  amount: number
+  notices: string[]
+  createdAt: string
+  paidAt: string | null
+  deliveredAt: string | null
+}
+
+const WATCH_COLUMNS = "id, line, sender, order_id, state, size, recipient, gift, amount, notices, created_at, paid_at, delivered_at"
+const LATE_APPROVAL_MS = 48 * 60 * 60_000
+
+function toWatched(r: Record<string, unknown>): WatchedLink {
+  return {
+    id: String(r.id),
+    line: r.line === "shop" ? "shop" : "main",
+    sender: String(r.sender),
+    orderId: String(r.order_id),
+    state: String(r.state),
+    size: String(r.size),
+    recipient: String(r.recipient),
+    gift: r.gift === true,
+    amount: Number(r.amount),
+    notices: Array.isArray(r.notices) ? r.notices.filter((n): n is string => typeof n === "string") : [],
+    createdAt: String(r.created_at),
+    paidAt: typeof r.paid_at === "string" ? r.paid_at : null,
+    deliveredAt: typeof r.delivered_at === "string" ? r.delivered_at : null,
+  }
+}
+
+/**
+ * The links the notifier follows: awaiting_payment and paid ones (oldest first, at most `limit`), plus links closed within the
+ * last 48 hours that never got a paid_at (a late approval can still turn them paid). Never closed-and-paid ones.
+ */
+export async function watchedLinks(db: SupabaseClient, now: Date, limit = 200): Promise<WatchedLink[]> {
+  const open = await db.from("ttb_orders").select(WATCH_COLUMNS).in("state", ["awaiting_payment", "paid"]).order("created_at", { ascending: true }).limit(limit)
+  if (open.error || !Array.isArray(open.data)) throw new TtbStoreError("could not read open links")
+  const since = new Date(now.getTime() - LATE_APPROVAL_MS).toISOString()
+  const late = await db
+    .from("ttb_orders")
+    .select(WATCH_COLUMNS)
+    .eq("state", "closed")
+    .gte("closed_at", since)
+    .is("paid_at", null)
+    .order("created_at", { ascending: true })
+    .limit(limit)
+  if (late.error || !Array.isArray(late.data)) throw new TtbStoreError("could not read recently closed links")
+  return [...open.data, ...late.data].map((r) => toWatched(r as Record<string, unknown>))
+}
+
+/** What the notifier reads of the USSD order row. amount is the number actually charged. Null when the row is gone. */
+export async function ussdOrderForNotify(
+  db: SupabaseClient,
+  orderId: string,
+): Promise<{ orderStatus: string; paymentStatus: string; amount: number } | null> {
+  const { data, error } = await db.from("ussd_orders").select("order_status, payment_status, amount").eq("id", orderId).maybeSingle()
+  if (error) throw new TtbStoreError("could not read an order for notices")
+  const r = data as { order_status?: unknown; payment_status?: unknown; amount?: unknown } | null
+  return r ? { orderStatus: String(r.order_status), paymentStatus: String(r.payment_status), amount: Number(r.amount) } : null
+}
+
+/**
+ * Records a notice with one guarded UPDATE (`WHERE NOT (key = ANY(notices))`). True only when THIS call added the key, so two
+ * overlapping runs cannot both send. The caller sends only on true.
+ */
+export async function addNotice(db: SupabaseClient, linkId: string, current: string[], key: string): Promise<boolean> {
+  const { data, error } = await db
+    .from("ttb_orders")
+    .update({ notices: [...current.filter((n) => n !== key), key] })
+    .eq("id", linkId)
+    .not("notices", "cs", `{${key}}`)
+    .select("id")
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not record a notice")
+  return data.length === 1
+}
+
+/** Updates a link only while it is still in one of the given states. True when a row changed. */
+export async function patchLink(
+  db: SupabaseClient,
+  linkId: string,
+  patch: { state?: "awaiting_payment" | "paid" | "closed"; paid_at?: string; delivered_at?: string; closed_at?: string },
+  fromStates: string[],
+): Promise<boolean> {
+  const { data, error } = await db.from("ttb_orders").update(patch).eq("id", linkId).in("state", fromStates).select("id")
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not update a link")
+  return data.length === 1
+}
+
+export type StrandedInbound = { id: string; line: Line; sender: string; body: string; receivedAt: Date | null }
+
+/** Inbound rows with no outcome that are between 90 seconds and 15 minutes old: a crash mid-processing. Oldest first. */
+export async function strandedInbound(db: SupabaseClient, now: Date, limit = 20): Promise<StrandedInbound[]> {
+  const newest = new Date(now.getTime() - 90_000).toISOString()
+  const oldest = new Date(now.getTime() - 15 * 60_000).toISOString()
+  const { data, error } = await db
+    .from("ttb_messages")
+    .select("id, line, sender, body, received_at")
+    .eq("direction", "in")
+    .is("outcome", null)
+    .gte("created_at", oldest)
+    .lt("created_at", newest)
+    .order("created_at", { ascending: true })
+    .limit(limit)
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not read stranded messages")
+  return data.map((r) => {
+    const x = r as Record<string, unknown>
+    const t = typeof x.received_at === "string" ? Date.parse(x.received_at) : NaN
+    return { id: String(x.id), line: x.line === "shop" ? "shop" : "main", sender: String(x.sender), body: String(x.body), receivedAt: Number.isNaN(t) ? null : new Date(t) }
+  })
 }

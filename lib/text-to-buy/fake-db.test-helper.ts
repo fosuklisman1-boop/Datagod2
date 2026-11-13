@@ -160,6 +160,14 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
         filters.push((r) => parts.some((f) => f(r)))
         return b
       },
+      // Only the shape store.ts uses: .not("<array col>", "cs", "{value}") = the array does NOT contain value.
+      not: (c: string, op: string, v: string) => {
+        col(table, c)
+        if (op !== "cs") throw new Error(`fake: not(${op}) is not supported`)
+        const wanted = v.replace(/^\{|\}$/g, "")
+        filters.push((r) => !(Array.isArray(r[c]) && (r[c] as unknown[]).includes(wanted)))
+        return b
+      },
       gte: (c: string, v: string) => (col(table, c), filters.push((r) => String(r[c]) >= v), b),
       lt: (c: string, v: string) => (col(table, c), filters.push((r) => String(r[c]) < v), b),
       in: (c: string, vs: unknown[]) => (col(table, c), filters.push((r) => vs.includes(r[c])), b),

@@ -7,6 +7,7 @@ import {
   unpaidReply,
   deliveredGiftReply,
   paidNotDeliveredReply,
+  repricedReply,
   lateReply,
   limitedReply,
   openOrderReply,
@@ -66,6 +67,8 @@ describe("exact copy", () => {
     expect(paidNotDeliveredReply()).toBe(
       "We received your payment but delivery is delayed. We are working on it and will update you. No need to pay again.",
     ))
+  it("repriced", () =>
+    expect(repricedReply(23)).toBe("Total is now GHS 23.00. Approve the MoMo prompt or ignore it."))
   it("late", () =>
     expect(lateReply()).toBe("Your message arrived late so we did not charge you. Please text again."))
   it("limited", () => expect(limitedReply()).toBe("Too many requests. Please try again in 1 hour."))
@@ -116,6 +119,7 @@ describe("one segment", () => {
     unpaidReply("100GB"),
     deliveredGiftReply("100GB", "0551234567"),
     paidNotDeliveredReply(),
+    repricedReply(99999.99),
     lateReply(),
     limitedReply(),
     openOrderReply(),

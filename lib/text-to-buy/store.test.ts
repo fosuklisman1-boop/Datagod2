@@ -4,6 +4,7 @@ import { makeFakeTtb } from "./fake-db.test-helper"
 import {
   dedupeKey, storeInbound, setInboundResult, storeOutbound, isBlocked, counts, globalPrompts, hasOpenOrder, linkOrder,
   loadConversation, saveConversation, touchHeartbeat, TtbStoreError,
+  watchedLinks, ussdOrderForNotify, addNotice, patchLink, strandedInbound, getHeartbeat, purgeOld,
   claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus, failPendingUssdOrder,
 } from "./store"
 
@@ -446,5 +447,86 @@ describe("claimInbound", () => {
     const { db, c } = mk()
     db.failOn.ttb_messages = { message: "down" }
     await expect(claimInbound(c, id, now)).rejects.toBeInstanceOf(TtbStoreError)
+  })
+})
+
+describe("notifier reads and writes", () => {
+  const iso = (ms: number) => new Date(now.getTime() + ms).toISOString()
+  const link = (o: Record<string, unknown>) => ({
+    line: "main", sender: S, order_id: crypto.randomUUID(), state: "awaiting_payment", size: "1GB", recipient: S, gift: false,
+    amount: 5, notices: [], created_at: iso(-60_000), paid_at: null, delivered_at: null, closed_at: null, ...o,
+  })
+
+  it("watchedLinks: non-closed oldest first, plus closed-in-48h unpaid-never; not older closed, not closed-and-paid", async () => {
+    const { c } = mk({
+      ttb_orders: [
+        link({ id: "b", sender: "0200000102", created_at: iso(-30_000) }),
+        link({ id: "a", state: "paid", paid_at: iso(-1000), created_at: iso(-90_000) }),
+        link({ id: "closed-recent", state: "closed", closed_at: iso(-3_600_000), sender: "0200000103" }),
+        link({ id: "closed-old", state: "closed", closed_at: iso(-49 * 3_600_000), sender: "0200000104" }),
+        link({ id: "closed-paid", state: "closed", closed_at: iso(-3_600_000), paid_at: iso(-4_000_000), sender: "0200000105" }),
+      ],
+    })
+    const rows = await watchedLinks(c, now, 200)
+    expect(rows.map((r) => r.id)).toEqual(["a", "b", "closed-recent"])
+    expect(rows[0]).toMatchObject({ orderId: expect.any(String), state: "paid", gift: false, amount: 5, notices: [] })
+  })
+
+  it("watchedLinks caps the non-closed scan at the limit", async () => {
+    const seed = Array.from({ length: 5 }, (_, i) => link({ id: `l${i}`, sender: `020000010${i}`, created_at: iso(-i * 1000) }))
+    const { c } = mk({ ttb_orders: seed })
+    expect(await watchedLinks(c, now, 3)).toHaveLength(3)
+  })
+
+  it("ussdOrderForNotify reads status, payment and amount as a number; null when gone", async () => {
+    const { c } = mk({ ussd_orders: [{ id: "o1", order_status: "pending", payment_status: "pending", amount: "7.50" }] })
+    expect(await ussdOrderForNotify(c, "o1")).toEqual({ orderStatus: "pending", paymentStatus: "pending", amount: 7.5 })
+    expect(await ussdOrderForNotify(c, "nope")).toBeNull()
+  })
+
+  it("addNotice records a key once; a second call (an overlapping run) gets false and changes nothing", async () => {
+    const { db, c } = mk({ ttb_orders: [link({ id: "x", notices: ["repriced"] })] })
+    expect(await addNotice(c, "x", ["repriced"], "unpaid")).toBe(true)
+    expect(db.tables.ttb_orders[0].notices).toEqual(["repriced", "unpaid"])
+    expect(await addNotice(c, "x", ["repriced"], "unpaid")).toBe(false)
+    expect(db.tables.ttb_orders[0].notices).toEqual(["repriced", "unpaid"])
+  })
+
+  it("patchLink updates only a row still in one of the allowed states", async () => {
+    const { db, c } = mk({ ttb_orders: [link({ id: "x" })] })
+    expect(await patchLink(c, "x", { state: "paid", paid_at: now.toISOString() }, ["closed"])).toBe(false)
+    expect(db.tables.ttb_orders[0].state).toBe("awaiting_payment")
+    expect(await patchLink(c, "x", { state: "paid", paid_at: now.toISOString() }, ["awaiting_payment", "closed"])).toBe(true)
+    expect(db.tables.ttb_orders[0]).toMatchObject({ state: "paid", paid_at: now.toISOString() })
+  })
+
+  it("strandedInbound: in, no outcome, 90 s to 15 min old, oldest first, capped", async () => {
+    const m = (id: string, ageMs: number, extra: Record<string, unknown> = {}) =>
+      ({ id, line: "main", sender: S, direction: "in", body: "1GB", received_at: null, outcome: null, created_at: iso(-ageMs), ...extra })
+    const { c } = mk({
+      ttb_messages: [
+        m("fresh", 30_000), m("ok2", 5 * 60_000), m("ok1", 10 * 60_000), m("old", 16 * 60_000),
+        m("done", 5 * 60_000, { outcome: "prompted" }), m("out", 5 * 60_000, { direction: "out" }),
+      ],
+    })
+    expect((await strandedInbound(c, now, 20)).map((r) => r.id)).toEqual(["ok1", "ok2"])
+    expect(await strandedInbound(c, now, 1)).toHaveLength(1)
+  })
+
+  it("getHeartbeat reads a line's last_seen_at, null when absent; touchHeartbeat accepts the bookkeeping lines", async () => {
+    const { db, c } = mk()
+    expect(await getHeartbeat(c, "main")).toBeNull()
+    await touchHeartbeat(c, "purge", now)
+    expect(db.tables.ttb_heartbeat).toEqual([{ line: "purge", last_seen_at: now.toISOString() }])
+    expect((await getHeartbeat(c, "purge"))?.toISOString()).toBe(now.toISOString())
+  })
+
+  it("purgeOld calls ttb_purge with the cutoff and returns the count; throws TtbStoreError on error", async () => {
+    const { db, c } = mk()
+    db.rpcImpl = () => ({ data: 7, error: null })
+    expect(await purgeOld(c, now)).toBe(7)
+    expect(db.rpcCalls).toEqual([{ name: "ttb_purge", args: { p_before: now.toISOString() } }])
+    db.rpcImpl = () => ({ data: null, error: { message: "boom" } })
+    await expect(purgeOld(c, now)).rejects.toBeInstanceOf(TtbStoreError)
   })
 })
