@@ -7,6 +7,7 @@ export type SurfaceKey =
   | "sms"
   | "ussd"
   | "whatsapp"
+  | "sms_order"
 
 export const SURFACE_KEYS: readonly SurfaceKey[] = [
   "wallet_topup",
@@ -15,6 +16,7 @@ export const SURFACE_KEYS: readonly SurfaceKey[] = [
   "sms",
   "ussd",
   "whatsapp",
+  "sms_order",
 ]
 
 export type Gateway = "paystack" | "hubtel"
@@ -33,7 +35,7 @@ export interface GatewayConfig {
   hubtelFeePercent: number
 }
 
-export const DIRECT_ONLY_SURFACES: readonly SurfaceKey[] = ["ussd", "whatsapp"]
+export const DIRECT_ONLY_SURFACES: readonly SurfaceKey[] = ["ussd", "whatsapp", "sms_order"]
 
 const GATEWAYS: readonly Gateway[] = ["paystack", "hubtel"]
 const MODES: readonly PaymentMode[] = ["checkout", "direct"]
@@ -71,6 +73,7 @@ export function deriveFromLegacy(l: {
       sms: mk(l.walletDirect),
       ussd: mk(true),
       whatsapp: mk(true),
+      sms_order: mk(true),
     },
     hubtelFeePercent: 0,
   }

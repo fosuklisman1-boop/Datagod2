@@ -73,6 +73,26 @@ describe("setSurfaceModes", () => {
     expect((upsert.mock.calls[0] as any)[0][0].value.surfaces.ussd.mode).toBe("direct")
   })
 
+  it("sms_order never touches the legacy direct-charge rows", async () => {
+    const { db, upsert } = fakeDb()
+    const a = deriveFromLegacy({ storefrontDirect: true, walletDirect: false })
+    const b = JSON.parse(JSON.stringify(a))
+    b.surfaces.sms_order = { gateway: "hubtel", mode: "direct", feeBearer: "merchant" }
+    await saveGatewayConfig(db, a, "x")
+    await saveGatewayConfig(db, b, "x")
+    const [rowsA, rowsB] = [(upsert.mock.calls[0] as any)[0], (upsert.mock.calls[1] as any)[0]]
+    expect(rowsB[0].value.surfaces.sms_order.gateway).toBe("hubtel")
+    const noStamp = (rows: any[]) => rows.map(({ updated_at: _u, ...r }) => r)
+    expect(noStamp(rowsB.slice(1))).toEqual(noStamp(rowsA.slice(1)))
+    expect(rowsA.slice(1).map((r: any) => r.key)).toEqual(["storefront_direct_charge", "wallet_direct_charge"])
+  })
+
+  it("setSurfaceModes cannot flip sms_order to checkout", async () => {
+    const { db, upsert } = fakeDb()
+    await setSurfaceModes(db, ["sms_order"], "checkout", "a@x")
+    expect((upsert.mock.calls[0] as any)[0][0].value.surfaces.sms_order.mode).toBe("direct")
+  })
+
   it("throws and does not invalidate when the upsert fails", async () => {
     const upsert = vi.fn(async () => ({ error: { message: "boom" } }))
     const db = { from: () => ({ upsert }) } as any
