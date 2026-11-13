@@ -22,27 +22,28 @@ export function extractGhanaNumbers(text: string): string[] {
   return matchNumbers(text).map((n) => n.phone)
 }
 
-const KEYWORDS: Record<string, Keyword> = {
-  prices: "PRICES",
-  menu: "PRICES",
-  "price list": "PRICES",
-  again: "AGAIN",
-  status: "STATUS",
-  help: "HELP",
-  yes: "YES",
-  y: "YES",
-}
+// Maps, not plain objects: customer text must never match inherited names like "constructor".
+const KEYWORDS = new Map<string, Keyword>([
+  ["prices", "PRICES"],
+  ["menu", "PRICES"],
+  ["price list", "PRICES"],
+  ["again", "AGAIN"],
+  ["status", "STATUS"],
+  ["help", "HELP"],
+  ["yes", "YES"],
+  ["y", "YES"],
+])
 
-const NETWORKS: Record<string, NetworkHint> = {
-  mtn: "MTN",
-  telecel: "Telecel",
-  voda: "Telecel",
-  vodafone: "Telecel",
-  at: "AT",
-  airteltigo: "AT",
-  ishare: "AT-iShare",
-  bigtime: "AT-BigTime",
-}
+const NETWORKS = new Map<string, NetworkHint>([
+  ["mtn", "MTN"],
+  ["telecel", "Telecel"],
+  ["voda", "Telecel"],
+  ["vodafone", "Telecel"],
+  ["at", "AT"],
+  ["airteltigo", "AT"],
+  ["ishare", "AT-iShare"],
+  ["bigtime", "AT-BigTime"],
+])
 
 const NET = "(mtn|telecel|vodafone|voda|airteltigo|ishare|bigtime|at)"
 const SIZE = "(\\d+(?:\\.\\d+)?)\\s*(gb|gigs|gig|g|mb)?"
@@ -55,7 +56,7 @@ export function parseOrderText(text: string): ReadResult {
   const cleaned = (text ?? "").trim().toLowerCase().replace(/[.!?,]+$/, "").trim()
   if (!cleaned) return UNKNOWN
 
-  const keyword = KEYWORDS[cleaned]
+  const keyword = KEYWORDS.get(cleaned)
   if (keyword) return { kind: "keyword", keyword }
 
   const numbers = matchNumbers(cleaned)
@@ -88,7 +89,7 @@ export function parseOrderText(text: string): ReadResult {
     kind: "order",
     service: "data",
     sizeMb,
-    networkHint: net ? NETWORKS[net] : null,
+    networkHint: net ? NETWORKS.get(net) ?? null : null,
     recipient: numbers.length === 1 ? numbers[0].phone : null,
     bare,
   }

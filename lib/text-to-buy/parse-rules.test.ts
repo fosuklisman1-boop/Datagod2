@@ -42,6 +42,12 @@ describe("parseOrderText", () => {
     "0", "101", "5.5.5gb",
   ])("unknown: %s", (text) => expect(parseOrderText(text)).toEqual({ kind: "unknown" }))
 
+  it.each([
+    "constructor", "__proto__", "valueOf", "toString", "hasOwnProperty",
+    "valueof", "tostring", "hasownproperty",
+  ])("inherited object property name is unknown: %s", (text) =>
+    expect(parseOrderText(text)).toEqual({ kind: "unknown" }))
+
   it("ignores case, surrounding spaces and trailing punctuation", () =>
     expect(parseOrderText("  5GB.  ")).toEqual(order(5000)))
 })
