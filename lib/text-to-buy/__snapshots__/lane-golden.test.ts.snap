@@ -1,5 +1,556 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`lane golden: gates, limits and the race > a post-confirm race loser gets the open-order reply and an alert 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: duplicate order left pending (open-order race): <uuid-2>",
+    ],
+  ],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-1>",
+      {
+        "bundleId": "b5",
+        "bundlePrice": 23.69,
+        "bundleSize": "5",
+        "dialingPhone": "+233200000101",
+        "network": "MTN",
+        "recipientPhone": "0200000101",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "outcome": "open_order",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+  ],
+  "orders": [
+    {
+      "created_at": "2026-11-13T12:00:00.000Z",
+      "id": "winner",
+      "line": "main",
+      "order_id": "other-order",
+      "sender": "0200000101",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "Approve the MoMo prompt for your first order, or wait 5 minutes and text again.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "open_order",
+        "readBy": "rules",
+        "reply": "Approve the MoMo prompt for your first order, or wait 5 minutes and text again.",
+      },
+      "text": "5gb",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: gates, limits and the race > a stale receive time is answered as late 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [],
+  "conversations": [],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "ec6b7ecb50cf603f7ae0ec26e0eaeb449cd293223711d6215ff96abe6b8f3d26",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "outcome": "late",
+      "read_by": null,
+      "received_at": "2026-11-13T11:45:00.000Z",
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+  ],
+  "orders": [],
+  "replies": [
+    {
+      "body": "Your message arrived late so we did not charge you. Please text again.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "late",
+        "readBy": null,
+        "reply": "Your message arrived late so we did not charge you. Please text again.",
+      },
+      "text": "5gb",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: gates, limits and the race > an open order says open_order 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [],
+  "conversations": [],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "outcome": "open_order",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+  ],
+  "orders": [
+    {
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "id": "open-1",
+      "line": "main",
+      "order_id": "O0",
+      "order_table": "ussd_orders",
+      "sender": "0200000101",
+      "service": "data",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "Approve the MoMo prompt for your first order, or wait 5 minutes and text again.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "open_order",
+        "readBy": "rules",
+        "reply": "Approve the MoMo prompt for your first order, or wait 5 minutes and text again.",
+      },
+      "text": "5gb",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: gates, limits and the race > an unclear text is silent when unclear replies are switched off 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [],
+  "conversations": [],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "a1317382898d6c23b15075945a15e3c32aa32299c51cbb3b46481acc6bef4ee3",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "outcome": "not_order",
+      "read_by": "ai",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "hello",
+    },
+  ],
+  "orders": [],
+  "replies": [],
+  "steps": [
+    {
+      "result": {
+        "outcome": "not_order",
+        "readBy": "ai",
+        "reply": null,
+      },
+      "text": "hello",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: gates, limits and the race > the global prompt cap says limited 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: global prompt cap reached",
+    ],
+  ],
+  "confirmCalls": [],
+  "conversations": [],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "outcome": "limited",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+  ],
+  "orders": [],
+  "replies": [
+    {
+      "body": "Too many requests. Please try again in 1 hour.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "limited",
+        "readBy": "rules",
+        "reply": "Too many requests. Please try again in 1 hour.",
+      },
+      "text": "5gb",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: gates, limits and the race > the global reply cap suppresses a non-quote reply but still sends the quote 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: hourly reply cap reached",
+    ],
+  ],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-2>",
+      {
+        "bundleId": "b5",
+        "bundlePrice": 23.69,
+        "bundleSize": "5",
+        "dialingPhone": "+233200000101",
+        "network": "MTN",
+        "recipientPhone": "0200000101",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:21:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000101",
+        "sizeMb": 5000,
+      },
+      "line": "main",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "5gb",
+        },
+        {
+          "role": "assistant",
+          "text": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:01:00.000Z",
+    },
+  ],
+  "messages": [
+    {
+      "created_at": "2026-11-13T11:55:00.000Z",
+      "direction": "out",
+      "id": "m-out-1",
+      "line": "main",
+      "sender": "0200000101",
+      "text": "earlier reply",
+    },
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "a1317382898d6c23b15075945a15e3c32aa32299c51cbb3b46481acc6bef4ee3",
+      "direction": "in",
+      "id": "<uuid-4>",
+      "line": "main",
+      "outcome": "limited",
+      "read_by": "ai",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "hello",
+    },
+    {
+      "claimed_at": "2026-11-13T12:01:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-2>",
+      "line": "main",
+      "order_link_id": "<uuid-3>",
+      "outcome": "prompted",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.69,
+      "gift": false,
+      "id": "<uuid-3>",
+      "line": "main",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "main",
+      "orderLinkId": "<uuid-3>",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 1,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "limited",
+        "readBy": "ai",
+        "reply": null,
+      },
+      "text": "hello",
+    },
+    {
+      "result": {
+        "orderId": "<uuid-1>",
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      },
+      "text": "5gb",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: gates, limits and the race > the per-sender prompt cap says limited 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [],
+  "conversations": [],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "outcome": "limited",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+  ],
+  "orders": [],
+  "replies": [
+    {
+      "body": "Too many requests. Please try again in 1 hour.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "limited",
+        "readBy": "rules",
+        "reply": "Too many requests. Please try again in 1 hour.",
+      },
+      "text": "5gb",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: gates, limits and the race > the per-sender reply cap stays silent 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [],
+  "conversations": [],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "outcome": "limited",
+      "read_by": null,
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+  ],
+  "orders": [],
+  "replies": [],
+  "steps": [
+    {
+      "result": {
+        "outcome": "limited",
+        "readBy": null,
+        "reply": null,
+      },
+      "text": "5gb",
+    },
+  ],
+}
+`;
+
 exports[`lane golden: inbound > 5gb 1`] = `
 {
   "alerts": [],

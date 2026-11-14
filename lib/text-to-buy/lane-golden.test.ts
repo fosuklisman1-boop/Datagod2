@@ -71,12 +71,16 @@ function stable<T>(value: T): T {
   return JSON.parse(text) as T
 }
 
-function setup(seed: Record<string, Record<string, unknown>[]> = {}) {
+function setup(
+  seed: Record<string, Record<string, unknown>[]> = {},
+  opts: { counts?: Partial<{ prompts_unpaid: number; replies: number }>; globalPrompts?: number; settings?: Partial<TtbSettings> } = {},
+) {
   const f = makeFakeTtb(seed)
+  const laneSettings: TtbSettings = { ...settings, ...opts.settings }
   f.db.rpcImpl = (name) =>
     name === "ttb_counts"
-      ? { data: [{ prompts_unpaid: 0, replies: 0, ai_reads: 0, not_understood: 0 }], error: null }
-      : { data: 0, error: null }
+      ? { data: [{ prompts_unpaid: 0, replies: 0, ai_reads: 0, not_understood: 0, ...opts.counts }], error: null }
+      : { data: name === "ttb_global_prompts" ? (opts.globalPrompts ?? 0) : 0, error: null }
   const c = f.client as unknown as SupabaseClient
   const confirm = vi.fn(async () => ({ type: "end", message: "USSD wording", orderId: ORDER, amount: 23.69 }))
   const deps = {
@@ -89,10 +93,10 @@ function setup(seed: Record<string, Record<string, unknown>[]> = {}) {
     feeOnTop: vi.fn(async () => false),
   }
   const steps: { text: string; result: unknown }[] = []
-  async function run(text: string, over: { at?: number; dryRun?: boolean } = {}) {
-    const input: InboundInput = { line: "main", from: S, text, receivedAt: null, now: new Date(now.getTime() + (over.at ?? 0)) }
+  async function run(text: string, over: { at?: number; dryRun?: boolean; receivedAt?: Date } = {}) {
+    const input: InboundInput = { line: "main", from: S, text, receivedAt: over.receivedAt ?? null, now: new Date(now.getTime() + (over.at ?? 0)) }
     const { id } = await acceptInbound(c, input)
-    const result = await processInbound(c, id, input, settings, { ...deps, ...(over.dryRun ? { dryRun: true } : {}) } as unknown as InboundDeps)
+    const result = await processInbound(c, id, input, laneSettings, { ...deps, ...(over.dryRun ? { dryRun: true } : {}) } as unknown as InboundDeps)
     steps.push({ text, result })
     return result
   }
@@ -199,6 +203,65 @@ describe("lane golden: inbound", () => {
   it("dry run of 5gb", async () => {
     const t = setup()
     await t.run("5gb", { dryRun: true })
+    expect(stable(t.snapshot())).toMatchSnapshot()
+  })
+})
+
+describe("lane golden: gates, limits and the race", () => {
+  const outboundRow = { id: "m-out-1", line: "main", sender: S, direction: "out", body: "earlier reply", created_at: minutesAgo(5).toISOString() }
+
+  it("a stale receive time is answered as late", async () => {
+    const t = setup()
+    await t.run("5gb", { receivedAt: minutesAgo(settings.staleMinutes + 5) })
+    expect(stable(t.snapshot())).toMatchSnapshot()
+  })
+
+  it("the per-sender reply cap stays silent", async () => {
+    const t = setup({}, { counts: { replies: settings.repliesPerHour } })
+    await t.run("5gb")
+    expect(stable(t.snapshot())).toMatchSnapshot()
+  })
+
+  it("the per-sender prompt cap says limited", async () => {
+    const t = setup({}, { counts: { prompts_unpaid: settings.promptsPerHour } })
+    await t.run("5gb")
+    expect(stable(t.snapshot())).toMatchSnapshot()
+  })
+
+  it("the global prompt cap says limited", async () => {
+    const t = setup({}, { globalPrompts: settings.globalPromptsPerMinute })
+    await t.run("5gb")
+    expect(stable(t.snapshot())).toMatchSnapshot()
+  })
+
+  it("an open order says open_order", async () => {
+    const t = setup({
+      ttb_orders: [{ id: "open-1", line: "main", sender: S, service: "data", order_table: "ussd_orders", order_id: "O0", state: "awaiting_payment", created_at: minutesAgo(1).toISOString() }],
+    })
+    await t.run("5gb")
+    expect(stable(t.snapshot())).toMatchSnapshot()
+  })
+
+  it("the global reply cap suppresses a non-quote reply but still sends the quote", async () => {
+    const t = setup({ ttb_messages: [outboundRow] }, { settings: { globalRepliesPerHour: 1 } })
+    await t.run("hello")
+    await t.run("5gb", { at: MIN })
+    expect(stable(t.snapshot())).toMatchSnapshot()
+  })
+
+  it("an unclear text is silent when unclear replies are switched off", async () => {
+    const t = setup({}, { settings: { unclearRepliesEnabled: false } })
+    await t.run("hello")
+    expect(stable(t.snapshot())).toMatchSnapshot()
+  })
+
+  it("a post-confirm race loser gets the open-order reply and an alert", async () => {
+    const t = setup({ ussd_orders: [{ id: ORDER, order_status: "pending", payment_status: "pending" }] })
+    t.confirm.mockImplementation(async () => {
+      t.f.db.tables.ttb_orders.push({ id: "winner", line: "main", sender: S, order_id: "other-order", state: "awaiting_payment", created_at: now.toISOString() })
+      return { type: "end", message: "USSD wording", orderId: ORDER, amount: 23.69 }
+    })
+    await t.run("5gb")
     expect(stable(t.snapshot())).toMatchSnapshot()
   })
 })
