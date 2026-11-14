@@ -48,16 +48,20 @@ export function classifyShopCandidates(
   opts: { excludeTokens?: string[]; expectingCode?: boolean } = {},
 ): ShopCandidate[] {
   const out: ShopCandidate[] = []
-  const seen = new Set<string>()
+  const seen = new Map<string, ShopCandidate>()
   let prev = ""
   for (const raw of stripGhanaNumbers(text, ` ${PHONE_MARK} `).split(/\s+/)) {
     const token = raw.replace(/^[^A-Za-z0-9\u0001]+|[^A-Za-z0-9\u0001]+$/g, "")
     if (!token) continue
     const afterMarker = MARKERS.has(prev)
     prev = token === PHONE_MARK ? "" : token.toLowerCase()
-    if (token === PHONE_MARK || seen.has(token) || !isShopCodeCandidate(token)) continue
-    seen.add(token)
-    out.push({ token, strong: opts.expectingCode === true || afterMarker || isStrongToken(token, opts.excludeTokens) })
+    if (token === PHONE_MARK || !isShopCodeCandidate(token)) continue
+    const strong = opts.expectingCode === true || afterMarker || isStrongToken(token, opts.excludeTokens)
+    const existing = seen.get(token)
+    if (existing) { if (strong) existing.strong = true; continue } // strong if ANY occurrence is strong
+    const entry = { token, strong }
+    seen.set(token, entry)
+    out.push(entry)
   }
   return out
 }

@@ -115,6 +115,17 @@ describe("resolveShopForText", () => {
       expect(await resolveShopForText(deps, { sender: S, text: "5gb from Kofi" })).toEqual({ kind: "not_found" })
     })
 
+    it("an unresolved strong code never yields to a resolving weak word", async () => {
+      const { deps } = mk({ codes: { Amaa: mkShop("Amaa") }, pref: "id-Amaa" })
+      expect(await resolveShopForText(deps, { sender: S, text: "5gb kofi123 Amaa" })).toEqual({ kind: "not_found" })
+      expect(deps.resolveShopCode.mock.calls.map((c) => c[0])).toEqual(["kofi123"])
+    })
+
+    it("a resolving strong code wins even when another strong code fails", async () => {
+      const { deps } = mk({ codes: { good123: mkShop("good123") } })
+      expect(await resolveShopForText(deps, { sender: S, text: "bad123 good123" })).toMatchObject({ kind: "shop", shop: { shopCodeId: "id-good123" } })
+    })
+
     it("a weak word that is a real shop code still wins", async () => {
       const { deps } = mk({ codes: { Kofi: mkShop("Kofi") }, pref: "id-other" })
       expect(await resolveShopForText(deps, { sender: S, text: "5gb Kofi" })).toMatchObject({ kind: "shop", via: "code", shop: { shopCodeId: "id-Kofi" } })

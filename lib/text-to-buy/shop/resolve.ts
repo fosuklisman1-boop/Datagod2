@@ -60,11 +60,17 @@ export async function resolveShopForText(deps: ShopResolveDeps, input: ShopResol
     ordered.push({ token: ai, strong: input.expectingCode === true || isStrongToken(ai, input.excludeTokens) })
   }
 
+  // Strong candidates first: the first that resolves wins; if there were any and none resolved, a weak word never gets a say.
+  const strongList = ordered.filter((c) => c.strong)
+  for (const c of strongList) {
+    const found = await deps.resolveShopCode(c.token)
+    if (found) return settle(found, "code")
+  }
+  if (strongList.length > 0) return { kind: "not_found" }
   for (const c of ordered) {
     const found = await deps.resolveShopCode(c.token)
     if (found) return settle(found, "code")
   }
-  if (ordered.some((c) => c.strong)) return { kind: "not_found" }
 
   const pref = await deps.getShopPref(input.sender)
   if (pref) {

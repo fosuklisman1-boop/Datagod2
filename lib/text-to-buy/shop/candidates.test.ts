@@ -60,6 +60,11 @@ describe("shopCodeCandidates", () => {
     expect(classifyShopCandidates("5gb from 0241234567 thanks")).toEqual([{ token: "thanks", strong: false }])
   })
 
+  it("a repeated token stays strong if any occurrence is strong", () => {
+    expect(classifyShopCandidates("Kofi 5gb from Kofi")).toEqual([{ token: "Kofi", strong: true }])
+    expect(classifyShopCandidates("from Kofi 5gb Kofi")).toEqual([{ token: "Kofi", strong: true }])
+  })
+
   it("excludeTokens demotes a 4 or 6 digit token the order read used as a size or amount", () => {
     expect(classifyShopCandidates("1000 kofi123", { excludeTokens: ["1000"] })).toEqual([
       { token: "1000", strong: false }, { token: "kofi123", strong: true },
