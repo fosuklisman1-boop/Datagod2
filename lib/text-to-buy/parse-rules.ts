@@ -52,9 +52,9 @@ const GRAMMAR = new RegExp(`^(?:${NET}\\s+)?${SIZE}(?:\\s+${NET})?$`)
 const UNKNOWN: ReadResult = { kind: "unknown" }
 
 /** The text with every Ghana phone number removed (so their digits are never read as an amount or a size). */
-export function stripGhanaNumbers(text: string): string {
+export function stripGhanaNumbers(text: string, fill = " "): string {
   let out = text
-  for (const n of matchNumbers(text)) out = out.replace(n.raw, " ")
+  for (const n of matchNumbers(text)) out = out.replace(n.raw, fill)
   return out
 }
 

@@ -53,10 +53,91 @@ describe("resolveShopForText", () => {
 
   it("the AI candidate is tried last", async () => {
     const { deps } = mk({ codes: { aicode1: mkShop("aicode1"), text123: mkShop("text123") } })
-    const both = await resolveShopForText(deps, { sender: S, text: "text123 5gb", aiCandidate: "aicode1" })
+    const both = await resolveShopForText(deps, { sender: S, text: "AICODE1 text123 5gb", aiCandidate: "aicode1" })
     expect(both).toMatchObject({ shop: { shopCodeId: "id-text123" } })
-    const only = await resolveShopForText(deps, { sender: S, text: "5gb please", aiCandidate: "aicode1" })
+    expect(deps.resolveShopCode.mock.calls.map((c) => c[0])).toEqual(["AICODE1", "text123"])
+    const only = await resolveShopForText(deps, { sender: S, text: "5gb AICODE1", aiCandidate: "aicode1" })
     expect(only).toMatchObject({ kind: "shop", via: "code", shop: { shopCodeId: "id-aicode1" } })
+  })
+
+  it("an AI candidate that is not in the text is ignored", async () => {
+    const { deps } = mk({ codes: { aicode1: mkShop("aicode1") } })
+    const r = await resolveShopForText(deps, { sender: S, text: "5gb", aiCandidate: "aicode1" })
+    expect(r).toEqual({ kind: "ask" })
+    expect(deps.resolveShopCode).not.toHaveBeenCalled()
+  })
+
+  it("a pref row that no longer resolves asks and never consults or overwrites from the last purchase", async () => {
+    for (const lookup of [async () => null, async () => { throw new Error("db down") }]) {
+      const { deps } = mk({ codes: { last123: mkShop("last123") }, pref: "id-gone", last: "id-last123" })
+      deps.shopCodeById.mockImplementation(lookup as never)
+      expect(await resolveShopForText(deps, { sender: S, text: "5gb" })).toEqual({ kind: "ask" })
+      expect(deps.lastBoughtShopCodeId).not.toHaveBeenCalled()
+      expect(deps.setShopPref).not.toHaveBeenCalled()
+    }
+  })
+
+  it("a failing seed write does not abort a valid last-purchase resolution", async () => {
+    const { deps } = mk({ codes: { last123: mkShop("last123") }, last: "id-last123" })
+    deps.setShopPref.mockRejectedValue(new Error("write failed"))
+    expect(await resolveShopForText(deps, { sender: S, text: "5gb" })).toMatchObject({ kind: "shop", via: "last" })
+  })
+
+  describe("strong and weak candidates", () => {
+    const prefDeps = () => mk({ codes: { pref123: mkShop("pref123") }, pref: "id-pref123" })
+
+    it("a stray word does not cost the remembered shop", async () => {
+      const { deps } = prefDeps()
+      const r = await resolveShopForText(deps, { sender: S, text: "5gb for 0241234567 thanks" })
+      expect(r).toMatchObject({ kind: "shop", via: "pref", shop: { shopCodeId: "id-pref123" } })
+    })
+
+    it("a bare size text uses the pref", async () => {
+      const { deps } = prefDeps()
+      expect(await resolveShopForText(deps, { sender: S, text: "5gb" })).toMatchObject({ kind: "shop", via: "pref" })
+    })
+
+    it("an unresolved mixed letters-and-digits token is not_found, not the pref", async () => {
+      const { deps } = prefDeps()
+      expect(await resolveShopForText(deps, { sender: S, text: "5gb kofi123" })).toEqual({ kind: "not_found" })
+      expect(deps.getShopPref).not.toHaveBeenCalled()
+    })
+
+    it("an unresolved 6 digit token not used as a size is not_found; used as a size it is weak", async () => {
+      const { deps } = prefDeps()
+      expect(await resolveShopForText(deps, { sender: S, text: "5gb 123456" })).toEqual({ kind: "not_found" })
+      const r = await resolveShopForText(deps, { sender: S, text: "123456", excludeTokens: ["123456"] })
+      expect(r).toMatchObject({ kind: "shop", via: "pref" })
+    })
+
+    it("a token after a marker word is strong", async () => {
+      const { deps } = prefDeps()
+      expect(await resolveShopForText(deps, { sender: S, text: "5gb from Kofi" })).toEqual({ kind: "not_found" })
+    })
+
+    it("a weak word that is a real shop code still wins", async () => {
+      const { deps } = mk({ codes: { Kofi: mkShop("Kofi") }, pref: "id-other" })
+      expect(await resolveShopForText(deps, { sender: S, text: "5gb Kofi" })).toMatchObject({ kind: "shop", via: "code", shop: { shopCodeId: "id-Kofi" } })
+    })
+
+    it("a weak word that is a closed shop gives closed", async () => {
+      const { deps } = mk({ codes: { Kofi: mkShop("Kofi", { status: "suspended" }) } })
+      expect(await resolveShopForText(deps, { sender: S, text: "5gb Kofi" })).toMatchObject({ kind: "closed" })
+    })
+
+    it("weak-only unresolved with no pref falls to the last purchase, then asks", async () => {
+      const withLast = mk({ codes: { last123: mkShop("last123") }, last: "id-last123" })
+      expect(await resolveShopForText(withLast.deps, { sender: S, text: "5gb thanks" })).toMatchObject({ kind: "shop", via: "last" })
+      const none = mk()
+      expect(await resolveShopForText(none.deps, { sender: S, text: "5gb thanks" })).toEqual({ kind: "ask" })
+    })
+
+    it("expectingCode makes a bare alphabetic reply a real attempt", async () => {
+      const { deps } = prefDeps()
+      expect(await resolveShopForText(deps, { sender: S, text: "KOFI", expectingCode: true })).toEqual({ kind: "not_found" })
+      const { deps: d2 } = mk({ codes: { KOFI: mkShop("KOFI") } })
+      expect(await resolveShopForText(d2, { sender: S, text: "KOFI", expectingCode: true })).toMatchObject({ kind: "shop", via: "code" })
+    })
   })
 
   it("an AI candidate that repeats a text token is looked up once; a bad AI candidate is ignored", async () => {
