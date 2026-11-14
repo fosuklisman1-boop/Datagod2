@@ -233,8 +233,33 @@ export async function handleAirtimeConfirm(
    */
   opts: { walletOnly?: boolean } = {}
 ): Promise<UzoResponse> {
+  return confirmAirtime(input, sessionId, session, channel, opts)
+}
+
+/**
+ * Text-to-Buy: confirm a staged airtime session as channel "sms". MoMo only (no wallet detour whatever the balance),
+ * no 3 s wait, no OTP SMS, never any cashback (legacy fee pricing only), never calls setSession.
+ * Session needs: dialingPhone (+233...), airtimeNetwork, airtimeRecipient (local), airtimeAmount (what the payer pays).
+ * Success: orderId = the airtime_orders id, amount = total_paid as inserted, delivers = airtime_amount as inserted.
+ * Every refusal (switch off, outside limits, no MoMo provider, insert failed): no orderId.
+ */
+export async function confirmAirtimeByText(sessionId: string, session: USSDSession): Promise<UzoResponse & { delivers?: number }> {
+  return confirmAirtime("1", sessionId, session, "sms")
+}
+
+async function confirmAirtime(
+  input: string,
+  sessionId: string,
+  session: USSDSession,
+  channel: Channel | "sms",
+  opts: { walletOnly?: boolean } = {}
+): Promise<UzoResponse & { delivers?: number }> {
+  // A text has no session to write: every setSession below is skipped on the sms channel.
+  const sms = channel === "sms"
+  const saveSession = async (s: USSDSession) => { if (!sms) await setSession(sessionId, s) }
+
   if (input.trim() === "2") {
-    await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
+    await saveSession({ step: "MAIN", dialingPhone: session.dialingPhone })
     return end("Order cancelled.")
   }
   if (input.trim() !== "1") {
@@ -252,24 +277,25 @@ export async function handleAirtimeConfirm(
 
   // Re-verify settings server-side (stale-session guard)
   if (!(await isAirtimeEnabled(network))) {
-    await setSession(sessionId, { step: "MAIN", dialingPhone })
+    await saveSession({ step: "MAIN", dialingPhone })
     return end(`${networkNickname(network)} airtime is no longer available.`)
   }
   const { min, max } = await getAirtimeLimits()
   const amount = session.airtimeAmount!
   if (amount < min || amount > max) {
-    await setSession(sessionId, { step: "MAIN", dialingPhone })
+    await saveSession({ step: "MAIN", dialingPhone })
     return end(`Amount must be GHS ${min}-${max}. Please restart.`)
   }
 
   // Cashback re-quote (the channel's own opt-in), only for a session staged WITH a cashback price: the live quote
   // must still be usable at the same price, otherwise no order is created and the caller restarts. A session staged
-  // with today's pricing (incl. AI-staged) is sold at today's pricing, exactly as shown.
+  // with today's pricing (incl. AI-staged) is sold at today's pricing, exactly as shown. A text never has cashback:
+  // the sms channel skips this block even when the session carries a cashback price.
   let cb: StorefrontQuote | null = null
-  if (session.airtimeCashbackPay !== undefined) {
+  if (channel !== "sms" && session.airtimeCashbackPay !== undefined) {
     const rq = airtimeRequote(session.airtimeCashbackPay, await quoteFor(channel, network, amount), amount)
     if (rq.kind === "changed") {
-      await setSession(sessionId, { step: "MAIN", dialingPhone })
+      await saveSession({ step: "MAIN", dialingPhone })
       return end(botErrorText(409))
     }
     if (rq.kind === "cashback") cb = rq.quote
@@ -293,13 +319,15 @@ export async function handleAirtimeConfirm(
   const provider = paystackProviderFromPhone(dialingPhone)
   // The wallet account: on WhatsApp "Pay via Wallet" (walletOnly) the session's account (the sender's own or an
   // OTP-linked one, the id the debit uses) with its LIVE balance; elsewhere the dialing phone's account, as before.
-  const payer = opts.walletOnly
+  // The sms channel never pays from a wallet, whatever the caller passes or the balance is.
+  const walletOnly = opts.walletOnly && !sms
+  const payer = walletOnly
     ? { userId: session.userId, balance: await liveWalletBalance(session.userId) }
     : { userId: dialer.userId, balance: dialer.balance }
-  const walletEligible = payer.userId && payer.balance !== undefined && payer.balance >= walletPrice
-  if (!walletEligible && opts.walletOnly) return waWalletShort()
+  const walletEligible = !sms && payer.userId && payer.balance !== undefined && payer.balance >= walletPrice
+  if (!walletEligible && walletOnly) return waWalletShort()
   if (!walletEligible && !provider) {
-    await setSession(sessionId, { step: "MAIN", dialingPhone })
+    await saveSession({ step: "MAIN", dialingPhone })
     return end("Payment not available for your number.")
   }
 
@@ -350,6 +378,7 @@ export async function handleAirtimeConfirm(
   }
 
   if (walletEligible) {
+    // (never reached on sms: walletEligible is false there)
     await setSession(sessionId, {
       ...session,
       step: "AIRTIME_PAYMENT_METHOD",
@@ -366,7 +395,7 @@ export async function handleAirtimeConfirm(
       : airtimePaymentMethodMenu(written, payer.balance!))
   }
 
-  await setSession(sessionId, {
+  await saveSession({
     ...session,
     airtimeFee: fee,
     airtimeToDeliver: toDeliver,
@@ -374,7 +403,8 @@ export async function handleAirtimeConfirm(
     pendingOrderTable: "airtime_orders",
     ...priced,
   })
-  return chargeAirtimeMomo(sessionId, session, order.id, momoPrice, written, provider!, channel)
+  const sent = await chargeAirtimeMomo(sessionId, session, order.id, momoPrice, written, provider!, channel)
+  return sms ? { ...sent, orderId: order.id, amount: written, delivers: toDeliver } : sent
 }
 
 // ── AIRTIME_PAYMENT_METHOD ────────────────────────────────────────────────────
@@ -479,7 +509,7 @@ async function chargeAirtimeMomo(
   price: UssdPrice,
   written: number,
   provider: "mtn" | "vod" | "tgo",
-  channel: Channel
+  channel: Channel | "sms"
 ): Promise<UzoResponse> {
   const dialingPhone = session.dialingPhone!
   const localDialing = toLocal(dialingPhone)
@@ -488,7 +518,8 @@ async function chargeAirtimeMomo(
   const feeBack = Math.round((price.paystack - written) * 100) / 100
 
   after(async () => {
-    await new Promise(r => setTimeout(r, 3000))
+    // The wait lets the USSD/WhatsApp session close before the prompt lands. A text has no session.
+    if (channel !== "sms") await new Promise(r => setTimeout(r, 3000))
     try {
       const { status, amount } = await startUssdCharge({
         surface: ussdChargeSurface(channel),
@@ -524,7 +555,9 @@ async function chargeAirtimeMomo(
         await supabase.from("airtime_orders")
           .update({ payment_status: "otp_required", updated_at: new Date().toISOString() })
           .eq("id", orderId)
-        if (channel === "whatsapp") {
+        if (channel === "sms") {
+          // Nothing is sent here: the text-to-buy notifier owns every customer message for this channel.
+        } else if (channel === "whatsapp") {
           // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
           await setWaSession(sessionId, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: orderId, pendingOrderTable: "airtime_orders" })
           await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
@@ -540,6 +573,6 @@ async function chargeAirtimeMomo(
     }
   })
 
-  await setSession(sessionId, { step: "MAIN", dialingPhone })
+  if (channel !== "sms") await setSession(sessionId, { step: "MAIN", dialingPhone })
   return end(`MoMo prompt sent to ${localDialing}. Approve to complete.\n\nReceived an OTP instead? Redial and enter the code.`)
 }
