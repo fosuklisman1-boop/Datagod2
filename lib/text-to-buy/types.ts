@@ -22,7 +22,8 @@ export type ReadResult =
   | OrderRead
   | { kind: "price_query"; service: "data"; sizeMb: number | null; networkHint: NetworkHint | null }
   | { kind: "keyword"; keyword: Keyword }
-  | { kind: "ask"; question: string; awaitBoard?: ExamBoardWord } // AI only; awaitBoard: the question was "how many checkers", for this board
+  // AI only; awaitBoard: the question was "how many checkers", for this board; awaitAmount: it was "how much airtime"
+  | { kind: "ask"; question: string; awaitBoard?: ExamBoardWord; awaitAmount?: { network: AirtimeNetwork | null } }
   | { kind: "not_order" }
   | { kind: "unknown" } // rules only: hand to the AI
 export type Outcome =

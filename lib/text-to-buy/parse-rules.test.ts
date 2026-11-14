@@ -77,6 +77,13 @@ describe("parseOrderText vouchers", () => {
     expect(parseOrderText("airtime 10")).toEqual({ kind: "order", service: "airtime", amountGhs: 10, networkHint: null, recipient: null }))
 })
 
+describe("credit card is not airtime", () => {
+  it.each(["credit card 10", "credit cards 10", "10 credit card"])("%s is not read as airtime", (t) => {
+    expect(parseOrderText(t)).not.toMatchObject({ service: "airtime" })
+  })
+  it("credit on its own still is", () => expect(parseOrderText("credit 5")).toMatchObject({ service: "airtime", amountGhs: 5 }))
+})
+
 describe("parseOrderText airtime", () => {
   const air = (amountGhs: number, networkHint: any = null, recipient: string | null = null) =>
     ({ kind: "order", service: "airtime", amountGhs, networkHint, recipient })

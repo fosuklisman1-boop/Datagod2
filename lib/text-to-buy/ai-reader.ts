@@ -18,7 +18,9 @@ const HISTORY_CHARS = 300
 const TEXT_CHARS = 500
 const TOOL_NAME = "propose_sms_order"
 
-export type AiDeps = { createMessage?: AIProvider["createMessage"]; model?: string }
+/** Which services are switched on for texting. An AI read for a service that is off is not_order, never a question. */
+export type Offered = { airtime: boolean; resultsChecker: boolean }
+export type AiDeps = { createMessage?: AIProvider["createMessage"]; model?: string; offered?: Offered }
 
 const NOT_ORDER: ReadResult = { kind: "not_order" }
 const INTENTS = ["order", "price_query", "ask", "not_order"] as const
@@ -114,6 +116,7 @@ function mapToolInput(
   input: Record<string, unknown>,
   text: string,
   history: { role: "user" | "assistant"; text: string }[],
+  offered?: Offered,
 ): ReadResult {
   const intent = input.intent
   if (intent === "not_order") return NOT_ORDER
@@ -124,8 +127,9 @@ function mapToolInput(
 
   // Absent service means data. Anything else unknown, or a priced airtime/voucher query, is not an order we can place.
   const service = input.service === undefined || input.service === null ? "data" : input.service
-  if (service === "airtime" && intent === "order") return mapAirtime(input, text, history)
-  if (service === "results_checker" && intent === "order") return mapVoucher(input, text, history)
+  // A service whose text switch is off is never read, asked about or remembered: it is not an order.
+  if (service === "airtime" && intent === "order") return offered?.airtime === false ? NOT_ORDER : mapAirtime(input, text, history, offered)
+  if (service === "results_checker" && intent === "order") return offered?.resultsChecker === false ? NOT_ORDER : mapVoucher(input, text, history)
   if (service !== "data") return NOT_ORDER
 
   const networkHint = asNetwork(input.network)
@@ -188,36 +192,54 @@ function singleTokenIs(tokens: string[], amount: number): boolean {
 }
 
 /**
- * The amount must be the one number the customer typed. A current text with a data word is never airtime. A current
- * text with a number must hold exactly that number; a current text with no number may lean on one earlier user turn
- * (which must itself hold exactly that number and no data word).
+ * The texts that back the amount: the one number the customer typed. A current text with a data word is never airtime. A
+ * current text with a number must hold exactly that number (it is then the only backer); a current text with no number may
+ * lean on earlier user turns (each must itself hold exactly that number and no data word). Empty when nothing backs it.
  */
-function amountTyped(text: string, history: History, amount: number): boolean {
-  if (DATA_WORD_RE.test(text)) return false
+function amountBackers(text: string, history: History, amount: number): string[] {
+  if (DATA_WORD_RE.test(text)) return []
   const current = numberTokens(text)
-  if (current.length > 0) return singleTokenIs(current, amount)
-  return history.some((h) => h.role === "user" && !DATA_WORD_RE.test(h.text) && singleTokenIs(numberTokens(h.text), amount))
+  if (current.length > 0) return singleTokenIs(current, amount) ? [text] : []
+  return history.filter((h) => h.role === "user" && !DATA_WORD_RE.test(h.text) && singleTokenIs(numberTokens(h.text), amount)).map((h) => h.text)
 }
 
-/** Airtime read. The AI never supplies a price: its amount is accepted only if the customer typed that number. */
-function mapAirtime(input: Record<string, unknown>, text: string, history: History): ReadResult {
-  const askAmount: ReadResult = { kind: "ask", question: ASK_AIRTIME_AMOUNT }
+const hasAirtimeWord = (t: string) => new RegExp(AIRTIME_WORD_RE.source, "i").test(t) || CURRENCY_WORD_RE.test(t)
+
+const NETWORK_WORD_OF: Record<AirtimeNetwork, RegExp> = {
+  MTN: /\bmtn\b/i,
+  Telecel: /\b(?:telecel|vodafone|voda)\b/i,
+  AT: /\b(?:airteltigo|ishare|bigtime|at)\b/i,
+}
+
+/** The AI's network hint, kept only if the customer wrote a word for that network in one of these texts. */
+function backedNetwork(hint: NetworkHint | null, texts: string[]): AirtimeNetwork | null {
+  if (!hint) return null
+  const net = AIRTIME_NETWORK_OF[hint]
+  return texts.some((t) => NETWORK_WORD_OF[net].test(t)) ? net : null
+}
+
+/**
+ * Airtime read. The AI never supplies a price: its amount is accepted only if the customer typed that number, and it is
+ * airtime only if the airtime or currency word is in the current text or in the same earlier turn that holds the amount.
+ */
+function mapAirtime(input: Record<string, unknown>, text: string, history: History, offered?: Offered): ReadResult {
+  const hint = asNetwork(input.network)
+  const askAmount: ReadResult = { kind: "ask", question: ASK_AIRTIME_AMOUNT, awaitAmount: { network: backedNetwork(hint, [text]) } }
   const amount = usableAmount(input.amount_ghs)
   if (amount === null) return askAmount
 
-  const userTexts = [text, ...history.filter((h) => h.role === "user").map((h) => h.text)]
-  if (!amountTyped(text, history, amount)) return askAmount
+  const backers = amountBackers(text, history, amount)
+  if (backers.length === 0) return askAmount
 
-  // No airtime or currency word anywhere in what the customer wrote: it is a bare number, which means GB.
-  const saidAirtime = userTexts.some((t) => new RegExp(AIRTIME_WORD_RE.source, "i").test(t) || CURRENCY_WORD_RE.test(t))
+  // No airtime or currency word in the text that carries the amount: it is a bare number, which means GB.
+  const saidAirtime = hasAirtimeWord(text) || backers.some(hasAirtimeWord)
   if (!saidAirtime) {
-    return mapToolInput({ intent: "order", service: "data", size_gb: amount, network: input.network, recipient: input.recipient }, text, history)
+    return mapToolInput({ intent: "order", service: "data", size_gb: amount, network: input.network, recipient: input.recipient }, text, history, offered)
   }
 
   const recipient = checkedRecipient(input.recipient, text, history)
   if (recipient === "ask") return { kind: "ask", question: ASK_RECIPIENT }
-  const hint = asNetwork(input.network)
-  return { kind: "order", service: "airtime", amountGhs: amount, networkHint: hint ? AIRTIME_NETWORK_OF[hint] : null, recipient }
+  return { kind: "order", service: "airtime", amountGhs: amount, networkHint: backedNetwork(hint, [text, ...backers]), recipient }
 }
 
 const ASK_BOARD = "Which checker: WASSCE, BECE or NOVDEC?"
@@ -272,11 +294,14 @@ function mapVoucher(input: Record<string, unknown>, text: string, history: Histo
   if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > 100) return askQuantity
   const quantity = raw
 
+  // An earlier turn backs a quantity only if it is itself about checkers (names a board or a checker word) and holds exactly
+  // that number. A quantity above 1 is never taken from an earlier turn: the "how many?" answer is the lane's pending state.
+  const aboutCheckers = (t: string) => boardsIn(t).size > 0 || /\b(?:checkers?|vouchers?)\b/i.test(t)
   const now = quantityTokens(text)
   let ok: boolean
   if (now.length > 0) ok = singleQuantityIs(now, quantity)
-  else if (quantity === 1) ok = !/\b(?:checkers|vouchers)\b/i.test(text) || userTurns.some((t) => !mixesService(t) && singleQuantityIs(quantityTokens(t), 1))
-  else ok = userTurns.some((t) => !mixesService(t) && singleQuantityIs(quantityTokens(t), quantity))
+  else if (quantity === 1) ok = !/\b(?:checkers|vouchers)\b/i.test(text) || userTurns.some((t) => !mixesService(t) && aboutCheckers(t) && singleQuantityIs(quantityTokens(t), 1))
+  else ok = false
   if (!ok) return askQuantity
 
   return { kind: "order", service: "results_checker", board: board as ExamBoardWord, quantity }
@@ -308,7 +333,7 @@ export async function readWithAi(
     if (!res || !Array.isArray(res.toolCalls) || res.toolCalls.length !== 1) return NOT_ORDER
     const call = res.toolCalls[0]
     if (call.name !== TOOL_NAME || !call.input || typeof call.input !== "object") return NOT_ORDER
-    return mapToolInput(call.input, text, history)
+    return mapToolInput(call.input, text, history, deps.offered)
   } catch {
     return NOT_ORDER
   }

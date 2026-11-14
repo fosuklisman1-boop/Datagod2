@@ -195,7 +195,8 @@ describe("readWithAi", () => {
 })
 
 describe("readWithAi airtime (the money fence)", () => {
-  const ask = { kind: "ask", question: "How much airtime do you want?" }
+  // The amount question also carries what the lane remembers (awaitAmount); no case below names a network.
+  const ask = { kind: "ask", question: "How much airtime do you want?", awaitAmount: { network: null } }
   const run = (text: string, input: Record<string, unknown>, history: { role: "user" | "assistant"; text: string }[] = []) =>
     readWithAi(text, history, deps(async () => toolReply(input)))
   const A = (amount_ghs: unknown, extra: Record<string, unknown> = {}) => ({ intent: "order", service: "airtime", amount_ghs, ...extra })
@@ -205,9 +206,9 @@ describe("readWithAi airtime (the money fence)", () => {
       { kind: "order", service: "airtime", amountGhs: 10, networkHint: null, recipient: null })
   })
   it("maps AT products to AT and keeps a typed recipient", async () => {
-    expect(await run("airtime 5 for 0200000104", A(5, { network: "AT-iShare", recipient: "0200000104" }))).toEqual(
+    expect(await run("ishare airtime 5 for 0200000104", A(5, { network: "AT-iShare", recipient: "0200000104" }))).toEqual(
       { kind: "order", service: "airtime", amountGhs: 5, networkHint: "AT", recipient: "0200000104" })
-    expect(await run("airtime 5", A(5, { network: "MTN" }))).toMatchObject({ networkHint: "MTN" })
+    expect(await run("mtn airtime 5", A(5, { network: "MTN" }))).toMatchObject({ networkHint: "MTN" })
   })
   it.each([
     ["10gb", 10], ["airtime 10gb", 10], ["send 10 data", 10], ["airtime 10 for data", 10], ["10 cedis of data", 10],
@@ -338,9 +339,10 @@ describe("readWithAi vouchers (the money fence)", () => {
     expect(await run("some", V("BECE", 5), h)).toEqual(askQty)
     expect(await run("some", V("BECE", 10), h)).toEqual(askQty)
   })
-  it("backs a quantity with an earlier user turn only when the current text has no conflict", async () => {
+  it("backs a quantity with an earlier user turn only when the current text has no conflict (and above 1 only by the pending question)", async () => {
     const h: H = [{ role: "user", text: "5 bece checkers" }, { role: "assistant", text: "ok" }]
-    expect(await run("yes", V("BECE", 5), h)).toEqual(rc("BECE", 5))
+    // Final review I2: a quantity above 1 is no longer taken from an earlier turn; the lane's pending "how many" answer covers it.
+    expect(await run("yes", V("BECE", 5), h)).toEqual(askQty)
     expect(await run("make it 3", V("BECE", 5), h)).toEqual(askQty)
     expect(await run("make it 3", V("BECE", 3), h)).toEqual(rc("BECE", 3))
     expect(await run("10gb", V("BECE", 5), h)).toEqual(expect.not.objectContaining({ kind: "order" }))
@@ -392,5 +394,103 @@ describe("readWithAi vouchers (the money fence)", () => {
   })
   it("a voucher price query is still not_order, a bad service still not_order", async () => {
     expect(await run("wassce price", { intent: "price_query", service: "results_checker" })).toEqual({ kind: "not_order" })
+  })
+})
+
+describe("readWithAi final-review fixes", () => {
+  type H = { role: "user" | "assistant"; text: string }[]
+  const run = (text: string, input: Record<string, unknown>, history: H = [], offered?: { airtime: boolean; resultsChecker: boolean }) =>
+    readWithAi(text, history, { ...deps(async () => toolReply(input)), ...(offered ? { offered } : {}) })
+  const A = (amount_ghs: unknown, extra: Record<string, unknown> = {}) => ({ intent: "order", service: "airtime", amount_ghs, ...extra })
+  const V = (board: unknown, quantity: unknown) => ({ intent: "order", service: "results_checker", board, quantity })
+  const NOT = { kind: "not_order" }
+  const dataRead = (gb: number) => ({ kind: "order", service: "data", sizeMb: gb * 1000, networkHint: null, recipient: null, bare: false })
+
+  describe("a service whose text switch is off is never asked for or read", () => {
+    const airtimeOff = { airtime: false, resultsChecker: true }
+    const rcOff = { airtime: true, resultsChecker: false }
+    it("airtime off: an airtime order, an amount question and a recipient question are all not_order", async () => {
+      expect(await run("airtime 10", A(10), [], airtimeOff)).toEqual(NOT)
+      expect(await run("i want airtime", A(null), [], airtimeOff)).toEqual(NOT)
+      expect(await run("airtime 10 for mum", A(10, { recipient: "0200000106" }), [], airtimeOff)).toEqual(NOT)
+    })
+    it("voucher off: a checker order, a board question and a quantity question are all not_order", async () => {
+      expect(await run("2 wassce", V("WASSCE", 2), [], rcOff)).toEqual(NOT)
+      expect(await run("checker", V(null, 1), [], rcOff)).toEqual(NOT)
+      expect(await run("wassce checkers", V("WASSCE", 5), [], rcOff)).toEqual(NOT)
+    })
+    it("data, and a service that is on, are unaffected", async () => {
+      expect(await run("5gb", { intent: "order", size_gb: 5 }, [], airtimeOff)).toEqual(dataRead(5))
+      expect(await run("airtime 10", A(10), [], rcOff)).toMatchObject({ service: "airtime", amountGhs: 10 })
+      expect(await run("2 wassce", V("WASSCE", 2), [], airtimeOff)).toMatchObject({ service: "results_checker", quantity: 2 })
+    })
+    it("with no offered set given, every service is read as before", async () => {
+      expect(await run("airtime 10", A(10))).toMatchObject({ service: "airtime" })
+    })
+  })
+
+  describe("the airtime amount question carries what the lane remembers", () => {
+    it("a missing amount asks, and names the network only if the customer wrote it", async () => {
+      expect(await run("i want airtime", A(null))).toEqual({ kind: "ask", question: "How much airtime do you want?", awaitAmount: { network: null } })
+      expect(await run("mtn airtime please", A(null, { network: "MTN" }))).toEqual({ kind: "ask", question: "How much airtime do you want?", awaitAmount: { network: "MTN" } })
+      expect(await run("i want airtime", A(null, { network: "MTN" }))).toMatchObject({ awaitAmount: { network: null } })
+    })
+    it("a recipient question does not set the amount question", async () => {
+      expect(await run("airtime 10", A(10, { recipient: "0200000106" }))).toEqual({ kind: "ask", question: "Which number should receive it?" })
+    })
+  })
+
+  describe("airtime service word must come from the same text that backs the amount", () => {
+    it("an airtime word in an earlier unrelated turn does not make a later bare number airtime", async () => {
+      const h: H = [{ role: "user", text: "airtime 5" }, { role: "assistant", text: "Which network?" }]
+      expect(await run("send me 10", A(10), h)).toEqual(dataRead(10))
+    })
+    it("the word may be in the current text, or in the same earlier turn that holds the amount", async () => {
+      const h: H = [{ role: "user", text: "airtime 10" }, { role: "assistant", text: "Which network?" }]
+      expect(await run("mtn", A(10, { network: "MTN" }), h)).toMatchObject({ service: "airtime", amountGhs: 10, networkHint: "MTN" })
+      const g: H = [{ role: "user", text: "10" }, { role: "assistant", text: "ok" }]
+      expect(await run("airtime please", A(10), g)).toMatchObject({ service: "airtime", amountGhs: 10 })
+    })
+    it("an airtime word in one turn does not carry a number from another", async () => {
+      const h: H = [{ role: "user", text: "airtime" }, { role: "assistant", text: "How much?" }, { role: "user", text: "10" }, { role: "assistant", text: "ok" }]
+      expect(await run("mtn", A(10), h)).toEqual(dataRead(10))
+    })
+    it("credit card is not an airtime word, in the AI path", async () => {
+      expect(await run("credit card 10", A(10))).toEqual(dataRead(10))
+      expect(await run("my card 10", A(10))).toEqual(dataRead(10))
+    })
+  })
+
+  describe("the AI's network hint must be backed by the customer's words", () => {
+    it("drops a hint no network word supports", async () => {
+      expect(await run("airtime 5", A(5, { network: "MTN" }))).toMatchObject({ networkHint: null })
+      expect(await run("telecel airtime 5", A(5, { network: "MTN" }))).toMatchObject({ networkHint: null })
+    })
+    it("keeps a hint the current text or the backing turn names", async () => {
+      expect(await run("mtn airtime 5", A(5, { network: "MTN" }))).toMatchObject({ networkHint: "MTN" })
+      expect(await run("vodafone airtime 5", A(5, { network: "Telecel" }))).toMatchObject({ networkHint: "Telecel" })
+      expect(await run("airtime 5 ishare", A(5, { network: "AT-iShare" }))).toMatchObject({ networkHint: "AT" })
+      const h: H = [{ role: "user", text: "mtn airtime 10" }]
+      expect(await run("yes", A(10, { network: "MTN" }), h)).toMatchObject({ networkHint: "MTN" })
+    })
+  })
+
+  describe("voucher quantity backing", () => {
+    const askQty = expect.objectContaining({ kind: "ask", question: "How many checkers do you want?" })
+    it("a quantity above 1 is never taken from an earlier turn", async () => {
+      const h: H = [{ role: "user", text: "5 bece checkers" }, { role: "assistant", text: "ok" }]
+      expect(await run("yes", V("BECE", 5), h)).toEqual(askQty)
+      const g: H = [{ role: "user", text: "3" }, { role: "assistant", text: "ok" }]
+      expect(await run("wassce checkers", V("WASSCE", 3), g)).toEqual(askQty)
+    })
+    it("a quantity of 1 from an earlier turn needs that turn to name a board or checker", async () => {
+      const bare: H = [{ role: "user", text: "1" }]
+      expect(await run("wassce checkers", V("WASSCE", 1), bare)).toEqual(askQty)
+      const named: H = [{ role: "user", text: "1 wassce" }]
+      expect(await run("wassce checkers", V("WASSCE", 1), named)).toEqual({ kind: "order", service: "results_checker", board: "WASSCE", quantity: 1 })
+    })
+    it("a quantity typed in the current text still works", async () => {
+      expect(await run("make it 3", V("BECE", 3), [{ role: "user", text: "bece checkers" }])).toEqual({ kind: "order", service: "results_checker", board: "BECE", quantity: 3 })
+    })
   })
 })

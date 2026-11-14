@@ -59,7 +59,7 @@ export function stripGhanaNumbers(text: string): string {
 }
 
 /** Words that mean "airtime"; one of these anywhere makes a text an airtime text. */
-export const AIRTIME_WORD_RE = /\b(?:airtime|credit|recharge|topup|top\s?up)\b/gi
+export const AIRTIME_WORD_RE = /\b(?:airtime|credit(?!\s+cards?\b)|recharge|topup|top\s?up)\b/gi
 /** Any data unit or the word "data": in an airtime text it means the customer asked for data. */
 export const DATA_WORD_RE =
   /\d\s*(?:gbs?|gigs?|gigabytes?|g|mbs?|megabytes?)\b|\b(?:gbs?|gigs?|gigabytes?|g|mbs?|megabytes?|data|bundles?)\b/i
