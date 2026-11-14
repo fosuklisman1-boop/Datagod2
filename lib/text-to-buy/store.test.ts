@@ -5,8 +5,9 @@ import {
   dedupeKey, storeInbound, setInboundResult, storeOutbound, isBlocked, counts, globalPrompts, countOutbound, hasOpenOrder, linkOrder,
   loadConversation, saveConversation, touchHeartbeat, TtbStoreError,
   watchedLinks, ussdOrderForNotify, addNotice, patchLink, strandedInbound, getHeartbeat, purgeOld,
-  claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus,
+  claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus, orderRowFor,
 } from "./store"
+import { ORDER_TABLE_OF } from "./types"
 
 const S = "0200000101"
 const now = new Date("2026-11-13T12:00:00Z")
@@ -186,7 +187,7 @@ describe("countOutbound", () => {
 })
 
 describe("hasOpenOrder / linkOrder", () => {
-  const o = { line: "main" as const, sender: S, orderId: "6f0c1a9e-0163-4163-8163-0000000000a1", size: "1GB", recipient: "0200000150", gift: false, amount: 5 }
+  const o = { line: "main" as const, sender: S, service: "data" as const, orderTable: "ussd_orders" as const, orderId: "6f0c1a9e-0163-4163-8163-0000000000a1", size: "1GB", recipient: "0200000150", gift: false, amount: 5 }
 
   it("hasOpenOrder sees an awaiting_payment link created at or after windowStart", async () => {
     const start = new Date("2026-11-13T11:55:00Z")
@@ -378,7 +379,7 @@ describe("Task 10 store additions", () => {
   it("closeStaleLinks frees the open-order slot for a new link", async () => {
     const { c } = mk({ ttb_orders: [{ id: "old", line: "main", sender: S, order_id: O1, state: "awaiting_payment", created_at: "2026-11-13T11:00:00.000Z" }] })
     await closeStaleLinks(c, "main", S, new Date("2026-11-13T11:55:00Z"), now)
-    const r = await linkOrder(c, { line: "main", sender: S, orderId: O2, size: "1GB", recipient: S, gift: false, amount: 5 })
+    const r = await linkOrder(c, { line: "main", sender: S, service: "data", orderTable: "ussd_orders", orderId: O2, size: "1GB", recipient: S, gift: false, amount: 5 })
     expect(r).not.toBe("conflict")
   })
 
@@ -410,7 +411,7 @@ describe("Task 10 store additions", () => {
       ],
     })
     expect(await latestOrderLink(c, "main", S)).toEqual({
-      id: "b", orderId: O2, state: "awaiting_payment", size: "5GB", recipient: "0200000150", notices: ["unpaid"], createdAt: "2026-11-13T11:00:00.000Z",
+      id: "b", orderId: O2, service: "data", orderTable: "ussd_orders", state: "awaiting_payment", size: "5GB", recipient: "0200000150", notices: ["unpaid"], createdAt: "2026-11-13T11:00:00.000Z",
     })
     expect(await latestOrderLink(c, "main", "0200000199")).toBeNull()
   })
@@ -547,5 +548,63 @@ describe("notifier reads and writes", () => {
     expect(db.rpcCalls).toEqual([{ name: "ttb_purge", args: { p_before: now.toISOString() } }])
     db.rpcImpl = () => ({ data: null, error: { message: "boom" } })
     await expect(purgeOld(c, now)).rejects.toBeInstanceOf(TtbStoreError)
+  })
+})
+
+describe("Stage 2 plumbing: links carry the service and the order table", () => {
+  const A = "6f0c1a9e-0163-4163-8163-0000000000d1"
+  const base = { line: "main" as const, sender: S, orderId: A, size: "airtime 10", recipient: "0200000150", gift: false, amount: 10 }
+
+  it("linkOrder writes service and order_table", async () => {
+    const { db, c } = mk()
+    await linkOrder(c, { ...base, service: "airtime", orderTable: "airtime_orders" })
+    expect(db.tables.ttb_orders[0]).toMatchObject({ service: "airtime", order_table: "airtime_orders" })
+  })
+
+  it("linkOrder refuses a mismatched pair and writes nothing", async () => {
+    const { db, c } = mk()
+    await expect(linkOrder(c, { ...base, service: "airtime", orderTable: "ussd_orders" })).rejects.toBeInstanceOf(TtbStoreError)
+    await expect(linkOrder(c, { ...base, service: "data", orderTable: "results_checker_orders" })).rejects.toBeInstanceOf(TtbStoreError)
+    expect(db.tables.ttb_orders).toHaveLength(0)
+  })
+
+  it("ORDER_TABLE_OF names each service's order table", () => {
+    expect(ORDER_TABLE_OF).toEqual({ data: "ussd_orders", airtime: "airtime_orders", results_checker: "results_checker_orders" })
+  })
+
+  it("orderRowFor reads airtime_orders status columns", async () => {
+    const { c } = mk({ airtime_orders: [{ id: A, status: "pending", payment_status: "completed", total_paid: 10, airtime_amount: 9.52 }] })
+    expect(await orderRowFor(c, "airtime_orders", A)).toEqual({ orderStatus: "pending", paymentStatus: "completed", amount: 10 })
+    expect(await orderRowFor(c, "ussd_orders", A)).toBeNull()
+  })
+
+  it("orderRowFor reads results_checker_orders", async () => {
+    const { c } = mk({ results_checker_orders: [{ id: A, status: "pending", payment_status: "completed", total_paid: "30.00" }] })
+    expect(await orderRowFor(c, "results_checker_orders", A)).toEqual({ orderStatus: "pending", paymentStatus: "completed", amount: 30 })
+    expect(await orderRowFor(c, "airtime_orders", A)).toBeNull()
+  })
+
+  it("orderRowFor reads ussd_orders and throws TtbStoreError on a read error", async () => {
+    const { db, c } = mk({ ussd_orders: [{ id: A, order_status: "processing", payment_status: "paid", amount: "7.50" }] })
+    expect(await orderRowFor(c, "ussd_orders", A)).toEqual({ orderStatus: "processing", paymentStatus: "paid", amount: 7.5 })
+    db.failOn.ussd_orders = { message: "down" }
+    await expect(orderRowFor(c, "ussd_orders", A)).rejects.toBeInstanceOf(TtbStoreError)
+  })
+
+  it("latestOrderLink and watchedLinks carry service and orderTable as raw strings", async () => {
+    const row = { id: "L1", line: "main", sender: S, order_id: A, state: "awaiting_payment", size: "airtime 10", recipient: S, gift: false, amount: 10, notices: [], created_at: "2026-11-13T11:00:00.000Z", paid_at: null, closed_at: null, delivered_at: null }
+    const { c } = mk({ ttb_orders: [{ ...row, service: "airtime", order_table: "airtime_orders" }] })
+    expect(await latestOrderLink(c, "main", S)).toMatchObject({ service: "airtime", orderTable: "airtime_orders" })
+    expect((await watchedLinks(c, now, 10))[0]).toMatchObject({ service: "airtime", orderTable: "airtime_orders" })
+    const odd = mk({ ttb_orders: [{ ...row, service: "mystery", order_table: "mystery_orders" }] })
+    expect(await latestOrderLink(odd.c, "main", S)).toMatchObject({ service: "mystery", orderTable: "mystery_orders" })
+    expect((await watchedLinks(odd.c, now, 10))[0]).toMatchObject({ service: "mystery", orderTable: "mystery_orders" })
+  })
+
+  it("a link row with null service or order_table maps to data / ussd_orders", async () => {
+    const row = { id: "L1", line: "main", sender: S, order_id: A, state: "awaiting_payment", size: "1GB", recipient: S, gift: false, amount: 5, notices: [], created_at: "2026-11-13T11:00:00.000Z", paid_at: null, closed_at: null, delivered_at: null, service: null, order_table: null }
+    const { c } = mk({ ttb_orders: [row] })
+    expect(await latestOrderLink(c, "main", S)).toMatchObject({ service: "data", orderTable: "ussd_orders" })
+    expect((await watchedLinks(c, now, 10))[0]).toMatchObject({ service: "data", orderTable: "ussd_orders" })
   })
 })

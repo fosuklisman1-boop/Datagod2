@@ -1,7 +1,7 @@
 import { createHash } from "crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { encodeCursor, MESSAGE_COLUMNS, toAdminMessage, type AdminMessage, type OverviewRow } from "./admin-view"
-import type { Line, Outcome, ReadResult } from "./types"
+import { ORDER_TABLE_OF, type Line, type OrderTable, type Outcome, type ReadResult, type Service } from "./types"
 
 /**
  * Text-to-Buy database access (tables and functions of migration 0177). Server-only, service-role client.
@@ -150,13 +150,20 @@ export async function hasOpenOrder(db: SupabaseClient, line: Line, sender: strin
  */
 export async function linkOrder(
   db: SupabaseClient,
-  o: { line: Line; sender: string; orderId: string; size: string; recipient: string; gift: boolean; amount: number },
+  o: {
+    line: Line; sender: string; service: Service; orderTable: OrderTable; orderId: string
+    size: string; recipient: string; gift: boolean; amount: number
+  },
 ): Promise<{ id: string } | { id: string; alreadyLinked: true } | "conflict"> {
+  // A link that names the wrong order table would make the notifier read the wrong row: refuse before writing anything.
+  if (ORDER_TABLE_OF[o.service] !== o.orderTable) throw new TtbStoreError("a link names an order table that is not its service's")
   const { data, error } = await db
     .from("ttb_orders")
     .insert({
       line: o.line,
       sender: o.sender,
+      service: o.service,
+      order_table: o.orderTable,
       order_id: o.orderId,
       size: o.size,
       recipient: o.recipient,
@@ -303,9 +310,15 @@ export async function getInboundOutcome(db: SupabaseClient, id: string): Promise
   return typeof outcome === "string" ? outcome : null
 }
 
+/** service and orderTable are raw strings on purpose: the notifier decides what it knows. A null (fakes only) is the database default. */
+const serviceOf = (r: Record<string, unknown>) => (typeof r.service === "string" ? r.service : "data")
+const orderTableOf = (r: Record<string, unknown>) => (typeof r.order_table === "string" ? r.order_table : "ussd_orders")
+
 export type OrderLink = {
   id: string
   orderId: string
+  service: string
+  orderTable: string
   state: string
   size: string
   recipient: string
@@ -317,7 +330,7 @@ export type OrderLink = {
 export async function latestOrderLink(db: SupabaseClient, line: Line, sender: string): Promise<OrderLink | null> {
   const { data, error } = await db
     .from("ttb_orders")
-    .select("id, order_id, state, size, recipient, notices, created_at")
+    .select("id, order_id, service, order_table, state, size, recipient, notices, created_at")
     .eq("line", line)
     .eq("sender", sender)
     .order("created_at", { ascending: false })
@@ -329,6 +342,8 @@ export async function latestOrderLink(db: SupabaseClient, line: Line, sender: st
   return {
     id: r.id,
     orderId: String(r.order_id),
+    service: serviceOf(r),
+    orderTable: orderTableOf(r),
     state: String(r.state),
     size: String(r.size),
     recipient: String(r.recipient),
@@ -337,12 +352,29 @@ export async function latestOrderLink(db: SupabaseClient, line: Line, sender: st
   }
 }
 
+export type OrderRow = { paymentStatus: string; orderStatus: string; amount: number }
+
+// ussd_orders names its columns order_status / payment_status / amount; the airtime and results-checker tables use status /
+// payment_status / total_paid (the number actually charged).
+const ORDER_COLUMNS: Record<OrderTable, { status: string; amount: string }> = {
+  ussd_orders: { status: "order_status", amount: "amount" },
+  airtime_orders: { status: "status", amount: "total_paid" },
+  results_checker_orders: { status: "status", amount: "total_paid" },
+}
+
+/** The order row's two status columns and the amount charged, or null when the row is gone. Throws TtbStoreError on a read error. */
+export async function orderRowFor(db: SupabaseClient, table: OrderTable, orderId: string): Promise<OrderRow | null> {
+  const cols = ORDER_COLUMNS[table]
+  const { data, error } = await db.from(table).select(`${cols.status}, payment_status, ${cols.amount}`).eq("id", orderId).maybeSingle()
+  if (error) throw new TtbStoreError("could not read an order")
+  const r = data as Record<string, unknown> | null
+  return r ? { orderStatus: String(r[cols.status]), paymentStatus: String(r.payment_status), amount: Number(r[cols.amount]) } : null
+}
+
 /** The USSD order row's two status columns, or null when it is gone. */
 export async function ussdOrderStatus(db: SupabaseClient, orderId: string): Promise<{ orderStatus: string; paymentStatus: string } | null> {
-  const { data, error } = await db.from("ussd_orders").select("order_status, payment_status").eq("id", orderId).maybeSingle()
-  if (error) throw new TtbStoreError("could not read an order status")
-  const r = data as { order_status?: unknown; payment_status?: unknown } | null
-  return r ? { orderStatus: String(r.order_status), paymentStatus: String(r.payment_status) } : null
+  const r = await orderRowFor(db, "ussd_orders", orderId)
+  return r ? { orderStatus: r.orderStatus, paymentStatus: r.paymentStatus } : null
 }
 
 /**
@@ -367,6 +399,8 @@ export type WatchedLink = {
   line: Line
   sender: string
   orderId: string
+  service: string
+  orderTable: string
   state: string
   size: string
   recipient: string
@@ -378,7 +412,7 @@ export type WatchedLink = {
   deliveredAt: string | null
 }
 
-const WATCH_COLUMNS = "id, line, sender, order_id, state, size, recipient, gift, amount, notices, created_at, paid_at, delivered_at"
+const WATCH_COLUMNS = "id, line, sender, order_id, service, order_table, state, size, recipient, gift, amount, notices, created_at, paid_at, delivered_at"
 const LATE_APPROVAL_MS = 48 * 60 * 60_000
 
 function toWatched(r: Record<string, unknown>): WatchedLink {
@@ -387,6 +421,8 @@ function toWatched(r: Record<string, unknown>): WatchedLink {
     line: r.line === "shop" ? "shop" : "main",
     sender: String(r.sender),
     orderId: String(r.order_id),
+    service: serviceOf(r),
+    orderTable: orderTableOf(r),
     state: String(r.state),
     size: String(r.size),
     recipient: String(r.recipient),
@@ -424,10 +460,7 @@ export async function ussdOrderForNotify(
   db: SupabaseClient,
   orderId: string,
 ): Promise<{ orderStatus: string; paymentStatus: string; amount: number } | null> {
-  const { data, error } = await db.from("ussd_orders").select("order_status, payment_status, amount").eq("id", orderId).maybeSingle()
-  if (error) throw new TtbStoreError("could not read an order for notices")
-  const r = data as { order_status?: unknown; payment_status?: unknown; amount?: unknown } | null
-  return r ? { orderStatus: String(r.order_status), paymentStatus: String(r.payment_status), amount: Number(r.amount) } : null
+  return orderRowFor(db, "ussd_orders", orderId)
 }
 
 /**

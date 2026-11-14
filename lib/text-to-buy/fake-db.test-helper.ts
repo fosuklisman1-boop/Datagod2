@@ -13,6 +13,9 @@ export const SCHEMA: Record<string, string[]> = {
   ttb_heartbeat: ["line", "last_seen_at"],
   // Not a 0177 table: the existing USSD order table, only the columns the Text-to-Buy lane reads or guards.
   ussd_orders: ["id", "order_status", "payment_status", "amount", "updated_at"],
+  // Not 0177 tables: the airtime and results-checker order tables, only the columns the notifier reads.
+  airtime_orders: ["id", "status", "payment_status", "total_paid", "airtime_amount", "updated_at"],
+  results_checker_orders: ["id", "status", "payment_status", "total_paid", "updated_at"],
   // Not a 0177 table: the shared settings table (migration 0177 seeds the ttb_ keys into it).
   admin_settings: ["key", "value", "description", "updated_by", "updated_at"],
 }

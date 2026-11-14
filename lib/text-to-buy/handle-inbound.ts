@@ -359,7 +359,7 @@ export async function processInbound(
     let linked: { id: string } | "race" | "link_failed"
     try {
       const l = await linkOrder(db, {
-        line: i.line, sender: i.from, orderId, size: offer.size, recipient: offer.recipientLocal, gift: offer.gift, amount,
+        line: i.line, sender: i.from, service: "data", orderTable: "ussd_orders", orderId, size: offer.size, recipient: offer.recipientLocal, gift: offer.gift, amount,
       })
       linked = l === "conflict" ? (await linkByOrderId(db, orderId)) ?? "race" : l
     } catch (e) {
