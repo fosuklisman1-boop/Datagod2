@@ -547,6 +547,22 @@ describe("notifier reads and writes", () => {
     expect(rows[0]).toMatchObject({ orderId: expect.any(String), state: "paid", gift: false, amount: 5, notices: [] })
   })
 
+  it("watchedLinks falls back to the pre-0180 column list when shop_id is missing (migration not applied): shopId null, nothing thrown", async () => {
+    const { db, c } = mk({
+      ttb_orders: [link({ id: "m1" }), link({ id: "s1", line: "shop", sender: "0200000106", shop_id: "11111111-1111-4111-8111-111111111111" })],
+    })
+    db.rejectColumns.ttb_orders = ["shop_id"]
+    const rows = await watchedLinks(c, now, 200)
+    expect(rows.map((r) => r.id).sort()).toEqual(["m1", "s1"])
+    expect(rows.every((r) => r.shopId === null)).toBe(true)
+  })
+
+  it("watchedLinks still throws on any other read error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_orders = { code: "08006", message: "down" }
+    await expect(watchedLinks(c, now, 200)).rejects.toBeInstanceOf(TtbStoreError)
+  })
+
   it("watchedLinks caps the non-closed scan at the limit", async () => {
     const seed = Array.from({ length: 5 }, (_, i) => link({ id: `l${i}`, sender: `020000010${i}`, created_at: iso(-i * 1000) }))
     const { c } = mk({ ttb_orders: seed })

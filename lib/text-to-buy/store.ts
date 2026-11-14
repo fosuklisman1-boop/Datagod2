@@ -463,6 +463,7 @@ export type WatchedLink = {
 }
 
 const WATCH_COLUMNS = "id, line, sender, order_id, service, order_table, state, size, recipient, gift, amount, notices, created_at, paid_at, delivered_at, shop_id"
+const WATCH_COLUMNS_PRE_0180 = "id, line, sender, order_id, service, order_table, state, size, recipient, gift, amount, notices, created_at, paid_at, delivered_at"
 const LATE_APPROVAL_MS = 48 * 60 * 60_000
 
 function toWatched(r: Record<string, unknown>): WatchedLink {
@@ -491,19 +492,31 @@ function toWatched(r: Record<string, unknown>): WatchedLink {
  * last 48 hours that never got a paid_at (a late approval can still turn them paid). Never closed-and-paid ones.
  */
 export async function watchedLinks(db: SupabaseClient, now: Date, limit = 200): Promise<WatchedLink[]> {
-  const open = await db.from("ttb_orders").select(WATCH_COLUMNS).in("state", ["awaiting_payment", "paid"]).order("created_at", { ascending: true }).limit(limit)
-  if (open.error || !Array.isArray(open.data)) throw new TtbStoreError("could not read open links")
-  const since = new Date(now.getTime() - LATE_APPROVAL_MS).toISOString()
-  const late = await db
-    .from("ttb_orders")
-    .select(WATCH_COLUMNS)
-    .eq("state", "closed")
-    .gte("closed_at", since)
-    .is("paid_at", null)
-    .order("created_at", { ascending: true })
-    .limit(limit)
-  if (late.error || !Array.isArray(late.data)) throw new TtbStoreError("could not read recently closed links")
-  return [...open.data, ...late.data].map((r) => toWatched(r as Record<string, unknown>))
+  const read = async (columns: string) => {
+    const open = await db.from("ttb_orders").select(columns).in("state", ["awaiting_payment", "paid"]).order("created_at", { ascending: true }).limit(limit)
+    if (open.error || !Array.isArray(open.data)) return { error: open.error ?? { message: "no rows" }, rows: null, what: "open links" }
+    const since = new Date(now.getTime() - LATE_APPROVAL_MS).toISOString()
+    const late = await db
+      .from("ttb_orders")
+      .select(columns)
+      .eq("state", "closed")
+      .gte("closed_at", since)
+      .is("paid_at", null)
+      .order("created_at", { ascending: true })
+      .limit(limit)
+    if (late.error || !Array.isArray(late.data)) return { error: late.error ?? { message: "no rows" }, rows: null, what: "recently closed links" }
+    return { error: null, rows: [...open.data, ...late.data] as unknown as Record<string, unknown>[], what: "" }
+  }
+  let res = await read(WATCH_COLUMNS)
+  let preMigration = false
+  // Migration 0180 not applied yet (code deployed first): the shop_id column is undefined (Postgres 42703). Main links must keep
+  // being followed, so retry with the pre-0180 column list; shop links then carry shopId null and stay open (the notifier alerts).
+  if (res.error && (res.error as { code?: string }).code === "42703") {
+    res = await read(WATCH_COLUMNS_PRE_0180)
+    preMigration = true
+  }
+  if (res.error || !res.rows) throw new TtbStoreError(`could not read ${res.what || "open links"}`)
+  return res.rows.map((r) => toWatched(preMigration ? { ...r, shop_id: null } : r))
 }
 
 /**

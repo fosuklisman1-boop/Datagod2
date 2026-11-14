@@ -338,6 +338,23 @@ describe("per-line recovery sweep and quiet alert", () => {
     expect(t.processInbound.mock.calls.map((c) => c[1]).sort()).toEqual(["XM", "XS"])
   })
 
+  it("migration 0180 not applied: a main link still gets its follow-up text (old column list), and the run completes", async () => {
+    const t = setup([link({ id: "M1", line: "main", shop_id: null, order_table: "ussd_orders", created_at: iso(-6 * MIN) })], [], { ussd_orders: [order()] })
+    t.f.db.rejectColumns.ttb_orders = ["shop_id"]
+    t.f.db.rejectColumns.ttb_credit_reserves = ["message_id"]
+    const r = await t.run(mainOn)
+    expect(bodies(t.reply)).toEqual([unpaidReply("1GB")])
+    expect(r.checked).toBe(1)
+  })
+
+  it("a failing reserve read (table missing) never stops the purge or the quiet alert behind it", async () => {
+    const t = setup([], [], { ttb_heartbeat: [] })
+    t.f.db.failOn.ttb_credit_reserves = { code: "42P01", message: "relation does not exist" }
+    const r = await t.run(shopOn)
+    expect(r.quietAlert).toBe(true)
+    expect(t.f.db.tables.ttb_heartbeat.map((h) => h.line)).toContain("purge")
+  })
+
   it("quiet alert: one per enabled line with its own marker", async () => {
     const t = setup([], [], { ttb_heartbeat: [] })
     const r = await t.run(bothOn)
