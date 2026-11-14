@@ -65,14 +65,14 @@ describe("admin grant/revoke write order", () => {
 
   for (const [name, call, role] of cases) {
     it(`${name}: writes public.users before auth metadata`, async () => {
-      const res = await call()
+      const res = (await call())!
       expect(res.status).toBe(200)
       expect(h.calls).toEqual([`users:${role}`, `metadata:${role}`])
     })
 
     it(`${name}: a failed users write fails the request and leaves metadata alone`, async () => {
       h.usersError = { message: "boom" }
-      const res = await call()
+      const res = (await call())!
       expect(res.status).toBe(500)
       expect(h.calls).toEqual([`users:${role}`])
     })
