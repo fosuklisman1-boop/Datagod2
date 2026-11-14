@@ -70,7 +70,7 @@ const TOOL: Anthropic.Tool = {
 }
 
 /** Production wiring: the same provider/model the WhatsApp bot uses. Only called when no createMessage is injected. */
-export async function defaultAiDeps(): Promise<Required<AiDeps>> {
+export async function defaultAiDeps(): Promise<Required<Pick<AiDeps, "createMessage" | "model">>> {
   const { createClient } = await import("@supabase/supabase-js")
   const { resolveProviderForContext, DEFAULT_CONFIG } = await import("@/lib/ai-providers")
   // Same lookup as loadAiConfig in lib/whatsapp-bot/shop-ai.ts (not exported there).
