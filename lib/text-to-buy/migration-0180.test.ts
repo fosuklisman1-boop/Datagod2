@@ -1,13 +1,13 @@
-// lib/text-to-buy/migration-0179.test.ts
-// migrations/0179_text_to_buy_shop_line.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
+// lib/text-to-buy/migration-0180.test.ts
+// migrations/0180_text_to_buy_shop_line.sql and its self-test, run in PGlite (WASM Postgres). Nothing here touches a real database.
 // The SMS ledger shape comes from the REAL migrations/0062 (adjust_sms_units); only the tables it needs are faked.
 import { describe, it, expect, beforeAll } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
-const FILE = "0179_text_to_buy_shop_line.sql"
-const SELFTEST_FILE = "0179_text_to_buy_shop_line.selftest.sql"
+const FILE = "0180_text_to_buy_shop_line.sql"
+const SELFTEST_FILE = "0180_text_to_buy_shop_line.selftest.sql"
 const migration = () => read(FILE)
 
 /** SQL with `--` comments removed (comments mention the forbidden words on purpose). */
@@ -17,19 +17,19 @@ const code = (sql: string) => sql.split("\n").map((l) => l.replace(/--.*$/, ""))
 function buildRunString(migrationSql: string, selftestSql: string): string {
   const lines = migrationSql.split("\n")
   const commitAt = lines.map((l) => l.trim()).lastIndexOf("COMMIT;")
-  if (commitAt < 0) throw new Error("0179:no COMMIT line")
+  if (commitAt < 0) throw new Error("0180:no COMMIT line")
   const head = lines.filter((_, i) => i !== commitAt).join("\n")
   const st = selftestSql.split("\n")
   const doAt = st.findIndex((l) => /^DO\b/.test(l))
   if (doAt < 0) throw new Error("selftest: no column-0 DO line")
   const run = head + "\n" + st.slice(doAt).join("\n")
   const c = code(run)
-  if (/\bCOMMIT\b/i.test(c) || /^\s*END\s*;/im.test(c)) throw new Error("0179:run string could commit")
-  if (!/RAISE EXCEPTION 'SELFTEST_OK[^']*';\s*END\s*\$selftest\$;\s*$/.test(c)) throw new Error("0179:run string does not end by raising")
+  if (/\bCOMMIT\b/i.test(c) || /^\s*END\s*;/im.test(c)) throw new Error("0180:run string could commit")
+  if (!/RAISE EXCEPTION 'SELFTEST_OK[^']*';\s*END\s*\$selftest\$;\s*$/.test(c)) throw new Error("0180:run string does not end by raising")
   return run
 }
 
-describe("0179 migration text", () => {
+describe("0180 migration text", () => {
   it("is one transaction with timeouts and exactly one COMMIT", () => {
     const c = code(migration())
     expect(c).toMatch(/^BEGIN;\s*$/m)
@@ -49,7 +49,7 @@ describe("0179 migration text", () => {
     const s = code(buildRunString(migration(), read(SELFTEST_FILE)))
     expect(s).not.toMatch(/\bCOMMIT\b/i)
     expect(s).not.toMatch(/^\s*END\s*;/im)
-    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0179[^']*';\s*END\s*\$selftest\$;$/)
+    expect(s.trimEnd()).toMatch(/RAISE EXCEPTION 'SELFTEST_OK 0180[^']*';\s*END\s*\$selftest\$;$/)
   })
 })
 
@@ -113,7 +113,7 @@ async function bootstrap(): Promise<any> {
   return d
 }
 
-describe.skipIf(!PGliteCtor)("0179 in PGlite", () => {
+describe.skipIf(!PGliteCtor)("0180 in PGlite", () => {
   let db: any
   const one = async (sql: string, params: unknown[] = []) => (await db.query(sql, params)).rows[0]
   const count = async (sql: string, params: unknown[] = []) => Number((await one(sql, params)).n)
@@ -459,7 +459,7 @@ describe.skipIf(!PGliteCtor)("0179 in PGlite", () => {
 
   it("the self-rolling-back run string reports SELFTEST_OK on a database with 0177 applied and leaves nothing behind", async () => {
     const fresh = await bootstrap()
-    await expect(fresh.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/SELFTEST_OK 0179/)
+    await expect(fresh.exec(buildRunString(migration(), read(SELFTEST_FILE)))).rejects.toThrow(/SELFTEST_OK 0180/)
     await fresh.exec("ROLLBACK")
     expect((await fresh.query("SELECT to_regclass('public.ttb_credit_reserves') AS t")).rows[0].t).toBeNull()
     expect((await fresh.query("SELECT count(*)::int AS n FROM public.sms_accounts")).rows[0].n).toBe(0)

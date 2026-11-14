@@ -1,4 +1,4 @@
--- 0179_text_to_buy_shop_line.sql
+-- 0180_text_to_buy_shop_line.sql
 --
 -- Text-to-Buy, Stage 3a: the SHOP line (a second number that sells for one USSD shop, its replies paid from that shop owner's
 -- SMS credits). This file holds the new COLUMNS, TABLES and SQL FUNCTIONS. Nothing reads them until later tasks of the plan.
@@ -43,9 +43,9 @@
 --        OR (table_name = 'ttb_messages' AND column_name IN ('shop_id', 'credits')));                                              -- 0
 --   SELECT count(*) FROM pg_proc WHERE proname = 'adjust_sms_units';                                                              -- 1
 --
--- Self-test (self-rolling-back dry run): migrations/0179_text_to_buy_shop_line.selftest.sql
+-- Self-test (self-rolling-back dry run): migrations/0180_text_to_buy_shop_line.selftest.sql
 -- The run string must be built by CODE which asserts it contains no COMMIT and no bare END; statement
--- (the 0130 incident lesson); lib/text-to-buy/migration-0179.test.ts builds and checks it.
+-- (the 0130 incident lesson); lib/text-to-buy/migration-0180.test.ts builds and checks it.
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';

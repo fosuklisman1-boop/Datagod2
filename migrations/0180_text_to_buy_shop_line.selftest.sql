@@ -1,12 +1,12 @@
--- 0179_text_to_buy_shop_line.selftest.sql
+-- 0180_text_to_buy_shop_line.selftest.sql
 --
--- NOT A MIGRATION. Self-rolling-back dry run for 0179_text_to_buy_shop_line.sql.
+-- NOT A MIGRATION. Self-rolling-back dry run for 0180_text_to_buy_shop_line.sql.
 --
 -- IMPORTANT: the run string must be built by CODE, never by hand or by a regex strip, and that code must
 -- ASSERT before anything is sent to production that the run string contains no COMMIT and no bare `END;`
 -- statement, and that it ends with this DO block (which always RAISEs). (The 0130 incident lesson.)
--- Build it as lib/text-to-buy/migration-0179.test.ts does:
---   1. 0179_text_to_buy_shop_line.sql with BEGIN kept (and both SET LOCALs) and ONLY its final COMMIT line removed;
+-- Build it as lib/text-to-buy/migration-0180.test.ts does:
+--   1. 0180_text_to_buy_shop_line.sql with BEGIN kept (and both SET LOCALs) and ONLY its final COMMIT line removed;
 --   2. followed by this file from the line that STARTS (column 0) with the DO keyword onward. The header
 --      is not part of the run string (it names the forbidden words).
 --   The DO body has no bare `END;`: every sub-block is labelled and the block closes with `END $selftest$;`.
@@ -103,6 +103,7 @@ BEGIN
   IF public.ttb_notice_once('selftest', '0200000101', v_shop, current_date) THEN RAISE EXCEPTION 'FAIL notice: repeat was true'; END IF;
 
   -- a throwaway SMS account holding 5 credits (rolled back with everything else) -------------
+  -- Rolled-back prod dry run only: relies on auth.users.id alone (no other column) and on sms_accounts.user_id FK to it.
   SELECT u.id INTO v_user FROM auth.users u WHERE NOT EXISTS (SELECT 1 FROM public.sms_accounts a WHERE a.user_id = u.id) LIMIT 1;
   IF v_user IS NULL THEN
     INSERT INTO auth.users (id) VALUES (gen_random_uuid()) RETURNING id INTO v_user;
@@ -193,5 +194,5 @@ BEGIN
     IF NOT has_function_privilege('service_role', v_t, 'EXECUTE') THEN RAISE EXCEPTION 'FAIL fn_grants: service_role cannot execute %', v_t; END IF;
   END LOOP;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0179 shop line tables, reserve ledger, grants and functions';
+  RAISE EXCEPTION 'SELFTEST_OK 0180 shop line tables, reserve ledger, grants and functions';
 END $selftest$;
