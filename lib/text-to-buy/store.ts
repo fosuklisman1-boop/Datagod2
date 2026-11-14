@@ -1,6 +1,6 @@
 import { createHash } from "crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { encodeCursor, MESSAGE_COLUMNS, toAdminMessage, type AdminMessage, type OverviewRow } from "./admin-view"
+import { encodeCursor, MESSAGE_COLUMNS, shapePausedShops, toAdminMessage, type AdminMessage, type OverviewRow, type PausedShop } from "./admin-view"
 import { orderTableFor, type AirtimeNetwork, type ExamBoardWord, type Line, type OrderTable, type Outcome, type ReadResult, type Service } from "./types"
 
 /**
@@ -804,6 +804,21 @@ export async function noticeOnce(db: SupabaseClient, kind: string, sender: strin
   const { data, error } = await db.rpc("ttb_notice_once", { p_kind: kind, p_sender: sender, p_shop: shopId, p_day: day })
   if (error || typeof data !== "boolean") throw new TtbStoreError("could not record a notice")
   return data
+}
+
+/**
+ * Shops that were paused today (a "paused" notice row for the day, one per shop and customer): shop id, display name, count.
+ * Never selects or returns a sender. day is YYYY-MM-DD. Capped at 50 shops (most notices first).
+ */
+export async function pausedShopsToday(db: SupabaseClient, day: string): Promise<PausedShop[]> {
+  const n = await db.from("ttb_notices").select("shop_id").eq("kind", "paused").eq("day", day).limit(5000)
+  if (n.error || !Array.isArray(n.data)) throw new TtbStoreError("could not read the paused shops")
+  const notices = n.data as { shop_id: unknown }[]
+  const ids = [...new Set(notices.map((r) => r.shop_id).filter((x): x is string => typeof x === "string"))].slice(0, 200)
+  if (ids.length === 0) return []
+  const s = await db.from("user_shops").select("id, shop_name, ussd_display_name").in("id", ids)
+  if (s.error || !Array.isArray(s.data)) throw new TtbStoreError("could not read the shop names")
+  return shapePausedShops(notices.filter((r) => typeof r.shop_id === "string" && ids.includes(r.shop_id)), s.data as { id: unknown }[]).slice(0, 50)
 }
 
 /** Writes the given admin_settings keys as { "value": x } in ONE upsert statement. An empty set writes nothing. */

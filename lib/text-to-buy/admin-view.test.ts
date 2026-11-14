@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  encodeCursor, decodeCursor, isLine, isOutcome, OUTCOMES, startOfTodayAccra, buildOverview, toAdminMessage, SMS_RATE_GHS,
+  encodeCursor, decodeCursor, isLine, isOutcome, OUTCOMES, startOfTodayAccra, buildOverview, shapePausedShops, toAdminMessage, SMS_RATE_GHS,
 } from "./admin-view"
 
 const ID = "00000000-0000-4000-8000-000000000001"
@@ -57,6 +57,37 @@ describe("buildOverview", () => {
       today: { texts: 0, prompts: 0, paid: 0, delivered: 0, replies: 0, aiReads: 0, ruleReads: 0 }, smsCostGhs: 0,
     })
     expect(SMS_RATE_GHS).toBe(0.0243)
+  })
+})
+
+describe("buildOverview shop card", () => {
+  it("reports the shop line from the real settings and the shop heartbeat", () => {
+    const o = buildOverview(
+      [{ line: "shop", texts: 3, prompts: 2, paid: 1, delivered: 1, replies: 10, aiReads: 0, ruleReads: 3 }],
+      { main: null, shop: new Date("2026-11-13T11:00:00Z") },
+      { enabled: false, number: "" },
+      { enabled: true, number: "0200000200" },
+    )
+    expect(o.shop).toEqual({
+      enabled: true, number: "0200000200", lastHeardAt: "2026-11-13T11:00:00.000Z",
+      today: { texts: 3, prompts: 2, paid: 1, delivered: 1, replies: 10, aiReads: 0, ruleReads: 3 }, smsCostGhs: 0.243,
+    })
+    expect(o.main.enabled).toBe(false)
+  })
+})
+
+describe("shapePausedShops", () => {
+  it("groups notices by shop, names them, sorts by count and carries ids, names and counts only", () => {
+    const out = shapePausedShops(
+      [{ shop_id: "s1" }, { shop_id: "s2" }, { shop_id: "s2" }, { shop_id: null }, { shop_id: "s3" }],
+      [{ id: "s1", ussd_display_name: null, shop_name: "Alpha" }, { id: "s2", ussd_display_name: "Beta Display", shop_name: "Beta" }],
+    )
+    expect(out).toEqual([
+      { shopId: "s2", name: "Beta Display", count: 2 },
+      { shopId: "s1", name: "Alpha", count: 1 },
+      { shopId: "s3", name: "Shop", count: 1 },
+    ])
+    for (const p of out) expect(Object.keys(p).sort()).toEqual(["count", "name", "shopId"])
   })
 })
 

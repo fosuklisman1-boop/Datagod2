@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server"
 import { loadTtbSettings, TTB_SETTING_KEYS, type TtbSettingField, type TtbSettingKey, type TtbSettings } from "@/lib/text-to-buy/settings"
 import { normaliseSender, validateTtbSettings } from "@/lib/text-to-buy/admin-validate"
-import { buildOverview, SMS_RATE_GHS, startOfTodayAccra, UUID_RE } from "@/lib/text-to-buy/admin-view"
-import { blockSender, getHeartbeat, markMisread, overviewRows, saveSettingRows, serviceCountsToday, unblockSender } from "@/lib/text-to-buy/store"
+import { buildOverview, SMS_RATE_GHS, startOfTodayAccra, UUID_RE, type PausedShop } from "@/lib/text-to-buy/admin-view"
+import { shopSecretDistinct } from "@/lib/text-to-buy/forward-secrets"
+import { blockSender, getHeartbeat, markMisread, overviewRows, pausedShopsToday, saveSettingRows, serviceCounts, unblockSender } from "@/lib/text-to-buy/store"
 import { fail, gate, isResponse, json, logError, readObject } from "@/lib/text-to-buy/admin-http"
 import { notifyTextToBuyAdmins } from "@/lib/admin-actions/text-to-buy"
 
@@ -31,23 +32,36 @@ export async function GET(request: NextRequest) {
   const { db } = ctx
   try {
     const now = new Date()
-    const [settings, rows, main, shop, services] = await Promise.all([
+    const from = startOfTodayAccra(now)
+    // The per-service counts and the paused list are secondary: a failure shows zeros / nothing rather than failing the overview.
+    const secondary = <T,>(label: string, p: Promise<T>, fallback: T) =>
+      p.catch((err) => {
+        logError(label, err)
+        return fallback
+      })
+    const [settings, rows, main, shop, services, shopServices, pausedShops] = await Promise.all([
       loadTtbSettings(db),
-      overviewRows(db, startOfTodayAccra(now)),
+      overviewRows(db, from),
       getHeartbeat(db, "main"),
       getHeartbeat(db, "shop"),
-      // The per-service counts are secondary: a failure here shows zeros rather than failing the whole overview.
-      serviceCountsToday(db, startOfTodayAccra(now)).catch((err) => {
-        logError("service_counts", err)
-        return ZERO_SERVICES
-      }),
+      secondary("service_counts", serviceCounts(db, "main", from), ZERO_SERVICES),
+      secondary("shop_service_counts", serviceCounts(db, "shop", from), ZERO_SERVICES),
+      secondary("paused_shops", pausedShopsToday(db, from.toISOString().slice(0, 10)), [] as PausedShop[]),
     ])
     return json({
       settingsDefaulted: settings.source === "defaults",
       settings: publicSettings(settings),
-      overview: buildOverview(rows, { main, shop }, { enabled: settings.mainEnabled, number: settings.mainNumber }),
+      overview: buildOverview(
+        rows,
+        { main, shop },
+        { enabled: settings.mainEnabled, number: settings.mainNumber },
+        { enabled: settings.shopEnabled, number: settings.shopNumber },
+      ),
       smsRateGhs: SMS_RATE_GHS,
       services,
+      shopServices,
+      pausedShops,
+      shopSecretDistinct: shopSecretDistinct(process.env),
     })
   } catch (err) {
     logError("get", err)

@@ -13,6 +13,7 @@ import { funnelSteps, isQuiet, readSplit, relativeTime, smsCostText, ttbErrorMes
 
 export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse | null; error: string | null; onChanged: () => void }) {
   const [pending, setPending] = useState<boolean | null>(null) // the value the admin asked for, while the confirm dialog is open
+  const [pendingShop, setPendingShop] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
 
@@ -23,12 +24,30 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
   const now = new Date()
   const main = data.overview.main
   const quiet = isQuiet(main.lastHeardAt, now, data.settings.quietAlertMinutes)
+  const shop = data.overview.shop
+  const shopQuiet = isQuiet(shop.lastHeardAt, now, data.settings.quietAlertMinutes)
+  const paused = data.pausedShops ?? []
   const unreadable = data.settingsDefaulted
   const serviceRows = [
     { key: "data", label: "Data", on: data.settings.mainEnabled },
     { key: "airtime", label: "Airtime", on: data.settings.airtimeEnabled },
     { key: "results_checker", label: "Checkers", on: data.settings.resultsCheckerEnabled },
   ] as const
+
+  async function applyShop(value: boolean) {
+    setBusy(true)
+    setDialogError(null)
+    try {
+      await adminFetch(TTB_API, { method: "PUT", body: value ? { shopEnabled: true, confirm: true } : { shopEnabled: false } })
+      setPendingShop(null)
+      toast.success(value ? "The shop line is on" : "The shop line is off")
+      onChanged()
+    } catch (e) {
+      setDialogError(ttbErrorMessage(e instanceof ApiError ? e.code : undefined))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function apply(value: boolean) {
     setBusy(true)
@@ -51,6 +70,16 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
       {unreadable && (
         <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300" role="alert">
           The saved settings could not be read, so the values below are defaults and changes are disabled. Refresh to try again.
+        </div>
+      )}
+      {data.shopSecretDistinct === false && (
+        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300" role="alert">
+          Shop secret is not distinct from the main secrets: the shop line is inactive. Set a different SMS_FORWARD_SECRET_SHOP for the shop forwarder.
+        </div>
+      )}
+      {shop.enabled && shopQuiet && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200" role="alert">
+          The shop forwarding phone has not been heard from {shop.lastHeardAt ? `since ${relativeTime(shop.lastHeardAt, now)}` : "yet"}. Shop customer texts may not be arriving.
         </div>
       )}
       {!main.enabled && (
@@ -139,19 +168,98 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
           </CardContent>
         </Card>
 
-        <Card className="opacity-60" aria-disabled="true">
+        <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-base">Shop line</CardTitle>
-              <Switch checked={false} disabled aria-label="Shop line on or off (not available yet)" />
+              <div className="flex items-center gap-2">
+                <Badge variant={shop.enabled ? "default" : "secondary"}>{shop.enabled ? "On" : "Off"}</Badge>
+                <Switch
+                  checked={shop.enabled}
+                  disabled={unreadable || busy}
+                  onCheckedChange={(v) => {
+                    setDialogError(null)
+                    setPendingShop(v)
+                  }}
+                  aria-label="Text-to-Buy shop line on or off"
+                />
+              </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-1 text-sm text-muted-foreground">
-            <p>Coming in a later stage</p>
-            <p>Reply sender ID: {data.settings.shopReplySenderId || "default"}</p>
+          <CardContent className="space-y-4 text-sm">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+              <dt className="text-muted-foreground">Number</dt>
+              <dd className="font-mono break-all">{shop.number || "Not set"}</dd>
+              <dt className="text-muted-foreground">Phone last heard</dt>
+              <dd className={shop.lastHeardAt && !shopQuiet ? "" : "font-medium text-red-600 dark:text-red-400"}>{relativeTime(shop.lastHeardAt, now)}</dd>
+              <dt className="text-muted-foreground">Reply sender ID</dt>
+              <dd>{data.settings.shopReplySenderId || "default"}</dd>
+            </dl>
+
+            <div>
+              <div className="mb-2 text-xs font-medium text-muted-foreground">Today</div>
+              <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {funnelSteps(shop.today).map((s) => (
+                  <li key={s.label} className="rounded-lg border p-2">
+                    <div className="text-xs text-muted-foreground">{s.label}</div>
+                    <div className="text-xl font-semibold tabular-nums">{s.count}</div>
+                    <div className="text-[11px] text-muted-foreground">{s.pct === null ? " " : `${s.pct}% of previous`}</div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div>
+              <div className="mb-2 text-xs font-medium text-muted-foreground">Data today</div>
+              {(() => {
+                const c = data.shopServices?.data ?? { prompts: 0, paid: 0, delivered: 0 }
+                return <p className="tabular-nums">Prompts {c.prompts} · Paid {c.paid} · Delivered {c.delivered}</p>
+              })()}
+            </div>
+
+            <p>{readSplit(shop.today.ruleReads, shop.today.aiReads)}</p>
+            <p>{smsCostText(shop.today.replies, data.smsRateGhs)}</p>
+
+            <div>
+              <div className="mb-2 text-xs font-medium text-muted-foreground">Paused shops today</div>
+              {paused.length === 0 ? (
+                <p className="text-muted-foreground">None.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {paused.map((p) => (
+                    <li key={p.shopId} className="flex items-center justify-between gap-3 rounded-md border px-2 py-1">
+                      <span className="break-words">{p.name}</span>
+                      <Badge variant="secondary">{p.count} {p.count === 1 ? "notice" : "notices"}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-1 text-[11px] text-muted-foreground">A shop is paused when it has no SMS account or credits left.</p>
+            </div>
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={pendingShop !== null} onOpenChange={(o) => !o && !busy && setPendingShop(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{pendingShop ? "Turn the shop line on?" : "Turn the shop line off?"}</DialogTitle>
+            <DialogDescription>
+              {pendingShop
+                ? "Customers texting the shop number will start getting replies and MoMo prompts, paid for from each shop's SMS credits. Do a supervised paid test first."
+                : "Texts to the shop number stop being answered. Orders already prompted are not cancelled."}
+            </DialogDescription>
+          </DialogHeader>
+          {dialogError && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{dialogError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingShop(null)} disabled={busy}>Cancel</Button>
+            <Button onClick={() => pendingShop !== null && void applyShop(pendingShop)} disabled={busy}>
+              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {pendingShop ? "Turn on" : "Turn off"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={pending !== null} onOpenChange={(o) => !o && !busy && setPending(null)}>
         <DialogContent className="sm:max-w-md">

@@ -145,4 +145,7 @@ export const FIELD_LABELS: Record<string, string> = {
   globalRepliesPerHour: "Max replies per hour (all senders)",
   airtimeEnabled: "Airtime by text",
   resultsCheckerEnabled: "Checkers by text",
+  shopEnabled: "Shop line enabled",
+  shopNumber: "Shop number",
+  shopRepliesPerHourPerShop: "Replies per hour per shop",
 }

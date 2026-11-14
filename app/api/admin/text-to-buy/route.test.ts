@@ -164,7 +164,83 @@ describe("GET overview", () => {
   })
 })
 
+describe("GET overview, shop line", () => {
+  const SHOP_PHONE = "0244000777"
+  afterEach(() => {
+    delete process.env.SMS_FORWARD_SECRET_SHOP
+    delete process.env.SMS_FORWARD_SECRET
+    delete process.env.SMS_FORWARD_SECRET_MAIN
+  })
+  it("the shop card reflects the saved settings and the shop heartbeat", async () => {
+    world([setting("ttb_shop_enabled", true), setting("ttb_shop_number", "0200000200")])
+    fake.db.tables.ttb_heartbeat.push({ line: "shop", last_seen_at: "2026-11-13T14:00:00.000Z" })
+    const body = await (await GET(req("GET"))).json()
+    expect(body.overview.shop).toMatchObject({ enabled: true, number: "0200000200", lastHeardAt: "2026-11-13T14:00:00.000Z" })
+    expect(body.settings).toMatchObject({ shopEnabled: true, shopNumber: "0200000200", shopRepliesPerHourPerShop: 60 })
+    expect(body.overview.main.enabled).toBe(false)
+  })
+  it("counts the shop line's services separately and degrades them to zeros when the count query throws", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-13T15:30:00Z"))
+    world()
+    fake.db.tables.ttb_orders.push(
+      { id: id(1), line: "shop", sender: SENDER, service: "data", order_table: "ussd_shop_orders", order_id: id(11), created_at: "2026-11-13T10:00:00.000Z", paid_at: "2026-11-13T10:01:00.000Z", delivered_at: null },
+    )
+    let body = await (await GET(req("GET"))).json()
+    expect(body.shopServices.data).toEqual({ prompts: 1, paid: 1, delivered: 0 })
+    expect(body.services.data).toEqual({ prompts: 0, paid: 0, delivered: 0 })
+    fake.db.failOn.ttb_orders = { message: "db down" }
+    body = await (await GET(req("GET"))).json()
+    const zero = { prompts: 0, paid: 0, delivered: 0 }
+    expect(body.shopServices).toEqual({ data: zero, airtime: zero, results_checker: zero })
+  })
+  it("pausedShops lists today's paused shops with id, name and count, and no phone or sender anywhere", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-13T15:30:00Z"))
+    world()
+    fake.db.tables.user_shops.push({ id: id(21), shop_name: "Kofi Data", ussd_display_name: null }, { id: id(22), shop_name: "Ama", ussd_display_name: "Ama Bundles" })
+    fake.db.tables.ttb_notices.push(
+      { id: id(31), kind: "paused", sender: SHOP_PHONE, shop_id: id(21), day: "2026-11-13", created_at: "t" },
+      { id: id(32), kind: "paused", sender: "0244000778", shop_id: id(21), day: "2026-11-13", created_at: "t" },
+      { id: id(33), kind: "paused", sender: "0244000779", shop_id: id(22), day: "2026-11-13", created_at: "t" },
+      { id: id(34), kind: "paused", sender: SHOP_PHONE, shop_id: id(22), day: "2026-11-12", created_at: "t" }, // yesterday
+      { id: id(35), kind: "closed", sender: SHOP_PHONE, shop_id: id(22), day: "2026-11-13", created_at: "t" }, // another kind
+    )
+    const raw = await (await GET(req("GET"))).text()
+    const body = JSON.parse(raw)
+    expect(body.pausedShops).toEqual([{ shopId: id(21), name: "Kofi Data", count: 2 }, { shopId: id(22), name: "Ama Bundles", count: 1 }])
+    expect(raw).not.toContain("02440007")
+  })
+  it("a failing paused-shops read shows an empty list instead of failing the overview", async () => {
+    world()
+    fake.db.failOn.ttb_notices = { message: "db down" }
+    const res = await GET(req("GET"))
+    expect(res.status).toBe(200)
+    expect((await res.json()).pausedShops).toEqual([])
+  })
+  it("shopSecretDistinct is true when unset or different and false when the shop secret equals a main secret", async () => {
+    expect((await (await GET(req("GET"))).json()).shopSecretDistinct).toBe(true)
+    process.env.SMS_FORWARD_SECRET = "main-secret-placeholder"
+    process.env.SMS_FORWARD_SECRET_SHOP = "shop-secret-placeholder"
+    expect((await (await GET(req("GET"))).json()).shopSecretDistinct).toBe(true)
+    process.env.SMS_FORWARD_SECRET_SHOP = "main-secret-placeholder"
+    const raw = await (await GET(req("GET"))).text()
+    expect(JSON.parse(raw).shopSecretDistinct).toBe(false)
+    expect(raw).not.toContain("main-secret-placeholder")
+  })
+})
+
 describe("PUT settings", () => {
+  it("shopEnabled true without confirm is refused and writes nothing; with confirm it saves", async () => {
+    world([setting("ttb_shop_enabled", false)])
+    const refused = await PUT(req("PUT", { shopEnabled: true }))
+    expect(refused.status).toBe(400)
+    expect((await refused.json()).error).toBe("confirm_required")
+    expect(settingsRows().find((r) => r.key === "ttb_shop_enabled")).toMatchObject({ value: { value: false } })
+    expect((await PUT(req("PUT", { shopEnabled: true, confirm: true }))).status).toBe(200)
+    expect(settingsRows().find((r) => r.key === "ttb_shop_enabled")).toMatchObject({ value: { value: true } })
+    expect((await PUT(req("PUT", { shopEnabled: false }))).status).toBe(200)
+  })
   it("rejects a non-object or unparseable body", async () => {
     for (const b of ["not json", "[]", "5", "null"]) expect((await PUT(req("PUT", b))).status).toBe(400)
   })

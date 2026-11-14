@@ -27,8 +27,9 @@ export const MAX_SHOP_CANDIDATES = 5
 
 const ASK_REPLY = "Which shop? Reply with the shop code"
 const NOT_FOUND_REPLY = "Shop not found. Check the code and try again."
-const OWN_RESERVE = 2
-const GIFT_RESERVE = 3
+/** Credits set aside before an order is placed (exported so the admin try-it reports the same numbers). */
+export const OWN_RESERVE = 2
+export const GIFT_RESERVE = 3
 
 export type ShopCredits = {
   accountFor: (db: SupabaseClient, shopId: string) => Promise<{ accountId: string } | null>

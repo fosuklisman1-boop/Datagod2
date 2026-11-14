@@ -86,11 +86,12 @@ export type LineOverview = {
 
 const ZERO = { texts: 0, prompts: 0, paid: 0, delivered: 0, replies: 0, aiReads: 0, ruleReads: 0 }
 
-/** Both lines always appear. The shop line is stage 3: it is reported disabled and shows whatever the database holds (zeros). */
+/** Both lines always appear, each from its own settings (the shop card defaults to off and unset when not given). */
 export function buildOverview(
   rows: OverviewRow[],
   heard: Record<Line, Date | null>,
   main: { enabled: boolean; number: string },
+  shop: { enabled: boolean; number: string } = { enabled: false, number: "" },
 ): Record<Line, LineOverview> {
   const line = (l: Line, enabled: boolean, number: string): LineOverview => {
     const r = rows.find((x) => x.line === l)
@@ -103,5 +104,28 @@ export function buildOverview(
       smsCostGhs: Math.round(today.replies * SMS_RATE_GHS * 10_000) / 10_000,
     }
   }
-  return { main: line("main", main.enabled, main.number), shop: line("shop", false, "") }
+  return { main: line("main", main.enabled, main.number), shop: line("shop", shop.enabled, shop.number) }
+}
+
+export type PausedShop = { shopId: string; name: string; count: number }
+
+/**
+ * Today's "paused" notices to a list of shops: ids, display names and counts ONLY (never a sender or any phone).
+ * The display name is the shop's USSD display name, else its shop name, else "Shop". Most notices first, then by id.
+ */
+export function shapePausedShops(
+  notices: { shop_id: unknown }[],
+  shops: { id: unknown; shop_name?: unknown; ussd_display_name?: unknown }[],
+): PausedShop[] {
+  const counts = new Map<string, number>()
+  for (const n of notices) if (typeof n.shop_id === "string") counts.set(n.shop_id, (counts.get(n.shop_id) ?? 0) + 1)
+  const nameOf = new Map<string, string>()
+  for (const s of shops) {
+    if (typeof s.id !== "string") continue
+    const name = [s.ussd_display_name, s.shop_name].find((x) => typeof x === "string" && x.trim() !== "")
+    if (typeof name === "string") nameOf.set(s.id, name.trim())
+  }
+  return [...counts.entries()]
+    .map(([shopId, count]) => ({ shopId, name: nameOf.get(shopId) ?? "Shop", count }))
+    .sort((a, b) => b.count - a.count || (a.shopId < b.shopId ? -1 : 1))
 }

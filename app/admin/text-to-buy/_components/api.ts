@@ -51,7 +51,13 @@ export type Settings = {
   globalRepliesPerHour: number
   airtimeEnabled: boolean
   resultsCheckerEnabled: boolean
+  shopEnabled: boolean
+  shopNumber: string
+  shopRepliesPerHourPerShop: number
 }
+
+export type ServiceCounts = Record<"data" | "airtime" | "results_checker", { prompts: number; paid: number; delivered: number }>
+export type PausedShop = { shopId: string; name: string; count: number }
 
 export type LineOverview = {
   enabled: boolean
@@ -66,7 +72,10 @@ export type OverviewResponse = {
   settings: Settings
   overview: { main: LineOverview; shop: LineOverview }
   smsRateGhs: number
-  services: Record<"data" | "airtime" | "results_checker", { prompts: number; paid: number; delivered: number }>
+  services: ServiceCounts
+  shopServices?: ServiceCounts
+  pausedShops?: PausedShop[]
+  shopSecretDistinct?: boolean
 }
 
 export type AdminMessage = {

@@ -44,6 +44,8 @@ export type InboundDeps = {
   dryRun?: boolean
   /** The shop line's collaborators (shop lookups, shop adapter deps, credits); the real ones when absent. */
   shop?: ShopLaneDeps
+  /** Dry run only: told whether the offer that was quoted is a gift (the admin try-it reports the credits it would reserve). */
+  onDryOffer?: (offer: { gift?: boolean }) => void
 }
 export type InboundResult = { outcome: Outcome; readBy: "rules" | "ai" | null; reply: string | null; orderId?: string }
 
@@ -390,7 +392,10 @@ export async function processInbound(
       adapter.quote(offer, { amountGhs, ...(deliversGhs === undefined ? {} : { deliversGhs }) }, { feeOnTop, payerNetwork })
 
     // The preview can only know the offer price: the charged amount is fixed when the order row is written.
-    if (dry) return await finish("prompted", quote(offer.previewGhs, offer.previewDeliversGhs))
+    if (dry) {
+      deps.onDryOffer?.(offer as { gift?: boolean })
+      return await finish("prompted", quote(offer.previewGhs, offer.previewDeliversGhs))
+    }
 
     // Shop line: the shop must still be open and its credits are set aside BEFORE the order exists (a failure here is the pause
     // path: nothing placed, nothing prompted). The reserve comes before the pre-write below, which stays right before place().

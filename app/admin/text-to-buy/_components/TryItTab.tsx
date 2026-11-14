@@ -9,9 +9,17 @@ import { Textarea } from "@/components/ui/textarea"
 import { adminFetch, ApiError, TTB_API } from "./api"
 import { outcomeLabel, segmentText, ttbErrorMessage } from "./format"
 
-type TryResult = { readBy: "rules" | "ai" | null; outcome: string; reply: string | null }
+type TryResult = {
+  readBy: "rules" | "ai" | null
+  outcome: string
+  reply: string | null
+  shop?: { name: string; via: "code" | "pref" | "last"; status: string } | null
+  creditsToReserve?: number | null
+}
+const VIA_LABEL = { code: "named in the text", pref: "remembered for this number", last: "last purchase" } as const
 
 export function TryItTab() {
+  const [line, setLine] = useState<"main" | "shop">("main")
   const [sender, setSender] = useState("")
   const [text, setText] = useState("")
   const [busy, setBusy] = useState(false)
@@ -23,7 +31,7 @@ export function TryItTab() {
     setError(null)
     setResult(null)
     try {
-      setResult(await adminFetch<TryResult>(`${TTB_API}/try`, { method: "POST", body: { line: "main", sender: sender.trim(), text } }))
+      setResult(await adminFetch<TryResult>(`${TTB_API}/try`, { method: "POST", body: { line, sender: sender.trim(), text } }))
     } catch (e) {
       setError(ttbErrorMessage(e instanceof ApiError ? e.code : undefined))
     } finally {
@@ -41,6 +49,22 @@ export function TryItTab() {
           <div className="space-y-1 text-xs text-muted-foreground">
             <p className="font-medium text-foreground">Nothing is sent and nobody is charged.</p>
             <p>If you type a real customer&apos;s number, you will see that customer&apos;s own conversation, last order and status, exactly as they would.</p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium" htmlFor="ttb-try-line">Line</label>
+            <select
+              id="ttb-try-line"
+              value={line}
+              onChange={(e) => {
+                setLine(e.target.value as "main" | "shop")
+                setResult(null)
+              }}
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="main">Main line</option>
+              <option value="shop">Shop line</option>
+            </select>
+            {line === "shop" && <p className="text-[11px] text-muted-foreground">Put a shop code in the text, e.g. kofi123 5gb. Shows which shop would be used and the credits it would reserve.</p>}
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium" htmlFor="ttb-try-sender">Sender number</label>
@@ -68,6 +92,14 @@ export function TryItTab() {
                 <dd>{result.readBy === "ai" ? "AI" : result.readBy === "rules" ? "Rules" : "-"}</dd>
                 <dt className="text-muted-foreground">Outcome</dt>
                 <dd>{outcomeLabel(result.outcome)}</dd>
+                {result.shop !== undefined && (
+                  <>
+                    <dt className="text-muted-foreground">Shop used</dt>
+                    <dd>{result.shop ? `${result.shop.name} (${VIA_LABEL[result.shop.via]}${result.shop.status === "active" ? "" : `, ${result.shop.status}`})` : "None resolved"}</dd>
+                    <dt className="text-muted-foreground">Credits reserved</dt>
+                    <dd>{result.creditsToReserve ? `${result.creditsToReserve} (nothing is reserved in a try-it)` : "None"}</dd>
+                  </>
+                )}
               </dl>
               <div>
                 <div className="mb-1 text-xs text-muted-foreground">Reply the customer would get</div>

@@ -11,21 +11,25 @@ import { Switch } from "@/components/ui/switch"
 import { adminFetch, ApiError, TTB_API, type Settings } from "./api"
 import { FIELD_LABELS, ttbErrorMessage } from "./format"
 
-type TextSwitch = "airtimeEnabled" | "resultsCheckerEnabled"
-type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled" | "unclearRepliesEnabled" | TextSwitch>
+type TextSwitch = "airtimeEnabled" | "resultsCheckerEnabled" | "shopEnabled"
+type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "shopNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled" | "unclearRepliesEnabled" | TextSwitch>
 
-// The two text switches save on their own (turning one on needs the confirm dialog), so they are not part of Form.
-const TEXT_SWITCHES: { field: TextSwitch; service: string; hint: string }[] = [
+// The text switches save on their own (turning one on needs the confirm dialog), so they are not part of Form.
+const TEXT_SWITCHES: { field: TextSwitch; service: string; from: string; hint: string }[] = [
   {
-    field: "airtimeEnabled", service: "airtime",
+    field: "airtimeEnabled", service: "airtime", from: "the main number",
     hint: "Customers text e.g. airtime 10. Uses the airtime fees, limits and per-network switches; a network off there stays off here.",
   },
   {
-    field: "resultsCheckerEnabled", service: "checkers",
+    field: "resultsCheckerEnabled", service: "checkers", from: "the main number",
     hint: "Customers text e.g. 2 wassce. Uses checker prices, bulk price and stock; a board off there stays off here. PINs go to the number that texted.",
   },
+  {
+    field: "shopEnabled", service: "shop data", from: "the shop number",
+    hint: "Customers text a shop code and a size to the shop number. Each shop pays for its own replies from its SMS credits. Needs the shop number below and a distinct shop forwarder secret.",
+  },
 ]
-type Form = { mainNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean } & Record<IntField, string>
+type Form = { mainNumber: string; shopNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean } & Record<IntField, string>
 
 // Ranges mirror lib/text-to-buy/admin-validate.ts. The server is the authority; these are helper text.
 const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] = [
@@ -41,6 +45,7 @@ const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] 
     field: "globalRepliesPerHour", min: 10, max: 5000,
     hint: "Stops help replies, questions and price lists once this many replies went out in the last hour. Order quotes and payment notices are never stopped.",
   },
+  { field: "shopRepliesPerHourPerShop", min: 5, max: 1000, hint: "Replies per hour to one shop's customers on the shop line. At the cap that shop goes quiet." },
 ]
 
 const SENDER_ID_HINT =
@@ -48,6 +53,8 @@ const SENDER_ID_HINT =
 
 const toForm = (s: Settings): Form => ({
   mainNumber: s.mainNumber,
+  shopNumber: s.shopNumber,
+  shopRepliesPerHourPerShop: String(s.shopRepliesPerHourPerShop),
   replySenderId: s.replySenderId,
   shopReplySenderId: s.shopReplySenderId,
   aiEnabled: s.aiEnabled,
@@ -92,6 +99,7 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
     // Only the changed fields are sent. The on/off switch is on the Overview tab (it needs its own confirmation).
     const body: Record<string, unknown> = {}
     if (f.mainNumber !== saved.mainNumber) body.mainNumber = f.mainNumber
+    if (f.shopNumber !== saved.shopNumber) body.shopNumber = f.shopNumber
     if (f.replySenderId !== saved.replySenderId) body.replySenderId = f.replySenderId
     if (f.shopReplySenderId !== saved.shopReplySenderId) body.shopReplySenderId = f.shopReplySenderId
     if (f.aiEnabled !== saved.aiEnabled) body.aiEnabled = f.aiEnabled
@@ -133,7 +141,7 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
     }
   }
 
-  const pendingService = TEXT_SWITCHES.find((s) => s.field === pendingSwitch)?.service
+  const pendingInfo = TEXT_SWITCHES.find((s) => s.field === pendingSwitch)
 
   const fieldErr = (field: string) =>
     errField === field && errMsg ? <p className="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">{errMsg}</p> : null
@@ -153,6 +161,12 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
               <Input id="ttb-mainNumber" inputMode="tel" value={f.mainNumber} onChange={(e) => patch({ mainNumber: e.target.value })} aria-invalid={errField === "mainNumber"} />
               <p className="text-[11px] text-muted-foreground">A Ghana mobile number, or empty. The number customers text.</p>
               {fieldErr("mainNumber")}
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium" htmlFor="ttb-shopNumber">{FIELD_LABELS.shopNumber}</label>
+              <Input id="ttb-shopNumber" inputMode="tel" value={f.shopNumber} onChange={(e) => patch({ shopNumber: e.target.value })} aria-invalid={errField === "shopNumber"} />
+              <p className="text-[11px] text-muted-foreground">A Ghana mobile number, or empty. The number shop customers text.</p>
+              {fieldErr("shopNumber")}
             </div>
             {(["replySenderId", "shopReplySenderId"] as const).map((field) => (
               <div key={field} className="space-y-1">
@@ -226,7 +240,7 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
           <DialogHeader>
             <DialogTitle>Turn on {pendingSwitch ? FIELD_LABELS[pendingSwitch] : ""}?</DialogTitle>
             <DialogDescription>
-              Customers can buy {pendingService} by text from the main number. Do a supervised paid test first.
+              Customers can buy {pendingInfo?.service} by text from {pendingInfo?.from}. Do a supervised paid test first.
             </DialogDescription>
           </DialogHeader>
           {switchError && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{switchError}</p>}

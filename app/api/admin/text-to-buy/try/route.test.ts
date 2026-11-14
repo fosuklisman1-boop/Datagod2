@@ -15,7 +15,29 @@ const h = vi.hoisted(() => ({
   processSpy: vi.fn(),
   notify: vi.fn(),
   surface: vi.fn(),
+  shopCodes: {} as Record<string, unknown>,
+  setPref: vi.fn(),
+  reserve: vi.fn(),
+  placeShop: vi.fn(),
+  shopPrefId: null as string | null,
 }))
+// The shop line's real lookups are replaced: shops come from h.shopCodes, the memory from h.shopPrefId.
+vi.mock("@/lib/text-to-buy/shop/default-deps", () => ({
+  defaultShopResolveDeps: () => ({
+    resolveShopCode: async (code: string) => h.shopCodes[code] ?? null,
+    getShopPref: async () => (h.shopPrefId ? { shopCodeId: h.shopPrefId } : null),
+    setShopPref: h.setPref,
+    lastBoughtShopCodeId: async () => null,
+    shopCodeById: async (id: string) => Object.values(h.shopCodes).find((s) => (s as { shopCodeId: string }).shopCodeId === id) ?? null,
+  }),
+}))
+vi.mock("@/lib/shop-commerce/pricing", () => ({
+  fetchShopBundles: async () => [{ id: "sb1", size: "5", price: 24 }],
+  verifyBundlePrice: async () => ({ verifiedPrice: 24 }),
+}))
+vi.mock("@/lib/ussd-service-visibility", () => ({ getUssdServiceVisibility: async () => ({ data: true }) }))
+vi.mock("@/lib/ussd-shop/handlers/confirm-by-text", () => ({ confirmShopBundleByText: h.placeShop }))
+vi.mock("@/lib/text-to-buy/shop/credits", async (orig) => ({ ...(await orig<typeof import("@/lib/text-to-buy/shop/credits")>()), reserveForOrder: h.reserve }))
 
 vi.mock("@/lib/supabase", () => ({
   get supabaseAdmin() {
@@ -107,7 +129,8 @@ describe("auth and validation", () => {
   it("validates line, sender and text (1..500 after trimming)", async () => {
     const cases: [unknown, string][] = [
       ["nope", "invalid_body"], [[], "invalid_body"],
-      [{ line: "shop", sender: SENDER, text: "5gb" }, "invalid_line"], [{ sender: SENDER, text: "5gb" }, "invalid_line"],
+      [{ line: "other", sender: SENDER, text: "5gb" }, "invalid_line"], [{ sender: SENDER, text: "5gb" }, "invalid_line"],
+      [{ line: "shop", sender: "123", text: "5gb" }, "invalid_sender"], [{ line: "shop", sender: SENDER, text: "" }, "invalid_text"],
       [{ line: "main", sender: "123", text: "5gb" }, "invalid_sender"], [{ line: "main", text: "5gb" }, "invalid_sender"],
       [{ line: "main", sender: SENDER, text: "" }, "invalid_text"], [{ line: "main", sender: SENDER, text: "   " }, "invalid_text"],
       [{ line: "main", sender: SENDER, text: 5 }, "invalid_text"], [{ line: "main", sender: SENDER }, "invalid_text"],
@@ -213,5 +236,69 @@ describe("dry run", () => {
     expect(res.status).toBe(200)
     expect((await res.json()).outcome).toBe("error")
     expect(JSON.stringify(spies.flatMap((s) => s.mock.calls))).not.toContain("0200000101")
+  })
+})
+
+describe("shop line dry run", () => {
+  const shop = (over: Record<string, unknown> = {}) => ({
+    shopCodeId: "code-1", shopId: "shop-1", shopName: "Kofi Data", parentShopId: null, status: "active", tokenBalance: 0, whatsappActivated: false, ownerPhone: "0244000999", ...over,
+  })
+  beforeEach(() => {
+    h.shopCodes = { kofi123: shop() }
+    h.shopPrefId = null
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-placeholder"
+    // The rules do not parse a shop code mixed into an order text; the AI reader (as in production) turns it into the order.
+    h.readAi.mockImplementation(async (t: string) =>
+      /5gb/i.test(t) ? { kind: "order", service: "data", sizeMb: 5000, networkHint: null, recipient: /0\d{9}/.exec(t)?.[0] ?? null, bare: false } : { kind: "not_order" },
+    )
+  })
+
+  it("answers with the shop-named quote, the shop used and the credits it would reserve (2 for the sender's own number)", async () => {
+    const res = await post({ line: "shop", sender: SENDER, text: "kofi123 5gb" })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({ outcome: "prompted", shop: { name: "Kofi Data", via: "code", status: "active" }, creditsToReserve: 2 })
+    expect(body.reply).toContain("Kofi Data")
+    expect(body.reply).toContain("24")
+    const [, , input, settings, deps] = h.processSpy.mock.calls[0]
+    expect(input).toMatchObject({ line: "shop", from: SENDER, receivedAt: null })
+    expect(settings).toMatchObject({ airtimeEnabled: true, resultsCheckerEnabled: true })
+    expect(deps.dryRun).toBe(true)
+  })
+
+  it("a gift to another number would reserve 3 credits", async () => {
+    const body = await (await post({ line: "shop", sender: SENDER, text: "kofi123 5gb 0200000102" })).json()
+    expect(body.creditsToReserve).toBe(3)
+  })
+
+  it("reports a remembered shop as pref and a closed shop as closed with no credits", async () => {
+    h.shopPrefId = "code-1"
+    let body = await (await post({ line: "shop", sender: SENDER, text: "5gb" })).json()
+    expect(body.shop).toMatchObject({ name: "Kofi Data", via: "pref" })
+    h.shopCodes = { kofi123: shop({ status: "suspended" }) }
+    body = await (await post({ line: "shop", sender: SENDER, text: "kofi123 5gb" })).json()
+    expect(body).toMatchObject({ outcome: "unavailable", shop: { name: "Kofi Data", via: "code", status: "suspended" } })
+    expect(body.creditsToReserve).toBeNull()
+  })
+
+  it("no shop found: the reply asks or says not found, and shop is null", async () => {
+    const body = await (await post({ line: "shop", sender: SENDER, text: "5gb" })).json()
+    expect(body).toMatchObject({ outcome: "asked", shop: null, creditsToReserve: null })
+  })
+
+  it("never places, reserves, releases, sends, remembers, alerts or writes a row; no phone in the payload", async () => {
+    const before = snapshot()
+    const raw = await (await post({ line: "shop", sender: SENDER, text: "kofi123 5gb" })).text()
+    expect(h.placeShop).not.toHaveBeenCalled()
+    expect(h.confirm).not.toHaveBeenCalled()
+    expect(h.reserve).not.toHaveBeenCalled()
+    expect(h.setPref).not.toHaveBeenCalled()
+    expect(h.reply).not.toHaveBeenCalled()
+    expect(h.notify).not.toHaveBeenCalled()
+    expect(snapshot()).toBe(before)
+    expect(fake.db.rpcCalls.map((c: { name: string }) => c.name)).not.toContain("ttb_notice_once")
+    expect(raw).not.toContain("0244000999") // the shop owner's helpline
+    // The reply echoes the number the admin typed (as on the main line); the shop details carry names only.
+    expect(JSON.stringify(JSON.parse(raw).shop)).not.toMatch(/\d{9}/)
   })
 })

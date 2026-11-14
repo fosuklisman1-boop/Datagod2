@@ -15,6 +15,8 @@ export const SCHEMA: Record<string, string[]> = {
   ttb_notices: ["id", "kind", "sender", "shop_id", "day", "created_at"],
   // Not a 0177 table: the USSD shop order table, only the columns the shop line reads.
   ussd_shop_orders: ["id", "shop_code_id", "shop_id", "dialing_phone", "order_status", "payment_status", "amount", "created_at", "updated_at"],
+  // Not a Text-to-Buy table: the shop table, only the name columns the admin overview reads for the paused-shops list.
+  user_shops: ["id", "shop_name", "ussd_display_name"],
   // Migration 0180: one credit set-aside per order message. service_role may only SELECT it (rows change through the SQL functions).
   ttb_credit_reserves: ["message_id", "account_id", "shop_id", "held", "used", "released_at", "created_at"],
   ttb_blocked: ["sender", "reason", "blocked_by", "created_at"],
