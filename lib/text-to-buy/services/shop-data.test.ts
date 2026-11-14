@@ -22,6 +22,7 @@ const deps = (over: Record<string, unknown> = {}) => ({
   verifyPrice: vi.fn(async (_s: ShopRef, id: string) => ({ verifiedPrice: id === "b5" ? 23.5 : 30 })),
   carrierOf: vi.fn(async (p: string) => (p.startsWith("024") ? ("MTN" as const) : p.startsWith("020") ? ("TELECEL" as const) : ("AT" as const))),
   confirmShop: vi.fn(async () => ({ orderId: "ord-1", amountGhs: 24.2 })),
+  dataVisible: vi.fn(async () => true),
   ...over,
 })
 const oneSegment = (s: string) => expect([calculateSegments(s).encoding, calculateSegments(s).segments]).toEqual(["gsm7", 1])
@@ -89,7 +90,29 @@ describe("shop data adapter: resolve", () => {
 
   it("no shop (a read-only registry) fails closed", async () => {
     const r = await shopDataAdapter(deps() as never, null).resolve(db, S, sendTo(R))
-    expect(r.ok).toBe(false)
+    expect(r).toEqual({ ok: false, refusal: { outcome: "unavailable", reply: shopOffReply("This shop"), remember: false } })
+  })
+
+  it("the global data switch off: unavailable naming the shop, and nothing is priced", async () => {
+    const d = deps({ dataVisible: vi.fn(async () => false) })
+    const r = await shopDataAdapter(d as never, shop).resolve(db, S, sendTo(R))
+    expect(r).toEqual({ ok: false, refusal: { outcome: "unavailable", reply: shopOffReply("Ama Data Hub"), remember: false } })
+    expect(d.shopPrices).not.toHaveBeenCalled()
+    expect(d.verifyPrice).not.toHaveBeenCalled()
+  })
+
+  it("the global data switch on: normal pricing; the switch is read with the lane's db", async () => {
+    const dataVisible = vi.fn(async () => true)
+    const r = await shopDataAdapter(deps({ dataVisible }) as never, shop).resolve(db, S, sendTo(R))
+    expect(r.ok).toBe(true)
+    expect(dataVisible).toHaveBeenCalledWith(db)
+  })
+
+  it("an unreadable data switch fails closed", async () => {
+    const d = deps({ dataVisible: vi.fn(async () => { throw new Error("down") }) })
+    const r = await shopDataAdapter(d as never, shop).resolve(db, S, sendTo(R))
+    expect(r).toEqual({ ok: false, refusal: { outcome: "unavailable", reply: shopOffReply("Ama Data Hub"), remember: false } })
+    expect(d.shopPrices).not.toHaveBeenCalled()
   })
 })
 

@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js"
 import type { ShopBundleOption } from "@/lib/ussd-shop/types"
 import type { confirmShopBundleByText } from "@/lib/ussd-shop/handlers/confirm-by-text"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
@@ -38,6 +39,8 @@ export type ShopDataDeps = {
   /** The carrier a number is on (the admin prefix map); null when unknown. */
   carrierOf?: (recipientLocal: string) => Promise<Carrier | null>
   confirmShop?: typeof confirmShopBundleByText
+  /** The admin's global data on/off switch (the same read the main catalogue makes). Throws when unreadable: the adapter fails closed. */
+  dataVisible?: (db: SupabaseClient) => Promise<boolean>
 }
 
 const PRODUCT_LABEL: Record<Product, ShopDataOffer["networkLabel"]> = { MTN: "MTN", Telecel: "Telecel", "AT-iShare": "AT", "AT-BigTime": "AT" }
@@ -63,11 +66,17 @@ const defaultCarrierOf: NonNullable<ShopDataDeps["carrierOf"]> = async (recipien
   return carrier === "UNKNOWN" ? null : carrier
 }
 
+const defaultDataVisible: NonNullable<ShopDataDeps["dataVisible"]> = async (db) => {
+  const { getUssdServiceVisibility } = await import("@/lib/ussd-service-visibility")
+  return (await getUssdServiceVisibility(db)).data
+}
+
 /** `shop` is null only for the read-only registry (status, notices): resolve then fails closed. place and quote use the offer's own shop. */
 export function shopDataAdapter(deps: ShopDataDeps, shop: ShopRef | null): ServiceAdapter<ShopDataOffer> {
   const shopPrices = deps.shopPrices ?? defaultShopPrices
   const verifyPrice = deps.verifyPrice ?? defaultVerifyPrice
   const carrierOf = deps.carrierOf ?? defaultCarrierOf
+  const dataVisible = deps.dataVisible ?? defaultDataVisible
 
   return {
     service: "data",
@@ -75,9 +84,18 @@ export function shopDataAdapter(deps: ShopDataDeps, shop: ShopRef | null): Servi
     // The lane gates the whole shop line with lineEnabled; there is no separate text switch for shop data.
     textEnabled: () => true,
 
-    async resolve(_db, senderLocal, read) {
+    async resolve(db, senderLocal, read) {
       const refuse = (refusal: Refusal) => ({ ok: false as const, refusal })
       if (read.service !== "data" || !shop) return refuse({ outcome: "unavailable", reply: shop ? notUnderstoodReply() : shopOffReply("This shop"), remember: false })
+
+      // The admin's global data switch, as on the main line and the shop USSD. Off or unreadable: nothing is sold.
+      let visible = false
+      try {
+        visible = await dataVisible(db)
+      } catch {
+        visible = false
+      }
+      if (!visible) return refuse({ outcome: "unavailable", reply: shopOffReply(shop.name), remember: false })
 
       const recipientLocal = read.recipient === null ? senderLocal : normalizeGhanaPhone(read.recipient)
       if (!recipientLocal) return refuse({ outcome: "asked", reply: wrongNumberReply(), remember: true })
