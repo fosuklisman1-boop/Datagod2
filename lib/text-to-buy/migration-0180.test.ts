@@ -393,6 +393,21 @@ describe.skipIf(!PGliteCtor)("0180 in PGlite", () => {
       expect(await balance(acct)).toBe(5)
     })
 
+    it("a reserve ref (ttb:<uuid>) or a release ref can never be debited or refunded through the reply functions", async () => {
+      const acct = await account(10)
+      const msg = await uid()
+      expect(await reserve(acct, msg, await uid(), 3)).toBe(true)
+      const before = await ledger(acct)
+      const bal = await balance(acct)
+      await fails("SELECT public.ttb_debit_reply($1::uuid, 1, $2)", [acct, `ttb:${msg}`], /INVALID_REF/)
+      await fails("SELECT public.ttb_debit_reply($1::uuid, 1, $2)", [acct, `ttb:${msg}:release`], /INVALID_REF/)
+      await fails("SELECT public.ttb_debit_reply($1::uuid, 1, 'some-other-ref')", [acct], /INVALID_REF/)
+      expect(await refund(acct, 3, `ttb:${msg}`)).toBe(false) // the reserve's own debit must stay refundable only through its release
+      expect(await ledger(acct)).toEqual(before)
+      expect(await balance(acct)).toBe(bal)
+      expect(await release(msg)).toBeGreaterThanOrEqual(0)
+    })
+
     it("a refund never exceeds what the ref debited", async () => {
       const acct = await account(5)
       await debit(acct, 1, "ttb:reply:cap")
@@ -419,6 +434,15 @@ describe.skipIf(!PGliteCtor)("0180 in PGlite", () => {
       expect(await count("SELECT count(*) AS n FROM public.ttb_credit_reserves WHERE message_id = $1", [recent])).toBe(1)
       expect(await count("SELECT count(*) AS n FROM public.ttb_notices WHERE sender = '0200000290'")).toBe(0)
       expect(await count("SELECT count(*) AS n FROM public.ttb_notices WHERE sender = '0200000291'")).toBe(1)
+    })
+
+    it("deletes shop prefs not used since the cut-off and keeps recent ones", async () => {
+      const [oldCode, newCode] = [(await one("INSERT INTO public.ussd_shop_codes DEFAULT VALUES RETURNING id")).id, (await one("INSERT INTO public.ussd_shop_codes DEFAULT VALUES RETURNING id")).id]
+      await db.query("INSERT INTO public.ttb_shop_prefs (sender, shop_code_id, last_used_at) VALUES ('0200000293', $1, '2001-01-01')", [oldCode])
+      await db.query("INSERT INTO public.ttb_shop_prefs (sender, shop_code_id) VALUES ('0200000294', $1)", [newCode])
+      expect(Number((await one("SELECT public.ttb_purge('2002-01-01'::timestamptz) AS n")).n)).toBeGreaterThanOrEqual(1)
+      expect(await count("SELECT count(*) AS n FROM public.ttb_shop_prefs WHERE sender = '0200000293'")).toBe(0)
+      expect(await count("SELECT count(*) AS n FROM public.ttb_shop_prefs WHERE sender = '0200000294'")).toBe(1)
     })
 
     it("still deletes old messages and expired conversations as in 0177", async () => {

@@ -26,13 +26,13 @@
 --                         credits refunded; 0 on a repeat, on an unknown message, or when everything was used. No status gate
 --                         on a refund (money coming back is never blocked by a suspension).
 --   ttb_debit_reply       single-reply debit, same status gate, reason 'text_to_buy', ledger ref = p_ref. true = debited,
---                         false = this ref was already debited. p_ref must be a non-empty text unique per reply.
+--                         false = this ref was already debited. p_ref must start with 'ttb:reply:' (else INVALID_REF), unique per reply.
 --   ttb_refund_reply      gives back a debit made by ttb_debit_reply for the SAME account and p_ref, exactly once: the refund
 --                         is ledgered under ref p_ref || ':refund' (the ledger enforces one row per ref), capped at what was
 --                         debited. false when there was no such debit or it was already refunded (credits cannot be minted).
 --   ttb_notice_once       true when THIS call created the (kind, sender, shop, day) row. A NULL shop is one slot, not many.
 --   ttb_purge             replaced: still deletes old messages and expired conversations, now also notices older than the cut-off
---                         and RELEASED reserves created before it. An unreleased reserve is never purged: it still owes a refund.
+--                         and RELEASED reserves created before it, and shop prefs not used since it. An unreleased reserve is never purged: it still owes a refund.
 --   ttb_heartbeat CHECK   gains 'quiet_alert_shop' (when the per-line quiet-line alert for the shop line last fired).
 --
 -- PRE-CHECKS (each must return the stated value before applying):
@@ -258,6 +258,8 @@ DECLARE
 BEGIN
   IF p_credits IS NULL OR p_credits <= 0 THEN RAISE EXCEPTION 'INVALID_AMOUNT' USING ERRCODE = 'P0001'; END IF;
   IF p_ref IS NULL OR length(p_ref) = 0 THEN RAISE EXCEPTION 'INVALID_REF' USING ERRCODE = 'P0001'; END IF;
+  -- Only the single-reply namespace: a reserve ref ('ttb:<uuid>') or a release ref can never be touched through this function.
+  IF p_ref NOT LIKE 'ttb:reply:%' THEN RAISE EXCEPTION 'INVALID_REF' USING ERRCODE = 'P0001'; END IF;
 
   SELECT a.status INTO v_status FROM public.sms_accounts a WHERE a.id = p_account_id FOR UPDATE;
   IF v_status IS NULL THEN RAISE EXCEPTION 'NOT_ACTIVATED' USING ERRCODE = 'P0001'; END IF;
@@ -291,6 +293,7 @@ DECLARE
   v_bal    int;
 BEGIN
   IF p_credits IS NULL OR p_credits <= 0 OR p_ref IS NULL OR length(p_ref) = 0 THEN RETURN false; END IF;
+  IF p_ref NOT LIKE 'ttb:reply:%' THEN RETURN false; END IF;          -- never a reserve's own debit (that is given back by ttb_release_reserve)
 
   -- The account row lock serialises two refunds of one ref; the ledger's unique ref index is the final guard.
   SELECT a.id INTO v_locked FROM public.sms_accounts a WHERE a.id = p_account_id FOR UPDATE;
@@ -322,6 +325,7 @@ DECLARE
   v_convs int;
   v_notices int;
   v_reserves int;
+  v_prefs int;
 BEGIN
   DELETE FROM public.ttb_messages m WHERE m.created_at < p_before;
   GET DIAGNOSTICS v_msgs = ROW_COUNT;
@@ -332,7 +336,9 @@ BEGIN
   -- Only RELEASED reserves: an unreleased one still owes the shop a refund of held - used.
   DELETE FROM public.ttb_credit_reserves r WHERE r.released_at IS NOT NULL AND r.created_at < p_before;
   GET DIAGNOSTICS v_reserves = ROW_COUNT;
-  RETURN v_msgs + v_convs + v_notices + v_reserves;
+  DELETE FROM public.ttb_shop_prefs p WHERE p.last_used_at < p_before;
+  GET DIAGNOSTICS v_prefs = ROW_COUNT;
+  RETURN v_msgs + v_convs + v_notices + v_reserves + v_prefs;
 END
 $fn$;
 

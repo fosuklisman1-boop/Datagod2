@@ -139,7 +139,7 @@ BEGIN
   v_ok := false;
   <<inactive>>
   BEGIN
-    PERFORM public.ttb_debit_reply(v_acct, 1, 'ttb:selftest:inactive');
+    PERFORM public.ttb_debit_reply(v_acct, 1, 'ttb:reply:selftest-inactive');
   EXCEPTION WHEN OTHERS THEN
     v_ok := SQLERRM = 'NOT_ACTIVATED';
   END inactive;
@@ -173,11 +173,21 @@ BEGIN
   IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL release: % refund ledger rows (want 1)', v_n; END IF;
 
   -- reply: one debit per ref, one refund per ref ---------------------------------------------
-  IF NOT public.ttb_debit_reply(v_acct, 1, 'ttb:selftest:reply') THEN RAISE EXCEPTION 'FAIL reply: debit was false'; END IF;
-  IF public.ttb_debit_reply(v_acct, 1, 'ttb:selftest:reply') THEN RAISE EXCEPTION 'FAIL reply: repeat debit was true'; END IF;
-  IF NOT public.ttb_refund_reply(v_acct, 1, 'ttb:selftest:reply') THEN RAISE EXCEPTION 'FAIL reply: refund was false'; END IF;
-  IF public.ttb_refund_reply(v_acct, 1, 'ttb:selftest:reply') THEN RAISE EXCEPTION 'FAIL reply: repeat refund was true'; END IF;
-  IF public.ttb_refund_reply(v_acct, 1, 'ttb:selftest:never') THEN RAISE EXCEPTION 'FAIL reply: refund without a debit was true'; END IF;
+  IF NOT public.ttb_debit_reply(v_acct, 1, 'ttb:reply:selftest') THEN RAISE EXCEPTION 'FAIL reply: debit was false'; END IF;
+  IF public.ttb_debit_reply(v_acct, 1, 'ttb:reply:selftest') THEN RAISE EXCEPTION 'FAIL reply: repeat debit was true'; END IF;
+  IF NOT public.ttb_refund_reply(v_acct, 1, 'ttb:reply:selftest') THEN RAISE EXCEPTION 'FAIL reply: refund was false'; END IF;
+  IF public.ttb_refund_reply(v_acct, 1, 'ttb:reply:selftest') THEN RAISE EXCEPTION 'FAIL reply: repeat refund was true'; END IF;
+  IF public.ttb_refund_reply(v_acct, 1, 'ttb:reply:selftest-never') THEN RAISE EXCEPTION 'FAIL reply: refund without a debit was true'; END IF;
+  -- a reserve ref ('ttb:<uuid>') is never reachable through the reply functions
+  IF public.ttb_refund_reply(v_acct, 1, 'ttb:' || v_m1::text) THEN RAISE EXCEPTION 'FAIL reply: a reserve ref was refunded through ttb_refund_reply'; END IF;
+  v_ok := false;
+  <<badref>>
+  BEGIN
+    PERFORM public.ttb_debit_reply(v_acct, 1, 'ttb:' || v_m1::text);
+  EXCEPTION WHEN OTHERS THEN
+    v_ok := SQLERRM = 'INVALID_REF';
+  END badref;
+  IF NOT v_ok THEN RAISE EXCEPTION 'FAIL reply: a reserve ref did not raise INVALID_REF on debit'; END IF;
   SELECT unit_balance INTO v_bal FROM public.sms_accounts WHERE id = v_acct;
   IF v_bal <> 1 THEN RAISE EXCEPTION 'FAIL reply: balance % (want 1)', v_bal; END IF;
 
