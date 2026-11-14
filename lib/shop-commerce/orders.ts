@@ -21,7 +21,7 @@ const supabase = createClient(
 // ReturnType applied to the uninstantiated generic function.
 type SupabaseClientLike = typeof supabase
 
-export type ShopOrderChannel = "ussd_shop" | "whatsapp_shop"
+export type ShopOrderChannel = "ussd_shop" | "whatsapp_shop" | "sms_shop"
 
 // ── Data bundle ────────────────────────────────────────────────────────────
 
