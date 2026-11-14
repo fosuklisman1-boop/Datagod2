@@ -59,3 +59,20 @@ describe("extractGhanaNumbers", () => {
   it("rejects 9 and 11 digit runs", () =>
     expect(extractGhanaNumbers("055123456 05512345678")).toEqual([]))
 })
+
+describe("parseOrderText airtime", () => {
+  const air = (amountGhs: number, networkHint: any = null, recipient: string | null = null) =>
+    ({ kind: "order", service: "airtime", amountGhs, networkHint, recipient })
+  it.each([
+    ["airtime 10", air(10)], ["10 airtime", air(10)], ["airtime ghs10", air(10)], ["airtime GHS 10", air(10)],
+    ["airtime 10 cedis", air(10)], ["airtime 10.50", air(10.5)], ["credit 5", air(5)], ["topup 20", air(20)], ["top up 20", air(20)],
+    ["recharge 5 telecel", air(5, "Telecel")], ["mtn airtime 10", air(10, "MTN")], ["airtime 10 at", air(10, "AT")],
+    ["airtime 10 0200000102", air(10, null, "0200000102")],
+  ])("airtime: %s", (t, e) => expect(parseOrderText(t)).toEqual(e))
+  it.each(["10", "10gb", "10 gigs", "at 10", "mtn 10"])("still data: %s", (t) =>
+    expect(parseOrderText(t)).toMatchObject({ kind: "order", service: "data" }))
+  it("bare 10 is still 10GB and bare", () =>
+    expect(parseOrderText("10")).toMatchObject({ service: "data", sizeMb: 10000, bare: true }))
+  it.each(["airtime 10gb", "airtime 10 data", "airtime", "airtime 10.555", "airtime 10 20", "airtime 10 ishare", "airtime 10 0200000102 0200000103"])
+    ("unknown: %s", (t) => expect(parseOrderText(t)).toEqual({ kind: "unknown" }))
+})

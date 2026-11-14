@@ -7,7 +7,7 @@ import type { Conversation, LastOrder, Pending } from "./store"
 import type { NetworkHint, ReadResult } from "./types"
 
 type Turn = Conversation["turns"][number]
-type OrderRead = Extract<ReadResult, { kind: "order" }>
+type OrderRead = Extract<ReadResult, { kind: "order"; service: "data" }>
 
 const MAX_AI_HISTORY = 6
 
@@ -24,7 +24,7 @@ export function aiHistory(turns: Turn[]): Turn[] {
 
 /** The bare digit a customer typed to pick a numbered option, if it names one that was offered. */
 export function pickedOption(read: ReadResult, pending: Pending | null): ReadResult | null {
-  if (read.kind !== "order" || !read.bare || pending?.type !== "choices") return null
+  if (read.kind !== "order" || read.service !== "data" || !read.bare || pending?.type !== "choices") return null
   const n = read.sizeMb / 1000
   return Number.isInteger(n) && n >= 1 && n <= pending.options.length ? pending.options[n - 1].read : null
 }

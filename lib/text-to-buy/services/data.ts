@@ -1,7 +1,7 @@
 import { handleConfirm } from "@/lib/ussd/handlers/bundles"
 import { resolveOffer, sessionForOffer, sizeLabel, type Offer } from "../catalogue"
 import { dedupeNearest, lastOrderOf, orderStatusOf, productQuestion } from "../inbound-steps"
-import { deliveredGiftReply, fitOneSegment, paidNotDeliveredReply, quoteReply, unavailableReply, unpaidReply, wrongNumberReply } from "../replies"
+import { deliveredGiftReply, fitOneSegment, notUnderstoodReply, paidNotDeliveredReply, quoteReply, unavailableReply, unpaidReply, wrongNumberReply } from "../replies"
 import { orderRowFor } from "../store"
 import { classifyOrder } from "./classify"
 import type { Refusal, ServiceAdapter, ServiceOffer } from "./types"
@@ -19,6 +19,8 @@ export function dataAdapter(deps: DataDeps = {}): ServiceAdapter<DataOffer> {
     textEnabled: () => true,
 
     async resolve(db, senderLocal, read) {
+      // The lane routes by read.service, so this is unreachable; it keeps the type honest and fails closed.
+      if (read.service !== "data") return { ok: false, refusal: { outcome: "unavailable", reply: notUnderstoodReply(), remember: false } }
       const res = await (deps.resolve ?? resolveOffer)(db, {
         senderLocal, sizeMb: read.sizeMb, networkHint: read.networkHint, recipient: read.recipient,
       })

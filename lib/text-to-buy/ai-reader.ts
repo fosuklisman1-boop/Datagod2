@@ -1,9 +1,9 @@
 import type Anthropic from "@anthropic-ai/sdk"
 import type { AIProvider } from "@/lib/ai-providers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
-import { extractGhanaNumbers } from "./parse-rules"
+import { AIRTIME_WORD_RE, DATA_WORD_RE, extractGhanaNumbers, stripGhanaNumbers } from "./parse-rules"
 import { safeAiQuestion } from "./replies"
-import type { NetworkHint, ReadResult } from "./types"
+import type { AirtimeNetwork, NetworkHint, ReadResult } from "./types"
 
 /**
  * One-tool AI reader. The customer's text is untrusted input: the model gets a single
@@ -23,6 +23,11 @@ export type AiDeps = { createMessage?: AIProvider["createMessage"]; model?: stri
 const NOT_ORDER: ReadResult = { kind: "not_order" }
 const INTENTS = ["order", "price_query", "ask", "not_order"] as const
 const NETWORKS: readonly NetworkHint[] = ["MTN", "Telecel", "AT", "AT-iShare", "AT-BigTime"]
+const SERVICES = ["data", "airtime", "results_checker"] as const
+const BOARDS = ["WASSCE", "BECE", "NOVDEC"] as const
+const ASK_AIRTIME_AMOUNT = "How much airtime do you want?"
+const ASK_SIZE = "Which size do you want? e.g. 5GB"
+const ASK_RECIPIENT = "Which number should receive it?"
 
 const SYSTEM_PROMPT = [
   "You read one SMS from a customer of a mobile data reseller in Ghana and describe what they want by calling the tool.",
@@ -30,7 +35,12 @@ const SYSTEM_PROMPT = [
   `Reply only by calling the ${TOOL_NAME} tool exactly once. Do not write any other text.`,
   "Never state a price or any amount of money, anywhere, including in the question field.",
   "Customers write English, Ghanaian pidgin or Twi. \"gig\", \"gb\" and \"g\" mean gigabytes.",
-  "intent \"order\": the customer wants data. Set size_gb. Set network only if they named one. Set recipient only if they wrote a phone number for someone else, copied exactly.",
+  "intent \"order\": the customer wants to buy. Set service: \"data\" (default), \"airtime\" or \"results_checker\" (exam results checker voucher).",
+  "For data set size_gb. A number with no airtime or currency word is a data size in GB.",
+  "For airtime set amount_ghs to the airtime amount in cedis exactly as the customer typed it. Never state a price; amount_ghs is only the airtime amount the customer typed.",
+  "For results_checker set board (WASSCE, BECE or NOVDEC) if named, and quantity.",
+  "Set network only if they named one. Set recipient only if they wrote a phone number for someone else, copied exactly.",
+  "Questions must not contain numbers.",
   "intent \"price_query\": the customer asks what something costs.",
   "If the size is missing, use intent \"ask\" and ask which size they want.",
   "If anything is unclear, use intent \"ask\" with one short question.",
@@ -44,6 +54,10 @@ const TOOL: Anthropic.Tool = {
     type: "object",
     properties: {
       intent: { type: "string", enum: [...INTENTS] },
+      service: { type: "string", enum: [...SERVICES], description: "What they want to buy; default data" },
+      amount_ghs: { type: "number", description: "service airtime: the airtime amount in cedis exactly as the customer typed it; never a price" },
+      board: { type: "string", enum: [...BOARDS], description: "service results_checker: the exam board, only if named" },
+      quantity: { type: "integer", description: "service results_checker: how many, default 1" },
       size_gb: { type: "number", description: "Size in gigabytes, e.g. 5 or 0.5" },
       network: { type: "string", enum: [...NETWORKS] },
       recipient: { type: "string", description: "Only a phone number the customer wrote in the conversation" },
@@ -108,6 +122,11 @@ function mapToolInput(
   }
   if (intent !== "order" && intent !== "price_query") return NOT_ORDER
 
+  // Absent service means data. Anything else unknown, or a voucher (until Task 8 reads them), is not an order we can place.
+  const service = input.service === undefined || input.service === null ? "data" : input.service
+  if (service === "airtime" && intent === "order") return mapAirtime(input, text, history)
+  if (service !== "data") return NOT_ORDER
+
   const networkHint = asNetwork(input.network)
   const sizeMb = sizeToMb(input.size_gb)
 
@@ -119,22 +138,72 @@ function mapToolInput(
     return { kind: "price_query", service: "data", sizeMb, networkHint }
   }
 
-  if (sizeMb === null) return { kind: "ask", question: "Which size do you want? e.g. 5GB" }
+  if (sizeMb === null) return { kind: "ask", question: ASK_SIZE }
 
-  let recipient: string | null = null
-  if (typeof input.recipient === "string" && input.recipient.trim() !== "") {
-    const normalised = normalizeGhanaPhone(input.recipient)
-    const written = new Set<string>(extractGhanaNumbers(text))
-    for (const h of history) {
-      if (h.role === "user") for (const n of extractGhanaNumbers(h.text)) written.add(n)
-    }
-    if (!normalised || !written.has(normalised)) {
-      return { kind: "ask", question: "Which number should receive it?" }
-    }
-    recipient = normalised
-  }
+  const recipient = checkedRecipient(input.recipient, text, history)
+  if (recipient === "ask") return { kind: "ask", question: ASK_RECIPIENT }
 
   return { kind: "order", service: "data", sizeMb, networkHint, recipient, bare: false }
+}
+
+type History = { role: "user" | "assistant"; text: string }[]
+
+/** The recipient only if it is a Ghana number the customer wrote (this text or an earlier user turn); "ask" if not. */
+function checkedRecipient(raw: unknown, text: string, history: History): string | null | "ask" {
+  if (typeof raw !== "string" || raw.trim() === "") return null
+  const normalised = normalizeGhanaPhone(raw)
+  const written = new Set<string>(extractGhanaNumbers(text))
+  for (const h of history) {
+    if (h.role === "user") for (const n of extractGhanaNumbers(h.text)) written.add(n)
+  }
+  return normalised && written.has(normalised) ? normalised : "ask"
+}
+
+const CURRENCY_WORD_RE = /ghs|ghc|cedis?|₵/i
+const AIRTIME_NETWORK_OF: Record<NetworkHint, AirtimeNetwork> = {
+  MTN: "MTN", Telecel: "Telecel", AT: "AT", "AT-iShare": "AT", "AT-BigTime": "AT",
+}
+
+/** A usable airtime amount: finite, above zero, at most 2 decimals. */
+function usableAmount(v: unknown): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null
+  return Math.abs(v * 100 - Math.round(v * 100)) < 1e-6 ? v : null
+}
+
+/**
+ * True when this customer text contains the amount as a number the customer typed: Ghana numbers removed first, no
+ * leading-zero or 7+ digit run (phone fragments), not followed by a data unit, and no data word anywhere in the text.
+ */
+function typedAmountIn(text: string, amount: number): boolean {
+  if (DATA_WORD_RE.test(text)) return false
+  const cleaned = stripGhanaNumbers(text)
+  for (const m of cleaned.matchAll(/\d+(?:\.\d+)?/g)) {
+    const token = m[0]
+    if (/^0\d/.test(token) || token.split(".")[0].length > 6) continue
+    if (Number(token) === amount) return true
+  }
+  return false
+}
+
+/** Airtime read. The AI never supplies a price: its amount is accepted only if the customer typed that number. */
+function mapAirtime(input: Record<string, unknown>, text: string, history: History): ReadResult {
+  const askAmount: ReadResult = { kind: "ask", question: ASK_AIRTIME_AMOUNT }
+  const amount = usableAmount(input.amount_ghs)
+  if (amount === null) return askAmount
+
+  const userTexts = [text, ...history.filter((h) => h.role === "user").map((h) => h.text)]
+  if (!userTexts.some((t) => typedAmountIn(t, amount))) return askAmount
+
+  // No airtime or currency word anywhere in what the customer wrote: it is a bare number, which means GB.
+  const saidAirtime = userTexts.some((t) => new RegExp(AIRTIME_WORD_RE.source, "i").test(t) || CURRENCY_WORD_RE.test(t))
+  if (!saidAirtime) {
+    return mapToolInput({ intent: "order", service: "data", size_gb: amount, network: input.network, recipient: input.recipient }, text, history)
+  }
+
+  const recipient = checkedRecipient(input.recipient, text, history)
+  if (recipient === "ask") return { kind: "ask", question: ASK_RECIPIENT }
+  const hint = asNetwork(input.network)
+  return { kind: "order", service: "airtime", amountGhs: amount, networkHint: hint ? AIRTIME_NETWORK_OF[hint] : null, recipient }
 }
 
 export async function readWithAi(
