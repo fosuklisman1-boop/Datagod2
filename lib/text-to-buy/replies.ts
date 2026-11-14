@@ -57,6 +57,47 @@ export function quoteReply(i: QuoteInput): string {
   ])
 }
 
+/**
+ * A shop name as plain GSM-7 text: accents are folded (Cafe, not Caf), anything else outside printable ASCII (emoji, curly
+ * quotes) is dropped, and it is cut to maxChars. Nothing printable left: "Shop". Mirrors the shop USSD menus' gsm7().
+ */
+export function shopNameText(name: string, maxChars: number): string {
+  const plain = name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+  const cut = plain.slice(0, Math.max(1, maxChars)).trim()
+  return cut.length > 0 ? cut : "Shop"
+}
+
+/** Shrinks the shop name until the lead sentence built from it fits one GSM-7 segment on its own. */
+function leadWithShop(shopName: string, build: (name: string) => string): string {
+  for (let max = 40; max >= 1; max -= 1) {
+    const lead = build(shopNameText(shopName, max))
+    if (fitsOneSegment(lead)) return lead
+  }
+  return build("Shop")
+}
+
+/** The shop line's quote: the main quote with the shop named first. The amount is the value written to the order. */
+export function shopQuoteReply(i: QuoteInput & { shopName: string }): string {
+  const price = i.feeOnTop ? `${formatGhs(i.amountGhs)} + MoMo charge` : formatGhs(i.amountGhs)
+  const lead = leadWithShop(i.shopName, (n) => `${n}: ${i.size} ${i.networkLabel} for ${i.recipientLocal}, ${price}.`)
+  return fitOneSegment([lead, "Approve the MoMo prompt now.", PAYER_TIPS[i.payerNetwork], `Next time just text ${i.size}`])
+}
+
+/** The shop does not sell this size on this network. Names the shop. */
+export function shopSizeUnavailableReply(shopName: string, networkLabel: string): string {
+  return fitOneSegment([leadWithShop(shopName, (n) => `${n} does not have that size on ${networkLabel}.`), "Try another size."])
+}
+
+/** The shop cannot take orders right now (closed, or its prices could not be read). Names the shop. */
+export function shopOffReply(shopName: string): string {
+  return fitOneSegment([leadWithShop(shopName, (n) => `${n} is not available now.`), "Please try again later."])
+}
+
 export function unpaidReply(size: string): string {
   return fitOneSegment([
     "Payment didn't go through.",

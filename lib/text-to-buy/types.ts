@@ -22,6 +22,15 @@ export function isKnownOrderPair(service: string, orderTable: string): boolean {
   if (!Object.prototype.hasOwnProperty.call(MAIN_ORDER_TABLE, service)) return false
   return MAIN_ORDER_TABLE[service as Service] === orderTable || (service === "data" && orderTable === "ussd_shop_orders")
 }
+/**
+ * True when (line, service, orderTable) is a triple some line writes: the main line uses each service's own table, the shop line
+ * sells data into ussd_shop_orders only. Never throws; for validating stored link rows, which carry all three.
+ */
+export function isKnownLinkTriple(line: string, service: string, orderTable: string): boolean {
+  if (line === "main") return Object.prototype.hasOwnProperty.call(MAIN_ORDER_TABLE, service) && MAIN_ORDER_TABLE[service as Service] === orderTable
+  if (line === "shop") return service === "data" && orderTable === "ussd_shop_orders"
+  return false
+}
 export type NetworkHint = "MTN" | "Telecel" | "AT" | "AT-iShare" | "AT-BigTime"
 export type Keyword = "PRICES" | "AGAIN" | "STATUS" | "HELP" | "YES"
 export type { AirtimeNetwork }

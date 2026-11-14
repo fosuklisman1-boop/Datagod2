@@ -416,12 +416,6 @@ export async function orderRowFor(db: SupabaseClient, table: OrderTable, orderId
   return r ? { orderStatus: String(r[cols.status]), paymentStatus: String(r.payment_status), amount: Number(r[cols.amount]) } : null
 }
 
-/** The USSD order row's two status columns, or null when it is gone. */
-export async function ussdOrderStatus(db: SupabaseClient, orderId: string): Promise<{ orderStatus: string; paymentStatus: string } | null> {
-  const r = await orderRowFor(db, "ussd_orders", orderId)
-  return r ? { orderStatus: r.orderStatus, paymentStatus: r.paymentStatus } : null
-}
-
 /**
  * Takes the processing lease on an inbound row: one guarded UPDATE, true only when exactly this call set claimed_at.
  * A row that already has an outcome is never claimed; a lease older than leaseSeconds (a crashed run) can be taken again.
@@ -498,14 +492,6 @@ export async function watchedLinks(db: SupabaseClient, now: Date, limit = 200): 
     .limit(limit)
   if (late.error || !Array.isArray(late.data)) throw new TtbStoreError("could not read recently closed links")
   return [...open.data, ...late.data].map((r) => toWatched(r as Record<string, unknown>))
-}
-
-/** What the notifier reads of the USSD order row. amount is the number actually charged. Null when the row is gone. */
-export async function ussdOrderForNotify(
-  db: SupabaseClient,
-  orderId: string,
-): Promise<{ orderStatus: string; paymentStatus: string; amount: number } | null> {
-  return orderRowFor(db, "ussd_orders", orderId)
 }
 
 /**

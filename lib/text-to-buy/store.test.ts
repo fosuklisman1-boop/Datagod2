@@ -4,8 +4,8 @@ import { makeFakeTtb } from "./fake-db.test-helper"
 import {
   dedupeKey, storeInbound, setInboundResult, storeOutbound, isBlocked, counts, globalPrompts, countOutbound, hasOpenOrder, linkOrder,
   loadConversation, saveConversation, touchHeartbeat, TtbStoreError,
-  watchedLinks, ussdOrderForNotify, addNotice, patchLink, strandedInbound, getHeartbeat, purgeOld,
-  claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus, orderRowFor,
+  watchedLinks, addNotice, patchLink, strandedInbound, getHeartbeat, purgeOld,
+  claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, orderRowFor,
   getShopPref, setShopPref, lastBoughtShopCodeId, noticeOnce,
 } from "./store"
 import { orderTableFor, isKnownOrderPair } from "./types"
@@ -478,12 +478,6 @@ describe("Task 10 store additions", () => {
     await expect(latestOrderLink(c, "main", S)).rejects.toBeInstanceOf(TtbStoreError)
   })
 
-  it("ussdOrderStatus reads the two status columns, null when the row is missing", async () => {
-    const { c } = mk({ ussd_orders: [{ id: O1, order_status: "processing", payment_status: "paid" }] })
-    expect(await ussdOrderStatus(c, O1)).toEqual({ orderStatus: "processing", paymentStatus: "paid" })
-    expect(await ussdOrderStatus(c, O2)).toBeNull()
-  })
-
 })
 
 describe("claimInbound", () => {
@@ -544,12 +538,6 @@ describe("notifier reads and writes", () => {
     const seed = Array.from({ length: 5 }, (_, i) => link({ id: `l${i}`, sender: `020000010${i}`, created_at: iso(-i * 1000) }))
     const { c } = mk({ ttb_orders: seed })
     expect(await watchedLinks(c, now, 3)).toHaveLength(3)
-  })
-
-  it("ussdOrderForNotify reads status, payment and amount as a number; null when gone", async () => {
-    const { c } = mk({ ussd_orders: [{ id: "o1", order_status: "pending", payment_status: "pending", amount: "7.50" }] })
-    expect(await ussdOrderForNotify(c, "o1")).toEqual({ orderStatus: "pending", paymentStatus: "pending", amount: 7.5 })
-    expect(await ussdOrderForNotify(c, "nope")).toBeNull()
   })
 
   it("addNotice records a key once; a second call (an overlapping run) gets false and changes nothing", async () => {

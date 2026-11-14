@@ -1,6 +1,7 @@
 // In-memory stand-in for the slice of supabase-js the Text-to-Buy store uses. Test-only.
-// Unlike a schema-blind fake, it REFUSES any table, column or RPC argument that migration 0177 does not define, so a typo
-// in store.ts fails a test instead of passing silently. Keep the lists below in step with migrations/0177_text_to_buy.sql.
+// Unlike a schema-blind fake, it REFUSES any table, column or RPC argument that the Text-to-Buy migrations do not define, so a
+// typo in store.ts fails a test instead of passing silently. Keep the lists below in step with migrations/0177_text_to_buy.sql
+// plus its Stage 3a follow-up (0180: ttb_shop_prefs, ttb_notices, the shop_id and credits columns, ttb_notice_once).
 
 type Row = Record<string, unknown>
 type Filter = (r: Row) => boolean

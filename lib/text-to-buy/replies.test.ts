@@ -35,6 +35,7 @@ import {
   voucherOffReply,
   voucherMaxReply,
   voucherBoardQuestion,
+  shopQuoteReply,
 } from "./replies"
 
 const oneSegment = (s: string) => {
@@ -305,6 +306,38 @@ describe("voucher copy", () => {
   })
   it("every voucher string is one GSM-7 segment", () => {
     for (const s of [voucherOffReply("NOVDEC"), voucherOffReply(null), voucherMaxReply("NOVDEC", 100), voucherBoardQuestion(["WASSCE", "BECE", "NOVDEC"])]) oneSegment(s)
+  })
+})
+
+describe("shopQuoteReply", () => {
+  const q = { size: "5GB", networkLabel: "MTN", recipientLocal: "0200000102", amountGhs: 23.69, feeOnTop: false, payerNetwork: "MTN" as const, shopName: "Ama Data Hub" }
+  it("names the shop and keeps the amount and recipient", () => {
+    const t = shopQuoteReply(q)
+    expect(t.startsWith("Ama Data Hub:")).toBe(true)
+    expect(t).toContain("GHS 23.69")
+    expect(t).toContain("0200000102")
+    expect(t).toContain("Approve the MoMo prompt now.")
+    oneSegment(t)
+  })
+  it("a 60-character name with accents and emoji is still one GSM-7 segment, with the price and the approve line", () => {
+    const name = "Ama’s Café Élève \u{1F4F1}\u{1F525} Data Hub of Accra and Kumasi Region Gh"
+    expect([...name].length).toBeGreaterThanOrEqual(55)
+    const t = shopQuoteReply({ ...q, shopName: name, feeOnTop: true, amountGhs: 9999.99, payerNetwork: "TELECEL" })
+    oneSegment(t)
+    expect(t).toContain("GHS 9,999.99 + MoMo charge")
+    expect(t).toContain("Approve the MoMo prompt now.")
+    expect(t).toContain("0200000102")
+  })
+  it("a very long name is truncated so the price and recipient survive", () => {
+    const t = shopQuoteReply({ ...q, shopName: "X".repeat(300) })
+    oneSegment(t)
+    expect(t).toContain("GHS 23.69")
+    expect(t).toContain("0200000102")
+  })
+  it("a name with nothing printable falls back to a plain word", () => {
+    const t = shopQuoteReply({ ...q, shopName: "\u{1F525}\u{1F525}" })
+    oneSegment(t)
+    expect(t.startsWith("Shop:")).toBe(true)
   })
 })
 
