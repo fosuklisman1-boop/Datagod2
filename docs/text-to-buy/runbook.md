@@ -301,7 +301,7 @@ Payer is always the texting number. No wallet, no other number can be charged. D
 
 ### 12.2 The two switches
 
-Two new switches, both default OFF, on `/admin/text-to-buy` settings (PUT field names `airtimeEnabled` = `ttb_airtime_enabled`, `resultsCheckerEnabled` = `ttb_results_checker_enabled`). Switching either ON asks for confirmation. They sit under the main Text-to-Buy switch: with the main switch off, nothing is read at all. The existing controls still apply on top: the per-network airtime switches and the per-board checker switches. A service that is off answers with its "not available" reply; the Overview card "By service today" shows an Off badge on it.
+Two new switches, both default OFF, on `/admin/text-to-buy` settings (PUT field names `airtimeEnabled` = `ttb_airtime_enabled`, `resultsCheckerEnabled` = `ttb_results_checker_enabled`). Switching either ON asks for confirmation. They sit under the main Text-to-Buy switch: with the main switch off, nothing is read at all. The existing controls still apply on top: the per-network airtime switches and the per-board checker switches. A text switch that is OFF does not produce a "not available" reply: the text is treated exactly as in Stage 1, so the customer gets the Stage 1 not-understood copy, or silence if unclear replies are off or one was already sent. Only the per-network airtime switches and the per-board checker switches give a "not available" reply. With a text switch off the AI is never allowed to ask about that service either (no "how much airtime?" or "how many checkers?" question). The Overview card "By service today" shows an Off badge on it.
 
 ### 12.3 Switch-on order
 
@@ -319,7 +319,7 @@ Use your own phones and the smallest amounts. Expected texts below are the curre
 6. Checkers with bulk price. Text `2 wassce` (or the board you are testing). Expect the quote with board, quantity 2, the bulk total and "PINs come by SMS to this number." Approve: two PINs arrive by SMS on phone A. Ask for a quantity that reaches a bulk tier and check the total against the price in admin.
 7. Out of stock. With a board at zero stock, text it. Expect the "not available now" reply (or, if stock ran out after the prompt, see the pending note in 12.5).
 8. Ignored prompt. Text `airtime 1`, do not approve. After the window the lane sends the "Payment didn't go through" style notice and closes the link. No charge.
-9. Late approval. Approve the prompt after that notice. The normal webhook still credits it; the lane stays quiet or sends the paid notice. Check the order is paid and delivered and nobody is charged twice.
+9. Late approval. Approve the prompt after that notice. The normal webhook still credits it. The lane sends nothing, with one exception: a GIFT airtime order that is delivered still gets the "sent to <phone B>" delivered notice to phone A. A plain own-number order gets no further text. Check the order is paid and delivered and nobody is charged twice.
 
 Repeat test 1 on MTN, Telecel (only with the gateway row on Hubtel, see 12.5) and AT payer numbers.
 
@@ -333,7 +333,7 @@ Repeat test 1 on MTN, Telecel (only with the gateway row on Hubtel, see 12.5) an
 6. The caps (prompts per hour, replies per hour, global prompts per minute) are shared across all three services.
 7. Order rows still say `channel = 'ussd'`, as for data. Tell text orders apart by the Text-to-Buy link, not by channel.
 8. A possible orphan charge. If placing an order throws an unexpected error, the customer gets no SMS, and the admin alert reads "placing an order failed unexpectedly: message <messageId>". The prompt may already have been sent. Check Paystack and Hubtel and the order tables around that time for that sender. No lane follow-up will ever come, because no link row exists. Refund through `/admin/refunds` if the customer was charged.
-9. No idempotency key on the text channel. A duplicate delivery of the same text could create a second order if a database write fails twice in a row. One open order per sender normally prevents it.
+9. Placing is guarded, not idempotent. Just before an order is placed the lane marks the incoming text as handled (outcome `error`), so the recovery sweep and a forwarder retry can never place it a second time; if that mark cannot be written, nothing is placed and the customer is told it is not available. The residual risk is the other direction: if the server dies after the mark but before the order or its link is recorded, the text is NOT retried and the customer may get no reply (and, rarely, an order with no link row). Look for inbound rows with outcome `error` and no order link, and check the order tables and gateways for that sender around that time.
 10. The voucher quantity question completes on a bare whole number only: `2` works, `two` is asked again.
 
 ### 12.6 OWNER check before switching vouchers on
@@ -347,6 +347,8 @@ Note whether the status check constraint allows `expired`. The lane closes its o
 ### 12.7 Rollback
 
 Switch the service off (Overview or settings). Nothing to undo in the database. Orders already prompted finish normally; the lane still sends their follow-ups.
+
+Never roll the deploy back to Stage 1 code while airtime or voucher links are open. Stage 1 code reads `ussd_orders` for every link, so it would close those links silently and send wrong notices. Switch the services off and let open links finish (30 minutes) first.
 
 ### 12.8 Announcement (HOLD UNTIL LAUNCH)
 
