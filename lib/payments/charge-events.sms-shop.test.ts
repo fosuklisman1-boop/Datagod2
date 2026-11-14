@@ -100,6 +100,15 @@ describe("a paid ussd_shop_orders row is settled the same way whatever its chann
     })
   }
 
+  // Characterisation: today the recipient is sent a Datagod-paid confirmation for these two channels.
+  for (const channel of ["ussd_shop", "whatsapp_shop"]) {
+    it(`${channel}: the recipient gets the order confirmation SMS`, async () => {
+      await pay(channel)
+      expect(h.sendSMS).toHaveBeenCalledTimes(1)
+      expect(h.sendSMS).toHaveBeenCalledWith(expect.objectContaining({ phone: "0200000102", type: "order_confirmation", reference: ORDER_ID }))
+    })
+  }
+
   it("sms_shop is labelled by its channel in customer tracking", async () => {
     await pay("sms_shop")
     expect(h.trackCustomer.mock.calls[0][0]).toMatchObject({ shopId: "shop1", slug: "sms_shop", orderId: ORDER_ID })
