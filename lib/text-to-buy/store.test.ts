@@ -657,6 +657,13 @@ describe("Stage 3a shop line store functions", () => {
     expect(await lastBoughtShopCodeId(c, "0200000555")).toBeNull()
   })
 
+  it("lastBoughtShopCodeId also finds orders stored with the local or the bare 233 dialing form", async () => {
+    const local = mk({ ussd_shop_orders: [row(1, { shop_code_id: SHOP_A, dialing_phone: "0200000101" })] })
+    expect(await lastBoughtShopCodeId(local.c, S)).toBe(SHOP_A)
+    const bare = mk({ ussd_shop_orders: [row(1, { shop_code_id: SHOP_B, dialing_phone: "233200000101" })] })
+    expect(await lastBoughtShopCodeId(bare.c, S)).toBe(SHOP_B)
+  })
+
   it("lastBoughtShopCodeId throws a fixed TtbStoreError on a read error", async () => {
     const { db, c } = mk()
     db.failOn.ussd_shop_orders = { message: "leak +233200000101" }

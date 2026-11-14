@@ -666,8 +666,14 @@ export async function setShopPref(db: SupabaseClient, sender: string, shopCodeId
   if (error) throw new TtbStoreError("could not save a shop preference")
 }
 
-/** ussd_shop_orders stores the dialing phone in +233 form; a local 0XXXXXXXXX sender maps to it. */
-const dialingForm = (local: string) => `+233${local.replace(/^0/, "")}`
+/**
+ * ussd_shop_orders.dialing_phone is written as the channel gave it: +233... (Uzo, Hubtel), and the WhatsApp shop bot
+ * passes the sender id through (233... without the plus); older rows may be local 0XXXXXXXXX. Match all three.
+ */
+const dialingForms = (local: string) => {
+  const sig = local.replace(/^0/, "")
+  return [`+233${sig}`, `233${sig}`, `0${sig}`]
+}
 // order_status values that mean the customer did not get the bundle (refund sets 'refunded'; 'refunding' is mid-refund).
 const NOT_BOUGHT = new Set(["failed", "refunded", "refunding", "reversed"])
 
@@ -679,7 +685,7 @@ export async function lastBoughtShopCodeId(db: SupabaseClient, senderLocal: stri
   const { data, error } = await db
     .from("ussd_shop_orders")
     .select("shop_code_id, order_status, payment_status")
-    .eq("dialing_phone", dialingForm(senderLocal))
+    .in("dialing_phone", dialingForms(senderLocal))
     .eq("payment_status", "completed")
     .order("created_at", { ascending: false })
     .limit(20)
