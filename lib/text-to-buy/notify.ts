@@ -2,11 +2,16 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { notifyAdmins } from "@/lib/sms-service"
 import { processInbound } from "./handle-inbound"
 import { repricedReply } from "./replies"
-import { sendReply } from "./send-reply"
+import { sendReply, type Payer } from "./send-reply"
 import { adapterForLink, makeAdapters, type Adapters } from "./services"
 import type { OrderKind } from "./services/types"
-import type { TtbSettings } from "./settings"
-import { addNotice, getHeartbeat, patchLink, purgeOld, strandedInbound, touchHeartbeat, watchedLinks, type WatchedLink } from "./store"
+import { releaseReserve, shopAccountFor } from "./shop/credits"
+import { lineEnabled, type TtbSettings } from "./settings"
+import {
+  addNotice, getHeartbeat, noticeOnce, patchLink, purgeOld, reserveMessageIdForLink, staleReserves, strandedInbound, STRANDED_MAX_AGE_MS,
+  touchHeartbeat, watchedLinks, type HeartbeatLine, type WatchedLink,
+} from "./store"
+import type { Line } from "./types"
 
 export { classifyOrder } from "./services/classify"
 export type { OrderKind }
@@ -30,6 +35,11 @@ export type NotifyResult = {
   closed: number
   recovered: number
   purged: number
+  /**
+   * Shop credit reserves released (by a closing link or by the stale sweep) that gave credits back. Absent until the first one,
+   * so a main-only run returns exactly the shape it always did (the lane golden pins it).
+   */
+  reservesReleased?: number
   quietAlert: boolean
 }
 export type NotifyDeps = {
@@ -38,6 +48,10 @@ export type NotifyDeps = {
   processInbound?: typeof processInbound
   /** Merged over the live adapters (makeAdapters()); a link is read, classified and told through its own service's adapter. */
   adapters?: Adapters
+  /** Merged over the shop line's read-only adapters; a shop link is read, classified and told through these. */
+  shopAdapters?: Adapters
+  /** The SMS account that pays for a shop's notices (read-only lookup); the real shopAccountFor when absent. */
+  accountFor?: (db: SupabaseClient, shopId: string) => Promise<{ accountId: string } | null>
   /** Monotonic-enough milliseconds for the sweep time budget only (all notice logic uses `now`). Default Date.now. */
   clock?: () => number
 }
@@ -55,6 +69,12 @@ const ALERT_EVERY_MS = 6 * HOUR
 const ACCRA_OPEN_HOUR = 7 // Africa/Accra is UTC+0 all year: alert only 07:00..21:59
 const ACCRA_CLOSE_HOUR = 22
 
+/** A reserve with no open order is given back once its text is older than the recovery sweep's window (it can never be re-run). */
+const STALE_RESERVE_MS = STRANDED_MAX_AGE_MS
+const RESERVE_GIVE_UP_MS = 7 * 24 * HOUR // a reserve that still cannot be refunded after this is left for a person
+const RESERVE_READ_LIMIT = 100
+const RESERVE_ALERT = "Text-to-Buy: a shop credit reserve could not be given back (check the stale reserves)"
+
 const UNKNOWN_LINK_ALERT = "Text-to-Buy: link with unknown order table:"
 
 const ms = (iso: string | null) => {
@@ -71,6 +91,9 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
   const alert = deps.alert ?? ((m: string) => notifyAdmins(m, "text_to_buy"))
   const inbound = deps.processInbound ?? processInbound
   const adapters: Adapters = { ...makeAdapters(), ...deps.adapters }
+  // The shop line's read-only set (no shop named): status and notices need no shop, and its resolve fails closed.
+  const shopAdapters: Adapters = { ...makeAdapters({}, "shop", null), ...deps.shopAdapters }
+  const accountFor = deps.accountFor ?? shopAccountFor
   let unknownLinkAlerted = false
   const nowMs = now.getTime()
   const nowIso = now.toISOString()
@@ -78,17 +101,58 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
     checked: 0, unpaid: 0, repriced: 0, delivered: 0, delayed: 0, skipped: 0, closed: 0, recovered: 0, purged: 0, quietAlert: false,
   }
 
+  // Per run: a shop's account and a link's reserve key never change inside one run, so each is looked up once.
+  const accounts = new Map<string, Promise<{ accountId: string } | null>>()
+  const accountOf = (shopId: string) => {
+    let p = accounts.get(shopId)
+    if (!p) {
+      p = accountFor(db, shopId).catch(() => null)
+      accounts.set(shopId, p)
+    }
+    return p
+  }
+  const reserveKeys = new Map<string, Promise<string | null>>()
+  const reserveKeyOf = (l: WatchedLink) => {
+    let p = reserveKeys.get(l.id)
+    if (!p) {
+      p = reserveMessageIdForLink(db, l).catch(() => null)
+      reserveKeys.set(l.id, p)
+    }
+    return p
+  }
+
+  /** The shop payer for one notice of a shop link: one credit, drawn from the order's reserve when it has one. Null: no account. */
+  async function shopPayer(l: WatchedLink, key: string): Promise<Payer | null> {
+    if (!l.shopId) return null
+    const acct = await accountOf(l.shopId)
+    if (!acct) return null
+    return { kind: "shop", shopId: l.shopId, accountId: acct.accountId, messageId: await reserveKeyOf(l), replyKey: `n-${l.id}-${key}` }
+  }
+
   /**
    * Records the notice, THEN sends. Returns true only when the SMS was actually sent (the caller counts it). Not recorded by this
    * call (another run won) or send failed: false. A failed send is never retried, and neither is a skipped one: a global
    * SMS-off period drops follow-up notices (counted in `skipped`).
+   * A shop link's notice is paid by the shop (no Datagod fallback), except one marked `datagodIfUnpaid`: when the shop cannot
+   * cover it, that single notice (recorded above, so at most once per order) is sent Datagod-paid instead.
    */
-  async function notice(l: WatchedLink, key: string, body: string): Promise<boolean> {
+  async function notice(l: WatchedLink, key: string, body: string, o: { datagodIfUnpaid?: boolean } = {}): Promise<boolean> {
     if (l.notices.includes(key)) return false
     if (!(await addNotice(db, l.id, l.notices, key))) return false
     l.notices = [...l.notices, key]
     try {
-      const r = await reply(db, { line: l.line, sender: l.sender, body, settings, orderLinkId: l.id })
+      if (l.line !== "shop") {
+        const r = await reply(db, { line: l.line, sender: l.sender, body, settings, orderLinkId: l.id })
+        if (r?.skipped) result.skipped++
+        return r?.sent === true
+      }
+      const payer = await shopPayer(l, key)
+      let r: Awaited<ReturnType<typeof sendReply>> | undefined = payer
+        ? await reply(db, { line: l.line, sender: l.sender, body, settings, orderLinkId: l.id, payer })
+        : { sent: false, skipped: "unpaid" }
+      if (r?.skipped === "unpaid" && o.datagodIfUnpaid) {
+        r = await reply(db, { line: l.line, sender: l.sender, body, settings, orderLinkId: l.id, payer: { kind: "datagod" } })
+      }
       if (r?.skipped) result.skipped++
       return r?.sent === true
     } catch {
@@ -96,12 +160,28 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
     }
   }
 
+  /** Gives back the unused credits of one order's reserve. Idempotent in SQL. Throws only when the release itself failed. */
+  async function release(messageId: string): Promise<void> {
+    if ((await releaseReserve(db, messageId)) > 0) result.reservesReleased = (result.reservesReleased ?? 0) + 1
+  }
+
   async function close(l: WatchedLink, extra: { delivered_at?: string } = {}): Promise<void> {
     if (await patchLink(db, l.id, { state: "closed", closed_at: nowIso, ...extra }, ["awaiting_payment", "paid"])) result.closed++
+    if (l.line !== "shop") return
+    // The order is over: its reserve goes back (idempotent, so a repeat or a reserve already released refunds nothing more). A
+    // failure never stops the run; the stale sweep finds a closed link with an unreleased reserve and retries it.
+    try {
+      const messageId = await reserveKeyOf(l)
+      if (messageId) await release(messageId)
+    } catch (e) {
+      logError("release", l.id, e)
+    }
   }
 
   async function followLink(l: WatchedLink): Promise<void> {
-    const adapter = adapterForLink(adapters, l)
+    // A shop link is read through the shop adapters and must name its shop (its notices are paid by it); otherwise it is
+    // an unreadable pair, which is left open and alerted below, never closed and never read as a main row.
+    const adapter = l.line === "shop" && !l.shopId ? null : adapterForLink(l.line === "shop" ? shopAdapters : adapters, l)
     if (!adapter) {
       // A pair we cannot read: reading it from the wrong table would find no row and close the link, silently dropping every
       // notice. Leave it open and tell the admins once per run (the link id only: no phone, text or amount).
@@ -161,17 +241,21 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
 
     const sincePaid = nowMs - paidAtMs
     if (kind === "delivery_failed" || sincePaid >= PAID_DELAY_MS) {
-      if (await notice(l, "paid_not_delivered", adapter.notices.paidNotDelivered())) result.delayed++
+      // Silence after the customer has paid is worse than one SMS: this is the only notice Datagod pays for on the shop line.
+      if (await notice(l, "paid_not_delivered", adapter.notices.paidNotDelivered(), { datagodIfUnpaid: true })) result.delayed++
     }
     if (sincePaid >= PAID_WATCH_MS) await close(l)
   }
 
   // 1. Recovery sweep: a text the webhook stored but a crash left unprocessed. processInbound re-claims by itself.
-  if (settings.mainEnabled) {
+  // Each line is recovered only while its own switch is on; a stranded text re-runs with its own line (the lane's pre-write
+  // guard stops a second order).
+  const liveLines = (["main", "shop"] as Line[]).filter((x) => lineEnabled(settings, x))
+  if (liveLines.length > 0) {
     try {
       const clock = deps.clock ?? Date.now
       const sweepStart = clock()
-      for (const m of await strandedInbound(db, now, SWEEP_LIMIT)) {
+      for (const m of await strandedInbound(db, now, SWEEP_LIMIT, liveLines)) {
         if (clock() - sweepStart >= SWEEP_BUDGET_MS) break
         try {
           const r = await inbound(db, m.id, { line: m.line, from: m.sender, text: m.body, receivedAt: m.receivedAt, now }, settings)
@@ -199,6 +283,35 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
     logError("links-read", null, e)
   }
 
+  // 2b. Stale reserve sweep: an unreleased shop reserve whose text is past the recovery window and has NO open order (a crash
+  // between the reserve and the link, or a release that failed when its link closed) is given back. A reserve whose order link
+  // is still open is left for that link to release. A release that keeps failing (its account was removed) is swallowed and
+  // counted: one fixed, id-free admin alert a day, and it is not retried after RESERVE_GIVE_UP_MS.
+  try {
+    let failed = 0
+    let released = 0
+    for (const r of await staleReserves(db, now, { olderThanMs: STALE_RESERVE_MS, maxAgeMs: RESERVE_GIVE_UP_MS, limit: RESERVE_READ_LIMIT })) {
+      if (released + failed >= SWEEP_LIMIT) break
+      if (r.linkId !== null && r.linkState !== "closed") continue // an open (or unknown) order owns its reserve
+      try {
+        await release(r.messageId)
+        released++
+      } catch {
+        failed++
+      }
+    }
+    if (failed > 0) {
+      console.error("[text-to-buy] notify reserve sweep: releases failed", { failed })
+      try {
+        if (await noticeOnce(db, "reserve_release_failed", "shop", null, nowIso.slice(0, 10))) await alert(RESERVE_ALERT)
+      } catch {
+        // an alert must never stop the run
+      }
+    }
+  } catch (e) {
+    logError("reserve-sweep", null, e)
+  }
+
   // 3. Retention purge, at most once an hour. The marker is written first: a failed purge is retried next hour, never in a loop.
   try {
     const last = await getHeartbeat(db, "purge")
@@ -211,25 +324,30 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
   }
 
   // 4. Quiet-phone alert: only when on, in waking hours, and not more than once in 6 hours. No numbers or texts in the message.
-  try {
-    const hour = now.getUTCHours()
-    if (settings.mainEnabled && hour >= ACCRA_OPEN_HOUR && hour < ACCRA_CLOSE_HOUR) {
-      const seen = await getHeartbeat(db, "main")
-      const quietMs = seen ? nowMs - seen.getTime() : Infinity
-      if (quietMs > settings.quietAlertMinutes * MINUTE) {
-        const lastAlert = await getHeartbeat(db, "quiet_alert")
-        if (!lastAlert || nowMs - lastAlert.getTime() >= ALERT_EVERY_MS) {
-          await touchHeartbeat(db, "quiet_alert", now)
-          result.quietAlert = true
-          const text = seen
-            ? `Text-to-Buy: the forwarder phone has been quiet for ${Math.floor(quietMs / MINUTE)} minutes`
-            : "Text-to-Buy: the forwarder phone has not been seen yet"
-          await alert(text)
+  // Once per line whose switch is on, each with its own marker (quiet_alert for main, quiet_alert_shop for shop).
+  for (const line of liveLines) {
+    try {
+      const hour = now.getUTCHours()
+      if (hour >= ACCRA_OPEN_HOUR && hour < ACCRA_CLOSE_HOUR) {
+        const marker: HeartbeatLine = line === "shop" ? "quiet_alert_shop" : "quiet_alert"
+        const who = line === "shop" ? "the shop line forwarder phone" : "the forwarder phone"
+        const seen = await getHeartbeat(db, line)
+        const quietMs = seen ? nowMs - seen.getTime() : Infinity
+        if (quietMs > settings.quietAlertMinutes * MINUTE) {
+          const lastAlert = await getHeartbeat(db, marker)
+          if (!lastAlert || nowMs - lastAlert.getTime() >= ALERT_EVERY_MS) {
+            await touchHeartbeat(db, marker, now)
+            result.quietAlert = true
+            const text = seen
+              ? `Text-to-Buy: ${who} has been quiet for ${Math.floor(quietMs / MINUTE)} minutes`
+              : `Text-to-Buy: ${who} has not been seen yet`
+            await alert(text)
+          }
         }
       }
+    } catch (e) {
+      logError("quiet-alert", null, e)
     }
-  } catch (e) {
-    logError("quiet-alert", null, e)
   }
 
   return result

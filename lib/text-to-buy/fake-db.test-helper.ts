@@ -15,6 +15,8 @@ export const SCHEMA: Record<string, string[]> = {
   ttb_notices: ["id", "kind", "sender", "shop_id", "day", "created_at"],
   // Not a 0177 table: the USSD shop order table, only the columns the shop line reads.
   ussd_shop_orders: ["id", "shop_code_id", "shop_id", "dialing_phone", "order_status", "payment_status", "amount", "created_at", "updated_at"],
+  // Migration 0180: one credit set-aside per order message. service_role may only SELECT it (rows change through the SQL functions).
+  ttb_credit_reserves: ["message_id", "account_id", "shop_id", "held", "used", "released_at", "created_at"],
   ttb_blocked: ["sender", "reason", "blocked_by", "created_at"],
   ttb_heartbeat: ["line", "last_seen_at"],
   // Not a 0177 table: the existing USSD order table, only the columns the Text-to-Buy lane reads or guards.
@@ -33,6 +35,7 @@ export const RPC_ARGS: Record<string, string[]> = {
   ttb_purge: ["p_before"],
   ttb_add_notice: ["p_id", "p_key"],
   ttb_notice_once: ["p_kind", "p_sender", "p_shop", "p_day"],
+  ttb_release_reserve: ["p_message_id"],
 }
 
 const PRIMARY: Record<string, string[]> = {
@@ -52,6 +55,8 @@ export type FakeTtb = {
   failOn: Record<string, DbError | undefined>
   /** Like failOn, but only for inserts (later reads on the table work normally). */
   failInsert: Record<string, DbError | undefined>
+  /** Credits ttb_release_reserve gave back (one entry per release that refunded something). */
+  refunds: { messageId: string; credits: number }[]
 }
 
 export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; client: never } {
@@ -61,6 +66,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     rpcImpl: () => ({ data: null, error: null }),
     failOn: {},
     failInsert: {},
+    refunds: [],
   }
   Object.assign(db.tables, seed)
 
@@ -267,6 +273,18 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
         if (db.tables.ttb_notices.some(same)) return Promise.resolve({ data: false, error: null })
         db.tables.ttb_notices.push({ id: crypto.randomUUID(), kind: args.p_kind, sender: args.p_sender, shop_id: args.p_shop ?? null, day: args.p_day, created_at: new Date().toISOString() })
         return Promise.resolve({ data: true, error: null })
+      }
+      // ttb_release_reserve is faithful: marks released_at only where NULL and refunds held - used, once; 0 on a repeat or unknown.
+      // failOn.ttb_release_reserve makes it raise (the real function raises REFUND_FAILED when the account is gone), while
+      // reads of ttb_credit_reserves keep working.
+      if (name === "ttb_release_reserve") {
+        if (db.failOn.ttb_release_reserve) return Promise.resolve({ data: null, error: db.failOn.ttb_release_reserve })
+        const row = db.tables.ttb_credit_reserves.find((r) => r.message_id === args.p_message_id)
+        if (!row || row.released_at != null) return Promise.resolve({ data: 0, error: null })
+        row.released_at = new Date().toISOString()
+        const back = Number(row.held) - Number(row.used)
+        if (back > 0) db.refunds.push({ messageId: String(args.p_message_id), credits: back })
+        return Promise.resolve({ data: back, error: null })
       }
       return Promise.resolve(db.rpcImpl(name, args))
     },

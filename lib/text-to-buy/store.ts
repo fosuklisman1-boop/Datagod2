@@ -455,9 +455,11 @@ export type WatchedLink = {
   createdAt: string
   paidAt: string | null
   deliveredAt: string | null
+  /** The shop a shop-line order was placed for; null on the main line (and on a shop row that somehow lacks it). */
+  shopId: string | null
 }
 
-const WATCH_COLUMNS = "id, line, sender, order_id, service, order_table, state, size, recipient, gift, amount, notices, created_at, paid_at, delivered_at"
+const WATCH_COLUMNS = "id, line, sender, order_id, service, order_table, state, size, recipient, gift, amount, notices, created_at, paid_at, delivered_at, shop_id"
 const LATE_APPROVAL_MS = 48 * 60 * 60_000
 
 function toWatched(r: Record<string, unknown>): WatchedLink {
@@ -477,6 +479,7 @@ function toWatched(r: Record<string, unknown>): WatchedLink {
     createdAt: String(r.created_at),
     paidAt: typeof r.paid_at === "string" ? r.paid_at : null,
     deliveredAt: typeof r.delivered_at === "string" ? r.delivered_at : null,
+    shopId: typeof r.shop_id === "string" && r.shop_id ? r.shop_id : null,
   }
 }
 
@@ -525,24 +528,89 @@ export async function patchLink(
 
 export type StrandedInbound = { id: string; line: Line; sender: string; body: string; receivedAt: Date | null }
 
-/** Inbound rows with no outcome that are between 90 seconds and 15 minutes old: a crash mid-processing. Oldest first. */
-export async function strandedInbound(db: SupabaseClient, now: Date, limit = 20): Promise<StrandedInbound[]> {
+/** How old an unprocessed inbound row may be and still be recovered by the sweep. Past this it is never re-run. */
+export const STRANDED_MAX_AGE_MS = 15 * 60_000
+
+/**
+ * Inbound rows with no outcome that are between 90 seconds and 15 minutes old: a crash mid-processing. Oldest first.
+ * `lines`, when given, limits the read to those lines (a line whose switch is off is not recovered).
+ */
+export async function strandedInbound(db: SupabaseClient, now: Date, limit = 20, lines?: Line[]): Promise<StrandedInbound[]> {
   const newest = new Date(now.getTime() - 90_000).toISOString()
-  const oldest = new Date(now.getTime() - 15 * 60_000).toISOString()
-  const { data, error } = await db
+  const oldest = new Date(now.getTime() - STRANDED_MAX_AGE_MS).toISOString()
+  let query = db
     .from("ttb_messages")
     .select("id, line, sender, body, received_at")
     .eq("direction", "in")
     .is("outcome", null)
     .gte("created_at", oldest)
     .lt("created_at", newest)
-    .order("created_at", { ascending: true })
-    .limit(limit)
+  if (lines) query = query.in("line", lines)
+  const { data, error } = await query.order("created_at", { ascending: true }).limit(limit)
   if (error || !Array.isArray(data)) throw new TtbStoreError("could not read stranded messages")
   return data.map((r) => {
     const x = r as Record<string, unknown>
     const t = typeof x.received_at === "string" ? Date.parse(x.received_at) : NaN
     return { id: String(x.id), line: x.line === "shop" ? "shop" : "main", sender: String(x.sender), body: String(x.body), receivedAt: Number.isNaN(t) ? null : new Date(t) }
+  })
+}
+
+/**
+ * The INBOUND message id a shop order's credit reserve is keyed by: the text that placed the order carries the link id
+ * (setInboundResult orderLinkId). Null when no such text is recorded. The sender and line narrow the read to an indexed range.
+ */
+export async function reserveMessageIdForLink(db: SupabaseClient, link: { id: string; line: Line; sender: string }): Promise<string | null> {
+  const { data, error } = await db
+    .from("ttb_messages")
+    .select("id")
+    .eq("line", link.line)
+    .eq("sender", link.sender)
+    .eq("direction", "in")
+    .eq("order_link_id", link.id)
+    .limit(1)
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not read a reserve key")
+  const id = (data[0] as { id?: unknown } | undefined)?.id
+  return typeof id === "string" ? id : null
+}
+
+/** An unreleased credit reserve and the order link its text placed (null when the text never got one). Ids only. */
+export type StaleReserve = { messageId: string; shopId: string; linkId: string | null; linkState: string | null }
+
+/**
+ * Unreleased shop credit reserves created between `maxAgeMs` and `olderThanMs` ago, oldest first, with the link each one belongs
+ * to. ttb_credit_reserves is SELECT-only for service_role (rows change through the ttb_*_reserve functions). The upper age bound
+ * keeps a reserve that can never be refunded (its account is gone) from crowding out the rest forever.
+ */
+export async function staleReserves(db: SupabaseClient, now: Date, o: { olderThanMs: number; maxAgeMs: number; limit: number }): Promise<StaleReserve[]> {
+  const newest = new Date(now.getTime() - o.olderThanMs).toISOString()
+  const oldest = new Date(now.getTime() - o.maxAgeMs).toISOString()
+  const res = await db
+    .from("ttb_credit_reserves")
+    .select("message_id, shop_id, created_at")
+    .is("released_at", null)
+    .lt("created_at", newest)
+    .gte("created_at", oldest)
+    .order("created_at", { ascending: true })
+    .limit(o.limit)
+  if (res.error || !Array.isArray(res.data)) throw new TtbStoreError("could not read stale reserves")
+  const reserves = res.data.map((r) => r as Record<string, unknown>).filter((r) => typeof r.message_id === "string" && typeof r.shop_id === "string")
+  if (reserves.length === 0) return []
+
+  const msgs = await db.from("ttb_messages").select("id, order_link_id").in("id", reserves.map((r) => r.message_id as string))
+  if (msgs.error || !Array.isArray(msgs.data)) throw new TtbStoreError("could not read reserve messages")
+  const linkOf = new Map<string, string>()
+  for (const m of msgs.data as Record<string, unknown>[]) if (typeof m.id === "string" && typeof m.order_link_id === "string") linkOf.set(m.id, m.order_link_id)
+
+  const linkIds = [...new Set(linkOf.values())]
+  const stateOf = new Map<string, string>()
+  if (linkIds.length > 0) {
+    const links = await db.from("ttb_orders").select("id, state").in("id", linkIds)
+    if (links.error || !Array.isArray(links.data)) throw new TtbStoreError("could not read reserve links")
+    for (const l of links.data as Record<string, unknown>[]) if (typeof l.id === "string") stateOf.set(l.id, String(l.state))
+  }
+  return reserves.map((r) => {
+    const linkId = linkOf.get(r.message_id as string) ?? null
+    return { messageId: r.message_id as string, shopId: r.shop_id as string, linkId, linkState: linkId ? stateOf.get(linkId) ?? null : null }
   })
 }
 
