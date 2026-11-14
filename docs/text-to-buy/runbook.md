@@ -387,7 +387,7 @@ What it is NOT:
 
 ### 13.3 DEPLOY ORDER (CRITICAL)
 
-**Apply the migration BEFORE the code deploys.** The notifier (the part that follows up on open orders every minute) now reads `ttb_orders.shop_id` and the table `ttb_credit_reserves`. If the code is live without the migration, the notifier errors every minute. This is the opposite of "harmless noise" in section 5: do not deploy first.
+**Apply the migration BEFORE the code deploys.** The notifier (the part that follows up on open orders every minute) now reads `ttb_orders.shop_id` and the table `ttb_credit_reserves`. If the code goes live before the migration, the MAIN line keeps working: the main notifier falls back to the old column list, so unpaid, delivered and paid-not-delivered texts still go out. But shop links and shop reserve release need the migration (a shop link read without it stays open with the "unreadable link" alert, and the reserve sweep logs an error each minute), and the shop line must stay off. So still apply the migration first; do not rely on the fallback.
 
 Migration: `migrations/0180_text_to_buy_shop_line.sql` (self-test: `migrations/0180_text_to_buy_shop_line.selftest.sql`). It was first numbered 0179 and renumbered because main took 0179. Before applying, re-check that nothing newer has taken 0180.
 
@@ -429,6 +429,8 @@ select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.ttb
 
 The shop switch (`shopEnabled`, `ttb_shop_enabled`) is OFF by default and switching it ON asks for confirmation. The main switch does not control it: the two lines are separate. Turn it on ONLY after the supervised test in 13.5 has passed, and only after 13.2 is complete. Leave it on for a day and watch the Overview shop card (paused shops, replies) before announcing.
 
+Launch gates, all required before switching on: (1) the supervised test in 13.5 passed; (2) 13.2 complete, including "the AI reader must be ON" (13.2 item 6); (3) the paused-shop alert goes to admins only until Stage 3b (shop owners are not told when their shop is paused): confirm you accept that before switching on.
+
 ### 13.5 Supervised paid test (own shop, own number, MoMo)
 
 Use a shop you own and your own phone with MoMo. Smallest package. Have the shop credit balance, the shop's profit rows and `/admin/text-to-buy` Messages open.
@@ -457,7 +459,8 @@ Repeat step 1 on MTN, Telecel and AT payer numbers where you can (Telecel only w
 ### 13.7 Behaviour you should know
 
 - Price is the quote. If Hubtel fails to start the payment, the order FAILS and the customer gets the failure notice; they retry with YES. There is no silent switch to Paystack at a higher price, as the main line has.
-- Shop-paid replies do not count toward Datagod's global reply cap. They are limited per shop instead: setting `ttb_shop_replies_per_hour_per_shop` (default 60). Over the cap the reply is silent: no order, no reserve, no Datagod fallback.
+- Shop-paid replies do not count toward Datagod's global reply cap (`ttb_global_replies_per_hour`). On the shop line that cap counts only Datagod-paid rows (the ones with no shop on them), so busy shops can never silence "Which shop?", "shop not found" or the closed and paused notices. Shop-paid replies are limited per shop instead: setting `ttb_shop_replies_per_hour_per_shop` (default 60). Over the cap the reply is silent: no order, no reserve, no Datagod fallback.
+- If the server crashes and the text is re-run after its reserve was already released, the order is placed with no live reserve and its replies fall back to single 1-credit debits. No money is lost.
 - "Last bought from" (used to guess the shop when no code and no remembered shop) reads shop USSD, Hubtel and WhatsApp orders only. It does not see other kinds of order.
 - The paused-shop alert goes to admins only for now. A message to the shop owner comes in Stage 3b. If you want a shop to know, tell them.
 - A customer can have one main order and one shop order open at once. A second shop order is blocked while a shop order is open.
