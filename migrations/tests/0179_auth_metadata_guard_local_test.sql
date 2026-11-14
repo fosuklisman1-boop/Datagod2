@@ -89,6 +89,10 @@ BEGIN
   UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || '{"role":"admin"}' WHERE id = u3;
   ASSERT pg_temp.meta(u3)->>'role' = 'user', '3 pinned to users.role';
   ASSERT pg_temp.alerts('metadata_tamper') = 2, '3 alert';
+  -- An attacker looping updateUser is still pinned every time, but alerts once per user per hour.
+  UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || '{"role":"admin","is_admin":true}' WHERE id = u3;
+  ASSERT pg_temp.meta(u3)->>'role' = 'user' AND NOT (pg_temp.meta(u3) ? 'is_admin'), '3 repeat still pinned';
+  ASSERT pg_temp.alerts('metadata_tamper') = 2, '3 repeat attempt does not re-alert within the hour';
 
   -- 4. Server role change (update-role order: users first, then metadata): kept, no alert.
   UPDATE public.users SET role = 'dealer' WHERE id = u3;
@@ -112,11 +116,16 @@ BEGIN
   ASSERT pg_temp.alerts('impersonation_name') = 1, '7 signup name alert';
   UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data WHERE id = u5;
   ASSERT pg_temp.alerts('impersonation_name') = 1, '7 unchanged name does not re-alert';
+  -- Same user again from the profile side (handle_new_user / profile edit): deduped for a day.
   INSERT INTO public.users (id, role, first_name) VALUES (u5, 'user', 'Ama');
   UPDATE public.users SET first_name = 'Admin', last_name = 'QA' WHERE id = u5;
+  ASSERT pg_temp.alerts('impersonation_name') = 1, '7 one alert per user per day';
+  -- A different user changing their profile name does alert.
+  UPDATE public.users SET first_name = 'Customer Care' WHERE id = u3;
   ASSERT pg_temp.alerts('impersonation_name') = 2, '7 profile name alert';
-  UPDATE public.users SET first_name = 'Ama' WHERE id = u3;
-  ASSERT pg_temp.alerts('impersonation_name') = 2, '7 normal name no alert';
+  -- Whole words only: real names that merely contain the letters do not alert.
+  UPDATE public.users SET first_name = 'Badminton', last_name = 'Staffordshire', username = 'supportive_kofi' WHERE id = u2;
+  ASSERT pg_temp.alerts('impersonation_name') = 2, '7 substrings do not alert';
   -- A real admin may use such words.
   UPDATE public.users SET first_name = 'Datagod Admin' WHERE id = ua;
   ASSERT pg_temp.alerts('impersonation_name') = 2, '7 real admin exempt';

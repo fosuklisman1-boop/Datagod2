@@ -21,6 +21,9 @@
 
 BEGIN;
 
+-- The backfill + trigger DDL lock auth.users until COMMIT; never queue logins for long.
+SET LOCAL lock_timeout = '3s';
+
 -- ── 1. Probe domains ────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.reject_disposable_email()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $fn$
@@ -37,10 +40,27 @@ BEGIN
 END;
 $fn$;
 
--- ── 2. Name check helper ────────────────────────────────────────────────────────
+-- ── 2. Helpers ──────────────────────────────────────────────────────────────────
+-- Whole words only (\m \M), so "Badminton", "Staffordshire", "supportive" do not match.
 CREATE OR REPLACE FUNCTION public.is_impersonating_name(p text)
 RETURNS boolean LANGUAGE sql IMMUTABLE AS $fn$
-  SELECT coalesce(p, '') ~* '(admin|support|datagod|staff|official|moderator|customer\s*care|help\s*desk)'
+  SELECT coalesce(p, '') ~* '\m(admin|administrator|support|staff|official|moderator)\M|\mdatagod|\mcustomer\s*care\M|\mhelp\s*desk\M'
+$fn$;
+
+-- At most one alert per (category, user) per window: every alert is posted to the app by
+-- security_alerts_notify_trg, so a looping attacker or a double trigger must not page repeatedly.
+CREATE OR REPLACE FUNCTION public.raise_security_alert_once(
+  p_severity text, p_category text, p_title text, p_detail jsonb, p_actor text, p_user uuid, p_window interval)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $fn$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM public.security_alerts
+    WHERE category = p_category AND created_at > now() - p_window AND detail->>'user_id' = p_user::text
+  ) THEN
+    RETURN;
+  END IF;
+  PERFORM public.raise_security_alert(p_severity, p_category, p_title, p_detail, p_actor);
+END;
 $fn$;
 
 -- ── 3. Pin role / strip is_admin in auth metadata ───────────────────────────────
@@ -70,12 +90,12 @@ BEGIN
   -- Tamper alert: an overridden claim that is not one of the harmless roles, or any is_admin=true.
   IF (v_claim <> '' AND v_claim <> v_role AND v_claim NOT IN ('user', 'sub_agent')) OR v_claim_adm THEN
     BEGIN
-      PERFORM public.raise_security_alert(
+      PERFORM public.raise_security_alert_once(
         'high', 'metadata_tamper',
         'Auth metadata role claim overridden: ' || coalesce(NEW.email, NEW.id::text),
         jsonb_build_object('user_id', NEW.id, 'op', TG_OP, 'claimed_role', nullif(v_claim, ''),
                            'claimed_is_admin', v_claim_adm, 'pinned_role', v_role),
-        coalesce(NEW.email, NEW.id::text));
+        coalesce(NEW.email, NEW.id::text), NEW.id, interval '1 hour');
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
   END IF;
@@ -86,11 +106,11 @@ BEGIN
     v_old_name := concat_ws(' ', v_old_meta->>'first_name', v_old_meta->>'last_name', v_old_meta->>'full_name', v_old_meta->>'name');
     IF public.is_impersonating_name(v_name) AND v_name IS DISTINCT FROM v_old_name THEN
       BEGIN
-        PERFORM public.raise_security_alert(
+        PERFORM public.raise_security_alert_once(
           'medium', 'impersonation_name',
           'Account name looks like staff/brand: ' || coalesce(NEW.email, NEW.id::text),
           jsonb_build_object('user_id', NEW.id, 'source', 'auth_metadata', 'name', left(v_name, 120)),
-          coalesce(NEW.email, NEW.id::text));
+          coalesce(NEW.email, NEW.id::text), NEW.id, interval '1 day');
       EXCEPTION WHEN OTHERS THEN NULL;
       END;
     END IF;
@@ -98,7 +118,8 @@ BEGIN
 
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  -- Never block signup/login. Still remove the privileged keys.
+  -- Never block signup/login. Still remove the privileged keys, and leave a trace in the logs.
+  RAISE WARNING 'auth_users_pin_metadata failed for %: %', NEW.id, SQLERRM;
   NEW.raw_user_meta_data := coalesce(NEW.raw_user_meta_data, '{}'::jsonb) - 'is_admin' - 'role';
   RETURN NEW;
 END;
@@ -129,11 +150,11 @@ DECLARE
   v_old  text := CASE WHEN TG_OP = 'UPDATE' THEN concat_ws(' ', OLD.first_name, OLD.last_name, OLD.username) ELSE NULL END;
 BEGIN
   IF coalesce(NEW.role, '') <> 'admin' AND public.is_impersonating_name(v_name) AND v_name IS DISTINCT FROM v_old THEN
-    PERFORM public.raise_security_alert(
+    PERFORM public.raise_security_alert_once(
       'medium', 'impersonation_name',
       'Account name looks like staff/brand: ' || coalesce(NEW.email, NEW.id::text),
       jsonb_build_object('user_id', NEW.id, 'source', 'profile', 'name', left(v_name, 120)),
-      coalesce(NEW.email, NEW.id::text));
+      coalesce(NEW.email, NEW.id::text), NEW.id, interval '1 day');
   END IF;
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
@@ -149,5 +170,6 @@ CREATE TRIGGER users_flag_impersonating_name_trg
 -- These run only as triggers; nobody calls them directly.
 REVOKE ALL ON FUNCTION public.auth_users_pin_metadata() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.users_flag_impersonating_name() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.raise_security_alert_once(text, text, text, jsonb, text, uuid, interval) FROM PUBLIC, anon, authenticated;
 
 COMMIT;
