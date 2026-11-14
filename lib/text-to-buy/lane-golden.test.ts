@@ -305,3 +305,50 @@ describe("lane golden: notifier", () => {
     ).toMatchSnapshot()
   })
 })
+
+/** Stage 3a: the shop line. New scenarios only; the main scenarios above are untouched. */
+describe("lane golden: shop line", () => {
+  const code = { shopCodeId: "sc1", shopId: "shop1", shopName: "Ama Data Hub", parentShopId: null, status: "active", tokenBalance: 0, whatsappActivated: false, ownerPhone: "0241234567" }
+  function shopSetup(status = "active") {
+    const t = setup({}, { settings: { shopEnabled: true, shopNumber: "0200000999" } })
+    const prefs = { id: null as string | null }
+    const credits = { accountFor: vi.fn(async () => ({ accountId: "acct1" })), reserve: vi.fn(async () => ({ ok: true as const })), release: vi.fn(async () => 2), capReached: vi.fn(async () => false) }
+    const shop = {
+      resolve: {
+        resolveShopCode: vi.fn(async (c: string) => (c === "K7X9" ? { ...code, status } : null)),
+        getShopPref: vi.fn(async () => (prefs.id ? { shopCodeId: prefs.id } : null)),
+        setShopPref: vi.fn(async (_s: string, id: string) => void (prefs.id = id)),
+        lastBoughtShopCodeId: vi.fn(async () => null),
+        shopCodeById: vi.fn(async () => ({ ...code, status })),
+      },
+      shopData: {
+        shopPrices: vi.fn(async (_s: unknown, p: string) => (p === "MTN" ? [{ id: "b5", size: "5", price: 23.5 }] : [])),
+        verifyPrice: vi.fn(async () => ({ verifiedPrice: 23.5 })),
+        carrierOf: vi.fn(async () => "MTN" as const),
+        confirmShop: vi.fn(async () => ({ orderId: ORDER, amountGhs: 23.5 })),
+        dataVisible: vi.fn(async () => true),
+      },
+      credits,
+    }
+    t.deps.readAi.mockResolvedValue({ kind: "order", service: "data", sizeMb: 5000, networkHint: null, recipient: null, bare: false })
+    async function runShop(text: string, at = 0) {
+      const input: InboundInput = { line: "shop", from: S, text, receivedAt: null, now: new Date(now.getTime() + at) }
+      const { id } = await acceptInbound(t.c, input)
+      return processInbound(t.c, id, input, { ...settings, shopEnabled: true, shopNumber: "0200000999" }, { ...t.deps, shop } as unknown as InboundDeps)
+    }
+    return { t, shop, credits, runShop }
+  }
+
+  it("shop order by code: reserve, place, link with shop, quote naming the shop", async () => {
+    const s = shopSetup()
+    const r = await s.runShop("K7X9 5gb")
+    expect(stable({ r, reserves: s.credits.reserve.mock.calls.map((c) => (c as unknown as unknown[])[1]), orders: s.t.f.db.tables.ttb_orders, conversations: s.t.f.db.tables.ttb_conversations, replies: s.t.deps.reply.mock.calls.map((x) => (x as unknown as [unknown, Record<string, unknown>])[1]) })).toMatchSnapshot()
+  })
+
+  it("closed shop: one Datagod-paid closed reply, nothing placed", async () => {
+    const s = shopSetup("inactive")
+    await s.runShop("K7X9 5gb")
+    await s.runShop("K7X9 5gb now", MIN)
+    expect(stable({ notices: s.t.f.db.tables.ttb_notices.map((n) => ({ ...n, created_at: undefined })), orders: s.t.f.db.tables.ttb_orders, replies: s.t.deps.reply.mock.calls.map((x) => (x as unknown as [unknown, Record<string, unknown>])[1]) })).toMatchSnapshot()
+  })
+})

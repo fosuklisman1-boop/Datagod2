@@ -2739,3 +2739,147 @@ exports[`lane golden: notifier > waiting under the window 1`] = `
   },
 }
 `;
+
+exports[`lane golden: shop line > closed shop: one Datagod-paid closed reply, nothing placed 1`] = `
+{
+  "notices": [
+    {
+      "day": "2026-11-13",
+      "id": "<uuid-1>",
+      "kind": "closed",
+      "sender": "0200000101",
+      "shop_id": "shop1",
+    },
+  ],
+  "orders": [],
+  "replies": [
+    {
+      "body": "Ama Data Hub can't take text orders right now. Call 0241234567.",
+      "line": "shop",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "airtimeEnabled": false,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "resultsCheckerEnabled": false,
+        "retentionDays": 30,
+        "shopEnabled": true,
+        "shopNumber": "0200000999",
+        "shopRepliesPerHourPerShop": 60,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+}
+`;
+
+exports[`lane golden: shop line > shop order by code: reserve, place, link with shop, quote naming the shop 1`] = `
+{
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:20:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000101",
+        "shopCodeId": "sc1",
+        "sizeMb": 5000,
+      },
+      "line": "shop",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "K7X9 5gb",
+        },
+        {
+          "role": "assistant",
+          "text": "Ama Data Hub: 5GB MTN for 0200000101, GHS 23.50. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:00:00.000Z",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.5,
+      "gift": false,
+      "id": "<uuid-3>",
+      "line": "shop",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_shop_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "shop_id": "shop1",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "r": {
+    "orderId": "<uuid-1>",
+    "outcome": "prompted",
+    "readBy": "ai",
+    "reply": "Ama Data Hub: 5GB MTN for 0200000101, GHS 23.50. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+  },
+  "replies": [
+    {
+      "body": "Ama Data Hub: 5GB MTN for 0200000101, GHS 23.50. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "shop",
+      "orderLinkId": "<uuid-3>",
+      "payer": {
+        "accountId": "acct1",
+        "kind": "shop",
+        "messageId": "<uuid-2>",
+        "replyKey": "<uuid-2>-1",
+        "shopId": "shop1",
+      },
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "airtimeEnabled": false,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "resultsCheckerEnabled": false,
+        "retentionDays": 30,
+        "shopEnabled": true,
+        "shopNumber": "0200000999",
+        "shopRepliesPerHourPerShop": 60,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "reserves": [
+    {
+      "accountId": "acct1",
+      "credits": 2,
+      "messageId": "<uuid-2>",
+      "shopId": "shop1",
+    },
+  ],
+}
+`;

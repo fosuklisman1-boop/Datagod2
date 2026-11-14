@@ -13,7 +13,8 @@ import { sendReply } from "./send-reply"
 import { adapterForLink, makeAdapters, type Adapters } from "./services"
 import type { DataOffer } from "./services/data"
 import type { PlaceResult, ServiceOffer } from "./services/types"
-import type { TtbSettings } from "./settings"
+import { lineEnabled, type TtbSettings } from "./settings"
+import { makeShopLane, mainWrongLine, type ShopLane, type ShopLaneDeps } from "./shop/lane"
 import {
   claimInbound, closeStaleLinks, counts, countOutbound, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
   linkOrder, loadConversation, saveConversation, setInboundResult, storeInbound, type Conversation,
@@ -41,6 +42,8 @@ export type InboundDeps = {
   adapters?: Adapters
   /** Try-it: no writes, no SMS, no order. The result carries the reply that would be sent. */
   dryRun?: boolean
+  /** The shop line's collaborators (shop lookups, shop adapter deps, credits); the real ones when absent. */
+  shop?: ShopLaneDeps
 }
 export type InboundResult = { outcome: Outcome; readBy: "rules" | "ai" | null; reply: string | null; orderId?: string }
 
@@ -105,7 +108,8 @@ export async function processInbound(
   const resolve = deps.resolve ?? resolveOffer
   const prices = deps.prices ?? listPrices
   const confirm = deps.confirm ?? handleConfirm
-  const adapters: Adapters = { ...makeAdapters({ resolve, confirm }), ...deps.adapters }
+  // The shop line starts with the read-only shop set (status, notices); its priced set is built once a shop has resolved.
+  let adapters: Adapters = { ...makeAdapters({ resolve, confirm, shopData: deps.shop?.shopData }, i.line), ...deps.adapters }
   const reply = deps.reply ?? sendReply
   const alert = deps.alert ?? ((m: string) => notifyAdmins(m, "text_to_buy"))
   const now = i.now.getTime()
@@ -140,19 +144,24 @@ export async function processInbound(
     return true
   }
 
+  // The shop line's steps (null on the main line). Replies of a text whose shop has resolved are shop-paid unless the caller says
+  // datagod: the shop's own hourly cap then replaces Datagod's global cap (shop-paid replies cost Datagod nothing).
+  let lane: ShopLane | null = null
+
   async function finish(
     outcome: Outcome,
     text: string | null,
-    extra: { orderLinkId?: string; orderId?: string; transactional?: boolean } = {},
+    extra: { orderLinkId?: string; orderId?: string; transactional?: boolean; datagod?: boolean } = {},
   ): Promise<InboundResult> {
+    const shopPaid = lane !== null && !extra.datagod && lane.paysReplies()
     // Every reply goes through here, so the overall cap cannot be bypassed. The order quote ("prompted") and replies sent after
     // an order already exists and its MoMo prompt has started (transactional) are never held back.
-    if (text && outcome !== "prompted" && !extra.transactional && (await replyCapReached())) {
+    if (text && outcome !== "prompted" && !extra.transactional && (await (shopPaid ? lane!.capReached() : replyCapReached()))) {
       outcome = "limited"
       text = null
     }
     if (!dry) {
-      if (text) await reply(db, { line: i.line, sender: i.from, body: text, settings, orderLinkId: extra.orderLinkId })
+      if (text) await reply(db, { line: i.line, sender: i.from, body: text, settings, orderLinkId: extra.orderLinkId, ...(shopPaid ? { payer: lane!.payer() } : {}) })
       await setInboundResult(db, messageId, { readBy, outcome, orderLinkId: extra.orderLinkId })
     }
     return { outcome, readBy, reply: text, ...(!dry && extra.orderId ? { orderId: extra.orderId } : {}) }
@@ -170,6 +179,8 @@ export async function processInbound(
   }
 
   try {
+    // The shop line has its own switch (the webhook gates both lines too; a stranded text recovered later is gated here).
+    if (!dry && i.line === "shop" && !lineEnabled(settings, "shop")) return await finish("off", null)
     if (await isBlocked(db, i.from)) return await finish("blocked", null)
 
     // A receive time more than 2 minutes ahead of us is a bad clock, not a fresh message: treat it as absent.
@@ -194,10 +205,21 @@ export async function processInbound(
       )
     }
 
-    // Only the services that are switched on for texting are named to the customer.
-    const offered = { airtime: settings.airtimeEnabled, resultsChecker: settings.resultsCheckerEnabled }
+    // Only the services that are switched on for texting are named to the customer. The shop line sells data only.
+    const offered = i.line === "shop"
+      ? { airtime: false, resultsChecker: false }
+      : { airtime: settings.airtimeEnabled, resultsChecker: settings.resultsCheckerEnabled }
+
+    if (i.line === "shop") {
+      lane = makeShopLane({
+        db, messageId, sender: i.from, text: i.text, now: i.now, dry, settings, deps: deps.shop ?? {}, alert, say: finish, remember,
+        buildAdapters: (shop) => ({ ...makeAdapters({ resolve, confirm, shopData: deps.shop?.shopData }, "shop", shop), ...deps.adapters }),
+      })
+    }
 
     const priceList = async (outcome: "keyword" | "price_answer"): Promise<InboundResult> => {
+      // The shop line has no price list of its own yet: never show the main catalogue's prices on it.
+      if (i.line === "shop") return await finish(outcome, helpReply(offered), { datagod: true })
       const list = await prices(db, i.from)
       if (!list) return await finish(outcome, helpReply(offered))
       const text = priceListReply(list.networkLabel, list.items)
@@ -214,9 +236,20 @@ export async function processInbound(
       parsed = { kind: "unknown" }
     }
     let read: ReadResult = parsed
+    // Shop line only: the shop of the last order, when AGAIN / YES retry it (the same shop is re-resolved, never another one).
+    let retry: { shopCodeId: string | null } | null = null
+    const lastShop = (): { shopCodeId: string | null } => ({
+      shopCodeId: conv.lastOrder && !("service" in conv.lastOrder) ? (conv.lastOrder.shopCodeId ?? null) : null,
+    })
+
+    // Shop line: a shop code answering "Which shop?" completes the held read before anything else reads the text.
+    const held = lane ? await lane.held(conv.pending) : null
+    if (held && "done" in held) return held.done
 
     const picked = pickedOption(parsed, conv.pending) ?? pickedQuantity(parsed, conv.pending) ?? pickedAmount(i.text, conv.pending)
-    if (picked) {
+    if (held) {
+      read = held.read
+    } else if (picked) {
       read = picked
     } else if (parsed.kind === "keyword") {
       switch (parsed.keyword) {
@@ -234,6 +267,7 @@ export async function processInbound(
         }
         case "AGAIN":
           read = conv.lastOrder ? rebuildFromLastOrder(conv.lastOrder) : NOT_ORDER
+          if (lane) retry = lastShop()
           break
         case "YES": {
           if (conv.pending?.type === "confirm") {
@@ -242,6 +276,7 @@ export async function processInbound(
             const link = await latestOrderLink(db, i.line, i.from)
             const unpaid = !!link && link.notices.includes("unpaid") && now - Date.parse(link.createdAt) <= CONVERSATION_WINDOW_MS
             read = unpaid ? rebuildFromLastOrder(conv.lastOrder) : NOT_ORDER
+            if (lane) retry = lastShop()
           } else {
             read = NOT_ORDER
           }
@@ -260,7 +295,14 @@ export async function processInbound(
     // ---- 5-7. things that are not an order -------------------------------------------------------------------------
     // With the switch off an unclear text costs nothing: no reply at all.
     const notUnderstood = () => finish("not_order", !settings.unclearRepliesEnabled || c.notUnderstood >= 1 ? null : notUnderstoodReply(offered))
-    if (read.kind === "not_order" || read.kind === "unknown" || read.kind === "keyword") return await notUnderstood()
+    if (read.kind === "not_order" || read.kind === "unknown" || read.kind === "keyword") {
+      // Main line, a text that is no order: a code of an active shop means the customer texted the wrong number.
+      if (!dry && i.line === "main" && read.kind !== "keyword" && settings.shopNumber.trim()) {
+        const wrong = await mainWrongLine({ db, sender: i.from, text: i.text, now: i.now, settings, deps: deps.shop ?? {} })
+        if (wrong) return await finish("not_order", wrong === "silent" ? null : wrong.reply, { datagod: true })
+      }
+      return await notUnderstood()
+    }
     if (read.kind === "ask") {
       // Defence in depth (the AI reader already refuses): a question that waits for an answer about a service that is off is
       // never asked and never remembered, so the next bare number cannot be swallowed or turned into an order.
@@ -274,6 +316,14 @@ export async function processInbound(
       return await finish("asked", read.question)
     }
     if (read.kind === "price_query" && read.sizeMb === null) return await priceList("price_answer")
+
+    // ---- shop line: which shop, its account and its reply cap --------------------------------------------------------
+    // (Another service on the shop line has no adapter: it falls through to "not understood" without asking for a shop.)
+    if (lane && (read.kind === "price_query" || read.service === "data")) {
+      const stop = await lane.ensureShop(read, retry)
+      if (stop) return stop
+      adapters = lane.adapters()
+    }
 
     // ---- 7-8. price a size ------------------------------------------------------------------------------------------
     const orderForOffer =
@@ -293,6 +343,12 @@ export async function processInbound(
     if (read.kind === "price_query") {
       // Only data has a price answer; any other offer here is a wiring mistake, so it is not understood rather than read as data.
       if (offer.service !== "data") return await notUnderstood()
+      if (lane) {
+        // The shop's own verified price, not the main catalogue's.
+        const text = lane.priceAnswer(offer)
+        await remember(i.text, text, { pending: { type: "confirm", read: orderRead(read.sizeMb as number, read.networkHint, null) } })
+        return await finish("price_answer", text)
+      }
       const d = (offer as DataOffer).offer
       const text = priceAnswerReply(sizeLabel(d.size), d.networkLabel, d.price)
       await remember(i.text, text, { pending: { type: "confirm", read: orderRead(read.sizeMb as number, read.networkHint, null) } })
@@ -336,6 +392,13 @@ export async function processInbound(
     // The preview can only know the offer price: the charged amount is fixed when the order row is written.
     if (dry) return await finish("prompted", quote(offer.previewGhs, offer.previewDeliversGhs))
 
+    // Shop line: the shop must still be open and its credits are set aside BEFORE the order exists (a failure here is the pause
+    // path: nothing placed, nothing prompted). The reserve comes before the pre-write below, which stays right before place().
+    if (lane) {
+      const stop = await lane.beforePlace(offer)
+      if (stop) return stop
+    }
+
     // Mark the row BEFORE placing. If this run dies after place() but before finish() records the real outcome, the row would
     // otherwise still look unprocessed (outcome null), and the recovery sweep would place a second order and send a second MoMo
     // prompt. With any outcome set, claimInbound and strandedInbound never pick the row again; finish() overwrites it. If the
@@ -344,6 +407,7 @@ export async function processInbound(
       await setInboundResult(db, messageId, { readBy, outcome: "error" })
     } catch (e) {
       console.error("[text-to-buy] pre-place mark error", { messageId, error: e instanceof Error ? e.name : "unknown" })
+      await lane?.release()
       return await finish("unavailable", adapter.notPlacedReply(offer))
     }
 
@@ -362,7 +426,10 @@ export async function processInbound(
       throw e
     }
     const orderId = placed.orderId
-    if (!orderId) return await finish("unavailable", adapter.notPlacedReply(offer))
+    if (!orderId) {
+      await lane?.release() // nothing was placed: the reserve goes back at once
+      return await finish("unavailable", adapter.notPlacedReply(offer))
+    }
 
     // From here an order exists and its MoMo charge has ALREADY started (confirm schedules it). Failing the row would not stop
     // the prompt or the payment, and a payment for a failed row is silently ignored: so the order is never failed. A paid one is
@@ -388,6 +455,7 @@ export async function processInbound(
     try {
       const l = await linkOrder(db, {
         line: i.line, sender: i.from, service: adapter.service, orderTable: adapter.orderTable, orderId, size: offer.size, recipient: offer.recipientLocal, gift: offer.gift, amount,
+        ...(lane ? { shopId: lane.shopId } : {}),
       })
       linked = l === "conflict" ? (await linkByOrderId(db, orderId)) ?? "race" : l
     } catch (e) {
@@ -410,7 +478,8 @@ export async function processInbound(
     const text = quote(amount, placed.deliversGhs)
     const result = await finish("prompted", text, { orderLinkId: linked.id, orderId })
     try {
-      await remember(i.text, text, { lastOrder: offer.lastOrder })
+      await remember(i.text, text, { lastOrder: lane ? lane.lastOrder(offer.lastOrder) : offer.lastOrder })
+      await lane?.afterOrder()
     } catch (e) {
       console.error("[text-to-buy] conversation save error", { messageId, error: e instanceof Error ? e.name : "unknown" })
     }

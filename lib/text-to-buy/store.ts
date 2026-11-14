@@ -207,8 +207,10 @@ export type Pending =
   | { type: "confirm"; read: ReadResult } // YES places this
   | { type: "quantity"; board: ExamBoardWord } // "How many checkers?" was asked: a bare whole number is the quantity
   | { type: "amount"; network: AirtimeNetwork | null } // "How much airtime?" was asked: a bare number is the airtime amount
+  | { type: "shop"; read: ReadResult } // shop line: "Which shop?" was asked; a shop code in the next text completes this read
 export type LastOrder =
-  | { sizeMb: number; network: string; recipient: string } // data: the Stage 1 shape, unchanged
+  // data: the Stage 1 shape. shopCodeId is present only on shop-line orders, so AGAIN / YES re-resolve the same shop.
+  | { sizeMb: number; network: string; recipient: string; shopCodeId?: string }
   | { service: "airtime"; amountGhs: number; network: string; recipient: string }
   | { service: "results_checker"; board: ExamBoardWord; quantity: number }
 export type Conversation = {
@@ -228,7 +230,11 @@ function parseTurns(x: unknown): Conversation["turns"] {
 }
 
 function parsePending(x: unknown): Pending | null {
-  const p = x as { type?: unknown; board?: unknown; network?: unknown } | null
+  const p = x as { type?: unknown; board?: unknown; network?: unknown; read?: unknown } | null
+  if (p && typeof p === "object" && p.type === "shop") {
+    const r = p.read as { kind?: unknown } | null
+    return r && typeof r === "object" && (r.kind === "order" || r.kind === "price_query") ? { type: "shop", read: r as ReadResult } : null
+  }
   if (p && typeof p === "object" && p.type === "quantity") {
     return typeof p.board === "string" && EXAM_BOARDS.includes(p.board) ? { type: "quantity", board: p.board as ExamBoardWord } : null
   }
@@ -244,11 +250,11 @@ const AIRTIME_NETWORKS: readonly string[] = ["MTN", "Telecel", "AT"]
 
 /** The three stored shapes. A row with no `service` is a Stage 1 data row; an unknown `service` is dropped. */
 function parseLastOrder(x: unknown): LastOrder | null {
-  const o = x as { service?: unknown; sizeMb?: unknown; amountGhs?: unknown; network?: unknown; recipient?: unknown; board?: unknown; quantity?: unknown } | null
+  const o = x as { service?: unknown; sizeMb?: unknown; amountGhs?: unknown; network?: unknown; recipient?: unknown; board?: unknown; quantity?: unknown; shopCodeId?: unknown } | null
   if (!o || typeof o !== "object") return null
   if (o.service === undefined) {
     return typeof o.sizeMb === "number" && typeof o.network === "string" && typeof o.recipient === "string"
-      ? { sizeMb: o.sizeMb, network: o.network, recipient: o.recipient }
+      ? { sizeMb: o.sizeMb, network: o.network, recipient: o.recipient, ...(typeof o.shopCodeId === "string" ? { shopCodeId: o.shopCodeId } : {}) }
       : null
   }
   if (o.service === "airtime") {
