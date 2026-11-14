@@ -13,8 +13,8 @@ const phoneGuardCalls: string[] = []
 
 vi.mock("@/lib/admin-actions", () => ({ alertAdminsOfRequest: vi.fn(async () => {}) }))
 vi.mock("@/lib/phone-verify-guard", () => ({
-  checkPhoneVerified: vi.fn(async (_db: unknown, userId: string) => {
-    phoneGuardCalls.push(userId)
+  checkPhoneVerified: vi.fn(async (_db: unknown, userId: string, opts?: { allowGrace?: boolean }) => {
+    phoneGuardCalls.push(`${userId}:${opts?.allowGrace === false ? "strict" : "grace"}`)
     return phoneGuard
   }),
 }))
@@ -76,7 +76,8 @@ describe("POST /api/shop/create - phone gate", () => {
   it("checks the phone of the token's user, not anything in the body", async () => {
     const res = await call({ user_id: "someone-else" })
     expect(res.status).toBe(200)
-    expect(phoneGuardCalls).toEqual(["user-1"])
+    // strict: the grace window does not let an unverified account open a public shop
+    expect(phoneGuardCalls).toEqual(["user-1:strict"])
     expect(inserted?.user_id).toBe("user-1")
   })
 })
