@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
 import { calculateSegments } from "@/lib/sms/segments"
 import { storeOutbound } from "./store"
+import { chargeSingleReply, drawReserve, refundSingleReply, singleReplyRef } from "./shop/credits"
 import type { TtbSettings } from "./settings"
 import type { Line } from "./types"
 
@@ -15,6 +16,15 @@ import type { Line } from "./types"
 export type ReplyDeps = { send?: typeof sendSMS }
 
 /**
+ * Who pays for the reply. Default { kind: "datagod" }: nothing is charged. { kind: "shop" }: one credit of the shop owner's
+ * SMS account, drawn from the order's reserve when messageId has one, else debited singly under ttb:reply:<replyKey>.
+ * replyKey must be unique per reply (letters, digits, "_", "-"; e.g. the inbound message id plus a counter).
+ */
+export type Payer =
+  | { kind: "datagod" }
+  | { kind: "shop"; shopId: string; accountId: string; messageId: string | null; replyKey: string }
+
+/**
  * Three outcomes:
  *  - refused (blank, non-GSM-7 or over one segment): nothing is sent and nothing is stored. { sent: false }
  *  - skipped (sendSMS was a no-op because SMS is switched off globally): nothing was attempted, so no out row is
@@ -24,16 +34,48 @@ export type ReplyDeps = { send?: typeof sendSMS }
  */
 export async function sendReply(
   db: SupabaseClient,
-  r: { line: Line; sender: string; body: string; settings: TtbSettings; orderLinkId?: string },
+  r: { line: Line; sender: string; body: string; settings: TtbSettings; orderLinkId?: string; payer?: Payer },
   deps: ReplyDeps = {},
-): Promise<{ sent: boolean; skipped?: boolean }> {
+): Promise<{ sent: boolean; skipped?: boolean | "unpaid" }> {
   const send = deps.send ?? sendSMS
 
   if (typeof r.body !== "string" || r.body.trim() === "") return { sent: false }
   const seg = calculateSegments(r.body)
   if (seg.encoding !== "gsm7" || seg.segments !== 1) return { sent: false }
 
+  // Shop payer: the shop's credit is taken BEFORE the send and the reply goes out only if that worked. There is no fallback to
+  // Datagod paying here (a Datagod-paid notice is an explicit { kind: "datagod" } call by its caller).
+  const shop = r.payer && r.payer.kind === "shop" ? r.payer : null
+  let paid: { via: "reserve" } | { via: "single"; accountId: string; ref: string } | null = null
+  if (shop) {
+    try {
+      if (shop.messageId && (await drawReserve(db, shop.messageId, 1))) {
+        paid = { via: "reserve" }
+      } else {
+        const ref = singleReplyRef(shop.replyKey)
+        if (ref && (await chargeSingleReply(db, { accountId: shop.accountId, credits: 1, ref }))) {
+          paid = { via: "single", accountId: shop.accountId, ref }
+        }
+      }
+    } catch {
+      paid = null
+    }
+    if (!paid) return { sent: false, skipped: "unpaid" }
+  }
+
+  // Gives back a single-reply debit with the very ref it was debited under. A reserve draw cannot be un-drawn (no SQL for it):
+  // it stays consumed and the unused rest of the reserve is released by the order's release.
+  const refund = async (): Promise<boolean> => {
+    if (paid?.via !== "single") return false
+    try {
+      return await refundSingleReply(db, { accountId: paid.accountId, credits: 1, ref: paid.ref })
+    } catch {
+      return false
+    }
+  }
+
   let sent = false
+  let refused = false
   try {
     const res = await send({
       phone: r.sender,
@@ -42,14 +84,30 @@ export async function sendReply(
       senderId: (r.line === "shop" ? r.settings.shopReplySenderId : r.settings.replySenderId) || undefined,
       skipLogging: true,
     })
-    if (res?.skipped) return { sent: false, skipped: true }
+    if (res?.skipped) {
+      await refund()
+      return { sent: false, skipped: true }
+    }
     sent = res?.success === true
+    // A definite refusal: the whole provider chain answered and said no. (A throw or timeout below is ambiguous = counts as sent.)
+    refused = !sent
   } catch {
     sent = false
   }
 
+  let credits: number | undefined
+  if (shop) {
+    credits = 1
+    if (refused && (await refund())) credits = 0 // nothing was kept for this reply: it must not count toward the shop's hourly cap
+  }
+
   try {
-    await storeOutbound(db, { line: r.line, sender: r.sender, body: r.body, orderLinkId: r.orderLinkId })
+    const row: Parameters<typeof storeOutbound>[1] = { line: r.line, sender: r.sender, body: r.body, orderLinkId: r.orderLinkId }
+    if (shop) {
+      row.shopId = shop.shopId
+      row.credits = credits
+    }
+    await storeOutbound(db, row)
   } catch {
     // Logging must never break the lane; the store never echoes row values.
   }

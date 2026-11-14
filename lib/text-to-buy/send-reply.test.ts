@@ -4,6 +4,11 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 const store = vi.hoisted(() => ({ storeOutbound: vi.fn() }))
 vi.mock("./store", () => ({ storeOutbound: store.storeOutbound }))
 vi.mock("@/lib/sms-service", () => ({ sendSMS: vi.fn() }))
+const credits = vi.hoisted(() => ({ drawReserve: vi.fn(), chargeSingleReply: vi.fn(), refundSingleReply: vi.fn() }))
+vi.mock("./shop/credits", async () => {
+  const actual = await vi.importActual<typeof import("./shop/credits")>("./shop/credits")
+  return { ...actual, drawReserve: credits.drawReserve, chargeSingleReply: credits.chargeSingleReply, refundSingleReply: credits.refundSingleReply }
+})
 
 import { sendReply } from "./send-reply"
 import { TTB_DEFAULTS, type TtbSettings } from "./settings"
@@ -15,6 +20,10 @@ const base = { line: "main" as const, sender: "0200000101", body: "Send YES to c
 beforeEach(() => {
   store.storeOutbound.mockReset()
   store.storeOutbound.mockResolvedValue(undefined)
+  for (const f of Object.values(credits)) f.mockReset()
+  credits.drawReserve.mockResolvedValue(false)
+  credits.chargeSingleReply.mockResolvedValue(true)
+  credits.refundSingleReply.mockResolvedValue(true)
 })
 
 describe("sendReply", () => {
@@ -117,6 +126,16 @@ describe("sendReply", () => {
     await expect(sendReply(db, { ...base, settings: settings() }, { send })).resolves.toEqual({ sent: true })
   })
 
+  it("the default payer is Datagod: no credit call is ever made", async () => {
+    const send = vi.fn().mockResolvedValue({ success: true })
+    await sendReply(db, { ...base, settings: settings() }, { send })
+    await sendReply(db, { ...base, settings: settings(), payer: { kind: "datagod" } }, { send })
+    expect(credits.drawReserve).not.toHaveBeenCalled()
+    expect(credits.chargeSingleReply).not.toHaveBeenCalled()
+    expect(credits.refundSingleReply).not.toHaveBeenCalled()
+    expect(store.storeOutbound.mock.calls[1][1]).toEqual({ line: "main", sender: "0200000101", body: base.body })
+  })
+
   it("never logs the body or the phone", async () => {
     const spies = [vi.spyOn(console, "log"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")]
     await sendReply(db, { ...base, settings: settings() }, { send: vi.fn().mockRejectedValue(new Error("boom")) })
@@ -126,5 +145,126 @@ describe("sendReply", () => {
       expect(text).not.toContain("YES")
       s.mockRestore()
     }
+  })
+})
+
+describe("sendReply with a shop payer", () => {
+  const shopBase = { ...base, line: "shop" as const }
+  const payer = (over: Record<string, unknown> = {}) => ({ kind: "shop" as const, shopId: "shop-1", accountId: "acct-1", messageId: "msg-1", replyKey: "key1", ...over })
+  const REF = "ttb:reply:key1"
+
+  it("draws from the order's reserve first: no single debit, row stores shop_id and credits 1", async () => {
+    credits.drawReserve.mockResolvedValue(true)
+    const send = vi.fn().mockResolvedValue({ success: true })
+    const r = await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })
+    expect(r).toEqual({ sent: true })
+    expect(credits.drawReserve).toHaveBeenCalledWith(db, "msg-1", 1)
+    expect(credits.chargeSingleReply).not.toHaveBeenCalled()
+    expect(store.storeOutbound).toHaveBeenCalledWith(db, { line: "shop", sender: "0200000101", body: base.body, shopId: "shop-1", credits: 1 })
+  })
+
+  it("with no reserve (draw false) or no message id it debits one credit under a unique reply ref", async () => {
+    const send = vi.fn().mockResolvedValue({ success: true })
+    await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })
+    expect(credits.chargeSingleReply).toHaveBeenCalledWith(db, { accountId: "acct-1", credits: 1, ref: REF })
+    credits.chargeSingleReply.mockClear()
+    credits.drawReserve.mockClear()
+    await sendReply(db, { ...shopBase, settings: settings(), payer: payer({ messageId: null, replyKey: "key2" }) }, { send })
+    expect(credits.drawReserve).not.toHaveBeenCalled()
+    expect(credits.chargeSingleReply).toHaveBeenCalledWith(db, { accountId: "acct-1", credits: 1, ref: "ttb:reply:key2" })
+    expect(store.storeOutbound.mock.calls[1][1]).toMatchObject({ shopId: "shop-1", credits: 1 })
+  })
+
+  it("a failed debit sends nothing, stores nothing, never falls back to Datagod paying", async () => {
+    credits.chargeSingleReply.mockResolvedValue(false)
+    const send = vi.fn().mockResolvedValue({ success: true })
+    const r = await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })
+    expect(r).toEqual({ sent: false, skipped: "unpaid" })
+    expect(send).not.toHaveBeenCalled()
+    expect(store.storeOutbound).not.toHaveBeenCalled()
+  })
+
+  it("a throwing debit is also unpaid and sends nothing", async () => {
+    credits.chargeSingleReply.mockRejectedValue(new Error("db"))
+    const send = vi.fn().mockResolvedValue({ success: true })
+    expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).toEqual({ sent: false, skipped: "unpaid" })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it("an unsafe reply key is unpaid and charges nothing", async () => {
+    const send = vi.fn().mockResolvedValue({ success: true })
+    expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer({ messageId: null, replyKey: "m1:release" }) }, { send })).toEqual({ sent: false, skipped: "unpaid" })
+    expect(credits.chargeSingleReply).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it("a refused body (two segments) is refused before any charge", async () => {
+    const send = vi.fn()
+    expect(await sendReply(db, { ...shopBase, body: "a".repeat(161), settings: settings(), payer: payer() }, { send })).toEqual({ sent: false })
+    expect(credits.drawReserve).not.toHaveBeenCalled()
+    expect(credits.chargeSingleReply).not.toHaveBeenCalled()
+  })
+
+  it("a definite provider refusal of a single-debit reply refunds with the SAME ref used for the debit, once, and the row records credits 0", async () => {
+    const send = vi.fn().mockResolvedValue({ success: false, error: "nope" })
+    const r = await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })
+    expect(r).toEqual({ sent: false })
+    expect(credits.refundSingleReply).toHaveBeenCalledTimes(1)
+    const debitRef = credits.chargeSingleReply.mock.calls[0][1].ref
+    expect(credits.refundSingleReply).toHaveBeenCalledWith(db, { accountId: "acct-1", credits: 1, ref: debitRef })
+    expect(store.storeOutbound.mock.calls[0][1]).toMatchObject({ shopId: "shop-1", credits: 0 })
+  })
+
+  it("a refused reply drawn from the reserve cannot be un-drawn: the draw stays consumed, no refund call, row credits 1", async () => {
+    credits.drawReserve.mockResolvedValue(true)
+    const send = vi.fn().mockResolvedValue({ success: false })
+    expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).toEqual({ sent: false })
+    expect(credits.refundSingleReply).not.toHaveBeenCalled()
+    expect(store.storeOutbound.mock.calls[0][1]).toMatchObject({ shopId: "shop-1", credits: 1 })
+  })
+
+  it("a provider throw counts as sent: nothing refunded, credit stays spent", async () => {
+    const send = vi.fn().mockRejectedValue(new Error("timeout"))
+    expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).toEqual({ sent: false })
+    expect(credits.refundSingleReply).not.toHaveBeenCalled()
+    expect(store.storeOutbound.mock.calls[0][1]).toMatchObject({ shopId: "shop-1", credits: 1 })
+  })
+
+  it("a skipped send (SMS off) refunds a single debit and stores no row", async () => {
+    const send = vi.fn().mockResolvedValue({ success: true, skipped: true })
+    expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).toEqual({ sent: false, skipped: true })
+    expect(credits.refundSingleReply).toHaveBeenCalledWith(db, { accountId: "acct-1", credits: 1, ref: REF })
+    expect(store.storeOutbound).not.toHaveBeenCalled()
+  })
+
+  it("a skipped send with a reserve draw leaves the draw alone (no SQL to un-draw) and stores no row", async () => {
+    credits.drawReserve.mockResolvedValue(true)
+    const send = vi.fn().mockResolvedValue({ success: true, skipped: true })
+    expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).toEqual({ sent: false, skipped: true })
+    expect(credits.refundSingleReply).not.toHaveBeenCalled()
+    expect(store.storeOutbound).not.toHaveBeenCalled()
+  })
+
+  it("a refund that itself throws never throws out of sendReply", async () => {
+    credits.refundSingleReply.mockRejectedValue(new Error("db"))
+    const send = vi.fn().mockResolvedValue({ success: false })
+    await expect(sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).resolves.toEqual({ sent: false })
+  })
+
+  it("the refund is only ever attempted with the ref that was debited, and a reserve ref is never used", async () => {
+    const send = vi.fn().mockResolvedValue({ success: false })
+    const messageId = "3f2b9c1e-1111-4222-8333-444455556666"
+    await sendReply(db, { ...shopBase, settings: settings(), payer: payer({ messageId, replyKey: `${messageId}-1` }) }, { send })
+    const debitRef = credits.chargeSingleReply.mock.calls[0][1].ref as string
+    const refundRef = credits.refundSingleReply.mock.calls[0][1].ref as string
+    expect(refundRef).toBe(debitRef)
+    expect(debitRef).not.toBe(`ttb:${messageId}`)
+    expect(debitRef.includes(`ttb:${messageId}`)).toBe(false)
+  })
+
+  it("sender id and one-segment rule are unchanged for a shop payer", async () => {
+    const send = vi.fn().mockResolvedValue({ success: true })
+    await sendReply(db, { ...shopBase, settings: settings({ shopReplySenderId: "SHOPID" }), payer: payer() }, { send })
+    expect(send.mock.calls[0][0]).toEqual({ phone: "0200000101", message: base.body, type: "text_to_buy_reply", senderId: "SHOPID", skipLogging: true })
   })
 })
