@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import type { Line } from "./types"
 
 /**
  * Text-to-Buy settings loader. Server-only. Never logs setting values.
@@ -28,6 +29,12 @@ export type TtbSettings = {
   airtimeEnabled: boolean
   /** Customers may buy results checkers by text. Off by default; per-board switches and stock still apply. */
   resultsCheckerEnabled: boolean
+  /** The shop line (orders for a shop's customers by text). Off by default. */
+  shopEnabled: boolean
+  /** The shop line's number, local 0XXXXXXXXX. Blank until set. */
+  shopNumber: string
+  /** Replies per hour to one shop's customers on the shop line. */
+  shopRepliesPerHourPerShop: number
   /** "defaults" when the DB read failed or threw, so callers can tell fallback values from saved ones. */
   source: "db" | "defaults"
 }
@@ -53,6 +60,9 @@ export const TTB_SETTING_KEYS = {
   globalRepliesPerHour: "ttb_global_replies_per_hour",
   airtimeEnabled: "ttb_airtime_enabled",
   resultsCheckerEnabled: "ttb_results_checker_enabled",
+  shopEnabled: "ttb_shop_enabled",
+  shopNumber: "ttb_shop_number",
+  shopRepliesPerHourPerShop: "ttb_shop_replies_per_hour_per_shop",
 } as const satisfies Record<TtbSettingField, string>
 
 export type TtbSettingKey = (typeof TTB_SETTING_KEYS)[TtbSettingField]
@@ -77,7 +87,15 @@ export const TTB_DEFAULTS: TtbSettings = {
   globalRepliesPerHour: 300,
   airtimeEnabled: false,
   resultsCheckerEnabled: false,
+  shopEnabled: false,
+  shopNumber: "",
+  shopRepliesPerHourPerShop: 60,
   source: "defaults",
+}
+
+/** Whether the named line's master switch is on. */
+export function lineEnabled(s: TtbSettings, line: Line): boolean {
+  return line === "shop" ? s.shopEnabled : s.mainEnabled
 }
 
 /** min 0 is for the hourly caps (0 fails closed); minutes and days use min 1 (0 would purge everything or switch a protection off). */
@@ -124,6 +142,9 @@ export async function loadTtbSettings(db: SupabaseClient): Promise<TtbSettings> 
       globalRepliesPerHour: intIn(raw.ttb_global_replies_per_hour, d.globalRepliesPerHour, 10, 5000),
       airtimeEnabled: raw.ttb_airtime_enabled === true,
       resultsCheckerEnabled: raw.ttb_results_checker_enabled === true,
+      shopEnabled: raw.ttb_shop_enabled === true,
+      shopNumber: text(raw.ttb_shop_number, d.shopNumber),
+      shopRepliesPerHourPerShop: intIn(raw.ttb_shop_replies_per_hour_per_shop, d.shopRepliesPerHourPerShop, 5, 1000),
       source: "db",
     }
   } catch {

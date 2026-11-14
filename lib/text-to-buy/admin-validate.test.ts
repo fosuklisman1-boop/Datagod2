@@ -34,7 +34,7 @@ describe("validateTtbSettings: shape", () => {
 })
 
 describe("validateTtbSettings: booleans", () => {
-  for (const f of ["mainEnabled", "aiEnabled", "unclearRepliesEnabled", "airtimeEnabled", "resultsCheckerEnabled"] as const) {
+  for (const f of ["mainEnabled", "aiEnabled", "unclearRepliesEnabled", "airtimeEnabled", "resultsCheckerEnabled", "shopEnabled"] as const) {
     it(`${f} must be a real boolean`, () => {
       expect(ok({ [f]: true })).toBeTruthy()
       expect(ok({ [f]: false })).toBeTruthy()
@@ -54,6 +54,7 @@ describe("validateTtbSettings: numeric ranges", () => {
     ["quietAlertMinutes", 10, 1440],
     ["retentionDays", 1, 90],
     ["globalRepliesPerHour", 10, 5000],
+    ["shopRepliesPerHourPerShop", 5, 1000],
   ]
   for (const [f, min, max] of table) {
     it(`${f} accepts ${min}..${max} and nothing outside or non-integer`, () => {
@@ -91,6 +92,19 @@ describe("validateTtbSettings: mainNumber", () => {
     for (const v of ["12345", "0100000101", "+447700900123", "abc", "02000001011", 200000101, null]) {
       expect(bad({ mainNumber: v })).toBe("invalid_mainNumber")
     }
+  })
+})
+
+describe("validateTtbSettings: shopNumber", () => {
+  it("accepts blank and normalises a phone to local", () => {
+    expect(ok({ shopNumber: "" })).toEqual({ ttb_shop_number: "" })
+    expect(ok({ shopNumber: "+233200000111" })).toEqual({ ttb_shop_number: "0200000111" })
+  })
+  it("rejects a non-phone or non-string", () => {
+    for (const v of ["12345", "abc", 200000111, null]) expect(bad({ shopNumber: v })).toBe("invalid_shopNumber")
+  })
+  it("the shop settings map to their admin_settings keys", () => {
+    expect(ok({ shopEnabled: true, shopRepliesPerHourPerShop: 5 })).toEqual({ ttb_shop_enabled: true, ttb_shop_replies_per_hour_per_shop: 5 })
   })
 })
 

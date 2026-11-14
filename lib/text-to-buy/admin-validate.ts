@@ -25,6 +25,9 @@ const RULES: Record<TtbSettingField, Rule> = {
   globalRepliesPerHour: { kind: "int", min: 10, max: 5000 },
   airtimeEnabled: { kind: "bool" },
   resultsCheckerEnabled: { kind: "bool" },
+  shopEnabled: { kind: "bool" },
+  shopNumber: { kind: "phone" },
+  shopRepliesPerHourPerShop: { kind: "int", min: 5, max: 1000 },
 }
 
 const SENDER_ID_RE = /^[A-Za-z0-9 ]{1,11}$/
