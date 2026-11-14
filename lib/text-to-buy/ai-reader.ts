@@ -1,9 +1,9 @@
 import type Anthropic from "@anthropic-ai/sdk"
 import type { AIProvider } from "@/lib/ai-providers"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
-import { AIRTIME_WORD_RE, DATA_WORD_RE, extractGhanaNumbers, stripGhanaNumbers } from "./parse-rules"
+import { AIRTIME_WORD_RE, BOARD_WORD_RE, DATA_WORD_RE, boardOfWord, extractGhanaNumbers, stripGhanaNumbers } from "./parse-rules"
 import { safeAiQuestion } from "./replies"
-import type { AirtimeNetwork, NetworkHint, ReadResult } from "./types"
+import type { AirtimeNetwork, ExamBoardWord, NetworkHint, ReadResult } from "./types"
 
 /**
  * One-tool AI reader. The customer's text is untrusted input: the model gets a single
@@ -122,9 +122,10 @@ function mapToolInput(
   }
   if (intent !== "order" && intent !== "price_query") return NOT_ORDER
 
-  // Absent service means data. Anything else unknown, or a voucher (until Task 8 reads them), is not an order we can place.
+  // Absent service means data. Anything else unknown, or a priced airtime/voucher query, is not an order we can place.
   const service = input.service === undefined || input.service === null ? "data" : input.service
   if (service === "airtime" && intent === "order") return mapAirtime(input, text, history)
+  if (service === "results_checker" && intent === "order") return mapVoucher(input, text, history)
   if (service !== "data") return NOT_ORDER
 
   const networkHint = asNetwork(input.network)
@@ -217,6 +218,66 @@ function mapAirtime(input: Record<string, unknown>, text: string, history: Histo
   if (recipient === "ask") return { kind: "ask", question: ASK_RECIPIENT }
   const hint = asNetwork(input.network)
   return { kind: "order", service: "airtime", amountGhs: amount, networkHint: hint ? AIRTIME_NETWORK_OF[hint] : null, recipient }
+}
+
+const ASK_BOARD = "Which checker: WASSCE, BECE or NOVDEC?"
+const ASK_QUANTITY = "How many checkers do you want?"
+const QUANTITY_WORDS = new Map<string, number>([
+  ["one", 1], ["two", 2], ["three", 3], ["four", 4], ["five", 5], ["six", 6], ["seven", 7], ["eight", 8], ["nine", 9], ["ten", 10],
+])
+
+/** The distinct boards a text names. */
+function boardsIn(text: string): Set<string> {
+  return new Set((text.match(BOARD_WORD_RE) ?? []).map(boardOfWord))
+}
+
+/** Every quantity-looking token in a text once Ghana numbers are removed: digit groups and the words one..ten. */
+function quantityTokens(text: string): string[] {
+  const clean = stripGhanaNumbers(text.toLowerCase())
+  const digits = clean.match(/\d+/g) ?? []
+  const words = (clean.match(/\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\b/g) ?? []).map((w) => String(QUANTITY_WORDS.get(w)))
+  return [...digits, ...words]
+}
+
+/** True when the tokens are exactly one, a plain 1 to 3 digit number without a leading zero, equal to `quantity`. */
+function singleQuantityIs(tokens: string[], quantity: number): boolean {
+  return tokens.length === 1 && !/^0\d/.test(tokens[0]) && tokens[0].length <= 3 && Number(tokens[0]) === quantity
+}
+
+/** The text holds an airtime/currency word or a data word: not a voucher. */
+function mixesService(t: string): boolean {
+  return DATA_WORD_RE.test(t) || new RegExp(AIRTIME_WORD_RE.source, "i").test(t) || CURRENCY_WORD_RE.test(t)
+}
+
+/**
+ * Voucher read. The board must be named in the customer's words (current text first, else earlier user turns) and the
+ * quantity must be the one number or number word the customer typed (or 1). The AI never supplies a recipient or a price.
+ */
+function mapVoucher(input: Record<string, unknown>, text: string, history: History): ReadResult {
+  if (mixesService(text)) return NOT_ORDER
+
+  const userTurns = history.filter((h) => h.role === "user").map((h) => h.text)
+  const board = typeof input.board === "string" && (BOARDS as readonly string[]).includes(input.board) ? input.board : null
+  const current = boardsIn(text)
+  let allowed: Set<string> = current
+  if (current.size === 0) {
+    allowed = new Set<string>()
+    for (const t of userTurns) for (const b of boardsIn(t)) allowed.add(b)
+  }
+  if (board === null || allowed.size !== 1 || !allowed.has(board)) return { kind: "ask", question: ASK_BOARD }
+
+  const raw = input.quantity === undefined || input.quantity === null ? 1 : input.quantity
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > 100) return { kind: "ask", question: ASK_QUANTITY }
+  const quantity = raw
+
+  const now = quantityTokens(text)
+  let ok: boolean
+  if (now.length > 0) ok = singleQuantityIs(now, quantity)
+  else if (quantity === 1) ok = !/\b(?:checkers|vouchers)\b/i.test(text) || userTurns.some((t) => !mixesService(t) && singleQuantityIs(quantityTokens(t), 1))
+  else ok = userTurns.some((t) => !mixesService(t) && singleQuantityIs(quantityTokens(t), quantity))
+  if (!ok) return { kind: "ask", question: ASK_QUANTITY }
+
+  return { kind: "order", service: "results_checker", board: board as ExamBoardWord, quantity }
 }
 
 export async function readWithAi(

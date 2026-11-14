@@ -60,6 +60,23 @@ describe("extractGhanaNumbers", () => {
     expect(extractGhanaNumbers("055123456 05512345678")).toEqual([]))
 })
 
+describe("parseOrderText vouchers", () => {
+  const rc = (board: any, quantity: number) => ({ kind: "order", service: "results_checker", board, quantity })
+  it.each([
+    ["2 wassce checkers", rc("WASSCE", 2)], ["bece voucher", rc("BECE", 1)], ["3 novdec", rc("NOVDEC", 3)],
+    ["wassce", rc("WASSCE", 1)], ["2x bece", rc("BECE", 2)], ["nov dec checker", rc("NOVDEC", 1)],
+    ["checker", rc(null, 1)], ["5 checkers", rc(null, 5)], ["2 wassce", rc("WASSCE", 2)],
+    ["Nov/Dec checker", rc("NOVDEC", 1)], ["100 bece vouchers", rc("BECE", 100)],
+  ])("voucher: %s", (t, e) => expect(parseOrderText(t)).toEqual(e))
+  it.each([
+    "wassce checkers", "2 wassce 0200000102", "2 wassce mtn", "2gb wassce", "wassce bece", "0 wassce", "101 wassce", "007 wassce",
+    "2 3 wassce", "wassce 2", "airtime 10 wassce", "credit checker", "wassce data", "2 wassce checkers checker", "1.5 bece",
+  ])("unknown: %s", (t) => expect(parseOrderText(t)).toEqual({ kind: "unknown" }))
+  it("bare 3 is still data", () => expect(parseOrderText("3")).toMatchObject({ service: "data", sizeMb: 3000 }))
+  it("airtime reading is unchanged", () =>
+    expect(parseOrderText("airtime 10")).toEqual({ kind: "order", service: "airtime", amountGhs: 10, networkHint: null, recipient: null }))
+})
+
 describe("parseOrderText airtime", () => {
   const air = (amountGhs: number, networkHint: any = null, recipient: string | null = null) =>
     ({ kind: "order", service: "airtime", amountGhs, networkHint, recipient })

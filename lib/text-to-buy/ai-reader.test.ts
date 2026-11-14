@@ -251,9 +251,6 @@ describe("readWithAi airtime (the money fence)", () => {
     expect(await run("airtime price", { intent: "price_query", service: "airtime" })).toEqual({ kind: "not_order" })
     expect(await run("checker price", { intent: "price_query", service: "results_checker" })).toEqual({ kind: "not_order" })
   })
-  it("maps results_checker to not_order for now", async () => {
-    expect(await run("bece checker", { intent: "order", service: "results_checker", board: "BECE", quantity: 1 })).toEqual({ kind: "not_order" })
-  })
   it("treats an unknown service as not_order", async () => {
     expect(await run("x", { intent: "order", service: "bogus", size_gb: 5 })).toEqual({ kind: "not_order" })
   })
@@ -289,5 +286,92 @@ describe("readWithAi airtime (the money fence)", () => {
     expect(schema.properties.amount_ghs.description).toContain("never a price")
     expect(schema.properties.service.enum).toEqual(["data", "airtime", "results_checker"])
     expect(schema.properties.board.enum).toEqual(["WASSCE", "BECE", "NOVDEC"])
+  })
+})
+
+describe("readWithAi vouchers (the money fence)", () => {
+  type H = { role: "user" | "assistant"; text: string }[]
+  const askBoard = { kind: "ask", question: "Which checker: WASSCE, BECE or NOVDEC?" }
+  const askQty = { kind: "ask", question: "How many checkers do you want?" }
+  const run = (text: string, input: Record<string, unknown>, history: H = []) =>
+    readWithAi(text, history, deps(async () => toolReply(input)))
+  const V = (board: unknown, quantity: unknown, extra: Record<string, unknown> = {}) =>
+    ({ intent: "order", service: "results_checker", board, quantity, ...extra })
+  const rc = (board: string, quantity: number) => ({ kind: "order", service: "results_checker", board, quantity })
+
+  it("reads a typed board and a word quantity", async () => {
+    expect(await run("i need two wassce checker", V("WASSCE", 2))).toEqual(rc("WASSCE", 2))
+    expect(await run("wassce checker", V("WASSCE", 1))).toEqual(rc("WASSCE", 1))
+    expect(await run("wassce checker", { intent: "order", service: "results_checker", board: "WASSCE" })).toEqual(rc("WASSCE", 1))
+    expect(await run("3 nov/dec", V("NOVDEC", 3))).toEqual(rc("NOVDEC", 3))
+    expect(await run("send 2 Nov Dec please", V("NOVDEC", 2))).toEqual(rc("NOVDEC", 2))
+  })
+  it("asks which checker when the board was never typed or is invalid", async () => {
+    expect(await run("checkers pls", V("BECE", 1))).toEqual(askBoard)
+    expect(await run("checker", V(null, 1))).toEqual(askBoard)
+    expect(await run("wassce checker", V("GCE", 1))).toEqual(askBoard)
+    expect(await run("wassce checker", V("BECE", 1))).toEqual(askBoard)
+    expect(await run("wassce bece checker", V("BECE", 1))).toEqual(askBoard)
+  })
+  it("takes the board from an earlier user turn only", async () => {
+    const h: H = [{ role: "user", text: "i want wassce" }, { role: "assistant", text: "How many?" }]
+    expect(await run("2", V("WASSCE", 2), h)).toEqual(rc("WASSCE", 2))
+    const a: H = [{ role: "user", text: "checker" }, { role: "assistant", text: "Which checker: WASSCE, BECE or NOVDEC?" }]
+    expect(await run("checker", V("WASSCE", 1), a)).toEqual(askBoard)
+  })
+  it("current text with a different board beats an earlier turn", async () => {
+    const h: H = [{ role: "user", text: "wassce" }]
+    expect(await run("bece", V("WASSCE", 1), h)).toEqual(askBoard)
+    expect(await run("bece", V("BECE", 1), h)).toEqual(rc("BECE", 1))
+  })
+  it("asks how many when the quantity was not typed", async () => {
+    expect(await run("wassce checkers", V("WASSCE", 5))).toEqual(askQty)
+    expect(await run("wassce checkers", V("WASSCE", 1))).toEqual(askQty)
+    expect(await run("a wassce checker", V("WASSCE", 5))).toEqual(askQty)
+  })
+  it.each([0, 101, 2.5, -1, "2", null, NaN, Infinity])("asks how many for an unusable quantity %s", async (q) => {
+    expect(await run("2 wassce", V("WASSCE", q))).toEqual(askQty)
+  })
+  it("never takes a quantity from the assistant", async () => {
+    const h: H = [{ role: "user", text: "bece checkers" }, { role: "assistant", text: "How many? 5 or ten" }]
+    expect(await run("some", V("BECE", 5), h)).toEqual(askQty)
+    expect(await run("some", V("BECE", 10), h)).toEqual(askQty)
+  })
+  it("backs a quantity with an earlier user turn only when the current text has no conflict", async () => {
+    const h: H = [{ role: "user", text: "5 bece checkers" }, { role: "assistant", text: "ok" }]
+    expect(await run("yes", V("BECE", 5), h)).toEqual(rc("BECE", 5))
+    expect(await run("make it 3", V("BECE", 5), h)).toEqual(askQty)
+    expect(await run("make it 3", V("BECE", 3), h)).toEqual(rc("BECE", 3))
+    expect(await run("10gb", V("BECE", 5), h)).toEqual(expect.not.objectContaining({ kind: "order" }))
+  })
+  it("refuses a voucher when the current text names data or airtime", async () => {
+    for (const t of ["2gb wassce", "wassce data", "2 wassce bundles", "airtime 10 wassce", "wassce credit"]) {
+      expect(await run(t, V("WASSCE", 2))).toEqual({ kind: "not_order" })
+    }
+    const h: H = [{ role: "user", text: "2 wassce" }]
+    expect(await run("actually 10gb", V("WASSCE", 2), h)).toEqual({ kind: "not_order" })
+  })
+  it.each(["2 3 wassce", "2, 3 wassce", "2-3 wassce", "two 3 wassce", "2 two wassce", "1,000 wassce", "1.5 wassce"])(
+    "more than one quantity token is refused: %s", async (t) => {
+      for (const q of [1, 2, 3, 5, 15, 1000]) expect(await run(t, V("WASSCE", q))).toEqual(askQty)
+    })
+  it("strips Ghana numbers before counting and never takes phone fragments", async () => {
+    expect(await run("2 wassce 0200000102", V("WASSCE", 2, { recipient: "0200000102" }))).toEqual(rc("WASSCE", 2))
+    expect(await run("wassce 0200000102", V("WASSCE", 200000102))).toEqual(askQty)
+    expect(await run("wassce 007", V("WASSCE", 7))).toEqual(askQty)
+    expect(await run("wassce 0200", V("WASSCE", 200))).toEqual(askQty)
+    expect(await run("wassce 1234567", V("WASSCE", 1234567))).toEqual(askQty)
+  })
+  it("drops any recipient", async () => {
+    const r = await run("2 wassce", V("WASSCE", 2, { recipient: "0200000103" }))
+    expect(r).toEqual(rc("WASSCE", 2))
+    expect(r).not.toHaveProperty("recipient")
+  })
+  it("never carries a price", async () => {
+    const r = await run("2 wassce", V("WASSCE", 2, { amount_ghs: 5, price: 1 }))
+    expect(r).toEqual(rc("WASSCE", 2))
+  })
+  it("a voucher price query is still not_order, a bad service still not_order", async () => {
+    expect(await run("wassce price", { intent: "price_query", service: "results_checker" })).toEqual({ kind: "not_order" })
   })
 })

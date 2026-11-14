@@ -94,6 +94,41 @@ const AIRTIME_NETWORKS = new Map<string, "MTN" | "Telecel" | "AT">([
   ["mtn", "MTN"], ["telecel", "Telecel"], ["voda", "Telecel"], ["vodafone", "Telecel"], ["airteltigo", "AT"], ["at", "AT"],
 ])
 
+/** Exam board words as people type them: "nov dec", "nov/dec" and "novdec" all mean NOVDEC. */
+export const BOARD_WORD_RE = /\b(?:wassce|bece|nov[\s/]?dec)\b/gi
+/** Words that mean "results checker voucher". */
+export const CHECKER_WORD_RE = /\b(?:checkers?|vouchers?)\b/gi
+const NETWORK_WORD_RE = /\b(?:mtn|telecel|vodafone|voda|airteltigo|ishare|bigtime|at)\b/i
+
+/** The board a board word names. */
+export function boardOfWord(word: string): "WASSCE" | "BECE" | "NOVDEC" {
+  const w = word.toLowerCase()
+  return w === "wassce" ? "WASSCE" : w === "bece" ? "BECE" : "NOVDEC"
+}
+
+const VOUCHER_QTY = /^(?:(\d{1,3})\s*x?\s*)?(.*)$/
+
+/** Voucher grammar on a lower-cased, phone-free text. null when there is no board or checker word, else a read or unknown. */
+function parseVoucher(rest: string, hadPhone: boolean): ReadResult | null {
+  const boards = rest.match(BOARD_WORD_RE) ?? []
+  const checkers = rest.match(CHECKER_WORD_RE) ?? []
+  if (boards.length === 0 && checkers.length === 0) return null
+  if (hadPhone || boards.length > 1 || checkers.length > 1) return UNKNOWN
+  if (DATA_WORD_RE.test(rest) || NETWORK_WORD_RE.test(rest)) return UNKNOWN
+  const m = VOUCHER_QTY.exec(rest)
+  if (!m) return UNKNOWN
+  const [, digits, remainder] = m
+  if (remainder.replace(BOARD_WORD_RE, " ").replace(CHECKER_WORD_RE, " ").trim() !== "") return UNKNOWN
+  let quantity = 1
+  if (digits !== undefined) {
+    quantity = Number(digits)
+    if (/^0/.test(digits) || quantity < 1 || quantity > 100) return UNKNOWN
+  } else if (/^(?:checkers|vouchers)$/.test(checkers[0] ?? "")) {
+    return UNKNOWN // a plural checker word with no number: how many?
+  }
+  return { kind: "order", service: "results_checker", board: boards[0] ? boardOfWord(boards[0]) : null, quantity }
+}
+
 /** Rules-only reader. Never guesses: anything outside the grammar is "unknown". */
 export function parseOrderText(text: string): ReadResult {
   const cleaned = (text ?? "").trim().toLowerCase().replace(/[.!?,]+$/, "").trim()
@@ -110,6 +145,9 @@ export function parseOrderText(text: string): ReadResult {
 
   const airtime = parseAirtime(rest, numbers.length === 1 ? numbers[0].phone : null)
   if (airtime) return airtime
+
+  const voucher = parseVoucher(rest, numbers.length === 1)
+  if (voucher) return voucher
 
   const m = GRAMMAR.exec(rest)
   if (!m) return UNKNOWN
