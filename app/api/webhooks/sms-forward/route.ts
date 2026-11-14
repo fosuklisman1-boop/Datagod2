@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from "crypto"
 import { after, NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
 import { ingestForwardedSms } from "@/lib/momo-claim/ingest"
@@ -6,7 +5,8 @@ import { loadMomoClaimSettings } from "@/lib/momo-claim/settings"
 import { isValidGhanaMobile, normalizeGhanaPhone } from "@/lib/phone-format"
 import { acceptInbound, processInbound } from "@/lib/text-to-buy/handle-inbound"
 import { parseReceived } from "@/lib/text-to-buy/parse-received"
-import { loadTtbSettings, type TtbSettings } from "@/lib/text-to-buy/settings"
+import { secretMatches } from "@/lib/text-to-buy/forward-secrets"
+import { lineEnabled, loadTtbSettings, type TtbSettings } from "@/lib/text-to-buy/settings"
 import { touchHeartbeat } from "@/lib/text-to-buy/store"
 import type { Line } from "@/lib/text-to-buy/types"
 
@@ -29,20 +29,15 @@ const ok = () => NextResponse.json({ ok: true })
 const unauthorized = () => NextResponse.json({ error: "unauthorized" }, { status: 401 })
 const unavailable = () => NextResponse.json({ error: "unavailable" }, { status: 503 })
 
-const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest()
-
-function matches(given: string | null, secret: string | undefined): boolean {
-  if (!secret || !given) return false
-  return timingSafeEqual(sha256(given), sha256(secret))
-}
-
-/** Which secret the header carries. Both comparisons always run; identical secrets resolve to the MoMo-lane source. */
+/** Which secret the header carries. All comparisons always run; identical secrets resolve to the main sources first (a shop secret equal to a main one is ignored). */
 function resolveSource(request: NextRequest): { line: Line; momoLane: boolean } | null {
   const given = request.headers.get("x-sms-forward-secret")
-  const primary = matches(given, process.env.SMS_FORWARD_SECRET)
-  const mainOnly = matches(given, process.env.SMS_FORWARD_SECRET_MAIN)
+  const primary = secretMatches(given, process.env.SMS_FORWARD_SECRET)
+  const mainOnly = secretMatches(given, process.env.SMS_FORWARD_SECRET_MAIN)
+  const shop = secretMatches(given, process.env.SMS_FORWARD_SECRET_SHOP)
   if (primary) return { line: "main", momoLane: true }
   if (mainOnly) return { line: "main", momoLane: false }
+  if (shop) return { line: "shop", momoLane: false }
   return null
 }
 
@@ -179,7 +174,7 @@ export async function POST(request: NextRequest) {
     } catch {
       ttb = null // unreadable settings mean off
     }
-    if (ttb?.mainEnabled === true) {
+    if (ttb !== null && lineEnabled(ttb, source.line)) {
       const text = input.text
       const receivedAt = input.received
       let accepted: { id: string; duplicate: boolean; processed: boolean }

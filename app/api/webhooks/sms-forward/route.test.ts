@@ -19,9 +19,10 @@ vi.mock("@/lib/text-to-buy/handle-inbound", () => ({
   processInbound: (...a: unknown[]) => processMock(...a),
 }))
 const ttbSettingsMock = vi.fn()
-vi.mock("@/lib/text-to-buy/settings", () => ({
-  loadTtbSettings: (...a: unknown[]) => ttbSettingsMock(...a),
-}))
+vi.mock("@/lib/text-to-buy/settings", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/text-to-buy/settings")>("@/lib/text-to-buy/settings")
+  return { ...actual, loadTtbSettings: (...a: unknown[]) => ttbSettingsMock(...a) }
+})
 const heartbeatMock = vi.fn()
 vi.mock("@/lib/text-to-buy/store", async () => {
   const actual = await vi.importActual<typeof import("@/lib/text-to-buy/store")>("@/lib/text-to-buy/store")
@@ -38,6 +39,7 @@ const runAfter = async () => {
 }
 
 import { POST } from "./route"
+import { shopSecretDistinct } from "@/lib/text-to-buy/forward-secrets"
 import { MomoStoreError } from "@/lib/momo-claim/ingest"
 import { TtbStoreError } from "@/lib/text-to-buy/store"
 
@@ -78,6 +80,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.SMS_FORWARD_SECRET
   delete process.env.SMS_FORWARD_SECRET_MAIN
+  delete process.env.SMS_FORWARD_SECRET_SHOP
   for (const spy of logSpies) {
     const dump = JSON.stringify(spy.mock.calls)
     expect(dump).not.toContain("JANE DOE")
@@ -462,6 +465,86 @@ describe("POST /api/webhooks/sms-forward: Text-to-Buy fork", () => {
       expect(ingestMock).not.toHaveBeenCalled()
       expect(heartbeatMock).not.toHaveBeenCalled()
       laneNotCalled()
+    })
+  })
+
+  describe("SMS_FORWARD_SECRET_SHOP", () => {
+    const SECRET_SHOP = "shop-only-secret-for-tests-1122334455"
+    const shopHeaders = { "x-sms-forward-secret": SECRET_SHOP }
+    const SHOP_ON = { mainEnabled: false, shopEnabled: true, staleMinutes: 10 }
+    beforeEach(() => {
+      process.env.SMS_FORWARD_SECRET_SHOP = SECRET_SHOP
+    })
+
+    it("resolves to the shop line: heartbeat and processInbound carry line shop", async () => {
+      ttbSettingsMock.mockResolvedValue(SHOP_ON)
+      const res = await POST(jsonReq({ text: "5gb", from: "0200000101" }, shopHeaders))
+      expect(res.status).toBe(200)
+      expect(heartbeatMock).toHaveBeenCalledTimes(1)
+      expect(heartbeatMock.mock.calls[0][1]).toBe("shop")
+      expect(acceptMock.mock.calls[0][1].line).toBe("shop")
+      await runAfter()
+      expect(processMock.mock.calls[0][2].line).toBe("shop")
+      expect(ingestMock).not.toHaveBeenCalled()
+    })
+
+    it("shop switch off: answers ok and processes nothing, even with the main switch on", async () => {
+      ttbSettingsMock.mockResolvedValue({ mainEnabled: true, shopEnabled: false, staleMinutes: 10 })
+      const res = await POST(jsonReq({ text: "5gb", from: "0200000101" }, shopHeaders))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ ok: true })
+      expect(ingestMock).not.toHaveBeenCalled()
+      laneNotCalled()
+    })
+
+    it("main switch off with shop on does not enable the main line", async () => {
+      process.env.SMS_FORWARD_SECRET_MAIN = SECRET_MAIN
+      ttbSettingsMock.mockResolvedValue(SHOP_ON)
+      const res = await POST(jsonReq({ text: "5gb", from: "0200000101" }, mainHeaders))
+      expect(res.status).toBe(200)
+      laneNotCalled()
+    })
+
+    it("a MoMo notice sent with the shop secret is never ingested", async () => {
+      ttbSettingsMock.mockResolvedValue(SHOP_ON)
+      const res = await POST(jsonReq({ text: SMS, from: "MobileMoney" }, shopHeaders))
+      expect(res.status).toBe(200)
+      expect(ingestMock).not.toHaveBeenCalled()
+      expect(settingsMock).not.toHaveBeenCalled()
+    })
+
+    it("a shop secret equal to the primary secret resolves to the existing (main, MoMo) source", async () => {
+      process.env.SMS_FORWARD_SECRET_SHOP = SECRET
+      expect(shopSecretDistinct({ SMS_FORWARD_SECRET: SECRET, SMS_FORWARD_SECRET_SHOP: SECRET })).toBe(false)
+      await POST(jsonReq({ text: SMS, from: "MobileMoney" }))
+      expect(ingestMock).toHaveBeenCalledTimes(1)
+      expect(heartbeatMock.mock.calls[0][1]).toBe("main")
+    })
+
+    it("a shop secret equal to the main secret resolves to main", async () => {
+      process.env.SMS_FORWARD_SECRET_MAIN = SECRET_MAIN
+      process.env.SMS_FORWARD_SECRET_SHOP = SECRET_MAIN
+      expect(shopSecretDistinct({ SMS_FORWARD_SECRET_MAIN: SECRET_MAIN, SMS_FORWARD_SECRET_SHOP: SECRET_MAIN })).toBe(false)
+      ttbSettingsMock.mockResolvedValue({ mainEnabled: true, shopEnabled: false, staleMinutes: 10 })
+      await POST(jsonReq({ text: "5gb", from: "0200000101" }, mainHeaders))
+      expect(heartbeatMock.mock.calls[0][1]).toBe("main")
+      expect(acceptMock.mock.calls[0][1].line).toBe("main")
+    })
+
+    it("shopSecretDistinct is true when unset, empty or different", () => {
+      expect(shopSecretDistinct({})).toBe(true)
+      expect(shopSecretDistinct({ SMS_FORWARD_SECRET_SHOP: "" , SMS_FORWARD_SECRET: "" })).toBe(true)
+      expect(shopSecretDistinct({ SMS_FORWARD_SECRET: "a", SMS_FORWARD_SECRET_MAIN: "b", SMS_FORWARD_SECRET_SHOP: "c" })).toBe(true)
+    })
+
+    it("a wrong secret is still 401", async () => {
+      expect((await POST(jsonReq({ text: "5gb", from: "0200000101" }, { "x-sms-forward-secret": SECRET_SHOP + "x" }))).status).toBe(401)
+      expect(heartbeatMock).not.toHaveBeenCalled()
+    })
+
+    it("an empty shop secret authorises nothing", async () => {
+      process.env.SMS_FORWARD_SECRET_SHOP = ""
+      expect((await POST(jsonReq({ text: SMS }, { "x-sms-forward-secret": "" }))).status).toBe(401)
     })
   })
 
