@@ -109,6 +109,16 @@ describe("a paid ussd_shop_orders row is settled the same way whatever its chann
     })
   }
 
+  // Cost rule: text orders send no Datagod-paid confirmation; the shop-paid text-to-buy notifier owns every reply.
+  it("sms_shop: no Datagod-paid confirmation SMS, but the order is still paid, credited and fulfilled", async () => {
+    const { res, order } = await pay("sms_shop")
+    expect(res?.status).toBe(200)
+    expect(order.payment_status).toBe("completed")
+    expect(h.sendSMS).not.toHaveBeenCalled()
+    expect(profitRows()).toHaveLength(2)
+    expect(h.fulfillUssdOrder).toHaveBeenCalledTimes(1)
+  })
+
   it("sms_shop is labelled by its channel in customer tracking", async () => {
     await pay("sms_shop")
     expect(h.trackCustomer.mock.calls[0][0]).toMatchObject({ shopId: "shop1", slug: "sms_shop", orderId: ORDER_ID })
