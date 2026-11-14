@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({}) }))
 
-import { confirmShopBundleByText, type ConfirmShopDeps, type ConfirmShopInput } from "./confirm-by-text"
-import { ussdOrderAmount } from "@/lib/ussd/gateway-charge"
+import { confirmShopBundleByText, shopOrderStore, type ConfirmShopDeps, type ConfirmShopInput } from "./confirm-by-text"
+import { startUssdCharge, ussdOrderAmount } from "@/lib/ussd/gateway-charge"
 
 const SENDER = "0200000101"
 const RECIPIENT = "0200000102"
@@ -16,7 +16,6 @@ const h = {
   created: [] as any[],
   charges: [] as any[],
   store: { recordCharge: vi.fn(), markOtpRequired: vi.fn(), markFailed: vi.fn() },
-  reprice: vi.fn(),
 }
 
 function config(gateway: "paystack" | "hubtel") {
@@ -38,7 +37,6 @@ function makeDeps(over: Partial<ConfirmShopDeps> & { gateway?: "paystack" | "hub
     orderContext: async () => ({ shopName: "Ama Data", customerEmail: "c@example.com", shopOwnerEmail: "o@example.com" }),
     createShopBundleOrder: async (i) => { h.created.push(i); return { orderId: "order-1" } },
     startUssdCharge: async (i) => { h.charges.push(i); return { status: "pay_offline", amount: i.written } as any },
-    reprice: (orderId, from, to) => { h.reprice(orderId, from, to); return async () => true },
     schedule: (fn) => { h.scheduled.push(fn) },
     store: h.store as any,
   }
@@ -62,7 +60,7 @@ beforeEach(() => {
   h.scheduled = []
   h.created = []
   h.charges = []
-  for (const f of [h.store.recordCharge, h.store.markOtpRequired, h.store.markFailed, h.reprice]) f.mockReset()
+  for (const f of [h.store.recordCharge, h.store.markOtpRequired, h.store.markFailed]) f.mockReset()
 })
 
 describe("confirmShopBundleByText: placing the order", () => {
@@ -178,13 +176,30 @@ describe("confirmShopBundleByText: the charge", () => {
     expect(c.price.hubtel).toBe(10)
   })
 
-  it("the reprice hook moves the shop order from the written amount to the Paystack price", async () => {
+  // Spec 5.10: quote = order row = prompt. A Hubtel-priced text order is never moved to the Paystack price.
+  it("a Hubtel-priced order whose Hubtel start falls back to Paystack fails: the row is never raised and nothing is charged", async () => {
+    const chargeMobileMoney = vi.fn(async () => ({ status: "pay_offline", reference: "x" }))
+    const realStart = (i: any) => startUssdCharge(i, {
+      getConfig: async () => config("hubtel"),
+      isReady: () => false, // Hubtel not ready: the real start would fall back to Paystack
+      chargeMobileMoney: chargeMobileMoney as any,
+      store: { findSettledSibling: async () => null, findOpen: async () => null } as any,
+      alert: async () => {},
+    })
+    const r = await confirmShopBundleByText(input(), makeDeps({ gateway: "hubtel", startUssdCharge: realStart as any }))
+    await runScheduled()
+    expect(r.amountGhs).toBe(10)
+    expect(h.created[0].chargeAmount).toBe(10) // the row amount; nothing ever raises it
+    expect(chargeMobileMoney).not.toHaveBeenCalled() // not even at the quoted amount on Paystack
+    expect(h.store.markFailed).toHaveBeenCalledWith("order-1")
+    expect(h.store.recordCharge).not.toHaveBeenCalled()
+  })
+
+  it("passes a fallback that refuses, so startUssdCharge can never reprice the row", async () => {
     await confirmShopBundleByText(input(), makeDeps({ gateway: "hubtel" }))
     await runScheduled()
-    const c = h.charges[0]
-    expect(c.written).toBe(10)
-    await c.reprice()
-    expect(h.reprice).toHaveBeenCalledWith("order-1", 10, c.price.paystack)
+    expect(h.charges[0].written).toBe(10)
+    expect(await h.charges[0].reprice()).toBe(false)
   })
 
   it("records the attempt and the reference after a started charge", async () => {
@@ -219,6 +234,34 @@ describe("confirmShopBundleByText: the charge", () => {
 
 // The quote the customer is sent is the returned amountGhs, so it must be exactly what the order row says and what the
 // charge asks for first, across every price/fee/gateway/shop-type combination.
+describe("shopOrderStore", () => {
+  function fakeDb() {
+    const calls: { table: string; patch: any; eqs: [string, unknown][] }[] = []
+    const db: any = {
+      from: (table: string) => {
+        const call = { table, patch: null as any, eqs: [] as [string, unknown][] }
+        calls.push(call)
+        const q: any = {
+          update: (p: any) => { call.patch = p; return q },
+          insert: async () => ({ error: null }),
+          eq: (c: string, v: unknown) => { call.eqs.push([c, v]); return q },
+          then: (ok: any) => Promise.resolve({ error: null }).then(ok),
+        }
+        return q
+      },
+    }
+    return { db, calls }
+  }
+
+  it("markFailed only fails an order that is still pending (never one already paid)", async () => {
+    const { db, calls } = fakeDb()
+    await shopOrderStore(db).markFailed("order-1")
+    expect(calls[0].table).toBe("ussd_shop_orders")
+    expect(calls[0].patch).toMatchObject({ order_status: "failed", payment_status: "failed" })
+    expect(calls[0].eqs).toEqual(expect.arrayContaining([["id", "order-1"], ["payment_status", "pending"]]))
+  })
+})
+
 describe("price guarantee: amountGhs equals the amount charged", () => {
   const prices = [1, 4.5, 9.99, 10, 12.34, 55, 100.01, 250]
   const fees = [0, 1.5, 3, 4.75]

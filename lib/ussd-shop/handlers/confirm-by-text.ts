@@ -54,8 +54,6 @@ export interface ConfirmShopDeps {
   orderContext(shopId: string, senderLocal: string): Promise<{ shopName: string | null; customerEmail: string | null; shopOwnerEmail: string | null }>
   createShopBundleOrder(input: BundleOrderInput): Promise<{ orderId: string } | { error: string }>
   startUssdCharge: typeof startUssdCharge
-  /** The guarded move of a still-unpaid shop order from `from` to `to` (startUssdCharge's `reprice`). */
-  reprice(orderId: string, from: number, to: number): () => Promise<boolean>
   /** Runs work after the response (next/server `after`). */
   schedule(fn: () => Promise<void>): void
   store: {
@@ -166,7 +164,11 @@ async function charge(
           shop_id: input.shopId,
         },
       },
-      reprice: d.reprice(orderId, chargeAmount, price.paystack),
+      // Quote = order row = prompt (spec 5.10). startUssdCharge attaches its Paystack fallback to a row written below the
+      // Paystack price and re-prices the row UP through this hook; refusing it makes any Hubtel-to-Paystack fallback throw
+      // FallbackRefusedError with nothing charged, so the order fails (the notifier tells the customer, who retries) and
+      // the row amount is never raised above what was quoted.
+      reprice: async () => false,
     })
     try {
       await d.store.recordCharge(orderId, { amount: charged, email })
@@ -189,7 +191,7 @@ async function charge(
 
 /** The real collaborators. Loaded on first use: the modules below build service-role clients when imported. */
 async function defaultDeps(): Promise<ConfirmShopDeps> {
-  const [{ createClient }, shopCode, pricing, orders, prefix, verification, resolveEmailMod, gateway] = await Promise.all([
+  const [{ createClient }, shopCode, pricing, orders, prefix, verification, resolveEmailMod] = await Promise.all([
     import("@supabase/supabase-js"),
     import("@/lib/shop-commerce/shop-code"),
     import("@/lib/shop-commerce/pricing"),
@@ -197,11 +199,9 @@ async function defaultDeps(): Promise<ConfirmShopDeps> {
     import("@/lib/network-prefix-config"),
     import("@/lib/mtn-providers/customer-verification"),
     import("@/lib/ussd/resolve-email"),
-    import("@/lib/ussd/gateway-charge"),
   ])
   const db: SupabaseClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-  const now = () => new Date().toISOString()
-  const msisdn = (local: string) => `+233${local.slice(1)}`
+  const msisdn =(local: string) => `+233${local.slice(1)}`
 
   return {
     async resolveShopCode(shopCodeId) {
@@ -256,22 +256,27 @@ async function defaultDeps(): Promise<ConfirmShopDeps> {
     createShopBundleOrder: (i) => orders.createShopBundleOrder(i),
     startUssdCharge,
 
-    reprice: (orderId, from, to) =>
-      gateway.guardedReprice(db, "ussd_shop_orders", orderId, { from: { amount: from }, set: { amount: to }, guards: { payment_status: "pending" } }),
-
     schedule: (fn) => after(fn),
 
-    store: {
-      async recordCharge(orderId, { amount, email }) {
-        await db.from("payment_attempts").insert({ reference: orderId, amount, email, status: "pending", payment_type: "ussd_shop", order_id: orderId })
-        await db.from("ussd_shop_orders").update({ paystack_reference: orderId, updated_at: now() }).eq("id", orderId)
-      },
-      async markOtpRequired(orderId) {
-        await db.from("ussd_shop_orders").update({ payment_status: "otp_required", updated_at: now() }).eq("id", orderId)
-      },
-      async markFailed(orderId) {
-        await db.from("ussd_shop_orders").update({ order_status: "failed", payment_status: "failed", updated_at: now() }).eq("id", orderId)
-      },
+    store: shopOrderStore(db),
+  }
+}
+
+/** The shop order writes made around a charge. */
+export function shopOrderStore(db: SupabaseClient): ConfirmShopDeps["store"] {
+  const now = () => new Date().toISOString()
+  return {
+    async recordCharge(orderId, { amount, email }) {
+      await db.from("payment_attempts").insert({ reference: orderId, amount, email, status: "pending", payment_type: "ussd_shop", order_id: orderId })
+      await db.from("ussd_shop_orders").update({ paystack_reference: orderId, updated_at: now() }).eq("id", orderId)
+    },
+    async markOtpRequired(orderId) {
+      await db.from("ussd_shop_orders").update({ payment_status: "otp_required", updated_at: now() }).eq("id", orderId)
+    },
+    async markFailed(orderId) {
+      // Only an order still unpaid: a payment that landed meanwhile is never flipped to failed.
+      await db.from("ussd_shop_orders").update({ order_status: "failed", payment_status: "failed", updated_at: now() })
+        .eq("id", orderId).eq("payment_status", "pending")
     },
   }
 }
