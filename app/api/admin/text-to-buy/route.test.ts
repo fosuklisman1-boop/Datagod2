@@ -110,6 +110,24 @@ describe("GET overview", () => {
     })
     expect(body.overview.shop).toMatchObject({ enabled: false, lastHeardAt: null, today: { texts: 0, aiReads: 0, ruleReads: 0 } })
   })
+  it("returns per-service counts for a non-empty and an empty table", async () => {
+    let body = await (await GET(req("GET"))).json()
+    expect(body.services).toEqual({
+      data: { prompts: 0, paid: 0, delivered: 0 },
+      airtime: { prompts: 0, paid: 0, delivered: 0 },
+      results_checker: { prompts: 0, paid: 0, delivered: 0 },
+    })
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-13T15:30:00Z"))
+    world()
+    fake.db.tables.ttb_orders.push(
+      { id: id(1), line: "main", sender: SENDER, service: "airtime", order_table: "airtime_orders", order_id: id(11), created_at: "2026-11-13T10:00:00.000Z", paid_at: "2026-11-13T10:01:00.000Z", delivered_at: null },
+      { id: id(2), line: "main", sender: SENDER, service: "data", order_table: "ussd_orders", order_id: id(12), created_at: "2026-11-12T10:00:00.000Z", paid_at: null, delivered_at: null },
+    )
+    body = await (await GET(req("GET"))).json()
+    expect(body.services.airtime).toEqual({ prompts: 1, paid: 1, delivered: 0 })
+    expect(body.services.data).toEqual({ prompts: 0, paid: 0, delivered: 0 })
+  })
   it("includes both sender IDs in settings (shop empty by default, stored value returned)", async () => {
     let body = await (await GET(req("GET"))).json()
     expect(body.settings).toMatchObject({ replySenderId: "", shopReplySenderId: "" })
@@ -274,6 +292,17 @@ describe("PUT settings", () => {
       expect(settingsRows()[0]).toMatchObject({ key, value: { value: false } })
     })
   }
+  it("a combined patch turning airtime on without confirm is refused and writes nothing; a string confirm is invalid", async () => {
+    const refused = await PUT(req("PUT", { airtimeEnabled: true, staleMinutes: 5 }))
+    expect(refused.status).toBe(400)
+    expect((await refused.json()).error).toBe("confirm_required")
+    expect(settingsRows()).toEqual([])
+    const str = await PUT(req("PUT", { airtimeEnabled: true, staleMinutes: 5, confirm: "true" }))
+    expect(str.status).toBe(400)
+    expect((await str.json()).error).toBe("invalid_confirm")
+    expect(settingsRows()).toEqual([])
+    expect(notifyMock).not.toHaveBeenCalled()
+  })
   it("the confirm check also covers the very first save (no row yet, default false)", async () => {
     expect((await PUT(req("PUT", { mainEnabled: true }))).status).toBe(400)
   })

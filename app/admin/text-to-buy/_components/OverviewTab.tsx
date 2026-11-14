@@ -24,6 +24,11 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
   const main = data.overview.main
   const quiet = isQuiet(main.lastHeardAt, now, data.settings.quietAlertMinutes)
   const unreadable = data.settingsDefaulted
+  const serviceRows = [
+    { key: "data", label: "Data", on: data.settings.mainEnabled },
+    { key: "airtime", label: "Airtime", on: data.settings.airtimeEnabled },
+    { key: "results_checker", label: "Checkers", on: data.settings.resultsCheckerEnabled },
+  ] as const
 
   async function apply(value: boolean) {
     setBusy(true)
@@ -95,6 +100,38 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
                   </li>
                 ))}
               </ol>
+            </div>
+
+            <div>
+              <div className="mb-2 text-xs font-medium text-muted-foreground">By service today</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-xs text-muted-foreground">
+                      <th className="py-1 pr-3 font-medium">Service</th>
+                      <th className="py-1 pr-3 text-right font-medium">Prompts</th>
+                      <th className="py-1 pr-3 text-right font-medium">Paid</th>
+                      <th className="py-1 text-right font-medium">Delivered</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {serviceRows.map((s) => {
+                      const c = data.services?.[s.key] ?? { prompts: 0, paid: 0, delivered: 0 }
+                      return (
+                        <tr key={s.key} className="border-t">
+                          <td className="py-1.5 pr-3">
+                            {s.label}
+                            {!s.on && <Badge variant="secondary" className="ml-2">Off</Badge>}
+                          </td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{c.prompts}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{c.paid}</td>
+                          <td className="py-1.5 text-right tabular-nums">{c.delivered}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <p>{readSplit(main.today.ruleReads, main.today.aiReads)}</p>

@@ -66,6 +66,7 @@ export type OverviewResponse = {
   settings: Settings
   overview: { main: LineOverview; shop: LineOverview }
   smsRateGhs: number
+  services: Record<"data" | "airtime" | "results_checker", { prompts: number; paid: number; delivered: number }>
 }
 
 export type AdminMessage = {

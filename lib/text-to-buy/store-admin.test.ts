@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { makeFakeTtb } from "./fake-db.test-helper"
-import { blockSender, unblockSender, markMisread, listInbound, listThread, overviewRows, saveSettingRows, TtbStoreError } from "./store"
+import { blockSender, unblockSender, markMisread, listInbound, listThread, overviewRows, serviceCountsToday, saveSettingRows, TtbStoreError } from "./store"
 import { decodeCursor } from "./admin-view"
 
 const mk = (seed: Record<string, Record<string, unknown>[]> = {}) => {
@@ -138,6 +138,47 @@ describe("overviewRows", () => {
     const { db, c } = mk()
     db.rpcImpl = () => ({ data: null, error: { message: "x" } })
     await expect(overviewRows(c, new Date())).rejects.toBeInstanceOf(TtbStoreError)
+  })
+})
+
+describe("serviceCountsToday", () => {
+  const link = (n: number, service: string, extra: Record<string, unknown> = {}) => ({
+    id: id(n), line: "main", sender: "0200000101", service, order_id: id(n + 500), created_at: "2026-11-13T09:00:00.000Z", paid_at: null, delivered_at: null, ...extra,
+  })
+  it("counts prompts, paid and delivered per service, main line only, since the start of today", async () => {
+    const { db, c } = mk({
+      ttb_orders: [
+        link(1, "data", { paid_at: "2026-11-13T09:01:00Z", delivered_at: "2026-11-13T09:02:00Z" }),
+        link(2, "data"),
+        link(3, "airtime", { paid_at: "2026-11-13T09:01:00Z" }),
+        link(4, "results_checker"),
+        link(5, "results_checker", { paid_at: "2026-11-13T09:01:00Z", delivered_at: "2026-11-13T09:02:00Z" }),
+        link(6, "data", { line: "shop", paid_at: "2026-11-13T09:01:00Z" }),
+        link(7, "airtime", { created_at: "2026-11-12T23:59:00.000Z", paid_at: "2026-11-13T00:01:00Z" }),
+      ],
+    })
+    const out = await serviceCountsToday(c, new Date("2026-11-13T00:00:00Z"))
+    expect(out).toEqual({
+      data: { prompts: 2, paid: 1, delivered: 1 },
+      airtime: { prompts: 1, paid: 1, delivered: 0 },
+      results_checker: { prompts: 2, paid: 1, delivered: 1 },
+    })
+    expect(db.rpcCalls).toEqual([])
+  })
+  it("an empty table gives zeros for every service", async () => {
+    const { c } = mk()
+    expect(await serviceCountsToday(c, new Date())).toEqual({
+      data: { prompts: 0, paid: 0, delivered: 0 },
+      airtime: { prompts: 0, paid: 0, delivered: 0 },
+      results_checker: { prompts: 0, paid: 0, delivered: 0 },
+    })
+  })
+  it("a failed read is a fixed TtbStoreError", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_orders = { message: "leak 0200000101" }
+    const e = await serviceCountsToday(c, new Date()).catch((x) => x)
+    expect(e).toBeInstanceOf(TtbStoreError)
+    expect(String(e.message)).not.toContain("0200000101")
   })
 })
 

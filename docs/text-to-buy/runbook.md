@@ -287,3 +287,76 @@ Hold until every gate in section 7 is ticked. Ready-to-paste text for the custom
 > • Save <number> and try it today 📲
 >
 > (Before posting: fill in the number, and check the "No prompt?" line for Telecel and AT customers matches what the quote SMS says for those networks.)
+
+## 12. Stage 2: airtime and checkers (OWNER runbook)
+
+### 12.1 What it is
+
+Customers text the main number for two more services, on the same lane as data:
+
+- Airtime: `airtime 10` (own number) or `airtime 10 0241234567` (someone else's). The quote names the network, the number and the total; a MoMo prompt goes to the number they texted from. Airtime is credited by the normal airtime flow after payment.
+- Checkers (results checker vouchers): `2 wassce` (also `bece`, `novdec`). The quote carries the board, the quantity and the total (bulk price applies by quantity). After payment the PIN(s) arrive by SMS to the number that texted.
+
+Payer is always the texting number. No wallet, no other number can be charged. Data behaves exactly as in Stage 1.
+
+### 12.2 The two switches
+
+Two new switches, both default OFF, on `/admin/text-to-buy` settings (PUT field names `airtimeEnabled` = `ttb_airtime_enabled`, `resultsCheckerEnabled` = `ttb_results_checker_enabled`). Switching either ON asks for confirmation. They sit under the main Text-to-Buy switch: with the main switch off, nothing is read at all. The existing controls still apply on top: the per-network airtime switches and the per-board checker switches. A service that is off answers with its "not available" reply; the Overview card "By service today" shows an Off badge on it.
+
+### 12.3 Switch-on order
+
+One service at a time, each only after a supervised PAID test: airtime on MTN, Telecel and AT payer numbers; checkers on one board. Leave the first service on for a day and look at the Overview card before switching the next.
+
+### 12.4 Supervised test script
+
+Use your own phones and the smallest amounts. Expected texts below are the current templates; figures are filled by code.
+
+1. Own-number airtime. From phone A text `airtime 1`. Expect a one-segment quote naming the network, phone A and the total ending with "Approve the MoMo prompt now."; a MoMo prompt on phone A for the same amount. Approve: the airtime arrives and the "payment received" SMS comes from the airtime flow.
+2. Gift airtime. From phone A text `airtime 1 <phone B>`. Quote names phone B; the prompt goes to phone A only. After payment and delivery, phone A gets a "sent to <phone B>" message.
+3. Unknown prefix. Text `airtime 1 <a number on a prefix we do not know>`. Expect the question "Which network is that number on? 1) MTN 2) Telecel 3) AT". Answer `1`, `2` or `3`: the quote follows. An invalid number gets "That phone number is not valid."
+4. Limits. Text `airtime 0.5` and then an amount above the maximum. Expect the "limits" reply that states the minimum and the maximum, and no prompt.
+5. `10gb` stays data. Text `10gb`: a data quote, never airtime.
+6. Checkers with bulk price. Text `2 wassce` (or the board you are testing). Expect the quote with board, quantity 2, the bulk total and "PINs come by SMS to this number." Approve: two PINs arrive by SMS on phone A. Ask for a quantity that reaches a bulk tier and check the total against the price in admin.
+7. Out of stock. With a board at zero stock, text it. Expect the "not available now" reply (or, if stock ran out after the prompt, see the pending note in 12.5).
+8. Ignored prompt. Text `airtime 1`, do not approve. After the window the lane sends the "Payment didn't go through" style notice and closes the link. No charge.
+9. Late approval. Approve the prompt after that notice. The normal webhook still credits it; the lane stays quiet or sends the paid notice. Check the order is paid and delivered and nobody is charged twice.
+
+Repeat test 1 on MTN, Telecel (only with the gateway row on Hubtel, see 12.5) and AT payer numbers.
+
+### 12.5 Accepted gaps (in plain words)
+
+1. A completed voucher order whose PIN SMS never arrives gets no lane follow-up. The PIN SMS is the webhook's own send. Check the order and the SMS log, and resend by hand if needed.
+2. Voucher stock is not reserved when the prompt goes out. A paid order can wait at `pending` if stock ran out in between. The customer gets the delay notice; an admin resolves it from the normal results-checker order screen.
+3. The webhook's own SMS (airtime "payment received", voucher PINs) bypass the lane's reply caps and the lane's sender ID. They count against nothing in the Text-to-Buy caps.
+4. Admin "Failed" on a paid airtime order credits a registered payer's wallet (existing behaviour of that flow). Check the payer before marking it.
+5. Telecel on Paystack needs a one-time code the text lane cannot collect. Keep `sms_order` on Hubtel in the gateway settings. An order that comes back as `otp_required` (a code prompt the lane cannot collect), for airtime or vouchers, simply stays `otp_required`; the lane closes it with the unpaid notice at the window. Tell the customer to retry with another network or number.
+6. The caps (prompts per hour, replies per hour, global prompts per minute) are shared across all three services.
+7. Order rows still say `channel = 'ussd'`, as for data. Tell text orders apart by the Text-to-Buy link, not by channel.
+8. A possible orphan charge. If placing an order throws an unexpected error, the customer gets no SMS, and the admin alert reads "placing an order failed unexpectedly: message <messageId>". The prompt may already have been sent. Check Paystack and Hubtel and the order tables around that time for that sender. No lane follow-up will ever come, because no link row exists. Refund through `/admin/refunds` if the customer was charged.
+9. No idempotency key on the text channel. A duplicate delivery of the same text could create a second order if a database write fails twice in a row. One open order per sender normally prevents it.
+10. The voucher quantity question completes on a bare whole number only: `2` works, `two` is asked again.
+
+### 12.6 OWNER check before switching vouchers on
+
+Run this read-only in the SQL editor and record the answer:
+
+`select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid = 'results_checker_orders'::regclass`
+
+Note whether the status check constraint allows `expired`. The lane closes its own link at 30 minutes either way; this only tells you whether the order row can also be marked expired.
+
+### 12.7 Rollback
+
+Switch the service off (Overview or settings). Nothing to undo in the database. Orders already prompted finish normally; the lane still sends their follow-ups.
+
+### 12.8 Announcement (HOLD UNTIL LAUNCH)
+
+Post only after the supervised tests for each service you are announcing pass:
+
+```
+New: buy airtime and checkers by text!
+Text the main number:
+- airtime 10  (GHS 10 airtime for your own number)
+- airtime 10 0241234567  (for someone else)
+- 2 wassce  (2 WASSCE checkers; also bece, novdec)
+Approve the MoMo prompt with your PIN. Checker PINs come by SMS to the number you texted from.
+```

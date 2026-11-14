@@ -604,6 +604,24 @@ export async function overviewRows(db: SupabaseClient, from: Date): Promise<Over
   })
 }
 
+const SERVICES: Service[] = ["data", "airtime", "results_checker"]
+
+/**
+ * Main-line links created since `from`, per service: prompts = links, paid = paid_at set, delivered = delivered_at set.
+ * Count queries only (head: true); no database function.
+ */
+export async function serviceCountsToday(db: SupabaseClient, from: Date): Promise<Record<Service, { prompts: number; paid: number; delivered: number }>> {
+  const count = async (service: Service, notNull?: "paid_at" | "delivered_at"): Promise<number> => {
+    let q = db.from("ttb_orders").select("id", { count: "exact", head: true }).eq("line", "main").eq("service", service).gte("created_at", from.toISOString())
+    if (notNull) q = q.not(notNull, "is", null)
+    const { count: n, error } = await q
+    if (error || typeof n !== "number") throw new TtbStoreError("could not read the service counts")
+    return n
+  }
+  const rows = await Promise.all(SERVICES.map(async (s) => [s, { prompts: await count(s), paid: await count(s, "paid_at"), delivered: await count(s, "delivered_at") }] as const))
+  return Object.fromEntries(rows) as Record<Service, { prompts: number; paid: number; delivered: number }>
+}
+
 /** Writes the given admin_settings keys as { "value": x } in ONE upsert statement. An empty set writes nothing. */
 export async function saveSettingRows(db: SupabaseClient, values: Record<string, unknown>, adminId: string, now: Date): Promise<void> {
   const rows = Object.entries(values).map(([key, value]) => ({ key, value: { value }, updated_by: adminId, updated_at: now.toISOString() }))

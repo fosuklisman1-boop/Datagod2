@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { loadTtbSettings, TTB_SETTING_KEYS, type TtbSettingField, type TtbSettingKey, type TtbSettings } from "@/lib/text-to-buy/settings"
 import { normaliseSender, validateTtbSettings } from "@/lib/text-to-buy/admin-validate"
 import { buildOverview, SMS_RATE_GHS, startOfTodayAccra, UUID_RE } from "@/lib/text-to-buy/admin-view"
-import { blockSender, getHeartbeat, markMisread, overviewRows, saveSettingRows, unblockSender } from "@/lib/text-to-buy/store"
+import { blockSender, getHeartbeat, markMisread, overviewRows, saveSettingRows, serviceCountsToday, unblockSender } from "@/lib/text-to-buy/store"
 import { fail, gate, isResponse, json, logError, readObject } from "@/lib/text-to-buy/admin-http"
 import { notifyTextToBuyAdmins } from "@/lib/admin-actions/text-to-buy"
 
@@ -28,17 +28,19 @@ export async function GET(request: NextRequest) {
   const { db } = ctx
   try {
     const now = new Date()
-    const [settings, rows, main, shop] = await Promise.all([
+    const [settings, rows, main, shop, services] = await Promise.all([
       loadTtbSettings(db),
       overviewRows(db, startOfTodayAccra(now)),
       getHeartbeat(db, "main"),
       getHeartbeat(db, "shop"),
+      serviceCountsToday(db, startOfTodayAccra(now)),
     ])
     return json({
       settingsDefaulted: settings.source === "defaults",
       settings: publicSettings(settings),
       overview: buildOverview(rows, { main, shop }, { enabled: settings.mainEnabled, number: settings.mainNumber }),
       smsRateGhs: SMS_RATE_GHS,
+      services,
     })
   } catch (err) {
     logError("get", err)
