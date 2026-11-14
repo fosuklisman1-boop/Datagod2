@@ -579,21 +579,62 @@ export type StaleReserve = { messageId: string; shopId: string; linkId: string |
 /**
  * Unreleased shop credit reserves created between `maxAgeMs` and `olderThanMs` ago, oldest first, with the link each one belongs
  * to. ttb_credit_reserves is SELECT-only for service_role (rows change through the ttb_*_reserve functions). The upper age bound
- * keeps a reserve that can never be refunded (its account is gone) from crowding out the rest forever.
+ * keeps a reserve that can never be refunded (its account is gone) from being retried forever.
+ *
+ * Returns only ACTIONABLE reserves: not already marked for a retry backoff today (RESERVE_RETRY_KIND, see below) and not owned by
+ * a link that is still open (an open order releases its own reserve). The read pages oldest-first on created_at (keyset, at most
+ * `maxPages` pages of `pageSize`) until `limit` actionable ones are found, so reserves that are skipped never fill the window.
  */
-export async function staleReserves(db: SupabaseClient, now: Date, o: { olderThanMs: number; maxAgeMs: number; limit: number }): Promise<StaleReserve[]> {
+export async function staleReserves(
+  db: SupabaseClient,
+  now: Date,
+  o: { olderThanMs: number; maxAgeMs: number; limit: number; pageSize: number; maxPages: number; day: string },
+): Promise<StaleReserve[]> {
   const newest = new Date(now.getTime() - o.olderThanMs).toISOString()
   const oldest = new Date(now.getTime() - o.maxAgeMs).toISOString()
-  const res = await db
-    .from("ttb_credit_reserves")
-    .select("message_id, shop_id, created_at")
-    .is("released_at", null)
-    .lt("created_at", newest)
-    .gte("created_at", oldest)
-    .order("created_at", { ascending: true })
-    .limit(o.limit)
-  if (res.error || !Array.isArray(res.data)) throw new TtbStoreError("could not read stale reserves")
-  const reserves = res.data.map((r) => r as Record<string, unknown>).filter((r) => typeof r.message_id === "string" && typeof r.shop_id === "string")
+  const out: StaleReserve[] = []
+  let cursor: string | null = null
+  for (let page = 0; page < o.maxPages && out.length < o.limit; page++) {
+    let q = db
+      .from("ttb_credit_reserves")
+      .select("message_id, shop_id, created_at")
+      .is("released_at", null)
+      .lt("created_at", newest)
+      .gte("created_at", oldest)
+    if (cursor) q = q.gt("created_at", cursor)
+    const res = await q.order("created_at", { ascending: true }).limit(o.pageSize)
+    if (res.error || !Array.isArray(res.data)) throw new TtbStoreError("could not read stale reserves")
+    const rows = res.data.map((r) => r as Record<string, unknown>)
+    const last = rows[rows.length - 1]?.created_at
+    out.push(...(await actionable(db, rows.filter((r) => typeof r.message_id === "string" && typeof r.shop_id === "string"), o.day)))
+    if (rows.length < o.pageSize || typeof last !== "string") break
+    cursor = last
+  }
+  return out.slice(0, o.limit)
+}
+
+/**
+ * Backoff marker for a dead reserve: a ttb_notices row (ttb_notice_once) of this kind, with sender "reserve", the INBOUND message
+ * id (a uuid, like the reserve's own key) in the shop_id key position and the day. One row per reserve per day.
+ */
+export const RESERVE_RETRY_KIND = "reserve_retry"
+
+/** Records that a release of this reserve failed today, so later runs the same day skip it. Fixed key, no PII. */
+export function markReserveRetry(db: SupabaseClient, messageId: string, day: string): Promise<boolean> {
+  return noticeOnce(db, RESERVE_RETRY_KIND, "reserve", messageId, day)
+}
+
+async function actionable(db: SupabaseClient, reserves: Record<string, unknown>[], day: string): Promise<StaleReserve[]> {
+  if (reserves.length === 0) return []
+  const marks = await db
+    .from("ttb_notices")
+    .select("shop_id")
+    .eq("kind", RESERVE_RETRY_KIND)
+    .eq("day", day)
+    .in("shop_id", reserves.map((r) => r.message_id as string))
+  if (marks.error || !Array.isArray(marks.data)) throw new TtbStoreError("could not read reserve backoff")
+  const marked = new Set((marks.data as Record<string, unknown>[]).map((m) => m.shop_id))
+  reserves = reserves.filter((r) => !marked.has(r.message_id))
   if (reserves.length === 0) return []
 
   const msgs = await db.from("ttb_messages").select("id, order_link_id").in("id", reserves.map((r) => r.message_id as string))
@@ -608,10 +649,12 @@ export async function staleReserves(db: SupabaseClient, now: Date, o: { olderTha
     if (links.error || !Array.isArray(links.data)) throw new TtbStoreError("could not read reserve links")
     for (const l of links.data as Record<string, unknown>[]) if (typeof l.id === "string") stateOf.set(l.id, String(l.state))
   }
-  return reserves.map((r) => {
-    const linkId = linkOf.get(r.message_id as string) ?? null
-    return { messageId: r.message_id as string, shopId: r.shop_id as string, linkId, linkState: linkId ? stateOf.get(linkId) ?? null : null }
-  })
+  return reserves
+    .map((r) => {
+      const linkId = linkOf.get(r.message_id as string) ?? null
+      return { messageId: r.message_id as string, shopId: r.shop_id as string, linkId, linkState: linkId ? stateOf.get(linkId) ?? null : null }
+    })
+    .filter((r) => r.linkId === null || r.linkState === "closed") // an open (or unknown) order owns its reserve
 }
 
 // ---- Admin API (task 13) -------------------------------------------------------------------------------------------------

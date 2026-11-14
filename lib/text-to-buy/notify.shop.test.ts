@@ -139,7 +139,8 @@ describe("shop links are followed", () => {
     expect(t.f.db.tables.ttb_orders[0].state).toBe("closed")
     delete t.f.db.failOn.ttb_release_reserve
     // The reserve is 1 hour old and its link is closed: the sweep gives the credits back.
-    await t.run()
+    // The failed attempt was marked for today (backoff), so the sweep retries it the next day.
+    await t.run(shopOn, new Date(now.getTime() + 25 * HOUR))
     expect(t.f.db.refunds).toEqual([{ messageId: "M1", credits: 2 }])
   })
 })
@@ -262,6 +263,37 @@ describe("stale reserve sweep", () => {
     expect(text).not.toMatch(/DEAD|SH1|A1|REFUND_FAILED/)
     await t.run(shopOn, new Date(now.getTime() + MIN))
     expect(t.alert).toHaveBeenCalledTimes(1)
+  })
+
+  it("25 dead reserves ahead of one good one: the good one is released in the same run, the dead ones are retried once a day", async () => {
+    const dead = Array.from({ length: 25 }, (_, i) => reserve(`D${i}`, { created_at: iso(-3 * HOUR - i * MIN) }))
+    const t = setup([], [], { ttb_credit_reserves: [...dead, reserve("GOOD", { created_at: iso(-20 * MIN) })] })
+    t.f.db.failRelease = (id) => (id.startsWith("D") ? { message: "REFUND_FAILED: account gone" } : null)
+    const r = await t.run()
+    expect(t.f.db.refunds).toEqual([{ messageId: "GOOD", credits: 2 }])
+    expect(r.reservesReleased).toBe(1)
+    expect(t.alert).toHaveBeenCalledTimes(1)
+    const calls = () => t.f.db.rpcCalls.filter((c) => c.name === "ttb_release_reserve" && String(c.args.p_message_id).startsWith("D")).length
+    expect(calls()).toBe(25)
+    // Same day, later runs: no RPC for the dead ones, no second alert.
+    await t.run(shopOn, new Date(now.getTime() + MIN))
+    await t.run(shopOn, new Date(now.getTime() + 2 * MIN))
+    expect(calls()).toBe(25)
+    expect(t.alert).toHaveBeenCalledTimes(1)
+    // The next day they are tried once more.
+    await t.run(shopOn, new Date(now.getTime() + 25 * HOUR))
+    expect(calls()).toBe(50)
+  })
+
+  it("reserves whose order link is still open do not crowd newer releasable reserves out of the read", async () => {
+    const n = 120
+    const links = Array.from({ length: n }, (_, i) => link({ id: `OL${i}`, order_id: `OO${i}`, sender: `02000${String(i).padStart(5, "0")}`, state: "paid", paid_at: iso(-10 * MIN), created_at: iso(-40 * MIN) }))
+    const orders = Array.from({ length: n }, (_, i) => order({ id: `OO${i}`, payment_status: "completed", order_status: "processing" }))
+    const msgs = links.map((l, i) => inboundOf(`OM${i}`, `OL${i}`, { sender: l.sender }))
+    const reserves = links.map((_, i) => reserve(`OM${i}`, { created_at: iso(-60 * MIN - (n - i) * 1000) }))
+    const t = setup(links, orders, { ttb_messages: msgs, ttb_credit_reserves: [...reserves, reserve("GOOD", { created_at: iso(-20 * MIN) })] })
+    await t.run()
+    expect(t.f.db.refunds).toEqual([{ messageId: "GOOD", credits: 2 }])
   })
 
   it("a reserve older than the give-up age is no longer retried", async () => {

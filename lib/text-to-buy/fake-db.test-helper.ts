@@ -57,6 +57,8 @@ export type FakeTtb = {
   failInsert: Record<string, DbError | undefined>
   /** Credits ttb_release_reserve gave back (one entry per release that refunded something). */
   refunds: { messageId: string; credits: number }[]
+  /** Per-message release failure (e.g. only the dead-account reserves raise). */
+  failRelease?: (messageId: string) => DbError | null | undefined
 }
 
 export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; client: never } {
@@ -234,6 +236,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
         filters.push((r) => !(Array.isArray(r[c]) && (r[c] as unknown[]).includes(wanted)))
         return b
       },
+      gt: (c: string, v: string) => (col(table, c), filters.push((r) => String(r[c]) > v), b),
       gte: (c: string, v: string) => (col(table, c), filters.push((r) => String(r[c]) >= v), b),
       lt: (c: string, v: string) => (col(table, c), filters.push((r) => String(r[c]) < v), b),
       in: (c: string, vs: unknown[]) => (col(table, c), filters.push((r) => vs.includes(r[c])), b),
@@ -279,6 +282,8 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
       // reads of ttb_credit_reserves keep working.
       if (name === "ttb_release_reserve") {
         if (db.failOn.ttb_release_reserve) return Promise.resolve({ data: null, error: db.failOn.ttb_release_reserve })
+        const per = db.failRelease?.(String(args.p_message_id))
+        if (per) return Promise.resolve({ data: null, error: per })
         const row = db.tables.ttb_credit_reserves.find((r) => r.message_id === args.p_message_id)
         if (!row || row.released_at != null) return Promise.resolve({ data: 0, error: null })
         row.released_at = new Date().toISOString()

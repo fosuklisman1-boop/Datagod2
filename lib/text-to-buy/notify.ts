@@ -8,7 +8,7 @@ import type { OrderKind } from "./services/types"
 import { releaseReserve, shopAccountFor } from "./shop/credits"
 import { lineEnabled, type TtbSettings } from "./settings"
 import {
-  addNotice, getHeartbeat, noticeOnce, patchLink, purgeOld, reserveMessageIdForLink, staleReserves, strandedInbound, STRANDED_MAX_AGE_MS,
+  addNotice, getHeartbeat, markReserveRetry, noticeOnce, patchLink, purgeOld, reserveMessageIdForLink, staleReserves, strandedInbound, STRANDED_MAX_AGE_MS,
   touchHeartbeat, watchedLinks, type HeartbeatLine, type WatchedLink,
 } from "./store"
 import type { Line } from "./types"
@@ -72,7 +72,10 @@ const ACCRA_CLOSE_HOUR = 22
 /** A reserve with no open order is given back once its text is older than the recovery sweep's window (it can never be re-run). */
 const STALE_RESERVE_MS = STRANDED_MAX_AGE_MS
 const RESERVE_GIVE_UP_MS = 7 * 24 * HOUR // a reserve that still cannot be refunded after this is left for a person
-const RESERVE_READ_LIMIT = 100
+const RESERVE_READ_LIMIT = 100 // actionable reserves handled per run
+const RESERVE_PAGE_SIZE = 100 // rows per read page
+const RESERVE_MAX_PAGES = 5 // pages per run: skipped (open-link or backed-off) reserves are paged past, up to this many
+const RESERVE_MAX_FAILURES_PER_RUN = 50 // failed release attempts per run (each is then backed off for the day)
 const RESERVE_ALERT = "Text-to-Buy: a shop credit reserve could not be given back (check the stale reserves)"
 
 const UNKNOWN_LINK_ALERT = "Text-to-Buy: link with unknown order table:"
@@ -161,8 +164,10 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
   }
 
   /** Gives back the unused credits of one order's reserve. Idempotent in SQL. Throws only when the release itself failed. */
-  async function release(messageId: string): Promise<void> {
-    if ((await releaseReserve(db, messageId)) > 0) result.reservesReleased = (result.reservesReleased ?? 0) + 1
+  async function release(messageId: string): Promise<number> {
+    const credits = await releaseReserve(db, messageId)
+    if (credits > 0) result.reservesReleased = (result.reservesReleased ?? 0) + 1
+    return credits
   }
 
   async function close(l: WatchedLink, extra: { delivered_at?: string } = {}): Promise<void> {
@@ -290,14 +295,24 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
   try {
     let failed = 0
     let released = 0
-    for (const r of await staleReserves(db, now, { olderThanMs: STALE_RESERVE_MS, maxAgeMs: RESERVE_GIVE_UP_MS, limit: RESERVE_READ_LIMIT })) {
-      if (released + failed >= SWEEP_LIMIT) break
-      if (r.linkId !== null && r.linkState !== "closed") continue // an open (or unknown) order owns its reserve
+    const day = nowIso.slice(0, 10)
+    // staleReserves returns only actionable reserves: none marked for backoff today, none owned by an open link.
+    const due = await staleReserves(db, now, {
+      olderThanMs: STALE_RESERVE_MS, maxAgeMs: RESERVE_GIVE_UP_MS, limit: RESERVE_READ_LIMIT, pageSize: RESERVE_PAGE_SIZE, maxPages: RESERVE_MAX_PAGES, day,
+    })
+    for (const r of due) {
+      // The budget counts releases that gave credits back, and failures separately (each failure is marked, so a dead reserve
+      // costs one attempt a day and can never starve the releasable ones behind it).
+      if (released >= SWEEP_LIMIT || failed >= RESERVE_MAX_FAILURES_PER_RUN) break
       try {
-        await release(r.messageId)
-        released++
+        if ((await release(r.messageId)) > 0) released++
       } catch {
         failed++
+        try {
+          await markReserveRetry(db, r.messageId, day)
+        } catch {
+          // the marker is only a backoff; the next run simply tries again
+        }
       }
     }
     if (failed > 0) {
