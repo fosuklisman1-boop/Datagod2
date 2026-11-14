@@ -362,3 +362,128 @@ Text the main number:
 - 2 wassce  (2 WASSCE checkers; also bece, novdec)
 Approve the MoMo prompt with your PIN. Checker PINs come by SMS to the number you texted from.
 ```
+
+## 13. Stage 3a: the shop line (OWNER runbook)
+
+### 13.1 What it is, and what it is not
+
+The shop line is a second Text-to-Buy number. A customer texts it to buy data from one particular shop (a shop that already has a shop code, for example a USSD shop). The order is placed for that shop, so the shop earns its normal profit (and the parent earns theirs, if it is a sub-agent shop). The customer is still the payer, from the number they texted from, by MoMo prompt. Nothing else about payment changes.
+
+What it is NOT:
+
+- Data only. Airtime and checkers on the shop line are Stage 3c. A text asking for airtime on the shop line is treated as if airtime did not exist.
+- No shop price list by text. `PRICES` on the shop line never shows the main catalogue; it gets help text.
+- No shop owner page yet. Shop owners see their text orders and credits in their normal screens. Their own Text-to-Buy page is Stage 3b.
+
+### 13.2 OWNER prerequisites (all before the switch)
+
+1. A second phone and SIM for the shop number. Set it up as in section 4, with its own forwarder rule.
+2. In Vercel, YOU set the environment variable `SMS_FORWARD_SECRET_SHOP`. Never paste it into a chat, a command, a file or a settings screen. It MUST be DIFFERENT from the two main secrets. If it is the same as another one, or empty, the admin Overview shows a warning. Fix the warning before going on. Redeploy after setting it.
+3. The forwarder rule on that phone posts to the shop line with that secret (section 4 steps, using the shop secret).
+4. In `/admin/text-to-buy` Settings, set the shop number (`ttb_shop_number`, local format 0XXXXXXXXX). Optionally set the shop reply sender ID (`ttb_shop_reply_sender_id`); empty means the platform default.
+5. The numeric sender ID for the shop number must be registered and delivering on MTN, Telecel and AT, proven with handset tests. Repeat the section 6 checklist for the shop number and record the result. Untested networks stay untested; do not assume.
+6. The AI reader must be ON (`/admin/text-to-buy` Settings). On the shop line the rules reader does not understand a text like `K7X9 5gb`, so any text containing a shop code is read by the AI. With the AI off the shop line will not place those orders.
+7. Shop owners need SMS credits (see 13.6). A shop with none is paused.
+
+### 13.3 DEPLOY ORDER (CRITICAL)
+
+**Apply the migration BEFORE the code deploys.** The notifier (the part that follows up on open orders every minute) now reads `ttb_orders.shop_id` and the table `ttb_credit_reserves`. If the code is live without the migration, the notifier errors every minute. This is the opposite of "harmless noise" in section 5: do not deploy first.
+
+Migration: `migrations/0180_text_to_buy_shop_line.sql` (self-test: `migrations/0180_text_to_buy_shop_line.selftest.sql`). It was first numbered 0179 and renumbered because main took 0179. Before applying, re-check that nothing newer has taken 0180.
+
+Follow the production change protocol, with your OK at each step:
+
+1. Precheck (read-only). All must be NULL or zero. If not, STOP: it was already applied, partly or fully.
+
+```sql
+select to_regclass('public.ttb_shop_prefs'), to_regclass('public.ttb_notices'), to_regclass('public.ttb_credit_reserves');
+-- expected: three NULLs
+select count(*) from pg_proc where proname in ('ttb_notice_once','ttb_reserve_credits','ttb_draw_reserve','ttb_undraw_reserve','ttb_release_reserve','ttb_debit_reply','ttb_refund_reply');
+-- expected: 0
+select count(*) from ttb_orders;  -- record it
+select count(*) from admin_settings where key like 'ttb\_shop\_%';  -- expected: 0 (or only ttb_shop_reply_sender_id if you saved it)
+```
+
+2. Dry run: run the migration inside a transaction that ends in the self-test's RAISE so everything rolls back, then read the result. Build the run string by code, not by hand (migration file with its BEGIN kept and only its final COMMIT removed, followed by the self-test DO block), and check before sending that it contains no COMMIT. PASS means the error text starts with `SELFTEST_OK`. Any `FAIL ...` or other error means stop.
+3. Your OK. Then apply.
+4. Verify (read-only):
+
+```sql
+select relname, relrowsecurity from pg_class where relname in ('ttb_shop_prefs','ttb_notices','ttb_credit_reserves');
+-- expected: 3 rows, relrowsecurity true
+select tablename from pg_policies where tablename in ('ttb_shop_prefs','ttb_notices','ttb_credit_reserves');
+-- expected: no rows (RLS on, no policies: only the server can read them)
+select proname from pg_proc where proname in ('ttb_notice_once','ttb_reserve_credits','ttb_draw_reserve','ttb_undraw_reserve','ttb_release_reserve','ttb_debit_reply','ttb_refund_reply');
+-- expected: 7 rows
+select p.proname, has_function_privilege('anon', p.oid, 'execute') a, has_function_privilege('authenticated', p.oid, 'execute') u
+from pg_proc p where p.proname in ('ttb_notice_once','ttb_reserve_credits','ttb_draw_reserve','ttb_undraw_reserve','ttb_release_reserve','ttb_debit_reply','ttb_refund_reply');
+-- expected: a and u false on every row
+select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.ttb_heartbeat'::regclass and contype = 'c';
+-- expected: the line check lists quiet_alert_shop
+```
+
+5. Code deploy: run a real `next build` with placeholder env first, then push, watch the deploy.
+6. Live check: open `/admin/text-to-buy`. The Overview loads, shows the shop card, and no secret warning. The main line still answers a test text as before.
+
+### 13.4 Switch-on order
+
+The shop switch (`shopEnabled`, `ttb_shop_enabled`) is OFF by default and switching it ON asks for confirmation. The main switch does not control it: the two lines are separate. Turn it on ONLY after the supervised test in 13.5 has passed, and only after 13.2 is complete. Leave it on for a day and watch the Overview shop card (paused shops, replies) before announcing.
+
+### 13.5 Supervised paid test (own shop, own number, MoMo)
+
+Use a shop you own and your own phone with MoMo. Smallest package. Have the shop credit balance, the shop's profit rows and `/admin/text-to-buy` Messages open.
+
+1. Code in the text. From your phone text `<SHOPCODE> 1gb` (for example `K7X9 1gb`) to the SHOP number. The quote must name the shop ("Ama Data Hub: 1GB MTN for 0XXXXXXXXX, GHS x.xx. Approve the MoMo prompt now ...") and the MoMo prompt must be for the same amount. Approve it.
+2. Check the order. In `ussd_shop_orders` the order has `channel = 'sms_shop'`, the right shop and the right amount, and ends paid then completed.
+3. Check the profit. A `shop_profits` row exists for the shop (and for the parent shop, if the shop is a sub-agent shop).
+4. Check the credits. In the shop owner's SMS credit ledger there is a row with reason `text_to_buy` (minus 2 for an own-number order, minus 3 for a gift) for the reserve taken before the order was placed. When the order closes, the unused part comes back as a row with reason `text_to_buy_refund` (ref ending `:release`). The net cost is only the replies actually sent. A single reply refunded after a definite provider refusal also shows as `text_to_buy_refund`.
+5. No extra Datagod SMS. Confirm no Datagod-paid "order confirmation" or "delivered" text arrives for an own-number shop order. Only the network's own data notice arrives.
+6. Remembered shop. Text `1gb` (no code) from the same phone. The quote names the same shop again.
+7. Paused shop. Take a test shop to zero SMS credits (or use one that has none), then text its code and `1gb`. Expect: no prompt, no order, one reply (once a day) saying the shop cannot take text orders right now (with the shop's helpline if it has one), and one admin alert. A second text the same day gets no reply. Put the credits back afterwards.
+8. Closed or blocked shop. Text the code of a closed or blocked shop. Expect one closed reply (once a day per sender and shop), nothing placed.
+9. Wrong shop code. Text a made-up code. Expect "shop not found", no fallback to another shop.
+10. Wrong line. From your phone text `shop <SHOPCODE>` to the MAIN number. Expect "For shop orders text <shop number>" once a day, no order.
+11. Which shop? Use a phone with no remembered shop and text `1gb` to the shop number. Expect "Which shop? Reply with the shop code". Reply with the code within 20 minutes: the order is placed for that shop. Wait 20 minutes before replying instead: nothing is placed.
+
+Repeat step 1 on MTN, Telecel and AT payer numbers where you can (Telecel only with the gateway row on Hubtel, see 12.5 item 5). Anything you cannot test is untested; say so before launch.
+
+### 13.6 How the money moves
+
+- Before an order is placed, 2 SMS credits are reserved from the shop owner's account for an own-number order, 3 for a gift (a gift sends one more notice). The reserve is taken first, so a shop with no credits never gets an order placed.
+- Replies about that order draw from the reserve. When the order closes, whatever was not used goes back to the shop. If the server dies in between, a sweep returns a stale reserve after about 15 minutes.
+- A reply not tied to an order (for example an answer in the middle of a conversation) costs the shop 1 credit. If the provider definitely refuses to send it, the credit is refunded.
+- Datagod pays only: replies sent before the shop is known (such as "Which shop?"), the closed, paused, wrong-line and shop-not-found replies, and ONE "paid but not delivered" notice when the shop cannot cover it. That notice is sent once, after a paid order fails, so a customer who paid is never left without word.
+
+### 13.7 Behaviour you should know
+
+- Price is the quote. If Hubtel fails to start the payment, the order FAILS and the customer gets the failure notice; they retry with YES. There is no silent switch to Paystack at a higher price, as the main line has.
+- Shop-paid replies do not count toward Datagod's global reply cap. They are limited per shop instead: setting `ttb_shop_replies_per_hour_per_shop` (default 60). Over the cap the reply is silent: no order, no reserve, no Datagod fallback.
+- "Last bought from" (used to guess the shop when no code and no remembered shop) reads shop USSD, Hubtel and WhatsApp orders only. It does not see other kinds of order.
+- The paused-shop alert goes to admins only for now. A message to the shop owner comes in Stage 3b. If you want a shop to know, tell them.
+- A customer can have one main order and one shop order open at once. A second shop order is blocked while a shop order is open.
+- A mistyped real shop code never routes to the remembered shop: a code-looking word that does not resolve gets "shop not found". Plain words like "thanks" do not count as codes.
+- `AGAIN` re-resolves the shop of the last order and takes a fresh reserve; if that order names no shop it asks "Which shop?".
+- Retry before the safety mark is written reuses the same reply key, so that one retry's shop-paid reply can be silently skipped. Rare; no money lost.
+- The admin global data switch applies to the shop line too: with data off, the reply says the shop is unavailable.
+- Untested: the first live Hubtel and Paystack runs on the shop line (this is what 13.5 is for), and delivery of replies to Telecel and AT handsets from the shop number.
+
+### 13.8 Rollback
+
+Switch the shop line off (Overview or settings). Open orders finish normally; the notifier keeps following them and releasing reserves.
+
+NEVER roll the code back while shop links or reserves are open. Older code does not know the shop tables, so it would leave reserved credits stuck and mis-handle shop orders. Switch off, wait at least 30 minutes for open links to finish and the sweep to return reserves, and check there are no open reserves (`select count(*) from ttb_credit_reserves where released_at is null`, expected 0) before any code rollback.
+
+The migration is additive. Leave it in place, even on a code rollback.
+
+### 13.9 Announcement (HOLD UNTIL LAUNCH)
+
+Post only after the 13.5 test passes and the switch is on. Shop owners must have SMS credits, or their shops will be paused.
+
+```
+New: your customers can now buy data from you by text!
+Customers text the shop number 0200000999 (use your real shop number):
+- Text 5GB <SHOPCODE>  (for example: 5GB K7X9)
+- Approve the MoMo prompt with your PIN
+- Next time, just text 5GB. We remember your shop.
+Shop owners: you need SMS credits to take text orders. Each order uses a few credits for the replies. With no credits your shop is paused for text orders.
+```

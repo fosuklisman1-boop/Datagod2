@@ -331,18 +331,48 @@ describe("lane golden: shop line", () => {
       credits,
     }
     t.deps.readAi.mockResolvedValue({ kind: "order", service: "data", sizeMb: 5000, networkHint: null, recipient: null, bare: false })
-    async function runShop(text: string, at = 0) {
-      const input: InboundInput = { line: "shop", from: S, text, receivedAt: null, now: new Date(now.getTime() + at) }
+    async function runShop(text: string, at = 0, line: "shop" | "main" = "shop") {
+      const input: InboundInput = { line, from: S, text, receivedAt: null, now: new Date(now.getTime() + at) }
       const { id } = await acceptInbound(t.c, input)
       return processInbound(t.c, id, input, { ...settings, shopEnabled: true, shopNumber: "0200000999" }, { ...t.deps, shop } as unknown as InboundDeps)
     }
-    return { t, shop, credits, runShop }
+    return { t, shop, credits, prefs, runShop }
   }
 
   it("shop order by code: reserve, place, link with shop, quote naming the shop", async () => {
     const s = shopSetup()
     const r = await s.runShop("K7X9 5gb")
     expect(stable({ r, reserves: s.credits.reserve.mock.calls.map((c) => (c as unknown as unknown[])[1]), orders: s.t.f.db.tables.ttb_orders, conversations: s.t.f.db.tables.ttb_conversations, replies: s.t.deps.reply.mock.calls.map((x) => (x as unknown as [unknown, Record<string, unknown>])[1]) })).toMatchSnapshot()
+  })
+
+  const replies = (s: ReturnType<typeof shopSetup>) => s.t.deps.reply.mock.calls.map((x) => (x as unknown as [unknown, Record<string, unknown>])[1])
+
+  it("remembered shop: a text with no code uses the remembered shop", async () => {
+    const s = shopSetup()
+    s.prefs.id = "sc1"
+    const r = await s.runShop("5gb")
+    expect(stable({ r, reserves: s.credits.reserve.mock.calls.length, orders: s.t.f.db.tables.ttb_orders, replies: replies(s) })).toMatchSnapshot()
+  })
+
+  it("paused shop (no credits): nothing placed, one Datagod-paid pause reply, admin alert", async () => {
+    const s = shopSetup()
+    s.credits.reserve.mockResolvedValue({ ok: false, reason: "insufficient" } as never)
+    const r = await s.runShop("K7X9 5gb")
+    expect(stable({ r, orders: s.t.f.db.tables.ttb_orders, notices: s.t.f.db.tables.ttb_notices.map((n) => ({ ...n, created_at: undefined })), replies: replies(s), alerts: s.t.deps.alert.mock.calls })).toMatchSnapshot()
+  })
+
+  it("shop code texted to the main number: wrong-line reply, no order", async () => {
+    const s = shopSetup()
+    s.t.deps.readAi.mockResolvedValue({ kind: "not_order" } as never)
+    const r = await s.runShop("shop K7X9", 0, "main")
+    expect(stable({ r, orders: s.t.f.db.tables.ttb_orders, notices: s.t.f.db.tables.ttb_notices.map((n) => ({ ...n, created_at: undefined })), replies: replies(s) })).toMatchSnapshot()
+  })
+
+  it("no shop known: asks Which shop?, holds the read, a code reply then places the order", async () => {
+    const s = shopSetup()
+    const asked = await s.runShop("5gb")
+    const placed = await s.runShop("K7X9", MIN)
+    expect(stable({ asked, placed, orders: s.t.f.db.tables.ttb_orders, conversations: s.t.f.db.tables.ttb_conversations, replies: replies(s) })).toMatchSnapshot()
   })
 
   it("closed shop: one Datagod-paid closed reply, nothing placed", async () => {

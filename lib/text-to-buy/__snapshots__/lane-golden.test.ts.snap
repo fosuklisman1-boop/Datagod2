@@ -2785,6 +2785,317 @@ exports[`lane golden: shop line > closed shop: one Datagod-paid closed reply, no
 }
 `;
 
+exports[`lane golden: shop line > no shop known: asks Which shop?, holds the read, a code reply then places the order 1`] = `
+{
+  "asked": {
+    "outcome": "asked",
+    "readBy": "rules",
+    "reply": "Which shop? Reply with the shop code",
+  },
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:21:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000101",
+        "shopCodeId": "sc1",
+        "sizeMb": 5000,
+      },
+      "line": "shop",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "5gb",
+        },
+        {
+          "role": "assistant",
+          "text": "Which shop? Reply with the shop code",
+        },
+        {
+          "role": "user",
+          "text": "K7X9",
+        },
+        {
+          "role": "assistant",
+          "text": "Ama Data Hub: 5GB MTN for 0200000101, GHS 23.50. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:01:00.000Z",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.5,
+      "gift": false,
+      "id": "<uuid-2>",
+      "line": "shop",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_shop_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "shop_id": "shop1",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "placed": {
+    "orderId": "<uuid-1>",
+    "outcome": "prompted",
+    "readBy": "rules",
+    "reply": "Ama Data Hub: 5GB MTN for 0200000101, GHS 23.50. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+  },
+  "replies": [
+    {
+      "body": "Which shop? Reply with the shop code",
+      "line": "shop",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "airtimeEnabled": false,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "resultsCheckerEnabled": false,
+        "retentionDays": 30,
+        "shopEnabled": true,
+        "shopNumber": "0200000999",
+        "shopRepliesPerHourPerShop": 60,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+    {
+      "body": "Ama Data Hub: 5GB MTN for 0200000101, GHS 23.50. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "shop",
+      "orderLinkId": "<uuid-2>",
+      "payer": {
+        "accountId": "acct1",
+        "kind": "shop",
+        "messageId": "<uuid-3>",
+        "replyKey": "<uuid-3>-1",
+        "shopId": "shop1",
+      },
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "airtimeEnabled": false,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "resultsCheckerEnabled": false,
+        "retentionDays": 30,
+        "shopEnabled": true,
+        "shopNumber": "0200000999",
+        "shopRepliesPerHourPerShop": 60,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+}
+`;
+
+exports[`lane golden: shop line > paused shop (no credits): nothing placed, one Datagod-paid pause reply, admin alert 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: a shop's text orders are paused (no SMS credits or account): shop shop1",
+    ],
+  ],
+  "notices": [
+    {
+      "day": "2026-11-13",
+      "id": "<uuid-1>",
+      "kind": "paused_alert",
+      "sender": "shop",
+      "shop_id": "shop1",
+    },
+    {
+      "day": "2026-11-13",
+      "id": "<uuid-2>",
+      "kind": "paused",
+      "sender": "0200000101",
+      "shop_id": "shop1",
+    },
+  ],
+  "orders": [],
+  "r": {
+    "outcome": "unavailable",
+    "readBy": "ai",
+    "reply": "Ama Data Hub can't take text orders right now. Call 0241234567.",
+  },
+  "replies": [
+    {
+      "body": "Ama Data Hub can't take text orders right now. Call 0241234567.",
+      "line": "shop",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "airtimeEnabled": false,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "resultsCheckerEnabled": false,
+        "retentionDays": 30,
+        "shopEnabled": true,
+        "shopNumber": "0200000999",
+        "shopRepliesPerHourPerShop": 60,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+}
+`;
+
+exports[`lane golden: shop line > remembered shop: a text with no code uses the remembered shop 1`] = `
+{
+  "orders": [
+    {
+      "amount": 23.5,
+      "gift": false,
+      "id": "<uuid-2>",
+      "line": "shop",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_shop_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "shop_id": "shop1",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "r": {
+    "orderId": "<uuid-1>",
+    "outcome": "prompted",
+    "readBy": "rules",
+    "reply": "Ama Data Hub: 5GB MTN for 0200000101, GHS 23.50. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+  },
+  "replies": [
+    {
+      "body": "Ama Data Hub: 5GB MTN for 0200000101, GHS 23.50. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "shop",
+      "orderLinkId": "<uuid-2>",
+      "payer": {
+        "accountId": "acct1",
+        "kind": "shop",
+        "messageId": "<uuid-3>",
+        "replyKey": "<uuid-3>-1",
+        "shopId": "shop1",
+      },
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "airtimeEnabled": false,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "resultsCheckerEnabled": false,
+        "retentionDays": 30,
+        "shopEnabled": true,
+        "shopNumber": "0200000999",
+        "shopRepliesPerHourPerShop": 60,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "reserves": 1,
+}
+`;
+
+exports[`lane golden: shop line > shop code texted to the main number: wrong-line reply, no order 1`] = `
+{
+  "notices": [
+    {
+      "day": "2026-11-13",
+      "id": "<uuid-1>",
+      "kind": "wrong_line",
+      "sender": "0200000101",
+      "shop_id": null,
+    },
+  ],
+  "orders": [],
+  "r": {
+    "outcome": "not_order",
+    "readBy": "ai",
+    "reply": "For shop orders text 0200000999",
+  },
+  "replies": [
+    {
+      "body": "For shop orders text 0200000999",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "airtimeEnabled": false,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "resultsCheckerEnabled": false,
+        "retentionDays": 30,
+        "shopEnabled": true,
+        "shopNumber": "0200000999",
+        "shopRepliesPerHourPerShop": 60,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+}
+`;
+
 exports[`lane golden: shop line > shop order by code: reserve, place, link with shop, quote naming the shop 1`] = `
 {
   "conversations": [
