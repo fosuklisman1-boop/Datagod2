@@ -112,11 +112,9 @@ export default function AdminUssdShopsPage() {
   const checkAdminAndLoad = async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push("/dashboard"); return }
-    let isAdmin = user.user_metadata?.role === "admin"
-    if (!isAdmin) {
-      const { data } = await supabase.from("users").select("role").eq("id", user.id).single()
-      isAdmin = data?.role === "admin"
-    }
+    // users.role only: user_metadata is user-writable and can never grant admin.
+    const { data } = await supabase.from("users").select("role").eq("id", user.id).single()
+    const isAdmin = data?.role === "admin"
     if (!isAdmin) { toast.error("Unauthorized"); router.push("/dashboard"); return }
     await loadAll()
   }

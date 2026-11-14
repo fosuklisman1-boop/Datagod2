@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { alertAdminsOfRequest } from "@/lib/admin-actions"
 import { checkLogoInput, storeEmbeddedLogo } from "@/lib/shop-logo-intake"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 
 // Server-side shop creation. Migration 0077 revoked INSERT on every public table
 // from `authenticated`/`anon`, so the old browser-client insert in
@@ -28,6 +29,14 @@ export async function POST(request: NextRequest) {
   const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token)
   if (userError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  // 1b) Same phone gate as orders/withdrawals (fails closed). The dashboard modal is only a UI
+  //     layer: on 2026-11-14 an account that had failed OTP called this route directly and got a
+  //     shop. A storefront is public and earns money, so it needs a verified owner.
+  const phoneGuard = await checkPhoneVerified(supabaseAdmin, user.id)
+  if (!phoneGuard.allowed) {
+    return NextResponse.json({ error: phoneGuard.error }, { status: 403 })
   }
 
   // 2) Parse + validate input.

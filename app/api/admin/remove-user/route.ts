@@ -7,8 +7,9 @@ import { isUuid } from "@/lib/admin-users/drawer-params"
  *
  * - Signed-in admins only: the CRON bypass is refused (gateAdmin write), so every deletion is attributed.
  *   Its callers are the admin users page and the phone-audit page, both with the admin's session.
- * - An admin cannot delete their own account, and no account with role 'admin' (users.role or the auth
- *   metadata) can be deleted here: remove the admin role first (POST /api/admin/remove-admin).
+ * - An admin cannot delete their own account, and no account with users.role 'admin' can be deleted
+ *   here: remove the admin role first (POST /api/admin/remove-admin). The auth metadata role is NOT
+ *   trusted (users can write it themselves); a mismatching claim is kept in the audit row.
  * - Before anything is deleted, one admin_audit_log row 'user_removed' records who deleted whom, with the
  *   deleted account's email, phone and role. If that row cannot be written, nothing is deleted.
  *   admin_audit_log keeps the raw ids (0176 dropped its foreign keys), so the row survives the deletion.
@@ -41,10 +42,14 @@ export async function DELETE(req: NextRequest) {
     const p = profile as { email: string | null; phone_number: string | null; role: string | null } | null
     const authUser = authRes.error ? null : authRes.data?.user ?? null
     if (!p && !authUser) return NextResponse.json({ error: "User not found" }, { status: 404 })
-    const metaRole = (authUser?.user_metadata as { role?: unknown } | undefined)?.role
-    if (p?.role === "admin" || metaRole === "admin") {
+    // Only users.role counts (the same source verifyAdminAccess trusts). user_metadata is written by
+    // the user themselves (signUp options.data / auth.updateUser), so a forged role "admin" there is
+    // recorded in the audit row but must not make the account undeletable.
+    if (p?.role === "admin") {
       return NextResponse.json({ error: "Admin accounts cannot be deleted. Remove their admin role first." }, { status: 403 })
     }
+    const metaRole = (authUser?.user_metadata as { role?: unknown } | undefined)?.role
+    const claimedRole = typeof metaRole === "string" && metaRole !== (p?.role || "user") ? metaRole : null
 
     const { error: auditError } = await supabaseAdmin.from("admin_audit_log").insert([{
       admin_id: adminId,
@@ -54,7 +59,8 @@ export async function DELETE(req: NextRequest) {
       new_value: {
         email: p?.email ?? authUser?.email ?? null,
         phone: p?.phone_number ?? authUser?.phone ?? null,
-        role: p?.role || (typeof metaRole === "string" ? metaRole : null) || "user",
+        role: p?.role || "user",
+        ...(claimedRole ? { claimed_metadata_role: claimedRole } : {}),
       },
     }])
     if (auditError) {

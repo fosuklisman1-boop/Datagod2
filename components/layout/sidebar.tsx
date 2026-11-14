@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
+import { roleFromMetadata } from "@/lib/metadata-role"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPathAllowedForService, isPageHidden } from "@/lib/custom-domains"
 import { menuItems, shopItems, isNavActive } from "@/lib/dashboard-nav-items"
@@ -130,7 +131,8 @@ export function Sidebar() {
         } else {
           // Fallback: check user_metadata
           const { data: { user: authUser } } = await supabase.auth.getUser()
-          const metadataRole = authUser?.user_metadata?.role
+          // user_metadata is user-writable: roleFromMetadata never returns "admin".
+          const metadataRole = roleFromMetadata(authUser?.user_metadata)
           if (metadataRole) {
             setUserRole(metadataRole)
             localStorage.setItem('userRole', metadataRole)

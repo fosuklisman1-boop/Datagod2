@@ -8,7 +8,16 @@ let updates: Record<string, unknown>[] = []
 let uploadCalls: string[] = []
 let uploadError: unknown = null
 
+let phoneGuard: { allowed: boolean; error?: string } = { allowed: true }
+const phoneGuardCalls: string[] = []
+
 vi.mock("@/lib/admin-actions", () => ({ alertAdminsOfRequest: vi.fn(async () => {}) }))
+vi.mock("@/lib/phone-verify-guard", () => ({
+  checkPhoneVerified: vi.fn(async (_db: unknown, userId: string) => {
+    phoneGuardCalls.push(userId)
+    return phoneGuard
+  }),
+}))
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }) },
@@ -45,8 +54,36 @@ const call = (extra: Record<string, unknown>) =>
     }),
   )
 
+describe("POST /api/shop/create - phone gate", () => {
+  beforeEach(() => {
+    inserted = null
+    updates = []
+    uploadCalls = []
+    uploadError = null
+    phoneGuard = { allowed: true }
+    phoneGuardCalls.length = 0
+  })
+
+  it("refuses an account whose phone is not verified, and creates nothing", async () => {
+    phoneGuard = { allowed: false, error: "Please verify your phone number to continue." }
+    const res = await call({})
+    expect(res.status).toBe(403)
+    expect((await res.json()).error).toMatch(/verify your phone/i)
+    expect(inserted).toBeNull()
+    expect(uploadCalls).toHaveLength(0)
+  })
+
+  it("checks the phone of the token's user, not anything in the body", async () => {
+    const res = await call({ user_id: "someone-else" })
+    expect(res.status).toBe(200)
+    expect(phoneGuardCalls).toEqual(["user-1"])
+    expect(inserted?.user_id).toBe("user-1")
+  })
+})
+
 describe("POST /api/shop/create - logo", () => {
   beforeEach(() => {
+    phoneGuard = { allowed: true }
     inserted = null
     updates = []
     uploadCalls = []

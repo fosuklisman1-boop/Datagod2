@@ -6,7 +6,7 @@ import { toast } from "sonner"
 
 /**
  * Hook to check if current user is an admin
- * Admins are defined by having role = "admin" in user_metadata OR users table
+ * Admins are defined by role = "admin" in the users table only (never user_metadata)
  */
 export function useIsAdmin() {
   const { user, loading: authLoading } = useAuth()
@@ -25,7 +25,7 @@ export function useIsAdmin() {
 
     setLoading(true)
     checkAdminStatus()
-  }, [user?.id, user?.user_metadata, authLoading])
+  }, [user?.id, authLoading])
 
   const checkAdminStatus = async () => {
     try {
@@ -35,18 +35,8 @@ export function useIsAdmin() {
         return
       }
 
-      console.log("[USE-ADMIN] Checking admin status for user:", user.email)
-      console.log("[USE-ADMIN] user_metadata:", user.user_metadata)
-
-      // First check: user_metadata role
-      if (user.user_metadata?.role === "admin") {
-        console.log("[USE-ADMIN] User is admin (from user_metadata)")
-        setIsAdmin(true)
-        setLoading(false)
-        return
-      }
-
-      // Second check: Query users table for role
+      // users.role is the ONLY source of truth. user_metadata is user-writable
+      // (signUp options.data / auth.updateUser), so it can never grant admin.
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("role")
@@ -60,9 +50,7 @@ export function useIsAdmin() {
         return
       }
 
-      const isAdminUser = userData?.role === "admin"
-      console.log("[USE-ADMIN] User role from users table:", userData?.role, "Is Admin:", isAdminUser)
-      setIsAdmin(isAdminUser)
+      setIsAdmin(userData?.role === "admin")
     } catch (error) {
       console.error("[USE-ADMIN] Error:", error)
       setIsAdmin(false)
