@@ -185,6 +185,19 @@ describe("countOutbound", () => {
     db.failOn.ttb_messages = { message: "down" }
     await expect(countOutbound(c, "main", since)).rejects.toBeInstanceOf(TtbStoreError)
   })
+  it("datagodPaidOnly (shop line) skips shop-paid rows; the main line query never names shop_id", async () => {
+    const { db, c } = mk({
+      ttb_messages: [
+        { id: "1", line: "shop", direction: "out", created_at: now.toISOString(), shop_id: null },
+        { id: "2", line: "shop", direction: "out", created_at: now.toISOString(), shop_id: "11111111-1111-4111-8111-111111111111" },
+        { id: "3", line: "shop", direction: "out", created_at: now.toISOString(), shop_id: "11111111-1111-4111-8111-111111111111" },
+      ],
+    })
+    expect(await countOutbound(c, "shop", since)).toBe(3)
+    expect(await countOutbound(c, "shop", since, { datagodPaidOnly: true })).toBe(1)
+    db.rejectColumns.ttb_messages = ["shop_id"]
+    expect(await countOutbound(c, "main", since)).toBe(0)
+  })
 })
 
 describe("hasOpenOrder / linkOrder", () => {

@@ -175,6 +175,16 @@ describe("shop line: resolution", () => {
     expect(t.shopData.confirmShop).not.toHaveBeenCalled()
   })
 
+  it("300 shop-paid replies in the hour never silence a Datagod-paid reply (the global cap counts Datagod-paid rows only)", async () => {
+    const paid = Array.from({ length: 300 }, (_, k) => ({
+      id: `sp${k}`, line: "shop", sender: `02000${String(k).padStart(5, "0")}`, direction: "out", body: "x", created_at: new Date(now.getTime() - 60_000).toISOString(), shop_id: "shop1",
+    }))
+    const t = setup({ seed: { ttb_messages: paid } })
+    const { result } = await t.run("5gb", { settings: { globalRepliesPerHour: 300 } })
+    expect(result).toMatchObject({ outcome: "asked", reply: "Which shop? Reply with the shop code" })
+    expect(t.deps.reply).toHaveBeenCalledTimes(1)
+  })
+
   it("answering the question with a code completes the held read (no AI read, order placed for that shop)", async () => {
     const t = setup()
     await t.run("5gb")

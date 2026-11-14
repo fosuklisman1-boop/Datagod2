@@ -57,6 +57,8 @@ export type FakeTtb = {
   failOn: Record<string, DbError | undefined>
   /** Like failOn, but only for inserts (later reads on the table work normally). */
   failInsert: Record<string, DbError | undefined>
+  /** Columns a SELECT must not name (simulates a migration not yet applied): naming one fails with Postgres 42703. */
+  rejectColumns: Record<string, string[] | undefined>
   /** Credits ttb_release_reserve gave back (one entry per release that refunded something). */
   refunds: { messageId: string; credits: number }[]
   /** Per-message release failure (e.g. only the dead-account reserves raise). */
@@ -70,6 +72,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     rpcImpl: () => ({ data: null, error: null }),
     failOn: {},
     failInsert: {},
+    rejectColumns: {},
     refunds: [],
   }
   Object.assign(db.tables, seed)
@@ -90,6 +93,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     let single: "one" | "maybe" | null = null
     let lim: number | null = null
     let countOnly = false
+    let selected: string[] = []
     const orders: { c: string; asc: boolean }[] = []
     const rows = () => db.tables[table]
 
@@ -114,6 +118,10 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     const run = (): { data: unknown; error: DbError | null } => {
       const forced = db.failOn[table]
       if (forced) return { data: null, error: forced }
+      if (mode === "select") {
+        const bad = (db.rejectColumns[table] ?? []).find((c) => selected.includes(c))
+        if (bad) return { data: null, error: { code: "42703", message: `column ${table}.${bad} does not exist` } }
+      }
       if (mode === "insert") {
         if (db.failInsert[table]) return { data: null, error: db.failInsert[table]! }
         checkRow(payload as Row)
@@ -178,6 +186,7 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
     const b = {
       select: (cols = "*", opts?: { count?: string; head?: boolean }) => {
         if (cols !== "*") for (const c of cols.split(",")) col(table, c.trim())
+        selected = cols.split(",").map((c) => c.trim())
         if (opts?.head === true && opts.count === "exact") countOnly = true
         if (mode === "insert" || mode === "update" || mode === "delete") returning = true
         return b

@@ -118,13 +118,16 @@ export async function globalPrompts(db: SupabaseClient, since: Date): Promise<nu
 }
 
 /** Outbound reply rows of a line created at or after since (a count query, no rows fetched). Throws TtbStoreError on a read error. */
-export async function countOutbound(db: SupabaseClient, line: Line, since: Date): Promise<number> {
-  const { count, error } = await db
+export async function countOutbound(db: SupabaseClient, line: Line, since: Date, o: { datagodPaidOnly?: boolean } = {}): Promise<number> {
+  let q = db
     .from("ttb_messages")
     .select("id", { count: "exact", head: true })
     .eq("line", line)
     .eq("direction", "out")
     .gte("created_at", since.toISOString())
+  // Shop-paid rows carry shop_id; Datagod-paid rows never do. Only asked for on the shop line, so the main query never names the column.
+  if (o.datagodPaidOnly) q = q.is("shop_id", null)
+  const { count, error } = await q
   if (error || typeof count !== "number" || !Number.isFinite(count)) throw new TtbStoreError("could not read the outbound count")
   return count
 }

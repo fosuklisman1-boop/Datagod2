@@ -126,7 +126,7 @@ export async function processInbound(
     const cap = settings.globalRepliesPerHour
     let sent: number
     try {
-      sent = await countOutbound(db, i.line, new Date(now - HOUR))
+      sent = await countOutbound(db, i.line, new Date(now - HOUR), { datagodPaidOnly: i.line === "shop" })
     } catch (e) {
       console.error("[text-to-buy] reply cap count error", { messageId, error: e instanceof Error ? e.name : "unknown" })
       return true
