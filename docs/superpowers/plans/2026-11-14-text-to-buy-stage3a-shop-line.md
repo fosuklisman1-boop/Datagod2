@@ -70,8 +70,8 @@
 ### Task 3: Migration (additive) and SQL selftest
 
 **Files:**
-- Create: `migrations/0179_text_to_buy_shop_line.sql` (next free number), `migrations/0179_text_to_buy_shop_line.selftest.sql`
-- Test: `lib/text-to-buy/migration-0179.test.ts` (PGlite, pattern of `migration-0177.test.ts`)
+- Create: `migrations/0180_text_to_buy_shop_line.sql` (renumbered from 0179, taken on main), `migrations/0180_text_to_buy_shop_line.selftest.sql`
+- Test: `lib/text-to-buy/migration-0180.test.ts` (PGlite, pattern of `migration-0177.test.ts`)
 
 **Interfaces:** Produces (service-role only, RLS on, no policies, no anon/authenticated access):
 - `ttb_orders.shop_id uuid null`; `ttb_messages.shop_id uuid null`, `ttb_messages.credits int null`.
@@ -85,7 +85,7 @@
 - Heartbeat CHECK extended with `quiet_alert_shop`. `ttb_purge` also deletes old `ttb_notices` and released/old reserves (30 days). Builder verifies against the live `adjust_sms_units` and `sms_unit_transactions` shape from `migrations/0062*` before writing.
 
 - [ ] **Step 1:** Write the PGlite test and selftest first: reserve once then again (second call no extra debit); draw beyond held returns false; release twice refunds once; release after full use refunds 0; debit with inactive account raises `NOT_ACTIVATED` and moves no credits; two parallel reserves on a balance of 3 for held 2 succeed once; refund twice by one ref refunds once; `ttb_notice_once` true then false; RLS on and zero policies on new tables; anon and authenticated have no execute.
-- [ ] **Step 2:** Run `npx vitest run lib/text-to-buy/migration-0179.test.ts`; expect fail (no migration).
+- [ ] **Step 2:** Run `npx vitest run lib/text-to-buy/migration-0180.test.ts`; expect fail (no migration).
 - [ ] **Step 3:** Write the migration to satisfy the tests; `CREATE ... IF NOT EXISTS` / guarded so a rerun is safe; self-rolling-back dry-run block in the selftest as in 0177.
 - [ ] **Step 4:** Run the test; expect pass.
 - [ ] **Step 5:** Commit `feat(text-to-buy): migration for the shop line (dark, unapplied)`. Applying it is the controller's protocol step (Task 13), not the implementer's.
@@ -237,4 +237,4 @@
 
 ### Task 13: Production protocol (controller only, not a subagent task)
 
-Gated on the final opus whole-branch review passing and the owner's explicit OK at each step: precheck counts, run `0179_text_to_buy_shop_line.selftest.sql` as a self-rolling-back dry run, owner OK, apply, verify (tables, six functions, RLS on, no anon grants), real `next build` with placeholder env, check local `main` for other sessions' commits before pushing, push, watch the Vercel deploy, live check (webhook still rejects a bad secret; admin routes 401 not 404; shop card shows off). Ships dark: `ttb_shop_enabled` stays off.
+Gated on the final opus whole-branch review passing and the owner's explicit OK at each step: precheck counts, run `0180_text_to_buy_shop_line.selftest.sql` as a self-rolling-back dry run, owner OK, apply, verify (tables, six functions, RLS on, no anon grants), real `next build` with placeholder env, check local `main` for other sessions' commits before pushing, push, watch the Vercel deploy, live check (webhook still rejects a bad secret; admin routes 401 not 404; shop card shows off). Ships dark: `ttb_shop_enabled` stays off.
