@@ -166,6 +166,11 @@ async function confirmRc(
   const qty = session.rcQty!
   const dialingPhone = session.dialingPhone!
 
+  // A text-staged quantity is never trusted: a whole number from 1 up to the same cap the USSD quantity step uses.
+  if (sms && !(Number.isInteger(qty) && qty >= 1 && qty <= await getMaxQuantity())) {
+    return end("That quantity is not available. Please try again.")
+  }
+
   // Re-verify availability + price (stale-session guard)
   const [enabled, avail] = await Promise.all([isExamBoardEnabled(board), getAvailableCount(board)])
   if (!enabled || avail < qty) {
@@ -173,6 +178,10 @@ async function confirmRc(
     return end(`${board} vouchers are no longer available in that quantity. Please try again.`)
   }
   const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, applyBulk: true })
+  // A text never charges a zero, negative or non-numeric total.
+  if (sms && !(Number.isFinite(pricing.totalPaid) && pricing.totalPaid > 0)) {
+    return end("Vouchers are not available right now. Please try again.")
+  }
 
   const dialer = await resolveDialer(dialingPhone)
   const provider = paystackProviderFromPhone(dialingPhone)
@@ -187,8 +196,8 @@ async function confirmRc(
   if (!walletEligible && walletOnly) return waWalletShort()
 
   if (walletEligible) {
-    // (never reached on sms: walletEligible is false there)
-    await setSession(sessionId, {
+    // walletEligible is false on sms; saveSession makes that structural too (it never writes on sms).
+    await saveSession({
       ...session,
       step: "RC_PAYMENT_METHOD",
       rcUnitPrice: pricing.unitPrice,

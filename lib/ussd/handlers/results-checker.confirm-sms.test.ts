@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   dialer: {} as any,
   enabled: true,
   avail: 10,
+  max: 10,
   pricing: { unitPrice: 20, totalPaid: 40, bulkApplied: false } as any,
 }))
 
@@ -29,7 +30,7 @@ vi.mock("../../whatsapp-bot/session", () => ({ setWaSession: vi.fn(async () => {
 vi.mock("../../secure-random", () => ({ secureReference: () => "RC-REF" }))
 vi.mock("../../ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({})) }))
 vi.mock("../../results-checker-service", () => ({
-  isExamBoardEnabled: vi.fn(async () => h.enabled), getAvailableCount: vi.fn(async () => h.avail), getMaxQuantity: vi.fn(async () => 10),
+  isExamBoardEnabled: vi.fn(async () => h.enabled), getAvailableCount: vi.fn(async () => h.avail), getMaxQuantity: vi.fn(async () => h.max),
   calculateRCPrice: vi.fn(async () => h.pricing),
   purchaseResultsCheckerVouchers: vi.fn(), getRCBulkHint: vi.fn(async () => null),
 }))
@@ -74,6 +75,7 @@ beforeEach(() => {
   h.dialer = {}
   h.enabled = true
   h.avail = 10
+  h.max = 10
   h.pricing = { unitPrice: 20, totalPaid: 40, bulkApplied: false }
   h.charge = async (p: any) => ({ status: "pay_offline", reference: p.reference })
   for (const m of [chargeMobileMoney, sendSMS, sendWhatsAppText, setWaSession, setSession, resolveDialer]) vi.mocked(m as any).mockClear()
@@ -249,4 +251,38 @@ describe("sms channel (text-to-buy)", () => {
     expect(rows("results_checker_orders")).toHaveLength(0)
     expect(setSession).not.toHaveBeenCalled()
   })
+
+  it("success message is exactly the MoMo prompt line", async () => {
+    const r = await confirmRcByText(SENDER, s())
+    expect(r.message).toBe("MoMo prompt sent to 0200000101. Approve to complete.")
+  })
+
+  describe.each([0, -1, 1.5, NaN, undefined, 11])("bad quantity %s", (qty) => {
+    it("is refused: no row, no orderId, no charge, no setSession", async () => {
+      const r = await confirmRcByText(SENDER, s({ rcQty: qty }))
+      expect(r.orderId).toBeUndefined()
+      expect(r.amount).toBeUndefined()
+      expect(rows("results_checker_orders")).toHaveLength(0)
+      expect(h.afterFns).toHaveLength(0)
+      await runNoWait()
+      expect(chargeMobileMoney).not.toHaveBeenCalled()
+      expect(setSession).not.toHaveBeenCalled()
+    })
+  })
+
+  it.each([1, 10])("quantity %s (1 and the max) still passes", async (qty) => {
+    const r = await confirmRcByText(SENDER, s({ rcQty: qty }))
+    expect(r.orderId).toBe(order().id)
+  })
+
+  it.each([0, -40, NaN, Infinity])("re-priced total %s is refused: no row, no orderId, no charge", async (totalPaid) => {
+    h.pricing = { unitPrice: 20, totalPaid, bulkApplied: false }
+    const r = await confirmRcByText(SENDER, s())
+    expect(r.orderId).toBeUndefined()
+    expect(rows("results_checker_orders")).toHaveLength(0)
+    expect(h.afterFns).toHaveLength(0)
+    expect(chargeMobileMoney).not.toHaveBeenCalled()
+    expect(setSession).not.toHaveBeenCalled()
+  })
+  // An insert failure cannot be simulated: gateway-test-kit only fails hubtel_payments inserts and table updates.
 })
