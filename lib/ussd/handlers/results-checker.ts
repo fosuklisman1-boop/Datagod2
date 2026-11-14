@@ -128,8 +128,34 @@ export async function handleRcConfirm(
    */
   opts: { walletOnly?: boolean } = {}
 ): Promise<UzoResponse> {
+  return confirmRc(input, sessionId, session, channel, opts)
+}
+
+/**
+ * Text-to-Buy: confirm a staged voucher session as channel "sms". Re-checks board and stock and re-prices
+ * (calculateRCPrice, applyBulk true) exactly as handleRcConfirm. MoMo only (no wallet detour whatever the balance),
+ * no 3 s wait, no OTP SMS, never calls setSession.
+ * Session needs: dialingPhone (+233...), rcBoard, rcQty.
+ * Success: orderId = the results_checker_orders id, amount = total_paid as inserted (the re-priced total).
+ * Every refusal (board off, stock short, no MoMo provider, insert failed): no orderId.
+ */
+export async function confirmRcByText(sessionId: string, session: USSDSession): Promise<UzoResponse> {
+  return confirmRc("1", sessionId, session, "sms")
+}
+
+async function confirmRc(
+  input: string,
+  sessionId: string,
+  session: USSDSession,
+  channel: 'ussd' | 'whatsapp' | 'sms',
+  opts: { walletOnly?: boolean } = {}
+): Promise<UzoResponse> {
+  // A text has no session to write: every setSession below is skipped on the sms channel.
+  const sms = channel === "sms"
+  const saveSession = async (s: USSDSession) => { if (!sms) await setSession(sessionId, s) }
+
   if (input.trim() === "2") {
-    await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
+    await saveSession({ step: "MAIN", dialingPhone: session.dialingPhone })
     return end("Order cancelled.")
   }
   if (input.trim() !== "1") {
@@ -143,7 +169,7 @@ export async function handleRcConfirm(
   // Re-verify availability + price (stale-session guard)
   const [enabled, avail] = await Promise.all([isExamBoardEnabled(board), getAvailableCount(board)])
   if (!enabled || avail < qty) {
-    await setSession(sessionId, { step: "MAIN", dialingPhone })
+    await saveSession({ step: "MAIN", dialingPhone })
     return end(`${board} vouchers are no longer available in that quantity. Please try again.`)
   }
   const pricing = await calculateRCPrice({ examBoard: board, quantity: qty, applyBulk: true })
@@ -152,13 +178,16 @@ export async function handleRcConfirm(
   const provider = paystackProviderFromPhone(dialingPhone)
   // The wallet account: on WhatsApp "Pay via Wallet" (walletOnly) the session's account (the sender's own or an
   // OTP-linked one, the id the debit uses) with its LIVE balance; elsewhere the dialing phone's account, as before.
-  const payer = opts.walletOnly
+  // The sms channel never pays from a wallet, whatever the caller passes or the balance is.
+  const walletOnly = opts.walletOnly && !sms
+  const payer = walletOnly
     ? { userId: session.userId, balance: await liveWalletBalance(session.userId) }
     : { userId: dialer.userId, balance: dialer.balance }
-  const walletEligible = payer.userId && payer.balance !== undefined && payer.balance >= pricing.totalPaid
-  if (!walletEligible && opts.walletOnly) return waWalletShort()
+  const walletEligible = !sms && payer.userId && payer.balance !== undefined && payer.balance >= pricing.totalPaid
+  if (!walletEligible && walletOnly) return waWalletShort()
 
   if (walletEligible) {
+    // (never reached on sms: walletEligible is false there)
     await setSession(sessionId, {
       ...session,
       step: "RC_PAYMENT_METHOD",
@@ -171,11 +200,11 @@ export async function handleRcConfirm(
   }
 
   if (!provider) {
-    await setSession(sessionId, { step: "MAIN", dialingPhone })
+    await saveSession({ step: "MAIN", dialingPhone })
     return end("Payment not available for your number. Please use a MoMo number.")
   }
 
-  await setSession(sessionId, {
+  await saveSession({
     ...session,
     rcUnitPrice: pricing.unitPrice,
     rcTotal: pricing.totalPaid,
@@ -256,7 +285,7 @@ async function createRcOrderAndChargeMomo(
   unitPrice: number,
   total: number,
   provider: "mtn" | "vod" | "tgo",
-  channel: 'ussd' | 'whatsapp' = 'ussd'
+  channel: 'ussd' | 'whatsapp' | 'sms' = 'ussd'
 ): Promise<UzoResponse> {
   const dialingPhone = session.dialingPhone!
   const localDialing = toLocal(dialingPhone)
@@ -296,7 +325,8 @@ async function createRcOrderAndChargeMomo(
   const verifiedPayer = isUssdHubtelPayer({ chargePhone: dialingPhone, ownerPhone: channel === "whatsapp" ? sessionId : dialingPhone, provider })
 
   after(async () => {
-    await new Promise(r => setTimeout(r, 3000))
+    // The wait lets the USSD/WhatsApp session close before the prompt lands. A text has no session.
+    if (channel !== "sms") await new Promise(r => setTimeout(r, 3000))
     try {
       const { status } = await startUssdCharge({
         surface: ussdChargeSurface(channel),
@@ -319,7 +349,9 @@ async function createRcOrderAndChargeMomo(
       console.log("[USSD-RC] ✓ Charge initiated:", order.id, "status:", status)
       if (status === "send_otp") {
         await supabase.from("results_checker_orders").update({ payment_status: "otp_required", updated_at: new Date().toISOString() }).eq("id", order.id)
-        if (channel === "whatsapp") {
+        if (channel === "sms") {
+          // Nothing is sent here: the text-to-buy notifier owns every customer message for this channel.
+        } else if (channel === "whatsapp") {
           // The chat is the sender's (sessionId); dialingPhone is the typed number paying.
           await setWaSession(sessionId, { step: "SUBMIT_OTP", dialingPhone, pendingOrderId: order.id, pendingOrderTable: "results_checker_orders" })
           await sendWhatsAppText(sessionId, `Your provider requires a one-time code to complete this payment.\n\nReply here with the OTP you received.\n\n0. Cancel`)
@@ -333,6 +365,9 @@ async function createRcOrderAndChargeMomo(
     }
   })
 
+  if (channel === "sms") {
+    return { ...end(`MoMo prompt sent to ${localDialing}. Approve to complete.`), orderId: order.id, amount: total }
+  }
   await setSession(sessionId, {
     ...session,
     pendingOrderId: order.id,
