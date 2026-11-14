@@ -19,14 +19,14 @@
 -- It needs 0177 applied (the ttb_ tables). The test SMS account borrows an auth.users id that has no SMS account yet (or, if
 -- none is free, inserts a bare auth.users row) - all inside the rolled-back transaction, nothing real is touched or kept.
 --
--- Scenarios (labels): catalog, grants, deny_anon / deny_authenticated, heartbeat, notice, reserve, race, draw, release,
+-- Scenarios (labels): catalog, grants, deny_anon / deny_authenticated, heartbeat, notice, reserve, race, draw, undraw, release,
 -- reply, purge, fn_grants.
 
 DO $selftest$
 DECLARE
   v_tables CONSTANT text[] := ARRAY['ttb_shop_prefs','ttb_notices','ttb_credit_reserves'];
   v_funcs  CONSTANT text[] := ARRAY['public.ttb_notice_once(text,text,uuid,date)','public.ttb_reserve_credits(uuid,uuid,uuid,integer)',
-                                    'public.ttb_draw_reserve(uuid,integer)','public.ttb_release_reserve(uuid)',
+                                    'public.ttb_draw_reserve(uuid,integer)','public.ttb_undraw_reserve(uuid,integer)','public.ttb_release_reserve(uuid)',
                                     'public.ttb_debit_reply(uuid,integer,text)','public.ttb_refund_reply(uuid,integer,text)'];
   v_t      text;
   v_p      text;
@@ -150,9 +150,20 @@ BEGIN
   IF NOT public.ttb_draw_reserve(v_m1, 2) THEN RAISE EXCEPTION 'FAIL draw: within held was false'; END IF;
   IF public.ttb_draw_reserve(v_m1, 2) THEN RAISE EXCEPTION 'FAIL draw: beyond held was true'; END IF;
 
+  -- undraw: gives back drawn credits (used 2 -> 1), never more than used, and moves no money ----------
+  IF NOT public.ttb_undraw_reserve(v_m1, 1) THEN RAISE EXCEPTION 'FAIL undraw: undraw of 1 was false'; END IF;
+  SELECT used INTO v_n FROM public.ttb_credit_reserves WHERE message_id = v_m1;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL undraw: used % after undraw (want 1)', v_n; END IF;
+  IF public.ttb_undraw_reserve(v_m1, 2) THEN RAISE EXCEPTION 'FAIL undraw: undraw of more than used was true'; END IF;
+  IF public.ttb_undraw_reserve(v_m1, 0) THEN RAISE EXCEPTION 'FAIL undraw: undraw of 0 was true'; END IF;
+  SELECT used INTO v_n FROM public.ttb_credit_reserves WHERE message_id = v_m1;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL undraw: a refused undraw changed used to %', v_n; END IF;
+  IF NOT public.ttb_draw_reserve(v_m1, 1) THEN RAISE EXCEPTION 'FAIL undraw: could not draw the undrawn credit again'; END IF;
+
   -- release: refunds held-used (3-2 = 1) once; a repeat refunds 0; full use refunds 0 ----------------
   IF public.ttb_release_reserve(v_m1) <> 1 THEN RAISE EXCEPTION 'FAIL release: first release did not refund 1'; END IF;
   IF public.ttb_release_reserve(v_m1) <> 0 THEN RAISE EXCEPTION 'FAIL release: repeat refunded something'; END IF;
+  IF public.ttb_undraw_reserve(v_m1, 1) THEN RAISE EXCEPTION 'FAIL undraw: undraw after release was true'; END IF;
   IF NOT public.ttb_draw_reserve(v_m2, 2) THEN RAISE EXCEPTION 'FAIL release: could not use the whole reserve'; END IF;
   IF public.ttb_release_reserve(v_m2) <> 0 THEN RAISE EXCEPTION 'FAIL release: a fully used reserve refunded something'; END IF;
   SELECT unit_balance INTO v_bal FROM public.sms_accounts WHERE id = v_acct;

@@ -4,10 +4,16 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 const store = vi.hoisted(() => ({ storeOutbound: vi.fn() }))
 vi.mock("./store", () => ({ storeOutbound: store.storeOutbound }))
 vi.mock("@/lib/sms-service", () => ({ sendSMS: vi.fn() }))
-const credits = vi.hoisted(() => ({ drawReserve: vi.fn(), chargeSingleReply: vi.fn(), refundSingleReply: vi.fn() }))
+const credits = vi.hoisted(() => ({ drawReserve: vi.fn(), undrawReserve: vi.fn(), chargeSingleReply: vi.fn(), refundSingleReply: vi.fn() }))
 vi.mock("./shop/credits", async () => {
   const actual = await vi.importActual<typeof import("./shop/credits")>("./shop/credits")
-  return { ...actual, drawReserve: credits.drawReserve, chargeSingleReply: credits.chargeSingleReply, refundSingleReply: credits.refundSingleReply }
+  return {
+    ...actual,
+    drawReserve: credits.drawReserve,
+    undrawReserve: credits.undrawReserve,
+    chargeSingleReply: credits.chargeSingleReply,
+    refundSingleReply: credits.refundSingleReply,
+  }
 })
 
 import { sendReply } from "./send-reply"
@@ -24,6 +30,7 @@ beforeEach(() => {
   credits.drawReserve.mockResolvedValue(false)
   credits.chargeSingleReply.mockResolvedValue(true)
   credits.refundSingleReply.mockResolvedValue(true)
+  credits.undrawReserve.mockResolvedValue(true)
 })
 
 describe("sendReply", () => {
@@ -215,12 +222,87 @@ describe("sendReply with a shop payer", () => {
     expect(store.storeOutbound.mock.calls[0][1]).toMatchObject({ shopId: "shop-1", credits: 0 })
   })
 
-  it("a refused reply drawn from the reserve cannot be un-drawn: the draw stays consumed, no refund call, row credits 1", async () => {
+  it("a refused reply drawn from the reserve is undrawn (one credit back into the reserve); no single refund; row credits 0", async () => {
     credits.drawReserve.mockResolvedValue(true)
     const send = vi.fn().mockResolvedValue({ success: false })
     expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).toEqual({ sent: false })
+    expect(credits.undrawReserve).toHaveBeenCalledTimes(1)
+    expect(credits.undrawReserve).toHaveBeenCalledWith(db, "msg-1", 1)
     expect(credits.refundSingleReply).not.toHaveBeenCalled()
-    expect(store.storeOutbound.mock.calls[0][1]).toMatchObject({ shopId: "shop-1", credits: 1 })
+    expect(store.storeOutbound.mock.calls[0][1]).toMatchObject({ shopId: "shop-1", credits: 0 })
+  })
+
+  it("a refused reserve reply whose undraw fails (reserve already released): fixed PII-free console.error, credits stay 1, no throw", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    credits.drawReserve.mockResolvedValue(true)
+    credits.undrawReserve.mockResolvedValue(false)
+    const send = vi.fn().mockResolvedValue({ success: false })
+    await expect(sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).resolves.toEqual({ sent: false })
+    expect(store.storeOutbound.mock.calls[0][1]).toMatchObject({ credits: 1 })
+    expect(err).toHaveBeenCalledTimes(1)
+    const text = JSON.stringify(err.mock.calls)
+    for (const secret of ["0200000101", "YES", "msg-1", "acct-1", "shop-1", "key1"]) expect(text).not.toContain(secret)
+    err.mockRestore()
+  })
+
+  it("an undraw that throws never throws out of sendReply", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    credits.drawReserve.mockResolvedValue(true)
+    credits.undrawReserve.mockRejectedValue(new Error("db"))
+    const send = vi.fn().mockResolvedValue({ success: false })
+    await expect(sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).resolves.toEqual({ sent: false })
+    err.mockRestore()
+  })
+
+  it("a provider throw on a reserve-drawn reply counts as sent: no undraw, credits 1", async () => {
+    credits.drawReserve.mockResolvedValue(true)
+    const send = vi.fn().mockRejectedValue(new Error("timeout"))
+    await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })
+    expect(credits.undrawReserve).not.toHaveBeenCalled()
+    expect(store.storeOutbound.mock.calls[0][1]).toMatchObject({ credits: 1 })
+  })
+
+  it("when the reserve is exhausted, the next replies of the same order each fall back to their own single debit", async () => {
+    let left = 2
+    credits.drawReserve.mockImplementation(async () => (left > 0 ? (left--, true) : false))
+    const send = vi.fn().mockResolvedValue({ success: true })
+    for (const k of ["a1", "a2", "a3", "a4"]) {
+      expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer({ replyKey: k }) }, { send })).toEqual({ sent: true })
+    }
+    expect(credits.drawReserve).toHaveBeenCalledTimes(4)
+    const refs = credits.chargeSingleReply.mock.calls.map((c) => c[1].ref)
+    expect(refs).toEqual(["ttb:reply:a3", "ttb:reply:a4"])
+    expect(store.storeOutbound.mock.calls.map((c) => c[1].credits)).toEqual([1, 1, 1, 1])
+  })
+
+  it("a transient drawReserve error falls through to a single debit (the unused reserve returns at release)", async () => {
+    credits.drawReserve.mockRejectedValue(new Error("blip"))
+    const send = vi.fn().mockResolvedValue({ success: true })
+    // drawReserve itself never throws in production (false on error); a throw is treated as unpaid, never as free.
+    expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).toEqual({ sent: false, skipped: "unpaid" })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it("a swallowed refund failure (false or throw) logs a fixed PII-free console.error", async () => {
+    for (const fail of [() => credits.refundSingleReply.mockResolvedValue(false), () => credits.refundSingleReply.mockRejectedValue(new Error("db 0200000101"))]) {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {})
+      fail()
+      const send = vi.fn().mockResolvedValue({ success: false })
+      await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })
+      expect(err).toHaveBeenCalledTimes(1)
+      const text = JSON.stringify(err.mock.calls)
+      for (const secret of ["0200000101", "YES", "msg-1", "acct-1", "shop-1", "key1"]) expect(text).not.toContain(secret)
+      err.mockRestore()
+    }
+  })
+
+  it("a skipped send whose refund throws still resolves { sent:false, skipped:true } and stores nothing", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    credits.refundSingleReply.mockRejectedValue(new Error("db"))
+    const send = vi.fn().mockResolvedValue({ success: true, skipped: true })
+    await expect(sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).resolves.toEqual({ sent: false, skipped: true })
+    expect(store.storeOutbound).not.toHaveBeenCalled()
+    err.mockRestore()
   })
 
   it("a provider throw counts as sent: nothing refunded, credit stays spent", async () => {
@@ -237,10 +319,11 @@ describe("sendReply with a shop payer", () => {
     expect(store.storeOutbound).not.toHaveBeenCalled()
   })
 
-  it("a skipped send with a reserve draw leaves the draw alone (no SQL to un-draw) and stores no row", async () => {
+  it("a skipped send with a reserve draw undraws it, makes no single refund and stores no row", async () => {
     credits.drawReserve.mockResolvedValue(true)
     const send = vi.fn().mockResolvedValue({ success: true, skipped: true })
     expect(await sendReply(db, { ...shopBase, settings: settings(), payer: payer() }, { send })).toEqual({ sent: false, skipped: true })
+    expect(credits.undrawReserve).toHaveBeenCalledWith(db, "msg-1", 1)
     expect(credits.refundSingleReply).not.toHaveBeenCalled()
     expect(store.storeOutbound).not.toHaveBeenCalled()
   })

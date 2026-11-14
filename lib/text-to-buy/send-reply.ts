@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
 import { calculateSegments } from "@/lib/sms/segments"
 import { storeOutbound } from "./store"
-import { chargeSingleReply, drawReserve, refundSingleReply, singleReplyRef } from "./shop/credits"
+import { chargeSingleReply, drawReserve, refundSingleReply, singleReplyRef, undrawReserve } from "./shop/credits"
 import type { TtbSettings } from "./settings"
 import type { Line } from "./types"
 
@@ -47,6 +47,9 @@ export async function sendReply(
   // Datagod paying here (a Datagod-paid notice is an explicit { kind: "datagod" } call by its caller).
   const shop = r.payer && r.payer.kind === "shop" ? r.payer : null
   let paid: { via: "reserve" } | { via: "single"; accountId: string; ref: string } | null = null
+  // drawReserve answers false (never throws) on a transient error, which falls through to a single debit; the reserve's unused
+  // credits come back at the order's release. A crash between debit and send is accepted: a retry of the same replyKey finds the
+  // ref already debited, reads unpaid and does NOT resend (no double charge, no double send).
   if (shop) {
     try {
       if (shop.messageId && (await drawReserve(db, shop.messageId, 1))) {
@@ -63,15 +66,22 @@ export async function sendReply(
     if (!paid) return { sent: false, skipped: "unpaid" }
   }
 
-  // Gives back a single-reply debit with the very ref it was debited under. A reserve draw cannot be un-drawn (no SQL for it):
-  // it stays consumed and the unused rest of the reserve is released by the order's release.
-  const refund = async (): Promise<boolean> => {
-    if (paid?.via !== "single") return false
+  // Gives back what THIS reply took: a single debit is refunded under the very ref it was debited with; a reserve draw is
+  // undrawn (credit back into the order's reserve, returned to the shop at release). A failure never throws; it logs ONE fixed
+  // line (no phone, text or ids). An undraw that returns false means the reserve was already released: nothing safe to refund.
+  const giveBack = async (): Promise<boolean> => {
+    if (!paid) return false
+    let ok = false
     try {
-      return await refundSingleReply(db, { accountId: paid.accountId, credits: 1, ref: paid.ref })
+      ok =
+        paid.via === "single"
+          ? await refundSingleReply(db, { accountId: paid.accountId, credits: 1, ref: paid.ref })
+          : await undrawReserve(db, shop!.messageId as string, 1)
     } catch {
-      return false
+      ok = false
     }
+    if (!ok) console.error("text-to-buy: a shop credit could not be given back for an undelivered reply")
+    return ok
   }
 
   let sent = false
@@ -85,7 +95,7 @@ export async function sendReply(
       skipLogging: true,
     })
     if (res?.skipped) {
-      await refund()
+      await giveBack()
       return { sent: false, skipped: true }
     }
     sent = res?.success === true
@@ -98,7 +108,7 @@ export async function sendReply(
   let credits: number | undefined
   if (shop) {
     credits = 1
-    if (refused && (await refund())) credits = 0 // nothing was kept for this reply: it must not count toward the shop's hourly cap
+    if (refused && (await giveBack())) credits = 0 // nothing was kept for this reply: it must not count toward the shop's hourly cap
   }
 
   try {

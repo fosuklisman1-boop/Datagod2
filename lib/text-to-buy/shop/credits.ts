@@ -67,6 +67,19 @@ export async function drawReserve(db: SupabaseClient, messageId: string, credits
 }
 
 /**
+ * Gives n credits back to the order's open reserve (ttb_undraw_reserve), for a reply that was not delivered. Never throws:
+ * false on a refusal (reserve already released, or n > used), on a database error and on a thrown call.
+ */
+export async function undrawReserve(db: SupabaseClient, messageId: string, credits: number): Promise<boolean> {
+  try {
+    const { data, error } = await db.rpc("ttb_undraw_reserve", { p_message_id: messageId, p_credits: credits })
+    return !error && data === true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Gives back the unused part of the order's reserve, once. Returns the credits refunded; 0 on a repeat, an unknown message or
  * when all were used. A database error THROWS (fixed message): the release is atomic in SQL, so it can simply be retried.
  */

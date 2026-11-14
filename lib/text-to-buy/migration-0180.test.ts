@@ -96,6 +96,7 @@ const FUNCS = [
   "public.ttb_notice_once(text,text,uuid,date)",
   "public.ttb_reserve_credits(uuid,uuid,uuid,integer)",
   "public.ttb_draw_reserve(uuid,integer)",
+  "public.ttb_undraw_reserve(uuid,integer)",
   "public.ttb_release_reserve(uuid)",
   "public.ttb_debit_reply(uuid,integer,text)",
   "public.ttb_refund_reply(uuid,integer,text)",
@@ -138,6 +139,8 @@ describe.skipIf(!PGliteCtor)("0180 in PGlite", () => {
   const reserve = async (acct: string, msg: string, shop: string, credits: number) =>
     (await one("SELECT public.ttb_reserve_credits($1::uuid, $2::uuid, $3::uuid, $4) AS ok", [acct, msg, shop, credits])).ok
   const draw = async (msg: string, credits: number) => (await one("SELECT public.ttb_draw_reserve($1::uuid, $2) AS ok", [msg, credits])).ok
+  const undraw = async (msg: string, credits: number) => (await one("SELECT public.ttb_undraw_reserve($1::uuid, $2) AS ok", [msg, credits])).ok
+  const usedOf = async (msg: string) => Number((await one("SELECT used FROM public.ttb_credit_reserves WHERE message_id = $1", [msg])).used)
   const release = async (msg: string) => Number((await one("SELECT public.ttb_release_reserve($1::uuid) AS n", [msg])).n)
 
   beforeAll(async () => {
@@ -280,6 +283,28 @@ describe.skipIf(!PGliteCtor)("0180 in PGlite", () => {
       expect(await draw(m2, -1)).toBe(false)
     })
 
+    it("undraw restores used after a draw; more than used returns false and changes nothing; after release returns false; unknown message false", async () => {
+      const acct = await account(10)
+      const msg = await uid()
+      await reserve(acct, msg, await uid(), 3)
+      expect(await draw(msg, 2)).toBe(true)
+      expect(await usedOf(msg)).toBe(2)
+      expect(await undraw(msg, 1)).toBe(true)
+      expect(await usedOf(msg)).toBe(1)
+      expect(await undraw(msg, 2)).toBe(false) // more than used
+      expect(await usedOf(msg)).toBe(1)
+      expect(await undraw(msg, 0)).toBe(false)
+      expect(await undraw(msg, -1)).toBe(false)
+      expect(await usedOf(msg)).toBe(1)
+      expect(await draw(msg, 2)).toBe(true) // the undrawn credit is usable again, up to held
+      expect(await draw(msg, 1)).toBe(false)
+      expect(await release(msg)).toBe(0)
+      expect(await undraw(msg, 1)).toBe(false) // released: nothing to give back
+      expect(await usedOf(msg)).toBe(3)
+      expect(await undraw(await uid(), 1)).toBe(false) // unknown message
+      expect(await balance(acct)).toBe(7) // an undraw never moves money
+    })
+
     it("release refunds held-used once with reason text_to_buy_refund and ref ttb:<message>:release; the second call refunds 0", async () => {
       const acct = await account(10)
       const msg = await uid()
@@ -410,9 +435,9 @@ describe.skipIf(!PGliteCtor)("0180 in PGlite", () => {
   describe("privileges", () => {
     it("every new function (and the replaced ttb_purge) pins search_path to public, pg_temp", async () => {
       const r = await db.query(
-        "SELECT proname, proconfig FROM pg_proc WHERE proname IN ('ttb_notice_once','ttb_reserve_credits','ttb_draw_reserve','ttb_release_reserve','ttb_debit_reply','ttb_refund_reply','ttb_purge')",
+        "SELECT proname, proconfig FROM pg_proc WHERE proname IN ('ttb_notice_once','ttb_reserve_credits','ttb_draw_reserve','ttb_undraw_reserve','ttb_release_reserve','ttb_debit_reply','ttb_refund_reply','ttb_purge')",
       )
-      expect(r.rows).toHaveLength(7)
+      expect(r.rows).toHaveLength(8)
       for (const f of r.rows) expect(f.proconfig).toEqual(["search_path=public, pg_temp"])
     })
 

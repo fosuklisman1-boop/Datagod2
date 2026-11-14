@@ -4,6 +4,7 @@ import {
   shopAccountFor,
   reserveForOrder,
   drawReserve,
+  undrawReserve,
   releaseReserve,
   chargeSingleReply,
   refundSingleReply,
@@ -159,6 +160,16 @@ describe("drawReserve / releaseReserve", () => {
     expect(ok.rpcCalls[0]).toEqual({ fn: "ttb_draw_reserve", args: { p_message_id: "m1", p_credits: 2 } })
     const bad = fake({ rpc: { ttb_draw_reserve: { data: null, error: { message: "x" } } } })
     expect(await drawReserve(bad.db, "m1", 1)).toBe(false)
+  })
+
+  it("undraw passes exact argument names; true only when the SQL says true; false on false, on an error and on a thrown rpc", async () => {
+    const yes = fake({ rpc: { ttb_undraw_reserve: { data: true, error: null } } })
+    expect(await undrawReserve(yes.db, "m1", 1)).toBe(true)
+    expect(yes.rpcCalls[0]).toEqual({ fn: "ttb_undraw_reserve", args: { p_message_id: "m1", p_credits: 1 } })
+    expect(await undrawReserve(fake({ rpc: { ttb_undraw_reserve: { data: false, error: null } } }).db, "m1", 1)).toBe(false)
+    expect(await undrawReserve(fake({ rpc: { ttb_undraw_reserve: { data: null, error: { message: "x" } } } }).db, "m1", 1)).toBe(false)
+    const throwing = { rpc: vi.fn().mockRejectedValue(new Error("net")) } as unknown as SupabaseClient
+    expect(await undrawReserve(throwing, "m1", 1)).toBe(false)
   })
 
   it("release returns the unused credits once and 0 on a repeat", async () => {

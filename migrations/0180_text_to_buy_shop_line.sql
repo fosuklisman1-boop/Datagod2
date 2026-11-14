@@ -19,6 +19,8 @@
 --                         INSUFFICIENT_CREDITS). Any raise rolls the reserve row back, so a failed debit leaves nothing.
 --                         true = reserved now, false = this message was already reserved (nothing debited again).
 --   ttb_draw_reserve      used = used + n only while the reserve is open and used + n <= held. Pure bookkeeping.
+--   ttb_undraw_reserve    used = used - n only while the reserve is open and used >= n (a reply that was not delivered gives its
+--                         credit back to the reserve). Pure bookkeeping; false after a release or when n > used.
 --   ttb_release_reserve   ONE transaction: mark released_at (only where NULL) AND refund held - used through adjust_sms_units
 --                         (reason 'text_to_buy_refund', ref 'ttb:<message>:release'). A crash cannot split the two. Returns the
 --                         credits refunded; 0 on a repeat, on an unknown message, or when everything was used. No status gate
@@ -37,7 +39,7 @@
 --   SELECT to_regclass('public.ttb_shop_prefs'), to_regclass('public.ttb_notices'), to_regclass('public.ttb_credit_reserves');   -- all NULL
 --   SELECT to_regclass('public.ttb_orders'), to_regclass('public.ussd_shop_codes'), to_regclass('public.sms_accounts');           -- all NOT NULL
 --   SELECT count(*) FROM pg_proc WHERE proname IN ('ttb_notice_once','ttb_reserve_credits','ttb_draw_reserve',
---          'ttb_release_reserve','ttb_debit_reply','ttb_refund_reply');                                                           -- 0
+--          'ttb_undraw_reserve','ttb_release_reserve','ttb_debit_reply','ttb_refund_reply');                                                           -- 0
 --   SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public'
 --      AND ((table_name = 'ttb_orders' AND column_name = 'shop_id')
 --        OR (table_name = 'ttb_messages' AND column_name IN ('shop_id', 'credits')));                                              -- 0
@@ -194,6 +196,27 @@ BEGIN
 END
 $fn$;
 
+-- Gives back credits drawn for a reply that was NOT delivered (SMS globally off, or a definite provider refusal). Pure
+-- bookkeeping, the mirror of ttb_draw_reserve: only while the reserve is open and only up to what was used. After a release
+-- the unused rest has already been refunded, so there is nothing safe to give back: false.
+CREATE OR REPLACE FUNCTION public.ttb_undraw_reserve(p_message_id uuid, p_credits int)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $fn$
+DECLARE
+  v_hit boolean;
+BEGIN
+  IF p_credits IS NULL OR p_credits <= 0 THEN RETURN false; END IF;
+  UPDATE public.ttb_credit_reserves r
+     SET used = r.used - p_credits
+   WHERE r.message_id = p_message_id AND r.released_at IS NULL AND r.used >= p_credits
+  RETURNING true INTO v_hit;
+  RETURN COALESCE(v_hit, false);
+END
+$fn$;
+
 CREATE OR REPLACE FUNCTION public.ttb_release_reserve(p_message_id uuid)
 RETURNS int
 LANGUAGE plpgsql
@@ -317,6 +340,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.ttb_notice_once(text, text, uuid, date)       FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.ttb_reserve_credits(uuid, uuid, uuid, int)    FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.ttb_draw_reserve(uuid, int)                   FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.ttb_undraw_reserve(uuid, int)                 FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.ttb_release_reserve(uuid)                     FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.ttb_debit_reply(uuid, int, text)              FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.ttb_refund_reply(uuid, int, text)             FROM PUBLIC, anon, authenticated;
@@ -324,6 +348,7 @@ REVOKE ALL ON FUNCTION public.ttb_purge(timestamptz)                        FROM
 GRANT EXECUTE ON FUNCTION public.ttb_notice_once(text, text, uuid, date)    TO service_role;
 GRANT EXECUTE ON FUNCTION public.ttb_reserve_credits(uuid, uuid, uuid, int) TO service_role;
 GRANT EXECUTE ON FUNCTION public.ttb_draw_reserve(uuid, int)                TO service_role;
+GRANT EXECUTE ON FUNCTION public.ttb_undraw_reserve(uuid, int)              TO service_role;
 GRANT EXECUTE ON FUNCTION public.ttb_release_reserve(uuid)                  TO service_role;
 GRANT EXECUTE ON FUNCTION public.ttb_debit_reply(uuid, int, text)           TO service_role;
 GRANT EXECUTE ON FUNCTION public.ttb_refund_reply(uuid, int, text)          TO service_role;
@@ -337,5 +362,5 @@ COMMIT;
 --   SELECT count(*) FROM pg_policies WHERE tablename IN ('ttb_shop_prefs', 'ttb_notices', 'ttb_credit_reserves');   -- 0
 --   SELECT p.proname, has_function_privilege('anon', p.oid, 'EXECUTE'), has_function_privilege('authenticated', p.oid, 'EXECUTE'),
 --          has_function_privilege('service_role', p.oid, 'EXECUTE') FROM pg_proc p WHERE p.proname LIKE 'ttb\_%' ORDER BY 1;
---                                                                                                         -- 12 rows: false, false, true
+--                                                                                                         -- 13 rows: false, false, true
 --   SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.ttb_heartbeat'::regclass AND contype = 'c';   -- lists quiet_alert_shop
