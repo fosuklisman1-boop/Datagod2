@@ -4,7 +4,7 @@ import type { Offer } from "./catalogue"
 import { parseSizeMb, sizeLabel } from "./catalogue"
 import { fitOneSegment } from "./replies"
 import type { Conversation, LastOrder, Pending } from "./store"
-import type { NetworkHint, ReadResult } from "./types"
+import type { AirtimeNetwork, NetworkHint, ReadResult } from "./types"
 
 type Turn = Conversation["turns"][number]
 type OrderRead = Extract<ReadResult, { kind: "order"; service: "data" }>
@@ -29,8 +29,13 @@ export function pickedOption(read: ReadResult, pending: Pending | null): ReadRes
   return Number.isInteger(n) && n >= 1 && n <= pending.options.length ? pending.options[n - 1].read : null
 }
 
-export function rebuildFromLastOrder(last: LastOrder): OrderRead {
-  return orderRead(last.sizeMb, last.network as NetworkHint, last.recipient)
+/** The same order again: the stored shape says which service, and each service re-prices it live. */
+export function rebuildFromLastOrder(last: LastOrder): Extract<ReadResult, { kind: "order" }> {
+  if (!("service" in last)) return orderRead(last.sizeMb, last.network as NetworkHint, last.recipient)
+  if (last.service === "airtime") {
+    return { kind: "order", service: "airtime", amountGhs: last.amountGhs, networkHint: last.network as AirtimeNetwork, recipient: last.recipient }
+  }
+  return { kind: "order", service: "results_checker", board: last.board, quantity: last.quantity }
 }
 
 export function lastOrderOf(offer: Offer, fallbackSizeMb: number): LastOrder {

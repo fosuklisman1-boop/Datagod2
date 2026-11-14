@@ -1,7 +1,7 @@
 import { createHash } from "crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { encodeCursor, MESSAGE_COLUMNS, toAdminMessage, type AdminMessage, type OverviewRow } from "./admin-view"
-import { ORDER_TABLE_OF, type Line, type OrderTable, type Outcome, type ReadResult, type Service } from "./types"
+import { ORDER_TABLE_OF, type ExamBoardWord, type Line, type OrderTable, type Outcome, type ReadResult, type Service } from "./types"
 
 /**
  * Text-to-Buy database access (tables and functions of migration 0177). Server-only, service-role client.
@@ -191,7 +191,10 @@ export async function linkOrder(
 export type Pending =
   | { type: "choices"; options: { label: string; read: ReadResult }[] } // numbered question; a bare digit picks one
   | { type: "confirm"; read: ReadResult } // YES places this
-export type LastOrder = { sizeMb: number; network: string; recipient: string }
+export type LastOrder =
+  | { sizeMb: number; network: string; recipient: string } // data: the Stage 1 shape, unchanged
+  | { service: "airtime"; amountGhs: number; network: string; recipient: string }
+  | { service: "results_checker"; board: ExamBoardWord; quantity: number }
 export type Conversation = {
   turns: { role: "user" | "assistant"; text: string }[]
   pending: Pending | null
@@ -213,11 +216,28 @@ function parsePending(x: unknown): Pending | null {
   return p && typeof p === "object" && (p.type === "choices" || p.type === "confirm") ? (p as Pending) : null
 }
 
+const EXAM_BOARDS: readonly string[] = ["WASSCE", "BECE", "NOVDEC"]
+
+/** The three stored shapes. A row with no `service` is a Stage 1 data row; an unknown `service` is dropped. */
 function parseLastOrder(x: unknown): LastOrder | null {
-  const o = x as { sizeMb?: unknown; network?: unknown; recipient?: unknown } | null
-  return o && typeof o.sizeMb === "number" && typeof o.network === "string" && typeof o.recipient === "string"
-    ? { sizeMb: o.sizeMb, network: o.network, recipient: o.recipient }
-    : null
+  const o = x as { service?: unknown; sizeMb?: unknown; amountGhs?: unknown; network?: unknown; recipient?: unknown; board?: unknown; quantity?: unknown } | null
+  if (!o || typeof o !== "object") return null
+  if (o.service === undefined) {
+    return typeof o.sizeMb === "number" && typeof o.network === "string" && typeof o.recipient === "string"
+      ? { sizeMb: o.sizeMb, network: o.network, recipient: o.recipient }
+      : null
+  }
+  if (o.service === "airtime") {
+    return typeof o.amountGhs === "number" && Number.isFinite(o.amountGhs) && o.amountGhs > 0 && typeof o.network === "string" && typeof o.recipient === "string"
+      ? { service: "airtime", amountGhs: o.amountGhs, network: o.network, recipient: o.recipient }
+      : null
+  }
+  if (o.service === "results_checker") {
+    return typeof o.board === "string" && EXAM_BOARDS.includes(o.board) && typeof o.quantity === "number" && Number.isInteger(o.quantity) && o.quantity > 0
+      ? { service: "results_checker", board: o.board as ExamBoardWord, quantity: o.quantity }
+      : null
+  }
+  return null
 }
 
 /** An expired conversation comes back with empty turns and no pending question; lastOrder is kept (for "again"). */

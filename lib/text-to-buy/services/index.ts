@@ -1,15 +1,20 @@
 import type { handleConfirm } from "@/lib/ussd/handlers/bundles"
 import type { resolveOffer } from "../catalogue"
 import { ORDER_TABLE_OF, type Service } from "../types"
+import type { confirmAirtimeByText } from "@/lib/ussd/handlers/airtime"
+import { airtimeAdapter } from "./airtime"
 import { dataAdapter } from "./data"
 import type { ServiceAdapter } from "./types"
 
 export type Adapters = Partial<Record<Service, ServiceAdapter>>
-export type AdapterDeps = { resolve?: typeof resolveOffer; confirm?: typeof handleConfirm }
+export type AdapterDeps = { resolve?: typeof resolveOffer; confirm?: typeof handleConfirm; airtimeConfirm?: typeof confirmAirtimeByText }
 
 /** One adapter per live service. Tests inject the same `resolve` / `confirm` fakes they always did. */
 export function makeAdapters(deps: AdapterDeps = {}): Adapters {
-  return { data: dataAdapter(deps) as unknown as ServiceAdapter }
+  return {
+    data: dataAdapter(deps) as unknown as ServiceAdapter,
+    airtime: airtimeAdapter({ confirm: deps.airtimeConfirm }) as unknown as ServiceAdapter,
+  }
 }
 
 /** The adapter for a stored link, or null when (service, orderTable) is not a pair ORDER_TABLE_OF knows or no adapter is registered. */

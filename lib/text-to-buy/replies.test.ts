@@ -22,7 +22,77 @@ import {
   containsMoney,
   safeAiQuestion,
   fitOneSegment,
+  amountToken,
+  airtimeQuoteReply,
+  airtimeGiftDeliveredReply,
+  delayedReply,
+  airtimeLimitsReply,
+  airtimeOffReply,
+  airtimeWrongNumberReply,
+  airtimeNetworkQuestion,
+  placedNeutralReply,
 } from "./replies"
+
+const oneSegment = (s: string) => {
+  const r = calculateSegments(s)
+  expect([r.encoding, r.segments]).toEqual(["gsm7", 1])
+}
+
+describe("airtime copy", () => {
+  const q = { networkLabel: "MTN", recipientLocal: "0200000102", payGhs: 10, getsGhs: 9.52, feeOnTop: false, payerNetwork: "MTN" as const }
+  it("amountToken", () => {
+    expect(amountToken(10)).toBe("10")
+    expect(amountToken(10.5)).toBe("10.50")
+    expect(amountToken(0.5)).toBe("0.50")
+  })
+  it("quote", () =>
+    expect(airtimeQuoteReply(q)).toBe("MTN airtime for 0200000102: you pay GHS 10.00, they get GHS 9.52. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3."))
+  it("quote, fee on top", () =>
+    expect(airtimeQuoteReply({ ...q, feeOnTop: true })).toContain("you pay GHS 10.00 + MoMo charge, they get GHS 9.52."))
+  it("quote, unknown payer has no tip", () =>
+    expect(airtimeQuoteReply({ ...q, payerNetwork: "UNKNOWN" })).toBe("MTN airtime for 0200000102: you pay GHS 10.00, they get GHS 9.52. Approve the MoMo prompt now."))
+  it("worst case is one segment and keeps both amounts, the recipient and the approve line", () => {
+    const t = airtimeQuoteReply({ networkLabel: "Telecel", recipientLocal: "0551234567", payGhs: 9999.99, getsGhs: 9999.99, feeOnTop: true, payerNetwork: "TELECEL" })
+    oneSegment(t)
+    expect(t.match(/9,999\.99/g)).toHaveLength(2)
+    expect(t).toContain("0551234567")
+    expect(t).toContain("Approve the MoMo prompt now.")
+  })
+  it("fixed strings", () => {
+    expect(airtimeGiftDeliveredReply("airtime 10", "0200000102")).toBe("Airtime sent to 0200000102. Text airtime 10 to buy again.")
+    expect(delayedReply()).toBe("We received your payment. Delivery is delayed; we are on it and will update you.")
+    expect(airtimeLimitsReply(1, 500)).toBe("Airtime is GHS 1 to 500. Text e.g. airtime 10.")
+    expect(airtimeOffReply("MTN")).toBe("MTN airtime is not available now.")
+    expect(airtimeWrongNumberReply()).toBe("That phone number is not valid. Text e.g. airtime 10 0241234567.")
+    expect(airtimeNetworkQuestion()).toBe("Which network is that number on? 1) MTN 2) Telecel 3) AT")
+    expect(placedNeutralReply()).toBe("Your order was placed. Approve the MoMo prompt if you get one.")
+  })
+  it("every fixed string is one GSM-7 segment", () => {
+    for (const s of [
+      airtimeGiftDeliveredReply("airtime 9999.99", "0200000102"), delayedReply(), airtimeLimitsReply(1, 500), airtimeOffReply("Telecel"),
+      airtimeWrongNumberReply(), airtimeNetworkQuestion(), placedNeutralReply(),
+    ]) oneSegment(s)
+  })
+  it("notUnderstoodReply and helpReply name only the enabled services", () => {
+    const stage1 = "To buy data, text the size e.g. 5GB. For someone else add the number: 5GB 0241234567. Text PRICES for the list."
+    expect(notUnderstoodReply()).toBe(stage1)
+    expect(notUnderstoodReply({})).toBe(stage1)
+    expect(notUnderstoodReply({ airtime: false, resultsChecker: false })).toBe(stage1)
+    expect(notUnderstoodReply({ airtime: true, resultsChecker: true })).toBe(
+      "Text 5GB for data, airtime 10 for airtime, or 2 wassce for checkers. For someone else add the number: 5GB 0241234567. Text PRICES for the list.",
+    )
+    expect(notUnderstoodReply({ airtime: true })).toBe(
+      "Text 5GB for data or airtime 10 for airtime. For someone else add the number: 5GB 0241234567. Text PRICES for the list.",
+    )
+    expect(notUnderstoodReply({ resultsChecker: true })).toBe(
+      "Text 5GB for data or 2 wassce for checkers. For someone else add the number: 5GB 0241234567. Text PRICES for the list.",
+    )
+    for (const a of [true, false]) for (const r of [true, false]) {
+      expect(helpReply({ airtime: a, resultsChecker: r })).toBe(notUnderstoodReply({ airtime: a, resultsChecker: r }))
+      oneSegment(notUnderstoodReply({ airtime: a, resultsChecker: r }))
+    }
+  })
+})
 
 const base: QuoteInput = {
   size: "5GB",

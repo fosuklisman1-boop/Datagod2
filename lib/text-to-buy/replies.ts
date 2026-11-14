@@ -93,16 +93,73 @@ export function openOrderReply(): string {
   return fitOneSegment(["Approve the MoMo prompt for your first order, or wait 5 minutes and text again."])
 }
 
-export function notUnderstoodReply(): string {
+/** Which extra services are switched on for texting. No argument (or both off) is exactly the Stage 1 copy. */
+export type OfferedServices = { airtime?: boolean; resultsChecker?: boolean }
+
+export function notUnderstoodReply(s: OfferedServices = {}): string {
+  const lead =
+    s.airtime && s.resultsChecker
+      ? "Text 5GB for data, airtime 10 for airtime, or 2 wassce for checkers."
+      : s.airtime
+        ? "Text 5GB for data or airtime 10 for airtime."
+        : s.resultsChecker
+          ? "Text 5GB for data or 2 wassce for checkers."
+          : "To buy data, text the size e.g. 5GB."
+  return fitOneSegment([lead, "For someone else add the number: 5GB 0241234567.", "Text PRICES for the list."])
+}
+
+export function helpReply(s: OfferedServices = {}): string {
+  return notUnderstoodReply(s)
+}
+
+/** Airtime and the delay notice. Money figures are filled by the caller from the value written to the order. */
+export function amountToken(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2)
+}
+
+export function airtimeQuoteReply(i: {
+  networkLabel: string
+  recipientLocal: string
+  payGhs: number
+  getsGhs: number
+  feeOnTop: boolean
+  payerNetwork: QuoteInput["payerNetwork"]
+}): string {
+  const pay = i.feeOnTop ? `${formatGhs(i.payGhs)} + MoMo charge` : formatGhs(i.payGhs)
   return fitOneSegment([
-    "To buy data, text the size e.g. 5GB.",
-    "For someone else add the number: 5GB 0241234567.",
-    "Text PRICES for the list.",
+    `${i.networkLabel} airtime for ${i.recipientLocal}: you pay ${pay}, they get ${formatGhs(i.getsGhs)}.`,
+    "Approve the MoMo prompt now.",
+    PAYER_TIPS[i.payerNetwork],
   ])
 }
 
-export function helpReply(): string {
-  return notUnderstoodReply()
+export function airtimeGiftDeliveredReply(size: string, recipientLocal: string): string {
+  return fitOneSegment([`Airtime sent to ${recipientLocal}.`, `Text ${size} to buy again.`])
+}
+
+export function delayedReply(): string {
+  return fitOneSegment(["We received your payment.", "Delivery is delayed; we are on it and will update you."])
+}
+
+export function airtimeLimitsReply(min: number, max: number): string {
+  return fitOneSegment([`Airtime is GHS ${min} to ${max}.`, "Text e.g. airtime 10."])
+}
+
+export function airtimeOffReply(networkLabel: string): string {
+  return fitOneSegment([`${networkLabel} airtime is not available now.`])
+}
+
+export function airtimeWrongNumberReply(): string {
+  return fitOneSegment(["That phone number is not valid.", "Text e.g. airtime 10 0241234567."])
+}
+
+export function airtimeNetworkQuestion(): string {
+  return fitOneSegment(["Which network is that number on?", "1) MTN 2) Telecel 3) AT"])
+}
+
+/** An order exists but its amounts could not be read: say nothing about money. */
+export function placedNeutralReply(): string {
+  return fitOneSegment(["Your order was placed.", "Approve the MoMo prompt if you get one."])
 }
 
 export function wrongNumberReply(): string {

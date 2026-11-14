@@ -3,17 +3,16 @@ import { handleConfirm } from "@/lib/ussd/handlers/bundles"
 import { isUssdHubtelPayer } from "@/lib/ussd/gateway-charge"
 import { resolveSurfaceGateway } from "@/lib/payment-gateway/start"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { detectNetworkWithMap } from "@/lib/phone-format"
+import { detectNetworkWithMap, ghanaSignificant } from "@/lib/phone-format"
 import { notifyAdmins } from "@/lib/sms-service"
-import { ghanaSignificant } from "@/lib/phone-format"
 import { listPrices, resolveOffer, sizeLabel } from "./catalogue"
 import { readWithAi } from "./ai-reader"
 import { parseOrderText } from "./parse-rules"
-import { helpReply, lateReply, limitedReply, notUnderstoodReply, openOrderReply, priceAnswerReply, priceListReply, statusReply } from "./replies"
+import { helpReply, lateReply, limitedReply, notUnderstoodReply, openOrderReply, placedNeutralReply, priceAnswerReply, priceListReply, statusReply } from "./replies"
 import { sendReply } from "./send-reply"
 import { adapterForLink, makeAdapters, type Adapters } from "./services"
 import type { DataOffer } from "./services/data"
-import type { ServiceOffer } from "./services/types"
+import type { PlaceResult, ServiceOffer } from "./services/types"
 import type { TtbSettings } from "./settings"
 import {
   claimInbound, closeStaleLinks, counts, countOutbound, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
@@ -195,9 +194,12 @@ export async function processInbound(
       )
     }
 
+    // Only the services that are switched on for texting are named to the customer.
+    const offered = { airtime: settings.airtimeEnabled, resultsChecker: settings.resultsCheckerEnabled }
+
     const priceList = async (outcome: "keyword" | "price_answer"): Promise<InboundResult> => {
       const list = await prices(db, i.from)
-      if (!list) return await finish(outcome, helpReply())
+      if (!list) return await finish(outcome, helpReply(offered))
       const text = priceListReply(list.networkLabel, list.items)
       await remember(i.text, text, { pending: choicesFromPriceList(list.items, text) })
       return await finish(outcome, text)
@@ -216,7 +218,7 @@ export async function processInbound(
         case "PRICES":
           return await priceList("keyword")
         case "HELP":
-          return await finish("keyword", helpReply())
+          return await finish("keyword", helpReply(offered))
         case "STATUS": {
           const link = await latestOrderLink(db, i.line, i.from)
           // The order row is read from the table the link names, through its own service's adapter. A pair with no adapter is
@@ -252,7 +254,7 @@ export async function processInbound(
 
     // ---- 5-7. things that are not an order -------------------------------------------------------------------------
     // With the switch off an unclear text costs nothing: no reply at all.
-    const notUnderstood = () => finish("not_order", !settings.unclearRepliesEnabled || c.notUnderstood >= 1 ? null : notUnderstoodReply())
+    const notUnderstood = () => finish("not_order", !settings.unclearRepliesEnabled || c.notUnderstood >= 1 ? null : notUnderstoodReply(offered))
     if (read.kind === "not_order" || read.kind === "unknown" || read.kind === "keyword") return await notUnderstood()
     if (read.kind === "ask") {
       await remember(i.text, read.question)
@@ -276,6 +278,8 @@ export async function processInbound(
     const offer = res.offer
 
     if (read.kind === "price_query") {
+      // Only data has a price answer; any other offer here is a wiring mistake, so it is not understood rather than read as data.
+      if (offer.service !== "data") return await notUnderstood()
       const d = (offer as DataOffer).offer
       const text = priceAnswerReply(sizeLabel(d.size), d.networkLabel, d.price)
       await remember(i.text, text, { pending: { type: "confirm", read: orderRead(read.sizeMb as number, read.networkHint, null) } })
@@ -319,7 +323,20 @@ export async function processInbound(
     // The preview can only know the offer price: the charged amount is fixed when the order row is written.
     if (dry) return await finish("prompted", quote(offer.previewGhs, offer.previewDeliversGhs))
 
-    const placed = await adapter.place(offer, messageId, i.from)
+    let placed: PlaceResult
+    try {
+      placed = await adapter.place(offer, messageId, i.from)
+    } catch (e) {
+      // Whether an order was written is unknown, so nothing is claimed and nothing is retried: the inbound row ends as "error"
+      // (the sweep does not run it again), and the admins hear once. No order id, phone, text or amount in the alert.
+      console.error("[text-to-buy] place error", { messageId, error: e instanceof Error ? e.name : "unknown" })
+      try {
+        await alert("Text-to-Buy: placing an order failed unexpectedly")
+      } catch {
+        // an alert must never throw out of the lane
+      }
+      throw e
+    }
     const orderId = placed.orderId
     if (!orderId) return await finish("unavailable", adapter.notPlacedReply(offer))
 
@@ -334,9 +351,13 @@ export async function processInbound(
       }
     }
     const amount = placed.amountGhs
-    if (typeof amount !== "number" || !Number.isFinite(amount)) {
+    // An airtime quote states two figures, so the delivered amount must be usable as well. Data keeps its one figure.
+    const unusable =
+      typeof amount !== "number" || !Number.isFinite(amount) || (adapter.service === "airtime" && !(typeof placed.deliversGhs === "number" && Number.isFinite(placed.deliversGhs)))
+    if (unusable || typeof amount !== "number") {
       await alertOrder("order placed without a usable amount")
-      return await finish("unavailable", adapter.notPlacedReply(offer), { transactional: true })
+      const text = adapter.service === "data" ? adapter.notPlacedReply(offer) : placedNeutralReply()
+      return await finish("unavailable", text, { transactional: true })
     }
 
     let linked: { id: string } | "race" | "link_failed"

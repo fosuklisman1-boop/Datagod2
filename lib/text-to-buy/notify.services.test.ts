@@ -5,6 +5,9 @@ import { runTtbNotify } from "./notify"
 import { TTB_DEFAULTS, type TtbSettings } from "./settings"
 import { orderRowFor } from "./store"
 import { dataAdapter } from "./services/data"
+import { airtimeAdapter } from "./services/airtime"
+import { airtimeGiftDeliveredReply, delayedReply, repricedReply, unpaidReply } from "./replies"
+import { calculateSegments } from "@/lib/sms/segments"
 import { classifyStatusOrder } from "./services/classify"
 import type { Adapters } from "./services"
 import type { ServiceAdapter } from "./services/types"
@@ -55,7 +58,7 @@ describe("a link whose (service, order table) pair is not known", () => {
   it("a service with an unrecognised order table, and a recognised pair with no adapter registered, are treated the same", async () => {
     const t = setup([link({ order_table: "nonsense_orders" }), link({ id: "L2", order_id: "O2", service: "airtime", order_table: "airtime_orders" })], {
       airtime_orders: [{ id: "O2", status: "failed", payment_status: "failed", total_paid: 5 }],
-    })
+    }, { airtime: undefined }) // the live registry now has an airtime adapter: take it out to leave a recognised pair with none
     const r = await t.run()
     expect(r.closed).toBe(0)
     expect(t.f.db.tables.ttb_orders.map((l) => l.state)).toEqual(["awaiting_payment", "awaiting_payment"])
@@ -78,6 +81,90 @@ describe("data links keep their Stage 1 behaviour", () => {
     expect(t.f.db.tables.ttb_orders[0].state).toBe("closed")
     expect(r.closed).toBe(1)
     expect(t.alert).not.toHaveBeenCalled()
+  })
+})
+
+describe("airtime links through the live airtime adapter", () => {
+  const R = "0200000102"
+  const alink = (o: Record<string, unknown> = {}) => link({ service: "airtime", order_table: "airtime_orders", size: "airtime 10", amount: 10, ...o })
+  const arow = (o: Record<string, unknown> = {}) => ({ id: "O1", status: "pending_payment", payment_status: "pending_payment", total_paid: 10, ...o })
+  const bodies = (t: ReturnType<typeof setup>) => t.reply.mock.calls.map((c) => (c[1] as { body: string }).body)
+  const paid = { state: "paid", paid_at: iso(-5 * MIN) }
+
+  it("a completed gift sends the gift delivered notice", async () => {
+    const t = setup([alink({ ...paid, gift: true, recipient: R, size: `airtime 10 ${R}` })], { airtime_orders: [arow({ status: "completed", payment_status: "completed" })] })
+    const r = await t.run()
+    expect(bodies(t)).toEqual([airtimeGiftDeliveredReply(`airtime 10 ${R}`, R)])
+    expect(t.f.db.tables.ttb_orders[0]).toMatchObject({ state: "closed", delivered_at: now.toISOString() })
+    expect(r).toMatchObject({ delivered: 1, closed: 1 })
+  })
+
+  it("a completed own-number order closes without an SMS", async () => {
+    const t = setup([alink(paid)], { airtime_orders: [arow({ status: "completed", payment_status: "completed" })] })
+    await t.run()
+    expect(t.reply).not.toHaveBeenCalled()
+    expect(t.f.db.tables.ttb_orders[0].state).toBe("closed")
+  })
+
+  it("paid 30 minutes and not completed: the delay notice, never 'no need to pay again'", async () => {
+    const t = setup([alink({ state: "paid", paid_at: iso(-31 * MIN) })], { airtime_orders: [arow({ status: "processing", payment_status: "completed" })] })
+    const r = await t.run()
+    expect(bodies(t)).toEqual([delayedReply()])
+    expect(bodies(t).join(" ")).not.toContain("No need to pay again")
+    expect(r.delayed).toBe(1)
+  })
+
+  it("failed after payment: the delay notice, sent once", async () => {
+    const t = setup([alink(paid)], { airtime_orders: [arow({ status: "failed", payment_status: "completed" })] })
+    await t.run()
+    await t.run()
+    expect(bodies(t)).toEqual([delayedReply()])
+  })
+
+  it("refunded: closed, no SMS, whatever the status column says", async () => {
+    for (const row of [arow({ status: "refunded", payment_status: "refunded" }), arow({ status: "failed", payment_status: "refunded" }), arow({ status: "refunding", payment_status: "completed" })]) {
+      const t = setup([alink(paid)], { airtime_orders: [row] })
+      await t.run()
+      expect(t.reply).not.toHaveBeenCalled()
+      expect(t.f.db.tables.ttb_orders[0].state).toBe("closed")
+    }
+  })
+
+  it("a refunded order that was never marked paid on the link still gets no unpaid notice", async () => {
+    const t = setup([alink()], { airtime_orders: [arow({ status: "failed", payment_status: "refunded" })] })
+    await t.run()
+    expect(t.reply).not.toHaveBeenCalled()
+  })
+
+  it("pending_payment past the prompt window: the unpaid notice with the re-text token", async () => {
+    const t = setup([alink({ created_at: iso(-6 * MIN) })], { airtime_orders: [arow()] })
+    const r = await t.run()
+    expect(bodies(t)).toEqual([unpaidReply("airtime 10")])
+    expect(r.unpaid).toBe(1)
+  })
+
+  it("a failed or abandoned payment: the unpaid notice and the link closes", async () => {
+    for (const pay of ["failed", "abandoned", "cancelled"]) {
+      const t = setup([alink()], { airtime_orders: [arow({ payment_status: pay, status: "pending_payment" })] })
+      await t.run()
+      expect(bodies(t)).toEqual([unpaidReply("airtime 10")])
+      expect(t.f.db.tables.ttb_orders[0].state).toBe("closed")
+    }
+  })
+
+  it("a row amount that differs from the link's sends the price-changed notice once", async () => {
+    const t = setup([alink()], { airtime_orders: [arow({ total_paid: 10.4 })] })
+    const r = await t.run()
+    expect(bodies(t)).toEqual([repricedReply(10.4)])
+    expect(r.repriced).toBe(1)
+  })
+
+  it("every airtime notice is one GSM-7 segment", () => {
+    const n = airtimeAdapter().notices
+    for (const s of [n.unpaid("airtime 9999.99 " + R), n.paidNotDelivered(), n.delivered({ size: "airtime 9999.99 " + R, recipient: R, gift: true })!]) {
+      const seg = calculateSegments(s)
+      expect([seg.encoding, seg.segments]).toEqual(["gsm7", 1])
+    }
   })
 })
 

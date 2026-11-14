@@ -305,6 +305,36 @@ describe("conversations", () => {
     expect(await loadConversation(c, "main", S, now)).toEqual({ turns: [{ role: "user", text: "ok" }], pending: null, lastOrder: null })
   })
 
+  it("round-trips the airtime and results-checker lastOrder shapes", async () => {
+    for (const lo of [
+      { service: "airtime" as const, amountGhs: 10.5, network: "MTN", recipient: "0200000150" },
+      { service: "results_checker" as const, board: "WASSCE" as const, quantity: 2 },
+    ]) {
+      const { c } = mk()
+      await saveConversation(c, "main", S, { turns: [], pending: null, lastOrder: lo }, now)
+      expect((await loadConversation(c, "main", S, now)).lastOrder).toEqual(lo)
+    }
+  })
+
+  it("rejects malformed airtime and results-checker lastOrder rows, and still accepts a stored Stage 1 row", async () => {
+    const bad = [
+      { service: "airtime", amountGhs: "10", network: "MTN", recipient: "0200000150" },
+      { service: "airtime", amountGhs: Number.NaN, network: "MTN", recipient: "0200000150" },
+      { service: "airtime", amountGhs: 0, network: "MTN", recipient: "0200000150" },
+      { service: "airtime", amountGhs: 10, network: "MTN" },
+      { service: "results_checker", board: "GCE", quantity: 2 },
+      { service: "results_checker", board: "BECE", quantity: 0 },
+      { service: "results_checker", board: "BECE", quantity: 1.5 },
+      { service: "nonsense", sizeMb: 1000, network: "MTN", recipient: "0200000150" },
+    ]
+    for (const last_order of bad) {
+      const { c } = mk({ ttb_conversations: [{ line: "main", sender: S, turns: [], pending: null, last_order, expires_at: new Date(now.getTime() + 60_000).toISOString() }] })
+      expect((await loadConversation(c, "main", S, now)).lastOrder).toBeNull()
+    }
+    const { c } = mk({ ttb_conversations: [{ line: "main", sender: S, turns: [], pending: null, last_order: lastOrder, expires_at: new Date(now.getTime() + 60_000).toISOString() }] })
+    expect((await loadConversation(c, "main", S, now)).lastOrder).toEqual(lastOrder)
+  })
+
   it("throws TtbStoreError on a read or write error", async () => {
     const { db, c } = mk()
     db.failOn.ttb_conversations = { message: "down" }
