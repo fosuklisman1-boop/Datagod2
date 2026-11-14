@@ -1,0 +1,2055 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`lane golden: inbound > 5gb 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-2>",
+      {
+        "bundleId": "b5",
+        "bundlePrice": 23.69,
+        "bundleSize": "5",
+        "dialingPhone": "+233200000101",
+        "network": "MTN",
+        "recipientPhone": "0200000101",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:20:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000101",
+        "sizeMb": 5000,
+      },
+      "line": "main",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "5gb",
+        },
+        {
+          "role": "assistant",
+          "text": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:00:00.000Z",
+    },
+  ],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-2>",
+      "line": "main",
+      "order_link_id": "<uuid-3>",
+      "outcome": "prompted",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.69,
+      "gift": false,
+      "id": "<uuid-3>",
+      "line": "main",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "main",
+      "orderLinkId": "<uuid-3>",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "orderId": "<uuid-1>",
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      },
+      "text": "5gb",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > 5gb to a gift number 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-2>",
+      {
+        "bundleId": "b5",
+        "bundlePrice": 23.69,
+        "bundleSize": "5",
+        "dialingPhone": "+233200000101",
+        "network": "MTN",
+        "recipientPhone": "0200000150",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:20:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000150",
+        "sizeMb": 5000,
+      },
+      "line": "main",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "5gb 0200000150",
+        },
+        {
+          "role": "assistant",
+          "text": "5GB MTN for 0200000150, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:00:00.000Z",
+    },
+  ],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "70c217dcd1f8ef8c46565b50d0201b288971e2a90151fecb20fa5bb96523dda6",
+      "direction": "in",
+      "id": "<uuid-2>",
+      "line": "main",
+      "order_link_id": "<uuid-3>",
+      "outcome": "prompted",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb 0200000150",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.69,
+      "gift": true,
+      "id": "<uuid-3>",
+      "line": "main",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_orders",
+      "recipient": "0200000150",
+      "sender": "0200000101",
+      "service": "data",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "5GB MTN for 0200000150, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "main",
+      "orderLinkId": "<uuid-3>",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "orderId": "<uuid-1>",
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "5GB MTN for 0200000150, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      },
+      "text": "5gb 0200000150",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > PRICES then 2 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-2>",
+      {
+        "bundleId": "b5",
+        "bundlePrice": 23.69,
+        "bundleSize": "5",
+        "dialingPhone": "+233200000101",
+        "network": "MTN",
+        "recipientPhone": "0200000101",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:21:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000101",
+        "sizeMb": 5000,
+      },
+      "line": "main",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "prices",
+        },
+        {
+          "role": "assistant",
+          "text": "MTN: 1) 1GB GHS 5.00 2) 5GB GHS 23.00 3) 10GB GHS 45.00",
+        },
+        {
+          "role": "user",
+          "text": "2",
+        },
+        {
+          "role": "assistant",
+          "text": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:01:00.000Z",
+    },
+  ],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "4ed934509d5e2a98570f8070baff34e7e4903f949a4d0f5f1964b39a70c46139",
+      "direction": "in",
+      "id": "<uuid-4>",
+      "line": "main",
+      "outcome": "keyword",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "prices",
+    },
+    {
+      "claimed_at": "2026-11-13T12:01:00.000Z",
+      "dedupe_key": "c7afd670d45439baeb217ce9c7ec53cada07656669ec269a9182ccae60328c98",
+      "direction": "in",
+      "id": "<uuid-2>",
+      "line": "main",
+      "order_link_id": "<uuid-3>",
+      "outcome": "prompted",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "2",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.69,
+      "gift": false,
+      "id": "<uuid-3>",
+      "line": "main",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "MTN: 1) 1GB GHS 5.00 2) 5GB GHS 23.00 3) 10GB GHS 45.00",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+    {
+      "body": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "main",
+      "orderLinkId": "<uuid-3>",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "keyword",
+        "readBy": "rules",
+        "reply": "MTN: 1) 1GB GHS 5.00 2) 5GB GHS 23.00 3) 10GB GHS 45.00",
+      },
+      "text": "prices",
+    },
+    {
+      "result": {
+        "orderId": "<uuid-1>",
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      },
+      "text": "2",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > again after an order 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-2>",
+      {
+        "bundleId": "b5",
+        "bundlePrice": 23.69,
+        "bundleSize": "5",
+        "dialingPhone": "+233200000101",
+        "network": "MTN",
+        "recipientPhone": "0200000101",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:20:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000101",
+        "sizeMb": 5000,
+      },
+      "line": "main",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "5gb",
+        },
+        {
+          "role": "assistant",
+          "text": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:00:00.000Z",
+    },
+  ],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-2>",
+      "line": "main",
+      "order_link_id": "<uuid-3>",
+      "outcome": "prompted",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+    {
+      "claimed_at": "2026-11-13T12:06:00.000Z",
+      "dedupe_key": "575194104c0af96eb7d8a2bed82ea1621a023fa5e06c959279ead32df4cafdfd",
+      "direction": "in",
+      "id": "<uuid-4>",
+      "line": "main",
+      "outcome": "open_order",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "again",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.69,
+      "gift": false,
+      "id": "<uuid-3>",
+      "line": "main",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "main",
+      "orderLinkId": "<uuid-3>",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+    {
+      "body": "Approve the MoMo prompt for your first order, or wait 5 minutes and text again.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "orderId": "<uuid-1>",
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      },
+      "text": "5gb",
+    },
+    {
+      "result": {
+        "outcome": "open_order",
+        "readBy": "rules",
+        "reply": "Approve the MoMo prompt for your first order, or wait 5 minutes and text again.",
+      },
+      "text": "again",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > again with a remembered last order and no open link 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-2>",
+      {
+        "bundleId": "b5",
+        "bundlePrice": 23.69,
+        "bundleSize": "5",
+        "dialingPhone": "+233200000101",
+        "network": "MTN",
+        "recipientPhone": "0200000101",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:20:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000101",
+        "sizeMb": 5000,
+      },
+      "line": "main",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "again",
+        },
+        {
+          "role": "assistant",
+          "text": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:00:00.000Z",
+    },
+  ],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "6ba3ad479bccda446d261967380fe4716d379b7d278955db41727e872508c541",
+      "direction": "in",
+      "id": "<uuid-2>",
+      "line": "main",
+      "order_link_id": "<uuid-3>",
+      "outcome": "prompted",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "again",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.69,
+      "gift": false,
+      "id": "<uuid-3>",
+      "line": "main",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "main",
+      "orderLinkId": "<uuid-3>",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "orderId": "<uuid-1>",
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      },
+      "text": "again",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > an AT sender with both products, then 1 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-2>",
+      {
+        "bundleId": "i5",
+        "bundlePrice": 23.69,
+        "bundleSize": "5",
+        "dialingPhone": "+233200000101",
+        "network": "AT-iShare",
+        "recipientPhone": "0200000101",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:21:00.000Z",
+      "last_order": {
+        "network": "AT-iShare",
+        "recipient": "0200000101",
+        "sizeMb": 5000,
+      },
+      "line": "main",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "5gb",
+        },
+        {
+          "role": "assistant",
+          "text": "Which one? 1) AT iShare 5GB 2) AT BigTime 5GB",
+        },
+        {
+          "role": "user",
+          "text": "1",
+        },
+        {
+          "role": "assistant",
+          "text": "5GB AT for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *110#, 6. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:01:00.000Z",
+    },
+  ],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-4>",
+      "line": "main",
+      "outcome": "asked",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+    {
+      "claimed_at": "2026-11-13T12:01:00.000Z",
+      "dedupe_key": "6fb75c8ee865f76a6b25a601798023da682b3bd7c505dffd23e8ef46c63de448",
+      "direction": "in",
+      "id": "<uuid-2>",
+      "line": "main",
+      "order_link_id": "<uuid-3>",
+      "outcome": "prompted",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "1",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.69,
+      "gift": false,
+      "id": "<uuid-3>",
+      "line": "main",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "Which one? 1) AT iShare 5GB 2) AT BigTime 5GB",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+    {
+      "body": "5GB AT for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *110#, 6. Next time just text 5GB",
+      "line": "main",
+      "orderLinkId": "<uuid-3>",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "asked",
+        "readBy": "rules",
+        "reply": "Which one? 1) AT iShare 5GB 2) AT BigTime 5GB",
+      },
+      "text": "5gb",
+    },
+    {
+      "result": {
+        "orderId": "<uuid-1>",
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "5GB AT for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *110#, 6. Next time just text 5GB",
+      },
+      "text": "1",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > dry run of 5gb 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [],
+  "conversations": [],
+  "messages": [
+    {
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+  ],
+  "orders": [],
+  "replies": [],
+  "steps": [
+    {
+      "result": {
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      },
+      "text": "5gb",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > hello (not understood) 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [],
+  "conversations": [],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "a1317382898d6c23b15075945a15e3c32aa32299c51cbb3b46481acc6bef4ee3",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "outcome": "not_order",
+      "read_by": "ai",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "hello",
+    },
+  ],
+  "orders": [],
+  "replies": [
+    {
+      "body": "To buy data, text the size e.g. 5GB. For someone else add the number: 5GB 0241234567. Text PRICES for the list.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "not_order",
+        "readBy": "ai",
+        "reply": "To buy data, text the size e.g. 5GB. For someone else add the number: 5GB 0241234567. Text PRICES for the list.",
+      },
+      "text": "hello",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > how much is 10gb then yes 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-2>",
+      {
+        "bundleId": "b5",
+        "bundlePrice": 46,
+        "bundleSize": "10",
+        "dialingPhone": "+233200000101",
+        "network": "MTN",
+        "recipientPhone": "0200000101",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:21:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000101",
+        "sizeMb": 10000,
+      },
+      "line": "main",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "how much is 10gb",
+        },
+        {
+          "role": "assistant",
+          "text": "MTN 10GB is GHS 45.00. Text 10GB to buy.",
+        },
+        {
+          "role": "user",
+          "text": "yes",
+        },
+        {
+          "role": "assistant",
+          "text": "10GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 10GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:01:00.000Z",
+    },
+  ],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "162a3055def5957ee1c2e9cacb91da731df25f332a7a839990bb53a3e3ba9fae",
+      "direction": "in",
+      "id": "<uuid-4>",
+      "line": "main",
+      "outcome": "price_answer",
+      "read_by": "ai",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "how much is 10gb",
+    },
+    {
+      "claimed_at": "2026-11-13T12:01:00.000Z",
+      "dedupe_key": "3a3c1ebd016029efcc917e2ec4bba739faedfcbc5b604b431714c4b4a67b4e0d",
+      "direction": "in",
+      "id": "<uuid-2>",
+      "line": "main",
+      "order_link_id": "<uuid-3>",
+      "outcome": "prompted",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "yes",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.69,
+      "gift": false,
+      "id": "<uuid-3>",
+      "line": "main",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "size": "10",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "MTN 10GB is GHS 45.00. Text 10GB to buy.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+    {
+      "body": "10GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 10GB",
+      "line": "main",
+      "orderLinkId": "<uuid-3>",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "price_answer",
+        "readBy": "ai",
+        "reply": "MTN 10GB is GHS 45.00. Text 10GB to buy.",
+      },
+      "text": "how much is 10gb",
+    },
+    {
+      "result": {
+        "orderId": "<uuid-1>",
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "10GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 10GB",
+      },
+      "text": "yes",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > status after an order 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [
+    [
+      "1",
+      "sms:<uuid-2>",
+      {
+        "bundleId": "b5",
+        "bundlePrice": 23.69,
+        "bundleSize": "5",
+        "dialingPhone": "+233200000101",
+        "network": "MTN",
+        "recipientPhone": "0200000101",
+      },
+      "sms",
+      {
+        "momoOnly": true,
+      },
+    ],
+  ],
+  "conversations": [
+    {
+      "expires_at": "2026-11-13T12:20:00.000Z",
+      "last_order": {
+        "network": "MTN",
+        "recipient": "0200000101",
+        "sizeMb": 5000,
+      },
+      "line": "main",
+      "pending": null,
+      "sender": "0200000101",
+      "turns": [
+        {
+          "role": "user",
+          "text": "5gb",
+        },
+        {
+          "role": "assistant",
+          "text": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+        },
+      ],
+      "updated_at": "2026-11-13T12:00:00.000Z",
+    },
+  ],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "b8148b8cd0fe77b23aa638ba1df8b90237b939f92eee5d2cfa1c501789269c66",
+      "direction": "in",
+      "id": "<uuid-2>",
+      "line": "main",
+      "order_link_id": "<uuid-3>",
+      "outcome": "prompted",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "5gb",
+    },
+    {
+      "claimed_at": "2026-11-13T12:01:00.000Z",
+      "dedupe_key": "3d6d9cc3c36403b931e6e1e55d3c37123108196b79f3706515482e67765fbf91",
+      "direction": "in",
+      "id": "<uuid-4>",
+      "line": "main",
+      "outcome": "keyword",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "status",
+    },
+  ],
+  "orders": [
+    {
+      "amount": 23.69,
+      "gift": false,
+      "id": "<uuid-3>",
+      "line": "main",
+      "notices": [],
+      "order_id": "<uuid-1>",
+      "order_table": "ussd_orders",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "service": "data",
+      "size": "5",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      "line": "main",
+      "orderLinkId": "<uuid-3>",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+    {
+      "body": "Your 5GB order is waiting for payment. Approve the MoMo prompt.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "orderId": "<uuid-1>",
+        "outcome": "prompted",
+        "readBy": "rules",
+        "reply": "5GB MTN for 0200000101, GHS 23.69. Approve the MoMo prompt now. No prompt? Dial *170#, 6, 3. Next time just text 5GB",
+      },
+      "text": "5gb",
+    },
+    {
+      "result": {
+        "outcome": "keyword",
+        "readBy": "rules",
+        "reply": "Your 5GB order is waiting for payment. Approve the MoMo prompt.",
+      },
+      "text": "status",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: inbound > yes with nothing pending 1`] = `
+{
+  "alerts": [],
+  "confirmCalls": [],
+  "conversations": [],
+  "messages": [
+    {
+      "claimed_at": "2026-11-13T12:00:00.000Z",
+      "dedupe_key": "3a3c1ebd016029efcc917e2ec4bba739faedfcbc5b604b431714c4b4a67b4e0d",
+      "direction": "in",
+      "id": "<uuid-1>",
+      "line": "main",
+      "outcome": "not_order",
+      "read_by": "rules",
+      "received_at": null,
+      "sender": "0200000101",
+      "text": "yes",
+    },
+  ],
+  "orders": [],
+  "replies": [
+    {
+      "body": "To buy data, text the size e.g. 5GB. For someone else add the number: 5GB 0241234567. Text PRICES for the list.",
+      "line": "main",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "steps": [
+    {
+      "result": {
+        "outcome": "not_order",
+        "readBy": "rules",
+        "reply": "To buy data, text the size e.g. 5GB. For someone else add the number: 5GB 0241234567. Text PRICES for the list.",
+      },
+      "text": "yes",
+    },
+  ],
+}
+`;
+
+exports[`lane golden: notifier > delivered gift 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": "2026-11-13T12:00:00.000Z",
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": "2026-11-13T12:00:00.000Z",
+      "gift": true,
+      "id": "L1",
+      "line": "main",
+      "notices": [
+        "delivered",
+      ],
+      "order_id": "O1",
+      "paid_at": "2026-11-13T11:55:00.000Z",
+      "recipient": "0200000150",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "closed",
+    },
+  ],
+  "replies": [
+    {
+      "body": "1GB sent to 0200000150. Text 1GB to buy again.",
+      "line": "main",
+      "orderLinkId": "L1",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "result": {
+    "checked": 1,
+    "closed": 1,
+    "delayed": 0,
+    "delivered": 1,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > delivered own number 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": "2026-11-13T12:00:00.000Z",
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": "2026-11-13T12:00:00.000Z",
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [],
+      "order_id": "O1",
+      "paid_at": "2026-11-13T11:55:00.000Z",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "closed",
+    },
+  ],
+  "replies": [],
+  "result": {
+    "checked": 1,
+    "closed": 1,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > delivery failed 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": null,
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [
+        "paid_not_delivered",
+      ],
+      "order_id": "O1",
+      "paid_at": "2026-11-13T11:58:00.000Z",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "paid",
+    },
+  ],
+  "replies": [
+    {
+      "body": "We received your payment but delivery is delayed. We are working on it and will update you. No need to pay again.",
+      "line": "main",
+      "orderLinkId": "L1",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "result": {
+    "checked": 1,
+    "closed": 0,
+    "delayed": 1,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > order row missing 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": "2026-11-13T12:00:00.000Z",
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [],
+      "order_id": "O1",
+      "paid_at": null,
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "closed",
+    },
+  ],
+  "replies": [],
+  "result": {
+    "checked": 1,
+    "closed": 1,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > paid and processing 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": null,
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [],
+      "order_id": "O1",
+      "paid_at": "2026-11-13T12:00:00.000Z",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "paid",
+    },
+  ],
+  "replies": [],
+  "result": {
+    "checked": 1,
+    "closed": 0,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > paid never delivered after 48 hours 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": "2026-11-13T12:00:00.000Z",
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [
+        "paid_not_delivered",
+      ],
+      "order_id": "O1",
+      "paid_at": "2026-11-11T12:00:00.000Z",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "closed",
+    },
+  ],
+  "replies": [],
+  "result": {
+    "checked": 1,
+    "closed": 1,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > paid not delivered after 30 minutes 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": null,
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [
+        "paid_not_delivered",
+      ],
+      "order_id": "O1",
+      "paid_at": "2026-11-13T11:30:00.000Z",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "paid",
+    },
+  ],
+  "replies": [
+    {
+      "body": "We received your payment but delivery is delayed. We are working on it and will update you. No need to pay again.",
+      "line": "main",
+      "orderLinkId": "L1",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "result": {
+    "checked": 1,
+    "closed": 0,
+    "delayed": 1,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > payment failed 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": "2026-11-13T12:00:00.000Z",
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [
+        "unpaid",
+      ],
+      "order_id": "O1",
+      "paid_at": null,
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "closed",
+    },
+  ],
+  "replies": [
+    {
+      "body": "Payment didn't go through. Reply YES to try again, or text 1GB. If you already approved, ignore this.",
+      "line": "main",
+      "orderLinkId": "L1",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "result": {
+    "checked": 1,
+    "closed": 1,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 1,
+  },
+}
+`;
+
+exports[`lane golden: notifier > refunded 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": "2026-11-13T12:00:00.000Z",
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [],
+      "order_id": "O1",
+      "paid_at": "2026-11-13T11:55:00.000Z",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "closed",
+    },
+  ],
+  "replies": [],
+  "result": {
+    "checked": 1,
+    "closed": 1,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > refunding 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": "2026-11-13T12:00:00.000Z",
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [],
+      "order_id": "O1",
+      "paid_at": "2026-11-13T11:55:00.000Z",
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "closed",
+    },
+  ],
+  "replies": [],
+  "result": {
+    "checked": 1,
+    "closed": 1,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > repriced 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": null,
+      "created_at": "2026-11-13T11:59:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [
+        "repriced",
+      ],
+      "order_id": "O1",
+      "paid_at": null,
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "Total is now GHS 5.50. Approve the MoMo prompt or ignore it.",
+      "line": "main",
+      "orderLinkId": "L1",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "result": {
+    "checked": 1,
+    "closed": 0,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 1,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > waiting over the window 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": null,
+      "created_at": "2026-11-13T11:54:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [
+        "unpaid",
+      ],
+      "order_id": "O1",
+      "paid_at": null,
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [
+    {
+      "body": "Payment didn't go through. Reply YES to try again, or text 1GB. If you already approved, ignore this.",
+      "line": "main",
+      "orderLinkId": "L1",
+      "sender": "0200000101",
+      "settings": {
+        "aiEnabled": true,
+        "aiReadsPerHour": 10,
+        "globalPromptsPerMinute": 30,
+        "globalRepliesPerHour": 300,
+        "mainEnabled": true,
+        "mainNumber": "",
+        "promptWindowMinutes": 5,
+        "promptsPerHour": 3,
+        "quietAlertMinutes": 60,
+        "repliesPerHour": 6,
+        "replySenderId": "",
+        "retentionDays": 30,
+        "shopReplySenderId": "",
+        "source": "defaults",
+        "staleMinutes": 10,
+        "unclearRepliesEnabled": true,
+      },
+    },
+  ],
+  "result": {
+    "checked": 1,
+    "closed": 0,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 1,
+  },
+}
+`;
+
+exports[`lane golden: notifier > waiting past 30 minutes 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": "2026-11-13T12:00:00.000Z",
+      "created_at": "2026-11-13T11:29:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [
+        "unpaid",
+      ],
+      "order_id": "O1",
+      "paid_at": null,
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "closed",
+    },
+  ],
+  "replies": [],
+  "result": {
+    "checked": 1,
+    "closed": 1,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
+
+exports[`lane golden: notifier > waiting under the window 1`] = `
+{
+  "alerts": [
+    [
+      "Text-to-Buy: the forwarder phone has not been seen yet",
+    ],
+  ],
+  "links": [
+    {
+      "amount": 5,
+      "closed_at": null,
+      "created_at": "2026-11-13T11:56:00.000Z",
+      "delivered_at": null,
+      "gift": false,
+      "id": "L1",
+      "line": "main",
+      "notices": [],
+      "order_id": "O1",
+      "paid_at": null,
+      "recipient": "0200000101",
+      "sender": "0200000101",
+      "size": "1GB",
+      "state": "awaiting_payment",
+    },
+  ],
+  "replies": [],
+  "result": {
+    "checked": 1,
+    "closed": 0,
+    "delayed": 0,
+    "delivered": 0,
+    "purged": 0,
+    "quietAlert": true,
+    "recovered": 0,
+    "repriced": 0,
+    "skipped": 0,
+    "unpaid": 0,
+  },
+}
+`;
