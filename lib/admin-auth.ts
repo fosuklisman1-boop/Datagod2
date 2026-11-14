@@ -8,7 +8,8 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 /**
  * Verify admin access for API routes
- * Checks both user_metadata.role and users table role
+ * Checks public.users.role ONLY. Never user_metadata: users can write it themselves
+ * (signUp options.data / auth.updateUser), so it must not grant admin anywhere.
  * Also applies rate limiting: 100/min for general, 20/min for heavy operations
  * 
  * @param request - NextRequest object
