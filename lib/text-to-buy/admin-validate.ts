@@ -23,6 +23,8 @@ const RULES: Record<TtbSettingField, Rule> = {
   retentionDays: { kind: "int", min: 1, max: 90 },
   unclearRepliesEnabled: { kind: "bool" },
   globalRepliesPerHour: { kind: "int", min: 10, max: 5000 },
+  airtimeEnabled: { kind: "bool" },
+  resultsCheckerEnabled: { kind: "bool" },
 }
 
 const SENDER_ID_RE = /^[A-Za-z0-9 ]{1,11}$/

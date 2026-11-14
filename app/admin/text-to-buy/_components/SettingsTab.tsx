@@ -5,12 +5,26 @@ import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { adminFetch, ApiError, TTB_API, type Settings } from "./api"
 import { FIELD_LABELS, ttbErrorMessage } from "./format"
 
-type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled" | "unclearRepliesEnabled">
+type TextSwitch = "airtimeEnabled" | "resultsCheckerEnabled"
+type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled" | "unclearRepliesEnabled" | TextSwitch>
+
+// The two text switches save on their own (turning one on needs the confirm dialog), so they are not part of Form.
+const TEXT_SWITCHES: { field: TextSwitch; service: string; hint: string }[] = [
+  {
+    field: "airtimeEnabled", service: "airtime",
+    hint: "Customers text e.g. airtime 10. Uses the airtime fees, limits and per-network switches; a network off there stays off here.",
+  },
+  {
+    field: "resultsCheckerEnabled", service: "checkers",
+    hint: "Customers text e.g. 2 wassce. Uses checker prices, bulk price and stock; a board off there stays off here. PINs go to the number that texted.",
+  },
+]
 type Form = { mainNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean } & Record<IntField, string>
 
 // Ranges mirror lib/text-to-buy/admin-validate.ts. The server is the authority; these are helper text.
@@ -57,6 +71,9 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
   const [busy, setBusy] = useState(false)
   const [errField, setErrField] = useState<string | null>(null)
   const [errMsg, setErrMsg] = useState<string | null>(null)
+  const [pendingSwitch, setPendingSwitch] = useState<TextSwitch | null>(null) // the switch whose confirm dialog is open
+  const [switchBusy, setSwitchBusy] = useState(false)
+  const [switchError, setSwitchError] = useState<string | null>(null)
 
   useEffect(() => {
     if (settings) setForm(toForm(settings))
@@ -98,6 +115,25 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
       setBusy(false)
     }
   }
+
+  async function applySwitch(field: TextSwitch, value: boolean) {
+    setSwitchBusy(true)
+    setSwitchError(null)
+    try {
+      await adminFetch(TTB_API, { method: "PUT", body: value ? { [field]: true, confirm: true } : { [field]: false } })
+      setPendingSwitch(null)
+      toast.success(`${FIELD_LABELS[field]} is ${value ? "on" : "off"}`)
+      onSaved()
+    } catch (e) {
+      const msg = ttbErrorMessage(e instanceof ApiError ? e.code : undefined)
+      if (value) setSwitchError(msg)
+      else toast.error(msg)
+    } finally {
+      setSwitchBusy(false)
+    }
+  }
+
+  const pendingService = TEXT_SWITCHES.find((s) => s.field === pendingSwitch)?.service
 
   const fieldErr = (field: string) =>
     errField === field && errMsg ? <p className="mt-1 text-xs text-red-600 dark:text-red-400" role="alert">{errMsg}</p> : null
@@ -143,6 +179,27 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
               <Switch id="ttb-unclearRepliesEnabled" checked={f.unclearRepliesEnabled} onCheckedChange={(v) => patch({ unclearRepliesEnabled: v })} aria-label={FIELD_LABELS.unclearRepliesEnabled} />
             </div>
 
+            {TEXT_SWITCHES.map(({ field, hint }) => (
+              <div key={field} className="flex items-start justify-between gap-3 lg:col-span-2">
+                <div>
+                  <label className="text-sm font-medium" htmlFor={`ttb-${field}`}>{FIELD_LABELS[field]}</label>
+                  <p className="text-xs text-muted-foreground">{hint}</p>
+                </div>
+                <Switch
+                  id={`ttb-${field}`}
+                  checked={settings[field]}
+                  disabled={defaulted || switchBusy}
+                  onCheckedChange={(v) => {
+                    if (v) {
+                      setSwitchError(null)
+                      setPendingSwitch(field)
+                    } else void applySwitch(field, false)
+                  }}
+                  aria-label={FIELD_LABELS[field]}
+                />
+              </div>
+            ))}
+
             {INT_FIELDS.map(({ field, min, max, hint }) => (
               <div key={field} className="space-y-1">
                 <label className="text-xs font-medium" htmlFor={`ttb-${field}`}>{FIELD_LABELS[field]}</label>
@@ -163,6 +220,25 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={pendingSwitch !== null} onOpenChange={(o) => !o && !switchBusy && setPendingSwitch(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Turn on {pendingSwitch ? FIELD_LABELS[pendingSwitch] : ""}?</DialogTitle>
+            <DialogDescription>
+              Customers can buy {pendingService} by text from the main number. Do a supervised paid test first.
+            </DialogDescription>
+          </DialogHeader>
+          {switchError && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{switchError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingSwitch(null)} disabled={switchBusy}>Cancel</Button>
+            <Button onClick={() => pendingSwitch && void applySwitch(pendingSwitch, true)} disabled={switchBusy}>
+              {switchBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Turn on
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

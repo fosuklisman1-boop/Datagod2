@@ -13,6 +13,9 @@ export const dynamic = "force-dynamic"
 const FIELD_OF = Object.fromEntries(Object.entries(TTB_SETTING_KEYS).map(([f, k]) => [k, f])) as Record<TtbSettingKey, TtbSettingField>
 const KEY_ORDER = Object.values(TTB_SETTING_KEYS) as TtbSettingKey[]
 
+/** Switching any of these on needs an explicit confirm. */
+const CONFIRM_KEYS: TtbSettingKey[] = [TTB_SETTING_KEYS.mainEnabled, TTB_SETTING_KEYS.airtimeEnabled, TTB_SETTING_KEYS.resultsCheckerEnabled]
+
 /** The settings as the page sees them (no internal source marker). */
 function publicSettings(s: TtbSettings) {
   const { source: _source, ...rest } = s
@@ -71,7 +74,9 @@ export async function PUT(request: NextRequest) {
     if (changedKeys.length === 0) return json({ settings: publicSettings(current) })
 
     // Switching the feature on puts live customer texts on the order path: the page must have asked the admin first.
-    if (changed.ttb_main_enabled === true && confirm !== true) return fail("confirm_required", 400)
+    // The airtime and checker text switches put a money path on the same lane, so they ask the same question.
+    const turnsOn = CONFIRM_KEYS.some((k) => changed[k] === true)
+    if (turnsOn && confirm !== true) return fail("confirm_required", 400)
 
     await saveSettingRows(db, changed, userId as string, new Date())
 

@@ -49,6 +49,8 @@ export type Settings = {
   retentionDays: number
   unclearRepliesEnabled: boolean
   globalRepliesPerHour: number
+  airtimeEnabled: boolean
+  resultsCheckerEnabled: boolean
 }
 
 export type LineOverview = {

@@ -108,7 +108,7 @@ export function segmentText(reply: string): { chars: number; limit: number; segm
 }
 
 const ERROR_COPY: Record<string, string> = {
-  confirm_required: "Turning Text-to-Buy on needs your confirmation. Please confirm and try again.",
+  confirm_required: "Turning this on needs your confirmation. Please confirm and try again.",
   settings_unavailable: "The saved settings could not be read, so nothing was changed. Refresh and try again.",
   rate_limited: "Too many test runs. Please wait a minute and try again.",
   invalid_sender: "Enter a valid Ghana mobile number.",
@@ -143,4 +143,6 @@ export const FIELD_LABELS: Record<string, string> = {
   retentionDays: "Keep messages (days)",
   unclearRepliesEnabled: "Reply to unclear texts",
   globalRepliesPerHour: "Max replies per hour (all senders)",
+  airtimeEnabled: "Airtime by text",
+  resultsCheckerEnabled: "Checkers by text",
 }

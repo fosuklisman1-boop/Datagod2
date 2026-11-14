@@ -24,6 +24,10 @@ export type TtbSettings = {
   unclearRepliesEnabled: boolean
   /** Replies per hour across ALL senders of a line. At the cap, everything except the order quote goes silent. */
   globalRepliesPerHour: number
+  /** Customers may buy airtime by text. Off by default; per-network switches and fees still apply. */
+  airtimeEnabled: boolean
+  /** Customers may buy results checkers by text. Off by default; per-board switches and stock still apply. */
+  resultsCheckerEnabled: boolean
   /** "defaults" when the DB read failed or threw, so callers can tell fallback values from saved ones. */
   source: "db" | "defaults"
 }
@@ -47,6 +51,8 @@ export const TTB_SETTING_KEYS = {
   retentionDays: "ttb_retention_days",
   unclearRepliesEnabled: "ttb_reply_to_unclear",
   globalRepliesPerHour: "ttb_global_replies_per_hour",
+  airtimeEnabled: "ttb_airtime_enabled",
+  resultsCheckerEnabled: "ttb_results_checker_enabled",
 } as const satisfies Record<TtbSettingField, string>
 
 export type TtbSettingKey = (typeof TTB_SETTING_KEYS)[TtbSettingField]
@@ -69,6 +75,8 @@ export const TTB_DEFAULTS: TtbSettings = {
   retentionDays: 30,
   unclearRepliesEnabled: true,
   globalRepliesPerHour: 300,
+  airtimeEnabled: false,
+  resultsCheckerEnabled: false,
   source: "defaults",
 }
 
@@ -114,6 +122,8 @@ export async function loadTtbSettings(db: SupabaseClient): Promise<TtbSettings> 
       retentionDays: limit(raw.ttb_retention_days, d.retentionDays, 1),
       unclearRepliesEnabled: typeof raw.ttb_reply_to_unclear === "boolean" ? raw.ttb_reply_to_unclear : d.unclearRepliesEnabled,
       globalRepliesPerHour: intIn(raw.ttb_global_replies_per_hour, d.globalRepliesPerHour, 10, 5000),
+      airtimeEnabled: raw.ttb_airtime_enabled === true,
+      resultsCheckerEnabled: raw.ttb_results_checker_enabled === true,
       source: "db",
     }
   } catch {

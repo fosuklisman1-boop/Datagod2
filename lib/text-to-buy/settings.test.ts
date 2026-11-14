@@ -28,7 +28,8 @@ describe("TTB_DEFAULTS", () => {
     expect(TTB_DEFAULTS).toEqual({
       mainEnabled: false, mainNumber: "", replySenderId: "", shopReplySenderId: "", aiEnabled: true, staleMinutes: 10, promptsPerHour: 3,
       repliesPerHour: 6, aiReadsPerHour: 10, globalPromptsPerMinute: 30, promptWindowMinutes: 5, quietAlertMinutes: 60,
-      retentionDays: 30, unclearRepliesEnabled: true, globalRepliesPerHour: 300, source: "defaults",
+      retentionDays: 30, unclearRepliesEnabled: true, globalRepliesPerHour: 300, airtimeEnabled: false, resultsCheckerEnabled: false,
+      source: "defaults",
     })
   })
 })
@@ -60,13 +61,24 @@ describe("loadTtbSettings", () => {
       ttb_main_enabled: true, ttb_main_number: "0200000100", ttb_reply_sender_id: "Datagod", ttb_shop_reply_sender_id: "DatagodShop", ttb_ai_enabled: false,
       ttb_stale_minutes: 15, ttb_prompts_per_hour: 4, ttb_replies_per_hour: 8, ttb_ai_reads_per_hour: 12,
       ttb_global_prompts_per_minute: 40, ttb_prompt_window_minutes: 7, ttb_quiet_alert_minutes: 90, ttb_retention_days: 14,
-      ttb_reply_to_unclear: false, ttb_global_replies_per_hour: 50,
+      ttb_reply_to_unclear: false, ttb_global_replies_per_hour: 50, ttb_airtime_enabled: true, ttb_results_checker_enabled: true,
     })))
     expect(s).toEqual({
       mainEnabled: true, mainNumber: "0200000100", replySenderId: "Datagod", shopReplySenderId: "DatagodShop", aiEnabled: false, staleMinutes: 15,
       promptsPerHour: 4, repliesPerHour: 8, aiReadsPerHour: 12, globalPromptsPerMinute: 40, promptWindowMinutes: 7,
-      quietAlertMinutes: 90, retentionDays: 14, unclearRepliesEnabled: false, globalRepliesPerHour: 50, source: "db",
+      quietAlertMinutes: 90, retentionDays: 14, unclearRepliesEnabled: false, globalRepliesPerHour: 50,
+      airtimeEnabled: true, resultsCheckerEnabled: true, source: "db",
     })
+  })
+
+  it("turns the airtime and checker text switches on only for exactly true", async () => {
+    for (const [key, field] of [["ttb_airtime_enabled", "airtimeEnabled"], ["ttb_results_checker_enabled", "resultsCheckerEnabled"]] as const) {
+      expect((await loadTtbSettings(client(rows({ [key]: true }))))[field]).toBe(true)
+      for (const v of ["true", 1, "yes", null, [true], {}]) {
+        expect((await loadTtbSettings(client(rows({ [key]: v }))))[field]).toBe(false)
+      }
+      expect((await loadTtbSettings(client(rows({}))))[field]).toBe(false)
+    }
   })
 
   it("unclearRepliesEnabled defaults to true when missing and keeps the default for a non-boolean", async () => {
@@ -111,7 +123,7 @@ describe("loadTtbSettings", () => {
 
   it("exports one key table covering every setting field", () => {
     expect(Object.keys(TTB_SETTING_KEYS).sort()).toEqual(Object.keys(TTB_DEFAULTS).filter((k) => k !== "source").sort())
-    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(15)
+    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(17)
     expect(TTB_SETTING_KEYS.shopReplySenderId).toBe("ttb_shop_reply_sender_id")
     expect(TTB_SETTING_KEYS.mainEnabled).toBe("ttb_main_enabled")
   })

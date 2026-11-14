@@ -34,7 +34,7 @@ describe("validateTtbSettings: shape", () => {
 })
 
 describe("validateTtbSettings: booleans", () => {
-  for (const f of ["mainEnabled", "aiEnabled", "unclearRepliesEnabled"] as const) {
+  for (const f of ["mainEnabled", "aiEnabled", "unclearRepliesEnabled", "airtimeEnabled", "resultsCheckerEnabled"] as const) {
     it(`${f} must be a real boolean`, () => {
       expect(ok({ [f]: true })).toBeTruthy()
       expect(ok({ [f]: false })).toBeTruthy()

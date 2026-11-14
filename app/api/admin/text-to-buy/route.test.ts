@@ -253,6 +253,27 @@ describe("PUT settings", () => {
     expect((await ok.json()).settings.mainEnabled).toBe(true)
     expect(notifyMock).toHaveBeenCalledWith({ kind: "setting_changed", keys: ["ttb_main_enabled"] })
   })
+  for (const [field, key] of [["airtimeEnabled", "ttb_airtime_enabled"], ["resultsCheckerEnabled", "ttb_results_checker_enabled"]] as const) {
+    it(`${field}: turning it on needs confirm, writes { value: true } and alerts naming only ${key}`, async () => {
+      const refused = await PUT(req("PUT", { [field]: true }))
+      expect(refused.status).toBe(400)
+      expect((await refused.json()).error).toBe("confirm_required")
+      expect(settingsRows()).toEqual([])
+      expect(notifyMock).not.toHaveBeenCalled()
+
+      const ok = await PUT(req("PUT", { [field]: true, confirm: true }))
+      expect(ok.status).toBe(200)
+      expect(settingsRows()).toEqual([expect.objectContaining({ key, value: { value: true } })])
+      expect((await ok.json()).settings[field]).toBe(true)
+      expect(notifyMock).toHaveBeenCalledTimes(1)
+      expect(notifyMock).toHaveBeenCalledWith({ kind: "setting_changed", keys: [key] })
+    })
+    it(`${field}: turning it off needs no confirm`, async () => {
+      world([setting(key, true)])
+      expect((await PUT(req("PUT", { [field]: false }))).status).toBe(200)
+      expect(settingsRows()[0]).toMatchObject({ key, value: { value: false } })
+    })
+  }
   it("the confirm check also covers the very first save (no row yet, default false)", async () => {
     expect((await PUT(req("PUT", { mainEnabled: true }))).status).toBe(400)
   })
