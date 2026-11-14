@@ -6,8 +6,9 @@ import {
   loadConversation, saveConversation, touchHeartbeat, TtbStoreError,
   watchedLinks, ussdOrderForNotify, addNotice, patchLink, strandedInbound, getHeartbeat, purgeOld,
   claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, ussdOrderStatus, orderRowFor,
+  getShopPref, setShopPref, lastBoughtShopCodeId, noticeOnce,
 } from "./store"
-import { ORDER_TABLE_OF } from "./types"
+import { orderTableFor, isKnownOrderPair } from "./types"
 
 const S = "0200000101"
 const now = new Date("2026-11-13T12:00:00Z")
@@ -606,6 +607,84 @@ describe("notifier reads and writes", () => {
   })
 })
 
+describe("Stage 3a shop line store functions", () => {
+  const SHOP_A = "5c0e0000-0000-4000-8000-00000000000a"
+  const SHOP_B = "5c0e0000-0000-4000-8000-00000000000b"
+  const row = (n: number, extra: Record<string, unknown> = {}) => ({
+    id: `o${n}`, shop_code_id: SHOP_A, dialing_phone: "+233200000101", order_status: "completed", payment_status: "completed",
+    amount: 5, created_at: `2026-11-13T0${n}:00:00.000Z`, ...extra,
+  })
+
+  it("getShopPref is null when none, setShopPref upserts (one row per sender) and getShopPref reads it", async () => {
+    const { db, c } = mk()
+    expect(await getShopPref(c, S)).toBeNull()
+    await setShopPref(c, S, SHOP_A)
+    await setShopPref(c, S, SHOP_B)
+    expect(db.tables.ttb_shop_prefs).toHaveLength(1)
+    expect(await getShopPref(c, S)).toEqual({ shopCodeId: SHOP_B })
+    expect(await getShopPref(c, "0200000199")).toBeNull()
+  })
+
+  it("shop pref reads and writes throw a fixed TtbStoreError", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_shop_prefs = { message: "leak 0200000101" }
+    const e = await getShopPref(c, S).catch((x) => x)
+    expect(e).toBeInstanceOf(TtbStoreError)
+    expect(String(e.message)).not.toContain("0200000101")
+    await expect(setShopPref(c, S, SHOP_A)).rejects.toBeInstanceOf(TtbStoreError)
+  })
+
+  it("lastBoughtShopCodeId returns the newest completed, paid order of that dialing phone", async () => {
+    const { c } = mk({
+      ussd_shop_orders: [row(1, { shop_code_id: SHOP_A }), row(3, { shop_code_id: SHOP_B }), row(2, { shop_code_id: SHOP_A })],
+    })
+    expect(await lastBoughtShopCodeId(c, S)).toBe(SHOP_B)
+  })
+
+  it("lastBoughtShopCodeId ignores refunded, failed, reversed, unpaid and other-phone rows, and is null for none", async () => {
+    const { c } = mk({
+      ussd_shop_orders: [
+        row(1, { shop_code_id: SHOP_A }),
+        row(2, { shop_code_id: SHOP_B, order_status: "refunded" }),
+        row(3, { shop_code_id: SHOP_B, order_status: "failed" }),
+        row(4, { shop_code_id: SHOP_B, order_status: "reversed" }),
+        row(5, { shop_code_id: SHOP_B, payment_status: "pending" }),
+        row(6, { shop_code_id: SHOP_B, dialing_phone: "+233200000999" }),
+      ],
+    })
+    expect(await lastBoughtShopCodeId(c, S)).toBe(SHOP_A)
+    expect(await lastBoughtShopCodeId(mk().c, S)).toBeNull()
+    expect(await lastBoughtShopCodeId(c, "0200000555")).toBeNull()
+  })
+
+  it("lastBoughtShopCodeId throws a fixed TtbStoreError on a read error", async () => {
+    const { db, c } = mk()
+    db.failOn.ussd_shop_orders = { message: "leak +233200000101" }
+    const e = await lastBoughtShopCodeId(c, S).catch((x) => x)
+    expect(e).toBeInstanceOf(TtbStoreError)
+    expect(String(e.message)).not.toContain("233")
+  })
+
+  it("noticeOnce is true the first time for a (kind, sender, shop, day) and false after; differs by each part", async () => {
+    const { db, c } = mk()
+    expect(await noticeOnce(c, "low_credits", S, SHOP_A, "2026-11-14")).toBe(true)
+    expect(await noticeOnce(c, "low_credits", S, SHOP_A, "2026-11-14")).toBe(false)
+    expect(await noticeOnce(c, "low_credits", S, SHOP_A, "2026-11-15")).toBe(true)
+    expect(await noticeOnce(c, "low_credits", S, SHOP_B, "2026-11-14")).toBe(true)
+    expect(await noticeOnce(c, "other", S, SHOP_A, "2026-11-14")).toBe(true)
+    expect(await noticeOnce(c, "low_credits", S, null, "2026-11-14")).toBe(true)
+    expect(await noticeOnce(c, "low_credits", S, null, "2026-11-14")).toBe(false)
+    expect(db.rpcCalls[0]).toEqual({ name: "ttb_notice_once", args: { p_kind: "low_credits", p_sender: S, p_shop: SHOP_A, p_day: "2026-11-14" } })
+  })
+
+  it("noticeOnce throws TtbStoreError on an rpc error or a non-boolean", async () => {
+    const { db, c } = mk()
+    db.rpcImpl = () => ({ data: null, error: { message: "boom" } })
+    db.failOn.ttb_notices = { message: "boom" }
+    await expect(noticeOnce(c, "k", S, null, "2026-11-14")).rejects.toBeInstanceOf(TtbStoreError)
+  })
+})
+
 describe("Stage 2 plumbing: links carry the service and the order table", () => {
   const A = "6f0c1a9e-0163-4163-8163-0000000000d1"
   const base = { line: "main" as const, sender: S, orderId: A, size: "airtime 10", recipient: "0200000150", gift: false, amount: 10 }
@@ -623,8 +702,13 @@ describe("Stage 2 plumbing: links carry the service and the order table", () => 
     expect(db.tables.ttb_orders).toHaveLength(0)
   })
 
-  it("ORDER_TABLE_OF names each service's order table", () => {
-    expect(ORDER_TABLE_OF).toEqual({ data: "ussd_orders", airtime: "airtime_orders", results_checker: "results_checker_orders" })
+  it("orderTableFor names each (line, service) order table; shop airtime and checkers throw (Stage 3c)", () => {
+    expect(orderTableFor("main", "data")).toBe("ussd_orders")
+    expect(orderTableFor("main", "airtime")).toBe("airtime_orders")
+    expect(orderTableFor("main", "results_checker")).toBe("results_checker_orders")
+    expect(orderTableFor("shop", "data")).toBe("ussd_shop_orders")
+    expect(() => orderTableFor("shop", "airtime")).toThrow()
+    expect(() => orderTableFor("shop", "results_checker")).toThrow()
   })
 
   it("orderRowFor reads airtime_orders status columns", async () => {
@@ -654,6 +738,48 @@ describe("Stage 2 plumbing: links carry the service and the order table", () => 
     const odd = mk({ ttb_orders: [{ ...row, service: "mystery", order_table: "mystery_orders" }] })
     expect(await latestOrderLink(odd.c, "main", S)).toMatchObject({ service: "mystery", orderTable: "mystery_orders" })
     expect((await watchedLinks(odd.c, now, 10))[0]).toMatchObject({ service: "mystery", orderTable: "mystery_orders" })
+  })
+
+  it("a shop link for ussd_shop_orders is a known pair; mismatches and unknown tables are not", () => {
+    expect(isKnownOrderPair("data", "ussd_shop_orders")).toBe(true)
+    expect(isKnownOrderPair("data", "ussd_orders")).toBe(true)
+    expect(isKnownOrderPair("airtime", "ussd_shop_orders")).toBe(false)
+    expect(isKnownOrderPair("data", "airtime_orders")).toBe(false)
+    expect(isKnownOrderPair("toString", "ussd_orders")).toBe(false)
+  })
+
+  it("linkOrder on the shop line writes shop_id and ussd_shop_orders; refuses the main table or shop airtime", async () => {
+    const { db, c } = mk()
+    const shop = { ...base, line: "shop" as const, service: "data" as const, orderTable: "ussd_shop_orders" as const, size: "1GB", shopId: "5c0e0000-0000-4000-8000-000000000001" }
+    const r = await linkOrder(c, shop)
+    expect(r).toHaveProperty("id")
+    expect(db.tables.ttb_orders[0]).toMatchObject({ line: "shop", order_table: "ussd_shop_orders", shop_id: shop.shopId })
+    await expect(linkOrder(c, { ...shop, orderId: "6f0c1a9e-0163-4163-8163-0000000000d2", orderTable: "ussd_orders" })).rejects.toBeInstanceOf(TtbStoreError)
+    await expect(linkOrder(c, { ...shop, orderId: "6f0c1a9e-0163-4163-8163-0000000000d3", service: "airtime", orderTable: "airtime_orders" })).rejects.toBeInstanceOf(TtbStoreError)
+    expect(db.tables.ttb_orders).toHaveLength(1)
+  })
+
+  it("a main link writes no shop_id column at all", async () => {
+    const { db, c } = mk()
+    await linkOrder(c, { ...base, service: "data", orderTable: "ussd_orders" })
+    expect(db.tables.ttb_orders[0]).not.toHaveProperty("shop_id")
+  })
+
+  it("orderRowFor reads ussd_shop_orders with the ussd_orders status columns", async () => {
+    const { c } = mk({ ussd_shop_orders: [{ id: A, order_status: "pending", payment_status: "completed", amount: "12.50" }] })
+    expect(await orderRowFor(c, "ussd_shop_orders", A)).toEqual({ orderStatus: "pending", paymentStatus: "completed", amount: 12.5 })
+  })
+
+  it("storeInbound and storeOutbound carry shopId and credits only when given", async () => {
+    const { db, c } = mk()
+    const shopId = "5c0e0000-0000-4000-8000-000000000001"
+    await storeInbound(c, { line: "shop", sender: S, body: "hi", receivedAt: null, now, shopId })
+    await storeOutbound(c, { line: "shop", sender: S, body: "r", shopId, credits: 2 })
+    await storeOutbound(c, { line: "main", sender: S, body: "m" })
+    expect(db.tables.ttb_messages[0]).toMatchObject({ shop_id: shopId })
+    expect(db.tables.ttb_messages[1]).toMatchObject({ shop_id: shopId, credits: 2 })
+    expect(db.tables.ttb_messages[2]).not.toHaveProperty("shop_id")
+    expect(db.tables.ttb_messages[2]).not.toHaveProperty("credits")
   })
 
   it("a link row with null service or order_table maps to data / ussd_orders", async () => {

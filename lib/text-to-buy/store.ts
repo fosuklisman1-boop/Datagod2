@@ -1,7 +1,7 @@
 import { createHash } from "crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { encodeCursor, MESSAGE_COLUMNS, toAdminMessage, type AdminMessage, type OverviewRow } from "./admin-view"
-import { ORDER_TABLE_OF, type AirtimeNetwork, type ExamBoardWord, type Line, type OrderTable, type Outcome, type ReadResult, type Service } from "./types"
+import { orderTableFor, type AirtimeNetwork, type ExamBoardWord, type Line, type OrderTable, type Outcome, type ReadResult, type Service } from "./types"
 
 /**
  * Text-to-Buy database access (tables and functions of migration 0177). Server-only, service-role client.
@@ -38,19 +38,21 @@ export function dedupeKey(line: Line, senderLocal: string, text: string, receive
 /** Idempotent on dedupe_key. Throws TtbStoreError only when the row could not be written (and is not already there). */
 export async function storeInbound(
   db: SupabaseClient,
-  m: { line: Line; sender: string; body: string; receivedAt: Date | null; now: Date },
+  m: { line: Line; sender: string; body: string; receivedAt: Date | null; now: Date; shopId?: string },
 ): Promise<InboundRow> {
   const key = dedupeKey(m.line, m.sender, m.body, m.receivedAt, m.now)
+  const row: Record<string, unknown> = {
+    line: m.line,
+    sender: m.sender,
+    direction: "in",
+    body: m.body,
+    received_at: m.receivedAt ? m.receivedAt.toISOString() : null,
+    dedupe_key: key,
+  }
+  if (m.shopId !== undefined) row.shop_id = m.shopId
   const ins = await db
     .from("ttb_messages")
-    .insert({
-      line: m.line,
-      sender: m.sender,
-      direction: "in",
-      body: m.body,
-      received_at: m.receivedAt ? m.receivedAt.toISOString() : null,
-      dedupe_key: key,
-    })
+    .insert(row)
     .select("id")
     .single()
   if (!ins.error && ins.data) return { id: (ins.data as { id: string }).id, duplicate: false }
@@ -75,10 +77,12 @@ export async function setInboundResult(
 
 export async function storeOutbound(
   db: SupabaseClient,
-  m: { line: Line; sender: string; body: string; orderLinkId?: string },
+  m: { line: Line; sender: string; body: string; orderLinkId?: string; shopId?: string; credits?: number },
 ): Promise<void> {
   const row: Record<string, unknown> = { line: m.line, sender: m.sender, direction: "out", body: m.body }
   if (m.orderLinkId !== undefined) row.order_link_id = m.orderLinkId
+  if (m.shopId !== undefined) row.shop_id = m.shopId
+  if (m.credits !== undefined) row.credits = m.credits
   const { error } = await db.from("ttb_messages").insert(row)
   if (error) throw new TtbStoreError("could not store an outbound message")
 }
@@ -153,23 +157,33 @@ export async function linkOrder(
   o: {
     line: Line; sender: string; service: Service; orderTable: OrderTable; orderId: string
     size: string; recipient: string; gift: boolean; amount: number
+    /** The shop the order was placed for (shop line only; the column stays unwritten, so NULL, on the main line). */
+    shopId?: string
   },
 ): Promise<{ id: string } | { id: string; alreadyLinked: true } | "conflict"> {
   // A link that names the wrong order table would make the notifier read the wrong row: refuse before writing anything.
-  if (ORDER_TABLE_OF[o.service] !== o.orderTable) throw new TtbStoreError("a link names an order table that is not its service's")
+  let expected: string | null
+  try {
+    expected = orderTableFor(o.line, o.service)
+  } catch {
+    expected = null
+  }
+  if (expected !== o.orderTable) throw new TtbStoreError("a link names an order table that is not its service's")
+  const row: Record<string, unknown> = {
+    line: o.line,
+    sender: o.sender,
+    service: o.service,
+    order_table: o.orderTable,
+    order_id: o.orderId,
+    size: o.size,
+    recipient: o.recipient,
+    gift: o.gift,
+    amount: o.amount,
+  }
+  if (o.shopId !== undefined) row.shop_id = o.shopId
   const { data, error } = await db
     .from("ttb_orders")
-    .insert({
-      line: o.line,
-      sender: o.sender,
-      service: o.service,
-      order_table: o.orderTable,
-      order_id: o.orderId,
-      size: o.size,
-      recipient: o.recipient,
-      gift: o.gift,
-      amount: o.amount,
-    })
+    .insert(row)
     .select("id")
     .single()
   if (isUnique(error)) {
@@ -285,7 +299,7 @@ export async function saveConversation(db: SupabaseClient, line: Line, sender: s
 }
 
 /** Besides the two lines the table holds the notifier's bookkeeping rows: when the purge and the quiet-line alert last ran. */
-export type HeartbeatLine = Line | "purge" | "quiet_alert"
+export type HeartbeatLine = Line | "purge" | "quiet_alert" | "quiet_alert_shop"
 
 export async function touchHeartbeat(db: SupabaseClient, line: HeartbeatLine, now: Date): Promise<void> {
   const { error } = await db.from("ttb_heartbeat").upsert({ line, last_seen_at: now.toISOString() }, { onConflict: "line" })
@@ -390,6 +404,7 @@ const ORDER_COLUMNS: Record<OrderTable, { status: string; amount: string }> = {
   ussd_orders: { status: "order_status", amount: "amount" },
   airtime_orders: { status: "status", amount: "total_paid" },
   results_checker_orders: { status: "status", amount: "total_paid" },
+  ussd_shop_orders: { status: "order_status", amount: "amount" }, // same status columns as ussd_orders
 }
 
 /** The order row's two status columns and the amount charged, or null when the row is gone. Throws TtbStoreError on a read error. */
@@ -613,12 +628,12 @@ export async function overviewRows(db: SupabaseClient, from: Date): Promise<Over
 const SERVICES: Service[] = ["data", "airtime", "results_checker"]
 
 /**
- * Main-line links created since `from`, per service: prompts = links, paid = paid_at set, delivered = delivered_at set.
+ * One line's links created since `from`, per service: prompts = links, paid = paid_at set, delivered = delivered_at set.
  * Count queries only (head: true); no database function.
  */
-export async function serviceCountsToday(db: SupabaseClient, from: Date): Promise<Record<Service, { prompts: number; paid: number; delivered: number }>> {
+export async function serviceCounts(db: SupabaseClient, line: Line, from: Date): Promise<Record<Service, { prompts: number; paid: number; delivered: number }>> {
   const count = async (service: Service, notNull?: "paid_at" | "delivered_at"): Promise<number> => {
-    let q = db.from("ttb_orders").select("id", { count: "exact", head: true }).eq("line", "main").eq("service", service).gte("created_at", from.toISOString())
+    let q = db.from("ttb_orders").select("id", { count: "exact", head: true }).eq("line", line).eq("service", service).gte("created_at", from.toISOString())
     if (notNull) q = q.not(notNull, "is", null)
     const { count: n, error } = await q
     if (error || typeof n !== "number") throw new TtbStoreError("could not read the service counts")
@@ -626,6 +641,60 @@ export async function serviceCountsToday(db: SupabaseClient, from: Date): Promis
   }
   const rows = await Promise.all(SERVICES.map(async (s) => [s, { prompts: await count(s), paid: await count(s, "paid_at"), delivered: await count(s, "delivered_at") }] as const))
   return Object.fromEntries(rows) as Record<Service, { prompts: number; paid: number; delivered: number }>
+}
+
+/** The main line's counts (the Stage 1 admin overview): serviceCounts with the line named explicitly. */
+export function serviceCountsToday(db: SupabaseClient, from: Date): Promise<Record<Service, { prompts: number; paid: number; delivered: number }>> {
+  return serviceCounts(db, "main", from)
+}
+
+// ---- Shop line (Stage 3a, migration 0180) ---------------------------------------------------------------------------------
+
+/** The shop this sender last used on the shop line, or null. */
+export async function getShopPref(db: SupabaseClient, sender: string): Promise<{ shopCodeId: string } | null> {
+  const { data, error } = await db.from("ttb_shop_prefs").select("shop_code_id").eq("sender", sender).maybeSingle()
+  if (error) throw new TtbStoreError("could not read a shop preference")
+  const id = (data as { shop_code_id?: unknown } | null)?.shop_code_id
+  return typeof id === "string" ? { shopCodeId: id } : null
+}
+
+/** Remembers the shop (one row per sender). */
+export async function setShopPref(db: SupabaseClient, sender: string, shopCodeId: string): Promise<void> {
+  const { error } = await db
+    .from("ttb_shop_prefs")
+    .upsert({ sender, shop_code_id: shopCodeId, last_used_at: new Date().toISOString() }, { onConflict: "sender" })
+  if (error) throw new TtbStoreError("could not save a shop preference")
+}
+
+/** ussd_shop_orders stores the dialing phone in +233 form; a local 0XXXXXXXXX sender maps to it. */
+const dialingForm = (local: string) => `+233${local.replace(/^0/, "")}`
+// order_status values that mean the customer did not get the bundle (refund sets 'refunded'; 'refunding' is mid-refund).
+const NOT_BOUGHT = new Set(["failed", "refunded", "refunding", "reversed"])
+
+/**
+ * The shop code of this phone's newest bought order: payment completed and the order not failed, refunded or reversed.
+ * Null when there is none. Looks at the 20 newest paid rows of the phone; the status test runs here so the list can grow.
+ */
+export async function lastBoughtShopCodeId(db: SupabaseClient, senderLocal: string): Promise<string | null> {
+  const { data, error } = await db
+    .from("ussd_shop_orders")
+    .select("shop_code_id, order_status, payment_status")
+    .eq("dialing_phone", dialingForm(senderLocal))
+    .eq("payment_status", "completed")
+    .order("created_at", { ascending: false })
+    .limit(20)
+  if (error || !Array.isArray(data)) throw new TtbStoreError("could not read the last shop order")
+  for (const r of data as Record<string, unknown>[]) {
+    if (typeof r.shop_code_id === "string" && !NOT_BOUGHT.has(String(r.order_status))) return r.shop_code_id
+  }
+  return null
+}
+
+/** True when THIS call created the (kind, sender, shop, day) notice row (ttb_notice_once); false on a repeat. day is YYYY-MM-DD. */
+export async function noticeOnce(db: SupabaseClient, kind: string, sender: string, shopId: string | null, day: string): Promise<boolean> {
+  const { data, error } = await db.rpc("ttb_notice_once", { p_kind: kind, p_sender: sender, p_shop: shopId, p_day: day })
+  if (error || typeof data !== "boolean") throw new TtbStoreError("could not record a notice")
+  return data
 }
 
 /** Writes the given admin_settings keys as { "value": x } in ONE upsert statement. An empty set writes nothing. */

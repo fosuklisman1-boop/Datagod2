@@ -1,6 +1,6 @@
 import type { handleConfirm } from "@/lib/ussd/handlers/bundles"
 import type { resolveOffer } from "../catalogue"
-import { ORDER_TABLE_OF, type Service } from "../types"
+import { isKnownOrderPair, type Service } from "../types"
 import type { confirmAirtimeByText } from "@/lib/ussd/handlers/airtime"
 import type { confirmRcByText } from "@/lib/ussd/handlers/results-checker"
 import { airtimeAdapter } from "./airtime"
@@ -22,8 +22,6 @@ export function makeAdapters(deps: AdapterDeps = {}): Adapters {
 
 /** The adapter for a stored link, or null when (service, orderTable) is not a pair ORDER_TABLE_OF knows or no adapter is registered. */
 export function adapterForLink(adapters: Adapters, link: { service: string; orderTable: string }): ServiceAdapter | null {
-  const service = link.service as Service
-  if (!Object.prototype.hasOwnProperty.call(ORDER_TABLE_OF, service)) return null
-  if (ORDER_TABLE_OF[service] !== link.orderTable) return null
-  return adapters[service] ?? null
+  if (!isKnownOrderPair(link.service, link.orderTable)) return null
+  return adapters[link.service as Service] ?? null
 }

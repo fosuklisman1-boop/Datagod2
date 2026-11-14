@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { makeFakeTtb } from "./fake-db.test-helper"
-import { blockSender, unblockSender, markMisread, listInbound, listThread, overviewRows, serviceCountsToday, saveSettingRows, TtbStoreError } from "./store"
+import { blockSender, unblockSender, markMisread, listInbound, listThread, overviewRows, serviceCountsToday, serviceCounts, saveSettingRows, TtbStoreError } from "./store"
 import { decodeCursor } from "./admin-view"
 
 const mk = (seed: Record<string, Record<string, unknown>[]> = {}) => {
@@ -179,6 +179,30 @@ describe("serviceCountsToday", () => {
     const e = await serviceCountsToday(c, new Date()).catch((x) => x)
     expect(e).toBeInstanceOf(TtbStoreError)
     expect(String(e.message)).not.toContain("0200000101")
+  })
+})
+
+describe("serviceCounts (per line)", () => {
+  const link = (n: number, line: string, service: string, extra: Record<string, unknown> = {}) => ({
+    id: id(n), line, sender: "0200000101", service, order_id: id(n + 500), created_at: "2026-11-13T09:00:00.000Z", paid_at: null, delivered_at: null, ...extra,
+  })
+  const seed = () => ({
+    ttb_orders: [
+      link(1, "main", "data", { paid_at: "2026-11-13T09:01:00Z" }),
+      link(2, "shop", "data", { paid_at: "2026-11-13T09:01:00Z", delivered_at: "2026-11-13T09:02:00Z" }),
+      link(3, "shop", "data"),
+    ],
+  })
+  it("filters by the given line", async () => {
+    const { c } = mk(seed())
+    const from = new Date("2026-11-13T00:00:00Z")
+    expect((await serviceCounts(c, "shop", from)).data).toEqual({ prompts: 2, paid: 1, delivered: 1 })
+    expect((await serviceCounts(c, "main", from)).data).toEqual({ prompts: 1, paid: 1, delivered: 0 })
+  })
+  it("serviceCountsToday is the main line", async () => {
+    const { c } = mk(seed())
+    const from = new Date("2026-11-13T00:00:00Z")
+    expect(await serviceCountsToday(c, from)).toEqual(await serviceCounts(c, "main", from))
   })
 })
 
