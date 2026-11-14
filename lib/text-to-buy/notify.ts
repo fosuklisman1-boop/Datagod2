@@ -1,13 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { notifyAdmins } from "@/lib/sms-service"
 import { processInbound } from "./handle-inbound"
-import { deliveredGiftReply, paidNotDeliveredReply, repricedReply, unpaidReply } from "./replies"
+import { repricedReply } from "./replies"
 import { sendReply } from "./send-reply"
+import { adapterForLink, makeAdapters, type Adapters } from "./services"
+import type { OrderKind } from "./services/types"
 import type { TtbSettings } from "./settings"
-import {
-  addNotice, getHeartbeat, patchLink, purgeOld, strandedInbound, touchHeartbeat, ussdOrderForNotify, watchedLinks,
-  type WatchedLink,
-} from "./store"
+import { addNotice, getHeartbeat, patchLink, purgeOld, strandedInbound, touchHeartbeat, watchedLinks, type WatchedLink } from "./store"
+
+export { classifyOrder } from "./services/classify"
+export type { OrderKind }
 
 /**
  * Text-to-Buy follow-ups. Server-only; run by the text-to-buy-notify cron every minute.
@@ -34,6 +36,8 @@ export type NotifyDeps = {
   reply?: typeof sendReply
   alert?: (message: string) => Promise<void>
   processInbound?: typeof processInbound
+  /** Merged over the live adapters (makeAdapters()); a link is read, classified and told through its own service's adapter. */
+  adapters?: Adapters
   /** Monotonic-enough milliseconds for the sweep time budget only (all notice logic uses `now`). Default Date.now. */
   clock?: () => number
 }
@@ -51,33 +55,7 @@ const ALERT_EVERY_MS = 6 * HOUR
 const ACCRA_OPEN_HOUR = 7 // Africa/Accra is UTC+0 all year: alert only 07:00..21:59
 const ACCRA_CLOSE_HOUR = 22
 
-export type OrderKind = "waiting" | "payment_failed" | "paid" | "delivered" | "delivery_failed" | "refunded"
-
-/*
- * ussd_orders status vocabulary, read from the writers (lib/ussd/handlers/bundles.ts, lib/ussd/fulfill.ts,
- * lib/payments/charge-events.ts, lib/ussd-hubtel/order-tables.ts, lib/payments/expire-*.ts, lib/mtn-reversal.ts,
- * lib/mtn-hold.ts, migrations/20261005_order_refunds.sql, the provider sync crons):
- *   payment_status: pending | otp_required | completed | failed | expired | abandoned | cancelled | refunded
- *   order_status:   pending | processing | held_registration | completed | failed | reversed | refunding | refunded | expired | cancelled
- * Anything else is "still processing": never a failure notice.
- */
-const PAYMENT_WAITING = new Set(["pending", "otp_required"])
-const PAYMENT_FAILED = new Set(["failed", "expired", "abandoned", "cancelled"])
-const ORDER_DELIVERY_FAILED = new Set(["failed", "reversed"])
-const ORDER_REFUNDED = new Set(["refunding", "refunded"])
-const ORDER_NEVER_STARTED = new Set(["failed", "expired", "cancelled"]) // with an unpaid payment: it will not be paid
-
-/** The one place the order's two status columns become a notice decision. */
-export function classifyOrder(row: { paymentStatus: string; orderStatus: string }): OrderKind {
-  const pay = row.paymentStatus.trim().toLowerCase()
-  const ord = row.orderStatus.trim().toLowerCase()
-  if (ord === "completed") return "delivered"
-  if (pay === "refunded" || ORDER_REFUNDED.has(ord)) return "refunded" // money is back or on its way: never "delayed, no need to pay again"
-  if (pay === "completed") return ORDER_DELIVERY_FAILED.has(ord) ? "delivery_failed" : "paid"
-  if (PAYMENT_FAILED.has(pay)) return "payment_failed"
-  if (PAYMENT_WAITING.has(pay) && ORDER_NEVER_STARTED.has(ord)) return "payment_failed"
-  return "waiting"
-}
+const UNKNOWN_LINK_ALERT = "Text-to-Buy: link with unknown order table:"
 
 const ms = (iso: string | null) => {
   const t = iso ? Date.parse(iso) : NaN
@@ -92,6 +70,8 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
   const reply = deps.reply ?? sendReply
   const alert = deps.alert ?? ((m: string) => notifyAdmins(m, "text_to_buy"))
   const inbound = deps.processInbound ?? processInbound
+  const adapters: Adapters = { ...makeAdapters(), ...deps.adapters }
+  let unknownLinkAlerted = false
   const nowMs = now.getTime()
   const nowIso = now.toISOString()
   const result: NotifyResult = {
@@ -121,12 +101,26 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
   }
 
   async function followLink(l: WatchedLink): Promise<void> {
-    const order = await ussdOrderForNotify(db, l.orderId)
+    const adapter = adapterForLink(adapters, l)
+    if (!adapter) {
+      // A pair we cannot read: reading it from the wrong table would find no row and close the link, silently dropping every
+      // notice. Leave it open and tell the admins once per run (the link id only: no phone, text or amount).
+      if (!unknownLinkAlerted) {
+        unknownLinkAlerted = true
+        try {
+          await alert(`${UNKNOWN_LINK_ALERT} ${l.id}`)
+        } catch {
+          // an alert must never stop the run
+        }
+      }
+      return
+    }
+    const order = await adapter.readOrder(db, l.orderId)
     if (!order) {
       if (l.state !== "closed") await close(l)
       return
     }
-    const kind = classifyOrder(order)
+    const kind = adapter.classify(order)
     const age = nowMs - (ms(l.createdAt) ?? nowMs)
 
     if (kind === "waiting" || kind === "payment_failed") {
@@ -138,7 +132,7 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
         if (await notice(l, "repriced", repricedReply(order.amount))) result.repriced++
       }
       if (kind === "payment_failed" || (!repricedNow && age >= settings.promptWindowMinutes * MINUTE)) {
-        if (await notice(l, "unpaid", unpaidReply(l.size))) result.unpaid++
+        if (await notice(l, "unpaid", adapter.notices.unpaid(l.size))) result.unpaid++
       }
       if (kind === "payment_failed" || age >= UNPAID_CLOSE_MS) await close(l)
       return
@@ -159,16 +153,15 @@ export async function runTtbNotify(db: SupabaseClient, now: Date, settings: TtbS
     }
 
     if (kind === "delivered") {
-      if (l.gift) {
-        if (await notice(l, "delivered", deliveredGiftReply(l.size, l.recipient))) result.delivered++
-      }
+      const delivered = adapter.notices.delivered({ size: l.size, recipient: l.recipient, gift: l.gift })
+      if (delivered !== null && (await notice(l, "delivered", delivered))) result.delivered++
       await close(l, { delivered_at: l.deliveredAt ?? nowIso })
       return
     }
 
     const sincePaid = nowMs - paidAtMs
     if (kind === "delivery_failed" || sincePaid >= PAID_DELAY_MS) {
-      if (await notice(l, "paid_not_delivered", paidNotDeliveredReply())) result.delayed++
+      if (await notice(l, "paid_not_delivered", adapter.notices.paidNotDelivered())) result.delayed++
     }
     if (sincePaid >= PAID_WATCH_MS) await close(l)
   }

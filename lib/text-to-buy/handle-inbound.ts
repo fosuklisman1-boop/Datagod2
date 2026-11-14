@@ -5,22 +5,21 @@ import { resolveSurfaceGateway } from "@/lib/payment-gateway/start"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { detectNetworkWithMap } from "@/lib/phone-format"
 import { notifyAdmins } from "@/lib/sms-service"
-import { listPrices, resolveOffer, sessionForOffer, sizeLabel, type Offer, type OfferResult } from "./catalogue"
+import { ghanaSignificant } from "@/lib/phone-format"
+import { listPrices, resolveOffer, sizeLabel } from "./catalogue"
 import { readWithAi } from "./ai-reader"
 import { parseOrderText } from "./parse-rules"
-import {
-  helpReply, lateReply, limitedReply, notUnderstoodReply, openOrderReply, priceAnswerReply, priceListReply, quoteReply, statusReply,
-  unavailableReply, wrongNumberReply, fitOneSegment,
-} from "./replies"
+import { helpReply, lateReply, limitedReply, notUnderstoodReply, openOrderReply, priceAnswerReply, priceListReply, statusReply } from "./replies"
 import { sendReply } from "./send-reply"
+import { adapterForLink, makeAdapters, type Adapters } from "./services"
+import type { DataOffer } from "./services/data"
+import type { ServiceOffer } from "./services/types"
 import type { TtbSettings } from "./settings"
 import {
   claimInbound, closeStaleLinks, counts, countOutbound, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
-  linkOrder, loadConversation, saveConversation, setInboundResult, storeInbound, ussdOrderStatus, type Conversation,
+  linkOrder, loadConversation, saveConversation, setInboundResult, storeInbound, type Conversation,
 } from "./store"
-import {
-  aiHistory, choicesFromPriceList, dedupeNearest, lastOrderOf, orderRead, orderStatusOf, pickedOption, productQuestion, rebuildFromLastOrder,
-} from "./inbound-steps"
+import { aiHistory, choicesFromPriceList, orderRead, orderStatusOf, pickedOption, rebuildFromLastOrder } from "./inbound-steps"
 import type { Line, Outcome, ReadResult } from "./types"
 
 /**
@@ -38,7 +37,9 @@ export type InboundDeps = {
   confirm?: typeof handleConfirm
   reply?: typeof sendReply
   alert?: (message: string) => Promise<void>
-  feeOnTop?: (offer: Offer) => Promise<boolean>
+  feeOnTop?: (offer: ServiceOffer) => Promise<boolean>
+  /** Merged over makeAdapters({ resolve, confirm }): the per-service pricing, placing and notice code. */
+  adapters?: Adapters
   /** Try-it: no writes, no SMS, no order. The result carries the reply that would be sent. */
   dryRun?: boolean
 }
@@ -83,10 +84,10 @@ async function withinBudget(p: Promise<ReadResult>): Promise<ReadResult> {
 }
 
 /** The surface the charge will use for this payer, and who pays the gateway's own charge. Unknown means say so. */
-async function defaultFeeOnTop(chargePhone: string, offer: Offer): Promise<boolean> {
+async function defaultFeeOnTop(chargePhone: string, offer: ServiceOffer): Promise<boolean> {
   try {
     const verifiedPayer = isUssdHubtelPayer({ chargePhone, ownerPhone: chargePhone, provider: offer.paystackProvider })
-    const { gateway, feeBearer } = await resolveSurfaceGateway("sms_order", { verifiedPayer, amount: offer.price })
+    const { gateway, feeBearer } = await resolveSurfaceGateway("sms_order", { verifiedPayer, amount: offer.previewGhs })
     return gateway === "hubtel" && feeBearer === "customer"
   } catch {
     return true
@@ -105,6 +106,7 @@ export async function processInbound(
   const resolve = deps.resolve ?? resolveOffer
   const prices = deps.prices ?? listPrices
   const confirm = deps.confirm ?? handleConfirm
+  const adapters: Adapters = { ...makeAdapters({ resolve, confirm }), ...deps.adapters }
   const reply = deps.reply ?? sendReply
   const alert = deps.alert ?? ((m: string) => notifyAdmins(m, "text_to_buy"))
   const now = i.now.getTime()
@@ -217,8 +219,11 @@ export async function processInbound(
           return await finish("keyword", helpReply())
         case "STATUS": {
           const link = await latestOrderLink(db, i.line, i.from)
-          const ussd = link ? await ussdOrderStatus(db, link.orderId) : null
-          return await finish("keyword", statusReply(orderStatusOf(link, ussd), link ? sizeLabel(link.size) : undefined))
+          // The order row is read from the table the link names, through its own service's adapter. A pair with no adapter is
+          // never read from another table: it reports from the link alone.
+          const adapter = link ? adapterForLink(adapters, link) : null
+          const status = link && adapter ? adapter.statusOf(link, await adapter.readOrder(db, link.orderId)) : orderStatusOf(link, null)
+          return await finish("keyword", statusReply(status, link ? sizeLabel(link.size) : undefined))
         }
         case "AGAIN":
           read = conv.lastOrder ? rebuildFromLastOrder(conv.lastOrder) : NOT_ORDER
@@ -246,10 +251,9 @@ export async function processInbound(
     }
 
     // ---- 5-7. things that are not an order -------------------------------------------------------------------------
-    if (read.kind === "not_order" || read.kind === "unknown" || read.kind === "keyword") {
-      // With the switch off an unclear text costs nothing: no reply at all.
-      return await finish("not_order", !settings.unclearRepliesEnabled || c.notUnderstood >= 1 ? null : notUnderstoodReply())
-    }
+    // With the switch off an unclear text costs nothing: no reply at all.
+    const notUnderstood = () => finish("not_order", !settings.unclearRepliesEnabled || c.notUnderstood >= 1 ? null : notUnderstoodReply())
+    if (read.kind === "not_order" || read.kind === "unknown" || read.kind === "keyword") return await notUnderstood()
     if (read.kind === "ask") {
       await remember(i.text, read.question)
       return await finish("asked", read.question)
@@ -259,37 +263,21 @@ export async function processInbound(
     // ---- 7-8. price a size ------------------------------------------------------------------------------------------
     const orderForOffer =
       read.kind === "order" ? read : orderRead(read.sizeMb as number, read.networkHint, null)
-    const res: OfferResult = await resolve(db, {
-      senderLocal: i.from, sizeMb: orderForOffer.sizeMb, networkHint: orderForOffer.networkHint, recipient: orderForOffer.recipient,
-    })
+    // A price question is data-only; an order goes to its own service's adapter. No adapter, or its text switch off: not understood.
+    const adapter = adapters[read.kind === "price_query" ? "data" : read.service]
+    if (!adapter || !adapter.textEnabled(settings)) return await notUnderstood()
+    const res = await adapter.resolve(db, i.from, orderForOffer)
 
     if (!res.ok) {
-      switch (res.reason) {
-        case "choose_product": {
-          const q = productQuestion(res.options, orderForOffer)
-          await remember(i.text, q.question, { pending: q.pending })
-          return await finish("asked", q.question)
-        }
-        case "need_recipient": {
-          const q = fitOneSegment([`Which ${res.networkLabel} number should receive it?`])
-          await remember(i.text, q)
-          return await finish("asked", q)
-        }
-        case "bad_recipient": {
-          const q = wrongNumberReply()
-          await remember(i.text, q)
-          return await finish("asked", q)
-        }
-        case "no_package":
-          return await finish("unavailable", unavailableReply(res.networkLabel, dedupeNearest(res.nearest)))
-        default:
-          return await finish("unavailable", unavailableReply("this network", []))
-      }
+      const r = res.refusal
+      if (r.remember) await remember(i.text, r.reply, r.pending ? { pending: r.pending } : {})
+      return await finish(r.outcome, r.reply)
     }
     const offer = res.offer
 
     if (read.kind === "price_query") {
-      const text = priceAnswerReply(sizeLabel(offer.size), offer.networkLabel, offer.price)
+      const d = (offer as DataOffer).offer
+      const text = priceAnswerReply(sizeLabel(d.size), d.networkLabel, d.price)
       await remember(i.text, text, { pending: { type: "confirm", read: orderRead(read.sizeMb as number, read.networkHint, null) } })
       return await finish("price_answer", text)
     }
@@ -311,10 +299,11 @@ export async function processInbound(
       return await finish("limited", limitedReply())
     }
 
-    const session = sessionForOffer(i.from, offer)
+    // The sender in international form: the phone the gateway lookup treats as the payer.
+    const chargePhone = "+233" + ghanaSignificant(i.from)
     let feeOnTop = false
     try {
-      feeOnTop = await (deps.feeOnTop ?? ((o: Offer) => defaultFeeOnTop(session.dialingPhone as string, o)))(offer)
+      feeOnTop = await (deps.feeOnTop ?? ((o: ServiceOffer) => defaultFeeOnTop(chargePhone, o)))(offer)
     } catch {
       feeOnTop = false
     }
@@ -324,21 +313,15 @@ export async function processInbound(
     } catch {
       payerNetwork = "UNKNOWN"
     }
-    // A written amount above the offer price is a Paystack-priced row: it already holds the fee, so "+ MoMo charge" would
-    // state it twice. (feeOnTop is resolved before confirm and independently of it.)
-    const quote = (amountGhs: number) =>
-      quoteReply({
-        size: sizeLabel(offer.size), networkLabel: offer.networkLabel, recipientLocal: offer.recipientLocal, amountGhs,
-        feeOnTop: feeOnTop && !(amountGhs > offer.price + 0.005), payerNetwork,
-      })
+    const quote = (amountGhs: number, deliversGhs?: number) =>
+      adapter.quote(offer, { amountGhs, ...(deliversGhs === undefined ? {} : { deliversGhs }) }, { feeOnTop, payerNetwork })
 
     // The preview can only know the offer price: the charged amount is fixed when the order row is written.
-    if (dry) return await finish("prompted", quote(offer.price))
+    if (dry) return await finish("prompted", quote(offer.previewGhs, offer.previewDeliversGhs))
 
-    // The session id is opaque on purpose: lib/ussd/session.ts logs it when Redis fails, so it must carry no phone number or text.
-    const response = await confirm("1", `sms:${messageId}`, session, "sms", { momoOnly: true })
-    const orderId = response.orderId
-    if (!orderId) return await finish("unavailable", unavailableReply(offer.networkLabel, []))
+    const placed = await adapter.place(offer, messageId, i.from)
+    const orderId = placed.orderId
+    if (!orderId) return await finish("unavailable", adapter.notPlacedReply(offer))
 
     // From here an order exists and its MoMo charge has ALREADY started (confirm schedules it). Failing the row would not stop
     // the prompt or the payment, and a payment for a failed row is silently ignored: so the order is never failed. A paid one is
@@ -350,16 +333,16 @@ export async function processInbound(
         // an alert must never throw out of the lane
       }
     }
-    const amount = response.amount
+    const amount = placed.amountGhs
     if (typeof amount !== "number" || !Number.isFinite(amount)) {
       await alertOrder("order placed without a usable amount")
-      return await finish("unavailable", unavailableReply(offer.networkLabel, []), { transactional: true })
+      return await finish("unavailable", adapter.notPlacedReply(offer), { transactional: true })
     }
 
     let linked: { id: string } | "race" | "link_failed"
     try {
       const l = await linkOrder(db, {
-        line: i.line, sender: i.from, service: "data", orderTable: "ussd_orders", orderId, size: offer.size, recipient: offer.recipientLocal, gift: offer.gift, amount,
+        line: i.line, sender: i.from, service: adapter.service, orderTable: adapter.orderTable, orderId, size: offer.size, recipient: offer.recipientLocal, gift: offer.gift, amount,
       })
       linked = l === "conflict" ? (await linkByOrderId(db, orderId)) ?? "race" : l
     } catch (e) {
@@ -375,14 +358,14 @@ export async function processInbound(
     if (linked === "link_failed") {
       // The order and its prompt are real, so the quote is accurate: send it. There is no link row, so no follow-up SMS.
       await alertOrder("order placed but link failed")
-      return await finish("prompted", quote(amount), { orderId })
+      return await finish("prompted", quote(amount, placed.deliversGhs), { orderId })
     }
 
     // The quote goes out first; remembering the conversation is best-effort and never suppresses it.
-    const text = quote(amount)
+    const text = quote(amount, placed.deliversGhs)
     const result = await finish("prompted", text, { orderLinkId: linked.id, orderId })
     try {
-      await remember(i.text, text, { lastOrder: lastOrderOf(offer, orderForOffer.sizeMb) })
+      await remember(i.text, text, { lastOrder: offer.lastOrder })
     } catch (e) {
       console.error("[text-to-buy] conversation save error", { messageId, error: e instanceof Error ? e.name : "unknown" })
     }
