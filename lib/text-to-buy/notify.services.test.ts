@@ -6,6 +6,7 @@ import { TTB_DEFAULTS, type TtbSettings } from "./settings"
 import { orderRowFor } from "./store"
 import { dataAdapter } from "./services/data"
 import { airtimeAdapter } from "./services/airtime"
+import { resultsCheckerAdapter } from "./services/results-checker"
 import { airtimeGiftDeliveredReply, delayedReply, repricedReply, unpaidReply } from "./replies"
 import { calculateSegments } from "@/lib/sms/segments"
 import { classifyStatusOrder } from "./services/classify"
@@ -162,6 +163,97 @@ describe("airtime links through the live airtime adapter", () => {
   it("every airtime notice is one GSM-7 segment", () => {
     const n = airtimeAdapter().notices
     for (const s of [n.unpaid("airtime 9999.99 " + R), n.paidNotDelivered(), n.delivered({ size: "airtime 9999.99 " + R, recipient: R, gift: true })!]) {
+      const seg = calculateSegments(s)
+      expect([seg.encoding, seg.segments]).toEqual(["gsm7", 1])
+    }
+  })
+})
+
+describe("voucher links through the live results-checker adapter", () => {
+  const vlink = (o: Record<string, unknown> = {}) =>
+    link({ service: "results_checker", order_table: "results_checker_orders", size: "2 wassce", amount: 30, ...o })
+  const vrow = (o: Record<string, unknown> = {}) => ({ id: "O1", status: "pending_payment", payment_status: "pending_payment", total_paid: 30, ...o })
+  const bodies = (t: ReturnType<typeof setup>) => t.reply.mock.calls.map((c) => (c[1] as { body: string }).body)
+  const paid = { state: "paid", paid_at: iso(-5 * MIN) }
+
+  it("a completed order closes with delivered_at and sends nothing: the PINs are the delivery message", async () => {
+    const t = setup([vlink(paid)], { results_checker_orders: [vrow({ status: "completed", payment_status: "completed" })] })
+    const r = await t.run()
+    expect(t.reply).not.toHaveBeenCalled()
+    expect(t.f.db.tables.ttb_orders[0]).toMatchObject({ state: "closed", delivered_at: now.toISOString() })
+    expect(r).toMatchObject({ closed: 1, delivered: 0 })
+  })
+
+  it("paid at 30 minutes with the status still pending (stock ran out): the delay notice", async () => {
+    const t = setup([vlink({ state: "paid", paid_at: iso(-31 * MIN) })], { results_checker_orders: [vrow({ status: "pending", payment_status: "completed" })] })
+    const r = await t.run()
+    expect(bodies(t)).toEqual([delayedReply()])
+    expect(r.delayed).toBe(1)
+  })
+
+  it("failed after payment: the delay notice, sent once", async () => {
+    const t = setup([vlink(paid)], { results_checker_orders: [vrow({ status: "failed", payment_status: "completed" })] })
+    await t.run()
+    await t.run()
+    expect(bodies(t)).toEqual([delayedReply()])
+  })
+
+  it("expired payment and expired status: the unpaid notice with the re-text token, and the link closes", async () => {
+    const t = setup([vlink()], { results_checker_orders: [vrow({ status: "expired", payment_status: "expired" })] })
+    await t.run()
+    expect(bodies(t)).toEqual([unpaidReply("2 wassce")])
+    expect(t.f.db.tables.ttb_orders[0].state).toBe("closed")
+  })
+
+  it("refunded, abandoned and cancelled orders: a refund is never told it was unpaid", async () => {
+    for (const row of [vrow({ status: "failed", payment_status: "refunded" }), vrow({ status: "refunding", payment_status: "completed" }), vrow({ status: "refunded", payment_status: "refunded" })]) {
+      const t = setup([vlink(paid)], { results_checker_orders: [row] })
+      await t.run()
+      expect(t.reply).not.toHaveBeenCalled()
+      expect(t.f.db.tables.ttb_orders[0].state).toBe("closed")
+    }
+    // Never marked paid on the link: still no unpaid notice for a refund.
+    const never = setup([vlink()], { results_checker_orders: [vrow({ status: "failed", payment_status: "refunded" })] })
+    await never.run()
+    expect(never.reply).not.toHaveBeenCalled()
+    // A payment that was abandoned or cancelled is simply unpaid.
+    for (const pay of ["abandoned", "cancelled"]) {
+      const t = setup([vlink()], { results_checker_orders: [vrow({ status: "cancelled", payment_status: pay })] })
+      await t.run()
+      expect(bodies(t)).toEqual([unpaidReply("2 wassce")])
+    }
+  })
+
+  it("an otp_required order left past the prompt window gets the unpaid notice, and is closed once the close age passes", async () => {
+    // A text never sends an OTP SMS, so an order the handler parked as otp_required is a payment that cannot be approved.
+    const t = setup([vlink({ created_at: iso(-6 * MIN) })], { results_checker_orders: [vrow({ status: "otp_required", payment_status: "otp_required" })] })
+    const first = await t.run()
+    expect(bodies(t)).toEqual([unpaidReply("2 wassce")])
+    expect(first.unpaid).toBe(1)
+    const old = setup([vlink({ created_at: iso(-60 * MIN) })], { results_checker_orders: [vrow({ status: "otp_required", payment_status: "otp_required" })] })
+    await old.run()
+    expect(old.f.db.tables.ttb_orders[0].state).toBe("closed")
+    expect(bodies(old)).toEqual([unpaidReply("2 wassce")])
+  })
+
+  it("the row total differing from the link sends the price-changed notice once", async () => {
+    const t = setup([vlink()], { results_checker_orders: [vrow({ total_paid: 30.6 })] })
+    await t.run()
+    expect(bodies(t)).toEqual([repricedReply(30.6)])
+  })
+
+  it("an airtime-table row with the same id is never read for a voucher link", async () => {
+    const t = setup([vlink(paid)], {
+      results_checker_orders: [vrow({ status: "processing", payment_status: "completed" })],
+      airtime_orders: [{ id: "O1", status: "completed", payment_status: "completed", total_paid: 30 }],
+    })
+    await t.run()
+    expect(t.f.db.tables.ttb_orders[0].state).toBe("paid")
+  })
+
+  it("every voucher notice is one GSM-7 segment", () => {
+    const n = resultsCheckerAdapter().notices
+    for (const s of [n.unpaid("100 novdec"), n.paidNotDelivered()]) {
       const seg = calculateSegments(s)
       expect([seg.encoding, seg.segments]).toEqual(["gsm7", 1])
     }

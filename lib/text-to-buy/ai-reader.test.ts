@@ -292,7 +292,8 @@ describe("readWithAi airtime (the money fence)", () => {
 describe("readWithAi vouchers (the money fence)", () => {
   type H = { role: "user" | "assistant"; text: string }[]
   const askBoard = { kind: "ask", question: "Which checker: WASSCE, BECE or NOVDEC?" }
-  const askQty = { kind: "ask", question: "How many checkers do you want?" }
+  // The ask also carries the board it is about (awaitBoard), which the lane remembers; every case below checks kind and question.
+  const askQty = expect.objectContaining({ kind: "ask", question: "How many checkers do you want?" })
   const run = (text: string, input: Record<string, unknown>, history: H = []) =>
     readWithAi(text, history, deps(async () => toolReply(input)))
   const V = (board: unknown, quantity: unknown, extra: Record<string, unknown> = {}) =>
@@ -361,6 +362,24 @@ describe("readWithAi vouchers (the money fence)", () => {
     expect(await run("wassce 007", V("WASSCE", 7))).toEqual(askQty)
     expect(await run("wassce 0200", V("WASSCE", 200))).toEqual(askQty)
     expect(await run("wassce 1234567", V("WASSCE", 1234567))).toEqual(askQty)
+  })
+  it("the how-many question names the board it is about, so the lane can remember it", async () => {
+    expect(await run("bece checkers", V("BECE", 5))).toEqual({ kind: "ask", question: "How many checkers do you want?", awaitBoard: "BECE" })
+    const h: H = [{ role: "user", text: "i want nov dec" }]
+    expect(await run("checkers", V("NOVDEC", 1), h)).toEqual({ kind: "ask", question: "How many checkers do you want?", awaitBoard: "NOVDEC" })
+    // the board question carries no such hint
+    expect(await run("checker", V(null, 1))).toEqual(askBoard)
+  })
+  it("a typed 0 or 101 is asked about, even if the model echoes it as the quantity", async () => {
+    expect(await run("0 wassce", V("WASSCE", 0))).toEqual(askQty)
+    expect(await run("101 wassce", V("WASSCE", 101))).toEqual(askQty)
+    expect(await run("100 wassce", V("WASSCE", 100))).toEqual(rc("WASSCE", 100))
+  })
+  it("reads the words one and ten as the quantity", async () => {
+    expect(await run("ten wassce", V("WASSCE", 10))).toEqual(rc("WASSCE", 10))
+    expect(await run("one wassce checker", V("WASSCE", 1))).toEqual(rc("WASSCE", 1))
+    expect(await run("ten wassce", V("WASSCE", 5))).toEqual(askQty)
+    expect(await run("one wassce checker", V("WASSCE", 2))).toEqual(askQty)
   })
   it("drops any recipient", async () => {
     const r = await run("2 wassce", V("WASSCE", 2, { recipient: "0200000103" }))

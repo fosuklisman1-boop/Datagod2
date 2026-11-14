@@ -191,6 +191,7 @@ export async function linkOrder(
 export type Pending =
   | { type: "choices"; options: { label: string; read: ReadResult }[] } // numbered question; a bare digit picks one
   | { type: "confirm"; read: ReadResult } // YES places this
+  | { type: "quantity"; board: ExamBoardWord } // "How many checkers?" was asked: a bare whole number is the quantity
 export type LastOrder =
   | { sizeMb: number; network: string; recipient: string } // data: the Stage 1 shape, unchanged
   | { service: "airtime"; amountGhs: number; network: string; recipient: string }
@@ -212,7 +213,10 @@ function parseTurns(x: unknown): Conversation["turns"] {
 }
 
 function parsePending(x: unknown): Pending | null {
-  const p = x as { type?: unknown } | null
+  const p = x as { type?: unknown; board?: unknown } | null
+  if (p && typeof p === "object" && p.type === "quantity") {
+    return typeof p.board === "string" && EXAM_BOARDS.includes(p.board) ? { type: "quantity", board: p.board as ExamBoardWord } : null
+  }
   return p && typeof p === "object" && (p.type === "choices" || p.type === "confirm") ? (p as Pending) : null
 }
 

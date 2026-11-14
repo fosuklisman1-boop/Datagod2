@@ -18,7 +18,7 @@ import {
   claimInbound, closeStaleLinks, counts, countOutbound, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
   linkOrder, loadConversation, saveConversation, setInboundResult, storeInbound, type Conversation,
 } from "./store"
-import { aiHistory, choicesFromPriceList, orderRead, orderStatusOf, pickedOption, rebuildFromLastOrder } from "./inbound-steps"
+import { aiHistory, choicesFromPriceList, orderRead, orderStatusOf, pickedOption, pickedQuantity, rebuildFromLastOrder } from "./inbound-steps"
 import type { Line, Outcome, ReadResult } from "./types"
 
 /**
@@ -210,7 +210,7 @@ export async function processInbound(
     const parsed = parseOrderText(i.text)
     let read: ReadResult = parsed
 
-    const picked = pickedOption(parsed, conv.pending)
+    const picked = pickedOption(parsed, conv.pending) ?? pickedQuantity(parsed, conv.pending)
     if (picked) {
       read = picked
     } else if (parsed.kind === "keyword") {
@@ -257,7 +257,7 @@ export async function processInbound(
     const notUnderstood = () => finish("not_order", !settings.unclearRepliesEnabled || c.notUnderstood >= 1 ? null : notUnderstoodReply(offered))
     if (read.kind === "not_order" || read.kind === "unknown" || read.kind === "keyword") return await notUnderstood()
     if (read.kind === "ask") {
-      await remember(i.text, read.question)
+      await remember(i.text, read.question, read.awaitBoard ? { pending: { type: "quantity", board: read.awaitBoard } } : {})
       return await finish("asked", read.question)
     }
     if (read.kind === "price_query" && read.sizeMb === null) return await priceList("price_answer")
@@ -331,7 +331,7 @@ export async function processInbound(
       // (the sweep does not run it again), and the admins hear once. No order id, phone, text or amount in the alert.
       console.error("[text-to-buy] place error", { messageId, error: e instanceof Error ? e.name : "unknown" })
       try {
-        await alert("Text-to-Buy: placing an order failed unexpectedly")
+        await alert(`Text-to-Buy: placing an order failed unexpectedly: message ${messageId}`)
       } catch {
         // an alert must never throw out of the lane
       }

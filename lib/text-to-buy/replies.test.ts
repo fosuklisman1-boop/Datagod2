@@ -31,6 +31,10 @@ import {
   airtimeWrongNumberReply,
   airtimeNetworkQuestion,
   placedNeutralReply,
+  voucherQuoteReply,
+  voucherOffReply,
+  voucherMaxReply,
+  voucherBoardQuestion,
 } from "./replies"
 
 const oneSegment = (s: string) => {
@@ -277,6 +281,31 @@ describe("containsMoney", () => {
     "false: %s",
     (t) => expect(containsMoney(t)).toBe(false),
   )
+})
+
+describe("voucher copy", () => {
+  const q = { board: "WASSCE" as const, quantity: 2, amountGhs: 30, feeOnTop: false, payerNetwork: "MTN" as const }
+  it("quote, plural", () =>
+    expect(voucherQuoteReply(q)).toBe("2 WASSCE checkers, GHS 30.00. Approve the MoMo prompt now. PINs come by SMS to this number. No prompt? Dial *170#, 6, 3."))
+  it("quote, singular", () =>
+    expect(voucherQuoteReply({ ...q, quantity: 1, amountGhs: 15 })).toBe("1 WASSCE checker, GHS 15.00. Approve the MoMo prompt now. PIN comes by SMS to this number. No prompt? Dial *170#, 6, 3."))
+  it("quote, fee on top", () =>
+    expect(voucherQuoteReply({ ...q, feeOnTop: true })).toContain("2 WASSCE checkers, GHS 30.00 + MoMo charge."))
+  it("worst case is one segment and keeps the amount and the PIN line", () => {
+    const t = voucherQuoteReply({ board: "NOVDEC", quantity: 50, amountGhs: 9999.99, feeOnTop: true, payerNetwork: "TELECEL" })
+    oneSegment(t)
+    expect(t).toContain("9,999.99")
+    expect(t).toContain("PINs come by SMS to this number.")
+  })
+  it("fixed strings", () => {
+    expect(voucherOffReply("BECE")).toBe("BECE checkers are not available now.")
+    expect(voucherOffReply(null)).toBe("Checkers are not available now.")
+    expect(voucherMaxReply("WASSCE", 5)).toBe("You can buy up to 5 WASSCE checkers per order.")
+    expect(voucherBoardQuestion(["WASSCE", "BECE", "NOVDEC"])).toBe("Which checker? 1) WASSCE 2) BECE 3) NOVDEC")
+  })
+  it("every voucher string is one GSM-7 segment", () => {
+    for (const s of [voucherOffReply("NOVDEC"), voucherOffReply(null), voucherMaxReply("NOVDEC", 100), voucherBoardQuestion(["WASSCE", "BECE", "NOVDEC"])]) oneSegment(s)
+  })
 })
 
 describe("safeAiQuestion", () => {

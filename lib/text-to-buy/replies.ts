@@ -4,6 +4,7 @@
 // by code from the value written to the order; the AI never supplies them.
 
 import { calculateSegments } from "@/lib/sms/segments"
+import type { ExamBoardWord } from "./types"
 
 export const MAX_REPLY_CHARS = 160
 
@@ -160,6 +161,38 @@ export function airtimeNetworkQuestion(): string {
 /** An order exists but its amounts could not be read: say nothing about money. */
 export function placedNeutralReply(): string {
   return fitOneSegment(["Your order was placed.", "Approve the MoMo prompt if you get one."])
+}
+
+/** Exam checker vouchers. The PINs never travel in a lane SMS: they come from the normal voucher delivery. */
+type VoucherBoard = ExamBoardWord
+
+export function voucherQuoteReply(i: {
+  board: VoucherBoard
+  quantity: number
+  amountGhs: number
+  feeOnTop: boolean
+  payerNetwork: QuoteInput["payerNetwork"]
+}): string {
+  const price = i.feeOnTop ? `${formatGhs(i.amountGhs)} + MoMo charge` : formatGhs(i.amountGhs)
+  const one = i.quantity === 1
+  return fitOneSegment([
+    `${i.quantity} ${i.board} ${one ? "checker" : "checkers"}, ${price}.`,
+    "Approve the MoMo prompt now.",
+    one ? "PIN comes by SMS to this number." : "PINs come by SMS to this number.",
+    PAYER_TIPS[i.payerNetwork],
+  ])
+}
+
+export function voucherOffReply(board: VoucherBoard | null): string {
+  return fitOneSegment([board ? `${board} checkers are not available now.` : "Checkers are not available now."])
+}
+
+export function voucherMaxReply(board: VoucherBoard, cap: number): string {
+  return fitOneSegment([`You can buy up to ${cap} ${board} checkers per order.`])
+}
+
+export function voucherBoardQuestion(boards: VoucherBoard[]): string {
+  return fitOneSegment(["Which checker?", ...boards.map((b, k) => `${k + 1}) ${b}`)])
 }
 
 export function wrongNumberReply(): string {

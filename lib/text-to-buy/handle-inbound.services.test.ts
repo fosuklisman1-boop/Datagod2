@@ -7,6 +7,7 @@ import type { Offer, OfferResult } from "./catalogue"
 import type { ReadResult } from "./types"
 import {
   airtimeQuoteReply, notUnderstoodReply, openOrderReply, limitedReply, placedNeutralReply, statusReply, helpReply, quoteReply,
+  voucherQuoteReply, voucherBoardQuestion, voucherOffReply,
 } from "./replies"
 
 const h = vi.hoisted(() => ({
@@ -15,8 +16,21 @@ const h = vi.hoisted(() => ({
   payer: vi.fn(),
   notify: vi.fn(),
   rate: vi.fn(async (_n: string, _dealer: boolean) => 5),
+  rcEnabled: vi.fn(async (_b: string) => true),
+  rcAvailable: vi.fn(async (_b: string) => 40),
+  rcMax: vi.fn(async () => 50),
+  rcPrice: vi.fn(async (_p: { examBoard: string; quantity: number; applyBulk?: boolean }) => ({ totalPaid: 30, unitPrice: 15 })),
+  rcBoards: vi.fn(async (): Promise<string[]> => ["WASSCE"]),
 }))
 
+vi.mock("@/lib/results-checker-service", () => ({
+  isExamBoardEnabled: h.rcEnabled,
+  getAvailableCount: h.rcAvailable,
+  getMaxQuantity: h.rcMax,
+  calculateRCPrice: h.rcPrice,
+  isValidExamBoard: (b: string) => ["WASSCE", "BECE", "NOVDEC"].includes(b),
+}))
+vi.mock("@/lib/ussd/handlers/results-checker", () => ({ confirmRcByText: vi.fn(), buildRcBoardOptions: h.rcBoards }))
 vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn(async () => ({ enabled: true, map: h.map })) }))
 vi.mock("@/lib/payment-gateway/start", () => ({ resolveSurfaceGateway: h.surface }))
 vi.mock("@/lib/ussd/gateway-charge", () => ({ isUssdHubtelPayer: h.payer }))
@@ -49,6 +63,7 @@ vi.mock("./catalogue", () => ({
 import { acceptInbound, processInbound, resetReplyCapAlert, type InboundDeps, type InboundInput } from "./handle-inbound"
 import { airtimeAdapter } from "./services/airtime"
 import { dataAdapter } from "./services/data"
+import { resultsCheckerAdapter } from "./services/results-checker"
 
 const S = "0200000101" // Telecel under the test map
 const R = "0200000102"
@@ -71,6 +86,7 @@ function setup(opts: { seed?: Record<string, Record<string, unknown>[]>; counts?
   f.db.rpcImpl = (name) => (name === "ttb_counts" ? { data: [counts], error: null } : { data: 0, error: null })
   const c = f.client as unknown as SupabaseClient
   const airtimeConfirm = vi.fn(async (_sessionId: string, _session: Record<string, unknown>): Promise<Placed> => opts.placed ?? { type: "end", message: "USSD wording", orderId: ORDER, amount: 10, delivers: 9.52 })
+  const rcConfirm = vi.fn(async (_sessionId: string, _session: Record<string, unknown>): Promise<Placed> => ({ type: "end", message: "USSD wording", orderId: ORDER, amount: 30 }))
   const dataResolve = vi.fn(async () => dataOffer())
   const dataConfirm = vi.fn(async () => ({ type: "end", message: "USSD wording", orderId: ORDER, amount: 23.69 }))
   const deps = {
@@ -84,6 +100,7 @@ function setup(opts: { seed?: Record<string, Record<string, unknown>[]>; counts?
     adapters: {
       data: dataAdapter({ resolve: dataResolve, confirm: dataConfirm as never }) as never,
       airtime: airtimeAdapter({ confirm: airtimeConfirm as never }) as never,
+      results_checker: resultsCheckerAdapter({ confirm: rcConfirm as never, boards: h.rcBoards as never }) as never,
     },
   }
   async function run(text: string, over: { input?: Partial<InboundInput>; settings?: Partial<TtbSettings>; deps?: Partial<InboundDeps> } = {}) {
@@ -92,10 +109,15 @@ function setup(opts: { seed?: Record<string, Record<string, unknown>[]>; counts?
     const result = await processInbound(c, id, input, settings(over.settings), { ...deps, ...over.deps } as InboundDeps)
     return { result, id }
   }
-  return { f, c, counts, deps, airtimeConfirm, dataResolve, dataConfirm, run }
+  return { f, c, counts, deps, airtimeConfirm, rcConfirm, dataResolve, dataConfirm, run }
 }
 
 beforeEach(() => {
+  h.rcEnabled.mockReset().mockResolvedValue(true)
+  h.rcAvailable.mockReset().mockResolvedValue(40)
+  h.rcMax.mockReset().mockResolvedValue(50)
+  h.rcPrice.mockReset().mockResolvedValue({ totalPaid: 30, unitPrice: 15 })
+  h.rcBoards.mockReset().mockResolvedValue(["WASSCE"])
   h.map = { MTN: ["24"], TELECEL: ["20"], AT: ["27"] }
   h.surface.mockReset()
   h.payer.mockReset()
@@ -344,6 +366,216 @@ describe("again, yes and status after an airtime order", () => {
     const t = setup({ seed: { ttb_orders: [link], ussd_orders: [{ id: "O1", order_status: "failed", payment_status: "failed", amount: 10 }] } })
     const { result } = await t.run("status")
     expect(result.reply).toBe(statusReply("awaiting_payment", "airtime 10"))
+  })
+})
+
+describe("checker vouchers by text", () => {
+  const rcOn = { settings: { resultsCheckerEnabled: true } }
+  const bodies = (t: ReturnType<typeof setup>) => (t.deps.reply.mock.calls as unknown as unknown[][]).map((c) => (c[1] as { body: string }).body)
+  const conv = (over: Record<string, unknown> = {}) => ({
+    line: "main", sender: S, turns: [], pending: null, last_order: null, expires_at: new Date(now.getTime() + 10 * 60_000).toISOString(), ...over,
+  })
+  const rcLink = (over: Record<string, unknown> = {}) => ({
+    id: "L1", line: "main", sender: S, service: "results_checker", order_table: "results_checker_orders", order_id: "O1", state: "awaiting_payment",
+    size: "2 wassce", recipient: S, gift: false, amount: 30, notices: [], created_at: minutesAgo(1), ...over,
+  })
+
+  it("switch off: 2 wassce is not an order and nothing is resolved, confirmed or linked", async () => {
+    const t = setup()
+    const { result } = await t.run("2 wassce", { settings: { resultsCheckerEnabled: false } })
+    expect(result.outcome).toBe("not_order")
+    expect(t.rcConfirm).not.toHaveBeenCalled()
+    expect(h.rcPrice).not.toHaveBeenCalled()
+    expect(t.f.db.tables.ttb_orders).toHaveLength(0)
+  })
+
+  it("on: one place with the staged session, a link row naming results_checker, and a quote with the PLACED total", async () => {
+    // Preview 30; the order row says 31.
+    const t = setup()
+    t.rcConfirm.mockResolvedValue({ type: "end", message: "x", orderId: ORDER, amount: 31 })
+    t.deps.feeOnTop.mockResolvedValue(true)
+    const { result, id } = await t.run("2 wassce", rcOn)
+    expect(t.rcConfirm).toHaveBeenCalledTimes(1)
+    expect(t.rcConfirm.mock.calls[0]).toEqual([`sms:${id}`, { step: "RC_CONFIRM", dialingPhone: "+233200000101", rcBoard: "WASSCE", rcQty: 2 }])
+    expect(result.outcome).toBe("prompted")
+    expect(result.reply).toBe(voucherQuoteReply({ board: "WASSCE", quantity: 2, amountGhs: 31, feeOnTop: false, payerNetwork: "TELECEL" }))
+    expect(result.reply).toContain("GHS 31.00")
+    expect(result.reply).not.toContain("30.00")
+    oneSegment(result.reply)
+    expect(t.f.db.tables.ttb_orders[0]).toMatchObject({
+      service: "results_checker", order_table: "results_checker_orders", order_id: ORDER, size: "2 wassce", gift: false, recipient: S, amount: 31, state: "awaiting_payment",
+    })
+    expect(t.f.db.tables.ttb_conversations[0].last_order).toEqual({ service: "results_checker", board: "WASSCE", quantity: 2 })
+  })
+
+  it("a preview-priced order with the fee on top says so", async () => {
+    const t = setup()
+    t.deps.feeOnTop.mockResolvedValue(true)
+    const { result } = await t.run("2 wassce", rcOn)
+    expect(result.reply).toBe(voucherQuoteReply({ board: "WASSCE", quantity: 2, amountGhs: 30, feeOnTop: true, payerNetwork: "TELECEL" }))
+  })
+
+  it("no lane reply ever carries a PIN, whatever the order does", async () => {
+    const t = setup()
+    await t.run("2 wassce", rcOn)
+    await t.run("status", { ...rcOn, input: { from: R } })
+    await t.run("help", rcOn)
+    expect(bodies(t).length).toBeGreaterThan(1)
+    for (const b of bodies(t)) expect(b).not.toMatch(/PIN:|serial/i)
+  })
+
+  it("confirm returns no order id: the board-named not-available reply, nothing linked", async () => {
+    const t = setup()
+    t.rcConfirm.mockResolvedValue({ type: "end", message: "no" })
+    const { result } = await t.run("2 wassce", rcOn)
+    expect(result).toMatchObject({ outcome: "unavailable", reply: voucherOffReply("WASSCE") })
+    expect(t.f.db.tables.ttb_orders).toHaveLength(0)
+  })
+
+  it("an exception from place: handled, one alert carrying the opaque message id and no PII, no success reply", async () => {
+    const t = setup()
+    t.rcConfirm.mockRejectedValue(new Error("boom 0200000101"))
+    const err = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { result, id } = await t.run("2 wassce", rcOn)
+    expect(result.outcome).toBe("error")
+    expect(result.reply).toBeNull()
+    expect(t.deps.alert).toHaveBeenCalledTimes(1)
+    expect(String((t.deps.alert.mock.calls as unknown as unknown[][])[0][0])).toContain(id)
+    expect(JSON.stringify(t.deps.alert.mock.calls)).not.toContain(S)
+    expect(JSON.stringify(err.mock.calls)).not.toContain(S)
+    expect(t.f.db.tables.ttb_orders).toHaveLength(0)
+  })
+
+  it("an open order blocks a voucher order, and the unpaid cap applies", async () => {
+    const open = setup({ seed: { ttb_orders: [rcLink({ order_id: "O0", created_at: minutesAgo(1) })] } })
+    expect((await open.run("2 wassce", rcOn)).result.outcome).toBe("open_order")
+    const capped = setup({ counts: { prompts_unpaid: 3 } })
+    expect((await capped.run("2 wassce", rcOn)).result).toMatchObject({ outcome: "limited", reply: limitedReply() })
+    expect(open.rcConfirm).not.toHaveBeenCalled()
+    expect(capped.rcConfirm).not.toHaveBeenCalled()
+  })
+
+  it("the board question is remembered with the quantity; picking 2 places a BECE order for that quantity", async () => {
+    h.rcBoards.mockResolvedValue(["WASSCE", "BECE", "NOVDEC"])
+    const t = setup()
+    const first = await t.run("5 checkers", rcOn)
+    expect(first.result).toMatchObject({ outcome: "asked", reply: voucherBoardQuestion(["WASSCE", "BECE", "NOVDEC"]) })
+    expect(t.rcConfirm).not.toHaveBeenCalled()
+    const second = await t.run("2", rcOn)
+    expect(second.result.outcome).toBe("prompted")
+    expect(t.rcConfirm.mock.calls[0][1]).toMatchObject({ rcBoard: "BECE", rcQty: 5 })
+    expect(t.dataConfirm).not.toHaveBeenCalled()
+  })
+
+  describe("a pending 'how many' question from the AI", () => {
+    const ask = { kind: "ask", question: "How many checkers do you want?", awaitBoard: "WASSCE" } as unknown as ReadResult
+
+    it("a bare number completes the voucher instead of becoming a data order", async () => {
+      const t = setup()
+      t.deps.readAi.mockResolvedValue(ask)
+      const first = await t.run("wassce checkers", rcOn)
+      expect(first.result).toMatchObject({ outcome: "asked", reply: "How many checkers do you want?" })
+      expect(t.f.db.tables.ttb_conversations[0].pending).toEqual({ type: "quantity", board: "WASSCE" })
+      const second = await t.run("2", rcOn)
+      expect(second.result.outcome).toBe("prompted")
+      expect(t.rcConfirm.mock.calls[0][1]).toMatchObject({ rcBoard: "WASSCE", rcQty: 2 })
+      expect(t.dataConfirm).not.toHaveBeenCalled()
+      expect(t.deps.readAi).toHaveBeenCalledTimes(1)
+    })
+
+    it("only a bare whole number counts: 5gb stays data, and an out-of-range number is refused by the adapter", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ pending: { type: "quantity", board: "WASSCE" } })] } })
+      await t.run("5gb", rcOn)
+      expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+      expect(t.rcConfirm).not.toHaveBeenCalled()
+      const big = setup({ seed: { ttb_conversations: [conv({ pending: { type: "quantity", board: "WASSCE" } })] } })
+      const r = await big.run("60", rcOn)
+      expect(r.result).toMatchObject({ outcome: "unavailable", reply: "You can buy up to 40 WASSCE checkers per order." })
+      expect(big.rcConfirm).not.toHaveBeenCalled()
+    })
+
+    it("with the voucher switch off a pending question places nothing", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ pending: { type: "quantity", board: "WASSCE" } })] } })
+      const { result } = await t.run("2", { settings: { resultsCheckerEnabled: false } })
+      expect(result.outcome).toBe("not_order")
+      expect(t.rcConfirm).not.toHaveBeenCalled()
+      expect(t.dataConfirm).not.toHaveBeenCalled()
+    })
+
+    it("an expired conversation forgets the question: a bare 3 is data again", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ pending: { type: "quantity", board: "WASSCE" }, expires_at: minutesAgo(1) })] } })
+      await t.run("3", rcOn)
+      expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+      expect(t.rcConfirm).not.toHaveBeenCalled()
+    })
+
+    it("a malformed stored quantity question is ignored", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ pending: { type: "quantity", board: "GCE" } })] } })
+      await t.run("3", rcOn)
+      expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+      expect(t.rcConfirm).not.toHaveBeenCalled()
+    })
+  })
+
+  it("a bare number with no pending question stays a data order (Stage 1)", async () => {
+    const t = setup()
+    await t.run("3", rcOn)
+    expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+    expect(t.rcConfirm).not.toHaveBeenCalled()
+  })
+
+  describe("again, yes, status and Try-it", () => {
+    const lastOrder = { service: "results_checker", board: "BECE", quantity: 3 }
+
+    it("again rebuilds the same board and quantity", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ last_order: lastOrder })] } })
+      const { result } = await t.run("again", rcOn)
+      expect(result.outcome).toBe("prompted")
+      expect(t.rcConfirm.mock.calls[0][1]).toMatchObject({ rcBoard: "BECE", rcQty: 3 })
+    })
+
+    it("yes after an unpaid voucher link rebuilds it", async () => {
+      const t = setup({ seed: { ttb_orders: [rcLink({ state: "closed", notices: ["unpaid"], size: "3 bece" })], ttb_conversations: [conv({ last_order: lastOrder })] } })
+      const { result } = await t.run("yes", rcOn)
+      expect(result.outcome).toBe("prompted")
+      expect(t.rcConfirm.mock.calls[0][1]).toMatchObject({ rcBoard: "BECE", rcQty: 3 })
+    })
+
+    it("again with the voucher switch off is not understood, nothing placed", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ last_order: lastOrder })] } })
+      const { result } = await t.run("again", { settings: { resultsCheckerEnabled: false } })
+      expect(result.outcome).toBe("not_order")
+      expect(t.rcConfirm).not.toHaveBeenCalled()
+    })
+
+    it("a stored Stage 1 data row still rebuilds as data", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ last_order: { sizeMb: 5000, network: "MTN", recipient: S } })] } })
+      await t.run("again", rcOn)
+      expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+      expect(t.rcConfirm).not.toHaveBeenCalled()
+    })
+
+    it("status reads results_checker_orders", async () => {
+      const t = setup({
+        seed: {
+          ttb_orders: [rcLink({ state: "paid" })],
+          results_checker_orders: [{ id: "O1", status: "completed", payment_status: "completed", total_paid: 30 }],
+        },
+      })
+      const { result } = await t.run("status", rcOn)
+      expect(result.reply).toBe(statusReply("delivered", "2 wassce"))
+    })
+
+    it("a dry run quotes from the preview and writes and places nothing", async () => {
+      const t = setup()
+      const { result } = await t.run("2 wassce", { ...rcOn, deps: { dryRun: true } })
+      expect(result.outcome).toBe("prompted")
+      expect(result.reply).toBe(voucherQuoteReply({ board: "WASSCE", quantity: 2, amountGhs: 30, feeOnTop: false, payerNetwork: "TELECEL" }))
+      expect(t.rcConfirm).not.toHaveBeenCalled()
+      expect(t.f.db.tables.ttb_orders).toHaveLength(0)
+      expect(t.f.db.tables.ttb_conversations).toHaveLength(0)
+      expect(t.deps.reply).not.toHaveBeenCalled()
+    })
   })
 })
 

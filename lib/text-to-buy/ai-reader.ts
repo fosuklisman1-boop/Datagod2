@@ -267,7 +267,9 @@ function mapVoucher(input: Record<string, unknown>, text: string, history: Histo
   if (board === null || allowed.size !== 1 || !allowed.has(board)) return { kind: "ask", question: ASK_BOARD }
 
   const raw = input.quantity === undefined || input.quantity === null ? 1 : input.quantity
-  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > 100) return { kind: "ask", question: ASK_QUANTITY }
+  // The board is settled by here, so the lane can remember it: a bare number sent next is the quantity for this board.
+  const askQuantity: ReadResult = { kind: "ask", question: ASK_QUANTITY, awaitBoard: board as ExamBoardWord }
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1 || raw > 100) return askQuantity
   const quantity = raw
 
   const now = quantityTokens(text)
@@ -275,7 +277,7 @@ function mapVoucher(input: Record<string, unknown>, text: string, history: Histo
   if (now.length > 0) ok = singleQuantityIs(now, quantity)
   else if (quantity === 1) ok = !/\b(?:checkers|vouchers)\b/i.test(text) || userTurns.some((t) => !mixesService(t) && singleQuantityIs(quantityTokens(t), 1))
   else ok = userTurns.some((t) => !mixesService(t) && singleQuantityIs(quantityTokens(t), quantity))
-  if (!ok) return { kind: "ask", question: ASK_QUANTITY }
+  if (!ok) return askQuantity
 
   return { kind: "order", service: "results_checker", board: board as ExamBoardWord, quantity }
 }

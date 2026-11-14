@@ -2,18 +2,21 @@ import type { handleConfirm } from "@/lib/ussd/handlers/bundles"
 import type { resolveOffer } from "../catalogue"
 import { ORDER_TABLE_OF, type Service } from "../types"
 import type { confirmAirtimeByText } from "@/lib/ussd/handlers/airtime"
+import type { confirmRcByText } from "@/lib/ussd/handlers/results-checker"
 import { airtimeAdapter } from "./airtime"
 import { dataAdapter } from "./data"
+import { resultsCheckerAdapter } from "./results-checker"
 import type { ServiceAdapter } from "./types"
 
 export type Adapters = Partial<Record<Service, ServiceAdapter>>
-export type AdapterDeps = { resolve?: typeof resolveOffer; confirm?: typeof handleConfirm; airtimeConfirm?: typeof confirmAirtimeByText }
+export type AdapterDeps = { resolve?: typeof resolveOffer; confirm?: typeof handleConfirm; airtimeConfirm?: typeof confirmAirtimeByText; rcConfirm?: typeof confirmRcByText }
 
 /** One adapter per live service. Tests inject the same `resolve` / `confirm` fakes they always did. */
 export function makeAdapters(deps: AdapterDeps = {}): Adapters {
   return {
     data: dataAdapter(deps) as unknown as ServiceAdapter,
     airtime: airtimeAdapter({ confirm: deps.airtimeConfirm }) as unknown as ServiceAdapter,
+    results_checker: resultsCheckerAdapter({ confirm: deps.rcConfirm }) as unknown as ServiceAdapter,
   }
 }
 

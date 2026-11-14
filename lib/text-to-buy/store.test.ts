@@ -305,6 +305,16 @@ describe("conversations", () => {
     expect(await loadConversation(c, "main", S, now)).toEqual({ turns: [{ role: "user", text: "ok" }], pending: null, lastOrder: null })
   })
 
+  it("round-trips a pending quantity question and drops one with an unknown board", async () => {
+    const { c } = mk()
+    await saveConversation(c, "main", S, { turns: [], pending: { type: "quantity", board: "BECE" }, lastOrder: null }, now)
+    expect((await loadConversation(c, "main", S, now)).pending).toEqual({ type: "quantity", board: "BECE" })
+    const bad = mk({
+      ttb_conversations: [{ line: "main", sender: S, turns: [], pending: { type: "quantity", board: "GCE" }, last_order: null, expires_at: new Date(now.getTime() + 60_000).toISOString() }],
+    })
+    expect((await loadConversation(bad.c, "main", S, now)).pending).toBeNull()
+  })
+
   it("round-trips the airtime and results-checker lastOrder shapes", async () => {
     for (const lo of [
       { service: "airtime" as const, amountGhs: 10.5, network: "MTN", recipient: "0200000150" },

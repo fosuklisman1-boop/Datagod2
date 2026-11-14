@@ -29,6 +29,17 @@ export function pickedOption(read: ReadResult, pending: Pending | null): ReadRes
   return Number.isInteger(n) && n >= 1 && n <= pending.options.length ? pending.options[n - 1].read : null
 }
 
+/**
+ * The answer to a "how many checkers?" question: only a bare whole number typed while that question is pending. The rules read
+ * such a number as a bare data size, so without this it would silently become a data order. With no pending question nothing here
+ * applies, so a bare number is data exactly as in Stage 1.
+ */
+export function pickedQuantity(read: ReadResult, pending: Pending | null): ReadResult | null {
+  if (pending?.type !== "quantity" || read.kind !== "order" || read.service !== "data" || !read.bare) return null
+  const n = read.sizeMb / 1000
+  return Number.isInteger(n) && n >= 1 ? { kind: "order", service: "results_checker", board: pending.board, quantity: n } : null
+}
+
 /** The same order again: the stored shape says which service, and each service re-prices it live. */
 export function rebuildFromLastOrder(last: LastOrder): Extract<ReadResult, { kind: "order" }> {
   if (!("service" in last)) return orderRead(last.sizeMb, last.network as NetworkHint, last.recipient)
