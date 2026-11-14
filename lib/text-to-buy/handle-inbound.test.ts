@@ -182,7 +182,8 @@ describe("reading with the AI", () => {
     t.deps.readAi.mockResolvedValue(order5)
     const { result } = await t.run("pls send me 5gig")
     expect(t.deps.readAi).toHaveBeenCalledTimes(1)
-    expect(t.deps.readAi).toHaveBeenCalledWith("pls send me 5gig", [])
+    // The lane now also tells the AI which services are switched on (here the Stage 1 defaults: both off).
+    expect(t.deps.readAi).toHaveBeenCalledWith("pls send me 5gig", [], { offered: { airtime: false, resultsChecker: false } })
     expect(t.confirm).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ outcome: "prompted", readBy: "ai" })
   })

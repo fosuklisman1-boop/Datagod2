@@ -18,7 +18,7 @@ import {
   claimInbound, closeStaleLinks, counts, countOutbound, getInboundOutcome, globalPrompts, hasOpenOrder, isBlocked, latestOrderLink, linkByOrderId,
   linkOrder, loadConversation, saveConversation, setInboundResult, storeInbound, type Conversation,
 } from "./store"
-import { aiHistory, choicesFromPriceList, orderRead, orderStatusOf, pickedOption, pickedQuantity, rebuildFromLastOrder } from "./inbound-steps"
+import { aiHistory, choicesFromPriceList, orderRead, orderStatusOf, pickedAmount, pickedOption, pickedQuantity, rebuildFromLastOrder } from "./inbound-steps"
 import type { Line, Outcome, ReadResult } from "./types"
 
 /**
@@ -207,10 +207,15 @@ export async function processInbound(
 
     // ---- 4. read the text -------------------------------------------------------------------------------------------
     readBy = "rules"
-    const parsed = parseOrderText(i.text)
+    let parsed = parseOrderText(i.text)
+    // A rules airtime or voucher read for a service whose text switch is off is not decided here: the text gets the normal
+    // Stage 1 treatment (the AI step, which also never offers a service that is off).
+    if (parsed.kind === "order" && ((parsed.service === "airtime" && !offered.airtime) || (parsed.service === "results_checker" && !offered.resultsChecker))) {
+      parsed = { kind: "unknown" }
+    }
     let read: ReadResult = parsed
 
-    const picked = pickedOption(parsed, conv.pending) ?? pickedQuantity(parsed, conv.pending)
+    const picked = pickedOption(parsed, conv.pending) ?? pickedQuantity(parsed, conv.pending) ?? pickedAmount(i.text, conv.pending)
     if (picked) {
       read = picked
     } else if (parsed.kind === "keyword") {
@@ -248,7 +253,7 @@ export async function processInbound(
         read = NOT_ORDER
       } else {
         readBy = "ai"
-        read = await withinBudget(readAi(i.text, aiHistory(conv.turns)))
+        read = await withinBudget(readAi(i.text, aiHistory(conv.turns), { offered }))
       }
     }
 
@@ -257,7 +262,15 @@ export async function processInbound(
     const notUnderstood = () => finish("not_order", !settings.unclearRepliesEnabled || c.notUnderstood >= 1 ? null : notUnderstoodReply(offered))
     if (read.kind === "not_order" || read.kind === "unknown" || read.kind === "keyword") return await notUnderstood()
     if (read.kind === "ask") {
-      await remember(i.text, read.question, read.awaitBoard ? { pending: { type: "quantity", board: read.awaitBoard } } : {})
+      // Defence in depth (the AI reader already refuses): a question that waits for an answer about a service that is off is
+      // never asked and never remembered, so the next bare number cannot be swallowed or turned into an order.
+      if ((read.awaitAmount && !offered.airtime) || (read.awaitBoard && !offered.resultsChecker)) return await notUnderstood()
+      const pending: Conversation["pending"] = read.awaitBoard
+        ? { type: "quantity", board: read.awaitBoard }
+        : read.awaitAmount
+          ? { type: "amount", network: read.awaitAmount.network }
+          : null
+      await remember(i.text, read.question, pending ? { pending } : {})
       return await finish("asked", read.question)
     }
     if (read.kind === "price_query" && read.sizeMb === null) return await priceList("price_answer")
@@ -322,6 +335,17 @@ export async function processInbound(
 
     // The preview can only know the offer price: the charged amount is fixed when the order row is written.
     if (dry) return await finish("prompted", quote(offer.previewGhs, offer.previewDeliversGhs))
+
+    // Mark the row BEFORE placing. If this run dies after place() but before finish() records the real outcome, the row would
+    // otherwise still look unprocessed (outcome null), and the recovery sweep would place a second order and send a second MoMo
+    // prompt. With any outcome set, claimInbound and strandedInbound never pick the row again; finish() overwrites it. If the
+    // mark cannot be written nothing is placed.
+    try {
+      await setInboundResult(db, messageId, { readBy, outcome: "error" })
+    } catch (e) {
+      console.error("[text-to-buy] pre-place mark error", { messageId, error: e instanceof Error ? e.name : "unknown" })
+      return await finish("unavailable", adapter.notPlacedReply(offer))
+    }
 
     let placed: PlaceResult
     try {

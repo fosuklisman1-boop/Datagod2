@@ -1,7 +1,7 @@
 import { createHash } from "crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { encodeCursor, MESSAGE_COLUMNS, toAdminMessage, type AdminMessage, type OverviewRow } from "./admin-view"
-import { ORDER_TABLE_OF, type ExamBoardWord, type Line, type OrderTable, type Outcome, type ReadResult, type Service } from "./types"
+import { ORDER_TABLE_OF, type AirtimeNetwork, type ExamBoardWord, type Line, type OrderTable, type Outcome, type ReadResult, type Service } from "./types"
 
 /**
  * Text-to-Buy database access (tables and functions of migration 0177). Server-only, service-role client.
@@ -192,6 +192,7 @@ export type Pending =
   | { type: "choices"; options: { label: string; read: ReadResult }[] } // numbered question; a bare digit picks one
   | { type: "confirm"; read: ReadResult } // YES places this
   | { type: "quantity"; board: ExamBoardWord } // "How many checkers?" was asked: a bare whole number is the quantity
+  | { type: "amount"; network: AirtimeNetwork | null } // "How much airtime?" was asked: a bare number is the airtime amount
 export type LastOrder =
   | { sizeMb: number; network: string; recipient: string } // data: the Stage 1 shape, unchanged
   | { service: "airtime"; amountGhs: number; network: string; recipient: string }
@@ -213,14 +214,19 @@ function parseTurns(x: unknown): Conversation["turns"] {
 }
 
 function parsePending(x: unknown): Pending | null {
-  const p = x as { type?: unknown; board?: unknown } | null
+  const p = x as { type?: unknown; board?: unknown; network?: unknown } | null
   if (p && typeof p === "object" && p.type === "quantity") {
     return typeof p.board === "string" && EXAM_BOARDS.includes(p.board) ? { type: "quantity", board: p.board as ExamBoardWord } : null
+  }
+  if (p && typeof p === "object" && p.type === "amount") {
+    if (p.network === undefined || p.network === null) return { type: "amount", network: null }
+    return typeof p.network === "string" && AIRTIME_NETWORKS.includes(p.network) ? { type: "amount", network: p.network as AirtimeNetwork } : null
   }
   return p && typeof p === "object" && (p.type === "choices" || p.type === "confirm") ? (p as Pending) : null
 }
 
 const EXAM_BOARDS: readonly string[] = ["WASSCE", "BECE", "NOVDEC"]
+const AIRTIME_NETWORKS: readonly string[] = ["MTN", "Telecel", "AT"]
 
 /** The three stored shapes. A row with no `service` is a Stage 1 data row; an unknown `service` is dropped. */
 function parseLastOrder(x: unknown): LastOrder | null {

@@ -315,6 +315,21 @@ describe("conversations", () => {
     expect((await loadConversation(bad.c, "main", S, now)).pending).toBeNull()
   })
 
+  it("round-trips a pending airtime amount question (with or without a network) and drops a malformed one", async () => {
+    const { c } = mk()
+    for (const pending of [{ type: "amount" as const, network: "MTN" as const }, { type: "amount" as const, network: null }]) {
+      await saveConversation(c, "main", S, { turns: [], pending, lastOrder: null }, now)
+      expect((await loadConversation(c, "main", S, now)).pending).toEqual(pending)
+    }
+    const stored = (pending: unknown) =>
+      mk({ ttb_conversations: [{ line: "main", sender: S, turns: [], pending, last_order: null, expires_at: new Date(now.getTime() + 60_000).toISOString() }] })
+    for (const network of ["Vodacom", 5]) {
+      expect((await loadConversation(stored({ type: "amount", network }).c, "main", S, now)).pending).toBeNull()
+    }
+    // no network key at all reads as "no network named"
+    expect((await loadConversation(stored({ type: "amount" }).c, "main", S, now)).pending).toEqual({ type: "amount", network: null })
+  })
+
   it("round-trips the airtime and results-checker lastOrder shapes", async () => {
     for (const lo of [
       { service: "airtime" as const, amountGhs: 10.5, network: "MTN", recipient: "0200000150" },

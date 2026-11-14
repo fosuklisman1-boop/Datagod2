@@ -40,6 +40,22 @@ export function pickedQuantity(read: ReadResult, pending: Pending | null): ReadR
   return Number.isInteger(n) && n >= 1 ? { kind: "order", service: "results_checker", board: pending.board, quantity: n } : null
 }
 
+const BARE_AMOUNT = /^(?:[1-9]\d{0,5}|0)(?:\.\d{1,2})?$/
+
+/**
+ * The answer to a "how much airtime?" question: only a bare number (whole, or up to 2 decimals) typed while that question is
+ * pending. Read from the raw text, because the data rules refuse most of these (decimals, 150) and read the rest as a bare data
+ * size. With no pending question nothing here applies, so a bare number is data exactly as in Stage 1. The amount still goes
+ * through the adapter's limits; the recipient is the sender (the question never captured another number).
+ */
+export function pickedAmount(text: string, pending: Pending | null): ReadResult | null {
+  if (pending?.type !== "amount") return null
+  const t = text.trim().replace(/[.!?,]+$/, "")
+  if (!BARE_AMOUNT.test(t)) return null
+  const amountGhs = Number(t)
+  return Number.isFinite(amountGhs) && amountGhs > 0 ? { kind: "order", service: "airtime", amountGhs, networkHint: pending.network, recipient: null } : null
+}
+
 /** The same order again: the stored shape says which service, and each service re-prices it live. */
 export function rebuildFromLastOrder(last: LastOrder): Extract<ReadResult, { kind: "order" }> {
   if (!("service" in last)) return orderRead(last.sizeMb, last.network as NetworkHint, last.recipient)

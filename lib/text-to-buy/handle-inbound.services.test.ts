@@ -61,6 +61,7 @@ vi.mock("./catalogue", () => ({
 }))
 
 import { acceptInbound, processInbound, resetReplyCapAlert, type InboundDeps, type InboundInput } from "./handle-inbound"
+import { claimInbound, strandedInbound } from "./store"
 import { airtimeAdapter } from "./services/airtime"
 import { dataAdapter } from "./services/data"
 import { resultsCheckerAdapter } from "./services/results-checker"
@@ -593,5 +594,205 @@ describe("data stays data", () => {
     const { result } = await t.run("price of 5gb")
     expect(["price_answer", "not_order"]).toContain(result.outcome)
     expect(t.airtimeConfirm).not.toHaveBeenCalled()
+  })
+})
+
+// ---- Final whole-branch review fix wave --------------------------------------------------------------------------------
+describe("C1: a service whose text switch is off is never asked about", () => {
+  const conv = (over: Record<string, unknown> = {}) => ({
+    line: "main", sender: S, turns: [], pending: null, last_order: null, expires_at: new Date(now.getTime() + 10 * 60_000).toISOString(), ...over,
+  })
+  const airtimeAsk = { kind: "ask", question: "How much airtime do you want?", awaitAmount: { network: null } } as unknown as ReadResult
+  const qtyAsk = { kind: "ask", question: "How many checkers do you want?", awaitBoard: "WASSCE" } as unknown as ReadResult
+  const pending = (t: ReturnType<typeof setup>) => t.f.db.tables.ttb_conversations[0]?.pending ?? null
+
+  it("the AI is told which services are on", async () => {
+    const t = setup()
+    await t.run("hello there", { settings: { airtimeEnabled: false, resultsCheckerEnabled: true } })
+    expect(t.deps.readAi).toHaveBeenCalledTimes(1)
+    expect((t.deps.readAi.mock.calls[0] as unknown[])[2]).toMatchObject({ offered: { airtime: false, resultsChecker: true } })
+  })
+
+  it("airtime off: an AI amount question is not asked and nothing is remembered; a bare 10 next is a Stage 1 data order", async () => {
+    const t = setup()
+    t.deps.readAi.mockResolvedValue(airtimeAsk)
+    const first = await t.run("i want airtime", { settings: { airtimeEnabled: false } })
+    expect(first.result.outcome).toBe("not_order")
+    expect(first.result.reply ?? "").not.toContain("How much airtime")
+    expect(pending(t)).toBeNull()
+    t.deps.readAi.mockResolvedValue({ kind: "not_order" } as ReadResult)
+    await t.run("10", { settings: { airtimeEnabled: false } })
+    expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+    expect(t.airtimeConfirm).not.toHaveBeenCalled()
+  })
+
+  it("voucher off: an AI quantity question is not asked and no quantity is remembered, so a bare 3 is data", async () => {
+    const t = setup()
+    t.deps.readAi.mockResolvedValue(qtyAsk)
+    const first = await t.run("do you sell wassce checkers", { settings: { resultsCheckerEnabled: false } })
+    expect(first.result.outcome).toBe("not_order")
+    expect(first.result.reply ?? "").not.toContain("How many checkers")
+    expect(pending(t)).toBeNull()
+    await t.run("3", { settings: { resultsCheckerEnabled: false } })
+    expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+    expect(t.rcConfirm).not.toHaveBeenCalled()
+  })
+
+  it("a rules airtime or voucher read with its switch off is handed to the normal AI step, not decided as a service read", async () => {
+    for (const [text, off] of [["top up 5", { airtimeEnabled: false }], ["credit 5", { airtimeEnabled: false }], ["airtime 10", { airtimeEnabled: false }], ["2 wassce", { resultsCheckerEnabled: false }]] as const) {
+      const t = setup()
+      const { result } = await t.run(text, { settings: { ...off } })
+      expect(t.deps.readAi).toHaveBeenCalledTimes(1)
+      expect(result).toMatchObject({ outcome: "not_order", readBy: "ai" })
+      expect(t.airtimeConfirm).not.toHaveBeenCalled()
+      expect(t.rcConfirm).not.toHaveBeenCalled()
+    }
+  })
+
+  it("with the AI off, a rules airtime read with its switch off costs nothing and places nothing", async () => {
+    const t = setup()
+    const { result } = await t.run("airtime 10", { settings: { airtimeEnabled: false, aiEnabled: false } })
+    expect(t.deps.readAi).not.toHaveBeenCalled()
+    expect(result.outcome).toBe("not_order")
+    expect(t.airtimeConfirm).not.toHaveBeenCalled()
+  })
+
+  it("with the switch ON the same rules reads still place airtime without the AI", async () => {
+    const t = setup()
+    const { result } = await t.run("airtime 10")
+    expect(result).toMatchObject({ outcome: "prompted", readBy: "rules" })
+    expect(t.deps.readAi).not.toHaveBeenCalled()
+  })
+
+  describe("the airtime amount question (switch on)", () => {
+    it("remembers the question, and a bare 10 next places AIRTIME, never data, and clears the question", async () => {
+      const t = setup()
+      t.deps.readAi.mockResolvedValue(airtimeAsk)
+      const first = await t.run("i want airtime")
+      expect(first.result).toMatchObject({ outcome: "asked", reply: "How much airtime do you want?" })
+      expect(pending(t)).toEqual({ type: "amount", network: null })
+      const second = await t.run("10")
+      expect(second.result).toMatchObject({ outcome: "prompted", readBy: "rules" })
+      expect(t.airtimeConfirm).toHaveBeenCalledTimes(1)
+      expect((t.airtimeConfirm.mock.calls[0] as unknown[])[1]).toMatchObject({ airtimeAmount: 10 })
+      expect(t.dataConfirm).not.toHaveBeenCalled()
+      expect(t.deps.readAi).toHaveBeenCalledTimes(1)
+      expect(pending(t)).toBeNull()
+    })
+
+    it("a number with 2 decimals, or one past the old bare-size range, completes the airtime read", async () => {
+      const a = setup({ seed: { ttb_conversations: [conv({ pending: { type: "amount", network: null } })] } })
+      await a.run("12.50")
+      expect((a.airtimeConfirm.mock.calls[0] as unknown[])[1]).toMatchObject({ airtimeAmount: 12.5 })
+      const b = setup({ seed: { ttb_conversations: [conv({ pending: { type: "amount", network: null } })] } })
+      await b.run("150")
+      expect((b.airtimeConfirm.mock.calls[0] as unknown[])[1]).toMatchObject({ airtimeAmount: 150 })
+      expect(a.dataConfirm).not.toHaveBeenCalled()
+      expect(b.dataConfirm).not.toHaveBeenCalled()
+    })
+
+    it("still goes through the adapter's limits", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ pending: { type: "amount", network: null } })] } })
+      const { result } = await t.run("600")
+      expect(result.outcome).toBe("unavailable")
+      expect(t.airtimeConfirm).not.toHaveBeenCalled()
+      expect(t.dataConfirm).not.toHaveBeenCalled()
+    })
+
+    it("only a bare number counts: 5gb stays data while the question is pending", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ pending: { type: "amount", network: null } })] } })
+      await t.run("5gb")
+      expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+      expect(t.airtimeConfirm).not.toHaveBeenCalled()
+    })
+
+    it("an expired question is forgotten: a bare 10 is data again (Stage 1)", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ pending: { type: "amount", network: null }, expires_at: minutesAgo(1) })] } })
+      await t.run("10")
+      expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+      expect(t.airtimeConfirm).not.toHaveBeenCalled()
+    })
+
+    it("a bare number with no pending question stays a data order", async () => {
+      const t = setup()
+      await t.run("10")
+      expect(t.dataConfirm).toHaveBeenCalledTimes(1)
+      expect(t.airtimeConfirm).not.toHaveBeenCalled()
+    })
+
+    it("if the airtime switch is turned off before the answer, nothing is placed at all", async () => {
+      const t = setup({ seed: { ttb_conversations: [conv({ pending: { type: "amount", network: null } })] } })
+      const { result } = await t.run("10", { settings: { airtimeEnabled: false } })
+      expect(result.outcome).toBe("not_order")
+      expect(t.airtimeConfirm).not.toHaveBeenCalled()
+      expect(t.dataConfirm).not.toHaveBeenCalled()
+    })
+  })
+})
+
+describe("I1: the inbound row is marked before place() so the recovery sweep can never place twice", () => {
+  it("at the moment place runs, the row already has an outcome, cannot be re-claimed and is not stranded", async () => {
+    const t = setup()
+    let seen: unknown
+    let reclaimed: boolean | undefined
+    let stranded: string[] | undefined
+    let rowId = ""
+    t.airtimeConfirm.mockImplementation(async () => {
+      const row = t.f.db.tables.ttb_messages.find((m) => m.id === rowId)
+      seen = row?.outcome
+      const later = new Date(now.getTime() + 5 * 60_000)
+      reclaimed = await claimInbound(t.c, rowId, later)
+      stranded = (await strandedInbound(t.c, later)).map((r) => r.id)
+      return { type: "end", message: "x", orderId: ORDER, amount: 10, delivers: 9.52 }
+    })
+    const input: InboundInput = { line: "main", from: S, text: "airtime 10", receivedAt: null, now }
+    rowId = (await acceptInbound(t.c, input)).id
+    const result = await processInbound(t.c, rowId, input, settings(), t.deps as unknown as InboundDeps)
+    expect(seen).toBe("error")
+    expect(reclaimed).toBe(false)
+    expect(stranded).not.toContain(rowId)
+    // finish() then overwrites it with the real outcome
+    expect(result.outcome).toBe("prompted")
+    expect(t.f.db.tables.ttb_messages.find((m) => m.id === rowId)?.outcome).toBe("prompted")
+  })
+
+  it("the same holds for a data order (the live Stage 1 path)", async () => {
+    const t = setup()
+    let seen: unknown
+    let rowId = ""
+    t.dataConfirm.mockImplementation(async () => {
+      seen = t.f.db.tables.ttb_messages.find((m) => m.id === rowId)?.outcome
+      return { type: "end", message: "x", orderId: ORDER, amount: 23.69 }
+    })
+    const input: InboundInput = { line: "main", from: S, text: "5gb", receivedAt: null, now }
+    rowId = (await acceptInbound(t.c, input)).id
+    await processInbound(t.c, rowId, input, settings(), t.deps as unknown as InboundDeps)
+    expect(seen).toBe("error")
+    expect(t.f.db.tables.ttb_messages.find((m) => m.id === rowId)?.outcome).toBe("prompted")
+  })
+
+  it("if the mark cannot be written, place is NOT called and the customer is told it is not available", async () => {
+    const t = setup()
+    // feeOnTop runs immediately before the pre-write: from here every write to the inbound table fails.
+    t.deps.feeOnTop.mockImplementation(async () => {
+      t.f.db.failOn.ttb_messages = { message: "db down" }
+      return false
+    })
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const { result } = await t.run("airtime 10")
+    expect(t.airtimeConfirm).not.toHaveBeenCalled()
+    expect(t.dataConfirm).not.toHaveBeenCalled()
+    expect(t.f.db.tables.ttb_orders).toHaveLength(0)
+    expect(result.outcome).toBe("error")
+  })
+
+  it("a dry run writes nothing, so it never marks a row", async () => {
+    const t = setup()
+    const input: InboundInput = { line: "main", from: S, text: "airtime 10", receivedAt: null, now }
+    const { id } = await acceptInbound(t.c, input)
+    const before = JSON.stringify(t.f.db.tables.ttb_messages)
+    const result = await processInbound(t.c, id, input, settings(), { ...t.deps, dryRun: true } as unknown as InboundDeps)
+    expect(result.outcome).toBe("prompted")
+    expect(JSON.stringify(t.f.db.tables.ttb_messages)).toBe(before)
   })
 })
