@@ -27,7 +27,9 @@ export async function POST(request: NextRequest) {
   if (!tryAllowed(userId as string, now.getTime())) return fail("rate_limited", 429)
 
   try {
-    const settings = await loadTtbSettings(db)
+    const live = await loadTtbSettings(db)
+    // A dry run places nothing and writes nothing, so the admin can preview airtime and vouchers before switching them on.
+    const settings = { ...live, airtimeEnabled: true, resultsCheckerEnabled: true }
     const result = await processInbound(
       db,
       crypto.randomUUID(),

@@ -275,6 +275,15 @@ async function confirmAirtime(
   const network = session.airtimeNetwork!
   const dialingPhone = session.dialingPhone!
 
+  // A text's amount must be a real money figure (NaN slips past a min/max comparison): finite, above zero, at most 2 decimals.
+  // The ussd and whatsapp paths are unchanged.
+  if (sms) {
+    const a = session.airtimeAmount
+    if (typeof a !== "number" || !Number.isFinite(a) || a <= 0 || Math.abs(a * 100 - Math.round(a * 100)) > 1e-6) {
+      return end("Enter a valid amount.")
+    }
+  }
+
   // Re-verify settings server-side (stale-session guard)
   if (!(await isAirtimeEnabled(network))) {
     await saveSession({ step: "MAIN", dialingPhone })

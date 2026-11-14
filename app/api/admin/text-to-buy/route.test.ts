@@ -128,6 +128,19 @@ describe("GET overview", () => {
     expect(body.services.airtime).toEqual({ prompts: 1, paid: 1, delivered: 0 })
     expect(body.services.data).toEqual({ prompts: 0, paid: 0, delivered: 0 })
   })
+  it("degrades the per-service counts to zeros instead of failing the whole overview", async () => {
+    fake.db.failOn.ttb_orders = { message: "db down" }
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const res = await GET(req("GET"))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.overview.main).toBeDefined()
+    expect(body.services).toEqual({
+      data: { prompts: 0, paid: 0, delivered: 0 },
+      airtime: { prompts: 0, paid: 0, delivered: 0 },
+      results_checker: { prompts: 0, paid: 0, delivered: 0 },
+    })
+  })
   it("includes both sender IDs in settings (shop empty by default, stored value returned)", async () => {
     let body = await (await GET(req("GET"))).json()
     expect(body.settings).toMatchObject({ replySenderId: "", shopReplySenderId: "" })

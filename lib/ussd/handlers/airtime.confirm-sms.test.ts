@@ -265,6 +265,18 @@ describe("sms channel (text-to-buy)", () => {
     expect(h.afterFns).toHaveLength(0)
   })
 
+  it.each([NaN, Infinity, -Infinity, 0, -5, 10.555, 1.005, undefined])("an unusable amount (%s) is refused: no row, no orderId, no charge", async (amount) => {
+    const r = await confirmAirtimeByText(SENDER, sms({ airtimeAmount: amount }))
+    expect(r.orderId).toBeUndefined()
+    expect(rows("airtime_orders")).toHaveLength(0)
+    expect(h.afterFns).toHaveLength(0)
+  })
+
+  it("a 2-decimal amount is still accepted", async () => {
+    const r = await confirmAirtimeByText(SENDER, sms({ airtimeAmount: 10.5 }))
+    expect(r.orderId).toBe(order().id)
+  })
+
   it("no MoMo provider for the sender: no row, no orderId", async () => {
     const r = await confirmAirtimeByText(SENDER, sms({ dialingPhone: "+233990000000" }))
     expect(r.orderId).toBeUndefined()

@@ -16,6 +16,9 @@ const KEY_ORDER = Object.values(TTB_SETTING_KEYS) as TtbSettingKey[]
 /** Switching any of these on needs an explicit confirm. */
 const CONFIRM_KEYS: TtbSettingKey[] = [TTB_SETTING_KEYS.mainEnabled, TTB_SETTING_KEYS.airtimeEnabled, TTB_SETTING_KEYS.resultsCheckerEnabled]
 
+const ZERO_COUNTS = { prompts: 0, paid: 0, delivered: 0 }
+const ZERO_SERVICES = { data: ZERO_COUNTS, airtime: ZERO_COUNTS, results_checker: ZERO_COUNTS }
+
 /** The settings as the page sees them (no internal source marker). */
 function publicSettings(s: TtbSettings) {
   const { source: _source, ...rest } = s
@@ -33,7 +36,11 @@ export async function GET(request: NextRequest) {
       overviewRows(db, startOfTodayAccra(now)),
       getHeartbeat(db, "main"),
       getHeartbeat(db, "shop"),
-      serviceCountsToday(db, startOfTodayAccra(now)),
+      // The per-service counts are secondary: a failure here shows zeros rather than failing the whole overview.
+      serviceCountsToday(db, startOfTodayAccra(now)).catch((err) => {
+        logError("service_counts", err)
+        return ZERO_SERVICES
+      }),
     ])
     return json({
       settingsDefaulted: settings.source === "defaults",

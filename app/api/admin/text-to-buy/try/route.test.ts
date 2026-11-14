@@ -143,6 +143,19 @@ describe("dry run", () => {
     expect(deps).toEqual({ dryRun: true })
   })
 
+  it("previews airtime and vouchers even while their live text switches are off (a dry run places and writes nothing)", async () => {
+    fake.db.tables.admin_settings.push(
+      { key: "ttb_airtime_enabled", value: { value: false } },
+      { key: "ttb_results_checker_enabled", value: { value: false } },
+    )
+    await post({ line: "main", sender: SENDER, text: "airtime 10" })
+    const settings = h.processSpy.mock.calls[0][3]
+    expect(settings.airtimeEnabled).toBe(true)
+    expect(settings.resultsCheckerEnabled).toBe(true)
+    expect(settings.mainEnabled).toBe(false) // everything else is the live value
+    expect(h.processSpy.mock.calls[0][4]).toEqual({ dryRun: true })
+  })
+
   it("returns only readBy, outcome and reply", async () => {
     const body = await (await post({ line: "main", sender: SENDER, text: "5gb" })).json()
     expect(Object.keys(body).sort()).toEqual(["outcome", "readBy", "reply"])
