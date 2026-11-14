@@ -71,6 +71,8 @@ describe("parseOrderText airtime", () => {
   ])("airtime: %s", (t, e) => expect(parseOrderText(t)).toEqual(e))
   it.each(["10", "10gb", "10 gigs", "at 10", "mtn 10"])("still data: %s", (t) =>
     expect(parseOrderText(t)).toMatchObject({ kind: "order", service: "data" }))
+  it.each(["airtime 10gbs", "airtime 10 gbs", "airtime 10 gigabytes", "airtime 10 megabytes", "airtime 10 bundle", "airtime 10 bundles", "airtime 10 mbs"])(
+    "wider data words are not airtime: %s", (t) => expect(parseOrderText(t)).toEqual({ kind: "unknown" }))
   it("bare 10 is still 10GB and bare", () =>
     expect(parseOrderText("10")).toMatchObject({ service: "data", sizeMb: 10000, bare: true }))
   it.each(["airtime 10gb", "airtime 10 data", "airtime", "airtime 10.555", "airtime 10 20", "airtime 10 ishare", "airtime 10 0200000102 0200000103"])

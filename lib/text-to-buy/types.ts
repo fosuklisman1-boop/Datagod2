@@ -1,6 +1,6 @@
 import type { AirtimeNetwork } from "@/lib/airtime-pricing"
 
-export type Line ="main" | "shop"
+export type Line = "main" | "shop"
 export type Service = "data" | "airtime" | "results_checker"
 export type OrderTable = "ussd_orders" | "airtime_orders" | "results_checker_orders"
 /** The order table each service writes to. A link row's (service, order_table) pair must always agree with this. */

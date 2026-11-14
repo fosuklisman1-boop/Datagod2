@@ -257,6 +257,30 @@ describe("readWithAi airtime (the money fence)", () => {
   it("treats an unknown service as not_order", async () => {
     expect(await run("x", { intent: "order", service: "bogus", size_gb: 5 })).toEqual({ kind: "not_order" })
   })
+  it("refuses an earlier-turn amount when the current text asks for data", async () => {
+    const h = [{ role: "user" as const, text: "airtime 10" }, { role: "assistant" as const, text: "Which network?" }]
+    expect(await run("actually 10gb to 0200000102", A(10, { recipient: "0200000102" }), h)).toEqual(ask)
+    expect(await run("actually data", A(10), h)).toEqual(ask)
+    expect(await run("actually 20", A(10), h)).toEqual(ask)
+  })
+  it.each(["10gbs", "10 gbs", "10 gigabytes", "10 megabytes", "10 mbs", "10 bundle", "10 bundles", "no airtime left, send 10 gigabytes to 0200000102"])(
+    "wider data words block airtime: %s", async (t) => {
+      expect(await run(t, A(10, { recipient: t.includes("0200000102") ? "0200000102" : undefined }))).toEqual(ask)
+    })
+  it.each(["airtime 024 123 456", "airtime 1,000", "airtime 10 20", "airtime 1.000", "airtime 10.555"])(
+    "more than one number token is refused: %s", async (t) => {
+      for (const amount of [1, 10, 123, 20, 1000]) expect(await run(t, A(amount))).toEqual(ask)
+    })
+  it("keeps a valid phone stripped and a 2-decimal amount", async () => {
+    expect(await run("airtime 10 0200000102", A(10, { recipient: "0200000102" }))).toMatchObject({ service: "airtime", amountGhs: 10, recipient: "0200000102" })
+    expect(await run("airtime 10.50", A(10.5))).toMatchObject({ service: "airtime", amountGhs: 10.5 })
+  })
+  it("never takes a leading-zero or 7+ digit token as the amount", async () => {
+    expect(await run("airtime 007", A(7))).toEqual(ask)
+    expect(await run("airtime 1234567", A(1234567))).toEqual(ask)
+    expect(await run("airtime 123456", A(123456))).toMatchObject({ service: "airtime", amountGhs: 123456 })
+  })
+
   it("has amount_ghs as the only money-named property, described as never a price", async () => {
     const create = vi.fn<Create>(async () => toolReply({ intent: "not_order" }))
     await readWithAi("hi", [], deps(create))

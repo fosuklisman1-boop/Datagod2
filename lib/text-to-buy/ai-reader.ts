@@ -171,18 +171,31 @@ function usableAmount(v: unknown): number | null {
 }
 
 /**
- * True when this customer text contains the amount as a number the customer typed: Ghana numbers removed first, no
- * leading-zero or 7+ digit run (phone fragments), not followed by a data unit, and no data word anywhere in the text.
+ * Number tokens left after Ghana numbers are removed. A decimal keeps at most 2 fraction digits, so "1,000", "1.000"
+ * and "10.555" each split into two tokens, as do digit groups separated by spaces or dashes.
  */
-function typedAmountIn(text: string, amount: number): boolean {
+function numberTokens(text: string): string[] {
+  return stripGhanaNumbers(text).match(/\d+(?:\.\d{1,2}(?!\d))?/g) ?? []
+}
+
+/** True when the text holds exactly one number token, it is a plausible amount (no leading zero, under 7 digits) and equals `amount`. */
+function singleTokenIs(tokens: string[], amount: number): boolean {
+  if (tokens.length !== 1) return false
+  const token = tokens[0]
+  if (/^0\d/.test(token) || token.split(".")[0].length > 6) return false
+  return Number(token) === amount
+}
+
+/**
+ * The amount must be the one number the customer typed. A current text with a data word is never airtime. A current
+ * text with a number must hold exactly that number; a current text with no number may lean on one earlier user turn
+ * (which must itself hold exactly that number and no data word).
+ */
+function amountTyped(text: string, history: History, amount: number): boolean {
   if (DATA_WORD_RE.test(text)) return false
-  const cleaned = stripGhanaNumbers(text)
-  for (const m of cleaned.matchAll(/\d+(?:\.\d+)?/g)) {
-    const token = m[0]
-    if (/^0\d/.test(token) || token.split(".")[0].length > 6) continue
-    if (Number(token) === amount) return true
-  }
-  return false
+  const current = numberTokens(text)
+  if (current.length > 0) return singleTokenIs(current, amount)
+  return history.some((h) => h.role === "user" && !DATA_WORD_RE.test(h.text) && singleTokenIs(numberTokens(h.text), amount))
 }
 
 /** Airtime read. The AI never supplies a price: its amount is accepted only if the customer typed that number. */
@@ -192,7 +205,7 @@ function mapAirtime(input: Record<string, unknown>, text: string, history: Histo
   if (amount === null) return askAmount
 
   const userTexts = [text, ...history.filter((h) => h.role === "user").map((h) => h.text)]
-  if (!userTexts.some((t) => typedAmountIn(t, amount))) return askAmount
+  if (!amountTyped(text, history, amount)) return askAmount
 
   // No airtime or currency word anywhere in what the customer wrote: it is a bare number, which means GB.
   const saidAirtime = userTexts.some((t) => new RegExp(AIRTIME_WORD_RE.source, "i").test(t) || CURRENCY_WORD_RE.test(t))
