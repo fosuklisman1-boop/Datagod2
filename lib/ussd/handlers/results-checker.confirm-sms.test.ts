@@ -34,7 +34,7 @@ vi.mock("../../results-checker-service", () => ({
   purchaseResultsCheckerVouchers: vi.fn(), getRCBulkHint: vi.fn(async () => null),
 }))
 
-import { handleRcConfirm } from "./results-checker"
+import { confirmRcByText, handleRcConfirm } from "./results-checker"
 import { chargeMobileMoney } from "@/lib/paystack"
 import { sendSMS } from "../../sms-service"
 import { sendWhatsAppText } from "../../whatsapp-bot/send"
@@ -151,5 +151,102 @@ describe.each(["ussd", "whatsapp"] as const)("characterisation: %s is unchanged"
     expect(rows("results_checker_orders")).toHaveLength(0)
     expect(vi.mocked(setSession).mock.calls).toEqual([[sid, { step: "MAIN", dialingPhone: DIAL }]])
     expect(h.afterFns).toHaveLength(0)
+  })
+})
+
+describe("sms channel (text-to-buy)", () => {
+  const SENDER = "sms:m1"
+
+  it("returns orderId and amount = the inserted total_paid", async () => {
+    const r = await confirmRcByText(SENDER, s())
+    expect(r.orderId).toBe(order().id)
+    expect(r.amount).toBe(order().total_paid)
+    expect(r.amount).toBe(40)
+  })
+
+  it("the amount is the RE-PRICED total, not the session's rcTotal: stored, returned and charged agree", async () => {
+    h.pricing = { unitPrice: 22.5, totalPaid: 45, bulkApplied: false }
+    const r = await confirmRcByText(SENDER, s({ rcTotal: 40 }))
+    expect(order()).toMatchObject({ unit_price: 22.5, total_paid: 45 })
+    expect(r.amount).toBe(45)
+    await runNoWait()
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].amount).toBe(45)
+    expect(rows("payment_attempts")[0]).toMatchObject({ amount: 45 })
+  })
+
+  it("row keeps channel ussd, the sender's local number as customer_phone, and the ussd source columns", async () => {
+    await confirmRcByText(SENDER, s())
+    await runNoWait()
+    expect(order()).toMatchObject({ channel: "ussd", customer_phone: "0200000101", dialing_phone: DIAL, total_paid: 40, quantity: 2 })
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].metadata).toMatchObject({ source: "ussd_results_checker", results_checker_order_id: order().id })
+    expect(rows("payment_attempts")[0]).toMatchObject({ payment_type: "ussd_results_checker" })
+  })
+
+  it("a funded registered sender gets no wallet step: order created, charge started", async () => {
+    h.dialer = FUNDED
+    const r = await confirmRcByText(SENDER, s())
+    expect(r.orderId).toBe(order().id)
+    expect(r.message).not.toContain("GHS 50.00")
+    expect(h.afterFns).toHaveLength(1)
+    await runNoWait()
+    expect(chargeMobileMoney).toHaveBeenCalledTimes(1)
+  })
+
+  it("charges on sms_order with no wait; the sender pays; setSession is never called", async () => {
+    await confirmRcByText(SENDER, s())
+    await runNoWait() // timers NOT advanced
+    expect(chargeMobileMoney).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(chargeMobileMoney).mock.calls[0][0].phone).toBe(DIAL)
+    expect(setSession).not.toHaveBeenCalled()
+    expect(hubtelRows()).toHaveLength(0)
+  })
+
+  it("send_otp: otp_required, no sendSMS, no sendWhatsAppText, no setWaSession, no setSession", async () => {
+    h.charge = async (p: any) => ({ status: "send_otp", reference: p.reference })
+    await confirmRcByText(SENDER, s())
+    await runNoWait()
+    expect(order().payment_status).toBe("otp_required")
+    expect(sendSMS).not.toHaveBeenCalled()
+    expect(sendWhatsAppText).not.toHaveBeenCalled()
+    expect(setWaSession).not.toHaveBeenCalled()
+    expect(setSession).not.toHaveBeenCalled()
+  })
+
+  it("charge throws: status and payment_status failed", async () => {
+    h.charge = async () => { throw new Error("boom") }
+    await confirmRcByText(SENDER, s())
+    await runNoWait()
+    expect(order()).toMatchObject({ status: "failed", payment_status: "failed" })
+  })
+
+  it("board disabled: no row, no orderId, no charge, no setSession", async () => {
+    h.enabled = false
+    const r = await confirmRcByText(SENDER, s())
+    expect(r.orderId).toBeUndefined()
+    expect(rows("results_checker_orders")).toHaveLength(0)
+    expect(h.afterFns).toHaveLength(0)
+    expect(setSession).not.toHaveBeenCalled()
+  })
+
+  it("stock below the quantity (one short): no row, no orderId", async () => {
+    h.avail = 1
+    const r = await confirmRcByText(SENDER, s({ rcQty: 2 }))
+    expect(r.orderId).toBeUndefined()
+    expect(rows("results_checker_orders")).toHaveLength(0)
+    expect(h.afterFns).toHaveLength(0)
+    expect(setSession).not.toHaveBeenCalled()
+  })
+
+  it("stock exactly the quantity is enough", async () => {
+    h.avail = 2
+    const r = await confirmRcByText(SENDER, s({ rcQty: 2 }))
+    expect(r.orderId).toBe(order().id)
+  })
+
+  it("no MoMo provider for the sender: no row, no orderId", async () => {
+    const r = await confirmRcByText(SENDER, s({ dialingPhone: "+233990000000" }))
+    expect(r.orderId).toBeUndefined()
+    expect(rows("results_checker_orders")).toHaveLength(0)
+    expect(setSession).not.toHaveBeenCalled()
   })
 })
