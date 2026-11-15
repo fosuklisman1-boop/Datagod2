@@ -624,3 +624,7 @@ Limits: it covers the last hour. A longer outage needs a one-off manual run: edi
 4. Check each Sender still shows its header `x-sms-forward-secret` and each Rule's SIM slot matches the physical SIM.
 5. Send a test text to each line and confirm the reply, then switch the failed phone's rules off so the two do not both forward.
 6. Keep the spare charged and on stay-awake while plugged in.
+
+### 15.4 Alive ping (so quiet days are not read as a dead phone)
+
+`POST /api/webhooks/phone-health` refreshes the line's "phone last heard" time and nothing else (same `x-sms-forward-secret` header as the other webhooks; the body is ignored; always 200 after a valid secret). On the phone: Task > Cron (every 15 minutes) > action Notify using a Webhook channel that points at `https://www.datagod.store/api/webhooks/phone-health` with the line's secret in the header. Do one task per line if both SIMs should show as alive. Without it, the quiet-phone alert can fire on a genuinely quiet day.
