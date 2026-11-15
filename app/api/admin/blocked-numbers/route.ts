@@ -25,7 +25,7 @@ async function loadStats(now: Date) {
   const [open, allowed7, texted7, expired] = await Promise.all([
     headCount((q) => q.eq("status", "blocked")),
     headCount((q) => q.gte("allowed_at", d7)),
-    headCount((q) => q.gte("customer_notified_at", d7)),
+    headCount((q) => q.gte("customer_notified_at", d7).not("customer_notify_phone", "is", null)),
     headCount((q) => q.eq("status", "expired")),
   ])
   const a24 = await supabaseAdmin.from("mtn_blocked_attempts").select("id", { count: "exact", head: true }).gte("created_at", d1)

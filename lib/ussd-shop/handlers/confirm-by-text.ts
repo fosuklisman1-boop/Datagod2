@@ -83,7 +83,7 @@ export async function confirmShopBundleByText(input: ConfirmShopInput, deps?: Co
     // The checks the shop USSD makes when the recipient is entered.
     if (!(await d.prefixAllowed(network, recipientLocal))) return {}
     if (await d.recipientBlocked(network, recipientLocal, {
-      surface: "ussd_uzo_shop",
+      surface: "text_to_buy",
       shopId,
       purchaserPhone: senderLocal,
       product: `${network} ${size}`,

@@ -130,7 +130,7 @@ describe("confirmShopBundleByText: refusals write nothing", () => {
   it("tells the gate where the block happened: shop, sender and bundle", async () => {
     const seen: unknown[] = []
     await refused(makeDeps({ recipientBlocked: async (_n, _r, ctx) => { seen.push(ctx); return true } }))
-    expect(seen).toEqual([expect.objectContaining({ surface: "ussd_uzo_shop", shopId: "shop1", purchaserPhone: SENDER, product: "MTN 1GB" })])
+    expect(seen).toEqual([expect.objectContaining({ surface: "text_to_buy", shopId: "shop1", purchaserPhone: SENDER, product: "MTN 1GB" })])
   })
   it("a package that is gone", async () => { await refused(makeDeps({ loadBundle: async () => null })) })
   it("a bundle the shop no longer offers", async () => { await refused(makeDeps({ verifyBundlePrice: async () => null })) })

@@ -1904,7 +1904,8 @@ export async function executeToolCall(
           surface: "whatsapp_ai",
           shopId: null,
           userId: ctx.userId ?? null,
-          purchaserPhone: phone,
+          // Only the verified sender: a model-supplied phone must never become the paid-SMS recipient.
+          purchaserPhone: ctx.phone ? String(ctx.phone) : null,
           product: `${canonicalNetwork} ${String(input.size ?? "")}`.trim(),
         })) {
           return { error: "recipient_not_verified", message: `${NOT_VERIFIED_MESSAGE} Ask the customer for a different recipient number.` }

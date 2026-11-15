@@ -7,7 +7,7 @@ import { supabaseAdmin } from "@/lib/supabase"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { getCustomerVerificationSettings } from "@/lib/mtn-providers/customer-verification"
 import { EXPORT_LIMIT, chunked, parseListParams, supplierRows } from "@/lib/blocked-numbers/admin-view"
-import { NUMBER_COLUMNS, applyFilters, shopIdsForSearch, shopNames, type NumberRow } from "@/lib/blocked-numbers/admin-query"
+import { EXPORT_COLUMNS, applyFilters, shopIdsForSearch, shopNames, type NumberRow } from "@/lib/blocked-numbers/admin-query"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 120
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
     const p = parseListParams(sp)
     const shopSearchIds = await shopIdsForSearch(supabaseAdmin, p.q)
     const numbers = await readPaged<NumberRow>(() =>
-      applyFilters(supabaseAdmin.from("mtn_blocked_numbers").select(NUMBER_COLUMNS), p, shopSearchIds)
+      applyFilters(supabaseAdmin.from("mtn_blocked_numbers").select(EXPORT_COLUMNS), p, shopSearchIds)
         .order("last_blocked_at", { ascending: false })
         .order("id", { ascending: true })
     )
@@ -144,7 +144,8 @@ export async function GET(request: NextRequest) {
       "Allowed by": n.allowed_by,
       "Submitted to": n.submitted_to_supplier,
       "Submitted at": n.submitted_at,
-      "Customer texted": n.customer_notified_at,
+      // Rows marked notified without a notify phone were never texted (SMS off, or no eligible attempt).
+      "Customer texted": n.customer_notify_phone ? n.customer_notified_at : null,
       "Handled at": n.handled_at,
       Notes: n.notes,
       Expires: n.expires_at,

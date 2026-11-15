@@ -121,6 +121,24 @@ describe("export route", () => {
     { id: "r2", phone: "0551234567" },
   ]
 
+  it("report export: Customer texted is blank when no SMS went to the row (notify phone null)", async () => {
+    handler = (t) =>
+      t === "mtn_blocked_numbers"
+        ? {
+            data: [
+              { id: "r1", phone: "0241234567", status: "allowed", customer_notified_at: "2026-11-15T01:00:00.000Z", customer_notify_phone: null },
+              { id: "r2", phone: "0551234567", status: "allowed", customer_notified_at: "2026-11-15T02:00:00.000Z", customer_notify_phone: "0551234567" },
+            ],
+          }
+        : {}
+    const res = await exportGET(req("http://x/e?kind=report"))
+    expect(res.status).toBe(200)
+    const wb = XLSX.read(new Uint8Array(await res.arrayBuffer()), { type: "array" })
+    const sheet = XLSX.utils.sheet_to_json<Record<string, string>>(wb.Sheets[wb.SheetNames[0]])
+    expect(sheet.find((r) => r.Phone === "0241234567")?.["Customer texted"]).toBeUndefined()
+    expect(sheet.find((r) => r.Phone === "0551234567")?.["Customer texted"]).toBe("2026-11-15T02:00:00.000Z")
+  })
+
   it("supplier export: single Phone column, only status=blocked, 0XXXXXXXXX", async () => {
     handler = (t) => (t === "mtn_blocked_numbers" ? { data: rows } : {})
     const res = await exportGET(req("http://x/e?kind=supplier&supplier=kuntanii"))
@@ -239,5 +257,16 @@ describe("list route", () => {
     expect(j.pageSize).toBe(50)
     expect(j.rows[0]).toMatchObject({ phone: "0241234567", surfaces: ["storefront", "api_v1"], shopNames: ["Alpha"] })
     expect(j.stats).toBeTruthy()
+  })
+
+  it("customersTexted7d counts only rows that have a notify phone (nobody was texted otherwise)", async () => {
+    handler = (t) => (t === "mtn_blocked_numbers" ? { count: 3, data: [] } : {})
+    const res = await listGET(req("http://x/api/admin/blocked-numbers?include_stats=1"))
+    expect(res.status).toBe(200)
+    const texted = fake.log
+      .filter((l) => l.table === "mtn_blocked_numbers")
+      .find((l) => l.calls.some(([m, a]) => m === "gte" && a[0] === "customer_notified_at"))
+    expect(texted).toBeTruthy()
+    expect(hasCall(texted!.calls, "not", "customer_notify_phone", "is", null)).toBe(true)
   })
 })

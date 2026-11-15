@@ -4,30 +4,12 @@
 import { describe, it, expect, beforeAll } from "vitest"
 import { readFileSync } from "fs"
 import { join } from "path"
+import { buildRunString, code } from "./migration-0182-run"
 
 const read = (f: string) => readFileSync(join(process.cwd(), "migrations", f), "utf8").replace(/\r\n/g, "\n")
 const FILE = "0182_mtn_blocked_numbers.sql"
 const SELFTEST_FILE = "0182_mtn_blocked_numbers.selftest.sql"
 const migration = () => read(FILE)
-
-/** SQL with `--` comments removed (comments mention the forbidden words on purpose). */
-const code = (sql: string) => sql.split("\n").map((l) => l.replace(/--.*$/, "")).join("\n")
-
-/** The migration minus ONLY its final COMMIT line, then the self-test from the column-0 DO line on. */
-function buildRunString(migrationSql: string, selftestSql: string): string {
-  const lines = migrationSql.split("\n")
-  const commitAt = lines.map((l) => l.trim()).lastIndexOf("COMMIT;")
-  if (commitAt < 0) throw new Error("0182:no COMMIT line")
-  const head = lines.filter((_, i) => i !== commitAt).join("\n")
-  const st = selftestSql.split("\n")
-  const doAt = st.findIndex((l) => /^DO\b/.test(l))
-  if (doAt < 0) throw new Error("selftest: no column-0 DO line")
-  const run = head + "\n" + st.slice(doAt).join("\n")
-  const c = code(run)
-  if (/\bCOMMIT\b/i.test(c) || /^\s*END\s*;/im.test(c)) throw new Error("0182:run string could commit")
-  if (!/RAISE EXCEPTION 'SELFTEST_OK[^']*';\s*END\s*\$selftest\$;\s*$/.test(c)) throw new Error("0182:run string does not end by raising")
-  return run
-}
 
 describe("0182 migration text", () => {
   it("is one transaction with timeouts and exactly one COMMIT", () => {

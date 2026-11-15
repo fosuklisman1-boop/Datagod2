@@ -12,6 +12,10 @@ vi.mock("@/lib/blocked-numbers/record", () => ({
   recordBlockedRecipients: vi.fn(async () => ({ recorded: 1, deduped: 0 })),
 }))
 
+// Default behaves like "outside a request scope": after() throws, so the gate awaits the recorder.
+const afterMock = vi.hoisted(() => ({ fn: (() => { throw new Error("outside request scope") }) as any }))
+vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), after: (t: any) => afterMock.fn(t) }))
+
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
     from: vi.fn(),
@@ -422,6 +426,7 @@ describe("blocked-number recording from the gate", () => {
 
   beforeEach(async () => {
     const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    afterMock.fn = () => { throw new Error("outside request scope") }
     ;(recordBlockedRecipients as any).mockClear()
     ;(recordBlockedRecipients as any).mockImplementation(async () => ({ recorded: 1, deduped: 0 }))
   })
@@ -432,6 +437,27 @@ describe("blocked-number recording from the gate", () => {
     expect(r.blocked).toEqual(["0551111111"])
     expect(recordBlockedRecipients).toHaveBeenCalledTimes(1)
     expect(recordBlockedRecipients).toHaveBeenCalledWith(["0551111111"], ctx, ["xpress"])
+  })
+
+  it("context without defer defaults to next/server after()", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    const tasks: Array<() => Promise<unknown>> = []
+    afterMock.fn = vi.fn((t: () => Promise<unknown>) => { tasks.push(t) })
+    const r = await verifyRecipientsForOrder(["0551111111"], { registry: rejecting(), settings: blockingOn, context: ctx })
+    expect(r.blocked).toEqual(["0551111111"])
+    expect(afterMock.fn).toHaveBeenCalledTimes(1)
+    expect(recordBlockedRecipients).not.toHaveBeenCalled()
+    await tasks[0]()
+    expect(recordBlockedRecipients).toHaveBeenCalledTimes(1)
+  })
+
+  it("after() throwing (no request scope) falls back to awaiting the task", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    afterMock.fn = vi.fn(() => { throw new Error("outside request scope") })
+    const r = await verifyRecipientsForOrder(["0551111111"], { registry: rejecting(), settings: blockingOn, context: ctx })
+    expect(r.blocked).toEqual(["0551111111"])
+    expect(afterMock.fn).toHaveBeenCalledTimes(1)
+    expect(recordBlockedRecipients).toHaveBeenCalledTimes(1)
   })
 
   it("hands the recorder to defer and does not await it", async () => {

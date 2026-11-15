@@ -19,7 +19,13 @@ File: `migrations/0182_mtn_blocked_numbers.sql`. It is additive (two new tables,
    SELECT to_regclass('public.mtn_blocked_numbers'), to_regclass('public.mtn_blocked_attempts');
    ```
 
-2. Self-test (rolls itself back). The run string must be built by code, never by hand: it is `0182_mtn_blocked_numbers.sql` with only its final `COMMIT` line removed, followed by `migrations/0182_mtn_blocked_numbers.selftest.sql` from the line that starts with `DO` onward. `lib/blocked-numbers/migration-0182.test.ts` shows the builder and asserts the string has no `COMMIT` and no bare `END;` (the 0130 incident lesson). Send it to production. PASS means the error text starts with `SELFTEST_OK`. Any `FAIL ...` or other error means stop and report. If the client keeps the session open, send `ROLLBACK;`.
+2. Self-test (rolls itself back). The run string must be built by code, never by hand. From the repo root run:
+
+   ```
+   npx tsx scripts/print-0182-selftest.ts > 0182-selftest-run.sql
+   ```
+
+   It prints `0182_mtn_blocked_numbers.sql` with only its final `COMMIT` line removed, followed by `migrations/0182_mtn_blocked_numbers.selftest.sql` from the line that starts with `DO` onward. The builder (`lib/blocked-numbers/migration-0182-run.ts`) refuses to print anything (non-zero exit) unless the string has no `COMMIT`, no bare `END;`, and ends by raising `SELFTEST_OK` (the 0130 incident lesson); `lib/blocked-numbers/migration-0182.test.ts` runs the same builder. Send the contents of `0182-selftest-run.sql` to production. PASS means the error text starts with `SELFTEST_OK`. Any `FAIL ...` or other error means stop and report. If the client keeps the session open, send `ROLLBACK;`.
 3. Re-run the pre-check; it must still return NULL and NULL (proves the dry run left nothing behind).
 4. Apply the real file (it has its own `BEGIN`/`COMMIT`).
 5. Verify:
@@ -51,9 +57,11 @@ Turn on `enabled` in `/admin/settings/mtn`. Watch `/admin/blocked-numbers` fill 
 
 Export a supplier list from `/admin/blocked-numbers`, hand it to the supplier, and wait for the first numbers to flip to allowed.
 
+Note: while `customer_sms_enabled` is off, numbers that become allowed are marked notified and will never be texted later (spec section 4, step 5). That includes the first real flips in this step, so turn SMS on promptly after the first verified flip (Step 5).
+
 ## Step 5. Flip `customer_sms_enabled` ON
 
-Only after you have seen at least one real flip with a correct `allowed_by` (the provider that approved the number). Then turn on `customer_sms_enabled` and watch the first few sends. The cron stops sending for the UTC day at `daily_sms_ceiling` (the digest says so).
+Only after you have seen at least one real flip with a correct `allowed_by` (the provider that approved the number). Then turn on `customer_sms_enabled` promptly, because numbers that flipped while it was off were marked notified and will not be texted. Watch the first few sends. The cron stops sending for the UTC day at `daily_sms_ceiling` (the digest says so).
 
 ## Step 6. Announce
 
@@ -62,7 +70,7 @@ Tell shop owners and dealers (channel announcement, "Post now").
 ## What to watch
 
 - `/admin/blocked-numbers`: totals, status, attempts, provider breakdown.
-- Spike alert: fires when distinct blocked numbers in a rolling hour reach `spike_threshold_per_hour` (25).
+- Spike alert: fires when distinct blocked numbers in a rolling hour exceed `spike_threshold_per_hour` (25).
 - Daily digest (once per day).
 - SMS ceiling: sends per UTC day against `daily_sms_ceiling`.
 - Vercel logs for `/api/cron/mtn-blocked-recheck`: logs carry counts and error class names only, no phone numbers.
@@ -70,7 +78,7 @@ Tell shop owners and dealers (channel announcement, "Post now").
 
 ## Accepted risk
 
-A storefront preview can be attributed to any shop slug by a caller who knows a real blocked number. Impact is bounded: at most 2 "number ready" texts per number per 90 days, and everything stays under the daily ceiling. Not mitigated further by design.
+A storefront preview can be attributed to any shop slug by a caller who knows a real blocked number. Impact is bounded: at most 2 "number ready" texts per number per 90 days, and everything stays under the daily ceiling. Not mitigated further by design (accepted risk, spec sections 5 and 8).
 
 ## Rollback
 

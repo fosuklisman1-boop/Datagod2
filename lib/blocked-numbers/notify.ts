@@ -340,7 +340,10 @@ export async function runNotify(deps?: Partial<NotifyDeps>): Promise<NotifyResul
   const included = new Set<string>() // rows whose owner/dealer notices go out this run
   const includedTexted = new Map<string, string | null>()
 
+  const clock = d.clock ?? Date.now
   for (const s of plan.skipped) {
+    // Out of time: rows not reached stay unclaimed and retry next run.
+    if (d.deadlineAt !== undefined && clock() >= d.deadlineAt) break
     // Ceiling-skipped rows stay unclaimed (and their notices held) so they retry once the day rolls over.
     if (s.reason === "ceiling") continue
     if (await claim(s.numberId)) {
@@ -349,7 +352,6 @@ export async function runNotify(deps?: Partial<NotifyDeps>): Promise<NotifyResul
     }
   }
 
-  const clock = d.clock ?? Date.now
   for (const item of plan.sms) {
     // Out of time: leave this and the remaining planned rows unclaimed; they retry next run.
     if (d.deadlineAt !== undefined && clock() >= d.deadlineAt) break

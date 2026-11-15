@@ -8,6 +8,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { after } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
 import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { getBlockedNumbersSettings, type BlockedNumbersSettings } from "./settings"
@@ -110,7 +111,7 @@ async function runRecord(
   ctx: BlockContext,
   providers: string[],
   deps: RecordDeps,
-  state: { aborted: boolean }
+  state: { aborted: boolean; inserted: number }
 ): Promise<{ recorded: number; deduped: number }> {
   const settings = await deps.settings()
   if (!settings.enabled || state.aborted) return ZERO
@@ -159,13 +160,7 @@ async function runRecord(
     if (error) throw error
   }
 
-  if (attemptRows.length > 0 && deps.afterInsert && !state.aborted) {
-    try {
-      await deps.afterInsert(attemptRows.length)
-    } catch (err) {
-      logErr("[blocked-numbers] afterInsert hook failed:", err)
-    }
-  }
+  state.inserted = attemptRows.length
   return { recorded: attemptRows.length, deduped: plan.deduped }
 }
 
@@ -176,16 +171,16 @@ export async function recordBlockedRecipients(
   deps?: RecordDeps
 ): Promise<{ recorded: number; deduped: number }> {
   let timer: ReturnType<typeof setTimeout> | undefined
-  const state = { aborted: false }
+  const state = { aborted: false, inserted: 0 }
   try {
     const d: RecordDeps = deps ?? {
       db: supabaseAdmin as unknown as SupabaseClient,
       settings: () => getBlockedNumbersSettings(),
       now: () => new Date(),
-      // Spike alert: throttled and never throws; capped at 500 ms so it cannot eat the recorder's 1 s budget.
+      // Spike alert: throttled and never throws. Runs outside the recorder's 1 s race; its own read budget bounds it.
       afterInsert: async () => {
         const { spikeCheckAfterInsert } = await import("./alerts")
-        await Promise.race([spikeCheckAfterInsert(), new Promise<void>((r) => setTimeout(r, 500).unref?.())])
+        await spikeCheckAfterInsert()
       },
     }
     if (!Array.isArray(phones) || phones.length === 0) return ZERO
@@ -200,7 +195,19 @@ export async function recordBlockedRecipients(
         resolve(ZERO)
       }, RECORD_TIMEOUT_MS)
     })
-    return await Promise.race([work, timeout])
+    const result = await Promise.race([work, timeout])
+    if (state.inserted > 0 && !state.aborted && d.afterInsert) {
+      // Fire-and-forget: the hook is not on the checkout path and must not eat the 1 s budget. Never throws.
+      const hook = Promise.resolve()
+        .then(() => d.afterInsert!(state.inserted))
+        .catch((err) => logErr("[blocked-numbers] afterInsert hook failed:", err))
+      try {
+        after(() => hook) // keeps the hook alive in a request scope
+      } catch {
+        // outside a request scope (tests, scripts): the promise just runs
+      }
+    }
+    return result
   } catch (err) {
     logErr("[blocked-numbers] record failed:", err)
     return ZERO

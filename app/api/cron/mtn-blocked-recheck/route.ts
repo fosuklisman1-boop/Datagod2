@@ -15,7 +15,8 @@ export const maxDuration = 300
 const PURGE_DAYS = 90
 const PURGE_BATCH = 5000
 const DELETE_CHUNK = 500
-const NOTIFY_DEADLINE_MS = 270_000
+// Cron start + 235 s: leaves room inside maxDuration 300 for the in-flight send, the purge and the digest.
+const NOTIFY_DEADLINE_MS = 235_000
 
 export const GET = backgroundCron("mtn-blocked-recheck", (request) => run(request))
 

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest"
-import { buildDigest, maybeSendSpikeAlert, sendDailyDigest, previousUtcDay, type DigestStats, type SpikeDeps } from "./alerts"
+import { makeFakeDb, hasCall } from "./test-db"
+
+const digestFake = vi.hoisted(() => ({ from: (_t: string): any => ({}) }))
+vi.mock("@/lib/supabase", () => ({ supabaseAdmin: { from: (t: string) => digestFake.from(t) } }))
+
+import { loadStatsFromDb, buildDigest, maybeSendSpikeAlert, sendDailyDigest, previousUtcDay, type DigestStats, type SpikeDeps } from "./alerts"
 import { DEFAULT_BLOCKED_SETTINGS } from "./settings"
 
 const NOW = new Date("2026-11-16T03:00:00.000Z")
@@ -134,6 +139,18 @@ describe("maybeSendSpikeAlert", () => {
     expect(await maybeSendSpikeAlert(deps)).toBe(true)
     expect(order[0]).toBe("stamp")
     expect(order).toContain("push")
+  })
+})
+
+describe("loadStatsFromDb", () => {
+  it("customersTexted counts only rows with a notify phone", async () => {
+    const fake = makeFakeDb((t) => (t === "mtn_blocked_numbers" ? { count: 2 } : { data: [] }))
+    digestFake.from = (t) => fake.db.from(t)
+    const stats = await loadStatsFromDb("2026-11-15T00:00:00.000Z", "2026-11-16T00:00:00.000Z")
+    const texted = fake.log.find((l) => l.calls.some(([m, a]) => m === "gte" && a[0] === "customer_notified_at"))
+    expect(texted).toBeTruthy()
+    expect(hasCall(texted!.calls, "not", "customer_notify_phone", "is", null)).toBe(true)
+    expect(stats.customersTexted).toBe(2)
   })
 })
 

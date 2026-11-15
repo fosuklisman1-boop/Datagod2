@@ -16,6 +16,7 @@
  * provider erroring, or an unreadable setting all resolve to "verified".
  */
 
+import { after } from "next/server"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 import { WHITELIST_REGISTRY, type WhitelistEntry } from "./provider-whitelist"
@@ -243,7 +244,7 @@ export async function verifyRecipientsForOrder(
     settings?: CustomerVerificationSettings
     /** When set, blocked numbers are recorded for the admin blocked-numbers view. */
     context?: BlockContext | (() => Promise<BlockContext | null>)
-    /** Run the recording out of band (e.g. next/server after()) instead of awaiting it. */
+    /** Run the recording out of band instead of awaiting it. Defaults to next/server after() when a context is given. */
     defer?: (task: () => Promise<unknown>) => void
   } = {}
 ): Promise<OrderVerification> {
@@ -283,7 +284,17 @@ export async function verifyRecipientsForOrder(
       }
       try {
         if (opts.defer) opts.defer(task)
-        else await task()
+        else {
+          // Default: off the response path via after(); outside a request scope after() throws, so await as before.
+          let deferred = false
+          try {
+            after(task)
+            deferred = true
+          } catch {
+            deferred = false
+          }
+          if (!deferred) await task()
+        }
       } catch (err) {
         console.error("[CUSTOMER-VERIFICATION] blocked-number record failed:", errName(err))
       }

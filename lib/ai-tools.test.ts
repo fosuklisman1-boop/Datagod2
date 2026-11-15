@@ -742,6 +742,14 @@ describe("custom prices in AI tools", () => {
       }))
     })
 
+    it("never passes a model-supplied phone as the purchaser phone (ctx.phone missing)", async () => {
+      seed()
+      vi.mocked(isRecipientBlocked).mockResolvedValueOnce(true)
+      const r = await executeToolCall("place_whatsapp_order", { ...input, phone: "0200000000" }, { baseUrl: "x", userId: "u1" } as any) as any
+      expect(r.error).toBe("recipient_not_verified")
+      expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244123456", expect.objectContaining({ surface: "whatsapp_ai", purchaserPhone: null }))
+    })
+
     it("returns prices_unavailable and seeds nothing when the custom price read fails", async () => {
       seed({ users: { one: { role: "dealer" }, error: { message: "boom" } } })
       const r = await executeToolCall("place_whatsapp_order", input, ctx) as any

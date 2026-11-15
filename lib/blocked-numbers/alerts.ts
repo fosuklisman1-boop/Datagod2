@@ -113,7 +113,7 @@ async function countRows(table: string, build: (q: any) => any): Promise<number>
   return count ?? 0
 }
 
-async function loadStatsFromDb(startIso: string, endIso: string): Promise<Omit<DigestStats, "unchecked" | "deferred" | "day">> {
+export async function loadStatsFromDb(startIso: string, endIso: string): Promise<Omit<DigestStats, "unchecked" | "deferred" | "day">> {
   const phones = new Set<string>()
   const bySurface = new Map<string, number>()
   let attempts = 0
@@ -140,7 +140,9 @@ async function loadStatsFromDb(startIso: string, endIso: string): Promise<Omit<D
     .slice(0, 3)
     .map(([surface, count]) => ({ surface, count }))
   const becameAllowed = await countRows("mtn_blocked_numbers", (q) => q.gte("allowed_at", startIso).lt("allowed_at", endIso))
-  const customersTexted = await countRows("mtn_blocked_numbers", (q) => q.gte("customer_notified_at", startIso).lt("customer_notified_at", endIso))
+  const customersTexted = await countRows("mtn_blocked_numbers", (q) =>
+    q.gte("customer_notified_at", startIso).lt("customer_notified_at", endIso).not("customer_notify_phone", "is", null)
+  )
   // No expired_at column: a row's updated_at is stamped when it expires and nothing touches expired rows after.
   const expired = await countRows("mtn_blocked_numbers", (q) => q.eq("status", "expired").gte("updated_at", startIso).lt("updated_at", endIso))
   return { attempts, distinctNumbers: phones.size, topSurfaces, becameAllowed, customersTexted, expired }

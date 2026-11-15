@@ -407,6 +407,23 @@ describe("runNotify", () => {
     expect((deps.insertNotification as any).mock.calls[0][2]).toBe("1 customer number(s) blocked on Alpha Shop are now ready, we've texted them to buy again.")
   })
 
+  it("the skip-claim loop stops at the deadline and leaves unreached rows unclaimed", async () => {
+    const mk = (id: string, phone: string) => ({ ...N1, id, phone })
+    const { deps, numbers } = setup({ settings: vi.fn(async () => ({ ...SETTINGS, customer_sms_enabled: false })) }, {
+      mtn_blocked_numbers: [mk("n1", "0241111111"), mk("n2", "0242222222"), mk("n3", "0243333333")],
+      mtn_blocked_attempts: ["n1", "n2", "n3"].map((id) => ({
+        blocked_number_id: id, surface: "ussd_uzo_shop", shop_id: "shopA", user_id: null, purchaser_phone: null, created_at: iso(DAY),
+      })),
+    })
+    let t = 0
+    deps.deadlineAt = 1
+    deps.clock = () => t++ // first check passes (0), every later one is past the deadline
+    const out = await runNotify(deps)
+    expect(out.skipped).toBe(1)
+    expect(numbers.filter((n) => n.customer_notified_at !== null)).toHaveLength(1)
+    expect(deps.sendSms).not.toHaveBeenCalled()
+  })
+
   it("a failed revert write is counted as failed", async () => {
     const { deps, f } = setup({ sendSms: vi.fn(async () => ({ success: false })) as any })
     const realFrom = f.db.from

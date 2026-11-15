@@ -212,6 +212,16 @@ describe("recordBlockedRecipients", () => {
     expect(f.calls).toHaveLength(0)
   })
 
+  it("returns its result without waiting for afterInsert, which is still invoked", async () => {
+    const f = fakeDb()
+    let release: () => void = () => {}
+    const afterInsert = vi.fn(() => new Promise<void>((r) => { release = r }))
+    const r = await recordBlockedRecipients(["0241234567"], ctx, [], deps(f.db, { afterInsert }))
+    expect(r).toEqual({ recorded: 1, deduped: 0 })
+    expect(afterInsert).toHaveBeenCalledWith(1)
+    release()
+  })
+
   it("afterInsert throwing still returns the result and logs no phone number", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {})
     const f = fakeDb()

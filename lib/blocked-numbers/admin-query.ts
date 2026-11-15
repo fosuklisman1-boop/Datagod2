@@ -9,6 +9,9 @@ export const NUMBER_COLUMNS =
   "id, phone, status, first_blocked_at, last_blocked_at, attempts, providers_rejected, recheck_count, last_rechecked_at, " +
   "allowed_at, allowed_by, submitted_to_supplier, submitted_at, customer_notified_at, handled_at, notes, expires_at, last_surface, last_shop_id"
 
+/** The report export also needs who was texted (a row only counts as texted when a notify phone is set). */
+export const EXPORT_COLUMNS = NUMBER_COLUMNS + ", customer_notify_phone"
+
 export type NumberRow = {
   id: string
   phone: string
@@ -24,6 +27,7 @@ export type NumberRow = {
   submitted_to_supplier: string | null
   submitted_at: string | null
   customer_notified_at: string | null
+  customer_notify_phone?: string | null
   handled_at: string | null
   notes: string | null
   expires_at: string | null
