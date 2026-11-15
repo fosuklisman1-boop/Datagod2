@@ -595,3 +595,32 @@ No customer announcement is needed (internal feature). One line for shop owners 
 ```
 Heads up: if a customer calls the Datagod shop number and misses you, they get an SMS pointing them to your number (it costs your shop 1 SMS credit).
 ```
+
+## 15. Backfill after downtime and spare phone (OWNER runbook)
+
+### 15.1 What it protects against
+
+If the phone loses internet or the app is killed for a while, SmsForwarder marks the forward as Failed and does not retry on its own. Customers who texted in that window get no reply. Two protections:
+
+1. A phone Task that resends failed forwards every 15 minutes (set up 2026-11-15).
+2. A spare phone you can bring up fast (15.3).
+
+### 15.2 The backfill Task (already on the phone)
+
+SmsForwarder > Task > "Backfill failed forwards":
+
+- Condition: Cron `0 0/15 * * * ? *` (every 15 minutes, at second 0).
+- Action: Resend Message, records from the last 1 hour, original result Failed only.
+
+Why it is safe: the webhook de-duplicates by sender and received time, and drops texts older than the staleness window, so a resend can never double-charge or reply to an old order. Failed-only means texts that already went through are not touched.
+
+Limits: it covers the last hour. A longer outage needs a one-off manual run: edit the action to a bigger N hours (0 = all), tap Test, then set it back to 1.
+
+### 15.3 Spare phone (OneKey Clone)
+
+1. Install SmsForwarder on the spare phone. Insert a SIM only if it is meant to take over a line.
+2. On the main phone: Settings > OneKey Clone > export. Move the file with a cable or a private channel. It contains the webhook secrets, so delete it afterwards and never post it in chat.
+3. On the spare: import it. Then in Settings tap Refresh next to each SIM SubId, because the slot numbers differ per handset.
+4. Check each Sender still shows its header `x-sms-forward-secret` and each Rule's SIM slot matches the physical SIM.
+5. Send a test text to each line and confirm the reply, then switch the failed phone's rules off so the two do not both forward.
+6. Keep the spare charged and on stay-awake while plugged in.
