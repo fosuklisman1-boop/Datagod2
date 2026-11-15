@@ -80,7 +80,13 @@ export function airtimeAdapter(deps: AirtimeDeps = {}): ServiceAdapter<AirtimeOf
         const network = detected ?? hint
         if (!network) return refuse("asked", airtimeNetworkQuestion(), true, networkChoices(read))
 
-        if (network === "MTN" && (await isRecipientBlocked("MTN", recipient))) return refuse("asked", airtimeWrongNumberReply(), true)
+        if (network === "MTN" && (await isRecipientBlocked("MTN", recipient, {
+          surface: "text_to_buy_airtime",
+          shopId: null,
+          purchaserPhone: senderLocal,
+          product: "MTN airtime",
+          amount: Number.isFinite(read.amountGhs) ? read.amountGhs : null,
+        }))) return refuse("asked", airtimeWrongNumberReply(), true)
         if (!(await isAirtimeEnabled(network))) return refuse("unavailable", airtimeOffReply(network))
 
         const amount = read.amountGhs

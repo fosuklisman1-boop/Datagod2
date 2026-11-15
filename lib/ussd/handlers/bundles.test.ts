@@ -46,7 +46,8 @@ vi.mock("../../network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({ isRecipientBlocked: vi.fn(async () => false), RECIPIENT_BLOCKED_PROMPT: "" }))
 vi.mock("../../ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({})) }))
 
-import { fetchBundles, handleConfirm } from "./bundles"
+import { fetchBundles, handleConfirm, handleEnterRecipient } from "./bundles"
+import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
 import { MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
 import { chargeMobileMoney } from "../../paystack"
 
@@ -187,5 +188,17 @@ describe("USSD custom prices", () => {
     expect(first.bundles.map(b => b.id)).toEqual(["p7", "p6", "p5", "p4", "p3"])
     const second = await fetchBundles("MTN", 1, "sub_agent", "shop-1", "u1")
     expect(second.bundles.map(b => [b.id, b.price])).toEqual([["p2", 8], ["p1", 9]])
+  })
+})
+
+describe("handleEnterRecipient: block context", () => {
+  it("tells the verification gate the Uzo USSD surface, the dialler and the product", async () => {
+    vi.mocked(isRecipientBlocked).mockResolvedValueOnce(true)
+    const r = await handleEnterRecipient("0244123456", "s1", session({ step: "ENTER_RECIPIENT" }))
+    expect(r).toBeTruthy()
+    expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244123456", expect.objectContaining({
+      surface: "ussd_uzo", purchaserPhone: "+233200585542", product: "MTN 1", amount: 6,
+    }))
+    expect(h.setSession).not.toHaveBeenCalled()
   })
 })

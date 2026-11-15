@@ -123,7 +123,12 @@ export async function resolveOffer(
   const networkLabel = CARRIER_LABEL[carrier]
 
   // MTN verification hard block (admin toggle), exactly as the USSD recipient step.
-  if (carrier === "MTN" && (await isRecipientBlocked("MTN", recipientLocal))) return { ok: false, reason: "bad_recipient" }
+  if (carrier === "MTN" && (await isRecipientBlocked("MTN", recipientLocal, {
+    surface: "text_to_buy",
+    shopId: null,
+    purchaserPhone: i.senderLocal,
+    product: `MTN ${i.sizeMb}MB`,
+  }))) return { ok: false, reason: "bad_recipient" }
 
   // The buyer tier is the PAYER's (the sender), never the recipient's.
   const dialingPhone = "+233" + ghanaSignificant(i.senderLocal)

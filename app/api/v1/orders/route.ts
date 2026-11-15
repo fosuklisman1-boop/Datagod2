@@ -209,7 +209,9 @@ export async function POST(request: NextRequest) {
   if (sanitizedNetwork.trim().toLowerCase() === "mtn") {
     const { verifyRecipientsForOrder, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } = await import("@/lib/mtn-providers/customer-verification")
     const verifyPhone = normalizePhoneNumber(cleanRecipient)
-    const verification = await verifyRecipientsForOrder([verifyPhone])
+    const verification = await verifyRecipientsForOrder([verifyPhone], {
+      context: { surface: "api_v1", userId: user.id, product: `${sanitizedNetwork} ${volumeGb}GB` },
+    })
     if (verification.blocked.length > 0) {
       return NextResponse.json(
         { success: false, error: NOT_VERIFIED_MESSAGE, error_code: NOT_VERIFIED_CODE },

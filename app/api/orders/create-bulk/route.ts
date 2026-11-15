@@ -124,7 +124,10 @@ export async function POST(request: NextRequest) {
     // nothing charged. The bulk form removes these before submitting; this is
     // the backstop for stale clients. Outages never block.
     if (network.trim().toUpperCase() === "MTN") {
-      const { blocked } = await verifyRecipientsForOrder(orders.map((o: BulkOrderData) => o.phone_number))
+      const { blocked } = await verifyRecipientsForOrder(
+        orders.map((o: BulkOrderData) => o.phone_number),
+        { context: { surface: "dashboard_bulk", userId, product: network } }
+      )
       if (blocked.length > 0) {
         console.warn(`[BULK-ORDERS] ⛔ ${blocked.length} unverified MTN number(s) blocked`)
         return NextResponse.json(

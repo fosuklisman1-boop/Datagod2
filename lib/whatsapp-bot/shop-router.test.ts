@@ -310,7 +310,7 @@ describe("shopWaRouter", () => {
     await shopWaRouter(phone, "1", "b3") // MTN
     await shopWaRouter(phone, "1", "b4") // 1GB -> ENTER_RECIPIENT
     await shopWaRouter(phone, "0244000111", "b5")
-    expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244000111")
+    expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244000111", expect.objectContaining({ surface: "whatsapp_shop", shopId: "s91", purchaserPhone: phone }))
     expect(lastReplyTo(phone)).toContain("not verified for data")
     expect(lastReplyTo(phone)).not.toContain("MoMo number")
 

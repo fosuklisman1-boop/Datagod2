@@ -245,7 +245,12 @@ export async function handleEnterRecipient(
   }
 
   // MTN number verification hard block (admin toggle): ask for another number. Outages never block.
-  if (await isRecipientBlocked(session.network, local)) {
+  if (await isRecipientBlocked(session.network, local, {
+    surface: 'ussd_uzo',
+    purchaserPhone: session.dialingPhone ?? null,
+    product: `${session.network ?? ''} ${session.bundleSize ?? ''}`.trim() || null,
+    amount: session.bundlePrice ?? null,
+  })) {
     return cont(RECIPIENT_BLOCKED_PROMPT)
   }
 

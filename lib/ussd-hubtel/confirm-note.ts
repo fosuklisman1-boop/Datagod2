@@ -9,6 +9,7 @@
 // never delays or blocks a purchase. The result is stored on the session, so re-showing the screen is free.
 import { channelForNetwork, type DeliveryChannel } from "@/lib/delivery-estimate/query"
 import type { FlowCtx } from "./flow-kit"
+import type { BlockContext } from "@/lib/blocked-numbers/types"
 
 export const UNVERIFIED_NOTE = "Not yet verified: delivery may be delayed."
 export const RECIPIENT_BLOCKED_NOTE = "Number not verified for MTN data. Enter a different number."
@@ -22,6 +23,16 @@ function within<T>(p: Promise<T>, fallback: T, ms = NOTE_TIMEOUT_MS): Promise<T>
 
 const isMtn = (network: string | undefined) => (network ?? "").trim().toLowerCase() === "mtn"
 
+/** Where a block here is attributed: the shop menu or the main menu, and who dialled. */
+function blockContextFor(ctx: FlowCtx, network: string | undefined): BlockContext {
+  return {
+    surface: ctx.session.shopId ? "ussd_hubtel_shop" : "ussd_hubtel",
+    shopId: ctx.session.shopId ?? null,
+    purchaserPhone: ctx.req.Mobile,
+    product: network ?? null,
+  }
+}
+
 /**
  * `verify`: run the MTN number check (supplier-fulfilled data only; Standard Bundles have their own suppliers).
  * `estimate`: which delivery-estimate channel to show; "network" = the data network's own channel.
@@ -33,7 +44,7 @@ export async function confirmNote(ctx: FlowCtx, opts: {
   const network = opts.network
   const channel = opts.estimate === "network" ? channelForNetwork(network) : opts.estimate
   try {
-    const check = verifyRecipient && opts.verify && isMtn(network) ? verifyRecipient(opts.recipientLocal) : null
+    const check = verifyRecipient && opts.verify && isMtn(network) ? verifyRecipient(opts.recipientLocal, blockContextFor(ctx, network), ctx.deps.defer) : null
     let settled = check === null
     check?.then(() => { settled = true }, () => { settled = true })
     const [verified, estimate] = await Promise.all([
@@ -58,5 +69,5 @@ export async function confirmNote(ctx: FlowCtx, opts: {
 export async function recipientBlockedAtPay(ctx: FlowCtx, network: string | undefined, recipientLocal: string | undefined): Promise<boolean> {
   const { verifyRecipient } = ctx.deps
   if (!verifyRecipient || !recipientLocal || !isMtn(network)) return false
-  return (await within(verifyRecipient(recipientLocal), true, PAY_GATE_TIMEOUT_MS)) === "blocked"
+  return (await within(verifyRecipient(recipientLocal, blockContextFor(ctx, network), ctx.deps.defer), true, PAY_GATE_TIMEOUT_MS)) === "blocked"
 }

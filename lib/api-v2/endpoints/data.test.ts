@@ -391,7 +391,7 @@ describe("purchase (live) money path", () => {
     const d = makeDeps()
     d.verifyMtn.mockResolvedValue(new Map([["0249990417", false]]))
     const r = await purchaseHandler(d)(body({ recipient: "233249990417" }), LIVE)
-    expect(d.verifyMtn).toHaveBeenCalledWith(["0249990417"])
+    expect(d.verifyMtn).toHaveBeenCalledWith(["0249990417"], { userId: "user-1" })
     expect(r.status).toBe(409)
     expect(r.error?.message.startsWith("RECIPIENT_NOT_REGISTERED:")).toBe(true)
     expect(r.error?.message).not.toContain("9990417")
@@ -652,7 +652,7 @@ describe("bulk (live)", () => {
     expect(r.status).toBe(200)
     // Guard sees only NEW items, once, in one batch call.
     expect(d.verifyMtn).toHaveBeenCalledTimes(1)
-    expect(d.verifyMtn).toHaveBeenCalledWith(["0249990430", "0249990431", "0249990433"])
+    expect(d.verifyMtn).toHaveBeenCalledWith(["0249990430", "0249990431", "0249990433"], { userId: "user-1" })
     // Balance is checked against the new, non-skipped total (8 + 18).
     expect(d.store.getWalletBalance).toHaveBeenCalledTimes(1)
     expect(d.store.placeV2Order).toHaveBeenCalledTimes(2)

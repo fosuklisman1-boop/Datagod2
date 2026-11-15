@@ -126,7 +126,7 @@ describe("resolve: recipient and network", () => {
     h.blocked.mockResolvedValue(true)
     const res = await resolve(read({ recipient: "0241234567" }))
     expect(res).toMatchObject({ ok: false, refusal: { outcome: "asked", reply: "That phone number is not valid. Text e.g. airtime 10 0241234567." } })
-    expect(h.blocked).toHaveBeenCalledWith("MTN", "0241234567")
+    expect(h.blocked).toHaveBeenCalledWith("MTN", "0241234567", expect.objectContaining({ surface: "text_to_buy_airtime", purchaserPhone: "0200000101", shopId: null }))
   })
 
   it("the verification gate is not consulted for other networks", async () => {

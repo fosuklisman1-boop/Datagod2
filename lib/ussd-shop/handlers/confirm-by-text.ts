@@ -14,6 +14,7 @@ import { after } from "next/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { isUssdHubtelPayer, startUssdCharge, ussdOrderAmount, type UssdPrice } from "@/lib/ussd/gateway-charge"
 import type { SurfaceKey } from "@/lib/payment-gateway/config"
+import type { BlockContext } from "@/lib/blocked-numbers/types"
 import type { BundleOrderInput } from "@/lib/shop-commerce/orders"
 
 export interface ConfirmShopInput {
@@ -43,7 +44,7 @@ export interface ConfirmShopDeps {
   /** The network-prefix check (admin-toggleable): false = the number is on another network. */
   prefixAllowed(network: string, recipientLocal: string): Promise<boolean>
   /** The MTN verification hard block: true = refuse this recipient. */
-  recipientBlocked(network: string, recipientLocal: string): Promise<boolean>
+  recipientBlocked(network: string, recipientLocal: string, ctx?: BlockContext): Promise<boolean>
   /** The package the bundle id names: the order row needs its network and size. */
   loadBundle(bundleId: string): Promise<{ network: string; size: string } | null>
   verifyBundlePrice(shopId: string, bundleId: string, parentShopId?: string): Promise<{ verifiedPrice: number; profitAmount: number; parentProfitAmount: number } | null>
@@ -81,7 +82,12 @@ export async function confirmShopBundleByText(input: ConfirmShopInput, deps?: Co
 
     // The checks the shop USSD makes when the recipient is entered.
     if (!(await d.prefixAllowed(network, recipientLocal))) return {}
-    if (await d.recipientBlocked(network, recipientLocal)) return {}
+    if (await d.recipientBlocked(network, recipientLocal, {
+      surface: "ussd_uzo_shop",
+      shopId,
+      purchaserPhone: senderLocal,
+      product: `${network} ${size}`,
+    })) return {}
 
     // Price and profit split straight from the database (sub-agent branch included). Not offered: refuse.
     const verified = await d.verifyBundlePrice(shopId, bundleId, parentShopId ?? undefined)
@@ -227,7 +233,7 @@ async function defaultDeps(): Promise<ConfirmShopDeps> {
       return !enabled || validateNetworkPrefix(network, recipientLocal, map).ok
     },
 
-    recipientBlocked: (network, recipientLocal) => verification.isRecipientBlocked(network, recipientLocal),
+    recipientBlocked: (network, recipientLocal, ctx) => verification.isRecipientBlocked(network, recipientLocal, ctx),
 
     async loadBundle(bundleId) {
       const { data } = await db.from("packages").select("network, size").eq("id", bundleId).maybeSingle()

@@ -185,7 +185,7 @@ describe("resolveOffer: hints and recipients", () => {
     h.blocked.mockResolvedValue(true)
     const r = await resolveOffer(h.client, { senderLocal: SENDER, sizeMb: 5000, networkHint: null, recipient: MTN_R })
     expect(r).toEqual({ ok: false, reason: "bad_recipient" })
-    expect(h.blocked).toHaveBeenCalledWith("MTN", MTN_R)
+    expect(h.blocked).toHaveBeenCalledWith("MTN", MTN_R, expect.objectContaining({ surface: "text_to_buy", purchaserPhone: SENDER, shopId: null }))
   })
 
   it("the block check is not run for a non-MTN recipient", async () => {
