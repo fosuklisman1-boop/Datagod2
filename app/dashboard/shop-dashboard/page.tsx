@@ -14,7 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { shopService, shopOrderService, shopProfitService, withdrawalService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
-import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy, Loader2, CheckCircle, Search, Package, MessageCircle } from "lucide-react"
+import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy, Loader2, CheckCircle, Search, Package, MessageCircle, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
 import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
 import { complaintEligibility } from "@/lib/support-eligibility"
@@ -62,6 +62,7 @@ export default function ShopDashboardPage() {
   const [searchPhoneNumber, setSearchPhoneNumber] = useState("")
   const [selectedComplaintOrder, setSelectedComplaintOrder] = useState<any>(null)
   const [showComplaintModal, setShowComplaintModal] = useState(false)
+  const [blockedWaiting, setBlockedWaiting] = useState(0)
   const [openComplaintOrderIds, setOpenComplaintOrderIds] = useState<Set<string>>(new Set())
 
   // Which of the loaded orders already have an open support thread.
@@ -93,6 +94,30 @@ export default function ShopDashboardPage() {
       cancelled = true
     }
   }, [orders])
+
+  // Customers waiting on MTN number activation (hidden when 0 or feature off).
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token
+        if (!token) return
+        const res = await fetch("/api/user/blocked-numbers?section=shops&status=waiting&page=1", {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const body = await res.json()
+        if (!cancelled) setBlockedWaiting(body.enabled ? Number(body.total) || 0 : 0)
+      } catch {
+        // tile simply stays hidden
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   useEffect(() => {
     if (!user) return
@@ -546,6 +571,21 @@ export default function ShopDashboardPage() {
                 </CardContent>
               </Card>
             </Link>
+
+            {blockedWaiting > 0 && (
+              <Link href="/dashboard/blocked-numbers">
+                <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-primary bg-card border border-border cursor-pointer">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Customers waiting</CardTitle>
+                    <ShieldAlert className="h-4 w-4 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-primary">{blockedWaiting}</div>
+                    <p className="text-xs text-muted-foreground">Numbers awaiting activation</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
 
             {/* Repeat Customers */}
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-card backdrop-blur-xl border border-border">

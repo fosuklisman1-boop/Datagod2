@@ -90,7 +90,7 @@ describe("getServiceRedirect", () => {
     expect(getServiceRedirect("/dashboard/wallet", ["airtime"], [])).toBeNull()
   })
 
-  it("hiding my_shop blocks all 7 of its bundled paths, not just /dashboard/my-shop", () => {
+  it("hiding my_shop blocks all 8 of its bundled paths, not just /dashboard/my-shop", () => {
     expect(getServiceRedirect("/dashboard/my-shop", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
     expect(getServiceRedirect("/dashboard/shop-orders", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
     expect(getServiceRedirect("/dashboard/customers", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
@@ -98,6 +98,7 @@ describe("getServiceRedirect", () => {
     expect(getServiceRedirect("/dashboard/shop-pricing", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
     expect(getServiceRedirect("/dashboard/shop-withdraw", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
     expect(getServiceRedirect("/dashboard/shop-profile", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
+    expect(getServiceRedirect("/dashboard/blocked-numbers", ["airtime"], ["my_shop"])).toBe("/dashboard/airtime")
   })
 
   it("does not block my_shop's paths when my_shop is not in hiddenPages", () => {

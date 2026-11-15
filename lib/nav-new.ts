@@ -21,6 +21,7 @@ export const NEW_NAV_ITEMS: Readonly<Record<string, { since: string }>> = Object
   "/dashboard/bills": { since: "2026-10-13" },
   "/dashboard/broadband": { since: "2026-10-13" },
   "/dashboard/standard-bundles": { since: "2026-10-13" },
+  "/dashboard/blocked-numbers": { since: "2026-11-15" },
   "/dashboard/top-performers": { since: "2026-10-26" },
   "/admin/leaderboard": { since: "2026-10-26" },
   "/admin/sms": { since: "2026-10-13" },

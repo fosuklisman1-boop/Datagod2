@@ -52,7 +52,7 @@ describe("pickFirstVisiblePath", () => {
     expect(pickFirstVisiblePath("dealer", ["bulk_sms"], hideEverythingBeforeUpgrade, true)).toBe("/dashboard/upgrade")
   })
 
-  it("hiding my_shop skips all 7 of its bundled routes, landing on the next distinct reachable item", () => {
+  it("hiding my_shop skips all 8 of its bundled routes, landing on the next distinct reachable item", () => {
     // services: ["data_bundles"] excludes bulk_sms, so shopItems' own
     // /dashboard/sms entry (not part of the my_shop bundle) is blocked for
     // an unrelated reason — proving the walk lands on /dashboard/ussd-shop
