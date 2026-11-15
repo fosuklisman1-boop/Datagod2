@@ -293,7 +293,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
         const res = await fetch("/api/verify-phone-live", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phones: chunk }),
+          body: JSON.stringify({ phones: chunk, surface: "dashboard_bulk_preview" }),
         })
         if (res.ok) {
           const data = await res.json()

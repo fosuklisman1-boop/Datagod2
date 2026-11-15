@@ -257,7 +257,7 @@ function DataPackagesPageInner() {
         const verifyRes = await fetch("/api/verify-phone-live", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phones: [phoneNumber] }),
+          body: JSON.stringify({ phones: [phoneNumber], surface: "dashboard_preview" }),
         })
         if (verifyRes.ok) {
           const verifyData = await verifyRes.json()

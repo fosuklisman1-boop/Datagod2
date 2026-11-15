@@ -1,11 +1,16 @@
 import {
   checkCustomerFacingVerification,
+  checkCustomerFacingVerificationDetailed,
   getCustomerVerificationSettings,
   isRecipientBlocked,
   verifyRecipientsForOrder,
 } from "./customer-verification"
 import type { WhitelistEntry } from "./provider-whitelist"
 import { describe, it, expect, vi, beforeEach } from "vitest"
+
+vi.mock("@/lib/blocked-numbers/record", () => ({
+  recordBlockedRecipients: vi.fn(async () => ({ recorded: 1, deduped: 0 })),
+}))
 
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
@@ -406,5 +411,102 @@ describe("provider order and failures", () => {
     spy.mockRestore()
     expect(r.blocked).toEqual([])
     expect(r.verdicts.get("0559999999")).toBeNull()
+  })
+})
+
+
+describe("blocked-number recording from the gate", () => {
+  const rejecting = () => [fakeEntry("xpress", new Set())]
+  const blockingOn = { enabled: true, providers: ["xpress"], block_unverified: true }
+  const ctx = { surface: "storefront" as const, shopId: "s1" }
+
+  beforeEach(async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    ;(recordBlockedRecipients as any).mockClear()
+    ;(recordBlockedRecipients as any).mockImplementation(async () => ({ recorded: 1, deduped: 0 }))
+  })
+
+  it("records a blocked number once with context and providers", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    const r = await verifyRecipientsForOrder(["0551111111"], { registry: rejecting(), settings: blockingOn, context: ctx })
+    expect(r.blocked).toEqual(["0551111111"])
+    expect(recordBlockedRecipients).toHaveBeenCalledTimes(1)
+    expect(recordBlockedRecipients).toHaveBeenCalledWith(["0551111111"], ctx, ["xpress"])
+  })
+
+  it("hands the recorder to defer and does not await it", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    let never = false
+    ;(recordBlockedRecipients as any).mockImplementation(() => new Promise(() => { never = true }))
+    const deferred: Array<() => Promise<unknown>> = []
+    const r = await verifyRecipientsForOrder(["0551111111"], {
+      registry: rejecting(), settings: blockingOn, context: ctx, defer: (t) => { deferred.push(t) },
+    })
+    expect(r.blocked).toEqual(["0551111111"])
+    expect(deferred).toHaveLength(1)
+    expect(recordBlockedRecipients).not.toHaveBeenCalled()
+    void deferred[0]()
+    expect(recordBlockedRecipients).toHaveBeenCalledTimes(1)
+    expect(never).toBe(true)
+  })
+
+  it("never records when blocking is off", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    await verifyRecipientsForOrder(["0551111111"], {
+      registry: rejecting(), settings: { enabled: true, providers: ["xpress"], block_unverified: false }, context: ctx,
+    })
+    expect(recordBlockedRecipients).not.toHaveBeenCalled()
+  })
+
+  it("never records a verified number", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    await verifyRecipientsForOrder(["0551111111"], {
+      registry: [fakeEntry("xpress", new Set(["0551111111"]))], settings: blockingOn, context: ctx,
+    })
+    expect(recordBlockedRecipients).not.toHaveBeenCalled()
+  })
+
+  it("never records without a context", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    await verifyRecipientsForOrder(["0551111111"], { registry: rejecting(), settings: blockingOn })
+    expect(recordBlockedRecipients).not.toHaveBeenCalled()
+  })
+
+  it("a throwing recorder leaves blocked unchanged", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    ;(recordBlockedRecipients as any).mockRejectedValue(new Error("boom"))
+    const r = await verifyRecipientsForOrder(["0551111111"], { registry: rejecting(), settings: blockingOn, context: ctx })
+    expect(r.blocked).toEqual(["0551111111"])
+    expect(r.blocking).toBe(true)
+  })
+
+  it("isRecipientBlocked passes context through for MTN only", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    expect(await isRecipientBlocked("AT", "0551111111", ctx)).toBe(false)
+    expect(recordBlockedRecipients).not.toHaveBeenCalled()
+  })
+})
+
+describe("checkCustomerFacingVerificationDetailed", () => {
+  it("reports the provider that approved each phone", async () => {
+    const registry = [
+      fakeEntry("xpress", new Set(["0551111111"])),
+      fakeEntry("kuntanii", new Set(["0552222222"])),
+    ]
+    const r = await checkCustomerFacingVerificationDetailed(
+      ["0551111111", "0552222222", "0553333333"],
+      registry,
+      { enabled: true, providers: ["xpress", "kuntanii"] }
+    )
+    expect(r).toEqual([
+      { phone: "0551111111", verified: true, approvedBy: "xpress" },
+      { phone: "0552222222", verified: true, approvedBy: "kuntanii" },
+      { phone: "0553333333", verified: false, approvedBy: null },
+    ])
+  })
+
+  it("approvedBy is null when the check is disabled (fail open)", async () => {
+    const r = await checkCustomerFacingVerificationDetailed(["0551111111"], [], { enabled: false, providers: [] })
+    expect(r).toEqual([{ phone: "0551111111", verified: true, approvedBy: null }])
   })
 })

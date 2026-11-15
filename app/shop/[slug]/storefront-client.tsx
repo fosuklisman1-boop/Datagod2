@@ -282,7 +282,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
       const res = await fetch("/api/verify-phone-live", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phones: [mtnCheckPhone] }),
+        body: JSON.stringify({ phones: [mtnCheckPhone], surface: "storefront_preview", shop_slug: shopSlug }),
       })
       const data = await res.json().catch(() => ({}))
       const result = data?.results?.[0]
@@ -308,7 +308,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
       const res = await fetch("/api/verify-phone-live", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phones: [orderData.customer_phone] }),
+        body: JSON.stringify({ phones: [orderData.customer_phone], surface: "storefront_preview", shop_slug: shopSlug }),
       })
       const data = await res.json().catch(() => ({}))
       setCheckoutVerifyStatus(data?.results?.[0]?.verified ? "verified" : "unverified")
@@ -955,7 +955,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
         const verifyRes = await fetch("/api/verify-phone-live", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phones: [normalizedPhone] }),
+          body: JSON.stringify({ phones: [normalizedPhone], surface: "storefront_preview", shop_slug: shopSlug }),
         })
         if (verifyRes.ok) {
           const verifyData = await verifyRes.json()

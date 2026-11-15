@@ -14,6 +14,21 @@ vi.mock("@/lib/mtn-providers/customer-verification", () => ({
   })),
 }))
 
+const maybeSingle = vi.fn()
+vi.mock("@/lib/supabase", () => ({
+  supabaseAdmin: {
+    from: vi.fn(() => {
+      const chain: any = {}
+      chain.select = () => chain
+      chain.eq = () => chain
+      chain.or = () => chain
+      chain.limit = () => chain
+      chain.maybeSingle = () => maybeSingle()
+      return chain
+    }),
+  },
+}))
+
 function makeRequest(body: unknown) {
   return new NextRequest("http://localhost/api/verify-phone-live", {
     method: "POST",
@@ -83,5 +98,54 @@ describe("POST /api/verify-phone-live", () => {
     ])
     expect(body.blocking).toBe(false)
     spy.mockRestore()
+  })
+
+  describe("blocked-number recording context", () => {
+    async function lastOpts() {
+      const { verifyRecipientsForOrder } = await import("@/lib/mtn-providers/customer-verification")
+      const calls = (verifyRecipientsForOrder as any).mock.calls
+      return calls[calls.length - 1][1]
+    }
+
+    it("passes a preview context with the resolved shop id", async () => {
+      maybeSingle.mockResolvedValue({ data: { id: "11111111-1111-4111-8111-111111111111" }, error: null })
+      await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview", shop_slug: "abc-resolve" }))
+      const opts = await lastOpts()
+      expect(opts.context).toEqual({ surface: "storefront_preview", shopId: "11111111-1111-4111-8111-111111111111" })
+    })
+
+    it("uses shopId null for an unknown slug", async () => {
+      maybeSingle.mockResolvedValue({ data: null, error: null })
+      await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview", shop_slug: "nope-unknown" }))
+      expect((await lastOpts()).context).toEqual({ surface: "storefront_preview", shopId: null })
+    })
+
+    it("fails open when the slug lookup throws", async () => {
+      maybeSingle.mockRejectedValue(new Error("db down"))
+      const res = await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview", shop_slug: "boom-slug" }))
+      expect(res.status).toBe(200)
+      expect((await lastOpts()).context).toEqual({ surface: "storefront_preview", shopId: null })
+    })
+
+    it("does not record for a non-preview surface", async () => {
+      await POST(makeRequest({ phones: ["0551111111"], surface: "storefront", shop_slug: "abc" }))
+      expect((await lastOpts()).context).toBeUndefined()
+    })
+
+    it("does not record when surface is missing", async () => {
+      await POST(makeRequest({ phones: ["0551111111"] }))
+      expect((await lastOpts()).context).toBeUndefined()
+    })
+
+    it("never forwards a purchaser phone from the body", async () => {
+      maybeSingle.mockResolvedValue({ data: null, error: null })
+      await POST(makeRequest({
+        phones: ["0551111111"], surface: "dashboard_preview", purchaser_phone: "0240000000", purchaserPhone: "0240000000",
+      }))
+      const ctx = (await lastOpts()).context
+      expect(ctx.surface).toBe("dashboard_preview")
+      expect(JSON.stringify(ctx)).not.toContain("0240000000")
+      expect(ctx.purchaserPhone).toBeUndefined()
+    })
   })
 })
