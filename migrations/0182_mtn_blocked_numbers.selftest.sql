@@ -15,7 +15,7 @@
 -- are rolled back. PASSES when the error text starts with 'SELFTEST_OK'; any 'FAIL ...' or other error means it failed.
 -- If the client keeps the session open, send `ROLLBACK;`.
 --
--- Scenarios (labels): catalog, grants, check, cascade.
+-- Scenarios (labels): catalog, grants, check, cascade, fn_grants, record_fn.
 
 DO $selftest$
 DECLARE
@@ -100,5 +100,56 @@ BEGIN
   SELECT count(*) INTO v_n FROM public.mtn_blocked_attempts WHERE blocked_number_id = v_id;
   IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL cascade: % attempts survived the delete', v_n; END IF;
 
-  RAISE EXCEPTION 'SELFTEST_OK 0182 blocked numbers tables, grants, checks and cascade';
+  -- fn_grants: anon and authenticated cannot EXECUTE the recorder function; service_role can ---------
+  IF has_function_privilege('anon', 'public.record_mtn_blocked(jsonb)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.record_mtn_blocked(jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL fn_grants: anon or authenticated can execute record_mtn_blocked';
+  END IF;
+  IF NOT has_function_privilege('service_role', 'public.record_mtn_blocked(jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL fn_grants: service_role cannot execute record_mtn_blocked';
+  END IF;
+
+  -- record_fn: insert, bump, deduped bump, and the allowed/expired/handled -> blocked reset ---------
+  SELECT count(*) INTO v_n FROM public.record_mtn_blocked(
+    '[{"phone":"0200000701","bump":1,"providers":["a","b"],"surface":"storefront","shop_id":null,"retention_days":30}]'::jsonb);
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL record_fn: insert returned % rows', v_n; END IF;
+  SELECT id INTO v_id FROM public.mtn_blocked_numbers WHERE phone = '0200000701';
+  SELECT count(*) INTO v_n FROM public.mtn_blocked_numbers
+   WHERE id = v_id AND status = 'blocked' AND attempts = 1 AND recheck_count = 0 AND providers_rejected = ARRAY['a','b']
+     AND last_surface = 'storefront' AND next_recheck_at > now() AND expires_at > next_recheck_at;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL record_fn: the inserted row is wrong'; END IF;
+
+  -- a past first_blocked_at (now() is constant inside one transaction), a mid-schedule row, then a bump
+  UPDATE public.mtn_blocked_numbers
+     SET first_blocked_at = '2026-01-01T00:00:00Z', recheck_count = 3, ready_sms_count = 4, allowed_by = 'x',
+         customer_notified_at = now()
+   WHERE id = v_id;
+  PERFORM public.record_mtn_blocked(
+    '[{"phone":"0200000701","bump":1,"providers":["c"],"surface":"ussd_uzo","shop_id":null,"retention_days":30}]'::jsonb);
+  SELECT count(*) INTO v_n FROM public.mtn_blocked_numbers
+   WHERE id = v_id AND attempts = 2 AND first_blocked_at = '2026-01-01T00:00:00Z' AND recheck_count = 3
+     AND customer_notified_at IS NOT NULL AND ready_sms_count = 4 AND allowed_by = 'x'
+     AND providers_rejected = ARRAY['c'] AND last_surface = 'ussd_uzo';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL record_fn: a bump on a blocked row changed the wrong columns'; END IF;
+  PERFORM public.record_mtn_blocked(
+    '[{"phone":"0200000701","bump":0,"providers":["c"],"surface":"ussd_uzo","shop_id":null,"retention_days":30}]'::jsonb);
+  SELECT attempts INTO v_n FROM public.mtn_blocked_numbers WHERE id = v_id;
+  IF v_n <> 2 THEN RAISE EXCEPTION 'FAIL record_fn: a deduped call (bump 0) changed attempts to %', v_n; END IF;
+
+  FOREACH v_p IN ARRAY ARRAY['allowed', 'expired', 'handled'] LOOP
+    UPDATE public.mtn_blocked_numbers
+       SET status = v_p, recheck_count = 5, customer_notified_at = now(), next_recheck_at = NULL, expires_at = '2026-02-01T00:00:00Z'
+     WHERE id = v_id;
+    PERFORM public.record_mtn_blocked(
+      '[{"phone":"0200000701","bump":1,"providers":["c"],"surface":"storefront","shop_id":null,"retention_days":30}]'::jsonb);
+    SELECT count(*) INTO v_n FROM public.mtn_blocked_numbers
+     WHERE id = v_id AND status = 'blocked' AND recheck_count = 0 AND customer_notified_at IS NULL
+       AND next_recheck_at > now() AND expires_at > next_recheck_at AND first_blocked_at = '2026-01-01T00:00:00Z'
+       AND ready_sms_count = 4 AND allowed_by = 'x';
+    IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL record_fn: % -> blocked reset is wrong', v_p; END IF;
+  END LOOP;
+  SELECT attempts INTO v_n FROM public.mtn_blocked_numbers WHERE id = v_id;
+  IF v_n <> 5 THEN RAISE EXCEPTION 'FAIL record_fn: attempts is % after the resets (want 5)', v_n; END IF;
+
+  RAISE EXCEPTION 'SELFTEST_OK 0182 blocked numbers tables, grants, checks, cascade and record function';
 END $selftest$;

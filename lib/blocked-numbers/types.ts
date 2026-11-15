@@ -63,3 +63,18 @@ export type BlockContext = {
   product?: string | null
   amount?: number | null
 }
+
+/**
+ * Allowlist: surfaces whose purchaserPhone comes from a server-verified source (carrier-supplied dialler number,
+ * Meta-supplied WhatsApp sender, SMS-forwarder sender). Every other surface drops it (fails closed).
+ */
+export const TRUSTED_PURCHASER_SURFACES: readonly BlockSurface[] = [
+  "ussd_hubtel",
+  "ussd_hubtel_shop",
+  "ussd_uzo",
+  "ussd_uzo_shop",
+  "whatsapp_shop",
+  "whatsapp_ai",
+  "text_to_buy",
+  "text_to_buy_airtime",
+]

@@ -88,6 +88,49 @@ REVOKE ALL ON TABLE public.mtn_blocked_attempts FROM PUBLIC, anon, authenticated
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.mtn_blocked_numbers TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.mtn_blocked_attempts TO service_role;
 
+-- 4. Atomic number-row write for the recorder. One statement does the whole insert-or-update, so concurrent callers
+--    cannot overwrite each other's attempts / first_blocked_at (no read-modify-write in the app).
+--    p_rows: jsonb array of {phone, bump (0 deduped | 1), providers (array), surface, shop_id, retention_days}.
+--    Phones must be unique within one call. Never touches ready_sms_*, allowed_*, notes, submitted_*, handled_*.
+--    Existing blocked row: keeps first_blocked_at, expires_at, recheck_count, next_recheck_at, customer_notified_at.
+--    Existing allowed/expired/handled row: back to blocked with a fresh schedule and customer_notified_at = null.
+CREATE OR REPLACE FUNCTION public.record_mtn_blocked(p_rows jsonb)
+RETURNS TABLE (id uuid, phone text)
+LANGUAGE sql
+SECURITY INVOKER
+SET search_path = public
+AS $fn$
+  WITH input AS (
+    SELECT r.phone, GREATEST(COALESCE(r.bump, 1), 0) AS bump, r.providers, r.surface, r.shop_id,
+           GREATEST(COALESCE(r.retention_days, 30), 1) AS retention_days
+      FROM jsonb_to_recordset(p_rows) AS r(phone text, bump int, providers jsonb, surface text, shop_id uuid, retention_days int)
+  )
+  INSERT INTO public.mtn_blocked_numbers AS n
+    (phone, status, first_blocked_at, last_blocked_at, attempts, providers_rejected, recheck_count,
+     next_recheck_at, expires_at, last_surface, last_shop_id, updated_at)
+  SELECT i.phone, 'blocked', now(), now(), GREATEST(i.bump, 1),
+         COALESCE(ARRAY(SELECT jsonb_array_elements_text(i.providers)), '{}'::text[]), 0,
+         now() + interval '1 day', now() + make_interval(days => i.retention_days), i.surface, i.shop_id, now()
+    FROM input i
+  ON CONFLICT (phone) DO UPDATE SET
+    status             = 'blocked',
+    last_blocked_at    = now(),
+    attempts           = n.attempts + COALESCE((SELECT x.bump FROM input x WHERE x.phone = n.phone), 0),
+    providers_rejected = EXCLUDED.providers_rejected,
+    last_surface       = EXCLUDED.last_surface,
+    last_shop_id       = EXCLUDED.last_shop_id,
+    recheck_count      = CASE WHEN n.status <> 'blocked' THEN 0 ELSE n.recheck_count END,
+    next_recheck_at    = CASE WHEN n.status <> 'blocked' THEN EXCLUDED.next_recheck_at
+                              ELSE COALESCE(n.next_recheck_at, EXCLUDED.next_recheck_at) END,
+    expires_at         = CASE WHEN n.status <> 'blocked' THEN EXCLUDED.expires_at
+                              ELSE COALESCE(n.expires_at, EXCLUDED.expires_at) END,
+    customer_notified_at = CASE WHEN n.status <> 'blocked' THEN NULL ELSE n.customer_notified_at END,
+    updated_at         = now()
+  RETURNING n.id, n.phone;
+$fn$;
+REVOKE EXECUTE ON FUNCTION public.record_mtn_blocked(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_mtn_blocked(jsonb) TO service_role;
+
 COMMIT;
 
 -- Verify after apply (read-only):
