@@ -254,9 +254,14 @@ function DataPackagesPageInner() {
 
     if (!skipVerification && selectedPackageForPurchase.network.toUpperCase() === "MTN") {
       try {
+        // The session token lets the endpoint attribute a blocked number to this dealer.
+        const { data: { session: verifySession } } = await supabase.auth.getSession()
         const verifyRes = await fetch("/api/verify-phone-live", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(verifySession?.access_token ? { Authorization: `Bearer ${verifySession.access_token}` } : {}),
+          },
           body: JSON.stringify({ phones: [phoneNumber], surface: "dashboard_preview" }),
         })
         if (verifyRes.ok) {

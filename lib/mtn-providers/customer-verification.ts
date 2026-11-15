@@ -242,7 +242,7 @@ export async function verifyRecipientsForOrder(
     registry?: WhitelistEntry[]
     settings?: CustomerVerificationSettings
     /** When set, blocked numbers are recorded for the admin blocked-numbers view. */
-    context?: BlockContext
+    context?: BlockContext | (() => Promise<BlockContext | null>)
     /** Run the recording out of band (e.g. next/server after()) instead of awaiting it. */
     defer?: (task: () => Promise<unknown>) => void
   } = {}
@@ -269,10 +269,13 @@ export async function verifyRecipientsForOrder(
     const blocking = isBlockingOn(settings)
     const blocked = blocking ? [...new Set(phones)].filter(p => verdicts.get(p) === false) : []
     if (blocked.length > 0 && opts.context) {
-      const context = opts.context
-      // Recording must never change the verdict or throw into the gate.
+      const contextSource = opts.context
+      // Recording must never change the verdict or throw into the gate. A lazy
+      // context is only resolved here, i.e. only when something was blocked.
       const task = async () => {
         try {
+          const context = typeof contextSource === "function" ? await contextSource() : contextSource
+          if (!context) return
           await recordBlockedRecipients(blocked, context, settings.providers)
         } catch (err) {
           console.error("[CUSTOMER-VERIFICATION] blocked-number record failed:", errName(err))

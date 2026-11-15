@@ -480,6 +480,21 @@ describe("blocked-number recording from the gate", () => {
     expect(r.blocking).toBe(true)
   })
 
+  it("resolves a lazy context only when something is blocked, and skips on null", async () => {
+    const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
+    const lazy = vi.fn(async () => ctx)
+    await verifyRecipientsForOrder(["0551111111"], {
+      registry: [fakeEntry("xpress", new Set(["0551111111"]))], settings: blockingOn, context: lazy,
+    })
+    expect(lazy).not.toHaveBeenCalled()
+    await verifyRecipientsForOrder(["0551111111"], { registry: rejecting(), settings: blockingOn, context: lazy })
+    expect(lazy).toHaveBeenCalledTimes(1)
+    expect(recordBlockedRecipients).toHaveBeenCalledWith(["0551111111"], ctx, ["xpress"])
+    ;(recordBlockedRecipients as any).mockClear()
+    await verifyRecipientsForOrder(["0551111111"], { registry: rejecting(), settings: blockingOn, context: async () => null })
+    expect(recordBlockedRecipients).not.toHaveBeenCalled()
+  })
+
   it("isRecipientBlocked passes context through for MTN only", async () => {
     const { recordBlockedRecipients } = await import("@/lib/blocked-numbers/record")
     expect(await isRecipientBlocked("AT", "0551111111", ctx)).toBe(false)

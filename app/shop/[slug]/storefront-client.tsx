@@ -282,7 +282,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
       const res = await fetch("/api/verify-phone-live", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phones: [mtnCheckPhone], surface: "storefront_preview", shop_slug: shopSlug }),
+        body: JSON.stringify({ phones: [mtnCheckPhone] }),
       })
       const data = await res.json().catch(() => ({}))
       const result = data?.results?.[0]

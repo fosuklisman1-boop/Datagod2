@@ -15,8 +15,15 @@ vi.mock("@/lib/mtn-providers/customer-verification", () => ({
 }))
 
 const maybeSingle = vi.fn()
+const getUser = vi.fn()
+const afterMock = vi.fn((cb: () => unknown) => { cb() })
+vi.mock("next/server", async (orig) => ({
+  ...(await orig<typeof import("next/server")>()),
+  after: (cb: () => unknown) => afterMock(cb),
+}))
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
+    auth: { getUser: (t: string) => getUser(t) },
     from: vi.fn(() => {
       const chain: any = {}
       chain.select = () => chain
@@ -101,30 +108,65 @@ describe("POST /api/verify-phone-live", () => {
   })
 
   describe("blocked-number recording context", () => {
+    const SHOP = "11111111-1111-4111-8111-111111111111"
+
     async function lastOpts() {
       const { verifyRecipientsForOrder } = await import("@/lib/mtn-providers/customer-verification")
       const calls = (verifyRecipientsForOrder as any).mock.calls
       return calls[calls.length - 1][1]
     }
+    async function resolveCtx(opts: any) {
+      return typeof opts.context === "function" ? await opts.context() : opts.context
+    }
+    function authedRequest(body: unknown, token = "tok") {
+      return new NextRequest("http://localhost/api/verify-phone-live", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      })
+    }
 
-    it("passes a preview context with the resolved shop id", async () => {
-      maybeSingle.mockResolvedValue({ data: { id: "11111111-1111-4111-8111-111111111111" }, error: null })
+    beforeEach(() => {
+      maybeSingle.mockReset()
+      getUser.mockReset()
+    })
+
+    it("builds the preview context lazily and does no lookup until resolved", async () => {
+      maybeSingle.mockResolvedValue({ data: { id: SHOP }, error: null })
       await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview", shop_slug: "abc-resolve" }))
       const opts = await lastOpts()
-      expect(opts.context).toEqual({ surface: "storefront_preview", shopId: "11111111-1111-4111-8111-111111111111" })
+      expect(maybeSingle).not.toHaveBeenCalled()
+      expect(await resolveCtx(opts)).toEqual({ surface: "storefront_preview", shopId: SHOP })
+    })
+
+    it("hands the recorder to the defer hook (after) rather than awaiting it", async () => {
+      await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview", shop_slug: "abc" }))
+      const opts = await lastOpts()
+      const task = vi.fn(async () => {})
+      opts.defer(task)
+      expect(afterMock).toHaveBeenCalledTimes(1)
+      expect(task).toHaveBeenCalledTimes(1)
     })
 
     it("uses shopId null for an unknown slug", async () => {
       maybeSingle.mockResolvedValue({ data: null, error: null })
       await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview", shop_slug: "nope-unknown" }))
-      expect((await lastOpts()).context).toEqual({ surface: "storefront_preview", shopId: null })
+      expect(await resolveCtx(await lastOpts())).toEqual({ surface: "storefront_preview", shopId: null })
     })
 
     it("fails open when the slug lookup throws", async () => {
       maybeSingle.mockRejectedValue(new Error("db down"))
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
       const res = await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview", shop_slug: "boom-slug" }))
       expect(res.status).toBe(200)
-      expect((await lastOpts()).context).toEqual({ surface: "storefront_preview", shopId: null })
+      expect(await resolveCtx(await lastOpts())).toEqual({ surface: "storefront_preview", shopId: null })
+      spy.mockRestore()
+    })
+
+    it.each(["a,b)", "x".repeat(65), "has space", "UPPER;drop"])("skips the DB for invalid slug %#", async (slug) => {
+      await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview", shop_slug: slug }))
+      expect(await resolveCtx(await lastOpts())).toEqual({ surface: "storefront_preview", shopId: null })
+      expect(maybeSingle).not.toHaveBeenCalled()
     })
 
     it("does not record for a non-preview surface", async () => {
@@ -137,15 +179,28 @@ describe("POST /api/verify-phone-live", () => {
       expect((await lastOpts()).context).toBeUndefined()
     })
 
-    it("never forwards a purchaser phone from the body", async () => {
-      maybeSingle.mockResolvedValue({ data: null, error: null })
-      await POST(makeRequest({
-        phones: ["0551111111"], surface: "dashboard_preview", purchaser_phone: "0240000000", purchaserPhone: "0240000000",
-      }))
-      const ctx = (await lastOpts()).context
-      expect(ctx.surface).toBe("dashboard_preview")
+    it("dealer preview without a token passes no context but still answers", async () => {
+      const res = await POST(makeRequest({ phones: ["0551111111"], surface: "dashboard_preview" }))
+      expect(res.status).toBe(200)
+      expect((await lastOpts()).context).toBeUndefined()
+    })
+
+    it("dealer preview with an invalid token resolves to no context", async () => {
+      getUser.mockResolvedValue({ data: { user: null }, error: { message: "bad" } })
+      const res = await POST(authedRequest({ phones: ["0551111111"], surface: "dashboard_bulk_preview" }, "bad"))
+      expect(res.status).toBe(200)
+      expect(await resolveCtx(await lastOpts())).toBeNull()
+    })
+
+    it("dealer preview with a valid token takes userId from the session, never the body", async () => {
+      getUser.mockResolvedValue({ data: { user: { id: "user-from-session" } }, error: null })
+      await POST(authedRequest({
+        phones: ["0551111111"], surface: "dashboard_preview", user_id: "spoofed", purchaser_phone: "0240000000", purchaserPhone: "0240000000",
+      }, "good"))
+      const ctx = await resolveCtx(await lastOpts())
+      expect(getUser).toHaveBeenCalledWith("good")
+      expect(ctx).toEqual({ surface: "dashboard_preview", userId: "user-from-session" })
       expect(JSON.stringify(ctx)).not.toContain("0240000000")
-      expect(ctx.purchaserPhone).toBeUndefined()
     })
   })
 })
