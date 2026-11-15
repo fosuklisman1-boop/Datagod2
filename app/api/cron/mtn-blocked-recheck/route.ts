@@ -45,10 +45,10 @@ async function run(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse!
 
-  const settings = await getBlockedNumbersSettings()
-  if (!settings.enabled) return NextResponse.json({ ok: true, skipped: "disabled" })
-
   try {
+    const settings = await getBlockedNumbersSettings()
+    if (!settings.enabled) return NextResponse.json({ ok: true, skipped: "disabled" })
+
     const recheck = await recheckBlockedNumbers({})
     // Task 6 adds runNotify() here (customer SMS + owner notice for newly allowed rows).
     const purged = await purgeOldAttempts()
