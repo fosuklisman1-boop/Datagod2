@@ -628,3 +628,5 @@ Limits: it covers the last hour. A longer outage needs a one-off manual run: edi
 ### 15.4 Alive ping (so quiet days are not read as a dead phone)
 
 `POST /api/webhooks/phone-health` refreshes the line's "phone last heard" time and nothing else (same `x-sms-forward-secret` header as the other webhooks; the body is ignored; always 200 after a valid secret). On the phone: Task > Cron (every 15 minutes) > action Notify using a Webhook channel that points at `https://www.datagod.store/api/webhooks/phone-health` with the line's secret in the header. Do one task per line if both SIMs should show as alive. Without it, the quiet-phone alert can fire on a genuinely quiet day.
+
+Set up and verified 2026-11-15: senders "Main Alive" and "Shop Alive" (clones of the Call senders with the URL changed to `/phone-health` and params `ping=1`), and one Task "Alive ping" (Cron `0 0/15 * * * ? *` -> Notify both senders, run logic All Run). The first scheduled run at 03:00:01 refreshed both lines. To check later: the Overview tile "phone last heard" should never be older than about 20 minutes while the phone is on and online.
