@@ -938,6 +938,33 @@ export function Sidebar() {
                 </Button>
               </Link>
 
+              <Link href="/admin/blocked-numbers" onClick={() => { markClicked("/admin/blocked-numbers"); handleNavigation("/admin/blocked-numbers") }}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "relative w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/blocked-numbers" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/blocked-numbers" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Blocked Numbers" : undefined}
+                  disabled={loadingPath === "/admin/blocked-numbers"}
+                >
+                  {loadingPath === "/admin/blocked-numbers" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <PhoneOff className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">Blocked Numbers</span>
+                      {isNew("/admin/blocked-numbers") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/blocked-numbers") && <NewTag compact />}
+                </Button>
+              </Link>
+
               <Link href="/admin/refunds" onClick={() => handleNavigation("/admin/refunds")}>
                 <Button
                   variant="ghost"

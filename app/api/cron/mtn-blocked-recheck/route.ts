@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/lib/supabase"
 import { getBlockedNumbersSettings } from "@/lib/blocked-numbers/settings"
 import { recheckBlockedNumbers } from "@/lib/blocked-numbers/recheck"
 import { runNotify } from "@/lib/blocked-numbers/notify"
+import { sendDailyDigest } from "@/lib/blocked-numbers/alerts"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -62,10 +63,16 @@ async function run(request: NextRequest) {
       notify.error = true
     }
     const purged = await purgeOldAttempts()
-    // Task 9 adds sendDailyDigest() here, after the purge.
+    // The digest runs last and a failure here must never fail the cron (the work above is already done).
+    let digestSent = false
+    try {
+      digestSent = await sendDailyDigest({ unchecked: recheck.unchecked, deferred: recheck.deferred })
+    } catch (err) {
+      console.error("[CRON][BLOCKED-RECHECK] digest failed:", err instanceof Error ? err.name : "UnknownError")
+    }
     const { newlyAllowedIds, ...counts } = recheck
-    console.log(`[CRON][BLOCKED-RECHECK] purged=${purged} notifyTexted=${notify.texted} notifyFailed=${notify.failed}`)
-    return NextResponse.json({ ok: true, ...counts, newlyAllowed: newlyAllowedIds.length, notify, purged })
+    console.log(`[CRON][BLOCKED-RECHECK] purged=${purged} notifyTexted=${notify.texted} notifyFailed=${notify.failed} digestSent=${digestSent}`)
+    return NextResponse.json({ ok: true, ...counts, newlyAllowed: newlyAllowedIds.length, notify, purged, digestSent })
   } catch (err) {
     console.error("[CRON][BLOCKED-RECHECK] failed:", err instanceof Error ? err.name : "UnknownError")
     return NextResponse.json({ error: "recheck failed" }, { status: 500 })

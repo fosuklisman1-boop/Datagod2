@@ -182,6 +182,11 @@ export async function recordBlockedRecipients(
       db: supabaseAdmin as unknown as SupabaseClient,
       settings: () => getBlockedNumbersSettings(),
       now: () => new Date(),
+      // Spike alert: throttled and never throws; capped at 500 ms so it cannot eat the recorder's 1 s budget.
+      afterInsert: async () => {
+        const { spikeCheckAfterInsert } = await import("./alerts")
+        await Promise.race([spikeCheckAfterInsert(), new Promise<void>((r) => setTimeout(r, 500).unref?.())])
+      },
     }
     if (!Array.isArray(phones) || phones.length === 0) return ZERO
     const work = runRecord(phones, ctx, providers, d, state).catch((err) => {
