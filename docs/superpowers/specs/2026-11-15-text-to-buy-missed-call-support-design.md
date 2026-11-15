@@ -46,6 +46,15 @@ New settings (additive keys, defaults off/safe): `ttb_calls_enabled` (bool, defa
 ### 4.6 Support-aware "not understood" on the shop line
 The shop line reply for texts that are not orders gets the WhatsApp support pointer when it fits one GSM-7 segment; if it cannot fit, the existing wording is kept. Reads the same live support number. Main line wording is unchanged. Golden snapshots for the main line must not change.
 
+### 4.7 Rulings after the builder check
+- **Per-shop hourly cap:** it is enforced today by `shopReplyCapReached(db, shopId, settings)` in `lib/text-to-buy/shop/credits.ts` (used by the shop lane). The call path calls the same function before a shop-paid SMS; at the cap the shop path is skipped and the caller gets the Datagod support SMS once (the line hourly cap still bounds Datagod's cost).
+- **Daily marker and failed sends:** the marker is taken first (this is what prevents a storm). A failed or refused send does not release it: the caller gets nothing more that day. Accepted (rare, cheap), logged as `error` in `ttb_calls`.
+- **`ttb_notices.kind`:** the builder verifies in `migrations/0180_text_to_buy_shop_line.sql` that it has no CHECK; if it does, the new migration relaxes it. Kinds used: `call_main`, `call_shop`.
+- **Owner number and "can pay":** `ShopRef.helpline` from the shop resolution helper is the owner's number. The paying account comes from `shopAccountFor(db, shopId)`; "can pay" is decided by attempting the shop payer through `sendReply` and reading `skipped: "unpaid"` (race-free), then falling back to the support SMS.
+- **Which secret is which line for calls:** the primary secret (`SMS_FORWARD_SECRET`, the one the main-number senders use) means the main line; the shop secret means the shop line; an equal or unset secret follows the existing rules. A call sender must never use a MoMo-parsing path: the call route has no ingest at all.
+- **Received time:** parsed with the existing `parseReceived` helper used for texts; missing or unparseable falls back to the server clock (the daily and hourly caps bound any replay).
+- **Settings snapshot:** adding `ttb_calls_*` to `TtbSettings` adds default lines to the lane golden snapshots, additions only, as the shop line did; main-line wording snapshots must not change.
+
 ## 5. Abuse cases
 - **Call flood from one number:** one SMS per caller per line per day, plus the hourly line cap; excess is logged as skipped, no SMS.
 - **Spoofed caller ID:** the SMS goes to the owner of the spoofed number, at most once per day per number, bounded by the hourly cap; no money moves.
