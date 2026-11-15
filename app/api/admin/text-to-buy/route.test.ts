@@ -360,7 +360,7 @@ describe("PUT settings", () => {
     expect((await ok.json()).settings.mainEnabled).toBe(true)
     expect(notifyMock).toHaveBeenCalledWith({ kind: "setting_changed", keys: ["ttb_main_enabled"] })
   })
-  for (const [field, key] of [["airtimeEnabled", "ttb_airtime_enabled"], ["resultsCheckerEnabled", "ttb_results_checker_enabled"], ["shopEnabled", "ttb_shop_enabled"]] as const) {
+  for (const [field, key] of [["airtimeEnabled", "ttb_airtime_enabled"], ["resultsCheckerEnabled", "ttb_results_checker_enabled"], ["shopEnabled", "ttb_shop_enabled"], ["callsEnabled", "ttb_calls_enabled"]] as const) {
     it(`${field}: turning it on needs confirm, writes { value: true } and alerts naming only ${key}`, async () => {
       const refused = await PUT(req("PUT", { [field]: true }))
       expect(refused.status).toBe(400)

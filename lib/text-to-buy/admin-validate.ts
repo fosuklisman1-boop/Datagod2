@@ -28,6 +28,8 @@ const RULES: Record<TtbSettingField, Rule> = {
   shopEnabled: { kind: "bool" },
   shopNumber: { kind: "phone" },
   shopRepliesPerHourPerShop: { kind: "int", min: 5, max: 1000 },
+  callsEnabled: { kind: "bool" },
+  callsPerHourPerLine: { kind: "int", min: 5, max: 500 },
 }
 
 const SENDER_ID_RE = /^[A-Za-z0-9 ]{1,11}$/

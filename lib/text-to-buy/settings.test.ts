@@ -30,6 +30,7 @@ describe("TTB_DEFAULTS", () => {
       repliesPerHour: 6, aiReadsPerHour: 10, globalPromptsPerMinute: 30, promptWindowMinutes: 5, quietAlertMinutes: 60,
       retentionDays: 30, unclearRepliesEnabled: true, globalRepliesPerHour: 300, airtimeEnabled: false, resultsCheckerEnabled: false,
       shopEnabled: false, shopNumber: "", shopRepliesPerHourPerShop: 60,
+      callsEnabled: false, callsPerHourPerLine: 60,
       source: "defaults",
     })
   })
@@ -64,14 +65,33 @@ describe("loadTtbSettings", () => {
       ttb_global_prompts_per_minute: 40, ttb_prompt_window_minutes: 7, ttb_quiet_alert_minutes: 90, ttb_retention_days: 14,
       ttb_reply_to_unclear: false, ttb_global_replies_per_hour: 50, ttb_airtime_enabled: true, ttb_results_checker_enabled: true,
       ttb_shop_enabled: true, ttb_shop_number: "0200000111", ttb_shop_replies_per_hour_per_shop: 25,
+      ttb_calls_enabled: true, ttb_calls_per_hour_per_line: 40,
     })))
     expect(s).toEqual({
       mainEnabled: true, mainNumber: "0200000100", replySenderId: "Datagod", shopReplySenderId: "DatagodShop", aiEnabled: false, staleMinutes: 15,
       promptsPerHour: 4, repliesPerHour: 8, aiReadsPerHour: 12, globalPromptsPerMinute: 40, promptWindowMinutes: 7,
       quietAlertMinutes: 90, retentionDays: 14, unclearRepliesEnabled: false, globalRepliesPerHour: 50,
       airtimeEnabled: true, resultsCheckerEnabled: true,
-      shopEnabled: true, shopNumber: "0200000111", shopRepliesPerHourPerShop: 25, source: "db",
+      shopEnabled: true, shopNumber: "0200000111", shopRepliesPerHourPerShop: 25,
+      callsEnabled: true, callsPerHourPerLine: 40, source: "db",
     })
+  })
+
+  it("turns call support on only for exactly true", async () => {
+    expect((await loadTtbSettings(client(rows({ ttb_calls_enabled: true })))).callsEnabled).toBe(true)
+    for (const v of ["true", 1, "yes", null, [true], {}]) {
+      expect((await loadTtbSettings(client(rows({ ttb_calls_enabled: v })))).callsEnabled).toBe(false)
+    }
+    expect((await loadTtbSettings(client(rows({})))).callsEnabled).toBe(false)
+  })
+
+  it("callsPerHourPerLine only accepts integers 5..500", async () => {
+    for (const v of ["30", null, [], {}, Number.NaN, 4, 0, -5, 501, 10.5]) {
+      expect((await loadTtbSettings(client(rows({ ttb_calls_per_hour_per_line: v })))).callsPerHourPerLine).toBe(60)
+    }
+    for (const v of [5, 500, 123]) {
+      expect((await loadTtbSettings(client(rows({ ttb_calls_per_hour_per_line: v })))).callsPerHourPerLine).toBe(v)
+    }
   })
 
   it("turns the shop line on only for exactly true", async () => {
@@ -154,7 +174,9 @@ describe("loadTtbSettings", () => {
 
   it("exports one key table covering every setting field", () => {
     expect(Object.keys(TTB_SETTING_KEYS).sort()).toEqual(Object.keys(TTB_DEFAULTS).filter((k) => k !== "source").sort())
-    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(20)
+    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(22)
+    expect(TTB_SETTING_KEYS.callsEnabled).toBe("ttb_calls_enabled")
+    expect(TTB_SETTING_KEYS.callsPerHourPerLine).toBe("ttb_calls_per_hour_per_line")
     expect(TTB_SETTING_KEYS.shopEnabled).toBe("ttb_shop_enabled")
     expect(TTB_SETTING_KEYS.shopNumber).toBe("ttb_shop_number")
     expect(TTB_SETTING_KEYS.shopRepliesPerHourPerShop).toBe("ttb_shop_replies_per_hour_per_shop")

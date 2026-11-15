@@ -34,7 +34,7 @@ describe("validateTtbSettings: shape", () => {
 })
 
 describe("validateTtbSettings: booleans", () => {
-  for (const f of ["mainEnabled", "aiEnabled", "unclearRepliesEnabled", "airtimeEnabled", "resultsCheckerEnabled", "shopEnabled"] as const) {
+  for (const f of ["mainEnabled", "aiEnabled", "unclearRepliesEnabled", "airtimeEnabled", "resultsCheckerEnabled", "shopEnabled", "callsEnabled"] as const) {
     it(`${f} must be a real boolean`, () => {
       expect(ok({ [f]: true })).toBeTruthy()
       expect(ok({ [f]: false })).toBeTruthy()
@@ -55,6 +55,7 @@ describe("validateTtbSettings: numeric ranges", () => {
     ["retentionDays", 1, 90],
     ["globalRepliesPerHour", 10, 5000],
     ["shopRepliesPerHourPerShop", 5, 1000],
+    ["callsPerHourPerLine", 5, 500],
   ]
   for (const [f, min, max] of table) {
     it(`${f} accepts ${min}..${max} and nothing outside or non-integer`, () => {

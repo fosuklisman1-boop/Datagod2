@@ -35,6 +35,10 @@ export type TtbSettings = {
   shopNumber: string
   /** Replies per hour to one shop's customers on the shop line. */
   shopRepliesPerHourPerShop: number
+  /** Missed-call support SMS: a call to a line gets a how-to-order text back. Off by default. */
+  callsEnabled: boolean
+  /** Call-triggered texts per hour per line. */
+  callsPerHourPerLine: number
   /** "defaults" when the DB read failed or threw, so callers can tell fallback values from saved ones. */
   source: "db" | "defaults"
 }
@@ -63,6 +67,8 @@ export const TTB_SETTING_KEYS = {
   shopEnabled: "ttb_shop_enabled",
   shopNumber: "ttb_shop_number",
   shopRepliesPerHourPerShop: "ttb_shop_replies_per_hour_per_shop",
+  callsEnabled: "ttb_calls_enabled",
+  callsPerHourPerLine: "ttb_calls_per_hour_per_line",
 } as const satisfies Record<TtbSettingField, string>
 
 export type TtbSettingKey = (typeof TTB_SETTING_KEYS)[TtbSettingField]
@@ -90,6 +96,8 @@ export const TTB_DEFAULTS: TtbSettings = {
   shopEnabled: false,
   shopNumber: "",
   shopRepliesPerHourPerShop: 60,
+  callsEnabled: false,
+  callsPerHourPerLine: 60,
   source: "defaults",
 }
 
@@ -145,6 +153,8 @@ export async function loadTtbSettings(db: SupabaseClient): Promise<TtbSettings> 
       shopEnabled: raw.ttb_shop_enabled === true,
       shopNumber: text(raw.ttb_shop_number, d.shopNumber),
       shopRepliesPerHourPerShop: intIn(raw.ttb_shop_replies_per_hour_per_shop, d.shopRepliesPerHourPerShop, 5, 1000),
+      callsEnabled: raw.ttb_calls_enabled === true,
+      callsPerHourPerLine: intIn(raw.ttb_calls_per_hour_per_line, d.callsPerHourPerLine, 5, 500),
       source: "db",
     }
   } catch {

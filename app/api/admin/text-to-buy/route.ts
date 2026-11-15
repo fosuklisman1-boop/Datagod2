@@ -15,7 +15,7 @@ const FIELD_OF = Object.fromEntries(Object.entries(TTB_SETTING_KEYS).map(([f, k]
 const KEY_ORDER = Object.values(TTB_SETTING_KEYS) as TtbSettingKey[]
 
 /** Switching any of these on needs an explicit confirm. */
-const CONFIRM_KEYS: TtbSettingKey[] = [TTB_SETTING_KEYS.mainEnabled, TTB_SETTING_KEYS.airtimeEnabled, TTB_SETTING_KEYS.resultsCheckerEnabled, TTB_SETTING_KEYS.shopEnabled]
+const CONFIRM_KEYS: TtbSettingKey[] = [TTB_SETTING_KEYS.mainEnabled, TTB_SETTING_KEYS.airtimeEnabled, TTB_SETTING_KEYS.resultsCheckerEnabled, TTB_SETTING_KEYS.shopEnabled, TTB_SETTING_KEYS.callsEnabled]
 
 const ZERO_COUNTS = { prompts: 0, paid: 0, delivered: 0 }
 const ZERO_SERVICES = { data: ZERO_COUNTS, airtime: ZERO_COUNTS, results_checker: ZERO_COUNTS }
