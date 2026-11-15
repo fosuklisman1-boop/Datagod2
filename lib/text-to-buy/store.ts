@@ -767,6 +767,53 @@ export function serviceCountsToday(db: SupabaseClient, from: Date): Promise<Reco
   return serviceCounts(db, "main", from)
 }
 
+// ---- Missed-call log (migration 0181) -------------------------------------------------------------------------------------
+
+export type CallOutcome =
+  | "replied_main" | "replied_shop" | "replied_support"
+  | "skipped_duplicate" | "skipped_cap" | "skipped_off" | "skipped_invalid" | "skipped_blocked" | "skipped_stale"
+  | "error"
+
+const REPLIED_OUTCOMES: CallOutcome[] = ["replied_main", "replied_shop", "replied_support"]
+const SKIPPED_OUTCOMES: CallOutcome[] = ["skipped_duplicate", "skipped_cap", "skipped_off", "skipped_invalid", "skipped_blocked", "skipped_stale"]
+
+/** One row per missed call handled or skipped. Throws a fixed TtbStoreError (never the database text, which can echo the sender). */
+export async function logCall(db: SupabaseClient, c: { line: Line; sender: string; shopId: string | null; outcome: CallOutcome }): Promise<void> {
+  const { error } = await db.from("ttb_calls").insert({ line: c.line, sender: c.sender, shop_id: c.shopId, outcome: c.outcome })
+  if (error) throw new TtbStoreError("could not log a call")
+}
+
+/** Calls of a line answered (outcome replied_*) in the hour before now: the input of the hourly reply cap. Count query only. */
+export async function repliedCallsLastHour(db: SupabaseClient, line: Line, now: Date = new Date()): Promise<number> {
+  const since = new Date(now.getTime() - 60 * 60_000)
+  const { count, error } = await db
+    .from("ttb_calls")
+    .select("id", { count: "exact", head: true })
+    .eq("line", line)
+    .in("outcome", REPLIED_OUTCOMES)
+    .gte("created_at", since.toISOString())
+  if (error || typeof count !== "number" || !Number.isFinite(count)) throw new TtbStoreError("could not read the call count")
+  return count
+}
+
+/** Per line, calls answered and calls skipped since 00:00 Accra. Counts only: no sender or shop value ever leaves this function. */
+export async function callCountsToday(db: SupabaseClient, now: Date = new Date()): Promise<Record<Line, { replied: number; skipped: number }>> {
+  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) // Africa/Accra is UTC all year
+  const count = async (line: Line, outcomes: CallOutcome[]): Promise<number> => {
+    const { count: n, error } = await db
+      .from("ttb_calls")
+      .select("id", { count: "exact", head: true })
+      .eq("line", line)
+      .in("outcome", outcomes)
+      .gte("created_at", from.toISOString())
+    if (error || typeof n !== "number" || !Number.isFinite(n)) throw new TtbStoreError("could not read the call counts")
+    return n
+  }
+  const one = async (line: Line) => ({ replied: await count(line, REPLIED_OUTCOMES), skipped: await count(line, SKIPPED_OUTCOMES) })
+  const [main, shop] = await Promise.all([one("main"), one("shop")])
+  return { main, shop }
+}
+
 // ---- Shop line (Stage 3a, migration 0180) ---------------------------------------------------------------------------------
 
 /** The shop this sender last used on the shop line, or null. */

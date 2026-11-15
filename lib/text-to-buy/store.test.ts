@@ -7,6 +7,7 @@ import {
   watchedLinks, addNotice, patchLink, strandedInbound, getHeartbeat, purgeOld,
   claimInbound, linkByOrderId, closeStaleLinks, getInboundOutcome, latestOrderLink, orderRowFor,
   getShopPref, setShopPref, lastBoughtShopCodeId, noticeOnce,
+  logCall, repliedCallsLastHour, callCountsToday,
 } from "./store"
 import { orderTableFor, isKnownOrderPair } from "./types"
 
@@ -811,5 +812,76 @@ describe("Stage 2 plumbing: links carry the service and the order table", () => 
     const { c } = mk({ ttb_orders: [row] })
     expect(await latestOrderLink(c, "main", S)).toMatchObject({ service: "data", orderTable: "ussd_orders" })
     expect((await watchedLinks(c, now, 10))[0]).toMatchObject({ service: "data", orderTable: "ussd_orders" })
+  })
+})
+
+describe("missed-call log (migration 0181)", () => {
+  const SHOP = "5c0e0000-0000-4000-8000-00000000000a"
+  const T = new Date("2026-11-15T12:00:00Z")
+  const ago = (ms: number) => new Date(T.getTime() - ms).toISOString()
+  const call = (line: string, outcome: string, createdAt: string, sender = S) => ({ id: crypto.randomUUID(), line, sender, shop_id: null, outcome, created_at: createdAt })
+
+  it("logCall inserts one row with the line, sender, shop and outcome", async () => {
+    const { db, c } = mk()
+    await logCall(c, { line: "shop", sender: S, shopId: SHOP, outcome: "replied_shop" })
+    await logCall(c, { line: "main", sender: S, shopId: null, outcome: "skipped_cap" })
+    expect(db.tables.ttb_calls).toHaveLength(2)
+    expect(db.tables.ttb_calls[0]).toMatchObject({ line: "shop", sender: S, shop_id: SHOP, outcome: "replied_shop" })
+    expect(db.tables.ttb_calls[1]).toMatchObject({ line: "main", shop_id: null, outcome: "skipped_cap" })
+  })
+
+  it("logCall throws a fixed TtbStoreError that never echoes the sender", async () => {
+    const { db, c } = mk()
+    db.failInsert.ttb_calls = { message: `leak ${S}` }
+    const e = await logCall(c, { line: "main", sender: S, shopId: null, outcome: "error" }).catch((x) => x)
+    expect(e).toBeInstanceOf(TtbStoreError)
+    expect(String(e.message)).not.toContain(S)
+  })
+
+  it("repliedCallsLastHour counts only replied_* rows of that line inside the last hour", async () => {
+    const { c } = mk({
+      ttb_calls: [
+        call("main", "replied_main", ago(60_000)),
+        call("main", "replied_support", ago(59 * 60_000)),
+        call("main", "replied_main", ago(61 * 60_000)), // too old
+        call("main", "skipped_cap", ago(60_000)), // not a reply
+        call("main", "error", ago(60_000)),
+        call("shop", "replied_shop", ago(60_000)), // other line
+      ],
+    })
+    expect(await repliedCallsLastHour(c, "main", T)).toBe(2)
+    expect(await repliedCallsLastHour(c, "shop", T)).toBe(1)
+  })
+
+  it("repliedCallsLastHour throws a fixed TtbStoreError on a read error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_calls = { message: `leak ${S}` }
+    const e = await repliedCallsLastHour(c, "main", T).catch((x) => x)
+    expect(e).toBeInstanceOf(TtbStoreError)
+    expect(String(e.message)).not.toContain(S)
+  })
+
+  it("callCountsToday returns replied and skipped counts per line since 00:00 Accra, and no sender values", async () => {
+    const { c } = mk({
+      ttb_calls: [
+        call("main", "replied_main", "2026-11-15T08:00:00.000Z"),
+        call("main", "replied_support", "2026-11-15T09:00:00.000Z"),
+        call("main", "skipped_duplicate", "2026-11-15T09:30:00.000Z"),
+        call("main", "replied_main", "2026-11-14T23:59:00.000Z"), // yesterday
+        call("shop", "skipped_off", "2026-11-15T10:00:00.000Z"),
+        call("shop", "error", "2026-11-15T10:00:00.000Z"), // neither replied nor skipped
+      ],
+    })
+    const r = await callCountsToday(c, T)
+    expect(r).toEqual({ main: { replied: 2, skipped: 1 }, shop: { replied: 0, skipped: 1 } })
+    expect(JSON.stringify(r)).not.toContain(S)
+  })
+
+  it("callCountsToday throws a fixed TtbStoreError on a read error", async () => {
+    const { db, c } = mk()
+    db.failOn.ttb_calls = { message: `leak ${S}` }
+    const e = await callCountsToday(c, T).catch((x) => x)
+    expect(e).toBeInstanceOf(TtbStoreError)
+    expect(String(e.message)).not.toContain(S)
   })
 })

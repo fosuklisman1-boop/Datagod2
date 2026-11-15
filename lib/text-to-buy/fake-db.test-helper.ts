@@ -19,6 +19,8 @@ export const SCHEMA: Record<string, string[]> = {
   user_shops: ["id", "shop_name", "ussd_display_name"],
   // Migration 0180: one credit set-aside per order message. service_role may only SELECT it (rows change through the SQL functions).
   ttb_credit_reserves: ["message_id", "account_id", "shop_id", "held", "used", "released_at", "created_at"],
+  // Migration 0181: one row per missed call handled (or skipped) by the call-support SMS. service_role: SELECT and INSERT only.
+  ttb_calls: ["id", "line", "sender", "shop_id", "outcome", "created_at"],
   ttb_blocked: ["sender", "reason", "blocked_by", "created_at"],
   ttb_heartbeat: ["line", "last_seen_at"],
   // Not a 0177 table: the existing USSD order table, only the columns the Text-to-Buy lane reads or guards.
@@ -127,6 +129,11 @@ export function makeFakeTtb(seed: Record<string, Row[]> = {}): { db: FakeTtb; cl
         checkRow(payload as Row)
         const row: Row = { ...(payload as Row) }
         if ((table === "ttb_messages" || table === "ttb_orders") && row.id === undefined) row.id = crypto.randomUUID()
+        if (table === "ttb_calls") {
+          if (row.id === undefined) row.id = crypto.randomUUID()
+          if (row.shop_id === undefined) row.shop_id = null
+          if (row.created_at === undefined) row.created_at = new Date().toISOString()
+        }
         if (table === "ttb_orders") {
           for (const [k, v] of Object.entries({ state: "awaiting_payment", service: "data", order_table: "ussd_orders", notices: [] })) {
             if (row[k] === undefined) row[k] = v
