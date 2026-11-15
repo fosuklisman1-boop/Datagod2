@@ -30,11 +30,11 @@ const TEXT_SWITCHES: { field: TextSwitch; service: string; from: string; hint: s
   },
   {
     field: "callsEnabled", service: "missed calls", from: "the main and shop numbers",
-    hint: "Sends a text to people who miss-call the main or shop number, with how to order or get support. Capped per line per hour below. Shop-number callers are told it is also the support phone.",
-    confirmText: "This sends a text to people who miss-call the main number or the shop number. Each text costs SMS credit. Do a supervised test call first.",
+    hint: "Texts people who miss-call the main or shop number: the support WhatsApp line, or their shop owner's number (1 shop credit).",
+    confirmText: "This texts people who miss-call the main number or the shop number: the support WhatsApp line, or their shop owner's number (1 shop credit). Do a supervised test call first.",
   },
 ]
-type Form ={ mainNumber: string; shopNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean } & Record<IntField, string>
+type Form = {mainNumber: string; shopNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean } & Record<IntField, string>
 
 // Ranges mirror lib/text-to-buy/admin-validate.ts. The server is the authority; these are helper text.
 const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] = [
