@@ -27,6 +27,7 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
   const shop = data.overview.shop
   const shopQuiet = isQuiet(shop.lastHeardAt, now, data.settings.quietAlertMinutes)
   const paused = data.pausedShops ?? []
+  const calls = data.calls ?? { enabled: data.settings.callsEnabled ?? false, today: { main: { replied: 0, skipped: 0 }, shop: { replied: 0, skipped: 0 } } }
   const unreadable = data.settingsDefaulted
   const serviceRows = [
     { key: "data", label: "Data", on: data.settings.mainEnabled },
@@ -239,6 +240,30 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-base">Missed calls today</CardTitle>
+            <Badge variant={calls.enabled ? "default" : "secondary"}>{calls.enabled ? "On" : "Off"}</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(["main", "shop"] as const).map((l) => (
+              <div key={l} className="rounded-lg border p-3">
+                <div className="mb-1 text-xs font-medium text-muted-foreground">{l === "main" ? "Main number" : "Shop number"}</div>
+                <p className="tabular-nums">
+                  <span className="text-xl font-semibold">{calls.today[l].replied}</span> replied
+                  <span className="mx-2 text-muted-foreground">·</span>
+                  <span className="text-xl font-semibold">{calls.today[l].skipped}</span> skipped
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">The shop number is also the public support phone.</p>
+        </CardContent>
+      </Card>
 
       <Dialog open={pendingShop !== null} onOpenChange={(o) => !o && !busy && setPendingShop(null)}>
         <DialogContent className="sm:max-w-md">

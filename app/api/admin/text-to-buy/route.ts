@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server"
 import { loadTtbSettings, TTB_SETTING_KEYS, type TtbSettingField, type TtbSettingKey, type TtbSettings } from "@/lib/text-to-buy/settings"
 import { normaliseSender, validateTtbSettings } from "@/lib/text-to-buy/admin-validate"
-import { buildOverview, SMS_RATE_GHS, startOfTodayAccra, UUID_RE, type PausedShop } from "@/lib/text-to-buy/admin-view"
+import { buildCallsOverview, buildOverview, SMS_RATE_GHS, startOfTodayAccra, UUID_RE, type PausedShop } from "@/lib/text-to-buy/admin-view"
 import { shopSecretDistinct } from "@/lib/text-to-buy/forward-secrets"
-import { blockSender, getHeartbeat, markMisread, overviewRows, pausedShopsToday, saveSettingRows, serviceCounts, unblockSender } from "@/lib/text-to-buy/store"
+import { blockSender, callCountsToday, getHeartbeat, markMisread, overviewRows, pausedShopsToday, saveSettingRows, serviceCounts, unblockSender } from "@/lib/text-to-buy/store"
 import { fail, gate, isResponse, json, logError, readObject } from "@/lib/text-to-buy/admin-http"
 import { notifyTextToBuyAdmins } from "@/lib/admin-actions/text-to-buy"
 
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
         logError(label, err)
         return fallback
       })
-    const [settings, rows, main, shop, services, shopServices, pausedShops] = await Promise.all([
+    const [settings, rows, main, shop, services, shopServices, pausedShops, callCounts] = await Promise.all([
       loadTtbSettings(db),
       overviewRows(db, from),
       getHeartbeat(db, "main"),
@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
       secondary("service_counts", serviceCounts(db, "main", from), ZERO_SERVICES),
       secondary("shop_service_counts", serviceCounts(db, "shop", from), ZERO_SERVICES),
       secondary("paused_shops", pausedShopsToday(db, from.toISOString().slice(0, 10)), [] as PausedShop[]),
+      secondary("call_counts", callCountsToday(db, now), null),
     ])
     return json({
       settingsDefaulted: settings.source === "defaults",
@@ -61,6 +62,7 @@ export async function GET(request: NextRequest) {
       services,
       shopServices,
       pausedShops,
+      calls: buildCallsOverview(settings.callsEnabled, callCounts),
       shopSecretDistinct: shopSecretDistinct(process.env),
     })
   } catch (err) {

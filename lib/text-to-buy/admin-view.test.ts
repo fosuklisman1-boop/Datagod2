@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  encodeCursor, decodeCursor, isLine, isOutcome, OUTCOMES, startOfTodayAccra, buildOverview, shapePausedShops, toAdminMessage, SMS_RATE_GHS,
+  encodeCursor, decodeCursor, isLine, isOutcome, OUTCOMES, startOfTodayAccra, buildOverview, buildCallsOverview, shapePausedShops, toAdminMessage, SMS_RATE_GHS,
 } from "./admin-view"
 
 const ID = "00000000-0000-4000-8000-000000000001"
@@ -73,6 +73,22 @@ describe("buildOverview shop card", () => {
       today: { texts: 3, prompts: 2, paid: 1, delivered: 1, replies: 10, aiReads: 0, ruleReads: 3 }, smsCostGhs: 0.243,
     })
     expect(o.main.enabled).toBe(false)
+  })
+})
+
+describe("buildCallsOverview", () => {
+  it("carries the switch and the two counts per line, nothing else", () => {
+    const out = buildCallsOverview(true, {
+      main: { replied: 3, skipped: 1, sender: "0200000101" } as { replied: number; skipped: number },
+      shop: { replied: 0, skipped: 2 },
+    })
+    expect(out).toEqual({ enabled: true, today: { main: { replied: 3, skipped: 1 }, shop: { replied: 0, skipped: 2 } } })
+    expect(JSON.stringify(out)).not.toContain("0200000101")
+  })
+  it("falls back to zeros when the counts are missing or not finite numbers", () => {
+    const zero = { enabled: false, today: { main: { replied: 0, skipped: 0 }, shop: { replied: 0, skipped: 0 } } }
+    expect(buildCallsOverview(false, null)).toEqual(zero)
+    expect(buildCallsOverview(false, { main: { replied: Number.NaN, skipped: -1 }, shop: { replied: "x", skipped: null } } as never)).toEqual(zero)
   })
 })
 

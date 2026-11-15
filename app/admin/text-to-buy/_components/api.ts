@@ -54,7 +54,12 @@ export type Settings = {
   shopEnabled: boolean
   shopNumber: string
   shopRepliesPerHourPerShop: number
+  callsEnabled: boolean
+  callsPerHourPerLine: number
 }
+
+export type CallCounts = { replied: number; skipped: number }
+export type CallsOverview = { enabled: boolean; today: Record<"main" | "shop", CallCounts> }
 
 export type ServiceCounts = Record<"data" | "airtime" | "results_checker", { prompts: number; paid: number; delivered: number }>
 export type PausedShop = { shopId: string; name: string; count: number }
@@ -75,6 +80,7 @@ export type OverviewResponse = {
   services: ServiceCounts
   shopServices?: ServiceCounts
   pausedShops?: PausedShop[]
+  calls?: CallsOverview
   shopSecretDistinct?: boolean
 }
 

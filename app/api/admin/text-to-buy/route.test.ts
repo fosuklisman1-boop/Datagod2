@@ -194,6 +194,24 @@ describe("GET overview, shop line", () => {
     const zero = { prompts: 0, paid: 0, delivered: 0 }
     expect(body.shopServices).toEqual({ data: zero, airtime: zero, results_checker: zero })
   })
+  it("calls: the switch and today's replied/skipped counts per line, counts only, zeros when the read fails", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-13T15:30:00Z"))
+    world([setting("ttb_calls_enabled", true)])
+    fake.db.tables.ttb_calls.push(
+      { id: id(41), line: "main", sender: SENDER, shop_id: null, outcome: "replied_main", created_at: "2026-11-13T10:00:00.000Z" },
+      { id: id(42), line: "shop", sender: SENDER, shop_id: null, outcome: "skipped_off", created_at: "2026-11-13T10:00:00.000Z" },
+    )
+    const raw = await (await GET(req("GET"))).text()
+    expect(JSON.parse(raw).calls).toEqual({ enabled: true, today: { main: { replied: 1, skipped: 0 }, shop: { replied: 0, skipped: 1 } } })
+    expect(raw).not.toContain(SENDER)
+
+    fake.db.failOn.ttb_calls = { message: `db down ${SENDER}` }
+    const res = await GET(req("GET"))
+    expect(res.status).toBe(200)
+    expect((await res.json()).calls).toEqual({ enabled: true, today: { main: { replied: 0, skipped: 0 }, shop: { replied: 0, skipped: 0 } } })
+    expect(consoleText()).not.toContain(SENDER)
+  })
   it("pausedShops lists today's paused shops with id, name and count, and no phone or sender anywhere", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     vi.setSystemTime(new Date("2026-11-13T15:30:00Z"))
@@ -339,6 +357,18 @@ describe("PUT settings", () => {
     expect(res.status).toBe(200)
     expect(settingsRows()).toEqual([])
     expect(notifyMock).not.toHaveBeenCalled()
+  })
+  it("callsPerHourPerLine saves within 5..500 and refuses anything else, writing nothing", async () => {
+    const ok = await PUT(req("PUT", { callsPerHourPerLine: 120 }))
+    expect(ok.status).toBe(200)
+    expect(settingsRows()).toEqual([expect.objectContaining({ key: "ttb_calls_per_hour_per_line", value: { value: 120 } })])
+    world()
+    for (const v of [4, 501, "60", 1.5]) {
+      const res = await PUT(req("PUT", { callsPerHourPerLine: v }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe("invalid_callsPerHourPerLine")
+    }
+    expect(settingsRows()).toEqual([])
   })
   it("an empty patch is a no-op", async () => {
     expect((await PUT(req("PUT", {}))).status).toBe(200)

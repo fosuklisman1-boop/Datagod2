@@ -148,4 +148,6 @@ export const FIELD_LABELS: Record<string, string> = {
   shopEnabled: "Shop line enabled",
   shopNumber: "Shop number",
   shopRepliesPerHourPerShop: "Replies per hour per shop",
+  callsEnabled: "Missed-call texts",
+  callsPerHourPerLine: "Missed-call texts per hour per line",
 }

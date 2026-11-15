@@ -11,11 +11,11 @@ import { Switch } from "@/components/ui/switch"
 import { adminFetch, ApiError, TTB_API, type Settings } from "./api"
 import { FIELD_LABELS, ttbErrorMessage } from "./format"
 
-type TextSwitch = "airtimeEnabled" | "resultsCheckerEnabled" | "shopEnabled"
+type TextSwitch = "airtimeEnabled" | "resultsCheckerEnabled" | "shopEnabled" | "callsEnabled"
 type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "shopNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled" | "unclearRepliesEnabled" | TextSwitch>
 
 // The text switches save on their own (turning one on needs the confirm dialog), so they are not part of Form.
-const TEXT_SWITCHES: { field: TextSwitch; service: string; from: string; hint: string }[] = [
+const TEXT_SWITCHES: { field: TextSwitch; service: string; from: string; hint: string; confirmText?: string }[] = [
   {
     field: "airtimeEnabled", service: "airtime", from: "the main number",
     hint: "Customers text e.g. airtime 10. Uses the airtime fees, limits and per-network switches; a network off there stays off here.",
@@ -28,8 +28,13 @@ const TEXT_SWITCHES: { field: TextSwitch; service: string; from: string; hint: s
     field: "shopEnabled", service: "shop data", from: "the shop number",
     hint: "Customers text a shop code and a size to the shop number. Each shop pays for its own replies from its SMS credits. Needs the shop number below and a distinct shop forwarder secret.",
   },
+  {
+    field: "callsEnabled", service: "missed calls", from: "the main and shop numbers",
+    hint: "Sends a text to people who miss-call the main or shop number, with how to order or get support. Capped per line per hour below. Shop-number callers are told it is also the support phone.",
+    confirmText: "This sends a text to people who miss-call the main number or the shop number. Each text costs SMS credit. Do a supervised test call first.",
+  },
 ]
-type Form = { mainNumber: string; shopNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean } & Record<IntField, string>
+type Form ={ mainNumber: string; shopNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean } & Record<IntField, string>
 
 // Ranges mirror lib/text-to-buy/admin-validate.ts. The server is the authority; these are helper text.
 const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] = [
@@ -46,6 +51,7 @@ const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] 
     hint: "Stops help replies, questions and price lists once this many replies went out in the last hour. Order quotes and payment notices are never stopped.",
   },
   { field: "shopRepliesPerHourPerShop", min: 5, max: 1000, hint: "Replies per hour to one shop's customers on the shop line. At the cap that shop goes quiet." },
+  { field: "callsPerHourPerLine", min: 5, max: 500, hint: "Missed-call texts per hour on each of the main and shop numbers. At the cap further calls get no text." },
 ]
 
 const SENDER_ID_HINT =
@@ -55,6 +61,7 @@ const toForm = (s: Settings): Form => ({
   mainNumber: s.mainNumber,
   shopNumber: s.shopNumber,
   shopRepliesPerHourPerShop: String(s.shopRepliesPerHourPerShop),
+  callsPerHourPerLine: String(s.callsPerHourPerLine),
   replySenderId: s.replySenderId,
   shopReplySenderId: s.shopReplySenderId,
   aiEnabled: s.aiEnabled,
@@ -240,7 +247,7 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
           <DialogHeader>
             <DialogTitle>Turn on {pendingSwitch ? FIELD_LABELS[pendingSwitch] : ""}?</DialogTitle>
             <DialogDescription>
-              Customers can buy {pendingInfo?.service} by text from {pendingInfo?.from}. Do a supervised paid test first.
+              {pendingInfo?.confirmText ?? `Customers can buy ${pendingInfo?.service} by text from ${pendingInfo?.from}. Do a supervised paid test first.`}
             </DialogDescription>
           </DialogHeader>
           {switchError && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{switchError}</p>}

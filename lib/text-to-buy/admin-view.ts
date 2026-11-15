@@ -107,7 +107,18 @@ export function buildOverview(
   return { main: line("main", main.enabled, main.number), shop: line("shop", shop.enabled, shop.number) }
 }
 
-export type PausedShop = { shopId: string; name: string; count: number }
+export type CallCounts = { replied: number; skipped: number }
+export type CallsOverview = { enabled: boolean; today: Record<Line, CallCounts> }
+
+const count = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : 0)
+
+/** The missed-call card: the switch and today's two counts per line. Counts only; anything else on the input is dropped. */
+export function buildCallsOverview(enabled: boolean, counts: Partial<Record<Line, Partial<CallCounts>>> | null): CallsOverview {
+  const one = (l: Line): CallCounts => ({ replied: count(counts?.[l]?.replied), skipped: count(counts?.[l]?.skipped) })
+  return { enabled, today: { main: one("main"), shop: one("shop") } }
+}
+
+export type PausedShop ={ shopId: string; name: string; count: number }
 
 /**
  * Today's "paused" notices to a list of shops: ids, display names and counts ONLY (never a sender or any phone).
