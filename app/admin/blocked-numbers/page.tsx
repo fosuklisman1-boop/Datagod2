@@ -107,6 +107,7 @@ export default function BlockedNumbersPage() {
   const [supplierOpen, setSupplierOpen] = useState(false)
   const [supplier, setSupplier] = useState("")
   const [mark, setMark] = useState(false)
+  const [unsubmitted, setUnsubmitted] = useState(true)
 
   const filterParams = useMemo(() => {
     const p = new URLSearchParams()
@@ -214,6 +215,9 @@ export default function BlockedNumbersPage() {
       const marked = res.headers.get("X-Marked-Count")
       triggerBlobDownload(await res.blob(), fallbackName)
       if (marked && Number(marked) > 0) toast.success(`Marked ${marked} numbers as submitted`)
+      if (res.headers.get("X-Truncated") === "1") {
+        toast.warning("Export stopped at 10,000 rows. Run it again (with 'only not yet submitted' on) for the rest.")
+      }
       return true
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Export failed")
@@ -228,6 +232,7 @@ export default function BlockedNumbersPage() {
   const exportSupplier = async () => {
     const p = new URLSearchParams({ kind: "supplier", supplier })
     if (mark) p.set("mark", "1")
+    if (unsubmitted) p.set("unsubmitted", "1")
     const ok = await download(`/api/admin/blocked-numbers/export?${p}`, "blocked-mtn-numbers.xlsx", "supplier")
     if (ok) {
       setSupplierOpen(false)
@@ -471,6 +476,10 @@ export default function BlockedNumbersPage() {
             {(data?.suppliers ?? []).length === 0 && <option value="">No checkout providers configured</option>}
             {(data?.suppliers ?? []).map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={unsubmitted} onChange={(e) => setUnsubmitted(e.target.checked)} />
+            Only numbers not yet submitted to any supplier
+          </label>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={mark} onChange={(e) => setMark(e.target.checked)} />
             Mark these numbers as submitted to {supplier || "the supplier"}

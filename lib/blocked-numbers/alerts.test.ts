@@ -142,14 +142,86 @@ describe("sendDailyDigest", () => {
     const email = vi.fn(async () => {})
     const push = vi.fn(async () => ({}))
     const loadStats = vi.fn(async () => ({ ...STATS, unchecked: 0, deferred: 0 }))
+    const stampDigestDay = vi.fn(async () => {})
     const sent = await sendDailyDigest(
       { unchecked: 3, deferred: 1 },
-      { now: () => NOW, loadStats, notifyEmail: email, notifyPush: push }
+      { now: () => NOW, loadStats, notifyEmail: email, notifyPush: push, getLastDigestDay: async () => null, stampDigestDay }
     )
     expect(sent).toBe(true)
+    expect(stampDigestDay).toHaveBeenCalledWith("2026-11-15", NOW.toISOString())
     expect(loadStats).toHaveBeenCalledWith("2026-11-15T00:00:00.000Z", "2026-11-16T00:00:00.000Z")
     const html = (email.mock.calls[0] as unknown as [string, string])[1]
     expect(html).toMatch(/deferred/i)
     expect(push).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("daily digest once-per-day guard", () => {
+  it("skips when the previous day is already stamped", async () => {
+    const email = vi.fn(async () => {})
+    const loadStats = vi.fn(async () => STATS)
+    const sent = await sendDailyDigest(
+      { unchecked: 0, deferred: 0 },
+      { now: () => NOW, loadStats, notifyEmail: email, notifyPush: async () => ({}), getLastDigestDay: async () => "2026-11-15", stampDigestDay: async () => {} }
+    )
+    expect(sent).toBe(false)
+    expect(email).not.toHaveBeenCalled()
+    expect(loadStats).not.toHaveBeenCalled()
+  })
+
+  it("sends when the stamp is an older day, and does not stamp when both channels fail", async () => {
+    const stamp = vi.fn(async () => {})
+    const sent = await sendDailyDigest(
+      { unchecked: 0, deferred: 0 },
+      {
+        now: () => NOW,
+        loadStats: async () => STATS,
+        notifyEmail: async () => { throw new Error("x") },
+        notifyPush: async () => { throw new Error("y") },
+        getLastDigestDay: async () => "2026-11-14",
+        stampDigestDay: stamp,
+      }
+    )
+    expect(sent).toBe(false)
+    expect(stamp).not.toHaveBeenCalled()
+  })
+})
+
+describe("readRecentPhones paging", () => {
+  const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ phone: `024${String(i).padStart(7, "0")}` }))
+  const fakeDb = (all: Array<{ phone: string }>) => {
+    const ranges: Array<[number, number]> = []
+    return {
+      ranges,
+      db: {
+        from() {
+          let r: [number, number] = [0, 0]
+          const b: Record<string, unknown> = {}
+          for (const m of ["select", "gte", "order"]) b[m] = () => b
+          b.range = (a: number, z: number) => { r = [a, z]; ranges.push(r); return b }
+          b.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: all.slice(r[0], r[1] + 1), error: null }).then(res)
+          return b
+        },
+      },
+    }
+  }
+
+  it("1300 distinct phones over 2 pages with threshold 1200 fires", async () => {
+    const { readRecentPhones } = await import("./alerts")
+    const f = fakeDb(mk(1300))
+    const { deps, email } = spikeDeps({
+      settings: async () => ({ ...DEFAULT_BLOCKED_SETTINGS, enabled: true, spike_threshold_per_hour: 1200 }),
+      recentPhones: (since, stop) => readRecentPhones(f.db, since, stop),
+    })
+    expect(await maybeSendSpikeAlert(deps)).toBe(true)
+    expect(f.ranges).toEqual([[0, 999], [1000, 1999]])
+    expect(email).toHaveBeenCalledTimes(1)
+  })
+
+  it("stops early once the distinct count already exceeds the threshold", async () => {
+    const { readRecentPhones } = await import("./alerts")
+    const f = fakeDb(mk(5000))
+    await readRecentPhones(f.db, "x", 25)
+    expect(f.ranges).toHaveLength(1)
   })
 })

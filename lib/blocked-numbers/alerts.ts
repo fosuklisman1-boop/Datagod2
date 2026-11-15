@@ -9,7 +9,8 @@ import { getBlockedNumbersSettings, type BlockedNumbersSettings } from "./settin
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
 const SPIKE_COOLDOWN_MS = 6 * HOUR_MS
-const SPIKE_READ_LIMIT = 5000
+const SPIKE_MAX_PAGES = 10
+const DIGEST_STAMP_KEY = "blocked_numbers_last_digest_day"
 const DIGEST_READ_LIMIT = 50_000
 const PAGE = 1000
 const SPIKE_STAMP_KEY = "blocked_numbers_last_spike_alert_at"
@@ -81,6 +82,29 @@ export type DigestDeps = {
   loadStats(startIso: string, endIso: string): Promise<Omit<DigestStats, "unchecked" | "deferred"> & Partial<DigestStats>>
   notifyEmail(subject: string, html: string): Promise<void>
   notifyPush(p: PushPayload): Promise<unknown>
+  /** UTC date (YYYY-MM-DD) of the last digest sent, or null. */
+  getLastDigestDay(): Promise<string | null>
+  stampDigestDay(day: string, nowIso: string): Promise<void>
+}
+
+async function getLastDigestDayFromDb(): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.from("admin_settings").select("value").eq("key", DIGEST_STAMP_KEY).maybeSingle()
+  if (error) throw new Error(`digest stamp read failed: ${error.code ?? "db"}`)
+  const day = (data?.value as { day?: unknown } | null | undefined)?.day
+  return typeof day === "string" ? day : null
+}
+
+async function stampDigestDayInDb(day: string, nowIso: string): Promise<void> {
+  const { error } = await supabaseAdmin.from("admin_settings").upsert(
+    {
+      key: DIGEST_STAMP_KEY,
+      value: { day },
+      description: "Blocked MTN numbers: the UTC day the last daily digest covered (one digest per day).",
+      updated_at: nowIso,
+    },
+    { onConflict: "key" }
+  )
+  if (error) throw new Error(`digest stamp write failed: ${error.code ?? "db"}`)
 }
 
 async function countRows(table: string, build: (q: any) => any): Promise<number> {
@@ -129,6 +153,9 @@ export async function sendDailyDigest(
 ): Promise<boolean> {
   const now = (deps?.now ?? (() => new Date()))()
   const win = previousUtcDay(now)
+  // Once per UTC day: a second cron run the same day does not re-send.
+  const lastDay = await (deps?.getLastDigestDay ?? getLastDigestDayFromDb)()
+  if (lastDay === win.day) return false
   const loadStats = deps?.loadStats ?? loadStatsFromDb
   const stats = await loadStats(win.startIso, win.endIso)
   const digest = buildDigest({ ...stats, day: win.day, unchecked: run.unchecked, deferred: run.deferred })
@@ -140,7 +167,13 @@ export async function sendDailyDigest(
   ])
   const failed = results.filter((r) => r.status === "rejected").length
   if (failed > 0) console.error(`[BLOCKED-DIGEST] ${failed} of 2 channels failed`)
-  return failed < 2
+  if (failed >= 2) return false
+  try {
+    await (deps?.stampDigestDay ?? stampDigestDayInDb)(win.day, now.toISOString())
+  } catch (err) {
+    console.error("[BLOCKED-DIGEST] stamp failed:", err instanceof Error ? err.name : "UnknownError")
+  }
+  return true
 }
 
 // ---------------------------------------------------------------------------------------------- spike alert
@@ -148,12 +181,44 @@ export async function sendDailyDigest(
 export type SpikeDeps = {
   settings(): Promise<BlockedNumbersSettings>
   now(): Date
-  /** Phones of attempts since the ISO time (may repeat; the caller dedupes). */
-  recentPhones(sinceIso: string): Promise<string[]>
+  /** Phones of attempts since the ISO time. May stop early once more than `stopAfterDistinct` distinct phones are seen. */
+  recentPhones(sinceIso: string, stopAfterDistinct?: number): Promise<string[]>
   getLastAlertAt(): Promise<string | null>
   stampAlert(iso: string): Promise<void>
   notifyEmail(subject: string, html: string): Promise<void>
   notifyPush(p: PushPayload): Promise<unknown>
+}
+
+/**
+ * Bounded paged read (1000-row pages, newest first, max 10 pages, ~400 ms budget). Stops as soon as the distinct
+ * count exceeds `stopAfterDistinct` (the alert fires anyway), so a cut-off read can only under-count, never over-count.
+ */
+export async function readRecentPhones(
+  db: { from(t: string): any },
+  sinceIso: string,
+  stopAfterDistinct = Number.POSITIVE_INFINITY,
+  budgetMs = 400
+): Promise<string[]> {
+  const started = Date.now()
+  const out: string[] = []
+  const distinct = new Set<string>()
+  for (let page = 0; page < SPIKE_MAX_PAGES; page++) {
+    const { data, error } = await db
+      .from("mtn_blocked_attempts")
+      .select("phone")
+      .gte("created_at", sinceIso)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(page * PAGE, page * PAGE + PAGE - 1)
+    if (error) throw new Error(`spike read failed: ${error.code ?? "db"}`)
+    const rows = (data ?? []) as Array<{ phone: string }>
+    for (const r of rows) {
+      out.push(r.phone)
+      distinct.add(r.phone)
+    }
+    if (rows.length < PAGE || distinct.size > stopAfterDistinct || Date.now() - started > budgetMs) break
+  }
+  return out
 }
 
 async function defaultSpikeDeps(): Promise<SpikeDeps> {
@@ -161,15 +226,7 @@ async function defaultSpikeDeps(): Promise<SpikeDeps> {
   return {
     settings: () => getBlockedNumbersSettings(),
     now: () => new Date(),
-    async recentPhones(sinceIso) {
-      const { data, error } = await supabaseAdmin
-        .from("mtn_blocked_attempts")
-        .select("phone")
-        .gte("created_at", sinceIso)
-        .limit(SPIKE_READ_LIMIT)
-      if (error) throw new Error(`spike read failed: ${error.code ?? "db"}`)
-      return ((data ?? []) as Array<{ phone: string }>).map((r) => r.phone)
-    },
+    recentPhones: (sinceIso, stopAfterDistinct) => readRecentPhones(supabaseAdmin, sinceIso, stopAfterDistinct),
     async getLastAlertAt() {
       const { data, error } = await supabaseAdmin.from("admin_settings").select("value").eq("key", SPIKE_STAMP_KEY).maybeSingle()
       if (error) throw new Error(`spike stamp read failed: ${error.code ?? "db"}`)
@@ -202,7 +259,7 @@ export async function maybeSendSpikeAlert(deps?: SpikeDeps): Promise<boolean> {
   const settings = await d.settings()
   if (!settings.enabled) return false
   const now = d.now()
-  const phones = await d.recentPhones(new Date(now.getTime() - HOUR_MS).toISOString())
+  const phones = await d.recentPhones(new Date(now.getTime() - HOUR_MS).toISOString(), settings.spike_threshold_per_hour)
   const distinct = new Set(phones).size
   if (distinct <= settings.spike_threshold_per_hour) return false
 

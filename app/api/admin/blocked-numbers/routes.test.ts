@@ -158,6 +158,56 @@ describe("export route", () => {
     expect(JSON.stringify(row)).not.toMatch(/\d{9,}/)
   })
 
+  const bigSet = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `id${i}`, phone: `024${String(1000000 + i).slice(-7)}` }))
+  const pagedHandler = (all: Array<{ id: string; phone: string }>) => (t: string, calls: Call[]) => {
+    if (t !== "mtn_blocked_numbers") return {}
+    if (calls.some(([m]) => m === "update")) {
+      const ids = (callArgs(calls, "in") as [string, string[]])[1]
+      return { data: ids.map((id) => ({ id })) }
+    }
+    const [a, z] = callArgs(calls, "range") as [number, number]
+    return { data: all.slice(a, z + 1) }
+  }
+
+  it("2,500 blocked rows: three range reads and 2,500 phones, all marked", async () => {
+    handler = pagedHandler(bigSet(2500))
+    const res = await exportGET(req("http://x/e?kind=supplier&supplier=kuntanii&mark=1"))
+    const wb = XLSX.read(new Uint8Array(await res.arrayBuffer()), { type: "array" })
+    expect(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])).toHaveLength(2500)
+    const reads = fake.log.filter((l) => l.table === "mtn_blocked_numbers" && l.calls.some(([m]) => m === "range"))
+    expect(reads.map((l) => callArgs(l.calls, "range"))).toEqual([[0, 999], [1000, 1999], [2000, 2999]])
+    expect(res.headers.get("X-Marked-Count")).toBe("2500")
+    expect(res.headers.get("X-Truncated")).toBeNull()
+  })
+
+  it("unsubmitted=1 excludes rows already submitted", async () => {
+    handler = pagedHandler(bigSet(3))
+    await exportGET(req("http://x/e?kind=supplier&unsubmitted=1"))
+    const read = fake.log.find((l) => l.calls.some(([m]) => m === "range"))!
+    expect(hasCall(read.calls, "is", "submitted_to_supplier", null)).toBe(true)
+    await exportGET(req("http://x/e?kind=supplier"))
+    const read2 = fake.log.filter((l) => l.calls.some(([m]) => m === "range"))[1]
+    expect(read2.calls.some(([m]) => m === "is")).toBe(false)
+  })
+
+  it("a row with an un-normalizable phone is neither exported nor marked", async () => {
+    handler = pagedHandler([{ id: "good", phone: "0241234567" }, { id: "bad", phone: "not-a-phone" }])
+    const res = await exportGET(req("http://x/e?kind=supplier&supplier=kuntanii&mark=1"))
+    const wb = XLSX.read(new Uint8Array(await res.arrayBuffer()), { type: "array" })
+    expect(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])).toEqual([{ Phone: "0241234567" }])
+    const upd = fake.log.find((l) => l.calls.some(([m]) => m === "update"))!
+    expect(hasCall(upd.calls, "in", "id", ["good"])).toBe(true)
+    expect(res.headers.get("X-Marked-Count")).toBe("1")
+  })
+
+  it("hitting the 10,000 cap sets X-Truncated", async () => {
+    handler = pagedHandler(bigSet(10_500))
+    const res = await exportGET(req("http://x/e?kind=supplier"))
+    expect(res.headers.get("X-Truncated")).toBe("1")
+    expect(res.headers.get("X-Number-Count")).toBe("10000")
+  })
+
   it("a supplier outside the checkout provider list is a 400", async () => {
     expect((await exportGET(req("http://x/e?kind=supplier&supplier=evilcorp"))).status).toBe(400)
     expect((await exportGET(req("http://x/e?kind=supplier&mark=1"))).status).toBe(400)
