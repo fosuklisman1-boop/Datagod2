@@ -23,7 +23,6 @@ const ROW_LIMIT = 300
 const CHUNK = 100
 export const OWNER_PAGE = "/dashboard/blocked-numbers"
 export const SMS_TYPE = "mtn_number_ready"
-const NETWORK_LABEL = "Yellow" // networkColor("mtn")
 
 export type NotifyRow = {
   id: string
@@ -51,6 +50,7 @@ export type NotifyContext = {
   shops?: Map<string, { name: string | null; subdomain: string | null }>
   rootDomain?: string
   mainUssdCode?: string | null
+  networkLabel?: string
 }
 
 const isSmsSurface = (s: string) => (SMS_SURFACES as readonly string[]).includes(s as BlockSurface)
@@ -150,7 +150,7 @@ function decide(
     const shop = a.shop_id ? ctx.shops?.get(a.shop_id) ?? null : null
     const text = buildNumberReadySms({
       phone: row.phone,
-      networkLabel: NETWORK_LABEL,
+      networkLabel: ctx.networkLabel ?? "Yellow",
       shopName: shop?.name ?? null,
       subdomain: shop?.subdomain ?? null,
       rootDomain,
@@ -189,12 +189,17 @@ export type NotifyDeps = {
   settings(): Promise<BlockedNumbersSettings>
   now(): Date
   rootDomain: string
+  /** networkColor("MTN"), injected so this module stays light. */
+  networkLabel: string
+  /** Epoch ms: stop starting new sends at or after this. */
+  deadlineAt?: number
+  clock?(): number
 }
 
 export type NotifyResult = { texted: number; shopNotices: number; dealerNotices: number; skipped: number; failed: number }
 
 async function defaultDeps(): Promise<NotifyDeps> {
-  const { sendSMS } = await import("@/lib/sms-service")
+  const { sendSMS, networkColor } = await import("@/lib/sms-service")
   const { sendPushToUser } = await import("@/lib/push-service")
   const { readPublicUssdCodes } = await import("@/lib/seo/ussd-codes")
   return {
@@ -213,6 +218,7 @@ async function defaultDeps(): Promise<NotifyDeps> {
     settings: () => getBlockedNumbersSettings(),
     now: () => new Date(),
     rootDomain: (process.env.NEXT_PUBLIC_ROOT_DOMAIN || "datagod.store").toLowerCase(),
+    networkLabel: networkColor("MTN"),
   }
 }
 
@@ -222,8 +228,8 @@ const chunks = <T,>(xs: T[]): T[][] => {
   return out
 }
 
-export async function runNotify(deps?: NotifyDeps): Promise<NotifyResult> {
-  const d = deps ?? (await defaultDeps())
+export async function runNotify(deps?: Partial<NotifyDeps>): Promise<NotifyResult> {
+  const d: NotifyDeps = { ...(await defaultDeps()), ...deps }
   const { db } = d
   const now = d.now()
   const nowIso = now.toISOString()
@@ -290,12 +296,12 @@ export async function runNotify(deps?: NotifyDeps): Promise<NotifyResult> {
   // Shops referenced by any attempt (names for notices, subdomains for links).
   const shopIds = new Set<string>()
   for (const list of attemptsByNumber.values()) for (const a of list) if (a.shop_id) shopIds.add(a.shop_id)
-  const shops = new Map<string, { name: string | null; subdomain: string | null; user_id: string | null }>()
+  const shops = new Map<string, { name: string | null; subdomain: string | null; user_id: string | null; usable: boolean }>()
   for (const part of chunks([...shopIds])) {
-    const { data, error } = await db.from("user_shops").select("id, user_id, shop_name, subdomain").in("id", part)
+    const { data, error } = await db.from("user_shops").select("id, user_id, shop_name, subdomain, is_active, is_blocked").in("id", part)
     if (error) throw new Error(`notify shops failed: ${error.code ?? "db"}`)
-    for (const s of (data ?? []) as Array<{ id: string; user_id: string | null; shop_name: string | null; subdomain: string | null }>) {
-      shops.set(s.id, { name: s.shop_name, subdomain: s.subdomain, user_id: s.user_id })
+    for (const s of (data ?? []) as Array<{ id: string; user_id: string | null; shop_name: string | null; subdomain: string | null; is_active: boolean | null; is_blocked: boolean | null }>) {
+      shops.set(s.id, { name: s.shop_name, subdomain: s.subdomain, user_id: s.user_id, usable: s.is_active === true && s.is_blocked !== true })
     }
   }
 
@@ -307,9 +313,11 @@ export async function runNotify(deps?: NotifyDeps): Promise<NotifyResult> {
   }
 
   const { plan, textedShop } = decide(rows, attemptsByNumber, now, settings, sentToday, notifyPhoneCounts, {
-    shops,
+    // Only live, unblocked shops may lend their name/link to a customer SMS.
+    shops: new Map([...shops].filter(([, v]) => v.usable)),
     rootDomain: d.rootDomain,
     mainUssdCode,
+    networkLabel: d.networkLabel,
   })
   const rowById = new Map(rows.map((r) => [r.id, r]))
 
@@ -333,13 +341,18 @@ export async function runNotify(deps?: NotifyDeps): Promise<NotifyResult> {
   const includedTexted = new Map<string, string | null>()
 
   for (const s of plan.skipped) {
+    // Ceiling-skipped rows stay unclaimed (and their notices held) so they retry once the day rolls over.
+    if (s.reason === "ceiling") continue
     if (await claim(s.numberId)) {
       result.skipped += 1
       included.add(s.numberId)
     }
   }
 
+  const clock = d.clock ?? Date.now
   for (const item of plan.sms) {
+    // Out of time: leave this and the remaining planned rows unclaimed; they retry next run.
+    if (d.deadlineAt !== undefined && clock() >= d.deadlineAt) break
     const row = rowById.get(item.numberId)!
     if (!(await claim(item.numberId, { customer_notify_phone: item.to }))) continue
 
@@ -367,7 +380,11 @@ export async function runNotify(deps?: NotifyDeps): Promise<NotifyResult> {
       includedTexted.set(item.numberId, textedShop.get(item.numberId) ?? null)
     } else if (outcome === "skipped") {
       // SMS is switched off at the provider layer: nothing was sent, so no cap is consumed.
-      await db.from(TABLE).update({ customer_notify_phone: null, updated_at: nowIso }).eq("id", item.numberId)
+      const { error } = await db.from(TABLE).update({ customer_notify_phone: null, updated_at: nowIso }).eq("id", item.numberId)
+      if (error) {
+        console.error("[BLOCKED-NOTIFY] skip revert failed:", error.code ?? "db")
+        result.failed += 1
+      }
       result.skipped += 1
       included.add(item.numberId)
     } else {
@@ -376,8 +393,11 @@ export async function runNotify(deps?: NotifyDeps): Promise<NotifyResult> {
         .from(TABLE)
         .update({ customer_notified_at: null, customer_notify_phone: null, notify_attempts: attempts, updated_at: nowIso })
         .eq("id", item.numberId)
-      if (error) console.error("[BLOCKED-NOTIFY] failure write failed:", error.code ?? "db")
       result.failed += 1
+      if (error) {
+        console.error("[BLOCKED-NOTIFY] failure write failed:", error.code ?? "db")
+        result.failed += 1
+      }
       // Retries remain: hold the owner notices until the SMS settles. The last failure releases them (untexted).
       if (attempts >= MAX_ATTEMPTS) included.add(item.numberId)
     }

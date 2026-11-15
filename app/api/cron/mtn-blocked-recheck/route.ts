@@ -14,6 +14,7 @@ export const maxDuration = 300
 const PURGE_DAYS = 90
 const PURGE_BATCH = 5000
 const DELETE_CHUNK = 500
+const NOTIFY_DEADLINE_MS = 270_000
 
 export const GET = backgroundCron("mtn-blocked-recheck", (request) => run(request))
 
@@ -46,6 +47,7 @@ async function run(request: NextRequest) {
   const { authorized, errorResponse } = verifyCronAuth(request)
   if (!authorized) return errorResponse!
 
+  const startedAt = Date.now()
   try {
     const settings = await getBlockedNumbersSettings()
     if (!settings.enabled) return NextResponse.json({ ok: true, skipped: "disabled" })
@@ -54,7 +56,7 @@ async function run(request: NextRequest) {
     // A notify failure must not stop the purge (attempts carry purchaser phones); unsent rows retry next run.
     let notify = { texted: 0, shopNotices: 0, dealerNotices: 0, skipped: 0, failed: 0, error: false }
     try {
-      notify = { ...(await runNotify()), error: false }
+      notify = { ...(await runNotify({ deadlineAt: startedAt + NOTIFY_DEADLINE_MS })), error: false }
     } catch (err) {
       console.error("[CRON][BLOCKED-RECHECK] notify failed:", err instanceof Error ? err.name : "UnknownError")
       notify.error = true

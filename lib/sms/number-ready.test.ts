@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { buildNumberReadySms } from "./number-ready"
+import { buildNumberReadySms, sanitizeShopName } from "./number-ready"
 import { calculateSegments } from "./segments"
 
 const base = { phone: "0241234567", networkLabel: "Yellow", rootDomain: "datagod.store" }
@@ -12,21 +12,39 @@ describe("buildNumberReadySms", () => {
     expect(msg).toContain("0241234567")
     expect(calculateSegments(msg).segments).toBe(1)
   })
-  it("a 40-char shop name with a long subdomain degrades to one segment", () => {
+  it("a long shop name is capped at 30 characters and a long subdomain drops the link", () => {
     const msg = buildNumberReadySms({ ...base, shopName: "A".repeat(40), subdomain: "x".repeat(60) })
     expect(calculateSegments(msg).segments).toBe(1)
-    expect(msg).toContain("A".repeat(40))
+    expect(msg).toContain("A".repeat(30))
+    expect(msg).not.toContain("A".repeat(31))
     expect(msg).not.toContain("https://")
+    expect(msg).not.toContain("x".repeat(60))
   })
-  it("degrades to the bare host before dropping the link", () => {
-    for (let n = 30; n < 70; n++) {
+  it("degrades to the bare host (no https) when only that fits", () => {
+    const sub = "x".repeat(50)
+    const msg = buildNumberReadySms({ ...base, shopName: "A".repeat(40), subdomain: sub })
+    expect(msg).toContain(`Buy again: ${sub}.datagod.store`)
+    expect(msg).not.toContain("https://")
+    expect(calculateSegments(msg).segments).toBe(1)
+  })
+  it("every subdomain length gives one segment", () => {
+    for (let n = 1; n <= 63; n++) {
       const msg = buildNumberReadySms({ ...base, shopName: "A".repeat(40), subdomain: "x".repeat(n) })
       expect(calculateSegments(msg).segments).toBe(1)
     }
   })
-  it("a non-GSM shop name still ends up one segment", () => {
-    const msg = buildNumberReadySms({ ...base, shopName: "😀".repeat(30), subdomain: "kofi" })
+  it("an emoji-only shop name falls back to the generic copy", () => {
+    const msg = buildNumberReadySms({ ...base, shopName: "😀".repeat(30), subdomain: "kofi", mainUssdCode: "*713*235#" })
+    expect(msg).toBe("DTGOD: 0241234567 is now ready for Yellow data. Dial *713*235# or visit datagod.store")
+  })
+  it("a mixed name keeps its GSM part, is pure GSM and one segment", () => {
+    const msg = buildNumberReadySms({ ...base, shopName: "Kofi 😀 Data 🔥 中文 Hub", subdomain: "kofi" })
+    expect(msg).toContain("on Kofi Data Hub.")
     expect(calculateSegments(msg).segments).toBe(1)
+    expect(/^[ -~]*$/.test(msg)).toBe(true)
+  })
+  it("sanitizeShopName drops newlines and collapses whitespace", () => {
+    expect(sanitizeShopName("  Kofi \n\t  Data  ")).toBe("Kofi Data")
   })
   it("no shop: contains the main USSD code", () => {
     const msg = buildNumberReadySms({ ...base, mainUssdCode: "*713*235#" })

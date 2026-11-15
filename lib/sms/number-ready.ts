@@ -22,8 +22,22 @@ function oneSegment(msg: string): boolean {
   return calculateSegments(msg).segments === 1
 }
 
+// GSM 03.38 basic charset (no extension table) minus control characters. Anything else, including emoji and other
+// astral characters, is dropped so the message is pure GSM-7 and one segment is exactly 160 characters.
+const GSM_BASIC =
+  "@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"
+const GSM_SET = new Set(Array.from(GSM_BASIC))
+const SHOP_NAME_MAX = 30
+
+export function sanitizeShopName(raw: string | null | undefined): string {
+  const kept = Array.from(raw ?? "")
+    .map((ch) => (/\s/.test(ch) ? " " : GSM_SET.has(ch) ? ch : ""))
+    .join("")
+  return kept.replace(/ +/g, " ").trim().slice(0, SHOP_NAME_MAX).trim()
+}
+
 export function buildNumberReadySms(i: NumberReadySmsInput): string {
-  const shopName = (i.shopName ?? "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim()
+  const shopName = sanitizeShopName(i.shopName)
 
   const code = (i.mainUssdCode ?? "").trim()
   const generic = code

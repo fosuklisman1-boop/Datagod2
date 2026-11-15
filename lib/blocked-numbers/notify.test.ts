@@ -223,7 +223,7 @@ function setup(over: Partial<NotifyDeps> = {}, t: Record<string, R[]> = {}) {
     mtn_blocked_attempts: t.mtn_blocked_attempts ?? [
       { blocked_number_id: "n1", surface: "ussd_uzo_shop", shop_id: "shopA", user_id: null, purchaser_phone: "0551112222", created_at: iso(DAY) },
     ],
-    user_shops: t.user_shops ?? [{ id: "shopA", user_id: "owner1", shop_name: "Alpha Shop", subdomain: "alpha" }],
+    user_shops: t.user_shops ?? [{ id: "shopA", user_id: "owner1", shop_name: "Alpha Shop", subdomain: "alpha", is_active: true, is_blocked: false }],
   })
   const deps: NotifyDeps = {
     db: f.db,
@@ -234,6 +234,7 @@ function setup(over: Partial<NotifyDeps> = {}, t: Record<string, R[]> = {}) {
     settings: vi.fn(async () => SETTINGS),
     now: () => NOW,
     rootDomain: "datagod.store",
+    networkLabel: "Yellow",
     ...over,
   }
   return { f, deps, numbers }
@@ -353,7 +354,7 @@ describe("runNotify", () => {
   })
 
   it("counts today's already-texted rows against the ceiling", async () => {
-    const { deps } = setup({ settings: vi.fn(async () => ({ ...SETTINGS, daily_sms_ceiling: 1 })) }, {
+    const { deps, numbers } = setup({ settings: vi.fn(async () => ({ ...SETTINGS, daily_sms_ceiling: 1 })) }, {
       mtn_blocked_numbers: [
         {
           id: "x", phone: "0240000001", status: "allowed", customer_notified_at: NOW.toISOString(),
@@ -365,7 +366,62 @@ describe("runNotify", () => {
     })
     const out = await runNotify(deps)
     expect(deps.sendSms).not.toHaveBeenCalled()
-    expect(out.skipped).toBe(1)
+    // Ceiling skips are NOT claimed: the row stays open and its notices are held, so it retries next run.
+    expect(out.skipped).toBe(0)
+    expect(numbers[1].customer_notified_at).toBeNull()
+    expect(numbers[1].notify_attempts).toBe(0)
+    expect(deps.insertNotification).not.toHaveBeenCalled()
+  })
+
+  it("a shop that is inactive or blocked lends no name or link to the sms, but its owner is still told", async () => {
+    for (const shop of [{ is_active: false, is_blocked: false }, { is_active: true, is_blocked: true }]) {
+      const { deps } = setup({}, {
+        user_shops: [{ id: "shopA", user_id: "owner1", shop_name: "Alpha Shop", subdomain: "alpha", ...shop }],
+      })
+      await runNotify(deps)
+      const msg = (deps.sendSms as any).mock.calls[0][0].message as string
+      expect(msg).not.toContain("Alpha Shop")
+      expect(msg).not.toContain("alpha.datagod.store")
+      expect(msg).toContain("*713*235#")
+      expect((deps.insertNotification as any).mock.calls[0][2]).toBe("1 customer number(s) blocked on Alpha Shop are now ready.")
+    }
+  })
+
+  it("stops sending past the deadline, leaves the rest unclaimed, and still emits notices for handled rows", async () => {
+    const mk = (id: string, phone: string) => ({ ...N1, id, phone })
+    const { deps, numbers } = setup({}, {
+      mtn_blocked_numbers: [mk("n1", "0241111111"), mk("n2", "0242222222"), mk("n3", "0243333333")],
+      mtn_blocked_attempts: ["n1", "n2", "n3"].map((id) => ({
+        blocked_number_id: id, surface: "ussd_uzo_shop", shop_id: "shopA", user_id: null, purchaser_phone: `055${id.slice(1)}${id.slice(1)}${id.slice(1)}0000`.slice(0, 10), created_at: iso(DAY),
+      })),
+    })
+    let t = 0
+    deps.deadlineAt = 1000
+    deps.clock = () => t
+    ;(deps.sendSms as any).mockImplementation(async () => { t = 5000; return { success: true } })
+    const out = await runNotify(deps)
+    expect(deps.sendSms).toHaveBeenCalledTimes(1)
+    expect(out.texted).toBe(1)
+    expect(numbers.filter((n) => n.customer_notified_at === null)).toHaveLength(2)
+    expect(out.shopNotices).toBe(1)
+    expect((deps.insertNotification as any).mock.calls[0][2]).toBe("1 customer number(s) blocked on Alpha Shop are now ready, we've texted them to buy again.")
+  })
+
+  it("a failed revert write is counted as failed", async () => {
+    const { deps, f } = setup({ sendSms: vi.fn(async () => ({ success: false })) as any })
+    const realFrom = f.db.from
+    f.db.from = (t: string) => {
+      const b = realFrom(t)
+      const origUpdate = b.update
+      b.update = (p: any) => {
+        const q = origUpdate(p)
+        if (p && p.notify_attempts !== undefined) q.then = (res: any) => Promise.resolve({ data: null, error: { code: "XX" } }).then(res)
+        return q
+      }
+      return b
+    }
+    const out = await runNotify(deps)
+    expect(out.failed).toBe(2)
   })
 
   it("never logs phone numbers or sms text", async () => {
