@@ -1,7 +1,7 @@
 /**
  * Shared types for blocked MTN number tracking.
  * BLOCK_SURFACES must equal the surface CHECK list in migrations/0182_mtn_blocked_numbers.sql
- * (types.test.ts enforces this).
+ * (settings.test.ts enforces this).
  */
 
 export const BLOCK_SURFACES = [

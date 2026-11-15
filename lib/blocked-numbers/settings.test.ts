@@ -7,6 +7,7 @@ vi.mock("@/lib/supabase", () => ({ supabaseAdmin: {} }))
 import {
   parseBlockedSettings,
   getBlockedNumbersSettings,
+  getBlockedNumbersSettingsStrict,
   DEFAULT_BLOCKED_SETTINGS,
   _resetSettingsMemo,
 } from "./settings"
@@ -80,7 +81,30 @@ describe("getBlockedNumbersSettings memo", () => {
   })
 })
 
+describe("getBlockedNumbersSettingsStrict", () => {
+  const client = (result: { data: unknown; error: unknown }) =>
+    ({ from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => result }) }) }) }) as never
+
+  it("throws on a DB error", async () => {
+    await expect(getBlockedNumbersSettingsStrict(client({ data: null, error: new Error("db") }))).rejects.toThrow("db")
+  })
+  it("missing row gives defaults", async () => {
+    expect(await getBlockedNumbersSettingsStrict(client({ data: null, error: null }))).toEqual(DEFAULT_BLOCKED_SETTINGS)
+  })
+  it("parses a stored value", async () => {
+    const s = await getBlockedNumbersSettingsStrict(client({ data: { value: { enabled: true } }, error: null }))
+    expect(s.enabled).toBe(true)
+  })
+})
+
 describe("surfaces", () => {
+  it("SMS_SURFACES has no dealer surfaces", () => {
+    for (const s of SMS_SURFACES) {
+      expect(s.startsWith("dashboard")).toBe(false)
+      expect(["api_v1", "api_v2"]).not.toContain(s)
+    }
+  })
+
   it("BLOCK_SURFACES equals the migration 0182 CHECK list, in order", () => {
     const sql = readFileSync(join(__dirname, "../../migrations/0182_mtn_blocked_numbers.sql"), "utf8")
     const m = sql.match(/surface\s+text NOT NULL CHECK \(surface IN \(([^)]*)\)\)/)

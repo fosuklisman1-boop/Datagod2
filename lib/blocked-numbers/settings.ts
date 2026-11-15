@@ -47,14 +47,25 @@ export function _resetSettingsMemo(): void {
   memo = null
 }
 
-async function loadFromDb(): Promise<unknown> {
-  const { data, error } = await supabaseAdmin
+type SettingsClient = Pick<typeof supabaseAdmin, "from">
+
+async function loadFromDb(client: SettingsClient = supabaseAdmin): Promise<unknown> {
+  const { data, error } = await client
     .from("admin_settings")
     .select("value")
     .eq("key", BLOCKED_SETTINGS_KEY)
     .maybeSingle()
   if (error) throw error
   return data?.value ?? null
+}
+
+/**
+ * Uncached read that THROWS on a DB error (a missing row gives defaults).
+ * For admin routes, where a failed read must never look like "defaults" -
+ * otherwise a POST would overwrite stored settings with defaults.
+ */
+export async function getBlockedNumbersSettingsStrict(client?: SettingsClient): Promise<BlockedNumbersSettings> {
+  return parseBlockedSettings(await loadFromDb(client))
 }
 
 /** `load` is injectable for tests; production callers omit it. */

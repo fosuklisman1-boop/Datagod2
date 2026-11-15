@@ -3,7 +3,7 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 import {
   BLOCKED_SETTINGS_KEY,
-  getBlockedNumbersSettings,
+  getBlockedNumbersSettingsStrict,
   parseBlockedSettings,
   _resetSettingsMemo,
 } from "@/lib/blocked-numbers/settings"
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   if (!isAdmin) return errorResponse!
 
   try {
-    const settings = await getBlockedNumbersSettings({ fresh: true })
+    const settings = await getBlockedNumbersSettingsStrict()
     return NextResponse.json({ success: true, settings })
   } catch (error) {
     console.error("[BLOCKED-NUMBERS-SETTING] GET error:", error)
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   if (!isAdmin) return errorResponse!
 
   try {
-    const body = await request.json()
+    const body = await request.json().catch(() => null)
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Body must be an object" }, { status: 400 })
     }
@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Omitted = keep what's stored.
-    const current = await getBlockedNumbersSettings({ fresh: true })
+    // Strict read: a failed read throws -> 500, nothing is written.
+    const current = await getBlockedNumbersSettingsStrict()
     const merged: Record<string, unknown> = { ...current }
     for (const f of [...BOOLEAN_FIELDS, ...NUMBER_FIELDS]) {
       if (body[f] !== undefined) merged[f] = body[f]
