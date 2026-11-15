@@ -17,7 +17,7 @@ type Send = typeof sendSMS
 type FallbackReason = "env" | "cap" | `${"refused" | "unreachable" | "ambiguous"}:${PhoneSendDetail}`
 
 const DETAILS: ReadonlySet<string> = new Set<PhoneSendDetail>([
-  "probe_failed", "probe_timeout", "connect_error", "reset", "timeout", "http_status", "redirect", "bad_body", "code_not_200", "other",
+  "bad_key", "bad_url", "crypto", "probe_failed", "probe_timeout", "connect_error", "reset", "timeout", "http_status", "redirect", "bad_body", "code_not_200", "other",
 ])
 
 const WINDOW_MS = 30 * 60_000

@@ -1,14 +1,26 @@
 import { describe, it, expect } from "vitest"
 import crypto from "node:crypto"
 import { buildSendBody, decodeResponse, parseKey } from "./sm4"
+import { sm4CbcDecrypt, sm4CbcEncrypt } from "./sm4-block"
 
 const IV = Buffer.from([3, 5, 6, 9, 6, 9, 5, 9, 3, 5, 6, 9, 6, 9, 5, 9])
 const KEY_HEX = "00112233445566778899aabbccddeeff"
 const KEY = Buffer.from(KEY_HEX, "hex")
 
+// Independent check against Node's native SM4 when the host has it; the pure implementation stands in where OpenSSL lacks SM4.
+const native = crypto.getCiphers().includes("sm4-cbc")
+
 function enc(obj: unknown, key = KEY): string {
+  const text = typeof obj === "string" ? obj : JSON.stringify(obj)
+  if (!native) return sm4CbcEncrypt(key, IV, Buffer.from(text, "utf8")).toString("hex")
   const c = crypto.createCipheriv("sm4-cbc", key, IV)
-  return Buffer.concat([c.update(typeof obj === "string" ? obj : JSON.stringify(obj), "utf8"), c.final()]).toString("hex")
+  return Buffer.concat([c.update(text, "utf8"), c.final()]).toString("hex")
+}
+
+function dec(key: Buffer, hex: string): string {
+  if (!native) return sm4CbcDecrypt(key, IV, Buffer.from(hex, "hex"))!.toString("utf8")
+  const d = crypto.createDecipheriv("sm4-cbc", key, IV)
+  return Buffer.concat([d.update(Buffer.from(hex, "hex")), d.final()]).toString("utf8")
 }
 
 describe("parseKey", () => {
@@ -29,8 +41,7 @@ describe("buildSendBody", () => {
   it("is lowercase hex and decrypts to the signed envelope", () => {
     const body = buildSendBody(KEY, KEY_HEX, { simSlot: 2, to: "0200000901", text: "hello there", nowMs: 1700000000123 })
     expect(body).toMatch(/^[0-9a-f]+$/)
-    const d = crypto.createDecipheriv("sm4-cbc", KEY, IV)
-    const plain = Buffer.concat([d.update(Buffer.from(body, "hex")), d.final()]).toString("utf8")
+    const plain = dec(KEY, body)
     const env = JSON.parse(plain)
     expect(env.data).toEqual({ sim_slot: 2, phone_numbers: "0200000901", msg_content: "hello there" })
     expect(Number.isInteger(env.timestamp)).toBe(true)

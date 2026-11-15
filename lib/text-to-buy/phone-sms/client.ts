@@ -16,7 +16,7 @@ import { buildSendBody, decodeResponse, parseKey } from "./sm4"
  */
 
 export type PhoneSendDetail =
-  | "probe_failed" | "probe_timeout" | "connect_error" | "reset" | "timeout" | "http_status" | "redirect" | "bad_body" | "code_not_200" | "other"
+  | "bad_key" | "bad_url" | "crypto" | "probe_failed" | "probe_timeout" | "connect_error" | "reset" | "timeout" | "http_status" | "redirect" | "bad_body" | "code_not_200" | "other"
 
 export type PhoneSendResult =
   | { kind: "sent" }
@@ -114,20 +114,24 @@ export async function sendViaPhone(
   const startedAt = Date.now()
 
   const key = parseKey(cfg.keyHex)
-  if (!key) return { kind: "unreachable", detail: "other" }
+  if (!key) return { kind: "unreachable", detail: "bad_key" }
 
-  let body: string
-  let target: string
   let host: string
   let port: number
+  let target: string
   try {
     const u = new URL(cfg.url)
     host = u.hostname
     port = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80
-    body = buildSendBody(key, cfg.keyHex, { ...p, nowMs: now() })
     target = `${cfg.url.replace(/\/+$/, "")}/sms/send`
   } catch {
-    return { kind: "unreachable", detail: "other" }
+    return { kind: "unreachable", detail: "bad_url" }
+  }
+  let body: string
+  try {
+    body = buildSendBody(key, cfg.keyHex, { ...p, nowMs: now() })
+  } catch {
+    return { kind: "unreachable", detail: "crypto" }
   }
 
   // ONE total budget covers the probe and the fetch: the probe's limit is min(connectTimeoutMs, budget) and its elapsed time

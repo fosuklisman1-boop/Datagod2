@@ -1,7 +1,9 @@
 import crypto from "node:crypto"
+import { sm4CbcDecrypt, sm4CbcEncrypt } from "./sm4-block"
 
 /**
  * SM4-CBC envelope for the forwarder phone's HTTP server. Server-only. Pure: no I/O, no logging.
+ * SM4 is the pure-TypeScript implementation in sm4-block.ts (not the host's OpenSSL, which may lack it); only HMAC-SHA256 uses node:crypto.
  * The key is 16 bytes (32 hex chars); the IV is fixed by the phone app; padding is PKCS7; bodies are lowercase hex.
  */
 
@@ -26,8 +28,7 @@ export function buildSendBody(
     timestamp: ts,
     sign,
   })
-  const c = crypto.createCipheriv("sm4-cbc", key, IV)
-  return Buffer.concat([c.update(plain, "utf8"), c.final()]).toString("hex")
+  return sm4CbcEncrypt(key, IV, Buffer.from(plain, "utf8")).toString("hex")
 }
 
 /** The decoded reply of the phone, or null on any decode or parse failure. */
@@ -38,8 +39,9 @@ export function decodeResponse(key: Buffer, hexBody: string): { code: number; ms
     if (h === "" || h.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(h)) return null
     const buf = Buffer.from(h, "hex")
     if (buf.length % 16 !== 0) return null
-    const d = crypto.createDecipheriv("sm4-cbc", key, IV)
-    const plain = Buffer.concat([d.update(buf), d.final()]).toString("utf8")
+    const dec = sm4CbcDecrypt(key, IV, buf)
+    if (!dec) return null
+    const plain = dec.toString("utf8")
     const j = JSON.parse(plain) as { code?: unknown; msg?: unknown }
     if (!j || typeof j !== "object" || typeof j.code !== "number") return null
     return typeof j.msg === "string" ? { code: j.code, msg: j.msg } : { code: j.code }

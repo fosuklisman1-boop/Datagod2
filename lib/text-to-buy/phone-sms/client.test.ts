@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
-import crypto from "node:crypto"
 import { sendViaPhone } from "./client"
+import { sm4CbcEncrypt } from "./sm4-block"
 import { parseKey } from "./sm4"
 
 const IV = Buffer.from([3, 5, 6, 9, 6, 9, 5, 9, 3, 5, 6, 9, 6, 9, 5, 9])
@@ -12,8 +12,7 @@ const PARAMS = { simSlot: 1 as const, to: "0200000902", text: "secret reply text
 const up = async () => true
 
 function enc(obj: unknown): string {
-  const c = crypto.createCipheriv("sm4-cbc", KEY, IV)
-  return Buffer.concat([c.update(JSON.stringify(obj), "utf8"), c.final()]).toString("hex")
+  return sm4CbcEncrypt(KEY, IV, Buffer.from(JSON.stringify(obj), "utf8")).toString("hex")
 }
 const reply = (status: number, body: string, headers: Record<string, string> = {}) =>
   new Response(body, { status: status === 204 ? 200 : status, headers }) as Response
@@ -215,6 +214,17 @@ describe("sendViaPhone", () => {
       expect(r).toEqual({ kind, detail })
       expect(VOCAB).toContain(r.detail)
     }
+  })
+
+  it("pre-flight failures have their own details: bad_key, bad_url, crypto; fetch and probe never run", async () => {
+    const f = vi.fn()
+    const connect = vi.fn(async () => true)
+    const deps = { fetch: f as unknown as typeof fetch, connect }
+    expect(await sendViaPhone({ url: URL_, keyHex: "short" }, PARAMS, deps)).toEqual({ kind: "unreachable", detail: "bad_key" })
+    expect(await sendViaPhone({ url: "not a url", keyHex: KEY_HEX }, PARAMS, deps)).toEqual({ kind: "unreachable", detail: "bad_url" })
+    expect(await sendViaPhone(CFG, { ...PARAMS, text: BigInt(1) as unknown as string }, deps)).toEqual({ kind: "unreachable", detail: "crypto" })
+    expect(f).not.toHaveBeenCalled()
+    expect(connect).not.toHaveBeenCalled()
   })
 
   it("never writes the url, key, number or text to the console", async () => {

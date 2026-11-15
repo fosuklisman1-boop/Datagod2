@@ -119,6 +119,9 @@ describe("createReplySend", () => {
       [{ kind: "unreachable", detail: "probe_failed" }, "unreachable:probe_failed"],
       [{ kind: "refused", detail: "code_not_200" }, "refused:code_not_200"],
       [{ kind: "refused" }, "refused:other"],
+      [{ kind: "unreachable", detail: "bad_key" }, "unreachable:bad_key"],
+      [{ kind: "unreachable", detail: "bad_url" }, "unreachable:bad_url"],
+      [{ kind: "unreachable", detail: "crypto" }, "unreachable:crypto"],
     ]
     for (const [phone, token] of cases) {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
