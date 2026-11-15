@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { loadTtbSettings, TTB_SETTING_KEYS, type TtbSettingField, type TtbSettingKey, type TtbSettings } from "@/lib/text-to-buy/settings"
 import { normaliseSender, validateTtbSettings } from "@/lib/text-to-buy/admin-validate"
-import { buildCallsOverview, buildOverview, SMS_RATE_GHS, startOfTodayAccra, UUID_RE, type PausedShop } from "@/lib/text-to-buy/admin-view"
+import { buildCallsOverview, buildOverview, phoneLinkConfigured, SMS_RATE_GHS, startOfTodayAccra, UUID_RE, type PausedShop } from "@/lib/text-to-buy/admin-view"
 import { shopSecretDistinct } from "@/lib/text-to-buy/forward-secrets"
 import { blockSender, callCountsToday, getHeartbeat, markMisread, overviewRows, pausedShopsToday, saveSettingRows, serviceCounts, unblockSender } from "@/lib/text-to-buy/store"
 import { fail, gate, isResponse, json, logError, readObject } from "@/lib/text-to-buy/admin-http"
@@ -64,6 +64,7 @@ export async function GET(request: NextRequest) {
       pausedShops,
       calls: buildCallsOverview(settings.callsEnabled, callCounts),
       shopSecretDistinct: shopSecretDistinct(process.env),
+      env: { phoneConfigured: phoneLinkConfigured(process.env) },
     })
   } catch (err) {
     logError("get", err)

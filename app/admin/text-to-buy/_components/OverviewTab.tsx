@@ -8,8 +8,16 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
-import { adminFetch, ApiError, TTB_API, type OverviewResponse } from "./api"
-import { funnelSteps, isQuiet, readSplit, relativeTime, smsCostText, ttbErrorMessage } from "./format"
+import { adminFetch, ApiError, TTB_API, type OverviewResponse, type ReplyTransport } from "./api"
+import { funnelSteps, isQuiet, readSplit, REPLIER_LABELS, relativeTime, smsCostText, ttbErrorMessage } from "./format"
+
+/** One line of text: who sends this line's SMS replies, plus whether the phone link is set up (a boolean from the server). */
+function replierText(transport: ReplyTransport, phoneConfigured: boolean): string {
+  const link = `phone link ${phoneConfigured ? "configured" : "not configured"}`
+  return transport === "sim"
+    ? `${REPLIER_LABELS.sim}, ${link}${phoneConfigured ? "" : " (Hubtel is sending instead)"}`
+    : `${REPLIER_LABELS.hubtel}, ${link}`
+}
 
 export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse | null; error: string | null; onChanged: () => void }) {
   const [pending, setPending] = useState<boolean | null>(null) // the value the admin asked for, while the confirm dialog is open
@@ -28,6 +36,7 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
   const shopQuiet = isQuiet(shop.lastHeardAt, now, data.settings.quietAlertMinutes)
   const paused = data.pausedShops ?? []
   const calls = data.calls ?? { enabled: data.settings.callsEnabled ?? false, today: { main: { replied: 0, skipped: 0 }, shop: { replied: 0, skipped: 0 } } }
+  const phoneConfigured = data.env?.phoneConfigured === true
   const unreadable = data.settingsDefaulted
   const serviceRows = [
     { key: "data", label: "Data", on: data.settings.mainEnabled },
@@ -117,6 +126,8 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
               <dd className="font-mono break-all">{main.number || "Not set"}</dd>
               <dt className="text-muted-foreground">Phone last heard</dt>
               <dd className={main.lastHeardAt && !quiet ? "" : "font-medium text-red-600 dark:text-red-400"}>{relativeTime(main.lastHeardAt, now)}</dd>
+              <dt className="text-muted-foreground">SMS replier</dt>
+              <dd>{replierText(data.settings.replyTransportMain, phoneConfigured)}</dd>
             </dl>
 
             <div>
@@ -193,6 +204,8 @@ export function OverviewTab({ data, error, onChanged }: { data: OverviewResponse
               <dd className="font-mono break-all">{shop.number || "Not set"}</dd>
               <dt className="text-muted-foreground">Phone last heard</dt>
               <dd className={shop.lastHeardAt && !shopQuiet ? "" : "font-medium text-red-600 dark:text-red-400"}>{relativeTime(shop.lastHeardAt, now)}</dd>
+              <dt className="text-muted-foreground">SMS replier</dt>
+              <dd>{replierText(data.settings.replyTransportShop, phoneConfigured)}</dd>
               <dt className="text-muted-foreground">Reply sender ID</dt>
               <dd>{data.settings.shopReplySenderId || "default"}</dd>
             </dl>

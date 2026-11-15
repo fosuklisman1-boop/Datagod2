@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { sendSMS } from "@/lib/sms-service"
 import { calculateSegments } from "@/lib/sms/segments"
 import { storeOutbound } from "./store"
+import { createReplySend } from "./phone-sms/router"
 import { chargeSingleReply, drawReserve, refundSingleReply, singleReplyRef, undrawReserve } from "./shop/credits"
 import type { TtbSettings } from "./settings"
 import type { Line } from "./types"
@@ -37,7 +38,8 @@ export async function sendReply(
   r: { line: Line; sender: string; body: string; settings: TtbSettings; orderLinkId?: string; payer?: Payer },
   deps: ReplyDeps = {},
 ): Promise<{ sent: boolean; skipped?: boolean | "unpaid" }> {
-  const send = deps.send ?? sendSMS
+  // Default: the per-line reply transport router (Hubtel unless an admin switched this line to the phone SIM).
+  const send = deps.send ?? createReplySend({ db, line: r.line, settings: r.settings })
 
   if (typeof r.body !== "string" || r.body.trim() === "") return { sent: false }
   const seg = calculateSegments(r.body)

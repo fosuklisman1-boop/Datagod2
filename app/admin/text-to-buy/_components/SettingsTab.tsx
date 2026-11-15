@@ -8,11 +8,12 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { adminFetch, ApiError, TTB_API, type Settings } from "./api"
-import { FIELD_LABELS, ttbErrorMessage } from "./format"
+import { adminFetch, ApiError, TTB_API, type ReplyTransport, type Settings } from "./api"
+import { FIELD_LABELS, REPLIER_LABELS, ttbErrorMessage } from "./format"
 
 type TextSwitch = "airtimeEnabled" | "resultsCheckerEnabled" | "shopEnabled" | "callsEnabled"
-type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "shopNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled" | "unclearRepliesEnabled" | TextSwitch>
+type SimField = "replyTransportMain" | "replyTransportShop" | "simSlotMain" | "simSlotShop" | "simMaxPer30Min"
+type IntField = Exclude<keyof Settings, "mainEnabled" | "mainNumber" | "shopNumber" | "replySenderId" | "shopReplySenderId" | "aiEnabled" | "unclearRepliesEnabled" | TextSwitch | SimField>
 
 // The text switches save on their own (turning one on needs the confirm dialog), so they are not part of Form.
 const TEXT_SWITCHES: { field: TextSwitch; service: string; from: string; hint: string; confirmText?: string }[] = [
@@ -34,7 +35,13 @@ const TEXT_SWITCHES: { field: TextSwitch; service: string; from: string; hint: s
     confirmText: "This texts people who miss-call the main number or the shop number: the support WhatsApp line, or their shop owner's number (1 shop credit). Do a supervised test call first.",
   },
 ]
-type Form = {mainNumber: string; shopNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean } & Record<IntField, string>
+type Form = {
+  mainNumber: string; shopNumber: string; replySenderId: string; shopReplySenderId: string; aiEnabled: boolean; unclearRepliesEnabled: boolean
+  replyTransportMain: ReplyTransport; replyTransportShop: ReplyTransport; simSlotMain: string; simSlotShop: string; simMaxPer30Min: string
+} & Record<IntField, string>
+
+// Native selects, styled like the other admin pages, with a background so dark mode stays readable.
+const SELECT_CLASS = "h-9 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 
 // Ranges mirror lib/text-to-buy/admin-validate.ts. The server is the authority; these are helper text.
 const INT_FIELDS: { field: IntField; min: number; max: number; hint: string }[] = [
@@ -66,6 +73,11 @@ const toForm = (s: Settings): Form => ({
   shopReplySenderId: s.shopReplySenderId,
   aiEnabled: s.aiEnabled,
   unclearRepliesEnabled: s.unclearRepliesEnabled,
+  replyTransportMain: s.replyTransportMain,
+  replyTransportShop: s.replyTransportShop,
+  simSlotMain: String(s.simSlotMain),
+  simSlotShop: String(s.simSlotShop),
+  simMaxPer30Min: String(s.simMaxPer30Min),
   globalRepliesPerHour: String(s.globalRepliesPerHour),
   staleMinutes: String(s.staleMinutes),
   promptsPerHour: String(s.promptsPerHour),
@@ -112,6 +124,11 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
     if (f.aiEnabled !== saved.aiEnabled) body.aiEnabled = f.aiEnabled
     if (f.unclearRepliesEnabled !== saved.unclearRepliesEnabled) body.unclearRepliesEnabled = f.unclearRepliesEnabled
     for (const { field } of INT_FIELDS) if (f[field] !== saved[field]) body[field] = num(f[field])
+    if (f.replyTransportMain !== saved.replyTransportMain) body.replyTransportMain = f.replyTransportMain
+    if (f.replyTransportShop !== saved.replyTransportShop) body.replyTransportShop = f.replyTransportShop
+    if (f.simSlotMain !== saved.simSlotMain) body.simSlotMain = num(f.simSlotMain)
+    if (f.simSlotShop !== saved.simSlotShop) body.simSlotShop = num(f.simSlotShop)
+    if (f.simMaxPer30Min !== saved.simMaxPer30Min) body.simMaxPer30Min = num(f.simMaxPer30Min)
     try {
       await adminFetch(TTB_API, { method: "PUT", body })
       toast.success("Settings saved")
@@ -229,6 +246,60 @@ export function SettingsTab({ settings, defaulted, onSaved }: { settings: Settin
                 {fieldErr(field)}
               </div>
             ))}
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-primary/30 p-4">
+            <div>
+              <h3 className="text-sm font-semibold text-primary">Replies from the phone SIM</h3>
+              <p className="text-xs text-muted-foreground">
+                Choose what sends the SMS replies on each line. Hubtel (sender ID) is the default. Phone SIM sends from the forwarding phone's own SIM; if the phone cannot send, Hubtel carries that reply instead.
+              </p>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-3">
+              {([
+                { line: "main", name: "Main line", transport: "replyTransportMain", slot: "simSlotMain" },
+                { line: "shop", name: "Shop line", transport: "replyTransportShop", slot: "simSlotShop" },
+              ] as const).map(({ line, name, transport, slot }) => (
+                <div key={line} className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium" htmlFor={`ttb-${transport}`}>Current SMS replier ({name.toLowerCase()})</label>
+                    <select
+                      id={`ttb-${transport}`}
+                      className={SELECT_CLASS}
+                      value={f[transport]}
+                      onChange={(e) => patch({ [transport]: e.target.value as ReplyTransport } as Partial<Form>)}
+                      aria-invalid={errField === transport}
+                    >
+                      <option value="hubtel">{REPLIER_LABELS.hubtel}</option>
+                      <option value="sim">{REPLIER_LABELS.sim}</option>
+                    </select>
+                    {fieldErr(transport)}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium" htmlFor={`ttb-${slot}`}>{FIELD_LABELS[slot]}</label>
+                    <select
+                      id={`ttb-${slot}`}
+                      className={SELECT_CLASS}
+                      value={f[slot]}
+                      onChange={(e) => patch({ [slot]: e.target.value } as Partial<Form>)}
+                      aria-invalid={errField === slot}
+                    >
+                      <option value="1">SIM 1</option>
+                      <option value="2">SIM 2</option>
+                    </select>
+                    <p className="text-[11px] text-muted-foreground">Which SIM of the phone sends the {line} line's replies.</p>
+                    {fieldErr(slot)}
+                  </div>
+                </div>
+              ))}
+              <div className="space-y-1">
+                <label className="text-xs font-medium" htmlFor="ttb-simMaxPer30Min">{FIELD_LABELS.simMaxPer30Min}</label>
+                <Input id="ttb-simMaxPer30Min" inputMode="numeric" value={f.simMaxPer30Min} onChange={(e) => patch({ simMaxPer30Min: e.target.value })} aria-invalid={errField === "simMaxPer30Min"} />
+                <p className="text-[11px] text-muted-foreground">Whole number, 1 to 30. Android itself allows about 30 texts per 30 minutes; past this cap replies go through Hubtel.</p>
+                {fieldErr("simMaxPer30Min")}
+              </div>
+            </div>
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Keep SIM airtime topped up; Hubtel is the automatic fallback.</p>
           </div>
 
           {errField === "_form" && errMsg && <p className="text-sm text-red-600 dark:text-red-400" role="alert">{errMsg}</p>}

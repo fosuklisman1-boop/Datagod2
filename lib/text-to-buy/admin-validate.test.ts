@@ -145,3 +145,20 @@ describe("normaliseSender", () => {
     expect(normaliseSender("0".repeat(40))).toBeNull()
   })
 })
+
+describe("validateTtbSettings: SIM replies", () => {
+  it("accepts the two transports, slots 1 and 2 and a cap of 1..30", () => {
+    expect(ok({ replyTransportMain: "sim", replyTransportShop: "hubtel", simSlotMain: 2, simSlotShop: 1, simMaxPer30Min: 30 })).toEqual({
+      ttb_reply_transport_main: "sim", ttb_reply_transport_shop: "hubtel", ttb_sim_slot_main: 2, ttb_sim_slot_shop: 1, ttb_sim_max_per_30min: 30,
+    })
+    expect(ok({ simMaxPer30Min: 1 })).toEqual({ ttb_sim_max_per_30min: 1 })
+  })
+  it("rejects slot 3, cap 0 and 31, and any other transport, naming the field only", () => {
+    expect(bad({ simSlotMain: 3 })).toBe("invalid_simSlotMain")
+    expect(bad({ simSlotShop: 0 })).toBe("invalid_simSlotShop")
+    expect(bad({ simMaxPer30Min: 0 })).toBe("invalid_simMaxPer30Min")
+    expect(bad({ simMaxPer30Min: 31 })).toBe("invalid_simMaxPer30Min")
+    for (const v of ["x", "SIM", "", null, true, 1]) expect(bad({ replyTransportMain: v })).toBe("invalid_replyTransportMain")
+    expect(bad({ replyTransportShop: "x" })).toBe("invalid_replyTransportShop")
+  })
+})

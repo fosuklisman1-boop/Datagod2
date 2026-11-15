@@ -1,4 +1,5 @@
 import type { Line, Outcome } from "./types"
+import { parseKey } from "./phone-sms/sm4"
 
 // Read-model helpers for the Text-to-Buy admin API. Pure. Message text and numbers pass through here: never log them.
 
@@ -116,6 +117,22 @@ const count = (x: unknown): number => (typeof x === "number" && Number.isFinite(
 export function buildCallsOverview(enabled: boolean, counts: Partial<Record<Line, Partial<CallCounts>>> | null): CallsOverview {
   const one = (l: Line): CallCounts => ({ replied: count(counts?.[l]?.replied), skipped: count(counts?.[l]?.skipped) })
   return { enabled, today: { main: one("main"), shop: one("shop") } }
+}
+
+/**
+ * Whether the SIM reply link is configured: SMS_PHONE_URL is an http(s) URL and SMS_PHONE_SM4_KEY is 32 hex characters.
+ * A boolean only: the values never leave the server.
+ */
+export function phoneLinkConfigured(env: Record<string, string | undefined>): boolean {
+  const url = typeof env.SMS_PHONE_URL === "string" ? env.SMS_PHONE_URL.trim() : ""
+  const key = typeof env.SMS_PHONE_SM4_KEY === "string" ? env.SMS_PHONE_SM4_KEY.trim() : ""
+  let urlOk = false
+  try {
+    urlOk = /^https?:$/.test(new URL(url).protocol)
+  } catch {
+    urlOk = false
+  }
+  return urlOk && parseKey(key) !== null
 }
 
 export type PausedShop = {shopId: string; name: string; count: number }

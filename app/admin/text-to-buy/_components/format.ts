@@ -150,4 +150,12 @@ export const FIELD_LABELS: Record<string, string> = {
   shopRepliesPerHourPerShop: "Replies per hour per shop",
   callsEnabled: "Missed-call texts",
   callsPerHourPerLine: "Missed-call texts per hour per line",
+  replyTransportMain: "Current SMS replier (main line)",
+  replyTransportShop: "Current SMS replier (shop line)",
+  simSlotMain: "Main line SIM slot",
+  simSlotShop: "Shop line SIM slot",
+  simMaxPer30Min: "Phone SIM texts per 30 minutes",
 }
+
+/** Display names for the two SMS repliers. */
+export const REPLIER_LABELS = { hubtel: "Hubtel (sender ID)", sim: "Phone SIM" } as const

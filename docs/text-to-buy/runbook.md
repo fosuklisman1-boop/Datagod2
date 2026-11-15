@@ -630,3 +630,47 @@ Limits: it covers the last hour. A longer outage needs a one-off manual run: edi
 `POST /api/webhooks/phone-health` refreshes the line's "phone last heard" time and nothing else (same `x-sms-forward-secret` header as the other webhooks; the body is ignored; always 200 after a valid secret). On the phone: Task > Cron (every 15 minutes) > action Notify using a Webhook channel that points at `https://www.datagod.store/api/webhooks/phone-health` with the line's secret in the header. Do one task per line if both SIMs should show as alive. Without it, the quiet-phone alert can fire on a genuinely quiet day.
 
 Set up and verified 2026-11-15: senders "Main Alive" and "Shop Alive" (clones of the Call senders with the URL changed to `/phone-health` and params `ping=1`), and one Task "Alive ping" (Cron `0 0/15 * * * ? *` -> Notify both senders, run logic All Run). The first scheduled run at 03:00:01 refreshed both lines. To check later: the Overview tile "phone last heard" should never be older than about 20 minutes while the phone is on and online.
+
+
+## 16. SIM replies (OWNER runbook)
+
+Ships DARK: both lines reply through Hubtel until an admin flips a line to Phone SIM. Nothing changes by deploying.
+
+### 16.1 How it works, in plain words
+
+Text-to-Buy replies can be sent from the forwarder phone's own SIM instead of Hubtel. The server sends an encrypted "send this SMS" request over the internet to SmsForwarder's built-in HTTP Server on the phone, and the phone texts the customer from the chosen SIM. If the phone cannot send (link not configured, phone off, phone refuses, or the SIM cap is reached) that reply goes through Hubtel instead, so the customer still gets it. If the request went out but no answer came back, it counts as sent and Hubtel is NOT used, so a customer never gets two copies. A shop line reply costs the shop owner one credit exactly once whichever way it was carried.
+
+### 16.2 Environment variables (Vercel, Production)
+
+- `SMS_PHONE_URL`: the public base URL of the phone's server (the Frpc relay address, `https://...`).
+- `SMS_PHONE_SM4_KEY`: the SM4 key, 32 hex characters (16 bytes).
+
+Set them as secrets in Vercel only. Never paste the key in chat, commits or this file. The Overview tab shows only "phone link configured" or "not configured" (a yes/no from the server, never the values). If either is missing or malformed, a line set to Phone SIM silently uses Hubtel.
+
+### 16.3 Phone setup (SmsForwarder)
+
+1. Server: switch the HTTP Server on (port 5000) in SM4 encryption mode and enter the same 32-hex key as `SMS_PHONE_SM4_KEY`.
+2. Under the server functions, enable ONLY Send SMS and Query Battery. Everything else stays off.
+3. Frpc: add the entry that publishes port 5000 on the relay; the resulting public address is `SMS_PHONE_URL`.
+4. Auto-start: switch Auto-start ON for BOTH the Server and Frpc in the app. Without both, the link does not come back after a phone restart and every reply quietly falls back to Hubtel.
+5. Keep the phone charged, on stay-awake while plugged in, and keep battery optimisation off for the app.
+
+### 16.4 Switching a line on or off
+
+Admin > Text-to-Buy > Settings > "Replies from the phone SIM". Pick "Current SMS replier" for the Main line and/or the Shop line: "Hubtel (sender ID)" (default) or "Phone SIM". Choose which SIM slot sends each line (defaults: main SIM 2, shop SIM 1) and the cap, then Save settings. The Overview tab shows the active replier per line and whether the phone link is configured. To switch back, choose Hubtel (sender ID) and save: instant, no deploy.
+
+Test first: switch ONE line to Phone SIM, send yourself a test order text, and confirm the reply arrives from the phone's SIM number and that the out row appears in Messages.
+
+### 16.5 Warnings
+
+- SIM airtime: each reply costs about GHS 0.065 per SMS of airtime. When the SIM balance runs low the phone fails silently (the request can still look accepted), so replies are lost without a fallback. Keep airtime topped up and check the balance regularly. Hubtel is the automatic fallback only when the phone visibly fails.
+- Rate cap: Android limits an app to about 30 SMS per 30 minutes. Our cap ("Phone SIM texts per 30 minutes") defaults to 20 and counts every reply on that line in the last 30 minutes; past it, replies go through Hubtel.
+- Replay exposure: the phone's API only checks a one-hour timestamp window. Someone who captured one encrypted request could replay it once within that hour and cause one duplicate reply to the same customer. They cannot read or change it without the key. The real fix is running your own VPS relay, which is just a change of `SMS_PHONE_URL` (no code change).
+- Shared free relay risk: the relay is a shared third-party free server. It only ever sees ciphertext, but it can be slow, down or reached by strangers; availability is not guaranteed (hence the Hubtel fallback). A stranger can reach the port but cannot send or read anything without the key.
+
+### 16.6 Rotating the key
+
+1. Generate a new 32-hex-character key (16 random bytes in hex).
+2. Set it in the phone's Server settings (SM4 key).
+3. Set the same value as `SMS_PHONE_SM4_KEY` in Vercel and redeploy.
+4. Send a test reply. Between steps 2 and 3 replies fall back to Hubtel, which is safe.

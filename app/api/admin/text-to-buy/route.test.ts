@@ -148,6 +148,26 @@ describe("GET overview", () => {
     body = await (await GET(req("GET"))).json()
     expect(body.settings).toMatchObject({ replySenderId: "MainName", shopReplySenderId: "ShopName" })
   })
+  it("exposes the SIM reply settings (hubtel by default) and only a boolean for the phone link, never env values", async () => {
+    const URL_ENV = "https://relay.example.test/secret-path"
+    const KEY_ENV = "00112233445566778899aabbccddeeff"
+    delete process.env.SMS_PHONE_URL
+    delete process.env.SMS_PHONE_SM4_KEY
+    let body = await (await GET(req("GET"))).json()
+    expect(body.settings).toMatchObject({ replyTransportMain: "hubtel", replyTransportShop: "hubtel", simSlotMain: 2, simSlotShop: 1, simMaxPer30Min: 20 })
+    expect(body.env).toEqual({ phoneConfigured: false })
+    process.env.SMS_PHONE_URL = URL_ENV
+    process.env.SMS_PHONE_SM4_KEY = KEY_ENV
+    try {
+      const raw = await (await GET(req("GET"))).text()
+      expect(JSON.parse(raw).env).toEqual({ phoneConfigured: true })
+      expect(raw).not.toContain("secret-path")
+      expect(raw).not.toContain(KEY_ENV)
+    } finally {
+      delete process.env.SMS_PHONE_URL
+      delete process.env.SMS_PHONE_SM4_KEY
+    }
+  })
   it("a failed settings read is flagged as defaulted, not hidden", async () => {
     fake.db.failOn.admin_settings = { message: "x" }
     const body = await (await GET(req("GET"))).json()

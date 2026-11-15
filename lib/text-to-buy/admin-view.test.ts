@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  encodeCursor, decodeCursor, isLine, isOutcome, OUTCOMES, startOfTodayAccra, buildOverview, buildCallsOverview, shapePausedShops, toAdminMessage, SMS_RATE_GHS,
+  encodeCursor, decodeCursor, isLine, isOutcome, OUTCOMES, startOfTodayAccra, buildOverview, buildCallsOverview, shapePausedShops, toAdminMessage, SMS_RATE_GHS, phoneLinkConfigured,
 } from "./admin-view"
 
 const ID = "00000000-0000-4000-8000-000000000001"
@@ -112,5 +112,19 @@ describe("toAdminMessage", () => {
     expect(toAdminMessage({ id: ID, created_at: "t", line: "weird", sender: "0200000101", direction: "out", body: null, read_by: "x", outcome: 5, order_link_id: null, misread: true })).toEqual({
       id: ID, createdAt: "t", line: "main", sender: "0200000101", direction: "out", body: "", readBy: null, outcome: null, orderLinkId: null, misread: true,
     })
+  })
+})
+
+describe("phoneLinkConfigured", () => {
+  const KEY = "00112233445566778899aabbccddeeff"
+  it("is true only when the url is http(s) and the key is 32 hex", () => {
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "https://relay.example.test/x", SMS_PHONE_SM4_KEY: KEY })).toBe(true)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "http://relay.example.test", SMS_PHONE_SM4_KEY: KEY })).toBe(true)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "https://relay.example.test" })).toBe(false)
+    expect(phoneLinkConfigured({ SMS_PHONE_SM4_KEY: KEY })).toBe(false)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "ftp://x", SMS_PHONE_SM4_KEY: KEY })).toBe(false)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "not a url", SMS_PHONE_SM4_KEY: KEY })).toBe(false)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "https://relay.example.test", SMS_PHONE_SM4_KEY: "short" })).toBe(false)
+    expect(phoneLinkConfigured({})).toBe(false)
   })
 })

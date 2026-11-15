@@ -56,7 +56,15 @@ export type Settings = {
   shopRepliesPerHourPerShop: number
   callsEnabled: boolean
   callsPerHourPerLine: number
+  replyTransportMain: ReplyTransport
+  replyTransportShop: ReplyTransport
+  simSlotMain: 1 | 2
+  simSlotShop: 1 | 2
+  simMaxPer30Min: number
 }
+
+/** Which service sends the SMS replies of a line: Hubtel (sender ID, default) or the forwarder phone's own SIM. */
+export type ReplyTransport = "hubtel" | "sim"
 
 export type CallCounts = { replied: number; skipped: number }
 export type CallsOverview = { enabled: boolean; today: Record<"main" | "shop", CallCounts> }
@@ -82,6 +90,8 @@ export type OverviewResponse = {
   pausedShops?: PausedShop[]
   calls?: CallsOverview
   shopSecretDistinct?: boolean
+  /** Only whether the SIM reply link is configured on the server; never the values. */
+  env?: { phoneConfigured: boolean }
 }
 
 export type AdminMessage = {
