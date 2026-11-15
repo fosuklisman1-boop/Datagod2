@@ -106,7 +106,7 @@ describe("sendViaPhone", () => {
     let fetchBudget = 0
     const connect = async (_h: string, _p: number, timeoutMs: number) => {
       expect(timeoutMs).toBeLessThanOrEqual(5000)
-      await new Promise((r) => setTimeout(r, 80))
+      await new Promise((r) => setTimeout(r, 300))
       return true
     }
     const f = ((_u: unknown, init?: RequestInit) => {
@@ -114,11 +114,13 @@ describe("sendViaPhone", () => {
       return new Promise((_res, rej) => init?.signal?.addEventListener("abort", () => rej(Object.assign(new Error("a"), { name: "AbortError" }))))
     }) as unknown as typeof fetch
     const t0 = Date.now()
-    const r = await sendViaPhone(CFG, PARAMS, { fetch: f, connect, connectTimeoutMs: 5000, totalTimeoutMs: 100 })
+    const r = await sendViaPhone(CFG, PARAMS, { fetch: f, connect, connectTimeoutMs: 5000, totalTimeoutMs: 600 })
     const total = Date.now() - t0
     expect(r).toEqual({ kind: "ambiguous" })
     expect(fetchBudget).toBeGreaterThan(0)
-    expect(total).toBeLessThan(160)
+    // The probe took ~300 ms of the 600 ms budget, so the whole call ends near 600 ms. A budget that restarted for the fetch
+    // would end near 900 ms; the generous 800 ms ceiling keeps this stable under a loaded test run.
+    expect(total).toBeLessThan(800)
   })
 
   it("the probe limit is the smaller of connectTimeoutMs and the remaining budget", async () => {
