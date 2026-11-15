@@ -405,6 +405,52 @@ describe("shop line: retries and open orders", () => {
   })
 })
 
+describe("shop line: support pointer on not-understood", () => {
+  const WA = "233241234567"
+  it("the shop line's not-understood reply carries the support link, one segment, number read once", async () => {
+    const t = setup({ pref: "sc1" })
+    const supportWhatsapp = vi.fn(async () => WA as string | null)
+    const { result } = await t.run("hello there", { deps: { supportWhatsapp } as Partial<InboundDeps> })
+    expect(result.outcome).toBe("not_order")
+    expect(result.reply).toBe(`${notUnderstoodReply({})} For help WhatsApp: https://wa.me/${WA}`)
+    expect(calculateSegments(result.reply as string)).toMatchObject({ encoding: "gsm7", segments: 1 })
+    expect(supportWhatsapp).toHaveBeenCalledTimes(1)
+  })
+  it("no support number: the old text", async () => {
+    const t = setup({ pref: "sc1" })
+    const { result } = await t.run("hello there", { deps: { supportWhatsapp: async () => null } as Partial<InboundDeps> })
+    expect(result.reply).toBe(notUnderstoodReply({}))
+  })
+  it("a non-digit value is ignored: the old text", async () => {
+    const t = setup({ pref: "sc1" })
+    const { result } = await t.run("hello there", { deps: { supportWhatsapp: async () => "+233 24 1234567" } as Partial<InboundDeps> })
+    expect(result.reply).toBe(notUnderstoodReply({}))
+  })
+  it("a throwing dep never breaks the reply", async () => {
+    const t = setup({ pref: "sc1" })
+    const { result } = await t.run("hello there", {
+      deps: { supportWhatsapp: async () => { throw new Error("boom") } } as Partial<InboundDeps>,
+    })
+    expect(result.reply).toBe(notUnderstoodReply({}))
+  })
+  it("the main line never reads the support number and its reply is byte-identical", async () => {
+    const t = setup()
+    const supportWhatsapp = vi.fn(async () => WA as string | null)
+    const { result } = await t.run("hello there", {
+      input: { line: "main" }, settings: { shopNumber: "" }, deps: { supportWhatsapp } as Partial<InboundDeps>,
+    })
+    expect(result.reply).toBe(notUnderstoodReply({}))
+    expect(supportWhatsapp).not.toHaveBeenCalled()
+  })
+  it("a suppressed reply (switch off) does not read the number", async () => {
+    const t = setup({ pref: "sc1" })
+    const supportWhatsapp = vi.fn(async () => WA as string | null)
+    const { result } = await t.run("hello there", { settings: { unclearRepliesEnabled: false }, deps: { supportWhatsapp } as Partial<InboundDeps> })
+    expect(result.reply).toBeNull()
+    expect(supportWhatsapp).not.toHaveBeenCalled()
+  })
+})
+
 describe("shop line: services", () => {
   it("an airtime text on the shop line behaves as if airtime were off (never placed, never offered)", async () => {
     const t = setup({ pref: "sc1" })

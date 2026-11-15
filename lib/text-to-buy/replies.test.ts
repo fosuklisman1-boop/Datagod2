@@ -12,6 +12,7 @@ import {
   limitedReply,
   openOrderReply,
   notUnderstoodReply,
+  notUnderstoodShopReply,
   unavailableReply,
   priceListReply,
   priceAnswerReply,
@@ -42,6 +43,26 @@ const oneSegment = (s: string) => {
   const r = calculateSegments(s)
   expect([r.encoding, r.segments]).toEqual(["gsm7", 1])
 }
+
+describe("notUnderstoodShopReply (shop line support pointer)", () => {
+  it("appends the WhatsApp link when the whole reply is still one GSM-7 segment", () => {
+    const t = notUnderstoodShopReply("233241234567")
+    expect(t).toBe(`${notUnderstoodReply()} For help WhatsApp: https://wa.me/233241234567`)
+    oneSegment(t)
+  })
+  it("keeps the current wording when the link would not fit", () => {
+    expect(notUnderstoodShopReply("233241234567", { airtime: true, resultsChecker: true })).toBe(
+      notUnderstoodReply({ airtime: true, resultsChecker: true }),
+    )
+  })
+  it("keeps the current wording with no support number", () => {
+    expect(notUnderstoodShopReply(null)).toBe(notUnderstoodReply())
+    expect(notUnderstoodShopReply("")).toBe(notUnderstoodReply())
+  })
+  it("the main-line reply is unchanged", () => {
+    expect(notUnderstoodReply()).toBe("To buy data, text the size e.g. 5GB. For someone else add the number: 5GB 0241234567. Text PRICES for the list.")
+  })
+})
 
 describe("airtime copy", () => {
   const q = { networkLabel: "MTN", recipientLocal: "0200000102", payGhs: 10, getsGhs: 9.52, feeOnTop: false, payerNetwork: "MTN" as const }

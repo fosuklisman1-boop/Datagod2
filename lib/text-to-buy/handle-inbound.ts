@@ -8,7 +8,8 @@ import { notifyAdmins } from "@/lib/sms-service"
 import { listPrices, resolveOffer, sizeLabel } from "./catalogue"
 import { readWithAi } from "./ai-reader"
 import { parseOrderText } from "./parse-rules"
-import { helpReply, lateReply, limitedReply, notUnderstoodReply, openOrderReply, placedNeutralReply, priceAnswerReply, priceListReply, statusReply } from "./replies"
+import { readSupportWhatsapp } from "./call/support"
+import { helpReply, lateReply, limitedReply, notUnderstoodReply, notUnderstoodShopReply, openOrderReply, placedNeutralReply, priceAnswerReply, priceListReply, statusReply } from "./replies"
 import { sendReply } from "./send-reply"
 import { adapterForLink, makeAdapters, type Adapters } from "./services"
 import type { DataOffer } from "./services/data"
@@ -40,6 +41,8 @@ export type InboundDeps = {
   feeOnTop?: (offer: ServiceOffer) => Promise<boolean>
   /** Merged over makeAdapters({ resolve, confirm }): the per-service pricing, placing and notice code. */
   adapters?: Adapters
+  /** Shop line only: Datagod's support WhatsApp (digits) for the not-understood reply; null when unavailable. Must never throw. */
+  supportWhatsapp?: () => Promise<string | null>
   /** Try-it: no writes, no SMS, no order. The result carries the reply that would be sent. */
   dryRun?: boolean
   /** The shop line's collaborators (shop lookups, shop adapter deps, credits); the real ones when absent. */
@@ -296,7 +299,17 @@ export async function processInbound(
 
     // ---- 5-7. things that are not an order -------------------------------------------------------------------------
     // With the switch off an unclear text costs nothing: no reply at all.
-    const notUnderstood = () => finish("not_order", !settings.unclearRepliesEnabled || c.notUnderstood >= 1 ? null : notUnderstoodReply(offered))
+    // Shop line: the reply may carry a support pointer (read at most once per message, only when a reply will be sent).
+    let supportRead: Promise<string | null> | null = null
+    const supportNumber = (): Promise<string | null> => {
+      supportRead ??= (async () => (deps.supportWhatsapp ? await deps.supportWhatsapp() : await readSupportWhatsapp(db)))().catch(() => null)
+      return supportRead
+    }
+    const notUnderstood = async () => {
+      if (!settings.unclearRepliesEnabled || c.notUnderstood >= 1) return finish("not_order", null)
+      if (i.line !== "shop") return finish("not_order", notUnderstoodReply(offered))
+      return finish("not_order", notUnderstoodShopReply(await supportNumber(), offered))
+    }
     if (read.kind === "not_order" || read.kind === "unknown" || read.kind === "keyword") {
       // Main line, a text that is no order: a code of an active shop means the customer texted the wrong number.
       if (!dry && i.line === "main" && read.kind !== "keyword" && settings.shopNumber.trim()) {

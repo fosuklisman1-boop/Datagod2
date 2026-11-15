@@ -150,6 +150,17 @@ export function notUnderstoodReply(s: OfferedServices = {}): string {
   return fitOneSegment([lead, "For someone else add the number: 5GB 0241234567.", "Text PRICES for the list."])
 }
 
+/**
+ * Shop line only: the not-understood reply plus a pointer to Datagod's WhatsApp support, when the whole reply still fits one
+ * GSM-7 segment. Otherwise (or with no support number) exactly the current wording. `waDigits` is digits only.
+ */
+export function notUnderstoodShopReply(waDigits: string | null, s: OfferedServices = {}): string {
+  const base = notUnderstoodReply(s)
+  if (!waDigits || !/^\d+$/.test(waDigits)) return base
+  const withLink = `${base} For help WhatsApp: https://wa.me/${waDigits}`
+  return fitsOneSegment(withLink) ? withLink : base
+}
+
 export function helpReply(s: OfferedServices = {}): string {
   return notUnderstoodReply(s)
 }
