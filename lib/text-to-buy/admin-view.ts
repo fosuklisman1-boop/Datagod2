@@ -118,7 +118,7 @@ export function buildCallsOverview(enabled: boolean, counts: Partial<Record<Line
   return { enabled, today: { main: one("main"), shop: one("shop") } }
 }
 
-export type PausedShop ={ shopId: string; name: string; count: number }
+export type PausedShop = {shopId: string; name: string; count: number }
 
 /**
  * Today's "paused" notices to a list of shops: ids, display names and counts ONLY (never a sender or any phone).
