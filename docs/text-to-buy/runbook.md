@@ -534,7 +534,7 @@ select grantee, privilege_type from information_schema.role_table_grants
 where table_name = 'ttb_calls' and grantee in ('anon','authenticated','service_role') order by 1,2;
 -- expected: service_role SELECT and INSERT only; nothing for anon or authenticated
 select count(*) from pg_proc where proname = 'ttb_purge';
--- expected: still 1 (it now also deletes ttb_calls rows older than 30 days)
+-- expected: still 1 (it now also deletes ttb_calls rows older than the configured retention, 30 days by default)
 ```
 
 5. Code deploy: run a real `next build` with placeholder env first, then push, watch the deploy.
@@ -583,7 +583,9 @@ Rollback: switch `ttb_calls_enabled` OFF in Settings. Nothing else is needed. Th
 - If the support number is missing in settings, the SMS is skipped (never sent blank or wrong) and admins are alerted once a day. The caller is not marked for the day, so they get the SMS once the number is fixed.
 - A send failure is logged as `error` and admins are alerted once a day. A failed or refused send is NOT retried that day: the caller gets nothing more until tomorrow. Accepted, rare.
 - Only Ghana mobile numbers are answered. Short codes, international and hidden numbers are ignored. Calls older than 15 minutes are ignored.
-- Call records hold no call content: only the line, the caller number, the shop id and the outcome. They are purged after 30 days.
+- Call records hold no call content: only the line, the caller number, the shop id and the outcome. The call log (`ttb_calls`) and the stored caller number (`sender`) are purged by the same cron as the other text-to-buy data, using the configured retention (30 days by default).
+- A missed-call SMS counts as one of the caller's per-hour replies on the SMS order lane. A caller who misses a call and then texts within the hour has one fewer reply available.
+- Call events also refresh the line's "phone last heard". If the SMS rule breaks while the call rule still works, the quiet-phone alert will not fire, so check both rules when debugging.
 - The shop owner's number is sent only to a number linked to that shop, who already sees it in shop quotes. Anyone else gets only Datagod's support line.
 
 ### 14.7 Announcement
