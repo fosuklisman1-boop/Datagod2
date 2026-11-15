@@ -1,11 +1,12 @@
 // Daily re-check of refused MTN numbers against the checkout provider list. Flips numbers a provider now allows.
-// Order: settings check -> recheck -> purge old attempts. Counts only in the response and logs, never phone numbers.
+// Order: settings check -> recheck -> notify -> purge old attempts. Counts only in the response and logs, never phone numbers.
 import { NextRequest, NextResponse } from "next/server"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { backgroundCron } from "@/lib/cron-background"
 import { supabaseAdmin } from "@/lib/supabase"
 import { getBlockedNumbersSettings } from "@/lib/blocked-numbers/settings"
 import { recheckBlockedNumbers } from "@/lib/blocked-numbers/recheck"
+import { runNotify } from "@/lib/blocked-numbers/notify"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -50,12 +51,19 @@ async function run(request: NextRequest) {
     if (!settings.enabled) return NextResponse.json({ ok: true, skipped: "disabled" })
 
     const recheck = await recheckBlockedNumbers({})
-    // Task 6 adds runNotify() here (customer SMS + owner notice for newly allowed rows).
+    // A notify failure must not stop the purge (attempts carry purchaser phones); unsent rows retry next run.
+    let notify = { texted: 0, shopNotices: 0, dealerNotices: 0, skipped: 0, failed: 0, error: false }
+    try {
+      notify = { ...(await runNotify()), error: false }
+    } catch (err) {
+      console.error("[CRON][BLOCKED-RECHECK] notify failed:", err instanceof Error ? err.name : "UnknownError")
+      notify.error = true
+    }
     const purged = await purgeOldAttempts()
     // Task 9 adds sendDailyDigest() here, after the purge.
     const { newlyAllowedIds, ...counts } = recheck
-    console.log(`[CRON][BLOCKED-RECHECK] purged=${purged}`)
-    return NextResponse.json({ ok: true, ...counts, newlyAllowed: newlyAllowedIds.length, purged })
+    console.log(`[CRON][BLOCKED-RECHECK] purged=${purged} notifyTexted=${notify.texted} notifyFailed=${notify.failed}`)
+    return NextResponse.json({ ok: true, ...counts, newlyAllowed: newlyAllowedIds.length, notify, purged })
   } catch (err) {
     console.error("[CRON][BLOCKED-RECHECK] failed:", err instanceof Error ? err.name : "UnknownError")
     return NextResponse.json({ error: "recheck failed" }, { status: 500 })
