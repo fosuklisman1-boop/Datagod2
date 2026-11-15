@@ -24,6 +24,7 @@ const BATCH_A = new Set(
     "check-subscription-expiry",
     "check-subscriptions",
     "mtn-whitelist-retry",
+    "mtn-blocked-recheck", // daily; re-running is harmless (selects only due rows, guarded status updates)
     "sms-kyc-purge",
     "release-held-mtn-orders",
     "sms-senderid-poll",

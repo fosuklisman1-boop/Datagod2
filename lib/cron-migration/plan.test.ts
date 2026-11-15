@@ -9,19 +9,19 @@ const cfg = JSON.parse(readFileSync(join(__dirname, "crons.json"), "utf8"))
 const specs = buildJobSpecs(cfg.crons, HOST)
 
 describe("planActions", () => {
-  it("empty account -> create all 46", () => {
+  it("empty account -> create all 47", () => {
     const actions = planActions(specs, [], HOST)
-    expect(actions).toHaveLength(46)
+    expect(actions).toHaveLength(47)
     expect(actions.every((a) => a.kind === "create")).toBe(true)
   })
 
-  it("adopts the 2 pre-existing www.datagod.store jobs (update) and creates 44", () => {
+  it("adopts the 2 pre-existing www.datagod.store jobs (update) and creates 45", () => {
     const existing: ExistingJob[] = [
       { jobId: 7224390, title: "subs", url: `${HOST}/api/cron/check-subscription-expiry`, enabled: true },
       { jobId: 7227752, title: "subs ex", url: `${HOST}/api/cron/check-subscriptions`, enabled: true },
     ]
     const actions = planActions(specs, existing, HOST)
-    expect(actions.filter((a) => a.kind === "create")).toHaveLength(44)
+    expect(actions.filter((a) => a.kind === "create")).toHaveLength(45)
     const updates = actions.filter((a) => a.kind === "update")
     expect(updates.map((a) => a.jobId).sort()).toEqual([7224390, 7227752])
   })
@@ -35,7 +35,7 @@ describe("planActions", () => {
     }
     const actions = planActions(specs, [other], HOST)
     expect(actions.some((a) => a.jobId === 7966501)).toBe(false)
-    expect(actions.filter((a) => a.kind === "create")).toHaveLength(46)
+    expect(actions.filter((a) => a.kind === "create")).toHaveLength(47)
   })
 
   it("is idempotent: an account already holding every owned job yields all skip", () => {
