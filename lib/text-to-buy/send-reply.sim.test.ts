@@ -77,11 +77,11 @@ describe("sendReply default transport (router)", () => {
     expect(store.storeOutbound).toHaveBeenCalledTimes(1)
   })
 
-  it("sim: an ambiguous result counts as sent: no Hubtel copy, one charge, one out row", async () => {
-    phone.sendViaPhone.mockResolvedValue({ kind: "ambiguous" })
+  it("sim: an ambiguous result falls back to Hubtel too: exactly one Hubtel call, one charge, one out row", async () => {
+    phone.sendViaPhone.mockResolvedValue({ kind: "ambiguous", detail: "timeout" })
     const r = await sendReply(db, { ...base, settings: sim(), payer: shopPayer })
     expect(r).toEqual({ sent: true })
-    expect(sms.sendSMS).not.toHaveBeenCalled()
+    expect(sms.sendSMS).toHaveBeenCalledTimes(1)
     expect(credits.chargeSingleReply).toHaveBeenCalledTimes(1)
     expect(credits.refundSingleReply).not.toHaveBeenCalled()
     expect(store.storeOutbound).toHaveBeenCalledTimes(1)

@@ -2,19 +2,23 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { sendSMS } from "@/lib/sms-service"
 import type { TtbSettings } from "../settings"
 import type { Line } from "../types"
-import { sendViaPhone } from "./client"
+import { sendViaPhone, type PhoneSendDetail } from "./client"
 import { readPhoneLink } from "./config"
 
 /**
  * The reply transport router: a drop-in `send` for sendReply, chosen per line. Server-only.
  *  - transport "hubtel" (default): the existing sendSMS, unchanged.
- *  - transport "sim": try the forwarder phone's own SIM; fall back to Hubtel on anything that proves nothing was sent.
- *  - an ambiguous timeout (request on the wire, no answer) counts as sent: never two copies to a customer.
- * Never logs the number, text, key or url: one fixed line per fallback with a reason code only.
+ *  - transport "sim": try the forwarder phone's own SIM; ANY outcome other than a confirmed send falls back to Hubtel
+ *    (an ambiguous timeout included: the accepted risk is a rare duplicate, never a silently lost reply).
+ * Never logs the number, text, key or url: one fixed line per fallback with fixed reason tokens only (env, cap, kind:detail).
  */
 
 type Send = typeof sendSMS
-type FallbackReason = "env" | "cap" | "refused" | "unreachable"
+type FallbackReason = "env" | "cap" | `${"refused" | "unreachable" | "ambiguous"}:${PhoneSendDetail}`
+
+const DETAILS: ReadonlySet<string> = new Set<PhoneSendDetail>([
+  "probe_failed", "probe_timeout", "connect_error", "reset", "timeout", "http_status", "redirect", "bad_body", "code_not_200", "other",
+])
 
 const WINDOW_MS = 30 * 60_000
 
@@ -72,9 +76,11 @@ export function createReplySend(args: {
         { simSlot: line === "shop" ? settings.simSlotShop : settings.simSlotMain, to: payload.phone, text: payload.message },
       )
     } catch {
-      result = { kind: "unreachable" }
+      result = { kind: "unreachable", detail: "other" }
     }
-    if (result.kind === "sent" || result.kind === "ambiguous") return { success: true }
-    return viaHubtel(payload, result.kind)
+    if (result.kind === "sent") return { success: true }
+    // EVERY other outcome (including an ambiguous timeout) falls back: a rare duplicate beats a silently lost reply.
+    const detail = result.detail && DETAILS.has(result.detail) ? result.detail : "other"
+    return viaHubtel(payload, `${result.kind}:${detail}`)
   }
 }

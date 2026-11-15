@@ -52,27 +52,27 @@ describe("sendViaPhone", () => {
   })
 
   it("encrypted code 500 -> refused", async () => {
-    expect(await send(async () => reply(200, enc({ code: 500, msg: "no" })))).toEqual({ kind: "refused" })
+    expect(await send(async () => reply(200, enc({ code: 500, msg: "no" })))).toMatchObject({ kind: "refused" })
   })
 
   it("HTTP 500 -> refused", async () => {
-    expect(await send(async () => reply(500, enc({ code: 200 })))).toEqual({ kind: "refused" })
+    expect(await send(async () => reply(500, enc({ code: 200 })))).toMatchObject({ kind: "refused" })
   })
 
   it("a 3xx redirect -> refused", async () => {
-    expect(await send(async () => reply(307, "", { location: "http://elsewhere.test/" }))).toEqual({ kind: "refused" })
+    expect(await send(async () => reply(307, "", { location: "http://elsewhere.test/" }))).toMatchObject({ kind: "refused" })
     const opaque = { status: 0, type: "opaqueredirect", text: async () => "" }
-    expect(await send(async () => opaque)).toEqual({ kind: "refused" })
+    expect(await send(async () => opaque)).toMatchObject({ kind: "refused" })
   })
 
   it("garbage body -> refused", async () => {
-    expect(await send(async () => reply(200, "<html>gateway</html>"))).toEqual({ kind: "refused" })
+    expect(await send(async () => reply(200, "<html>gateway</html>"))).toMatchObject({ kind: "refused" })
   })
 
   it("probe false -> unreachable and fetch never called", async () => {
     const f = vi.fn()
     const r = await sendViaPhone(CFG, PARAMS, { fetch: f as unknown as typeof fetch, connect: async () => false })
-    expect(r).toEqual({ kind: "unreachable" })
+    expect(r).toMatchObject({ kind: "unreachable" })
     expect(f).not.toHaveBeenCalled()
   })
 
@@ -84,22 +84,22 @@ describe("sendViaPhone", () => {
 
   it("rejection with a connect-phase error code (on cause or directly) -> unreachable", async () => {
     for (const code of ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT"]) {
-      expect(await send(failing(code))).toEqual({ kind: "unreachable" })
-      expect(await send(failing(code, false))).toEqual({ kind: "unreachable" })
+      expect(await send(failing(code))).toMatchObject({ kind: "unreachable" })
+      expect(await send(failing(code, false))).toMatchObject({ kind: "unreachable" })
     }
   })
 
   it("a reset or closed connection before any response -> unreachable (nothing was sent)", async () => {
     for (const code of ["ECONNRESET", "EPIPE", "UND_ERR_SOCKET"]) {
-      expect(await send(failing(code))).toEqual({ kind: "unreachable" })
-      expect(await send(failing(code, false))).toEqual({ kind: "unreachable" })
+      expect(await send(failing(code))).toMatchObject({ kind: "unreachable" })
+      expect(await send(failing(code, false))).toMatchObject({ kind: "unreachable" })
     }
-    expect(await send(async () => { throw new TypeError("other side closed") })).toEqual({ kind: "unreachable" })
-    expect(await send(async () => { throw new TypeError("terminated") })).toEqual({ kind: "unreachable" })
+    expect(await send(async () => { throw new TypeError("other side closed") })).toMatchObject({ kind: "unreachable" })
+    expect(await send(async () => { throw new TypeError("terminated") })).toMatchObject({ kind: "unreachable" })
   })
 
   it("any other unknown rejection stays ambiguous", async () => {
-    expect(await send(async () => { throw new Error("weird") })).toEqual({ kind: "ambiguous" })
+    expect(await send(async () => { throw new Error("weird") })).toMatchObject({ kind: "ambiguous" })
   })
 
   it("the total budget covers the probe and the fetch together", async () => {
@@ -116,7 +116,7 @@ describe("sendViaPhone", () => {
     const t0 = Date.now()
     const r = await sendViaPhone(CFG, PARAMS, { fetch: f, connect, connectTimeoutMs: 5000, totalTimeoutMs: 600 })
     const total = Date.now() - t0
-    expect(r).toEqual({ kind: "ambiguous" })
+    expect(r).toMatchObject({ kind: "ambiguous" })
     expect(fetchBudget).toBeGreaterThan(0)
     // The probe took ~300 ms of the 600 ms budget, so the whole call ends near 600 ms. A budget that restarted for the fetch
     // would end near 900 ms; the generous 800 ms ceiling keeps this stable under a loaded test run.
@@ -133,14 +133,14 @@ describe("sendViaPhone", () => {
     const f = vi.fn()
     const connect = async () => { await new Promise((r) => setTimeout(r, 40)); return true }
     const r = await sendViaPhone(CFG, PARAMS, { fetch: f as unknown as typeof fetch, connect, totalTimeoutMs: 30 })
-    expect(r).toEqual({ kind: "unreachable" })
+    expect(r).toMatchObject({ kind: "unreachable" })
     expect(f).not.toHaveBeenCalled()
   })
 
   it("hangs past the total timeout -> ambiguous (no separate early abort)", async () => {
     const t0 = Date.now()
     const r = await send(hanging(), { connectTimeoutMs: 5, totalTimeoutMs: 60 })
-    expect(r).toEqual({ kind: "ambiguous" })
+    expect(r).toMatchObject({ kind: "ambiguous" })
     expect(Date.now() - t0).toBeGreaterThanOrEqual(50)
   })
 
@@ -163,13 +163,13 @@ describe("sendViaPhone", () => {
           },
         }),
       })) as unknown as typeof fetch
-    expect(await send(f, { totalTimeoutMs: 30 })).toEqual({ kind: "ambiguous" })
+    expect(await send(f, { totalTimeoutMs: 30 })).toMatchObject({ kind: "ambiguous" })
   })
 
   it("a declared content-length over 4096 -> refused without reading", async () => {
     const text = vi.fn(async () => enc({ code: 200 }))
     const r = await send(async () => ({ status: 200, headers: new Headers({ "content-length": "5000" }), body: null, text }))
-    expect(r).toEqual({ kind: "refused" })
+    expect(r).toMatchObject({ kind: "refused" })
     expect(text).not.toHaveBeenCalled()
   })
 
@@ -183,7 +183,7 @@ describe("sendViaPhone", () => {
       },
     })
     const r = await send(async () => ({ status: 200, headers: new Headers(), body: stream }))
-    expect(r).toEqual({ kind: "refused" })
+    expect(r).toMatchObject({ kind: "refused" })
     expect(pulled).toBeLessThan(100 * 1024)
   })
 
@@ -192,6 +192,29 @@ describe("sendViaPhone", () => {
     const stream = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode(hex)); c.close() } })
     expect(await send(async () => ({ status: 200, headers: new Headers(), body: stream }))).toEqual({ kind: "sent" })
     expect(await send(async () => ({ status: 200, headers: new Headers(), body: null, text: async () => hex }))).toEqual({ kind: "sent" })
+  })
+
+  it("every non-sent result carries a fixed-vocabulary detail", async () => {
+    const VOCAB = ["probe_failed", "probe_timeout", "connect_error", "reset", "timeout", "http_status", "redirect", "bad_body", "code_not_200", "other"]
+    const got = async (f: unknown, extra: Record<string, unknown> = {}) => (await send(f, extra)) as { kind: string; detail?: string }
+    const cases: [{ kind: string; detail?: string }, string, string][] = [
+      [await sendViaPhone(CFG, PARAMS, { fetch: vi.fn() as unknown as typeof fetch, connect: async () => false }), "unreachable", "probe_failed"],
+      [await got(failing("ECONNREFUSED")), "unreachable", "connect_error"],
+      [await got(failing("ETIMEDOUT")), "unreachable", "connect_error"],
+      [await got(failing("EAI_AGAIN")), "unreachable", "connect_error"],
+      [await got(failing("ECONNABORTED")), "unreachable", "connect_error"],
+      [await got(failing("ECONNRESET")), "unreachable", "reset"],
+      [await got(hanging(), { totalTimeoutMs: 20 }), "ambiguous", "timeout"],
+      [await got(async () => { throw new Error("weird") }), "ambiguous", "other"],
+      [await got(async () => reply(500, "x")), "refused", "http_status"],
+      [await got(async () => reply(307, "")), "refused", "redirect"],
+      [await got(async () => reply(200, "junk")), "refused", "bad_body"],
+      [await got(async () => reply(200, enc({ code: 500 }))), "refused", "code_not_200"],
+    ]
+    for (const [r, kind, detail] of cases) {
+      expect(r).toEqual({ kind, detail })
+      expect(VOCAB).toContain(r.detail)
+    }
   })
 
   it("never writes the url, key, number or text to the console", async () => {

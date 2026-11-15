@@ -10,10 +10,17 @@ import { buildSendBody, decodeResponse, parseKey } from "./sm4"
  *  - unreachable: nothing was accepted: the TCP probe failed, or fetch failed with a connect-phase or reset/closed-before-response
  *    error (ECONNRESET, EPIPE, UND_ERR_SOCKET, "other side closed", "terminated").
  *  - ambiguous: the request may have reached the phone (total timeout with no answer, a failed body read, any other failure):
- *    it may have sent, so the caller must NOT resend through another transport.
+ *    it may have sent. The router still falls back to Hubtel (a rare duplicate beats a silent loss).
+ * Every non-sent result carries a `detail` from a fixed vocabulary (never an error message, url, number or text), so the
+ * router can log WHY the SIM path failed. "probe_timeout" is reserved: the boolean probe cannot tell a timeout from an error.
  */
 
-export type PhoneSendResult = { kind: "sent" } | { kind: "refused" } | { kind: "unreachable" } | { kind: "ambiguous" }
+export type PhoneSendDetail =
+  | "probe_failed" | "probe_timeout" | "connect_error" | "reset" | "timeout" | "http_status" | "redirect" | "bad_body" | "code_not_200" | "other"
+
+export type PhoneSendResult =
+  | { kind: "sent" }
+  | { kind: "refused" | "unreachable" | "ambiguous"; detail?: PhoneSendDetail }
 
 export type PhoneClientDeps = {
   fetch?: typeof fetch
@@ -25,7 +32,8 @@ export type PhoneClientDeps = {
 
 const MAX_BODY_BYTES = 4096
 // Errors that prove nothing reached the phone: connect-phase failures, and a connection reset or closed before any response.
-const NOT_SENT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT", "ECONNRESET", "EPIPE", "UND_ERR_SOCKET"])
+const CONNECT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT", "ETIMEDOUT", "EAI_AGAIN", "ECONNABORTED"])
+const RESET_CODES = new Set(["ECONNRESET", "EPIPE", "UND_ERR_SOCKET"])
 
 function closedBeforeResponse(e: unknown): boolean {
   const m = (e as { message?: unknown } | null)?.message
@@ -106,7 +114,7 @@ export async function sendViaPhone(
   const startedAt = Date.now()
 
   const key = parseKey(cfg.keyHex)
-  if (!key) return { kind: "unreachable" }
+  if (!key) return { kind: "unreachable", detail: "other" }
 
   let body: string
   let target: string
@@ -119,7 +127,7 @@ export async function sendViaPhone(
     body = buildSendBody(key, cfg.keyHex, { ...p, nowMs: now() })
     target = `${cfg.url.replace(/\/+$/, "")}/sms/send`
   } catch {
-    return { kind: "unreachable" }
+    return { kind: "unreachable", detail: "other" }
   }
 
   // ONE total budget covers the probe and the fetch: the probe's limit is min(connectTimeoutMs, budget) and its elapsed time
@@ -130,9 +138,9 @@ export async function sendViaPhone(
   } catch {
     reachable = false
   }
-  if (!reachable) return { kind: "unreachable" }
+  if (!reachable) return { kind: "unreachable", detail: "probe_failed" }
   const remaining = totalMs - (Date.now() - startedAt)
-  if (remaining <= 0) return { kind: "unreachable" }
+  if (remaining <= 0) return { kind: "unreachable", detail: "probe_failed" }
 
   const ac = new AbortController()
   let timedOut = false
@@ -148,30 +156,33 @@ export async function sendViaPhone(
     try {
       res = await doFetch(target, { method: "POST", headers: { "content-type": "application/json" }, body, signal: ac.signal, redirect: "manual" })
     } catch (e) {
-      if (!timedOut && (NOT_SENT_CODES.has(errorCode(e) ?? "") || closedBeforeResponse(e) || closedBeforeResponse((e as { cause?: unknown })?.cause))) {
-        return { kind: "unreachable" }
+      if (timedOut) return { kind: "ambiguous", detail: "timeout" }
+      const code = errorCode(e) ?? ""
+      if (CONNECT_CODES.has(code)) return { kind: "unreachable", detail: "connect_error" }
+      if (RESET_CODES.has(code) || closedBeforeResponse(e) || closedBeforeResponse((e as { cause?: unknown })?.cause)) {
+        return { kind: "unreachable", detail: "reset" }
       }
-      return { kind: "ambiguous" }
+      return { kind: "ambiguous", detail: "other" }
     }
-    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) return { kind: "refused" }
-    if (res.status !== 200) return { kind: "refused" }
+    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) return { kind: "refused", detail: "redirect" }
+    if (res.status !== 200) return { kind: "refused", detail: "http_status" }
     let text: string | null
     try {
       text = await readBounded(res)
     } catch {
-      return { kind: "ambiguous" }
+      return { kind: "ambiguous", detail: timedOut ? "timeout" : "other" }
     }
-    if (text === null) return { kind: "refused" }
+    if (text === null) return { kind: "refused", detail: "bad_body" }
     const out = decodeResponse(key, text)
-    if (!out) return { kind: "refused" }
-    return out.code === 200 ? { kind: "sent" } : { kind: "refused" }
+    if (!out) return { kind: "refused", detail: "bad_body" }
+    return out.code === 200 ? { kind: "sent" } : { kind: "refused", detail: "code_not_200" }
   }
 
   try {
     const winner = await Promise.race([run(), timeout])
-    return winner === "timeout" ? { kind: "ambiguous" } : winner
+    return winner === "timeout" ? { kind: "ambiguous", detail: "timeout" } : winner
   } catch {
-    return { kind: "ambiguous" }
+    return { kind: "ambiguous", detail: "other" }
   } finally {
     clearTimeout(timer)
   }

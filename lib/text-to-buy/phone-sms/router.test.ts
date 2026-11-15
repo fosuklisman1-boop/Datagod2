@@ -105,10 +105,35 @@ describe("createReplySend", () => {
     expect(t.hubtel).toHaveBeenCalledTimes(1)
   })
 
-  it("sim + ambiguous: success and hubtel NOT called (no duplicate)", async () => {
-    const t = setup({ phone: { kind: "ambiguous" } })
+  it("sim + ambiguous: falls back to hubtel exactly once (silent loss is worse than a rare duplicate)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    const t = setup({ phone: { kind: "ambiguous", detail: "timeout" } })
     expect(await t.send(PAYLOAD)).toEqual({ success: true })
-    expect(t.hubtel).not.toHaveBeenCalled()
+    expect(t.hubtel).toHaveBeenCalledTimes(1)
+    expect(t.hubtel.mock.calls[0][0]).toEqual(PAYLOAD)
+  })
+
+  it("the fallback warn carries only fixed tokens: kind:detail, env or cap", async () => {
+    const cases: [PhoneSendResult, string][] = [
+      [{ kind: "ambiguous", detail: "timeout" }, "ambiguous:timeout"],
+      [{ kind: "unreachable", detail: "probe_failed" }, "unreachable:probe_failed"],
+      [{ kind: "refused", detail: "code_not_200" }, "refused:code_not_200"],
+      [{ kind: "refused" }, "refused:other"],
+    ]
+    for (const [phone, token] of cases) {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+      const t = setup({ phone })
+      await t.send(PAYLOAD)
+      expect(warn.mock.calls).toEqual([[`text-to-buy: SIM reply fell back to Hubtel (${token})`]])
+      warn.mockRestore()
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await setup({ env: { SMS_ENABLED: "true" } as unknown as NodeJS.ProcessEnv }).send(PAYLOAD)
+    await setup({ count: { count: 99, error: null } }).send(PAYLOAD)
+    expect(warn.mock.calls).toEqual([
+      ["text-to-buy: SIM reply fell back to Hubtel (env)"],
+      ["text-to-buy: SIM reply fell back to Hubtel (cap)"],
+    ])
   })
 
   it("missing or malformed env goes to hubtel without calling the phone", async () => {
