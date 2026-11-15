@@ -165,6 +165,8 @@ export async function processInbound(
       outcome = "limited"
       text = null
     }
+    // Nothing to say on the shop line for an unavailable outcome (a notice already sent today, or a cap): fixed string, nothing else.
+    if (!dry && !text && outcome === "unavailable" && i.line === "shop") console.warn("text-to-buy: no reply text for outcome unavailable (shop line)")
     if (!dry) {
       if (text) await reply(db, { line: i.line, sender: i.from, body: text, settings, orderLinkId: extra.orderLinkId, ...(shopPaid ? { payer: lane!.payer() } : {}) })
       await setInboundResult(db, messageId, { readBy, outcome, orderLinkId: extra.orderLinkId })

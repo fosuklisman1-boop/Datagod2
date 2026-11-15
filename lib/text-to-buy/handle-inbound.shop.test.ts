@@ -290,6 +290,19 @@ describe("shop line: credits", () => {
     expect(String(t.deps.alert.mock.calls[0][0])).not.toContain(S)
   })
 
+  it("an unavailable outcome with nothing to say on the shop line logs one fixed warn; a reply that is sent logs none; the result is unchanged", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const t = setup({ pref: "sc1" })
+    t.credits.reserve.mockResolvedValue({ ok: false as const, reason: "inactive" as const })
+    const first = await t.run("5gb")
+    expect(first.result.reply).toBe("Ama Data Hub can't take text orders right now. Call 0241234567.")
+    expect(warn).not.toHaveBeenCalled()
+    const second = await t.run("5gb now")
+    expect(second.result).toMatchObject({ outcome: "unavailable", reply: null })
+    expect(warn.mock.calls).toEqual([["text-to-buy: no reply text for outcome unavailable (shop line)"]])
+    warn.mockRestore()
+  })
+
   it("a place that yields no orderId releases the reserve at once and links nothing", async () => {
     const t = setup({ pref: "sc1" })
     t.shopData.confirmShop.mockResolvedValue({ orderId: undefined, amountGhs: 23.5 })

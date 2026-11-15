@@ -41,9 +41,23 @@ export async function sendReply(
   // Default: the per-line reply transport router (Hubtel unless an admin switched this line to the phone SIM).
   const send = deps.send ?? createReplySend({ db, line: r.line, settings: r.settings })
 
-  if (typeof r.body !== "string" || r.body.trim() === "") return { sent: false }
+  // One fixed-token warn per reply that is not sent (never the body, number, ids or shop name).
+  const notSent = (token: "blank" | "not_gsm7" | "too_long" | "skipped" | "unpaid" | "send_failed") =>
+    console.warn(`text-to-buy: reply not sent (${token})`)
+
+  if (typeof r.body !== "string" || r.body.trim() === "") {
+    notSent("blank")
+    return { sent: false }
+  }
   const seg = calculateSegments(r.body)
-  if (seg.encoding !== "gsm7" || seg.segments !== 1) return { sent: false }
+  if (seg.encoding !== "gsm7") {
+    notSent("not_gsm7")
+    return { sent: false }
+  }
+  if (seg.segments !== 1) {
+    notSent("too_long")
+    return { sent: false }
+  }
 
   // Shop payer: the shop's credit is taken BEFORE the send and the reply goes out only if that worked. There is no fallback to
   // Datagod paying here (a Datagod-paid notice is an explicit { kind: "datagod" } call by its caller).
@@ -65,7 +79,10 @@ export async function sendReply(
     } catch {
       paid = null
     }
-    if (!paid) return { sent: false, skipped: "unpaid" }
+    if (!paid) {
+      notSent("unpaid")
+      return { sent: false, skipped: "unpaid" }
+    }
   }
 
   // Gives back what THIS reply took: a single debit is refunded under the very ref it was debited with; a reserve draw is
@@ -98,6 +115,7 @@ export async function sendReply(
     })
     if (res?.skipped) {
       await giveBack()
+      notSent("skipped")
       return { sent: false, skipped: true }
     }
     sent = res?.success === true
@@ -106,6 +124,8 @@ export async function sendReply(
   } catch {
     sent = false
   }
+
+  if (!sent) notSent("send_failed")
 
   let credits: number | undefined
   if (shop) {
