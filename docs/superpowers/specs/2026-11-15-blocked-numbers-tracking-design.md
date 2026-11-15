@@ -1,6 +1,6 @@
 # Blocked MTN Numbers: tracking, re-check, alerts — Design
 
-Date: 2026-11-15. Status: draft for owner approval.
+Date: 2026-11-15. Status: implemented, dark.
 
 ## Intent
 
