@@ -490,3 +490,106 @@ Customers text the shop number 0200000999 (use your real shop number):
 - Next time, just text 5GB. We remember your shop.
 Shop owners: you need SMS credits to take text orders. Each order uses a few credits for the replies. With no credits your shop is paused for text orders.
 ```
+
+## 14. Missed-call support SMS (OWNER runbook)
+
+### 14.1 What it does, and what it does not
+
+When someone calls one of the two Text-to-Buy phones and nobody answers, the phone's forwarder app tells the server about the missed call, and the server sends the caller ONE short SMS saying where to get help.
+
+- Main number (0256078092) missed call: the caller gets Datagod's WhatsApp support line. Datagod pays for the SMS. The support number is read live from the support settings; it is not written into the code.
+- Shop number (0559919037) missed call:
+  - If the caller is linked to a shop (the shop they remembered, else the shop they last bought from) and that shop is open: the caller gets that shop owner's number, and the SMS is paid from that shop's SMS credits (1 credit, under the normal per-shop hourly reply cap).
+  - If the caller is not linked to a shop, or the shop is closed, paused, out of credits or over its cap: the caller gets Datagod's WhatsApp support line, and Datagod pays.
+- One SMS per caller, per line, per day. A second missed call the same day sends nothing.
+- A cap on SMS per hour per line (default 60) bounds the cost if many people call at once.
+- The shop number is also the public support phone, so the shop line's "not understood", HELP and PRICES replies now carry a short WhatsApp support pointer when it fits in one SMS segment. The main line wording is unchanged.
+
+What it does NOT do: it does not take orders by call, call anyone back, or record calls. A missed call can never reach the Send and Claim (MoMo) ingest. Everything is behind one switch, `ttb_calls_enabled`, OFF by default.
+
+### 14.2 DEPLOY ORDER (CRITICAL)
+
+Apply migration `migrations/0181_text_to_buy_calls.sql` (self-test: `migrations/0181_text_to_buy_calls.selftest.sql`) BEFORE the code deploys. The code only writes to the new table `ttb_calls` when the switch is on, but apply first anyway; do not rely on that. Before applying, re-check that nothing newer has taken 0181.
+
+Follow the production change protocol, with your OK at each step:
+
+1. Precheck (read-only). The table must be absent. If not, STOP: it was already applied.
+
+```sql
+select to_regclass('public.ttb_calls');
+-- expected: NULL
+select count(*) from pg_proc where proname = 'ttb_purge';  -- expected: 1 (record it)
+```
+
+2. Dry run: run the migration inside a transaction that ends in the self-test's RAISE so everything rolls back (migration with its BEGIN kept and only its final COMMIT removed, followed by the self-test DO block; build the string by code and check it contains no COMMIT). PASS means the error text starts with `SELFTEST_OK`. Anything else means stop.
+3. Your OK. Then apply.
+4. Verify (read-only):
+
+```sql
+select relname, relrowsecurity from pg_class where relname = 'ttb_calls';
+-- expected: 1 row, relrowsecurity true
+select count(*) from pg_policies where tablename = 'ttb_calls';
+-- expected: 0 (RLS on, no policies: only the server can read it)
+select grantee, privilege_type from information_schema.role_table_grants
+where table_name = 'ttb_calls' and grantee in ('anon','authenticated','service_role') order by 1,2;
+-- expected: service_role SELECT and INSERT only; nothing for anon or authenticated
+select count(*) from pg_proc where proname = 'ttb_purge';
+-- expected: still 1 (it now also deletes ttb_calls rows older than 30 days)
+```
+
+5. Code deploy: run a real `next build` with placeholder env first, then push, watch the deploy.
+6. Live check: `/admin/text-to-buy` loads; the Overview shows the "Missed calls today" card with zeros; the Settings tab shows the switch (off) and the hourly cap. Texts on both lines still behave as before.
+
+### 14.3 PHONE STEPS (SmsForwarder v3.5.0 on the Samsung)
+
+Do these after the code is deployed. None of it is done by code. Use the same phone that already runs the text senders.
+
+1. SIM table. In the app open Settings and tap Refresh next to SIM1. Confirm the table is right: SIM1 is subId 4 = the shop SIM (+233559919037), SIM2 is subId 3 = the main SIM. If it is wrong, fix it before going on, or calls will be sent through the wrong line.
+2. Settings -> Forward Calls Log: switch ON, and tick Missed only (not incoming or outgoing).
+3. Call-log permission. The app needs READ_CALL_LOG. Either grant it in Android settings (Apps, the forwarder, Permissions, Call logs, Allow), or from a computer: `adb shell pm grant cn.ppps.forwarder android.permission.READ_CALL_LOG`.
+4. Two call senders, made by cloning the text senders:
+   - "Main Text" cloned to "Main Call".
+   - "Shop Text" cloned to "Shop Call".
+   Change ONLY the URL, to `https://www.datagod.store/api/webhooks/call-forward`. Keep the same `x-sms-forward-secret` header value on each (the main secret on Main Call, the shop secret on Shop Call). Never paste a secret into a chat or a file. Set the params to `from=[from]&received=[receive_time]`. CONFIRM the call template tag names in the app's sender or rule help before relying on them (the call tags may not be the same as the text tags). If you could not confirm them, treat the params as UNTESTED and prove them in the supervised test below.
+5. Two call rules, in Rules -> Call: one for SIM-1 sending to "Shop Call", one for SIM-2 sending to "Main Call". Do not point a call rule at any MoMo or Send and Claim sender.
+6. The phone must stay on charge. It does not need to be unlocked or awake: forwarding runs in the background. Optionally keep it awake on the charger with `adb shell svc power stayon usb`.
+
+### 14.4 Supervised test
+
+Use your own phones. Have `/admin/text-to-buy` Overview open (the "Missed calls today" card and the line heartbeat).
+
+1. Switch still OFF. Call the shop number and the main number and let them go unanswered. Confirm no SMS arrives and nothing is sent. The Overview may show nothing or `skipped_off` style counts, and the line heartbeat should move (the webhook was reached).
+2. Turn the switch ON (Settings tab, confirm the dialog).
+3. Shop number, from a phone linked to a shop (it has bought from a shop, or has a remembered shop). Expect ONE SMS naming the shop and the shop owner's number. In that shop owner's credit ledger a 1 credit debit appears.
+4. Shop number, from a phone not linked to any shop. Expect ONE SMS with the Datagod WhatsApp support line. No shop credit moves.
+5. Main number, from any phone. Expect ONE SMS with the Datagod WhatsApp support line.
+6. Check the Overview card: each line shows the replied count you expect.
+7. Call the same line again from the same phone the same day. Expect NO second SMS, and the card counts it as skipped.
+8. If any SMS did not arrive, or the numbers in it are wrong, switch OFF and check the params from 14.3 step 4 first.
+
+Untested until you run it: delivery of the SMS to Telecel and AT handsets from each line, and the call tag names in the forwarder app.
+
+### 14.5 Switch-on and rollback
+
+Switch on only after 14.2 and 14.3 are done and 14.4 steps 1 to 7 pass. Watch the Overview card for a day.
+
+Rollback: switch `ttb_calls_enabled` OFF in Settings. Nothing else is needed. The migration is additive and stays, even on a code rollback. To stop the phone from reporting calls at all, disable the two call rules in the app (or switch Forward Calls Log off).
+
+### 14.6 Limits and abuse notes (in plain words)
+
+- A spoofed caller ID gets at most one SMS per day per number, per line. The SMS goes to the owner of the spoofed number. No money moves for the caller.
+- The hourly cap (`ttb_calls_per_hour_per_line`, default 60, allowed 5 to 500) bounds how many SMS a line can send in an hour; calls over it are counted as skipped.
+- A shop's credits are protected by the existing per-shop hourly reply cap (`ttb_shop_replies_per_hour_per_shop`, default 60). Over it the caller gets the Datagod support SMS instead, once.
+- If the support number is missing in settings, the SMS is skipped (never sent blank or wrong) and admins are alerted once a day. The caller is not marked for the day, so they get the SMS once the number is fixed.
+- A send failure is logged as `error` and admins are alerted once a day. A failed or refused send is NOT retried that day: the caller gets nothing more until tomorrow. Accepted, rare.
+- Only Ghana mobile numbers are answered. Short codes, international and hidden numbers are ignored. Calls older than 15 minutes are ignored.
+- Call records hold no call content: only the line, the caller number, the shop id and the outcome. They are purged after 30 days.
+- The shop owner's number is sent only to a number linked to that shop, who already sees it in shop quotes. Anyone else gets only Datagod's support line.
+
+### 14.7 Announcement
+
+No customer announcement is needed (internal feature). One line for shop owners if you want to tell them:
+
+```
+Heads up: if a customer calls the Datagod shop number and misses you, they get an SMS pointing them to your number (it costs your shop 1 SMS credit).
+```
