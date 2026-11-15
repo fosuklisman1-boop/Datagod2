@@ -5,7 +5,7 @@ import { TTB_SETTING_KEYS, type TtbSettingField, type TtbSettingKey } from "./se
 
 export type ValidationOutcome = { ok: true; patch: Partial<Record<TtbSettingKey, unknown>> } | { ok: false; error: string }
 
-type Rule = { kind: "bool" } | { kind: "int"; min: number; max: number } | { kind: "phone" } | { kind: "senderId" }
+type Rule = { kind: "bool" } | { kind: "int"; min: number; max: number } | { kind: "phone" } | { kind: "senderId" } | { kind: "enum"; values: readonly string[] }
 
 const RULES: Record<TtbSettingField, Rule> = {
   mainEnabled: { kind: "bool" },
@@ -30,6 +30,11 @@ const RULES: Record<TtbSettingField, Rule> = {
   shopRepliesPerHourPerShop: { kind: "int", min: 5, max: 1000 },
   callsEnabled: { kind: "bool" },
   callsPerHourPerLine: { kind: "int", min: 5, max: 500 },
+  replyTransportMain: { kind: "enum", values: ["hubtel", "sim"] },
+  replyTransportShop: { kind: "enum", values: ["hubtel", "sim"] },
+  simSlotMain: { kind: "int", min: 1, max: 2 },
+  simSlotShop: { kind: "int", min: 1, max: 2 },
+  simMaxPer30Min: { kind: "int", min: 1, max: 30 },
 }
 
 const SENDER_ID_RE = /^[A-Za-z0-9 ]{1,11}$/
@@ -52,6 +57,8 @@ function check(rule: Rule, v: unknown): { ok: true; value: unknown } | { ok: fal
       const n = normaliseSender(v)
       return n ? { ok: true, value: n } : { ok: false }
     }
+    case "enum":
+      return typeof v === "string" && rule.values.includes(v) ? { ok: true, value: v } : { ok: false }
     case "senderId":
       return typeof v === "string" && (v === "" || SENDER_ID_RE.test(v)) ? { ok: true, value: v } : { ok: false }
   }

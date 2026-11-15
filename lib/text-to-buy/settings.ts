@@ -6,6 +6,8 @@ import type { Line } from "./types"
  * Any read failure returns the defaults, and the defaults are OFF: the feature fails closed.
  */
 
+export type ReplyTransport = "hubtel" | "sim"
+
 export type TtbSettings = {
   mainEnabled: boolean
   mainNumber: string
@@ -39,6 +41,14 @@ export type TtbSettings = {
   callsEnabled: boolean
   /** Call-triggered texts per hour per line. */
   callsPerHourPerLine: number
+  /** How replies on each line are sent: "hubtel" (default) or "sim" (the forwarder phone's own SIM, Hubtel as fallback). */
+  replyTransportMain: ReplyTransport
+  replyTransportShop: ReplyTransport
+  /** Which SIM slot (1 or 2) carries each line's replies. */
+  simSlotMain: 1 | 2
+  simSlotShop: 1 | 2
+  /** Rolling cap of SIM replies per line per 30 minutes (Android blocks apps that send more than ~30). */
+  simMaxPer30Min: number
   /** "defaults" when the DB read failed or threw, so callers can tell fallback values from saved ones. */
   source: "db" | "defaults"
 }
@@ -69,6 +79,11 @@ export const TTB_SETTING_KEYS = {
   shopRepliesPerHourPerShop: "ttb_shop_replies_per_hour_per_shop",
   callsEnabled: "ttb_calls_enabled",
   callsPerHourPerLine: "ttb_calls_per_hour_per_line",
+  replyTransportMain: "ttb_reply_transport_main",
+  replyTransportShop: "ttb_reply_transport_shop",
+  simSlotMain: "ttb_sim_slot_main",
+  simSlotShop: "ttb_sim_slot_shop",
+  simMaxPer30Min: "ttb_sim_max_per_30min",
 } as const satisfies Record<TtbSettingField, string>
 
 export type TtbSettingKey = (typeof TTB_SETTING_KEYS)[TtbSettingField]
@@ -98,6 +113,11 @@ export const TTB_DEFAULTS: TtbSettings = {
   shopRepliesPerHourPerShop: 60,
   callsEnabled: false,
   callsPerHourPerLine: 60,
+  replyTransportMain: "hubtel",
+  replyTransportShop: "hubtel",
+  simSlotMain: 2,
+  simSlotShop: 1,
+  simMaxPer30Min: 20,
   source: "defaults",
 }
 
@@ -114,6 +134,14 @@ function limit(x: unknown, fallback: number, min = 0): number {
 /** A whole number inside the admin range; anything else (wrong type, fraction, out of range) keeps the default. */
 function intIn(x: unknown, fallback: number, min: number, max: number): number {
   return typeof x === "number" && Number.isInteger(x) && x >= min && x <= max ? x : fallback
+}
+
+function transport(x: unknown): ReplyTransport {
+  return x === "sim" ? "sim" : "hubtel"
+}
+
+function slot(x: unknown, fallback: 1 | 2): 1 | 2 {
+  return x === 1 || x === 2 ? x : fallback
 }
 
 function text(x: unknown, fallback: string): string {
@@ -155,6 +183,11 @@ export async function loadTtbSettings(db: SupabaseClient): Promise<TtbSettings> 
       shopRepliesPerHourPerShop: intIn(raw.ttb_shop_replies_per_hour_per_shop, d.shopRepliesPerHourPerShop, 5, 1000),
       callsEnabled: raw.ttb_calls_enabled === true,
       callsPerHourPerLine: intIn(raw.ttb_calls_per_hour_per_line, d.callsPerHourPerLine, 5, 500),
+      replyTransportMain: transport(raw.ttb_reply_transport_main),
+      replyTransportShop: transport(raw.ttb_reply_transport_shop),
+      simSlotMain: slot(raw.ttb_sim_slot_main, d.simSlotMain),
+      simSlotShop: slot(raw.ttb_sim_slot_shop, d.simSlotShop),
+      simMaxPer30Min: intIn(raw.ttb_sim_max_per_30min, d.simMaxPer30Min, 1, 30),
       source: "db",
     }
   } catch {

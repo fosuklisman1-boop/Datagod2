@@ -31,6 +31,7 @@ describe("TTB_DEFAULTS", () => {
       retentionDays: 30, unclearRepliesEnabled: true, globalRepliesPerHour: 300, airtimeEnabled: false, resultsCheckerEnabled: false,
       shopEnabled: false, shopNumber: "", shopRepliesPerHourPerShop: 60,
       callsEnabled: false, callsPerHourPerLine: 60,
+      replyTransportMain: "hubtel", replyTransportShop: "hubtel", simSlotMain: 2, simSlotShop: 1, simMaxPer30Min: 20,
       source: "defaults",
     })
   })
@@ -66,6 +67,7 @@ describe("loadTtbSettings", () => {
       ttb_reply_to_unclear: false, ttb_global_replies_per_hour: 50, ttb_airtime_enabled: true, ttb_results_checker_enabled: true,
       ttb_shop_enabled: true, ttb_shop_number: "0200000111", ttb_shop_replies_per_hour_per_shop: 25,
       ttb_calls_enabled: true, ttb_calls_per_hour_per_line: 40,
+      ttb_reply_transport_main: "sim", ttb_reply_transport_shop: "sim", ttb_sim_slot_main: 1, ttb_sim_slot_shop: 2, ttb_sim_max_per_30min: 12,
     })))
     expect(s).toEqual({
       mainEnabled: true, mainNumber: "0200000100", replySenderId: "Datagod", shopReplySenderId: "DatagodShop", aiEnabled: false, staleMinutes: 15,
@@ -73,8 +75,27 @@ describe("loadTtbSettings", () => {
       quietAlertMinutes: 90, retentionDays: 14, unclearRepliesEnabled: false, globalRepliesPerHour: 50,
       airtimeEnabled: true, resultsCheckerEnabled: true,
       shopEnabled: true, shopNumber: "0200000111", shopRepliesPerHourPerShop: 25,
-      callsEnabled: true, callsPerHourPerLine: 40, source: "db",
+      callsEnabled: true, callsPerHourPerLine: 40,
+      replyTransportMain: "sim", replyTransportShop: "sim", simSlotMain: 1, simSlotShop: 2, simMaxPer30Min: 12, source: "db",
     })
+  })
+
+  it("reply transport accepts only hubtel or sim; slots only 1 or 2; the cap only integers 1..30", async () => {
+    for (const v of ["SIM", "gsm", 1, null, [], {}, true]) {
+      const s = await loadTtbSettings(client(rows({ ttb_reply_transport_main: v, ttb_reply_transport_shop: v })))
+      expect(s).toMatchObject({ replyTransportMain: "hubtel", replyTransportShop: "hubtel" })
+    }
+    for (const v of [0, 3, "1", 1.5, null, [], {}, Number.NaN]) {
+      const s = await loadTtbSettings(client(rows({ ttb_sim_slot_main: v, ttb_sim_slot_shop: v })))
+      expect(s).toMatchObject({ simSlotMain: 2, simSlotShop: 1 })
+    }
+    for (const v of [0, 31, "20", 5.5, null, [], {}, Number.NaN]) {
+      expect((await loadTtbSettings(client(rows({ ttb_sim_max_per_30min: v })))).simMaxPer30Min).toBe(20)
+    }
+    for (const v of [1, 30, 17]) {
+      expect((await loadTtbSettings(client(rows({ ttb_sim_max_per_30min: v })))).simMaxPer30Min).toBe(v)
+    }
+    expect((await loadTtbSettings(client(rows({ ttb_reply_transport_main: "sim" })))).replyTransportMain).toBe("sim")
   })
 
   it("turns call support on only for exactly true", async () => {
@@ -174,7 +195,7 @@ describe("loadTtbSettings", () => {
 
   it("exports one key table covering every setting field", () => {
     expect(Object.keys(TTB_SETTING_KEYS).sort()).toEqual(Object.keys(TTB_DEFAULTS).filter((k) => k !== "source").sort())
-    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(22)
+    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(27)
     expect(TTB_SETTING_KEYS.callsEnabled).toBe("ttb_calls_enabled")
     expect(TTB_SETTING_KEYS.callsPerHourPerLine).toBe("ttb_calls_per_hour_per_line")
     expect(TTB_SETTING_KEYS.shopEnabled).toBe("ttb_shop_enabled")
