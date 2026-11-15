@@ -442,6 +442,40 @@ describe("shop line: support pointer on not-understood", () => {
     expect(result.reply).toBe(notUnderstoodReply({}))
     expect(supportWhatsapp).not.toHaveBeenCalled()
   })
+  it.each(["help", "prices"])("shop-line %s carries the pointer, one segment, read once, no unclear-reply gating", async (word) => {
+    const t = setup({ pref: "sc1" })
+    const supportWhatsapp = vi.fn(async () => WA as string | null)
+    const { result } = await t.run(word, { settings: { unclearRepliesEnabled: false }, deps: { supportWhatsapp } as Partial<InboundDeps> })
+    expect(result.outcome).toBe("keyword")
+    expect(result.reply).toBe(`${notUnderstoodReply({})} For help WhatsApp: https://wa.me/${WA}`)
+    expect(calculateSegments(result.reply as string)).toMatchObject({ encoding: "gsm7", segments: 1 })
+    expect(supportWhatsapp).toHaveBeenCalledTimes(1)
+  })
+  it.each(["help", "prices"])("shop-line %s: null or garbage number gives the old text", async (word) => {
+    for (const v of [null, "+233 24 1234567", "abc"]) {
+      const t = setup({ pref: "sc1" })
+      const { result } = await t.run(word, { deps: { supportWhatsapp: async () => v } as Partial<InboundDeps> })
+      expect(result.reply).toBe(notUnderstoodReply({}))
+    }
+  })
+  it.each(["help", "prices"])("main-line %s is unchanged and never reads the number", async (word) => {
+    const t = setup()
+    const supportWhatsapp = vi.fn(async () => WA as string | null)
+    const prices = vi.fn(async () => null)
+    const { result } = await t.run(word, { input: { line: "main" }, deps: { supportWhatsapp, prices } as Partial<InboundDeps> })
+    expect(result.reply).toBe(notUnderstoodReply({ airtime: TTB_DEFAULTS.airtimeEnabled, resultsChecker: TTB_DEFAULTS.resultsCheckerEnabled }))
+    expect(supportWhatsapp).not.toHaveBeenCalled()
+  })
+  it("default read path: the shop line reads support_settings once per message, the main line never", async () => {
+    const t = setup({ pref: "sc1" })
+    const spy = vi.spyOn(t.c, "from")
+    await t.run("hello there")
+    expect(spy.mock.calls.filter((a) => a[0] === "support_settings")).toHaveLength(1)
+    spy.mockClear()
+    await t.run("hello there", { input: { line: "main" }, settings: { shopNumber: "" } })
+    await t.run("help", { input: { line: "main" } })
+    expect(spy.mock.calls.filter((a) => a[0] === "support_settings")).toHaveLength(0)
+  })
   it("a suppressed reply (switch off) does not read the number", async () => {
     const t = setup({ pref: "sc1" })
     const supportWhatsapp = vi.fn(async () => WA as string | null)

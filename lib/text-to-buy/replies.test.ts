@@ -55,6 +55,14 @@ describe("notUnderstoodShopReply (shop line support pointer)", () => {
       notUnderstoodReply({ airtime: true, resultsChecker: true }),
     )
   })
+  it("boundary on the real shop variant: stage-1 text is 111 chars + 34 of pointer, so up to 15 digits fit (exactly 160) and 16 fall back", () => {
+    for (const digits of ["233241234567", "2332412345678", "233241234567890"]) {
+      const t = notUnderstoodShopReply(digits)
+      expect(t).toBe(`${notUnderstoodReply()} For help WhatsApp: https://wa.me/${digits}`)
+      oneSegment(t)
+    }
+    expect(notUnderstoodShopReply("2332412345678901")).toBe(notUnderstoodReply())
+  })
   it("keeps the current wording with no support number", () => {
     expect(notUnderstoodShopReply(null)).toBe(notUnderstoodReply())
     expect(notUnderstoodShopReply("")).toBe(notUnderstoodReply())

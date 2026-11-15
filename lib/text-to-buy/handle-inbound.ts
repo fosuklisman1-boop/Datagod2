@@ -222,9 +222,18 @@ export async function processInbound(
       })
     }
 
+    // Shop line: the not-understood, HELP and PRICES replies may carry a support pointer. The number is read at most once per
+    // message and only on the shop line (the main line never reads it).
+    let supportRead: Promise<string | null> | null = null
+    const supportNumber = (): Promise<string | null> => {
+      supportRead ??= (async () => (deps.supportWhatsapp ? await deps.supportWhatsapp() : await readSupportWhatsapp(db)))().catch(() => null)
+      return supportRead
+    }
+    const help = async (): Promise<string> => (i.line === "shop" ? notUnderstoodShopReply(await supportNumber(), offered) : helpReply(offered))
+
     const priceList = async (outcome: "keyword" | "price_answer"): Promise<InboundResult> => {
       // The shop line has no price list of its own yet: never show the main catalogue's prices on it.
-      if (i.line === "shop") return await finish(outcome, helpReply(offered), { datagod: true })
+      if (i.line === "shop") return await finish(outcome, await help(), { datagod: true })
       const list = await prices(db, i.from)
       if (!list) return await finish(outcome, helpReply(offered))
       const text = priceListReply(list.networkLabel, list.items)
@@ -261,7 +270,7 @@ export async function processInbound(
         case "PRICES":
           return await priceList("keyword")
         case "HELP":
-          return await finish("keyword", helpReply(offered))
+          return await finish("keyword", await help())
         case "STATUS": {
           const link = await latestOrderLink(db, i.line, i.from)
           // The order row is read from the table the link names, through its own service's adapter. A pair with no adapter is
@@ -299,12 +308,6 @@ export async function processInbound(
 
     // ---- 5-7. things that are not an order -------------------------------------------------------------------------
     // With the switch off an unclear text costs nothing: no reply at all.
-    // Shop line: the reply may carry a support pointer (read at most once per message, only when a reply will be sent).
-    let supportRead: Promise<string | null> | null = null
-    const supportNumber = (): Promise<string | null> => {
-      supportRead ??= (async () => (deps.supportWhatsapp ? await deps.supportWhatsapp() : await readSupportWhatsapp(db)))().catch(() => null)
-      return supportRead
-    }
     const notUnderstood = async () => {
       if (!settings.unclearRepliesEnabled || c.notUnderstood >= 1) return finish("not_order", null)
       if (i.line !== "shop") return finish("not_order", notUnderstoodReply(offered))
