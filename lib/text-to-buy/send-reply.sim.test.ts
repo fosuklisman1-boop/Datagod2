@@ -16,12 +16,19 @@ vi.mock("./shop/credits", async () => {
 import { sendReply } from "./send-reply"
 import { TTB_DEFAULTS, type TtbSettings } from "./settings"
 
-const db = {} as SupabaseClient
+// The router counts recent out rows straight from the db: a chain that answers 0.
+const countChain: Record<string, unknown> = {}
+countChain.select = () => countChain
+countChain.eq = () => countChain
+countChain.gte = () => countChain
+countChain.then = (ok: (r: { count: number; error: null }) => unknown) => Promise.resolve({ count: 0, error: null }).then(ok)
+const db = { from: () => countChain } as unknown as SupabaseClient
 const sim = (over: Partial<TtbSettings> = {}): TtbSettings => ({ ...TTB_DEFAULTS, replyTransportMain: "sim", replyTransportShop: "sim", ...over })
 const base = { line: "main" as const, sender: "0200000101", body: "Send YES to confirm 1GB for GHS 5.00" }
 const shopPayer = { kind: "shop" as const, shopId: "s1", accountId: "a1", messageId: null, replyKey: "msg1-1" }
 
 beforeEach(() => {
+  process.env.SMS_ENABLED = "true"
   process.env.SMS_PHONE_URL = "https://relay.example.test/sms"
   process.env.SMS_PHONE_SM4_KEY = "00112233445566778899aabbccddeeff"
   vi.spyOn(console, "warn").mockImplementation(() => {})
@@ -36,6 +43,7 @@ beforeEach(() => {
   credits.undrawReserve.mockResolvedValue(true)
 })
 afterEach(() => {
+  delete process.env.SMS_ENABLED
   delete process.env.SMS_PHONE_URL
   delete process.env.SMS_PHONE_SM4_KEY
   vi.restoreAllMocks()

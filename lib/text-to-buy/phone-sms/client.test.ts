@@ -89,9 +89,50 @@ describe("sendViaPhone", () => {
     }
   })
 
-  it("ECONNRESET or any other rejection -> ambiguous", async () => {
-    expect(await send(failing("ECONNRESET"))).toEqual({ kind: "ambiguous" })
+  it("a reset or closed connection before any response -> unreachable (nothing was sent)", async () => {
+    for (const code of ["ECONNRESET", "EPIPE", "UND_ERR_SOCKET"]) {
+      expect(await send(failing(code))).toEqual({ kind: "unreachable" })
+      expect(await send(failing(code, false))).toEqual({ kind: "unreachable" })
+    }
+    expect(await send(async () => { throw new TypeError("other side closed") })).toEqual({ kind: "unreachable" })
+    expect(await send(async () => { throw new TypeError("terminated") })).toEqual({ kind: "unreachable" })
+  })
+
+  it("any other unknown rejection stays ambiguous", async () => {
     expect(await send(async () => { throw new Error("weird") })).toEqual({ kind: "ambiguous" })
+  })
+
+  it("the total budget covers the probe and the fetch together", async () => {
+    let fetchBudget = 0
+    const connect = async (_h: string, _p: number, timeoutMs: number) => {
+      expect(timeoutMs).toBeLessThanOrEqual(5000)
+      await new Promise((r) => setTimeout(r, 80))
+      return true
+    }
+    const f = ((_u: unknown, init?: RequestInit) => {
+      fetchBudget = Date.now()
+      return new Promise((_res, rej) => init?.signal?.addEventListener("abort", () => rej(Object.assign(new Error("a"), { name: "AbortError" }))))
+    }) as unknown as typeof fetch
+    const t0 = Date.now()
+    const r = await sendViaPhone(CFG, PARAMS, { fetch: f, connect, connectTimeoutMs: 5000, totalTimeoutMs: 100 })
+    const total = Date.now() - t0
+    expect(r).toEqual({ kind: "ambiguous" })
+    expect(fetchBudget).toBeGreaterThan(0)
+    expect(total).toBeLessThan(160)
+  })
+
+  it("the probe limit is the smaller of connectTimeoutMs and the remaining budget", async () => {
+    const connect = vi.fn(async (..._a: unknown[]) => true)
+    await sendViaPhone(CFG, PARAMS, { fetch: (async () => reply(200, enc({ code: 200 }))) as unknown as typeof fetch, connect, connectTimeoutMs: 3000, totalTimeoutMs: 500 })
+    expect(connect.mock.calls[0][2]).toBe(500)
+  })
+
+  it("a probe that uses the whole budget -> unreachable without calling fetch", async () => {
+    const f = vi.fn()
+    const connect = async () => { await new Promise((r) => setTimeout(r, 40)); return true }
+    const r = await sendViaPhone(CFG, PARAMS, { fetch: f as unknown as typeof fetch, connect, totalTimeoutMs: 30 })
+    expect(r).toEqual({ kind: "unreachable" })
+    expect(f).not.toHaveBeenCalled()
   })
 
   it("hangs past the total timeout -> ambiguous (no separate early abort)", async () => {

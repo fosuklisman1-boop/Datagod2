@@ -20,15 +20,16 @@ Replies to customers can go out as a normal SMS from the forwarder phone's own S
 1. Setting `replyTransport` for the line is `hubtel` (default) -> existing `sendSMS`, unchanged.
 2. `sim` -> try the phone; if the phone answers `code 200` the reply is sent (`{success:true}`).
 3. Fallback to Hubtel (`sendSMS`) when ANY of: env `SMS_PHONE_URL` or `SMS_PHONE_SM4_KEY` missing, SIM rolling cap reached, connect error / DNS error / refused, HTTP non-200, undecryptable response, or `code !== 200`.
-4. NO fallback on a read timeout after the request was accepted by the network (ambiguous: the phone may have sent): treat as sent, so a customer never gets two copies. Connect phase has its own short timeout (3 s) and falls back; total budget 8 s.
-5. SIM rolling cap: Android blocks apps that send more than ~30 SMS per 30 minutes. Cap = setting `simMaxPer30Min` (default 20) counted from `ttb_messages` outbound rows for that line in the last 30 minutes (all transports, so conservative). Over the cap -> Hubtel.
+4. NO fallback on a timeout after the request was accepted by the network (ambiguous: the phone may have sent): treat as sent, so a customer never gets two copies. A TCP connect probe (3 s) comes first and falls back; a connection reset or closed before any response also falls back. ONE total budget of 6 s covers the probe and the send together.
+5. SIM rolling cap: Android blocks apps that send more than ~30 SMS per 30 minutes, per app (both lines share one phone and one app). Cap = setting `simMaxPer30Min` (default 15) counted from `ttb_messages` outbound rows of every outbound reply on BOTH lines in the last 30 minutes (all transports, so conservative). Over the cap -> Hubtel.
+5a. The global SMS switch (`SMS_ENABLED`) is honoured before any SIM attempt: when off, the router returns `{ success: true, skipped: true }` exactly like `sendSMS`.
 6. Credit accounting is unchanged: one reply = one credit whichever transport carried it.
 7. Never log the phone number, message text, key or URL. One fixed log line per fallback with only a reason code.
 
 ## Settings (admin_settings, same pattern as `ttb_calls_enabled`)
 - `ttb_reply_transport_main`, `ttb_reply_transport_shop`: `"hubtel"` | `"sim"`, default `"hubtel"`.
 - `ttb_sim_slot_main` (default 2), `ttb_sim_slot_shop` (default 1): integer 1 or 2.
-- `ttb_sim_max_per_30min` (default 20): integer 1..30.
+- `ttb_sim_max_per_30min` (default 15): integer 1..30.
 Admin: Settings tab gets a "Replies from the phone SIM" card; the Overview shows a one-line status (transport per line). Values validated server-side.
 
 ## Non-goals
@@ -37,6 +38,8 @@ Delivery receipts from the SIM; SIM balance detection (the carrier SMS about bal
 ## Risks accepted
 - The relay is a shared third-party server: availability is not guaranteed (hence the fallback). A stranger can reach the phone port but cannot read, forge or replay beyond the 1 h timestamp window without the key; the phone has only send + battery functions enabled.
 - The SIM's airtime balance is low and each SMS costs about GHS 0.065; an empty SIM makes sends fail silently (status pending). The owner must keep airtime topped up; the fallback does not trigger on that.
+
+- A half-open tunnel that hangs without answering can still lose a reply for up to the total timeout (it counts as sent); detect it with the supervised airplane-mode test.
 
 ## Approaches considered
 (a) own VPS frps (best control, owner declined to run a server); (b) automation app polling our API (extra app on phone); (c) shared public frps with SM4 (chosen, owner's call). The router makes (a) a config change later (`SMS_PHONE_URL`).

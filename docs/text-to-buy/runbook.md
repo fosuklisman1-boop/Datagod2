@@ -664,7 +664,10 @@ Test first: switch ONE line to Phone SIM, send yourself a test order text, and c
 ### 16.5 Warnings
 
 - SIM airtime: each reply costs about GHS 0.065 per SMS of airtime. When the SIM balance runs low the phone fails silently (the request can still look accepted), so replies are lost without a fallback. Keep airtime topped up and check the balance regularly. Hubtel is the automatic fallback only when the phone visibly fails.
-- Rate cap: Android limits an app to about 30 SMS per 30 minutes. Our cap ("Phone SIM texts per 30 minutes") defaults to 20 and counts every reply on that line in the last 30 minutes; past it, replies go through Hubtel.
+- Rate cap: Android limits an app to about 30 SMS per 30 minutes. Our cap ("Phone SIM texts per 30 minutes") defaults to 15 (headroom for a small race) and counts every outbound reply on BOTH lines in the last 30 minutes (one phone, one app), whichever transport carried it; past it, replies go through Hubtel.
+- Time budget: the whole phone attempt (connection check plus send) has ONE budget of 6 seconds. A connection that is refused, reset or closed before any answer falls back to Hubtel at once.
+- Half-open tunnel: a tunnel that hangs without answering can still lose a reply for up to the 6 second budget (it counts as sent, so no duplicate). Detect it with the supervised airplane-mode test: switch the phone to airplane mode, send a test text, and confirm what the customer receives.
+- Global SMS switch: when SMS is switched off globally (`SMS_ENABLED`), nothing is sent by SIM or Hubtel.
 - Replay exposure: the phone's API only checks a one-hour timestamp window. Someone who captured one encrypted request could replay it once within that hour and cause one duplicate reply to the same customer. They cannot read or change it without the key. The real fix is running your own VPS relay, which is just a change of `SMS_PHONE_URL` (no code change).
 - Shared free relay risk: the relay is a shared third-party free server. It only ever sees ciphertext, but it can be slow, down or reached by strangers; availability is not guaranteed (hence the Hubtel fallback). A stranger can reach the port but cannot send or read anything without the key.
 

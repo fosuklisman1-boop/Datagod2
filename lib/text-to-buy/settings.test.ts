@@ -31,7 +31,7 @@ describe("TTB_DEFAULTS", () => {
       retentionDays: 30, unclearRepliesEnabled: true, globalRepliesPerHour: 300, airtimeEnabled: false, resultsCheckerEnabled: false,
       shopEnabled: false, shopNumber: "", shopRepliesPerHourPerShop: 60,
       callsEnabled: false, callsPerHourPerLine: 60,
-      replyTransportMain: "hubtel", replyTransportShop: "hubtel", simSlotMain: 2, simSlotShop: 1, simMaxPer30Min: 20,
+      replyTransportMain: "hubtel", replyTransportShop: "hubtel", simSlotMain: 2, simSlotShop: 1, simMaxPer30Min: 15,
       source: "defaults",
     })
   })
@@ -90,7 +90,7 @@ describe("loadTtbSettings", () => {
       expect(s).toMatchObject({ simSlotMain: 2, simSlotShop: 1 })
     }
     for (const v of [0, 31, "20", 5.5, null, [], {}, Number.NaN]) {
-      expect((await loadTtbSettings(client(rows({ ttb_sim_max_per_30min: v })))).simMaxPer30Min).toBe(20)
+      expect((await loadTtbSettings(client(rows({ ttb_sim_max_per_30min: v })))).simMaxPer30Min).toBe(15)
     }
     for (const v of [1, 30, 17]) {
       expect((await loadTtbSettings(client(rows({ ttb_sim_max_per_30min: v })))).simMaxPer30Min).toBe(v)

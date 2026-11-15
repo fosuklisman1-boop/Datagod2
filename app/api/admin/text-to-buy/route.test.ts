@@ -154,7 +154,7 @@ describe("GET overview", () => {
     delete process.env.SMS_PHONE_URL
     delete process.env.SMS_PHONE_SM4_KEY
     let body = await (await GET(req("GET"))).json()
-    expect(body.settings).toMatchObject({ replyTransportMain: "hubtel", replyTransportShop: "hubtel", simSlotMain: 2, simSlotShop: 1, simMaxPer30Min: 20 })
+    expect(body.settings).toMatchObject({ replyTransportMain: "hubtel", replyTransportShop: "hubtel", simSlotMain: 2, simSlotShop: 1, simMaxPer30Min: 15 })
     expect(body.env).toEqual({ phoneConfigured: false })
     process.env.SMS_PHONE_URL = URL_ENV
     process.env.SMS_PHONE_SM4_KEY = KEY_ENV

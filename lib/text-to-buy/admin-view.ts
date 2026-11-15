@@ -1,5 +1,5 @@
 import type { Line, Outcome } from "./types"
-import { parseKey } from "./phone-sms/sm4"
+import { readPhoneLink } from "./phone-sms/config"
 
 // Read-model helpers for the Text-to-Buy admin API. Pure. Message text and numbers pass through here: never log them.
 
@@ -124,15 +124,7 @@ export function buildCallsOverview(enabled: boolean, counts: Partial<Record<Line
  * A boolean only: the values never leave the server.
  */
 export function phoneLinkConfigured(env: Record<string, string | undefined>): boolean {
-  const url = typeof env.SMS_PHONE_URL === "string" ? env.SMS_PHONE_URL.trim() : ""
-  const key = typeof env.SMS_PHONE_SM4_KEY === "string" ? env.SMS_PHONE_SM4_KEY.trim() : ""
-  let urlOk = false
-  try {
-    urlOk = /^https?:$/.test(new URL(url).protocol)
-  } catch {
-    urlOk = false
-  }
-  return urlOk && parseKey(key) !== null
+  return readPhoneLink(env) !== null
 }
 
 export type PausedShop = {shopId: string; name: string; count: number }

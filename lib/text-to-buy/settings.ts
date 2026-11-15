@@ -117,7 +117,7 @@ export const TTB_DEFAULTS: TtbSettings = {
   replyTransportShop: "hubtel",
   simSlotMain: 2,
   simSlotShop: 1,
-  simMaxPer30Min: 20,
+  simMaxPer30Min: 15,
   source: "defaults",
 }
 

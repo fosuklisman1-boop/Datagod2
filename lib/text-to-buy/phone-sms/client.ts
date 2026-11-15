@@ -7,9 +7,10 @@ import { buildSendBody, decodeResponse, parseKey } from "./sm4"
  *
  *  - sent: HTTP 200, decodes, code 200.
  *  - refused: the phone answered and said no (code not 200, HTTP not 200 or a redirect, an oversized or undecryptable body).
- *  - unreachable: nothing was accepted: the TCP probe failed, or fetch failed with a connect-phase error code.
- *  - ambiguous: the request may have reached the phone (total timeout, reset, any other failure): it may have sent, so the
- *    caller must NOT resend through another transport.
+ *  - unreachable: nothing was accepted: the TCP probe failed, or fetch failed with a connect-phase or reset/closed-before-response
+ *    error (ECONNRESET, EPIPE, UND_ERR_SOCKET, "other side closed", "terminated").
+ *  - ambiguous: the request may have reached the phone (total timeout with no answer, a failed body read, any other failure):
+ *    it may have sent, so the caller must NOT resend through another transport.
  */
 
 export type PhoneSendResult = { kind: "sent" } | { kind: "refused" } | { kind: "unreachable" } | { kind: "ambiguous" }
@@ -23,7 +24,13 @@ export type PhoneClientDeps = {
 }
 
 const MAX_BODY_BYTES = 4096
-const CONNECT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT"])
+// Errors that prove nothing reached the phone: connect-phase failures, and a connection reset or closed before any response.
+const NOT_SENT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT", "ECONNRESET", "EPIPE", "UND_ERR_SOCKET"])
+
+function closedBeforeResponse(e: unknown): boolean {
+  const m = (e as { message?: unknown } | null)?.message
+  return typeof m === "string" && (m.includes("other side closed") || m.includes("terminated"))
+}
 
 /** TCP connect probe: true once the socket connects (then destroyed at once); false on error or timeout. Never throws. */
 function tcpProbe(host: string, port: number, timeoutMs: number): Promise<boolean> {
@@ -95,7 +102,8 @@ export async function sendViaPhone(
   const now = deps.now ?? Date.now
   const connect = deps.connect ?? tcpProbe
   const connectMs = deps.connectTimeoutMs ?? 3000
-  const totalMs = deps.totalTimeoutMs ?? 8000
+  const totalMs = deps.totalTimeoutMs ?? 6000
+  const startedAt = Date.now()
 
   const key = parseKey(cfg.keyHex)
   if (!key) return { kind: "unreachable" }
@@ -114,20 +122,24 @@ export async function sendViaPhone(
     return { kind: "unreachable" }
   }
 
+  // ONE total budget covers the probe and the fetch: the probe's limit is min(connectTimeoutMs, budget) and its elapsed time
+  // comes off what the fetch may use.
   let reachable = false
   try {
-    reachable = await connect(host, port, connectMs)
+    reachable = await connect(host, port, Math.min(connectMs, totalMs))
   } catch {
     reachable = false
   }
   if (!reachable) return { kind: "unreachable" }
+  const remaining = totalMs - (Date.now() - startedAt)
+  if (remaining <= 0) return { kind: "unreachable" }
 
   const ac = new AbortController()
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true
     ac.abort()
-  }, totalMs)
+  }, remaining)
   // Raced directly so a fetch that ignores its signal cannot hang the caller.
   const timeout = new Promise<"timeout">((resolve) => ac.signal.addEventListener("abort", () => resolve("timeout")))
 
@@ -136,7 +148,9 @@ export async function sendViaPhone(
     try {
       res = await doFetch(target, { method: "POST", headers: { "content-type": "application/json" }, body, signal: ac.signal, redirect: "manual" })
     } catch (e) {
-      if (!timedOut && CONNECT_CODES.has(errorCode(e) ?? "")) return { kind: "unreachable" }
+      if (!timedOut && (NOT_SENT_CODES.has(errorCode(e) ?? "") || closedBeforeResponse(e) || closedBeforeResponse((e as { cause?: unknown })?.cause))) {
+        return { kind: "unreachable" }
+      }
       return { kind: "ambiguous" }
     }
     if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) return { kind: "refused" }

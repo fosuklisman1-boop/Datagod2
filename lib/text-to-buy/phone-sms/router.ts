@@ -1,10 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { sendSMS } from "@/lib/sms-service"
-import { countOutbound } from "../store"
 import type { TtbSettings } from "../settings"
 import type { Line } from "../types"
 import { sendViaPhone } from "./client"
-import { parseKey } from "./sm4"
+import { readPhoneLink } from "./config"
 
 /**
  * The reply transport router: a drop-in `send` for sendReply, chosen per line. Server-only.
@@ -44,21 +43,23 @@ export function createReplySend(args: {
     const transport = line === "shop" ? settings.replyTransportShop : settings.replyTransportMain
     if (transport !== "sim") return hubtel(payload)
 
-    const url = typeof env.SMS_PHONE_URL === "string" ? env.SMS_PHONE_URL.trim() : ""
-    const keyHex = typeof env.SMS_PHONE_SM4_KEY === "string" ? env.SMS_PHONE_SM4_KEY.trim() : ""
-    let urlOk = false
-    try {
-      urlOk = /^https?:$/.test(new URL(url).protocol)
-    } catch {
-      urlOk = false
-    }
-    if (!urlOk || !parseKey(keyHex)) return viaHubtel(payload, "env")
+    // The same global kill switch sendSMS honours: nothing at all is sent (not even by SIM) while SMS is off.
+    if (env.SMS_ENABLED !== "true") return { success: true, skipped: true }
 
-    // Rolling cap over every transport's out rows for this line; a count error counts as over the cap.
+    const link = readPhoneLink(env)
+    if (!link) return viaHubtel(payload, "env")
+    const { url, keyHex } = link
+
+    // Rolling cap over every outbound reply of BOTH lines (one phone, one app: Android's limit is per app); a count error
+    // counts as over the cap.
     let overCap = true
     try {
-      const sent = await countOutbound(db, line, new Date(now().getTime() - WINDOW_MS))
-      overCap = sent >= settings.simMaxPer30Min
+      const { count, error } = await db
+        .from("ttb_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("direction", "out")
+        .gte("created_at", new Date(now().getTime() - WINDOW_MS).toISOString())
+      overCap = error || typeof count !== "number" || !Number.isFinite(count) ? true : count >= settings.simMaxPer30Min
     } catch {
       overCap = true
     }
