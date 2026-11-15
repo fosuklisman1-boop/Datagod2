@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 
-const gate = vi.hoisted(() => vi.fn(async () => true))
+const gate = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => true))
 const SHOP = "11111111-1111-4111-8111-111111111111"
 
 const rows: Record<string, unknown> = {

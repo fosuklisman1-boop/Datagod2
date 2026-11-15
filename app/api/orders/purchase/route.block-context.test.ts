@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest"
 
-const gate = vi.hoisted(() => vi.fn(async () => true))
+const gate = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => true))
 
 // Any chained query resolves to an empty result; auth resolves to a fixed user.
 const chain: any = new Proxy(function () {}, {
