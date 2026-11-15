@@ -73,24 +73,48 @@ describe("handleMissedCall ordering", () => {
     expect((await handleMissedCall(deps, input({ line: "main" }))).outcome).toBe("skipped_duplicate")
     expect(sent).toHaveLength(0)
     expect(raw.noticeOnce).toHaveBeenCalledWith("call_main", "0551234567", null, "2026-11-15")
-    expect(raw.repliedCallsLastHour).not.toHaveBeenCalled()
   })
 
-  it("hourly line cap: skipped_cap (marker already taken, no send)", async () => {
+  it("hourly line cap: skipped_cap, no marker taken, no send", async () => {
     const { deps, raw, sent } = makeDeps({ repliedCallsLastHour: vi.fn(async () => 60) })
     expect((await handleMissedCall(deps, input())).outcome).toBe("skipped_cap")
-    expect(raw.noticeOnce).toHaveBeenCalledWith("call_shop", "0551234567", null, "2026-11-15")
     expect(raw.repliedCallsLastHour).toHaveBeenCalledWith("shop")
+    expect(raw.noticeOnce).not.toHaveBeenCalled()
     expect(sent).toHaveLength(0)
   })
 
-  it("support number missing: no send, exactly one alert, outcome error, no number in the alert", async () => {
+  it("cap boundary: 59 replied with cap 60 sends, 60 skips", async () => {
+    const a = makeDeps({ repliedCallsLastHour: vi.fn(async () => 59) })
+    expect((await handleMissedCall(a.deps, input({ line: "main" }))).outcome).toBe("replied_main")
+    const b = makeDeps({ repliedCallsLastHour: vi.fn(async () => 60) })
+    expect((await handleMissedCall(b.deps, input({ line: "main" }))).outcome).toBe("skipped_cap")
+  })
+
+  it("support number missing: no send, no marker, outcome error", async () => {
     const { deps, raw, sent } = makeDeps({ readSupportWhatsapp: vi.fn(async () => null) })
     expect((await handleMissedCall(deps, input({ line: "main" }))).outcome).toBe("error")
     expect(sent).toHaveLength(0)
-    expect(raw.alertAdmin).toHaveBeenCalledTimes(1)
+    expect(raw.noticeOnce.mock.calls.filter((c) => String(c[0]).startsWith("call_main") || c[0] === "call_shop")).toHaveLength(0)
     expect(JSON.stringify(raw.alertAdmin.mock.calls)).not.toMatch(/\d{6}/)
     expect(outcomes(raw)).toEqual(["error"])
+  })
+
+  it("two callers with support missing: zero caller markers, exactly one alert that day", async () => {
+    const taken = new Set<string>()
+    const { deps, raw } = makeDeps({
+      readSupportWhatsapp: vi.fn(async () => null),
+      noticeOnce: vi.fn(async (k: string, s: string, sh: string | null, d: string) => {
+        const key = [k, s, sh, d].join("|")
+        if (taken.has(key)) return false
+        taken.add(key)
+        return true
+      }),
+    })
+    await handleMissedCall(deps, input({ fromRaw: "0551234567" }))
+    await handleMissedCall(deps, input({ fromRaw: "0551234568" }))
+    expect(raw.alertAdmin).toHaveBeenCalledTimes(1)
+    expect([...taken].filter((k) => k.startsWith("call_main") || k.startsWith("call_shop"))).toEqual([])
+    expect([...taken]).toEqual(["call_support_missing|system||2026-11-15"])
   })
 })
 
@@ -161,6 +185,19 @@ describe("handleMissedCall shop line", () => {
     }
   })
 
+  it("a throw before the shop send (account or cap read) falls to exactly one support SMS", async () => {
+    for (const over of [
+      { shopAccountFor: vi.fn(async () => { throw new Error("db") }) },
+      { shopReplyCapReached: vi.fn(async () => { throw new Error("db") }) },
+    ]) {
+      const { deps, sent, raw } = makeDeps({ getShopPref: vi.fn(async () => ({ shopCodeId: "c1" })), ...over })
+      expect((await handleMissedCall(deps, input())).outcome).toBe("replied_support")
+      expect(sent).toHaveLength(1)
+      expect(sent[0].payer).toBeUndefined()
+      expect(raw.noticeOnce.mock.calls.filter((c) => c[0] === "call_shop")).toHaveLength(1)
+    }
+  })
+
   it("a pref that does not resolve is final: last bought is not consulted", async () => {
     const { deps, raw } = makeDeps({ getShopPref: vi.fn(async () => ({ shopCodeId: "c1" })), shopCodeById: vi.fn(async () => null), lastBoughtShopCodeId: vi.fn(async () => "c2") })
     await handleMissedCall(deps, input())
@@ -197,6 +234,31 @@ describe("handleMissedCall failures", () => {
     expect((await handleMissedCall(deps, input())).outcome).toBe("error")
     expect(sent).toHaveLength(0)
     expect(outcomes(raw)).toEqual(["error"])
+  })
+
+  it("send failures from several callers raise one admin alert per day, with no numbers", async () => {
+    const taken = new Set<string>()
+    const { deps, raw } = makeDeps({
+      sendReply: vi.fn(async () => ({ sent: false })) as never,
+      noticeOnce: vi.fn(async (k: string, s: string, sh: string | null, d: string) => {
+        const key = [k, s, sh, d].join("|")
+        if (taken.has(key)) return false
+        taken.add(key)
+        return true
+      }),
+    })
+    for (const n of ["0551234567", "0551234568", "0551234569"]) {
+      expect((await handleMissedCall(deps, input({ line: "main", fromRaw: n }))).outcome).toBe("error")
+    }
+    expect(raw.alertAdmin).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(raw.alertAdmin.mock.calls)).not.toMatch(/\d{6}/)
+    expect([...taken]).toContain("call_send_error|system||2026-11-15")
+  })
+
+  it("a throwing sendReply also raises the (deduped) send-error alert", async () => {
+    const { deps, raw } = makeDeps({ sendReply: vi.fn(async () => { throw new Error("x") }) as never })
+    expect((await handleMissedCall(deps, input({ line: "main" }))).outcome).toBe("error")
+    expect(raw.alertAdmin).toHaveBeenCalledTimes(1)
   })
 
   it("a failing logCall never throws out of the handler", async () => {

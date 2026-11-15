@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { shopCodeByIdWith } from "../shop/default-deps"
 import type { TtbSettings } from "../settings"
 import type { CallDeps } from "./decide"
+import { normalizeCaller } from "./normalize"
 
 /**
  * Production wiring for handleMissedCall. Nothing here builds a client at import time: every module that does is imported
@@ -14,14 +15,7 @@ export function defaultCallDeps(db: SupabaseClient, settings: TtbSettings): Call
   }
   return {
     settings,
-    normalizeSender: (raw) => {
-      const s = typeof raw === "string" ? raw.trim() : ""
-      if (!/^\+?\d+$/.test(s)) return null
-      // Same rule as the SMS webhook's customerPhone: 0XXXXXXXXX, 233XXXXXXXXX or +233XXXXXXXXX, a Ghana mobile.
-      const d = s.replace(/^\+/, "")
-      const sig = d.startsWith("233") ? d.slice(3) : d.startsWith("0") ? d.slice(1) : null
-      return sig && /^[2-9]\d{8}$/.test(sig) ? `0${sig}` : null
-    },
+    normalizeSender: normalizeCaller,
     isBlocked: async (sender) => (await import("../store")).isBlocked(db, sender),
     noticeOnce: async (kind, sender, shopId, day) => (await import("../store")).noticeOnce(db, kind, sender, shopId, day),
     repliedCallsLastHour: async (line) => (await import("../store")).repliedCallsLastHour(db, line),

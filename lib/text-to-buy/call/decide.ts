@@ -68,6 +68,15 @@ export async function handleMissedCall(deps: CallDeps, input: CallInput): Promis
     return { outcome }
   }
 
+  // One admin alert per kind per UTC day (never per call). Fixed text, no number. Never throws.
+  const alertOnce = async (kind: string, message: string): Promise<void> => {
+    try {
+      if (await deps.noticeOnce(kind, "system", null, dayOf(nowMs))) await deps.alertAdmin(message)
+    } catch {
+      // An alert that cannot be raised must not change the caller's outcome.
+    }
+  }
+
   try {
     if (!deps.settings.callsEnabled) return await finish("skipped_off")
 
@@ -81,42 +90,64 @@ export async function handleMissedCall(deps: CallDeps, input: CallInput): Promis
     if (await deps.isBlocked(sender)) return await finish("skipped_blocked")
 
     const day = dayOf(nowMs)
-    // The marker is taken first and a failed send never releases it: the caller gets at most one SMS per line per day.
-    if (!(await deps.noticeOnce(line === "main" ? "call_main" : "call_shop", sender, null, day))) return await finish("skipped_duplicate")
 
-    if ((await deps.repliedCallsLastHour(line)) >= deps.settings.callsPerHourPerLine) return await finish("skipped_cap")
-
+    // Nothing that can end in "no SMS" for a reason other than a genuine skip may burn the daily marker, so the support number
+    // and the hourly cap are checked BEFORE it. A missing support number alerts the admin once per day, not once per caller.
     const wa = await deps.readSupportWhatsapp()
     if (!wa) {
-      await deps.alertAdmin("Text-to-Buy missed-call SMS skipped: the support WhatsApp number is missing in support settings.").catch(() => {})
+      await alertOnce("call_support_missing", "Text-to-Buy missed-call SMS skipped: the support WhatsApp number is missing in support settings.")
       return await finish("error")
     }
+    if ((await deps.repliedCallsLastHour(line)) >= deps.settings.callsPerHourPerLine) return await finish("skipped_cap")
+
+    // From here the marker is taken, and a failed send never releases it: the caller gets at most one SMS per line per day.
+    if (!(await deps.noticeOnce(line === "main" ? "call_main" : "call_shop", sender, null, day))) return await finish("skipped_duplicate")
+
     const supportBody = callSupportReply(wa)
 
+    // A throw from sendReply is an ambiguous send: it ends as a failed send and is never retried.
+    const send = async (r: Parameters<CallDeps["sendReply"]>[0]): Promise<{ sent: boolean; skipped?: boolean | "unpaid" }> => {
+      try {
+        return await deps.sendReply(r)
+      } catch {
+        return { sent: false }
+      }
+    }
+    const failed = async (): Promise<{ outcome: CallOutcome }> => {
+      await alertOnce("call_send_error", "Text-to-Buy missed-call SMS could not be sent. Check the SMS provider and the ttb_calls error rows.")
+      return finish("error")
+    }
     const sendSupport = async (ok: CallOutcome): Promise<{ outcome: CallOutcome }> => {
-      const res = await deps.sendReply({ line, sender, body: supportBody, settings: deps.settings })
-      return finish(res.sent ? ok : "error")
+      const res = await send({ line, sender, body: supportBody, settings: deps.settings })
+      return res.sent ? finish(ok) : failed()
     }
 
     if (line === "main") return await sendSupport("replied_main")
 
-    const shop = await linkedShop(deps, sender)
-    if (shop && !(await deps.shopReplyCapReached(shop.shopId))) {
-      const account = await deps.shopAccountFor(shop.shopId)
-      if (account) {
-        const res = await deps.sendReply({
-          line,
-          sender,
-          body: callShopReply(shop.name, shop.owner),
-          settings: deps.settings,
-          payer: { kind: "shop", shopId: shop.shopId, accountId: account.accountId, messageId: null, replyKey: `call-${day}-${sender}` },
-        })
-        if (res.sent) {
-          shopId = shop.shopId
-          return await finish("replied_shop")
-        }
-        if (res.skipped !== "unpaid") return await finish("error")
+    // Anything that throws before the shop-paid send falls through to the one Datagod support SMS.
+    let plan: { shop: Linked; accountId: string } | null = null
+    try {
+      const shop = await linkedShop(deps, sender)
+      if (shop && !(await deps.shopReplyCapReached(shop.shopId))) {
+        const account = await deps.shopAccountFor(shop.shopId)
+        if (account) plan = { shop, accountId: account.accountId }
       }
+    } catch {
+      plan = null
+    }
+    if (plan) {
+      const res = await send({
+        line,
+        sender,
+        body: callShopReply(plan.shop.name, plan.shop.owner),
+        settings: deps.settings,
+        payer: { kind: "shop", shopId: plan.shop.shopId, accountId: plan.accountId, messageId: null, replyKey: `call-${day}-${sender}` },
+      })
+      if (res.sent) {
+        shopId = plan.shop.shopId
+        return await finish("replied_shop")
+      }
+      if (res.skipped !== "unpaid") return await failed()
     }
     return await sendSupport("replied_support")
   } catch {
