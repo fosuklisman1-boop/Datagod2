@@ -1,3 +1,4 @@
+import net from "node:net"
 import { buildSendBody, decodeResponse, parseKey } from "./sm4"
 
 /**
@@ -5,14 +6,85 @@ import { buildSendBody, decodeResponse, parseKey } from "./sm4"
  * (the url, key, number and text are all sensitive).
  *
  *  - sent: HTTP 200, decodes, code 200.
- *  - refused: the phone answered and said no (code not 200, HTTP not 200, or an undecryptable body).
- *  - unreachable: nothing was ever accepted (DNS, connection refused, or the connect timeout fired before any response).
- *  - ambiguous: the request was on the wire but the total timeout fired first; the phone may have sent.
+ *  - refused: the phone answered and said no (code not 200, HTTP not 200 or a redirect, an oversized or undecryptable body).
+ *  - unreachable: nothing was accepted: the TCP probe failed, or fetch failed with a connect-phase error code.
+ *  - ambiguous: the request may have reached the phone (total timeout, reset, any other failure): it may have sent, so the
+ *    caller must NOT resend through another transport.
  */
 
 export type PhoneSendResult = { kind: "sent" } | { kind: "refused" } | { kind: "unreachable" } | { kind: "ambiguous" }
 
-export type PhoneClientDeps = { fetch?: typeof fetch; now?: () => number; connectTimeoutMs?: number; totalTimeoutMs?: number }
+export type PhoneClientDeps = {
+  fetch?: typeof fetch
+  now?: () => number
+  connect?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
+  connectTimeoutMs?: number
+  totalTimeoutMs?: number
+}
+
+const MAX_BODY_BYTES = 4096
+const CONNECT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT"])
+
+/** TCP connect probe: true once the socket connects (then destroyed at once); false on error or timeout. Never throws. */
+function tcpProbe(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false
+    let socket: net.Socket | null = null
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      try {
+        socket?.destroy()
+      } catch {
+        // ignore
+      }
+      resolve(ok)
+    }
+    try {
+      socket = net.connect({ host, port })
+      socket.setTimeout(timeoutMs, () => finish(false))
+      socket.once("connect", () => finish(true))
+      socket.once("error", () => finish(false))
+    } catch {
+      finish(false)
+    }
+  })
+}
+
+function errorCode(e: unknown): string | undefined {
+  const any = e as { code?: unknown; cause?: { code?: unknown } } | null
+  if (typeof any?.code === "string") return any.code
+  if (typeof any?.cause?.code === "string") return any.cause.code
+  return undefined
+}
+
+/** Reads at most MAX_BODY_BYTES; null when the body is larger. Throws on a read failure. */
+async function readBounded(res: Response): Promise<string | null> {
+  const declared = Number(res.headers?.get?.("content-length"))
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return null
+  if (!res.body) {
+    const t = await res.text()
+    return t.length > MAX_BODY_BYTES ? null : t
+  }
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > MAX_BODY_BYTES) {
+      try {
+        await reader.cancel()
+      } catch {
+        // ignore
+      }
+      return null
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks).toString("utf8")
+}
 
 export async function sendViaPhone(
   cfg: { url: string; keyHex: string },
@@ -21,6 +93,7 @@ export async function sendViaPhone(
 ): Promise<PhoneSendResult> {
   const doFetch = deps.fetch ?? fetch
   const now = deps.now ?? Date.now
+  const connect = deps.connect ?? tcpProbe
   const connectMs = deps.connectTimeoutMs ?? 3000
   const totalMs = deps.totalTimeoutMs ?? 8000
 
@@ -29,63 +102,63 @@ export async function sendViaPhone(
 
   let body: string
   let target: string
+  let host: string
+  let port: number
   try {
+    const u = new URL(cfg.url)
+    host = u.hostname
+    port = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80
     body = buildSendBody(key, cfg.keyHex, { ...p, nowMs: now() })
     target = `${cfg.url.replace(/\/+$/, "")}/sms/send`
   } catch {
     return { kind: "unreachable" }
   }
 
+  let reachable = false
+  try {
+    reachable = await connect(host, port, connectMs)
+  } catch {
+    reachable = false
+  }
+  if (!reachable) return { kind: "unreachable" }
+
   const ac = new AbortController()
-  let headersArrived = false
-  let connectFired = false
-  let totalFired = false
-  const connectTimer = setTimeout(() => {
-    if (headersArrived) return
-    connectFired = true
-    ac.abort()
-  }, connectMs)
-  const totalTimer = setTimeout(() => {
-    totalFired = true
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
     ac.abort()
   }, totalMs)
-
-  // Also race the timers directly so a fetch that ignores its signal cannot hang the caller.
-  const timeouts = new Promise<"connect" | "total">((resolve) => {
-    ac.signal.addEventListener("abort", () => resolve(connectFired ? "connect" : "total"))
-  })
+  // Raced directly so a fetch that ignores its signal cannot hang the caller.
+  const timeout = new Promise<"timeout">((resolve) => ac.signal.addEventListener("abort", () => resolve("timeout")))
 
   const run = async (): Promise<PhoneSendResult> => {
     let res: Response
     try {
-      res = await doFetch(target, { method: "POST", headers: { "content-type": "application/json" }, body, signal: ac.signal })
-    } catch {
-      // No response at all: a connect-phase abort or any network error is a clean "nothing was accepted"; only the total
-      // timer (connect not fired) means the request was in flight.
-      return totalFired && !connectFired ? { kind: "ambiguous" } : { kind: "unreachable" }
+      res = await doFetch(target, { method: "POST", headers: { "content-type": "application/json" }, body, signal: ac.signal, redirect: "manual" })
+    } catch (e) {
+      if (!timedOut && CONNECT_CODES.has(errorCode(e) ?? "")) return { kind: "unreachable" }
+      return { kind: "ambiguous" }
     }
-    headersArrived = true
+    if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400)) return { kind: "refused" }
     if (res.status !== 200) return { kind: "refused" }
-    let text: string
+    let text: string | null
     try {
-      text = await res.text()
+      text = await readBounded(res)
     } catch {
       return { kind: "ambiguous" }
     }
+    if (text === null) return { kind: "refused" }
     const out = decodeResponse(key, text)
     if (!out) return { kind: "refused" }
     return out.code === 200 ? { kind: "sent" } : { kind: "refused" }
   }
 
   try {
-    const winner = await Promise.race([run(), timeouts])
-    if (winner === "connect") return { kind: "unreachable" }
-    if (winner === "total") return { kind: "ambiguous" }
-    return winner
+    const winner = await Promise.race([run(), timeout])
+    return winner === "timeout" ? { kind: "ambiguous" } : winner
   } catch {
-    return { kind: "unreachable" }
+    return { kind: "ambiguous" }
   } finally {
-    clearTimeout(connectTimer)
-    clearTimeout(totalTimer)
+    clearTimeout(timer)
   }
 }

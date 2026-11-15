@@ -64,10 +64,15 @@ export function createReplySend(args: {
     }
     if (overCap) return viaHubtel(payload, "cap")
 
-    const result = await phone(
-      { url, keyHex },
-      { simSlot: line === "shop" ? settings.simSlotShop : settings.simSlotMain, to: payload.phone, text: payload.message },
-    )
+    let result: Awaited<ReturnType<typeof sendViaPhone>>
+    try {
+      result = await phone(
+        { url, keyHex },
+        { simSlot: line === "shop" ? settings.simSlotShop : settings.simSlotMain, to: payload.phone, text: payload.message },
+      )
+    } catch {
+      result = { kind: "unreachable" }
+    }
     if (result.kind === "sent" || result.kind === "ambiguous") return { success: true }
     return viaHubtel(payload, result.kind)
   }

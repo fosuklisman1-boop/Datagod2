@@ -85,6 +85,18 @@ describe("createReplySend", () => {
     }
   })
 
+  it("a throwing phone client is treated as unreachable and falls back", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    const t = setup({})
+    const throwing = vi.fn(async () => { throw new Error("kaboom") })
+    const send = createReplySend({
+      db: fakeDb({ count: 0, error: null }), line: "main", settings: { ...TTB_DEFAULTS, replyTransportMain: "sim" }, env: ENV,
+      hubtel: t.hubtel as never, phone: throwing as never, now: () => NOW,
+    })
+    expect(await send(PAYLOAD)).toEqual({ success: true })
+    expect(t.hubtel).toHaveBeenCalledTimes(1)
+  })
+
   it("sim + ambiguous: success and hubtel NOT called (no duplicate)", async () => {
     const t = setup({ phone: { kind: "ambiguous" } })
     expect(await t.send(PAYLOAD)).toEqual({ success: true })
