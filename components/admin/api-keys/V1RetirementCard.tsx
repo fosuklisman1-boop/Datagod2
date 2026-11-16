@@ -13,6 +13,7 @@ import {
   isUuid,
   pickerToIso,
   STALE_MESSAGE,
+  topNonExemptStraggler,
 } from "@/lib/api-v1/retirement-ui"
 import { adminFetch } from "./admin-fetch"
 import { ConfirmAction } from "./ConfirmAction"
@@ -44,6 +45,9 @@ export interface RetirementData {
 const BTN = "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold disabled:opacity-60"
 const PRIMARY_BTN = cn(BTN, "bg-primary text-primary-foreground hover:bg-primary/90")
 const OUTLINE_BTN = cn(BTN, "border border-border text-foreground hover:bg-muted")
+
+/** resendSentAt value meaning "already sent, time unknown" (notice_sent_at was null on reload). */
+export const NOTICE_SENT_TIME_UNKNOWN = "unknown"
 
 function fmt(iso: string | null): string {
   return iso ? formatGhanaDate(new Date(iso)) : "-"
@@ -77,6 +81,9 @@ export function V1RetirementCardView(p: V1RetirementCardViewProps) {
   const early = iso !== null && isEarlierThanNotice(iso, p.now ?? new Date())
   const exemptIds = data.exempt_users.map((u) => u.id)
   const unchanged = iso === data.sunset_at
+  // The heaviest non-exempt v1 user would be cut off by this date: make the admin look twice.
+  const topRisk = iso !== null ? topNonExemptStraggler(data.stragglers) : null
+  const needsConfirm = early || topRisk !== null
 
   const save = () => p.onSave(iso, exemptIds)
   const setExempt = (ids: string[]) => p.onSave(data.sunset_at, ids)
@@ -96,7 +103,7 @@ export function V1RetirementCardView(p: V1RetirementCardViewProps) {
     <button
       type="button"
       disabled={busy || !iso || pickerInvalid || unchanged}
-      onClick={early ? undefined : () => void save()}
+      onClick={needsConfirm ? undefined : () => void save()}
       className={PRIMARY_BTN}
     >
       {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
@@ -145,14 +152,24 @@ export function V1RetirementCardView(p: V1RetirementCardViewProps) {
           </div>
           {pickerInvalid && <p className="text-xs text-destructive">That is not a valid date and time.</p>}
           <div className="flex flex-wrap gap-2">
-            {early ? (
+            {needsConfirm ? (
               <ConfirmAction
                 trigger={saveButton}
-                title="Set a retirement date under 14 days away?"
+                title={early ? "Set a retirement date under 14 days away?" : "Save the retirement date?"}
                 description={
-                  <p>
-                    {fmt(iso)} is less than 14 days from now. Integrators get very little time to move to v2. Continue?
-                  </p>
+                  <div className="space-y-2">
+                    {early && (
+                      <p>
+                        {fmt(iso)} is less than 14 days from now. Integrators get very little time to move to v2. Continue?
+                      </p>
+                    )}
+                    {topRisk && (
+                      <p>
+                        {topRisk.email ?? topRisk.user_id} placed the most v1 orders in the last 7 days and is not exempt. Save
+                        the date anyway?
+                      </p>
+                    )}
+                  </div>
                 }
                 confirmLabel="Set date anyway"
                 onConfirm={save}
@@ -191,7 +208,12 @@ export function V1RetirementCardView(p: V1RetirementCardViewProps) {
             </div>
             {p.resendSentAt && (
               <div role="alert" className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                <p>The notice was already sent on {fmt(p.resendSentAt)}. Send it again?</p>
+                <p>
+                  {p.resendSentAt === NOTICE_SENT_TIME_UNKNOWN
+                    ? "The notice was already sent."
+                    : `The notice was already sent on ${fmt(p.resendSentAt)}.`}{" "}
+                  Send it again?
+                </p>
                 <button type="button" disabled={busy} onClick={() => void p.onNotify(true)} className={PRIMARY_BTN}>
                   {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
                   Yes, resend
@@ -359,7 +381,7 @@ export function V1RetirementCard() {
     } else if (r.status === 409) {
       // adminFetch drops the 409 body, so the sent time comes from the settings (notice_sent_at).
       const fresh = await load()
-      setResendSentAt(fresh?.notice_sent_at ?? new Date().toISOString())
+      setResendSentAt(fresh?.notice_sent_at ?? NOTICE_SENT_TIME_UNKNOWN)
     } else setError(r.error)
     setBusy(false)
   }

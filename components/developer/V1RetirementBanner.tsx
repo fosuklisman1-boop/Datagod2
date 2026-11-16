@@ -7,10 +7,15 @@ export function V1RetirementBanner({
   sunsetAt,
   exempt,
   hasActiveKey,
+  v2Open = true,
+  now,
 }: {
   sunsetAt: string | null
   exempt: boolean
   hasActiveKey: boolean
+  /** Whether the v2 key section is available to this user (changes the call to action). */
+  v2Open?: boolean
+  now?: Date
 }) {
   const kind = bannerKind({ sunsetAt, exempt, hasActiveKey })
   if (kind === "none" || !sunsetAt) return null
@@ -22,7 +27,7 @@ export function V1RetirementBanner({
     >
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#1b388b]" aria-hidden />
       <p className="min-w-0 leading-6">
-        {bannerText(kind, sunsetAt)}{" "}
+        {bannerText(kind, sunsetAt, { now, v2Open })}{" "}
         <Link href="/developers" className="font-semibold text-primary underline underline-offset-2">
           View the v2 docs
         </Link>

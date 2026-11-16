@@ -9,14 +9,20 @@ import { StuckV2PanelView } from "@/components/admin/api-keys/StuckV2Panel"
 const SUNSET = "2026-11-26T00:00:00.000Z"
 
 describe("V1RetirementBanner", () => {
-  const render = (p: { sunsetAt: string | null; exempt: boolean; hasActiveKey: boolean }) =>
-    renderToStaticMarkup(createElement(V1RetirementBanner, p))
+  const render = (p: { sunsetAt: string | null; exempt: boolean; hasActiveKey: boolean; v2Open?: boolean; now?: Date }) =>
+    renderToStaticMarkup(createElement(V1RetirementBanner, { now: new Date("2026-11-12T00:00:00.000Z"), ...p }))
 
   it("non-exempt text with a docs link", () => {
     const html = render({ sunsetAt: SUNSET, exempt: false, hasActiveKey: true })
     expect(html).toContain("API v1 will be retired on 26 Nov 2026, 00:00 GMT. After that your v1 requests will be refused. Create a v2 key below and follow the v2 docs.")
     expect(html).toContain('href="/developers"')
     expect(html).toContain('data-variant="notice"')
+  })
+  it("post-sunset text and v2-closed text", () => {
+    const post = render({ sunsetAt: SUNSET, exempt: false, hasActiveKey: true, now: new Date("2026-12-01T00:00:00.000Z") })
+    expect(post).toContain("API v1 was retired on 26 Nov 2026, 00:00 GMT. Your v1 requests are now refused.")
+    expect(post).not.toContain("will be retired")
+    expect(render({ sunsetAt: SUNSET, exempt: false, hasActiveKey: true, v2Open: false })).toContain("See the v2 docs to move over.")
   })
   it("exempt text", () => {
     const html = render({ sunsetAt: SUNSET, exempt: true, hasActiveKey: true })
@@ -66,6 +72,7 @@ describe("V1RetirementCardView", () => {
   })
   it("shows the resend prompt after a 409 and disables actions while busy", () => {
     expect(render({ resendSentAt: "2026-11-12T10:00:00.000Z" })).toContain("already sent on 12 Nov 2026, 10:00 GMT")
+    expect(render({ resendSentAt: "unknown" })).toContain("The notice was already sent. Send it again?")
     const busyHtml = render({ busy: true })
     expect(busyHtml).toContain("Clear date (undo)")
     // Every button the card renders is disabled while a request is in flight.

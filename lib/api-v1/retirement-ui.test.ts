@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import {
   buildRetirementPutBody,
-  bannerKind, bannerText, formatGhanaDate, isEarlierThanNotice, isoToPicker, isUuid, pickerToIso,
+  bannerKind, bannerText, topNonExemptStraggler, formatGhanaDate, isEarlierThanNotice, isoToPicker, isUuid, pickerToIso,
 } from "./retirement-ui"
 
 describe("pickerToIso / isoToPicker", () => {
@@ -50,6 +50,41 @@ describe("banner", () => {
     expect(bannerText("exempt", "2026-11-26T00:00:00.000Z")).toBe(
       "API v1 retires on 26 Nov 2026, 00:00 GMT. Your access continues for now; please plan your move to v2."
     )
+  })
+})
+
+describe("bannerText variants", () => {
+  const SUN = "2026-11-26T00:00:00.000Z"
+  const before = new Date("2026-11-20T00:00:00.000Z")
+  const after = new Date("2026-11-27T00:00:00.000Z")
+  it("post-sunset non-exempt never says 'will be retired'", () => {
+    expect(bannerText("notice", SUN, { now: after })).toBe(
+      "API v1 was retired on 26 Nov 2026, 00:00 GMT. Your v1 requests are now refused. Create a v2 key below and follow the v2 docs."
+    )
+  })
+  it("v2 section unavailable swaps the pointer, pre and post sunset", () => {
+    expect(bannerText("notice", SUN, { now: before, v2Open: false })).toBe(
+      "API v1 will be retired on 26 Nov 2026, 00:00 GMT. After that your v1 requests will be refused. See the v2 docs to move over."
+    )
+    expect(bannerText("notice", SUN, { now: after, v2Open: false })).toBe(
+      "API v1 was retired on 26 Nov 2026, 00:00 GMT. Your v1 requests are now refused. See the v2 docs to move over."
+    )
+  })
+  it("exempt text is unchanged by now/v2Open", () => {
+    expect(bannerText("exempt", SUN, { now: after, v2Open: false })).toBe(
+      "API v1 retires on 26 Nov 2026, 00:00 GMT. Your access continues for now; please plan your move to v2."
+    )
+  })
+})
+
+describe("topNonExemptStraggler", () => {
+  const s = (user_id: string, orders_7d: number, exempt = false) => ({ user_id, email: `${user_id}@x.com`, orders_7d, exempt })
+  it("picks the non-exempt caller with most orders", () => {
+    expect(topNonExemptStraggler([s("a", 3), s("b", 9, true), s("c", 5)])?.user_id).toBe("c")
+  })
+  it("null when none placed orders or all are exempt", () => {
+    expect(topNonExemptStraggler([s("a", 0), s("b", 9, true)])).toBeNull()
+    expect(topNonExemptStraggler([])).toBeNull()
   })
 })
 

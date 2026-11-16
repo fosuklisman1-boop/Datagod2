@@ -240,6 +240,11 @@ export function DeveloperKeysCard() {
                     <AlertDialogTitle>Revoke your {label.toLowerCase()}?</AlertDialogTitle>
                     <AlertDialogDescription>
                       Any application using this key will immediately stop being able to authenticate. This cannot be undone.
+                      {creationClosed && (
+                        <span className="mt-2 block font-semibold text-foreground">
+                          v1 key creation has ended. If you revoke this key you can&apos;t create a new v1 key — move to API v2 first.
+                        </span>
+                      )}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

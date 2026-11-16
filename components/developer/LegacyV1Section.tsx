@@ -32,7 +32,7 @@ interface RetirementInfo {
  * Loads the caller's v1 retirement status (the keys card is unmounted while the section is collapsed,
  * so the banner fetches for itself). Any failure shows nothing.
  */
-export function V1RetirementNotice() {
+export function V1RetirementNotice({ v2Open = true }: { v2Open?: boolean } = {}) {
   const [info, setInfo] = useState<RetirementInfo | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -62,7 +62,7 @@ export function V1RetirementNotice() {
     }
   }, [])
   if (!info) return null
-  return <V1RetirementBanner sunsetAt={info.sunsetAt} exempt={info.exempt} hasActiveKey={info.hasActiveKey} />
+  return <V1RetirementBanner sunsetAt={info.sunsetAt} exempt={info.exempt} hasActiveKey={info.hasActiveKey} v2Open={v2Open} />
 }
 
 /** The v1 keys card and v1 documentation, unchanged, behind a collapsible section. */
@@ -72,7 +72,7 @@ export function LegacyV1Section({ defaultOpen, v2Open }: LegacyV1SectionProps) {
   const open = userOpen ?? defaultOpen
   return (
     <div className="space-y-4">
-    <V1RetirementNotice />
+    <V1RetirementNotice v2Open={v2Open} />
     <Collapsible open={open} onOpenChange={setUserOpen} className="rounded-2xl border border-border bg-card/60">
       <CollapsibleTrigger className="flex w-full items-center gap-3 rounded-2xl p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-5">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">

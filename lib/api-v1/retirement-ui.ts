@@ -56,9 +56,34 @@ export function bannerKind(args: { sunsetAt: string | null; exempt: boolean; has
   return args.exempt ? "exempt" : "notice"
 }
 
-export function bannerText(kind: Exclude<BannerKind, "none">, sunsetAt: string): string {
+export function bannerText(
+  kind: Exclude<BannerKind, "none">,
+  sunsetAt: string,
+  opts: { now?: Date; v2Open?: boolean } = {}
+): string {
   const date = formatGhanaDate(new Date(sunsetAt))
-  return kind === "exempt"
-    ? `API v1 retires on ${date}. Your access continues for now; please plan your move to v2.`
-    : `API v1 will be retired on ${date}. After that your v1 requests will be refused. Create a v2 key below and follow the v2 docs.`
+  if (kind === "exempt") return `API v1 retires on ${date}. Your access continues for now; please plan your move to v2.`
+  // The "Create a v2 key below" pointer only makes sense when the v2 key section is shown to this user.
+  const v2Step = opts.v2Open === false ? "See the v2 docs to move over." : "Create a v2 key below and follow the v2 docs."
+  const past = new Date(sunsetAt).getTime() <= (opts.now ?? new Date()).getTime()
+  return past
+    ? `API v1 was retired on ${date}. Your v1 requests are now refused. ${v2Step}`
+    : `API v1 will be retired on ${date}. After that your v1 requests will be refused. ${v2Step}`
+}
+
+export interface StragglerLike {
+  user_id: string
+  email: string | null
+  orders_7d: number
+  exempt: boolean
+}
+
+/** The non-exempt v1 caller with the most orders in the last 7 days (orders_7d > 0), or null. Ties keep the first. */
+export function topNonExemptStraggler<T extends StragglerLike>(stragglers: T[]): T | null {
+  let top: T | null = null
+  for (const s of stragglers) {
+    if (s.exempt || !(s.orders_7d > 0)) continue
+    if (!top || s.orders_7d > top.orders_7d) top = s
+  }
+  return top
 }
