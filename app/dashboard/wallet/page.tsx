@@ -441,13 +441,17 @@ export default function WalletPage() {
 
         {/* Tabs */}
         {momoEnabled && (
-          <div className="flex w-full rounded-2xl bg-muted p-1">
+          <div className="flex w-full gap-1 rounded-2xl bg-muted p-1">
             {TABS.map(({ id, label }) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
+                aria-pressed={tab === id}
                 className={`flex-1 rounded-xl py-3 text-sm font-bold transition ${
-                  tab === id ? "bg-[#1b388b] text-white shadow-sm dark:bg-blue-600" : "text-muted-foreground"
+                  tab === id
+                    ? "bg-[#1b388b] text-white shadow-sm dark:bg-blue-600"
+                    : // Unselected tab must still read as a button (it was faint grey-on-grey).
+                      "bg-card text-[#1b388b] border border-[#1b388b]/40 shadow-sm hover:bg-[#1b388b]/10 dark:text-blue-300 dark:border-blue-400/50 dark:hover:bg-blue-500/15"
                 }`}
               >
                 {label}
