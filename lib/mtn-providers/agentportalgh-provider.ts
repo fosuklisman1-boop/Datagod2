@@ -132,6 +132,217 @@ function findFinalItemForPhone(items: any[], phone: string, sizeGb?: number): an
   return candidates.sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())[0]
 }
 
+export interface BatchOutcome {
+  status: "completed" | "failed"
+  externalStatus: string
+  failedReason: string | null
+  msisdn: string
+  /** The terminal row the outcome came from (for callers that need the raw item). */
+  item: any
+}
+
+function msisdnKey(m: unknown): string {
+  return String(m ?? "").replace(/\D/g, "").slice(-9)
+}
+
+function sizesCompatible(a: any, b: any): boolean {
+  return typeof a?.data_mb !== "number" || typeof b?.data_mb !== "number" || a.data_mb === b.data_mb
+}
+
+function createdMs(i: any): number {
+  const t = new Date(i?.created_at ?? 0).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
+/**
+ * AgentPortalGH processes our single-item submissions inside its own group order and
+ * never echoes our reference on the final row: an item list holds an "uploaded" row
+ * carrying OUR reference plus a separate terminal row (success/failed, reference null)
+ * for the same number. Pair them up by msisdn (+ data_mb) and return the outcome per
+ * our reference. Never guesses: if several of our references target the same number
+ * (and size) in this list and their candidate outcomes are not all the same, none of
+ * them gets an entry.
+ */
+export function resolveBatchOutcomes(items: any[]): Map<string, BatchOutcome> {
+  const result = new Map<string, BatchOutcome>()
+  const list = Array.isArray(items) ? items : []
+
+  const uploadedRows: any[] = []
+  const seenRefs = new Set<string>()
+  for (const i of list) {
+    const ref = typeof i?.reference === "string" ? i.reference.trim() : ""
+    if (!ref || seenRefs.has(ref)) continue
+    seenRefs.add(ref)
+    uploadedRows.push(i)
+  }
+  const terminals = list.filter(
+    i => (typeof i?.reference !== "string" || i.reference.trim() === "") &&
+      String(i?.status ?? "").toLowerCase().trim() !== "uploaded"
+  )
+
+  // Newest terminal row for an uploaded row, mapped; null if none or still in flight.
+  const outcomeFor = (up: any): { terminal: any; status: "completed" | "failed" | null } | null => {
+    const key = msisdnKey(up.msisdn)
+    if (!key) return null
+    const cands = terminals.filter(t => msisdnKey(t.msisdn) === key && sizesCompatible(up, t))
+    if (cands.length === 0) return null
+    const newest = [...cands].sort((a, b) => createdMs(b) - createdMs(a))[0]
+    const mapped = mapItemStatus(newest.status)
+    return { terminal: newest, status: mapped === "completed" || mapped === "failed" ? mapped : null }
+  }
+
+  for (const up of uploadedRows) {
+    const mine = outcomeFor(up)
+    if (!mine || !mine.status) continue
+
+    const peers = uploadedRows.filter(
+      p => p !== up && msisdnKey(p.msisdn) === msisdnKey(up.msisdn) && sizesCompatible(up, p)
+    )
+    if (peers.length > 0) {
+      // Several of our references target this number: the terminal rows can't be
+      // attributed to a specific one, so only accept when EVERY candidate terminal
+      // row (any retry round) agrees AND there are at least as many terminal rows
+      // as references. Otherwise leave them all in flight.
+      const group = [up, ...peers]
+      const candRows = new Set<any>()
+      for (const g of group) {
+        for (const t of terminals) {
+          if (msisdnKey(t.msisdn) === msisdnKey(g.msisdn) && sizesCompatible(g, t)) candRows.add(t)
+        }
+      }
+      const statuses = new Set(Array.from(candRows).map(t => mapItemStatus(t.status)))
+      if (candRows.size < group.length || statuses.size !== 1) continue
+    }
+
+    const t = mine.terminal
+    result.set(up.reference.trim(), {
+      status: mine.status,
+      externalStatus: String(t.status ?? ""),
+      failedReason: t.failed_reason ?? null,
+      msisdn: String(t.msisdn ?? up.msisdn ?? ""),
+      item: t,
+    })
+  }
+  return result
+}
+
+/** Fetch every item of an AgentPortalGH order (all pages). Exposed for the webhook. */
+export async function fetchAllItemsForOrder(orderId: string): Promise<any[]> {
+  return fetchAllOrderItems(orderId)
+}
+
+/**
+ * Look an order up on AgentPortalGH by phone + creation date and decide its outcome.
+ * Pure of Supabase so it can also back the read-only reconcile script.
+ * `hasAmbiguousSibling` only disables the legacy phone+size fallback — the exact
+ * reference match through the batch's uploaded row is always safe.
+ */
+export async function resolveStatusFromAgp(
+  id: string,
+  phone: string | undefined,
+  sizeGb: number | undefined,
+  createdDate: string | undefined,
+  opts: { hasAmbiguousSibling?: boolean } = {}
+): Promise<MTNOrderStatusResponse> {
+  const hasAmbiguousSibling = opts.hasAmbiguousSibling === true
+  const orderIdOf = (o: any): string | undefined => o?.order_id ?? o?.id
+
+  const today = new Date().toISOString().slice(0, 10)
+  // Try the order's own creation date first (most precise), then today (covers
+  // clock/timezone drift). Deliberately NO unscoped (date=undefined) fallback:
+  // confirmed live 2026-07-30, an unscoped search returns a phone's ENTIRE
+  // order history on AgentPortalGH's side with no day boundary at all, so a
+  // repeat customer's brand-new order would match an old, already-completed
+  // order for the same phone+size from days earlier.
+  const dateCandidates = Array.from(new Set([createdDate, today].filter((d): d is string => !!d)))
+
+  for (const date of dateCandidates) {
+    try {
+      const params = new URLSearchParams()
+      if (phone) params.set("search", phone)
+      if (date) params.set("date", date)
+      const qs = params.toString()
+      const ordersRes = await apiFetch(`/api/beneficiaries/orders${qs ? `?${qs}` : ""}`)
+      const ordersBody = await ordersRes.text()
+      if (!ordersRes.ok) {
+        console.warn(`[AgentPortalGH] Order search (date=${date ?? "none"}) HTTP ${ordersRes.status}: ${ordersBody.slice(0, 300)}`)
+        continue
+      }
+
+      const ordersData = JSON.parse(ordersBody)
+      const orders: any[] = ordersData.data ?? ordersData.orders ?? (Array.isArray(ordersData) ? ordersData : [])
+      if (orders.length === 0) {
+        console.warn(`[AgentPortalGH] Order ${id} not found for date=${date ?? "none"}, search=${phone ?? "none"}`)
+        continue
+      }
+
+      // An explicit order_id/id match is the fastest, most precise path.
+      const exact = orders.find(o => orderIdOf(o) === id)
+      if (exact) {
+        const derived = deriveOrderStatus(exact)
+        if (derived) {
+          return { success: true, status: derived, message: exact.processing_status ?? exact.status ?? "Status retrieved", order: exact }
+        }
+      }
+
+      const sorted = [...orders].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
+
+      // Batch match: AGP runs our item inside its own group order; the "uploaded"
+      // row carries OUR reference and a separate terminal row carries the outcome.
+      // Exact reference link, so safe even when sibling orders share phone+size.
+      let inBatchNoOutcome = false
+      for (const o of sorted) {
+        const oid = orderIdOf(o)
+        if (!oid) continue
+        const items = await fetchAllOrderItems(String(oid))
+        const outcomes = resolveBatchOutcomes(items)
+        const hit = outcomes.get(id)
+        if (hit) {
+          return {
+            success: true,
+            status: hit.status,
+            message: hit.failedReason ?? hit.externalStatus,
+            order: hit.item,
+          }
+        }
+        if (items.some(i => typeof i?.reference === "string" && i.reference.trim() === id)) {
+          inBatchNoOutcome = true
+        }
+      }
+      if (inBatchNoOutcome) {
+        return { success: true, status: "processing", message: "Order in AgentPortalGH batch, awaiting outcome" }
+      }
+
+      // Legacy fallback: scan every matching batch's items, newest first. Skipped
+      // when a sibling tracking row makes the phone+size match ambiguous — stays
+      // "processing" rather than risk guessing wrong.
+      if (hasAmbiguousSibling) {
+        console.warn(`[AgentPortalGH] Skipping phone+size fallback for ${id} — ambiguous sibling tracking row(s) for ${phone}/${sizeGb}GB on ${date ?? "unscoped"}`)
+        continue
+      }
+      for (const o of sorted) {
+        const oid = orderIdOf(o)
+        if (!oid || !phone) continue
+        const items = await fetchAllOrderItems(String(oid))
+        const match = findFinalItemForPhone(items, phone, sizeGb)
+        if (match) {
+          return {
+            success: true,
+            status: mapItemStatus(match.status),
+            message: match.failed_reason ?? match.status ?? "Status retrieved",
+            order: match,
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[AgentPortalGH] Order search (date=${date ?? "none"}) threw:`, err)
+    }
+  }
+
+  // Not found under any search — treat as still in flight
+  return { success: true, status: "processing", message: "Order in flight (not yet found in order listing)" }
+}
+
 // ── Provider class ───────────────────────────────────────────────────────────
 
 export class AgentPortalGHProvider implements MTNProvider {
@@ -188,7 +399,6 @@ export class AgentPortalGHProvider implements MTNProvider {
 
   async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
     const id = String(orderId)
-    const orderIdOf = (o: any): string | undefined => o?.order_id ?? o?.id
 
     // This placeholder means order creation itself failed — the order was NEVER
     // submitted to AgentPortalGH. There is no batch it could ever correspond to,
@@ -252,80 +462,10 @@ export class AgentPortalGHProvider implements MTNProvider {
       console.warn("[AgentPortalGH] Could not look up tracking row for status check:", err)
     }
 
-    const today = new Date().toISOString().slice(0, 10)
-    // Try the order's own creation date first (most precise), then today (covers
-    // clock/timezone drift). Deliberately NO unscoped (date=undefined) fallback:
-    // confirmed live 2026-07-30, an unscoped search returns a phone's ENTIRE
-    // order history on AgentPortalGH's side with no day boundary at all, so a
-    // repeat customer's brand-new order would match an old, already-completed
-    // order for the same phone+size from days earlier — every day-scoped search
-    // (createdDate, today) correctly stays within AgentPortalGH's own per-day
-    // "date" filter (confirmed §7: "date scopes to a single day"), so this
-    // couldn't happen through those; only the unscoped step could reach back
-    // arbitrarily far. The hasAmbiguousSibling guard above only checks OUR OWN
-    // table for same-day duplicates and can't protect against this at all —
-    // removing the unscoped search is the actual fix, not an addition to it.
-    const dateCandidates = Array.from(new Set([createdDate, today].filter((d): d is string => !!d)))
-
-    for (const date of dateCandidates) {
-      try {
-        const params = new URLSearchParams()
-        if (phone) params.set("search", phone)
-        if (date) params.set("date", date)
-        const qs = params.toString()
-        const ordersRes = await apiFetch(`/api/beneficiaries/orders${qs ? `?${qs}` : ""}`)
-        const ordersBody = await ordersRes.text()
-        if (!ordersRes.ok) {
-          console.warn(`[AgentPortalGH] Order search (date=${date ?? "none"}) HTTP ${ordersRes.status}: ${ordersBody.slice(0, 300)}`)
-          continue
-        }
-
-        const ordersData = JSON.parse(ordersBody)
-        const orders: any[] = ordersData.data ?? ordersData.orders ?? (Array.isArray(ordersData) ? ordersData : [])
-        if (orders.length === 0) {
-          console.warn(`[AgentPortalGH] Order ${id} not found for date=${date ?? "none"}, search=${phone ?? "none"}`)
-          continue
-        }
-
-        // An explicit order_id/id match is the fastest, most precise path.
-        const exact = orders.find(o => orderIdOf(o) === id)
-        if (exact) {
-          const derived = deriveOrderStatus(exact)
-          if (derived) {
-            return { success: true, status: derived, message: exact.processing_status ?? exact.status ?? "Status retrieved", order: exact }
-          }
-        }
-
-        // Otherwise, scan every matching batch's items, newest first — a later
-        // retry round is the more authoritative outcome for this phone. Skipped
-        // entirely when a sibling tracking row makes the match ambiguous (see
-        // above) — stays "processing" rather than risk guessing wrong.
-        if (hasAmbiguousSibling) {
-          console.warn(`[AgentPortalGH] Skipping phone+size fallback for ${id} — ambiguous sibling tracking row(s) for ${phone}/${sizeGb}GB on ${date ?? "unscoped"}`)
-          continue
-        }
-        const sorted = [...orders].sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
-        for (const o of sorted) {
-          const oid = orderIdOf(o)
-          if (!oid || !phone) continue
-          const items = await fetchAllOrderItems(oid)
-          const match = findFinalItemForPhone(items, phone, sizeGb)
-          if (match) {
-            return {
-              success: true,
-              status: mapItemStatus(match.status),
-              message: match.failed_reason ?? match.status ?? "Status retrieved",
-              order: match,
-            }
-          }
-        }
-      } catch (err) {
-        console.warn(`[AgentPortalGH] Order search (date=${date ?? "none"}) threw:`, err)
-      }
-    }
-
-    // Not found under any search — treat as still in flight
-    return { success: true, status: "processing", message: "Order in flight (not yet found in order listing)" }
+    // The AgentPortalGH lookups (exact reference match through the batch's
+    // "uploaded" row, then the guarded phone+size fallback) live in
+    // resolveStatusFromAgp so the read-only reconcile script shares them.
+    return resolveStatusFromAgp(id, phone, sizeGb, createdDate, { hasAmbiguousSibling })
   }
 
   async checkBalance(): Promise<number | null> {
