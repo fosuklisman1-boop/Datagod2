@@ -168,7 +168,10 @@ export const HEAVY_ADMIN_OPERATIONS = [
     '/api/admin/orders/phone-export',
     '/api/admin/mtn-registration/export',
     '/api/admin/mtn-registration/batch',
+    '/api/admin/blocked-numbers/export',
+    '/api/admin/blocked-numbers/recheck',
     '/api/admin/packages/bulk-update-price',
+    '/api/admin/users/bulk',
 ] as const
 
 /**

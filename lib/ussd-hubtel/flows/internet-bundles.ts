@@ -24,7 +24,7 @@ function cleanSession(s: HubtelSession): HubtelSession & { step: "INTERNET_MENU"
   if (s.mode === "shop") {
     return {
       mode: "shop", step: "INTERNET_MENU", dialingPhone: s.dialingPhone, platform: s.platform, dataBlocked: s.dataBlocked,
-      shopCodeId: s.shopCodeId, shopId: s.shopId, parentShopId: s.parentShopId, shopName: s.shopName, shopNetworks: s.shopNetworks,
+      shopCodeId: s.shopCodeId, shopId: s.shopId, parentShopId: s.parentShopId, shopName: s.shopName, shopHelpline: s.shopHelpline, shopNetworks: s.shopNetworks,
     }
   }
   return { step: "INTERNET_MENU", dialingPhone: s.dialingPhone, platform: s.platform, dataBlocked: s.dataBlocked }

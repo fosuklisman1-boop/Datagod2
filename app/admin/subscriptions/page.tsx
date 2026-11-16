@@ -48,11 +48,9 @@ export default function AdminSubscriptionsPage() {
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) { router.push("/dashboard"); return }
 
-            let isAdminUser = user?.user_metadata?.role === "admin"
-            if (!isAdminUser) {
-                const { data: userData } = await supabase.from("users").select("role").eq("id", user.id).single()
-                isAdminUser = userData?.role === "admin"
-            }
+            // users.role only: user_metadata is user-writable and can never grant admin.
+            const { data: userData } = await supabase.from("users").select("role").eq("id", user.id).single()
+            const isAdminUser = userData?.role === "admin"
 
             if (!isAdminUser) {
                 toast.error("Unauthorized access")

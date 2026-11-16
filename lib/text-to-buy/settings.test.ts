@@ -1,0 +1,222 @@
+import { describe, it, expect } from "vitest"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import { lineEnabled, loadTtbSettings, TTB_DEFAULTS, TTB_SETTING_KEYS } from "./settings"
+
+type Result = { data: unknown; error: unknown }
+function client(result: Result | (() => never)): SupabaseClient {
+  return {
+    from: (table: string) => {
+      if (table !== "admin_settings") throw new Error("wrong table " + table)
+      return {
+        select: () => ({
+          in: (col: string, keys: string[]) => {
+            if (col !== "key" || !keys.every((k) => k.startsWith("ttb_"))) throw new Error("bad filter")
+            return typeof result === "function" ? result() : Promise.resolve(result)
+          },
+        }),
+      }
+    },
+  } as unknown as SupabaseClient
+}
+const rows = (o: Record<string, unknown>) => ({
+  data: Object.entries(o).map(([key, value]) => ({ key, value: { value } })),
+  error: null,
+})
+
+describe("TTB_DEFAULTS", () => {
+  it("is off, with the seeded limits", () => {
+    expect(TTB_DEFAULTS).toEqual({
+      mainEnabled: false, mainNumber: "", replySenderId: "", shopReplySenderId: "", aiEnabled: true, staleMinutes: 10, promptsPerHour: 3,
+      repliesPerHour: 6, aiReadsPerHour: 10, globalPromptsPerMinute: 30, promptWindowMinutes: 5, quietAlertMinutes: 60,
+      retentionDays: 30, unclearRepliesEnabled: true, globalRepliesPerHour: 300, airtimeEnabled: false, resultsCheckerEnabled: false,
+      shopEnabled: false, shopNumber: "", shopRepliesPerHourPerShop: 60,
+      callsEnabled: false, callsPerHourPerLine: 60,
+      replyTransportMain: "hubtel", replyTransportShop: "hubtel", simSlotMain: 2, simSlotShop: 1, simMaxPer30Min: 15,
+      source: "defaults",
+    })
+  })
+})
+
+describe("loadTtbSettings", () => {
+  it("returns defaults when the read errors", async () => {
+    expect(await loadTtbSettings(client({ data: null, error: { message: "boom" } }))).toEqual(TTB_DEFAULTS)
+  })
+
+  it("returns defaults when the read throws", async () => {
+    expect(await loadTtbSettings(client(() => { throw new Error("down") }))).toEqual(TTB_DEFAULTS)
+  })
+
+  it("returns defaults (source db, off) when rows are missing", async () => {
+    const s = await loadTtbSettings(client({ data: [], error: null }))
+    expect(s).toEqual({ ...TTB_DEFAULTS, source: "db" })
+    expect(s.mainEnabled).toBe(false)
+  })
+
+  it("turns the main line on only for exactly true", async () => {
+    expect((await loadTtbSettings(client(rows({ ttb_main_enabled: true })))).mainEnabled).toBe(true)
+    for (const v of ["true", 1, "yes", null, [true], {}]) {
+      expect((await loadTtbSettings(client(rows({ ttb_main_enabled: v })))).mainEnabled).toBe(false)
+    }
+  })
+
+  it("reads every stored value", async () => {
+    const s = await loadTtbSettings(client(rows({
+      ttb_main_enabled: true, ttb_main_number: "0200000100", ttb_reply_sender_id: "Datagod", ttb_shop_reply_sender_id: "DatagodShop", ttb_ai_enabled: false,
+      ttb_stale_minutes: 15, ttb_prompts_per_hour: 4, ttb_replies_per_hour: 8, ttb_ai_reads_per_hour: 12,
+      ttb_global_prompts_per_minute: 40, ttb_prompt_window_minutes: 7, ttb_quiet_alert_minutes: 90, ttb_retention_days: 14,
+      ttb_reply_to_unclear: false, ttb_global_replies_per_hour: 50, ttb_airtime_enabled: true, ttb_results_checker_enabled: true,
+      ttb_shop_enabled: true, ttb_shop_number: "0200000111", ttb_shop_replies_per_hour_per_shop: 25,
+      ttb_calls_enabled: true, ttb_calls_per_hour_per_line: 40,
+      ttb_reply_transport_main: "sim", ttb_reply_transport_shop: "sim", ttb_sim_slot_main: 1, ttb_sim_slot_shop: 2, ttb_sim_max_per_30min: 12,
+    })))
+    expect(s).toEqual({
+      mainEnabled: true, mainNumber: "0200000100", replySenderId: "Datagod", shopReplySenderId: "DatagodShop", aiEnabled: false, staleMinutes: 15,
+      promptsPerHour: 4, repliesPerHour: 8, aiReadsPerHour: 12, globalPromptsPerMinute: 40, promptWindowMinutes: 7,
+      quietAlertMinutes: 90, retentionDays: 14, unclearRepliesEnabled: false, globalRepliesPerHour: 50,
+      airtimeEnabled: true, resultsCheckerEnabled: true,
+      shopEnabled: true, shopNumber: "0200000111", shopRepliesPerHourPerShop: 25,
+      callsEnabled: true, callsPerHourPerLine: 40,
+      replyTransportMain: "sim", replyTransportShop: "sim", simSlotMain: 1, simSlotShop: 2, simMaxPer30Min: 12, source: "db",
+    })
+  })
+
+  it("reply transport accepts only hubtel or sim; slots only 1 or 2; the cap only integers 1..30", async () => {
+    for (const v of ["SIM", "gsm", 1, null, [], {}, true]) {
+      const s = await loadTtbSettings(client(rows({ ttb_reply_transport_main: v, ttb_reply_transport_shop: v })))
+      expect(s).toMatchObject({ replyTransportMain: "hubtel", replyTransportShop: "hubtel" })
+    }
+    for (const v of [0, 3, "1", 1.5, null, [], {}, Number.NaN]) {
+      const s = await loadTtbSettings(client(rows({ ttb_sim_slot_main: v, ttb_sim_slot_shop: v })))
+      expect(s).toMatchObject({ simSlotMain: 2, simSlotShop: 1 })
+    }
+    for (const v of [0, 31, "20", 5.5, null, [], {}, Number.NaN]) {
+      expect((await loadTtbSettings(client(rows({ ttb_sim_max_per_30min: v })))).simMaxPer30Min).toBe(15)
+    }
+    for (const v of [1, 30, 17]) {
+      expect((await loadTtbSettings(client(rows({ ttb_sim_max_per_30min: v })))).simMaxPer30Min).toBe(v)
+    }
+    expect((await loadTtbSettings(client(rows({ ttb_reply_transport_main: "sim" })))).replyTransportMain).toBe("sim")
+  })
+
+  it("turns call support on only for exactly true", async () => {
+    expect((await loadTtbSettings(client(rows({ ttb_calls_enabled: true })))).callsEnabled).toBe(true)
+    for (const v of ["true", 1, "yes", null, [true], {}]) {
+      expect((await loadTtbSettings(client(rows({ ttb_calls_enabled: v })))).callsEnabled).toBe(false)
+    }
+    expect((await loadTtbSettings(client(rows({})))).callsEnabled).toBe(false)
+  })
+
+  it("callsPerHourPerLine only accepts integers 5..500", async () => {
+    for (const v of ["30", null, [], {}, Number.NaN, 4, 0, -5, 501, 10.5]) {
+      expect((await loadTtbSettings(client(rows({ ttb_calls_per_hour_per_line: v })))).callsPerHourPerLine).toBe(60)
+    }
+    for (const v of [5, 500, 123]) {
+      expect((await loadTtbSettings(client(rows({ ttb_calls_per_hour_per_line: v })))).callsPerHourPerLine).toBe(v)
+    }
+  })
+
+  it("turns the shop line on only for exactly true", async () => {
+    expect((await loadTtbSettings(client(rows({ ttb_shop_enabled: true })))).shopEnabled).toBe(true)
+    for (const v of ["true", 1, "yes", null, [true], {}]) {
+      expect((await loadTtbSettings(client(rows({ ttb_shop_enabled: v })))).shopEnabled).toBe(false)
+    }
+    expect((await loadTtbSettings(client(rows({})))).shopEnabled).toBe(false)
+  })
+
+  it("shopNumber keeps the default for a non-string; shopRepliesPerHourPerShop only accepts integers 5..1000", async () => {
+    expect((await loadTtbSettings(client(rows({ ttb_shop_number: 5 })))).shopNumber).toBe("")
+    expect((await loadTtbSettings(client(rows({ ttb_shop_number: "0200000111" })))).shopNumber).toBe("0200000111")
+    for (const v of ["30", null, [], {}, Number.NaN, 4, 0, -5, 1001, 10.5]) {
+      expect((await loadTtbSettings(client(rows({ ttb_shop_replies_per_hour_per_shop: v })))).shopRepliesPerHourPerShop).toBe(60)
+    }
+    for (const v of [5, 1000, 123]) {
+      expect((await loadTtbSettings(client(rows({ ttb_shop_replies_per_hour_per_shop: v })))).shopRepliesPerHourPerShop).toBe(v)
+    }
+  })
+
+  it("lineEnabled reads the switch of the named line", () => {
+    const s = { ...TTB_DEFAULTS, mainEnabled: true, shopEnabled: false }
+    expect(lineEnabled(s, "main")).toBe(true)
+    expect(lineEnabled(s, "shop")).toBe(false)
+    const t = { ...TTB_DEFAULTS, mainEnabled: false, shopEnabled: true }
+    expect(lineEnabled(t, "main")).toBe(false)
+    expect(lineEnabled(t, "shop")).toBe(true)
+  })
+
+  it("turns the airtime and checker text switches on only for exactly true", async () => {
+    for (const [key, field] of [["ttb_airtime_enabled", "airtimeEnabled"], ["ttb_results_checker_enabled", "resultsCheckerEnabled"]] as const) {
+      expect((await loadTtbSettings(client(rows({ [key]: true }))))[field]).toBe(true)
+      for (const v of ["true", 1, "yes", null, [true], {}]) {
+        expect((await loadTtbSettings(client(rows({ [key]: v }))))[field]).toBe(false)
+      }
+      expect((await loadTtbSettings(client(rows({}))))[field]).toBe(false)
+    }
+  })
+
+  it("unclearRepliesEnabled defaults to true when missing and keeps the default for a non-boolean", async () => {
+    expect((await loadTtbSettings(client({ data: [], error: null }))).unclearRepliesEnabled).toBe(true)
+    for (const v of ["false", 0, null, [], {}]) {
+      expect((await loadTtbSettings(client(rows({ ttb_reply_to_unclear: v })))).unclearRepliesEnabled).toBe(true)
+    }
+    expect((await loadTtbSettings(client(rows({ ttb_reply_to_unclear: false })))).unclearRepliesEnabled).toBe(false)
+  })
+
+  it("globalRepliesPerHour defaults to 300 and ignores wrong types, non-integers and out-of-range values", async () => {
+    expect((await loadTtbSettings(client({ data: [], error: null }))).globalRepliesPerHour).toBe(300)
+    for (const v of ["50", null, [], {}, Number.NaN, 9, 0, -5, 5001, 10.5]) {
+      expect((await loadTtbSettings(client(rows({ ttb_global_replies_per_hour: v })))).globalRepliesPerHour).toBe(300)
+    }
+    for (const v of [10, 5000, 123]) {
+      expect((await loadTtbSettings(client(rows({ ttb_global_replies_per_hour: v })))).globalRepliesPerHour).toBe(v)
+    }
+  })
+
+  it("falls back to the default for a non-numeric, negative or non-finite limit", async () => {
+    const s = await loadTtbSettings(client(rows({
+      ttb_stale_minutes: "soon", ttb_prompts_per_hour: -1, ttb_replies_per_hour: null, ttb_ai_reads_per_hour: Number.NaN,
+      ttb_global_prompts_per_minute: [], ttb_prompt_window_minutes: -0.5, ttb_quiet_alert_minutes: "60", ttb_retention_days: {},
+    })))
+    expect(s).toMatchObject({
+      staleMinutes: 10, promptsPerHour: 3, repliesPerHour: 6, aiReadsPerHour: 10, globalPromptsPerMinute: 30,
+      promptWindowMinutes: 5, quietAlertMinutes: 60, retentionDays: 30,
+    })
+  })
+
+  it("floors the minute and day settings at 1 (a 0 would purge everything or switch a protection off) but lets the hourly caps be 0", async () => {
+    const s = await loadTtbSettings(client(rows({
+      ttb_stale_minutes: 0, ttb_prompt_window_minutes: 0, ttb_quiet_alert_minutes: 0, ttb_retention_days: 0,
+      ttb_prompts_per_hour: 0, ttb_replies_per_hour: 0, ttb_ai_reads_per_hour: 0, ttb_global_prompts_per_minute: 0,
+    })))
+    expect(s).toMatchObject({ staleMinutes: 10, promptWindowMinutes: 5, quietAlertMinutes: 60, retentionDays: 30 })
+    expect(s).toMatchObject({ promptsPerHour: 0, repliesPerHour: 0, aiReadsPerHour: 0, globalPromptsPerMinute: 0 })
+    const one = await loadTtbSettings(client(rows({ ttb_retention_days: 1, ttb_stale_minutes: 1 })))
+    expect(one).toMatchObject({ retentionDays: 1, staleMinutes: 1 })
+  })
+
+  it("exports one key table covering every setting field", () => {
+    expect(Object.keys(TTB_SETTING_KEYS).sort()).toEqual(Object.keys(TTB_DEFAULTS).filter((k) => k !== "source").sort())
+    expect(new Set(Object.values(TTB_SETTING_KEYS)).size).toBe(27)
+    expect(TTB_SETTING_KEYS.callsEnabled).toBe("ttb_calls_enabled")
+    expect(TTB_SETTING_KEYS.callsPerHourPerLine).toBe("ttb_calls_per_hour_per_line")
+    expect(TTB_SETTING_KEYS.shopEnabled).toBe("ttb_shop_enabled")
+    expect(TTB_SETTING_KEYS.shopNumber).toBe("ttb_shop_number")
+    expect(TTB_SETTING_KEYS.shopRepliesPerHourPerShop).toBe("ttb_shop_replies_per_hour_per_shop")
+    expect(TTB_SETTING_KEYS.shopReplySenderId).toBe("ttb_shop_reply_sender_id")
+    expect(TTB_SETTING_KEYS.mainEnabled).toBe("ttb_main_enabled")
+  })
+
+  it("keeps the default for the text settings and ai flag when the stored type is wrong", async () => {
+    const s = await loadTtbSettings(client(rows({ ttb_main_number: 5, ttb_reply_sender_id: null, ttb_shop_reply_sender_id: 7, ttb_ai_enabled: "no" })))
+    expect(s).toMatchObject({ mainNumber: "", replySenderId: "", shopReplySenderId: "", aiEnabled: true })
+  })
+
+  it("shopReplySenderId is empty when its row is missing and read when stored", async () => {
+    expect((await loadTtbSettings(client(rows({ ttb_reply_sender_id: "Main" })))).shopReplySenderId).toBe("")
+    expect((await loadTtbSettings(client(rows({ ttb_shop_reply_sender_id: "ShopName" })))).shopReplySenderId).toBe("ShopName")
+  })
+
+  it("ignores a row whose value is not an object", async () => {
+    const s = await loadTtbSettings(client({ data: [{ key: "ttb_main_enabled", value: true }], error: null }))
+    expect(s.mainEnabled).toBe(false)
+  })
+})

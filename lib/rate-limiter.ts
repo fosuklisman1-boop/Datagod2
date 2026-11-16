@@ -1,18 +1,20 @@
 import { Ratelimit } from "@upstash/ratelimit"
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { NextRequest } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
 // Upstash Redis client — used only if env vars are set
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
     redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: redisEnv.url,
+      token: redisEnv.token,
     })
   } else {
-    console.warn("[RATE-LIMIT] UPSTASH_REDIS_REST_URL / TOKEN not set — rate limiting disabled (fail open)")
+    console.warn("[RATE-LIMIT] Redis REST env not set (UPSTASH_* or KV_* via REDIS_SOURCE) — rate limiting disabled (fail open)")
   }
 } catch (e) {
   console.error("[RATE-LIMIT] Failed to initialise Upstash Redis:", e)

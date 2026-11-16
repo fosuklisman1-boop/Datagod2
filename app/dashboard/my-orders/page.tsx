@@ -13,7 +13,9 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/hooks/use-auth"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { ComplaintModal } from "@/components/complaint-modal"
+import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
+import { complaintTargetForOrder } from "@/lib/support-client"
+import { complaintEligibility } from "@/lib/support-eligibility"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -48,6 +50,8 @@ interface Order {
   order_status: string
   network_name: string
   package_name: string
+  type: string | null
+  reference: string | null
 }
 
 const DATE_PILLS = [
@@ -334,16 +338,19 @@ export default function MyOrdersPage() {
                   <p className="text-xs text-muted-foreground">
                     {new Date(order.created_at).toLocaleDateString()} · {new Date(order.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => { setSelectedOrder(order); setComplaintModalOpen(true) }}
-                    className="gap-1 rounded-full"
-                    title="File a complaint for this order"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    Complain
-                  </Button>
+                  {/* Owner rule: completed for 15 minutes, or processing for 3 hours. The server re-checks. */}
+                  {complaintEligibility({ status: order.order_status, createdAt: order.created_at }).eligible && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { setSelectedOrder(order); setComplaintModalOpen(true) }}
+                      className="gap-1 rounded-full"
+                      title="File a complaint for this order"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Complain
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}
@@ -374,23 +381,24 @@ export default function MyOrdersPage() {
         </div>
       </div>
 
-      {/* Complaint Modal */}
+      {/* Report a problem: opens a support chat thread linked to this order */}
       {selectedOrder && (
-        <ComplaintModal
-          isOpen={complaintModalOpen}
-          onClose={() => {
-            setComplaintModalOpen(false)
-            setSelectedOrder(null)
+        <ReportProblemDialog
+          open={complaintModalOpen}
+          onOpenChange={(o) => {
+            setComplaintModalOpen(o)
+            if (!o) setSelectedOrder(null)
           }}
-          orderId={selectedOrder.id}
-          orderType="regular"
-          orderDetails={{
-            networkName: selectedOrder.network_name,
-            packageName: selectedOrder.package_name,
-            phoneNumber: selectedOrder.phone_number,
-            totalPrice: selectedOrder.total_price,
-            createdAt: selectedOrder.created_at,
-          }}
+          order={(() => {
+            const target = complaintTargetForOrder(selectedOrder)
+            return {
+              kind: target.kind,
+              id: target.id,
+              reference: selectedOrder.reference,
+              subject: target.subject,
+              summary: `${selectedOrder.network_name} ${selectedOrder.package_name} to ${selectedOrder.phone_number}`,
+            }
+          })()}
         />
       )}
     </DashboardLayout>

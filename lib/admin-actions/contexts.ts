@@ -46,6 +46,20 @@ export interface ComplaintCtx {
   customerLabel?: string | null
 }
 
+export interface MomoClaimCtx {
+  kind: "credited" | "flagged" | "unparsed" | "reconciliation_missing" | "setting_changed"
+  amountPesewas?: number
+  /** Last 4 digits only; the full transaction ID must never reach an alert. */
+  txidLast4?: string
+  reasons?: string[]
+}
+
+export interface TextToBuyCtx {
+  kind: "setting_changed"
+  /** Names of the settings that changed (admin_settings keys). Never their values, never a phone number. */
+  keys: string[]
+}
+
 export interface FlowCtx {
   withdrawal: WithdrawalCtx
   afa: AfaCtx
@@ -53,5 +67,7 @@ export interface FlowCtx {
   shop: ShopCtx
   sender_id: SenderIdCtx
   complaint: ComplaintCtx
+  momo_claim: MomoClaimCtx
+  text_to_buy: TextToBuyCtx
 }
 export type _FlowCtxKeysMatchFlowId = keyof FlowCtx extends FlowId ? (FlowId extends keyof FlowCtx ? true : never) : never

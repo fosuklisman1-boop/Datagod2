@@ -24,6 +24,7 @@ const BATCH_A = new Set(
     "check-subscription-expiry",
     "check-subscriptions",
     "mtn-whitelist-retry",
+    "mtn-blocked-recheck", // daily; re-running is harmless (selects only due rows, guarded status updates)
     "sms-kyc-purge",
     "release-held-mtn-orders",
     "sms-senderid-poll",
@@ -33,6 +34,7 @@ const BATCH_A = new Set(
     "expire-stale-airtime",
     "leaderboard-refresh",
     "sub-agent-price-reminders", // overlap-safe: each reminder stage is claimed atomically before sending
+    "delete-old-complaints", // daily 90-day retention sweep; re-running is harmless (selects only expired rows)
   ].map((n) => P + n),
 )
 
@@ -48,6 +50,7 @@ const BATCH_B = new Set(
     "sms-hubtel-dlr",
     "security-alerts",
     "phone-verify",
+    "text-to-buy-notify", // overlap-safe: every notice is recorded with a guarded update before it is sent
   ].map((n) => P + n),
 )
 

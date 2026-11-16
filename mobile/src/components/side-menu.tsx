@@ -40,7 +40,7 @@ const ITEMS: Item[] = [
   { label: "Sub-Agent Catalog", icon: "albums-outline", web: "/dashboard/sub-agent-catalog" },
   { label: "AFA Orders", icon: "star-outline", web: "/dashboard/afa-orders" },
   { label: "Transactions", icon: "time-outline", web: "/dashboard/transactions" },
-  { label: "My Complaints", icon: "alert-circle-outline", web: "/dashboard/complaints" },
+  { label: "Support & Complaints", icon: "alert-circle-outline", web: "/dashboard/complaints" },
   { label: "USSD Shop", icon: "keypad-outline", web: "/dashboard/ussd-shop" },
   { label: "Payment Reverify", icon: "refresh-circle-outline", web: "/dashboard/payment-reverify" },
   { label: "Upgrade to Dealer", icon: "sparkles-outline", web: "/dashboard/upgrade" },

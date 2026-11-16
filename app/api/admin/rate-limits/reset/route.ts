@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { createClient } from "@supabase/supabase-js"
 
@@ -18,7 +19,8 @@ export async function POST(request: NextRequest) {
   const { isAdmin, userId: adminId, errorResponse } = await verifyAdminAccess(request)
   if (!isAdmin) return errorResponse
 
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redisEnv = getRedisRestEnv()
+  if (!redisEnv) {
     return NextResponse.json({ error: "Upstash not configured" }, { status: 503 })
   }
 
@@ -33,8 +35,8 @@ export async function POST(request: NextRequest) {
   }
 
   const redis = new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    url: redisEnv.url,
+    token: redisEnv.token,
   })
 
   // Upstash sliding window stores keys under prefix "rl:{key}"

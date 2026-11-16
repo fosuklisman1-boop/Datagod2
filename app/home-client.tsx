@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { BrandLogo, DEFAULT_LOGO } from "@/components/home/BrandLogo"
 import { supabase } from "@/lib/supabase"
 import { authUrl } from "@/lib/post-auth-redirect"
 import { Button } from "@/components/ui/button"
@@ -15,12 +16,12 @@ import {
   Rocket, ShieldCheck, Facebook, Twitter, Instagram, Receipt, Monitor, Gem, HelpCircle, Headset,
 } from "lucide-react"
 import GuestPurchaseButton from "@/components/GuestPurchaseButton"
-import { HomeAIChatWidget } from "@/components/home/AIChatWidget"
+import { HomeAIChatWidget } from "@/components/home/AIChatWidgetLazy"
 import { HeroCarousel } from "@/components/home/HeroCarousel"
 import { PublicDeliveryStatus } from "@/components/dashboard/delivery-estimate"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPageHidden } from "@/lib/custom-domains"
-import type { HomeLinkKey, HomeServiceLinks } from "@/lib/seo/home-links"
+import type { HomeLink, HomeLinkKey, HomeServiceLinks, PopularPackage } from "@/lib/seo/home-links"
 
 /** Whole-card link with a visible focus ring; a plain div when `href` is unset. */
 function CardLink({ href, className, children }: { href?: string; className: string; children: React.ReactNode }) {
@@ -370,13 +371,6 @@ const FAQ_ITEMS = [
   { q: "How do I get support?", a: "Chat with us on WhatsApp for quick help, or file and track a complaint from your dashboard if you have an account." },
 ] as const
 
-interface PublicPackage {
-  id?: string
-  network: string
-  size: string
-  price: number
-}
-
 interface SubscriptionPlan {
   id: string
   name: string
@@ -385,17 +379,26 @@ interface SubscriptionPlan {
   duration_days: number
 }
 
-export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeServiceLinks }) {
+export default function HomeClient({
+  serviceLinks = {},
+  dataNetworkLinks = [],
+  footerLinks = [],
+  popularPackages = [],
+}: {
+  serviceLinks?: HomeServiceLinks
+  /** Network chips on the Data Bundles card (main site only). */
+  dataNetworkLinks?: HomeLink[]
+  /** Footer links to every live product page (main site only). */
+  footerLinks?: HomeLink[]
+  /** Cheapest public bundle per network, loaded on the server (app/page.tsx). */
+  popularPackages?: PopularPackage[]
+}) {
   const domainBranding = useDomainBranding()
   // DATAGOD's own logo on the main site; a custom domain without its own logo
   // gets the neutral placeholder, never DATAGOD branding.
-  const logoSrc = domainBranding.logoUrl || (domainBranding.siteName ? null : "/icons/icon-512x512.png")
+  // BrandLogo serves the DATAGOD logo resized through next/image.
+  const logoSrc = domainBranding.logoUrl || (domainBranding.siteName ? null : DEFAULT_LOGO)
 
-  // Live, real pricing — never hardcoded, so this never goes stale or gets
-  // mistaken for fabricated numbers. "default" is the platform's own
-  // retail-pricing shop slug, same one app/dashboard/data-packages/page.tsx
-  // already fetches from.
-  const [popularPackages, setPopularPackages] = useState<PublicPackage[]>([])
   const [plans, setPlans] = useState<SubscriptionPlan[]>([])
   const [openFaq, setOpenFaq] = useState<number | null>(null)
 
@@ -412,12 +415,6 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
   }, [])
 
   useEffect(() => {
-    fetch("/api/shop/public-packages?slug=default", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (Array.isArray(data?.packages)) setPopularPackages(data.packages)
-      })
-      .catch(() => {})
     fetch("/api/subscriptions/plans")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -426,56 +423,25 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
       .catch(() => {})
   }, [])
 
-  // One representative (cheapest) package per network, for a compact
-  // "Popular Data Packages" preview — still real, live data, just curated
-  // down from the full catalog rather than dumping every size.
-  const popularByNetwork = Object.values(
-    popularPackages.reduce((acc, pkg) => {
-      if (!acc[pkg.network] || pkg.price < acc[pkg.network].price) acc[pkg.network] = pkg
-      return acc
-    }, {} as Record<string, PublicPackage>)
-  ).slice(0, 6)
+  // Live, real pricing (public packages.price, cheapest per network), loaded
+  // on the server by app/page.tsx so the tiles are in the crawlable HTML.
+  const popularByNetwork = popularPackages.slice(0, 6)
+  const sellsData = !domainBranding.services || domainBranding.services.includes("data_bundles")
 
   const dealerPlan = plans.find((p) => /diamond|lifetime/i.test(p.name))
   const termPlans = plans.filter((p) => p !== dealerPlan)
 
   return (
     <div className="min-h-screen clay-surface">
-      {/* Organization + Website Schema */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          // domainBranding.siteName is admin-only input, but JSON.stringify does
-          // not escape "</script>" — the .replace neutralizes a literal
-          // "</script>" breakout attempt without altering how the JSON parses
-          // (a standard, safe technique: < is a valid JSON escape for "<").
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            name: domainBranding.siteName || "DATAGOD",
-            url: "https://www.datagod.store",
-            description: "Buy affordable data packages from multiple networks, usually delivered within minutes",
-            potentialAction: {
-              "@type": "SearchAction",
-              target: {
-                "@type": "EntryPoint",
-                urlTemplate: "https://www.datagod.store/shop?search={search_term_string}",
-              },
-              query_input: "required name=search_term_string",
-            },
-          }).replace(/</g, "\\u003c"),
-        }}
-      />
-
       {/* Navigation */}
       <nav style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 1rem)" }} className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 rounded-b-[1.75rem] bg-card/85 backdrop-blur supports-[backdrop-filter]:bg-card/70 clay-bar">
         <div className="flex items-center gap-3">
           {logoSrc ? (
-            <img src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-9 w-9 rounded-full object-cover" />
+            <BrandLogo src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} size={36} className="h-9 w-9 rounded-full object-cover" priority />
           ) : (
             <div aria-hidden className="h-7 w-7 rounded-lg bg-gradient-to-br from-[#1b388b] to-brand-accent" />
           )}
-          <h1 className="text-lg sm:text-xl font-display font-semibold text-foreground tracking-tight">{domainBranding.siteName || "DATAGOD"}</h1>
+          <span className="text-lg sm:text-xl font-display font-semibold text-foreground tracking-tight">{domainBranding.siteName || "DATAGOD"}</span>
         </div>
         <div className="hidden md:flex items-center gap-6">
           {[
@@ -500,9 +466,20 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
       {/* ── All-in-one intro ─────────────────────────────────── */}
       <section className="px-4 sm:px-6 py-14 sm:py-20 text-center">
         <div className="max-w-3xl mx-auto">
-          <h2 className="font-display text-4xl sm:text-5xl font-black tracking-tight text-foreground leading-[1.1]">
-            Ghana&apos;s All-In-One Mobile Data &amp; Reseller Platform
-          </h2>
+          {domainBranding.siteName ? (
+            <h1 className="font-display text-4xl sm:text-5xl font-black tracking-tight text-foreground leading-[1.1]">
+              Ghana&apos;s All-In-One Mobile Data &amp; Reseller Platform
+            </h1>
+          ) : (
+            <>
+              <p className="mb-4 font-mono text-[11px] uppercase tracking-wider text-[#1b388b]">
+                Ghana&apos;s all-in-one mobile data &amp; reseller platform
+              </p>
+              <h1 className="font-display text-4xl sm:text-5xl font-black tracking-tight text-foreground leading-[1.1]">
+                Buy cheap MTN, Telecel &amp; AT data bundles in Ghana
+              </h1>
+            </>
+          )}
           <p className="mt-6 text-lg sm:text-xl leading-relaxed text-muted-foreground">
             Buy data bundles, airtime, AFA registrations, results checkers and bulk SMS. Fund your wallet, open your own shop, or integrate via our Developer API — all in one place. Usually delivered within minutes.
           </p>
@@ -537,13 +514,32 @@ export default function HomeClient({ serviceLinks = {} }: { serviceLinks?: HomeS
             </p>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            {TOP_SERVICES.map(({ icon: Icon, title, desc, tag, color, link }) => (
-              <CardLink key={title} href={serviceLinks[link]} className="clay p-4 sm:p-6">
-                <div className={`mb-4 grid h-12 w-12 place-items-center clay-icon ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
-                <h3 className="mb-1.5 flex items-center gap-2 font-display font-bold text-foreground">{title}{tag && <span className="rounded-full border border-[#1b388b]/30 px-1.5 py-0.5 font-mono text-[8px] text-[#1b388b]">{tag}</span>}</h3>
-                <p className="text-sm text-muted-foreground">{desc}</p>
-              </CardLink>
-            ))}
+            {TOP_SERVICES.map(({ icon: Icon, title, desc, tag, color, link }) => {
+              // Data Bundles: chips to each live network page instead of one
+              // whole-card link (links can't nest inside a link).
+              const chips = link === "data" ? dataNetworkLinks : []
+              return (
+                <CardLink key={title} href={chips.length ? undefined : serviceLinks[link]} className="clay p-4 sm:p-6">
+                  <div className={`mb-4 grid h-12 w-12 place-items-center clay-icon ${color}`}><Icon className="h-[22px] w-[22px]" /></div>
+                  <h3 className="mb-1.5 flex items-center gap-2 font-display font-bold text-foreground">{title}{tag && <span className="rounded-full border border-[#1b388b]/30 px-1.5 py-0.5 font-mono text-[8px] text-[#1b388b]">{tag}</span>}</h3>
+                  <p className="text-sm text-muted-foreground">{desc}</p>
+                  {chips.length > 0 && (
+                    <ul className="mt-3 flex flex-wrap gap-2" aria-label="Data bundles by network">
+                      {chips.map((c) => (
+                        <li key={c.href}>
+                          <Link
+                            href={c.href}
+                            className="inline-flex items-center rounded-full border border-[#1b388b]/30 px-2.5 py-1 text-xs font-semibold text-[#1b388b] transition-colors hover:bg-[#1b388b]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b388b]"
+                          >
+                            {c.label} data
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardLink>
+              )
+            })}
           </div>
           {serviceLinks.all && (
             <div className="mt-8 flex justify-center">
@@ -1010,7 +1006,7 @@ When your sub-agent clicks the link, they see a branded invite page showing your
       </section>
 
       {/* ── Popular Data Packages (live pricing) ─────────────── */}
-      {popularByNetwork.length > 0 && (
+      {sellsData && popularByNetwork.length > 0 && (
         <section className="py-16 sm:py-24">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
             <div className="text-center mb-12">
@@ -1020,15 +1016,21 @@ When your sub-agent clicks the link, they see a branded invite page showing your
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
               {popularByNetwork.map((pkg) => (
-                <div key={`${pkg.network}-${pkg.size}`} className="clay p-4 text-center">
+                <CardLink key={`${pkg.network}-${pkg.size}`} href={pkg.href} className="clay p-4 text-center">
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">{pkg.network}</p>
                   <p className="text-xl font-black text-foreground">{pkg.size}</p>
                   <p className="text-sm font-bold text-[#1b388b] mt-1">GHS {Number(pkg.price).toFixed(2)}</p>
-                </div>
+                </CardLink>
               ))}
             </div>
-            <div className="mt-8 text-center">
-              <Link href={authUrl("signup", "/dashboard/data-packages")}><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">See All Packages <ArrowRight className="w-4 h-4" /></Button></Link>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              {dataNetworkLinks.length > 0 ? (
+                dataNetworkLinks.map((l) => (
+                  <Link key={l.href} href={l.href}><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">See all {l.label} packages <ArrowRight className="w-4 h-4" /></Button></Link>
+                ))
+              ) : (
+                <Link href={authUrl("signup", "/dashboard/data-packages")}><Button size="lg" className="gap-2 bg-[#1b388b] hover:bg-[#1b388b]/90 clay-btn rounded-full">See All Packages <ArrowRight className="w-4 h-4" /></Button></Link>
+              )}
             </div>
           </div>
         </section>
@@ -1112,11 +1114,11 @@ When your sub-agent clicks the link, they see a branded invite page showing your
       {/* Footer */}
       <footer className="bg-footer text-muted-foreground py-10 sm:py-12 border-t border-border">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-8">
+          <div className={`grid grid-cols-1 sm:grid-cols-2 ${footerLinks.length > 0 ? "md:grid-cols-5" : "md:grid-cols-4"} gap-6 sm:gap-8 mb-8`}>
             <div>
               <div className="flex items-center gap-2 mb-3">
                 {logoSrc ? (
-                  <img src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} className="h-8 w-8 rounded-full object-cover" />
+                  <BrandLogo src={logoSrc} alt={`${domainBranding.siteName || "DATAGOD"} logo`} size={32} className="h-8 w-8 rounded-full object-cover" />
                 ) : (
                   <div aria-hidden className="h-5 w-5 rounded bg-gradient-to-br from-[#1b388b] to-brand-accent" />
                 )}
@@ -1131,6 +1133,16 @@ When your sub-agent clicks the link, they see a branded invite page showing your
                 </div>
               )}
             </div>
+            {footerLinks.length > 0 && (
+              <nav aria-labelledby="footer-buy-heading">
+                <h4 id="footer-buy-heading" className="mb-4 font-mono text-[11px] uppercase tracking-wider text-foreground/80">Buy online</h4>
+                <ul className="space-y-2 text-sm">
+                  {footerLinks.map((l) => (
+                    <li key={l.href}><Link href={l.href} className="hover:text-foreground">{l.label}</Link></li>
+                  ))}
+                </ul>
+              </nav>
+            )}
             <div>
               <h4 className="mb-4 font-mono text-[11px] uppercase tracking-wider text-foreground/80">Product</h4>
               <ul className="space-y-2 text-sm">

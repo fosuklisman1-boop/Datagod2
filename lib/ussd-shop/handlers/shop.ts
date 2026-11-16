@@ -116,11 +116,12 @@ export async function handleEnterShopCode(
     shopId: resolved.shopId,
     parentShopId: parentShopId ?? undefined,
     shopName,
+    shopHelpline: resolved.ownerPhone ?? undefined,
     networks: sortedNetworks,
     dataBlocked,
   })
 
-  return cont(productMenu(shopName, await productMenuVisibility(dataBlocked)))
+  return cont(productMenu(shopName, await productMenuVisibility(dataBlocked), resolved.ownerPhone))
 }
 
 /**
@@ -191,6 +192,6 @@ export async function handleSelectProduct(
     case 'payBills':
       return startPayBills(botCtx, session)
     default:
-      return cont(productMenu(shopName, effective))
+      return cont(productMenu(shopName, effective, session.shopHelpline))
   }
 }

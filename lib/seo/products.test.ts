@@ -31,7 +31,7 @@ describe("product registry", () => {
       h1: "Cheapest data bundles in Ghana today",
       group: "data",
       channels: ["web"],
-      related: ["mtn-data", "telecel-data", "at-data", "airtime"],
+      related: ["mtn-data", "telecel-data", "at-data", "afa-registration", "airtime"],
       hasOwnPage: true,
     })
     expect(allText(p)).not.toMatch(/cheaper than|than (mtn|telecel|vodafone|airteltigo) /i)
@@ -42,6 +42,15 @@ describe("product registry", () => {
     for (const p of PRODUCTS) {
       for (const r of p.related) expect(keys.has(r), `${p.key} -> ${r}`).toBe(true)
       expect(p.related).not.toContain(p.key)
+    }
+  })
+
+  it("links every sibling product page in the same group", () => {
+    for (const p of PRODUCTS) {
+      for (const sib of PRODUCTS) {
+        if (sib.group !== p.group || sib.key === p.key) continue
+        expect(p.related, `${p.key} should link ${sib.key}`).toContain(sib.key)
+      }
     }
   })
 
@@ -149,5 +158,28 @@ describe("product registry", () => {
   it("getProduct returns the entry and throws on an unknown key", () => {
     expect(getProduct("airtime").path).toBe("/airtime")
     expect(() => getProduct("nope" as ProductKey)).toThrow()
+  })
+})
+
+describe("findProduct / findProductByPath", () => {
+  it("finds registry entries and nothing else", async () => {
+    const { findProduct, findProductByPath } = await import("./products")
+    expect(findProduct("mtn-data")?.path).toBe("/mtn-data")
+    expect(findProduct("retired-product")).toBeUndefined()
+    expect(findProductByPath("/pay-dstv")?.key).toBe("pay-dstv")
+    expect(findProductByPath("/pay-dstv/")?.key).toBe("pay-dstv")
+    expect(findProductByPath("/")).toBeUndefined()
+    expect(findProductByPath("/shop/kofi")).toBeUndefined()
+    expect(findProductByPath(null)).toBeUndefined()
+  })
+})
+
+describe("updated (sitemap lastmod)", () => {
+  it("every entry has a valid YYYY-MM-DD date", async () => {
+    const { PRODUCTS } = await import("./products")
+    for (const p of PRODUCTS) {
+      expect(p.updated, p.key).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      expect(Number.isNaN(Date.parse(p.updated)), p.key).toBe(false)
+    }
   })
 })

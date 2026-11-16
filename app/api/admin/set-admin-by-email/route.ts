@@ -77,17 +77,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    // Update user metadata to add admin role
-    const { data: authData, error: authError } = await adminClient.auth.admin.updateUserById(user.id, {
-      user_metadata: { role: "admin" },
-    })
-
-    if (authError) {
-      console.error("Error updating user metadata:", authError)
-      return NextResponse.json({ error: authError.message }, { status: 400 })
-    }
-
-    // Also update the users table role column
+    // public.users.role FIRST: it is the source of truth, and the 0179 trigger pins auth metadata to it
+    // (a metadata-first write would be reverted and raise a tamper alert).
     const { data: userData, error: userError } = await adminClient
       .from("users")
       .update({ role: "admin" })
@@ -96,7 +87,15 @@ export async function POST(req: NextRequest) {
 
     if (userError) {
       console.error("Error updating users table:", userError)
-      // Don't fail - metadata was already updated
+      return NextResponse.json({ error: "Failed to grant admin role" }, { status: 500 })
+    }
+
+    // Then mirror it into auth metadata (session display only; best-effort).
+    const { data: authData, error: authError } = await adminClient.auth.admin.updateUserById(user.id, {
+      user_metadata: { role: "admin" },
+    })
+    if (authError) {
+      console.warn("[SET-ADMIN-BY-EMAIL] Could not update auth metadata:", authError.message)
     }
 
     console.log("[SET-ADMIN-BY-EMAIL] User", email, "has been granted admin role")

@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import {
   buildLiveFacts, FALLBACK_FACTS, formatCedis, networkOf, readSmsPricePerCredit, loadRawFacts,
-  resolveLiveFacts, PartialFactsError, type RawFacts,
+  resolveLiveFacts, PartialFactsError, productFactsLoaded, FACT_SOURCES, PRODUCT_SOURCES, LiveFactsUnavailableError,
+  type RawFacts,
 } from "./live-facts"
 import { resolveBillsConfig } from "@/lib/bills/config"
 import { PRODUCTS } from "./products"
@@ -155,7 +156,7 @@ describe("buildLiveFacts — adjusted prices and groups", () => {
   })
 
   it("loadedAt defaults to now and can be pinned", () => {
-    expect(buildLiveFacts(raw(), "2026-10-28T00:00:00.000Z").loadedAt).toBe("2026-10-28T00:00:00.000Z")
+    expect(buildLiveFacts(raw(), [], "2026-10-28T00:00:00.000Z").loadedAt).toBe("2026-10-28T00:00:00.000Z")
     expect(Number.isNaN(Date.parse(buildLiveFacts(raw()).loadedAt))).toBe(false)
     expect(FALLBACK_FACTS.prices).toEqual({ MTN: [], Telecel: [], AT: [] })
   })
@@ -348,7 +349,8 @@ describe("loadRawFacts", () => {
     // packages filtered by is_available in SQL
     const pkg = calls.find((c) => c.table === "packages")!
     expect(pkg.eqs).toContainEqual(["is_available", true])
-    expect(pkg.select).toBe("network, size, price, is_available")
+    expect(pkg.select).toBe("network, size, price, is_available, description")
+    expect(pkg.select).not.toContain("dealer_price")
     // singleton adjustments row
     const adj = calls.find((c) => c.table === "app_settings" && c.select.includes("price_adjustment_mtn"))!
     expect(adj.select).toBe("price_adjustment_mtn, price_adjustment_telecel, price_adjustment_at_ishare, price_adjustment_at_bigtime")
@@ -402,6 +404,15 @@ describe("loadRawFacts", () => {
     expect(f.products.developers.available).toBe(false)
     expect(f.products.ussd.available).toBe(false)
     expect(f.ussd).toEqual({ main: null, shop: null })
+    // ...and with the failure list, those are "unknown", not "off"
+    const known = buildLiveFacts(r, failed)
+    expect(known.failedSources.sort()).toEqual(["afa", "api-v2", "bills", "price-adjust", "results", "ussd"])
+    for (const k of ["afa-registration", "developers", "ussd", "utility-bills", "pay-dstv", "results-checker"] as const) {
+      expect(productFactsLoaded(k, known), k).toBe(false)
+    }
+    // the adjustments read failed too, so the data prices are unknown
+    for (const k of ["mtn-data", "cheapest-data"] as const) expect(productFactsLoaded(k, known), k).toBe(false)
+    for (const k of ["airtime", "join", "whatsapp", "bulk-sms"] as const) expect(productFactsLoaded(k, known), k).toBe(true)
     expect(f.products["utility-bills"].available).toBe(false)
     expect(f.products["pay-dstv"].available).toBe(false)
     expect(f.products["results-checker"].available).toBe(false)
@@ -436,9 +447,43 @@ describe("resolveLiveFacts", () => {
     const f = await resolveLiveFacts(async () => { throw new PartialFactsError(partial, ["api-v2"]) })
     expect(f.products.developers.available).toBe(false)
     expect(f.products["mtn-data"]).toBeDefined()
+    // the failed source travels with the result, so /developers is "unknown", not "off"
+    expect(f.failedSources).toEqual(["api-v2"])
+    expect(productFactsLoaded("developers", f)).toBe(false)
+    expect(productFactsLoaded("mtn-data", f)).toBe(true)
   })
   it("returns FALLBACK_FACTS on any other error", async () => {
     expect(await resolveLiveFacts(async () => { throw new Error("cache down") })).toBe(FALLBACK_FACTS)
+  })
+})
+
+describe("failed vs off", () => {
+  it("a complete read has no failed sources: an off product is really off", () => {
+    const f = buildLiveFacts(raw({ apiV2Enabled: false, bills: null }))
+    expect(f.failedSources).toEqual([])
+    expect(f.products.developers.available).toBe(false)
+    expect(productFactsLoaded("developers", f)).toBe(true)
+    expect(productFactsLoaded("pay-dstv", f)).toBe(true)
+  })
+
+  it("FALLBACK_FACTS marks every source failed, so only always-on products count as loaded", () => {
+    expect([...FALLBACK_FACTS.failedSources].sort()).toEqual([...FACT_SOURCES].sort())
+    for (const p of PRODUCTS) expect(productFactsLoaded(p.key, FALLBACK_FACTS), p.key).toBe(PRODUCT_SOURCES[p.key].length === 0)
+  })
+
+  it("ignores unknown source names", () => {
+    expect(buildLiveFacts(raw(), ["nope", "ussd"]).failedSources).toEqual(["ussd"])
+  })
+
+  it("maps every registry product to its sources (empty for always-on)", () => {
+    for (const p of PRODUCTS) expect(PRODUCT_SOURCES[p.key], p.key).not.toBeUndefined()
+  })
+
+  it("LiveFactsUnavailableError names the product and sources", () => {
+    const e = new LiveFactsUnavailableError("pay-dstv", ["bills"])
+    expect(e.name).toBe("LiveFactsUnavailableError")
+    expect(e.message).toContain("pay-dstv")
+    expect(e.message).toContain("bills")
   })
 })
 
@@ -457,5 +502,26 @@ describe("formatCedis", () => {
     expect(formatCedis(-2)).toBe("")
     expect(formatCedis(NaN)).toBe("")
     expect(formatCedis(Infinity)).toBe("")
+  })
+})
+
+describe("buildLiveFacts — no-expiry prices", () => {
+  it("lists only packages described as no-expiry, adjusted like the main list", () => {
+    const f = buildLiveFacts(raw({
+      priceAdjustments: { ...ZERO_ADJ, price_adjustment_telecel: 10 },
+      packages: [
+        { network: "Telecel", size: "5", price: 20, is_available: true, description: "No expiry" },
+        { network: "Telecel", size: "2", price: 8, is_available: true, description: "30 days" },
+        { network: "MTN", size: "1", price: 5, is_available: true, description: null },
+      ],
+    }))
+    expect(f.nonExpiryPrices.MTN).toEqual([])
+    expect(f.nonExpiryPrices.Telecel).toHaveLength(1)
+    expect(f.nonExpiryPrices.Telecel[0].rows.map((r) => [r.label, r.price])).toEqual([["5GB", 22]])
+    expect(f.prices.Telecel[0].rows).toHaveLength(2)
+  })
+  it("is empty when the prices could not be read", () => {
+    const f = buildLiveFacts(raw({ priceAdjustments: null }))
+    expect(f.nonExpiryPrices).toEqual({ MTN: [], Telecel: [], AT: [] })
   })
 })

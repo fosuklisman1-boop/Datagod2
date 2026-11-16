@@ -287,13 +287,23 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
     const CHUNK_SIZE = 100
     const verifiedMap = new Map<string, boolean>()
     let blocking = false
+    // The session token lets the endpoint attribute a blocked number to this dealer.
+    let accessToken: string | undefined
+    try {
+      accessToken = (await supabase.auth.getSession()).data.session?.access_token
+    } catch {
+      accessToken = undefined
+    }
     for (let i = 0; i < phones.length; i += CHUNK_SIZE) {
       const chunk = phones.slice(i, i + CHUNK_SIZE)
       try {
         const res = await fetch("/api/verify-phone-live", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phones: chunk }),
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: JSON.stringify({ phones: chunk, surface: "dashboard_bulk_preview" }),
         })
         if (res.ok) {
           const data = await res.json()

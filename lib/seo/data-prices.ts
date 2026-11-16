@@ -116,3 +116,20 @@ export function buildPriceGroups(
   }
   return out
 }
+
+/**
+ * True when an admin-written package description says the bundle does not
+ * expire ("No expiry", "non-expiry", "Non Expiry"). We never guess from the
+ * name or size. Used to build LiveFacts.nonExpiryPrices.
+ */
+export function isNoExpiry(description: string | null | undefined): boolean {
+  return /\bno[n]?[\s-]*expir/i.test(String(description ?? ""))
+}
+
+/** AT sub-product named by a packages.network value ("AT - iShare" -> "iShare"), else null. */
+export function atTypeOf(network: string): "iShare" | "BigTime" | null {
+  if (networkOf(network) !== "AT") return null
+  if (/i-?share/i.test(network)) return "iShare"
+  if (/big\s*-?time/i.test(network)) return "BigTime"
+  return null
+}

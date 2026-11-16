@@ -70,6 +70,15 @@ describe("/api/admin/gateway", () => {
     expect((upsertMock.mock.calls[0] as any)[0][0].key).toBe("payment_gateway_config")
   })
 
+  it("rejects checkout mode on sms_order", async () => {
+    const c = base()
+    c.surfaces.sms_order.mode = "checkout"
+    const res = await PUT(put(c))
+    expect(res!.status).toBe(400)
+    expect((await res!.json()).error).toBe("sms_order must use direct mode")
+    expect(upsertMock).not.toHaveBeenCalled()
+  })
+
   it("GET reports hubtel not ready and never leaks env values", async () => {
     process.env.HUBTEL_RELAY_SECRET = "s3cret"
     const res = await GET(new NextRequest("http://localhost/api/admin/gateway"))

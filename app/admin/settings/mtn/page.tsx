@@ -84,6 +84,14 @@ export default function MTNSettingsPage() {
   const [custVerifyEnabled, setCustVerifyEnabled] = useState(false)
   const [custVerifyProviders, setCustVerifyProviders] = useState<string[]>([])
   const [custVerifyBlock, setCustVerifyBlock] = useState(false)
+  // Blocked MTN number tracking (card under Customer verification)
+  const [bnLoading, setBnLoading] = useState(true)
+  const [bnSaving, setBnSaving] = useState(false)
+  const [bnEnabled, setBnEnabled] = useState(false)
+  const [bnSmsEnabled, setBnSmsEnabled] = useState(false)
+  const [bnRetention, setBnRetention] = useState("30")
+  const [bnSpike, setBnSpike] = useState("25")
+  const [bnCeiling, setBnCeiling] = useState("300")
   const [custVerifyAvailable, setCustVerifyAvailable] = useState<Array<{ name: string; configured: boolean }>>([])
   const [loadingCustVerify, setLoadingCustVerify] = useState(true)
   const [savingCustVerify, setSavingCustVerify] = useState(false)
@@ -176,6 +184,7 @@ export default function MTNSettingsPage() {
     loadAtFulfillmentSetting()
     loadWhitelistSetting()
     loadCustomerVerificationSetting()
+    loadBlockedNumbersSetting()
     loadWhitelistSwitchSetting()
     loadNetworkProvider("telecel", setTelecelProvider)
     loadNetworkProvider("at_ishare", setAtIshareProvider)
@@ -918,6 +927,44 @@ export default function MTNSettingsPage() {
       }
     } catch (e) { console.error("Error loading customer verification setting:", e) }
     finally { setLoadingCustVerify(false) }
+  }
+
+  const applyBlockedSettings = (s: { enabled: boolean; customer_sms_enabled: boolean; retention_days: number; spike_threshold_per_hour: number; daily_sms_ceiling: number }) => {
+    setBnEnabled(s.enabled)
+    setBnSmsEnabled(s.customer_sms_enabled)
+    setBnRetention(String(s.retention_days))
+    setBnSpike(String(s.spike_threshold_per_hour))
+    setBnCeiling(String(s.daily_sms_ceiling))
+  }
+
+  const loadBlockedNumbersSetting = async () => {
+    try {
+      setBnLoading(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch("/api/admin/settings/blocked-numbers", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      })
+      if (res.ok) applyBlockedSettings((await res.json()).settings)
+    } catch (e) { console.error("Error loading blocked numbers setting:", e) }
+    finally { setBnLoading(false) }
+  }
+
+  const saveBlockedNumbersSetting = async (patch: Record<string, boolean | number>) => {
+    try {
+      setBnSaving(true)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const res = await fetch("/api/admin/settings/blocked-numbers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify(patch),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.error || "Failed")
+      applyBlockedSettings(d.settings)
+      toast.success("Blocked numbers settings saved")
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed to update") }
+    finally { setBnSaving(false) }
   }
 
   const saveCustomerVerificationSetting = async (enabled: boolean, providers: string[], blockUnverified = custVerifyBlock) => {
@@ -1789,6 +1836,63 @@ export default function MTNSettingsPage() {
                     </Alert>
                   )
                 })()}
+              </CardContent>
+            </Card>
+
+            {/* Blocked MTN number tracking */}
+            <Card className="border-2">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShieldCheck className={`h-5 w-5 ${bnEnabled ? "text-success" : "text-muted-foreground"}`} />
+                      Blocked Numbers Tracking
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Remembers MTN numbers the checkout providers refuse, re-checks them daily and tells the customer, shop or dealer when one is allowed. Off writes nothing.{" "}
+                      <Link href="/admin/blocked-numbers" className="underline">Open the Blocked Numbers page</Link>
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {bnLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : (
+                      <>
+                        {bnSaving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                        <span className={`text-sm font-medium ${bnEnabled ? "text-success" : "text-muted-foreground"}`}>{bnEnabled ? "Enabled" : "Disabled"}</span>
+                        <Switch checked={bnEnabled} onCheckedChange={(v) => saveBlockedNumbersSetting({ enabled: v })} disabled={bnSaving || bnLoading} />
+                      </>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Customer &quot;number ready&quot; SMS</p>
+                    <p className="text-xs text-muted-foreground">Texts the customer when a refused number is allowed. Turn on only after you have watched a first real flip.</p>
+                  </div>
+                  <Switch checked={bnSmsEnabled} onCheckedChange={(v) => saveBlockedNumbersSetting({ customer_sms_enabled: v })} disabled={bnSaving || bnLoading || !bnEnabled} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="bn-retention">Keep open for (days)</Label>
+                    <Input id="bn-retention" type="number" min={1} max={365} value={bnRetention} onChange={(e) => setBnRetention(e.target.value)} disabled={bnLoading} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="bn-spike">Spike alert (numbers per hour)</Label>
+                    <Input id="bn-spike" type="number" min={1} max={10000} value={bnSpike} onChange={(e) => setBnSpike(e.target.value)} disabled={bnLoading} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="bn-ceiling">Daily SMS ceiling</Label>
+                    <Input id="bn-ceiling" type="number" min={0} max={10000} value={bnCeiling} onChange={(e) => setBnCeiling(e.target.value)} disabled={bnLoading} />
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={bnSaving || bnLoading || [bnRetention, bnSpike, bnCeiling].some((v) => v.trim() === "" || !Number.isFinite(Number(v)))}
+                  onClick={() => saveBlockedNumbersSetting({ retention_days: Number(bnRetention), spike_threshold_per_hour: Number(bnSpike), daily_sms_ceiling: Number(bnCeiling) })}
+                >
+                  Save numbers
+                </Button>
               </CardContent>
             </Card>
 

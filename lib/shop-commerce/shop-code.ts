@@ -27,6 +27,8 @@ export interface ResolvedShopCode {
   /** Legacy session-token balance. Unused for gating since 2026-10-14 (sessions retired). */
   tokenBalance: number
   whatsappActivated: boolean
+  /** Shop owner's phone as local 0XXXXXXXXX, shown as the USSD "Helpline"; null when unknown/unusable. */
+  ownerPhone?: string | null
 }
 
 export async function resolveShopCode(
@@ -44,7 +46,7 @@ export async function resolveShopCode(
 
   const { data: shopRow, error: shopError } = await client
     .from("user_shops")
-    .select("shop_name, parent_shop_id, ussd_display_name, is_active, is_blocked")
+    .select("shop_name, parent_shop_id, ussd_display_name, is_active, is_blocked, user_id")
     .eq("id", shopCode.shop_id)
     .single()
 
@@ -60,6 +62,7 @@ export async function resolveShopCode(
       status: "inactive",
       tokenBalance: shopCode.token_balance,
       whatsappActivated: shopCode.whatsapp_activated === true,
+      ownerPhone: null,
     }
   }
 
@@ -75,7 +78,36 @@ export async function resolveShopCode(
       : shopCode.status,
     tokenBalance: shopCode.token_balance,
     whatsappActivated: shopCode.whatsapp_activated === true,
+    ownerPhone: await ownerPhoneFor((shopRow as any)?.user_id, client),
   }
+}
+
+/**
+ * The shop owner's number for the USSD "Helpline" line. Best effort: any miss or read failure is null
+ * (the line is simply left off) and never blocks shop entry. user_shops.user_id references auth.users,
+ * so PostgREST cannot embed public.users; this is a separate read.
+ */
+async function ownerPhoneFor(userId: string | null | undefined, client: SupabaseClientLike): Promise<string | null> {
+  if (!userId) return null
+  try {
+    const { data, error } = await client.from("users").select("phone_number").eq("id", userId).maybeSingle()
+    if (error) {
+      console.error("resolveShopCode: owner phone read failed", { code: (error as any)?.code })
+      return null
+    }
+    return toHelplineNumber((data as any)?.phone_number)
+  } catch {
+    return null
+  }
+}
+
+/** A stored Ghana number (0XXXXXXXXX, 233/+233..., 9 bare digits, spaces allowed) as local 0XXXXXXXXX; else null. */
+export function toHelplineNumber(raw: string | null | undefined): string | null {
+  const digits = (raw ?? "").replace(/\D/g, "")
+  if (/^0\d{9}$/.test(digits)) return digits
+  if (/^233\d{9}$/.test(digits)) return "0" + digits.slice(3)
+  if (/^[1-9]\d{8}$/.test(digits)) return "0" + digits
+  return null
 }
 
 // Looks up a shop's real, unfiltered shop_name directly by id — for callers

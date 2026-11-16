@@ -165,7 +165,7 @@ export default function AirtimeConfirmationPage() {
         </Card>
 
         <p className="text-center text-xs text-muted-foreground">
-          Powered by DATAGOD • Secure Transaction
+          Secure Transaction
         </p>
       </div>
     </div>

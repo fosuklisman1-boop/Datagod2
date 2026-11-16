@@ -134,7 +134,12 @@ export async function POST(request: NextRequest) {
     }
 
     // MTN number verification hard block (admin toggle) — before the wallet is touched.
-    if (await isRecipientBlocked(network, phoneNumber)) {
+    if (await isRecipientBlocked(network, phoneNumber, {
+      surface: "dashboard",
+      userId,
+      product: `${network} ${size}`,
+      amount: typeof price === "number" ? price : Number(price) || null,
+    })) {
       console.warn(`[PURCHASE] ⛔ Unverified MTN number blocked: ${String(phoneNumber).slice(0, 12)}`)
       return NextResponse.json({ error: NOT_VERIFIED_MESSAGE, code: NOT_VERIFIED_CODE }, { status: 409 })
     }

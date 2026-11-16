@@ -338,6 +338,18 @@ describe("category routing config", () => {
     const r = parseRoutingConfig([{ key: "sms_category_providers", value: "not-json" }])
     expect(r.categoryProviders).toEqual(CATEGORY_DEFAULTS)
   })
+  it("a map saved before text_to_buy existed still parses, and text_to_buy takes its default (hubtel)", () => {
+    const legacy = { otp: "hubtel", system: "hubtel", payments_wallet: "global" }
+    const r = parseRoutingConfig([{ key: "sms_category_providers", value: legacy }])
+    expect(r.categoryProviders.text_to_buy).toBe("hubtel")
+    expect(r.categoryProviders.otp).toBe("hubtel")
+    expect(r.categoryProviders.payments_wallet).toBe("global")
+    expect(r.categoryProviders.customer_bulk).toBe(CATEGORY_DEFAULTS.customer_bulk)
+  })
+  it("an admin choice for text_to_buy is honoured", () => {
+    const r = parseRoutingConfig([{ key: "sms_category_providers", value: { text_to_buy: "moolre" } }])
+    expect(r.categoryProviders.text_to_buy).toBe("moolre")
+  })
   it("parses tenant provider choice flag", () => {
     expect(parseRoutingConfig([{ key: "sms_tenant_provider_choice_enabled", value: true }]).tenantProviderChoice).toBe(true)
     expect(parseRoutingConfig([{ key: "sms_tenant_provider_choice_enabled", value: "true" }]).tenantProviderChoice).toBe(true)

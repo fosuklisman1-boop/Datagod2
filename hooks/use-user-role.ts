@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { supabase } from "@/lib/supabase"
+import { roleFromMetadata } from "@/lib/metadata-role"
 
 export function useUserRole() {
   const [role, setRole] = useState<string | null>(() => {
@@ -33,10 +34,10 @@ export function useUserRole() {
           setRole(userData.role)
           localStorage.setItem('userRole', userData.role)
         } else {
-          // Fallback: check user_metadata
-          const metadataRole = session.user.user_metadata?.role
-          setRole(metadataRole || "user")
-          localStorage.setItem('userRole', metadataRole || "user")
+          // Fallback: user_metadata, which is user-writable, so it can never yield "admin".
+          const metadataRole = roleFromMetadata(session.user.user_metadata) || "user"
+          setRole(metadataRole)
+          localStorage.setItem('userRole', metadataRole)
         }
       } catch (error) {
         console.error("Error fetching user role:", error)

@@ -16,10 +16,13 @@
  * provider erroring, or an unreadable setting all resolve to "verified".
  */
 
+import { after } from "next/server"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 import { normalizePhoneNumber } from "@/lib/mtn-fulfillment"
 import { WHITELIST_REGISTRY, type WhitelistEntry } from "./provider-whitelist"
 import { getCachedVerdicts, setCachedVerdicts } from "./verdict-cache"
+import { recordBlockedRecipients } from "@/lib/blocked-numbers/record"
+import type { BlockContext } from "@/lib/blocked-numbers/types"
 
 export const SETTING_KEY = "customer_verification_settings"
 
@@ -71,10 +74,24 @@ export async function checkCustomerFacingVerification(
   registry: WhitelistEntry[] = WHITELIST_REGISTRY,
   settings?: CustomerVerificationSettings
 ): Promise<Array<{ phone: string; verified: boolean }>> {
+  const detailed = await checkCustomerFacingVerificationDetailed(phones, registry, settings)
+  return detailed.map(({ phone, verified }) => ({ phone, verified }))
+}
+
+/**
+ * Same check as checkCustomerFacingVerification, also reporting which provider
+ * (the first, in admin order, whose batch approved it) verified each phone;
+ * null when the phone is not verified or the check failed open.
+ */
+export async function checkCustomerFacingVerificationDetailed(
+  phones: string[],
+  registry: WhitelistEntry[] = WHITELIST_REGISTRY,
+  settings?: CustomerVerificationSettings
+): Promise<Array<{ phone: string; verified: boolean; approvedBy: string | null }>> {
   const resolvedSettings = settings ?? await getCustomerVerificationSettings()
 
   if (!resolvedSettings.enabled || resolvedSettings.providers.length === 0) {
-    return phones.map(phone => ({ phone, verified: true }))
+    return phones.map(phone => ({ phone, verified: true, approvedBy: null }))
   }
 
   // The admin's order is the check order: ask the first selected provider, and
@@ -83,7 +100,7 @@ export async function checkCustomerFacingVerification(
     .map(name => registry.find(p => p.name === name))
     .filter((p): p is WhitelistEntry => !!p && p.configured())
   if (configured.length === 0) {
-    return phones.map(phone => ({ phone, verified: true }))
+    return phones.map(phone => ({ phone, verified: true, approvedBy: null }))
   }
 
   // Dedupe so a repeated phone in the input is only ever checked once against
@@ -91,6 +108,7 @@ export async function checkCustomerFacingVerification(
   const uniquePhones = [...new Set(phones)]
 
   const verifiedSet = new Set<string>()
+  const approvedByMap = new Map<string, string>()
   let remaining = uniquePhones
 
   for (const provider of configured) {
@@ -109,7 +127,10 @@ export async function checkCustomerFacingVerification(
       for (const r of batchResults) {
         if (!r.allowed) continue
         const original = remainingByNormalized.get(normalizePhoneNumber(r.msisdn))
-        if (original) verifiedSet.add(original)
+        if (original) {
+          verifiedSet.add(original)
+          if (!approvedByMap.has(original)) approvedByMap.set(original, provider.name)
+        }
       }
       remaining = remaining.filter(p => !verifiedSet.has(p))
     } catch {
@@ -118,7 +139,11 @@ export async function checkCustomerFacingVerification(
     }
   }
 
-  return phones.map(phone => ({ phone, verified: verifiedSet.has(phone) }))
+  return phones.map(phone => ({
+    phone,
+    verified: verifiedSet.has(phone),
+    approvedBy: approvedByMap.get(phone) ?? null,
+  }))
 }
 
 // ── Order-time verdicts + blocking ────────────────────────────────────────────
@@ -213,7 +238,15 @@ export type OrderVerification = {
  */
 export async function verifyRecipientsForOrder(
   phones: string[],
-  opts: { timeoutMs?: number; registry?: WhitelistEntry[]; settings?: CustomerVerificationSettings } = {}
+  opts: {
+    timeoutMs?: number
+    registry?: WhitelistEntry[]
+    settings?: CustomerVerificationSettings
+    /** When set, blocked numbers are recorded for the admin blocked-numbers view. */
+    context?: BlockContext | (() => Promise<BlockContext | null>)
+    /** Run the recording out of band instead of awaiting it. Defaults to next/server after() when a context is given. */
+    defer?: (task: () => Promise<unknown>) => void
+  } = {}
 ): Promise<OrderVerification> {
   try {
     const settings = opts.settings ?? await getCustomerVerificationSettings()
@@ -236,6 +269,36 @@ export async function verifyRecipientsForOrder(
     const verdicts = new Map<string, boolean | null>(phones.map(p => [p, cached.get(p) ?? fresh.get(p) ?? null]))
     const blocking = isBlockingOn(settings)
     const blocked = blocking ? [...new Set(phones)].filter(p => verdicts.get(p) === false) : []
+    if (blocked.length > 0 && opts.context) {
+      const contextSource = opts.context
+      // Recording must never change the verdict or throw into the gate. A lazy
+      // context is only resolved here, i.e. only when something was blocked.
+      const task = async () => {
+        try {
+          const context = typeof contextSource === "function" ? await contextSource() : contextSource
+          if (!context) return
+          await recordBlockedRecipients(blocked, context, settings.providers)
+        } catch (err) {
+          console.error("[CUSTOMER-VERIFICATION] blocked-number record failed:", errName(err))
+        }
+      }
+      try {
+        if (opts.defer) opts.defer(task)
+        else {
+          // Default: off the response path via after(); outside a request scope after() throws, so await as before.
+          let deferred = false
+          try {
+            after(task)
+            deferred = true
+          } catch {
+            deferred = false
+          }
+          if (!deferred) await task()
+        }
+      } catch (err) {
+        console.error("[CUSTOMER-VERIFICATION] blocked-number record failed:", errName(err))
+      }
+    }
     return { verdicts, blocking, blocked }
   } catch {
     return { verdicts: new Map(phones.map(p => [p, null])), blocking: false, blocked: [] }
@@ -243,7 +306,11 @@ export async function verifyRecipientsForOrder(
 }
 
 /** Single-recipient convenience: true only for an MTN number the gate blocks. */
-export async function isRecipientBlocked(network: string | null | undefined, phone: string): Promise<boolean> {
+export async function isRecipientBlocked(
+  network: string | null | undefined,
+  phone: string,
+  context?: BlockContext
+): Promise<boolean> {
   if ((network ?? "").trim().toUpperCase() !== "MTN") return false
-  return (await verifyRecipientsForOrder([phone])).blocked.length > 0
+  return (await verifyRecipientsForOrder([phone], context ? { context } : {})).blocked.length > 0
 }

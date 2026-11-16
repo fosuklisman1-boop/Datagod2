@@ -26,7 +26,7 @@ interface UnifiedOrder {
   amount: number
   profit: number
   status: string
-  source: "web" | "ussd_shop" | "whatsapp_shop"
+  source: "web" | "ussd_shop" | "whatsapp_shop" | "sms_shop"
   created_at: string
 }
 
@@ -113,7 +113,7 @@ export default function ShopOrdersPage() {
         amount: Number(o.total_price) || 0,
         profit: Number(o.profit_amount) || 0,
         status: o.order_status,
-        source: o.channel === "whatsapp_shop" ? "whatsapp_shop" : o.type === "ussd_shop" ? "ussd_shop" : "web",
+        source: o.channel === "whatsapp_shop" ? "whatsapp_shop" : o.channel === "sms_shop" ? "sms_shop" : o.type === "ussd_shop" ? "ussd_shop" : "web",
         created_at: o.created_at,
       }))
 
@@ -265,6 +265,7 @@ export default function ShopOrdersPage() {
             <option value="web">Web</option>
             <option value="ussd_shop">USSD</option>
             <option value="whatsapp_shop">WhatsApp</option>
+            <option value="sms_shop">SMS</option>
           </select>
         </div>
 

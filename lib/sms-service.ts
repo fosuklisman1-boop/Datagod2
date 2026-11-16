@@ -7,6 +7,7 @@ import { hubtelConfigFromEnv, hubtelSendSingle, toHubtelMsisdn, isValidHubtelMsi
 import { notifyHubtelOutOfFunds } from '@/lib/sms/notify'
 import { resolvePlatformSender } from '@/lib/sms/platform-sender'
 import { isMissingSenderIdColumn } from '@/lib/sms/sms-log-sender'
+import { buildShopOrderConfirmation } from '@/lib/sms/shop-order-confirmation'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -93,9 +94,17 @@ export const SMSTemplates = {
   mtnRegistrationHold: (phone: string) =>
     `DTGOD: ${phone} is being activated for ${networkColor("MTN")} data service. Your order will be delivered automatically once activation completes (usually within a day).`,
 
-  // Storefront order confirmation (shop name excluded from message)
-  shopOrderConfirmed: (shopName: string, network: string, volume: string, phone: string, ownerPhone: string) =>
-    `You have successfully placed an order of ${networkColor(network)} ${volume}G.B to ${phone}. If delayed over 2 hours, contact shop owner: ${ownerPhone}`,
+  // Storefront order confirmation with the shop's "Buy again" link — always ONE segment (1 credit);
+  // the link is shortened/dropped when it would overflow (see lib/sms/shop-order-confirmation).
+  shopOrderConfirmed: (network: string, volume: string, phone: string, ownerPhone: string, subdomain?: string | null) =>
+    buildShopOrderConfirmation({
+      networkLabel: networkColor(network),
+      volume,
+      phone,
+      ownerPhone,
+      subdomain,
+      rootDomain: (process.env.NEXT_PUBLIC_ROOT_DOMAIN || "datagod.store").toLowerCase(),
+    }),
 
   orderDelivered: (orderId: string, network: string, volume: string) =>
     `DTGOD: Order Delivered. Your ${networkColor(network)} ${volume}G.B (Ref: ${orderId}) has been successfully delivered. Thank you for choosing DTGOD.`,

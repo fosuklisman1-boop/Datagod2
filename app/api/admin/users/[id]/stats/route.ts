@@ -5,120 +5,20 @@ import { verifyAdminAccess } from "@/lib/admin-auth"
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-// Fallback: fetch and aggregate user stats without the RPC
-async function getUserStatsFallback(adminClient: any, userId: string) {
-  // Fetch basic wallet + shop data
-  const [walletResult, shopResult] = await Promise.all([
-    adminClient.from("wallets").select("balance").eq("user_id", userId).single(),
-    adminClient.from("user_shops").select("id, shop_name, shop_slug, created_at").eq("user_id", userId).single()
-  ])
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-  // Transaction aggregation — limited to 5000 rows to avoid timeout
-  const { data: transactions } = await adminClient
-    .from("transactions")
-    .select("type, source, status, amount")
-    .eq("user_id", userId)
-    .limit(5000)
+/** PostgREST "function not found in the schema cache" (e.g. migration 0170 not applied yet). */
+const FUNCTION_NOT_FOUND = "PGRST202"
 
-  const txList = transactions || []
-  const totalTopUps = txList
-    .filter((t: any) => t.type === "credit" && t.source === "wallet_topup" && t.status === "completed")
-    .reduce((s: number, t: any) => s + (t.amount || 0), 0)
-  const totalSpent = txList
-    .filter((t: any) => t.type === "debit" && (t.status === "completed" || t.status === "success"))
-    .reduce((s: number, t: any) => s + Math.abs(t.amount || 0), 0)
-
-  // Order counts
-  const { count: totalOrders } = await adminClient
-    .from("orders")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-  const { count: completedOrders } = await adminClient
-    .from("orders")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .in("status", ["completed", "delivered", "success"])
-  const { count: failedOrders } = await adminClient
-    .from("orders")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("status", "failed")
-
-  const total = totalOrders || 0
-  const completed = completedOrders || 0
-  const failed = failedOrders || 0
-
-  // Shop stats
-  let shopStats = null
-  let withdrawals = { history: [], totalWithdrawn: 0, pendingCount: 0, completedCount: 0 }
-
-  if (shopResult.data?.id) {
-    const shopId = shopResult.data.id
-
-    const [balanceResult, shopOrderCounts, paidOrderCounts, completedOrderCounts, salesResult, profitCountResult, withdrawalRows] = await Promise.all([
-      adminClient.from("shop_available_balance").select("*").eq("shop_id", shopId).maybeSingle(),
-      adminClient.from("shop_orders").select("id", { count: "exact", head: true }).eq("shop_id", shopId),
-      adminClient.from("shop_orders").select("id", { count: "exact", head: true }).eq("shop_id", shopId).eq("payment_status", "paid"),
-      adminClient.from("shop_orders").select("id", { count: "exact", head: true }).eq("shop_id", shopId).in("status", ["completed", "delivered", "fulfilled"]),
-      adminClient.from("shop_orders").select("total_amount").eq("shop_id", shopId).eq("payment_status", "paid").limit(10000),
-      adminClient.from("shop_profits").select("id", { count: "exact", head: true }).eq("shop_id", shopId),
-      adminClient.from("withdrawal_requests")
-        .select("id, amount, fee_amount, net_amount, status, withdrawal_method, created_at, reference_code")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(10)
-    ])
-
-    const bal = balanceResult.data
-    const totalSales = (salesResult.data || []).reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0)
-
-    shopStats = {
-      shopId,
-      shopName:         shopResult.data.shop_name,
-      shopSlug:         shopResult.data.shop_slug,
-      createdAt:        shopResult.data.created_at,
-      totalOrders:      shopOrderCounts.count || 0,
-      paidOrders:       paidOrderCounts.count || 0,
-      completedOrders:  completedOrderCounts.count || 0,
-      totalSales,
-      availableBalance: bal?.available_balance || 0,
-      withdrawnAmount:  bal?.withdrawn_profit || 0,
-      totalProfit:      bal?.total_profit || 0,
-      pendingProfit:    bal?.pending_profit || 0,
-      creditedProfit:   bal?.credited_profit || 0,
-      profitRecords:    profitCountResult.count || 0,
-    }
-
-    const wRows = withdrawalRows.data || []
-    const totalWithdrawn = wRows
-      .filter((w: any) => w.status === "completed" || w.status === "approved")
-      .reduce((s: number, w: any) => s + (w.net_amount || w.amount || 0), 0)
-
-    withdrawals = {
-      history: wRows.map((w: any) => ({
-        id: w.id, amount: w.amount, feeAmount: w.fee_amount || 0,
-        netAmount: w.net_amount || w.amount, status: w.status,
-        method: w.withdrawal_method, createdAt: w.created_at, referenceCode: w.reference_code
-      })),
-      totalWithdrawn,
-      pendingCount: wRows.filter((w: any) => w.status === "pending").length,
-      completedCount: wRows.filter((w: any) => w.status === "completed" || w.status === "approved").length,
-    }
-  }
-
-  return {
-    wallet: {
-      balance: walletResult.data?.balance || 0,
-      totalTopUps,
-      totalSpent,
-      transactionCount: txList.length,
-    },
-    orders: { total, completed, failed, pending: total - completed - failed },
-    shop: shopStats,
-    withdrawals,
-  }
-}
-
+/**
+ * GET /api/admin/users/[id]/stats
+ *
+ * { userId, wallet, orders, shop, withdrawals } from public.admin_user_stats
+ * (migrations/0170): every sum and count is a SQL aggregate. If that function is
+ * not deployed yet, falls back to get_user_financial_summary, which returns the
+ * same JSON. (The old in-JS fallback, which loaded up to 5,000 transactions and
+ * 10,000 shop orders and filtered on shop_orders columns that do not exist, is gone.)
+ */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -128,20 +28,24 @@ export async function GET(
 
   try {
     const { id: userId } = await params
+    if (!UUID_RE.test(userId)) {
+      return NextResponse.json({ error: "Invalid user id" }, { status: 400 })
+    }
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
 
-    // Try the optimized RPC first; if not deployed yet, fall back to direct queries
-    const { data: stats, error: rpcError } = await adminClient.rpc("get_user_financial_summary", {
-      p_user_id: userId
-    })
+    let { data: stats, error: rpcError } = await adminClient.rpc("admin_user_stats", { p_user_id: userId })
+
+    if (rpcError?.code === FUNCTION_NOT_FOUND) {
+      console.warn("[USER-STATS] admin_user_stats not deployed, using get_user_financial_summary")
+      ;({ data: stats, error: rpcError } = await adminClient.rpc("get_user_financial_summary", { p_user_id: userId }))
+    }
 
     if (rpcError) {
-      console.warn("[USER-STATS] RPC not available, using fallback queries:", rpcError.message)
-      const fallback = await getUserStatsFallback(adminClient, userId)
-      return NextResponse.json({ userId, ...fallback })
+      console.error("[USER-STATS] RPC failed:", rpcError.message)
+      return NextResponse.json({ error: rpcError.message || "Failed to load user stats" }, { status: 500 })
     }
 
     if (!stats) {

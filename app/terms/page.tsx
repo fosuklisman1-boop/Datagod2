@@ -3,10 +3,25 @@ import Link from "next/link"
 import { Shield } from "lucide-react"
 import type { Metadata } from "next"
 
+const TITLE = "Terms of Service | DATAGOD"
+const DESCRIPTION = "DATAGOD Terms of Service — account registration, delivery policy, payment verification, and wallet terms for buying data, airtime, and digital services in Ghana."
+
+// openGraph / twitter are set here because a page that leaves them out inherits
+// the root layout's, i.e. the homepage URL and title.
 export const metadata: Metadata = {
   alternates: { canonical: "https://www.datagod.store/terms" },
-  title: "Terms of Service | DATAGOD",
-  description: "DATAGOD Terms of Service — account registration, delivery policy, payment verification, and wallet terms for buying data, airtime, and digital services in Ghana.",
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: {
+    type: "website",
+    siteName: "DATAGOD",
+    locale: "en_GH",
+    url: "https://www.datagod.store/terms",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: ["/og-image.png"],
+  },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: ["/og-image.png"] },
 }
 
 const DEFAULT_TERMS = `Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service. Please read them carefully before creating an account or making any purchase.

@@ -1,6 +1,8 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
+import { nextNavVisible, shouldForceNavVisible } from "@/lib/scroll-direction"
 import { usePathname } from "next/navigation"
 import { Home, Package, Wallet, ShoppingBag, Store, User, Users, CreditCard, Bot, Signal, Smartphone } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -33,6 +35,69 @@ export function BottomNav() {
   const isMobile = useIsMobile()
   const { isDealer, isAdmin, isSubAgent } = useUserRole()
   const domainBranding = useDomainBranding()
+  const [navVisible, setNavVisible] = useState(true)
+  const stateRef = useRef({ visible: true, anchorY: 0 })
+  const forceVisibleRef = useRef<(() => void) | null>(null)
+
+  // Auto-hide on scroll down, show on scroll up. The dashboard page scrolls
+  // inside <main data-scroll-container="dashboard">, not window; fall back to
+  // window if that container is absent (e.g. pages outside DashboardLayout).
+  useEffect(() => {
+    if (!isMobile) return
+    const container = document.querySelector<HTMLElement>('[data-scroll-container="dashboard"]')
+    const target: HTMLElement | Window = container ?? window
+    const readY = () => (container ? container.scrollTop : window.scrollY)
+    const isScrollable = () =>
+      container
+        ? container.scrollHeight - container.clientHeight > 1
+        : document.documentElement.scrollHeight - window.innerHeight > 1
+
+    const commit = (visible: boolean, anchorY: number) => {
+      stateRef.current.anchorY = anchorY
+      if (stateRef.current.visible !== visible) {
+        stateRef.current.visible = visible
+        setNavVisible(visible)
+      }
+    }
+    commit(true, readY())
+
+    let frame = 0
+    const onScroll = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const next = nextNavVisible({
+          visible: stateRef.current.visible,
+          anchorY: stateRef.current.anchorY,
+          currentY: readY(),
+          threshold: 10,
+          topOffset: 16,
+          scrollable: isScrollable(),
+        })
+        commit(next.visible, next.anchorY)
+      })
+    }
+    // Layout changes (accordion collapse, keyboard dismiss) can make the page
+    // non-scrollable without any scroll event; re-evaluate so the nav can't stay hidden.
+    const onResize = () => {
+      if (shouldForceNavVisible({ scrollable: isScrollable(), currentY: readY(), topOffset: 16 })) {
+        commit(true, readY())
+      }
+    }
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null
+    if (ro) {
+      ro.observe(container ?? document.documentElement)
+      if (container?.firstElementChild) ro.observe(container.firstElementChild)
+    }
+    forceVisibleRef.current = () => commit(true, readY())
+    target.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      target.removeEventListener("scroll", onScroll)
+      ro?.disconnect()
+      forceVisibleRef.current = null
+      if (frame) cancelAnimationFrame(frame)
+    }
+  }, [isMobile, pathname])
 
   if (!isMobile) return null
 
@@ -93,11 +158,20 @@ export function BottomNav() {
   return (
     <nav
       className={cn(
-        "fixed left-3 right-3 z-50 md:hidden rounded-[28px]",
+        "fixed left-3 right-3 z-50 md:hidden rounded-[28px] transition-transform duration-200 ease-out motion-reduce:transition-none",
+        !navVisible && "pointer-events-none",
         skin === "admin" ? "clay-dark" : "clay",
         c.bar
       )}
-      style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
+      inert={!navVisible}
+      onFocus={() => forceVisibleRef.current?.()}
+      style={{
+        bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))",
+        // Hidden: slide fully off-screen (own height + bottom offset + safe area + FAB overhang).
+        transform: navVisible
+          ? "translateY(0)"
+          : "translateY(calc(100% + 0.75rem + env(safe-area-inset-bottom, 0px) + 3rem))",
+      }}
     >
       <div className="flex items-end justify-around h-[68px] px-1">
         {items.map((item) => {

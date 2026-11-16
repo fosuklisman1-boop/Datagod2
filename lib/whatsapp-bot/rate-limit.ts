@@ -4,13 +4,15 @@
 // an AI run (tokens) + tool calls, so a single number spamming the bot is a cost
 // + abuse vector. 20/min is far above human pace — only automation hits it.
 import { Redis } from "@upstash/redis"
+import { getRedisRestEnv } from "@/lib/redis-env"
 
 let redis: Redis | null = null
 try {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redisEnv = getRedisRestEnv()
+  if (redisEnv) {
     redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: redisEnv.url,
+      token: redisEnv.token,
     })
   }
 } catch { /* no redis → fail open (don't block legit users) */ }

@@ -118,7 +118,69 @@ describe("validateGatewayConfigUpdate", () => {
     expect(validateGatewayConfigUpdate(d, { hubtelReady: true }).ok).toBe(false)
   })
 
-  it("DIRECT_ONLY_SURFACES is ussd + whatsapp", () => {
-    expect([...DIRECT_ONLY_SURFACES]).toEqual(["ussd", "whatsapp"])
+  it("DIRECT_ONLY_SURFACES is ussd + whatsapp + sms_order", () => {
+    expect([...DIRECT_ONLY_SURFACES]).toEqual(["ussd", "whatsapp", "sms_order"])
+  })
+})
+
+describe("sms_order surface", () => {
+  const SIX = ["wallet_topup", "storefront", "dashboard_direct", "sms", "ussd", "whatsapp"] as const
+  const DEFAULT = { gateway: "paystack", mode: "direct", feeBearer: "customer" }
+
+  // A config exactly as the code before sms_order saved it: six surfaces, non-default values.
+  const storedBeforeSmsOrder = {
+    version: 1,
+    surfaces: {
+      wallet_topup: { gateway: "hubtel", mode: "direct", feeBearer: "merchant" },
+      storefront: { gateway: "paystack", mode: "checkout", feeBearer: "merchant" },
+      dashboard_direct: { gateway: "hubtel", mode: "checkout", feeBearer: "customer" },
+      sms: { gateway: "paystack", mode: "direct", feeBearer: "merchant" },
+      ussd: { gateway: "hubtel", mode: "direct", feeBearer: "merchant" },
+      whatsapp: { gateway: "hubtel", mode: "direct", feeBearer: "customer" },
+    },
+    hubtelFeePercent: 1.5,
+  }
+
+  it("is a listed surface and derives to paystack/direct/customer", () => {
+    expect(SURFACE_KEYS).toContain("sms_order")
+    for (const legacy of [
+      { storefrontDirect: true, walletDirect: true },
+      { storefrontDirect: false, walletDirect: false },
+    ]) {
+      expect(deriveFromLegacy(legacy).surfaces.sms_order).toEqual(DEFAULT)
+    }
+  })
+
+  it("a config saved before sms_order loads: sms_order defaults, the other six are unchanged byte for byte", () => {
+    const stored = JSON.parse(JSON.stringify(storedBeforeSmsOrder))
+    const c = sanitizeGatewayConfig(stored, fb)
+    expect(c.surfaces.sms_order).toEqual(DEFAULT)
+    for (const k of SIX) {
+      expect(JSON.stringify(c.surfaces[k])).toBe(JSON.stringify(storedBeforeSmsOrder.surfaces[k]))
+    }
+    expect(c.hubtelFeePercent).toBe(1.5)
+    // Reading never mutates the stored value.
+    expect(stored).toEqual(storedBeforeSmsOrder)
+  })
+
+  it("keeps a stored sms_order gateway/fee but coerces checkout to direct", () => {
+    const c = sanitizeGatewayConfig(
+      { surfaces: { sms_order: { gateway: "hubtel", mode: "checkout", feeBearer: "merchant" } } },
+      fb,
+    )
+    expect(c.surfaces.sms_order).toEqual({ gateway: "hubtel", mode: "direct", feeBearer: "merchant" })
+  })
+
+  it("an admin update rejects checkout for sms_order and accepts hubtel/direct", () => {
+    const bad = validFull()
+    ;(bad.surfaces.sms_order as unknown as { mode: string }).mode = "checkout"
+    const r = validateGatewayConfigUpdate(bad, { hubtelReady: true })
+    expect(r).toEqual({ ok: false, error: "sms_order must use direct mode" })
+
+    const good = validFull()
+    good.surfaces.sms_order.gateway = "hubtel"
+    const ok = validateGatewayConfigUpdate(good, { hubtelReady: true })
+    expect(ok.ok).toBe(true)
+    if (ok.ok) expect(ok.config.surfaces.sms_order).toEqual({ gateway: "hubtel", mode: "direct", feeBearer: "customer" })
   })
 })

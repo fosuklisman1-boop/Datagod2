@@ -14,6 +14,13 @@ interface PhoneGuardOptions {
    *   - false: allow. Only for non-sensitive callers that explicitly opt in.
    */
   failClosed?: boolean
+  /**
+   * Honour the new-account grace window (phone_verify_deadline)? Default true.
+   * false = verified phone only (the admin kill switch still applies). Used by shop
+   * creation: a public storefront must have a verified owner, and throwaway accounts
+   * inside their grace window were seen creating shops (2026-11-14).
+   */
+  allowGrace?: boolean
 }
 
 /**
@@ -32,6 +39,7 @@ export async function checkPhoneVerified(
   options: PhoneGuardOptions = {}
 ): Promise<PhoneVerifyResult> {
   const failClosed = options.failClosed ?? true
+  const allowGrace = options.allowGrace ?? true
 
   // Emergency kill switch: an admin can disable the whole gate (no deploy) if OTP
   // delivery fails and users get locked out. Same flag the UI modal reads.
@@ -65,7 +73,7 @@ export async function checkPhoneVerified(
   }
 
   // Within grace period — don't block yet
-  if (data.phone_verify_deadline && new Date(data.phone_verify_deadline) > new Date()) {
+  if (allowGrace && data.phone_verify_deadline && new Date(data.phone_verify_deadline) > new Date()) {
     return { allowed: true }
   }
 

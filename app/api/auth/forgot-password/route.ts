@@ -4,6 +4,7 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { phoneVariants } from "@/lib/phone-format"
+import { createPasswordResetLink, recentResetCount, RESET_MAX_PER_HOUR } from "@/lib/password-reset"
 export async function POST(request: NextRequest) {
   // Apply rate limiting
   const rateLimit = await applyRateLimit(
@@ -104,14 +105,9 @@ export async function POST(request: NextRequest) {
 
     // TARGET-LEVEL RATE LIMITING: Prevent SMS/Email bombing
     // Count requests for this exact user in the last hour
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-    const { count, error: countError } = await supabaseServiceRole
-      .from("password_reset_requests")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .gte("created_at", oneHourAgo)
+    const count = await recentResetCount(supabaseServiceRole, user.id)
 
-    if (!countError && count !== null && count >= 3) {
+    if (count !== null && count >= RESET_MAX_PER_HOUR) {
       // Target hit rate limit. Silently drop to confuse attackers and save SMS bounds.
       console.warn(`[FORGOT-PASSWORD] Target rate limit exceeded for user: ${user.id}`)
       await new Promise(resolve => setTimeout(resolve, 500))
@@ -126,30 +122,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert reset token (expires in 5 minutes)
-    const expiresAt = new Date()
-    expiresAt.setMinutes(expiresAt.getMinutes() + 5)
-
-    const { data: tokenData, error: tokenError } = await supabaseServiceRole
-      .from("password_reset_requests")
-      .insert({
-        user_id: user.id,
-        email: user.email,
-        phone_number: user.phone_number,
-        expires_at: expiresAt.toISOString(),
-      })
-      .select("id")
-      .single()
-
-    if (tokenError || !tokenData) {
-      console.error("[FORGOT-PASSWORD] Token creation error:", tokenError)
+    const link = await createPasswordResetLink(supabaseServiceRole, user)
+    if (!link) {
       return NextResponse.json(
         { error: "Failed to generate password reset request." },
         { status: 500 }
       )
     }
 
-    const resetToken = tokenData.id
-    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL}/auth/reset-password?token=${resetToken}`
+    const resetUrl = link.url
 
     const results = { email: false, sms: false }
 

@@ -127,20 +127,17 @@ export default function BroadcastPage() {
     const checkAdminAccess = async () => {
         try {
             const { data: { user } } = await supabase.auth.getUser()
-            const role = user?.user_metadata?.role
+            // users.role only: user_metadata is user-writable and can never grant admin.
+            const { data: profile } = await supabase
+                .from("users")
+                .select("role")
+                .eq("id", user?.id)
+                .single()
 
-            if (role !== "admin") {
-                const { data: profile } = await supabase
-                    .from("users")
-                    .select("role")
-                    .eq("id", user?.id)
-                    .single()
-
-                if (profile?.role !== "admin") {
-                    toast.error("Unauthorized access")
-                    router.push("/dashboard")
-                    return
-                }
+            if (profile?.role !== "admin") {
+                toast.error("Unauthorized access")
+                router.push("/dashboard")
+                return
             }
 
             setIsAdmin(true)

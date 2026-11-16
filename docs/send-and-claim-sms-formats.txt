@@ -1,0 +1,56 @@
+SEND & CLAIM: SMS CONFIRMATION FORMATS (what the webhook parses)
+
+HOW IT WORKS
+- Your business phone receives the MoMo confirmation SMS.
+- An SMS-forwarding app on that phone POSTs it to your webhook.
+- The webhook only accepts messages that contain BOTH the text 'Transaction ID' and 'GHS'. Everything else (promos, balance alerts) is dropped.
+- Then it tries four patterns in this order and takes the first match: MTN Cash In, MTN Payment, Telecel, AirtelTigo.
+- From the match it extracts: amount, sender name, transaction ID (8 to 15 digits only).
+- It then scans the WHOLE SMS body for the customer's reference code.
+
+WEBHOOK REQUEST (configure in the forwarder app)
+- Method: POST
+- Header: x-sms-forward-secret: <long random secret>   (put the same value in an env var on your server)
+- Body: JSON with the SMS text in 'text' (also accepted: body, message, sms), or a form post with text/body/message.
+- Never put the secret in the URL query string: it leaks into logs.
+- The webhook always answers 200 so the app does not retry forever. A wrong or missing secret gets 401.
+
+1) MTN CASH IN (merchant to user)
+Sample (fake data):
+Cash In received for GHS 200.00 from JOHN DOE. Current Balance GHS 272.65 Available Balance GHS 272.65. Transaction ID: 80000000001.
+Pattern:
+/Cash\s+In\s+received\s+for\s+GHS\s+([\d,]+\.?\d*)\s+from\s+(.+?)\.\s+Current.*?Transaction\s+ID[:\s]*([\d]+)/i
+
+2) MTN PAYMENT RECEIVED (user to user, and cross-network into MTN)
+Sample (fake data):
+Payment received for GHS 3.00 from JANE DOE  Current Balance ... Reference: JANE DOE ,233000000000,2 from VODAFONE. Transaction ID: 80000000002.
+Pattern:
+/Payment\s+received\s+for\s+GHS\s+([\d,]+\.?\d*)\s+from\s+(.+?)\s+Current.*?Transaction\s+ID[:\s]*([\d]+)/i
+Network detection on this one: if the text contains 'from VODAFONE' or 'from TELECEL' it is labelled Telecel, 'from AIRTEL' or 'from TIGO' AirtelTigo, otherwise MTN. (So a Telecel customer paying your MTN number still arrives as an MTN message.)
+
+3) TELECEL (Telecel to Telecel)
+No sample in my code, only the pattern. It expects wording like: 'GHS 50.00 has been received from NAME. ... Transaction ID: 123456789'
+/GHS\s+([\d,]+\.?\d*)\s+has\s+been\s+received\s+from\s+(.+?)[\.\n].*?Transaction\s+ID[:\s]*([\d]+)/i
+
+4) AIRTELTIGO (AirtelTigo to AirtelTigo)
+No sample in my code, only the pattern. It expects wording like: '... received GHS 50.00 from NAME. ... Transaction ID: 123456789'
+/received\s+GHS\s+([\d,]+\.?\d*)\s+from\s+(.+?)[\.\n].*?Transaction\s+ID[:\s]*([\d]+)/i
+
+VALIDATION AFTER A MATCH (drop the SMS if any fails)
+- amount is a number greater than 0 (commas are stripped: 1,200.00 works)
+- transaction ID is 8 to 15 digits
+- sender name is at least 2 characters
+
+REFERENCE CODE (what the customer types in the reference/narration field)
+- The webhook uppercases the SMS and scans the whole body for anything shaped like:
+  3 to 8 letters + 1 to 4 digits (BOOK45), or 1 to 4 digits + 3 to 8 letters (12GIFT), or any 5-character letters/digits.
+- Every candidate is checked against your database of live sessions, so false positives are harmless.
+- Ours is 'KFT' + 4 digits (KFT0000 to KFT9999). 4 digits is the maximum the pattern allows after the letters.
+- Our first reference style used natural-looking words (BOOK, GIFT, PAY, FOOD...) so mobile-money fraud filters would not flag them. Branded codes have worked fine for us, but test before you launch.
+
+WHAT TO TEST BEFORE LAUNCH (do not skip)
+1. Send real money from EACH network you accept to your business number and paste the exact SMS into the parser. Wording changes between networks and over time. The Telecel and AirtelTigo patterns above are the ones to verify first.
+2. Check where your network prints the customer's reference text, and confirm the code survives in the SMS body.
+3. Send with no reference and confirm the claim box (transaction ID) path works.
+4. Keep the business phone powered, online and with SMS storage free. If it dies, customers fall back to the claim box and to support.
+5. Do not log the raw SMS body: it contains the payer's name, amount and transaction ID.

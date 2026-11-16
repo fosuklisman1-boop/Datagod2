@@ -3,40 +3,10 @@
  * Generates JSON-LD schema for various content types
  */
 
-export const generateOrganizationSchema = () => ({
-  "@context": "https://schema.org",
-  "@type": "Organization",
-  name: "DATAGOD",
-  url: "https://www.datagod.store",
-  logo: "https://www.datagod.store/favicon-v2.jpeg",
-  description: "Affordable data packages, airtime, and mobile services for multiple networks in Ghana",
-  sameAs: [
-    "https://web.facebook.com/datagod.store",
-    "https://twitter.com/datagodstore",
-    "https://www.instagram.com/datagodstore",
-  ],
-  contactPoint: {
-    "@type": "ContactPoint",
-    contactType: "Customer Service",
-    availableLanguage: ["en"],
-  },
-});
-
-export const generateHomepageSchema = () => ({
-  "@context": "https://schema.org",
-  "@type": "WebSite",
-  name: "DATAGOD",
-  url: "https://www.datagod.store",
-  description: "Buy affordable data packages from multiple networks, usually delivered within minutes",
-  potentialAction: {
-    "@type": "SearchAction",
-    target: {
-      "@type": "EntryPoint",
-      urlTemplate: "https://www.datagod.store/shop?search={search_term_string}",
-    },
-    query_input: "required name=search_term_string",
-  },
-});
+// The site-wide Organization + WebSite JSON-LD lives in lib/seo/json-ld.ts
+// (buildSiteJsonLd), rendered by app/layout.tsx on the main host only.
+// LocalBusiness was removed (no address or phone): re-add it only with a real
+// address and phone that match the Google Business Profile.
 
 export const generateProductSchema = (
   name: string,
@@ -99,42 +69,4 @@ export const generateFAQSchema = (
       text: faq.answer,
     },
   })),
-});
-
-// One of the few real signals Google says it *may* use when choosing sitelinks
-// for a branded search result — not a guarantee, and there's no Search Console
-// control for this (the old sitelinks-demotion tool was retired years ago).
-// Lists only stable first-party URLs — deliberately excludes "Guest Purchase"
-// since that button redirects to an admin-configured external shop URL, not a
-// real page on this domain.
-export const generateSiteNavigationSchema = () => ([
-  {
-    "@context": "https://schema.org",
-    "@type": "SiteNavigationElement",
-    name: "Sign In",
-    url: "https://www.datagod.store/auth/login",
-  },
-  {
-    "@context": "https://schema.org",
-    "@type": "SiteNavigationElement",
-    name: "Sign Up",
-    url: "https://www.datagod.store/auth/signup",
-  },
-  {
-    "@context": "https://schema.org",
-    "@type": "SiteNavigationElement",
-    name: "Become an Agent",
-    url: "https://www.datagod.store/join",
-  },
-])
-
-export const generateLocalBusinessSchema = () => ({
-  "@context": "https://schema.org",
-  "@type": "LocalBusiness",
-  name: "DATAGOD",
-  url: "https://www.datagod.store",
-  logo: "https://www.datagod.store/favicon-v2.jpeg",
-  areaServed: "GH",
-  description: "Online data package and mobile services retailer",
-  serviceType: "Data Packages, Airtime, Mobile Services",
 });

@@ -14,9 +14,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { shopService, shopOrderService, shopProfitService, withdrawalService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
-import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy, Loader2, CheckCircle, Search, Package, MessageCircle } from "lucide-react"
+import { TrendingUp, DollarSign, ShoppingCart, CreditCard, AlertCircle, Copy, Loader2, CheckCircle, Search, Package, MessageCircle, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
-import { ComplaintModal } from "@/components/complaint-modal"
+import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
+import { complaintEligibility } from "@/lib/support-eligibility"
+import { chunk } from "@/lib/support-client"
 
 export default function ShopDashboardPage() {
   const { user } = useAuth()
@@ -60,6 +62,62 @@ export default function ShopDashboardPage() {
   const [searchPhoneNumber, setSearchPhoneNumber] = useState("")
   const [selectedComplaintOrder, setSelectedComplaintOrder] = useState<any>(null)
   const [showComplaintModal, setShowComplaintModal] = useState(false)
+  const [blockedWaiting, setBlockedWaiting] = useState(0)
+  const [openComplaintOrderIds, setOpenComplaintOrderIds] = useState<Set<string>>(new Set())
+
+  // Which of the loaded orders already have an open support thread.
+  useEffect(() => {
+    const ids = orders.map((o: any) => o.id).filter(Boolean)
+    if (ids.length === 0) {
+      setOpenComplaintOrderIds(new Set())
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const open = new Set<string>()
+      for (const part of chunk<string>(ids, 100)) {
+        const { data, error } = await supabase
+          .from("support_threads")
+          .select("shop_order_id")
+          .in("shop_order_id", part)
+          .eq("status", "open")
+        if (error) {
+          // Buttons stay visible; ids and rows are not logged.
+          console.error("Could not check open complaints for some orders")
+          continue
+        }
+        for (const r of data ?? []) open.add((r as any).shop_order_id as string)
+      }
+      if (!cancelled) setOpenComplaintOrderIds(open)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [orders])
+
+  // Customers waiting on MTN number activation (hidden when 0 or feature off).
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token
+        if (!token) return
+        const res = await fetch("/api/user/blocked-numbers?section=shops&status=waiting&page=1", {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const body = await res.json()
+        if (!cancelled) setBlockedWaiting(body.enabled ? Number(body.total) || 0 : 0)
+      } catch {
+        // tile simply stays hidden
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   useEffect(() => {
     if (!user) return
@@ -513,6 +571,21 @@ export default function ShopDashboardPage() {
                 </CardContent>
               </Card>
             </Link>
+
+            {blockedWaiting > 0 && (
+              <Link href="/dashboard/blocked-numbers">
+                <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-primary bg-card border border-border cursor-pointer">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Customers waiting</CardTitle>
+                    <ShieldAlert className="h-4 w-4 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-primary">{blockedWaiting}</div>
+                    <p className="text-xs text-muted-foreground">Numbers awaiting activation</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            )}
 
             {/* Repeat Customers */}
             <Card className="hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-l-4 border-l-pink-500 bg-card backdrop-blur-xl border border-border">
@@ -1111,18 +1184,19 @@ export default function ShopDashboardPage() {
                                   <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
                                 </td>
                                 <td className="py-3 px-4">
-                                  {order.order_status === "completed" &&
-                                    order.updated_at &&
-                                    Date.now() - new Date(order.updated_at).getTime() >= 30 * 60 * 1000 && (
+                                  {openComplaintOrderIds.has(order.id) ? (
+                                    <Badge variant="outline">Complaint: open</Badge>
+                                  ) : complaintEligibility({
+                                      status: order.order_status,
+                                      createdAt: order.created_at,
+                                      updatedAt: order.updated_at,
+                                    }).eligible && (
                                     <Button
                                       onClick={() => {
                                         setSelectedComplaintOrder({
                                           id: order.id,
-                                          networkName: order.network || "Unknown",
-                                          packageName: `${order.volume_gb || 0}GB`,
-                                          phoneNumber: order.customer_phone || "N/A",
-                                          totalPrice: parseFloat(order.total_price?.toString() || "0") || 0,
-                                          createdAt: order.created_at || new Date().toISOString(),
+                                          reference: order.reference_code || null,
+                                          summary: `${order.network || "Unknown"} ${order.volume_gb || 0}GB to ${order.customer_phone || "N/A"}`,
                                         })
                                         setShowComplaintModal(true)
                                       }}
@@ -1149,15 +1223,18 @@ export default function ShopDashboardPage() {
       </div>
 
       {selectedComplaintOrder && (
-        <ComplaintModal
-          isOpen={showComplaintModal}
-          onClose={() => {
-            setShowComplaintModal(false)
-            setSelectedComplaintOrder(null)
+        <ReportProblemDialog
+          open={showComplaintModal}
+          onOpenChange={(o) => {
+            setShowComplaintModal(o)
+            if (!o) setSelectedComplaintOrder(null)
           }}
-          orderId={selectedComplaintOrder.id}
-          orderType="shop"
-          orderDetails={selectedComplaintOrder}
+          order={{
+            kind: "shop_order",
+            id: selectedComplaintOrder.id,
+            reference: selectedComplaintOrder.reference,
+            summary: selectedComplaintOrder.summary,
+          }}
         />
       )}
     </DashboardLayout>

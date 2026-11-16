@@ -444,7 +444,7 @@ async function handleMTNAutoFulfillment(
         // Storefront order — fetch shop name and owner phone
         const { data: shopInfo } = await supabase
           .from("user_shops")
-          .select("shop_name, user_id")
+          .select("shop_name, user_id, subdomain")
           .eq("id", shopOrder.shop_id)
           .single()
 
@@ -476,11 +476,11 @@ async function handleMTNAutoFulfillment(
         }
 
         smsMessage = SMSTemplates.shopOrderConfirmed(
-          shopInfo?.shop_name || "DATAGOD",
           network,
           volumeGb.toString(),
           phoneNumber,
-          ownerPhone
+          ownerPhone,
+          shopInfo?.subdomain
         )
       } else {
         // Wallet/dashboard order

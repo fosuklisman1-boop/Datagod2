@@ -14,6 +14,7 @@ export type SmsCategory =
   | "system"
   | "admin_broadcast"
   | "customer_bulk"
+  | "text_to_buy"
 
 export type CategoryProvider = "global" | "moolre" | "hubtel"
 
@@ -27,6 +28,7 @@ export const SMS_CATEGORIES: readonly SmsCategory[] = [
   "system",
   "admin_broadcast",
   "customer_bulk",
+  "text_to_buy",
 ]
 
 export const CATEGORY_DEFAULTS: Record<SmsCategory, CategoryProvider> = {
@@ -39,6 +41,7 @@ export const CATEGORY_DEFAULTS: Record<SmsCategory, CategoryProvider> = {
   system: "moolre",
   admin_broadcast: "global",
   customer_bulk: "global",
+  text_to_buy: "hubtel",
 }
 
 export const CATEGORY_LABELS: Record<SmsCategory, string> = {
@@ -51,6 +54,7 @@ export const CATEGORY_LABELS: Record<SmsCategory, string> = {
   system: "System / other",
   admin_broadcast: "Admin broadcasts",
   customer_bulk: "Customer bulk SMS",
+  text_to_buy: "Text-to-Buy replies",
 }
 
 export const CATEGORY_HINTS: Record<SmsCategory, string> = {
@@ -63,6 +67,7 @@ export const CATEGORY_HINTS: Record<SmsCategory, string> = {
   system: "Anything not listed elsewhere",
   admin_broadcast: "Admin broadcast messages",
   customer_bulk: "Bulk SMS sent by customers and shops",
+  text_to_buy: "Replies to customers who text an order (quotes, status, help)",
 }
 
 const OTP = new Set(["phone_otp", "otp_required", "password_reset_link"])
@@ -89,6 +94,7 @@ const ADMIN_OUTCOME_PREFIX = /^(withdrawal|shop|afa|results_check|sender_id|comp
 
 export function categoryOf(type: string): SmsCategory {
   const t = (type ?? "").trim()
+  if (t === "text_to_buy_reply") return "text_to_buy" // exact type only, no prefix rule
   if (OTP.has(t)) return "otp"
   if (SECURITY.has(t)) return "security_alerts" // before the airtime_ prefix rule
   if (ORDER_CONFIRMATION.has(t)) return "order_confirmation_platform"

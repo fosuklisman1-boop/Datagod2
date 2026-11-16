@@ -51,8 +51,20 @@ export function resolveProductMenu(visible: Partial<Record<ProductMenuKey, boole
   return resolveMenuItems(PRODUCT_MENU_ITEMS, full)
 }
 
-export function productMenu(shopName: string, visible: Partial<Record<ProductMenuKey, boolean>> = {}): string {
-  return renderMenuText(`${gsm7(shopName)}\nWhat to buy?`, resolveProductMenu(visible), "0. Exit")
+/**
+ * The shop's home menu. `helpline` (the shop owner's number, local format) goes on its own line under the
+ * name; it is dropped when it would push the screen past 160 chars, so a long name never cuts off "0. Exit".
+ */
+export function productMenu(
+  shopName: string,
+  visible: Partial<Record<ProductMenuKey, boolean>> = {},
+  helpline?: string | null
+): string {
+  const items = resolveProductMenu(visible)
+  const plain = renderMenuText(`${gsm7(shopName)}\nWhat to buy?`, items, "0. Exit")
+  if (!helpline) return plain
+  const withHelp = renderMenuText(`${gsm7(shopName)}\nHelpline: ${helpline}\nWhat to buy?`, items, "0. Exit")
+  return withHelp.length <= SCREEN_LIMIT ? withHelp : plain
 }
 
 // ── Shop Airtime ──────────────────────────────────────────────────────────────
