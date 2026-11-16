@@ -108,7 +108,11 @@ export async function applyRateLimit(
     const limiter = getLimiter(maxRequests, windowMs)
     const key = `${endpointName}:${identifier}`
 
-    const { success, remaining, reset } = await limiter.limit(key)
+    const { success, remaining, reset, reason } = await limiter.limit(key)
+
+    // @upstash/ratelimit RESOLVES (does not throw) with success:true, reason:"timeout" after its 5s timeout
+    // without counting anything. Treat it exactly like a thrown error. "cacheBlock"/"denyList" are real denies.
+    if (reason === "timeout") throw new Error("Upstash rate-limit timeout")
 
     if (!success) {
       console.warn(`[RATE-LIMIT] Blocked ${endpointName}`, {

@@ -83,6 +83,45 @@ describe("applyRateLimit pgFallback", () => {
     expect(r.degraded).toBe(true)
   })
 
+  it("Upstash timeout result + pgFallback => fallback used", async () => {
+    const m = await load()
+    m.__setPgFallbackForTests(stub)
+    limitMock.mockResolvedValue({ success: true, remaining: 0, reset: 0, reason: "timeout" })
+    stub.mockResolvedValue({ allowed: true, remaining: 4, resetAt: 123 })
+    const r = await m.applyRateLimit(req(), "v2-purchase", 5, 60_000, "a", { pgFallback: true })
+    expect(r).toEqual({ allowed: true, remaining: 4, resetAt: 123, degraded: false, fallback: true })
+  })
+
+  it("Upstash timeout result + fallback null => degraded true", async () => {
+    const m = await load()
+    m.__setPgFallbackForTests(stub)
+    limitMock.mockResolvedValue({ success: true, remaining: 0, reset: 0, reason: "timeout" })
+    stub.mockResolvedValue(null)
+    const r = await m.applyRateLimit(req(), "v2-purchase", 5, 60_000, "a", { pgFallback: true })
+    expect(r.degraded).toBe(true)
+    expect(r.fallback).toBeUndefined()
+  })
+
+  it("Upstash timeout result without opts => degraded true, fallback never called", async () => {
+    const m = await load()
+    m.__setPgFallbackForTests(stub)
+    limitMock.mockResolvedValue({ success: true, remaining: 0, reset: 0, reason: "timeout" })
+    const r = await m.applyRateLimit(req(), "v1-x", 5, 60_000, "a")
+    expect(stub).not.toHaveBeenCalled()
+    expect(r.degraded).toBe(true)
+    expect(r.allowed).toBe(true)
+  })
+
+  it("cacheBlock is a real deny, not degraded", async () => {
+    const m = await load()
+    m.__setPgFallbackForTests(stub)
+    limitMock.mockResolvedValue({ success: false, remaining: 0, reset: 9, reason: "cacheBlock" })
+    const r = await m.applyRateLimit(req(), "v2-purchase", 5, 60_000, "a", { pgFallback: true })
+    expect(r.allowed).toBe(false)
+    expect(r.degraded).toBe(false)
+    expect(stub).not.toHaveBeenCalled()
+  })
+
   it("buckets for different users differ", async () => {
     const m = await load()
     m.__setPgFallbackForTests(stub)
