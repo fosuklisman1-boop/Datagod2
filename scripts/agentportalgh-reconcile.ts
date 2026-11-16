@@ -21,6 +21,11 @@ async function main() {
     console.error("AGENTPORTALGH_API_KEY is not set")
     process.exit(1)
   }
+  // lib/supabase.ts builds its clients at import time and throws without these. They are never
+  // used here (resolveStatusFromAgp does not touch Supabase) — placeholders only, no DB access.
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||= "http://127.0.0.1:1"
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||= "placeholder-anon-key"
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||= "placeholder-service-role-key"
   // Imported lazily so the env check above runs first. The provider module pulls in the Supabase
   // client factory, but resolveStatusFromAgp itself never touches it.
   const { resolveStatusFromAgp } = await import("../lib/mtn-providers/agentportalgh-provider")

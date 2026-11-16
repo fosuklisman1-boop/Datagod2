@@ -5,6 +5,8 @@ const fakeDb = vi.hoisted(() => ({
   trackingRows: [] as Array<Record<string, any>>,
   updates: [] as Array<{ id: string; payload: Record<string, unknown> }>,
   fetchAll: null as null | ((orderId: string) => Promise<any[]>),
+  complete: true,
+  throwOnUpdateFor: null as null | string,
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -27,6 +29,7 @@ vi.mock("@supabase/supabase-js", () => ({
           }),
           update: (payload: Record<string, unknown>) => ({
             eq: (_c: string, id: string) => {
+              if (fakeDb.throwOnUpdateFor === id) throw new Error("db down")
               fakeDb.updates.push({ id, payload })
               const row = fakeDb.trackingRows.find(r => r.id === id)
               if (row) Object.assign(row, payload)
@@ -48,9 +51,9 @@ vi.mock("@/lib/mtn-providers/agentportalgh-provider", async () => {
   const actual = await vi.importActual<any>("@/lib/mtn-providers/agentportalgh-provider")
   return {
     ...actual,
-    fetchAllItemsForOrder: (id: string) => {
-      if (!fakeDb.fetchAll) return Promise.resolve([])
-      return fakeDb.fetchAll(id)
+    fetchAllItemsForOrder: async (id: string) => {
+      if (!fakeDb.fetchAll) return { items: [], complete: true }
+      return { items: await fakeDb.fetchAll(id), complete: fakeDb.complete }
     },
   }
 })
@@ -77,6 +80,8 @@ describe("processItems — batched payloads", () => {
     fakeDb.trackingRows = []
     fakeDb.updates = []
     fakeDb.fetchAll = null
+    fakeDb.complete = true
+    fakeDb.throwOnUpdateFor = null
     vi.spyOn(console, "log").mockImplementation(() => {})
     vi.spyOn(console, "warn").mockImplementation(() => {})
     vi.spyOn(console, "error").mockImplementation(() => {})
@@ -135,6 +140,31 @@ describe("processItems — batched payloads", () => {
     })
     // old phone+size fallback: single candidate -> completed
     expect(fakeDb.updates.some(u => u.id === only.id && u.payload.status === "completed")).toBe(true)
+  })
+
+  it("falls back to legacy matching when the fetched item list is incomplete", async () => {
+    const only = seed("row-only", REF1, "0598842760", 1)
+    fakeDb.complete = false
+    fakeDb.fetchAll = async () => [up(REF1, "0598842760"), term("0598842760", "failed", 1024, "partial view")]
+    await processItems({
+      event: "order.completed", order_id: "agp-batch-1",
+      items: [term("0598842760", "success")],
+    })
+    // Nothing resolved from the partial list; legacy single-candidate match uses the PAYLOAD item (success)
+    expect(fakeDb.updates.some(u => u.id === only.id && u.payload.status === "failed")).toBe(false)
+    expect(fakeDb.updates.some(u => u.id === only.id && u.payload.status === "completed")).toBe(true)
+  })
+
+  it("a processItem error does not reset handled numbers or re-run the legacy path", async () => {
+    seed("row-a", REF1, "0598842760", 1)
+    const bystander = seed("row-b", REF2, "0598842760", 1) // would be a legacy-fallback candidate (ambiguous -> skipped anyway)
+    fakeDb.throwOnUpdateFor = "row-a"
+    fakeDb.fetchAll = async () => [up(REF1, "0598842760"), term("0598842760", "success")]
+    await expect(processItems({
+      event: "order.completed", order_id: "agp-batch-1",
+      items: [term("0598842760", "success")],
+    })).resolves.toBeUndefined()
+    expect(fakeDb.updates.some(u => u.id === bystander.id)).toBe(false)
   })
 
   it("leaves non-batched payloads (items carry reference) unchanged and does not fetch", async () => {

@@ -65,8 +65,17 @@ export async function processItems(payload: any) {
   const handledNumbers: Array<{ key: string; data_mb: unknown }> = []
   const hasReference = items.some(i => typeof i?.reference === "string" && i.reference.trim() !== "")
   if (!hasReference && payload.order_id) {
+    // Only the FETCH is guarded: if it fails or comes back partial, keep the legacy path.
+    let all: any[] | null = null
     try {
-      const all = await fetchAllItemsForOrder(String(payload.order_id))
+      const fetched = await fetchAllItemsForOrder(String(payload.order_id))
+      if (fetched.complete) all = fetched.items
+      else console.warn("[WEBHOOK-AGENTPORTALGH] Incomplete item list for", payload.order_id, "- using legacy matching")
+    } catch (err) {
+      console.error("[WEBHOOK-AGENTPORTALGH] Failed to fetch batch items for", payload.order_id, err)
+    }
+
+    if (all) {
       const outcomes = resolveBatchOutcomes(all)
       // Every number that has one of our references in this batch is owned by the
       // exact-reference path — resolved or deliberately left alone as ambiguous —
@@ -77,21 +86,23 @@ export async function processItems(payload: any) {
         }
       }
       for (const [ref, outcome] of outcomes) {
-        await processItem(
-          {
-            status: outcome.item.status,
-            failed_reason: outcome.item.failed_reason ?? null,
-            msisdn: outcome.msisdn,
-            data_mb: outcome.item.data_mb,
-            refunded_at: outcome.item.refunded_at ?? null,
-          },
-          ref,
-          { exactOnly: true }
-        )
+        try {
+          await processItem(
+            {
+              status: outcome.item.status,
+              failed_reason: outcome.item.failed_reason ?? null,
+              msisdn: outcome.msisdn,
+              data_mb: outcome.item.data_mb,
+              refunded_at: outcome.item.refunded_at ?? null,
+            },
+            ref,
+            { exactOnly: true }
+          )
+        } catch (err) {
+          // One bad row must not abort the others or re-run them through the legacy guess.
+          console.error("[WEBHOOK-AGENTPORTALGH] processItem failed for", ref, err)
+        }
       }
-    } catch (err) {
-      handledNumbers.length = 0
-      console.error("[WEBHOOK-AGENTPORTALGH] Failed to resolve batch items for", payload.order_id, err)
     }
   }
 

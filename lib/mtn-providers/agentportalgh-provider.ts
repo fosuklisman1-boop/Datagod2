@@ -102,17 +102,19 @@ export function deriveOrderStatus(order: any): "completed" | "failed" | "process
  * success/failed per item — paginated 20/page). Capped at 5 pages (~100 records)
  * as a sanity bound; no real order has approached that.
  */
-async function fetchAllOrderItems(orderId: string): Promise<any[]> {
+async function fetchAllOrderItems(orderId: string): Promise<{ items: any[]; complete: boolean }> {
   const all: any[] = []
   for (let page = 1; page <= 5; page++) {
     const res = await apiFetch(`/api/beneficiaries/orders/${orderId}/items?page=${page}`)
-    if (!res.ok) break
+    // A failed page means the list is partial — callers must not resolve anything from it.
+    if (!res.ok) return { items: all, complete: false }
     const body = await res.json()
     const items: any[] = body.data ?? body.items ?? (Array.isArray(body) ? body : [])
     all.push(...items)
-    if (items.length === 0 || all.length >= (body.total ?? all.length)) break
+    if (items.length === 0 || all.length >= (body.total ?? all.length)) return { items: all, complete: true }
   }
-  return all
+  // Page cap reached before the reported total.
+  return { items: all, complete: false }
 }
 
 /**
@@ -167,67 +169,94 @@ export function resolveBatchOutcomes(items: any[]): Map<string, BatchOutcome> {
   const result = new Map<string, BatchOutcome>()
   const list = Array.isArray(items) ? items : []
 
-  const uploadedRows: any[] = []
+  const refOf = (i: any): string => (typeof i?.reference === "string" ? i.reference.trim() : "")
+  const isSuperseded = (i: any): boolean => !!(i?.replaced_at || i?.replaced_by_batch_id)
+  // A terminal outcome of a single row: success+refunded is NOT delivered; superseded rows don't count.
+  const outcomeOfRow = (i: any): "completed" | "failed" | null => {
+    if (isSuperseded(i)) return null
+    const mapped = mapItemStatus(i?.status)
+    if (mapped === "completed") return i?.refunded_at ? null : "completed"
+    return mapped === "failed" ? "failed" : null
+  }
+  const setOutcome = (ref: string, status: "completed" | "failed", row: any, fallbackMsisdn: unknown) => {
+    result.set(ref, {
+      status,
+      externalStatus: String(row.status ?? ""),
+      failedReason: row.failed_reason ?? null,
+      msisdn: String(row.msisdn ?? fallbackMsisdn ?? ""),
+      item: row,
+    })
+  }
+
+  // Reference-bearing rows: either still in flight ("uploaded") and needing a paired
+  // terminal row, or (if AGP echoes the reference on the terminal row) self-resolving.
+  const pairingRows: any[] = []
   const seenRefs = new Set<string>()
   for (const i of list) {
-    const ref = typeof i?.reference === "string" ? i.reference.trim() : ""
+    const ref = refOf(i)
     if (!ref || seenRefs.has(ref)) continue
     seenRefs.add(ref)
-    uploadedRows.push(i)
+    const status = String(i?.status ?? "").toLowerCase().trim()
+    const own = status === "uploaded" ? null : outcomeOfRow(i)
+    if (own) {
+      setOutcome(ref, own, i, i.msisdn)
+    } else if (status === "uploaded" || mapItemStatus(i?.status) === "processing" || mapItemStatus(i?.status) === "pending") {
+      pairingRows.push(i)
+    }
   }
   const terminals = list.filter(
-    i => (typeof i?.reference !== "string" || i.reference.trim() === "") &&
-      String(i?.status ?? "").toLowerCase().trim() !== "uploaded"
+    i => refOf(i) === "" && String(i?.status ?? "").toLowerCase().trim() !== "uploaded" && !isSuperseded(i)
   )
-
-  // Newest terminal row for an uploaded row, mapped; null if none or still in flight.
-  const outcomeFor = (up: any): { terminal: any; status: "completed" | "failed" | null } | null => {
+  const candidatesFor = (up: any): any[] => {
     const key = msisdnKey(up.msisdn)
-    if (!key) return null
-    const cands = terminals.filter(t => msisdnKey(t.msisdn) === key && sizesCompatible(up, t))
-    if (cands.length === 0) return null
-    const newest = [...cands].sort((a, b) => createdMs(b) - createdMs(a))[0]
-    const mapped = mapItemStatus(newest.status)
-    return { terminal: newest, status: mapped === "completed" || mapped === "failed" ? mapped : null }
+    if (!key) return []
+    return terminals.filter(t => msisdnKey(t.msisdn) === key && sizesCompatible(up, t))
   }
 
-  for (const up of uploadedRows) {
-    const mine = outcomeFor(up)
-    if (!mine || !mine.status) continue
+  for (const up of pairingRows) {
+    const cands = candidatesFor(up)
+    if (cands.length === 0) continue
 
-    const peers = uploadedRows.filter(
+    const peers = pairingRows.filter(
       p => p !== up && msisdnKey(p.msisdn) === msisdnKey(up.msisdn) && sizesCompatible(up, p)
     )
+
+    let chosen: any
+    let status: "completed" | "failed" | null
     if (peers.length > 0) {
       // Several of our references target this number: the terminal rows can't be
-      // attributed to a specific one, so only accept when EVERY candidate terminal
-      // row (any retry round) agrees AND there are at least as many terminal rows
-      // as references. Otherwise leave them all in flight.
+      // attributed to a specific one, so accept only when the candidate terminal rows
+      // number EXACTLY the references (one each) and all map to the same outcome.
       const group = [up, ...peers]
       const candRows = new Set<any>()
-      for (const g of group) {
-        for (const t of terminals) {
-          if (msisdnKey(t.msisdn) === msisdnKey(g.msisdn) && sizesCompatible(g, t)) candRows.add(t)
-        }
-      }
-      const statuses = new Set(Array.from(candRows).map(t => mapItemStatus(t.status)))
-      if (candRows.size < group.length || statuses.size !== 1) continue
+      for (const g of group) for (const t of candidatesFor(g)) candRows.add(t)
+      if (candRows.size !== group.length) continue
+      const outcomes = new Set(Array.from(candRows).map(t => outcomeOfRow(t) ?? "none"))
+      if (outcomes.size !== 1) continue
+      status = outcomeOfRow(Array.from(candRows)[0])
+      // Never declare a failure for a shared-number group: two failed rows could both be
+      // one order's retries while the other is still in flight, and a wrong "failed" triggers
+      // a re-send (double delivery). Success rows are one-per-delivery, so they are safe.
+      if (status !== "completed") continue
+      chosen = [...candRows].sort((a, b) => createdMs(b) - createdMs(a))[0]
+    } else {
+      // Single reference: the newest terminal row is authoritative (later retry rounds
+      // supersede earlier ones). Rows tied for newest must agree.
+      const newestMs = Math.max(...cands.map(createdMs))
+      const newest = cands.filter(t => createdMs(t) === newestMs)
+      const outcomes = new Set(newest.map(t => outcomeOfRow(t) ?? "none"))
+      if (outcomes.size !== 1) continue
+      status = outcomeOfRow(newest[0])
+      if (!status) continue
+      chosen = newest[0]
     }
-
-    const t = mine.terminal
-    result.set(up.reference.trim(), {
-      status: mine.status,
-      externalStatus: String(t.status ?? ""),
-      failedReason: t.failed_reason ?? null,
-      msisdn: String(t.msisdn ?? up.msisdn ?? ""),
-      item: t,
-    })
+    setOutcome(refOf(up), status, chosen, up.msisdn)
   }
   return result
 }
 
-/** Fetch every item of an AgentPortalGH order (all pages). Exposed for the webhook. */
-export async function fetchAllItemsForOrder(orderId: string): Promise<any[]> {
+/** Fetch every item of an AgentPortalGH order (all pages). `complete` is false if any page failed or the page cap hit. */
+export async function fetchAllItemsForOrder(orderId: string): Promise<{ items: any[]; complete: boolean }> {
   return fetchAllOrderItems(orderId)
 }
 
@@ -290,13 +319,21 @@ export async function resolveStatusFromAgp(
       // Batch match: AGP runs our item inside its own group order; the "uploaded"
       // row carries OUR reference and a separate terminal row carries the outcome.
       // Exact reference link, so safe even when sibling orders share phone+size.
-      let inBatchNoOutcome = false
+      // Newest batch first: the NEWEST batch holding our reference decides (outcome, or
+      // awaiting) — never fall back to an older batch once a newer one has our reference.
+      // An incomplete item list (page failure / page cap) resolves nothing: stay awaiting
+      // rather than guess from a partial view.
+      const awaiting = { success: true, status: "processing" as const, message: "Order in AgentPortalGH batch, awaiting outcome" }
       for (const o of sorted) {
         const oid = orderIdOf(o)
         if (!oid) continue
-        const items = await fetchAllOrderItems(String(oid))
-        const outcomes = resolveBatchOutcomes(items)
-        const hit = outcomes.get(id)
+        const { items, complete } = await fetchAllOrderItems(String(oid))
+        if (!complete) {
+          console.warn(`[AgentPortalGH] Incomplete item list for batch ${oid} while checking ${id} — staying in flight`)
+          return awaiting
+        }
+        if (!items.some(i => typeof i?.reference === "string" && i.reference.trim() === id)) continue
+        const hit = resolveBatchOutcomes(items).get(id)
         if (hit) {
           return {
             success: true,
@@ -305,12 +342,7 @@ export async function resolveStatusFromAgp(
             order: hit.item,
           }
         }
-        if (items.some(i => typeof i?.reference === "string" && i.reference.trim() === id)) {
-          inBatchNoOutcome = true
-        }
-      }
-      if (inBatchNoOutcome) {
-        return { success: true, status: "processing", message: "Order in AgentPortalGH batch, awaiting outcome" }
+        return awaiting
       }
 
       // Legacy fallback: scan every matching batch's items, newest first. Skipped
@@ -323,7 +355,7 @@ export async function resolveStatusFromAgp(
       for (const o of sorted) {
         const oid = orderIdOf(o)
         if (!oid || !phone) continue
-        const items = await fetchAllOrderItems(String(oid))
+        const { items } = await fetchAllOrderItems(String(oid))
         const match = findFinalItemForPhone(items, phone, sizeGb)
         if (match) {
           return {
