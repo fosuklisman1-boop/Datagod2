@@ -681,3 +681,22 @@ Test first: switch ONE line to Phone SIM, send yourself a test order text, and c
 2. Set it in the phone's Server settings (SM4 key).
 3. Set the same value as `SMS_PHONE_SM4_KEY` in Vercel and redeploy.
 4. Send a test reply. Between steps 2 and 3 replies fall back to Hubtel, which is safe.
+
+## 17. Shop owner page "Text Orders" (OWNER runbook)
+
+Shop owners see their own shop's text orders at **Dashboard > My shop > Text Orders** (`/dashboard/text-orders`, NEW tag in the shop sidebar, part of the `my_shop` page bundle for custom domains). It is read-only: no setting, no money, no migration.
+
+What it shows
+- A status banner: **live**, **low** (under 10 SMS credits), **paused** (under 2 credits, the smallest order reserve), **no SMS account**, **shop closed** (blocked, inactive, or no active shop code), or **not open yet** (the shop line switch `ttb_shop_enabled` is off).
+- How customers order: the shop line number (`ttb_shop_number`) and the owner's shop code, a copyable share message, and the "next time just text 5GB" tip.
+- The last 30 days: text orders, paid, delivered, SMS credits used; the SMS credit balance with a Top up button (to /dashboard/sms).
+- The last 20 text orders: size, recipient with the middle hidden (024••••567), amount, status.
+
+Safety
+- The shop always comes from the signed-in session (`GET /api/user/text-orders`); no id is read from the request. No sender number is ever selected, only the order's recipient, masked.
+- Errors answer a fixed message, never row text.
+
+Rollback: remove the sidebar entry (`lib/dashboard-nav-items.ts`) or revert the commit; nothing else depends on the page.
+
+Announcement for shop owners (post when the shop line is announced, see section 13.9):
+"Shop owners: you now have a Text Orders page (My shop > Text Orders). It shows the number and code your customers text, a message to copy and share, your SMS credits, and your recent text orders. Keep your SMS credits topped up, because the replies to your customers are paid from them."

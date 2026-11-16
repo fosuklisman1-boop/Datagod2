@@ -56,7 +56,7 @@ describe("TOGGLEABLE_PAGES", () => {
     expect(dashboardHome?.group).toBe("core")
   })
 
-  it("my_shop bundles exactly its 8 routes (Overview + 7 sibling pages) as one unit", () => {
+  it("my_shop bundles exactly its 9 routes (Overview + 8 sibling pages) as one unit", () => {
     const myShop = TOGGLEABLE_PAGES.find(p => p.key === "my_shop")
     expect(myShop?.paths?.slice().sort()).toEqual([
       "/dashboard/blocked-numbers",
@@ -67,6 +67,7 @@ describe("TOGGLEABLE_PAGES", () => {
       "/dashboard/shop-profile",
       "/dashboard/shop-profit-logs",
       "/dashboard/shop-withdraw",
+      "/dashboard/text-orders",
     ])
   })
 })
