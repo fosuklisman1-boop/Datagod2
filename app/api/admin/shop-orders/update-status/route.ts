@@ -51,10 +51,13 @@ export async function POST(request: NextRequest) {
       const { error: mtnUpdateError } = await supabase
         .from("mtn_fulfillment_tracking")
         .update({ 
-          status: status, 
-          updated_at: new Date().toISOString() 
+          status: status,
+          updated_at: new Date().toISOString()
         })
         .in("shop_order_id", orderIds)
+        // FAILED_INIT_ rows are logs of a provider call that never created an order; the status crons skip
+        // them, so copying an admin status onto them strands them (lib/admin-tracking-overwrite-guard.test.ts).
+        .not("mtn_order_id", "like", "FAILED_INIT_%")
 
       if (mtnUpdateError) {
         console.warn("[SHOP-ORDERS-UPDATE] Error updating MTN tracking:", mtnUpdateError)
