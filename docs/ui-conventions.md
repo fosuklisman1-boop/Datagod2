@@ -11,13 +11,11 @@ so a cleared tag stays cleared on every device.
 
 1. Add its exact `href` to `NEW_NAV_ITEMS` in `lib/nav-new.ts` with today's date:
    `"/dashboard/thing": { since: "2026-11-01" }`.
-2. Customer items (`menuItems` / `shopItems` in `lib/dashboard-nav-items.ts`): nothing
-   else to do; the sidebar already renders the tag and counts clicks for them.
-3. Admin items in `components/layout/sidebar.tsx` are hand-written links. Copy the
-   pattern on the `/admin/sms` link: call `markClicked(href)` in the link's `onClick`
-   (before `handleNavigation`), add `relative` to the Button, render `<NewTag />` beside
-   the label when expanded and `<NewTag compact />` (a dot) when collapsed.
-4. Prune registry entries after ~60 days. Old rows in `user_nav_clicks` are harmless
+2. That's it for every sidebar item. Customer (`menuItems` / `shopItems`) and admin
+   (`adminNavItems`) links all live in `lib/dashboard-nav-items.ts`, and the sidebar
+   renders the tag and counts clicks for all of them. A NEW item inside a folded group
+   also puts a dot on that group's heading.
+3. Prune registry entries after ~60 days. Old rows in `user_nav_clicks` are harmless
    (the API only returns hrefs that are still in the registry).
 
 The mobile bottom bar (`bottom-nav.tsx`) never shows tags; the mobile drawer is the

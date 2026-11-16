@@ -12,9 +12,9 @@
  *
  * >>> FUTURE DEVELOPERS: when you add a sidebar/nav item, add its exact href
  * >>> here (with today's date as `since`) so it shows the NEW tag. Prune
- * >>> entries after ~60 days. Admin links in sidebar.tsx are hand-written; an
- * >>> admin href also needs the <NewTag> + markClicked() wiring there (see the
- * >>> /admin/sms link for the pattern). docs/ui-conventions.md has the details.
+ * >>> entries after ~60 days. All sidebar links (customer and admin) are data
+ * >>> in lib/dashboard-nav-items.ts, so the registry entry is all you need.
+ * >>> docs/ui-conventions.md has the details.
  */
 export const NEW_NAV_ITEMS: Readonly<Record<string, { since: string }>> = Object.freeze({
   "/dashboard/sms": { since: "2026-10-13" },

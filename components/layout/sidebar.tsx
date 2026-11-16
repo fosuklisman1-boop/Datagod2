@@ -4,49 +4,45 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
-import { roleFromMetadata } from "@/lib/metadata-role"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPathAllowedForService, isPageHidden } from "@/lib/custom-domains"
-import { menuItems, shopItems, isNavActive } from "@/lib/dashboard-nav-items"
+import {
+  menuItems,
+  menuGroups,
+  shopItems,
+  adminNavItems,
+  adminNavGroups,
+  isNavActive,
+  type AdminNavBadge,
+} from "@/lib/dashboard-nav-items"
+import {
+  groupNavItems,
+  findActiveGroupId,
+  isGroupOpen,
+  openGroup,
+  toggleGroup,
+  parseGroupState,
+  type GroupState,
+  type NavGroupDef,
+} from "@/lib/nav-groups"
+import { roleFromMetadata } from "@/lib/metadata-role"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
 import { useAuth } from "@/hooks/use-auth"
 import { sidebarSkinClasses, type SidebarSkin } from "@/lib/sidebar-theme"
 import {
-  History,
   MessageCircle,
   LogOut,
-  Settings,
-  Download,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Menu,
   Loader2,
-  Lock,
-  ArrowRightLeft,
-  Clock,
-  Users,
-  Zap,
-  Lightbulb,
   Crown,
-  Sparkles,
-  Smartphone,
-  RotateCcw,
-  Activity,
-  Shield,
-  GraduationCap,
-  Phone,
-  PhoneOff,
-  ClipboardCheck,
-  BookOpen,
-  Send,
-  MessageSquare,
-  Trophy,
-  Globe,
-  CreditCard,
+  type LucideIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Badge } from "@/components/ui/badge"
 import { NewTag } from "./new-tag"
 import { useNavNew } from "./use-nav-new"
@@ -64,6 +60,36 @@ const formatCount = (num: number): string => {
   return num.toLocaleString()
 }
 
+/** Per-device open/closed state of the sidebar groups (lib/nav-groups.ts). */
+const GROUP_STATE_KEY = "datagod.sidebarGroups.v1"
+
+/** The whole Shop section is one collapsible group. */
+const SHOP_GROUP: NavGroupDef = { id: "shop", label: "Shop" }
+
+type NavLinkItem = { href: string; label: string; icon: LucideIcon }
+type LinkOpts = {
+  active: boolean
+  badge?: number
+  badgeSuffix?: string
+  badgeTone?: "destructive" | "primary"
+  tour?: string
+}
+
+function readGroupState(): GroupState {
+  try {
+    return parseGroupState(localStorage.getItem(GROUP_STATE_KEY))
+  } catch {
+    return {}
+  }
+}
+
+function writeGroupState(state: GroupState) {
+  try {
+    localStorage.setItem(GROUP_STATE_KEY, JSON.stringify(state))
+  } catch {
+    // private mode / storage blocked: the choice just isn't remembered
+  }
+}
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -86,6 +112,9 @@ export function Sidebar() {
   })
   const [dealerHasSubscription, setDealerHasSubscription] = useState(false)
   const [roleLoading, setRoleLoading] = useState(true)
+  // Starts empty (= every group at its default) so SSR and first paint match;
+  // the saved per-device choices load right after mount.
+  const [groupState, setGroupState] = useState<GroupState>({})
   const skin: SidebarSkin = userRole === 'dealer' ? 'dealer' : (isAdmin || userRole === 'admin') ? 'admin' : 'default'
   const c = sidebarSkinClasses(skin)
   // Sidebar NEW tags: registry in lib/nav-new.ts, click counts on the user's account.
@@ -233,11 +262,190 @@ export function Sidebar() {
     setLoadingPath(null)
   }, [pathname])
 
+  // Which group holds the current page (longest href match across every list).
+  const activeGroupId = useMemo(
+    () =>
+      findActiveGroupId(pathname ?? "", [
+        ...menuItems,
+        ...shopItems.map(i => ({ href: i.href, group: SHOP_GROUP.id })),
+        ...adminNavItems,
+      ]),
+    [pathname]
+  )
+
+  // Load saved group choices once, then keep the current page's group open on
+  // every navigation so the active link is never folded away.
+  useEffect(() => {
+    setGroupState(prev => openGroup({ ...readGroupState(), ...prev }, activeGroupId))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only load
+  }, [])
+  useEffect(() => {
+    setGroupState(prev => openGroup(prev, activeGroupId))
+  }, [activeGroupId])
+
+  const handleToggleGroup = (id: string, defaultOpen: boolean) => {
+    setGroupState(prev => {
+      const next = toggleGroup(prev, id, defaultOpen)
+      writeGroupState(next)
+      return next
+    })
+  }
+
   const handleNavigation = (href: string) => {
     if (pathname !== href) {
       setLoadingPath(href)
     }
   }
+
+  const visibleMenuItems = menuItems.filter(item => {
+    if (!userRole || !item.roles.includes(userRole)) return false
+    if (item.feature === "standard-bundles") {
+      if (!bundlesAvailability?.enabled) return false
+    } else if (item.feature && !featureAvailable(billsAvailability, item.feature)) return false
+    if (item.href === '/dashboard' && isPageHidden('dashboard_home', domainBranding.hiddenPages)) return false
+    // Hide upgrade page for dealers with no subscription end-date (permanent dealers)
+    if (item.href === '/dashboard/upgrade' && userRole === 'dealer' && !dealerHasSubscription) return false
+    // On a custom domain scoped to one service, hide nav entries for the other services.
+    if (!isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)) return false
+    return true
+  })
+
+  const visibleShopItems = shopItems.filter(item =>
+    userRole && item.roles.includes(userRole) &&
+    isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)
+  )
+
+  const adminBadge = (badge: AdminNavBadge | undefined): Pick<LinkOpts, "badge" | "badgeSuffix" | "badgeTone"> => {
+    if (badge === "pendingOrders") return { badge: adminPendingOrderCount, badgeTone: "destructive" }
+    if (badge === "whatsappUnread") return { badge: waUnreadCount, badgeSuffix: waUnreadCapped ? "+" : "", badgeTone: "primary" }
+    return {}
+  }
+
+  const badgeClass = (tone: LinkOpts["badgeTone"]) =>
+    tone === "primary"
+      ? "bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
+      : "bg-destructive hover:bg-destructive text-destructive-foreground text-xs"
+
+  const renderLink = (item: NavLinkItem, opts: LinkOpts) => {
+    const Icon = item.icon
+    const isLoading = loadingPath === item.href
+    const showNew = isNew(item.href)
+    const badge = opts.badge ?? 0
+    const showBadge = badge > 0
+
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        className="block"
+        onClick={() => { markClicked(item.href); handleNavigation(item.href) }}
+      >
+        <Button
+          variant="ghost"
+          className={cn(
+            "relative w-full justify-start gap-3 transition-all duration-200",
+            opts.active ? c.navLinkActive : c.navLinkInactive,
+            !isOpen && "justify-center",
+            isLoading && "opacity-70"
+          )}
+          title={!isOpen ? item.label : undefined}
+          aria-current={opts.active ? "page" : undefined}
+          disabled={isLoading}
+          data-tour={opts.tour}
+        >
+          {isLoading ? (
+            <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+          ) : (
+            <Icon className="w-5 h-5 flex-shrink-0" />
+          )}
+          {isOpen && (
+            <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+              <span className="truncate">{item.label}</span>
+              {(showNew || showBadge) && (
+                <span className="flex items-center gap-1.5 shrink-0">
+                  {showNew && <NewTag />}
+                  {showBadge && (
+                    <Badge className={badgeClass(opts.badgeTone)}>
+                      {formatCount(badge)}{opts.badgeSuffix ?? ""}
+                    </Badge>
+                  )}
+                </span>
+              )}
+            </span>
+          )}
+          {!isOpen && showNew && <NewTag compact />}
+        </Button>
+      </Link>
+    )
+  }
+
+  /**
+   * One block of links. With a group and the sidebar expanded it gets a
+   * clickable heading that folds it; a folded heading still shows the item
+   * count, a NEW dot and any pending counts so nothing important is hidden.
+   * In the collapsed icon rail every group is shown, split by a thin line.
+   */
+  const renderSection = <T extends NavLinkItem>(
+    key: string,
+    group: NavGroupDef | null,
+    items: T[],
+    defaultOpen: boolean,
+    linkOpts: (item: T) => LinkOpts,
+    withDivider: boolean
+  ) => {
+    const links = () => <div className="space-y-1">{items.map(i => renderLink(i, linkOpts(i)))}</div>
+
+    if (!group || !isOpen) {
+      return (
+        <div key={key} className={cn(withDivider && "pt-2 mt-2 border-t", withDivider && c.sectionBorder)}>
+          {links()}
+        </div>
+      )
+    }
+
+    const open = isGroupOpen(groupState, group.id, defaultOpen)
+    const panelId = `sidebar-group-${group.id}`
+    const anyNew = !open && items.some(i => isNew(i.href))
+    const badgeTotal = open ? 0 : items.reduce((sum, i) => sum + (linkOpts(i).badge ?? 0), 0)
+    const badgeTone = items.map(i => linkOpts(i)).find(o => (o.badge ?? 0) > 0)?.badgeTone
+
+    return (
+      <div key={key} className={cn(withDivider && "pt-2 mt-2 border-t", withDivider && c.sectionBorder)}>
+        <button
+          type="button"
+          onClick={() => handleToggleGroup(group.id, defaultOpen)}
+          aria-expanded={open}
+          aria-controls={panelId}
+          className={cn(
+            "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide",
+            "hover:bg-black/5 dark:hover:bg-white/5 transition-colors",
+            skin === "admin" && "hover:bg-white/5",
+            c.sectionLabelText
+          )}
+        >
+          <span className="flex-1 text-left truncate">{group.label}</span>
+          {!open && (
+            <span className="flex items-center gap-1.5 shrink-0 normal-case tracking-normal font-normal">
+              {anyNew && <NewTag compact />}
+              {badgeTotal > 0 && (
+                <Badge className={badgeClass(badgeTone)}>{formatCount(badgeTotal)}</Badge>
+              )}
+              <span className="opacity-70">{items.length}</span>
+            </span>
+          )}
+          <ChevronDown
+            className={cn("w-4 h-4 shrink-0 transition-transform duration-200", !open && "-rotate-90")}
+            aria-hidden
+          />
+        </button>
+        {open && <div id={panelId} className="mt-1">{links()}</div>}
+      </div>
+    )
+  }
+
+  const menuSections = groupNavItems(visibleMenuItems, menuGroups)
+  const adminSections = groupNavItems(adminNavItems, adminNavGroups)
+
   return (
     <>
       {/* Mobile Toggle Button */}
@@ -330,7 +538,7 @@ export function Sidebar() {
         )}
 
         {/* Navigation Menu */}
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-2 scrollbar-thin scrollbar-thumb-primary/40 scrollbar-track-primary/10 hover:scrollbar-thumb-primary/60">
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-1 scrollbar-thin scrollbar-thumb-primary/40 scrollbar-track-primary/10 hover:scrollbar-thumb-primary/60">
           {roleLoading ? (
             // Show loading skeleton while fetching role
             <div className="space-y-2">
@@ -339,987 +547,67 @@ export function Sidebar() {
               ))}
             </div>
           ) : (
-            menuItems.filter(item => {
-            if (!userRole || !item.roles.includes(userRole)) return false
-            if (item.feature === "standard-bundles") {
-              if (!bundlesAvailability?.enabled) return false
-            } else if (item.feature && !featureAvailable(billsAvailability, item.feature)) return false
-            if (item.href === '/dashboard' && isPageHidden('dashboard_home', domainBranding.hiddenPages)) return false
-            // Hide upgrade page for dealers with no subscription end-date (permanent dealers)
-            if (item.href === '/dashboard/upgrade' && userRole === 'dealer' && !dealerHasSubscription) return false
-            // On a custom domain scoped to one service, hide nav entries for the other services.
-            if (!isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)) return false
-            return true
-          }).map((item) => {
-              const Icon = item.icon
-              const isActive = isNavActive(pathname, item.href)
-              const isLoading = loadingPath === item.href
-              const showBadge = item.label === "My Orders" && userPendingOrderCount > 0
-              const showNew = isNew(item.href)
-
-              return (
-                <Link key={item.href} href={item.href} onClick={() => { markClicked(item.href); handleNavigation(item.href) }}>
-                  <Button
-                    variant="ghost"
-                    className={cn(
-                      "relative w-full justify-start gap-3 transition-all duration-200",
-                      isActive ? c.navLinkActive : c.navLinkInactive,
-                      !isOpen && "justify-center",
-                      isLoading && "opacity-70"
-                    )}
-                    title={!isOpen ? item.label : undefined}
-                    disabled={isLoading}
-                    data-tour={item.label === "Wallet" ? "wallet-topup" : undefined}
-                  >
-                    {isLoading ? (
-                      <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                    ) : (
-                      <Icon className="w-5 h-5 flex-shrink-0" />
-                    )}
-                    {isOpen && (
-                      <div className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                        <span className="truncate">{item.label}</span>
-                        {(showNew || showBadge) && (
-                          <span className="flex items-center gap-1.5 shrink-0">
-                            {showNew && <NewTag />}
-                            {showBadge && (
-                              <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground text-xs">
-                                {formatCount(userPendingOrderCount)}
-                              </Badge>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {!isOpen && showNew && <NewTag compact />}
-                  </Button>
-                </Link>
-              )
-            })
-          )}
-
-          {/* Shop Section */}
-          {!roleLoading && (
-            <div className={cn(
-              "pt-4 mt-4 border-t",
-              c.sectionBorder
-            )}>
-              {isOpen && (
-                <p className={cn(
-                  "text-xs font-semibold px-3 mb-2",
-                  c.sectionLabelText
-                )}>SHOP</p>
-              )}
-              {shopItems.filter(item => userRole && item.roles.includes(userRole) && isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)).map((item) => {
-                const Icon = item.icon
-                const isActive = isNavActive(pathname, item.href)
-                const isLoading = loadingPath === item.href
-                const showNew = isNew(item.href)
-                return (
-                  <Link key={item.href} href={item.href} onClick={() => { markClicked(item.href); handleNavigation(item.href) }}>
-                    <Button
-                      variant="ghost"
-                      className={cn(
-                        "relative w-full justify-start gap-3 transition-all duration-200",
-                        isActive ? c.navLinkActive : c.navLinkInactive,
-                        !isOpen && "justify-center",
-                        isLoading && "opacity-70"
-                      )}
-                      title={!isOpen ? item.label : undefined}
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                      ) : (
-                        <Icon className="w-5 h-5 flex-shrink-0" />
-                      )}
-                      {isOpen && (
-                        <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                          <span className="truncate">{item.label}</span>
-                          {showNew && <NewTag />}
-                        </span>
-                      )}
-                      {!isOpen && showNew && <NewTag compact />}
-                    </Button>
-                  </Link>
+            <>
+              {/* Main menu: Dashboard, then Buy / Orders & Money / Account */}
+              {menuSections.map((section, idx) =>
+                renderSection(
+                  `menu-${section.group?.id ?? "top"}`,
+                  section.group,
+                  section.items,
+                  true,
+                  item => ({
+                    active: isNavActive(pathname, item.href),
+                    badge: item.href === "/dashboard/my-orders" ? userPendingOrderCount : undefined,
+                    badgeTone: "destructive",
+                    tour: item.label === "Wallet" ? "wallet-topup" : undefined,
+                  }),
+                  idx > 0 && !isOpen
                 )
-              })}
-            </div>
-          )}
-
-          {/* Admin Section */}
-          {isAdmin && (
-            <div className={cn(
-              "pt-4 mt-4 border-t",
-              c.sectionBorder
-            )}>
-              {isOpen && (
-                <p className={cn(
-                  "text-xs font-semibold px-3 mb-2",
-                  c.sectionLabelText
-                )}>ADMIN</p>
               )}
-              <Link href="/admin" onClick={() => handleNavigation("/admin")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Admin Panel" : undefined}
-                  disabled={loadingPath === "/admin"}
-                >
-                  {loadingPath === "/admin" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Lock className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Admin Panel"}
-                </Button>
-              </Link>
-              <Link href="/admin/security" onClick={() => handleNavigation("/admin/security")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/security" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/security" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Security" : undefined}
-                  disabled={loadingPath === "/admin/security"}
-                >
-                  {loadingPath === "/admin/security" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Shield className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Security"}
-                </Button>
-              </Link>
-              <Link href="/admin/settings" onClick={() => handleNavigation("/admin/settings")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/settings" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/settings" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Settings" : undefined}
-                  disabled={loadingPath === "/admin/settings"}
-                >
-                  {loadingPath === "/admin/settings" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Settings className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Settings"}
-                </Button>
-              </Link>
 
-              <Link href="/admin/gateway" onClick={() => { markClicked("/admin/gateway"); handleNavigation("/admin/gateway") }}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "relative w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/gateway" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/gateway" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Payment Gateway" : undefined}
-                  disabled={loadingPath === "/admin/gateway"}
-                >
-                  {loadingPath === "/admin/gateway" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <CreditCard className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                      <span className="truncate">Payment Gateway</span>
-                      {isNew("/admin/gateway") && <NewTag />}
-                    </span>
-                  )}
-                  {!isOpen && isNew("/admin/gateway") && <NewTag compact />}
-                </Button>
-              </Link>
-
-              <Link href="/admin/settings/mtn" onClick={() => handleNavigation("/admin/settings/mtn")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/settings/mtn" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/settings/mtn" && "opacity-70"
-                  )}
-                  title={!isOpen ? "MTN Settings" : undefined}
-                  disabled={loadingPath === "/admin/settings/mtn"}
-                >
-                  {loadingPath === "/admin/settings/mtn" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Zap className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "MTN Settings"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/sms-health" onClick={() => handleNavigation("/admin/sms-health")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/sms-health" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/sms-health" && "opacity-70"
-                  )}
-                  title={!isOpen ? "SMS Health" : undefined}
-                  disabled={loadingPath === "/admin/sms-health"}
-                >
-                  {loadingPath === "/admin/sms-health" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <MessageCircle className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "SMS Health"}
-                </Button>
-              </Link>
-
-              {/* NEW-tag pattern for hand-written admin links (href must be in lib/nav-new.ts):
-                  onClick also calls markClicked(href); Button gets "relative"; render <NewTag />
-                  beside the label when expanded and <NewTag compact /> when collapsed. */}
-              <Link href="/admin/sms" onClick={() => { markClicked("/admin/sms"); handleNavigation("/admin/sms") }}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "relative w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/sms" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/sms" && "opacity-70"
-                  )}
-                  title={!isOpen ? "SMS Platform" : undefined}
-                  disabled={loadingPath === "/admin/sms"}
-                >
-                  {loadingPath === "/admin/sms" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <MessageSquare className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                      <span className="truncate">SMS Platform</span>
-                      {isNew("/admin/sms") && <NewTag />}
-                    </span>
-                  )}
-                  {!isOpen && isNew("/admin/sms") && <NewTag compact />}
-                </Button>
-              </Link>
-
-              <Link href="/admin/momo-claims" onClick={() => { markClicked("/admin/momo-claims"); handleNavigation("/admin/momo-claims") }}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "relative w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/momo-claims" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/momo-claims" && "opacity-70"
-                  )}
-                  title={!isOpen ? "MoMo Claims" : undefined}
-                  disabled={loadingPath === "/admin/momo-claims"}
-                >
-                  {loadingPath === "/admin/momo-claims" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Smartphone className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                      <span className="truncate">MoMo Claims</span>
-                      {isNew("/admin/momo-claims") && <NewTag />}
-                    </span>
-                  )}
-                  {!isOpen && isNew("/admin/momo-claims") && <NewTag compact />}
-                </Button>
-              </Link>
-
-              <Link href="/admin/text-to-buy" onClick={() => { markClicked("/admin/text-to-buy"); handleNavigation("/admin/text-to-buy") }}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "relative w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/text-to-buy" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/text-to-buy" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Text-to-Buy" : undefined}
-                  disabled={loadingPath === "/admin/text-to-buy"}
-                >
-                  {loadingPath === "/admin/text-to-buy" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <MessageSquare className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                      <span className="truncate">Text-to-Buy</span>
-                      {isNew("/admin/text-to-buy") && <NewTag />}
-                    </span>
-                  )}
-                  {!isOpen && isNew("/admin/text-to-buy") && <NewTag compact />}
-                </Button>
-              </Link>
-
-              <Link href="/admin/leaderboard" onClick={() => { markClicked("/admin/leaderboard"); handleNavigation("/admin/leaderboard") }}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "relative w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/leaderboard" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/leaderboard" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Leaderboard Rewards" : undefined}
-                  disabled={loadingPath === "/admin/leaderboard"}
-                >
-                  {loadingPath === "/admin/leaderboard" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Trophy className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                      <span className="truncate">Leaderboard Rewards</span>
-                      {isNew("/admin/leaderboard") && <NewTag />}
-                    </span>
-                  )}
-                  {!isOpen && isNew("/admin/leaderboard") && <NewTag compact />}
-                </Button>
-              </Link>
-
-              <Link href="/admin/sms-centre" onClick={() => handleNavigation("/admin/sms-centre")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/sms-centre" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/sms-centre" && "opacity-70"
-                  )}
-                  title={!isOpen ? "SMS Centre" : undefined}
-                  disabled={loadingPath === "/admin/sms-centre"}
-                >
-                  {loadingPath === "/admin/sms-centre" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Send className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "SMS Centre"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/ai-settings" onClick={() => handleNavigation("/admin/ai-settings")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/ai-settings" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/ai-settings" && "opacity-70"
-                  )}
-                  title={!isOpen ? "AI Settings" : undefined}
-                  disabled={loadingPath === "/admin/ai-settings"}
-                >
-                  {loadingPath === "/admin/ai-settings" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "AI Settings"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/scheduled-tasks" onClick={() => handleNavigation("/admin/scheduled-tasks")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/scheduled-tasks" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/scheduled-tasks" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Scheduled Tasks" : undefined}
-                  disabled={loadingPath === "/admin/scheduled-tasks"}
-                >
-                  {loadingPath === "/admin/scheduled-tasks" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Clock className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Scheduled Tasks"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/subscriptions" onClick={() => handleNavigation("/admin/subscriptions")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/subscriptions" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/subscriptions" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Dealer Plans" : undefined}
-                  disabled={loadingPath === "/admin/subscriptions"}
-                >
-                  {loadingPath === "/admin/subscriptions" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Crown className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Dealer Plans"}
-                </Button>
-              </Link>
-              <Link href="/admin/subscribers" onClick={() => handleNavigation("/admin/subscribers")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/subscribers" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/subscribers" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Subscribers" : undefined}
-                  disabled={loadingPath === "/admin/subscribers"}
-                >
-                  {loadingPath === "/admin/subscribers" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Users className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Subscribers"}
-                </Button>
-              </Link>
-              <Link href="/admin/orders" onClick={() => handleNavigation("/admin/orders")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/orders" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/orders" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Orders" : undefined}
-                  disabled={loadingPath === "/admin/orders"}
-                >
-                  {loadingPath === "/admin/orders" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Download className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <div className="flex items-center justify-between flex-1">
-                      <span>Orders</span>
-                      {adminPendingOrderCount > 0 && (
-                        <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground text-xs ml-2">
-                          {formatCount(adminPendingOrderCount)}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-                </Button>
-              </Link>
-
-              <Link href="/admin/api-keys" onClick={() => handleNavigation("/admin/api-keys")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/api-keys" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/api-keys" && "opacity-70"
-                  )}
-                  title={!isOpen ? "API Control" : undefined}
-                  disabled={loadingPath === "/admin/api-keys"}
-                >
-                  {loadingPath === "/admin/api-keys" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Activity className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "API Control"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/rate-limits" onClick={() => handleNavigation("/admin/rate-limits")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/rate-limits" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/rate-limits" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Rate Limits" : undefined}
-                  disabled={loadingPath === "/admin/rate-limits"}
-                >
-                  {loadingPath === "/admin/rate-limits" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Shield className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Rate Limits"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/withdrawal-history" onClick={() => handleNavigation("/admin/withdrawal-history")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/withdrawal-history" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/withdrawal-history" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Withdrawal History" : undefined}
-                  disabled={loadingPath === "/admin/withdrawal-history"}
-                >
-                  {loadingPath === "/admin/withdrawal-history" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <History className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Withdrawal History"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/phone-verification" onClick={() => handleNavigation("/admin/phone-verification")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/phone-verification" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/phone-verification" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Phone Verification" : undefined}
-                  disabled={loadingPath === "/admin/phone-verification"}
-                >
-                  {loadingPath === "/admin/phone-verification" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Phone className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Phone Verification"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/mtn-registration" onClick={() => handleNavigation("/admin/mtn-registration")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/mtn-registration" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/mtn-registration" && "opacity-70"
-                  )}
-                  title={!isOpen ? "MTN Registration" : undefined}
-                  disabled={loadingPath === "/admin/mtn-registration"}
-                >
-                  {loadingPath === "/admin/mtn-registration" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Smartphone className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "MTN Registration"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/blocked-numbers" onClick={() => { markClicked("/admin/blocked-numbers"); handleNavigation("/admin/blocked-numbers") }}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "relative w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/blocked-numbers" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/blocked-numbers" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Blocked Numbers" : undefined}
-                  disabled={loadingPath === "/admin/blocked-numbers"}
-                >
-                  {loadingPath === "/admin/blocked-numbers" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <PhoneOff className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                      <span className="truncate">Blocked Numbers</span>
-                      {isNew("/admin/blocked-numbers") && <NewTag />}
-                    </span>
-                  )}
-                  {!isOpen && isNew("/admin/blocked-numbers") && <NewTag compact />}
-                </Button>
-              </Link>
-
-              <Link href="/admin/refunds" onClick={() => handleNavigation("/admin/refunds")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/refunds" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/refunds" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Refunds" : undefined}
-                  disabled={loadingPath === "/admin/refunds"}
-                >
-                  {loadingPath === "/admin/refunds" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <RotateCcw className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Refunds"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/user-phone-audit" onClick={() => handleNavigation("/admin/user-phone-audit")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/user-phone-audit" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/user-phone-audit" && "opacity-70"
-                  )}
-                  title={!isOpen ? "User Phone Audit" : undefined}
-                  disabled={loadingPath === "/admin/user-phone-audit"}
-                >
-                  {loadingPath === "/admin/user-phone-audit" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <PhoneOff className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "User Phone Audit"}
-                </Button>
-              </Link>
-
-              <Link href="/admin/airtime" onClick={() => handleNavigation("/admin/airtime")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/airtime" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/airtime" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Airtime Management" : undefined}
-                  disabled={loadingPath === "/admin/airtime"}
-                >
-                  {loadingPath === "/admin/airtime" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Smartphone className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Airtime Management"}
-                </Button>
-              </Link>
-              <Link href="/admin/airtime/settings" onClick={() => handleNavigation("/admin/airtime/settings")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/airtime/settings" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/airtime/settings" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Airtime Settings" : undefined}
-                  disabled={loadingPath === "/admin/airtime/settings"}
-                >
-                  {loadingPath === "/admin/airtime/settings" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Settings className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Airtime Settings"}
-                </Button>
-              </Link>
-              <Link href="/admin/results-checker" onClick={() => handleNavigation("/admin/results-checker")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/results-checker" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/results-checker" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Results Checker" : undefined}
-                  disabled={loadingPath === "/admin/results-checker"}
-                >
-                  {loadingPath === "/admin/results-checker" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <GraduationCap className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Results Checker"}
-                </Button>
-              </Link>
-              <Link href="/admin/results-check-requests" onClick={() => handleNavigation("/admin/results-check-requests")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/results-check-requests" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/results-check-requests" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Check Requests" : undefined}
-                  disabled={loadingPath === "/admin/results-check-requests"}
-                >
-                  {loadingPath === "/admin/results-check-requests" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <ClipboardCheck className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Check Requests"}
-                </Button>
-              </Link>
-              <Link href="/admin/custom-domains" onClick={() => handleNavigation("/admin/custom-domains")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/custom-domains" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/custom-domains" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Custom Domains" : undefined}
-                  disabled={loadingPath === "/admin/custom-domains"}
-                >
-                  {loadingPath === "/admin/custom-domains" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Globe className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Custom Domains"}
-                </Button>
-              </Link>
-              <Link href="/admin/whatsapp" onClick={() => handleNavigation("/admin/whatsapp")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/whatsapp" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/whatsapp" && "opacity-70"
-                  )}
-                  title={!isOpen ? "WhatsApp Inbox" : undefined}
-                  disabled={loadingPath === "/admin/whatsapp"}
-                >
-                  {loadingPath === "/admin/whatsapp" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <MessageCircle className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <div className="flex items-center justify-between flex-1">
-                      <span>WhatsApp Inbox</span>
-                      {waUnreadCount > 0 && (
-                        <Badge className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs ml-2">
-                          {formatCount(waUnreadCount)}{waUnreadCapped ? "+" : ""}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-                </Button>
-              </Link>
-              <Link href="/admin/ai-knowledge" onClick={() => handleNavigation("/admin/ai-knowledge")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/ai-knowledge" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/ai-knowledge" && "opacity-70"
-                  )}
-                  title={!isOpen ? "AI Knowledge" : undefined}
-                  disabled={loadingPath === "/admin/ai-knowledge"}
-                >
-                  {loadingPath === "/admin/ai-knowledge" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <BookOpen className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "AI Knowledge"}
-                </Button>
-              </Link>
-              <Link href="/admin/transactions" onClick={() => handleNavigation("/admin/transactions")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/transactions" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/transactions" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Transactions" : undefined}
-                  disabled={loadingPath === "/admin/transactions"}
-                >
-                  {loadingPath === "/admin/transactions" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <ArrowRightLeft className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Transactions"}
-                </Button>
-              </Link>
-              <Link href="/admin/payment-attempts" onClick={() => handleNavigation("/admin/payment-attempts")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/payment-attempts" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/payment-attempts" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Payment Attempts" : undefined}
-                  disabled={loadingPath === "/admin/payment-attempts"}
-                >
-                  {loadingPath === "/admin/payment-attempts" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Clock className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Payment Attempts"}
-                </Button>
-              </Link>
-              <Link href="/admin/payment-reverify" onClick={() => handleNavigation("/admin/payment-reverify")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/payment-reverify" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/payment-reverify" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Payment Reverify" : undefined}
-                  disabled={loadingPath === "/admin/payment-reverify"}
-                >
-                  {loadingPath === "/admin/payment-reverify" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Zap className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Payment Reverify"}
-                </Button>
-              </Link>
-              <Link href="/admin/ussd-shops" onClick={() => handleNavigation("/admin/ussd-shops")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/ussd-shops" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/ussd-shops" && "opacity-70"
-                  )}
-                  title={!isOpen ? "USSD Shops" : undefined}
-                  disabled={loadingPath === "/admin/ussd-shops"}
-                >
-                  {loadingPath === "/admin/ussd-shops" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Smartphone className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "USSD Shops"}
-                </Button>
-              </Link>
-              <Link href="/admin/ussd-hubtel" onClick={() => handleNavigation("/admin/ussd-hubtel")}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/ussd-hubtel" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/ussd-hubtel" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Hubtel USSD" : undefined}
-                  disabled={loadingPath === "/admin/ussd-hubtel"}
-                >
-                  {loadingPath === "/admin/ussd-hubtel" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Smartphone className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && "Hubtel USSD"}
-                </Button>
-              </Link>
-              <Link href="/admin/hubtel-commission" onClick={() => { markClicked("/admin/hubtel-commission"); handleNavigation("/admin/hubtel-commission") }}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "relative w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/hubtel-commission" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/hubtel-commission" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Hubtel Commission" : undefined}
-                  disabled={loadingPath === "/admin/hubtel-commission"}
-                >
-                  {loadingPath === "/admin/hubtel-commission" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Zap className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                      <span className="truncate">Hubtel Commission</span>
-                      {isNew("/admin/hubtel-commission") && <NewTag />}
-                    </span>
-                  )}
-                  {!isOpen && isNew("/admin/hubtel-commission") && <NewTag compact />}
-                </Button>
-              </Link>
-              <Link href="/admin/utility-bills" onClick={() => { markClicked("/admin/utility-bills"); handleNavigation("/admin/utility-bills") }}>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "relative w-full justify-start gap-3 transition-all duration-200",
-                    pathname === "/admin/utility-bills" ? c.navLinkActive : c.navLinkInactive,
-                    !isOpen && "justify-center",
-                    loadingPath === "/admin/utility-bills" && "opacity-70"
-                  )}
-                  title={!isOpen ? "Utility Bills" : undefined}
-                  disabled={loadingPath === "/admin/utility-bills"}
-                >
-                  {loadingPath === "/admin/utility-bills" ? (
-                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                  ) : (
-                    <Lightbulb className="w-5 h-5 flex-shrink-0" />
-                  )}
-                  {isOpen && (
-                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
-                      <span className="truncate">Utility Bills</span>
-                      {isNew("/admin/utility-bills") && <NewTag />}
-                    </span>
-                  )}
-                  {!isOpen && isNew("/admin/utility-bills") && <NewTag compact />}
-                </Button>
-              </Link>
-            </div>
+              {/* Shop */}
+              {visibleShopItems.length > 0 && (
+                <div className={cn("pt-3 mt-3 border-t", c.sectionBorder)}>
+                  {renderSection(
+                    "shop",
+                    SHOP_GROUP,
+                    visibleShopItems,
+                    true,
+                    item => ({ active: isNavActive(pathname, item.href) }),
+                    false
+                  )}
+                </div>
+              )}
+            </>
           )}
 
-        </nav >
+          {/* Admin */}
+          {isAdmin && (
+            <div className={cn("pt-3 mt-3 border-t", c.sectionBorder)}>
+              {isOpen && (
+                <p className={cn("text-[10px] font-bold tracking-widest px-3 mb-1 opacity-70", c.sectionLabelText)}>
+                  ADMIN
+                </p>
+              )}
+              {adminSections.map((section, idx) =>
+                renderSection(
+                  `admin-${section.group?.id ?? "top"}`,
+                  section.group,
+                  section.items,
+                  false,
+                  item => ({ active: pathname === item.href, ...adminBadge(item.badge) }),
+                  idx > 0 && !isOpen
+                )
+              )}
+            </div>
+          )}
+        </nav>
 
         {/* Community & Logout */}
-        < div className={
-          cn(
-            "p-4 pb-24 md:pb-4 border-t space-y-2",
-            c.sectionBorder
-          )
-        }>
+        <div className={cn(
+          "p-4 pb-24 md:pb-4 border-t space-y-2",
+          c.sectionBorder
+        )}>
           {joinCommunityLink && (
             <Button
               variant="ghost"
@@ -1349,8 +637,8 @@ export function Sidebar() {
             <LogOut className="w-5 h-5 flex-shrink-0" />
             {isOpen && "Logout"}
           </Button>
-        </div >
-      </div >
+        </div>
+      </div>
     </>
   )
 }

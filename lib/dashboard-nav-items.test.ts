@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest"
-import { pickFirstVisiblePath, isNavActive, menuItems } from "./dashboard-nav-items"
+import {
+  pickFirstVisiblePath, isNavActive, menuItems, menuGroups, adminNavItems, adminNavGroups,
+} from "./dashboard-nav-items"
 import type { DomainService } from "./custom-domains"
 
 // NOTE on `services`: lib/custom-domains.ts's isPathAllowedForService/
@@ -90,6 +92,35 @@ describe("menuItems labels", () => {
   it("labels the complaints entry Support & Complaints", () => {
     const item = menuItems.find((i) => i.href === "/dashboard/complaints")
     expect(item?.label).toBe("Support & Complaints")
+  })
+})
+
+describe("sidebar groups", () => {
+  it("every grouped menu item points at a real menu group", () => {
+    const ids = new Set(menuGroups.map(g => g.id))
+    for (const item of menuItems) if (item.group) expect(ids.has(item.group), item.href).toBe(true)
+  })
+
+  it("the admin list still has every link the hand-written sidebar had (2026-11-16), once each", () => {
+    const before = [
+      "/admin", "/admin/ai-knowledge", "/admin/airtime", "/admin/airtime/settings", "/admin/ai-settings",
+      "/admin/api-keys", "/admin/blocked-numbers", "/admin/custom-domains", "/admin/gateway",
+      "/admin/hubtel-commission", "/admin/leaderboard", "/admin/momo-claims", "/admin/mtn-registration",
+      "/admin/orders", "/admin/payment-attempts", "/admin/payment-reverify", "/admin/phone-verification",
+      "/admin/rate-limits", "/admin/refunds", "/admin/results-checker", "/admin/results-check-requests",
+      "/admin/scheduled-tasks", "/admin/security", "/admin/settings", "/admin/settings/mtn", "/admin/sms",
+      "/admin/sms-centre", "/admin/sms-health", "/admin/subscribers", "/admin/subscriptions",
+      "/admin/text-to-buy", "/admin/transactions", "/admin/user-phone-audit", "/admin/ussd-hubtel",
+      "/admin/ussd-shops", "/admin/utility-bills", "/admin/whatsapp", "/admin/withdrawal-history",
+    ]
+    const hrefs = adminNavItems.map(i => i.href)
+    expect(new Set(hrefs).size).toBe(hrefs.length)
+    expect([...hrefs].sort()).toEqual([...before].sort())
+  })
+
+  it("every admin item points at a real admin group", () => {
+    const ids = new Set(adminNavGroups.map(g => g.id))
+    for (const item of adminNavItems) expect(ids.has(item.group), item.href).toBe(true)
   })
 })
 
