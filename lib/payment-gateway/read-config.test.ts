@@ -114,6 +114,21 @@ describe("createGatewayConfigReader", () => {
     )
   })
 
+  it("a row saved without sms_order reads back with the default for it", async () => {
+    const six = deriveFromLegacy({ storefrontDirect: false, walletDirect: false })
+    const { sms_order: _omit, ...rest } = six.surfaces
+    const { reader } = mk({ row: { version: 1, surfaces: rest, hubtelFeePercent: 0 } })
+    expect((await reader.get()).surfaces.sms_order).toEqual({ gateway: "paystack", mode: "direct", feeBearer: "customer" })
+  })
+
+  it("round-trips sms_order on Hubtel through a saved row", async () => {
+    const cfg = deriveFromLegacy({ storefrontDirect: false, walletDirect: false })
+    cfg.surfaces.sms_order = { gateway: "hubtel", mode: "direct", feeBearer: "customer" }
+    const stored = JSON.parse(JSON.stringify(cfg))
+    const { reader } = mk({ row: stored })
+    expect((await reader.get()).surfaces.sms_order).toEqual({ gateway: "hubtel", mode: "direct", feeBearer: "customer" })
+  })
+
   it("never rejects even if legacy also throws", async () => {
     const { reader } = mk({
       rowFn: async () => { throw new Error("db down") },

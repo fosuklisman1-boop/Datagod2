@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
+import { roleFromMetadata } from "@/lib/metadata-role"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPathAllowedForService, isPageHidden } from "@/lib/custom-domains"
 import { menuItems, shopItems, isNavActive } from "@/lib/dashboard-nav-items"
@@ -130,7 +131,8 @@ export function Sidebar() {
         } else {
           // Fallback: check user_metadata
           const { data: { user: authUser } } = await supabase.auth.getUser()
-          const metadataRole = authUser?.user_metadata?.role
+          // user_metadata is user-writable: roleFromMetadata never returns "admin".
+          const metadataRole = roleFromMetadata(authUser?.user_metadata)
           if (metadataRole) {
             setUserRole(metadataRole)
             localStorage.setItem('userRole', metadataRole)
@@ -644,6 +646,33 @@ export function Sidebar() {
                 </Button>
               </Link>
 
+              <Link href="/admin/text-to-buy" onClick={() => { markClicked("/admin/text-to-buy"); handleNavigation("/admin/text-to-buy") }}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "relative w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/text-to-buy" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/text-to-buy" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Text-to-Buy" : undefined}
+                  disabled={loadingPath === "/admin/text-to-buy"}
+                >
+                  {loadingPath === "/admin/text-to-buy" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <MessageSquare className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">Text-to-Buy</span>
+                      {isNew("/admin/text-to-buy") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/text-to-buy") && <NewTag compact />}
+                </Button>
+              </Link>
+
               <Link href="/admin/leaderboard" onClick={() => { markClicked("/admin/leaderboard"); handleNavigation("/admin/leaderboard") }}>
                 <Button
                   variant="ghost"
@@ -906,6 +935,33 @@ export function Sidebar() {
                     <Smartphone className="w-5 h-5 flex-shrink-0" />
                   )}
                   {isOpen && "MTN Registration"}
+                </Button>
+              </Link>
+
+              <Link href="/admin/blocked-numbers" onClick={() => { markClicked("/admin/blocked-numbers"); handleNavigation("/admin/blocked-numbers") }}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "relative w-full justify-start gap-3 transition-all duration-200",
+                    pathname === "/admin/blocked-numbers" ? c.navLinkActive : c.navLinkInactive,
+                    !isOpen && "justify-center",
+                    loadingPath === "/admin/blocked-numbers" && "opacity-70"
+                  )}
+                  title={!isOpen ? "Blocked Numbers" : undefined}
+                  disabled={loadingPath === "/admin/blocked-numbers"}
+                >
+                  {loadingPath === "/admin/blocked-numbers" ? (
+                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                  ) : (
+                    <PhoneOff className="w-5 h-5 flex-shrink-0" />
+                  )}
+                  {isOpen && (
+                    <span className="flex items-center justify-between flex-1 min-w-0 gap-2">
+                      <span className="truncate">Blocked Numbers</span>
+                      {isNew("/admin/blocked-numbers") && <NewTag />}
+                    </span>
+                  )}
+                  {!isOpen && isNew("/admin/blocked-numbers") && <NewTag compact />}
                 </Button>
               </Link>
 

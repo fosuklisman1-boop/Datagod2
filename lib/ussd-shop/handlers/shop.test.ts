@@ -27,6 +27,7 @@ vi.mock("../session", () => ({ setSession: h.setSession }))
 vi.mock("@/lib/shop-commerce/shop-code", () => ({
   resolveShopCode: async (code: string) =>
     code === "1234" ? { status: "active", shopId: "shop-1", shopCodeId: "code-1", shopName: "Ama", parentShopId: null }
+    : code === "7777" ? { status: "active", shopId: "shop-1", shopCodeId: "code-1", shopName: "Ama", parentShopId: null, ownerPhone: "0241234567" }
     : code === "5555" ? { status: "inactive", shopId: "shop-2", shopCodeId: "code-2", shopName: "Kofi", parentShopId: "p" }
     : code === "6666" ? { status: "suspended", shopId: "shop-3", shopCodeId: "code-3", shopName: "Esi", parentShopId: null }
     : null,
@@ -69,6 +70,22 @@ describe("productMenu (pure)", () => {
     expect(productMenu("Ama")).toBe(LEGACY)
     expect(productMenu("Ama", { data: true, airtime: true, resultsChecker: true })).toBe(LEGACY)
     expect(resolveProductMenu().map(r => r.key)).toEqual(["data", "airtime", "resultsChecker"])
+  })
+
+  it("Helpline: the owner's number sits under the shop name; none = the unchanged menu", () => {
+    expect(productMenu("Ama", {}, "0241234567")).toBe(
+      "Ama\nHelpline: 0241234567\nWhat to buy?\n1. Browse Services\n2. Airtime\n3. Results Checker\n0. Exit"
+    )
+    expect(productMenu("Ama", {}, null)).toBe(LEGACY)
+  })
+
+  it("Helpline is dropped rather than cutting off the menu when a long name would overflow 160 chars", () => {
+    const all = { networkPlans: true, payBills: true }
+    const fits = productMenu("X".repeat(30), all, "0241234567")
+    expect(fits).toContain("Helpline: 0241234567")
+    expect(fits.length).toBeLessThanOrEqual(160)
+    const long = "Y".repeat(45)
+    expect(productMenu(long, all, "0241234567")).toBe(productMenu(long, all))
   })
 
   it("every bot combination appends after the existing items", () => {
@@ -154,6 +171,13 @@ describe("handleSelectProduct: every gate combination", () => {
 describe("handleEnterShopCode", () => {
   it("gate closed: the product menu after a valid code is byte-identical", async () => {
     expect(await handleEnterShopCode("1234", SID, ME)).toEqual({ message: LEGACY, ussdServiceOp: 2 })
+  })
+
+  it("shows the owner's Helpline after a valid code and keeps it in the session for later menus", async () => {
+    const r = await handleEnterShopCode("7777", SID, ME)
+    expect(r.message).toBe("Ama\nHelpline: 0241234567\nWhat to buy?\n1. Browse Services\n2. Airtime\n3. Results Checker\n0. Exit")
+    expect(h.setSession).toHaveBeenCalledWith(SID, expect.objectContaining({ shopHelpline: "0241234567" }))
+    expect((await handleSelectProduct("9", SID, session({ shopHelpline: "0241234567" }))).message).toBe(r.message)
   })
 
   it("gate open: the bot items follow the legacy ones", async () => {

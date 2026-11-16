@@ -34,7 +34,7 @@ export const TOGGLEABLE_PAGES: ToggleablePage[] = [
   { key: "afa_orders",         label: "AFA Registration",       group: "tools", paths: ["/dashboard/afa-orders"] },
   { key: "upgrade",            label: "Upgrade / Dealer Plans", group: "tools", paths: ["/dashboard/upgrade"] },
   { key: "my_shop",            label: "My Shop",                group: "tools", paths: [
-    "/dashboard/my-shop", "/dashboard/shop-orders", "/dashboard/customers",
+    "/dashboard/my-shop", "/dashboard/shop-orders", "/dashboard/customers", "/dashboard/blocked-numbers",
     "/dashboard/shop-profit-logs", "/dashboard/shop-pricing",
     "/dashboard/shop-withdraw", "/dashboard/shop-profile",
   ] },

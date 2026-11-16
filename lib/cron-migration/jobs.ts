@@ -24,6 +24,7 @@ const BATCH_A = new Set(
     "check-subscription-expiry",
     "check-subscriptions",
     "mtn-whitelist-retry",
+    "mtn-blocked-recheck", // daily; re-running is harmless (selects only due rows, guarded status updates)
     "sms-kyc-purge",
     "release-held-mtn-orders",
     "sms-senderid-poll",
@@ -50,6 +51,7 @@ const BATCH_B = new Set(
     "security-alerts",
     "phone-verify",
     "api-v2-stuck", // report-only: alerts admins, never changes rows
+    "text-to-buy-notify", // overlap-safe: every notice is recorded with a guarded update before it is sent
   ].map((n) => P + n),
 )
 

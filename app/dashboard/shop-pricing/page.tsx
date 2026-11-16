@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { shopService, shopPackageService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
+import { roleFromMetadata } from "@/lib/metadata-role"
 import { shopOrigin } from "@/lib/shop-url"
 import { PillToggle } from "@/components/shop/pill-toggle"
 import { Tag, Send, AlertCircle, Loader2, Phone, GraduationCap, IdCard, Save, PartyPopper, Copy, MessageCircle, ExternalLink } from "lucide-react"
@@ -171,7 +172,7 @@ export default function ShopPricingPage() {
 
       const meRes = token ? await fetch("/api/user/me", { headers: { Authorization: `Bearer ${token}` } }) : null
       const me = meRes?.ok ? await meRes.json() : null
-      setUserRole(me?.role ?? (user?.user_metadata?.role as string | undefined) ?? null)
+      setUserRole(me?.role ?? roleFromMetadata(user?.user_metadata))
 
       const userShop = await shopService.getShop(user.id)
       setShop(userShop)

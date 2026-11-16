@@ -523,7 +523,12 @@ export async function POST(request: NextRequest) {
 
     // MTN number verification hard block (admin "block unverified numbers"
     // toggle). Before any order row or payment exists; outages never block.
-    if (await isRecipientBlocked(network, normalizedPhone)) {
+    if (await isRecipientBlocked(network, normalizedPhone, {
+      surface: "storefront",
+      shopId: shop_id ?? null,
+      product: `${network} ${finalVolumeGb}GB`,
+      amount: finalTotalPrice,
+    })) {
       console.warn(`[SHOP-ORDER] ⛔ Unverified MTN number blocked for shop ${shop_id}`)
       return NextResponse.json({ error: NOT_VERIFIED_MESSAGE, code: NOT_VERIFIED_CODE }, { status: 409 })
     }

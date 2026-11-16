@@ -170,8 +170,9 @@ export default function WhatsAppInboxPage() {
     (async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser()
-        let admin = user?.user_metadata?.role === "admin"
-        if (!admin && user?.id) {
+        // users.role only: user_metadata is user-writable and can never grant admin.
+        let admin = false
+        if (user?.id) {
           const { data: profile } = await supabase.from("users").select("role").eq("id", user.id).single()
           admin = profile?.role === "admin"
         }

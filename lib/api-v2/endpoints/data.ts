@@ -92,7 +92,7 @@ export interface DataDeps {
    * registered (block, no charge), null/absent = check unavailable (fail
    * open, like v1; the fulfillment-time hold stays the backstop).
    */
-  verifyMtn(locals: string[]): Promise<Map<string, boolean | null>>
+  verifyMtn(locals: string[], ctx?: { userId?: string }): Promise<Map<string, boolean | null>>
   /**
    * Whether a false verdict blocks (the admin "block unverified numbers"
    * toggle). Asked only when some verdict is false; a throw counts as off
@@ -217,10 +217,15 @@ function orderFromInput(input: PurchaseInput, price: number, status: unknown, cr
   return mapOrder(row)
 }
 
-async function safeVerify(deps: DataDeps, locals: string[]): Promise<Map<string, boolean | null>> {
+async function safeVerify(
+  deps: DataDeps,
+  locals: string[],
+  ctx?: { userId?: string }
+): Promise<Map<string, boolean | null>> {
   if (locals.length === 0) return new Map()
   try {
-    return await deps.verifyMtn(locals)
+    // ctx is passed only by order placement; verify-number is a report, not a refusal, so it records nothing.
+    return ctx ? await deps.verifyMtn(locals, ctx) : await deps.verifyMtn(locals)
   } catch {
     // Guard unavailable: fail open (same contract as the guard itself).
     return new Map()
@@ -366,7 +371,7 @@ async function livePurchase(deps: DataDeps, input: PurchaseInput, ctx: V2Context
   // 4. MTN whitelist: an explicit "not registered" blocks with no charge
   //    while the admin blocking toggle is on.
   if (input.network === "MTN") {
-    const verdicts = await safeVerify(deps, [input.local])
+    const verdicts = await safeVerify(deps, [input.local], { userId: ctx.userId })
     if (verdicts.get(input.local) === false && (await safeBlocking(deps))) return fail(409, MSG_NOT_REGISTERED)
   }
 
@@ -546,7 +551,7 @@ async function liveBulk(deps: DataDeps, items: PurchaseInput[], ctx: V2Context, 
       slots.flatMap((s) => (s.kind === "new" && s.p.input.network === "MTN" ? [s.p.input.local] : []))
     ),
   ]
-  const verdicts = await safeVerify(deps, mtnLocals)
+  const verdicts = await safeVerify(deps, mtnLocals, { userId: ctx.userId })
   const blocking = [...verdicts.values()].includes(false) && (await safeBlocking(deps))
   const skipped: Array<{ reference: string; reason: "NOT_REGISTERED" }> = []
   const toPlace = new Set<Slot>()

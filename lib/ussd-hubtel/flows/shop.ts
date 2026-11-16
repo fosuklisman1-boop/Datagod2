@@ -28,7 +28,9 @@ export function shopMenuFor(config: HubtelUssdConfig, dataBlocked: boolean) {
 /** The product menu for the session's shop, without writing the session. */
 export function shopMenuReply(ctx: FlowCtx, prefix = ""): HubtelReply {
   const s = ctx.session
-  return say(ctx, prefix + shopMenuText(s.shopName ?? "Shop", shopMenuFor(ctx.config, s.dataBlocked === true)), "SHOP_PRODUCT", PRODUCT)
+  // A prefix (e.g. "No packages available.") already takes screen space: the Helpline line shows only without one.
+  const helpline = prefix ? null : s.shopHelpline
+  return say(ctx, prefix + shopMenuText(s.shopName ?? "Shop", shopMenuFor(ctx.config, s.dataBlocked === true), helpline), "SHOP_PRODUCT", PRODUCT)
 }
 
 /** "0" on a shop flow's first screen: back to the product menu, keeping only the shop context. */
@@ -36,7 +38,7 @@ export async function backToProduct(ctx: FlowCtx, prefix = ""): Promise<HubtelRe
   const s = ctx.session
   const clean: HubtelSession = {
     mode: "shop", step: "SHOP_PRODUCT", dialingPhone: s.dialingPhone, platform: s.platform, dataBlocked: s.dataBlocked,
-    shopCodeId: s.shopCodeId, shopId: s.shopId, parentShopId: s.parentShopId, shopName: s.shopName, shopNetworks: s.shopNetworks,
+    shopCodeId: s.shopCodeId, shopId: s.shopId, parentShopId: s.parentShopId, shopName: s.shopName, shopHelpline: s.shopHelpline, shopNetworks: s.shopNetworks,
   }
   await ctx.deps.sessions.set(ctx.req.SessionId, clean)
   return shopMenuReply({ ...ctx, session: clean }, prefix)
@@ -109,8 +111,9 @@ async function enterCode(ctx: FlowCtx): Promise<HubtelReply> {
     shopId: shop.shopId,
     parentShopId: shop.parentShopId ?? undefined,
     shopName: shop.shopName,
+    shopHelpline: shop.ownerPhone ?? undefined,
     shopNetworks: networks,
-  }, shopMenuText(shop.shopName, shopMenuFor(ctx.config, ctx.session.dataBlocked === true)), PRODUCT)
+  }, shopMenuText(shop.shopName, shopMenuFor(ctx.config, ctx.session.dataBlocked === true), shop.ownerPhone), PRODUCT)
 }
 
 export const SHOP_ENTRY_STEPS: StepTable = {

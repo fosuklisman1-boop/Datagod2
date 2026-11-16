@@ -1648,7 +1648,13 @@ export async function executeToolCall(
           }
           // MTN number verification hard block (admin toggle), same gate as the typed-recipient step.
           const { isRecipientBlocked, NOT_VERIFIED_MESSAGE } = await import("@/lib/mtn-providers/customer-verification")
-          if (await isRecipientBlocked(network, recipient)) {
+          if (await isRecipientBlocked(network, recipient, {
+            surface: "whatsapp_ai",
+            shopId: shop.shopId ?? null,
+            userId: null,
+            purchaserPhone: phone,
+            product: `${network} ${size}`.trim(),
+          })) {
             return { error: "recipient_not_verified", message: `${NOT_VERIFIED_MESSAGE} Ask the customer for a different recipient number.` }
           }
           const { fetchShopBundles } = await import("@/lib/shop-commerce/pricing")
@@ -1894,7 +1900,14 @@ export async function executeToolCall(
 
         // MTN number verification hard block (admin toggle), same gate as the typed-recipient step.
         const { isRecipientBlocked, NOT_VERIFIED_MESSAGE } = await import("@/lib/mtn-providers/customer-verification")
-        if (await isRecipientBlocked(canonicalNetwork, localRecipient)) {
+        if (await isRecipientBlocked(canonicalNetwork, localRecipient, {
+          surface: "whatsapp_ai",
+          shopId: null,
+          userId: ctx.userId ?? null,
+          // Only the verified sender: a model-supplied phone must never become the paid-SMS recipient.
+          purchaserPhone: ctx.phone ? String(ctx.phone) : null,
+          product: `${canonicalNetwork} ${String(input.size ?? "")}`.trim(),
+        })) {
           return { error: "recipient_not_verified", message: `${NOT_VERIFIED_MESSAGE} Ask the customer for a different recipient number.` }
         }
 

@@ -12,6 +12,7 @@ const ctxFor: Record<FlowId, any> = {
   sender_id: { senderIdId: "x1", senderId: EVIL, reason: EVIL + LONG },
   complaint: { complaintId: "c1", orderId: "o1", priority: "high", summary: EVIL + LONG, resolutionNotes: EVIL + LONG },
   momo_claim: { kind: "flagged", amountPesewas: 1250, txidLast4: "3322", reasons: [EVIL] },
+  text_to_buy: { kind: "setting_changed", keys: ["ttb_main_enabled", EVIL] },
 }
 const SUPPORTED: Record<FlowId, Outcome[]> = {
   withdrawal: ["approved", "rejected", "completed"],
@@ -21,6 +22,7 @@ const SUPPORTED: Record<FlowId, Outcome[]> = {
   sender_id: ["approved", "rejected"],
   complaint: ["resolved", "rejected"],
   momo_claim: [],
+  text_to_buy: [],
 }
 const ALL: Outcome[] = ["approved", "rejected", "completed", "resolved"]
 

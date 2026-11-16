@@ -54,6 +54,12 @@ export interface MomoClaimCtx {
   reasons?: string[]
 }
 
+export interface TextToBuyCtx {
+  kind: "setting_changed"
+  /** Names of the settings that changed (admin_settings keys). Never their values, never a phone number. */
+  keys: string[]
+}
+
 export interface FlowCtx {
   withdrawal: WithdrawalCtx
   afa: AfaCtx
@@ -62,5 +68,6 @@ export interface FlowCtx {
   sender_id: SenderIdCtx
   complaint: ComplaintCtx
   momo_claim: MomoClaimCtx
+  text_to_buy: TextToBuyCtx
 }
 export type _FlowCtxKeysMatchFlowId = keyof FlowCtx extends FlowId ? (FlowId extends keyof FlowCtx ? true : never) : never

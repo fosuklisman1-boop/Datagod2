@@ -1,0 +1,336 @@
+// Text-to-Buy: every SMS the lane can send, as pure functions.
+// All copy is plain ASCII (GSM-7) and every reply goes through fitOneSegment, so
+// one reply is always exactly one 160-character segment. Money figures are filled
+// by code from the value written to the order; the AI never supplies them.
+
+import { calculateSegments } from "@/lib/sms/segments"
+import type { ExamBoardWord } from "./types"
+
+export const MAX_REPLY_CHARS = 160
+
+export type QuoteInput = {
+  size: string // package size as stored, e.g. "5GB"
+  networkLabel: string // "MTN" | "Telecel" | "AT"
+  recipientLocal: string
+  amountGhs: number // the value written to the order
+  feeOnTop: boolean // gateway adds its own charge for the customer
+  payerNetwork: "MTN" | "TELECEL" | "AT" | "UNKNOWN"
+}
+
+type SizePrice = { size: string; priceGhs: number }
+
+function fitsOneSegment(text: string): boolean {
+  const r = calculateSegments(text)
+  return r.encoding === "gsm7" && r.segments === 1
+}
+
+/** Joins parts with a space, dropping parts from the END until one GSM-7 segment fits. */
+export function fitOneSegment(parts: string[]): string {
+  const kept = parts.filter((p) => p.length > 0)
+  while (kept.length > 0) {
+    const text = kept.join(" ")
+    if (fitsOneSegment(text)) return text
+    kept.pop()
+  }
+  // Even the first part alone is too long: hard cap so it can never bill two segments.
+  return parts.join(" ").slice(0, MAX_REPLY_CHARS)
+}
+
+export function formatGhs(n: number): string {
+  return `GHS ${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+const PAYER_TIPS: Record<QuoteInput["payerNetwork"], string> = {
+  MTN: "No prompt? Dial *170#, 6, 3.",
+  TELECEL: "No prompt? Dial *110#, 4, 2.",
+  AT: "No prompt? Dial *110#, 6.",
+  UNKNOWN: "",
+}
+
+export function quoteReply(i: QuoteInput): string {
+  const price = i.feeOnTop ? `${formatGhs(i.amountGhs)} + MoMo charge` : formatGhs(i.amountGhs)
+  return fitOneSegment([
+    `${i.size} ${i.networkLabel} for ${i.recipientLocal}, ${price}.`,
+    "Approve the MoMo prompt now.",
+    PAYER_TIPS[i.payerNetwork],
+    `Next time just text ${i.size}`,
+  ])
+}
+
+/**
+ * A shop name as plain GSM-7 text: accents are folded (Cafe, not Caf), anything else outside printable ASCII (emoji, curly
+ * quotes) is dropped, and it is cut to maxChars. Nothing printable left: "Shop". Mirrors the shop USSD menus' gsm7().
+ */
+export function shopNameText(name: string, maxChars: number): string {
+  const plain = name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+  const cut = plain.slice(0, Math.max(1, maxChars)).trim()
+  return cut.length > 0 ? cut : "Shop"
+}
+
+/** Shrinks the shop name until the lead sentence built from it fits one GSM-7 segment on its own. */
+function leadWithShop(shopName: string, build: (name: string) => string): string {
+  for (let max = 40; max >= 1; max -= 1) {
+    const lead = build(shopNameText(shopName, max))
+    if (fitsOneSegment(lead)) return lead
+  }
+  return build("Shop")
+}
+
+/** The shop line's quote: the main quote with the shop named first. The amount is the value written to the order. */
+export function shopQuoteReply(i: QuoteInput & { shopName: string }): string {
+  const price = i.feeOnTop ? `${formatGhs(i.amountGhs)} + MoMo charge` : formatGhs(i.amountGhs)
+  const lead = leadWithShop(i.shopName, (n) => `${n}: ${i.size} ${i.networkLabel} for ${i.recipientLocal}, ${price}.`)
+  return fitOneSegment([lead, "Approve the MoMo prompt now.", PAYER_TIPS[i.payerNetwork], `Next time just text ${i.size}`])
+}
+
+/** The shop does not sell this size on this network. Names the shop. */
+export function shopSizeUnavailableReply(shopName: string, networkLabel: string): string {
+  return fitOneSegment([leadWithShop(shopName, (n) => `${n} does not have that size on ${networkLabel}.`), "Try another size."])
+}
+
+/** The shop cannot take orders right now (closed, or its prices could not be read). Names the shop. */
+export function shopOffReply(shopName: string): string {
+  return fitOneSegment([leadWithShop(shopName, (n) => `${n} is not available now.`), "Please try again later."])
+}
+
+export function unpaidReply(size: string): string {
+  return fitOneSegment([
+    "Payment didn't go through.",
+    `Reply YES to try again, or text ${size}.`,
+    "If you already approved, ignore this.",
+  ])
+}
+
+export function deliveredGiftReply(size: string, recipientLocal: string): string {
+  return fitOneSegment([`${size} sent to ${recipientLocal}.`, `Text ${size} to buy again.`])
+}
+
+export function paidNotDeliveredReply(): string {
+  return fitOneSegment([
+    "We received your payment but delivery is delayed.",
+    "We are working on it and will update you.",
+    "No need to pay again.",
+  ])
+}
+
+/** The prompt's total changed after the quote (the charge fell back to a different price). The figure comes from the order row. */
+export function repricedReply(amountGhs: number): string {
+  return fitOneSegment([`Total is now ${formatGhs(amountGhs)}.`, "Approve the MoMo prompt or ignore it."])
+}
+
+export function lateReply(): string {
+  return fitOneSegment(["Your message arrived late so we did not charge you.", "Please text again."])
+}
+
+export function limitedReply(): string {
+  return fitOneSegment(["Too many requests.", "Please try again in 1 hour."])
+}
+
+export function openOrderReply(): string {
+  return fitOneSegment(["Approve the MoMo prompt for your first order, or wait 5 minutes and text again."])
+}
+
+/** Which extra services are switched on for texting. No argument (or both off) is exactly the Stage 1 copy. */
+export type OfferedServices = { airtime?: boolean; resultsChecker?: boolean }
+
+export function notUnderstoodReply(s: OfferedServices = {}): string {
+  const lead =
+    s.airtime && s.resultsChecker
+      ? "Text 5GB for data, airtime 10 for airtime, or 2 wassce for checkers."
+      : s.airtime
+        ? "Text 5GB for data or airtime 10 for airtime."
+        : s.resultsChecker
+          ? "Text 5GB for data or 2 wassce for checkers."
+          : "To buy data, text the size e.g. 5GB."
+  return fitOneSegment([lead, "For someone else add the number: 5GB 0241234567.", "Text PRICES for the list."])
+}
+
+/**
+ * Shop line only: the not-understood reply plus a pointer to Datagod's WhatsApp support, when the whole reply still fits one
+ * GSM-7 segment. Otherwise (or with no support number) exactly the current wording. `waDigits` is digits only.
+ */
+export function notUnderstoodShopReply(waDigits: string | null, s: OfferedServices = {}): string {
+  const base = notUnderstoodReply(s)
+  if (!waDigits || !/^\d+$/.test(waDigits)) return base
+  const withLink = `${base} For help WhatsApp: https://wa.me/${waDigits}`
+  return fitsOneSegment(withLink) ? withLink : base
+}
+
+export function helpReply(s: OfferedServices = {}): string {
+  return notUnderstoodReply(s)
+}
+
+/** Airtime and the delay notice. Money figures are filled by the caller from the value written to the order. */
+export function amountToken(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2)
+}
+
+export function airtimeQuoteReply(i: {
+  networkLabel: string
+  recipientLocal: string
+  payGhs: number
+  getsGhs: number
+  feeOnTop: boolean
+  payerNetwork: QuoteInput["payerNetwork"]
+}): string {
+  const pay = i.feeOnTop ? `${formatGhs(i.payGhs)} + MoMo charge` : formatGhs(i.payGhs)
+  return fitOneSegment([
+    `${i.networkLabel} airtime for ${i.recipientLocal}: you pay ${pay}, they get ${formatGhs(i.getsGhs)}.`,
+    "Approve the MoMo prompt now.",
+    PAYER_TIPS[i.payerNetwork],
+  ])
+}
+
+export function airtimeGiftDeliveredReply(size: string, recipientLocal: string): string {
+  return fitOneSegment([`Airtime sent to ${recipientLocal}.`, `Text ${size} to buy again.`])
+}
+
+export function delayedReply(): string {
+  return fitOneSegment(["We received your payment.", "Delivery is delayed; we are on it and will update you."])
+}
+
+export function airtimeLimitsReply(min: number, max: number): string {
+  return fitOneSegment([`Airtime is GHS ${min} to ${max}.`, "Text e.g. airtime 10."])
+}
+
+export function airtimeOffReply(networkLabel: string): string {
+  return fitOneSegment([`${networkLabel} airtime is not available now.`])
+}
+
+export function airtimeWrongNumberReply(): string {
+  return fitOneSegment(["That phone number is not valid.", "Text e.g. airtime 10 0241234567."])
+}
+
+export function airtimeNetworkQuestion(): string {
+  return fitOneSegment(["Which network is that number on?", "1) MTN 2) Telecel 3) AT"])
+}
+
+/** An order exists but its amounts could not be read: say nothing about money. */
+export function placedNeutralReply(): string {
+  return fitOneSegment(["Your order was placed.", "Approve the MoMo prompt if you get one."])
+}
+
+/** Exam checker vouchers. The PINs never travel in a lane SMS: they come from the normal voucher delivery. */
+type VoucherBoard = ExamBoardWord
+
+export function voucherQuoteReply(i: {
+  board: VoucherBoard
+  quantity: number
+  amountGhs: number
+  feeOnTop: boolean
+  payerNetwork: QuoteInput["payerNetwork"]
+}): string {
+  const price = i.feeOnTop ? `${formatGhs(i.amountGhs)} + MoMo charge` : formatGhs(i.amountGhs)
+  const one = i.quantity === 1
+  return fitOneSegment([
+    `${i.quantity} ${i.board} ${one ? "checker" : "checkers"}, ${price}.`,
+    "Approve the MoMo prompt now.",
+    one ? "PIN comes by SMS to this number." : "PINs come by SMS to this number.",
+    PAYER_TIPS[i.payerNetwork],
+  ])
+}
+
+export function voucherOffReply(board: VoucherBoard | null): string {
+  return fitOneSegment([board ? `${board} checkers are not available now.` : "Checkers are not available now."])
+}
+
+export function voucherMaxReply(board: VoucherBoard, cap: number): string {
+  return fitOneSegment([`You can buy up to ${cap} ${board} checkers per order.`])
+}
+
+export function voucherBoardQuestion(boards: VoucherBoard[]): string {
+  return fitOneSegment(["Which checker?", ...boards.map((b, k) => `${k + 1}) ${b}`)])
+}
+
+export function wrongNumberReply(): string {
+  return fitOneSegment([
+    "That phone number is not valid.",
+    "Text the size and a 10-digit number, e.g. 5GB 0241234567.",
+  ])
+}
+
+export function unavailableReply(networkLabel: string, nearest: SizePrice[]): string {
+  const head = `That size is not available on ${networkLabel}.`
+  if (nearest.length === 0) return fitOneSegment([head, "Text PRICES for the list."])
+  // Drop whole nearest entries from the end until it fits.
+  for (let n = nearest.length; n >= 1; n--) {
+    const list = nearest
+      .slice(0, n)
+      .map((x) => `${x.size} ${formatGhs(x.priceGhs)}`)
+      .join(", ")
+    const text = `${head} Nearest: ${list}. Text one of these sizes.`
+    if (fitsOneSegment(text)) return text
+  }
+  return fitOneSegment([head, "Text PRICES for the list."])
+}
+
+export function priceListReply(networkLabel: string, items: SizePrice[]): string {
+  const prefix = `${networkLabel}:`
+  let text = prefix
+  for (let i = 0; i < items.length; i++) {
+    const next = `${text} ${i + 1}) ${items[i].size} ${formatGhs(items[i].priceGhs)}`
+    if (!fitsOneSegment(next)) break
+    text = next
+  }
+  return text
+}
+
+export function priceAnswerReply(size: string, networkLabel: string, priceGhs: number): string {
+  return fitOneSegment([`${networkLabel} ${size} is ${formatGhs(priceGhs)}.`, `Text ${size} to buy.`])
+}
+
+export function statusReply(
+  s: "none" | "awaiting_payment" | "processing" | "delivered" | "failed",
+  size?: string,
+): string {
+  const order = size ? `Your ${size} order` : "Your order"
+  switch (s) {
+    case "none":
+      return fitOneSegment(["No recent order found.", "To buy data, text the size e.g. 5GB."])
+    case "awaiting_payment":
+      return fitOneSegment([`${order} is waiting for payment.`, "Approve the MoMo prompt."])
+    case "processing":
+      return fitOneSegment([`${order} is paid and being delivered.`, "Please wait a few minutes."])
+    case "delivered":
+      return fitOneSegment([`${order} was delivered.`])
+    case "failed":
+      return fitOneSegment([`${order} was not completed.`, size ? `Text ${size} to try again.` : "Text the size to try again."])
+  }
+}
+
+const NUMBER_WORDS =
+  "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand"
+const PRICE_WORDS = "cost|costs|price|priced|pay|charge|fee|total|only|for|is"
+
+/**
+ * Allow-list money check for AI-written text. True when the text names a currency, or
+ * contains ANY digit outside an allowed form (a size like 5GB / 1.5GB / 500MB, or a
+ * list marker like "1)"). Phone numbers are not allowed. Spelled-out numbers (twenty,
+ * fifty, hundred ...) are caught only when a price-like word (cost, price, pay, only,
+ * for, is, at ...) also appears; a spelled number with no digit and no price word
+ * ("which of the two?") passes. Over-blocking is the safe direction.
+ */
+export function containsMoney(text: string): boolean {
+  if (/ghs|ghc|usd|₵|\$/i.test(text)) return true
+  if (/\b(cedis?|pesewas?|dollars?)\b/i.test(text)) return true
+  if (/\bgh\s*\d/i.test(text)) return true
+  const stripped = text.replace(/\d+(\.\d+)?\s?(gb|mb)\b/gi, " ").replace(/(?<![\w.,(])[1-9]\)/g, " ")
+  if (/\d/.test(stripped)) return true
+  const numberWord = new RegExp(`\\b(${NUMBER_WORDS})\\b`, "i")
+  const priceWord = new RegExp(`\\b(${PRICE_WORDS})\\b`, "i")
+  // "at" is also the AT network name, so it only counts directly before a number word.
+  const atNumber = new RegExp(`\\bat\\s+(${NUMBER_WORDS})\\b`, "i")
+  return (numberWord.test(text) && priceWord.test(text)) || atNumber.test(text)
+}
+
+/** AI text if it states no money and fits one GSM-7 segment, else the safe fallback. */
+export function safeAiQuestion(text: string): string {
+  const t = text.trim()
+  if (t.length === 0 || containsMoney(t) || !fitsOneSegment(t)) return notUnderstoodReply()
+  return t
+}

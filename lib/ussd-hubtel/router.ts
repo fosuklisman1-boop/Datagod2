@@ -56,10 +56,13 @@ export function defaultRouterDeps(supabase: SupabaseClient): RouterDeps {
     networkPlans: defaultNetworkPlansServices(),
     payBills: defaultPayBillsServices(),
     botMenus: () => loadBotMenuGate(supabase),
-    verifyRecipient: async phone => {
+    verifyRecipient: async (phone, blockContext, defer) => {
       // Generous bound: screens cap their own wait, and a check that outlives a screen finishes in
       // the background (deps.defer) and caches its verdict for the pay step.
-      const v = await verifyRecipientsForOrder([phone], { timeoutMs: 12_000 })
+      const v = await verifyRecipientsForOrder([phone], {
+        timeoutMs: 12_000,
+        ...(blockContext ? { context: blockContext, defer } : {}),
+      })
       const verdict = v.verdicts.get(phone)
       // Diagnostic only (no phone): what the confirm screen will show and why.
       console.info(`[HUBTEL-VERIFY] verdict=${verdict} blocking=${v.blocking} -> ${v.blocked.length > 0 ? "blocked" : verdict === false ? "warn" : "ok"}`)

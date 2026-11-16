@@ -30,14 +30,17 @@ function errName(err: unknown): string {
   return err instanceof Error && /^[A-Za-z0-9_]{1,40}$/.test(err.name) ? err.name : "UnknownError"
 }
 
-async function realVerifyMtn(locals: string[]): Promise<Map<string, boolean | null>> {
+async function realVerifyMtn(locals: string[], ctx?: { userId?: string }): Promise<Map<string, boolean | null>> {
   try {
     const cv = await import("@/lib/mtn-providers/customer-verification")
     // The shared order gate: same verdicts as resolveMtnVerdicts, plus the verdict
     // cache every other ordering endpoint uses (a verified number is never re-checked).
     // v1 bounds the single check at 5 s; a bulk batch gets 10 s, which keeps
     // the bulk request well inside its BULK_DEADLINE_MS placement deadline.
-    const { verdicts } = await cv.verifyRecipientsForOrder(locals, { timeoutMs: locals.length > 1 ? 10_000 : 5_000 })
+    const { verdicts } = await cv.verifyRecipientsForOrder(locals, {
+      timeoutMs: locals.length > 1 ? 10_000 : 5_000,
+      ...(ctx ? { context: { surface: "api_v2" as const, userId: ctx.userId ?? null } } : {}),
+    })
     return verdicts
   } catch (err) {
     console.error("[API v2] MTN verification unavailable (failing open):", errName(err))

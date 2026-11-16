@@ -10,6 +10,7 @@ import type { AfaServices, AirtimeServices, DialerInfo, NetworkPlansServices, Pa
 import type { HubtelSessionStore } from "./session"
 import type { ShopServices } from "./shop-services"
 import type { CallerContext } from "./catalog"
+import type { BlockContext } from "@/lib/blocked-numbers/types"
 import { resolveMainMenu, mainMenuText } from "./menus"
 import { cartItemNameFor, failOrderGuarded, isHubtelOrderTable, type HubtelOrderTable } from "./order-tables"
 import { addToCart, release, respond } from "./protocol"
@@ -50,7 +51,12 @@ export interface RouterDeps {
    * false = not yet verified (warn, still sellable); "blocked" = rejected while the admin blocking toggle is on
    * (not sellable). Must fail open; callers also time it out.
    */
-  verifyRecipient?(phoneLocal: string): Promise<boolean | "blocked">
+  verifyRecipient?(
+    phoneLocal: string,
+    ctx?: BlockContext,
+    /** Runs the blocked-number recording after the reply (the route's deps.defer) so it never adds latency. */
+    defer?: (task: () => Promise<unknown>) => void
+  ): Promise<boolean | "blocked">
   /**
    * Keep a task running after the reply is sent (Next.js after()). Used so a recipient check that
    * outlives the confirm screen's short wait still finishes and caches its verdict for the pay step.

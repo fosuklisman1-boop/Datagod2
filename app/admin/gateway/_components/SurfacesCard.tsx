@@ -31,6 +31,10 @@ const SURFACE_LABELS: Record<SurfaceKey, { title: string; hint: string }> = {
   sms: { title: "SMS credits", hint: "Bulk SMS credit purchases" },
   ussd: { title: "USSD", hint: "USSD menu payments (direct prompt only)" },
   whatsapp: { title: "WhatsApp", hint: "WhatsApp bot payments (direct prompt only)" },
+  sms_order: {
+    title: "Text orders (SMS)",
+    hint: "SMS text-to-buy orders; charges the number that texted (direct prompt only)",
+  },
 }
 
 interface Props {

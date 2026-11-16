@@ -702,7 +702,8 @@ export async function handleChargeSuccess(data: ChargeEventData): Promise<NextRe
 
     // SMS to recipient (USSD shop orders intentionally omit the channel link)
     // Skip if held: holdMtnOrder already sent the hold SMS
-    if (!fulfillResult?.held) {
+    // Skip for text-to-buy shop orders: the shop-paid notifier owns every reply on that channel.
+    if (!fulfillResult?.held && ussdShopOrder.channel !== "sms_shop") {
       try {
         await sendSMS({
           phone: ussdShopOrder.recipient_phone,

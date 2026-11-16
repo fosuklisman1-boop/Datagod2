@@ -70,17 +70,34 @@ describe("DELETE /api/admin/remove-user", () => {
     expect(h.log.filter((l) => l.endsWith(":delete"))).toEqual([])
   })
 
-  it("refuses to delete an admin (role in users, or in the auth metadata)", async () => {
+  it("refuses to delete a real admin (users.role is the only source of truth)", async () => {
     h.profile = { email: "a@x.com", phone_number: null, role: "admin" }
-    let res = await DELETE({ userId: USER_ID })
+    const res = await DELETE({ userId: USER_ID })
     expect(res.status).toBe(403)
     expect((await res.json()).error).toMatch(/admin/i)
-    h.profile = null
-    h.authUser = { id: USER_ID, email: "a@x.com", user_metadata: { role: "admin" } }
-    res = await DELETE({ userId: USER_ID })
-    expect(res.status).toBe(403)
     expect(h.deleted).toEqual([])
     expect(h.log.filter((l) => l.endsWith(":delete") || l === "admin_audit_log:insert")).toEqual([])
+  })
+
+  // user_metadata is writable by the user (signUp options.data / auth.updateUser), so a forged
+  // role "admin" there must not make an account undeletable (seen in prod 2026-11-14).
+  it("deletes an account that only claims admin in its self-written auth metadata", async () => {
+    h.profile = { email: "probe@x.com", phone_number: null, role: "user" }
+    h.authUser = { id: USER_ID, email: "probe@x.com", user_metadata: { role: "admin" } }
+    const res = await DELETE({ userId: USER_ID })
+    expect(res.status).toBe(200)
+    expect((h.fake.ofTable("admin_audit_log")[0].payload as any[])[0].new_value)
+      .toEqual({ email: "probe@x.com", phone: null, role: "user", claimed_metadata_role: "admin" })
+    expect(h.deleted).toEqual([USER_ID])
+  })
+
+  it("treats a forged metadata admin with no profile row as a plain user", async () => {
+    h.profile = null
+    h.authUser = { id: USER_ID, email: "probe2@x.com", user_metadata: { role: "admin" } }
+    const res = await DELETE({ userId: USER_ID })
+    expect(res.status).toBe(200)
+    expect((h.fake.ofTable("admin_audit_log")[0].payload as any[])[0].new_value.role).toBe("user")
+    expect(h.deleted).toEqual([USER_ID])
   })
 
   it("404s an unknown user", async () => {

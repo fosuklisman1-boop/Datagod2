@@ -11,8 +11,9 @@ import { resolveEmail } from "../resolve-email"
 import { liveWalletBalance } from "../wallet-balance"
 import { submitOtp } from "../../paystack"
 import { paystackProviderFromPhone } from "../paystack-provider"
+import { resolveBuyerTier } from "../buyer-tier"
 import {
-  guardedReprice, isUssdHubtelPayer, pendingOrderAmountFor, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdPrice,
+  guardedReprice, isUssdHubtelPayer, pendingOrderAmountFor, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdChannel, type UssdPrice,
 } from "../gateway-charge"
 import { fulfillUssdOrder } from "../fulfill"
 import { sendSMS, SMSTemplates } from "../../sms-service"
@@ -41,33 +42,48 @@ const NETWORK_OPTIONS: Record<string, { dbName: string; paystackProvider: 'mtn' 
   '4': { dbName: 'AT-BigTime', paystackProvider: 'tgo' },
 }
 
-export async function fetchBundles(
+/**
+ * The one price list behind the bundle menu and the SMS lane. `page` null = every package (no paging).
+ * `strict` false (the menu): a failed read lists nothing / shows role prices, because handleConfirm re-prices and
+ * refuses on failure. `strict` true (a lane that quotes a price in text): any failed read throws, so a price is never
+ * quoted from a fallback.
+ */
+async function loadBundles(
   network: string,
-  page: number,
+  page: number | null,
   priceTier: string,
-  parentShopId?: string,
-  userId?: string
+  parentShopId: string | undefined,
+  userId: string | undefined,
+  strict: boolean
 ): Promise<{ bundles: BundleOption[]; total: number }> {
   // Sub-agents see only packages their parent actively offers, at the parent's LIVE cost (role price + current
   // wholesale margin; the stored parent_price is not trusted). Priced and sorted in code, then paged.
   // Display: a read failure lists nothing; handleConfirm re-prices and refuses on failure.
   if (priceTier === 'sub_agent' && parentShopId) {
-    const all = await subAgentBundles(parentShopId, network, supabase).catch(() => [] as BundleOption[])
-    return { bundles: all.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE), total: all.length }
+    const pending = subAgentBundles(parentShopId, network, supabase)
+    const all = await (strict ? pending : pending.catch(() => [] as BundleOption[]))
+    return {
+      bundles: page === null ? all : all.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
+      total: all.length,
+    }
   }
 
   // Regular / dealer — query packages table directly
-  const { data, count } = await supabase
+  let query = supabase
     .from("packages")
     .select("id, size, price, dealer_price", { count: 'exact' })
     .eq("network", network)
     .eq("is_available", true)
     .order("price", { ascending: true })
     .order("id", { ascending: true })
-    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+  if (page !== null) query = query.range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+  const { data, count, error } = await query
+  if (strict && (error || !Array.isArray(data))) throw new Error("Could not read packages")
 
   // Display: a failed read shows role prices; handleConfirm re-prices and refuses on failure.
-  const custom = await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
+  const custom = strict
+    ? await getCustomPrices(supabase, userId)
+    : await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
   const bundles: BundleOption[] = (data ?? []).map((row: any) => ({
     id: row.id,
     size: row.size,
@@ -75,6 +91,26 @@ export async function fetchBundles(
   }))
 
   return { bundles, total: count ?? 0 }
+}
+
+export function fetchBundles(
+  network: string,
+  page: number,
+  priceTier: string,
+  parentShopId?: string,
+  userId?: string
+): Promise<{ bundles: BundleOption[]; total: number }> {
+  return loadBundles(network, page, priceTier, parentShopId, userId, false)
+}
+
+/** Every package of a network at the buyer's price (same query and pricing as fetchBundles), throwing when any read fails. */
+export async function fetchAllBundles(
+  network: string,
+  priceTier: string,
+  parentShopId?: string,
+  userId?: string
+): Promise<BundleOption[]> {
+  return (await loadBundles(network, null, priceTier, parentShopId, userId, true)).bundles
 }
 
 // ── SELECT_NETWORK ────────────────────────────────────────────────────────────
@@ -99,51 +135,9 @@ export async function handleSelectNetwork(
 
   // Resolve effective price tier from user's account role
   const dialingPhone = session.dialingPhone ?? ''
-  const localPhone = dialingPhone.startsWith('+233') ? '0' + dialingPhone.slice(4)
-    : dialingPhone.startsWith('233') ? '0' + dialingPhone.slice(3)
-    : dialingPhone
+  const tier = await resolveBuyerTier(supabase, dialingPhone, net.dbName)
 
-  const [{ data: userRow }, { data: settingsRow }, { data: mtnProviderRow }] = await Promise.all([
-    supabase.from("users").select("id, role").eq("phone_number", localPhone).maybeSingle(),
-    supabase.from("app_settings").select("ussd_price_tier").is("key", null).single(),
-    net.dbName === 'MTN'
-      ? supabase.from("admin_settings").select("value").eq("key", "mtn_provider_selection").maybeSingle()
-      : Promise.resolve({ data: null }),
-  ])
-  const mtnWhitelistActive = net.dbName === 'MTN' &&
-    ['xpress', 'codecraft'].includes(mtnProviderRow?.value?.provider ?? '')
-
-  let effectivePriceTier: string = settingsRow?.ussd_price_tier ?? 'regular'
-  let subAgentParentShopId: string | undefined
-  let walletBalance: number | undefined
-
-  if (userRow) {
-    if (userRow.role === 'dealer') {
-      effectivePriceTier = 'dealer'
-      const { data: walletRow } = await supabase
-        .from("wallets").select("balance").eq("user_id", userRow.id).maybeSingle()
-      walletBalance = walletRow ? Number(walletRow.balance) : undefined
-    } else if (userRow.role === 'sub_agent') {
-      const [{ data: shopRow }, { data: walletRow }] = await Promise.all([
-        supabase.from("user_shops").select("parent_shop_id").eq("user_id", userRow.id).not("parent_shop_id", "is", null).maybeSingle(),
-        supabase.from("wallets").select("balance").eq("user_id", userRow.id).maybeSingle(),
-      ])
-      walletBalance = walletRow ? Number(walletRow.balance) : undefined
-      if (shopRow?.parent_shop_id) {
-        effectivePriceTier = 'sub_agent'
-        subAgentParentShopId = shopRow.parent_shop_id
-      } else {
-        effectivePriceTier = 'regular'
-      }
-    } else {
-      effectivePriceTier = 'regular'
-      const { data: walletRow } = await supabase
-        .from("wallets").select("balance").eq("user_id", userRow.id).maybeSingle()
-      walletBalance = walletRow ? Number(walletRow.balance) : undefined
-    }
-  }
-
-  const { bundles, total } = await fetchBundles(net.dbName, 0, effectivePriceTier, subAgentParentShopId, userRow?.id)
+  const { bundles, total } = await fetchBundles(net.dbName, 0, tier.effectivePriceTier, tier.subAgentParentShopId, tier.userId)
   if (bundles.length === 0) {
     return cont(`No ${networkNickname(net.dbName)} packages available.\n\n${networkMenu()}`)
   }
@@ -155,14 +149,10 @@ export async function handleSelectNetwork(
     step: 'SELECT_BUNDLE',
     network: net.dbName,
     paystackProvider,
-    effectivePriceTier,
-    subAgentParentShopId,
-    userId: userRow?.id,
-    walletBalance,
+    ...tier,
     bundlePage: 0,
     bundleCache: bundles,
     bundleTotal: total,
-    mtnWhitelistActive,
   })
 
   return cont(bundleMenu(bundles, 0, total))
@@ -255,7 +245,12 @@ export async function handleEnterRecipient(
   }
 
   // MTN number verification hard block (admin toggle): ask for another number. Outages never block.
-  if (await isRecipientBlocked(session.network, local)) {
+  if (await isRecipientBlocked(session.network, local, {
+    surface: 'ussd_uzo',
+    purchaserPhone: session.dialingPhone ?? null,
+    product: `${session.network ?? ''} ${session.bundleSize ?? ''}`.trim() || null,
+    amount: session.bundlePrice ?? null,
+  })) {
     return cont(RECIPIENT_BLOCKED_PROMPT)
   }
 
@@ -276,13 +271,14 @@ export async function handleConfirm(
   input: string,
   sessionId: string,
   session: USSDSession,
-  channel: 'ussd' | 'whatsapp' = 'ussd',
+  channel: UssdChannel = 'ussd',
   /**
    * WhatsApp "Pay via Wallet": if the wallet cannot cover the verified price, create nothing and return
    * `walletShort` (the router asks for a MoMo number) instead of charging `dialingPhone`, the sender's own number
    * there. USSD never passes it.
+   * `momoOnly` (sms channel only): no wallet detour at all; the order is charged to `dialingPhone`, the sender.
    */
-  opts: { walletOnly?: boolean } = {}
+  opts: { walletOnly?: boolean; momoOnly?: boolean } = {}
 ): Promise<UzoResponse> {
   if (input.trim() === '2') {
     // Cancel
@@ -367,9 +363,12 @@ export async function handleConfirm(
   // OTP-linked one; the debit uses that same id), so a balance spent since the menu never leaves a pending order row
   // behind; the Uzo path keeps the session's cached balance exactly as before.
   let walletBalance = session.walletBalance
-  if (opts.walletOnly) walletBalance = await liveWalletBalance(session.userId)
-  const walletEligible = !!session.userId && walletBalance !== undefined && walletBalance >= verifiedPrice
-  if (opts.walletOnly && !walletEligible) return waWalletShort()
+  // The sms channel never pays from a wallet, whatever the caller passes (opts.momoOnly / walletOnly are ignored there).
+  const smsMomoOnly = channel === 'sms'
+  const walletOnly = opts.walletOnly && !smsMomoOnly
+  if (walletOnly) walletBalance = await liveWalletBalance(session.userId)
+  const walletEligible = !smsMomoOnly && !!session.userId && walletBalance !== undefined && walletBalance >= verifiedPrice
+  if (walletOnly && !walletEligible) return waWalletShort()
 
   // The gateway decides the MoMo amount, so it is resolved before the order is written.
   const surface = ussdChargeSurface(channel)
@@ -416,7 +415,8 @@ export async function handleConfirm(
 
   const email = await resolveEmail(dialingPhone!)
   after(async () => {
-    await new Promise(r => setTimeout(r, 3000))
+    // The wait lets the USSD/WhatsApp session close before the prompt lands (a7afbdd1). A text has no session.
+    if (channel !== 'sms') await new Promise(r => setTimeout(r, 3000))
     try {
       const { status } = await startUssdCharge({
         surface,
@@ -428,7 +428,7 @@ export async function handleConfirm(
           phone: dialingPhone!,
           provider: paystackProvider as 'mtn' | 'vod' | 'tgo',
           reference: orderId,
-          metadata: { source: 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
+          metadata: { source: channel === 'sms' ? 'sms' : 'ussd', ussd_order_id: orderId, recipient_phone: recipientPhone, network, package_size: bundleSize },
         },
         reprice: repriceUssdOrder(orderId, chargeAmount, price.paystack),
       })
@@ -441,7 +441,9 @@ export async function handleConfirm(
       console.log("[USSD-CONFIRM] ✓ Charge initiated for order:", orderId, "status:", status)
       if (status === 'send_otp') {
         await supabase.from("ussd_orders").update({ payment_status: 'otp_required', updated_at: new Date().toISOString() }).eq("id", orderId)
-        if (channel === 'whatsapp') {
+        if (channel === 'sms') {
+          // Nothing is sent here: the text-to-buy notifier owns every customer message for this channel.
+        } else if (channel === 'whatsapp') {
           // Unlike USSD (stateless per-dial, must redial to resume), WhatsApp's
           // session is keyed by phone number and stays addressable — reopen it
           // directly into SUBMIT_OTP and push a follow-up message, rather than
@@ -460,9 +462,10 @@ export async function handleConfirm(
     }
   })
 
-  return end(
+  const sent = end(
     `MoMo prompt sent to ${localDialing}. Approve to complete.\n\nReceived an OTP instead? Redial and enter the code.`
   )
+  return channel === 'sms' ? { ...sent, orderId, amount: chargeAmount } : sent
 }
 
 // ── PAYMENT_METHOD ────────────────────────────────────────────────────────────

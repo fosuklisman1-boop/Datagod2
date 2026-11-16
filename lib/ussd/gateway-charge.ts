@@ -14,10 +14,11 @@ import {
 } from "@/lib/payment-gateway/start"
 import { paystackProviderFromPhone } from "./paystack-provider"
 
-export type UssdChannel = "ussd" | "whatsapp"
+export type UssdChannel = "ussd" | "whatsapp" | "sms"
 
-/** The gateway surface of a charge: `whatsapp` when the handler runs for the WhatsApp bot, else `ussd`. */
-export const ussdChargeSurface = (channel: UssdChannel | undefined): SurfaceKey => (channel === "whatsapp" ? "whatsapp" : "ussd")
+/** The gateway surface of a charge: `whatsapp` for the WhatsApp bot, `sms_order` for text-to-buy, else `ussd`. */
+export const ussdChargeSurface = (channel: UssdChannel | undefined): SurfaceKey =>
+  channel === "whatsapp" ? "whatsapp" : channel === "sms" ? "sms_order" : "ussd"
 
 /** The number forms startMomoCharge can send to Hubtel as they are. */
 const SENDABLE = /^(\+?233|0)\d{9}$/

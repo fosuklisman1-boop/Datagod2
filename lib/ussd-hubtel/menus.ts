@@ -201,8 +201,15 @@ export function shopCodeRetryText(reason: string): string {
   return `${reason}\nEnter shop code:\n0. Exit`
 }
 
-export function shopMenuText(shopName: string, resolved: ResolvedMenuItem<ShopMenuKey>[]): string {
-  return renderMenuText(`${shopHeader(shopName)}\nWhat would you like to buy?`, resolved, "0. Exit")
+/**
+ * The shop's product menu. `helpline` (the shop owner's number, local format) goes on its own line under
+ * the name; it is dropped if it would overflow the screen, so "0. Exit" is never cut off.
+ */
+export function shopMenuText(shopName: string, resolved: ResolvedMenuItem<ShopMenuKey>[], helpline?: string | null): string {
+  const plain = renderMenuText(`${shopHeader(shopName)}\nWhat would you like to buy?`, resolved, "0. Exit")
+  if (!helpline) return plain
+  const withHelp = renderMenuText(`${shopHeader(shopName)}\nHelpline: ${helpline}\nWhat would you like to buy?`, resolved, "0. Exit")
+  return withHelp.length <= USSD_SCREEN_LIMIT ? withHelp : plain
 }
 
 /** Real name for a packages.network value; values Hubtel does not list are shown as stored. */

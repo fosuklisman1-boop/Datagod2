@@ -784,7 +784,13 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
         }
 
         // MTN number verification hard block (admin toggle). Outages never block.
-        if (await isRecipientBlocked(session.network, local)) {
+        if (await isRecipientBlocked(session.network, local, {
+          surface: 'whatsapp_shop',
+          shopId: session.shopId ?? null,
+          purchaserPhone: from,
+          product: `${session.network ?? ''} ${session.bundleSize ?? ''}`.trim() || null,
+          amount: session.bundlePrice ?? null,
+        })) {
           reply = RECIPIENT_BLOCKED_PROMPT
           break
         }

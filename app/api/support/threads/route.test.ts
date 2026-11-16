@@ -29,6 +29,8 @@ const CALLER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 const ORDER = "11111111-1111-4111-8111-111111111111"
 const SHOP_ORDER = "22222222-2222-4222-8222-222222222222"
 const SHOP = "33333333-3333-4333-8333-333333333333"
+/** A time comfortably past every complaint-window wait. */
+const OLD = "2026-01-01T00:00:00Z"
 const THREAD = "44444444-4444-4444-8444-444444444444"
 const MSG = "55555555-5555-4555-8555-555555555555"
 
@@ -157,7 +159,7 @@ describe("POST /api/support/threads", () => {
 
   it("201 for a shop order owned through the caller's shop", async () => {
     install((c) => {
-      if (c.table === "shop_orders") return { data: { shop_id: SHOP } }
+      if (c.table === "shop_orders") return { data: { shop_id: SHOP, order_status: "completed", created_at: OLD, updated_at: OLD } }
       if (c.table === "user_shops") return { data: { id: SHOP } }
       return undefined
     })
@@ -169,12 +171,49 @@ describe("POST /api/support/threads", () => {
   })
 
   it("201 for an owned order; first message inserted as the user", async () => {
-    install((c) => (c.table === "orders" ? { data: { id: ORDER } } : undefined))
+    install((c) => (c.table === "orders" ? { data: { id: ORDER, status: "completed", created_at: OLD, updated_at: OLD } } : undefined))
     const res = await POST(req({ ...valid, order_id: ORDER }))
     expect(res.status).toBe(201)
     expect(writes("support_messages", "insert")[0].payload).toMatchObject({
       thread_id: THREAD, sender_role: "user", sender_id: CALLER, body: valid.message,
     })
+  })
+
+  it("422 with the reason when the caller's own order is outside the complaint window; nothing inserted", async () => {
+    const mins = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+    const cases: [Record<string, unknown>, string][] = [
+      [{ status: "completed", created_at: OLD, updated_at: mins(5) }, "You can report this order 15 minutes after it is marked completed."],
+      [{ status: "processing", created_at: mins(60), updated_at: mins(60) }, "You can report this order once it has been processing for 3 hours."],
+      [{ status: "pending", created_at: OLD, updated_at: OLD }, "Only completed orders, or orders processing for 3 hours, can be reported."],
+      [{ status: "failed", created_at: OLD, updated_at: OLD }, "Only completed orders, or orders processing for 3 hours, can be reported."],
+    ]
+    for (const [row, reason] of cases) {
+      install((c) => (c.table === "orders" ? { data: { id: ORDER, ...row } } : undefined))
+      const res = await POST(req({ ...valid, order_id: ORDER }))
+      expect(res.status).toBe(422)
+      expect(await res.json()).toEqual({ success: false, error: reason })
+      expect(writes("support_threads", "insert")).toHaveLength(0)
+    }
+  })
+
+  it("201 for an order processing for more than 3 hours, and a shop order too young is refused", async () => {
+    const hours = (n: number) => new Date(Date.now() - n * 3_600_000).toISOString()
+    install((c) => (c.table === "orders" ? { data: { id: ORDER, status: "processing", created_at: hours(4), updated_at: hours(0) } } : undefined))
+    expect((await POST(req({ ...valid, order_id: ORDER }))).status).toBe(201)
+    install((c) => {
+      if (c.table === "shop_orders") return { data: { shop_id: SHOP, order_status: "processing", created_at: hours(1), updated_at: hours(1) } }
+      if (c.table === "user_shops") return { data: { id: SHOP } }
+      return undefined
+    })
+    const res = await POST(req({ ...valid, shop_order_id: SHOP_ORDER }))
+    expect(res.status).toBe(422)
+    expect(writes("support_threads", "insert")).toHaveLength(0)
+  })
+
+  it("another user's order is still 404, never 422, even when it would be outside the window", async () => {
+    install((c) => (c.table === "orders" ? { data: null } : undefined))
+    const res = await POST(req({ ...valid, order_id: ORDER }))
+    expect(res.status).toBe(404)
   })
 
   it("409 when the trigger raises OPEN_THREAD_LIMIT", async () => {

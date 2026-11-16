@@ -1,0 +1,130 @@
+import { describe, it, expect } from "vitest"
+import {
+  encodeCursor, decodeCursor, isLine, isOutcome, OUTCOMES, startOfTodayAccra, buildOverview, buildCallsOverview, shapePausedShops, toAdminMessage, SMS_RATE_GHS, phoneLinkConfigured,
+} from "./admin-view"
+
+const ID = "00000000-0000-4000-8000-000000000001"
+
+describe("cursor", () => {
+  it("round-trips, keeping microseconds verbatim", () => {
+    for (const at of ["2026-11-13T10:05:00.123456+00:00", "2026-11-13T10:05:00Z", "2026-11-13T10:05:00.5Z"]) {
+      expect(decodeCursor(encodeCursor(at, ID))).toEqual({ createdAt: at, id: ID })
+    }
+  })
+  it("garbage, tampered or wrongly shaped cursors decode to null", () => {
+    const enc = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url")
+    const cases: (string | null)[] = [
+      null, "", "not-a-cursor", "!!!", "e30", enc({}), enc([]), enc(["x"]), enc([1, ID]), enc(["2026-11-13T10:05:00Z", 5]),
+      enc(["2026-11-13T10:05:00Z", "not-a-uuid"]), enc(["yesterday", ID]), enc(["2026-13-45T10:05:00Z", ID]),
+      enc(["2026-11-13T10:05:00Z,id.eq.x", ID]), enc(["2026-11-13T10:05:00+02:00", ID]), enc(["2026-11-13T10:05:00Z", ID, "extra"]),
+      "A".repeat(500),
+    ]
+    for (const c of cases) expect(decodeCursor(c)).toBeNull()
+  })
+})
+
+describe("validators", () => {
+  it("isLine and isOutcome accept only members", () => {
+    expect(isLine("main") && isLine("shop")).toBe(true)
+    for (const v of ["", "MAIN", "other", null, 1]) expect(isLine(v)).toBe(false)
+    for (const o of OUTCOMES) expect(isOutcome(o)).toBe(true)
+    for (const v of ["", "toString", "__proto__", "PROMPTED", null]) expect(isOutcome(v)).toBe(false)
+    expect(OUTCOMES).toHaveLength(13)
+  })
+})
+
+describe("startOfTodayAccra", () => {
+  it("is 00:00 UTC of the same day", () => {
+    expect(startOfTodayAccra(new Date("2026-11-13T23:59:59Z")).toISOString()).toBe("2026-11-13T00:00:00.000Z")
+    expect(startOfTodayAccra(new Date("2026-11-13T00:00:00Z")).toISOString()).toBe("2026-11-13T00:00:00.000Z")
+  })
+})
+
+describe("buildOverview", () => {
+  const heard = { main: new Date("2026-11-13T10:00:00Z"), shop: null }
+  it("always has both lines, the shop one disabled with zeros, and multiplies replies by the rate", () => {
+    const o = buildOverview(
+      [{ line: "main", texts: 10, prompts: 4, paid: 3, delivered: 2, replies: 100, aiReads: 2, ruleReads: 8 }],
+      heard,
+      { enabled: true, number: "0200000100" },
+    )
+    expect(o.main).toEqual({
+      enabled: true, number: "0200000100", lastHeardAt: "2026-11-13T10:00:00.000Z",
+      today: { texts: 10, prompts: 4, paid: 3, delivered: 2, replies: 100, aiReads: 2, ruleReads: 8 }, smsCostGhs: 2.43,
+    })
+    expect(o.shop).toEqual({
+      enabled: false, number: "", lastHeardAt: null,
+      today: { texts: 0, prompts: 0, paid: 0, delivered: 0, replies: 0, aiReads: 0, ruleReads: 0 }, smsCostGhs: 0,
+    })
+    expect(SMS_RATE_GHS).toBe(0.0243)
+  })
+})
+
+describe("buildOverview shop card", () => {
+  it("reports the shop line from the real settings and the shop heartbeat", () => {
+    const o = buildOverview(
+      [{ line: "shop", texts: 3, prompts: 2, paid: 1, delivered: 1, replies: 10, aiReads: 0, ruleReads: 3 }],
+      { main: null, shop: new Date("2026-11-13T11:00:00Z") },
+      { enabled: false, number: "" },
+      { enabled: true, number: "0200000200" },
+    )
+    expect(o.shop).toEqual({
+      enabled: true, number: "0200000200", lastHeardAt: "2026-11-13T11:00:00.000Z",
+      today: { texts: 3, prompts: 2, paid: 1, delivered: 1, replies: 10, aiReads: 0, ruleReads: 3 }, smsCostGhs: 0.243,
+    })
+    expect(o.main.enabled).toBe(false)
+  })
+})
+
+describe("buildCallsOverview", () => {
+  it("carries the switch and the two counts per line, nothing else", () => {
+    const out = buildCallsOverview(true, {
+      main: { replied: 3, skipped: 1, sender: "0200000101" } as { replied: number; skipped: number },
+      shop: { replied: 0, skipped: 2 },
+    })
+    expect(out).toEqual({ enabled: true, today: { main: { replied: 3, skipped: 1 }, shop: { replied: 0, skipped: 2 } } })
+    expect(JSON.stringify(out)).not.toContain("0200000101")
+  })
+  it("falls back to zeros when the counts are missing or not finite numbers", () => {
+    const zero = { enabled: false, today: { main: { replied: 0, skipped: 0 }, shop: { replied: 0, skipped: 0 } } }
+    expect(buildCallsOverview(false, null)).toEqual(zero)
+    expect(buildCallsOverview(false, { main: { replied: Number.NaN, skipped: -1 }, shop: { replied: "x", skipped: null } } as never)).toEqual(zero)
+  })
+})
+
+describe("shapePausedShops", () => {
+  it("groups notices by shop, names them, sorts by count and carries ids, names and counts only", () => {
+    const out = shapePausedShops(
+      [{ shop_id: "s1" }, { shop_id: "s2" }, { shop_id: "s2" }, { shop_id: null }, { shop_id: "s3" }],
+      [{ id: "s1", ussd_display_name: null, shop_name: "Alpha" }, { id: "s2", ussd_display_name: "Beta Display", shop_name: "Beta" }],
+    )
+    expect(out).toEqual([
+      { shopId: "s2", name: "Beta Display", count: 2 },
+      { shopId: "s1", name: "Alpha", count: 1 },
+      { shopId: "s3", name: "Shop", count: 1 },
+    ])
+    for (const p of out) expect(Object.keys(p).sort()).toEqual(["count", "name", "shopId"])
+  })
+})
+
+describe("toAdminMessage", () => {
+  it("maps columns to the response fields and defaults unknowns", () => {
+    expect(toAdminMessage({ id: ID, created_at: "t", line: "weird", sender: "0200000101", direction: "out", body: null, read_by: "x", outcome: 5, order_link_id: null, misread: true })).toEqual({
+      id: ID, createdAt: "t", line: "main", sender: "0200000101", direction: "out", body: "", readBy: null, outcome: null, orderLinkId: null, misread: true,
+    })
+  })
+})
+
+describe("phoneLinkConfigured", () => {
+  const KEY = "00112233445566778899aabbccddeeff"
+  it("is true only when the url is http(s) and the key is 32 hex", () => {
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "https://relay.example.test/x", SMS_PHONE_SM4_KEY: KEY })).toBe(true)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "http://relay.example.test", SMS_PHONE_SM4_KEY: KEY })).toBe(true)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "https://relay.example.test" })).toBe(false)
+    expect(phoneLinkConfigured({ SMS_PHONE_SM4_KEY: KEY })).toBe(false)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "ftp://x", SMS_PHONE_SM4_KEY: KEY })).toBe(false)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "not a url", SMS_PHONE_SM4_KEY: KEY })).toBe(false)
+    expect(phoneLinkConfigured({ SMS_PHONE_URL: "https://relay.example.test", SMS_PHONE_SM4_KEY: "short" })).toBe(false)
+    expect(phoneLinkConfigured({})).toBe(false)
+  })
+})

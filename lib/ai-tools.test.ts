@@ -454,7 +454,7 @@ describe("executeToolCall place_shop_order", () => {
       recipient_phone: "0244123456", payment_phone: "0244000000",
     }, baseCtx) as Record<string, unknown>
 
-    expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244123456")
+    expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244123456", expect.objectContaining({ surface: "whatsapp_ai", shopId: "shop-1", purchaserPhone: "233559919037" }))
     expect(result.error).toBe("recipient_not_verified")
     expect(setSession).not.toHaveBeenCalled()
   })
@@ -730,6 +730,24 @@ describe("custom prices in AI tools", () => {
       expect(r.staged).toBe(true)
       expect(r.price).toBe(6)
       expect(vi.mocked(setWaSession)).toHaveBeenCalledWith("233559919037", expect.objectContaining({ step: "CONFIRM", bundlePrice: 6, bundleId: "p1" }))
+    })
+
+    it("passes the whatsapp_ai block context (account, sender, no shop) to the verification gate", async () => {
+      seed()
+      vi.mocked(isRecipientBlocked).mockResolvedValueOnce(true)
+      const r = await executeToolCall("place_whatsapp_order", input, ctx) as any
+      expect(r.error).toBe("recipient_not_verified")
+      expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244123456", expect.objectContaining({
+        surface: "whatsapp_ai", shopId: null, userId: "u1", purchaserPhone: "233559919037",
+      }))
+    })
+
+    it("never passes a model-supplied phone as the purchaser phone (ctx.phone missing)", async () => {
+      seed()
+      vi.mocked(isRecipientBlocked).mockResolvedValueOnce(true)
+      const r = await executeToolCall("place_whatsapp_order", { ...input, phone: "0200000000" }, { baseUrl: "x", userId: "u1" } as any) as any
+      expect(r.error).toBe("recipient_not_verified")
+      expect(isRecipientBlocked).toHaveBeenCalledWith("MTN", "0244123456", expect.objectContaining({ surface: "whatsapp_ai", purchaserPhone: null }))
     })
 
     it("returns prices_unavailable and seeds nothing when the custom price read fails", async () => {

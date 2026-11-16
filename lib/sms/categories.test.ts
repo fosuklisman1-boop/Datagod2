@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { categoryOf, CATEGORY_DEFAULTS, CATEGORY_LABELS, SMS_CATEGORIES, resolveGlobalHint } from "./categories"
+import { categoryOf, CATEGORY_DEFAULTS, CATEGORY_LABELS, CATEGORY_HINTS, SMS_CATEGORIES, resolveGlobalHint } from "./categories"
 
 describe("categoryOf", () => {
   it.each([
@@ -36,7 +36,36 @@ describe("categoryOf", () => {
       system: "moolre",
       admin_broadcast: "global",
       customer_bulk: "global",
+      text_to_buy: "hubtel",
     })
+  })
+
+  it("maps text_to_buy_reply to text_to_buy, labelled for the admin page", () => {
+    expect(categoryOf("text_to_buy_reply")).toBe("text_to_buy")
+    expect(SMS_CATEGORIES).toContain("text_to_buy")
+    expect(CATEGORY_LABELS.text_to_buy).toBe("Text-to-Buy replies")
+    expect(CATEGORY_HINTS.text_to_buy.length).toBeGreaterThan(0)
+  })
+
+  it("only the exact type text_to_buy_reply is text_to_buy (no prefix capture)", () => {
+    expect(categoryOf("text_to_buy")).toBe("system")
+    expect(categoryOf("text_to_buy_reply_x")).toBe("system")
+    expect(categoryOf("shop_sms")).toBe("customer_bulk")
+  })
+
+  it("adding text_to_buy changed no existing type's category", () => {
+    const before: Record<string, string> = {
+      phone_otp: "otp", otp_required: "otp", password_reset_link: "otp",
+      order_confirmed: "order_confirmation_platform", order_delivered: "order_confirmation_platform", order_update: "order_confirmation_platform",
+      wallet_topup_success: "payments_wallet", data_purchase_success: "payments_wallet", airtime_completed: "payments_wallet",
+      subscription_expiry_3d: "payments_wallet", sms_bundle: "payments_wallet", order_refund: "payments_wallet",
+      withdrawal_approved: "admin_action_outcomes", shop_rejected: "admin_action_outcomes", complaint_resolved: "admin_action_outcomes",
+      dealer_upgrade: "admin_action_outcomes", mtn_registration_hold: "admin_action_outcomes",
+      security_alert: "security_alerts", fraud_alert: "security_alerts", airtime_admin_alert: "security_alerts",
+      broadcast: "admin_broadcast", shop_sms: "customer_bulk",
+      otp: "system", login_otp: "system", wallet_credited: "system", totally_new_type: "system", "": "system",
+    }
+    for (const [t, c] of Object.entries(before)) expect(categoryOf(t), t).toBe(c)
   })
 
   it("has a non-empty label for every category", () => {

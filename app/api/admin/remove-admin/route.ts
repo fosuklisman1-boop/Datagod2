@@ -24,17 +24,8 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Update user metadata to remove admin role
-    const { data: authData, error: authError } = await adminClient.auth.admin.updateUserById(userId, {
-      user_metadata: { role: "user" },
-    })
-
-    if (authError) {
-      console.error("Error updating user metadata:", authError)
-      return NextResponse.json({ error: authError.message }, { status: 400 })
-    }
-
-    // Also update the users table role column
+    // public.users.role FIRST: it is the source of truth, and the 0179 trigger pins auth metadata to it
+    // (a metadata-first write would be reverted, leaving metadata saying "admin").
     const { data: userData, error: userError } = await adminClient
       .from("users")
       .update({ role: "user" })
@@ -43,8 +34,14 @@ export async function POST(req: NextRequest) {
 
     if (userError) {
       console.error("Error updating users table:", userError)
-      // Don't fail - metadata was already updated
+      return NextResponse.json({ error: "Failed to remove admin role" }, { status: 500 })
     }
+
+    // Then mirror it into auth metadata (session display only; best-effort).
+    const { data: authData, error: authError } = await adminClient.auth.admin.updateUserById(userId, {
+      user_metadata: { role: "user" },
+    })
+    if (authError) console.warn("[REMOVE-ADMIN] Could not update auth metadata:", authError.message)
 
     console.log("[REMOVE-ADMIN] Admin role removed from user", userId)
 

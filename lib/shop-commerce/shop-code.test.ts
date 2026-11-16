@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { resolveShopCode, getCanonicalShopName } from "./shop-code"
+import { resolveShopCode, getCanonicalShopName, toHelplineNumber } from "./shop-code"
 
 // Fake Supabase client injected directly into resolveShopCode (no @supabase/supabase-js
 // mocking needed — the function accepts an optional client param for exactly this reason).
@@ -96,6 +96,7 @@ describe("resolveShopCode", () => {
       status: "active",
       tokenBalance: 5,
       whatsappActivated: false,
+      ownerPhone: null,
     })
   })
 
@@ -119,6 +120,7 @@ describe("resolveShopCode", () => {
       status: "active",
       tokenBalance: 2,
       whatsappActivated: true,
+      ownerPhone: null,
     })
   })
 
@@ -156,6 +158,7 @@ describe("resolveShopCode", () => {
       status: "suspended",
       tokenBalance: 0,
       whatsappActivated: false,
+      ownerPhone: null,
     })
   })
 
@@ -207,6 +210,42 @@ describe("resolveShopCode", () => {
 
     await resolveShopCode("  ABC123  ", client)
     expect(eqCalls).toEqual([["code", "ABC123"]])
+  })
+})
+
+describe("toHelplineNumber", () => {
+  it("normalises the stored formats to local 0XXXXXXXXX", () => {
+    expect(toHelplineNumber("0241234567")).toBe("0241234567")
+    expect(toHelplineNumber("241234567")).toBe("0241234567")
+    expect(toHelplineNumber("+233241234567")).toBe("0241234567")
+    expect(toHelplineNumber("233241234567")).toBe("0241234567")
+    expect(toHelplineNumber(" 024 123 4567")).toBe("0241234567")
+    expect(toHelplineNumber("0 24 123 4567")).toBe("0241234567")
+  })
+  it("anything it cannot read as a Ghana number is null (the line is left off)", () => {
+    for (const bad of [null, undefined, "", "   ", "24123456", "02412345678", "abc", "1241234567"]) {
+      expect(toHelplineNumber(bad as string | null)).toBeNull()
+    }
+  })
+})
+
+describe("resolveShopCode ownerPhone", () => {
+  const code = { id: "sc", shop_id: "s", status: "active", token_balance: 0, whatsapp_activated: false }
+  it("is the shop owner's normalised users.phone_number", async () => {
+    const client = fakeClient({
+      ussd_shop_codes: { data: code },
+      user_shops: { data: { shop_name: "Ama", parent_shop_id: null, user_id: "u1", is_active: true, is_blocked: false } },
+      users: { data: { phone_number: "241234567" } },
+    })
+    expect((await resolveShopCode("A1", client))?.ownerPhone).toBe("0241234567")
+  })
+  it("is null when the owner has no usable number or the read fails (entry is never blocked)", async () => {
+    const shop = { data: { shop_name: "Ama", parent_shop_id: null, user_id: "u1", is_active: true, is_blocked: false } }
+    for (const users of [{ data: null }, { data: { phone_number: "" } }, { data: null, error: { message: "boom" } }]) {
+      const r = await resolveShopCode("A1", fakeClient({ ussd_shop_codes: { data: code }, user_shops: shop, users }))
+      expect(r?.status).toBe("active")
+      expect(r?.ownerPhone).toBeNull()
+    }
   })
 })
 

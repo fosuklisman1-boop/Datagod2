@@ -1,0 +1,683 @@
+# Text-to-Buy (Stage 1, main number, data only) - owner runbook
+
+Status (2026-11-13, late): merged to `main` and deployed; migration 0177 applied to production; the follow-up cron (cron-job.org job 8859910) is created and enabled; the switch was turned on by the owner for the first live test, which worked end to end for an own-number MTN order. Still to do before telling customers: the pre-launch gates in section 7. With the switch off, the SMS webhook behaves exactly as it did before this feature.
+Spec: `docs/superpowers/specs/2026-11-13-sms-text-to-buy-design.md`. Plan: `docs/superpowers/plans/2026-11-13-text-to-buy-stage1-main-data.md`.
+
+Everything marked **OWNER ACTION** changes production and needs your explicit OK. Sections 5.1 (migration) and 5.2 (cron) have been run, with the owner's OK, on 2026-11-13; the rest of the steps are the checklist for launch.
+
+## 1. What it is, and what is not in Stage 1
+
+1. A customer texts an order to the business number, in their own words ("5gb", "mtn 5gb for 0551234567", "pls send me 5gig").
+2. Plain texts are read by fixed rules (free, no AI). Anything else goes to the AI, which only proposes a size, network and recipient. Code checks every field and fills every price from the database. The AI never writes a price, picks who pays, or moves money.
+3. The customer gets one SMS with the quote and, at the same moment, a MoMo prompt on the number that texted. One text, one PIN.
+4. The payer is always the number that texted. No wallet payment. No other number can be charged. A gift (a different recipient number) is paid by the sender.
+5. Every reply is a single 160-character SMS. Keywords: `PRICES` / `MENU`, `AGAIN`, `STATUS`, `HELP`, and `YES` to retry after a failed payment.
+6. Orders use the same order, payment, delivery and refund machinery as the USSD bot (channel `sms`), so the admin order screens work as before.
+
+NOT in Stage 1:
+- Airtime, results checker vouchers, bills (Stages 2 and 4).
+- The shop number, shop credits for replies, shop pausing, the shop owner "Text Orders" page (Stage 3).
+- Paying from a wallet, paying from a different number, AFA registration.
+
+## 2. Key settings (admin_settings rows, all set by migration 0177)
+
+Edit them on `/admin/text-to-buy`, tab Settings. Each is stored as `{"value": x}`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ttb_main_enabled` | false | Master switch. Off = webhook behaves as before. |
+| `ttb_main_number` | "" | The number customers text (shown in replies and pages). |
+| `ttb_reply_sender_id` | "" | Sender ID used for replies. Empty = whatever the SMS Provider Control chain uses. |
+| `ttb_shop_reply_sender_id` | "" | Sender ID for the SHOP line's replies (used from Stage 3). Created the first time you save it; no migration. |
+| `ttb_ai_enabled` | true | Off = rules only; unreadable texts get the help reply. |
+| `ttb_reply_to_unclear` | true | Off = a text that is not an order gets NO reply, so unrelated or promotional texts cost nothing. (A bare YES or AGAIN with nothing to act on counts as unclear.) Created the first time you save it. |
+| `ttb_global_replies_per_hour` | 300 | Cap on non-order replies across ALL senders per hour (10 to 5000). Help replies, questions and price lists go quiet once reached; order quotes, payment notices and replies after a MoMo prompt has started are never stopped. One admin alert per hour when reached. Created the first time you save it. |
+| `ttb_stale_minutes` | 10 | A text received longer ago than this gets the "arrived late" reply, no prompt. |
+| `ttb_prompts_per_hour` | 3 | Most MoMo prompts one sender can trigger per hour. |
+| `ttb_replies_per_hour` | 6 | Most replies one sender is sent per hour. |
+| `ttb_ai_reads_per_hour` | 10 | Most AI reads one sender may use per hour. |
+| `ttb_global_prompts_per_minute` | 30 | Most prompts across everyone per minute (alert when hit). |
+| `ttb_prompt_window_minutes` | 5 | An unpaid prompt blocks a new order from that sender this long; after it, "didn't go through" is sent. |
+| `ttb_quiet_alert_minutes` | 60 | Alert when the forwarder phone has been silent this long. |
+| `ttb_retention_days` | 30 | Stored texts and replies are deleted after this many days (cron). |
+
+## 3. Where the code lives
+
+| What | Where |
+|---|---|
+| Webhook fork (two lanes) | `app/api/webhooks/sms-forward/route.ts` |
+| Reader, checks, replies, store, notifier | `lib/text-to-buy/` (`parse-rules.ts`, `ai-reader.ts`, `catalogue.ts`, `handle-inbound.ts`, `replies.ts`, `notify.ts`, `store.ts`, `settings.ts`, `parse-received.ts`) |
+| Shared order path (channel `sms`) | `lib/ussd/handlers/bundles.ts`, `lib/ussd/buyer-tier.ts`, `lib/ussd/gateway-charge.ts` |
+| Follow-up cron | `app/api/cron/text-to-buy-notify/route.ts` |
+| Admin page and APIs | `app/admin/text-to-buy/`, `app/api/admin/text-to-buy/` (`route.ts`, `messages/route.ts`, `try/route.ts`) |
+| Gateway surface `sms_order` | `lib/payment-gateway/config.ts`, `app/admin/gateway/_components/SurfacesCard.tsx` |
+| SMS category "Text-to-Buy replies" | `lib/sms/categories.ts` |
+| Migration | `migrations/0177_text_to_buy.sql` (self-test: `0177_text_to_buy.selftest.sql`) |
+| Cron definition | `lib/cron-migration/crons.json`, `lib/cron-migration/jobs.ts` (batch B) |
+
+## 4. Forwarder phone setup (OWNER ACTION, on the phone)
+
+The phone is the one already running SmsForwarder for Send & Claim.
+
+1. Open the forwarding rule. It must pass texts from ordinary numbers too, not only the sender `MobileMoney`. Remove any "sender must be MobileMoney" filter (or add a second rule with no sender filter that posts to the same URL).
+2. Body Params must read exactly: `text=[org_content]&from=[from]&received=[<receive-time placeholder>]`. Look up the receive-time placeholder name in the SmsForwarder app (its placeholder list when editing Params) and test it. It is not guessed here. The webhook also accepts the field names `time`, `receive_time` and `date` if the app labels it differently; the value may be ISO 8601, `YYYY-MM-DD HH:mm:ss` (read as UTC), epoch seconds or epoch milliseconds.
+3. Header stays unchanged: `x-sms-forward-secret` with the current `SMS_FORWARD_SECRET`. No URL change.
+4. Optional: a second secret env `SMS_FORWARD_SECRET_MAIN` for a phone that is used for orders only. A MoMo payment notice that arrives under that secret is NOT credited (Send & Claim is honoured only on the primary secret). Only set this if you run a separate orders-only phone.
+5. Keep the phone on charge with stable internet. If it goes quiet for `ttb_quiet_alert_minutes` an admin alert fires.
+6. Confirm the receive time arrives (LAUNCH GATE):
+   1. Send a text from another phone to the forwarder phone.
+   2. With the switch ON (during the supervised test, or on a preview), open `/admin/text-to-buy`, tab Messages, and open the row for that text.
+   3. `received_at` must be set to the time the phone received it (within a minute). If it is empty, the placeholder or field name is wrong: fix it and repeat. Do not launch with it empty (there is then no "arrived late" protection).
+7. Confirm Send & Claim still works: a real MoMo notice still creates a claim exactly as before (see test 9 in section 8).
+
+## 5. Production steps, in order (OWNER ACTIONS)
+
+Every step follows the production change protocol: precheck counts, a self-rolling-back dry run, your OK, apply, verify, build, push, watch the deploy, live check. Nothing happens until you approve each step.
+
+**Order matters: apply the migration BEFORE deploying the code.** If the code is live first, every inbound SMS logs "heartbeat not recorded" until the migration is applied. It is harmless but noisy.
+
+**Migration number.** This migration is numbered **0177**. It was first numbered 0163, which clashed with `feat/retire-api-v1` (0163 and 0164); main already has 0160 to 0162 and 0170 to 0176. 0177 is above every number on every branch checked on 2026-11-13. Before applying, re-check that nothing newer has taken 0177 (list `migrations/` on `origin/main` and on any open branch that adds migrations).
+
+### 5.1 Apply migration 0177
+
+Precheck (read-only). All must return nothing or zero:
+
+```sql
+select to_regclass('public.ttb_messages'), to_regclass('public.ttb_conversations'),
+       to_regclass('public.ttb_orders'), to_regclass('public.ttb_blocked'), to_regclass('public.ttb_heartbeat');
+-- expected: five NULLs. If any is not NULL, STOP: 0177 was already applied (or partly). Do not re-run it blindly.
+
+select count(*) from admin_settings where key like 'ttb\_%';
+-- expected: 0
+```
+
+Dry run: run the whole file inside a transaction that ends in a RAISE so it rolls back, then run `migrations/0177_text_to_buy.selftest.sql` the same way. Expected: no error. Then your OK, then apply.
+
+After applying, verify (read-only):
+
+```sql
+-- the 5 tables
+select table_name from information_schema.tables
+ where table_schema='public' and table_name in ('ttb_messages','ttb_conversations','ttb_orders','ttb_blocked','ttb_heartbeat')
+ order by 1;                                    -- expected: 5 rows
+
+-- the 5 functions (includes ttb_add_notice)
+select proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+ where n.nspname='public' and proname in ('ttb_counts','ttb_global_prompts','ttb_overview','ttb_purge','ttb_add_notice')
+ order by 1;                                    -- expected: 5 rows
+
+-- the 12 settings rows, switch off
+select key, value from admin_settings where key like 'ttb\_%' order by key;
+                                                -- expected: 12 rows; ttb_main_enabled = {"value": false}
+select value from admin_settings where key='ttb_main_enabled';   -- expected {"value": false}
+
+-- RLS on
+select relname, relrowsecurity from pg_class
+ where relname in ('ttb_messages','ttb_conversations','ttb_orders','ttb_blocked','ttb_heartbeat');
+                                                -- expected: 5 rows, all true
+
+-- no anon / authenticated grants on the tables
+select table_name, grantee, privilege_type from information_schema.table_privileges
+ where table_schema='public' and table_name like 'ttb\_%' and grantee in ('anon','authenticated','PUBLIC');
+                                                -- expected: 0 rows
+
+-- no anon / authenticated / PUBLIC execute on the functions
+select p.proname, r.rolname
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  cross join (select rolname from pg_roles where rolname in ('anon','authenticated')) r
+ where n.nspname='public' and p.proname in ('ttb_counts','ttb_global_prompts','ttb_overview','ttb_purge','ttb_add_notice')
+   and has_function_privilege(r.rolname, p.oid, 'EXECUTE');
+                                                -- expected: 0 rows
+```
+
+Note for re-running: 0177 repeats `REVOKE ALL ... FROM service_role` then re-grants; if it is ever re-applied, run it whole, not in pieces.
+
+### 5.2 Create the cron job
+
+crons.json alone schedules nothing; the job must exist on cron-job.org.
+
+1. Dry run (no API calls): `npx tsx scripts/sync-cronjob-org.ts --only /api/cron/text-to-buy-notify`. Expected: one line `create B  * * * * *  /api/cron/text-to-buy-notify` and `1 jobs`.
+2. Real diff (1 API call): `npx tsx scripts/sync-cronjob-org.ts --plan --only /api/cron/text-to-buy-notify`. Expected: the same single row with action `create`.
+3. Create it (needs `CRONJOB_API_KEY` and `CRON_SECRET` in `.env.local`; runs a preflight that `/api/cron/sms-kyc-purge` answers 401): `npx tsx scripts/sync-cronjob-org.ts --apply --only /api/cron/text-to-buy-notify`. Expected: `created <id> /api/cron/text-to-buy-notify`. It is created DISABLED.
+4. Enable it after the migration is applied and the code is deployed: `npx tsx scripts/sync-cronjob-org.ts --enable B --only /api/cron/text-to-buy-notify`. Expected: `enabled <id> /api/cron/text-to-buy-notify` then `1 changed, 0 already enabled`.
+5. Check: the route answers 401 to a request without the cron secret; with the switch off the cron does nothing harmful (it follows open links, sweeps stranded texts, purges old rows, checks the quiet phone).
+
+The cron can stay enabled or be disabled (`--disable B --only ...`) at any time.
+
+### 5.3 Gateway setting
+
+1. `/admin/gateway`, row "Text orders (SMS)" (surface `sms_order`). Default is Paystack/direct.
+2. A Telecel customer paying through Paystack may be asked for a one-time code (OTP). Stage 1 cannot finish that by text; the customer gets the "Payment didn't go through" reply. So choose Hubtel for this row BEFORE you promote the feature to Telecel customers.
+3. Hubtel quotes show "+ MoMo charge" (the fee is added on top on the prompt). See section 9.
+
+### 5.4 SMS Provider Control
+
+`/admin/sms-centre`, Providers tab (SMS Provider Control), category "Text-to-Buy replies": default Hubtel. Keep Hubtel unless a test in section 6 shows otherwise.
+
+### 5.5 Admin settings, then the switch
+
+1. `/admin/text-to-buy` tab Settings: set the number shown to customers (`ttb_main_number`), the reply sender ID (`ttb_reply_sender_id`, see section 6) and review the limits in section 2.
+2. Only after all launch gates in section 10 are ticked: Overview tab, flip the switch for the main line (a confirm dialog appears). This is the last step.
+
+## 6. Sender ID test checklist (do before the switch, per network)
+
+The reply should come from the same number the customer texted, so it lands in the same thread. Hubtel accepting a send proves nothing about delivery on a given network.
+
+For each of MTN, Telecel, AT, from a real handset on that network (record the result):
+1. Delivered at all? (yes / no / how long)
+2. Sender shown as the business number (not a name or a strange number)?
+3. Does it appear in the same thread as the customer's own messages to that number?
+
+| Network | Delivered | Sender shown | Same thread | Notes |
+|---|---|---|---|---|
+| MTN | Yes | still to record | still to record | 2026-11-13: Hubtel accepted the owner's number as sender ID to an MTN number and reported Delivered within about 9 seconds (Hubtel network code 62001 = MTN Ghana; 62002 = Telecel; 62003 = AT). The live Text-to-Buy replies (AI question, quote, unpaid notice) also reached the owner's MTN handset. What the handset displays as the sender, and whether it threads with the customer's own messages, is still to be recorded. A past alphanumeric sender ID (`CLINGSDTGOD` style) was accepted by Hubtel but NOT delivered on MTN, so numeric IDs behave differently. |
+| Telecel | TO TEST | TO TEST | TO TEST | |
+| AT | TO TEST | TO TEST | TO TEST | NOT yet tested. (An earlier note here called the first test "AT": that was wrong. The test number was MTN, see the MTN row.) |
+
+If a network fails, the fallbacks in order: replies sent from the SIM by the forwarder app; an alphanumeric sender ID with the number written in the text.
+
+"No prompt?" dial paths in the quote SMS. The MTN path is the one USSD already uses. The Telecel and AT paths are PLACEHOLDERS to confirm on real handsets (does the menu exist, and are the digits right). The exact strings are the `PAYER_TIPS` table in `lib/text-to-buy/replies.ts`:
+- MTN: `No prompt? Dial *170#, 6, 3.`
+- Telecel: `No prompt? Dial *110#, 4, 2.` (placeholder)
+- AT: `No prompt? Dial *110#, 6.` (placeholder)
+
+To change one, edit that string in `PAYER_TIPS` (and the matching expectations in `lib/text-to-buy/replies.test.ts`), then deploy. An empty string removes the tip for that network.
+
+## 7. Pre-launch gates (tick each)
+
+- [x] Receive time arrives: a real text shows `received_at` in the Messages tab (section 4 step 6). Done 2026-11-13 (the forwarder Params use `received=[receive_time]`).
+- [ ] Sender ID verified on MTN, Telecel and AT (section 6 table filled in). MTN delivery proven; Telecel and AT still to test, and the handset display/threading is still to record.
+- [ ] Real catalogue query run, and every size spelling confirmed parseable. Read-only:
+  ```sql
+  select network, size, count(*) from packages where is_available group by 1, 2 order by 1, 2;
+  ```
+  Put each row's size into the "Try it" tab (section 8 note) and confirm it is found. A size whose text cannot be parsed is NOT orderable by text. A bare number is read as GB: check that no bare number in the catalogue means MB.
+- [ ] Telecel and AT "no prompt? dial ..." paths confirmed on handsets (section 6).
+- [ ] Gateway row "Text orders (SMS)" set (Hubtel before promoting to Telecel customers).
+- [ ] Supervised paid test passed on each network (section 8).
+- [ ] Browser pass of `/admin/text-to-buy` at 500px and 1280px. NOT yet done: the page was built without a browser check. (The detail lists in Overview and Try it were fixed to `grid-cols-[auto_1fr]`: confirm they show two columns.)
+- [x] Migration 0177 applied and verified; cron job created and enabled (section 5). Done 2026-11-13.
+- [x] Whole-branch review done (money, auth and schema are touched: a fresh reviewer is mandatory). Done 2026-11-13; its Important findings were fixed.
+
+## 8. Supervised paid test script
+
+Use your own phones and a small package (for example 1GB). Open `/admin/text-to-buy` in a second window: Messages tab (every text with its outcome; click a row for the whole conversation with replies) and, for orders, the normal USSD order screen (SMS orders appear with USSD orders, channel `sms`). The Try it tab runs the real reader with nothing sent or charged: use it for a free check of any wording first (a real customer's number typed there shows that customer's own STATUS and conversation view, so use your own).
+
+Expected SMS texts below are the current templates; sizes and prices are filled by code.
+
+1. Own-number order. Text `1GB` from phone A (the number to be charged).
+   - Expect within seconds: `1GB MTN for 0XXXXXXXXX, GHS x.xx. Approve the MoMo prompt now. No prompt? Dial ... Next time just text 1GB` (or `+ MoMo charge` instead of the figure's final total if Hubtel adds a fee on top), and a MoMo prompt on phone A for the same amount.
+   - Approve. Expect the network's own data notice, and NO extra "delivered" SMS from us (own-number orders get none).
+   - Messages tab: inbound row outcome "Payment prompt sent", linked order. Order screen: paid, then completed.
+   - Wrong: no quote, no prompt, a second prompt, a prompt amount different from the quote with no "Total is now" follow-up, or a "delivered" SMS for an own-number order.
+2. Gift order. From phone A text `1GB 0XXXXXXXXX` with phone B's number.
+   - Expect the quote naming phone B, and the prompt on phone A (never phone B). After approval, phone A gets `1GB sent to 0XXXXXXXXX. Text 1GB to buy again.`
+   - Wrong: phone B gets a prompt, or the order is for phone A.
+3. Ignored prompt. Text `1GB`, do not approve, wait past the window (`ttb_prompt_window_minutes`, default 5 minutes, then up to a minute for the cron).
+   - Expect: `Payment didn't go through. Reply YES to try again, or text 1GB. If you already approved, ignore this.` Then reply `YES`: expect a fresh quote and prompt at the current price. Approve this time.
+   - Wrong: no "didn't go through" reply after about 7 minutes, or YES places a different size.
+4. Late approval after the window closed. Text `1GB`, ignore until the "didn't go through" reply arrives, then approve the OLD prompt if it is still on screen (or on the MoMo approvals list).
+   - Expect: the order still completes (paid), the system notices the late payment (the open-link scan sets it paid) and a gift order gets its "sent to" SMS; an own-number order gets nothing more.
+   - Wrong: money taken and the order stays unpaid in the order screen. If so, do not retry: check the order and the payment manually.
+5. `PRICES` then a digit. Text `PRICES`: expect `MTN: 1) 1GB GHS x.xx 2) 2GB GHS x.xx ...` (as many as fit one SMS). Reply with one digit, for example `2`: expect an order for that item (quote and prompt). (A bare digit with no question pending means that many GB.)
+   - Wrong: prices that differ from the USSD menu for the same account, or the digit ordering the wrong size.
+6. Junk text. Text something unrelated (`hello how are you`, then another junk text).
+   - Expect exactly one polite reply (`To buy data, text the size e.g. 5GB. ...`), then silence for that sender for the next hour. Both rows stored with outcome "Not an order".
+   - Wrong: a reply to every junk text, or any prompt.
+7. Duplicate send of the same SMS. Make the forwarder deliver the same SMS twice (for example use the app's resend or retry on the same message).
+   - Expect one order and one prompt. The second delivery is stored as a duplicate and does nothing.
+   - Wrong: two prompts.
+8. A text arriving more than the stale limit late. Make the forwarder deliver a text whose receive time is older than `ttb_stale_minutes` (for example turn off the phone's internet for 15 minutes with a text pending, then restore it).
+   - Expect: `Your message arrived late so we did not charge you. Please text again.` No order, no prompt. Outcome "Too late to pay".
+   - Wrong: a prompt for an old text.
+9. A MoMo notice (Send & Claim unaffected). Send or wait for a real MoMo payment notice from the MoMo sender as usual.
+   - Expect: it appears in the Send & Claim page exactly as before and creates no Text-to-Buy row and no reply.
+   - Also: a text from an ordinary personal number that LOOKS like a payment notice is stored as an order-lane text ("Not an order"), never credited.
+   - Wrong: a notice treated as an order, or a personal text credited as a payment.
+
+Repeat tests 1 and 3 on each of MTN, Telecel and AT payer numbers (Telecel only after the gateway row is set to Hubtel).
+
+## 9. Known limits and accepted risks (in plain words)
+
+1. Two texts at once. If one customer's two texts arrive almost together, both can pass the "one open order" check. The loser's order is LEFT PENDING (never failed: its MoMo prompt was already started and cannot be stopped, and a payment for a failed order would be ignored with no refund path). If the customer approves both prompts they are charged twice and BOTH orders are fulfilled: two bundles, no lost money, but the customer paid twice for the same text. Admins get an alert naming the order id only. The second order has no Text-to-Buy link row, so it gets no follow-up SMS. There is no automatic refund; `/admin/refunds` handles completed orders in the normal way if you decide to refund one. The same applies if linking an order fails after it was placed: the quote is still sent, an admin alert names the order id, and there is no follow-up SMS for it.
+2. Sizes whose text cannot be parsed are not orderable by text. A bare number as a size (for example `5`) is read as GB.
+3. A Hubtel quote shows "+ MoMo charge". If Hubtel refuses the prompt and the charge falls back to Paystack, the prompt amount can differ from the quote; the customer then gets one corrective SMS (`Total is now GHS x.xx. Approve the MoMo prompt or ignore it.`).
+4. Follow-up SMS (didn't go through, delivered gift, delayed, repriced) are dropped, not queued, while SMS is globally disabled.
+5. Limits: hourly caps per sender (prompts, replies, AI reads), a global prompts-per-minute cap, and one open order per sender (the next text gets "Approve the MoMo prompt for your first order, or wait 5 minutes and text again."). Late replies do not count toward the hourly reply cap.
+6. Replies are paid by Datagod's SMS account on the main line (about one SMS per reply, one segment each).
+7. The price tier follows the SENDER's account. A dealer texting for a gift pays the dealer price.
+8. Only the sender can be charged. Never a wallet, never the recipient.
+9. Pre-existing, not changed here (owner follow-up): `lib/sms-service.ts` console.logs the recipient phone number on every send across the whole app.
+10. The webhook answers 200 before it processes the text. If the server dies mid-processing, the one-minute cron sweep picks the text up; a text older than the stale limit by then gets the "arrived late" reply instead of an order.
+11. A refunded or refunding order sends no "delivery delayed" notice; the order screen shows it.
+12. If the forwarder phone is off, texts are not received. The quiet-phone alert is the only backstop.
+
+## 10. Rollback
+
+1. Switch off: `/admin/text-to-buy`, Overview, main line switch (or set `ttb_main_enabled` to false). The webhook then behaves exactly as before: a text from a personal number on the primary secret is stored as `rejected_sender` with the text redacted, as today. Texts already in flight finish normally.
+2. No data migration to undo. The five tables and 12 settings rows can stay.
+3. The cron job can stay (harmless) or be disabled: `npx tsx scripts/sync-cronjob-org.ts --disable B --only /api/cron/text-to-buy-notify`.
+4. To remove the feature fully, revert the merge; migration 0177 is additive and unused when off.
+
+## 11. Announcement (hold until launch)
+
+Hold until every gate in section 7 is ticked. Ready-to-paste text for the customer channel, with the number filled in:
+
+> 📢 NEW: Buy data by SMS 🎉
+>
+> No internet, no app, no code to dial. Just text us.
+>
+> HOW IT WORKS
+> 1️⃣ Text <number> with the size you want, in your own words. Example: `5GB`, or "please send me 5 gig"
+> 2️⃣ We reply with the price, and a MoMo prompt comes to your phone
+> 3️⃣ Enter your MoMo PIN. Your data arrives ✅
+>
+> BUYING FOR SOMEONE ELSE?
+> Add their number: `5GB 0241234567`. You pay with your MoMo and they get the data. You get a message when it has been sent.
+>
+> OTHER THINGS YOU CAN TEXT
+> • PRICES: see the price list
+> • AGAIN: repeat your last order
+> • STATUS: check your last order
+> • YES: try again if a payment did not go through
+>
+> GOOD TO KNOW
+> • The MoMo prompt goes to the number you text from. Nothing is taken until you enter your PIN.
+> • No prompt? On MTN dial *170#, choose 6, then 3 to approve.
+> • Save <number> and try it today 📲
+>
+> (Before posting: fill in the number, and check the "No prompt?" line for Telecel and AT customers matches what the quote SMS says for those networks.)
+
+## 12. Stage 2: airtime and checkers (OWNER runbook)
+
+### 12.1 What it is
+
+Customers text the main number for two more services, on the same lane as data:
+
+- Airtime: `airtime 10` (own number) or `airtime 10 0241234567` (someone else's). The quote names the network, the number and the total; a MoMo prompt goes to the number they texted from. Airtime is credited by the normal airtime flow after payment.
+- Checkers (results checker vouchers): `2 wassce` (also `bece`, `novdec`). The quote carries the board, the quantity and the total (bulk price applies by quantity). After payment the PIN(s) arrive by SMS to the number that texted.
+
+Payer is always the texting number. No wallet, no other number can be charged. Data behaves exactly as in Stage 1.
+
+### 12.2 The two switches
+
+Two new switches, both default OFF, on `/admin/text-to-buy` settings (PUT field names `airtimeEnabled` = `ttb_airtime_enabled`, `resultsCheckerEnabled` = `ttb_results_checker_enabled`). Switching either ON asks for confirmation. They sit under the main Text-to-Buy switch: with the main switch off, nothing is read at all. The existing controls still apply on top: the per-network airtime switches and the per-board checker switches. A text switch that is OFF does not produce a "not available" reply: the text is treated exactly as in Stage 1, so the customer gets the Stage 1 not-understood copy, or silence if unclear replies are off or one was already sent. Only the per-network airtime switches and the per-board checker switches give a "not available" reply. With a text switch off the AI is never allowed to ask about that service either (no "how much airtime?" or "how many checkers?" question). The Overview card "By service today" shows an Off badge on it.
+
+### 12.3 Switch-on order
+
+One service at a time, each only after a supervised PAID test: airtime on MTN, Telecel and AT payer numbers; checkers on one board. Leave the first service on for a day and look at the Overview card before switching the next.
+
+### 12.4 Supervised test script
+
+Use your own phones and the smallest amounts. Expected texts below are the current templates; figures are filled by code.
+
+1. Own-number airtime. From phone A text `airtime 1`. Expect a one-segment quote naming the network, phone A and the total ending with "Approve the MoMo prompt now."; a MoMo prompt on phone A for the same amount. Approve: the airtime arrives and the "payment received" SMS comes from the airtime flow.
+2. Gift airtime. From phone A text `airtime 1 <phone B>`. Quote names phone B; the prompt goes to phone A only. After payment and delivery, phone A gets a "sent to <phone B>" message.
+3. Unknown prefix. Text `airtime 1 <a number on a prefix we do not know>`. Expect the question "Which network is that number on? 1) MTN 2) Telecel 3) AT". Answer `1`, `2` or `3`: the quote follows. An invalid number gets "That phone number is not valid."
+4. Limits. Text `airtime 0.5` and then an amount above the maximum. Expect the "limits" reply that states the minimum and the maximum, and no prompt.
+5. `10gb` stays data. Text `10gb`: a data quote, never airtime.
+6. Checkers with bulk price. Text `2 wassce` (or the board you are testing). Expect the quote with board, quantity 2, the bulk total and "PINs come by SMS to this number." Approve: two PINs arrive by SMS on phone A. Ask for a quantity that reaches a bulk tier and check the total against the price in admin.
+7. Out of stock. With a board at zero stock, text it. Expect the "not available now" reply (or, if stock ran out after the prompt, see the pending note in 12.5).
+8. Ignored prompt. Text `airtime 1`, do not approve. After the window the lane sends the "Payment didn't go through" style notice and closes the link. No charge.
+9. Late approval. Approve the prompt after that notice. The normal webhook still credits it. The lane sends nothing, with one exception: a GIFT airtime order that is delivered still gets the "sent to <phone B>" delivered notice to phone A. A plain own-number order gets no further text. Check the order is paid and delivered and nobody is charged twice.
+
+Repeat test 1 on MTN, Telecel (only with the gateway row on Hubtel, see 12.5) and AT payer numbers.
+
+### 12.5 Accepted gaps (in plain words)
+
+1. A completed voucher order whose PIN SMS never arrives gets no lane follow-up. The PIN SMS is the webhook's own send. Check the order and the SMS log, and resend by hand if needed.
+2. Voucher stock is not reserved when the prompt goes out. A paid order can wait at `pending` if stock ran out in between. The customer gets the delay notice; an admin resolves it from the normal results-checker order screen.
+3. The webhook's own SMS (airtime "payment received", voucher PINs) bypass the lane's reply caps and the lane's sender ID. They count against nothing in the Text-to-Buy caps.
+4. Admin "Failed" on a paid airtime order credits a registered payer's wallet (existing behaviour of that flow). Check the payer before marking it.
+5. Telecel on Paystack needs a one-time code the text lane cannot collect. Keep `sms_order` on Hubtel in the gateway settings. An order that comes back as `otp_required` (a code prompt the lane cannot collect), for airtime or vouchers, simply stays `otp_required`; the lane closes it with the unpaid notice at the window. Tell the customer to retry with another network or number.
+6. The caps (prompts per hour, replies per hour, global prompts per minute) are shared across all three services.
+7. Order rows still say `channel = 'ussd'`, as for data. Tell text orders apart by the Text-to-Buy link, not by channel.
+8. A possible orphan charge. If placing an order throws an unexpected error, the customer gets no SMS, and the admin alert reads "placing an order failed unexpectedly: message <messageId>". The prompt may already have been sent. Check Paystack and Hubtel and the order tables around that time for that sender. No lane follow-up will ever come, because no link row exists. Refund through `/admin/refunds` if the customer was charged.
+9. Placing is guarded, not idempotent. Just before an order is placed the lane marks the incoming text as handled (outcome `error`), so the recovery sweep and a forwarder retry can never place it a second time; if that mark cannot be written, nothing is placed and the customer is told it is not available. The residual risk is the other direction: if the server dies after the mark but before the order or its link is recorded, the text is NOT retried and the customer may get no reply (and, rarely, an order with no link row). Look for inbound rows with outcome `error` and no order link, and check the order tables and gateways for that sender around that time.
+10. The voucher quantity question completes on a bare whole number only: `2` works, `two` is asked again.
+
+### 12.6 OWNER check before switching vouchers on
+
+Run this read-only in the SQL editor and record the answer:
+
+`select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid = 'results_checker_orders'::regclass`
+
+Note whether the status check constraint allows `expired`. The lane closes its own link at 30 minutes either way; this only tells you whether the order row can also be marked expired.
+
+### 12.7 Rollback
+
+Switch the service off (Overview or settings). Nothing to undo in the database. Orders already prompted finish normally; the lane still sends their follow-ups.
+
+Never roll the deploy back to Stage 1 code while airtime or voucher links are open. Stage 1 code reads `ussd_orders` for every link, so it would close those links silently and send wrong notices. Switch the services off and let open links finish (30 minutes) first.
+
+### 12.8 Announcement (HOLD UNTIL LAUNCH)
+
+Post only after the supervised tests for each service you are announcing pass:
+
+```
+New: buy airtime and checkers by text!
+Text the main number:
+- airtime 10  (GHS 10 airtime for your own number)
+- airtime 10 0241234567  (for someone else)
+- 2 wassce  (2 WASSCE checkers; also bece, novdec)
+Approve the MoMo prompt with your PIN. Checker PINs come by SMS to the number you texted from.
+```
+
+## 13. Stage 3a: the shop line (OWNER runbook)
+
+### 13.1 What it is, and what it is not
+
+The shop line is a second Text-to-Buy number. A customer texts it to buy data from one particular shop (a shop that already has a shop code, for example a USSD shop). The order is placed for that shop, so the shop earns its normal profit (and the parent earns theirs, if it is a sub-agent shop). The customer is still the payer, from the number they texted from, by MoMo prompt. Nothing else about payment changes.
+
+What it is NOT:
+
+- Data only. Airtime and checkers on the shop line are Stage 3c. A text asking for airtime on the shop line is treated as if airtime did not exist.
+- No shop price list by text. `PRICES` on the shop line never shows the main catalogue; it gets help text.
+- No shop owner page yet. Shop owners see their text orders and credits in their normal screens. Their own Text-to-Buy page is Stage 3b.
+
+### 13.2 OWNER prerequisites (all before the switch)
+
+1. A second phone and SIM for the shop number. Set it up as in section 4, with its own forwarder rule.
+2. In Vercel, YOU set the environment variable `SMS_FORWARD_SECRET_SHOP`. Never paste it into a chat, a command, a file or a settings screen. It MUST be DIFFERENT from the two main secrets. If it is the same as another one, or empty, the admin Overview shows a warning. Fix the warning before going on. Redeploy after setting it.
+3. The forwarder rule on that phone posts to the shop line with that secret (section 4 steps, using the shop secret).
+4. In `/admin/text-to-buy` Settings, set the shop number (`ttb_shop_number`, local format 0XXXXXXXXX). Optionally set the shop reply sender ID (`ttb_shop_reply_sender_id`); empty means the platform default.
+5. The numeric sender ID for the shop number must be registered and delivering on MTN, Telecel and AT, proven with handset tests. Repeat the section 6 checklist for the shop number and record the result. Untested networks stay untested; do not assume.
+6. The AI reader must be ON (`/admin/text-to-buy` Settings). On the shop line the rules reader does not understand a text like `K7X9 5gb`, so any text containing a shop code is read by the AI. With the AI off the shop line will not place those orders.
+7. Shop owners need SMS credits (see 13.6). A shop with none is paused.
+
+### 13.3 DEPLOY ORDER (CRITICAL)
+
+**Apply the migration BEFORE the code deploys.** The notifier (the part that follows up on open orders every minute) now reads `ttb_orders.shop_id` and the table `ttb_credit_reserves`. If the code goes live before the migration, the MAIN line keeps working: the main notifier falls back to the old column list, so unpaid, delivered and paid-not-delivered texts still go out. But shop links and shop reserve release need the migration (a shop link read without it stays open with the "unreadable link" alert, and the reserve sweep logs an error each minute), and the shop line must stay off. So still apply the migration first; do not rely on the fallback.
+
+Migration: `migrations/0180_text_to_buy_shop_line.sql` (self-test: `migrations/0180_text_to_buy_shop_line.selftest.sql`). It was first numbered 0179 and renumbered because main took 0179. Before applying, re-check that nothing newer has taken 0180.
+
+Follow the production change protocol, with your OK at each step:
+
+1. Precheck (read-only). All must be NULL or zero. If not, STOP: it was already applied, partly or fully.
+
+```sql
+select to_regclass('public.ttb_shop_prefs'), to_regclass('public.ttb_notices'), to_regclass('public.ttb_credit_reserves');
+-- expected: three NULLs
+select count(*) from pg_proc where proname in ('ttb_notice_once','ttb_reserve_credits','ttb_draw_reserve','ttb_undraw_reserve','ttb_release_reserve','ttb_debit_reply','ttb_refund_reply');
+-- expected: 0
+select count(*) from ttb_orders;  -- record it
+select count(*) from admin_settings where key like 'ttb\_shop\_%';  -- expected: 0 (or only ttb_shop_reply_sender_id if you saved it)
+```
+
+2. Dry run: run the migration inside a transaction that ends in the self-test's RAISE so everything rolls back, then read the result. Build the run string by code, not by hand (migration file with its BEGIN kept and only its final COMMIT removed, followed by the self-test DO block), and check before sending that it contains no COMMIT. PASS means the error text starts with `SELFTEST_OK`. Any `FAIL ...` or other error means stop.
+3. Your OK. Then apply.
+4. Verify (read-only):
+
+```sql
+select relname, relrowsecurity from pg_class where relname in ('ttb_shop_prefs','ttb_notices','ttb_credit_reserves');
+-- expected: 3 rows, relrowsecurity true
+select tablename from pg_policies where tablename in ('ttb_shop_prefs','ttb_notices','ttb_credit_reserves');
+-- expected: no rows (RLS on, no policies: only the server can read them)
+select proname from pg_proc where proname in ('ttb_notice_once','ttb_reserve_credits','ttb_draw_reserve','ttb_undraw_reserve','ttb_release_reserve','ttb_debit_reply','ttb_refund_reply');
+-- expected: 7 rows
+select p.proname, has_function_privilege('anon', p.oid, 'execute') a, has_function_privilege('authenticated', p.oid, 'execute') u
+from pg_proc p where p.proname in ('ttb_notice_once','ttb_reserve_credits','ttb_draw_reserve','ttb_undraw_reserve','ttb_release_reserve','ttb_debit_reply','ttb_refund_reply');
+-- expected: a and u false on every row
+select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.ttb_heartbeat'::regclass and contype = 'c';
+-- expected: the line check lists quiet_alert_shop
+```
+
+5. Code deploy: run a real `next build` with placeholder env first, then push, watch the deploy.
+6. Live check: open `/admin/text-to-buy`. The Overview loads, shows the shop card, and no secret warning. The main line still answers a test text as before.
+
+### 13.4 Switch-on order
+
+The shop switch (`shopEnabled`, `ttb_shop_enabled`) is OFF by default and switching it ON asks for confirmation. The main switch does not control it: the two lines are separate. Turn it on ONLY after the supervised test in 13.5 has passed, and only after 13.2 is complete. Leave it on for a day and watch the Overview shop card (paused shops, replies) before announcing.
+
+Launch gates, all required before switching on: (1) the supervised test in 13.5 passed; (2) 13.2 complete, including "the AI reader must be ON" (13.2 item 6); (3) the paused-shop alert goes to admins only until Stage 3b (shop owners are not told when their shop is paused): confirm you accept that before switching on.
+
+### 13.5 Supervised paid test (own shop, own number, MoMo)
+
+Use a shop you own and your own phone with MoMo. Smallest package. Have the shop credit balance, the shop's profit rows and `/admin/text-to-buy` Messages open.
+
+1. Code in the text. From your phone text `<SHOPCODE> 1gb` (for example `K7X9 1gb`) to the SHOP number. The quote must name the shop ("Ama Data Hub: 1GB MTN for 0XXXXXXXXX, GHS x.xx. Approve the MoMo prompt now ...") and the MoMo prompt must be for the same amount. Approve it.
+2. Check the order. In `ussd_shop_orders` the order has `channel = 'sms_shop'`, the right shop and the right amount, and ends paid then completed.
+3. Check the profit. A `shop_profits` row exists for the shop (and for the parent shop, if the shop is a sub-agent shop).
+4. Check the credits. In the shop owner's SMS credit ledger there is a row with reason `text_to_buy` (minus 2 for an own-number order, minus 3 for a gift) for the reserve taken before the order was placed. When the order closes, the unused part comes back as a row with reason `text_to_buy_refund` (ref ending `:release`). The net cost is only the replies actually sent. A single reply refunded after a definite provider refusal also shows as `text_to_buy_refund`.
+5. No extra Datagod SMS. Confirm no Datagod-paid "order confirmation" or "delivered" text arrives for an own-number shop order. Only the network's own data notice arrives.
+6. Remembered shop. Text `1gb` (no code) from the same phone. The quote names the same shop again.
+7. Paused shop. Take a test shop to zero SMS credits (or use one that has none), then text its code and `1gb`. Expect: no prompt, no order, one reply (once a day) saying the shop cannot take text orders right now (with the shop's helpline if it has one), and one admin alert. A second text the same day gets no reply. Put the credits back afterwards.
+8. Closed or blocked shop. Text the code of a closed or blocked shop. Expect one closed reply (once a day per sender and shop), nothing placed.
+9. Wrong shop code. Text a made-up code. Expect "shop not found", no fallback to another shop.
+10. Wrong line. From your phone text `shop <SHOPCODE>` to the MAIN number. Expect "For shop orders text <shop number>" once a day, no order.
+11. Which shop? Use a phone with no remembered shop and text `1gb` to the shop number. Expect "Which shop? Reply with the shop code". Reply with the code within 20 minutes: the order is placed for that shop. Wait 20 minutes before replying instead: nothing is placed.
+
+Repeat step 1 on MTN, Telecel and AT payer numbers where you can (Telecel only with the gateway row on Hubtel, see 12.5 item 5). Anything you cannot test is untested; say so before launch.
+
+### 13.6 How the money moves
+
+- Before an order is placed, 2 SMS credits are reserved from the shop owner's account for an own-number order, 3 for a gift (a gift sends one more notice). The reserve is taken first, so a shop with no credits never gets an order placed.
+- Replies about that order draw from the reserve. When the order closes, whatever was not used goes back to the shop. If the server dies in between, a sweep returns a stale reserve after about 15 minutes.
+- A reply not tied to an order (for example an answer in the middle of a conversation) costs the shop 1 credit. If the provider definitely refuses to send it, the credit is refunded.
+- Datagod pays only: replies sent before the shop is known (such as "Which shop?"), the closed, paused, wrong-line and shop-not-found replies, and ONE "paid but not delivered" notice when the shop cannot cover it. That notice is sent once, after a paid order fails, so a customer who paid is never left without word.
+
+### 13.7 Behaviour you should know
+
+- Price is the quote. If Hubtel fails to start the payment, the order FAILS and the customer gets the failure notice; they retry with YES. There is no silent switch to Paystack at a higher price, as the main line has.
+- Shop-paid replies do not count toward Datagod's global reply cap (`ttb_global_replies_per_hour`). On the shop line that cap counts only Datagod-paid rows (the ones with no shop on them), so busy shops can never silence "Which shop?", "shop not found" or the closed and paused notices. Shop-paid replies are limited per shop instead: setting `ttb_shop_replies_per_hour_per_shop` (default 60). Over the cap the reply is silent: no order, no reserve, no Datagod fallback.
+- If the server crashes and the text is re-run after its reserve was already released, the order is placed with no live reserve and its replies fall back to single 1-credit debits. No money is lost.
+- "Last bought from" (used to guess the shop when no code and no remembered shop) reads shop USSD, Hubtel and WhatsApp orders only. It does not see other kinds of order.
+- The paused-shop alert goes to admins only for now. A message to the shop owner comes in Stage 3b. If you want a shop to know, tell them.
+- A customer can have one main order and one shop order open at once. A second shop order is blocked while a shop order is open.
+- A mistyped real shop code never routes to the remembered shop: a code-looking word that does not resolve gets "shop not found". Plain words like "thanks" do not count as codes.
+- `AGAIN` re-resolves the shop of the last order and takes a fresh reserve; if that order names no shop it asks "Which shop?".
+- Retry before the safety mark is written reuses the same reply key, so that one retry's shop-paid reply can be silently skipped. Rare; no money lost.
+- The admin global data switch applies to the shop line too: with data off, the reply says the shop is unavailable.
+- Untested: the first live Hubtel and Paystack runs on the shop line (this is what 13.5 is for), and delivery of replies to Telecel and AT handsets from the shop number.
+
+### 13.8 Rollback
+
+Switch the shop line off (Overview or settings). Open orders finish normally; the notifier keeps following them and releasing reserves.
+
+NEVER roll the code back while shop links or reserves are open. Older code does not know the shop tables, so it would leave reserved credits stuck and mis-handle shop orders. Switch off, wait at least 30 minutes for open links to finish and the sweep to return reserves, and check there are no open reserves (`select count(*) from ttb_credit_reserves where released_at is null`, expected 0) before any code rollback.
+
+The migration is additive. Leave it in place, even on a code rollback.
+
+### 13.9 Announcement (HOLD UNTIL LAUNCH)
+
+Post only after the 13.5 test passes and the switch is on. Shop owners must have SMS credits, or their shops will be paused.
+
+```
+New: your customers can now buy data from you by text!
+Customers text the shop number 0200000999 (use your real shop number):
+- Text 5GB <SHOPCODE>  (for example: 5GB K7X9)
+- Approve the MoMo prompt with your PIN
+- Next time, just text 5GB. We remember your shop.
+Shop owners: you need SMS credits to take text orders. Each order uses a few credits for the replies. With no credits your shop is paused for text orders.
+```
+
+## 14. Missed-call support SMS (OWNER runbook)
+
+### 14.1 What it does, and what it does not
+
+When someone calls one of the two Text-to-Buy phones and nobody answers, the phone's forwarder app tells the server about the missed call, and the server sends the caller ONE short SMS saying where to get help.
+
+- Main number (0256078092) missed call: the caller gets Datagod's WhatsApp support line. Datagod pays for the SMS. The support number is read live from the support settings; it is not written into the code.
+- Shop number (0559919037) missed call:
+  - If the caller is linked to a shop (the shop they remembered, else the shop they last bought from) and that shop is open: the caller gets that shop owner's number, and the SMS is paid from that shop's SMS credits (1 credit, under the normal per-shop hourly reply cap).
+  - If the caller is not linked to a shop, or the shop is closed, paused, out of credits or over its cap: the caller gets Datagod's WhatsApp support line, and Datagod pays.
+- One SMS per caller, per line, per day. A second missed call the same day sends nothing.
+- A cap on SMS per hour per line (default 60) bounds the cost if many people call at once.
+- The shop number is also the public support phone, so the shop line's "not understood", HELP and PRICES replies now carry a short WhatsApp support pointer when it fits in one SMS segment. The main line wording is unchanged.
+
+What it does NOT do: it does not take orders by call, call anyone back, or record calls. A missed call can never reach the Send and Claim (MoMo) ingest. Everything is behind one switch, `ttb_calls_enabled`, OFF by default.
+
+### 14.2 DEPLOY ORDER (CRITICAL)
+
+Apply migration `migrations/0181_text_to_buy_calls.sql` (self-test: `migrations/0181_text_to_buy_calls.selftest.sql`) BEFORE the code deploys. The code only writes to the new table `ttb_calls` when the switch is on, but apply first anyway; do not rely on that. Before applying, re-check that nothing newer has taken 0181.
+
+Follow the production change protocol, with your OK at each step:
+
+1. Precheck (read-only). The table must be absent. If not, STOP: it was already applied.
+
+```sql
+select to_regclass('public.ttb_calls');
+-- expected: NULL
+select count(*) from pg_proc where proname = 'ttb_purge';  -- expected: 1 (record it)
+```
+
+2. Dry run: run the migration inside a transaction that ends in the self-test's RAISE so everything rolls back (migration with its BEGIN kept and only its final COMMIT removed, followed by the self-test DO block; build the string by code and check it contains no COMMIT). PASS means the error text starts with `SELFTEST_OK`. Anything else means stop.
+3. Your OK. Then apply.
+4. Verify (read-only):
+
+```sql
+select relname, relrowsecurity from pg_class where relname = 'ttb_calls';
+-- expected: 1 row, relrowsecurity true
+select count(*) from pg_policies where tablename = 'ttb_calls';
+-- expected: 0 (RLS on, no policies: only the server can read it)
+select grantee, privilege_type from information_schema.role_table_grants
+where table_name = 'ttb_calls' and grantee in ('anon','authenticated','service_role') order by 1,2;
+-- expected: service_role SELECT and INSERT only; nothing for anon or authenticated
+select count(*) from pg_proc where proname = 'ttb_purge';
+-- expected: still 1 (it now also deletes ttb_calls rows older than the configured retention, 30 days by default)
+```
+
+5. Code deploy: run a real `next build` with placeholder env first, then push, watch the deploy.
+6. Live check: `/admin/text-to-buy` loads; the Overview shows the "Missed calls today" card with zeros; the Settings tab shows the switch (off) and the hourly cap. Texts on both lines still behave as before.
+
+### 14.3 PHONE STEPS (SmsForwarder v3.5.0 on the Samsung)
+
+Do these after the code is deployed. None of it is done by code. Use the same phone that already runs the text senders.
+
+1. SIM table. In the app open Settings and tap Refresh next to SIM1. Confirm the table is right: SIM1 is subId 4 = the shop SIM (+233559919037), SIM2 is subId 3 = the main SIM. If it is wrong, fix it before going on, or calls will be sent through the wrong line.
+2. Settings -> Forward Calls Log: switch ON, and tick Missed only (not incoming or outgoing).
+3. Call-log permission. The app needs READ_CALL_LOG. Either grant it in Android settings (Apps, the forwarder, Permissions, Call logs, Allow), or from a computer: `adb shell pm grant cn.ppps.forwarder android.permission.READ_CALL_LOG`.
+4. Two call senders, made by cloning the text senders:
+   - "Main Text" cloned to "Main Call".
+   - "Shop Text" cloned to "Shop Call".
+   Change ONLY the URL, to `https://www.datagod.store/api/webhooks/call-forward`. Keep the same `x-sms-forward-secret` header value on each (the main secret on Main Call, the shop secret on Shop Call). Never paste a secret into a chat or a file. Set the params to `from=[from]&received=[receive_time]`. CONFIRM the call template tag names in the app's sender or rule help before relying on them (the call tags may not be the same as the text tags). If you could not confirm them, treat the params as UNTESTED and prove them in the supervised test below.
+5. Two call rules, in Rules -> Call: one for SIM-1 sending to "Shop Call", one for SIM-2 sending to "Main Call". Do not point a call rule at any MoMo or Send and Claim sender.
+6. The phone must stay on charge. It does not need to be unlocked or awake: forwarding runs in the background. Optionally keep it awake on the charger with `adb shell svc power stayon usb`.
+
+### 14.4 Supervised test
+
+Use your own phones. Have `/admin/text-to-buy` Overview open (the "Missed calls today" card and the line heartbeat).
+
+1. Switch still OFF. Call the shop number and the main number and let them go unanswered. Confirm no SMS arrives and nothing is sent. The Overview may show nothing or `skipped_off` style counts, and the line heartbeat should move (the webhook was reached).
+2. Turn the switch ON (Settings tab, confirm the dialog).
+3. Shop number, from a phone linked to a shop (it has bought from a shop, or has a remembered shop). Expect ONE SMS naming the shop and the shop owner's number. In that shop owner's credit ledger a 1 credit debit appears.
+4. Shop number, from a phone not linked to any shop. Expect ONE SMS with the Datagod WhatsApp support line. No shop credit moves.
+5. Main number, from any phone. Expect ONE SMS with the Datagod WhatsApp support line.
+6. Check the Overview card: each line shows the replied count you expect.
+7. Call the same line again from the same phone the same day. Expect NO second SMS, and the card counts it as skipped.
+8. If any SMS did not arrive, or the numbers in it are wrong, switch OFF and check the params from 14.3 step 4 first.
+
+Untested until you run it: delivery of the SMS to Telecel and AT handsets from each line, and the call tag names in the forwarder app.
+
+### 14.5 Switch-on and rollback
+
+Switch on only after 14.2 and 14.3 are done and 14.4 steps 1 to 7 pass. Watch the Overview card for a day.
+
+Rollback: switch `ttb_calls_enabled` OFF in Settings. Nothing else is needed. The migration is additive and stays, even on a code rollback. To stop the phone from reporting calls at all, disable the two call rules in the app (or switch Forward Calls Log off).
+
+### 14.6 Limits and abuse notes (in plain words)
+
+- A spoofed caller ID gets at most one SMS per day per number, per line. The SMS goes to the owner of the spoofed number. No money moves for the caller.
+- The hourly cap (`ttb_calls_per_hour_per_line`, default 60, allowed 5 to 500) bounds how many SMS a line can send in an hour; calls over it are counted as skipped.
+- A shop's credits are protected by the existing per-shop hourly reply cap (`ttb_shop_replies_per_hour_per_shop`, default 60). Over it the caller gets the Datagod support SMS instead, once.
+- If the support number is missing in settings, the SMS is skipped (never sent blank or wrong) and admins are alerted once a day. The caller is not marked for the day, so they get the SMS once the number is fixed.
+- A send failure is logged as `error` and admins are alerted once a day. A failed or refused send is NOT retried that day: the caller gets nothing more until tomorrow. Accepted, rare.
+- Only Ghana mobile numbers are answered. Short codes, international and hidden numbers are ignored. Calls older than 15 minutes are ignored.
+- Call records hold no call content: only the line, the caller number, the shop id and the outcome. The call log (`ttb_calls`) and the stored caller number (`sender`) are purged by the same cron as the other text-to-buy data, using the configured retention (30 days by default).
+- A missed-call SMS counts as one of the caller's per-hour replies on the SMS order lane. A caller who misses a call and then texts within the hour has one fewer reply available.
+- Call events also refresh the line's "phone last heard". If the SMS rule breaks while the call rule still works, the quiet-phone alert will not fire, so check both rules when debugging.
+- The shop owner's number is sent only to a number linked to that shop, who already sees it in shop quotes. Anyone else gets only Datagod's support line.
+
+### 14.7 Announcement
+
+No customer announcement is needed (internal feature). One line for shop owners if you want to tell them:
+
+```
+Heads up: if a customer calls the Datagod shop number and misses you, they get an SMS pointing them to your number (it costs your shop 1 SMS credit).
+```
+
+## 15. Backfill after downtime and spare phone (OWNER runbook)
+
+### 15.1 What it protects against
+
+If the phone loses internet or the app is killed for a while, SmsForwarder marks the forward as Failed and does not retry on its own. Customers who texted in that window get no reply. Two protections:
+
+1. A phone Task that resends failed forwards every 15 minutes (set up 2026-11-15).
+2. A spare phone you can bring up fast (15.3).
+
+### 15.2 The backfill Task (already on the phone)
+
+SmsForwarder > Task > "Backfill failed forwards":
+
+- Condition: Cron `0 0/15 * * * ? *` (every 15 minutes, at second 0).
+- Action: Resend Message, records from the last 1 hour, original result Failed only.
+
+Why it is safe: the webhook de-duplicates by sender and received time, and drops texts older than the staleness window, so a resend can never double-charge or reply to an old order. Failed-only means texts that already went through are not touched.
+
+Limits: it covers the last hour. A longer outage needs a one-off manual run: edit the action to a bigger N hours (0 = all), tap Test, then set it back to 1.
+
+### 15.3 Spare phone (OneKey Clone)
+
+1. Install SmsForwarder on the spare phone. Insert a SIM only if it is meant to take over a line.
+2. On the main phone: Settings > OneKey Clone > export. Move the file with a cable or a private channel. It contains the webhook secrets, so delete it afterwards and never post it in chat.
+3. On the spare: import it. Then in Settings tap Refresh next to each SIM SubId, because the slot numbers differ per handset.
+4. Check each Sender still shows its header `x-sms-forward-secret` and each Rule's SIM slot matches the physical SIM.
+5. Send a test text to each line and confirm the reply, then switch the failed phone's rules off so the two do not both forward.
+6. Keep the spare charged and on stay-awake while plugged in.
+
+### 15.4 Alive ping (so quiet days are not read as a dead phone)
+
+`POST /api/webhooks/phone-health` refreshes the line's "phone last heard" time and nothing else (same `x-sms-forward-secret` header as the other webhooks; the body is ignored; always 200 after a valid secret). On the phone: Task > Cron (every 15 minutes) > action Notify using a Webhook channel that points at `https://www.datagod.store/api/webhooks/phone-health` with the line's secret in the header. Do one task per line if both SIMs should show as alive. Without it, the quiet-phone alert can fire on a genuinely quiet day.
+
+Set up and verified 2026-11-15: senders "Main Alive" and "Shop Alive" (clones of the Call senders with the URL changed to `/phone-health` and params `ping=1`), and one Task "Alive ping" (Cron `0 0/15 * * * ? *` -> Notify both senders, run logic All Run). The first scheduled run at 03:00:01 refreshed both lines. To check later: the Overview tile "phone last heard" should never be older than about 20 minutes while the phone is on and online.
+
+
+## 16. SIM replies (OWNER runbook)
+
+Ships DARK: both lines reply through Hubtel until an admin flips a line to Phone SIM. Nothing changes by deploying.
+
+### 16.1 How it works, in plain words
+
+Text-to-Buy replies can be sent from the forwarder phone's own SIM instead of Hubtel. The server sends an encrypted "send this SMS" request over the internet to SmsForwarder's built-in HTTP Server on the phone, and the phone texts the customer from the chosen SIM. If the phone cannot send (link not configured, phone off, phone refuses, or the SIM cap is reached) that reply goes through Hubtel instead, so the customer still gets it. Every failure falls back to Hubtel, including a request that went out but got no answer in time. The accepted risk is a rare duplicate (the phone sent the text but its answer was lost or slow); a silently lost reply is worse. To see WHY the SIM path fell back, search the Vercel runtime logs for `SIM reply fell back to Hubtel (`. The token in brackets is `env` (link not configured), `cap` (30-minute cap reached), or `kind:detail`: kind is `unreachable` (nothing accepted), `refused` (the phone answered no) or `ambiguous` (no answer in time); detail is one of `probe_failed`, `probe_timeout`, `connect_error`, `reset`, `timeout`, `http_status`, `redirect`, `bad_body`, `code_not_200`, `other`. The line never contains a number, text, key or URL. A shop line reply costs the shop owner one credit exactly once whichever way it was carried.
+
+### 16.2 Environment variables (Vercel, Production)
+
+- `SMS_PHONE_URL`: the public base URL of the phone's server (the Frpc relay address, `https://...`).
+- `SMS_PHONE_SM4_KEY`: the SM4 key, 32 hex characters (16 bytes).
+
+Set them as secrets in Vercel only. Never paste the key in chat, commits or this file. The Overview tab shows only "phone link configured" or "not configured" (a yes/no from the server, never the values). If either is missing or malformed, a line set to Phone SIM silently uses Hubtel.
+
+### 16.3 Phone setup (SmsForwarder)
+
+1. Server: switch the HTTP Server on (port 5000) in SM4 encryption mode and enter the same 32-hex key as `SMS_PHONE_SM4_KEY`.
+2. Under the server functions, enable ONLY Send SMS and Query Battery. Everything else stays off.
+3. Frpc: add the entry that publishes port 5000 on the relay; the resulting public address is `SMS_PHONE_URL`.
+4. Auto-start: switch Auto-start ON for BOTH the Server and Frpc in the app. Without both, the link does not come back after a phone restart and every reply quietly falls back to Hubtel.
+5. Keep the phone charged, on stay-awake while plugged in, and keep battery optimisation off for the app.
+
+### 16.4 Switching a line on or off
+
+Admin > Text-to-Buy > Settings > "Replies from the phone SIM". Pick "Current SMS replier" for the Main line and/or the Shop line: "Hubtel (sender ID)" (default) or "Phone SIM". Choose which SIM slot sends each line (defaults: main SIM 2, shop SIM 1) and the cap, then Save settings. The Overview tab shows the active replier per line and whether the phone link is configured. To switch back, choose Hubtel (sender ID) and save: instant, no deploy.
+
+Test first: switch ONE line to Phone SIM, send yourself a test order text, and confirm the reply arrives from the phone's SIM number and that the out row appears in Messages.
+
+### 16.5 Warnings
+
+- SIM airtime: each reply costs about GHS 0.065 per SMS of airtime. When the SIM balance runs low the phone fails silently (the request can still look accepted), so replies are lost without a fallback. Keep airtime topped up and check the balance regularly. Hubtel is the automatic fallback only when the phone visibly fails.
+- Rate cap: Android limits an app to about 30 SMS per 30 minutes. Our cap ("Phone SIM texts per 30 minutes") defaults to 15 (headroom for a small race) and counts every outbound reply on BOTH lines in the last 30 minutes (one phone, one app), whichever transport carried it; past it, replies go through Hubtel.
+- Time budget: the whole phone attempt (connection check plus send) has ONE budget of 6 seconds. A connection that is refused, reset or closed before any answer falls back to Hubtel at once. This is a deliberate trade: if the phone happened to send the text and the connection died in the instant before its answer, the customer sees the same short reply twice; the alternative (treat a reset as sent) would leave the customer with no reply at all whenever the link is broken, which is worse after a purchase quote.
+- Log lines to search in the Vercel runtime logs (fixed text, never a number, message or id):
+  - `text-to-buy: SIM reply fell back to Hubtel (<reason>)`: the phone path failed and Hubtel sent the reply instead. Reason `env` = link not configured; `cap` = 30-minute cap reached or the count failed; `unreachable:<detail>` = nothing accepted; `refused:<detail>` = the phone answered no; `ambiguous:<detail>` = no answer in time. SM4 is implemented in code (not by the server's OpenSSL), so it works on any host. Details: `bad_key` (the key is not 32 hex characters), `bad_url` (the phone URL does not parse), `crypto` (the request body could not be built), `probe_failed`, `probe_timeout`, `connect_error`, `reset`, `timeout`, `http_status`, `redirect`, `bad_body`, `code_not_200`, `other`.
+  - `text-to-buy: reply not sent (<token>)`: a reply never went out. `blank` = empty text; `not_gsm7` = the text has a character that needs unicode; `too_long` = more than one SMS segment; `skipped` = SMS is switched off globally; `unpaid` = the shop's credit could not be taken, so nothing was sent; `send_failed` = a send was attempted and failed (a stored out row with no delivery).
+  - `text-to-buy: no reply text for outcome unavailable (shop line)`: nothing to say (for example the "can't take orders" notice was already sent today, or a cap). Not a failure; compare with `reply not sent` lines, which mean it tried and could not.
+- Half-open tunnel: a tunnel that hangs without answering can stall a reply for up to the 6 second budget; it then falls back to Hubtel (so the customer may get a rare duplicate if the phone did send). Detect it with the supervised airplane-mode test: switch the phone to airplane mode, send a test text, and confirm what the customer receives.
+- Global SMS switch: when SMS is switched off globally (`SMS_ENABLED`), nothing is sent by SIM or Hubtel.
+- Replay exposure: the phone's API only checks a one-hour timestamp window. Someone who captured one encrypted request could replay it once within that hour and cause one duplicate reply to the same customer. They cannot read or change it without the key. The real fix is running your own VPS relay, which is just a change of `SMS_PHONE_URL` (no code change).
+- Shared free relay risk: the relay is a shared third-party free server. It only ever sees ciphertext, but it can be slow, down or reached by strangers; availability is not guaranteed (hence the Hubtel fallback). A stranger can reach the port but cannot send or read anything without the key.
+
+### 16.6 Rotating the key
+
+1. Generate a new 32-hex-character key (16 random bytes in hex).
+2. Set it in the phone's Server settings (SM4 key).
+3. Set the same value as `SMS_PHONE_SM4_KEY` in Vercel and redeploy.
+4. Send a test reply. Between steps 2 and 3 replies fall back to Hubtel, which is safe.
