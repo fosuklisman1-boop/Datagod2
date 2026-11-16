@@ -1,6 +1,6 @@
 import crypto from "crypto"
 import { createClient } from "@supabase/supabase-js"
-import { AgentPortalGHProvider, mapItemStatus } from "@/lib/mtn-providers/agentportalgh-provider"
+import { AgentPortalGHProvider, mapItemStatus, resolveBatchOutcomes, fetchAllItemsForOrder } from "@/lib/mtn-providers/agentportalgh-provider"
 import { sendPushToUser } from "@/lib/push-service"
 
 // Webhook processing logic for the AgentPortalGH MTN fulfillment provider,
@@ -57,13 +57,59 @@ export async function processItems(payload: any) {
   // item.reference is always null, payload.order_id is AgentPortalGH's own
   // internal batch id). The reference we send is never echoed back anywhere in
   // this payload — processItem() falls back to matching by msisdn + data_mb.
+
+  // Batched case (confirmed live 2026-11-16): AgentPortalGH runs our item inside
+  // its own group order. The terminal rows carry no reference; the separate
+  // "uploaded" row in the order's full item list carries OUR reference. Fetch
+  // every page, pair the rows, and update each order by its exact reference.
+  const handledNumbers: Array<{ key: string; data_mb: unknown }> = []
+  const hasReference = items.some(i => typeof i?.reference === "string" && i.reference.trim() !== "")
+  if (!hasReference && payload.order_id) {
+    try {
+      const all = await fetchAllItemsForOrder(String(payload.order_id))
+      const outcomes = resolveBatchOutcomes(all)
+      // Every number that has one of our references in this batch is owned by the
+      // exact-reference path — resolved or deliberately left alone as ambiguous —
+      // and must never fall through to the phone+size guess below.
+      for (const r of all) {
+        if (typeof r?.reference === "string" && r.reference.trim() !== "") {
+          handledNumbers.push({ key: phoneKey(r.msisdn), data_mb: r.data_mb })
+        }
+      }
+      for (const [ref, outcome] of outcomes) {
+        await processItem(
+          {
+            status: outcome.item.status,
+            failed_reason: outcome.item.failed_reason ?? null,
+            msisdn: outcome.msisdn,
+            data_mb: outcome.item.data_mb,
+            refunded_at: outcome.item.refunded_at ?? null,
+          },
+          ref,
+          { exactOnly: true }
+        )
+      }
+    } catch (err) {
+      handledNumbers.length = 0
+      console.error("[WEBHOOK-AGENTPORTALGH] Failed to resolve batch items for", payload.order_id, err)
+    }
+  }
+
   for (const item of items) {
+    if (handledNumbers.some(h => h.key === phoneKey(item.msisdn) &&
+      (typeof h.data_mb !== "number" || typeof item.data_mb !== "number" || h.data_mb === item.data_mb))) {
+      continue
+    }
     const ref: string | undefined = item.reference ?? payload.order_id
     await processItem(item, ref)
   }
 }
 
-export async function processItem(item: any, ref: string | undefined) {
+function phoneKey(m: unknown): string {
+  return String(m ?? "").replace(/\D/g, "").slice(-9)
+}
+
+export async function processItem(item: any, ref: string | undefined, opts: { exactOnly?: boolean } = {}) {
   const newStatus = mapItemStatus(item.status)
   const externalMessage = item.failed_reason ?? item.status ?? null
 
@@ -89,7 +135,7 @@ export async function processItem(item: any, ref: string | undefined) {
   // race. Matching regardless of status still lets us stamp webhook_received_at
   // for confirmation; the existing regression guard below prevents this from
   // ever re-opening an already-resolved order.
-  if (!tracking && item.msisdn) {
+  if (!tracking && item.msisdn && !opts.exactOnly) {
     const { normalizeGhanaPhone } = await import("@/lib/phone-format")
     const normPhone = normalizeGhanaPhone(item.msisdn) ?? item.msisdn
     const sizeGb = typeof item.data_mb === "number" ? item.data_mb / 1024 : undefined
