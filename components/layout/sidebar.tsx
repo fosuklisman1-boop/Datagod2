@@ -61,7 +61,8 @@ const formatCount = (num: number): string => {
 }
 
 /** Per-device open/closed state of the sidebar groups (lib/nav-groups.ts). */
-const GROUP_STATE_KEY = "datagod.sidebarGroups.v1"
+// v2 (2026-11-16): groups now start closed; the new key drops choices saved under v1's open default.
+const GROUP_STATE_KEY = "datagod.sidebarGroups.v2"
 
 /** The whole Shop section is one collapsible group. */
 const SHOP_GROUP: NavGroupDef = { id: "shop", label: "Shop" }
@@ -554,7 +555,7 @@ export function Sidebar() {
                   `menu-${section.group?.id ?? "top"}`,
                   section.group,
                   section.items,
-                  true,
+                  false, // groups start closed; the current page's group auto-opens
                   item => ({
                     active: isNavActive(pathname, item.href),
                     badge: item.href === "/dashboard/my-orders" ? userPendingOrderCount : undefined,
@@ -572,7 +573,7 @@ export function Sidebar() {
                     "shop",
                     SHOP_GROUP,
                     visibleShopItems,
-                    true,
+                    false,
                     item => ({ active: isNavActive(pathname, item.href) }),
                     false
                   )}
