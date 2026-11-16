@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync, readdirSync } from "fs"
 import { join } from "path"
-import { RECENT_WINDOW_HOURS, SYNC_WINDOW_DAYS, isDailySweep, isHourlySlot, syncWindowStartIso } from "./status-sync-window"
+import { RECENT_WINDOW_HOURS, SYNC_WINDOW_DAYS, isDailySweep, isHourlySlot, syncOldestFirst, syncWindowStartIso } from "./status-sync-window"
 
 const at = (iso: string) => new Date(iso)
 const DAY = 24 * 60 * 60 * 1000
@@ -29,6 +29,18 @@ describe("syncWindowStartIso tiers", () => {
 
   it("daily sweep wins over the hourly slot at 03:00", () => {
     expect(new Date(syncWindowStartIso(at("2026-10-21T03:00:00Z"))).getUTCFullYear()).toBeLessThan(2010)
+  })
+})
+
+describe("syncOldestFirst", () => {
+  it("is newest-first on a regular run so fresh orders are never starved by a backlog", () => {
+    expect(syncOldestFirst(at("2026-10-21T12:34:00Z"))).toBe(false)
+  })
+  it("is oldest-first in the hourly slot so the backlog drains", () => {
+    expect(syncOldestFirst(at("2026-10-21T12:02:00Z"))).toBe(true)
+  })
+  it("is oldest-first in the daily sweep", () => {
+    expect(syncOldestFirst(at("2026-10-21T03:01:00Z"))).toBe(true)
   })
 })
 

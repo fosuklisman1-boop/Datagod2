@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkMTNOrderStatus } from "@/lib/mtn-fulfillment"
 import { verifyCronAuth } from "@/lib/cron-auth"
-import { syncWindowStartIso } from "@/lib/status-sync-window"
+import { syncWindowStartIso, syncOldestFirst } from "@/lib/status-sync-window"
 import { backgroundCron } from "@/lib/cron-background"
 
 // Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
@@ -49,7 +49,7 @@ async function runAgentPortalSync(request: NextRequest) {
       .eq("provider", "agentportalgh")
       .in("status", ["pending", "processing"])
       .gte("created_at", syncWindowStartIso())
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: syncOldestFirst() })
       .limit(BATCH_SIZE),
     supabase
       .from("mtn_fulfillment_tracking")
@@ -57,7 +57,7 @@ async function runAgentPortalSync(request: NextRequest) {
       .eq("provider", "agentportalgh")
       .eq("status", "failed")
       .gte("created_at", failedCutoffIso)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: syncOldestFirst() })
       .limit(BATCH_SIZE),
   ])
 
@@ -66,8 +66,9 @@ async function runAgentPortalSync(request: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch orders" }, { status: 500 })
   }
 
+  const oldestFirst = syncOldestFirst()
   const pendingOrders = [...(active ?? []), ...(recentFailed ?? [])]
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .sort((a, b) => (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * (oldestFirst ? 1 : -1))
     .slice(0, BATCH_SIZE)
 
   if (!pendingOrders || pendingOrders.length === 0) {

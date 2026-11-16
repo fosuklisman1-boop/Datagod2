@@ -35,6 +35,14 @@ export function isHourlySlot(now: Date = new Date()): boolean {
   return now.getUTCMinutes() < HOURLY_SLOT_MINUTES
 }
 
+/**
+ * Row order for a sync's open-row query. Regular runs go newest-first so fresh orders are never
+ * starved by an old backlog; the hourly slot and daily sweep go oldest-first so the backlog drains.
+ */
+export function syncOldestFirst(now: Date = new Date()): boolean {
+  return isHourlySlot(now) || isDailySweep(now)
+}
+
 /** Earliest created_at a sync should poll right now (ISO string for .gte("created_at", ...)). */
 export function syncWindowStartIso(now: Date = new Date()): string {
   if (isDailySweep(now)) return new Date(Date.UTC(2000, 0, 1)).toISOString()
