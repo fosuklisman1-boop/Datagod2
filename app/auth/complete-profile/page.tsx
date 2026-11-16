@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
 import { readFirstTouchFromBrowser } from "@/lib/signup-source"
 import { safeRedirectPath } from "@/lib/post-auth-redirect"
+import { trackSignUp } from "@/lib/analytics/google-analytics"
 
 // Destination remembered from the page the user clicked before signing up
 // (?next=...); read lazily so no Suspense boundary is needed.
@@ -73,6 +74,9 @@ export default function CompleteProfilePage() {
   const [isLoading, setIsLoading] = useState(false)
   const [initializing, setInitializing] = useState(true)
   const [sessionToken, setSessionToken] = useState<string | null>(null)
+  // Email sign-ups can land here too (confirm link after the phone code expired);
+  // they were already reported on the sign-up page.
+  const [isGoogleSignUp, setIsGoogleSignUp] = useState(false)
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -136,6 +140,7 @@ export default function CompleteProfilePage() {
         phoneNumber: "",
       })
       setSessionToken(session.access_token)
+      setIsGoogleSignUp(session.user.app_metadata?.provider === "google")
 
       // Fetch signup enabled setting
       try {
@@ -315,6 +320,7 @@ export default function CompleteProfilePage() {
         return
       }
 
+      if (isGoogleSignUp) await trackSignUp("google")
       toast.success("Profile created! Welcome to DATAGOD.")
       router.push(postAuthTarget())
     } catch {

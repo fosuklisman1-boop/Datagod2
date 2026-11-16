@@ -18,6 +18,7 @@ import GoogleAuthButton from "@/components/GoogleAuthButton"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { isPageHidden } from "@/lib/custom-domains"
 import { safeRedirectPath, authUrl } from "@/lib/post-auth-redirect"
+import { shouldReportSignUp, trackSignUp } from "@/lib/analytics/google-analytics"
 
 const DEFAULT_TERMS = `Welcome to DATAGOD. By accessing or using our platform, you agree to be bound by these Terms of Service. Please read them carefully before creating an account or making any purchase.
 
@@ -287,6 +288,10 @@ export default function SignupPage() {
         last_name: formData.lastName,
         phone_number: formData.phoneNumber,
       }, destination)
+
+      // Reported here, not at the email link: that often opens in another browser,
+      // which would lose the connection to the ad click.
+      if (shouldReportSignUp(result?.user)) await trackSignUp("email")
 
       if (result?.confirmationRequired) {
         // Email confirmation is ON — no session yet. Show the "check your email"
