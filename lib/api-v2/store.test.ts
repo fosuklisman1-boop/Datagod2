@@ -181,6 +181,11 @@ describe("reads", () => {
   it("getUserForKey returns null on miss", async () => {
     expect(await getUserForKey(makeFake().client, "u")).toBeNull()
   })
+  it("getUserForKey returns \"error\" on a DB error or exception", async () => {
+    const e = makeFake({ selectResult: { data: null, error: { message: "x" } } })
+    expect(await getUserForKey(e.client, "u")).toBe("error")
+    expect(await getUserForKey(makeFake({ throwOnAny: true }).client, "u")).toBe("error")
+  })
   it("getUserForKey returns the user on a hit, without email, with suspended as a boolean", async () => {
     const { client, ops } = makeFake({
       selectResult: { data: { id: "u", role: "dealer", first_name: "Ama", is_suspended: false }, error: null },
@@ -210,7 +215,8 @@ describe("reads", () => {
       const { client } = makeFake({
         selectResult: { data: { id: "u", role: "dealer", first_name: null, is_suspended: raw }, error: null },
       })
-      expect((await getUserForKey(client, "u"))?.suspended).toBe(expected)
+      const owner = await getUserForKey(client, "u")
+      expect(typeof owner === "object" && owner ? owner.suspended : undefined).toBe(expected)
     }
   })
   it("revokeAllV2Keys returns the number of revoked rows", async () => {

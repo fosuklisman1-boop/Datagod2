@@ -43,7 +43,7 @@ export type V2Handler = (req: NextRequest, ctx: V2Context) => Promise<V2HandlerR
 export interface V2Deps {
   store: {
     findKeyByHash(hash: string): Promise<V2KeyRow | null | "error">
-    getUserForKey(userId: string): Promise<V2KeyOwner | null>
+    getUserForKey(userId: string): Promise<V2KeyOwner | null | "error">
     getConfig(): Promise<{ enabled: boolean; allowed_roles: string[] }>
     touchLastUsed(keyId: string): Promise<void>
     logRequest(p: Parameters<typeof logRequest>[1]): Promise<void>
@@ -130,6 +130,7 @@ export async function runV2(
   if (opts.failClosedWhenLimiterDegraded && limit.degraded) return fail(503, MSG_UNAVAILABLE)
 
   const [user, config] = await Promise.all([deps.store.getUserForKey(row.user_id), deps.store.getConfig()])
+  if (user === "error") return fail(503, MSG_UNAVAILABLE)
   if (!user) return unauthorized()
 
   const ip = clientIp(input.headers)

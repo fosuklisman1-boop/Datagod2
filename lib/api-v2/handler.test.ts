@@ -20,8 +20,8 @@ function makeDeps(over: any = {}) {
   }
   const store = {
     findKeyByHash: vi.fn(async (): Promise<any> => (over.storeError ? "error" : over.noKey ? null : row)),
-    getUserForKey: vi.fn(async () =>
-      over.noUser ? null : { id: "user-1", role: over.role ?? "dealer", first_name: "Ama", suspended: over.suspended ?? false }
+    getUserForKey: vi.fn(async (): Promise<any> =>
+      over.userError ? "error" : over.noUser ? null : { id: "user-1", role: over.role ?? "dealer", first_name: "Ama", suspended: over.suspended ?? false }
     ),
     getConfig: vi.fn(async () => ({
       enabled: over.enabled ?? true,
@@ -157,6 +157,14 @@ describe("runV2", () => {
     const r = await runV2(deps, OPTS, ok, input(validKey()))
     expect(r.status).toBe(401)
     expect(r.body).toMatchObject({ success: false, error: { code: 401 } })
+  })
+
+  it("503 (never 401) when the key owner lookup errors, and does not log", async () => {
+    const deps = makeDeps({ userError: true })
+    const r = await runV2(deps, OPTS, ok, input(validKey()))
+    expect(r.status).toBe(503)
+    expect(r.body).toMatchObject({ success: false, error: { code: 503 } })
+    expect(deps.store.logRequest).not.toHaveBeenCalled()
   })
 
   it("403 for a revoked key", async () => {

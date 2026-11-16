@@ -84,7 +84,7 @@ export function buildStuckMessage(r: StuckResult, now: Date): string {
     return Number.isFinite(t) && t < min ? t : min
   }, Number.POSITIVE_INFINITY)
   const age = Number.isFinite(oldest) ? Math.max(0, Math.round((now.getTime() - oldest) / 60000)) : 0
-  return `API v2 stuck work: ${r.claims.length} claim(s) and ${r.orders.length} order(s) pending over ${STUCK_AFTER_MINUTES} minutes. Oldest is ${age} minutes old. Review in /admin/api-v2.`
+  return `API v2 stuck work: ${r.claims.length} claim(s) and ${r.orders.length} order(s) pending over ${STUCK_AFTER_MINUTES} minutes. Oldest is ${age} minutes old. Review in /admin/api-keys.`
 }
 
 async function readLastIds(client: SupabaseLike): Promise<string[]> {

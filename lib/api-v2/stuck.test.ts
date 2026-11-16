@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { findStuckV2, shouldAlert, runStuckSweep } from "./stuck"
+import { findStuckV2, shouldAlert, runStuckSweep, buildStuckMessage } from "./stuck"
 
 const NOW = new Date("2026-11-12T12:00:00.000Z")
 const minsAgo = (m: number) => new Date(NOW.getTime() - m * 60000).toISOString()
@@ -140,5 +140,13 @@ describe("runStuckSweep", () => {
     await runStuckSweep(client, NOW, async () => {})
     expect(writes.filter((w) => w.table === "api_v2_idempotency" || w.table === "api_orders")).toEqual([])
     expect(writes).toEqual([{ table: "admin_settings", op: "upsert" }])
+  })
+})
+
+describe("buildStuckMessage", () => {
+  it("points at the real admin page (/admin/api-keys)", () => {
+    const msg = buildStuckMessage({ claims: [{ id: "c1", created_at: minsAgo(45) }], orders: [] } as any, NOW)
+    expect(msg).toContain("Review in /admin/api-keys.")
+    expect(msg).not.toContain("/admin/api-v2")
   })
 })
