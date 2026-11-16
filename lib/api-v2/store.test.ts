@@ -163,9 +163,14 @@ describe("reads", () => {
     expect(row).toEqual({ id: "k" })
     expect(ops[0].filters).toContainEqual(["key_hash", "eq", "h"])
   })
-  it("findKeyByHash returns null on miss/error", async () => {
+  it("findKeyByHash returns null on a genuine miss", async () => {
     expect(await findKeyByHash(makeFake().client, "h")).toBeNull()
-    expect(await findKeyByHash(makeFake({ throwOnAny: true }).client, "h")).toBeNull()
+  })
+  it("findKeyByHash returns \"error\" on a DB error or exception (outage, not a bad key)", async () => {
+    expect(await findKeyByHash(makeFake({ throwOnAny: true }).client, "h")).toBe("error")
+    expect(
+      await findKeyByHash(makeFake({ selectResult: { data: null, error: { message: "x" } } }).client, "h")
+    ).toBe("error")
   })
   it("findKeyByHash never returns key_hash even if the client does", async () => {
     const { client } = makeFake({ selectResult: { data: { id: "k", key_hash: "secret" }, error: null } })
@@ -175,6 +180,11 @@ describe("reads", () => {
   })
   it("getUserForKey returns null on miss", async () => {
     expect(await getUserForKey(makeFake().client, "u")).toBeNull()
+  })
+  it("getUserForKey returns \"error\" on a DB error or exception", async () => {
+    const e = makeFake({ selectResult: { data: null, error: { message: "x" } } })
+    expect(await getUserForKey(e.client, "u")).toBe("error")
+    expect(await getUserForKey(makeFake({ throwOnAny: true }).client, "u")).toBe("error")
   })
   it("getUserForKey returns the user on a hit, without email, with suspended as a boolean", async () => {
     const { client, ops } = makeFake({
@@ -205,7 +215,8 @@ describe("reads", () => {
       const { client } = makeFake({
         selectResult: { data: { id: "u", role: "dealer", first_name: null, is_suspended: raw }, error: null },
       })
-      expect((await getUserForKey(client, "u"))?.suspended).toBe(expected)
+      const owner = await getUserForKey(client, "u")
+      expect(typeof owner === "object" && owner ? owner.suspended : undefined).toBe(expected)
     }
   })
   it("revokeAllV2Keys returns the number of revoked rows", async () => {

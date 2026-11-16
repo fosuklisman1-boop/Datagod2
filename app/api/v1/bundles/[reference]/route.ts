@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { classifyServiceError } from "@/lib/api-v1-errors"
 import { getBundlesRuntime } from "@/lib/standard-bundles/runtime"
@@ -9,7 +10,9 @@ import { ORDER_COLUMNS, mapOrder } from "@/lib/api-v1/bundles"
 export const dynamic = "force-dynamic"
 
 /** GET /api/v1/bundles/{reference} -- the key owner's own order only. */
-export async function GET(request: NextRequest, { params }: { params: Promise<{ reference: string }> }) {
+export const GET = withV1Retirement("GET /api/v1/bundles/[reference]", v1GET)
+
+async function v1GET(request: NextRequest, { params }: { params: Promise<{ reference: string }> }) {
   const start = Date.now()
   const user = await authenticateApiKey(request)
   if (!user) return NextResponse.json({ success: false, error: "Invalid or missing API key" }, { status: 401 })

@@ -1,0 +1,89 @@
+// Pure helpers for the v1 retirement UI. No server imports, so client components can use them.
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+const DAY_MS = 24 * 60 * 60 * 1000
+export const MIN_NOTICE_DAYS = 14
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Ghana is UTC+0 year-round; always uses UTC getters, never machine-local time. */
+export function formatGhanaDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} GMT`
+}
+
+/** A datetime-local value ("YYYY-MM-DDTHH:mm") read as GMT/UTC, whatever the browser's timezone. Null when invalid. */
+export function pickerToIso(value: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim())
+  if (!m) return null
+  const [y, mo, d, h, mi] = m.slice(1).map(Number)
+  const t = Date.UTC(y, mo - 1, d, h, mi)
+  const back = new Date(t)
+  // Reject rollovers such as 31 Feb.
+  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) return null
+  return back.toISOString()
+}
+
+/** ISO instant -> datetime-local value in GMT. Empty string for null/invalid. */
+export function isoToPicker(iso: string | null): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toISOString().slice(0, 16)
+}
+
+/** True when the date is less than 14 days away (or already past), so the admin must confirm. */
+export function isEarlierThanNotice(iso: string, now: Date, days: number = MIN_NOTICE_DAYS): boolean {
+  return new Date(iso).getTime() < now.getTime() + days * DAY_MS
+}
+
+export const STALE_MESSAGE = "Settings changed since you loaded them. Reload and try again."
+
+/** PUT body for the admin retirement route; `expectedUpdatedAt` is the updated_at of the last load. */
+export function buildRetirementPutBody(sunsetAt: string | null, exemptIds: string[], expectedUpdatedAt: string | null) {
+  return { sunset_at: sunsetAt, exempt_user_ids: exemptIds, expected_updated_at: expectedUpdatedAt }
+}
+
+export function isUuid(s: string): boolean {
+  return UUID_RE.test(s.trim())
+}
+
+export type BannerKind = "none" | "notice" | "exempt"
+
+/** Banner shows only for a user with an active v1 key while a sunset is set. */
+export function bannerKind(args: { sunsetAt: string | null; exempt: boolean; hasActiveKey: boolean }): BannerKind {
+  if (!args.sunsetAt || !args.hasActiveKey) return "none"
+  if (Number.isNaN(new Date(args.sunsetAt).getTime())) return "none"
+  return args.exempt ? "exempt" : "notice"
+}
+
+export function bannerText(
+  kind: Exclude<BannerKind, "none">,
+  sunsetAt: string,
+  opts: { now?: Date; v2Open?: boolean } = {}
+): string {
+  const date = formatGhanaDate(new Date(sunsetAt))
+  if (kind === "exempt") return `API v1 retires on ${date}. Your access continues for now; please plan your move to v2.`
+  // The "Create a v2 key below" pointer only makes sense when the v2 key section is shown to this user.
+  const v2Step = opts.v2Open === false ? "See the v2 docs to move over." : "Create a v2 key below and follow the v2 docs."
+  const past = new Date(sunsetAt).getTime() <= (opts.now ?? new Date()).getTime()
+  return past
+    ? `API v1 was retired on ${date}. Your v1 requests are now refused. ${v2Step}`
+    : `API v1 will be retired on ${date}. After that your v1 requests will be refused. ${v2Step}`
+}
+
+export interface StragglerLike {
+  user_id: string
+  email: string | null
+  orders_7d: number
+  exempt: boolean
+}
+
+/** The non-exempt v1 caller with the most orders in the last 7 days (orders_7d > 0), or null. Ties keep the first. */
+export function topNonExemptStraggler<T extends StragglerLike>(stragglers: T[]): T | null {
+  let top: T | null = null
+  for (const s of stragglers) {
+    if (s.exempt || !(s.orders_7d > 0)) continue
+    if (!top || s.orders_7d > top.orders_7d) top = s
+  }
+  return top
+}

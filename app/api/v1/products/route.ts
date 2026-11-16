@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { buildProductsCatalog } from "@/lib/products-catalog"
 
@@ -7,7 +8,9 @@ import { buildProductsCatalog } from "@/lib/products-catalog"
  * GET /api/v1/products
  * Read-only catalog of purchasable products and current prices.
  */
-export async function GET(request: NextRequest) {
+export const GET = withV1Retirement("GET /api/v1/products", v1GET)
+
+async function v1GET(request: NextRequest) {
   const start = Date.now()
 
   const user = await authenticateApiKey(request)

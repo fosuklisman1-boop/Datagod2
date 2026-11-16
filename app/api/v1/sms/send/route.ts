@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
@@ -24,7 +25,9 @@ const supabaseAdmin = createClient(
 // Instant campaign dispatch can run for minutes (up to 5 Hubtel/Moolre batches per send).
 export const maxDuration = 300
 
-export async function POST(request: NextRequest) {
+export const POST = withV1Retirement("POST /api/v1/sms/send", v1POST)
+
+async function v1POST(request: NextRequest) {
   const start = Date.now()
 
   const user = await authenticateApiKey(request)

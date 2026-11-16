@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { authenticateApiKey, logApiRequest } from "@/lib/api-auth"
+import { withV1Retirement } from "@/lib/api-v1/with-retirement"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { classifyServiceError } from "@/lib/api-v1-errors"
@@ -19,7 +20,9 @@ export const maxDuration = 60
  * Body: { verify_token: string, amount: number, expected_pay?: number }
  * Re-sending a verify_token that already paid returns that order (201, same reference), never a second payment.
  */
-export async function POST(request: NextRequest) {
+export const POST = withV1Retirement("POST /api/v1/bills", v1POST)
+
+async function v1POST(request: NextRequest) {
   const start = Date.now()
   const user = await authenticateApiKey(request)
   if (!user) {

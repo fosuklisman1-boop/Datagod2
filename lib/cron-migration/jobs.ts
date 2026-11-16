@@ -50,6 +50,7 @@ const BATCH_B = new Set(
     "sms-hubtel-dlr",
     "security-alerts",
     "phone-verify",
+    "api-v2-stuck", // report-only: alerts admins, never changes rows
     "text-to-buy-notify", // overlap-safe: every notice is recorded with a guarded update before it is sent
   ].map((n) => P + n),
 )

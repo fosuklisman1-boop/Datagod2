@@ -42,8 +42,8 @@ export type V2Handler = (req: NextRequest, ctx: V2Context) => Promise<V2HandlerR
 
 export interface V2Deps {
   store: {
-    findKeyByHash(hash: string): Promise<V2KeyRow | null>
-    getUserForKey(userId: string): Promise<V2KeyOwner | null>
+    findKeyByHash(hash: string): Promise<V2KeyRow | null | "error">
+    getUserForKey(userId: string): Promise<V2KeyOwner | null | "error">
     getConfig(): Promise<{ enabled: boolean; allowed_roles: string[] }>
     touchLastUsed(keyId: string): Promise<void>
     logRequest(p: Parameters<typeof logRequest>[1]): Promise<void>
@@ -53,8 +53,9 @@ export interface V2Deps {
     name: string,
     max: number,
     windowMs: number,
-    userId?: string
-  ): Promise<{ allowed: boolean; remaining: number; resetAt: number; degraded?: boolean }>
+    userId?: string,
+    opts?: { pgFallback?: boolean }
+  ): Promise<{ allowed: boolean; remaining: number; resetAt: number; degraded?: boolean; fallback?: boolean }>
   now(): Date
 }
 
@@ -108,15 +109,20 @@ export async function runV2(
    *   6. handler; error results and non-2xx statuses map to the error envelope (logged)
    */
   const row = await deps.store.findKeyByHash(hashV2Key(raw))
+  // A failed lookup is an outage, not a bad key: never tell a developer their key is invalid because our DB is down.
+  if (row === "error") return fail(503, MSG_UNAVAILABLE)
   if (!row) return unauthorized()
 
-  // degraded => allowed here (read-only endpoints); purchase endpoints must add their own fallback cap.
+  // Active keys share their owner's bucket; pending/revoked keys get a per-key bucket so a dead key cannot
+  // burn the owner's quota. Degraded => allowed here (read-only endpoints). Purchase endpoints ask for the
+  // Postgres fallback counter and fail closed below if even that is unavailable.
   const limit = await deps.rateLimit(
     input.request,
     `v2_${row.key_type}_${row.environment}_${opts.group}`,
     resolveLimit(opts.group, row.rate_limits),
     60000,
-    row.user_id
+    row.status === "active" ? row.user_id : `key-${row.id}`,
+    opts.failClosedWhenLimiterDegraded ? { pgFallback: true } : undefined
   )
   if (!limit.allowed) return fail(429, MSG_RATE_LIMITED)
   // Purchase endpoints fail closed: a degraded limiter (store unreachable, fallback cap) must not let money move.
@@ -124,6 +130,7 @@ export async function runV2(
   if (opts.failClosedWhenLimiterDegraded && limit.degraded) return fail(503, MSG_UNAVAILABLE)
 
   const [user, config] = await Promise.all([deps.store.getUserForKey(row.user_id), deps.store.getConfig()])
+  if (user === "error") return fail(503, MSG_UNAVAILABLE)
   if (!user) return unauthorized()
 
   const ip = clientIp(input.headers)

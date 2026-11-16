@@ -29,6 +29,9 @@ interface ApiKey {
 export function DeveloperKeysCard() {
   const { isDealer } = useUserRole()
   const [keys, setKeys] = useState<ApiKey[]>([])
+  // Once a retirement date is set the server refuses new v1 keys (410), so the create controls are hidden.
+  const [sunsetAt, setSunsetAt] = useState<string | null>(null)
+  const creationClosed = sunsetAt !== null
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState<Environment | "both" | null>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
@@ -52,8 +55,11 @@ export function DeveloperKeysCard() {
     try {
       const res = await fetch("/api/user/keys", { headers: await authHeader() })
       const data = await res.json()
-      if (res.ok) setKeys(data.keys || [])
-      else toast.error(data.error || "Failed to load API keys")
+      if (res.ok) {
+        const loaded: ApiKey[] = data.keys || []
+        setKeys(loaded)
+        setSunsetAt(typeof data.retirement?.sunset_at === "string" ? data.retirement.sunset_at : null)
+      } else toast.error(data.error || "Failed to load API keys")
     } catch {
       toast.error("Failed to load API keys")
     } finally {
@@ -212,15 +218,17 @@ export function DeveloperKeysCard() {
               </p>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <Button
-                size="sm"
-                variant="outline"
-                className="rounded-full"
-                onClick={() => handleGenerate(env)}
-                disabled={generating !== null}
-              >
-                {generating === env ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Regenerate"}
-              </Button>
+              {!creationClosed && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => handleGenerate(env)}
+                  disabled={generating !== null}
+                >
+                  {generating === env ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Regenerate"}
+                </Button>
+              )}
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10" aria-label={`Revoke ${label}`}>
@@ -232,6 +240,11 @@ export function DeveloperKeysCard() {
                     <AlertDialogTitle>Revoke your {label.toLowerCase()}?</AlertDialogTitle>
                     <AlertDialogDescription>
                       Any application using this key will immediately stop being able to authenticate. This cannot be undone.
+                      {creationClosed && (
+                        <span className="mt-2 block font-semibold text-foreground">
+                          v1 key creation has ended. If you revoke this key you can&apos;t create a new v1 key — move to API v2 first.
+                        </span>
+                      )}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -246,16 +259,20 @@ export function DeveloperKeysCard() {
           </div>
         ) : (
           <div className="mt-2 flex items-center justify-between gap-2">
-            <p className="text-sm text-muted-foreground">No key yet.</p>
-            <Button
-              size="sm"
-              className="rounded-full bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90"
-              onClick={() => handleGenerate(env)}
-              disabled={generating !== null}
-            >
-              {generating === env ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
-              Generate
-            </Button>
+            <p className="text-sm text-muted-foreground">
+              {creationClosed ? "No key. New v1 keys are no longer issued; use a v2 key." : "No key yet."}
+            </p>
+            {!creationClosed && (
+              <Button
+                size="sm"
+                className="rounded-full bg-[#1b388b] text-primary-foreground hover:bg-[#1b388b]/90"
+                onClick={() => handleGenerate(env)}
+                disabled={generating !== null}
+              >
+                {generating === env ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
+                Generate
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -284,15 +301,17 @@ export function DeveloperKeysCard() {
         {renderKeyRow("live")}
       </div>
 
-      <Button
-        variant="outline"
-        className="mt-3 w-full rounded-2xl"
-        onClick={handleRegenerateBoth}
-        disabled={generating !== null}
-      >
-        {generating === "both" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <KeyRound className="w-4 h-4 mr-2" />}
-        Regenerate Both Keys
-      </Button>
+      {!creationClosed && (
+        <Button
+          variant="outline"
+          className="mt-3 w-full rounded-2xl"
+          onClick={handleRegenerateBoth}
+          disabled={generating !== null}
+        >
+          {generating === "both" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <KeyRound className="w-4 h-4 mr-2" />}
+          Regenerate Both Keys
+        </Button>
+      )}
 
       {/* Try it -- real, live calls. GET /api/v1/balance with either key type
           works (it returns real or sandbox balance depending which key you

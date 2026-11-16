@@ -34,20 +34,22 @@ export function getAdminClient(): SupabaseLike {
   })
 }
 
-export async function findKeyByHash(client: SupabaseLike, hash: string): Promise<V2KeyRow | null> {
+/** null = no such key; "error" = the lookup itself failed (outage), which must never read as a bad key. */
+export async function findKeyByHash(client: SupabaseLike, hash: string): Promise<V2KeyRow | null | "error"> {
   try {
     const { data, error } = await client
       .from("api_v2_keys")
       .select(KEY_COLUMNS)
       .eq("key_hash", hash)
       .maybeSingle()
-    if (error || !data) return null
+    if (error) return "error"
+    if (!data) return null
     // Defensive: never hand key_hash back, whatever the client returned.
     const { key_hash: _omit, ...row } = data as V2KeyRow & { key_hash?: string }
     void _omit
     return row
   } catch {
-    return null
+    return "error"
   }
 }
 
@@ -58,18 +60,20 @@ export interface V2KeyOwner {
   suspended: boolean
 }
 
-export async function getUserForKey(client: SupabaseLike, userId: string): Promise<V2KeyOwner | null> {
+export async function getUserForKey(client: SupabaseLike, userId: string): Promise<V2KeyOwner | null | "error"> {
   try {
     const { data, error } = await client
       .from("users")
       .select("id, role, first_name, is_suspended")
       .eq("id", userId)
       .maybeSingle()
-    if (error || !data) return null
+    // A DB error is an outage, not a missing owner: "error" lets the handler answer 503, never 401.
+    if (error) return "error"
+    if (!data) return null
     // is_suspended is BOOLEAN DEFAULT FALSE (nullable); any truthy value means suspended.
     return { id: data.id, role: data.role, first_name: data.first_name ?? null, suspended: Boolean(data.is_suspended) }
   } catch {
-    return null
+    return "error"
   }
 }
 
