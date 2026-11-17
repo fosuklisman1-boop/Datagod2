@@ -41,8 +41,54 @@ describe("classifyOrderReply", () => {
     const r = classifyOrderReply(200, 'Warning: x\n{"success":true,"order_id":5}')
     expect(r.kind).toBe("json")
   })
-  it("4xx non-JSON is unknown (conservative)", () => {
-    expect(classifyOrderReply(403, "<html>blocked</html>").kind).toBe("unknown")
+  it("non-JSON front-door statuses (401/403/404/405/429) never reached the provider app: ordinary", () => {
+    for (const s of [401, 403, 404, 405, 429]) {
+      expect(classifyOrderReply(s, "<html>blocked</html>").kind).toBe("not_reached")
+    }
+  })
+  it("other non-JSON statuses stay unknown", () => {
+    for (const s of [200, 201, 400, 500, 502, 504]) {
+      expect(classifyOrderReply(s, "<html>x</html>").kind).toBe("unknown")
+    }
+  })
+  it("5xx JSON needs a recognised rejection; cURL/SQLSTATE/exception text is unknown", () => {
+    expect(classifyOrderReply(500, JSON.stringify({ success: false, message: "cURL error 28: timed out" })).kind).toBe("unknown")
+    expect(classifyOrderReply(500, JSON.stringify({ success: false, message: "SQLSTATE[23000]: duplicate entry x" })).kind).toBe("json")
+    expect(classifyOrderReply(500, JSON.stringify({ error: "Uncaught Exception in foo.php" })).kind).toBe("unknown")
+    expect(classifyOrderReply(503, JSON.stringify({ success: false, message: "Out of stock" })).kind).toBe("json")
+    expect(classifyOrderReply(500, JSON.stringify({ success: false, message: "Phone number does not match network" })).kind).toBe("json")
+  })
+})
+
+describe("send errors", () => {
+  const withCode = (code: string, viaCause = true) => {
+    const e: any = new Error("fetch failed")
+    if (viaCause) e.cause = { code }
+    else e.code = code
+    return e
+  }
+  it("connection-never-made codes are ordinary NETWORK_ERROR failures", async () => {
+    for (const code of ["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "UND_ERR_CONNECT_TIMEOUT", "CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID", "DEPTH_ZERO_SELF_SIGNED_CERT"]) {
+      const r = await sendOrderRequest("X", async () => { throw withCode(code) })
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.response.error_type, code).toBe("NETWORK_ERROR")
+    }
+    const r = await sendOrderRequest("X", async () => { throw withCode("ENOTFOUND", false) })
+    if (!r.ok) expect(r.response.error_type).toBe("NETWORK_ERROR")
+  })
+  it("reset/socket/timeout/abort errors stay unknown", async () => {
+    for (const code of ["ECONNRESET", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]) {
+      const r = await sendOrderRequest("X", async () => { throw withCode(code) })
+      if (!r.ok) expect(r.response.error_type, code).toBe("OUTCOME_UNKNOWN")
+    }
+    const abort = new Error("aborted"); abort.name = "AbortError"
+    const r = await sendOrderRequest("X", async () => { throw abort })
+    if (!r.ok) expect(r.response.error_type).toBe("OUTCOME_UNKNOWN")
+  })
+  it("a non-JSON 403 through sendOrderRequest is an ordinary failure", async () => {
+    const r = await sendOrderRequest("X", async () => res(403, "<html>waf</html>"))
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.response.error_type).toBe("API_ERROR")
   })
 })
 

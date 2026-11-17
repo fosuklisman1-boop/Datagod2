@@ -6,7 +6,7 @@
 
 import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
-import { classifyOrderReply, outcomeUnknownResponse } from "./outcome"
+import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse } from "./outcome"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 
@@ -134,7 +134,7 @@ export class DataKazinaProvider implements MTNProvider {
                         responseText = await response.text()
                     } catch (sendErr) {
                         log("error", "Order", "DataKazina request threw after sending - outcome unknown", { traceId, error: String(sendErr) })
-                        return outcomeUnknownResponse("DataKazina", null, traceId)
+                        return sendErrorResponse("DataKazina", sendErr, traceId)
                     }
 
                     const latency = Date.now() - startTime
@@ -170,21 +170,23 @@ export class DataKazinaProvider implements MTNProvider {
                             status: response.status,
                             responsePreview: responseText.slice(0, 200)
                         })
-                        return outcomeUnknownResponse("DataKazina", response.status, traceId)
+                        return responseForClass("DataKazina", { kind: [401, 403, 404, 405].includes(response.status) ? "not_reached" : "unknown" }, response.status, traceId)!
                     }
 
                     // Parse JSON response. Unreadable / empty / 5xx without an explicit
                     // rejection = outcome unknown (the order may exist at DataKazina).
                     const classified = classifyOrderReply(response.status, responseText)
-                    if (classified.kind === "unknown") {
-                        log("error", "Order", "Unreadable DataKazina response - outcome unknown", {
+                    const badReply = responseForClass("DataKazina", classified, response.status, traceId)
+                    if (badReply) {
+                        log("error", "Order", "Unreadable DataKazina response", {
                             traceId,
                             status: response.status,
+                            kind: classified.kind,
                             responseText: responseText.slice(0, 200),
                         })
-                        return outcomeUnknownResponse("DataKazina", response.status, traceId)
+                        return badReply
                     }
-                    const data: any = classified.json
+                    const data: any = (classified as { json: any }).json
 
                     // Check for errors
                     if (!response.ok) {

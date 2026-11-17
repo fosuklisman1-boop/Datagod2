@@ -18,7 +18,7 @@ import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin } from "@/lib/supabase"
-import { classifyOrderReply, outcomeUnknownResponse } from "./outcome"
+import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse } from "./outcome"
 
 const BISDEL_API_KEY = process.env.BISDEL_API_KEY!
 const BISDEL_API_SECRET = process.env.BISDEL_API_SECRET!
@@ -161,7 +161,7 @@ export class BisdelProvider implements MTNProvider {
             responseText = await response.text()
           } catch (sendErr) {
             log("error", "Order", "Bisdel request threw after sending - outcome unknown", { traceId, error: String(sendErr) })
-            return outcomeUnknownResponse("Bisdel", null, traceId)
+            return sendErrorResponse("Bisdel", sendErr, traceId)
           }
           const latency = Date.now() - startTime
 
@@ -171,11 +171,12 @@ export class BisdelProvider implements MTNProvider {
           }
 
           const classified = classifyOrderReply(response.status, responseText)
-          if (classified.kind === "unknown") {
-            log("error", "Order", "Unreadable Bisdel response - outcome unknown", { traceId, status: response.status })
-            return outcomeUnknownResponse("Bisdel", response.status, traceId)
+          const badReply = responseForClass("Bisdel", classified, response.status, traceId)
+          if (badReply) {
+            log("error", "Order", "Unreadable Bisdel response", { traceId, status: response.status, kind: classified.kind })
+            return badReply
           }
-          const data: any = classified.json
+          const data: any = (classified as { json: any }).json
 
           // Bisdel nests the order under `data`.
           const d = data?.data ?? data

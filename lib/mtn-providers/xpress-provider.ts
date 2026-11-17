@@ -15,7 +15,7 @@
 import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
-import { classifyOrderReply, outcomeUnknownResponse } from "./outcome"
+import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse } from "./outcome"
 
 const XPRESS_API_KEY = process.env.XPRESS_KEY!
 const XPRESS_API_BASE_URL = "https://labppmcqsdeuollwcgwu.supabase.co/functions/v1/agent-api"
@@ -105,11 +105,12 @@ export class XpressProvider implements MTNProvider {
 
                     // Unreadable / empty / 5xx-without-rejection = the order may exist at Xpress.
                     const classified = classifyOrderReply(response.status, responseText)
-                    if (classified.kind === "unknown") {
-                        log("error", "Order", "Unreadable Xpress response - outcome unknown", { traceId, status: response.status })
-                        return outcomeUnknownResponse("Xpress", response.status, traceId)
+                    const badReply = responseForClass("Xpress", classified, response.status, traceId)
+                    if (badReply) {
+                        log("error", "Order", "Unreadable Xpress response", { traceId, status: response.status, kind: classified.kind })
+                        return badReply
                     }
-                    const data: any = classified.json
+                    const data: any = (classified as { json: any }).json
 
                     if (!response.ok) {
                         log("error", "Order", "Xpress API HTTP error", { traceId, status: response.status, data })
@@ -119,7 +120,8 @@ export class XpressProvider implements MTNProvider {
                     // Response: { order_id, items, charged, balance }
                     if (!data.order_id) {
                         log("error", "Order", "Xpress response missing order_id", { traceId, data })
-                        return { success: false, message: data?.error || "Order created but no order_id returned", traceId, error_type: "API_ERROR" }
+                        // A readable 2xx with no order id: the order may well exist at Xpress. Hold.
+                        return outcomeUnknownResponse("Xpress", response.status, traceId)
                     }
 
                     log("info", "Order", "Xpress MTN order created successfully", { traceId, orderId: data.order_id, latencyMs: latency })
@@ -139,7 +141,7 @@ export class XpressProvider implements MTNProvider {
                     }
                     // All same-reference attempts threw after sending: outcome unknown.
                     log("error", "Order", "Xpress order request failed after retries - outcome unknown", { traceId, error: String(error) })
-                    return outcomeUnknownResponse("Xpress", null, traceId)
+                    return sendErrorResponse("Xpress", error, traceId)
                 }
             }
 

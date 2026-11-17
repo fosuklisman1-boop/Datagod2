@@ -15,7 +15,7 @@ import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin } from "@/lib/supabase"
-import { classifyOrderReply, outcomeUnknownResponse } from "./outcome"
+import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse } from "./outcome"
 
 const EAZYGHDATA_API_KEY = process.env.EAZYGHDATA_API_KEY!
 const EAZYGHDATA_BASE_URL = process.env.EAZYGHDATA_BASE_URL || "https://eazyghdata.com"
@@ -221,7 +221,7 @@ export class EazyGhDataProvider implements MTNProvider {
                         responseText = await response.text()
                     } catch (sendErr) {
                         log("error", "Order", "EazyGhData request threw after sending - outcome unknown", { traceId, error: String(sendErr) })
-                        return outcomeUnknownResponse("EazyGhData", null, traceId)
+                        return sendErrorResponse("EazyGhData", sendErr, traceId)
                     }
 
                     const latency = Date.now() - startTime
@@ -237,11 +237,12 @@ export class EazyGhDataProvider implements MTNProvider {
                     }
 
                     const classified = classifyOrderReply(response.status, responseText)
-                    if (classified.kind === "unknown") {
-                        log("error", "Order", "Unreadable EazyGhData response - outcome unknown", { traceId, status: response.status })
-                        return outcomeUnknownResponse("EazyGhData", response.status, traceId)
+                    const badReply = responseForClass("EazyGhData", classified, response.status, traceId)
+                    if (badReply) {
+                        log("error", "Order", "Unreadable EazyGhData response", { traceId, status: response.status, kind: classified.kind })
+                        return badReply
                     }
-                    const data: any = classified.json
+                    const data: any = (classified as { json: any }).json
 
                     if (!response.ok) {
                         const errMsg: string = data?.message || data?.error || `API returned ${response.status}`
