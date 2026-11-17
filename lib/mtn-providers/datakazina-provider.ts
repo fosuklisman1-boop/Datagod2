@@ -6,6 +6,7 @@
 
 import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
+import { classifyOrderReply, outcomeUnknownResponse } from "./outcome"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 
@@ -114,20 +115,29 @@ export class DataKazinaProvider implements MTNProvider {
 
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
                 try {
-                    // Make API call
-                    const response = await fetch(`${DATAKAZINA_API_BASE_URL}/buy-data-package`, {
-                        method: "POST",
-                        headers: {
-                            "x-api-key": DATAKAZINA_API_KEY,
-                            "Content-Type": "application/json",
-                            "Accept": "application/json",
-                        },
-                        body: JSON.stringify(requestBody),
-                        signal: AbortSignal.timeout(REQUEST_TIMEOUT),
-                    })
+                    // Make API call. A throw here (network/timeout/abort) happens AFTER
+                    // the request may have reached DataKazina, so it is outcome-unknown:
+                    // never re-sent (the old retry-on-throw could create duplicates).
+                    let response: Response
+                    let responseText: string
+                    try {
+                        response = await fetch(`${DATAKAZINA_API_BASE_URL}/buy-data-package`, {
+                            method: "POST",
+                            headers: {
+                                "x-api-key": DATAKAZINA_API_KEY,
+                                "Content-Type": "application/json",
+                                "Accept": "application/json",
+                            },
+                            body: JSON.stringify(requestBody),
+                            signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+                        })
+                        responseText = await response.text()
+                    } catch (sendErr) {
+                        log("error", "Order", "DataKazina request threw after sending - outcome unknown", { traceId, error: String(sendErr) })
+                        return outcomeUnknownResponse("DataKazina", null, traceId)
+                    }
 
                     const latency = Date.now() - startTime
-                    const responseText = await response.text()
 
                     // Check for HTML error responses (likely rate limit or server error)
                     if (responseText.trim().startsWith('<!DOCTYPE') || responseText.trim().startsWith('<html')) {
@@ -160,31 +170,21 @@ export class DataKazinaProvider implements MTNProvider {
                             status: response.status,
                             responsePreview: responseText.slice(0, 200)
                         })
-                        return {
-                            success: false,
-                            message: `Service error (received HTML instead of JSON). Status: ${response.status}`,
-                            traceId,
-                            error_type: "API_ERROR",
-                        }
+                        return outcomeUnknownResponse("DataKazina", response.status, traceId)
                     }
 
-                    // Parse JSON response
-                    let data: any
-                    try {
-                        data = JSON.parse(responseText)
-                    } catch (parseError) {
-                        log("error", "Order", "Failed to parse DataKazina response", {
+                    // Parse JSON response. Unreadable / empty / 5xx without an explicit
+                    // rejection = outcome unknown (the order may exist at DataKazina).
+                    const classified = classifyOrderReply(response.status, responseText)
+                    if (classified.kind === "unknown") {
+                        log("error", "Order", "Unreadable DataKazina response - outcome unknown", {
                             traceId,
-                            responseText: responseText.slice(0, 500),
-                            parseError,
+                            status: response.status,
+                            responseText: responseText.slice(0, 200),
                         })
-                        return {
-                            success: false,
-                            message: `Invalid API response: ${responseText.slice(0, 200)}`,
-                            traceId,
-                            error_type: "API_ERROR",
-                        }
+                        return outcomeUnknownResponse("DataKazina", response.status, traceId)
                     }
+                    const data: any = classified.json
 
                     // Check for errors
                     if (!response.ok) {
@@ -230,31 +230,13 @@ export class DataKazinaProvider implements MTNProvider {
                         traceId,
                     }
                 } catch (error) {
-                    if (attempt < maxRetries) {
-                        const delay = retryDelays[attempt]
-                        log("warn", "Order", `DataKazina request failed, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`, {
-                            traceId,
-                            error: String(error),
-                            attempt: attempt + 1,
-                            delay
-                        })
-                        await sleep(delay)
-                        continue
-                    }
-
-                    const latency = Date.now() - startTime
-                    log("error", "Order", "Error creating DataKazina MTN order after all retries", {
+                    // The request was already sent when we get here: never re-send.
+                    log("error", "Order", "Error handling DataKazina order reply - outcome unknown", {
                         traceId,
                         error: String(error),
-                        latencyMs: latency,
+                        latencyMs: Date.now() - startTime,
                     })
-
-                    return {
-                        success: false,
-                        message: error instanceof Error ? error.message : "Failed to create order",
-                        traceId,
-                        error_type: "NETWORK_ERROR",
-                    }
+                    return outcomeUnknownResponse("DataKazina", null, traceId)
                 }
             }
 

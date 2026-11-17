@@ -18,6 +18,7 @@ import {
     classifyError,
 } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
+import { sendOrderRequest } from "./outcome"
 
 // Import shared utilities from mtn-fulfillment
 import {
@@ -111,61 +112,35 @@ export class SykesProvider implements MTNProvider {
 
             // Make API call
             log("debug", "Order", "Calling Sykes MTN API", { traceId })
-            const response = await fetch(`${MTN_API_BASE_URL}/api/orders`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-API-KEY": MTN_API_KEY,
-                    "X-Trace-ID": traceId,
-                },
-                body: JSON.stringify({
-                    recipient_phone: normalized_phone,
-                    network: order.network,
-                    size_gb: sizeGbInt,
+            // Unreadable reply / network error after sending = outcome unknown
+            // (Sykes may have created the order): never treated as a plain failure.
+            // sendOrderRequest also strips PHP warnings printed before the JSON.
+            const sent = await sendOrderRequest("Sykes", () =>
+                fetch(`${MTN_API_BASE_URL}/api/orders`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-API-KEY": MTN_API_KEY,
+                        "X-Trace-ID": traceId,
+                    },
+                    body: JSON.stringify({
+                        recipient_phone: normalized_phone,
+                        network: order.network,
+                        size_gb: sizeGbInt,
+                    }),
+                    signal: AbortSignal.timeout(REQUEST_TIMEOUT),
                 }),
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT),
-            })
-
-            // Get raw response text (API sometimes returns PHP warnings before JSON)
-            const responseText = await response.text()
+                traceId
+            )
             const latency = Date.now() - startTime
-
-            // Extract JSON from response (strip any PHP warnings/HTML before the JSON)
-            let data: MTNOrderResponse
-            try {
-                // Find the JSON object in the response (it starts with { and ends with })
-                const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-                if (jsonMatch) {
-                    data = JSON.parse(jsonMatch[0]) as MTNOrderResponse
-                } else {
-                    log("error", "Order", "No JSON found in API response", {
-                        traceId,
-                        responseText: responseText.slice(0, 500),
-                    })
-                    recordFailure(mtnConfig)
-                    recordMetrics(false, latency)
-                    return {
-                        success: false,
-                        message: `Invalid API response: ${responseText.slice(0, 200)}`,
-                        traceId,
-                        error_type: "API_ERROR",
-                    }
-                }
-            } catch (parseError) {
-                log("error", "Order", "Failed to parse API response", {
-                    traceId,
-                    responseText: responseText.slice(0, 500),
-                    parseError,
-                })
+            if (!sent.ok) {
+                log("error", "Order", "Sykes order reply unreadable - outcome unknown", { traceId, message: sent.response.message })
                 recordFailure(mtnConfig)
                 recordMetrics(false, latency)
-                return {
-                    success: false,
-                    message: `Failed to parse API response: ${responseText.slice(0, 200)}`,
-                    traceId,
-                    error_type: "API_ERROR",
-                }
+                return sent.response
             }
+            const response = sent.res
+            const data = sent.json as MTNOrderResponse
 
             // Check HTTP status first
             if (!response.ok) {

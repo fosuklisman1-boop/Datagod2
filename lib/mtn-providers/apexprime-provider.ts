@@ -1,5 +1,6 @@
 import crypto from "crypto"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
+import { sendOrderRequest } from "./outcome"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 
@@ -231,20 +232,15 @@ export class ApexPrimeProvider implements MTNProvider {
   }
 
   private async createViaGroupShare(phone: string, apexNetwork: string, sizeGb: number, reference: string): Promise<MTNOrderResponse> {
-    let res: Response
-    try {
-      res = await apiFetch("/send-bundle", {
+    // The order request itself: an unreadable reply means Apex may have created it.
+    const sent = await sendOrderRequest("Apex Prime", () =>
+      apiFetch("/send-bundle", {
         method: "POST",
         body: JSON.stringify({ network: apexNetwork, recipient: phone, amount: sizeGb, reference }),
       })
-    } catch (err) {
-      return { success: false, message: err instanceof Error ? err.message : "Network error", error_type: "NETWORK_ERROR" }
-    }
-
-    let json: any
-    try { json = await res.json() } catch {
-      return { success: false, message: `HTTP ${res.status} (non-JSON response)`, error_type: "API_ERROR" }
-    }
+    )
+    if (!sent.ok) return sent.response
+    const { res, json } = sent
 
     if (!res.ok || json.success !== true) {
       return { success: false, message: json?.message ?? `API error ${res.status}`, error_type: "API_ERROR" }
@@ -280,20 +276,14 @@ export class ApexPrimeProvider implements MTNProvider {
       return { success: false, message: `No matching Apex Prime store product for ${apexNetwork} ${sizeGb}GB`, error_type: "VALIDATION" }
     }
 
-    let res: Response
-    try {
-      res = await apiFetch("/store-order", {
+    const sent = await sendOrderRequest("Apex Prime", () =>
+      apiFetch("/store-order", {
         method: "POST",
         body: JSON.stringify({ product_id: productId, recipient: phone, reference }),
       })
-    } catch (err) {
-      return { success: false, message: err instanceof Error ? err.message : "Network error", error_type: "NETWORK_ERROR" }
-    }
-
-    let json: any
-    try { json = await res.json() } catch {
-      return { success: false, message: `HTTP ${res.status} (non-JSON response)`, error_type: "API_ERROR" }
-    }
+    )
+    if (!sent.ok) return sent.response
+    const { res, json } = sent
 
     if (!res.ok || json.success !== true) {
       return { success: false, message: json?.message ?? `API error ${res.status}`, error_type: "API_ERROR" }
