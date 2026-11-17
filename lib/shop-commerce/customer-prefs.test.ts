@@ -60,6 +60,18 @@ describe("toLocalPhone", () => {
   })
 })
 
+describe("shortShopName sanitising", () => {
+  it("newline becomes a space", () => expect(shortShopName("Kofi\nData")).toBe("Kofi Data"))
+  it("emoji name", () => expect(shortShopName("Kofi \u{1F600} Data")).toBe("Kofi Data"))
+  it("25-char name with an emoji at position 19 never splits a surrogate pair", () => {
+    const n = "A".repeat(18) + "\u{1F600}" + "B".repeat(6)
+    const out = shortShopName(n)
+    expect(out).toBe("A".repeat(18) + " B")
+    expect(/^[\x20-\x7E]+$/.test(out)).toBe(true)
+  })
+  it("all-emoji falls back to Shop", () => expect(shortShopName("\u{1F600}\u{1F600}")).toBe("Shop"))
+})
+
 describe("shortShopName", () => {
   it("cuts at 20 characters with no ellipsis", () => {
     expect(shortShopName("A".repeat(30))).toBe("A".repeat(20))

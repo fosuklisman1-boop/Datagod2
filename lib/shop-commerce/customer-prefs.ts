@@ -28,7 +28,9 @@ export function toLocalPhone(raw: string): string | null {
 
 /** A shop name as shown on a USSD line: trimmed, at most 20 characters, no ellipsis. */
 export function shortShopName(name: string): string {
-  return (name ?? "").trim().slice(0, 20)
+  // USSD-safe: anything outside printable ASCII (newline, emoji, accents) becomes a space, runs collapse, then cut + trim.
+  const clean = (name ?? "").replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim().slice(0, 20).trim()
+  return clean || "Shop"
 }
 
 /** The shop code id remembered for this phone, or null. Throws CustomerPrefsError on a read error. */

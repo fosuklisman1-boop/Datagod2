@@ -310,6 +310,35 @@ describe("shop mode: remembered shop shortcut", () => {
     expect(remembered).toHaveBeenCalledWith("233200585542")
     expect(store.get("S1")).toMatchObject({ rememberedShopCodeId: "code-1", rememberedShopName: "KofiData" })
   })
+  it("a memory read slower than 1500ms gives the plain prompt", async () => {
+    vi.useFakeTimers()
+    try {
+      const { deps, store } = makeDeps({ getConfig: SHOP_CONFIG, shop: fakeShop({ remembered: () => new Promise(() => {}) }) })
+      const p = hubtelRouter(req({ Type: "Initiation" }), deps)
+      await vi.advanceTimersByTimeAsync(1500)
+      const r = await p
+      expect(r.Message).toBe("Welcome to Clingshub\nEnter shop code:\n0. Exit")
+      expect(store.get("S1")?.rememberedShopCodeId).toBeUndefined()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it("isDataBlocked and memory run in parallel", async () => {
+    const started: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>(r => { release = r })
+    const { deps } = makeDeps({
+      getConfig: SHOP_CONFIG,
+      isDataBlocked: async () => { started.push("blocked"); await gate; return false },
+      shop: fakeShop({ remembered: async () => { started.push("memory"); await gate; return KOFI } }),
+    })
+    const p = hubtelRouter(req({ Type: "Initiation" }), deps)
+    await new Promise(r => setTimeout(r, 0))
+    expect(started.sort()).toEqual(["blocked", "memory"])
+    release()
+    expect((await p).Message).toBe(REMEMBER_PROMPT)
+  })
   it("'1' opens the remembered shop's product menu, same as typing its code", async () => {
     const a = withMemory()
     const typed = await enterShop(a.deps, "1234", "SA")

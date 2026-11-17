@@ -17,7 +17,10 @@ const PRODUCT = { label: "Shop menu" }
 /** ussd_shop_codes.code is VARCHAR(8), generated as 4-6 digits. Anything else is not a code. */
 const SHOP_CODE_RE = /^[A-Za-z0-9]{1,8}$/
 
-const INVALID = "Invalid code. Try again."
+/** Longest the remembered-shop lookup may hold up the code screen. */
+const REMEMBERED_TIMEOUT_MS = 1500
+
+const INVALID ="Invalid code. Try again."
 const TOO_MANY = "Too many attempts. Please try again later."
 /** Wrong codes allowed per Hubtel session; the third ends the session. */
 export const MAX_CODE_ATTEMPTS = 3
@@ -49,13 +52,12 @@ export async function backToProduct(ctx: FlowCtx, prefix = ""): Promise<HubtelRe
 export async function startShopSession(
   req: HubtelRequest, deps: RouterDeps, config: HubtelUssdConfig, prefix: string
 ): Promise<HubtelReply> {
-  const dataBlocked = await deps.isDataBlocked(req.Mobile)
+  const [dataBlocked, memory] = await Promise.all([deps.isDataBlocked(req.Mobile), rememberedOffer(deps, req.Mobile)])
   // Checked BEFORE the code is asked (D4), so the caller is never asked for a code with nothing to buy.
   if (shopMenuFor(config, dataBlocked).length === 0) {
     await deps.sessions.del(req.SessionId)
     return release(req.SessionId, "No services available right now. Please try again later.", { platform: req.Platform })
   }
-  const memory = await rememberedOffer(deps, req.Mobile)
   await deps.sessions.set(req.SessionId, {
     mode: "shop", step: "SHOP_ENTER_CODE", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked, ...memory,
   })
@@ -75,11 +77,10 @@ export async function recoverShopCodeEntry(
   req: HubtelRequest, deps: RouterDeps, config: HubtelUssdConfig
 ): Promise<HubtelReply | null> {
   if (config.mode !== "shop" || req.ClientState !== "SHOP_ENTER_CODE") return null
-  const dataBlocked = await deps.isDataBlocked(req.Mobile)
+  const [dataBlocked, memory] = await Promise.all([deps.isDataBlocked(req.Mobile), rememberedOffer(deps, req.Mobile)])
   if (shopMenuFor(config, dataBlocked).length === 0) return null
   const session: HubtelSession = {
-    mode: "shop", step: "SHOP_ENTER_CODE", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked,
-    ...(await rememberedOffer(deps, req.Mobile)),
+    mode: "shop", step: "SHOP_ENTER_CODE", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked, ...memory,
   }
   await deps.sessions.set(req.SessionId, session)
   return enterCode({ input: req.Message.trim(), req, deps, config, session })
@@ -89,12 +90,17 @@ export async function recoverShopCodeEntry(
 async function rememberedOffer(
   deps: RouterDeps, mobile: string
 ): Promise<{ rememberedShopCodeId?: string; rememberedShopName?: string }> {
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const r = await deps.shop.remembered(mobile)
+    // Bounded: a slow memory read must never delay the live code screen; a timeout counts as "no memory".
+    const timeout = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), REMEMBERED_TIMEOUT_MS) })
+    const r = await Promise.race([deps.shop.remembered(mobile), timeout])
     return r ? { rememberedShopCodeId: r.shopCodeId, rememberedShopName: r.shopName } : {}
   } catch (e) {
     console.error("[HUBTEL-SHOP] remembered shop lookup failed", safeDbError(e))
     return {}
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 

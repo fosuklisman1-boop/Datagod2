@@ -8,7 +8,7 @@ import { mainExitText, shortShopName } from "./menus"
 
 describe("shop code screens: remembered shop line", () => {
   it("shortShopName cuts at 20", () => {
-    expect(shortShopName("  Kofi Data Hub Extra Long Name  ")).toBe("Kofi Data Hub Extra ")
+    expect(shortShopName("  Kofi Data Hub Extra Long Name  ")).toBe("Kofi Data Hub Extra")
     expect(shortShopName("KofiData")).toBe("KofiData")
   })
   it("adds '1. <name> (last used)' just before Exit, on both screens", () => {
