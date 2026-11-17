@@ -84,14 +84,24 @@ export async function handleEnterShopCode(
   return enterShop(resolved, sessionId, dialingPhone)
 }
 
+/** The pref write, raced against 1500 ms and caught: a timeout or failure is ignored (ids only in the log). Never rejects. */
+async function rememberBounded(dialingPhone: string, shopCodeId: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const timeout = new Promise<void>(resolve => { timer = setTimeout(resolve, REMEMBERED_TIMEOUT_MS) })
+    await Promise.race([rememberCustomerShop(supabase, dialingPhone, shopCodeId, 'ussd_uzo'), timeout])
+  } catch (e) {
+    console.error('[USSD-SHOP] could not remember shop', shopCodeId, e instanceof Error ? e.name : 'unknown')
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /** An accepted shop (typed code or the remembered shortcut): remember it, load its networks + whitelist, show its product menu. */
 async function enterShop(resolved: ResolvedShopCode, sessionId: string, dialingPhone: string): Promise<UzoResponse> {
-  // Best-effort: a failed write never changes the reply. Logs ids only, never the phone.
-  try {
-    await rememberCustomerShop(supabase, dialingPhone, resolved.shopCodeId, 'ussd_uzo')
-  } catch (e) {
-    console.error('[USSD-SHOP] could not remember shop', resolved.shopCodeId, e instanceof Error ? e.name : 'unknown')
-  }
+  // Best-effort, started now so it runs in parallel with the networks + whitelist reads below and is awaited (bounded,
+  // never rejects) before the reply, so it is never a floating promise.
+  const remembering = rememberBounded(dialingPhone, resolved.shopCodeId)
 
   // Entering a shop is free: session tokens were retired (spec 2026-10-14-ussd-shop-free-sessions-design).
   const shopName = resolved.shopName
@@ -166,6 +176,7 @@ async function enterShop(resolved: ResolvedShopCode, sessionId: string, dialingP
   ])
   const dataBlocked = whitelistSetting?.value?.enabled === true && hasPurchasedData !== true
 
+  await remembering
   await setSession(sessionId, {
     step: 'SELECT_PRODUCT',
     dialingPhone,

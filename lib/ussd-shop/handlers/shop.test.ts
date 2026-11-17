@@ -5,10 +5,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const h = vi.hoisted(() => {
   // Any Supabase chain resolves to { data: null, error: null } (no packages, no whitelist, no purchase).
-  const state = { data: null as unknown }
+  const state = { data: null as unknown, onRead: undefined as (() => void) | undefined }
   const chain: unknown = new Proxy(function () {}, {
     get(_t, prop) {
-      if (prop === "then") return (ok: (v: unknown) => unknown) => ok({ data: state.data, error: null })
+      if (prop === "then") return (ok: (v: unknown) => unknown) => { state.onRead?.(); return ok({ data: state.data, error: null }) }
       return () => chain
     },
   })
@@ -77,6 +77,7 @@ beforeEach(() => {
   h.botMenusVisible.mockReset().mockImplementation(async () => ({ ...h.bots }))
   for (const f of [h.setSession, h.startNetworkPlans, h.startPayBills]) f.mockClear()
   h.state.data = null
+  h.state.onRead = undefined
   h.isEnabled.mockReset().mockResolvedValue(false)
   h.remembered.mockReset().mockResolvedValue(null)
   h.remember.mockReset().mockResolvedValue(undefined)
@@ -303,6 +304,37 @@ describe("remembered shop shortcut (Uzo shop code screen)", () => {
   it("a valid typed code is remembered with ussd_uzo (writes are ungated, like Hubtel, so memory builds while the switch is dark)", async () => {
     await handleEnterShopCode("1234", SID, ME)
     expect(h.remember).toHaveBeenCalledWith(expect.anything(), ME, "code-1", "ussd_uzo")
+  })
+
+  it("remember starts before the networks read resolves (parallel, not sequential)", async () => {
+    let release!: () => void
+    h.remember.mockImplementation(() => new Promise<void>(r => { release = r }))
+    let reads = 0
+    h.state.onRead = () => { reads++ }
+    const p = handleEnterShopCode("1234", SID, ME)
+    await new Promise(r => setTimeout(r, 10))
+    expect(h.remember).toHaveBeenCalledTimes(1)
+    expect(reads).toBeGreaterThan(0) // the reads ran while the write was still pending
+    release()
+    expect(await p).toEqual({ message: LEGACY, ussdServiceOp: 2 })
+    h.state.onRead = undefined
+  })
+
+  it("a hung remember write does not delay the product menu beyond 1500ms", async () => {
+    h.remember.mockReturnValue(new Promise(() => {}))
+    vi.useFakeTimers()
+    try {
+      let done = false
+      const p = handleEnterShopCode("1234", SID, ME).then(r => { done = true; return r })
+      await vi.advanceTimersByTimeAsync(1400)
+      expect(done).toBe(false)
+      await vi.advanceTimersByTimeAsync(200)
+      expect(done).toBe(true)
+      expect(await p).toEqual({ message: LEGACY, ussdServiceOp: 2 })
+      expect(h.setSession).toHaveBeenLastCalledWith(SID, expect.objectContaining({ step: "SELECT_PRODUCT", shopCodeId: "code-1" }))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("a failed remember does no harm: same reply", async () => {
