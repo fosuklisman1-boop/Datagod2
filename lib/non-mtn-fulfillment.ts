@@ -2,7 +2,7 @@ import { atishareService } from "@/lib/at-ishare-service"
 import { saveMTNTracking } from "@/lib/mtn-fulfillment"
 import { getProviderNameForNetwork, getProviderByName, isProviderCapableForNetwork, NETWORK_TO_REQUEST_NETWORK } from "@/lib/mtn-providers/factory"
 import type { MTNOrderRequest, NonMTNProviderName } from "@/lib/mtn-providers/types"
-import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
+import { holdOutcomeUnknown, isOutcomeUnknown, ORDER_STATUS_TARGET } from "@/lib/mtn-providers/outcome-hold"
 
 export interface NonMTNOrderParams {
   phoneNumber: string
@@ -26,15 +26,6 @@ export interface NonMTNOrderResult {
   provider: string
   /** True when the provider may have created the order (unreadable reply). Do not retry/resend. */
   outcomeUnknown?: boolean
-}
-
-/** Table/column holding each order type's status, so an unknown outcome can pin it to `processing`. */
-const NON_MTN_ORDER_STATUS_TARGET: Record<NonMTNOrderParams["orderType"], { table: string; column: string }> = {
-  wallet: { table: "orders", column: "status" },
-  shop: { table: "shop_orders", column: "order_status" },
-  api: { table: "api_orders", column: "status" },
-  ussd: { table: "ussd_orders", column: "order_status" },
-  ussd_shop: { table: "ussd_shop_orders", column: "order_status" },
 }
 
 /** Canonicalize a raw non-MTN network label to the key format the factory's lookup tables use. */
@@ -95,7 +86,14 @@ async function createNonMTNOrderUnguarded(params: NonMTNOrderParams): Promise<No
     const result = await atishareService.fulfillOrder({
       phoneNumber, sizeGb, orderId, network: apiNetwork, orderType, isBigTime,
     })
-    return { success: result.success, message: result.message || "", reference: result.reference, provider: "codecraft" }
+    // atishareService already held an unknown outcome (UNKNOWN_ row, order processing, alert).
+    return {
+      success: result.success,
+      message: result.message || "",
+      reference: result.reference,
+      provider: "codecraft",
+      ...(result.outcomeUnknown ? { outcomeUnknown: true } : {}),
+    }
   }
 
   const reqNetwork = NETWORK_TO_REQUEST_NETWORK[normalizedKey] ?? "AirtelTigo"
@@ -115,7 +113,7 @@ async function createNonMTNOrderUnguarded(params: NonMTNOrderParams): Promise<No
     await holdOutcomeUnknown({
       orderId, orderType: toTrackingOrderType(orderType), request: mtnRequest, response: result, provider: providerName,
       productLabel: reqNetwork,
-      markProcessing: NON_MTN_ORDER_STATUS_TARGET[orderType],
+      markProcessing: ORDER_STATUS_TARGET[orderType],
     })
     return { success: false, message: result.message, provider: providerName, outcomeUnknown: true }
   }

@@ -439,6 +439,7 @@ export async function POST(request: NextRequest) {
                     .from("orders")
                     .update({ status: "processing", updated_at: new Date().toISOString() })
                     .eq("id", order.id)
+                    .in("status", ["pending", "processing"])
                   await holdOutcomeUnknown({
                     orderId: String(order.id), orderType: "bulk", request: mtnRequest, response: mtnResult,
                     provider: mtnResult.provider || "datakazina", productLabel: "MTN",

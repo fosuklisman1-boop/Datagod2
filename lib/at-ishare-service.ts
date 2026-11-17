@@ -2,6 +2,8 @@ import { createClient } from "@supabase/supabase-js"
 import { notificationService } from "./notification-service"
 import { sendPushToUser } from "./push-service"
 import { notifyFulfillmentFailure } from "./sms-service"
+import { classifyOrderReply, isNeverReachedError, outcomeUnknownResponse } from "./mtn-providers/outcome"
+import { holdOutcomeUnknown, ORDER_STATUS_TARGET } from "./mtn-providers/outcome-hold"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -23,6 +25,8 @@ interface FulfillmentResponse {
   message?: string
   errorCode?: string
   statusCode?: number
+  /** True when CodeCraft may have created the order (unreadable reply). Held; never resend. */
+  outcomeUnknown?: boolean
 }
 
 interface FulfillmentLog {
@@ -151,18 +155,30 @@ class ATiShareService {
       console.log(`[CODECRAFT-FULFILL] Request payload: recipient_number=${phoneNumber}, gig=${sizeGb}, network=${network}`)
 
       // Call Code Craft Network API with x-api-key header for authentication
-      const response = await fetch(apiEndpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": codecraftApiKey,
-        },
-        body: JSON.stringify(apiRequest),
-      })
-
+      // A throw after sending, or an unreadable reply, means CodeCraft may have created
+      // the order: hold it (never treated as success, never resent). A throw that proves
+      // we never connected (DNS/refused/TLS) rethrows into the ordinary failure path.
+      let response: Response
+      let responseText: string
+      try {
+        response = await fetch(apiEndpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": codecraftApiKey,
+          },
+          body: JSON.stringify(apiRequest),
+        })
+        responseText = await response.text()
+      } catch (sendErr) {
+        if (isNeverReachedError(sendErr)) throw sendErr
+        return await this.holdUnknown(request, null)
+      }
       const httpStatus = response.status
-      const responseText = await response.text()
-      
+      if (classifyOrderReply(httpStatus, responseText).kind === "unknown") {
+        return await this.holdUnknown(request, httpStatus)
+      }
+
       console.log(`[CODECRAFT-FULFILL] API Response received`)
       console.log(`[CODECRAFT-FULFILL] HTTP Status: ${httpStatus}`)
       console.log(`[CODECRAFT-FULFILL] Raw Response Text:`, responseText)
@@ -836,6 +852,23 @@ class ATiShareService {
   /**
    * Log fulfillment attempt to database
    */
+  /** Outcome unknown: UNKNOWN_ tracking row, order pinned to processing, one admin alert. No failed log, no resend. */
+  private async holdUnknown(request: FulfillmentRequest, status: number | null): Promise<FulfillmentResponse> {
+    const { phoneNumber, sizeGb, orderId, network = "AT", orderType = "wallet" } = request
+    const unknown = outcomeUnknownResponse("CodeCraft", status)
+    const reqNetwork = network === "MTN" ? "MTN" : network === "TELECEL" ? "Telecel" : "AirtelTigo"
+    await holdOutcomeUnknown({
+      orderId,
+      orderType: orderType === "wallet" ? "bulk" : orderType,
+      request: { recipient_phone: phoneNumber, network: reqNetwork, size_gb: sizeGb },
+      response: unknown,
+      provider: "codecraft",
+      productLabel: reqNetwork,
+      markProcessing: ORDER_STATUS_TARGET[orderType],
+    })
+    return { success: false, errorCode: "OUTCOME_UNKNOWN", message: unknown.message, outcomeUnknown: true }
+  }
+
   private async logFulfillment(
     orderId: string,
     status: "pending" | "processing" | "success" | "failed",

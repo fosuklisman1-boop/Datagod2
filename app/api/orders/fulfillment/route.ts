@@ -143,7 +143,7 @@ async function handleTriggerFulfillment(
     // existing admin fallback path unrelated to the MTN provider factory, unchanged
     // here. Only the non-MTN branch is resolved through the admin's per-network
     // provider selection.
-    let result: { success: boolean; message?: string; reference?: string; errorCode?: string }
+    let result: { success: boolean; message?: string; reference?: string; errorCode?: string; outcomeUnknown?: boolean }
     if (normalizedNetwork === "MTN") {
       const { withDispatchGuard } = await import("@/lib/refunds/dispatch-guard").catch((err): { withDispatchGuard: typeof import("@/lib/refunds/dispatch-guard").withDispatchGuard } => {
         console.error("[DISPATCH-GUARD] unavailable — running unguarded:", err)
@@ -182,7 +182,9 @@ async function handleTriggerFulfillment(
           success: false,
           message: result.message,
           errorCode: result.errorCode,
-          willRetry: true,
+          // An unknown outcome is held for an admin: it must not be retried automatically.
+          willRetry: !result.outcomeUnknown,
+          ...(result.outcomeUnknown ? { outcomeUnknown: true } : {}),
         },
         { status: 400 }
       )
@@ -332,7 +334,7 @@ async function handleRetryFulfillment(
 
     // MTN keeps going through CodeCraft's REST API directly — same pre-existing
     // fallback path as handleTriggerFulfillment above, unchanged here.
-    let result: { success: boolean; message?: string; reference?: string; errorCode?: string }
+    let result: { success: boolean; message?: string; reference?: string; errorCode?: string; outcomeUnknown?: boolean }
     if (networkLower.includes("mtn")) {
       const { withDispatchGuard } = await import("@/lib/refunds/dispatch-guard").catch((err): { withDispatchGuard: typeof import("@/lib/refunds/dispatch-guard").withDispatchGuard } => {
         console.error("[DISPATCH-GUARD] unavailable — running unguarded:", err)
@@ -373,6 +375,7 @@ async function handleRetryFulfillment(
           success: false,
           message: result.message,
           errorCode: result.errorCode,
+          ...(result.outcomeUnknown ? { outcomeUnknown: true } : {}),
         },
         { status: 400 }
       )

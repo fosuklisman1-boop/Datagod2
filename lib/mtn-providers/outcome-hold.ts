@@ -9,6 +9,15 @@
 import type { MTNOrderRequest, MTNOrderResponse } from "./types"
 import { OUTCOME_UNKNOWN, makeUnknownTrackingId } from "./outcome"
 
+/** Table/column holding each order type's status, so an unknown outcome can pin it to `processing`. */
+export const ORDER_STATUS_TARGET: Record<"wallet" | "shop" | "api" | "ussd" | "ussd_shop", { table: string; column: string }> = {
+  wallet: { table: "orders", column: "status" },
+  shop: { table: "shop_orders", column: "order_status" },
+  api: { table: "api_orders", column: "status" },
+  ussd: { table: "ussd_orders", column: "order_status" },
+  ussd_shop: { table: "ussd_shop_orders", column: "order_status" },
+}
+
 export function isOutcomeUnknown(r: { error_type?: string } | null | undefined): boolean {
   return r?.error_type === OUTCOME_UNKNOWN
 }
@@ -29,10 +38,12 @@ export async function holdOutcomeUnknown(opts: {
   if (opts.markProcessing) {
     try {
       const { supabaseAdmin } = await import("@/lib/supabase")
+      // Only from pending/processing: never move a completed/failed/refunded order back.
       await supabaseAdmin
         .from(opts.markProcessing.table)
         .update({ [opts.markProcessing.column]: "processing", updated_at: new Date().toISOString() })
         .eq("id", orderId)
+        .in(opts.markProcessing.column, ["pending", "processing"])
     } catch (e) {
       console.error("[OUTCOME-UNKNOWN] Could not mark order processing:", e)
     }
@@ -59,8 +70,7 @@ export async function alertOutcomeUnknown(opts: {
     await notifyAdmins(
       `Order ${opts.orderId.substring(0, 8)} (${opts.productLabel} ${opts.orderType}): provider ${opts.provider} gave an unreadable reply - the order may have been created. Check the provider dashboard before retrying.`,
       "provider_outcome_unknown",
-      opts.orderId,
-      true
+      opts.orderId
     )
   } catch (e) {
     console.error("[OUTCOME-UNKNOWN] Admin alert failed:", e)

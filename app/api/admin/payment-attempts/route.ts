@@ -612,6 +612,7 @@ export async function PATCH(request: NextRequest) {
                     .from("shop_orders")
                     .update({ order_status: "processing", fulfillment_method: "auto_mtn", updated_at: new Date().toISOString() })
                     .eq("id", attempt.order_id)
+                    .in("order_status", ["pending", "processing"])
                   await holdOutcomeUnknown({
                     orderId: String(attempt.order_id), orderType: "shop", request: mtnRequest, response: mtnResult,
                     provider: mtnResult.provider || "datakazina", productLabel: "MTN",
