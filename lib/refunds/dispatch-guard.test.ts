@@ -36,6 +36,14 @@ describe("withDispatchGuard", () => {
     expect(rpc).toHaveBeenLastCalledWith("record_dispatch_outcome", { p_order_id: "o1", p_outcome: "failed" })
   })
 
+  it("records unknown (not failed) for an OUTCOME_UNKNOWN / outcomeUnknown result", async () => {
+    rpc.mockResolvedValue({ data: true, error: null })
+    await withDispatchGuard("o1", async () => ({ success: false, error_type: "OUTCOME_UNKNOWN" }), blocked as any)
+    expect(rpc).toHaveBeenLastCalledWith("record_dispatch_outcome", { p_order_id: "o1", p_outcome: "unknown" })
+    await withDispatchGuard("o1", async () => ({ success: false, outcomeUnknown: true }), blocked as any)
+    expect(rpc).toHaveBeenLastCalledWith("record_dispatch_outcome", { p_order_id: "o1", p_outcome: "unknown" })
+  })
+
   it("records unknown and rethrows when the dispatch throws", async () => {
     rpc.mockResolvedValue({ data: true, error: null })
     await expect(withDispatchGuard("o1", async () => { throw new Error("boom") }, blocked)).rejects.toThrow("boom")

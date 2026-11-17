@@ -145,6 +145,12 @@ export function evaluateEligibility(i: EligibilityInput): Eligibility {
   if (i.dispatchOutcome === "claimed") return no("DISPATCH_IN_PROGRESS", "Being sent to a provider right now")
   if (i.dispatchOutcome === "unknown") return no("DISPATCH_UNKNOWN", "A provider call ended with an unknown result — investigate before refunding")
 
+  // UNKNOWN_ tracking rows (stored "abandoned") are mapped to "unknown_outcome" by the loader: the provider
+  // answered unreadably, so the order may exist there. Never a confirmed failure.
+  if (i.trackingStatuses.includes("unknown_outcome")) {
+    return no("PROVIDER_IN_PROGRESS", "A provider reply was unreadable — the order may have been created. Check the provider's dashboard before refunding")
+  }
+
   const live = i.trackingStatuses.filter((s) => !TERMINAL_FAILED.has(s))
   if (live.some((s) => IN_FLIGHT.has(s))) return no("PROVIDER_IN_PROGRESS", "Provider order is still in progress")
   if (live.length > 0) return no("SENT_TO_PROVIDER", "Provider reports the order was delivered/accepted")

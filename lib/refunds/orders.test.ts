@@ -530,7 +530,7 @@ describe("orders / api_orders (wallet-paid)", () => {
     expect(o.payment.walletUserId).toBe("uA")
     expect(o.evidence.trackingStatuses).toEqual(["failed"])
     expect(o.createdAt).toBe("2026-10-05T10:00:00+00:00")
-    expect(calls).toContainEqual(["mtn_fulfillment_tracking", "select", "status, api_order_id"])
+    expect(calls).toContainEqual(["mtn_fulfillment_tracking", "select", "status, mtn_order_id, api_order_id"])
   })
 
   it("orders: fulfillment_logs rows map into tracking statuses", async () => {

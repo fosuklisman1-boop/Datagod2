@@ -416,6 +416,28 @@ describe("createOrder placement", () => {
     expect(recordUnknownAttempt).toHaveBeenCalledWith("ord1", "ord1")
   })
 
+  it.each([
+    ["500 HTML", { ok: false, status: 500, message: "HTTP 500" }],
+    ["504", { ok: false, status: 504, message: "gateway timeout" }],
+    ["409 CONFLICT", { ok: false, status: 409, code: "CONFLICT", message: "conflict" }],
+  ])("%s with a failed reconcile is OUTCOME_UNKNOWN, not retryable", async (_n, placed) => {
+    const client = fakeClient({ placeOrder: vi.fn(async () => placed as any) })
+    const { provider, recordUnknownAttempt } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(r).toMatchObject({ success: false, error_type: "OUTCOME_UNKNOWN" })
+    expect(recordUnknownAttempt).toHaveBeenCalledWith("ord1", "ord1")
+  })
+
+  it("coded RATE_LIMITED 429 stays RETRYABLE without a reconcile", async () => {
+    const client = fakeClient({
+      placeOrder: vi.fn(async () => ({ ok: false, status: 429, code: "RATE_LIMITED", message: "slow down" })),
+    })
+    const { provider } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(r.error_type).toBe("RETRYABLE")
+    expect(client.getOrder).toHaveBeenCalledTimes(1)
+  })
+
   it("unknown outcome reconcile showing cancelled fails over", async () => {
     let calls = 0
     const client = fakeClient({

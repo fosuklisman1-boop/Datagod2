@@ -25,6 +25,11 @@ describe("evaluateEligibility", () => {
     expect(code({ trackingStatuses: ["failed", "retrying"] })).toBe("PROVIDER_IN_PROGRESS")
     expect(code({ trackingStatuses: ["failed", "completed"] })).toBe("SENT_TO_PROVIDER")
   })
+  it("treats an UNKNOWN_ tracking row (unknown_outcome) as in flight, never a confirmed failure", () => {
+    expect(code({ trackingStatuses: ["unknown_outcome"] })).toBe("PROVIDER_IN_PROGRESS")
+    expect(code({ dispatchOutcome: "unknown", trackingStatuses: ["failed", "unknown_outcome"] })).toBe("DISPATCH_UNKNOWN")
+    expect(code({ trackingStatuses: ["failed", "unknown_outcome"] })).toBe("PROVIDER_IN_PROGRESS")
+  })
   it("rejects a submitted order with no tracking rows (cannot prove failure)", () => {
     expect(code({ dispatchOutcome: "submitted", trackingStatuses: [] })).toBe("SENT_TO_PROVIDER")
   })

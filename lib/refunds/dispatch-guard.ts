@@ -102,7 +102,10 @@ export async function withDispatchGuard<T extends { success: boolean }>(
   }
   try {
     const result = await run()
-    await record(orderId, result.success ? "submitted" : "failed")
+    // An unreadable provider reply (OUTCOME_UNKNOWN / outcomeUnknown) is NOT a clean failure: the order may exist.
+    const r = result as { error_type?: string; outcomeUnknown?: boolean }
+    const unknown = !result.success && (r.error_type === "OUTCOME_UNKNOWN" || r.outcomeUnknown === true)
+    await record(orderId, result.success ? "submitted" : unknown ? "unknown" : "failed")
     return result
   } catch (err) {
     await record(orderId, "unknown")

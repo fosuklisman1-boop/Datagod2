@@ -276,8 +276,14 @@ export class KuntaniiProvider implements MTNProvider {
       }
     }
 
-    // Unknown outcome (timeout / unparseable 2xx): ask Kuntanii once whether it exists.
-    if (res.network === true || (res.status >= 200 && res.status < 300)) {
+    // Unknown outcome (timeout / unparseable 2xx / 409 CONFLICT / a 5xx without a
+    // recognised Kuntanii code, e.g. an HTML 502/504): ask Kuntanii once whether it
+    // exists. Coded rejections (RATE_LIMITED, CREDIT_UNAVAILABLE...) and 429 are
+    // explicit, so they stay RETRYABLE below.
+    const codeRecognised = classifyKuntaniiError(0, res.code, mode) === "RETRYABLE"
+    const uncodedServerError = !res.network && res.status >= 500 && !codeRecognised
+    const isConflict = !res.network && classifyKuntaniiError(res.status, res.code, mode) === "CONFLICT"
+    if (res.network === true || (res.status >= 200 && res.status < 300) || uncodedServerError || isConflict) {
       let found = false
       let cancelled = false
       try {

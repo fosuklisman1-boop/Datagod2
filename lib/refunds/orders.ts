@@ -449,7 +449,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
 
   const [profits, tracking, claims, refunds, walletDebits, allWalletPayments, fulfillmentLogs, paidHubtelTx, hubtelWalletPayments] = await Promise.all([
     fk ? inRows<any>(db, "shop_profits", `shop_id, profit_amount, status, ${fk}`, fk, ids, (q) => q.is("refund_id", null)) : Promise.resolve([] as any[]),
-    inRows<any>(db, "mtn_fulfillment_tracking", `status, ${TRACKING_COL[table]}`, TRACKING_COL[table], ids),
+    inRows<any>(db, "mtn_fulfillment_tracking", `status, mtn_order_id, ${TRACKING_COL[table]}`, TRACKING_COL[table], ids),
     inRows<any>(db, "order_dispatch_claims", "order_id, last_outcome, attempts", "order_id", ids),
     inRows<any>(db, "order_refunds", "order_id, status", "order_id", ids, (q) => q.neq("status", "failed")),
     inRows<any>(db, "transactions", walletOnly ? "reference_id, user_id, type, amount, source" : "reference_id, user_id, type, amount", "reference_id", ids, (q) => (walletOnly ? q.eq("type", "debit").in("source", WALLET_DEBIT_SOURCES) : q.eq("type", "debit"))),
@@ -601,7 +601,7 @@ async function enrich(db: SupabaseClient, table: ClassicTable, rows: any[]): Pro
     if (payment.gateway === "wallet") fee = 0
 
     const claim = claims.find((c) => c.order_id === id)
-    const trackingStatuses = tracking.filter((t) => t[TRACKING_COL[table]] === id).map((t) => t.status as string)
+    const trackingStatuses = tracking.filter((t) => t[TRACKING_COL[table]] === id).map((t) => (String(t.mtn_order_id ?? "").startsWith("UNKNOWN_") ? "unknown_outcome" : (t.status as string)))
     for (const l of fulfillmentLogs.filter((x) => x.order_id === id)) {
       // success => completed (delivered); failed => failed; pending/processing/anything else => pending (a retry may be queued).
       trackingStatuses.push(l.status === "success" ? "completed" : l.status === "failed" ? "failed" : "pending")
