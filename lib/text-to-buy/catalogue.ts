@@ -39,6 +39,7 @@ export type OfferResult =
   | { ok: false; reason: "no_package"; networkLabel: string; nearest: { size: string; priceGhs: number }[] }
   | { ok: false; reason: "need_recipient"; networkLabel: string }
   | { ok: false; reason: "bad_recipient" }
+  | { ok: false; reason: "unverified_recipient" }
   | { ok: false; reason: "service_off" }
   | { ok: false; reason: "prices_unavailable" }
 
@@ -128,7 +129,7 @@ export async function resolveOffer(
     shopId: null,
     purchaserPhone: i.senderLocal,
     product: `MTN ${i.sizeMb}MB`,
-  }))) return { ok: false, reason: "bad_recipient" }
+  }))) return { ok: false, reason: "unverified_recipient" }
 
   // The buyer tier is the PAYER's (the sender), never the recipient's.
   const dialingPhone = "+233" + ghanaSignificant(i.senderLocal)

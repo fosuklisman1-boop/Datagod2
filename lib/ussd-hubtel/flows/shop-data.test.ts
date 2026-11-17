@@ -1,6 +1,11 @@
 // lib/ussd-hubtel/flows/shop-data.test.ts
 import { describe, it, expect, vi } from "vitest"
 import { hubtelRouter, type RouterDeps } from "../router"
+const blockedSettings = vi.hoisted(() => ({ s: { enabled: false, customer_sms_enabled: false } }))
+vi.mock("@/lib/blocked-numbers/settings", async (orig) => ({
+  ...(await orig<typeof import("@/lib/blocked-numbers/settings")>()),
+  getBlockedNumbersSettings: async () => blockedSettings.s,
+}))
 import { digitFor, fakeShop, fakeSupabase, makeDeps, NEW_ID, OK_PKG, req, SHOP_CODE, SHOP_CONFIG } from "../testing/fakes"
 
 async function toProduct(deps: RouterDeps) {
@@ -230,6 +235,18 @@ describe("shop data: MTN number verification warning", () => {
     const r = await toConfirm(deps)
     expect(r.Message).toContain("Number not verified for MTN data. Enter a different number.")
     expect(r.Message).not.toContain("Confirm your order?")
+  })
+  it("a blocked number's screen says it was saved when blocked-numbers is on (the prompt stays)", async () => {
+    blockedSettings.s = { enabled: true, customer_sms_enabled: true }
+    try {
+      const { deps } = shopDeps({ verifyRecipient: async () => "blocked" })
+      const r = await toConfirm(deps)
+      expect(r.Message).toContain("MTN number not ready for data yet. Saved: we'll SMS you when ready.")
+      expect(r.Message).not.toContain("Number not verified for MTN data")
+      expect(r.Message).not.toContain("Confirm your order?")
+    } finally {
+      blockedSettings.s = { enabled: false, customer_sms_enabled: false }
+    }
   })
   it("blocks at '1. Confirm' when the check only answers after the confirm screen", async () => {
     let calls = 0

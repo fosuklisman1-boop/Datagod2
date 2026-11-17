@@ -74,6 +74,7 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
   // Admin "block unverified numbers" toggle (from /api/verify-phone-live): unverified
   // numbers can only be removed, never submitted ("Proceed with all" is hidden).
   const [verifyBlocking, setVerifyBlocking] = useState(false)
+  const [verifyNotice, setVerifyNotice] = useState<string | null>(null)
   // Numbers left out of the last submission for failing verification, kept so the
   // user can copy them after the dialog closes.
   const [removedUnverified, setRemovedUnverified] = useState<string[] | null>(null)
@@ -283,10 +284,11 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
   // real 100-per-request limit. Failures default a phone to "verified" (the
   // same fail-open the endpoint itself uses) so a flaky check never blocks
   // an otherwise-valid order.
-  const verifyPhonesLive = async (phones: string[]): Promise<{ verifiedMap: Map<string, boolean>; blocking: boolean }> => {
+  const verifyPhonesLive = async (phones: string[]): Promise<{ verifiedMap: Map<string, boolean>; blocking: boolean; notice: string | null }> => {
     const CHUNK_SIZE = 100
     const verifiedMap = new Map<string, boolean>()
     let blocking = false
+    let notice: string | null = null
     // The session token lets the endpoint attribute a blocked number to this dealer.
     let accessToken: string | undefined
     try {
@@ -310,12 +312,13 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
           const chunkResults: Array<{ phone: string; verified: boolean }> = data.results ?? []
           chunkResults.forEach(r => verifiedMap.set(r.phone, r.verified))
           if (data.blocking === true) blocking = true
+          if (!notice && typeof data.notice === "string" && data.notice) notice = data.notice
         }
       } catch (err) {
         console.warn("[BULK-ORDERS] Live verification check failed for a chunk, leaving unverified entries as verified:", err)
       }
     }
-    return { verifiedMap, blocking }
+    return { verifiedMap, blocking, notice }
   }
 
   const copyNumbers = async (phones: string[]) => {
@@ -349,16 +352,19 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
       // straight through and only interrupt with a warning when it actually
       // needs to.
       let blocking = false
+      let notice: string | null = null
       if (selectedNetworkLabel?.toUpperCase() === "MTN" && validOrders.length > 0) {
         const verification = await verifyPhonesLive(validOrders.map(o => o.phone))
         const verifiedMap = verification.verifiedMap
         blocking = verification.blocking
+        notice = verification.notice
         results.orders = results.orders.map(o =>
           o.status === "valid" ? { ...o, verified: verifiedMap.get(o.phone) ?? true } : o
         )
       }
 
       setVerifyBlocking(blocking)
+      setVerifyNotice(notice)
       setValidationResults(results)
 
       const unverifiedCount = results.orders.filter(o => o.status === "valid" && o.verified === false).length
@@ -877,7 +883,9 @@ export function BulkOrdersForm({ presetNetwork }: BulkOrdersFormProps = {}) {
               </DialogTitle>
               <DialogDescription>
                 {verifyBlocking
-                  ? "These numbers failed MTN verification and will be removed. The rest of your order can still go through."
+                  ? (verifyNotice
+                      ? `${verifyNotice} These numbers will be removed; the rest of your order can still go through.`
+                      : "These numbers failed MTN verification and will be removed. The rest of your order can still go through.")
                   : <>These numbers haven&apos;t been verified yet. Orders for them may be delayed until they clear, but they&apos;ll still be delivered automatically once verified.</>}
               </DialogDescription>
             </DialogHeader>

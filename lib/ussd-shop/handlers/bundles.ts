@@ -11,7 +11,8 @@ import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { isRecipientBlocked, RECIPIENT_BLOCKED_PROMPT } from "@/lib/mtn-providers/customer-verification"
+import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
+import { getNoticeMode, botPrompt } from "@/lib/blocked-numbers/notice"
 import { fetchShopBundles, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder } from "@/lib/shop-commerce/orders"
 import { getCanonicalShopName } from "@/lib/shop-commerce/shop-code"
@@ -181,7 +182,7 @@ export async function handleEnterRecipient(
     product: `${session.network ?? ''} ${session.bundleSize ?? ''}`.trim() || null,
     amount: session.bundlePrice ?? null,
   })) {
-    return cont(RECIPIENT_BLOCKED_PROMPT)
+    return cont(botPrompt(await getNoticeMode()))
   }
 
   await setSession(sessionId, { ...session, step: 'CONFIRM', recipientPhone: local })

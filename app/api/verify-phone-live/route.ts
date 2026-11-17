@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
 import { verifyRecipientsForOrder } from "@/lib/mtn-providers/customer-verification"
+import { getNoticeMode, webCustomerNotice, dealerNotice } from "@/lib/blocked-numbers/notice"
 import { supabaseAdmin } from "@/lib/supabase"
 import { PREVIEW_SURFACES, type BlockContext, type BlockSurface } from "@/lib/blocked-numbers/types"
 
@@ -51,6 +52,24 @@ async function resolveShopId(slug: unknown): Promise<string | null> {
     return shopId
   } catch (err) {
     console.error("[VERIFY-PHONE-LIVE] shop slug lookup failed:", err instanceof Error ? err.name : "UnknownError")
+    return null
+  }
+}
+
+/**
+ * The refusal sentence the client shows in place of its default text: only when the gate blocks and some number is
+ * unverified, and only for the three preview surfaces. Never throws (any failure is no notice).
+ */
+async function blockedNotice(surface: unknown, blocking: boolean, results: { verified: boolean }[]): Promise<string | null> {
+  if (!blocking || !results.some(r => !r.verified)) return null
+  try {
+    const mode = await getNoticeMode()
+    // Off: clients keep their own unchanged text.
+    if (mode === "off") return null
+    if (surface === "storefront_preview") return webCustomerNotice(mode)
+    if (surface === "dashboard_preview" || surface === "dashboard_bulk_preview") return dealerNotice(mode)
+    return null
+  } catch {
     return null
   }
 }
@@ -121,10 +140,10 @@ export async function POST(request: NextRequest) {
       context ? { context, defer: (task) => after(() => task()) } : {}
     )
     const results = phones.map(phone => ({ phone, verified: verdicts.get(phone) !== false }))
-    return NextResponse.json({ results, blocking })
+    return NextResponse.json({ results, blocking, notice: await blockedNotice(surface, blocking, results) })
   } catch (error) {
     // Fail open — a broken verification check must never block checkout.
     console.error("[VERIFY-PHONE-LIVE] Error, failing open:", error)
-    return NextResponse.json({ results: phones.map(phone => ({ phone, verified: true })), blocking: false })
+    return NextResponse.json({ results: phones.map(phone => ({ phone, verified: true })), blocking: false, notice: null })
   }
 }

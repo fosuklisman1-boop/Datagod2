@@ -12,6 +12,7 @@ import {
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { verifyRecipientsForOrder, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
+import { getNoticeMode } from "@/lib/blocked-numbers/notice"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
 import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 import { supabaseAdmin } from "@/lib/supabase" // Need admin client for checking settings if not already available, but usage below checks 'supabase' which is user client?
@@ -131,9 +132,12 @@ export async function POST(request: NextRequest) {
       )
       if (blocked.length > 0) {
         console.warn(`[BULK-ORDERS] ⛔ ${blocked.length} unverified MTN number(s) blocked`)
+        const noticeMode = await getNoticeMode()
         return NextResponse.json(
           {
-            error: `${blocked.length} number(s) are not verified for MTN data. Remove them and resubmit.`,
+            error: noticeMode === "off"
+              ? `${blocked.length} number(s) are not verified for MTN data. Remove them and resubmit.`
+              : `${blocked.length} number(s) aren't ready for MTN data yet. We've saved them to Blocked Numbers on your dashboard and will notify you when they're ready. Remove them and resubmit.`,
             code: NOT_VERIFIED_CODE,
             blocked_numbers: blocked,
           },

@@ -99,6 +99,11 @@ export interface DataDeps {
    * (fail open). verify-number reports the verdict regardless.
    */
   mtnBlocking(): Promise<boolean>
+  /**
+   * The dealer-facing "saved to Blocked Numbers" sentence for the 409 text, or null when blocked-numbers
+   * is off (legacy message). Optional; a throw or absence means the legacy message.
+   */
+  blockedNotice?(): Promise<string | null>
   /** The caller's custom prices (empty unless they are on custom pricing). Throws CustomPriceReadError on a read failure. */
   customPrices(userId: string): Promise<CustomPrices>
   /**
@@ -240,6 +245,19 @@ async function safeBlocking(deps: DataDeps): Promise<boolean> {
   }
 }
 
+/**
+ * The 409 text for a blocked MTN recipient. Blocked-numbers off: the exact legacy message.
+ * Otherwise the coded prefix is kept and the dealer is told the number was saved. Never throws.
+ */
+async function notRegisteredMessage(deps: DataDeps): Promise<string> {
+  try {
+    const notice = deps.blockedNotice ? await deps.blockedNotice() : null
+    return notice ? `RECIPIENT_NOT_REGISTERED: ${notice} Nothing was charged.` : MSG_NOT_REGISTERED
+  } catch {
+    return MSG_NOT_REGISTERED
+  }
+}
+
 /** Unpriced rows (price null/0/negative/non-numeric) are never listed or sold. */
 function usable(rows: PackageRow[]): PackageRow[] {
   return rows.filter((r) => {
@@ -372,7 +390,7 @@ async function livePurchase(deps: DataDeps, input: PurchaseInput, ctx: V2Context
   //    while the admin blocking toggle is on.
   if (input.network === "MTN") {
     const verdicts = await safeVerify(deps, [input.local], { userId: ctx.userId })
-    if (verdicts.get(input.local) === false && (await safeBlocking(deps))) return fail(409, MSG_NOT_REGISTERED)
+    if (verdicts.get(input.local) === false && (await safeBlocking(deps))) return fail(409, await notRegisteredMessage(deps))
   }
 
   // 5. Atomic placement.

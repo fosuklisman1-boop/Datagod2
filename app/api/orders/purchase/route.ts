@@ -14,7 +14,8 @@ import {
 } from "@/lib/mtn-fulfillment"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { isRecipientBlocked, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
+import { isRecipientBlocked, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
+import { getNoticeMode, dealerNotice } from "@/lib/blocked-numbers/notice"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
 import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 
@@ -142,7 +143,7 @@ export async function POST(request: NextRequest) {
       amount: typeof price === "number" ? price : Number(price) || null,
     })) {
       console.warn(`[PURCHASE] ⛔ Unverified MTN number blocked: ${String(phoneNumber).slice(0, 12)}`)
-      return NextResponse.json({ error: NOT_VERIFIED_MESSAGE, code: NOT_VERIFIED_CODE }, { status: 409 })
+      return NextResponse.json({ error: dealerNotice(await getNoticeMode()), code: NOT_VERIFIED_CODE }, { status: 409 })
     }
 
     // If email still missing, fetch from users table

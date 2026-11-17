@@ -9,6 +9,8 @@ import type { OrderRead } from "../types"
 import { dataAdapter } from "./data"
 
 vi.mock("@/lib/ussd/handlers/bundles", () => ({ handleConfirm: vi.fn() }))
+const noticeMode = vi.hoisted(() => ({ m: "off" as "off" | "saved" | "saved_sms" }))
+vi.mock("@/lib/blocked-numbers/notice", async (orig) => ({ ...(await orig<typeof import("@/lib/blocked-numbers/notice")>()), getNoticeMode: async () => noticeMode.m }))
 vi.mock("../catalogue", () => ({
   resolveOffer: vi.fn(),
   sizeLabel: (s: string) => `${s}GB`,
@@ -52,6 +54,19 @@ describe("data adapter: resolve", () => {
   it("bad_recipient gives the wrong-number reply and remembers", async () => {
     const r = await adapterFor({ ok: false, reason: "bad_recipient" }).resolve(db, S, read)
     expect(r).toEqual({ ok: false, refusal: { outcome: "asked", reply: wrongNumberReply(), remember: true } })
+  })
+
+  it("unverified_recipient gives the not-ready notice for the mode and remembers", async () => {
+    for (const [m, reply] of [
+      ["off", "That MTN number is not ready for data yet. Try a different number."],
+      ["saved", "That MTN number is not ready for data yet. We saved it. Try again later."],
+      ["saved_sms", "That MTN number is not ready for data yet. We saved it and will text you when it's ready."],
+    ] as const) {
+      noticeMode.m = m
+      const r = await adapterFor({ ok: false, reason: "unverified_recipient" }).resolve(db, S, read)
+      expect(r).toEqual({ ok: false, refusal: { outcome: "asked", reply, remember: true } })
+    }
+    noticeMode.m = "off"
   })
 
   it("no_package lists the nearest sizes once each and is not remembered", async () => {

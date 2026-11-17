@@ -1647,7 +1647,7 @@ export async function executeToolCall(
             if (!check.ok) return { error: "prefix_mismatch", message: check.message }
           }
           // MTN number verification hard block (admin toggle), same gate as the typed-recipient step.
-          const { isRecipientBlocked, NOT_VERIFIED_MESSAGE } = await import("@/lib/mtn-providers/customer-verification")
+          const { isRecipientBlocked } = await import("@/lib/mtn-providers/customer-verification")
           if (await isRecipientBlocked(network, recipient, {
             surface: "whatsapp_ai",
             shopId: shop.shopId ?? null,
@@ -1655,7 +1655,8 @@ export async function executeToolCall(
             purchaserPhone: phone,
             product: `${network} ${size}`.trim(),
           })) {
-            return { error: "recipient_not_verified", message: `${NOT_VERIFIED_MESSAGE} Ask the customer for a different recipient number.` }
+            const { getNoticeMode, aiToolNotice } = await import("@/lib/blocked-numbers/notice")
+            return { error: "recipient_not_verified", message: aiToolNotice(await getNoticeMode()) }
           }
           const { fetchShopBundles } = await import("@/lib/shop-commerce/pricing")
           const bundles = await fetchShopBundles(shop.shopId, network, shop.parentShopId ?? undefined)
@@ -1899,7 +1900,7 @@ export async function executeToolCall(
         }
 
         // MTN number verification hard block (admin toggle), same gate as the typed-recipient step.
-        const { isRecipientBlocked, NOT_VERIFIED_MESSAGE } = await import("@/lib/mtn-providers/customer-verification")
+        const { isRecipientBlocked } = await import("@/lib/mtn-providers/customer-verification")
         if (await isRecipientBlocked(canonicalNetwork, localRecipient, {
           surface: "whatsapp_ai",
           shopId: null,
@@ -1908,7 +1909,8 @@ export async function executeToolCall(
           purchaserPhone: ctx.phone ? String(ctx.phone) : null,
           product: `${canonicalNetwork} ${String(input.size ?? "")}`.trim(),
         })) {
-          return { error: "recipient_not_verified", message: `${NOT_VERIFIED_MESSAGE} Ask the customer for a different recipient number.` }
+          const { getNoticeMode, aiToolNotice } = await import("@/lib/blocked-numbers/notice")
+          return { error: "recipient_not_verified", message: aiToolNotice(await getNoticeMode()) }
         }
 
         // Normalise the requested size to a GB number for matching ('500MB' → 0.5).

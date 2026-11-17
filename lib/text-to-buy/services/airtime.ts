@@ -1,5 +1,6 @@
 import { airtimeBaseFeeRate, detectAirtimeNetwork, getAirtimeLimits, isAirtimeEnabled, splitInclusive, type AirtimeNetwork } from "@/lib/airtime-pricing"
 import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
+import { getNoticeMode, ttbNotice } from "@/lib/blocked-numbers/notice"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { dialerGetsDealerRate } from "@/lib/sub-agents/dealer-rates"
 import { detectNetworkWithMap, ghanaSignificant, normalizeGhanaPhone } from "@/lib/phone-format"
@@ -86,7 +87,7 @@ export function airtimeAdapter(deps: AirtimeDeps = {}): ServiceAdapter<AirtimeOf
           purchaserPhone: senderLocal,
           product: "MTN airtime",
           amount: Number.isFinite(read.amountGhs) ? read.amountGhs : null,
-        }))) return refuse("asked", airtimeWrongNumberReply(), true)
+        }))) return refuse("asked", ttbNotice(await getNoticeMode()), true)
         if (!(await isAirtimeEnabled(network))) return refuse("unavailable", airtimeOffReply(network))
 
         const amount = read.amountGhs

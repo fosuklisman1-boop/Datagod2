@@ -1,4 +1,5 @@
 import { handleConfirm } from "@/lib/ussd/handlers/bundles"
+import { getNoticeMode, ttbNotice } from "@/lib/blocked-numbers/notice"
 import { resolveOffer, sessionForOffer, sizeLabel, type Offer } from "../catalogue"
 import { dedupeNearest, lastOrderOf, orderStatusOf, productQuestion } from "../inbound-steps"
 import { deliveredGiftReply, fitOneSegment, notUnderstoodReply, paidNotDeliveredReply, quoteReply, unavailableReply, unpaidReply, wrongNumberReply } from "../replies"
@@ -44,6 +45,9 @@ export function dataAdapter(deps: DataDeps = {}): ServiceAdapter<DataOffer> {
           break
         case "bad_recipient":
           refusal = { outcome: "asked", reply: wrongNumberReply(), remember: true }
+          break
+        case "unverified_recipient":
+          refusal = { outcome: "asked", reply: ttbNotice(await getNoticeMode()), remember: true }
           break
         case "no_package":
           refusal = { outcome: "unavailable", reply: unavailableReply(res.networkLabel, dedupeNearest(res.nearest)), remember: false }

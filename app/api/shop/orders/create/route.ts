@@ -13,7 +13,8 @@ import { checkEmailQuality } from "@/lib/email-heuristics"
 import { isStorefrontOtpRequired, isPhoneOtpVerified } from "@/lib/storefront-otp"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { isRecipientBlocked, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
+import { isRecipientBlocked, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
+import { getNoticeMode, webCustomerNotice } from "@/lib/blocked-numbers/notice"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, ownerSaving, rolePrice, type CustomPrices } from "@/lib/pricing/package-price"
 import { catalogSubAgentMargin, directShopPricing, marginsValid, shopOwnerPricing, subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
@@ -530,7 +531,7 @@ export async function POST(request: NextRequest) {
       amount: finalTotalPrice,
     })) {
       console.warn(`[SHOP-ORDER] ⛔ Unverified MTN number blocked for shop ${shop_id}`)
-      return NextResponse.json({ error: NOT_VERIFIED_MESSAGE, code: NOT_VERIFIED_CODE }, { status: 409 })
+      return NextResponse.json({ error: webCustomerNotice(await getNoticeMode()), code: NOT_VERIFIED_CODE }, { status: 409 })
     }
 
     // Check if phone number is blacklisted
