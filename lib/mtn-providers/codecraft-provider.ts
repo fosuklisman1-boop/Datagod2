@@ -14,6 +14,7 @@
 import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
+import { sendOrderRequest, outcomeUnknownResponse } from "./outcome"
 
 const CODECRAFT_API_URL = process.env.CODECRAFT_API_URL || "https://api.codecraftnetwork.com/api"
 const CODECRAFT_API_KEY = process.env.CODECRAFT_API_KEY!
@@ -76,25 +77,22 @@ export class CodeCraftMTNProvider implements MTNProvider {
 
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
                 try {
-                    const response = await fetch(`${CODECRAFT_API_URL}/initiate.php`, {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-api-key": CODECRAFT_API_KEY,
-                        },
-                        body: JSON.stringify(requestBody),
-                        signal: AbortSignal.timeout(REQUEST_TIMEOUT),
-                    })
-
+                    // Throw / unreadable reply after sending = outcome unknown; never re-sent.
+                    const sent = await sendOrderRequest("CodeCraft", () =>
+                        fetch(`${CODECRAFT_API_URL}/initiate.php`, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "x-api-key": CODECRAFT_API_KEY,
+                            },
+                            body: JSON.stringify(requestBody),
+                            signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+                        }),
+                        traceId
+                    )
+                    if (!sent.ok) return sent.response
                     const latency = Date.now() - startTime
-                    const responseText = await response.text()
-
-                    let data: any
-                    try {
-                        data = JSON.parse(responseText)
-                    } catch {
-                        return { success: false, message: `Invalid API response: ${responseText.slice(0, 200)}`, traceId, error_type: "API_ERROR" }
-                    }
+                    const data: any = sent.json
 
                     // CodeCraft-specific error codes
                     if (data.status === 100) return { success: false, message: "CodeCraft wallet balance is low. Please top up.", traceId, error_type: "API_ERROR" }
@@ -104,8 +102,8 @@ export class CodeCraftMTNProvider implements MTNProvider {
                     if (data.status === 555) return { success: false, message: "Network not supported on CodeCraft.", traceId, error_type: "API_ERROR" }
 
                     if (data.status === 500) {
-                        if (attempt < maxRetries) { await sleep(retryDelays[attempt]); continue }
-                        return { success: false, message: data.message || "CodeCraft internal error", traceId, error_type: "API_ERROR" }
+                        // Internal error after the order request: it may have been created. Never re-send.
+                        return outcomeUnknownResponse("CodeCraft", sent.res.status, traceId)
                     }
 
                     if (data.status !== 200) {
@@ -126,12 +124,8 @@ export class CodeCraftMTNProvider implements MTNProvider {
                         traceId,
                     }
                 } catch (error) {
-                    if (attempt < maxRetries) {
-                        log("warn", "Order", `CodeCraft request failed, retrying in ${retryDelays[attempt]}ms`, { traceId, error: String(error) })
-                        await sleep(retryDelays[attempt])
-                        continue
-                    }
-                    throw error
+                    log("error", "Order", "Error handling CodeCraft order reply - outcome unknown", { traceId, error: String(error) })
+                    return outcomeUnknownResponse("CodeCraft", null, traceId)
                 }
             }
 

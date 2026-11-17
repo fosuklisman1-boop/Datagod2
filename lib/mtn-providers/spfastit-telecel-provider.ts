@@ -11,6 +11,7 @@
  */
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
+import { sendOrderRequest } from "./outcome"
 
 const BASE_URL = process.env.SPFASTIT_TELECEL_BASE_URL ?? "https://spfastit.com/wp-json/custom-api/v1"
 const REQUEST_TIMEOUT = 30_000
@@ -71,23 +72,18 @@ export class SPFastITTelecelProvider implements MTNProvider {
       ? `${webhookBase}/api/webhooks/mtn/spfastit-telecel?token=${webhookSecret}`
       : undefined
 
-    let res: Response
-    try {
-      res = await apiCall("/place-order", {
+    // The order request: an unreadable reply means SPFastIT may have placed it.
+    const sent = await sendOrderRequest("SPFastIT Telecel", () =>
+      apiCall("/place-order", {
         phone,
         size_mb: gbToMb(request.size_gb),
         network: "telecel",
         ...(request.client_ref ? { reference: request.client_ref } : {}),
         ...(webhookUrl ? { webhook_url: webhookUrl } : {}),
       })
-    } catch (err) {
-      return { success: false, message: err instanceof Error ? err.message : "Network error", error_type: "NETWORK_ERROR" }
-    }
-
-    let json: any
-    try { json = await res.json() } catch {
-      return { success: false, message: `HTTP ${res.status} (non-JSON response)`, error_type: "API_ERROR" }
-    }
+    )
+    if (!sent.ok) return sent.response
+    const { res, json } = sent
 
     if (json.status !== "success") {
       return { success: false, message: json.message ?? `API error (status ${res.status})`, error_type: "API_ERROR" }

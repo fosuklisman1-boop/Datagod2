@@ -15,6 +15,7 @@
  */
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
+import { sendOrderRequest } from "./outcome"
 
 const BASE_URL = process.env.SPFASTIT_BASE_URL ?? "https://console.spfastit.com"
 const REQUEST_TIMEOUT = 30_000
@@ -72,21 +73,16 @@ export class SPFastITProvider implements MTNProvider {
     const bundleMb = gbToBundleMb(request.size_gb)
     const clientReference = request.client_ref
 
-    let res: Response
-    try {
-      res = await apiFetch("/api/send.php", {
+    // The order request: an unreadable reply means SPFastIT may have queued it.
+    const sent = await sendOrderRequest("SPFastIT", () =>
+      apiFetch("/api/send.php", {
         phone,
         bundle_mb: String(bundleMb),
         ...(clientReference ? { client_reference: clientReference } : {}),
       })
-    } catch (err) {
-      return { success: false, message: err instanceof Error ? err.message : "Network error", error_type: "NETWORK_ERROR" }
-    }
-
-    let json: any
-    try { json = await res.json() } catch {
-      return { success: false, message: `HTTP ${res.status} (non-JSON response)`, error_type: "API_ERROR" }
-    }
+    )
+    if (!sent.ok) return sent.response
+    const { res, json } = sent
 
     if (json.status !== "success") {
       // Confirmed shape: { status:"error", message:"This client_reference has already

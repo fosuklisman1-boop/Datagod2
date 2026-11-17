@@ -2,6 +2,7 @@ import crypto from "crypto"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
+import { sendOrderRequest } from "./outcome"
 
 const BASE_URL = process.env.AGENTPORTALGH_BASE_URL ?? "https://api.agentportalgh.com"
 const TIMEOUT = 30_000
@@ -391,20 +392,15 @@ export class AgentPortalGHProvider implements MTNProvider {
     const phone = normalizePhoneNumber(request.recipient_phone)
     const reference = request.client_ref ?? crypto.randomUUID()
 
-    let res: Response
-    try {
-      res = await apiFetch("/api/queue/add", {
+    // The order request: an unreadable reply means AgentPortalGH may have queued it.
+    const sent = await sendOrderRequest("AgentPortalGH", () =>
+      apiFetch("/api/queue/add", {
         method: "POST",
         body: JSON.stringify(buildQueuePayload(phone, request.size_gb, reference, request.network)),
       })
-    } catch (err) {
-      return { success: false, message: err instanceof Error ? err.message : "Network error", error_type: "NETWORK_ERROR" }
-    }
-
-    let json: any
-    try { json = await res.json() } catch {
-      return { success: false, message: `HTTP ${res.status} (non-JSON response)`, error_type: "API_ERROR" }
-    }
+    )
+    if (!sent.ok) return sent.response
+    const { res, json } = sent
 
     if (res.status === 402) {
       // Confirmed shape: { "error": "insufficient wallet balance: need GHS X, balance GHS Y" }

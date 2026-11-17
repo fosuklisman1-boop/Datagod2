@@ -25,6 +25,7 @@ import {
   type KuntaniiOrderEntry,
 } from "./kuntanii-core"
 import { createKuntaniiClient, getCachedPlans, type KuntaniiClient, type OrderBody } from "./kuntanii-client"
+import { outcomeUnknownResponse } from "./outcome"
 
 /** admin_settings key; value `{ mode: "normal" | "instant" }`. */
 export const DELIVERY_MODE_KEY = "kuntanii_delivery_mode"
@@ -297,7 +298,9 @@ export class KuntaniiProvider implements MTNProvider {
         return { success: true, order_id: id, message: "accepted (reconciled after unknown outcome)" }
       }
       await this.safeRecordUnknown(id, req.client_ref ?? null)
-      return fail("RETRYABLE", `Kuntanii outcome unknown: ${res.message}`)
+      // Reconcile could not confirm either way: hold (OUTCOME_UNKNOWN) — a RETRYABLE
+      // failure here would let the next provider / a re-fulfil resend it.
+      return outcomeUnknownResponse("Kuntanii", res.network === true ? null : res.status)
     }
 
     const cls = classifyKuntaniiError(res.status, res.code, mode)

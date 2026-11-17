@@ -15,6 +15,7 @@ import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin } from "@/lib/supabase"
+import { classifyOrderReply, outcomeUnknownResponse } from "./outcome"
 
 const EAZYGHDATA_API_KEY = process.env.EAZYGHDATA_API_KEY!
 const EAZYGHDATA_BASE_URL = process.env.EAZYGHDATA_BASE_URL || "https://eazyghdata.com"
@@ -203,18 +204,27 @@ export class EazyGhDataProvider implements MTNProvider {
 
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
                 try {
-                    const response = await fetch(`${EAZYGHDATA_BASE_URL}/api/agent/v1/order`, {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "X-API-Key": EAZYGHDATA_API_KEY,
-                        },
-                        body: JSON.stringify(requestBody),
-                        signal: AbortSignal.timeout(REQUEST_TIMEOUT),
-                    })
+                    // No idempotency key here, so a throw after sending is outcome
+                    // unknown and is NOT re-sent (the old retry-on-throw could duplicate).
+                    let response: Response
+                    let responseText: string
+                    try {
+                        response = await fetch(`${EAZYGHDATA_BASE_URL}/api/agent/v1/order`, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "X-API-Key": EAZYGHDATA_API_KEY,
+                            },
+                            body: JSON.stringify(requestBody),
+                            signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+                        })
+                        responseText = await response.text()
+                    } catch (sendErr) {
+                        log("error", "Order", "EazyGhData request threw after sending - outcome unknown", { traceId, error: String(sendErr) })
+                        return outcomeUnknownResponse("EazyGhData", null, traceId)
+                    }
 
                     const latency = Date.now() - startTime
-                    const responseText = await response.text()
 
                     if (response.status === 429) {
                         if (attempt < maxRetries) {
@@ -226,12 +236,12 @@ export class EazyGhDataProvider implements MTNProvider {
                         return { success: false, message: "Service temporarily unavailable due to rate limiting. Please try again.", traceId, error_type: "RATE_LIMIT" }
                     }
 
-                    let data: any
-                    try {
-                        data = JSON.parse(responseText)
-                    } catch {
-                        return { success: false, message: `Invalid API response: ${responseText.slice(0, 200)}`, traceId, error_type: "API_ERROR" }
+                    const classified = classifyOrderReply(response.status, responseText)
+                    if (classified.kind === "unknown") {
+                        log("error", "Order", "Unreadable EazyGhData response - outcome unknown", { traceId, status: response.status })
+                        return outcomeUnknownResponse("EazyGhData", response.status, traceId)
                     }
+                    const data: any = classified.json
 
                     if (!response.ok) {
                         const errMsg: string = data?.message || data?.error || `API returned ${response.status}`
@@ -265,13 +275,9 @@ export class EazyGhDataProvider implements MTNProvider {
                         traceId,
                     }
                 } catch (error) {
-                    if (attempt < maxRetries) {
-                        const delay = retryDelays[attempt]
-                        log("warn", "Order", `EazyGhData request failed, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`, { traceId, error: String(error) })
-                        await sleep(delay)
-                        continue
-                    }
-                    throw error
+                    // Reply already received/handled; never re-send.
+                    log("error", "Order", "Error handling EazyGhData order reply - outcome unknown", { traceId, error: String(error) })
+                    return outcomeUnknownResponse("EazyGhData", null, traceId)
                 }
             }
 

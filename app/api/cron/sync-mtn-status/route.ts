@@ -202,6 +202,8 @@ export async function GET(request: NextRequest) {
       .in("status", ["pending", "processing", "failed", "retrying", "error"])
       .not("mtn_order_id", "is", null)
       .not("mtn_order_id", "like", "FAILED_INIT_%")
+      // UNKNOWN_ rows = provider outcome unknown; held for an admin, never polled/retried.
+      .not("mtn_order_id", "like", "UNKNOWN_%")
       .gte("created_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
       .order("updated_at", { ascending: true })
       .limit(500)

@@ -52,7 +52,12 @@ export async function GET(request: NextRequest) {
       .range(offset, offset + limit - 1)
 
     // Apply status filter
-    if (status !== "all") {
+    if (status === "unknown_outcome") {
+      // Provider replied unreadably after the order request: the order may exist
+      // at the provider (stored as status "abandoned" + an UNKNOWN_ id). An admin
+      // must check the provider's dashboard before retrying.
+      query = query.like("mtn_order_id", "UNKNOWN_%")
+    } else if (status !== "all") {
       query = query.eq("status", status)
     }
 

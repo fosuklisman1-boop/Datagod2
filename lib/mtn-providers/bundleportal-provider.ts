@@ -2,6 +2,7 @@ import crypto from "crypto"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
+import { sendOrderRequest } from "./outcome"
 
 const BASE_URL = process.env.BUNDLEPORTAL_BASE_URL ?? "https://api.bundleportal.com/v2"
 const TIMEOUT = 30_000
@@ -156,23 +157,18 @@ export class BundlePortalProvider implements MTNProvider {
     const mtnRoute = await getActiveMtnRoute()
     const bpNetwork = mapNetworkToBundlePortal(request.network, request.isBigTime, mtnRoute)
 
-    let res: Response
-    try {
-      res = await apiCall({
+    // The order request: an unreadable reply means Bundle Portal may have placed it.
+    const sent = await sendOrderRequest("Bundle Portal", () =>
+      apiCall({
         action: "place_order",
         network: bpNetwork,
         recipient: phone,
         package_size: request.size_gb,
         order_id: orderId,
       })
-    } catch (err) {
-      return { success: false, message: err instanceof Error ? err.message : "Network error", error_type: "NETWORK_ERROR" }
-    }
-
-    let json: any
-    try { json = await res.json() } catch {
-      return { success: false, message: `HTTP ${res.status} (non-JSON response)`, error_type: "API_ERROR" }
-    }
+    )
+    if (!sent.ok) return sent.response
+    const { res, json } = sent
 
     if (json.success !== true) {
       const errorType = isRetryableErrorCode(json.code) ? "RETRYABLE" : "API_ERROR"

@@ -18,6 +18,7 @@ import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin } from "@/lib/supabase"
+import { classifyOrderReply, outcomeUnknownResponse } from "./outcome"
 
 const BISDEL_API_KEY = process.env.BISDEL_API_KEY!
 const BISDEL_API_SECRET = process.env.BISDEL_API_SECRET!
@@ -147,24 +148,34 @@ export class BisdelProvider implements MTNProvider {
 
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-          const response = await fetch(`${BISDEL_BASE_URL}/order.php`, {
-            method: "POST",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT),
-          })
+          // A throw after sending is outcome unknown and is NOT re-sent.
+          let response: Response
+          let responseText: string
+          try {
+            response = await fetch(`${BISDEL_BASE_URL}/order.php`, {
+              method: "POST",
+              headers: authHeaders({ "Content-Type": "application/json" }),
+              body: JSON.stringify(body),
+              signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+            })
+            responseText = await response.text()
+          } catch (sendErr) {
+            log("error", "Order", "Bisdel request threw after sending - outcome unknown", { traceId, error: String(sendErr) })
+            return outcomeUnknownResponse("Bisdel", null, traceId)
+          }
           const latency = Date.now() - startTime
-          const responseText = await response.text()
 
           if (response.status === 429) {
             if (attempt < maxRetries) { await sleep(retryDelays[attempt]); continue }
             return { success: false, message: "Bisdel rate limited. Please try again.", traceId, error_type: "RATE_LIMIT" }
           }
 
-          let data: any
-          try { data = JSON.parse(responseText) } catch {
-            return { success: false, message: `Invalid Bisdel response: ${responseText.slice(0, 200)}`, traceId, error_type: "API_ERROR" }
+          const classified = classifyOrderReply(response.status, responseText)
+          if (classified.kind === "unknown") {
+            log("error", "Order", "Unreadable Bisdel response - outcome unknown", { traceId, status: response.status })
+            return outcomeUnknownResponse("Bisdel", response.status, traceId)
           }
+          const data: any = classified.json
 
           // Bisdel nests the order under `data`.
           const d = data?.data ?? data
@@ -185,8 +196,8 @@ export class BisdelProvider implements MTNProvider {
           log("info", "Order", "Bisdel MTN order created", { traceId, orderReference, latencyMs: latency })
           return { success: true, order_id: orderReference, message: d?.message || "Order placed successfully", traceId }
         } catch (error) {
-          if (attempt < maxRetries) { await sleep(retryDelays[attempt]); continue }
-          throw error
+          log("error", "Order", "Error handling Bisdel order reply - outcome unknown", { traceId, error: String(error) })
+          return outcomeUnknownResponse("Bisdel", null, traceId)
         }
       }
       return { success: false, message: "Maximum retries exceeded", traceId, error_type: "API_ERROR" }

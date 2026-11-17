@@ -540,7 +540,7 @@ describe("createOrder placement", () => {
     const r = await provider.createOrder(req())
     expect(recordUnknownAttempt).toHaveBeenCalledWith("ord1", "ord1")
     expect(r.success).toBe(false)
-    expect(r.error_type).toBe("RETRYABLE")
+    expect(r.error_type).toBe("OUTCOME_UNKNOWN")
   })
 
   it("unknown outcome reconciles to success when the order exists", async () => {
@@ -559,7 +559,7 @@ describe("createOrder placement", () => {
     expect(recordUnknownAttempt).toHaveBeenCalledTimes(0)
   })
 
-  it("unknown outcome with 404 records unknown attempt and fails RETRYABLE", async () => {
+  it("unknown outcome with 404 records unknown attempt and returns OUTCOME_UNKNOWN", async () => {
     const client = fakeClient({
       placeOrder: vi.fn(async () => ({ ok: false, status: 0, network: true, message: "timeout" })),
     })
@@ -568,7 +568,7 @@ describe("createOrder placement", () => {
     expect(client.getOrder).toHaveBeenCalledTimes(2)
     expect(recordUnknownAttempt).toHaveBeenCalledTimes(1)
     expect(recordUnknownAttempt).toHaveBeenCalledWith("ord1", "ord1")
-    expect(r).toMatchObject({ success: false, error_type: "RETRYABLE" })
+    expect(r).toMatchObject({ success: false, error_type: "OUTCOME_UNKNOWN" })
   })
 
   it("unknown outcome on a 2xx non-JSON body also reconciles", async () => {
@@ -584,14 +584,14 @@ describe("createOrder placement", () => {
     expect(recordUnknownAttempt).toHaveBeenCalledTimes(0)
   })
 
-  it("unknown outcome on a 2xx non-JSON body with failed reconcile records and fails RETRYABLE", async () => {
+  it("unknown outcome on a 2xx non-JSON body with failed reconcile records and returns OUTCOME_UNKNOWN", async () => {
     const client = fakeClient({
       placeOrder: vi.fn(async () => ({ ok: false, status: 200, message: "HTTP 200" })),
     })
     const { provider, recordUnknownAttempt } = setup({ client })
     const r = await provider.createOrder(req())
     expect(recordUnknownAttempt).toHaveBeenCalledWith("ord1", "ord1")
-    expect(r).toMatchObject({ success: false, error_type: "RETRYABLE" })
+    expect(r).toMatchObject({ success: false, error_type: "OUTCOME_UNKNOWN" })
   })
 
   it("plain RETRYABLE (503) records unknown attempt without a reconcile GET", async () => {

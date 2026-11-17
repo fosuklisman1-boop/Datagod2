@@ -15,6 +15,7 @@
 import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
+import { classifyOrderReply, outcomeUnknownResponse } from "./outcome"
 
 const XPRESS_API_KEY = process.env.XPRESS_KEY!
 const XPRESS_API_BASE_URL = "https://labppmcqsdeuollwcgwu.supabase.co/functions/v1/agent-api"
@@ -102,12 +103,13 @@ export class XpressProvider implements MTNProvider {
                         return { success: false, message: "Service temporarily unavailable due to rate limiting. Please try again.", traceId, error_type: "RATE_LIMIT" }
                     }
 
-                    let data: any
-                    try {
-                        data = JSON.parse(responseText)
-                    } catch {
-                        return { success: false, message: `Invalid API response: ${responseText.slice(0, 200)}`, traceId, error_type: "API_ERROR" }
+                    // Unreadable / empty / 5xx-without-rejection = the order may exist at Xpress.
+                    const classified = classifyOrderReply(response.status, responseText)
+                    if (classified.kind === "unknown") {
+                        log("error", "Order", "Unreadable Xpress response - outcome unknown", { traceId, status: response.status })
+                        return outcomeUnknownResponse("Xpress", response.status, traceId)
                     }
+                    const data: any = classified.json
 
                     if (!response.ok) {
                         log("error", "Order", "Xpress API HTTP error", { traceId, status: response.status, data })
@@ -135,7 +137,9 @@ export class XpressProvider implements MTNProvider {
                         await sleep(delay)
                         continue
                     }
-                    throw error
+                    // All same-reference attempts threw after sending: outcome unknown.
+                    log("error", "Order", "Xpress order request failed after retries - outcome unknown", { traceId, error: String(error) })
+                    return outcomeUnknownResponse("Xpress", null, traceId)
                 }
             }
 
