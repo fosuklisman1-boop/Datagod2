@@ -3,7 +3,8 @@ import { UzoResponse, USSDShopSession } from "../types"
 import { cont, end, enterShopCodeMenu, invalidCodeMenu, networkMenu, sortNetworks, productMenu, resolveProductMenu, type ProductMenuKey, shopAirtimeRecipientPrompt, shopRcBoardMenu } from "../menus"
 import { setSession } from "../session"
 import { buildRcBoardOptions } from "../../ussd/handlers/results-checker"
-import { resolveShopCode } from "@/lib/shop-commerce/shop-code"
+import { resolveShopCode, type ResolvedShopCode } from "@/lib/shop-commerce/shop-code"
+import { isShopMemoryEnabled, rememberCustomerShop, rememberedShopForUssd, resolveShopCodeById } from "@/lib/shop-commerce/customer-prefs"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 import { keyForDigit } from "../../ussd/menu-items"
 import { botMenusVisible } from "@/lib/ussd/bots/gate"
@@ -17,23 +18,79 @@ const supabase = createClient(
 )
 
 // ── ENTER_SHOP_CODE ───────────────────────────────────────────────────────────
+/** Longest the remembered-shop lookup may hold up the code screen. */
+const REMEMBERED_TIMEOUT_MS = 1500
+
+/**
+ * The shop code screen: reads the admin switch, then (only when on) the remembered shop, writes the ENTER_SHOP_CODE
+ * session and returns the prompt. Switch off, no memory, a slow (> 1.5 s) or failing read: the unchanged prompt.
+ */
+export async function shopCodePrompt(sessionId: string, dialingPhone: string, prefix = ''): Promise<UzoResponse> {
+  let remembered: { shopCodeId: string; shopName: string } | null = null
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    if (await isShopMemoryEnabled(supabase)) {
+      const timeout = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), REMEMBERED_TIMEOUT_MS) })
+      remembered = await Promise.race([rememberedShopForUssd(supabase, dialingPhone, 'ussd_uzo'), timeout])
+    }
+  } catch (e) {
+    console.error('[USSD-SHOP] remembered shop lookup failed', e instanceof Error ? e.name : 'unknown')
+    remembered = null
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+  await setSession(sessionId, remembered
+    ? { step: 'ENTER_SHOP_CODE', dialingPhone, rememberedShopCodeId: remembered.shopCodeId, rememberedShopName: remembered.shopName }
+    : { step: 'ENTER_SHOP_CODE', dialingPhone })
+  return cont(prefix + enterShopCodeMenu(remembered?.shopName))
+}
+
 export async function handleEnterShopCode(
   input: string,
   sessionId: string,
-  dialingPhone: string
+  dialingPhone: string,
+  session?: USSDShopSession
 ): Promise<UzoResponse> {
   if (input.trim() === '0') return end('Goodbye.')
 
   const code = input.trim()
 
+  // "1" opens the remembered shop (only when this session was offered one). Uzo has no code-attempt cap, so nothing to count.
+  if (code === '1' && session?.rememberedShopCodeId) {
+    const shop = await resolveShopCodeById(supabase, session.rememberedShopCodeId).catch((e: unknown) => {
+      console.error('[USSD-SHOP] remembered shop lookup failed', e instanceof Error ? e.name : 'unknown')
+      return null
+    })
+    if (!shop || shop.status !== 'active') {
+      await setSession(sessionId, { step: 'ENTER_SHOP_CODE', dialingPhone })
+      return cont(invalidCodeMenu('That shop is unavailable.'))
+    }
+    return enterShop(shop, sessionId, dialingPhone)
+  }
+
   const resolved = await resolveShopCode(code)
 
   if (!resolved || resolved.status !== 'active') {
-    await setSession(sessionId, { step: 'ENTER_SHOP_CODE', dialingPhone })
+    // A wrong code keeps the remembered offer on screen (and in the session).
+    await setSession(sessionId, session?.rememberedShopCodeId
+      ? { step: 'ENTER_SHOP_CODE', dialingPhone, rememberedShopCodeId: session.rememberedShopCodeId, rememberedShopName: session.rememberedShopName }
+      : { step: 'ENTER_SHOP_CODE', dialingPhone })
     // 'inactive' = the shop is not open yet (an unpriced storefront joiner, a shop awaiting approval, or a code
     // not yet activated). Blocked shops ('suspended') and unknown codes keep the generic reply.
     const reason = resolved?.status === 'inactive' ? "This shop isn't open yet." : 'Invalid code. Try again.'
-    return cont(invalidCodeMenu(reason))
+    return cont(invalidCodeMenu(reason, session?.rememberedShopCodeId ? session.rememberedShopName : undefined))
+  }
+
+  return enterShop(resolved, sessionId, dialingPhone)
+}
+
+/** An accepted shop (typed code or the remembered shortcut): remember it, load its networks + whitelist, show its product menu. */
+async function enterShop(resolved: ResolvedShopCode, sessionId: string, dialingPhone: string): Promise<UzoResponse> {
+  // Best-effort: a failed write never changes the reply. Logs ids only, never the phone.
+  try {
+    await rememberCustomerShop(supabase, dialingPhone, resolved.shopCodeId, 'ussd_uzo')
+  } catch (e) {
+    console.error('[USSD-SHOP] could not remember shop', resolved.shopCodeId, e instanceof Error ? e.name : 'unknown')
   }
 
   // Entering a shop is free: session tokens were retired (spec 2026-10-14-ussd-shop-free-sessions-design).

@@ -2,6 +2,7 @@ import { UzoResponse, ShopBundleOption } from "./types"
 import { MenuItemDef, resolveMenuItems, renderMenuText } from "../ussd/menu-items"
 import { networkNickname } from "../ussd/network-labels"
 import { formatBundleSize } from "../ussd/menus"
+import { shortShopName } from "../shop-commerce/customer-prefs"
 
 const PAGE_SIZE = 5
 const SCREEN_LIMIT = 160
@@ -18,12 +19,17 @@ function truncate(msg: string): string {
   return msg.length > SCREEN_LIMIT ? msg.slice(0, SCREEN_LIMIT - 3) + '...' : msg
 }
 
-export function enterShopCodeMenu(): string {
-  return 'Welcome to DataGod\nEnter shop code:\n\n0. Exit'
+/** "1. <name> (last used)" just before Exit, only when a remembered shop is offered. */
+function rememberedLine(remembered?: string): string {
+  return remembered ? `1. ${shortShopName(remembered)} (last used)\n` : ''
 }
 
-export function invalidCodeMenu(reason: string): string {
-  return `${reason}\n\nEnter shop code:\n\n0. Exit`
+export function enterShopCodeMenu(remembered?: string): string {
+  return `Welcome to DataGod\nEnter shop code:\n\n${rememberedLine(remembered)}0. Exit`
+}
+
+export function invalidCodeMenu(reason: string, remembered?: string): string {
+  return `${reason}\n\nEnter shop code:\n\n${rememberedLine(remembered)}0. Exit`
 }
 
 // Numbering is derived from resolveMenuItems() — the render side (productMenu)

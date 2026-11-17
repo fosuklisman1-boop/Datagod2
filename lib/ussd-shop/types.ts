@@ -37,6 +37,8 @@ export interface USSDShopSession extends UzoNpSessionFields, UzoPbSessionFields 
   shopId?: string
   parentShopId?: string            // set when shop is a sub-agent; catalog lives under parent
   shopName?: string
+  rememberedShopCodeId?: string    // the "last used" shop offered as 1. on the code screen (switch on + usable memory only)
+  rememberedShopName?: string
   shopHelpline?: string            // shop owner's number (local 0XXXXXXXXX), shown under the name on the product menu
   networks?: string[]              // available networks for this shop
   network?: string                 // selected network

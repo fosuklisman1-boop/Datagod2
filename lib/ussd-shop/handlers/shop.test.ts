@@ -5,14 +5,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const h = vi.hoisted(() => {
   // Any Supabase chain resolves to { data: null, error: null } (no packages, no whitelist, no purchase).
+  const state = { data: null as unknown }
   const chain: unknown = new Proxy(function () {}, {
     get(_t, prop) {
-      if (prop === "then") return (ok: (v: unknown) => unknown) => ok({ data: null, error: null })
+      if (prop === "then") return (ok: (v: unknown) => unknown) => ok({ data: state.data, error: null })
       return () => chain
     },
   })
   return {
     chain,
+    state,
     vis: { data: true, afa: true, airtime: true, resultsChecker: true, networkPlans: true, payBills: true },
     bots: { networkPlans: false, payBills: false },
     setSession: vi.fn(async () => {}),
@@ -20,8 +22,19 @@ const h = vi.hoisted(() => {
     startNetworkPlans: vi.fn(async () => ({ message: "NP START", ussdServiceOp: 2 as const })),
     startPayBills: vi.fn(async () => ({ message: "PB START", ussdServiceOp: 2 as const })),
     boards: ["WASSCE"],
+    isEnabled: vi.fn(async () => false),
+    remembered: vi.fn(async () => null as { shopCodeId: string; shopName: string } | null),
+    remember: vi.fn(async () => {}),
+    resolveById: vi.fn(async () => null as unknown),
   }
 })
+vi.mock("@/lib/shop-commerce/customer-prefs", async (orig) => ({
+  ...(await orig<typeof import("@/lib/shop-commerce/customer-prefs")>()),
+  isShopMemoryEnabled: h.isEnabled,
+  rememberedShopForUssd: h.remembered,
+  rememberCustomerShop: h.remember,
+  resolveShopCodeById: h.resolveById,
+}))
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.chain }))
 vi.mock("../session", () => ({ setSession: h.setSession }))
 vi.mock("@/lib/shop-commerce/shop-code", () => ({
@@ -38,7 +51,7 @@ vi.mock("@/lib/ussd/bots/network-plans", () => ({ startNetworkPlans: h.startNetw
 vi.mock("@/lib/ussd/bots/pay-bills", () => ({ startPayBills: h.startPayBills }))
 vi.mock("../../ussd/handlers/results-checker", () => ({ buildRcBoardOptions: async () => h.boards }))
 
-import { handleEnterShopCode, handleSelectProduct } from "./shop"
+import { handleEnterShopCode, handleSelectProduct, shopCodePrompt } from "./shop"
 import { productMenu, resolveProductMenu } from "../menus"
 import type { USSDShopSession } from "../types"
 
@@ -63,6 +76,11 @@ beforeEach(() => {
   h.bots = { networkPlans: false, payBills: false }
   h.botMenusVisible.mockReset().mockImplementation(async () => ({ ...h.bots }))
   for (const f of [h.setSession, h.startNetworkPlans, h.startPayBills]) f.mockClear()
+  h.state.data = null
+  h.isEnabled.mockReset().mockResolvedValue(false)
+  h.remembered.mockReset().mockResolvedValue(null)
+  h.remember.mockReset().mockResolvedValue(undefined)
+  h.resolveById.mockReset().mockResolvedValue(null)
 })
 
 describe("productMenu (pure)", () => {
@@ -196,5 +214,99 @@ describe("handleEnterShopCode", () => {
     const invalid = { message: "Invalid code. Try again.\n\nEnter shop code:\n\n0. Exit", ussdServiceOp: 2 }
     expect(await handleEnterShopCode("9999", SID, ME)).toEqual(invalid)
     expect(await handleEnterShopCode("6666", SID, ME)).toEqual(invalid)
+  })
+})
+
+describe("remembered shop shortcut (Uzo shop code screen)", () => {
+  const BASE = "Welcome to DataGod\nEnter shop code:\n\n0. Exit"
+  const LINE = "Welcome to DataGod\nEnter shop code:\n\n1. Ama (last used)\n0. Exit"
+  const active = { status: "active", shopId: "shop-1", shopCodeId: "code-1", shopName: "Ama", parentShopId: null, ownerPhone: null }
+  const withMemory = (over: Partial<USSDShopSession> = {}): USSDShopSession => ({
+    step: "ENTER_SHOP_CODE", dialingPhone: ME, rememberedShopCodeId: "code-1", rememberedShopName: "Ama", ...over,
+  })
+
+  it("switch off: the prompt is byte-identical and the memory is never read", async () => {
+    h.remembered.mockResolvedValue({ shopCodeId: "code-1", shopName: "Ama" })
+    expect(await shopCodePrompt(SID, ME)).toEqual({ message: BASE, ussdServiceOp: 2 })
+    expect(h.remembered).not.toHaveBeenCalled()
+    expect(h.setSession).toHaveBeenCalledWith(SID, { step: "ENTER_SHOP_CODE", dialingPhone: ME })
+  })
+
+  it("switch on but no memory: unchanged prompt", async () => {
+    h.isEnabled.mockResolvedValue(true)
+    expect((await shopCodePrompt(SID, ME)).message).toBe(BASE)
+    expect(h.setSession).toHaveBeenCalledWith(SID, { step: "ENTER_SHOP_CODE", dialingPhone: ME })
+  })
+
+  it("switch on with a remembered shop: shows the line, keeps the prefix, stores it in the session", async () => {
+    h.isEnabled.mockResolvedValue(true)
+    h.remembered.mockResolvedValue({ shopCodeId: "code-1", shopName: "Ama" })
+    expect((await shopCodePrompt(SID, ME)).message).toBe(LINE)
+    expect((await shopCodePrompt(SID, ME, "Time limit exceeded.\n\n")).message).toBe("Time limit exceeded.\n\n" + LINE)
+    expect(h.setSession).toHaveBeenCalledWith(SID, {
+      step: "ENTER_SHOP_CODE", dialingPhone: ME, rememberedShopCodeId: "code-1", rememberedShopName: "Ama",
+    })
+    expect(h.remembered).toHaveBeenCalledWith(expect.anything(), ME, "ussd_uzo")
+  })
+
+  it("a memory read that rejects or hangs counts as no memory", async () => {
+    h.isEnabled.mockResolvedValue(true)
+    h.remembered.mockRejectedValue(new Error("boom"))
+    expect((await shopCodePrompt(SID, ME)).message).toBe(BASE)
+    vi.useFakeTimers()
+    try {
+      h.remembered.mockReturnValue(new Promise(() => {}))
+      const p = shopCodePrompt(SID, ME)
+      await vi.advanceTimersByTimeAsync(1600)
+      expect((await p).message).toBe(BASE)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("1 opens the remembered shop with the same networks + whitelist logic, and remembers it", async () => {
+    h.resolveById.mockResolvedValue(active)
+    h.state.data = { value: { enabled: true } } // whitelist on, no completed purchase => blocked
+    const r = await handleEnterShopCode("1", SID, ME, withMemory())
+    expect(h.resolveById).toHaveBeenCalledWith(expect.anything(), "code-1")
+    expect(r.message).toBe("Ama\nWhat to buy?\n1. Airtime\n2. Results Checker\n0. Exit")
+    expect(h.setSession).toHaveBeenLastCalledWith(SID, expect.objectContaining({
+      step: "SELECT_PRODUCT", shopCodeId: "code-1", shopName: "Ama", dataBlocked: true,
+    }))
+    expect(h.remember).toHaveBeenCalledWith(expect.anything(), ME, "code-1", "ussd_uzo")
+  })
+
+  it("1 for a shop that closed since it was offered: unavailable, no 1. line, memory cleared", async () => {
+    h.resolveById.mockResolvedValue({ ...active, status: "inactive" })
+    const r = await handleEnterShopCode("1", SID, ME, withMemory())
+    expect(r).toEqual({ message: "That shop is unavailable.\n\nEnter shop code:\n\n0. Exit", ussdServiceOp: 2 })
+    expect(h.setSession).toHaveBeenLastCalledWith(SID, { step: "ENTER_SHOP_CODE", dialingPhone: ME })
+    expect(h.remember).not.toHaveBeenCalled()
+    h.resolveById.mockRejectedValue(new Error("boom"))
+    expect((await handleEnterShopCode("1", SID, ME, withMemory())).message).toBe("That shop is unavailable.\n\nEnter shop code:\n\n0. Exit")
+  })
+
+  it("1 with no remembered shop in the session behaves exactly as today (invalid code)", async () => {
+    const r = await handleEnterShopCode("1", SID, ME, { step: "ENTER_SHOP_CODE", dialingPhone: ME })
+    expect(r).toEqual({ message: "Invalid code. Try again.\n\nEnter shop code:\n\n0. Exit", ussdServiceOp: 2 })
+    expect(h.resolveById).not.toHaveBeenCalled()
+  })
+
+  it("a wrong code keeps the line and the remembered fields", async () => {
+    const r = await handleEnterShopCode("9999", SID, ME, withMemory())
+    expect(r.message).toBe("Invalid code. Try again.\n\nEnter shop code:\n\n1. Ama (last used)\n0. Exit")
+    expect(h.setSession).toHaveBeenLastCalledWith(SID, {
+      step: "ENTER_SHOP_CODE", dialingPhone: ME, rememberedShopCodeId: "code-1", rememberedShopName: "Ama",
+    })
+  })
+
+  it("a valid typed code is remembered with ussd_uzo (writes are ungated, like Hubtel, so memory builds while the switch is dark)", async () => {
+    await handleEnterShopCode("1234", SID, ME)
+    expect(h.remember).toHaveBeenCalledWith(expect.anything(), ME, "code-1", "ussd_uzo")
+  })
+
+  it("a failed remember does no harm: same reply", async () => {
+    h.remember.mockRejectedValue(new Error("db down"))
+    expect(await handleEnterShopCode("1234", SID, ME)).toEqual({ message: LEGACY, ussdServiceOp: 2 })
   })
 })

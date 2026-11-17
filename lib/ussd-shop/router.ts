@@ -1,8 +1,8 @@
 import { createClient } from "@supabase/supabase-js"
 import { UzoRequest, UzoResponse } from "./types"
 import { getSession, setSession, deleteSession, isRedisConfigured } from "./session"
-import { cont, end, enterShopCodeMenu, otpMenu } from "./menus"
-import { handleEnterShopCode, handleSelectProduct } from "./handlers/shop"
+import { cont, end, otpMenu } from "./menus"
+import { handleEnterShopCode, handleSelectProduct, shopCodePrompt } from "./handlers/shop"
 import { handleSelectNetwork, handleSelectBundle, handleEnterRecipient, handleConfirm, handleSubmitOtp } from "./handlers/bundles"
 import { handleShopAirtimeEnterRecipient, handleShopAirtimeSelectNetwork, handleShopAirtimeEnterAmount, handleShopAirtimeConfirm } from "./handlers/airtime"
 import { handleShopRcSelectBoard, handleShopRcEnterQty, handleShopRcConfirm } from "./handlers/results-checker"
@@ -67,8 +67,7 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
       return cont(otpMenu())
     }
 
-    await setSession(sessionID, { step: 'ENTER_SHOP_CODE', dialingPhone: msisdn })
-    return cont(enterShopCodeMenu())
+    return shopCodePrompt(sessionID, msisdn)
   }
 
   const session = await getSession(sessionID)
@@ -81,15 +80,14 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
       "[USSD-SHOP-SESSION] No session found for", sessionID,
       "op:", ussdServiceOp, "redisConfigured:", isRedisConfigured()
     )
-    await setSession(sessionID, { step: 'ENTER_SHOP_CODE', dialingPhone: msisdn })
-    return cont('Time limit exceeded.\n\n' + enterShopCodeMenu())
+    return shopCodePrompt(sessionID, msisdn, 'Time limit exceeded.\n\n')
   }
 
   const input = ussdString ?? ''
 
   switch (session.step) {
     case 'ENTER_SHOP_CODE':
-      return handleEnterShopCode(input, sessionID, session.dialingPhone ?? msisdn)
+      return handleEnterShopCode(input, sessionID, session.dialingPhone ?? msisdn, session)
 
     case 'SELECT_PRODUCT':
       return handleSelectProduct(input, sessionID, session, msisdn)
@@ -169,7 +167,6 @@ export async function shopRouter(req: UzoRequest): Promise<UzoResponse> {
       )
 
     default:
-      await setSession(sessionID, { step: 'ENTER_SHOP_CODE', dialingPhone: msisdn })
-      return cont(enterShopCodeMenu())
+      return shopCodePrompt(sessionID, msisdn)
   }
 }
