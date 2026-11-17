@@ -56,6 +56,8 @@ export default function AdminSettingsPage() {
   // USSD data whitelist
   const [ussdDataWhitelistEnabled, setUssdDataWhitelistEnabled] = useState(false)
   const [savingUssdWhitelist, setSavingUssdWhitelist] = useState(false)
+  const [ussdShopMemoryEnabled, setUssdShopMemoryEnabled] = useState(false)
+  const [savingUssdShopMemory, setSavingUssdShopMemory] = useState(false)
   const [whitelistNumbers, setWhitelistNumbers] = useState<string[]>([])
   const [whitelistInput, setWhitelistInput] = useState("")
   const [uploadingWhitelist, setUploadingWhitelist] = useState(false)
@@ -302,6 +304,15 @@ export default function AdminSettingsPage() {
           if (typeof wlData.enabled === "boolean") setUssdDataWhitelistEnabled(wlData.enabled)
         }
 
+        // Load USSD shop memory state
+        const shopMemoryResponse = await fetch("/api/admin/settings/ussd-shop-memory", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        })
+        if (shopMemoryResponse.ok) {
+          const smData = await shopMemoryResponse.json()
+          if (typeof smData.enabled === "boolean") setUssdShopMemoryEnabled(smData.enabled)
+        }
+
         // Load manually whitelisted numbers
         const wlNumResponse = await fetch("/api/admin/settings/ussd-whitelist/numbers", {
           headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
@@ -489,6 +500,26 @@ export default function AdminSettingsPage() {
       toast.error("Failed to update USSD whitelist setting")
     } finally {
       setSavingUssdWhitelist(false)
+    }
+  }
+
+  const handleUssdShopMemoryToggle = async (enabled: boolean) => {
+    setSavingUssdShopMemory(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) { toast.error("Authentication required"); return }
+      const response = await fetch("/api/admin/settings/ussd-shop-memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!response.ok) throw new Error("Failed to update")
+      setUssdShopMemoryEnabled(enabled)
+      toast.success(`USSD shop memory ${enabled ? "enabled — returning callers see their last shop as option 1" : "disabled — callers type the shop code"}`)
+    } catch {
+      toast.error("Failed to update USSD shop memory setting")
+    } finally {
+      setSavingUssdShopMemory(false)
     }
   }
 
@@ -1098,6 +1129,37 @@ export default function AdminSettingsPage() {
                   ))}
                 </div>
               )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* USSD shop memory */}
+        <Card className="mb-6 border-border bg-success/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-success">
+              <Power className="w-5 h-5" />
+              USSD shop memory
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">Remember the last shop</p>
+                <p className="text-xs text-muted-foreground">
+                  Callers who bought before press 1 for their last shop instead of typing the code.
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {ussdShopMemoryEnabled ? "Active — remembered shop is offered as option 1" : "Off — callers always type the shop code"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {savingUssdShopMemory && <Loader2 className="w-4 h-4 animate-spin text-success" />}
+                <Switch
+                  checked={ussdShopMemoryEnabled}
+                  onCheckedChange={handleUssdShopMemoryToggle}
+                  disabled={savingUssdShopMemory}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
