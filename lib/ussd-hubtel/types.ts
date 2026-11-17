@@ -67,6 +67,8 @@ export interface HubtelSession {
   shopHelpline?: string // shop owner's number (local 0XXXXXXXXX), shown under the name on the product menu
   shopNetworks?: string[] // packages.network values the shop sells, in menu order
   shopCodeAttempts?: number // wrong / invalid / inactive codes entered in this session (capped)
+  rememberedShopCodeId?: string // shop memory: the "1. <name> (last used)" shortcut on the code screen (cleared if it stops resolving)
+  rememberedShopName?: string // display name for that shortcut line
   dataBlocked?: boolean
   network?: string // packages.network value: MTN | Telecel | AT-iShare | AT-BigTime
   effectivePriceTier?: string // regular | dealer | sub_agent

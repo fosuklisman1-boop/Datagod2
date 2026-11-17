@@ -4,6 +4,7 @@ import { MenuItemDef, ResolvedMenuItem, renderMenuText, resolveMenuItems } from 
 import type { BundleOption } from "@/lib/ussd/types"
 import { BOT_MENUS_HIDDEN, DEFAULT_BRAND, DEFAULT_WELCOME, type BotMenuGate } from "./config"
 import { USSD_SCREEN_LIMIT } from "./protocol"
+import { shortShopName } from "@/lib/shop-commerce/customer-prefs"
 
 /** Commission Cashback bot menus: shown only when the admin visibility flag AND the cashback bots gate are on. */
 export type BotMenuKey = "networkPlans" | "payBills"
@@ -193,12 +194,19 @@ export function shopHeader(shopName: string): string {
 }
 
 /** `welcome` is config.welcome; later shop screens show the shop's own name instead. */
-export function shopCodePromptText(welcome: string): string {
-  return `${welcomeLine(welcome)}\nEnter shop code:\n0. Exit`
+export { shortShopName }
+
+/** "1. <name> (last used)" just before Exit, only when a remembered shop is offered. */
+function rememberedLine(remembered?: string): string {
+  return remembered ? `1. ${shortShopName(remembered)} (last used)\n` : ""
 }
 
-export function shopCodeRetryText(reason: string): string {
-  return `${reason}\nEnter shop code:\n0. Exit`
+export function shopCodePromptText(welcome: string, remembered?: string): string {
+  return `${welcomeLine(welcome)}\nEnter shop code:\n${rememberedLine(remembered)}0. Exit`
+}
+
+export function shopCodeRetryText(reason: string, remembered?: string): string {
+  return `${reason}\nEnter shop code:\n${rememberedLine(remembered)}0. Exit`
 }
 
 /**

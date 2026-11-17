@@ -11,6 +11,9 @@ import { calculateRCPrice } from "@/lib/results-checker-service"
 import { fetchShopBundles, shopOwnerIsDealer, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
 import { fetchShopNetworks, getCanonicalShopName, resolveShopCode, type ResolvedShopCode } from "@/lib/shop-commerce/shop-code"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
+import {
+  isShopMemoryEnabled, rememberCustomerShop, rememberedShopForUssd, resolveShopCodeById, type RememberedShop,
+} from "@/lib/shop-commerce/customer-prefs"
 
 export type { ResolvedShopCode }
 
@@ -23,6 +26,12 @@ export interface ShopAirtimeRates {
 
 export interface ShopServices {
   resolveCode(code: string): Promise<ResolvedShopCode | null>
+  /** The shop to offer as "1. <name> (last used)" for this phone; null when the memory switch is off or nothing usable. Never throws. */
+  remembered(phone: string): Promise<RememberedShop | null>
+  /** Best-effort write of the phone's last shop. May reject: callers must not let that change a reply. */
+  remember(phone: string, shopCodeId: string): Promise<void>
+  /** The shop for a remembered code id, or null when it no longer resolves. */
+  resolveById(shopCodeId: string): Promise<ResolvedShopCode | null>
   /** Distinct packages.network values the shop's data catalog offers (unsorted). */
   networks(shopId: string, parentShopId?: string): Promise<string[]>
   /** Every bundle of `network` at the shop's price, smallest first. */
@@ -74,6 +83,9 @@ async function shopOrderContext(supabase: SupabaseClient, shopId: string, dialin
 export function defaultShopServices(supabase: SupabaseClient): ShopServices {
   return {
     resolveCode: code => resolveShopCode(code),
+    remembered: async phone => ((await isShopMemoryEnabled(supabase)) ? rememberedShopForUssd(supabase, phone, "ussd_hubtel") : null),
+    remember: (phone, shopCodeId) => rememberCustomerShop(supabase, phone, shopCodeId, "ussd_hubtel"),
+    resolveById: shopCodeId => resolveShopCodeById(supabase, shopCodeId),
     networks: (shopId, parentShopId) => fetchShopNetworks(shopId, parentShopId ?? null),
     bundles: (shopId, network, parentShopId) => fetchShopBundles(shopId, network, parentShopId),
     verifyBundlePrice: (shopId, bundleId, parentShopId) => verifyBundlePrice(shopId, bundleId, parentShopId),

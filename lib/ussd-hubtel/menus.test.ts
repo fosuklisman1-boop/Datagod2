@@ -4,7 +4,19 @@ import { resolveMainMenu, mainMenuText, networkMenuText, bundleMenuText, confirm
   resolveShopMenu, shopHeader, shopCodePromptText, shopCodeRetryText, shopMenuText, shopNetworkLabel, sortShopNetworks, shopNetworkMenuText,
 } from "./menus"
 import { DEFAULT_BRAND, DEFAULT_WELCOME } from "./config"
-import { mainExitText } from "./menus"
+import { mainExitText, shortShopName } from "./menus"
+
+describe("shop code screens: remembered shop line", () => {
+  it("shortShopName cuts at 20", () => {
+    expect(shortShopName("  Kofi Data Hub Extra Long Name  ")).toBe("Kofi Data Hub Extra ")
+    expect(shortShopName("KofiData")).toBe("KofiData")
+  })
+  it("adds '1. <name> (last used)' just before Exit, on both screens", () => {
+    expect(shopCodePromptText("Welcome", "KofiData")).toBe("Welcome\nEnter shop code:\n1. KofiData (last used)\n0. Exit")
+    expect(shopCodeRetryText("Invalid code. Try again.", "KofiData")).toBe("Invalid code. Try again.\nEnter shop code:\n1. KofiData (last used)\n0. Exit")
+    expect(shopCodePromptText("Welcome")).toBe("Welcome\nEnter shop code:\n0. Exit")
+  })
+})
 
 const allOn = { data: true, afa: true, airtime: true, resultsChecker: true }
 

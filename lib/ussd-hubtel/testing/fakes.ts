@@ -297,6 +297,10 @@ export const SHOP_CODE: ResolvedShopCode = {
 export function fakeShop(over: Partial<ShopServices> = {}): ShopServices {
   return {
     resolveCode: async code => (code === "1234" ? { ...SHOP_CODE } : null),
+    // Shop memory: nothing remembered by default, so every existing screen stays byte-identical.
+    remembered: async () => null,
+    remember: async () => {},
+    resolveById: async id => (id === SHOP_CODE.shopCodeId ? { ...SHOP_CODE } : null),
     networks: async () => ["MTN", "Telecel"],
     bundles: async () => [{ id: "pkg-1", size: "5", price: 12 }],
     verifyBundlePrice: async () => ({ verifiedPrice: 12, profitAmount: 2, parentProfitAmount: 0 }),

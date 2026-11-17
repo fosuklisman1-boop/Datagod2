@@ -9,6 +9,7 @@ import {
 import { release, respond, toE164 } from "../protocol"
 import { safeDbError } from "../log-safe"
 import { finish, goto, say, type FlowCtx, type RouterDeps, type StepTable } from "../flow-kit"
+import type { ResolvedShopCode } from "../shop-services"
 import type { HubtelReply, HubtelRequest, HubtelSession } from "../types"
 
 const CODE = { label: "Shop code", fieldType: "text" as const }
@@ -54,10 +55,11 @@ export async function startShopSession(
     await deps.sessions.del(req.SessionId)
     return release(req.SessionId, "No services available right now. Please try again later.", { platform: req.Platform })
   }
+  const memory = await rememberedOffer(deps, req.Mobile)
   await deps.sessions.set(req.SessionId, {
-    mode: "shop", step: "SHOP_ENTER_CODE", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked,
+    mode: "shop", step: "SHOP_ENTER_CODE", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked, ...memory,
   })
-  return respond(req.SessionId, prefix + shopCodePromptText(config.welcome), {
+  return respond(req.SessionId, prefix + shopCodePromptText(config.welcome, memory.rememberedShopName), {
     label: CODE.label, fieldType: CODE.fieldType, clientState: "SHOP_ENTER_CODE", platform: req.Platform,
   })
 }
@@ -77,9 +79,36 @@ export async function recoverShopCodeEntry(
   if (shopMenuFor(config, dataBlocked).length === 0) return null
   const session: HubtelSession = {
     mode: "shop", step: "SHOP_ENTER_CODE", dialingPhone: toE164(req.Mobile), platform: req.Platform, dataBlocked,
+    ...(await rememberedOffer(deps, req.Mobile)),
   }
   await deps.sessions.set(req.SessionId, session)
   return enterCode({ input: req.Message.trim(), req, deps, config, session })
+}
+
+/** The remembered shop to offer as "1." on the code screen, as session fields. Empty when none (never throws). */
+async function rememberedOffer(
+  deps: RouterDeps, mobile: string
+): Promise<{ rememberedShopCodeId?: string; rememberedShopName?: string }> {
+  try {
+    const r = await deps.shop.remembered(mobile)
+    return r ? { rememberedShopCodeId: r.shopCodeId, rememberedShopName: r.shopName } : {}
+  } catch (e) {
+    console.error("[HUBTEL-SHOP] remembered shop lookup failed", safeDbError(e))
+    return {}
+  }
+}
+
+/** Best-effort pref write: after the reply when the route gave us defer, else awaited. Never changes the reply. */
+async function rememberShop(ctx: FlowCtx, shopCodeId: string): Promise<void> {
+  const task = async () => {
+    try {
+      await ctx.deps.shop.remember(ctx.req.Mobile, shopCodeId)
+    } catch (e) {
+      console.error("[HUBTEL-SHOP] could not remember shop", shopCodeId, safeDbError(e))
+    }
+  }
+  if (ctx.deps.defer) ctx.deps.defer(task)
+  else await task()
 }
 
 async function enterCode(ctx: FlowCtx): Promise<HubtelReply> {
@@ -89,12 +118,33 @@ async function enterCode(ctx: FlowCtx): Promise<HubtelReply> {
   const wrongCode = async (): Promise<HubtelReply> => {
     const attempts = (ctx.session.shopCodeAttempts ?? 0) + 1
     if (attempts >= MAX_CODE_ATTEMPTS) return finish(ctx, TOO_MANY)
-    return goto(ctx, { step: "SHOP_ENTER_CODE", shopCodeAttempts: attempts }, shopCodeRetryText(INVALID), CODE)
+    return goto(ctx, { step: "SHOP_ENTER_CODE", shopCodeAttempts: attempts }, shopCodeRetryText(INVALID, ctx.session.rememberedShopName), CODE)
   }
+
+  // "1" opens the remembered shop. Not a guess, so it never counts toward the attempt cap.
+  if (input === "1" && ctx.session.rememberedShopCodeId) {
+    const shop = await deps.shop.resolveById(ctx.session.rememberedShopCodeId).catch((e: unknown) => {
+      console.error("[HUBTEL-SHOP] remembered shop lookup failed", safeDbError(e))
+      return null
+    })
+    if (!shop || shop.status !== "active") {
+      return goto(ctx, { step: "SHOP_ENTER_CODE", rememberedShopCodeId: undefined, rememberedShopName: undefined },
+        shopCodeRetryText("That shop is unavailable."), CODE)
+    }
+    return enterShop(ctx, shop)
+  }
+
   if (!SHOP_CODE_RE.test(input)) return wrongCode()
 
   const shop = await deps.shop.resolveCode(input)
   if (!shop || shop.status !== "active") return wrongCode()
+  return enterShop(ctx, shop)
+}
+
+/** An accepted shop (typed code or the remembered shortcut): remember it, load its networks, show its product menu. */
+async function enterShop(ctx: FlowCtx, shop: ResolvedShopCode): Promise<HubtelReply> {
+  const { deps } = ctx
+  await rememberShop(ctx, shop.shopCodeId)
 
   // A shop may sell only airtime / vouchers: an empty network list does not block entry (Uzo).
   // A lookup failure must not fail the request: continue with no networks (the data flow then
@@ -107,6 +157,8 @@ async function enterCode(ctx: FlowCtx): Promise<HubtelReply> {
   return goto(ctx, {
     step: "SHOP_PRODUCT",
     shopCodeAttempts: undefined,
+    rememberedShopCodeId: undefined,
+    rememberedShopName: undefined,
     shopCodeId: shop.shopCodeId,
     shopId: shop.shopId,
     parentShopId: shop.parentShopId ?? undefined,
