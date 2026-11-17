@@ -53,10 +53,29 @@ describe("classifyOrderReply", () => {
   })
   it("5xx JSON needs a recognised rejection; cURL/SQLSTATE/exception text is unknown", () => {
     expect(classifyOrderReply(500, JSON.stringify({ success: false, message: "cURL error 28: timed out" })).kind).toBe("unknown")
-    expect(classifyOrderReply(500, JSON.stringify({ success: false, message: "SQLSTATE[23000]: duplicate entry x" })).kind).toBe("json")
+    expect(classifyOrderReply(500, JSON.stringify({ success: false, message: "SQLSTATE[23000]: duplicate entry x" })).kind).toBe("unknown")
     expect(classifyOrderReply(500, JSON.stringify({ error: "Uncaught Exception in foo.php" })).kind).toBe("unknown")
     expect(classifyOrderReply(503, JSON.stringify({ success: false, message: "Out of stock" })).kind).toBe("json")
     expect(classifyOrderReply(500, JSON.stringify({ success: false, message: "Phone number does not match network" })).kind).toBe("json")
+  })
+})
+
+describe("5xx rejections must match whole phrases", () => {
+  const k = (msg: string) => classifyOrderReply(500, JSON.stringify({ success: false, message: msg })).kind
+  it("post-acceptance errors that merely contain a keyword stay unknown", () => {
+    expect(k("Invalid response from upstream")).toBe("unknown")
+    expect(k("Invalid response from MTN gateway")).toBe("unknown")
+    expect(k("Failed to update wallet balance")).toBe("unknown")
+    expect(k("Resource not found in cache")).toBe("unknown")
+    expect(k("Request blocked by proxy")).toBe("unknown")
+  })
+  it("real rejections are ordinary", () => {
+    expect(k("Insufficient wallet balance")).toBe("json")
+    expect(k("Invalid phone number")).toBe("json")
+    expect(k("0551234567 is not approved for MTN purchases")).toBe("json")
+    expect(k("Duplicate reference")).toBe("json")
+    expect(k("Package out of stock")).toBe("json")
+    expect(k("Network service is disabled")).toBe("json")
   })
 })
 

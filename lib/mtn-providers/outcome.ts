@@ -73,8 +73,19 @@ function parseLenient(text: string): any | undefined {
  * an ordinary failure. Anything else (cURL/SQLSTATE/exception text, generic
  * server errors) may be a crash after the order was created, so it is unknown.
  */
-const RECOGNISED_REJECTION =
-  /insufficient|balance|not approved|not registered|invalid|validation|duplicate|does not match|not enabled|out of stock|disabled|not found|unsupported|not eligible|blacklist|whitelist|blocked/i
+// Whole phrases only: single words like "invalid"/"balance"/"blocked" also appear in
+// post-acceptance errors ("Invalid response from gateway", "Failed to update wallet balance").
+const RECOGNISED_REJECTION_PATTERNS: RegExp[] = [
+  /insufficient (wallet |account |available )?(balance|funds)/i,
+  /invalid (phone|number|recipient|msisdn|network|package|bundle|size|amount)/i,
+  /not (approved|registered|enabled|eligible)/i,
+  /duplicate (order|reference|transaction)/i,
+  /out of stock/i,
+  /does not match/i,
+  /(service|product|network|package) (is )?(disabled|unavailable)/i,
+  /validation (failed|error)/i,
+]
+const RECOGNISED_REJECTION = { test: (m: string) => RECOGNISED_REJECTION_PATTERNS.some((p) => p.test(m)) }
 
 function isExplicitRejection(json: any): boolean {
   if (!json || typeof json !== "object") return false
