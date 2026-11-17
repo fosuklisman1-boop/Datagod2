@@ -26,6 +26,8 @@ vi.mock("@/lib/airtime-pricing", () => ({
 vi.mock("@/lib/ussd/resolve-dialer", () => ({ resolveDialer: h.dialer }))
 vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn(async () => ({ enabled: true, map: h.map })) }))
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({ isRecipientBlocked: h.blocked }))
+const noticeSettings = vi.hoisted(() => ({ s: { enabled: false, customer_sms_enabled: false } as { enabled: boolean; customer_sms_enabled: boolean } }))
+vi.mock("@/lib/blocked-numbers/settings", () => ({ getBlockedNumbersSettings: async () => noticeSettings.s }))
 vi.mock("@/lib/ussd-service-visibility", () => ({ getUssdServiceVisibility: h.visibility }))
 vi.mock("@/lib/ussd/handlers/airtime", () => ({ confirmAirtimeByText: vi.fn() }))
 
@@ -122,11 +124,22 @@ describe("resolve: recipient and network", () => {
     expect(res).toMatchObject({ ok: false, refusal: { outcome: "asked", reply: "That phone number is not valid. Text e.g. airtime 10 0241234567." } })
   })
 
-  it("an MTN number the verification gate blocks is refused like a wrong number", async () => {
+  it("an MTN number the verification gate blocks is refused with the not-ready notice (blocked-numbers off)", async () => {
     h.blocked.mockResolvedValue(true)
     const res = await resolve(read({ recipient: "0241234567" }))
-    expect(res).toMatchObject({ ok: false, refusal: { outcome: "asked", reply: "That phone number is not valid. Text e.g. airtime 10 0241234567." } })
+    expect(res).toMatchObject({ ok: false, refusal: { outcome: "asked", reply: "That MTN number is not ready for data yet. Try a different number.", remember: true } })
     expect(h.blocked).toHaveBeenCalledWith("MTN", "0241234567", expect.objectContaining({ surface: "text_to_buy_airtime", purchaserPhone: "0200000101", shopId: null }))
+  })
+
+  it("a blocked MTN number says it was saved when blocked-numbers is on", async () => {
+    h.blocked.mockResolvedValue(true)
+    noticeSettings.s = { enabled: true, customer_sms_enabled: true }
+    try {
+      const res = await resolve(read({ recipient: "0241234567" }))
+      expect(res).toMatchObject({ ok: false, refusal: { reply: "That MTN number is not ready for data yet. We saved it and will text you when it's ready." } })
+    } finally {
+      noticeSettings.s = { enabled: false, customer_sms_enabled: false }
+    }
   })
 
   it("the verification gate is not consulted for other networks", async () => {

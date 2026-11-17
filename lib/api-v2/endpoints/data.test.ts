@@ -399,6 +399,21 @@ describe("purchase (live) money path", () => {
     expectNoMoney(d)
   })
 
+  it("blockedNotice present -> the 409 keeps the code prefix and says it was saved; absent/throwing -> legacy text", async () => {
+    const notice = "This MTN number isn't ready for data yet, so it can't be ordered now. We've saved it to Blocked Numbers on your dashboard and will notify you when it's ready."
+    const withNotice = async (blockedNotice?: () => Promise<string | null>) => {
+      const d = makeDeps()
+      d.verifyMtn.mockResolvedValue(new Map([["0249990417", false]]))
+      return purchaseHandler({ ...d, ...(blockedNotice ? { blockedNotice } : {}) } as never)(body({ recipient: "233249990417" }), LIVE)
+    }
+    const saved = await withNotice(async () => notice)
+    expect(saved.status).toBe(409)
+    expect(saved.error?.message).toBe(`RECIPIENT_NOT_REGISTERED: ${notice} Nothing was charged.`)
+    expect((await withNotice(async () => null)).error?.message).toBe("RECIPIENT_NOT_REGISTERED: recipient is not registered for MTN data; nothing was charged")
+    expect((await withNotice(async () => { throw new Error("x") })).error?.message).toBe("RECIPIENT_NOT_REGISTERED: recipient is not registered for MTN data; nothing was charged")
+    expect((await withNotice()).error?.message).toBe("RECIPIENT_NOT_REGISTERED: recipient is not registered for MTN data; nothing was charged")
+  })
+
   it("NOT registered but the admin blocking toggle is off -> placed (201), toggle asked once", async () => {
     const d = makeDeps()
     d.verifyMtn.mockResolvedValue(new Map([["0249990417", false]]))

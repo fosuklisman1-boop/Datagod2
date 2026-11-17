@@ -30,7 +30,8 @@ import {
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { isRecipientBlocked, RECIPIENT_BLOCKED_PROMPT } from "@/lib/mtn-providers/customer-verification"
+import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
+import { getNoticeMode, botPrompt } from "@/lib/blocked-numbers/notice"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import {
   detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits,
@@ -791,7 +792,7 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
           product: `${session.network ?? ''} ${session.bundleSize ?? ''}`.trim() || null,
           amount: session.bundlePrice ?? null,
         })) {
-          reply = RECIPIENT_BLOCKED_PROMPT
+          reply = botPrompt(await getNoticeMode())
           break
         }
 

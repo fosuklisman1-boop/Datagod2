@@ -14,6 +14,13 @@ vi.mock("@/lib/mtn-providers/customer-verification", () => ({
   })),
 }))
 
+const mode = vi.hoisted(() => ({ m: "off" as "off" | "saved" | "saved_sms" }))
+vi.mock("@/lib/blocked-numbers/notice", () => ({
+  getNoticeMode: async () => mode.m,
+  webCustomerNotice: (m: string) => `web:${m}`,
+  dealerNotice: (m: string) => `dealer:${m}`,
+}))
+
 const maybeSingle = vi.fn()
 const getUser = vi.fn()
 const afterMock = vi.fn((cb: () => unknown) => { cb() })
@@ -57,6 +64,35 @@ describe("POST /api/verify-phone-live", () => {
       { phone: "0559999999", verified: false },
     ])
     expect(body.blocking).toBe(true)
+  })
+
+  describe("notice", () => {
+    const blockedPhone = ["0559999999"]
+    beforeEach(() => { mode.m = "saved_sms" })
+    it("storefront preview gets the customer notice when blocking and a number is unverified", async () => {
+      const body = await (await POST(makeRequest({ phones: blockedPhone, surface: "storefront_preview" }))).json()
+      expect(body.notice).toBe("web:saved_sms")
+      expect(body.blocking).toBe(true)
+    })
+    it("dashboard and bulk previews get the dealer notice", async () => {
+      for (const surface of ["dashboard_preview", "dashboard_bulk_preview"]) {
+        const body = await (await POST(makeRequest({ phones: blockedPhone, surface }))).json()
+        expect(body.notice).toBe("dealer:saved_sms")
+      }
+    })
+    it("no surface or another surface gives null", async () => {
+      expect((await (await POST(makeRequest({ phones: blockedPhone }))).json()).notice).toBeNull()
+      expect((await (await POST(makeRequest({ phones: blockedPhone, surface: "other" }))).json()).notice).toBeNull()
+    })
+    it("null when every number is verified", async () => {
+      const body = await (await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview" }))).json()
+      expect(body.notice).toBeNull()
+    })
+    it("off mode still returns the legacy text via the builder", async () => {
+      mode.m = "off"
+      const body = await (await POST(makeRequest({ phones: blockedPhone, surface: "storefront_preview" }))).json()
+      expect(body.notice).toBe("web:off")
+    })
   })
 
   it("reports an unchecked number (outage/timeout) as verified so it is never blocked", async () => {

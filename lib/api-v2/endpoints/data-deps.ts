@@ -80,6 +80,11 @@ export function realDataDeps(): DataDeps {
       const cv = await import("@/lib/mtn-providers/customer-verification")
       return cv.isBlockingOn(await cv.getCustomerVerificationSettings())
     },
+    blockedNotice: async () => {
+      const n = await import("@/lib/blocked-numbers/notice")
+      const mode = await n.getNoticeMode()
+      return mode === "off" ? null : n.dealerNotice(mode)
+    },
     phoneGate: (userId) => realPhoneGate(client, userId),
     customPrices: (userId) => getCustomPrices(client, userId),
     sandbox: {

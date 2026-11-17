@@ -21,7 +21,8 @@ import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import { getJoinCommunityLink } from "../../app-settings"
 import { validateNetworkPrefix } from "../../phone-format"
 import { getPrefixValidationConfig } from "../../network-prefix-config"
-import { isRecipientBlocked, RECIPIENT_BLOCKED_PROMPT } from "@/lib/mtn-providers/customer-verification"
+import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
+import { getNoticeMode, botPrompt } from "@/lib/blocked-numbers/notice"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 
 const supabase = createClient(
@@ -251,7 +252,7 @@ export async function handleEnterRecipient(
     product: `${session.network ?? ''} ${session.bundleSize ?? ''}`.trim() || null,
     amount: session.bundlePrice ?? null,
   })) {
-    return cont(RECIPIENT_BLOCKED_PROMPT)
+    return cont(botPrompt(await getNoticeMode()))
   }
 
   await setSession(sessionId, { ...session, step: 'CONFIRM', recipientPhone: local })

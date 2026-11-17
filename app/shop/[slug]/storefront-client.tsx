@@ -195,6 +195,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
   const [verifyWarningOpen, setVerifyWarningOpen] = useState(false)
   // Admin "block unverified numbers" toggle: no "Proceed anyway", only "Change number".
   const [verifyBlocking, setVerifyBlocking] = useState(false)
+  const [verifyNotice, setVerifyNotice] = useState<string | null>(null)
   const [pendingNormalizedPhone, setPendingNormalizedPhone] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string>("")
   const [turnstileEnabled, setTurnstileEnabled] = useState<boolean>(true) // default true until status loads
@@ -964,6 +965,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
             setSubmitting(false)
             setPendingNormalizedPhone(normalizedPhone)
             setVerifyBlocking(verifyData.blocking === true)
+            setVerifyNotice(typeof verifyData.notice === "string" && verifyData.notice ? verifyData.notice : null)
             setVerifyWarningOpen(true)
             return
           }
@@ -2071,7 +2073,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
                     <h3 className="text-lg font-bold text-foreground">{verifyBlocking ? "Number can't be used" : "Number not yet verified"}</h3>
                     <p className="text-sm text-muted-foreground">
                       {verifyBlocking
-                        ? "This MTN number is not verified for data and can't be ordered. Please use a different number."
+                        ? (verifyNotice ?? "This MTN number is not verified for data and can't be ordered. Please use a different number.")
                         : <>This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until the number is confirmed — you&apos;ll receive your data automatically once that happens.</>}
                     </p>
                     <div className="flex justify-end gap-2">

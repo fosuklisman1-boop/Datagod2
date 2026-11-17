@@ -181,10 +181,10 @@ describe("resolveOffer: hints and recipients", () => {
     expect(r.ok && r.offer.recipientLocal).toBe(TELECEL_R)
   })
 
-  it("a blocked MTN recipient -> bad_recipient, checked with the MTN network and the recipient", async () => {
+  it("a blocked MTN recipient -> unverified_recipient (not bad_recipient), checked with the MTN network and the recipient", async () => {
     h.blocked.mockResolvedValue(true)
     const r = await resolveOffer(h.client, { senderLocal: SENDER, sizeMb: 5000, networkHint: null, recipient: MTN_R })
-    expect(r).toEqual({ ok: false, reason: "bad_recipient" })
+    expect(r).toEqual({ ok: false, reason: "unverified_recipient" })
     expect(h.blocked).toHaveBeenCalledWith("MTN", MTN_R, expect.objectContaining({ surface: "text_to_buy", purchaserPhone: SENDER, shopId: null }))
   })
 

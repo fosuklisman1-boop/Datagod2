@@ -6,7 +6,7 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { recipientPromptText, whoForText } from "./menus"
 import { toLocalPhone } from "./protocol"
 import { goto, say, type FlowCtx } from "./flow-kit"
-import { RECIPIENT_BLOCKED_NOTE } from "./confirm-note"
+import { getNoticeMode, hubtelNote } from "@/lib/blocked-numbers/notice"
 import type { HubtelReply, HubtelStep } from "./types"
 
 const WHO_FOR = { label: "Who is this for" }
@@ -48,8 +48,8 @@ export async function recipientStep(ctx: FlowCtx, o: {
 }
 
 /** confirmNote() said the number is blocked: back to typing a number, with the reason on top. */
-export const blockedRecipientScreen = (ctx: FlowCtx, step: HubtelStep) =>
-  goto(ctx, { step, otherRecipient: true }, `${RECIPIENT_BLOCKED_NOTE}\n${recipientPromptText()}`, TYPE_NUMBER)
+export const blockedRecipientScreen = async (ctx: FlowCtx, step: HubtelStep) =>
+  goto(ctx, { step, otherRecipient: true }, `${hubtelNote(await getNoticeMode())}\n${recipientPromptText()}`, TYPE_NUMBER)
 
 /** What goes with goto() when entering the step. */
 export const enterRecipientStep = { patch: { otherRecipient: false }, field: WHO_FOR }

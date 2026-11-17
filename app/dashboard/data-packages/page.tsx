@@ -69,6 +69,7 @@ function DataPackagesPageInner() {
   const [verifyWarningOpen, setVerifyWarningOpen] = useState(false)
   // Admin "block unverified numbers" toggle: no "Proceed anyway", only "Change number".
   const [verifyBlocking, setVerifyBlocking] = useState(false)
+  const [verifyNotice, setVerifyNotice] = useState<string | null>(null)
   const [pendingPhoneNumber, setPendingPhoneNumber] = useState<string | null>(null)
   const [globalOrderingEnabled, setGlobalOrderingEnabled] = useState(true)
   // Whether the beneficiary gets an order-confirmation SMS -- this is real,
@@ -272,6 +273,7 @@ function DataPackagesPageInner() {
             setPurchaseModal(null)
             setPendingPhoneNumber(phoneNumber)
             setVerifyBlocking(verifyData.blocking === true)
+            setVerifyNotice(typeof verifyData.notice === "string" && verifyData.notice ? verifyData.notice : null)
             setVerifyWarningOpen(true)
             return
           }
@@ -702,7 +704,7 @@ function DataPackagesPageInner() {
               <DialogTitle>{verifyBlocking ? "Number can't be used" : "Number not yet verified"}</DialogTitle>
               <DialogDescription>
                 {verifyBlocking
-                  ? "This MTN number is not verified for data and can't be ordered. Please use a different number."
+                  ? (verifyNotice ?? "This MTN number is not verified for data and can't be ordered. Please use a different number.")
                   : <>This number hasn&apos;t been verified yet. If you proceed, your order will still be processed, but delivery may be delayed until it clears — you&apos;ll receive it automatically once verified.</>}
               </DialogDescription>
             </DialogHeader>

@@ -213,14 +213,15 @@ async function v1POST(request: NextRequest) {
   // synchronous, external-facing response path; outages never block.
   let verificationWarning = false
   if (sanitizedNetwork.trim().toLowerCase() === "mtn") {
-    const { verifyRecipientsForOrder, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } = await import("@/lib/mtn-providers/customer-verification")
+    const { verifyRecipientsForOrder, NOT_VERIFIED_CODE } = await import("@/lib/mtn-providers/customer-verification")
+    const { getNoticeMode, dealerNotice } = await import("@/lib/blocked-numbers/notice")
     const verifyPhone = normalizePhoneNumber(cleanRecipient)
     const verification = await verifyRecipientsForOrder([verifyPhone], {
       context: { surface: "api_v1", userId: user.id, product: `${sanitizedNetwork} ${volumeGb}GB` },
     })
     if (verification.blocked.length > 0) {
       return NextResponse.json(
-        { success: false, error: NOT_VERIFIED_MESSAGE, error_code: NOT_VERIFIED_CODE },
+        { success: false, error: dealerNotice(await getNoticeMode()), error_code: NOT_VERIFIED_CODE },
         { status: 409 }
       )
     }
