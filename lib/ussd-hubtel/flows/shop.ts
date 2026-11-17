@@ -20,7 +20,7 @@ const SHOP_CODE_RE = /^[A-Za-z0-9]{1,8}$/
 /** Longest the remembered-shop lookup may hold up the code screen. */
 const REMEMBERED_TIMEOUT_MS = 1500
 
-const INVALID ="Invalid code. Try again."
+const INVALID = "Invalid code. Try again."
 const TOO_MANY = "Too many attempts. Please try again later."
 /** Wrong codes allowed per Hubtel session; the third ends the session. */
 export const MAX_CODE_ATTEMPTS = 3

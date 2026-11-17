@@ -250,6 +250,23 @@ describe("remembered shop shortcut (Uzo shop code screen)", () => {
     expect(h.remembered).toHaveBeenCalledWith(expect.anything(), ME, "ussd_uzo")
   })
 
+  it("a hung switch read still returns the plain prompt within 1500ms", async () => {
+    h.isEnabled.mockReturnValue(new Promise(() => {}))
+    vi.useFakeTimers()
+    try {
+      let done = false
+      const p = shopCodePrompt(SID, ME).then(r => { done = true; return r })
+      await vi.advanceTimersByTimeAsync(1400)
+      expect(done).toBe(false)
+      await vi.advanceTimersByTimeAsync(200)
+      expect(done).toBe(true)
+      expect((await p).message).toBe(BASE)
+      expect(h.setSession).toHaveBeenCalledWith(SID, { step: "ENTER_SHOP_CODE", dialingPhone: ME })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("a memory read that rejects or hangs counts as no memory", async () => {
     h.isEnabled.mockResolvedValue(true)
     h.remembered.mockRejectedValue(new Error("boom"))

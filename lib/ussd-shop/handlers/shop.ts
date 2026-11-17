@@ -29,10 +29,10 @@ export async function shopCodePrompt(sessionId: string, dialingPhone: string, pr
   let remembered: { shopCodeId: string; shopName: string } | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    if (await isShopMemoryEnabled(supabase)) {
-      const timeout = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), REMEMBERED_TIMEOUT_MS) })
-      remembered = await Promise.race([rememberedShopForUssd(supabase, dialingPhone, 'ussd_uzo'), timeout])
-    }
+    // The switch read is inside the bound too: a slow Supabase must never delay the first screen.
+    const timeout = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), REMEMBERED_TIMEOUT_MS) })
+    const lookup = (async () => (await isShopMemoryEnabled(supabase)) ? rememberedShopForUssd(supabase, dialingPhone, 'ussd_uzo') : null)()
+    remembered = await Promise.race([lookup, timeout])
   } catch (e) {
     console.error('[USSD-SHOP] remembered shop lookup failed', e instanceof Error ? e.name : 'unknown')
     remembered = null
