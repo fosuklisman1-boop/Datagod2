@@ -88,10 +88,18 @@ describe("POST /api/verify-phone-live", () => {
       const body = await (await POST(makeRequest({ phones: ["0551111111"], surface: "storefront_preview" }))).json()
       expect(body.notice).toBeNull()
     })
-    it("off mode still returns the legacy text via the builder", async () => {
+    it("off mode returns null on every surface so clients keep their own text", async () => {
       mode.m = "off"
-      const body = await (await POST(makeRequest({ phones: blockedPhone, surface: "storefront_preview" }))).json()
-      expect(body.notice).toBe("web:off")
+      for (const surface of ["storefront_preview", "dashboard_preview", "dashboard_bulk_preview"]) {
+        const body = await (await POST(makeRequest({ phones: blockedPhone, surface }))).json()
+        expect(body.notice).toBeNull()
+      }
+    })
+    it("bulk preview gets null in off mode and the dealer notice in saved mode", async () => {
+      mode.m = "off"
+      expect((await (await POST(makeRequest({ phones: blockedPhone, surface: "dashboard_bulk_preview" }))).json()).notice).toBeNull()
+      mode.m = "saved"
+      expect((await (await POST(makeRequest({ phones: blockedPhone, surface: "dashboard_bulk_preview" }))).json()).notice).toBe("dealer:saved")
     })
   })
 

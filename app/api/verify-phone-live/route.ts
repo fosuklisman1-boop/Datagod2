@@ -64,6 +64,8 @@ async function blockedNotice(surface: unknown, blocking: boolean, results: { ver
   if (!blocking || !results.some(r => !r.verified)) return null
   try {
     const mode = await getNoticeMode()
+    // Off: clients keep their own unchanged text.
+    if (mode === "off") return null
     if (surface === "storefront_preview") return webCustomerNotice(mode)
     if (surface === "dashboard_preview" || surface === "dashboard_bulk_preview") return dealerNotice(mode)
     return null

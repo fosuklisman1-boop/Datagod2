@@ -12,6 +12,7 @@ import {
 import { NOT_VERIFIED_MESSAGE, RECIPIENT_BLOCKED_PROMPT } from "@/lib/mtn-providers/customer-verification"
 import { RECIPIENT_BLOCKED_NOTE } from "@/lib/ussd-hubtel/confirm-note"
 import { calculateSegments } from "@/lib/sms/segments"
+import { recipientPromptText } from "@/lib/ussd-hubtel/menus"
 
 const MODES: NoticeMode[] = ["off", "saved", "saved_sms"]
 const s = (enabled: boolean, sms: boolean) => ({ ...DEFAULT_BLOCKED_SETTINGS, enabled, customer_sms_enabled: sms })
@@ -69,6 +70,11 @@ describe("builders", () => {
     expect(aiToolNotice("off")).toBe(base)
     expect(aiToolNotice("saved_sms")).toBe(`${base} Tell the customer we've saved the number and will text them when it's ready.`)
     expect(aiToolNotice("saved")).toBe(`${base} Tell the customer we've saved the number and they can try again later.`)
+  })
+  it("the full Hubtel blocked screen (note + recipient prompt) fits 160 chars in every mode", () => {
+    for (const m of MODES) {
+      expect(`${hubtelNote(m)}\n${recipientPromptText()}`.length).toBeLessThanOrEqual(160)
+    }
   })
   it("screens fit 160 chars and TTB is one segment", () => {
     for (const m of MODES) {
