@@ -6,7 +6,7 @@
 
 import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
-import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse } from "./outcome"
+import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 
@@ -264,6 +264,7 @@ export class DataKazinaProvider implements MTNProvider {
      * Check order status from DataKazina API
      */
     async checkOrderStatus(transactionId: string | number): Promise<MTNOrderStatusResponse> {
+        if (isUnknownTrackingId(String(transactionId))) return unknownStatusResult()
         const traceId = generateTraceId()
         const startTime = Date.now()
 

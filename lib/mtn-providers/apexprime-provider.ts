@@ -1,6 +1,6 @@
 import crypto from "crypto"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
-import { sendOrderRequest } from "./outcome"
+import { sendOrderRequest, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
 
@@ -306,6 +306,7 @@ export class ApexPrimeProvider implements MTNProvider {
 
   async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
     const id = String(orderId)
+    if (isUnknownTrackingId(id)) return unknownStatusResult()
 
     if (id.startsWith("FAILED_INIT_")) {
       return { success: true, status: "failed", message: "Order was never submitted to Apex Prime (local failure)" }

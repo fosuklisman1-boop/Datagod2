@@ -32,6 +32,7 @@ vi.mock("@/lib/refunds/dispatch-guard", () => ({
 
 // Spy on rows written to mtn_fulfillment_tracking (saveMTNTracking).
 const trackingInsert = vi.hoisted(() => vi.fn())
+const trackingRow = vi.hoisted(() => ({ current: null as any }))
 
 vi.mock("@/lib/supabase", () => {
   const settings = fakeSupabase({
@@ -45,6 +46,9 @@ vi.mock("@/lib/supabase", () => {
       from(table: string) {
         if (table !== "mtn_fulfillment_tracking") return settings.from(table)
         return {
+          select() {
+            return { eq: () => ({ single: () => Promise.resolve({ data: trackingRow.current, error: null }) }) }
+          },
           update() {
             const chain: any = { eq: () => chain, in: () => Promise.resolve({ error: null }) }
             return chain
@@ -333,6 +337,17 @@ describe("MTN Fulfillment Service", () => {
       vi.mocked(getProviderByName).mockReturnValue(next)
       const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1 })
       expect(result.success).toBe(true)
+    })
+  })
+
+  describe("syncMTNOrderStatus — UNKNOWN_ ids", () => {
+    it("does no provider lookup and changes nothing", async () => {
+      trackingRow.current = { id: "t1", mtn_order_id: "UNKNOWN_123", provider: "apexprime", status: "abandoned" }
+      const { syncMTNOrderStatus } = await import("@/lib/mtn-fulfillment")
+      const r = await syncMTNOrderStatus("t1")
+      expect(r.success).toBe(false)
+      expect(r.newStatus).toBeUndefined()
+      expect(r.message).toContain("outcome unknown")
     })
   })
 

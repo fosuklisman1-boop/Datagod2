@@ -23,6 +23,14 @@ export function isUnknownTrackingId(id: string | null | undefined): boolean {
   return typeof id === "string" && id.startsWith(UNKNOWN_TRACKING_PREFIX)
 }
 
+/** checkOrderStatus result for an UNKNOWN_ id: no lookup is possible, and no status change is implied. */
+export function unknownStatusResult(): { success: false; message: string } {
+  return {
+    success: false,
+    message: "Provider outcome unknown - the order may have been created. Check the provider dashboard (no status lookup performed).",
+  }
+}
+
 export function makeUnknownTrackingId(now: number = Date.now()): string {
   return `${UNKNOWN_TRACKING_PREFIX}${now}`
 }

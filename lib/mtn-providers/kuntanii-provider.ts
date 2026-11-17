@@ -25,7 +25,7 @@ import {
   type KuntaniiOrderEntry,
 } from "./kuntanii-core"
 import { createKuntaniiClient, getCachedPlans, type KuntaniiClient, type OrderBody } from "./kuntanii-client"
-import { outcomeUnknownResponse } from "./outcome"
+import { outcomeUnknownResponse, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 
 /** admin_settings key; value `{ mode: "normal" | "instant" }`. */
 export const DELIVERY_MODE_KEY = "kuntanii_delivery_mode"
@@ -325,6 +325,7 @@ export class KuntaniiProvider implements MTNProvider {
 
   async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
     const id = String(orderId)
+    if (isUnknownTrackingId(id)) return unknownStatusResult()
     if (id.startsWith("FAILED_INIT_")) {
       return { success: true, status: "failed", message: "Order was never submitted to Kuntanii (local failure)" }
     }

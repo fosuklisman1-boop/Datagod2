@@ -58,6 +58,8 @@ export async function POST(request: NextRequest) {
         // FAILED_INIT_ rows are logs of a provider call that never created an order; the status crons skip
         // them, so copying an admin status onto them strands them (lib/admin-tracking-overwrite-guard.test.ts).
         .not("mtn_order_id", "like", "FAILED_INIT_%")
+        // UNKNOWN_ rows (provider outcome unknown) are held for an admin and must not be overwritten either.
+        .not("mtn_order_id", "like", "UNKNOWN_%")
 
       if (mtnUpdateError) {
         console.warn("[SHOP-ORDERS-UPDATE] Error updating MTN tracking:", mtnUpdateError)

@@ -18,7 +18,7 @@ import {
     classifyError,
 } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
-import { sendOrderRequest } from "./outcome"
+import { sendOrderRequest, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 
 // Import shared utilities from mtn-fulfillment
 import {
@@ -219,6 +219,7 @@ export class SykesProvider implements MTNProvider {
      * Check order status from Sykes API
      */
     async checkOrderStatus(mtnOrderId: number): Promise<MTNOrderStatusResponse> {
+        if (isUnknownTrackingId(String(mtnOrderId))) return unknownStatusResult()
         const traceId = generateTraceId()
 
         try {

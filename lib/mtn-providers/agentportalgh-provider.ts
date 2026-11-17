@@ -2,7 +2,7 @@ import crypto from "crypto"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
-import { sendOrderRequest } from "./outcome"
+import { sendOrderRequest, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 
 const BASE_URL = process.env.AGENTPORTALGH_BASE_URL ?? "https://api.agentportalgh.com"
 const TIMEOUT = 30_000
@@ -427,6 +427,7 @@ export class AgentPortalGHProvider implements MTNProvider {
 
   async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
     const id = String(orderId)
+    if (isUnknownTrackingId(id)) return unknownStatusResult()
 
     // This placeholder means order creation itself failed — the order was NEVER
     // submitted to AgentPortalGH. There is no batch it could ever correspond to,

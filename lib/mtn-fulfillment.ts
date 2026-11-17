@@ -885,6 +885,11 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
       return { success: false, message: "No MTN order ID in tracking record" }
     }
 
+    // UNKNOWN_ = provider outcome unknown: there is nothing to look up and nothing to change.
+    if (String(tracking.mtn_order_id).startsWith("UNKNOWN_")) {
+      return { success: false, message: "Provider outcome unknown - check the provider dashboard (no status lookup performed)" }
+    }
+
     console.log(`[MTN-SYNC] Checking status for order ${tracking.mtn_order_id} (provider: ${tracking.provider || "sykes"}), current status: ${tracking.status}`)
 
     // Check status from API using the provider that handled the order

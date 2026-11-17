@@ -15,7 +15,7 @@
  */
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
-import { sendOrderRequest } from "./outcome"
+import { sendOrderRequest, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 
 const BASE_URL = process.env.SPFASTIT_BASE_URL ?? "https://console.spfastit.com"
 const REQUEST_TIMEOUT = 30_000
@@ -106,6 +106,7 @@ export class SPFastITProvider implements MTNProvider {
 
   async checkOrderStatus(transactionId: string | number): Promise<MTNOrderStatusResponse> {
     const id = String(transactionId)
+    if (isUnknownTrackingId(id)) return unknownStatusResult()
     if (id.startsWith("FAILED_INIT_")) {
       return { success: true, status: "failed", message: "Order was never submitted to SPFastIT (local failure)" }
     }

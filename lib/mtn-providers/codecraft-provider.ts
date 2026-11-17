@@ -14,7 +14,7 @@
 import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
-import { sendOrderRequest, outcomeUnknownResponse } from "./outcome"
+import { sendOrderRequest, outcomeUnknownResponse, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 
 const CODECRAFT_API_URL = process.env.CODECRAFT_API_URL || "https://api.codecraftnetwork.com/api"
 const CODECRAFT_API_KEY = process.env.CODECRAFT_API_KEY!
@@ -142,6 +142,7 @@ export class CodeCraftMTNProvider implements MTNProvider {
     }
 
     async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
+        if (isUnknownTrackingId(String(orderId))) return unknownStatusResult()
         const traceId = generateTraceId()
 
         try {

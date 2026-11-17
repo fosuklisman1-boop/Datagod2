@@ -266,7 +266,8 @@ export async function POST(request: NextRequest) {
             .in("order_id", chunk)
             // FAILED_INIT_ rows are logs of a provider call that never created an order; the status
             // crons skip them, so an admin status here would strand them (lib/admin-tracking-overwrite-guard.test.ts).
-            .not("mtn_order_id", "like", "FAILED_INIT_%"))
+            .not("mtn_order_id", "like", "FAILED_INIT_%")
+            .not("mtn_order_id", "like", "UNKNOWN_%"))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for bulk orders:", mtnUpdateError)
@@ -379,7 +380,8 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString()
             })
             .in("api_order_id", chunk)
-            .not("mtn_order_id", "like", "FAILED_INIT_%"))
+            .not("mtn_order_id", "like", "FAILED_INIT_%")
+            .not("mtn_order_id", "like", "UNKNOWN_%"))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for api orders:", mtnUpdateError)
@@ -502,7 +504,8 @@ export async function POST(request: NextRequest) {
               updated_at: new Date().toISOString()
             })
             .in("shop_order_id", chunk)
-            .not("mtn_order_id", "like", "FAILED_INIT_%"))
+            .not("mtn_order_id", "like", "FAILED_INIT_%")
+            .not("mtn_order_id", "like", "UNKNOWN_%"))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for shop orders:", mtnUpdateError)
@@ -805,7 +808,8 @@ export async function POST(request: NextRequest) {
             .update({ status, updated_at: new Date().toISOString() })
             .in("order_id", chunk)
             .eq("order_type", "ussd")
-            .not("mtn_order_id", "like", "FAILED_INIT_%"))
+            .not("mtn_order_id", "like", "FAILED_INIT_%")
+            .not("mtn_order_id", "like", "UNKNOWN_%"))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD orders:", mtnUpdateError)
@@ -848,7 +852,8 @@ export async function POST(request: NextRequest) {
             .update({ status, updated_at: new Date().toISOString() })
             .in("order_id", chunk)
             .eq("order_type", "ussd_shop")
-            .not("mtn_order_id", "like", "FAILED_INIT_%"))
+            .not("mtn_order_id", "like", "FAILED_INIT_%")
+            .not("mtn_order_id", "like", "UNKNOWN_%"))
 
         if (mtnUpdateError) {
           console.warn("[BULK-UPDATE] Error updating MTN tracking for USSD shop orders:", mtnUpdateError)

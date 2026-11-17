@@ -18,7 +18,7 @@ import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin } from "@/lib/supabase"
-import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse } from "./outcome"
+import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 
 const BISDEL_API_KEY = process.env.BISDEL_API_KEY!
 const BISDEL_API_SECRET = process.env.BISDEL_API_SECRET!
@@ -209,6 +209,7 @@ export class BisdelProvider implements MTNProvider {
   }
 
   async checkOrderStatus(orderReference: string | number): Promise<MTNOrderStatusResponse> {
+    if (isUnknownTrackingId(String(orderReference))) return unknownStatusResult()
     const traceId = generateTraceId()
     const maxRetries = 3
     const retryDelays = [2000, 5000, 10000]

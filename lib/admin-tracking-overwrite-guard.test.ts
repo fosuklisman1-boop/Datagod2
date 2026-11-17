@@ -12,6 +12,7 @@ const FILES = [
   "app/api/admin/shop-orders/update-status/route.ts",
 ]
 const GUARD = '.not("mtn_order_id", "like", "FAILED_INIT_%")'
+const UNKNOWN_GUARD = '.not("mtn_order_id", "like", "UNKNOWN_%")'
 
 /** Each `.from("mtn_fulfillment_tracking")` chain that contains `.update(`, cut at the next blank line or statement start. */
 function trackingUpdateStatements(src: string): string[] {
@@ -34,6 +35,8 @@ describe("admin status edits never rewrite FAILED_INIT placeholder tracking rows
       const stmts = trackingUpdateStatements(src)
       expect(stmts.length).toBeGreaterThan(0)
       for (const s of stmts) expect(s, s.slice(0, 200)).toContain(GUARD)
+      // UNKNOWN_ rows (provider outcome unknown) must be protected the same way.
+      for (const s of stmts) expect(s, s.slice(0, 200)).toContain(UNKNOWN_GUARD)
     })
   }
 

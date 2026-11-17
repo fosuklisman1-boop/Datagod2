@@ -15,7 +15,7 @@ import { generateTraceId, log } from "@/lib/mtn-production-config"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin } from "@/lib/supabase"
-import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse } from "./outcome"
+import { classifyOrderReply, outcomeUnknownResponse, responseForClass, sendErrorResponse, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 
 const EAZYGHDATA_API_KEY = process.env.EAZYGHDATA_API_KEY!
 const EAZYGHDATA_BASE_URL = process.env.EAZYGHDATA_BASE_URL || "https://eazyghdata.com"
@@ -295,6 +295,7 @@ export class EazyGhDataProvider implements MTNProvider {
     }
 
     async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
+        if (isUnknownTrackingId(String(orderId))) return unknownStatusResult()
         const traceId = generateTraceId()
         const maxRetries = 3
         const retryDelays = [2000, 5000, 10000]

@@ -2,7 +2,7 @@ import crypto from "crypto"
 import type { MTNProvider, MTNOrderRequest, MTNOrderResponse, MTNOrderStatusResponse } from "./types"
 import { normalizePhoneNumber, isValidPhoneFormat, validatePhoneNetworkMatch } from "@/lib/mtn-fulfillment"
 import { supabaseAdmin as supabase } from "@/lib/supabase"
-import { sendOrderRequest } from "./outcome"
+import { sendOrderRequest, isUnknownTrackingId, unknownStatusResult } from "./outcome"
 
 const BASE_URL = process.env.BUNDLEPORTAL_BASE_URL ?? "https://api.bundleportal.com/v2"
 const TIMEOUT = 30_000
@@ -185,6 +185,7 @@ export class BundlePortalProvider implements MTNProvider {
 
   async checkOrderStatus(orderId: string | number): Promise<MTNOrderStatusResponse> {
     const id = String(orderId)
+    if (isUnknownTrackingId(id)) return unknownStatusResult()
     if (id.startsWith("FAILED_INIT_")) {
       return { success: true, status: "failed", message: "Order was never submitted to Bundle Portal (local failure)" }
     }

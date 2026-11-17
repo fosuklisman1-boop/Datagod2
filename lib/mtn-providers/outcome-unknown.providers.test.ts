@@ -233,3 +233,36 @@ describe("Xpress", () => {
     expect((await new XpressProvider().createOrder(req)).error_type).toBe("OUTCOME_UNKNOWN")
   })
 })
+
+import { AgentPortalGHProvider } from "./agentportalgh-provider"
+import { BundlePortalProvider } from "./bundleportal-provider"
+import { KuntaniiProvider } from "./kuntanii-provider"
+import { SPFastITProvider } from "./spfastit-provider"
+import { SPFastITTelecelProvider } from "./spfastit-telecel-provider"
+
+describe("checkOrderStatus short-circuits UNKNOWN_ ids (no lookup, no status change)", () => {
+  const providers: Array<[string, () => any]> = [
+    ["apexprime", () => new ApexPrimeProvider()],
+    ["sykes", () => new SykesProvider()],
+    ["datakazina", () => new DataKazinaProvider()],
+    ["eazyghdata", () => new EazyGhDataProvider()],
+    ["codecraft", () => new CodeCraftMTNProvider()],
+    ["bisdel", () => new BisdelProvider()],
+    ["xpress", () => new XpressProvider()],
+    ["agentportalgh", () => new AgentPortalGHProvider()],
+    ["bundleportal", () => new BundlePortalProvider()],
+    ["spfastit", () => new SPFastITProvider()],
+    ["spfastit-telecel", () => new SPFastITTelecelProvider()],
+    ["kuntanii", () => new KuntaniiProvider()],
+  ]
+  for (const [name, make] of providers) {
+    it(`${name}: no network call and no status for UNKNOWN_123`, async () => {
+      const f = stubFetch(() => new Response("{}", { status: 200 }))
+      const r = await make().checkOrderStatus("UNKNOWN_123")
+      expect(f).not.toHaveBeenCalled()
+      expect(r.status).toBeUndefined()
+      expect(r.success).toBe(false)
+      expect(r.message).toContain("outcome unknown")
+    })
+  }
+})

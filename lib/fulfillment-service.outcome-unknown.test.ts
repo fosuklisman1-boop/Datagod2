@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const updates = vi.hoisted(() => [] as any[])
+const orderNetwork = vi.hoisted(() => ({ current: "MTN" }))
+const createNonMTNOrder = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/non-mtn-fulfillment", () => ({ createNonMTNOrder }))
 
 vi.mock("@supabase/supabase-js", () => {
   function chain(table: string, mode: "select" | "update", patch?: any) {
@@ -12,7 +15,7 @@ vi.mock("@supabase/supabase-js", () => {
       limit: () => c,
       single: () =>
         Promise.resolve({
-          data: { id: "order-uuid-1", network: "MTN", volume_gb: 1, customer_phone: "0551234567", customer_name: "x", order_status: "pending", queue: null },
+          data: { id: "order-uuid-1", network: orderNetwork.current, volume_gb: 1, customer_phone: "0551234567", customer_name: "x", order_status: "pending", queue: null },
           error: null,
         }),
       then: (resolve: any) => {
@@ -57,7 +60,23 @@ import { processManualFulfillment } from "./fulfillment-service"
 describe("processManualFulfillment — OUTCOME_UNKNOWN", () => {
   beforeEach(() => {
     updates.length = 0
+    orderNetwork.current = "MTN"
     vi.clearAllMocks()
+  })
+
+  it("non-MTN branch: outcomeUnknown keeps the order processing, no pending revert, no failure alert", async () => {
+    orderNetwork.current = "Telecel"
+    createNonMTNOrder.mockResolvedValue({
+      success: false,
+      outcomeUnknown: true,
+      provider: "xpress",
+      message: "Xpress returned an unreadable response (HTTP 500) — the order may have been created. Check the Xpress dashboard before retrying.",
+    })
+    const r = await processManualFulfillment("order-uuid-1", "shop")
+    expect(r.success).toBe(false)
+    expect(r.message).toContain("Check the Xpress dashboard")
+    expect(updates.some((u) => u.patch.order_status === "pending")).toBe(false)
+    expect(notifyAdmins).not.toHaveBeenCalled()
   })
 
   it("leaves the order processing (never pending), saves UNKNOWN_ tracking, alerts once", async () => {
