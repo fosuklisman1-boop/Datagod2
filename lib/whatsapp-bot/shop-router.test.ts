@@ -12,7 +12,7 @@ import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
 import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint, calculateResultsCheckPrice } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
-import { getShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
+import { getShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 // Real (unmocked) module — same instance shop-router.ts itself uses, so calling
 // these directly here manipulates the exact in-memory session cache the router
 // reads/writes. deleteSession resets state between the AI-escape describe's
@@ -56,10 +56,12 @@ vi.mock("@/lib/mtn-providers/customer-verification", async () => ({
   ...(await vi.importActual<typeof import("@/lib/mtn-providers/customer-verification")>("@/lib/mtn-providers/customer-verification")),
   isRecipientBlocked: vi.fn(async () => false),
 }))
+// clearShopPref no longer exists in the real module; this stand-in only detects a regression that tries to delete.
+const clearShopPref = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/whatsapp-bot/shop-prefs", () => ({
   getShopPref: vi.fn().mockResolvedValue(null),
   setShopPref: vi.fn(),
-  clearShopPref: vi.fn(),
+  clearShopPref,
 }))
 // Airtime: keep the pure helpers (detectAirtimeNetwork, airtimeNetworkKey,
 // splitInclusive) real — they have no DB dependency and are deterministic — but
@@ -1773,11 +1775,25 @@ describe("shopWaRouter — AI escape", () => {
       parentShopId: null, status: "active", tokenBalance: 0, whatsappActivated: true,
     })
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
-    vi.mocked(clearShopPref).mockClear()
 
     const reply = await shopWaRouter("233559919038", "hi", "wamid.1")
 
     expect(reply).toContain("Welcome back")
+  })
+
+  it("a remembered shop that is not WhatsApp-activated falls through to code entry and does not delete the pref", async () => {
+    vi.mocked(clearShopPref).mockClear()
+    fakeDb.rememberedShopCode = "CODE2"
+    vi.mocked(getShopPref).mockResolvedValue({ shopCodeId: "code-off" })
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-off", shopId: "shop-off", shopName: "Off Shop",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: false,
+    })
+
+    const reply = await shopWaRouter("233559919039", "hi", "wamid.1")
+
+    expect(reply).not.toContain("Welcome back")
+    // The mock keeps a clearShopPref so a regression that deletes would be caught here.
     expect(clearShopPref).not.toHaveBeenCalled()
   })
 

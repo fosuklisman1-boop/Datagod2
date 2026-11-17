@@ -17,7 +17,7 @@ import {
   handleShopBotOtp, handleShopBotStep, isShopBotStep, shopBotMenuItems, shopProductMenuFor, startShopBotFlow,
 } from "./shop-bot-flows"
 import { resolveShopCode, fetchShopNetworks, getCanonicalShopName } from "@/lib/shop-commerce/shop-code"
-import { getShopPref, setShopPref, clearShopPref } from "@/lib/whatsapp-bot/shop-prefs"
+import { getShopPref, setShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 import type { WaShopSession } from "./shop-types"
 import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
@@ -448,9 +448,9 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
         }
         reply = `Welcome back to *${remembered.shopName}* 👋\n\n${await shopProductMenuFor(remembered.shopName, session)}`
         matchedReturning = true
-      } else {
-        await clearShopPref(from)
       }
+      // Otherwise the remembered shop is unusable right now: fall through to normal code entry.
+      // The shared preference is never deleted here; it stays for the other channels.
     }
 
     if (!matchedReturning) {

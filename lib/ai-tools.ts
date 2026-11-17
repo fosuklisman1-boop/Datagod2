@@ -1210,19 +1210,19 @@ const ADMIN_ONLY_TOOLS = new Set<string>([
 // phone has no remembered shop (customer hasn't given a code yet this session).
 async function currentShopForPhone(phone: string) {
   const { getShopPref } = await import("@/lib/whatsapp-bot/shop-prefs")
-  const { resolveShopCode } = await import("@/lib/shop-commerce/shop-code")
+  const { resolveShopCodeById } = await import("@/lib/shop-commerce/customer-prefs")
   const pref = await getShopPref(phone)
   if (!pref) return null
-  // Re-resolve by code id isn't available (resolveShopCode takes a code, not an
-  // id) — instead read the code string off ussd_shop_codes directly.
   const { createClient } = await import("@supabase/supabase-js")
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-  const { data: codeRow } = await supabase.from("ussd_shop_codes").select("code").eq("id", pref.shopCodeId).maybeSingle()
-  if (!codeRow?.code) return null
   // The remembered shop may have closed since (inactive, blocked) or lost WhatsApp: same gate as the router's
   // returning-customer check (lib/whatsapp-bot/shop-router.ts), so a closed shop never quotes or sells.
-  const shop = await resolveShopCode(codeRow.code)
-  return shop && shop.status === "active" && shop.whatsappActivated ? shop : null
+  try {
+    const shop = await resolveShopCodeById(supabase, pref.shopCodeId)
+    return shop && shop.status === "active" && shop.whatsappActivated ? shop : null
+  } catch {
+    return null
+  }
 }
 
 // ─── executeToolCall ─────────────────────────────────────────────────────────
