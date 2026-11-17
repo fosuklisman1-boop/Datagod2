@@ -15,6 +15,9 @@ vi.mock("@/lib/mtn-fulfillment", () => ({
   saveMTNTracking: vi.fn().mockResolvedValue("tracking-row-id"),
 }))
 
+const notifyAdminsMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+vi.mock("@/lib/sms-service", () => ({ notifyAdmins: notifyAdminsMock }))
+
 vi.mock("@/lib/at-ishare-service", () => ({
   atishareService: { fulfillOrder: vi.fn() },
 }))
@@ -104,6 +107,26 @@ describe("createNonMTNOrder", () => {
     const [, mtnOrderIdArg] = vi.mocked(saveMTNTracking).mock.calls[0]
     expect(mtnOrderIdArg).not.toBe("X")
     expect(String(mtnOrderIdArg)).toMatch(/^FAILED_INIT_\d+$/)
+  })
+
+  it("OUTCOME_UNKNOWN saves an UNKNOWN_ tracking row, alerts admins once and flags the result", async () => {
+    vi.mocked(getProviderNameForNetwork).mockResolvedValue("xpress")
+    const provider = fakeProvider("xpress", {
+      success: false,
+      message: "Xpress returned an unreadable response (HTTP 500) — the order may have been created. Check the Xpress dashboard before retrying.",
+      error_type: "OUTCOME_UNKNOWN",
+    })
+    vi.mocked(getProviderByName).mockReturnValue(provider)
+
+    const result = await createNonMTNOrder(baseParams)
+
+    expect(result.success).toBe(false)
+    expect(result.outcomeUnknown).toBe(true)
+    expect(saveMTNTracking).toHaveBeenCalledTimes(1)
+    expect(String(vi.mocked(saveMTNTracking).mock.calls[0][1])).toMatch(/^UNKNOWN_\d+$/)
+    expect(notifyAdminsMock).toHaveBeenCalledTimes(1)
+    expect(notifyAdminsMock.mock.calls[0][1]).toBe("provider_outcome_unknown")
+    expect(notifyAdminsMock.mock.calls[0][0]).not.toMatch(/0244000000/)
   })
 
   it("uses an explicit providerOverride when it's capability-checked for the network", async () => {

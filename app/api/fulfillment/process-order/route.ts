@@ -10,6 +10,7 @@ import {
 } from "@/lib/mtn-fulfillment"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
+import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 import {
   resolveConfirmationSender,
   resolveOwnSenderProvider,
@@ -301,6 +302,25 @@ async function handleMTNAutoFulfillment(
           success: true,
           message: "Order held pending MTN number registration",
         })
+      }
+      if (isOutcomeUnknown(mtnResponse)) {
+        // The provider may have created the order: it stays `processing` (set by
+        // the lock above) so nothing re-sends it; admin checks the dashboard.
+        console.error("[FULFILLMENT] MTN outcome unknown — holding:", mtnResponse.message)
+        await holdOutcomeUnknown({
+          orderId: shopOrderId, orderType: "shop", request: orderRequest, response: mtnResponse,
+          provider: mtnResponse.provider || "datakazina", productLabel: "MTN",
+        })
+        return NextResponse.json(
+          {
+            success: false,
+            message: mtnResponse.message,
+            fulfillment_method: "auto_mtn",
+            error: mtnResponse.message,
+            outcome_unknown: true,
+          },
+          { status: 202 }
+        )
       }
       console.error("[FULFILLMENT] MTN API failed:", mtnResponse.message)
 

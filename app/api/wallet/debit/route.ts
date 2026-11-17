@@ -332,6 +332,16 @@ export async function POST(request: NextRequest) {
 
                   console.log(`[WALLET-DEBIT] ✓ MTN API response for order ${orderId}:`, mtnResult)
 
+                  if (isOutcomeUnknown(mtnResult)) {
+                    // Provider may have created it: keep processing, never re-fulfillable.
+                    await holdOutcomeUnknown({
+                      orderId, orderType: "shop", request: mtnRequest, response: mtnResult,
+                      provider: mtnResult.provider || "datakazina", productLabel: "MTN",
+                      markProcessing: { table: "shop_orders", column: "order_status" },
+                    })
+                    return
+                  }
+
                   if (mtnResult.held) {
                     const { holdMtnOrder } = await import("@/lib/mtn-hold")
                     await holdMtnOrder({ table: "shop_orders", orderId, phone: normalizedPhone })

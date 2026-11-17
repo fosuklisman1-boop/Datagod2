@@ -3,6 +3,7 @@ import { createMTNOrder, saveMTNTracking, checkMTNOrderStatus, MTNOrderRequest, 
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import type { MTNProviderName } from "@/lib/mtn-providers/types"
+import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -227,6 +228,13 @@ export async function processManualFulfillment(
           providerOverride: finalProvider as MTNProviderName | undefined,
         })
 
+        if (!result.success && result.outcomeUnknown) {
+          // Provider may have created it (tracking row + alert already done in
+          // createNonMTNOrder). Leave the order `processing` so nothing re-sends it.
+          console.error(`${logPrefix} ${result.provider} outcome unknown — holding: ${result.message}`)
+          return { success: false, message: result.message, orderId }
+        }
+
         if (!result.success) {
           console.error(`${logPrefix} ${result.provider} API failed: ${result.message}`)
           await supabase.from(tableName).update({ [statusField]: "pending", updated_at: new Date().toISOString() }).eq("id", orderId)
@@ -318,6 +326,16 @@ export async function processManualFulfillment(
         const { holdMtnOrder } = await import("@/lib/mtn-hold")
         await holdMtnOrder({ table: tableName as any, orderId, phone })
         return { success: false, message: `Held: ${holdReason}`, orderId }
+      }
+      if (isOutcomeUnknown(mtnResponse)) {
+        // The provider may have created the order: keep it `processing` (never
+        // pending/re-fulfillable), save an UNKNOWN_ tracking row and alert admins.
+        console.error(`${logPrefix} MTN outcome unknown — holding: ${mtnResponse.message}`)
+        await holdOutcomeUnknown({
+          orderId, orderType, request: mtnRequest, response: mtnResponse,
+          provider: mtnResponse.provider || finalProvider || "datakazina", productLabel: "MTN",
+        })
+        return { success: false, message: mtnResponse.message, orderId }
       }
       console.error(`${logPrefix} MTN API failed: ${mtnResponse.message}`)
 

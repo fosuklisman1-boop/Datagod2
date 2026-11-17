@@ -16,6 +16,7 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked, NOT_VERIFIED_MESSAGE, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
+import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -467,6 +468,19 @@ export async function POST(request: NextRequest) {
             const mtnResult = await createMTNOrder(mtnRequest)
 
             console.log(`[FULFILLMENT] ✓ MTN API response for order ${order[0].id}:`, mtnResult)
+
+            if (isOutcomeUnknown(mtnResult)) {
+              // Provider may have created it: keep processing, never re-fulfillable.
+              await supabaseAdmin
+                .from("orders")
+                .update({ status: "processing", updated_at: new Date().toISOString() })
+                .eq("id", order[0].id)
+              await holdOutcomeUnknown({
+                orderId: String(order[0].id), orderType: "bulk", request: mtnRequest, response: mtnResult,
+                provider: mtnResult.provider || "datakazina", productLabel: "MTN",
+              })
+              return
+            }
 
             if (mtnResult.held) {
               const { holdMtnOrder } = await import("@/lib/mtn-hold")

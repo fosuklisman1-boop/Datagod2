@@ -545,7 +545,11 @@ async function createMTNOrderUnguarded(order: MTNOrderRequest): Promise<MTNOrder
     // this, an admin picking "Apex Prime" for a stuck order could silently end up
     // fulfilled by whatever's first in the retry sequence instead, with no visible
     // link between the pick and the actual outcome.
-    if (!response.success && !order.provider) {
+    // OUTCOME_UNKNOWN: the provider may have created the order — never try another
+    // provider (that is how the same customer got delivered twice).
+    if (response.error_type === "OUTCOME_UNKNOWN") {
+      console.log(`[MTN] "${provider.name}" outcome unknown — holding, no retry-sequence provider tried`)
+    } else if (!response.success && !order.provider) {
       const sequence = (await getRetrySequence()).filter(name => name !== provider.name)
       for (const nextName of sequence) {
         console.log(`[MTN] "${provider.name}" attempt failed (${response.message}), trying retry-sequence provider "${nextName}"`)
@@ -564,12 +568,16 @@ async function createMTNOrderUnguarded(order: MTNOrderRequest): Promise<MTNOrder
           console.log(`[MTN] Retry-sequence provider "${nextName}" succeeded`)
           break
         }
+        if (response.error_type === "OUTCOME_UNKNOWN") {
+          console.log(`[MTN] Retry-sequence provider "${nextName}" outcome unknown — stopping, no further providers`)
+          break
+        }
         console.log(`[MTN] Retry-sequence provider "${nextName}" also failed: ${response.message}`)
       }
       // All retry-sequence providers failed (or none configured) after a whitelist
       // block — restore the held/WHITELIST_BLOCKED response so the order re-enters
       // the 24h whitelist-retry cron instead of being treated as an ordinary failure.
-      if (whitelistBlocked && !response.success) {
+      if (whitelistBlocked && !response.success && response.error_type !== "OUTCOME_UNKNOWN") {
         response = {
           success: false,
           held: true,
@@ -1004,9 +1012,14 @@ export async function saveMTNTracking(
     // FAILED_INIT rows have no real external order ID — mark them failed immediately
     // so the status-sync cron never tries to look them up in Sykes/DataKazina
     const isFakeId = String(mtnOrderId).startsWith("FAILED_INIT_")
+    // UNKNOWN_ rows: the provider may have created the order. Stored "abandoned"
+    // (the status CHECK has no needs_review; every poller skips abandoned) and
+    // identified by the id prefix. They must NOT abandon the order's other rows.
+    const isUnknownId = String(mtnOrderId).startsWith("UNKNOWN_")
     const insertData: Record<string, unknown> = {
       mtn_order_id: mtnOrderId,
-      status: isFakeId ? "failed" : "pending",
+      status: isUnknownId ? "abandoned" : isFakeId ? "failed" : "pending",
+      ...(isUnknownId ? { external_message: response.message } : {}),
       recipient_phone: request.recipient_phone,
       network: request.network,
       size_gb: request.size_gb,
@@ -1032,7 +1045,7 @@ export async function saveMTNTracking(
     // stale provider crons cannot clobber the status once a new attempt starts.
     // Only do this for real submissions — FAILED_INIT rows are already "failed"
     // and won't be polled, so there is nothing to race against.
-    if (!isFakeId) {
+    if (!isFakeId && !isUnknownId) {
       const orderCol =
         orderType === "shop" ? "shop_order_id" :
         orderType === "api"  ? "api_order_id"  : "order_id"
@@ -1487,6 +1500,44 @@ export async function retryMTNOrder(
         success: false,
         message: apiErr instanceof Error ? apiErr.message : "MTN API error (exception)",
       }
+    }
+
+    if (result.error_type === "OUTCOME_UNKNOWN") {
+      // The provider may have created the order: park this row as abandoned
+      // (UNKNOWN_ id, skipped by every poller/retry), pin the order to
+      // `processing` so nothing re-sends it, and alert admins.
+      const { error } = await supabase
+        .from("mtn_fulfillment_tracking")
+        .update({
+          mtn_order_id: `UNKNOWN_${Date.now()}`,
+          status: "abandoned",
+          provider: result.provider || providerName,
+          retry_count: tracking.retry_count + 1,
+          last_retry_at: new Date().toISOString(),
+          external_message: result.message,
+          api_response_payload: result,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", trackingId)
+      if (error) throw error
+
+      const parentId = tracking.shop_order_id || tracking.api_order_id || tracking.order_id
+      const target =
+        tracking.order_type === "api" ? { table: "api_orders", column: "status" }
+        : tracking.order_type === "ussd" ? { table: "ussd_orders", column: "order_status" }
+        : tracking.order_type === "ussd_shop" ? { table: "ussd_shop_orders", column: "order_status" }
+        : tracking.order_type === "bulk" ? { table: "orders", column: "status" }
+        : tracking.shop_order_id ? { table: "shop_orders", column: "order_status" }
+        : { table: "orders", column: "status" }
+      if (parentId) {
+        await supabase.from(target.table).update({ [target.column]: "processing", updated_at: new Date().toISOString() }).eq("id", parentId)
+        const { alertOutcomeUnknown } = await import("@/lib/mtn-providers/outcome-hold")
+        await alertOutcomeUnknown({
+          orderId: String(parentId), orderType: String(tracking.order_type ?? "shop"),
+          provider: result.provider || providerName, productLabel: "MTN",
+        })
+      }
+      return false
     }
 
     if (result.success && result.order_id) {

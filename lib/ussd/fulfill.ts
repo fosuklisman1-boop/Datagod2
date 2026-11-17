@@ -8,6 +8,7 @@ import {
 } from "@/lib/mtn-fulfillment"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import type { MTNProviderName } from "@/lib/mtn-providers/types"
+import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -76,6 +77,16 @@ export async function fulfillUssdOrder(
           await holdMtnOrder({ table: orderTable, orderId, phone: normalizedPhone })
           return { success: false, message: "Held: number pending MTN registration", held: true }
         }
+        if (isOutcomeUnknown(mtnResponse)) {
+          // Provider may have created the order — keep it `processing`, never re-fulfillable.
+          console.error("[USSD-FULFILL] MTN outcome unknown — holding:", mtnResponse.message)
+          await markUssdOrderStatus(orderId, 'processing', orderTable)
+          await holdOutcomeUnknown({
+            orderId, orderType: trackingOrderType, request: orderRequest, response: mtnResponse,
+            provider: mtnResponse.provider || "datakazina", productLabel: "MTN",
+          })
+          return { success: false, message: mtnResponse.message }
+        }
         console.error("[USSD-FULFILL] MTN API failed:", mtnResponse.message)
         // Mark processing (not failed) — payment succeeded, admin must manually deliver
         await markUssdOrderStatus(orderId, 'pending', orderTable)
@@ -132,6 +143,10 @@ export async function fulfillUssdOrder(
         if (result.success) {
           await markUssdOrderStatus(orderId, 'processing', orderTable)
           console.log(`[USSD-FULFILL] ✓ ${result.provider} order placed, awaiting cron confirmation:`, orderId)
+        } else if (result.outcomeUnknown) {
+          // Tracking row + alert already done; keep the order `processing`.
+          console.error(`[USSD-FULFILL] ${result.provider} outcome unknown — holding:`, result.message)
+          await markUssdOrderStatus(orderId, 'processing', orderTable)
         } else {
           console.error(`[USSD-FULFILL] ${result.provider} returned failure:`, result.message)
           await markUssdOrderStatus(orderId, 'pending', orderTable)

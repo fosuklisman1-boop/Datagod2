@@ -28,6 +28,7 @@ export interface FulfillmentDeps {
   ): Promise<void>
   holdMtnOrder(p: { orderId: string; phone: string }): Promise<{ held: boolean }>
   markProcessing(orderId: string): Promise<void>
+  holdOutcomeUnknown?(p: { orderId: string; req: MTNOrderRequest; res: MTNOrderResponse; provider: string }): Promise<void>
   createNonMtnOrder(req: NonMTNOrderParams): Promise<unknown>
 }
 
@@ -64,7 +65,10 @@ export async function dispatchFulfillment(deps: FulfillmentDeps, o: FulfillmentT
         client_ref: o.orderId,
       }
       const res = await deps.createMtnOrder(req)
-      if (res.held) {
+      if (res.error_type === "OUTCOME_UNKNOWN") {
+        // Provider may have created it: UNKNOWN_ tracking + order stays processing + admin alert.
+        await deps.holdOutcomeUnknown?.({ orderId: o.orderId, req, res, provider: res.provider || "datakazina" })
+      } else if (res.held) {
         await deps.holdMtnOrder({ orderId: o.orderId, phone: o.local })
       } else if (res.order_id) {
         await deps.saveMtnTracking(o.orderId, res.order_id, req, res, res.provider || "sykes")
@@ -112,6 +116,13 @@ export function realFulfillmentDeps(): FulfillmentDeps {
       })
       // Guarded (v1 is unconditional): never move a row a webhook already advanced.
       await client.from("api_orders").update({ status: "processing" }).eq("id", orderId).eq("status", "pending")
+    },
+    holdOutcomeUnknown: async ({ orderId, req, res, provider }) => {
+      const { holdOutcomeUnknown } = await import("@/lib/mtn-providers/outcome-hold")
+      await holdOutcomeUnknown({
+        orderId, orderType: "api", request: req, response: res, provider, productLabel: "MTN",
+        markProcessing: { table: "api_orders", column: "status" },
+      })
     },
     createNonMtnOrder: async (req) => (await import("@/lib/non-mtn-fulfillment")).createNonMTNOrder(req),
   }

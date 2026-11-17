@@ -7,6 +7,7 @@ import { notifyAdminsPush } from "@/lib/push-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { isPhoneBlacklisted } from "@/lib/blacklist"
 import { verifyAdminAccess } from "@/lib/admin-auth"
+import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 import {
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
   createMTNOrder,
@@ -605,7 +606,17 @@ export async function PATCH(request: NextRequest) {
                 const mtnResult = await createMTNOrder(mtnRequest)
                 console.log(`[ADMIN-PAYMENT-ATTEMPTS] ✓ MTN API response for order ${attempt.order_id}:`, mtnResult)
 
-                if (mtnResult.held) {
+                if (isOutcomeUnknown(mtnResult)) {
+                  // Provider may have created it: keep processing, never re-fulfillable.
+                  await supabase
+                    .from("shop_orders")
+                    .update({ order_status: "processing", fulfillment_method: "auto_mtn", updated_at: new Date().toISOString() })
+                    .eq("id", attempt.order_id)
+                  await holdOutcomeUnknown({
+                    orderId: String(attempt.order_id), orderType: "shop", request: mtnRequest, response: mtnResult,
+                    provider: mtnResult.provider || "datakazina", productLabel: "MTN",
+                  })
+                } else if (mtnResult.held) {
                   const { holdMtnOrder } = await import("@/lib/mtn-hold")
                   await holdMtnOrder({ table: "shop_orders", orderId: String(attempt.order_id), phone: normalizedPhone })
                 } else if (mtnResult.order_id) {

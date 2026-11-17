@@ -296,6 +296,67 @@ describe("MTN Fulfillment Service", () => {
     })
   })
 
+  describe("createMTNOrder — OUTCOME_UNKNOWN stops the retry sequence", () => {
+    beforeEach(() => vi.clearAllMocks())
+    const unknown = { success: false, message: "x may have been created", error_type: "OUTCOME_UNKNOWN" }
+
+    it("does not try any retry-sequence provider after an unknown primary outcome", async () => {
+      const primary = fakeMtnProvider("sykes", unknown)
+      const next = fakeMtnProvider("datakazina", { success: true, order_id: "9", message: "ok" })
+      vi.mocked(getMTNProvider).mockResolvedValue(primary)
+      vi.mocked(getRetrySequence).mockResolvedValue(["datakazina"])
+      vi.mocked(getProviderByName).mockReturnValue(next)
+      const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1 })
+      expect(next.createOrder).not.toHaveBeenCalled()
+      expect(result.error_type).toBe("OUTCOME_UNKNOWN")
+      expect(result.provider).toBe("sykes")
+    })
+
+    it("stops at the retry provider that returned unknown, trying nobody after it", async () => {
+      const primary = fakeMtnProvider("sykes", { success: false, message: "down", error_type: "API_ERROR" })
+      const second = fakeMtnProvider("datakazina", unknown)
+      const third = fakeMtnProvider("xpress", { success: true, order_id: "9", message: "ok" })
+      vi.mocked(getMTNProvider).mockResolvedValue(primary)
+      vi.mocked(getRetrySequence).mockResolvedValue(["datakazina", "xpress"])
+      vi.mocked(getProviderByName).mockImplementation(((n: string) => (n === "datakazina" ? second : third)) as any)
+      const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1 })
+      expect(third.createOrder).not.toHaveBeenCalled()
+      expect(result.error_type).toBe("OUTCOME_UNKNOWN")
+      expect(result.provider).toBe("datakazina")
+    })
+
+    it("ordinary failures still fall through the retry sequence", async () => {
+      const primary = fakeMtnProvider("sykes", { success: false, message: "bad", error_type: "API_ERROR" })
+      const next = fakeMtnProvider("datakazina", { success: true, order_id: "9", message: "ok" })
+      vi.mocked(getMTNProvider).mockResolvedValue(primary)
+      vi.mocked(getRetrySequence).mockResolvedValue(["datakazina"])
+      vi.mocked(getProviderByName).mockReturnValue(next)
+      const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1 })
+      expect(result.success).toBe(true)
+    })
+  })
+
+  describe("saveMTNTracking — UNKNOWN_ rows", () => {
+    const req = { recipient_phone: "0551234567", network: "MTN" as const, size_gb: 1 }
+    beforeEach(() => trackingInsert.mockClear())
+
+    it("writes status abandoned with the message, never claiming a real id", async () => {
+      await saveMTNTracking(
+        "order-1",
+        "UNKNOWN_123",
+        req,
+        { success: false, message: "Apex may have created it", error_type: "OUTCOME_UNKNOWN" },
+        "shop",
+        "apexprime"
+      )
+      expect(trackingInsert.mock.calls[0][0]).toMatchObject({
+        mtn_order_id: "UNKNOWN_123",
+        status: "abandoned",
+        external_message: "Apex may have created it",
+      })
+    })
+  })
+
   describe("saveMTNTracking provider cost/reference", () => {
     const req = { recipient_phone: "0551234567", network: "MTN" as const, size_gb: 1 }
 

@@ -13,6 +13,7 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { verifyRecipientsForOrder, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
+import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 import { supabaseAdmin } from "@/lib/supabase" // Need admin client for checking settings if not already available, but usage below checks 'supabase' which is user client?
 // create-bulk uses `supabase` created with serviceRoleKey which IS admin privileges.
 // But `isAutoFulfillmentEnabled` helper in purchase uses `supabaseAdmin`.
@@ -431,6 +432,19 @@ export async function POST(request: NextRequest) {
                 const mtnResult = await createMTNOrder(mtnRequest)
 
                 console.log(`[BULK-FULFILLMENT] ✓ MTN API response for order ${order.id}:`, mtnResult)
+
+                if (isOutcomeUnknown(mtnResult)) {
+                  // Provider may have created it: keep processing, never re-fulfillable.
+                  await supabase
+                    .from("orders")
+                    .update({ status: "processing", updated_at: new Date().toISOString() })
+                    .eq("id", order.id)
+                  await holdOutcomeUnknown({
+                    orderId: String(order.id), orderType: "bulk", request: mtnRequest, response: mtnResult,
+                    provider: mtnResult.provider || "datakazina", productLabel: "MTN",
+                  })
+                  continue
+                }
 
                 if (mtnResult.held) {
                   const { holdMtnOrder } = await import("@/lib/mtn-hold")

@@ -2,6 +2,7 @@ import { atishareService } from "@/lib/at-ishare-service"
 import { saveMTNTracking } from "@/lib/mtn-fulfillment"
 import { getProviderNameForNetwork, getProviderByName, isProviderCapableForNetwork, NETWORK_TO_REQUEST_NETWORK } from "@/lib/mtn-providers/factory"
 import type { MTNOrderRequest, NonMTNProviderName } from "@/lib/mtn-providers/types"
+import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 
 export interface NonMTNOrderParams {
   phoneNumber: string
@@ -23,6 +24,17 @@ export interface NonMTNOrderResult {
   message: string
   reference?: string
   provider: string
+  /** True when the provider may have created the order (unreadable reply). Do not retry/resend. */
+  outcomeUnknown?: boolean
+}
+
+/** Table/column holding each order type's status, so an unknown outcome can pin it to `processing`. */
+const NON_MTN_ORDER_STATUS_TARGET: Record<NonMTNOrderParams["orderType"], { table: string; column: string }> = {
+  wallet: { table: "orders", column: "status" },
+  shop: { table: "shop_orders", column: "order_status" },
+  api: { table: "api_orders", column: "status" },
+  ussd: { table: "ussd_orders", column: "order_status" },
+  ussd_shop: { table: "ussd_shop_orders", column: "order_status" },
 }
 
 /** Canonicalize a raw non-MTN network label to the key format the factory's lookup tables use. */
@@ -96,6 +108,17 @@ async function createNonMTNOrderUnguarded(params: NonMTNOrderParams): Promise<No
   }
   const provider = getProviderByName(providerName)
   const result = await provider.createOrder(mtnRequest)
+
+  if (isOutcomeUnknown(result)) {
+    // The provider may have created the order: hold it (UNKNOWN_ tracking row +
+    // admin alert); callers must leave the order `processing`, never re-fulfillable.
+    await holdOutcomeUnknown({
+      orderId, orderType: toTrackingOrderType(orderType), request: mtnRequest, response: result, provider: providerName,
+      productLabel: reqNetwork,
+      markProcessing: NON_MTN_ORDER_STATUS_TARGET[orderType],
+    })
+    return { success: false, message: result.message, provider: providerName, outcomeUnknown: true }
+  }
 
   if (result.success && result.order_id) {
     await saveMTNTracking(orderId, result.order_id, mtnRequest, result, toTrackingOrderType(orderType), providerName)

@@ -54,6 +54,20 @@ describe("dispatchFulfillment: MTN", () => {
     expect(d.markProcessing).not.toHaveBeenCalled()
   })
 
+  it("OUTCOME_UNKNOWN holds via holdOutcomeUnknown: no plain tracking, not left pending", async () => {
+    const hold = vi.fn(async () => {})
+    const d = makeDeps({
+      createMtnOrder: vi.fn(async () => ({ success: false, message: "may have been created", error_type: "OUTCOME_UNKNOWN", provider: "apexprime" })) as any,
+      holdOutcomeUnknown: hold as any,
+    })
+    const r = await dispatchFulfillment(d, base)
+    expect(r.outcome).toBe("mtn")
+    expect(hold).toHaveBeenCalledTimes(1)
+    expect((hold.mock.calls[0] as any[])[0]).toMatchObject({ orderId: "ord-1", provider: "apexprime" })
+    expect(d.saveMtnTracking).not.toHaveBeenCalled()
+    expect(d.holdMtnOrder).not.toHaveBeenCalled()
+  })
+
   it("saves tracking but does not mark processing when the provider order failed", async () => {
     const d = makeDeps({ createMtnOrder: vi.fn(async () => ({ success: false, order_id: 7, message: "no" })) as any })
     await dispatchFulfillment(d, base)

@@ -8,6 +8,7 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
 import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
+import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -302,7 +303,14 @@ async function v1POST(request: NextRequest) {
             client_ref: orderId ? String(orderId) : undefined, // echoed back in DataKazina's webhook reference
           }
           const mtnResult = await createMTNOrder(mtnRequest)
-          if (orderId && mtnResult.held) {
+          if (orderId && isOutcomeUnknown(mtnResult)) {
+            // Provider may have created it: keep processing, never re-fulfillable.
+            await holdOutcomeUnknown({
+              orderId: String(orderId), orderType: "api", request: mtnRequest, response: mtnResult,
+              provider: mtnResult.provider || "datakazina", productLabel: "MTN",
+              markProcessing: { table: "api_orders", column: "status" },
+            })
+          } else if (orderId && mtnResult.held) {
             const { holdMtnOrder } = await import("@/lib/mtn-hold")
             await holdMtnOrder({ table: "api_orders", orderId: String(orderId), phone: normalizedRecipientPhone })
           } else if (orderId && mtnResult.order_id) {
