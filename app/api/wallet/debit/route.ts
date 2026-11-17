@@ -4,6 +4,7 @@ import { sendSMS } from "@/lib/sms-service"
 import { sendPushToUser } from "@/lib/push-service"
 import { customerTrackingService } from "@/lib/customer-tracking-service"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
+import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 import {
   isAutoFulfillmentEnabled as isMTNAutoFulfillmentEnabled,
   createMTNOrder,
