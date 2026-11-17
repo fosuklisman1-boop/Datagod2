@@ -638,14 +638,21 @@ describe("Stage 3a shop line store functions", () => {
     expect(await getShopPref(c, S)).toBeNull()
     await setShopPref(c, S, SHOP_A)
     await setShopPref(c, S, SHOP_B)
-    expect(db.tables.ttb_shop_prefs).toHaveLength(1)
+    expect(db.tables.shop_customer_prefs).toHaveLength(1)
+    expect(db.tables.shop_customer_prefs[0]).toMatchObject({ phone: S, shop_code_id: SHOP_B, last_channel: "sms" })
     expect(await getShopPref(c, S)).toEqual({ shopCodeId: SHOP_B })
     expect(await getShopPref(c, "0200000199")).toBeNull()
   })
 
+  it("setShopPref then getShopPref round-trips", async () => {
+    const { c } = mk()
+    await setShopPref(c, S, SHOP_A)
+    expect(await getShopPref(c, S)).toEqual({ shopCodeId: SHOP_A })
+  })
+
   it("shop pref reads and writes throw a fixed TtbStoreError", async () => {
     const { db, c } = mk()
-    db.failOn.ttb_shop_prefs = { message: "leak 0200000101" }
+    db.failOn.shop_customer_prefs ={ message: "leak 0200000101" }
     const e = await getShopPref(c, S).catch((x) => x)
     expect(e).toBeInstanceOf(TtbStoreError)
     expect(String(e.message)).not.toContain("0200000101")

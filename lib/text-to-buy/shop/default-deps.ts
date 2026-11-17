@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { ResolvedShopCode } from "../../shop-commerce/shop-code"
+import { resolveShopCodeById } from "../../shop-commerce/customer-prefs"
 import type { ShopResolveDeps } from "./resolve"
 
 /**
@@ -27,8 +28,5 @@ export async function shopCodeByIdWith(
   lookup: (code: string) => Promise<ResolvedShopCode | null>,
   shopCodeId: string,
 ): Promise<ResolvedShopCode | null> {
-  const { data, error } = await db.from("ussd_shop_codes").select("code").eq("id", shopCodeId).maybeSingle()
-  const code = (data as { code?: unknown } | null)?.code
-  if (error || typeof code !== "string" || !code) return null
-  return lookup(code)
+  return resolveShopCodeById(db, shopCodeId, lookup)
 }

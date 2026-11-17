@@ -11,7 +11,8 @@ export const SCHEMA: Record<string, string[]> = {
   ttb_conversations: ["line", "sender", "turns", "pending", "last_order", "expires_at", "updated_at"],
   ttb_orders: ["id", "line", "sender", "service", "order_table", "order_id", "state", "size", "recipient", "gift", "amount", "notices", "created_at", "paid_at", "delivered_at", "closed_at", "shop_id"],
   // Migration 0180 (Stage 3a): the shop a sender last used, and the once-a-day notice throttle rows.
-  ttb_shop_prefs: ["sender", "shop_code_id", "last_used_at"],
+  // Migration 0183 replaced ttb_shop_prefs: one remembered shop per phone, shared by every shop channel.
+  shop_customer_prefs: ["phone", "shop_code_id", "last_channel", "last_used_at"],
   ttb_notices: ["id", "kind", "sender", "shop_id", "day", "created_at"],
   // Not a 0177 table: the USSD shop order table, only the columns the shop line reads.
   ussd_shop_orders: ["id", "shop_code_id", "shop_id", "dialing_phone", "order_status", "payment_status", "amount", "created_at", "updated_at"],
@@ -46,7 +47,7 @@ const PRIMARY: Record<string, string[]> = {
   ttb_conversations: ["line", "sender"],
   ttb_heartbeat: ["line"],
   ttb_blocked: ["sender"],
-  ttb_shop_prefs: ["sender"],
+  shop_customer_prefs: ["phone"],
 }
 
 type DbError = { code?: string; message: string }

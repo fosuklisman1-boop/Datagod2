@@ -1,5 +1,6 @@
 import { createHash } from "crypto"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { CustomerPrefsError, getCustomerShopCodeId, lastBoughtShopCodeId as sharedLastBought, rememberCustomerShop } from "../shop-commerce/customer-prefs"
 import { encodeCursor, MESSAGE_COLUMNS, shapePausedShops, toAdminMessage, type AdminMessage, type OverviewRow, type PausedShop } from "./admin-view"
 import { orderTableFor, type AirtimeNetwork, type ExamBoardWord, type Line, type OrderTable, type Outcome, type ReadResult, type Service } from "./types"
 
@@ -818,48 +819,36 @@ export async function callCountsToday(db: SupabaseClient, now: Date = new Date()
 
 /** The shop this sender last used on the shop line, or null. */
 export async function getShopPref(db: SupabaseClient, sender: string): Promise<{ shopCodeId: string } | null> {
-  const { data, error } = await db.from("ttb_shop_prefs").select("shop_code_id").eq("sender", sender).maybeSingle()
-  if (error) throw new TtbStoreError("could not read a shop preference")
-  const id = (data as { shop_code_id?: unknown } | null)?.shop_code_id
-  return typeof id === "string" ? { shopCodeId: id } : null
+  try {
+    const id = await getCustomerShopCodeId(db, sender)
+    return id ? { shopCodeId: id } : null
+  } catch (e) {
+    if (e instanceof CustomerPrefsError) throw new TtbStoreError("could not read a shop preference")
+    throw e
+  }
 }
 
-/** Remembers the shop (one row per sender). */
+/** Remembers the shop (one row per phone, shared with the other shop channels). */
 export async function setShopPref(db: SupabaseClient, sender: string, shopCodeId: string): Promise<void> {
-  const { error } = await db
-    .from("ttb_shop_prefs")
-    .upsert({ sender, shop_code_id: shopCodeId, last_used_at: new Date().toISOString() }, { onConflict: "sender" })
-  if (error) throw new TtbStoreError("could not save a shop preference")
+  try {
+    await rememberCustomerShop(db, sender, shopCodeId, "sms")
+  } catch (e) {
+    if (e instanceof CustomerPrefsError) throw new TtbStoreError("could not save a shop preference")
+    throw e
+  }
 }
-
-/**
- * ussd_shop_orders.dialing_phone is written as the channel gave it: +233... (Uzo, Hubtel), and the WhatsApp shop bot
- * passes the sender id through (233... without the plus); older rows may be local 0XXXXXXXXX. Match all three.
- */
-const dialingForms = (local: string) => {
-  const sig = local.replace(/^0/, "")
-  return [`+233${sig}`, `233${sig}`, `0${sig}`]
-}
-// order_status values that mean the customer did not get the bundle (refund sets 'refunded'; 'refunding' is mid-refund).
-const NOT_BOUGHT = new Set(["failed", "refunded", "refunding", "reversed"])
 
 /**
  * The shop code of this phone's newest bought order: payment completed and the order not failed, refunded or reversed.
- * Null when there is none. Looks at the 20 newest paid rows of the phone; the status test runs here so the list can grow.
+ * Null when there is none. Delegates to the shared customer-prefs module.
  */
 export async function lastBoughtShopCodeId(db: SupabaseClient, senderLocal: string): Promise<string | null> {
-  const { data, error } = await db
-    .from("ussd_shop_orders")
-    .select("shop_code_id, order_status, payment_status")
-    .in("dialing_phone", dialingForms(senderLocal))
-    .eq("payment_status", "completed")
-    .order("created_at", { ascending: false })
-    .limit(20)
-  if (error || !Array.isArray(data)) throw new TtbStoreError("could not read the last shop order")
-  for (const r of data as Record<string, unknown>[]) {
-    if (typeof r.shop_code_id === "string" && !NOT_BOUGHT.has(String(r.order_status))) return r.shop_code_id
+  try {
+    return await sharedLastBought(db, senderLocal)
+  } catch (e) {
+    if (e instanceof CustomerPrefsError) throw new TtbStoreError("could not read the last shop order")
+    throw e
   }
-  return null
 }
 
 /** True when THIS call created the (kind, sender, shop, day) notice row (ttb_notice_once); false on a repeat. day is YYYY-MM-DD. */
