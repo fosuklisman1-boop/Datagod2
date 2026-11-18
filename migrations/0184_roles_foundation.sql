@@ -107,7 +107,7 @@ ON CONFLICT (role_id, package_id) DO NOTHING;
 
 -- ============ two-way mirror (value convergence, no pg_trigger_depth) ============
 CREATE OR REPLACE FUNCTION public.packages_dealer_price_mirror() RETURNS trigger
-LANGUAGE plpgsql SET search_path = public AS $fn_pkg$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $fn_pkg$
 DECLARE
   v_dealer uuid;
 BEGIN
@@ -126,7 +126,7 @@ BEGIN
 END $fn_pkg$;
 
 CREATE OR REPLACE FUNCTION public.role_package_prices_dealer_mirror() RETURNS trigger
-LANGUAGE plpgsql SET search_path = public AS $fn_rpp$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $fn_rpp$
 DECLARE
   v_dealer uuid;
 BEGIN
@@ -144,6 +144,11 @@ BEGIN
   END IF;
   RETURN NULL;
 END $fn_rpp$;
+
+-- The mirror functions run as their owner (SECURITY DEFINER): roles / role_package_prices are revoked from anon and
+-- authenticated, yet any role that may write packages.dealer_price must still fire them. Firing a trigger needs no EXECUTE.
+REVOKE EXECUTE ON FUNCTION public.packages_dealer_price_mirror() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.role_package_prices_dealer_mirror() FROM PUBLIC, anon, authenticated;
 
 DROP TRIGGER IF EXISTS packages_dealer_price_mirror ON public.packages;
 CREATE TRIGGER packages_dealer_price_mirror AFTER INSERT OR UPDATE OF dealer_price ON public.packages

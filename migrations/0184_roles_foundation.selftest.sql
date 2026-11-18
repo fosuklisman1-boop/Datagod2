@@ -167,6 +167,20 @@ BEGIN
   END b_fk;
   IF NOT v_failed THEN RAISE EXCEPTION 'FAIL users_role_fk_missing'; END IF;
 
+  -- mirror functions run as definer with a pinned search_path (the tables are revoked from anon / authenticated)
+  FOREACH v_tbl IN ARRAY ARRAY['packages_dealer_price_mirror', 'role_package_prices_dealer_mirror'] LOOP
+    SELECT prosecdef INTO v_rls FROM pg_proc WHERE oid = ('public.' || v_tbl || '()')::regprocedure;
+    IF v_rls IS DISTINCT FROM true THEN RAISE EXCEPTION 'FAIL mirror_not_security_definer %', v_tbl; END IF;
+    IF NOT coalesce((SELECT 'search_path=public' = ANY (proconfig) FROM pg_proc WHERE oid = ('public.' || v_tbl || '()')::regprocedure), false) THEN
+      RAISE EXCEPTION 'FAIL mirror_search_path_not_pinned %', v_tbl;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+      IF has_function_privilege(v_role, ('public.' || v_tbl || '()')::regprocedure, 'EXECUTE') THEN
+        RAISE EXCEPTION 'FAIL mirror_execute_granted % %', v_role, v_tbl;
+      END IF;
+    END LOOP;
+  END LOOP;
+
   -- RLS on both tables, zero policies, anon / authenticated hold no privilege
   FOREACH v_tbl IN ARRAY ARRAY['roles', 'role_package_prices'] LOOP
     SELECT relrowsecurity INTO v_rls FROM pg_class WHERE oid = ('public.' || v_tbl)::regclass;
