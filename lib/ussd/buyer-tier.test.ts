@@ -27,9 +27,23 @@ describe("resolveBuyerTier", () => {
   it("no account: settings tier, no user fields", async () => {
     const { client } = fakeSupabase({ users: null, app_settings: settings })
     expect(await resolveBuyerTier(client, "+233200000101", "Telecel")).toEqual({
-      effectivePriceTier: "regular", subAgentParentShopId: undefined, userId: undefined,
+      effectivePriceTier: "regular", priceRole: "user", subAgentParentShopId: undefined, userId: undefined,
       walletBalance: undefined, mtnWhitelistActive: false,
     })
+  })
+
+  it("no account with a dealer default prices as dealer role", async () => {
+    const { client } = fakeSupabase({ users: null, app_settings: { ussd_price_tier: "dealer" } })
+    expect((await resolveBuyerTier(client, "+233200000101", "Telecel")).priceRole).toBe("dealer")
+  })
+
+  it("admin and custom roles: tier regular, role slug per rule", async () => {
+    const a = fakeSupabase({ users: { id: "u9", role: "admin" }, app_settings: settings, wallets: null })
+    const ra = await resolveBuyerTier(a.client, "+233200000101", "Telecel")
+    expect([ra.effectivePriceTier, ra.priceRole]).toEqual(["regular", "user"])
+    const g = fakeSupabase({ users: { id: "u8", role: "gold" }, app_settings: settings, wallets: null })
+    const rg = await resolveBuyerTier(g.client, "+233200000101", "Telecel")
+    expect([rg.effectivePriceTier, rg.priceRole]).toEqual(["regular", "gold"])
   })
 
   it("no account and no settings row: regular", async () => {
@@ -45,7 +59,7 @@ describe("resolveBuyerTier", () => {
   it("dealer with wallet", async () => {
     const { client } = fakeSupabase({ users: { id: "u1", role: "dealer" }, app_settings: settings, wallets: { balance: "42.5" } })
     expect(await resolveBuyerTier(client, "+233200000101", "Telecel")).toEqual({
-      effectivePriceTier: "dealer", subAgentParentShopId: undefined, userId: "u1",
+      effectivePriceTier: "dealer", priceRole: "dealer", subAgentParentShopId: undefined, userId: "u1",
       walletBalance: 42.5, mtnWhitelistActive: false,
     })
   })
@@ -61,7 +75,7 @@ describe("resolveBuyerTier", () => {
       user_shops: { parent_shop_id: "shop-9" }, wallets: { balance: 7 },
     })
     expect(await resolveBuyerTier(client, "+233200000101", "Telecel")).toEqual({
-      effectivePriceTier: "sub_agent", subAgentParentShopId: "shop-9", userId: "u2",
+      effectivePriceTier: "sub_agent", priceRole: "sub_agent", subAgentParentShopId: "shop-9", userId: "u2",
       walletBalance: 7, mtnWhitelistActive: false,
     })
   })
@@ -72,7 +86,7 @@ describe("resolveBuyerTier", () => {
       user_shops: null, wallets: { balance: 3 },
     })
     expect(await resolveBuyerTier(client, "+233200000101", "Telecel")).toEqual({
-      effectivePriceTier: "regular", subAgentParentShopId: undefined, userId: "u2",
+      effectivePriceTier: "regular", priceRole: "sub_agent", subAgentParentShopId: undefined, userId: "u2",
       walletBalance: 3, mtnWhitelistActive: false,
     })
   })
@@ -80,7 +94,7 @@ describe("resolveBuyerTier", () => {
   it("customer role is regular even when settings tier differs", async () => {
     const { client } = fakeSupabase({ users: { id: "u3", role: "customer" }, app_settings: { ussd_price_tier: "dealer" }, wallets: { balance: 1 } })
     expect(await resolveBuyerTier(client, "+233200000101", "Telecel")).toEqual({
-      effectivePriceTier: "regular", subAgentParentShopId: undefined, userId: "u3",
+      effectivePriceTier: "regular", priceRole: "customer", subAgentParentShopId: undefined, userId: "u3",
       walletBalance: 1, mtnWhitelistActive: false,
     })
   })

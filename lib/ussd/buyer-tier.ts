@@ -1,8 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { buyerPriceRole } from "./price-role"
 
 export type BuyerTier = {
   /** "regular" | "dealer" | "sub_agent", or another tier name held in app_settings.ussd_price_tier. */
   effectivePriceTier: string
+  /** Role-ladder slug that prices this caller (see lib/ussd/price-role.ts). Not used for pricing yet. */
+  priceRole: string
   subAgentParentShopId?: string
   userId?: string
   walletBalance?: number
@@ -62,5 +65,7 @@ export async function resolveBuyerTier(
     }
   }
 
-  return { effectivePriceTier, subAgentParentShopId, userId: userRow?.id, walletBalance, mtnWhitelistActive }
+  const priceRole = buyerPriceRole(userRow?.role, settingsRow?.ussd_price_tier ?? 'regular')
+
+  return { effectivePriceTier, priceRole, subAgentParentShopId, userId: userRow?.id, walletBalance, mtnWhitelistActive }
 }

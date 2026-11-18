@@ -169,6 +169,7 @@ export interface USSDSession extends UzoNpSessionFields, UzoPbSessionFields {
   bundleTotal?: number       // total bundle count for this network
   recipientPhone?: string
   effectivePriceTier?: string       // 'dealer' | 'regular' | 'sub_agent'
+  priceRole?: string                // role-ladder slug (absent on pre-roles sessions; use sessionPriceRole)
   subAgentParentShopId?: string     // set when user is a sub_agent; parent shop for catalog lookup
   userId?: string                   // registered user's DB id (if phone matched a user)
   walletBalance?: number            // fetched at network selection for display; re-verified at payment

@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest"
 import { hubtelRouter, MAIN_INTERNET_ENTRIES, MAIN_MENU_ENTRIES, SHOP_INTERNET_ENTRIES, SHOP_PRODUCT_ENTRIES, type RouterDeps } from "./router"
 import { IMPLEMENTED_SERVICES, type InternetType, type MainMenuKey } from "./menus"
 import { getHubtelUssdConfig } from "./config"
+import { tierToSlug } from "@/lib/ussd/price-role"
 import { digitFor, fakeShop, fakeSupabase, makeDeps, req } from "./testing/fakes"
 
 describe("hubtelRouter: entry guards", () => {
@@ -151,7 +152,7 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
       rows: { users: { pricing_mode: "custom" }, user_package_prices: [{ package_id: "pkg-1", price: 6 }] },
     })
     const { deps } = makeDeps({
-      resolveCaller: async () => ({ effectivePriceTier: "regular", userId: "u1" }),
+      resolveCaller: async () => ({ effectivePriceTier: "regular", priceRole: tierToSlug("regular"), userId: "u1" }),
       fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 6 }], total: 1 }),
     }, sup)
     await walkTo("CONFIRM", deps)
@@ -162,7 +163,7 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
   })
   it("refuses and creates nothing when custom prices cannot be read", async () => {
     const sup = fakeSupabase({ pkg: { price: 10, dealer_price: null, is_available: true }, readError: ["users"] })
-    const { deps } = makeDeps({ resolveCaller: async () => ({ effectivePriceTier: "regular", userId: "u1" }) }, sup)
+    const { deps } = makeDeps({ resolveCaller: async () => ({ effectivePriceTier: "regular", priceRole: tierToSlug("regular"), userId: "u1" }) }, sup)
     await walkTo("CONFIRM", deps)
     const r = await hubtelRouter(req({ Message: "1" }), deps)
     expect(r.Type).toBe("release")
@@ -171,7 +172,7 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
   })
   const subAgentCaller = {
-    resolveCaller: async () => ({ effectivePriceTier: "sub_agent", subAgentParentShopId: "shop-1", userId: "u1" }),
+    resolveCaller: async () => ({ effectivePriceTier: "sub_agent", priceRole: tierToSlug("sub_agent"), subAgentParentShopId: "shop-1", userId: "u1" }),
     fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 9 }], total: 1 }),
   }
   // One row per table: users is read as the parent (a dealer in custom mode, pkg-1 at 6). The parent's catalog row

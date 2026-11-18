@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { effectivePrice, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
 import type { SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
+import { buyerPriceRole } from "@/lib/ussd/price-role"
 import { toLocalPhone } from "./protocol"
 
 // Bundle listing is shared with the Uzo flow (pure DB read, no payment coupling).
@@ -10,6 +11,8 @@ export { fetchBundles, PAGE_SIZE } from "@/lib/ussd/handlers/bundles"
 
 export interface CallerContext {
   effectivePriceTier: string
+  /** Role-ladder slug that prices this caller (see lib/ussd/price-role.ts). Not used for pricing yet. */
+  priceRole: string
   subAgentParentShopId?: string
   userId?: string
 }
@@ -58,7 +61,12 @@ export async function resolveCaller(supabase: SupabaseClient, dialingPhone: stri
     parentShopId = shopRow?.parent_shop_id ?? null
   }
   const { tier, parentShopId: parent } = decideTier(defaultTier, userRow?.role, parentShopId)
-  return { effectivePriceTier: tier, subAgentParentShopId: parent, userId: userRow?.id }
+  return {
+    effectivePriceTier: tier,
+    priceRole: buyerPriceRole(userRow?.role, defaultTier),
+    subAgentParentShopId: parent,
+    userId: userRow?.id,
+  }
 }
 
 /** Same whitelist gate the Uzo main menu applies at initiation. */

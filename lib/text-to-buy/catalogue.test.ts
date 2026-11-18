@@ -329,7 +329,7 @@ describe("sessionForOffer", () => {
   const offer: Offer = {
     network: "MTN", networkLabel: "MTN", bundleId: "m5", size: "5GB", price: 50, recipientLocal: MTN_R, gift: true,
     paystackProvider: "vod",
-    tier: { effectivePriceTier: "dealer", subAgentParentShopId: undefined, userId: "d1", walletBalance: 123, mtnWhitelistActive: true },
+    tier: { effectivePriceTier: "dealer", priceRole: "dealer", subAgentParentShopId: undefined, userId: "d1", walletBalance: 123, mtnWhitelistActive: true },
   }
 
   it("is a CONFIRM session with the offer's fields and the sender in +233 form", () => {

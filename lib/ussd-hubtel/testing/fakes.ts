@@ -1,6 +1,7 @@
 // lib/ussd-hubtel/testing/fakes.ts
 // Test-only fakes shared by router.test.ts and flows/*.test.ts. Never imported by production code.
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
+import { tierToSlug } from "@/lib/ussd/price-role"
 import type { HubtelUssdConfig } from "../config"
 import type { RouterDeps } from "../flow-kit"
 import type { AfaServices, AirtimeServices, NetworkPlansServices, PayBillsServices, PayBillsVerifyInput, RcServices } from "../services"
@@ -106,7 +107,7 @@ export function makeDeps(over: Partial<RouterDeps> = {}, sup = fakeSupabase({ pk
       del: async id => { store.delete(id) },
     },
     fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 10 }], total: 1 }),
-    resolveCaller: async () => ({ effectivePriceTier: "regular" }),
+    resolveCaller: async () => ({ effectivePriceTier: "regular", priceRole: tierToSlug("regular") }),
     isDataBlocked: async () => false,
     getPrefixConfig: async () => ({ enabled: true, map: DEFAULT_NETWORK_PREFIXES }),
     pageSize: 5,

@@ -37,6 +37,31 @@ describe("phone normalisation in lookups", () => {
   })
 })
 
+describe("resolveCaller price role", () => {
+  function caller(tables: Record<string, unknown>) {
+    const b: any = {}
+    let table = ""
+    Object.assign(b, {
+      select: () => b, is: () => b, not: () => b, eq: () => b,
+      maybeSingle: async () => ({ data: tables[table] ?? null }),
+      single: async () => ({ data: tables[table] ?? null }),
+    })
+    return { from: (t: string) => { table = t; return b } } as any
+  }
+  const run = async (tables: Record<string, unknown>) => {
+    const r = await resolveCaller(caller(tables), "0200585542")
+    return [r.effectivePriceTier, r.priceRole, r.subAgentParentShopId]
+  }
+  it("dealer", async () => expect(await run({ users: { id: "u1", role: "dealer" }, app_settings: { ussd_price_tier: "regular" } })).toEqual(["dealer", "dealer", undefined]))
+  it("admin", async () => expect(await run({ users: { id: "u1", role: "admin" }, app_settings: { ussd_price_tier: "dealer" } })).toEqual(["regular", "user", undefined]))
+  it("user", async () => expect(await run({ users: { id: "u1", role: "user" }, app_settings: {} })).toEqual(["regular", "user", undefined]))
+  it("sub_agent with parent", async () => expect(await run({ users: { id: "u1", role: "sub_agent" }, user_shops: { parent_shop_id: "s1" }, app_settings: {} })).toEqual(["sub_agent", "sub_agent", "s1"]))
+  it("sub_agent without parent", async () => expect(await run({ users: { id: "u1", role: "sub_agent" }, app_settings: {} })).toEqual(["regular", "sub_agent", undefined]))
+  it("custom role", async () => expect(await run({ users: { id: "u1", role: "gold" }, app_settings: {} })).toEqual(["regular", "gold", undefined]))
+  it("unknown caller, default regular", async () => expect(await run({ app_settings: { ussd_price_tier: "regular" } })).toEqual(["regular", "user", undefined]))
+  it("unknown caller, default dealer", async () => expect(await run({ app_settings: { ussd_price_tier: "dealer" } })).toEqual(["dealer", "dealer", undefined]))
+})
+
 describe("decideTier", () => {
   it("falls back to the global default for unknown callers", () => {
     expect(decideTier("regular", undefined, null)).toEqual({ tier: "regular" })

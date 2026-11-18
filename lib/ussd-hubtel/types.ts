@@ -72,6 +72,7 @@ export interface HubtelSession {
   dataBlocked?: boolean
   network?: string // packages.network value: MTN | Telecel | AT-iShare | AT-BigTime
   effectivePriceTier?: string // regular | dealer | sub_agent
+  priceRole?: string // role-ladder slug (absent on pre-roles sessions; use sessionPriceRole)
   subAgentParentShopId?: string
   userId?: string
   bundlePage?: number
