@@ -8,6 +8,7 @@ import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabase"
 import { shopService } from "@/lib/shop-service"
+import { ownerDisplayBase } from "@/lib/shop-commerce/owner-base-price"
 import { Package, Users, DollarSign, Loader2, Save, Trash2, Check } from "lucide-react"
 import { toast } from "sonner"
 
@@ -41,7 +42,7 @@ export default function SubAgentCatalogPage() {
   const [shop, setShop] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [hasSubAgents, setHasSubAgents] = useState(false)
-  const [isDealer, setIsDealer] = useState(false)
+  const [ownerBase, setOwnerBase] = useState<Record<string, number> | null>(null)
   const [allPackages, setAllPackages] = useState<AdminPackage[]>([])
   const [catalog, setCatalog] = useState<CatalogItem[]>([])
 
@@ -83,14 +84,22 @@ export default function SubAgentCatalogPage() {
       const token = session?.access_token
       if (!token) return
 
-      const [catalogRes, pkgRes] = await Promise.all([
+      const [catalogRes, pkgRes, baseRes] = await Promise.all([
         fetch("/api/shop/sub-agent-catalog", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/shop/admin-packages"),
+        fetch("/api/shop/owner-base-prices", { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
       ])
 
       const catalogData = await catalogRes.json()
       setCatalog(catalogData.catalog || [])
-      setIsDealer(catalogData.is_dealer || false)
+
+      const baseData = baseRes?.ok ? await baseRes.json().catch(() => null) : null
+      if (baseData?.base) {
+        setOwnerBase(baseData.base)
+      } else {
+        setOwnerBase(null)
+        toast.error("Couldn't load your cost prices - showing public prices")
+      }
 
       const pkgData = await pkgRes.json()
       setAllPackages((pkgData.packages || []).filter((p: AdminPackage) => p.is_available !== false))
@@ -102,15 +111,10 @@ export default function SubAgentCatalogPage() {
     }
   }
 
-  // Same real base-price precedence shop-pricing's getBasePrice uses: dealer
-  // price wins when this shop is a dealer and one is set, else admin price.
-  // (This page is parent-tier only -- roles: ["user","admin","dealer"] in the
-  // sidebar, sub_agent never sees it -- so there's no parent-markup layer to
-  // account for here, unlike shop-pricing's version.)
-  const getBasePrice = (pkg: AdminPackage): number => {
-    const dealerPrice = pkg.dealer_price && pkg.dealer_price > 0 ? Number(pkg.dealer_price) : undefined
-    return isDealer && dealerPrice ? dealerPrice : Number(pkg.price) || 0
-  }
+  // Server role-resolved base (/api/shop/owner-base-prices), else public price.
+  // (This page is parent-tier only -- sub_agent never sees it -- so there's no
+  // parent-markup layer here, unlike shop-pricing's version.)
+  const getBasePrice = (pkg: AdminPackage): number => ownerDisplayBase(pkg, ownerBase)
 
   const catalogFor = (packageId: string) => catalog.find((c) => c.package_id === packageId)
 
@@ -204,7 +208,7 @@ export default function SubAgentCatalogPage() {
         const newMargin = parseFloat((newSelling - base).toFixed(2))
         return { pkg, base, currentSelling, newSelling, newMargin, willUpdate: newSelling >= base }
       })
-  }, [bulkRate, bulkMode, bulkNetwork, allPackages, catalog, isDealer])
+  }, [bulkRate, bulkMode, bulkNetwork, allPackages, catalog, ownerBase])
 
   const handleApplyBulk = async () => {
     const rows = bulkPreview.filter((r) => bulkSelected[r.pkg.id] !== false && r.willUpdate)

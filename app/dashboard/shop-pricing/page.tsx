@@ -9,6 +9,7 @@ import { shopService, shopPackageService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
 import { roleFromMetadata } from "@/lib/metadata-role"
+import { ownerDisplayBase } from "@/lib/shop-commerce/owner-base-price"
 import { shopOrigin } from "@/lib/shop-url"
 import { PillToggle } from "@/components/shop/pill-toggle"
 import { Tag, Send, AlertCircle, Loader2, Phone, GraduationCap, IdCard, Save, PartyPopper, Copy, MessageCircle, ExternalLink } from "lucide-react"
@@ -108,6 +109,7 @@ export default function ShopPricingPage() {
   const [shop, setShop] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [ownerBase, setOwnerBase] = useState<Record<string, number> | null>(null)
   const [category, setCategory] = useState<Category>("data")
 
   // Data Bundles
@@ -179,7 +181,7 @@ export default function ShopPricingPage() {
       if (!userShop) return
 
       setCatalogLoadFailed(false)
-      const [shopPkgs, allPkgs, constraintsRes, cfgRes, afaPriceRow] = await Promise.all([
+      const [shopPkgs, allPkgs, constraintsRes, cfgRes, afaPriceRow, baseRes] = await Promise.all([
         dataPackageStore(userShop).loadShopPackages().catch(() => []),
         dataPackageStore(userShop).loadCatalog().catch(() => {
           setCatalogLoadFailed(true)
@@ -188,8 +190,15 @@ export default function ShopPricingPage() {
         token ? fetch("/api/shop/airtime/constraints", { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.ok ? r.json() : null).catch(() => null) : null,
         fetch("/api/public/config").then((r) => r.ok ? r.json() : { admin_settings: {} }).catch(() => ({ admin_settings: {} })),
         supabase.from("afa_registration_prices").select("price").eq("is_active", true).eq("name", "default").maybeSingle(),
+        token ? fetch("/api/shop/owner-base-prices", { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.ok ? r.json() : null).catch(() => null) : null,
       ])
 
+      if (baseRes?.base) {
+        setOwnerBase(baseRes.base)
+      } else {
+        setOwnerBase(null)
+        toast.error("Couldn't load your cost prices - showing public prices")
+      }
       setShopPackages(shopPkgs || [])
       setAllPackages(allPkgs || [])
 
@@ -252,8 +261,6 @@ export default function ShopPricingPage() {
     }
   }
 
-  const isDealer = userRole === "dealer" || userRole === "admin"
-
   // A storefront joiner whose shop is still closed because prices are not set yet (migration 0146).
   const closedJoiner = !!shop && shop.joined_via === "storefront" && shop.is_active !== true && !shop.prices_set_at
   const catalogError = closedJoiner && catalogLoadFailed
@@ -288,13 +295,9 @@ export default function ShopPricingPage() {
     }
   }
 
-  // Same real base-price precedence used by the old My Shop page's
-  // handleAddPackage: sub-agent parent price wins, then dealer price, then
-  // the admin catalog price.
-  const getBasePrice = (pkg: any): number => {
-    const dealerPrice = pkg?.dealer_price > 0 ? Number(pkg.dealer_price) : undefined
-    return pkg?.parent_price ?? (isDealer && dealerPrice ? dealerPrice : Number(pkg?.price)) ?? 0
-  }
+  // Sub-agent parent price wins, then the server role-resolved base, then the
+  // public price.
+  const getBasePrice = (pkg: any): number => ownerDisplayBase(pkg, ownerBase)
 
   const packagesForNetwork = useMemo(
     () => allPackages.filter((p) => p.network === selectedNetwork && p.is_available !== false),
@@ -380,7 +383,7 @@ export default function ShopPricingPage() {
         const newProfit = parseFloat((newSelling - base).toFixed(2))
         return { pkg, base, currentSelling, newSelling, newProfit, willUpdate: newSelling >= base }
       })
-  }, [bulkRate, bulkMode, bulkNetwork, allPackages, shopPackages, userRole])
+  }, [bulkRate, bulkMode, bulkNetwork, allPackages, shopPackages, ownerBase])
 
   const handleApplyBulk = async () => {
     const rows = bulkPreview.filter((r) => bulkSelected[r.pkg.id] !== false && r.willUpdate)
