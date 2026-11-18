@@ -81,7 +81,7 @@ export function sizeLabel(size: string): string {
 
 /** Section of the catalogue one product offers for the buyer, parsed and priced. Throws when a price cannot be read. */
 async function productPackages(product: Product, tier: BuyerTier) {
-  const all = await fetchAllBundles(product, tier.effectivePriceTier, tier.subAgentParentShopId, tier.userId)
+  const all = await fetchAllBundles(product, tier.effectivePriceTier, tier.subAgentParentShopId, tier.userId, tier.priceRole)
   const out: { id: string; size: string; mb: number; price: number }[] = []
   for (const b of all) {
     const mb = parseSizeMb(b.size)
@@ -209,6 +209,7 @@ export function sessionForOffer(senderLocal: string, o: Offer): USSDSession {
     bundlePrice: o.price,
     recipientPhone: o.recipientLocal,
     effectivePriceTier: o.tier.effectivePriceTier,
+    priceRole: o.tier.priceRole,
     subAgentParentShopId: o.tier.subAgentParentShopId,
     userId: o.tier.userId,
     mtnWhitelistActive: o.tier.mtnWhitelistActive,

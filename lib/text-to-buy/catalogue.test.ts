@@ -39,15 +39,30 @@ function senderOn(carrier: "MTN" | "TELECEL" | "AT") {
 const pkg = (id: string, network: string, size: string, price: number, dealer: number | null = null, avail = true) =>
   ({ id, network, size, price, dealer_price: dealer, is_available: avail })
 
+const DEFAULT_PACKAGES = [
+  pkg("m1", "MTN", "1", 10, 8), pkg("m2", "MTN", "2GB", 20, 16), pkg("m5", "MTN", "5GB", 50, 40), pkg("m10", "MTN", "10", 100, 80),
+  pkg("mu", "MTN", "Unlimited", 5), pkg("mx", "MTN", "5GB", 99, null, false),
+  pkg("t5", "Telecel", "5GB", 48, 38),
+  pkg("i2", "AT-iShare", "2GB", 18, 14), pkg("i5", "AT-iShare", "5GB", 45, 36),
+  pkg("b5", "AT-BigTime", "5GB", 40, 33), pkg("b10", "AT-BigTime", "10GB", 80, 66),
+]
+
+// 0184 seed (user 0, dealer 10, sub_agent / admin off-ladder), with the mirrored dealer prices.
+const ROLES = [
+  { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+  { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+  { id: "r-sub", slug: "sub_agent", rank: null, is_system: true, archived_at: null },
+  { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
+]
+const dealerRows = (pkgs: ReturnType<typeof pkg>[]) =>
+  pkgs.filter((p) => Number(p.dealer_price) > 0).map((p) => ({ role_id: "r-dealer", package_id: p.id, price: p.dealer_price }))
+
 function seed(over: Record<string, any[]> = {}) {
+  const packages = (over.packages as ReturnType<typeof pkg>[] | undefined) ?? DEFAULT_PACKAGES
   const f = makeFakeCatalogue({
-    packages: [
-      pkg("m1", "MTN", "1", 10, 8), pkg("m2", "MTN", "2GB", 20, 16), pkg("m5", "MTN", "5GB", 50, 40), pkg("m10", "MTN", "10", 100, 80),
-      pkg("mu", "MTN", "Unlimited", 5), pkg("mx", "MTN", "5GB", 99, null, false),
-      pkg("t5", "Telecel", "5GB", 48, 38),
-      pkg("i2", "AT-iShare", "2GB", 18, 14), pkg("i5", "AT-iShare", "5GB", 45, 36),
-      pkg("b5", "AT-BigTime", "5GB", 40, 33), pkg("b10", "AT-BigTime", "10GB", 80, 66),
-    ],
+    packages: DEFAULT_PACKAGES,
+    roles: ROLES.map((r) => ({ ...r })),
+    role_package_prices: dealerRows(packages),
     users: [],
     app_settings: [{ key: null, ussd_price_tier: "regular" }],
     admin_settings: [],
@@ -286,6 +301,52 @@ describe("resolveOffer: price is the buyer's USSD price", () => {
   })
 })
 
+describe("resolveOffer: role resolver", () => {
+  const ask = () => resolveOffer(h.client, { senderLocal: SENDER, sizeMb: 5000, networkHint: null, recipient: null })
+  const user5 = { role_id: "r-user", package_id: "m5", price: 5.5 }
+
+  it("a role_package_prices row for user shows on the offer, the price list and the USSD menu alike", async () => {
+    seed({ users: [{ id: "u1", role: "user", phone_number: SENDER }], role_package_prices: [user5] })
+    const r = await ask()
+    expect(r.ok && r.offer).toMatchObject({ price: 5.5, tier: { effectivePriceTier: "regular", priceRole: "user" } })
+    const menu = await fetchBundles("MTN", 0, "regular", undefined, "u1", "user")
+    expect(menu.bundles.find((b) => b.id === "m5")!.price).toBe(5.5)
+    expect((await listPrices(h.client, SENDER))?.items.find((i) => i.size === "5GB")?.priceGhs).toBe(5.5)
+  })
+
+  it("an admin sender is priced as a user (public price), a dealer as a dealer", async () => {
+    seed({ users: [{ id: "a1", role: "admin", phone_number: SENDER }] })
+    const r = await ask()
+    expect(r.ok && r.offer).toMatchObject({ price: 50, tier: { effectivePriceTier: "regular", priceRole: "user" } })
+    seed({ users: [{ id: "d1", role: "dealer", phone_number: SENDER }] })
+    const d = await ask()
+    expect(d.ok && d.offer).toMatchObject({ price: 40, tier: { priceRole: "dealer" } })
+  })
+
+  it("an unknown sender follows app_settings.ussd_price_tier", async () => {
+    seed({ app_settings: [{ key: null, ussd_price_tier: "dealer" }] })
+    const r = await ask()
+    expect(r.ok && r.offer).toMatchObject({ price: 40, tier: { priceRole: "dealer" } })
+  })
+
+  it("an unreadable roles table -> prices_unavailable (never a public price) and no price list", async () => {
+    const f = seed({ users: [{ id: "d1", role: "dealer", phone_number: SENDER }] })
+    f.db.failOn["roles"] = { message: "boom" }
+    expect(await ask()).toEqual({ ok: false, reason: "prices_unavailable" })
+    senderOn("TELECEL")
+    expect(await listPrices(h.client, SENDER)).toBeNull()
+  })
+
+  it("the session built for confirm carries the price role, and confirm sees the same price as the offer", async () => {
+    seed({ users: [{ id: "u1", role: "user", phone_number: SENDER }], role_package_prices: [user5] })
+    const r = await ask()
+    if (!r.ok) throw new Error("expected an offer")
+    const s = sessionForOffer(SENDER, r.offer)
+    expect(s).toMatchObject({ priceRole: "user", effectivePriceTier: "regular", bundlePrice: 5.5 })
+    expect((await fetchBundles("MTN", 0, s.effectivePriceTier!, s.subAgentParentShopId, s.userId, s.priceRole)).bundles.find((b) => b.id === "m5")!.price).toBe(s.bundlePrice)
+  })
+})
+
 describe("listPrices", () => {
   it("Telecel sender: own network's available packages, ascending by size, role price", async () => {
     senderOn("TELECEL")
@@ -335,7 +396,7 @@ describe("sessionForOffer", () => {
   it("is a CONFIRM session with the offer's fields and the sender in +233 form", () => {
     expect(sessionForOffer(SENDER, offer)).toEqual({
       step: "CONFIRM", dialingPhone: "+233200000101", network: "MTN", paystackProvider: "vod", bundleId: "m5", bundleSize: "5GB",
-      bundlePrice: 50, recipientPhone: MTN_R, effectivePriceTier: "dealer", subAgentParentShopId: undefined, userId: "d1",
+      bundlePrice: 50, recipientPhone: MTN_R, effectivePriceTier: "dealer", priceRole: "dealer", subAgentParentShopId: undefined, userId: "d1",
       mtnWhitelistActive: true,
     })
   })

@@ -1,7 +1,9 @@
 import { after } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { UzoResponse, USSDSession, BundleOption } from "../types"
-import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
+import { getCustomPrices, NO_CUSTOM_PRICES, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
+import { roleBasePrices, roleBasePricesOrPublic, priceWith } from "@/lib/roles/pricing"
+import { tierToSlug, sessionPriceRole } from "../price-role"
 import { subAgentBundles, subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 import { cont, end, networkMenu, bundleMenu, recipientPrompt, confirmMenu, paymentMethodMenu, mainMenu, waWalletShort } from "../menus"
 import { networkNickname } from "../network-labels"
@@ -55,7 +57,8 @@ async function loadBundles(
   priceTier: string,
   parentShopId: string | undefined,
   userId: string | undefined,
-  strict: boolean
+  strict: boolean,
+  priceRole?: string
 ): Promise<{ bundles: BundleOption[]; total: number }> {
   // Sub-agents see only packages their parent actively offers, at the parent's LIVE cost (role price + current
   // wholesale margin; the stored parent_price is not trusted). Priced and sorted in code, then paged.
@@ -85,10 +88,17 @@ async function loadBundles(
   const custom = strict
     ? await getCustomPrices(supabase, userId)
     : await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
-  const bundles: BundleOption[] = (data ?? []).map((row: any) => ({
+  // The role's base price (admin priced as a user on these channels). Strict: a failed read throws RoleReadError, like
+  // a failed custom-price read. Display: public prices (never cheaper than public); handleConfirm re-prices and refuses.
+  const rows: any[] = data ?? []
+  const role = priceRole ?? tierToSlug(priceTier)
+  const base = strict
+    ? await roleBasePrices(supabase, role, rows, { admin: "as_user" })
+    : await roleBasePricesOrPublic(supabase, role, rows, { admin: "as_user" })
+  const bundles: BundleOption[] = rows.map((row: any) => ({
     id: row.id,
     size: row.size,
-    price: effectivePrice(row, priceTier === 'dealer', custom),
+    price: priceWith(base, row, custom),
   }))
 
   return { bundles, total: count ?? 0 }
@@ -99,9 +109,10 @@ export function fetchBundles(
   page: number,
   priceTier: string,
   parentShopId?: string,
-  userId?: string
+  userId?: string,
+  priceRole?: string
 ): Promise<{ bundles: BundleOption[]; total: number }> {
-  return loadBundles(network, page, priceTier, parentShopId, userId, false)
+  return loadBundles(network, page, priceTier, parentShopId, userId, false, priceRole)
 }
 
 /** Every package of a network at the buyer's price (same query and pricing as fetchBundles), throwing when any read fails. */
@@ -109,9 +120,10 @@ export async function fetchAllBundles(
   network: string,
   priceTier: string,
   parentShopId?: string,
-  userId?: string
+  userId?: string,
+  priceRole?: string
 ): Promise<BundleOption[]> {
-  return (await loadBundles(network, null, priceTier, parentShopId, userId, true)).bundles
+  return (await loadBundles(network, null, priceTier, parentShopId, userId, true, priceRole)).bundles
 }
 
 // ── SELECT_NETWORK ────────────────────────────────────────────────────────────
@@ -138,7 +150,7 @@ export async function handleSelectNetwork(
   const dialingPhone = session.dialingPhone ?? ''
   const tier = await resolveBuyerTier(supabase, dialingPhone, net.dbName)
 
-  const { bundles, total } = await fetchBundles(net.dbName, 0, tier.effectivePriceTier, tier.subAgentParentShopId, tier.userId)
+  const { bundles, total } = await fetchBundles(net.dbName, 0, tier.effectivePriceTier, tier.subAgentParentShopId, tier.userId, tier.priceRole)
   if (bundles.length === 0) {
     return cont(`No ${networkNickname(net.dbName)} packages available.\n\n${networkMenu()}`)
   }
@@ -177,7 +189,7 @@ export async function handleSelectBundle(
   // the bundle selection must agree on the same bundle count. Trusting session.bundleCache
   // causes a mismatch when the cache is stale (page advances but cache holds old data).
   const { bundles, total } = await fetchBundles(
-    session.network!, page, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId, session.userId
+    session.network!, page, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId, session.userId, sessionPriceRole(session)
   )
 
   const moreIndex = offset + bundles.length + 1
@@ -185,7 +197,7 @@ export async function handleSelectBundle(
 
   if (chosen === moreIndex && offset + bundles.length < total) {
     const nextPage = page + 1
-    const { bundles: nextBundles, total: newTotal } = await fetchBundles(session.network!, nextPage, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId, session.userId)
+    const { bundles: nextBundles, total: newTotal } = await fetchBundles(session.network!, nextPage, session.effectivePriceTier ?? 'regular', session.subAgentParentShopId, session.userId, sessionPriceRole(session))
     await setSession(sessionId, {
       ...session,
       bundlePage: nextPage,
@@ -341,14 +353,18 @@ export async function handleConfirm(
     verifiedPrice = offer.cost
     parentProfitAmount = offer.parentProfit
   } else {
+    // Custom prices and the role's base price are both read before anything is charged or written; either failing
+    // (CustomPriceReadError / RoleReadError) refuses the order.
     let custom
+    let base
     try {
       custom = await getCustomPrices(supabase, session.userId)
+      base = await roleBasePrices(supabase, sessionPriceRole(session), [pkg], { admin: "as_user" })
     } catch {
       await setSession(sessionId, { step: 'MAIN', dialingPhone })
       return end(MSG_PRICES_UNAVAILABLE)
     }
-    verifiedPrice = effectivePrice(pkg, priceTier === 'dealer', custom)
+    verifiedPrice = priceWith(base, pkg, custom)
   }
 
   const fee = Math.round(verifiedPrice * feePercent * 100) / 100

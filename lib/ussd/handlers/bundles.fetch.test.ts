@@ -30,6 +30,12 @@ function seed(extra: Record<string, any[]> = {}) {
     packages: PACKAGES,
     users: [{ id: "u1", pricing_mode: "custom" }, { id: "u2", pricing_mode: null }],
     user_package_prices: [{ user_id: "u1", package_id: "m1", price: 6 }],
+    // 0184 seed, with the mirrored dealer prices (a role_package_prices row wherever dealer_price > 0).
+    roles: [
+      { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+      { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+    ],
+    role_package_prices: PACKAGES.filter((p) => Number(p.dealer_price) > 0).map((p) => ({ role_id: "r-dealer", package_id: p.id, price: p.dealer_price })),
     ...extra,
   })
   h.client = f.client
@@ -111,6 +117,13 @@ describe("fetchAllBundles", () => {
     await expect(fetchAllBundles("MTN", "regular", undefined, "u1")).rejects.toThrow()
     h.subAgent.mockRejectedValue(new Error("x"))
     await expect(fetchAllBundles("MTN", "sub_agent", "shop-1")).rejects.toThrow()
+  })
+
+  it("fails closed when the role prices cannot be read, but the menu falls back to public prices", async () => {
+    const f = seed()
+    f.db.failOn["roles"] = { message: "boom" }
+    await expect(fetchAllBundles("MTN", "dealer")).rejects.toThrow()
+    expect((await fetchBundles("MTN", 0, "dealer")).bundles.map((b) => b.price)).toEqual([10, 20, 30, 40, 50])
   })
 
   it("fails closed when the packages read fails", async () => {

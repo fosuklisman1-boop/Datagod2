@@ -49,7 +49,7 @@ const h = vi.hoisted(() => {
           if (prop === "single") {
             return async () => {
               if (op === "insert") return { data: { id: `order-${++state.seq}` }, error: null }
-              if (table === "packages") return { data: { price: state.pkgPrice, dealer_price: null, is_available: true }, error: null }
+              if (table === "packages") return { data: { id: "p1", price: state.pkgPrice, dealer_price: null, is_available: true }, error: null }
               if (table === "app_settings") return { data: { paystack_fee_percentage: 3 }, error: null }
               return { data: null, error: null }
             }
@@ -63,7 +63,8 @@ const h = vi.hoisted(() => {
               return { data: b === undefined ? null : { balance: b }, error: null }
             }
           }
-          if (prop === "then") return (ok: (v: unknown) => unknown) => ok({ data: null, error: null })
+          // roles / role_package_prices: no rows = only the public price applies (the role resolver reads both).
+          if (prop === "then") return (ok: (v: unknown) => unknown) => ok({ data: table === "roles" || table === "role_package_prices" ? [] : null, error: null })
           return () => chain
         },
       })

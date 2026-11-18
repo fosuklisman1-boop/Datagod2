@@ -39,8 +39,8 @@ vi.mock("@/lib/mtn-providers/customer-verification", () => ({ isRecipientBlocked
 vi.mock("../../ussd-service-visibility", () => ({ getUssdServiceVisibility: vi.fn(async () => ({})) }))
 vi.mock("@/lib/pricing/package-price", () => ({
   effectivePrice: (row: any) => row.price,
-  getCustomPrices: vi.fn(async () => ({})),
-  NO_CUSTOM_PRICES: {},
+  getCustomPrices: vi.fn(async () => new Map()),
+  NO_CUSTOM_PRICES: new Map(),
   MSG_PRICES_UNAVAILABLE: "",
 }))
 vi.mock("@/lib/shop-commerce/pricing", () => ({
