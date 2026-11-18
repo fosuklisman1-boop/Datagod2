@@ -107,6 +107,17 @@ describe("role resolver in shop pricing", () => {
     })
     expect((await subAgentCosts("parentShop", ["p1"], custom)).costs.get("p1")).toMatchObject({ cost: 10, parentProfit: 4 })
   })
+  it("fetchShopBundles reads only the owner's role: a failed user_package_prices read still lists at base + margin; a failed users read lists nothing", async () => {
+    const tables = {
+      user_shops: { data: { user_id: "u1" } }, users: { data: { role: "dealer", pricing_mode: "custom" } },
+      shop_packages: { data: [{ package_id: "p1", profit_margin: 1 }] },
+      packages: { data: [{ id: "p1", size: "1GB", price: 10, dealer_price: 8 }] },
+    }
+    const ok = fakeClient({ ...tables, user_package_prices: { data: null, error: { message: "boom" } } })
+    expect(await fetchShopBundles("s1", "MTN", undefined, ok)).toEqual([{ id: "p1", size: "1GB", price: 9 }])
+    const bad = fakeClient({ ...tables, users: { data: null, error: { message: "boom" } } })
+    expect(await fetchShopBundles("s1", "MTN", undefined, bad)).toEqual([])
+  })
   it("roles read fails: fetchShopBundles lists nothing; verifyBundlePrice refuses; subAgentCosts rejects", async () => {
     const bad = { roles: { data: null, error: { message: "boom" } } }
     const list = fakeClient({

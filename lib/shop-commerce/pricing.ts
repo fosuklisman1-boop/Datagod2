@@ -63,6 +63,24 @@ export async function shopOwnerIsDealer(
   return user?.role === 'dealer' || user?.role === 'admin'
 }
 
+/**
+ * Only the owner's price-ladder slug (user_shops.user_id -> users.role; admin as dealer; "user" when a row is missing).
+ * A FAILED read throws CustomPriceReadError (fail closed). For display paths that never use custom prices.
+ */
+export async function shopOwnerSlug(
+  shopId: string,
+  client: SupabaseClientLike = supabase
+): Promise<string> {
+  const { data: shop, error: shopError } = await client
+    .from("user_shops").select("user_id").eq("id", shopId).maybeSingle()
+  if (shopError) throw new CustomPriceReadError()
+  if (!shop?.user_id) return "user"
+  const { data: user, error } = await client
+    .from("users").select("role").eq("id", shop.user_id).maybeSingle()
+  if (error) throw new CustomPriceReadError()
+  return pricingSlug(user?.role, "as_dealer")
+}
+
 /** The owner's price-ladder slug (admin prices as dealer, as shopOwnerIsDealer did) and custom prices. */
 export type OwnerPricing = { slug: string; custom: CustomPrices }
 
@@ -252,7 +270,7 @@ export async function subAgentCosts(
   const costs = new Map<string, SubAgentOffer | null>()
   for (const { id, pkg, wholesale, priced } of offered) {
     costs.set(id, {
-      cost: round2((base.get(id) as number) + wholesale),
+      cost: round2(priceWith(base, priced, NO_CUSTOM_PRICES) + wholesale),
       wholesale,
       parentProfit: parentProfitFromCatalog(wholesale, ownerSavingFrom(base, priced, parent.custom)),
       pkg: { id, size: pkg.size, network: pkg.network, price: pkg.price, dealer_price: pkg.dealer_price ?? null },
@@ -354,7 +372,7 @@ export async function fetchShopBundles(
     return listed(catalogRows)
   }
 
-  const [spRows, owner] = await Promise.all([
+  const [spRows, slug] = await Promise.all([
     client
       .from("shop_packages")
       .select("package_id, profit_margin")
@@ -364,11 +382,15 @@ export async function fetchShopBundles(
       // matching verifyBundlePrice's pick.
       .order("updated_at", { ascending: true })
       .then(r => r.data),
-    // Display path: an unreadable owner or role price lists nothing (confirm refuses anyway).
-    shopOwnerPricingOrNull(shopId, client),
+    // Display path reads only the owner's role (menu price = base + margin; custom prices never apply).
+    // A failed read lists nothing, like a role-price read failure (confirm refuses anyway).
+    shopOwnerSlug(shopId, client).catch(e => {
+      if (e instanceof CustomPriceReadError) return null
+      throw e
+    }),
   ])
 
-  if (!owner || !spRows?.length) return []
+  if (!slug || !spRows?.length) return []
 
   const { data: pkgRows } = await client
     .from("packages")
@@ -381,7 +403,7 @@ export async function fetchShopBundles(
 
   let base: Map<string, number>
   try {
-    base = await ownerBasePrices(client, owner, pkgRows)
+    base = await ownerBasePrices(client, { slug, custom: NO_CUSTOM_PRICES }, pkgRows)
   } catch (e) {
     if (e instanceof CustomPriceReadError) return []
     throw e
@@ -391,7 +413,7 @@ export async function fetchShopBundles(
     .map(pkg => ({
       id: pkg.id,
       size: pkg.size,
-      price: (base.get(String(pkg.id)) as number) + Number(profitMap[pkg.id] ?? 0),
+      price: priceWith(base, pkg, NO_CUSTOM_PRICES) + Number(profitMap[pkg.id] ?? 0),
     }))
     .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
 }
@@ -486,7 +508,7 @@ export async function verifyBundlePrice(
       throw e
     }
     const direct = directShopPricing({
-      rolePrice: base.get(String(pkg.id)) as number,
+      rolePrice: priceWith(base, pkg, NO_CUSTOM_PRICES),
       margin,
       saving: ownerSavingFrom(base, pkg, owner.custom),
     })
