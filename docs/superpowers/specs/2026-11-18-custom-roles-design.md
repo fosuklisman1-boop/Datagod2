@@ -82,7 +82,9 @@ Owner asked for a professional, detailed feature set.
   theme jsonb, limits jsonb, created_at, updated_at`.
   Seed: `user`(rank 0), `dealer`(rank 10), `sub_agent`, `admin` with
   `is_system=true`. System roles cannot be archived or have slug changed.
-  `admin` is excluded from every assignable list.
+  `admin` is never offered in the roles hub (members, clone, plans,
+  promotion); an existing admin can still make someone admin through the
+  current update-role path, exactly as today.
 - `users.role` stays text holding the slug; add FK to `roles.slug`
   (after verifying all existing values are seeded).
 - `role_package_prices(role_id, package_id, price, PK(role_id, package_id))`.
