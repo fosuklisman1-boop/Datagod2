@@ -164,7 +164,7 @@ BEGIN
   IF NOT v_failed THEN RAISE EXCEPTION 'FAIL system_role_archived'; END IF;
   IF v_msg IS DISTINCT FROM 'system role sub_agent cannot be archived' THEN RAISE EXCEPTION 'FAIL system_role_archived_wrong_error %', v_msg; END IF;
 
-  -- slug width: users.role is VARCHAR(20), so the slug CHECK must refuse 21 characters and allow 20
+  -- slug width: slugs are capped at 20 (fits users.role in every environment; prod is VARCHAR(50)), so the CHECK must refuse 21 and allow 20
   v_failed := false;
   <<b_slug21>>
   BEGIN
@@ -181,8 +181,8 @@ BEGIN
   SELECT count(*) INTO v_n FROM public.roles WHERE slug = 'selftest_role';
   IF v_n <> 0 THEN RAISE EXCEPTION 'FAIL custom_role_not_deletable'; END IF;
 
-  -- users.role FK
-  SELECT id INTO v_uid FROM public.users WHERE role IS NOT NULL LIMIT 1;
+  -- users.role FK (a plain 'user' row: never an admin, so sec_detect_role_change_trg has nothing to alert on)
+  SELECT id INTO v_uid FROM public.users WHERE role = 'user' LIMIT 1;
   IF v_uid IS NULL THEN RAISE EXCEPTION 'FAIL no_user_to_test'; END IF;
   v_failed := false;
   <<b_fk>>
