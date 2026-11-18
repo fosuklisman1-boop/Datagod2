@@ -23,6 +23,14 @@
 --   SELECT DISTINCT role FROM public.users;                                -- subset of {user, dealer, sub_agent, admin, NULL}
 --   SELECT count(*) FROM public.packages WHERE dealer_price > 0;           -- record N; role_package_prices must hold N dealer rows after
 --
+--   SELECT data_type, character_maximum_length FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='role';  -- character varying, 20 (CHECK caps slugs at 20)
+--   SELECT tgname FROM pg_trigger WHERE tgrelid IN ('public.packages'::regclass,'public.users'::regclass) AND NOT tgisinternal;  -- record; investigate any not in migrations/
+--   SELECT role, count(*) FROM public.users GROUP BY 1;  -- every value exactly one of user/dealer/sub_agent/admin or NULL (no case/whitespace variants)
+--   -- Supabase API settings: max rows >= 1000 (lib/roles/repo.ts ROW_CAP backstop cannot detect a lower cap)
+--   -- Apply in a quiet window: FK VALIDATE + CREATE TRIGGER hold SHARE ROW EXCLUSIVE on users/packages for the txn.
+--   -- Every packages.dealer_price writer is service-role (/api/admin/packages*); mirror functions are SECURITY DEFINER regardless.
+--   -- Do NOT insert any non-system roles row until Phase 2 is complete (lib/roles/flags.ts).
+--
 -- Dry run: migrations/0184_roles_foundation.selftest.sql (build the run string by code, as lib/roles/migration-0184.test.ts does).
 
 BEGIN;
@@ -32,7 +40,7 @@ SET LOCAL statement_timeout = '60s';
 -- ============ roles ============
 CREATE TABLE IF NOT EXISTS public.roles (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  slug             text NOT NULL UNIQUE CHECK (slug ~ '^[a-z][a-z0-9_]{1,31}$'),
+  slug             text NOT NULL UNIQUE CHECK (slug ~ '^[a-z][a-z0-9_]{1,19}$'),
   name             text NOT NULL,
   description      text,
   badge_color      text,

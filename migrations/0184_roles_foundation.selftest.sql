@@ -34,6 +34,7 @@ DECLARE
   v_p       text;
   v_role    text;
   v_tbl     text;
+  v_msg     text;
 BEGIN
   -- seeds
   SELECT count(*) INTO v_n FROM public.roles WHERE slug IN ('user', 'dealer', 'sub_agent', 'admin') AND is_system;
@@ -114,41 +115,66 @@ BEGIN
   IF NOT v_failed THEN RAISE EXCEPTION 'FAIL price_zero_allowed'; END IF;
 
   -- system-role protection
+  -- (catch raise_exception only, and match the trigger's own message, so an unrelated error cannot pass)
   v_failed := false;
+  v_msg := NULL;
   <<b_del>>
   BEGIN
     DELETE FROM public.roles WHERE slug = 'dealer';
-  EXCEPTION WHEN OTHERS THEN
+  EXCEPTION WHEN raise_exception THEN
     v_failed := true;
+    v_msg := SQLERRM;
   END b_del;
   IF NOT v_failed THEN RAISE EXCEPTION 'FAIL system_role_deleted'; END IF;
+  IF v_msg IS DISTINCT FROM 'system role dealer cannot be deleted' THEN RAISE EXCEPTION 'FAIL system_role_deleted_wrong_error %', v_msg; END IF;
 
   v_failed := false;
+  v_msg := NULL;
   <<b_slug>>
   BEGIN
     UPDATE public.roles SET slug = 'x' WHERE slug = 'user';
-  EXCEPTION WHEN OTHERS THEN
+  EXCEPTION WHEN raise_exception THEN
     v_failed := true;
+    v_msg := SQLERRM;
   END b_slug;
   IF NOT v_failed THEN RAISE EXCEPTION 'FAIL system_slug_changed'; END IF;
+  IF v_msg IS DISTINCT FROM 'system role user slug cannot change' THEN RAISE EXCEPTION 'FAIL system_slug_changed_wrong_error %', v_msg; END IF;
 
   v_failed := false;
+  v_msg := NULL;
   <<b_sys>>
   BEGIN
     UPDATE public.roles SET is_system = false WHERE slug = 'admin';
-  EXCEPTION WHEN OTHERS THEN
+  EXCEPTION WHEN raise_exception THEN
     v_failed := true;
+    v_msg := SQLERRM;
   END b_sys;
   IF NOT v_failed THEN RAISE EXCEPTION 'FAIL system_flag_changed'; END IF;
+  IF v_msg IS DISTINCT FROM 'system role admin is_system cannot change' THEN RAISE EXCEPTION 'FAIL system_flag_changed_wrong_error %', v_msg; END IF;
 
   v_failed := false;
+  v_msg := NULL;
   <<b_arch>>
   BEGIN
     UPDATE public.roles SET archived_at = now() WHERE slug = 'sub_agent';
-  EXCEPTION WHEN OTHERS THEN
+  EXCEPTION WHEN raise_exception THEN
     v_failed := true;
+    v_msg := SQLERRM;
   END b_arch;
   IF NOT v_failed THEN RAISE EXCEPTION 'FAIL system_role_archived'; END IF;
+  IF v_msg IS DISTINCT FROM 'system role sub_agent cannot be archived' THEN RAISE EXCEPTION 'FAIL system_role_archived_wrong_error %', v_msg; END IF;
+
+  -- slug width: users.role is VARCHAR(20), so the slug CHECK must refuse 21 characters and allow 20
+  v_failed := false;
+  <<b_slug21>>
+  BEGIN
+    INSERT INTO public.roles (slug, name) VALUES ('a' || repeat('b', 20), 'Too long');
+  EXCEPTION WHEN check_violation THEN
+    v_failed := true;
+  END b_slug21;
+  IF NOT v_failed THEN RAISE EXCEPTION 'FAIL slug_check_allows_over_20'; END IF;
+  INSERT INTO public.roles (slug, name) VALUES ('a' || repeat('b', 19), 'Max width');
+  DELETE FROM public.roles WHERE slug = 'a' || repeat('b', 19);
 
   -- a custom role can be deleted
   DELETE FROM public.roles WHERE slug = 'selftest_role';
