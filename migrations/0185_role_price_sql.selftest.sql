@@ -31,6 +31,7 @@ DECLARE
   v_got     numeric;
   v_def     text;
   v_role    text;
+  v_user_role uuid;
 BEGIN
   SELECT id INTO v_p1 FROM public.packages ORDER BY id LIMIT 1;
   SELECT id INTO v_p2 FROM public.packages WHERE id > v_p1 ORDER BY id LIMIT 1;
@@ -113,9 +114,17 @@ BEGIN
 
   -- the v2 RPC carries the new disjunct and still carries the old ones
   v_def := pg_get_functiondef('public.place_api_v2_order(uuid,uuid,uuid,text,numeric,numeric,text,text,text)'::regprocedure);
-  IF position('OR p_price = public.role_price_for((SELECT u2.role FROM public.users u2 WHERE u2.id = p_user_id), p.id)' IN v_def) = 0 THEN
+  IF position('OR p_price = public.role_price_for((SELECT CASE WHEN u2.role = ''admin'' THEN ''user'' ELSE u2.role END FROM public.users u2 WHERE u2.id = p_user_id), p.id)' IN v_def) = 0 THEN
     RAISE EXCEPTION 'FAIL v2_rpc_missing_role_disjunct';
   END IF;
+  IF position('CASE WHEN u2.role = ''admin'' THEN ''user'' ELSE u2.role END' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'FAIL v2_rpc_missing_admin_as_user_case';
+  END IF;
+  -- admin is priced as "user": a temp user-role price row is what role_price_for('user', pkg) returns
+  SELECT id INTO v_user_role FROM public.roles WHERE slug = 'user';
+  INSERT INTO public.role_package_prices (role_id, package_id, price) VALUES (v_user_role, v_p2, 5.5);
+  v_got := public.role_price_for('user', v_p2);
+  IF v_got IS DISTINCT FROM 5.5 THEN RAISE EXCEPTION 'FAIL user_row_price_for_admin_path %', v_got; END IF;
   IF position('p_price = p.price OR (p.dealer_price > 0 AND p_price = p.dealer_price)' IN v_def) = 0 THEN
     RAISE EXCEPTION 'FAIL v2_rpc_lost_price_disjuncts';
   END IF;

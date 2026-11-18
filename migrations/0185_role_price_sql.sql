@@ -8,9 +8,11 @@
 --     Walks the ladder: the role itself (if non-archived), then non-archived roles with rank strictly lower, by rank desc.
 --     Off-ladder role (rank NULL) -> itself only. Unknown / archived / NULL role -> no roles. First role_package_prices.price
 --     found; else packages.price. NULL when the package does not exist.
---   place_api_v2_order: body identical to migrations/0142_user_package_prices.sql (== the live definition, see PRE-CHECKS)
---     except the 1b price-acceptance condition gains ONE disjunct:
---         OR p_price = public.role_price_for((SELECT u2.role FROM public.users u2 WHERE u2.id = p_user_id), p.id)
+--   place_api_v2_order: body equals the LIVE production definition (md5 66cfbadfaa07b8fddfa30ccd3f191921, checked by the
+--     precheck below) plus ONE disjunct in the 1b price-acceptance condition; migrations/0142_user_package_prices.sql's
+--     text (with comments) is the repo copy of that live body. The added disjunct:
+--         OR p_price = public.role_price_for((SELECT CASE WHEN u2.role = 'admin' THEN 'user' ELSE u2.role END FROM public.users u2 WHERE u2.id = p_user_id), p.id)
+--     (admin is priced as "user", like pricingSlug(role, "as_user") in lib/roles/pricing.ts; NULL stays NULL = public price)
 --     Nothing currently accepted is removed. Grants repeat 0142's (service_role only), so the ACL is unchanged.
 --
 -- PRE-CHECKS (each must return the stated value before applying):
@@ -170,7 +172,7 @@ BEGIN
                    JOIN public.user_package_prices upp ON upp.user_id = u.id
                    WHERE u.id = p_user_id AND u.pricing_mode = 'custom'
                      AND upp.package_id = p.id AND upp.price = p_price)
-        OR p_price = public.role_price_for((SELECT u2.role FROM public.users u2 WHERE u2.id = p_user_id), p.id))
+        OR p_price = public.role_price_for((SELECT CASE WHEN u2.role = 'admin' THEN 'user' ELSE u2.role END FROM public.users u2 WHERE u2.id = p_user_id), p.id))
   ) THEN
     RETURN v_fail;
   END IF;

@@ -56,7 +56,7 @@ describe("0185 migration text", () => {
   it("copy-drift: the place_api_v2_order body equals 0142's apart from the one added disjunct", () => {
     const base = rpcBody(read("0142_user_package_prices.sql"))
     const added = rpcBody(migration())
-    const DISJUNCT = "\n        OR p_price = public.role_price_for((SELECT u2.role FROM public.users u2 WHERE u2.id = p_user_id), p.id))"
+    const DISJUNCT = "\n        OR p_price = public.role_price_for((SELECT CASE WHEN u2.role = 'admin' THEN 'user' ELSE u2.role END FROM public.users u2 WHERE u2.id = p_user_id), p.id))"
     expect(added.split(DISJUNCT)).toHaveLength(2) // present exactly once
     // removing it (and moving the group's closing paren back) must give 0142's text exactly
     const restored = added.replace("upp.price = p_price)" + DISJUNCT, "upp.price = p_price))")
@@ -195,5 +195,16 @@ describe.skipIf(!PGliteCtor)("0185 in PGlite", () => {
     expect((await place(U_GOLD, KEY, 7, "g-7")).success).toBe(false) // on no tier
     expect((await place(U_USER, K_USER, 6, "u-6")).success).toBe(false) // another role's row is not theirs
     expect((await place(U_USER, K_USER, 10, "u-10")).success).toBe(true)
+    // admin is priced as "user" (pricingSlug as_user): a user-role row of 5.5 is accepted for an admin caller
+    const U_ADMIN = "00000000-0000-0000-0000-0000000000c3"
+    const K_ADMIN = "00000000-0000-0000-0000-0000000000b3"
+    await db.exec(`
+      INSERT INTO role_package_prices(role_id, package_id, price) SELECT id, '${P}', 5.5 FROM roles WHERE slug = 'user';
+      INSERT INTO users(id, role) VALUES ('${U_ADMIN}', 'admin');
+      INSERT INTO wallets(user_id, balance, total_spent) VALUES ('${U_ADMIN}', 100, 0);
+      INSERT INTO api_v2_keys(id, user_id, status, environment) VALUES ('${K_ADMIN}', '${U_ADMIN}', 'active', 'live');
+    `)
+    expect((await place(U_ADMIN, K_ADMIN, 5.5, "a-55")).success).toBe(true)
+    expect((await place(U_ADMIN, K_ADMIN, 6, "a-6")).success).toBe(false) // gold's row is not the admin's
   }, 60_000)
 })
