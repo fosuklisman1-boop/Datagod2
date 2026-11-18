@@ -12,7 +12,14 @@ const h = vi.hoisted(() => {
     pricingMode: "role" as string,
     customRows: [] as { package_id: string; price: number }[],
     usersFail: false,
+    rolesFail: false,
+    rolePrices: [] as { role_id: string; package_id: string; price: number }[],
   }
+  const ROLES = [
+    { id: "r-user", slug: "user", rank: 10, is_system: true, archived_at: null },
+    { id: "r-dealer", slug: "dealer", rank: 20, is_system: true, archived_at: null },
+    { id: "r-admin", slug: "admin", rank: 100, is_system: true, archived_at: null },
+  ]
   const fake = {
     from: (table: string) => {
       if (table === "packages") {
@@ -39,6 +46,15 @@ const h = vi.hoisted(() => {
       if (table === "user_package_prices") {
         // the resolver reads .select().eq().limit()
         return { select: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: state.customRows, error: null }) }) }) }
+      }
+      if (table === "roles" || table === "role_package_prices") {
+        const rows = () => (table === "roles" ? ROLES : state.rolePrices)
+        const c: any = {
+          select: () => c, eq: () => c, in: () => c, is: () => c, order: () => c, limit: () => c,
+          then: (r: any, j: any) =>
+            Promise.resolve(state.rolesFail ? { data: null, error: { message: "boom" } } : { data: rows(), error: null }).then(r, j),
+        }
+        return c
       }
       throw new Error(`Unexpected table in fake client: ${table}`)
     },
@@ -74,6 +90,13 @@ beforeEach(() => {
   h.state.pricingMode = "role"
   h.state.customRows = []
   h.state.usersFail = false
+  h.state.rolesFail = false
+  // What migration 0184 seeds from packages.dealer_price: the dealer ladder lives in role_package_prices.
+  h.state.rolePrices = [
+    { role_id: "r-dealer", package_id: "p1", price: 5.8 },
+    { role_id: "r-dealer", package_id: "p5", price: 24.5 },
+    { role_id: "r-dealer", package_id: "p2", price: 10.5 },
+  ]
 })
 
 describe("buildProductsCatalog", () => {
@@ -108,6 +131,29 @@ describe("buildProductsCatalog", () => {
     const catalog = await buildProductsCatalog("dealer")
     const mtn1gb = catalog.data_bundles.find((b) => b.network === "MTN" && b.size_gb === "1")
     expect(mtn1gb?.price).toBe(5.8)
+  })
+
+  const price1gb = (c: Awaited<ReturnType<typeof buildProductsCatalog>>) =>
+    c.data_bundles.find((b) => b.network === "MTN" && b.size_gb === "1")!.price
+
+  it("a role price row for the user role shows as that price", async () => {
+    h.state.rolePrices = [{ role_id: "r-user", package_id: "p1", price: 5.5 }]
+    expect(price1gb(await buildProductsCatalog("user"))).toBe(5.5)
+  })
+
+  it("a dealer role price row is shown to a dealer", async () => {
+    h.state.rolePrices = [{ role_id: "r-dealer", package_id: "p1", price: 5.1 }]
+    expect(price1gb(await buildProductsCatalog("dealer"))).toBe(5.1)
+  })
+
+  it("an admin is shown the user ladder (as a normal user)", async () => {
+    h.state.rolePrices = [{ role_id: "r-dealer", package_id: "p1", price: 5.1 }, { role_id: "r-user", package_id: "p1", price: 6 }]
+    expect(price1gb(await buildProductsCatalog("admin"))).toBe(6)
+  })
+
+  it("shows public prices when the roles read fails", async () => {
+    h.state.rolesFail = true
+    expect(price1gb(await buildProductsCatalog("dealer"))).toBe(6.5)
   })
 
   it("excludes a disabled airtime network", async () => {

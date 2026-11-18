@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
-import { customPricesForUser, effectivePrice } from "@/lib/pricing/package-price"
+import { customPricesForUser } from "@/lib/pricing/package-price"
+import { roleBasePrices, priceWith } from "@/lib/roles/pricing"
 
 export const dynamic = "force-dynamic"
 
@@ -23,15 +24,15 @@ export async function GET(req: NextRequest) {
   const { data: pkgs, error } = await db.from("packages").select("id, price, dealer_price").eq("is_available", true)
   if (error) return NextResponse.json({ error: "Failed to load prices" }, { status: 500 })
 
-  let custom
+  let custom, base
   try {
     custom = await customPricesForUser(db, { id: userId, pricing_mode: user.pricing_mode ?? null })
+    // Same role resolver and admin rule as /api/orders/purchase, the route this page buys through.
+    base = await roleBasePrices(db, user.role, pkgs ?? [], { admin: "as_user" })
   } catch {
     return NextResponse.json({ error: "Failed to load prices" }, { status: 503 })
   }
-  // Same dealer rule as /api/orders/purchase, the route this page buys through.
-  const isDealer = user.role === "dealer"
-  const prices = Object.fromEntries((pkgs ?? []).map((p: any) => [p.id, effectivePrice(p, isDealer, custom)]))
+  const prices = Object.fromEntries((pkgs ?? []).map((p: any) => [p.id, priceWith(base, p, custom)]))
   const custom_ids = (pkgs ?? []).map((p: any) => String(p.id)).filter((id: string) => custom.has(id))
   return NextResponse.json({ pricing_mode: user.pricing_mode ?? "role", prices, custom_ids }, { headers: { "Cache-Control": "no-store" } })
 }

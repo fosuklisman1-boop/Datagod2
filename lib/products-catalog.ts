@@ -1,7 +1,8 @@
 // lib/products-catalog.ts
 import { createClient } from "@supabase/supabase-js"
 import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
-import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
+import { getCustomPrices, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
+import { roleBasePricesOrPublic, priceWith } from "@/lib/roles/pricing"
 import { isExamBoardEnabled, calculateRCPrice, type ExamBoard } from "@/lib/results-checker-service"
 
 const supabase = createClient(
@@ -35,7 +36,7 @@ export async function buildProductsCatalog(role: string, userId?: string): Promi
   const custom = await getCustomPrices(supabase, userId).catch(() => NO_CUSTOM_PRICES)
 
   const [dataBundles, airtime, resultsChecker, afa] = await Promise.all([
-    buildDataBundles(isDealer, custom),
+    buildDataBundles(role, custom),
     buildAirtime(isDealer),
     buildResultsChecker(),
     buildAfa(),
@@ -44,7 +45,7 @@ export async function buildProductsCatalog(role: string, userId?: string): Promi
   return { data_bundles: dataBundles, airtime, results_checker: resultsChecker, afa }
 }
 
-async function buildDataBundles(isDealer: boolean, custom: CustomPrices): Promise<ProductsCatalogResponse["data_bundles"]> {
+async function buildDataBundles(role: string, custom: CustomPrices): Promise<ProductsCatalogResponse["data_bundles"]> {
   const { data, error } = await supabase
     .from("packages")
     .select("id, network, size, price, dealer_price")
@@ -56,10 +57,12 @@ async function buildDataBundles(isDealer: boolean, custom: CustomPrices): Promis
   }
   if (!data) return []
 
+  // Display only: public prices if the role tables cannot be read.
+  const base = await roleBasePricesOrPublic(supabase, role, data, { admin: "as_user" })
   return data.map((row: any) => ({
     network: row.network,
     size_gb: row.size,
-    price: effectivePrice(row, isDealer, custom),
+    price: priceWith(base, row, custom),
   }))
 }
 
