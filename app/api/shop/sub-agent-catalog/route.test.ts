@@ -153,16 +153,50 @@ describe("saving prices opens a closed storefront joiner's shop", () => {
 })
 
 describe("GET /api/shop/sub-agent-catalog (parent)", () => {
-  it("unchanged: the parent's own rows at their role price + wholesale margin", async () => {
+  beforeEach(() => {
     h.state.userId = "parent-user"
-    h.state.tables.user_shops = { data: { id: "parent-shop", parent_shop_id: null } }
+    h.state.tables.user_shops = { data: { id: "parent-shop", parent_shop_id: null, user_id: "parent-user" } }
     h.state.tables.sub_agent_catalog = {
       data: [{ id: "c1", package_id: "p1", wholesale_margin: 2, is_active: false, package: PKG("p1") }],
     }
+  })
+
+  it("unchanged: the parent's own rows at their role price + wholesale margin", async () => {
     const { status, body } = await get()
     expect(status).toBe(200)
     expect(body.catalog).toEqual([
-      expect.objectContaining({ id: "c1", parent_price: 8, selling_price: 10, profit_margin: 2, is_active: false, is_dealer: true }),
+      expect.objectContaining({ id: "c1", parent_price: 8, base_price: 8, selling_price: 10, profit_margin: 2, is_active: false, is_dealer: true }),
     ])
+    expect(body.is_dealer).toBe(true)
+  })
+
+  it("an admin parent prices as a dealer", async () => {
+    h.state.tables.users = { data: { role: "admin", pricing_mode: null } }
+    const { body } = await get()
+    expect(body.catalog[0]).toMatchObject({ parent_price: 8, base_price: 8, is_dealer: true })
+  })
+
+  it("a user parent prices at the public price and is not a dealer", async () => {
+    h.state.tables.users = { data: { role: "user", pricing_mode: null } }
+    const { body } = await get()
+    expect(body.catalog[0]).toMatchObject({ parent_price: 10, base_price: 10, selling_price: 12, is_dealer: false })
+    expect(body.is_dealer).toBe(false)
+  })
+
+  it("a role price row for the user role is reflected", async () => {
+    h.state.tables.users = { data: { role: "user", pricing_mode: null } }
+    h.state.tables.role_package_prices = { data: [{ role_id: "r-user", package_id: "p1", price: 5.5 }] }
+    const { body } = await get()
+    expect(body.catalog[0]).toMatchObject({ base_price: 5.5, parent_price: 5.5, selling_price: 7.5 })
+  })
+
+  it("a failed roles read lists nothing and fails the request without leaking the cause", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.state.tables.roles = { data: null, error: { message: "boom" } }
+    const { status, body } = await get()
+    expect(status).toBe(500)
+    expect(body.catalog).toBeUndefined()
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("boom")
+    spy.mockRestore()
   })
 })

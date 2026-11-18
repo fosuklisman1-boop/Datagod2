@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { rolePrice } from "@/lib/pricing/package-price"
+import { NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
+import { priceWith, roleBasePrices } from "@/lib/roles/pricing"
+import { RoleReadError } from "@/lib/roles/repo"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -53,12 +55,20 @@ export async function GET(request: NextRequest) {
         // shop, which prices it at the ROLE price + margin and raises a fraud alert when the page asks for less.
         // So this route shows the role price (dealers and admins priced as dealers), never the custom price:
         // a dealer's custom-price saving is credited as shop profit by the create route, not shown here.
-        // rolePrice also keeps the fix for a zero dealer price, which the old nullish fallback showed as a free bundle.
+        // The role resolver also keeps the fix for a zero dealer price, which the old nullish fallback showed as a free bundle.
+        let base: Map<string, number>
+        try {
+            base = await roleBasePrices(supabase, userData.role, packages || [], { admin: "as_dealer" })
+        } catch (e) {
+            if (!(e instanceof RoleReadError)) throw e
+            console.error("[DEALER-PACKAGES] role prices unavailable:", e.name)
+            return NextResponse.json({ error: "Failed to load prices" }, { status: 503 })
+        }
         const dealerPackages = (packages || []).map((pkg: any) => ({
             id: pkg.id,
             network: pkg.network,
             size: pkg.size,
-            price: rolePrice(pkg, true),
+            price: priceWith(base, pkg, NO_CUSTOM_PRICES),
             original_price: pkg.price,
             dealer_price: pkg.dealer_price,
             description: pkg.description,

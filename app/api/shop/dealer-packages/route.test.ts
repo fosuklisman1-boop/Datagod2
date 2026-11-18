@@ -4,10 +4,18 @@ import { NextRequest } from "next/server"
 const h = vi.hoisted(() => ({
   role: "dealer",
   mode: "custom" as string | null,
-  prices: [{ package_id: "p1", price: 6 }] as any,
+  prices: [{ role_id: "r-dealer", package_id: "p1", price: 8 }] as any,
   pricesError: null as any,
+  rolesError: null as any,
   zeroDealer: false,
 }))
+
+const ROLES = [
+  { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+  { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+  { id: "r-sub", slug: "sub_agent", rank: null, is_system: true, archived_at: null },
+  { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
+]
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
@@ -19,8 +27,9 @@ vi.mock("@supabase/supabase-js", () => ({
             { id: "p1", network: "MTN", size: "1", price: 10, dealer_price: h.zeroDealer ? 0 : 8, description: "", is_available: true },
             { id: "p2", network: "MTN", size: "2", price: 5, dealer_price: null, description: "", is_available: true },
           ], error: null }
+        : t === "roles" ? { data: h.rolesError ? null : ROLES, error: h.rolesError }
         : { data: h.pricesError ? null : h.prices, error: h.pricesError }
-      const c: any = { select: () => c, eq: () => c, order: () => c, limit: () => c, single: () => Promise.resolve(result), maybeSingle: () => Promise.resolve(result), then: (r: any, j: any) => Promise.resolve(result).then(r, j) }
+      const c: any = { select: () => c, eq: () => c, in: () => c, order: () => c, limit: () => c, single: () => Promise.resolve(result), maybeSingle: () => Promise.resolve(result), then: (r: any, j: any) => Promise.resolve(result).then(r, j) }
       return c
     },
   }),
@@ -30,7 +39,10 @@ import { GET } from "./route"
 const req = () => new NextRequest("http://x/api/shop/dealer-packages", { headers: { Authorization: "Bearer t" } })
 
 describe("GET /api/shop/dealer-packages", () => {
-  beforeEach(() => { h.role = "dealer"; h.mode = "custom"; h.pricesError = null })
+  beforeEach(() => {
+    h.role = "dealer"; h.mode = "custom"; h.pricesError = null; h.rolesError = null
+    h.prices = [{ role_id: "r-dealer", package_id: "p1", price: 8 }]
+  })
 
   it("shows the role (dealer) price even to a user on custom pricing: buy-stock is priced at role + margin", async () => {
     const body = await (await GET(req())).json()
@@ -42,16 +54,37 @@ describe("GET /api/shop/dealer-packages", () => {
     const body = await (await GET(req())).json()
     expect(body.packages.map((p: any) => p.price)).toEqual([8, 5])
   })
-  it("does not read custom prices, so a failed custom-price read cannot block it", async () => {
-    h.pricesError = { message: "x" }
+  it("does not read custom prices (no user_package_prices read), so only role prices matter", async () => {
     const res = await GET(req())
     expect(res.status).toBe(200)
     expect((await res.json()).packages.map((p: any) => p.price)).toEqual([8, 5])
   })
   it("a dealer_price of 0 falls back to price, never a free bundle", async () => {
     h.zeroDealer = true
+    h.prices = []
     const body = await (await GET(req())).json()
     expect(body.packages[0].price).toBe(10)
     h.zeroDealer = false
+  })
+  it("a role_package_prices row for the dealer role is the price shown", async () => {
+    h.prices = [{ role_id: "r-dealer", package_id: "p1", price: 7.5 }]
+    const body = await (await GET(req())).json()
+    expect(body.packages[0].price).toBe(7.5)
+  })
+  it("still 403 for a user and a sub_agent (rights are Phase 3)", async () => {
+    for (const role of ["user", "sub_agent"]) {
+      h.role = role
+      const res = await GET(req())
+      expect(res.status).toBe(403)
+    }
+  })
+  it("a failed roles read is a 503, logging the error class name only", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    h.rolesError = { message: "boom" }
+    const res = await GET(req())
+    expect(res.status).toBe(503)
+    expect((await res.json()).error).toBe("Failed to load prices")
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("boom")
+    spy.mockRestore()
   })
 })

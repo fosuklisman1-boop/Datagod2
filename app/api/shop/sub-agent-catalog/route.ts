@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { CustomPriceReadError } from "@/lib/pricing/package-price"
-import { subAgentCosts, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
+import { CustomPriceReadError, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
+import { priceWith } from "@/lib/roles/pricing"
+import { ownerBasePrices, shopOwnerSlug, subAgentCosts, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 import { notifyWaitingSubAgents } from "@/lib/sub-agents/notify-owner"
 import { openClosedJoinerAfterSave } from "@/lib/sub-agents/open-after-save"
 
@@ -169,23 +170,29 @@ export async function GET(request: NextRequest) {
     }
 
     // Parent (no parent_shop_id): their own catalog, shown at their role price + their wholesale margin.
-    const { data: userData } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-    const isDealer = userData?.role === 'dealer' || userData?.role === 'admin';
+    // The base comes from the role resolver for this shop's owner (admin priced as a dealer). Display only, so
+    // custom prices are not read.
+    let ownerSlug: string
+    let base: Map<string, number>
+    try {
+      ownerSlug = await shopOwnerSlug(shop.id, supabase as Parameters<typeof shopOwnerSlug>[1])
+      base = await ownerBasePrices(
+        supabase as Parameters<typeof ownerBasePrices>[0],
+        { slug: ownerSlug, custom: NO_CUSTOM_PRICES },
+        (catalog || []).map((item: any) => item.package).filter(Boolean)
+      )
+    } catch (e) {
+      if (!(e instanceof CustomPriceReadError)) throw e
+      console.error("Error reading owner prices for shop", shop.id, e.name)
+      return NextResponse.json({ error: "Failed to fetch catalog" }, { status: 500 })
+    }
+    // Kept for existing clients; they stop using it once they read base_price.
+    const isDealer = ownerSlug === "dealer"
 
     // Transform to include calculated prices
     const catalogWithPrices = (catalog || []).map((item: any) => {
-      // Use dealer_price if dealer, otherwise use packages.price
-      const pkgPrice = item.package?.price || 0
-      const dealerPrice = item.package?.dealer_price
-
-      // Use dynamic base price based on this user's current role
-      const adminPrice = (isDealer && dealerPrice && dealerPrice > 0)
-        ? dealerPrice
-        : pkgPrice;
+      // A row whose package is missing has no base price (priced 0, as before)
+      const adminPrice = item.package ? priceWith(base, item.package, NO_CUSTOM_PRICES) : 0
 
       // A parent's cost is the role price (no parent margin above them)
       const parentPrice = adminPrice;
@@ -203,6 +210,7 @@ export async function GET(request: NextRequest) {
         is_active: item.is_active !== undefined ? item.is_active : true,
         // parent_price: the base cost (this user's role price)
         parent_price: parentPrice,
+        base_price: adminPrice,
         // selling_price: what the sub-agent will pay this user
         selling_price: sellingPrice,
         // profit_margin for display: the user's own profit from this sub-agent

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { CustomPriceReadError, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
+import { priceWith } from "@/lib/roles/pricing"
+import { ownerBasePrices, shopOwnerSlug } from "@/lib/shop-commerce/pricing"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -29,26 +32,6 @@ export async function GET(request: NextRequest) {
 
     if (shopError || !shop) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
-    }
-
-    // Get parent shop owner's role if it's a sub-agent
-    let isParentDealer = false;
-    if (shop.parent_shop_id) {
-      const { data: parentShop } = await supabase
-        .from("user_shops")
-        .select("user_id")
-        .eq("id", shop.parent_shop_id)
-        .single();
-
-      if (parentShop) {
-        const { data: parentUser } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", parentShop.user_id)
-          .single();
-
-        isParentDealer = parentUser?.role === 'dealer' || parentUser?.role === 'admin';
-      }
     }
 
     // If no parent shop, return empty (not a sub-agent)
@@ -85,16 +68,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Failed to fetch packages" }, { status: 500 })
     }
 
-    // Transform packages: sub-agent's wholesale price = admin price + parent's margin
-    const transformedPackages = (catalogItems || [])
-      .filter((item: any) => item.package?.is_available)
-      .map((item: any) => {
-        const pkgPrice = item.package.price || 0
-        const pkgDealerPrice = item.package.dealer_price
+    // The parent's base price comes from the role resolver (admin priced as a dealer). Display only: custom prices
+    // never change what a sub-agent pays, so only the owner's ladder slug is read.
+    const available = (catalogItems || []).filter((item: any) => item.package?.is_available)
+    let base: Map<string, number>
+    try {
+      const slug = await shopOwnerSlug(shop.parent_shop_id, supabase as Parameters<typeof shopOwnerSlug>[1])
+      base = await ownerBasePrices(
+        supabase as Parameters<typeof ownerBasePrices>[0],
+        { slug, custom: NO_CUSTOM_PRICES },
+        available.map((item: any) => item.package)
+      )
+    } catch (e) {
+      if (!(e instanceof CustomPriceReadError)) throw e
+      console.error("[PARENT-PACKAGES] parent prices unavailable:", e.name)
+      return NextResponse.json({ error: "Failed to load prices" }, { status: 503 })
+    }
 
-        const adminPrice = (isParentDealer && pkgDealerPrice && pkgDealerPrice > 0)
-          ? pkgDealerPrice
-          : pkgPrice;
+    // Transform packages: sub-agent's wholesale price = parent's base price + parent's margin
+    const transformedPackages = available
+      .map((item: any) => {
+        const adminPrice = priceWith(base, item.package, NO_CUSTOM_PRICES)
 
         const parentMargin = item.wholesale_margin
         const parentSellingPrice = adminPrice + parentMargin
@@ -108,6 +102,8 @@ export async function GET(request: NextRequest) {
           size: item.package.size,
           // parent_price: what the parent sells to sub-agent (admin price + parent's margin)
           parent_price: parentSellingPrice,
+          // base_price: the parent's own base price, before their margin
+          base_price: adminPrice,
           description: item.package.description,
           active: item.package.is_available,
           // profit_margin: parent's margin (for reference, but not used for calculating sub-agent profit)
