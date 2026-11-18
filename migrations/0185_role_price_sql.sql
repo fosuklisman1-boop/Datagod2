@@ -153,7 +153,8 @@ BEGIN
 
   -- 1b. Defence in depth: the package must exist, be available, and match
   --     the network and volume; the price must be one of its tiers (price,
-  --     or dealer_price when > 0). The route resolves all of this already;
+  --     dealer_price when > 0, the user's custom price, or the caller's
+  --     role-ladder price via role_price_for). The route resolves all of this already;
   --     this stops a buggy caller from inserting a mismatched or underpriced
   --     order. packages.size is TEXT ("1", "2", ...); the CASE guarantees the
   --     regex runs before the numeric cast (AND has no evaluation order).

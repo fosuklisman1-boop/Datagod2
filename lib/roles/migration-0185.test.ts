@@ -19,7 +19,8 @@ function rpcBody(sql: string): string {
   const end = sql.indexOf("\n$$;", start)
   expect(start).toBeGreaterThan(-1)
   expect(end).toBeGreaterThan(start)
-  return sql.slice(start, end).replace(/\r\n/g, "\n").trim()
+  // full-line comments are dropped (0185 updates the 1b comment); every code line must still match exactly
+  return sql.slice(start, end).replace(/\r\n/g, "\n").split("\n").filter((l) => !/^\s*--/.test(l)).join("\n").trim()
 }
 
 describe("0185 migration text", () => {
@@ -67,6 +68,50 @@ describe("0185 migration text", () => {
     const grants = "REVOKE ALL ON FUNCTION public.place_api_v2_order(uuid, uuid, uuid, text, numeric, numeric, text, text, text)\n  FROM PUBLIC, anon, authenticated;\nGRANT EXECUTE ON FUNCTION public.place_api_v2_order(uuid, uuid, uuid, text, numeric, numeric, text, text, text)\n  TO service_role;"
     expect(m).toContain(grants)
     expect(read("0142_user_package_prices.sql")).toContain(grants)
+  })
+})
+
+describe("buildRunString guard (negative cases)", () => {
+  const HEAD = "BEGIN;\nSET LOCAL lock_timeout = '5s';\nSET LOCAL statement_timeout = '60s';\n"
+  const mig = (mid = "", tail = "COMMIT;\n") => HEAD + mid + tail
+  const ST = "-- header\nDO $selftest$\nBEGIN\n  RAISE EXCEPTION 'SELFTEST_OK 0185 (rolled back)';\nEND $selftest$;\n"
+
+  it("accepts a clean input, and END; inside a $fn$ body", () => {
+    expect(() => buildRunString(mig(), ST)).not.toThrow()
+    const body = "CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $fn$\nBEGIN\n  RETURN 1;\nEND;\n$fn$;\n"
+    expect(() => buildRunString(mig(body), ST)).not.toThrow()
+  })
+  it("rejects a duplicate COMMIT", () => {
+    expect(() => buildRunString(mig("COMMIT;\n"), ST)).toThrow()
+  })
+  it("rejects a COMMIT hidden after a '--' literal on one line", () => {
+    expect(() => buildRunString(mig("SELECT '--'; COMMIT;\n"), ST)).toThrow()
+  })
+  it("rejects END TRANSACTION outside a body", () => {
+    expect(() => buildRunString(mig("END TRANSACTION;\n"), ST)).toThrow()
+  })
+  it("rejects END WORK, ABORT and PREPARE TRANSACTION outside a body", () => {
+    expect(() => buildRunString(mig("END WORK;\n"), ST)).toThrow()
+    expect(() => buildRunString(mig("ABORT;\n"), ST)).toThrow()
+    expect(() => buildRunString(mig("PREPARE TRANSACTION 'x';\n"), ST)).toThrow()
+  })
+  it("rejects a mid-line SELECT 1; END;", () => {
+    expect(() => buildRunString(mig("SELECT 1; END;\n"), ST)).toThrow()
+  })
+  it("rejects ROLLBACK outside a body", () => {
+    expect(() => buildRunString(mig("ROLLBACK;\n"), ST)).toThrow()
+  })
+  it("rejects a run string with no BEGIN;", () => {
+    expect(() => buildRunString("SET LOCAL lock_timeout = '5s';\nSET LOCAL statement_timeout = '60s';\nCOMMIT;\n", ST)).toThrow()
+  })
+  it("rejects a self-test that does not end by raising SELFTEST_OK", () => {
+    expect(() => buildRunString(mig(), "DO $selftest$\nBEGIN\n  NULL;\nEND $selftest$;\n")).toThrow()
+  })
+  it("rejects a self-test with no column-0 DO", () => {
+    expect(() => buildRunString(mig(), "  DO $selftest$ BEGIN END $selftest$;\n")).toThrow()
+  })
+  it("rejects a bare END; inside the self-test", () => {
+    expect(() => buildRunString(mig(), "DO $selftest$\nBEGIN\n  END;\n  RAISE EXCEPTION 'SELFTEST_OK';\nEND $selftest$;\n")).toThrow()
   })
 })
 
