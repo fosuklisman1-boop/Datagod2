@@ -15,6 +15,9 @@ const h = vi.hoisted(() => ({
   audit: [] as Audit[],
   meta: [] as any[],
   clock: 0,
+  rolesError: false,
+  packagesError: false,
+  rolePrices: [] as Array<{ role_id: string; package_id: string; price: number }>,
 }))
 vi.mock("@/lib/admin-auth", () => ({
   verifyAdminAccess: vi.fn(async () => (await import("@/lib/admin-users/test-fake-db")).fakeVerify(h.gate)),
@@ -22,6 +25,7 @@ vi.mock("@/lib/admin-auth", () => ({
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => new Proxy({}, { get: (_t, k) => (h.fake.db as any)[k] }) }))
 vi.mock("@/lib/push-service", () => ({ sendPushToUser: vi.fn(async () => ({ sent: 0, removed: 0 })) }))
 
+import { sendPushToUser } from "@/lib/push-service"
 import { POST as RAW_POST } from "./route"
 
 const POST = async (body: unknown) =>
@@ -30,6 +34,15 @@ const POST = async (body: unknown) =>
 // Packages: p1 role 10 / dealer 8 (diff 2), p2 role 5 / dealer 4.5 (diff 0.5), p3 dealer price 0 (no dealer price).
 const PACKAGES = [{ id: "p1", price: 10, dealer_price: 8 }, { id: "p2", price: 5, dealer_price: 4.5 }, { id: "p3", price: 7, dealer_price: 0 }]
 const SHOP_PACKAGES = [{ id: "sp1", package_id: "p1" }, { id: "sp2", package_id: "p2" }, { id: "sp3", package_id: "p3" }]
+
+// Roles: user rank 1, dealer rank 2, custom "super" rank 3 above dealer, admin off-ladder, "old_vip" archived.
+const ROLES = [
+  { id: "r-user", slug: "user", name: "Standard user", rank: 1, is_system: true, archived_at: null },
+  { id: "r-dealer", slug: "dealer", name: "Dealer", rank: 2, is_system: true, archived_at: null },
+  { id: "r-super", slug: "super", name: "Super Agent", rank: 3, is_system: false, archived_at: null },
+  { id: "r-old", slug: "old_vip", name: "Old VIP", rank: 4, is_system: false, archived_at: "2026-01-01" },
+  { id: "r-admin", slug: "admin", name: "Admin", rank: null, is_system: true, archived_at: null },
+]
 
 /** Applies PostgREST's or=(role.is.null,role.neq.X) to the stored role. */
 function orMatches(q: FakeQuery, role: string | null) {
@@ -51,6 +64,10 @@ beforeEach(() => {
   h.audit = []
   h.meta = []
   h.clock = 0
+  h.rolesError = false
+  h.packagesError = false
+  h.rolePrices = [{ role_id: "r-super", package_id: "p1", price: 9.5 }, { role_id: "r-super", package_id: "p2", price: 4 }]
+  vi.mocked(sendPushToUser).mockClear()
   h.fake = createFakeDb({
     tables: {
       users: (q: FakeQuery) => {
@@ -67,7 +84,20 @@ beforeEach(() => {
         if (q.kind === "update") { h.margins[q.filter("id") as string] = (q.payload as any).profit_margin; return { data: null, error: null } }
         return { data: SHOP_PACKAGES.map((sp) => ({ ...sp, profit_margin: h.margins[sp.id] })), error: null }
       },
-      packages: () => ({ data: PACKAGES, error: null }),
+      packages: () => (h.packagesError ? { data: null, error: { message: "boom" } } : { data: PACKAGES, error: null }),
+      roles: (q: FakeQuery) => {
+        if (h.rolesError) return { data: null, error: { message: "boom" } }
+        if (q.op("maybeSingle")) {
+          const r = ROLES.find((x) => x.slug === q.filter("slug"))
+          return { data: r ? { name: r.name } : null, error: null }
+        }
+        return { data: ROLES, error: null }
+      },
+      role_package_prices: (q: FakeQuery) => {
+        const roleIds = q.filter("role_id") as string[]
+        const pkgIds = q.filter("package_id") as string[]
+        return { data: h.rolePrices.filter((r) => roleIds.includes(r.role_id) && pkgIds.includes(r.package_id)), error: null }
+      },
       admin_audit_log: (q: FakeQuery) => {
         if (q.kind === "insert") { for (const r of q.payload as any[]) h.audit.push({ ...r, created_at: ++h.clock }); return { data: null, error: null } }
         const rows = h.audit.filter((a) => a.target_user_id === q.filter("target_user_id") && a.action === q.filter("action"))
@@ -187,5 +217,81 @@ describe("POST /api/admin/users/update-role (shared changeUserRole)", () => {
     h.shopError = true
     expect((await POST({ userId: USER_ID, role: "user" })).status).toBe(500)
     expect(h.role).toBe("dealer")
+  })
+
+  describe("custom roles", () => {
+    it("user -> super: margins move by the base difference so selling prices stay fixed; recorded as recompute", async () => {
+      const res = await POST({ userId: USER_ID, role: "super" })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toMatchObject({ success: true, newRole: "super", changed: true })
+      expect(h.role).toBe("super")
+      // sp1: 1 + 10 - 9.5 = 1.5; sp2: 1 + 5 - 4 = 2; sp3: public 7 on both sides, unchanged
+      expect(h.margins).toEqual({ sp1: 1.5, sp2: 2, sp3: 1 })
+      expect(h.audit[0].new_value).toEqual({
+        role: "super", margin_mode: "recompute",
+        margin_adjustments: [{ shop_package_id: "sp1", delta: 0.5 }, { shop_package_id: "sp2", delta: 1 }],
+      })
+      expect(h.meta).toEqual([{ id: USER_ID, attrs: { user_metadata: { role: "super" } } }])
+      expect((vi.mocked(sendPushToUser).mock.calls[0][1] as any).body).toContain("Super Agent")
+    })
+
+    it("super -> dealer is a recompute too (custom on the old side)", async () => {
+      h.role = "super"
+      h.margins = { sp1: 1.5, sp2: 2, sp3: 1 }
+      await POST({ userId: USER_ID, role: "dealer" })
+      // dealer has no role_package_prices rows here, so its base is the public price: 1.5 + 9.5 - 10 = 1
+      expect(h.margins.sp1).toBe(1)
+      expect(h.audit[0].new_value.margin_mode).toBe("recompute")
+    })
+
+    it("dealer -> user after a recompute entry recomputes instead of using the legacy reversal", async () => {
+      h.role = "super"
+      await POST({ userId: USER_ID, role: "dealer" })
+      expect(h.audit[0].new_value.margin_mode).toBe("recompute")
+      await POST({ userId: USER_ID, role: "user" })
+      expect(h.audit[1].new_value.margin_mode).toBe("recompute")
+      expect(h.role).toBe("user")
+    })
+
+    it("unknown role -> 400 Unknown role; archived role -> 400", async () => {
+      const a = await POST({ userId: USER_ID, role: "nope" })
+      expect(a.status).toBe(400)
+      expect((await a.json()).error).toBe("Unknown role")
+      expect((await POST({ userId: USER_ID, role: "old_vip" })).status).toBe(400)
+      expect(h.role).toBe("user")
+    })
+
+    it("a sub-agent's shop cannot move to a custom role", async () => {
+      h.shop = { id: "shop-1", parent_shop_id: "parent-shop" }
+      expect((await POST({ userId: USER_ID, role: "super" })).status).toBe(400)
+      expect(h.role).toBe("user")
+    })
+
+    it("roles read error -> 500 and no users write", async () => {
+      h.rolesError = true
+      const res = await POST({ userId: USER_ID, role: "super" })
+      expect(res.status).toBe(500)
+      expect((await res.json()).error).toMatch(/Couldn't load roles/)
+      expect(h.fake.ofTable("users").filter((q) => q.kind === "update")).toHaveLength(0)
+    })
+
+    it("system -> system changes never read roles", async () => {
+      await POST({ userId: USER_ID, role: "dealer" })
+      expect(h.fake.ofTable("roles")).toHaveLength(0)
+    })
+
+    it("clamp: a margin that cannot absorb the new base goes to 0 and the result carries a note", async () => {
+      h.rolePrices = [{ role_id: "r-super", package_id: "p1", price: 11.5 }, { role_id: "r-super", package_id: "p2", price: 4 }]
+      const body = await (await POST({ userId: USER_ID, role: "super" })).json()
+      expect(body.note).toBe("1 shop packages hit a 0 margin; their selling price rose. Check the shop's prices.")
+      expect(h.margins.sp1).toBe(0)
+    })
+
+    it("a packages read failure refuses the change before the role write", async () => {
+      h.packagesError = true
+      const res = await POST({ userId: USER_ID, role: "super" })
+      expect(res.status).toBe(500)
+      expect(h.fake.ofTable("users").filter((q) => q.kind === "update")).toHaveLength(0)
+    })
   })
 })

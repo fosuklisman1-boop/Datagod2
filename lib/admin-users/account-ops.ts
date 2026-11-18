@@ -9,14 +9,21 @@ import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import { sendEmail, EmailTemplates } from "@/lib/email-service"
 import { writeAudit } from "./route-utils"
 import { SUSPEND_REASON_MAX } from "./bulk-params"
+import { loadRoles, rolePricesFor, RoleReadError } from "@/lib/roles/repo"
+import { marginStrategy, recomputeMargin } from "@/lib/roles/margin-strategy"
 
-export const ASSIGNABLE_ROLES = ["user", "admin", "sub_agent", "dealer"] as const
-export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number]
+export const SYSTEM_ROLES = ["user", "admin", "sub_agent", "dealer"] as const
+/** Alias kept for the bulk parser, which still only accepts the system roles this phase. */
+export const ASSIGNABLE_ROLES = SYSTEM_ROLES
+export type AssignableRole = (typeof SYSTEM_ROLES)[number]
+
+const isSystemRole = (slug: string) => (SYSTEM_ROLES as readonly string[]).includes(slug)
+const isCustomRole = (slug: string) => !isSystemRole(slug)
 
 export type OpFailure = { ok: false; status: number; error: string }
 
 export type RoleChangeResult =
-  | { ok: true; changed: boolean; oldRole: string; newRole: AssignableRole; audited: boolean; note?: string }
+  | { ok: true; changed: boolean; oldRole: string; newRole: string; audited: boolean; note?: string }
   | OpFailure
 
 const ROLE_LABELS: Record<string, string> = { dealer: "Dealer", sub_agent: "Sub-agent", admin: "Admin", user: "Standard user" }
@@ -46,6 +53,11 @@ export const MARGINS_NOT_REVERSED_NOTE =
  *   as they are (the old behaviour), and the result carries MARGINS_NOT_REVERSED_NOTE for the admin: an exact
  *   reversal is not possible, and refusing would block downgrading every existing dealer. dealer -> admin keeps the
  *   margins, as before (callers differ on whether admins are priced as dealers).
+ * - Custom roles (anything not in SYSTEM_ROLES): the target must exist and not be archived (else 400 "Unknown role"),
+ *   and a sub-agent's shop cannot take one. Margins are then recomputed (lib/roles/margin-strategy.ts) so the
+ *   shop's selling price stays fixed: margin += oldBase - newBase, never below 0; recorded as margin_mode
+ *   "recompute". A later dealer -> user after a recompute entry recomputes too, not the legacy reversal. All reads
+ *   happen before the role write; a read failure refuses the change. System -> system changes never read roles.
  * - The role write is conditional (only if the stored role is still different), so of two concurrent identical
  *   changes only one adjusts margins; the other reports changed: false.
  * - Setting the role a user already has changes nothing (no write, no margin change, no push, no audit row).
@@ -55,7 +67,7 @@ export const MARGINS_NOT_REVERSED_NOTE =
  */
 export async function changeUserRole(
   db: SupabaseClient,
-  opts: { userId: string; role: AssignableRole; adminId?: string | null },
+  opts: { userId: string; role: string; adminId?: string | null },
 ): Promise<RoleChangeResult> {
   const { userId, role, adminId } = opts
 
@@ -68,9 +80,23 @@ export async function changeUserRole(
   const oldRole = ((current as { role: string | null }).role || "user") as string
   if (oldRole === role) return { ok: true, changed: false, oldRole, newRole: role, audited: false }
 
+  // Custom roles: validate the target (exists, not archived). System -> system changes never read roles.
+  if (isCustomRole(role) || isCustomRole(oldRole)) {
+    let roles
+    try {
+      roles = await loadRoles(db)
+    } catch (e) {
+      if (!(e instanceof RoleReadError)) throw e
+      return { ok: false, status: 500, error: "Couldn't load roles, so the role was not changed. Try again." }
+    }
+    if (isCustomRole(role) && !roles.some((r) => r.slug === role && !r.archived_at)) {
+      return { ok: false, status: 400, error: "Unknown role" }
+    }
+  }
+
   const leavingDealer = oldRole === "dealer" && role !== "admin"
   const { data: targetShop, error: shopError } = await db.from("user_shops").select("id, parent_shop_id").eq("user_id", userId).maybeSingle()
-  if (shopError && (role === "dealer" || leavingDealer)) {
+  if (shopError && (role === "dealer" || leavingDealer || isCustomRole(role) || isCustomRole(oldRole))) {
     console.error("[UPDATE-ROLE] shop read failed:", shopError.message)
     return { ok: false, status: 500, error: "Couldn't verify the user's shop, so the role was not changed. Try again." }
   }
@@ -83,15 +109,34 @@ export async function changeUserRole(
       error: "Sub-agents cannot be upgraded to Dealers. They must be independent users (not linked to a parent shop).",
     }
   }
+  if (isCustomRole(role) && shop?.parent_shop_id) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Sub-agents cannot be upgraded to this role. They must be independent users (not linked to a parent shop).",
+    }
+  }
 
-  // Leaving dealer: work out the exact reversal before changing anything.
-  let reversal: MarginAdjustment[] | null = null
-  let notReversed = false
+  // Leaving dealer: read the latest role change (it holds the recorded upgrade and the margin mode).
+  let latestPlan: { adjustments: MarginAdjustment[] | null; recompute: boolean } | null = null
   if (leavingDealer && shop) {
     const plan = await recordedUpgrade(db, userId)
     if (!plan.ok) return { ok: false, status: 500, error: "Couldn't read the user's role history, so the role was not changed. Try again." }
-    if (plan.adjustments) reversal = plan.adjustments
+    latestPlan = plan
+  }
+  const strategy = marginStrategy(oldRole, role, { isCustom: isCustomRole, latestRecompute: latestPlan?.recompute ?? false })
+
+  // Work out every margin change before changing anything.
+  let reversal: MarginAdjustment[] | null = null
+  let notReversed = false
+  let recomputePlan: RecomputePlan | null = null
+  if (strategy === "legacy" && leavingDealer && shop && latestPlan) {
+    if (latestPlan.adjustments) reversal = latestPlan.adjustments
     else notReversed = (await dealerUpgradeDeltas(db, shop.id)).length > 0
+  } else if (strategy === "recompute" && shop) {
+    const planned = await planRecompute(db, shop.id, oldRole, role)
+    if (!planned.ok) return { ok: false, status: 500, error: planned.error }
+    recomputePlan = planned
   }
 
   // Conditional write: only if the stored role is still different (NULL counts as different).
@@ -111,8 +156,13 @@ export async function changeUserRole(
   }
 
   let margin_adjustments: MarginAdjustment[] | undefined
-  if (role === "dealer") margin_adjustments = shop ? await applyDealerUpgrade(db, userId, shop.id) : []
+  if (strategy === "recompute") margin_adjustments = recomputePlan ? await applyRecompute(db, recomputePlan) : []
+  else if (role === "dealer") margin_adjustments = shop ? await applyDealerUpgrade(db, userId, shop.id) : []
   else if (reversal) margin_adjustments = await applyReversal(db, reversal)
+  const clampNote =
+    recomputePlan && recomputePlan.clampedCount > 0
+      ? `${recomputePlan.clampedCount} shop packages hit a 0 margin; their selling price rose. Check the shop's prices.`
+      : undefined
 
   // Also update user_metadata in auth (for session data). Non-blocking: the users table is the source of truth.
   const { error: metaError } = await db.auth.admin.updateUserById(userId, { user_metadata: { role } })
@@ -122,24 +172,113 @@ export async function changeUserRole(
     ? await writeAudit(db, {
         admin_id: adminId, action: "user_role_change", target_user_id: userId,
         old_value: { role: oldRole },
-        new_value: margin_adjustments ? { role, margin_adjustments } : notReversed ? { role, margins_not_reversed: true } : { role },
+        new_value:
+          strategy === "recompute"
+            ? { role, margin_mode: "recompute", margin_adjustments: margin_adjustments ?? [] }
+            : margin_adjustments ? { role, margin_adjustments } : notReversed ? { role, margins_not_reversed: true } : { role },
       })
     : false
 
   console.log(`[UPDATE-ROLE] User ${userId} role updated: ${oldRole} -> ${role}`)
+  const label = ROLE_LABELS[role] || (isCustomRole(role) ? await customRoleName(db, role) : role)
   sendPushToUser(userId, {
     title: "🎉 Account Upgraded",
-    body: `Your account role has been updated to ${ROLE_LABELS[role] || role}. Refresh the app to see your new access.`,
+    body: `Your account role has been updated to ${label}. Refresh the app to see your new access.`,
     data: { url: "/dashboard" },
   }).catch(() => {})
 
-  return notReversed
-    ? { ok: true, changed: true, oldRole, newRole: role, audited, note: MARGINS_NOT_REVERSED_NOTE }
+  if (notReversed) return { ok: true, changed: true, oldRole, newRole: role, audited, note: MARGINS_NOT_REVERSED_NOTE }
+  return clampNote
+    ? { ok: true, changed: true, oldRole, newRole: role, audited, note: clampNote }
     : { ok: true, changed: true, oldRole, newRole: role, audited }
 }
 
+/** A custom role's display name for the push (roles.name); the slug when it cannot be read. Never throws. */
+async function customRoleName(db: SupabaseClient, slug: string): Promise<string> {
+  try {
+    const { data } = await db.from("roles").select("name").eq("slug", slug).maybeSingle()
+    const name = (data as { name?: unknown } | null)?.name
+    return typeof name === "string" && name.trim() ? name : slug
+  } catch {
+    return slug
+  }
+}
+
+interface RecomputeWrite { shop_package_id: string; margin: number; next: number }
+type RecomputePlan = { ok: true; writes: RecomputeWrite[]; clampedCount: number }
+
+const PACKAGE_ID_CHUNK = 500
+
+/**
+ * Selling price stays fixed across a role change: for each package in the shop, margin += oldBase - newBase (clamped
+ * at 0), where a base is the role's resolved price (lib/roles). Every read happens here, before the role write.
+ */
+async function planRecompute(
+  db: SupabaseClient,
+  shopId: string,
+  oldRole: string,
+  newRole: string,
+): Promise<RecomputePlan | { ok: false; error: string }> {
+  const fail = { ok: false as const, error: "Couldn't read the shop's prices, so the role was not changed. Try again." }
+  const { data: shopPackages, error: spError } = await db.from("shop_packages").select("id, package_id, profit_margin").eq("shop_id", shopId)
+  if (spError || !Array.isArray(shopPackages)) {
+    console.error("[UPDATE-ROLE] shop packages read failed:", spError?.message)
+    return fail
+  }
+  if (shopPackages.length === 0) return { ok: true, writes: [], clampedCount: 0 }
+
+  const ids = Array.from(new Set((shopPackages as any[]).map((sp) => String(sp.package_id))))
+  const pkgs: Array<{ id: string; price: number; dealer_price: number | null }> = []
+  for (let i = 0; i < ids.length; i += PACKAGE_ID_CHUNK) {
+    const { data, error } = await db.from("packages").select("id, price, dealer_price").in("id", ids.slice(i, i + PACKAGE_ID_CHUNK))
+    if (error || !Array.isArray(data)) {
+      console.error("[UPDATE-ROLE] package price read failed:", error?.message)
+      return fail
+    }
+    pkgs.push(...(data as any[]))
+  }
+
+  let oldBase: Map<string, number>
+  let newBase: Map<string, number>
+  try {
+    oldBase = await rolePricesFor(db, oldRole, pkgs)
+    newBase = await rolePricesFor(db, newRole, pkgs)
+  } catch (e) {
+    if (!(e instanceof RoleReadError)) throw e
+    return fail
+  }
+
+  const writes: RecomputeWrite[] = []
+  let clampedCount = 0
+  for (const sp of shopPackages as any[]) {
+    const key = String(sp.package_id)
+    const o = oldBase.get(key)
+    const n = newBase.get(key)
+    if (o === undefined || n === undefined) continue // package not readable: leave its margin alone
+    const margin = Number(sp.profit_margin || 0)
+    const r = recomputeMargin(margin, o, n)
+    if (r.clamped) clampedCount++
+    if (r.margin !== margin) writes.push({ shop_package_id: sp.id, margin, next: r.margin })
+  }
+  return { ok: true, writes, clampedCount }
+}
+
+/** Write the planned margins; a failed write is logged (ids only) and left out of the returned record. */
+async function applyRecompute(db: SupabaseClient, plan: RecomputePlan): Promise<MarginAdjustment[]> {
+  const done: MarginAdjustment[] = []
+  for (const w of plan.writes) {
+    const { error } = await db.from("shop_packages").update({ profit_margin: w.next }).eq("id", w.shop_package_id)
+    if (error) console.error(`[UPDATE-ROLE] margin recompute ${w.shop_package_id} failed:`, error.message)
+    else done.push({ shop_package_id: w.shop_package_id, delta: round2(w.next - w.margin) })
+  }
+  return done
+}
+
 /** The margin deltas recorded by the user's latest role change, when that change made them a dealer. */
-async function recordedUpgrade(db: SupabaseClient, userId: string): Promise<{ ok: false } | { ok: true; adjustments: MarginAdjustment[] | null }> {
+async function recordedUpgrade(
+  db: SupabaseClient,
+  userId: string,
+): Promise<{ ok: false } | { ok: true; adjustments: MarginAdjustment[] | null; recompute: boolean }> {
   const { data, error } = await db
     .from("admin_audit_log")
     .select("new_value")
@@ -152,12 +291,13 @@ async function recordedUpgrade(db: SupabaseClient, userId: string): Promise<{ ok
     console.error("[UPDATE-ROLE] role history read failed:", error.message)
     return { ok: false }
   }
-  const v = (data as { new_value: { role?: unknown; margin_adjustments?: unknown } | null } | null)?.new_value
-  if (v?.role !== "dealer" || !Array.isArray(v.margin_adjustments)) return { ok: true, adjustments: null }
+  const v = (data as { new_value: { role?: unknown; margin_mode?: unknown; margin_adjustments?: unknown } | null } | null)?.new_value
+  const recompute = v?.margin_mode === "recompute"
+  if (v?.role !== "dealer" || !Array.isArray(v.margin_adjustments)) return { ok: true, adjustments: null, recompute }
   const adjustments = (v.margin_adjustments as unknown[]).filter(
     (a): a is MarginAdjustment => !!a && typeof (a as any).shop_package_id === "string" && Number.isFinite((a as any).delta),
   )
-  return { ok: true, adjustments }
+  return { ok: true, adjustments, recompute }
 }
 
 /**

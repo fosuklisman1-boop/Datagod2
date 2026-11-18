@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
 import { serviceClient } from "@/lib/admin-users/route-utils"
-import { ASSIGNABLE_ROLES, changeUserRole, type AssignableRole } from "@/lib/admin-users/account-ops"
+import { changeUserRole } from "@/lib/admin-users/account-ops"
 
 // POST: Update a user's role (Admin only). The rules (sub-agents cannot become dealers, the dealer margin
 // adjustment, the audit row) live in lib/admin-users/account-ops.ts, shared with POST /api/admin/users/bulk.
@@ -18,11 +18,12 @@ export async function POST(request: NextRequest) {
         if (!userId || !targetRole) {
             return NextResponse.json({ error: "Missing userId or role" }, { status: 400 })
         }
-        if (!(ASSIGNABLE_ROLES as readonly string[]).includes(targetRole)) {
-            return NextResponse.json({ error: `Invalid role. Must be one of: ${ASSIGNABLE_ROLES.join(", ")}` }, { status: 400 })
+        if (typeof targetRole !== "string") {
+            return NextResponse.json({ error: "Invalid role" }, { status: 400 })
         }
 
-        const result = await changeUserRole(serviceClient(), { userId, role: targetRole as AssignableRole, adminId })
+        // Role validation (system or non-archived custom role) lives in changeUserRole.
+        const result = await changeUserRole(serviceClient(), { userId, role: targetRole, adminId })
         if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
 
         return NextResponse.json({
