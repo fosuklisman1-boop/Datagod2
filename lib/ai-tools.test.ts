@@ -12,7 +12,7 @@ vi.mock("@/lib/whatsapp-bot/shop-prefs", () => ({
 }))
 vi.mock("@/lib/shop-commerce/pricing", () => ({
   fetchShopBundles: vi.fn(),
-  shopOwnerIsDealer: vi.fn(),
+  shopOwnerAirtimeSlug: vi.fn(),
 }))
 vi.mock("@/lib/whatsapp-bot/session", () => ({ getWaSession: vi.fn(), setWaSession: vi.fn() }))
 vi.mock("@/lib/whatsapp-bot/shop-session", () => ({
@@ -36,7 +36,7 @@ vi.mock("@/lib/airtime-pricing", async () => {
     ...actual,
     isAirtimeEnabled: vi.fn(),
     getAirtimeLimits: vi.fn(),
-    airtimeBaseFeeRate: vi.fn(),
+    airtimeFeeRateFor: vi.fn(),
   }
 })
 vi.mock("@/lib/ussd/resolve-dialer", () => ({ resolveDialer: vi.fn() }))
@@ -111,10 +111,10 @@ const roleLadder = async (_c: unknown, slug: string, pkgs: any[]) =>
 import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
 import { RoleReadError } from "@/lib/roles/repo"
 import { setShopPref, getShopPref } from "@/lib/whatsapp-bot/shop-prefs"
-import { fetchShopBundles, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
+import { fetchShopBundles, shopOwnerAirtimeSlug } from "@/lib/shop-commerce/pricing"
 import { getSession, setSession } from "@/lib/whatsapp-bot/shop-session"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate, splitInclusive } from "@/lib/airtime-pricing"
+import { isAirtimeEnabled, getAirtimeLimits, airtimeFeeRateFor, splitInclusive } from "@/lib/airtime-pricing"
 import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice } from "@/lib/results-checker-service"
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
 import { getWaSession, setWaSession } from "@/lib/whatsapp-bot/session"
@@ -414,8 +414,8 @@ describe("executeToolCall place_shop_order", () => {
     vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
     vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
     vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
-    vi.mocked(shopOwnerIsDealer).mockResolvedValue(false)
-    vi.mocked(airtimeBaseFeeRate).mockResolvedValue(5)
+    vi.mocked(shopOwnerAirtimeSlug).mockResolvedValue("user")
+    vi.mocked(airtimeFeeRateFor).mockResolvedValue(5)
     vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(20)
     vi.mocked(getMaxQuantity).mockResolvedValue(50)
@@ -490,6 +490,23 @@ describe("executeToolCall place_shop_order", () => {
       airtimeFee: fee,
       airtimeToDeliver: toDeliver,
     })
+  })
+
+  it("prices a shop airtime order under the owner's slug (dealer/admin => dealer, custom role => its own)", async () => {
+    vi.mocked(shopOwnerAirtimeSlug).mockResolvedValue("dealer")
+    await executeToolCall("place_shop_order", { service: "airtime", recipient_phone: "0244123456", amount: "10", payment_phone: "0244000000" }, baseCtx)
+    expect(airtimeFeeRateFor).toHaveBeenLastCalledWith("MTN", "dealer")
+    vi.mocked(shopOwnerAirtimeSlug).mockResolvedValue("gold")
+    await executeToolCall("place_shop_order", { service: "airtime", recipient_phone: "0244123456", amount: "10", payment_phone: "0244000000" }, baseCtx)
+    expect(airtimeFeeRateFor).toHaveBeenLastCalledWith("MTN", "gold")
+  })
+
+  it("refuses a shop airtime order, staging nothing, when a custom-role owner's rate cannot be read", async () => {
+    vi.mocked(shopOwnerAirtimeSlug).mockResolvedValue("gold")
+    vi.mocked(airtimeFeeRateFor).mockRejectedValueOnce(new RoleReadError())
+    const result = await executeToolCall("place_shop_order", { service: "airtime", recipient_phone: "0244123456", amount: "10", payment_phone: "0244000000" }, baseCtx) as Record<string, unknown>
+    expect(result.error).toBe("unavailable")
+    expect(setSession).not.toHaveBeenCalled()
   })
 
   it("stages an RC order at RC_CONFIRM with the DB-priced total", async () => {
@@ -791,19 +808,41 @@ describe("custom prices in AI tools", () => {
       vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
       vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
       vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
-      vi.mocked(airtimeBaseFeeRate).mockClear()
+      vi.mocked(airtimeFeeRateFor).mockClear()
       fakeSupabase.tables = { airtime_orders: { list: [] } }
-      await executeToolCall("place_whatsapp_order", input, ctx)
-      return vi.mocked(airtimeBaseFeeRate)
+      const r = await executeToolCall("place_whatsapp_order", input, ctx)
+      return { fn: vi.mocked(airtimeFeeRateFor), r: r as any }
     }
     it("sub_agent with dealer rates on is quoted the dealer rate", async () => {
-      expect(await run({ role: "sub_agent", rateTier: "dealer" })).toHaveBeenCalledWith("MTN", true)
+      expect((await run({ role: "sub_agent", rateTier: "dealer" })).fn).toHaveBeenCalledWith("MTN", "dealer")
     })
     it("sub_agent with dealer rates off is quoted the customer rate", async () => {
-      expect(await run({ role: "sub_agent", rateTier: "customer" })).toHaveBeenCalledWith("MTN", false)
+      expect((await run({ role: "sub_agent", rateTier: "customer" })).fn).toHaveBeenCalledWith("MTN", "user")
     })
     it("sub_agent with no resolved tier fails closed to the customer rate", async () => {
-      expect(await run({ role: "sub_agent" })).toHaveBeenCalledWith("MTN", false)
+      expect((await run({ role: "sub_agent" })).fn).toHaveBeenCalledWith("MTN", "user")
+    })
+    it("dealer, admin and user keep today's slug", async () => {
+      expect((await run({ role: "dealer", rateTier: "dealer" })).fn).toHaveBeenCalledWith("MTN", "dealer")
+      expect((await run({ role: "admin", rateTier: "customer" })).fn).toHaveBeenCalledWith("MTN", "user")
+      expect((await run({ role: "user", rateTier: "customer" })).fn).toHaveBeenCalledWith("MTN", "user")
+    })
+    it("a custom-role dialer is quoted under its own slug", async () => {
+      expect((await run({ role: "gold", rateTier: "customer", rateRole: "gold" })).fn).toHaveBeenCalledWith("MTN", "gold")
+    })
+    it("an unreadable custom-role rate refuses and stages nothing", async () => {
+      vi.mocked(setWaSession).mockClear()
+      vi.mocked(airtimeFeeRateFor).mockRejectedValueOnce(new RoleReadError())
+      const { resolveDialer } = await import("@/lib/ussd/resolve-dialer")
+      vi.mocked(resolveDialer).mockResolvedValue({ userId: "u1", role: "gold", rateTier: "customer", rateRole: "gold" } as any)
+      vi.mocked(getWaSession).mockResolvedValue(null)
+      vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
+      vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
+      vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
+      fakeSupabase.tables = { airtime_orders: { list: [] } }
+      const r = await executeToolCall("place_whatsapp_order", input, ctx) as any
+      expect(r.error).toBe("unavailable")
+      expect(vi.mocked(setWaSession)).not.toHaveBeenCalled()
     })
   })
 

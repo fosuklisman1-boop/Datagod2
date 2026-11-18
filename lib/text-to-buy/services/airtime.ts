@@ -1,8 +1,8 @@
-import { airtimeBaseFeeRate, detectAirtimeNetwork, getAirtimeLimits, isAirtimeEnabled, splitInclusive, type AirtimeNetwork } from "@/lib/airtime-pricing"
+import { airtimeFeeRateFor, detectAirtimeNetwork, getAirtimeLimits, isAirtimeEnabled, splitInclusive, type AirtimeNetwork } from "@/lib/airtime-pricing"
 import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
 import { getNoticeMode, ttbNotice } from "@/lib/blocked-numbers/notice"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { dialerGetsDealerRate } from "@/lib/sub-agents/dealer-rates"
+import { dialerRateRole } from "@/lib/sub-agents/dealer-rates"
 import { detectNetworkWithMap, ghanaSignificant, normalizeGhanaPhone } from "@/lib/phone-format"
 import { confirmAirtimeByText } from "@/lib/ussd/handlers/airtime"
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
@@ -97,7 +97,7 @@ export function airtimeAdapter(deps: AirtimeDeps = {}): ServiceAdapter<AirtimeOf
         if (!usable) return refuse("unavailable", airtimeLimitsReply(min, max))
 
         const dialer = await resolveDialer("+233" + sender)
-        const { toDeliver } = splitInclusive(amount, await airtimeBaseFeeRate(network, dialerGetsDealerRate(dialer)))
+        const { toDeliver } = splitInclusive(amount, await airtimeFeeRateFor(network, dialerRateRole(dialer)))
         const token = "airtime " + amountToken(amount)
         const offer: AirtimeOffer = {
           service: "airtime",

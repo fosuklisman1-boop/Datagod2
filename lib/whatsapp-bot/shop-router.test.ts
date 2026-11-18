@@ -2,14 +2,14 @@ import { shopWaRouter, isShopWhatsAppNumber } from "@/lib/whatsapp-bot/shop-rout
 import { sendWhatsAppText } from "@/lib/whatsapp-bot/send"
 import { logMessage } from "@/lib/whatsapp-bot/log-message"
 import { resolveShopCode, fetchShopNetworks, getCanonicalShopName } from "@/lib/shop-commerce/shop-code"
-import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
+import { fetchShopBundles, verifyBundlePrice, shopOwnerAirtimeSlug } from "@/lib/shop-commerce/pricing"
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 import { chargeMobileMoney, submitOtp } from "@/lib/paystack"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
 import { DEFAULT_NETWORK_PREFIXES } from "@/lib/phone-format"
-import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
+import { isAirtimeEnabled, getAirtimeLimits, airtimeFeeRateFor } from "@/lib/airtime-pricing"
 import { isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint, calculateResultsCheckPrice } from "@/lib/results-checker-service"
 import { buildRcBoardOptions } from "@/lib/ussd/handlers/results-checker"
 import { getShopPref } from "@/lib/whatsapp-bot/shop-prefs"
@@ -38,7 +38,7 @@ vi.mock("@/lib/shop-commerce/shop-code", () => ({
 vi.mock("@/lib/shop-commerce/pricing", () => ({
   fetchShopBundles: vi.fn(),
   verifyBundlePrice: vi.fn(),
-  shopOwnerIsDealer: vi.fn(),
+  shopOwnerAirtimeSlug: vi.fn(),
 }))
 vi.mock("@/lib/shop-commerce/orders", () => ({
   createShopBundleOrder: vi.fn(),
@@ -73,7 +73,7 @@ vi.mock("@/lib/airtime-pricing", async () => {
     ...actual,
     isAirtimeEnabled: vi.fn(),
     getAirtimeLimits: vi.fn(),
-    airtimeBaseFeeRate: vi.fn(),
+    airtimeFeeRateFor: vi.fn(),
   }
 })
 vi.mock("@/lib/results-checker-service", () => ({
@@ -203,14 +203,14 @@ describe("shopWaRouter", () => {
     })
     vi.mocked(resolveEmail).mockResolvedValue("cust@example.com")
     vi.mocked(getCanonicalShopName).mockResolvedValue("Test Shop")
-    vi.mocked(shopOwnerIsDealer).mockResolvedValue(false)
+    vi.mocked(shopOwnerAirtimeSlug).mockResolvedValue("user")
     // Airtime defaults — a healthy, enabled network with a 5% base fee and (via
     // the fake user_shops row below, which has no airtime_markup_* field) a 0%
     // shop markup, so totalFeeRate=5%/merchantCommissionRate=0% unless a test
-    // overrides airtimeBaseFeeRate.
+    // overrides airtimeFeeRateFor.
     vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
     vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
-    vi.mocked(airtimeBaseFeeRate).mockResolvedValue(5)
+    vi.mocked(airtimeFeeRateFor).mockResolvedValue(5)
     // Results Checker defaults — board enabled, plenty of stock, no bulk hint.
     vi.mocked(isExamBoardEnabled).mockResolvedValue(true)
     vi.mocked(getAvailableCount).mockResolvedValue(30)
@@ -2028,8 +2028,8 @@ describe("shopWaRouter — AI escape", () => {
     vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
     vi.mocked(isAirtimeEnabled).mockResolvedValue(true)
     vi.mocked(getAirtimeLimits).mockResolvedValue({ min: 1, max: 500 })
-    vi.mocked(airtimeBaseFeeRate).mockResolvedValue(5)
-    vi.mocked(shopOwnerIsDealer).mockResolvedValue(false)
+    vi.mocked(airtimeFeeRateFor).mockResolvedValue(5)
+    vi.mocked(shopOwnerAirtimeSlug).mockResolvedValue("user")
 
     await shopWaRouter(phone, "AB12CD", "wamid.1")     // ENTER_CODE -> SELECT_PRODUCT
     await shopWaRouter(phone, "2", "wamid.2")           // -> AIRTIME_ENTER_RECIPIENT
@@ -2039,6 +2039,46 @@ describe("shopWaRouter — AI escape", () => {
 
     expect(reply).not.toBe("")
     expect(reply).toContain("MoMo number") // advanced to AIRTIME_ENTER_PAYMENT_PHONE, not escaped
+    expect(airtimeFeeRateFor).toHaveBeenCalledWith("MTN", "user") // the owner's slug, never a boolean tier
+  })
+
+  it("AIRTIME_ENTER_AMOUNT: a dealer/admin owner's slug and a custom-role owner's own slug reach the rate lookup", async () => {
+    const phone = "233559919103"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-6", shopId: "shop-6", shopName: "Ama's Airtime Spot 3",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(shopOwnerAirtimeSlug).mockResolvedValue("gold")
+    vi.mocked(airtimeFeeRateFor).mockResolvedValue(1)
+
+    await shopWaRouter(phone, "AB12CD", "wamid.1")
+    await shopWaRouter(phone, "2", "wamid.2")
+    await shopWaRouter(phone, "0244111222", "wamid.3")
+    const reply = await shopWaRouter(phone, "50", "wamid.4")
+
+    expect(reply).toContain("MoMo number")
+    expect(airtimeFeeRateFor).toHaveBeenCalledWith("MTN", "gold")
+  })
+
+  it("AIRTIME_ENTER_AMOUNT: an unreadable custom-role owner rate refuses before the payment step", async () => {
+    const { RoleReadError } = await import("@/lib/roles/repo")
+    const phone = "233559919104"
+    vi.mocked(resolveShopCode).mockResolvedValue({
+      shopCodeId: "code-7", shopId: "shop-7", shopName: "Ama's Airtime Spot 4",
+      parentShopId: null, status: "active", tokenBalance: 5, whatsappActivated: true,
+    })
+    vi.mocked(fetchShopNetworks).mockResolvedValue(["MTN"])
+    vi.mocked(shopOwnerAirtimeSlug).mockResolvedValue("gold")
+    vi.mocked(airtimeFeeRateFor).mockRejectedValue(new RoleReadError())
+
+    await shopWaRouter(phone, "AB12CD", "wamid.1")
+    await shopWaRouter(phone, "2", "wamid.2")
+    await shopWaRouter(phone, "0244111222", "wamid.3")
+    const reply = await shopWaRouter(phone, "50", "wamid.4")
+
+    expect(reply).toContain("temporarily unavailable")
+    expect(reply).not.toContain("MoMo number")
   })
 })
 

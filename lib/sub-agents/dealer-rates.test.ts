@@ -1,5 +1,18 @@
 import { describe, it, expect } from "vitest"
-import { getDealerRateTier, dialerGetsDealerRate } from "./dealer-rates"
+import { getDealerRateTier, dialerGetsDealerRate, dialerRateRole } from "./dealer-rates"
+
+describe("dialerRateRole", () => {
+  it("a resolved rateRole wins (a custom role's own slug)", () => {
+    expect(dialerRateRole({ role: "gold", rateTier: "customer", rateRole: "gold" })).toBe("gold")
+  })
+  it("without a rateRole it is dealer/user by dialerGetsDealerRate", () => {
+    expect(dialerRateRole({ role: "dealer" })).toBe("dealer")
+    expect(dialerRateRole({ role: "sub_agent" })).toBe("user")
+    expect(dialerRateRole({ role: "sub_agent", rateTier: "dealer" })).toBe("dealer")
+    expect(dialerRateRole({ role: "admin", rateTier: "customer" })).toBe("user")
+    expect(dialerRateRole({})).toBe("user")
+  })
+})
 
 describe("dialerGetsDealerRate", () => {
   it("uses the resolved rateTier when present", () => {

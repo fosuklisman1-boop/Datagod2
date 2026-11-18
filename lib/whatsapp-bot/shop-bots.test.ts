@@ -98,7 +98,7 @@ vi.mock("@/lib/whatsapp-bot/shop-prefs", () => ({ getShopPref: async () => null,
 vi.mock("@/lib/shop-commerce/shop-code", () => ({
   resolveShopCode: h.resolveShopCode, fetchShopNetworks: async () => ["MTN"], getCanonicalShopName: async () => "Kofi Data",
 }))
-vi.mock("@/lib/shop-commerce/pricing", () => ({ fetchShopBundles: vi.fn(), verifyBundlePrice: vi.fn(), shopOwnerIsDealer: vi.fn() }))
+vi.mock("@/lib/shop-commerce/pricing", () => ({ fetchShopBundles: vi.fn(), verifyBundlePrice: vi.fn(), shopOwnerIsDealer: vi.fn(), shopOwnerAirtimeSlug: vi.fn(async () => "user") }))
 vi.mock("@/lib/shop-commerce/orders", () => ({
   createShopBundleOrder: vi.fn(), createShopAirtimeOrder: vi.fn(), createShopRcOrder: vi.fn(), createShopCheckResultsRequest: vi.fn(),
 }))

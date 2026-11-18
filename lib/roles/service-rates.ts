@@ -41,6 +41,28 @@ export function rateSlug(tierIsDealer: boolean, role: string | null | undefined,
   return tierIsDealer ? "dealer" : "user"
 }
 
+const SYSTEM_RATE_ROLES: ReadonlySet<string> = new Set(["user", "dealer", "sub_agent", "admin"])
+
+/**
+ * rateSlug without a roles read for the system roles (and no role): their slug is just the tier decision.
+ * Only a non-system role loads the roles list. If that read fails the role's own slug is returned: the caller's
+ * airtimeFeeRateFor then repeats the read for it (not "dealer"/"user"), fails closed and the charge is refused,
+ * instead of quietly pricing a custom-role buyer at a tier rate.
+ */
+export async function rateSlugFor(
+  client: ClientLike,
+  tierIsDealer: boolean,
+  role: string | null | undefined
+): Promise<string> {
+  if (!role || SYSTEM_RATE_ROLES.has(role)) return tierIsDealer ? "dealer" : "user"
+  try {
+    return rateSlug(tierIsDealer, role, await loadRoles(client))
+  } catch (e) {
+    if (e instanceof RoleReadError) return role
+    throw e
+  }
+}
+
 async function run(build: () => PromiseLike<{ data: unknown; error: unknown }>): Promise<unknown[]> {
   let res: { data: unknown; error: unknown }
   try {

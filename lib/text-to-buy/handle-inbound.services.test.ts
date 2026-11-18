@@ -15,7 +15,7 @@ const h = vi.hoisted(() => ({
   surface: vi.fn(),
   payer: vi.fn(),
   notify: vi.fn(),
-  rate: vi.fn(async (_n: string, _dealer: boolean) => 5),
+  rate: vi.fn(async (_n: string, _slug: string) => 5),
   rcEnabled: vi.fn(async (_b: string) => true),
   rcAvailable: vi.fn(async (_b: string) => 40),
   rcMax: vi.fn(async () => 50),
@@ -45,7 +45,7 @@ vi.mock("@/lib/airtime-pricing", () => ({
   },
   isAirtimeEnabled: vi.fn(async () => true),
   getAirtimeLimits: vi.fn(async () => ({ min: 1, max: 500 })),
-  airtimeBaseFeeRate: h.rate,
+  airtimeFeeRateFor: h.rate,
 }))
 vi.mock("@/lib/ussd/resolve-dialer", () => ({ resolveDialer: vi.fn(async () => ({})) }))
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({ isRecipientBlocked: vi.fn(async () => false) }))

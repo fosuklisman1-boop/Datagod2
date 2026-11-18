@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { RoleRow } from "./ladder"
 import { RoleReadError, ROW_CAP } from "./repo"
-import { rateSlug, resolveServiceRate, serviceRatesFor } from "./service-rates"
+import { rateSlug, rateSlugFor, resolveServiceRate, serviceRatesFor } from "./service-rates"
 
 const ROLES: RoleRow[] = [
   { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
@@ -61,6 +61,34 @@ describe("rateSlug", () => {
   it("archived or unknown custom role falls back to the tier", () => {
     expect(rateSlug(true, "old", ROLES)).toBe("dealer")
     expect(rateSlug(false, "ghost", ROLES)).toBe("user")
+  })
+})
+
+describe("rateSlugFor", () => {
+  const rolesClient = (res: { data: unknown; error: unknown }) => {
+    let reads = 0
+    const b: any = { select: () => b, limit: () => { reads++; return Promise.resolve(res) } }
+    return { client: { from: () => b }, reads: () => reads }
+  }
+  it("system roles and no role: tier decision, no roles read", async () => {
+    const { client, reads } = rolesClient({ data: ROLES, error: null })
+    expect(await rateSlugFor(client, true, "admin")).toBe("dealer")
+    expect(await rateSlugFor(client, false, "admin")).toBe("user")
+    expect(await rateSlugFor(client, true, "sub_agent")).toBe("dealer")
+    expect(await rateSlugFor(client, false, "dealer")).toBe("user")
+    expect(await rateSlugFor(client, true, "user")).toBe("dealer")
+    expect(await rateSlugFor(client, false, undefined)).toBe("user")
+    expect(reads()).toBe(0)
+  })
+  it("a live custom role keeps its slug; archived/unknown fall to the tier", async () => {
+    const { client } = rolesClient({ data: ROLES, error: null })
+    expect(await rateSlugFor(client, false, "gold")).toBe("gold")
+    expect(await rateSlugFor(client, true, "old")).toBe("dealer")
+    expect(await rateSlugFor(client, false, "ghost")).toBe("user")
+  })
+  it("a roles read failure returns the role's own slug so the rate lookup fails closed", async () => {
+    const { client } = rolesClient({ data: null, error: { message: "boom" } })
+    expect(await rateSlugFor(client, true, "gold")).toBe("gold")
   })
 })
 

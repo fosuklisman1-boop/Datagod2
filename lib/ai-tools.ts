@@ -5,7 +5,8 @@ import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES } from "@/lib/pricing
 import { priceWith, pricingSlug, roleBasePrices, roleBasePricesOrPublic } from "@/lib/roles/pricing"
 import { buyerPriceRole } from "@/lib/ussd/price-role"
 import type { WaShopSession } from "@/lib/whatsapp-bot/shop-types"
-import { dialerGetsDealerRate } from "@/lib/sub-agents/dealer-rates"
+import { dialerRateRole } from "@/lib/sub-agents/dealer-rates"
+import { RoleReadError } from "@/lib/roles/repo"
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -1687,7 +1688,7 @@ export async function executeToolCall(
           if (isNaN(amount) || amount <= 0) {
             return { error: "invalid_amount", message: "Ask how much airtime (in GHS) the customer wants." }
           }
-          const { detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate, splitInclusive, airtimeNetworkKey } = await import("@/lib/airtime-pricing")
+          const { detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits, airtimeFeeRateFor, splitInclusive, airtimeNetworkKey } = await import("@/lib/airtime-pricing")
           const netIn = String(input.network ?? "").toLowerCase().replace(/[\s_-]/g, "")
           let network: string | null =
             netIn.startsWith("mtn") ? "MTN"
@@ -1700,11 +1701,18 @@ export async function executeToolCall(
           const { min, max } = await getAirtimeLimits()
           if (amount < min || amount > max) return { error: "out_of_range", message: `Airtime must be between GHS ${min} and GHS ${max}.` }
 
-          const { shopOwnerIsDealer } = await import("@/lib/shop-commerce/pricing")
+          const { shopOwnerAirtimeSlug } = await import("@/lib/shop-commerce/pricing")
           const { createClient } = await import("@supabase/supabase-js")
           const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-          const isDealer = await shopOwnerIsDealer(shop.shopId)
-          const baseRate = await airtimeBaseFeeRate(network, isDealer)
+          // Owner dealer/admin => dealer base rate; a custom-role owner => its own role's rate. An unreadable custom
+          // rate refuses before anything is staged (the customer is never shown a wrong price).
+          let baseRate: number
+          try {
+            baseRate = await airtimeFeeRateFor(network, await shopOwnerAirtimeSlug(shop.shopId))
+          } catch (e) {
+            if (e instanceof RoleReadError) return { error: "unavailable", message: "Airtime pricing is temporarily unavailable. Ask the customer to try again shortly." }
+            throw e
+          }
           const { data: shopRow } = await supabase.from("user_shops").select(`airtime_markup_${airtimeNetworkKey(network)}`).eq("id", shop.shopId).single()
           const rawMarkup = parseFloat((shopRow as Record<string, unknown> | null)?.[`airtime_markup_${airtimeNetworkKey(network)}`] as string ?? "0") || 0
           const cappedMarkup = Math.max(0, Math.min(rawMarkup, 10 - baseRate))
@@ -1784,7 +1792,7 @@ export async function executeToolCall(
           if (isNaN(amount) || amount <= 0) {
             return { error: "invalid_amount", message: "Ask the customer how much airtime (in GHS) they want to buy." }
           }
-          const { detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate, splitInclusive } = await import("@/lib/airtime-pricing")
+          const { detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits, airtimeFeeRateFor, splitInclusive } = await import("@/lib/airtime-pricing")
           const netIn = String(input.network ?? "").toLowerCase().replace(/[\s_-]/g, "")
           let airtimeNetwork: string | null =
             netIn.startsWith("mtn") ? "MTN"
@@ -1815,8 +1823,13 @@ export async function executeToolCall(
           // number; we mirror it here only for an accurate confirm-screen "they receive" figure.
           const { resolveDialer } = await import("@/lib/ussd/resolve-dialer")
           const dialer = await resolveDialer(localSender)
-          const isDealer = dialerGetsDealerRate(dialer)
-          const rate = await airtimeBaseFeeRate(airtimeNetwork, isDealer)
+          let rate: number
+          try {
+            rate = await airtimeFeeRateFor(airtimeNetwork, dialerRateRole(dialer))
+          } catch (e) {
+            if (e instanceof RoleReadError) return { error: "unavailable", message: "Airtime pricing is temporarily unavailable — let the customer know and ask them to try again shortly." }
+            throw e
+          }
           const { fee, toDeliver } = splitInclusive(amount, rate)
           await setWaSession(phone, {
             step: "AIRTIME_CONFIRM",

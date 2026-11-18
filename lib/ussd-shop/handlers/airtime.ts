@@ -14,8 +14,10 @@ import { secureReference } from "@/lib/secure-random"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 import {
   detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits,
-  airtimeBaseFeeRate, splitInclusive, airtimeNetworkKey,
+  airtimeFeeRateFor, splitInclusive, airtimeNetworkKey,
 } from "@/lib/airtime-pricing"
+import { rateSlugFor } from "@/lib/roles/service-rates"
+import { RoleReadError } from "@/lib/roles/repo"
 import { createShopAirtimeOrder } from "@/lib/shop-commerce/orders"
 import { productMenuVisibility } from "./shop"
 import type { StorefrontQuote } from "@/lib/cashback/quote"
@@ -58,11 +60,25 @@ async function getAdminSetting(key: string): Promise<any> {
   return data?.value ?? null
 }
 
-async function shopOwnerIsDealer(shopId: string): Promise<boolean> {
+/** Rule C (owner dealer OR admin => dealer rate, anyone else user), with a custom-role owner keeping its own slug. */
+async function shopOwnerRateSlug(shopId: string): Promise<string> {
   const { data: shop } = await supabase.from("user_shops").select("user_id").eq("id", shopId).single()
-  if (!shop?.user_id) return false
+  if (!shop?.user_id) return "user"
   const { data: user } = await supabase.from("users").select("role").eq("id", shop.user_id).single()
-  return user?.role === "dealer" || user?.role === "admin"
+  const role: string | undefined = user?.role
+  return rateSlugFor(supabase, role === "dealer" || role === "admin", role)
+}
+
+const MSG_RATE_UNAVAILABLE = "Airtime is temporarily unavailable. Please try again shortly."
+
+/** The shop's rates, or null when a custom-role owner's rate cannot be read (the caller refuses before any charge). */
+async function shopRatesOrNull(shopId: string, network: string): Promise<{ totalFeeRate: number; merchantCommissionRate: number } | null> {
+  try {
+    return await shopAirtimeFeeRate(shopId, network)
+  } catch (e) {
+    if (e instanceof RoleReadError) return null
+    throw e
+  }
 }
 
 /**
@@ -75,8 +91,7 @@ async function shopAirtimeFeeRate(
   shopId: string,
   network: string
 ): Promise<{ totalFeeRate: number; merchantCommissionRate: number }> {
-  const isDealer = await shopOwnerIsDealer(shopId)
-  const baseRate = await airtimeBaseFeeRate(network, isDealer)
+  const baseRate = await airtimeFeeRateFor(network, await shopOwnerRateSlug(shopId))
 
   const { data: shop } = await supabase
     .from("user_shops")
@@ -189,7 +204,9 @@ export async function handleShopAirtimeEnterAmount(
   }
 
   // Not applied: today's shop markup pricing, unchanged.
-  const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
+  const rates = await shopRatesOrNull(session.shopId!, network)
+  if (rates === null) return end(MSG_RATE_UNAVAILABLE)
+  const { totalFeeRate, merchantCommissionRate } = rates
   const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
   const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
 
@@ -272,7 +289,9 @@ export async function handleShopAirtimeConfirm(
       cashbackColumns: { ...uzoCashbackAirtimeColumns(cb, true), ...(pricedForHubtel ? { total_paid: written, payment_fee_amount: 0 } : {}) },
     })
   } else {
-    const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
+    const rates = await shopRatesOrNull(session.shopId!, network)
+    if (rates === null) return end(MSG_RATE_UNAVAILABLE)
+    const { totalFeeRate, merchantCommissionRate } = rates
     const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
     const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
     orderResult = await createShopAirtimeOrder({

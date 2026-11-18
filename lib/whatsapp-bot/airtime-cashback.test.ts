@@ -112,6 +112,7 @@ vi.mock("@/lib/airtime-pricing", async (orig) => ({
   isAirtimeEnabled: vi.fn(async () => true),
   getAirtimeLimits: vi.fn(async () => ({ min: 1, max: 500 })),
   airtimeBaseFeeRate: vi.fn(async (_n: string, isDealer: boolean) => (isDealer ? 2 : 5)),
+  airtimeFeeRateFor: vi.fn(async (_n: string, slug: string) => (slug === "dealer" ? 2 : 5)),
 }))
 vi.mock("@/lib/ussd/resolve-dialer", () => ({ resolveDialer: vi.fn(async () => ({ ...h.state.dialer })) }))
 vi.mock("@/lib/ussd/resolve-email", () => ({ resolveEmail: vi.fn(async () => "payer@example.com") }))

@@ -38,6 +38,7 @@ vi.mock("../../airtime-pricing", async (orig) => ({
   isAirtimeEnabled: vi.fn(async () => h.enabled),
   getAirtimeLimits: vi.fn(async () => h.limits),
   airtimeBaseFeeRate: vi.fn(async (_n: string, dealer: boolean) => (dealer ? 2 : 5)),
+  airtimeFeeRateFor: vi.fn(async (_n: string, slug: string) => (slug === "dealer" ? 2 : 5)),
 }))
 vi.mock("../bots/gate", () => ({ botMenusVisible: async () => ({}), UZO_BOT_MENUS_HIDDEN: {} }))
 // Every export of the bot airtime module is wrapped in a spy that still runs the real function.

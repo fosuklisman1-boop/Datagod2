@@ -13,7 +13,8 @@ const h = vi.hoisted(() => {
     afterFns: [] as Array<() => Promise<void>>,
     walletBalance: 100,
     dialer: {} as any,
-    feeRate: { customer: 5, dealer: 2 },
+    feeRate: { customer: 5, dealer: 2, gold: 1 },
+    rateReadFails: false,
     seq: 0,
     quote: null as any, // what quoteBotAirtime returns (null = cashback not applied)
     quoteCalls: [] as any[],
@@ -89,6 +90,13 @@ vi.mock("@/lib/airtime-pricing", async (orig) => ({
   isAirtimeEnabled: vi.fn(async () => true),
   getAirtimeLimits: vi.fn(async () => ({ min: 1, max: 500 })),
   airtimeBaseFeeRate: vi.fn(async (_n: string, isDealer: boolean) => (isDealer ? h.state.feeRate.dealer : h.state.feeRate.customer)),
+  airtimeFeeRateFor: vi.fn(async (_n: string, slug: string) => {
+    if (h.state.rateReadFails && slug !== "dealer" && slug !== "user") {
+      const { RoleReadError } = await import("@/lib/roles/repo")
+      throw new RoleReadError()
+    }
+    return slug === "dealer" ? h.state.feeRate.dealer : slug === "gold" ? h.state.feeRate.gold : h.state.feeRate.customer
+  }),
 }))
 
 // Bot menus gate (Network Plans / Pay Bills on the main menu): hidden unless a test opens it.
@@ -146,7 +154,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   h.state.inserts = []; h.state.updates = []; h.state.rpcCalls = []; h.state.sessions = []
   h.state.charges = []; h.state.afterFns = []; h.state.walletBalance = 100; h.state.dialer = {}; h.state.seq = 0
-  h.state.quote = null; h.state.quoteCalls = []; h.state.cashbackAirtime = true
+  h.state.quote = null; h.state.quoteCalls = []; h.state.cashbackAirtime = true; h.state.rateReadFails = false
 })
 afterEach(() => { vi.useRealTimers() })
 
@@ -183,6 +191,38 @@ describe("main USSD airtime: legacy (no cashback) is byte-identical", () => {
     h.state.dialer = { userId: "u1", role: "sub_agent", balance: 0 } // no resolved tier: fails closed
     await handleAirtimeEnterAmount("10.50", "s1", s, "ussd")
     expect(lastSession()).toMatchObject({ airtimeFee: 0.5, airtimeToDeliver: 10 })
+  })
+
+  it("every system dialer keeps today's rate: dealer/admin/user/sub_agent by tier", async () => {
+    const s = { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any
+    const fee = async (dialer: any) => { h.state.dialer = dialer; await handleAirtimeEnterAmount("10.50", "s1", s, "ussd"); return lastSession().airtimeFee }
+    expect(await fee({ role: "dealer", rateTier: "dealer" })).toBeLessThan(0.5)
+    expect(await fee({ role: "admin", rateTier: "customer" })).toBe(0.5)
+    expect(await fee({ role: "user", rateTier: "customer" })).toBe(0.5)
+    expect(await fee({ role: "sub_agent", rateTier: "dealer" })).toBeLessThan(0.5)
+    expect(await fee({ role: "sub_agent", rateTier: "customer" })).toBe(0.5)
+    expect(await fee({})).toBe(0.5)
+  })
+
+  it("a custom-role dialer is quoted its own role's rate", async () => {
+    const s = { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any
+    h.state.dialer = { userId: "u1", role: "gold", rateTier: "customer", rateRole: "gold", balance: 0 }
+    await handleAirtimeEnterAmount("10.50", "s1", s, "ussd")
+    expect(lastSession().airtimeFee).toBe(0.1) // 1% of 10.50, fee-inclusive
+  })
+
+  it("a custom-role rate that cannot be read refuses at amount entry and at confirm: no order, no charge", async () => {
+    h.state.dialer = { userId: "u1", role: "gold", rateTier: "customer", rateRole: "gold", balance: 50 }
+    h.state.rateReadFails = true
+    const r = await handleAirtimeEnterAmount("10.50", "s1", { step: "AIRTIME_ENTER_AMOUNT", dialingPhone: DIALER, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any, "ussd")
+    expect(r.message).toContain("temporarily unavailable")
+    expect(lastSession()).toEqual({ step: "MAIN", dialingPhone: DIALER })
+    const c = await handleAirtimeConfirm("1", "s1", confirmSession(), "ussd")
+    expect(c.message).toContain("temporarily unavailable")
+    expect(airtimeInserts()).toEqual([])
+    await flushAfter()
+    expect(h.state.charges).toHaveLength(0)
+    expect(h.state.rpcCalls).toEqual([])
   })
 
   it("invalid amount re-prompts", async () => {

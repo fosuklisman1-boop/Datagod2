@@ -12,6 +12,14 @@ export function dialerGetsDealerRate(d: { role?: string; rateTier?: DealerRateTi
   return d.role === "dealer"
 }
 
+/**
+ * The role slug a dialer's airtime fee rate resolves under: the resolved rateRole (a custom role keeps its own slug),
+ * else "dealer"/"user" by today's dialerGetsDealerRate rule (a dialer without a rateRole is exactly as before).
+ */
+export function dialerRateRole(d: { role?: string; rateTier?: DealerRateTier; rateRole?: string }): string {
+  return d.rateRole ?? (dialerGetsDealerRate(d) ? "dealer" : "user")
+}
+
 /** Postgres undefined_column, or PostgREST's "column not in schema cache". */
 function isMissingColumn(error: { code?: string } | null): boolean {
   return error?.code === "42703" || error?.code === "PGRST204"

@@ -1,14 +1,14 @@
 // lib/ussd-hubtel/shop-services.test.ts
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const h = vi.hoisted(() => ({ isDealer: vi.fn(), baseRate: vi.fn(), push: vi.fn() }))
+const h = vi.hoisted(() => ({ isDealer: vi.fn(), baseRate: vi.fn(), push: vi.fn(), slug: "" }))
 vi.mock("@/lib/shop-commerce/pricing", async importOriginal => ({
   ...(await importOriginal<typeof import("@/lib/shop-commerce/pricing")>()),
-  shopOwnerIsDealer: (...a: any[]) => h.isDealer(...a),
+  shopOwnerAirtimeSlug: async (...a: any[]) => (h.slug ? h.slug : (await h.isDealer(...a)) ? "dealer" : "user"),
 }))
 vi.mock("@/lib/airtime-pricing", async importOriginal => ({
   ...(await importOriginal<typeof import("@/lib/airtime-pricing")>()),
-  airtimeBaseFeeRate: (...a: any[]) => h.baseRate(...a),
+  airtimeFeeRateFor: (...a: any[]) => h.baseRate(...a),
 }))
 vi.mock("@/lib/push-service", () => ({ sendPushToUser: (...a: any[]) => h.push(...a) }))
 
@@ -34,6 +34,7 @@ function fakeDb(row: Record<string, unknown> | null, rpc?: { data: unknown; erro
 }
 
 beforeEach(() => {
+  h.slug = ""
   h.isDealer.mockReset().mockResolvedValue(false)
   h.baseRate.mockReset().mockResolvedValue(3)
   h.push.mockReset().mockResolvedValue({ sent: 1, removed: 0 })
@@ -64,8 +65,16 @@ describe("shopAirtimeFeeRate", () => {
     const { client, selects } = fakeDb({ airtime_markup_mtn: "4" })
     expect(await shopAirtimeFeeRate(client, "shop-1", "MTN")).toEqual({ totalFeeRate: 7, merchantCommissionRate: 4 })
     expect(h.isDealer).toHaveBeenCalledWith("shop-1")
-    expect(h.baseRate).toHaveBeenCalledWith("MTN", true)
+    expect(h.baseRate).toHaveBeenCalledWith("MTN", "dealer")
     expect(selects).toContain("airtime_markup_mtn")
+  })
+  it("non-dealer owner prices under the user slug; a custom-role owner under its own slug", async () => {
+    const { client } = fakeDb(null)
+    await shopAirtimeFeeRate(client, "shop-1", "MTN")
+    expect(h.baseRate).toHaveBeenLastCalledWith("MTN", "user")
+    h.slug = "gold"
+    await shopAirtimeFeeRate(client, "shop-1", "MTN")
+    expect(h.baseRate).toHaveBeenLastCalledWith("MTN", "gold")
   })
   it("caps the markup so the total stays at 10%", async () => {
     h.baseRate.mockResolvedValue(8)

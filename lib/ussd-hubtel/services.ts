@@ -10,7 +10,7 @@ import {
 } from "@/lib/results-checker-service"
 import { toLocalPhone } from "./protocol"
 import { safeDbError } from "./log-safe"
-import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
+import { isAirtimeEnabled, getAirtimeLimits, airtimeFeeRateFor } from "@/lib/airtime-pricing"
 import { getAirtimeProvider } from "@/lib/airtime-provider"
 import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork } from "@/lib/digiwapy-provider"
 import { getCashbackConfig, type CashbackConfig } from "@/lib/cashback/config"
@@ -58,8 +58,11 @@ export async function loadBotMenuGate(supabase: SupabaseClient): Promise<BotMenu
 export interface AirtimeServices {
   isEnabled(network: string): Promise<boolean>
   getLimits(): Promise<{ min: number; max: number }>
-  /** Platform fee rate (%) for the network; dealers and sub-agents pay the dealer rate. */
-  feeRate(network: string, isDealer: boolean): Promise<number>
+  /**
+   * Platform fee rate (%) for the network under a role slug ("dealer" for dealers and dealer-rate sub-agents, "user"
+   * for everyone else, or a custom role's own slug). Rejects with RoleReadError when a custom role's rate is unreadable.
+   */
+  feeRate(network: string, slug: string): Promise<number>
   /**
    * Commission-cashback quote on the Hubtel rail for `faceAmount` of `network` airtime, or null when
    * cashback is not applied (gate off, provider earns nothing, above Hubtel's cap, any error) — the
@@ -77,7 +80,7 @@ export function defaultAirtimeServices(supabase: SupabaseClient): AirtimeService
   return {
     isEnabled: isAirtimeEnabled,
     getLimits: getAirtimeLimits,
-    feeRate: airtimeBaseFeeRate,
+    feeRate: airtimeFeeRateFor,
     cashbackQuote: (network, faceAmount, shop) => quoteBotAirtime(network, faceAmount, { rail: "hubtel", shop }, cashbackDeps),
   }
 }

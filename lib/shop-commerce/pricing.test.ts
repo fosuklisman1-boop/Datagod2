@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { CustomPriceReadError } from "@/lib/pricing/package-price"
-import { catalogWholesaleMargin, catalogSubAgentMargin, subAgentBundles, subAgentCosts, directShopPricing, fetchShopBundles, marginsValid, ownerBasePrices, ownerSavingFrom, parentProfitFromCatalog, shopOwnerPricing, sizeToMb, verifyBundlePrice } from "./pricing"
+import { catalogWholesaleMargin, catalogSubAgentMargin, subAgentBundles, subAgentCosts, directShopPricing, fetchShopBundles, marginsValid, ownerBasePrices, ownerSavingFrom, parentProfitFromCatalog, shopOwnerAirtimeSlug, shopOwnerPricing, sizeToMb, verifyBundlePrice } from "./pricing"
 
 // 0184 seed: user rank 0, dealer rank 10, sub_agent / admin off the ladder. Production mirrors dealer_price
 // into role_package_prices (rows only where dealer_price > 0): p1 = 8, p2 = 4 across this file's fixtures.
@@ -51,6 +51,26 @@ describe("shopOwnerPricing slug", () => {
     expect(await slugFor({ user_shops: { data: { user_id: "u" } }, users: { data: { role: "sub_agent" } } })).toBe("sub_agent")
     expect(await slugFor({ user_shops: { data: null } })).toBe("user")
     expect(await slugFor({ user_shops: { data: { user_id: "u" } }, users: { data: null } })).toBe("user")
+  })
+})
+
+describe("shopOwnerAirtimeSlug (rule C: dealer or admin owner => dealer)", () => {
+  const slugFor = async (tables: Record<string, any>) => shopOwnerAirtimeSlug("s1", fakeClient(tables))
+  const owner = (role: string | null) => ({ user_shops: { data: { user_id: "u" } }, users: { data: role === null ? null : { role } } })
+  it("dealer and admin => dealer; user, sub_agent, missing shop or user => user", async () => {
+    expect(await slugFor(owner("dealer"))).toBe("dealer")
+    expect(await slugFor(owner("admin"))).toBe("dealer")
+    expect(await slugFor(owner("user"))).toBe("user")
+    expect(await slugFor(owner("sub_agent"))).toBe("user")
+    expect(await slugFor(owner(null))).toBe("user")
+    expect(await slugFor({ user_shops: { data: null } })).toBe("user")
+  })
+  it("system-role owners cause no roles read, even when roles are unreadable", async () => {
+    expect(await slugFor({ ...owner("sub_agent"), roles: { data: null, error: { message: "boom" } } })).toBe("user")
+  })
+  it("a live custom-role owner keeps its own slug", async () => {
+    const roles = { data: [...ROLES, { id: "r-gold", slug: "gold", rank: 20, is_system: false, archived_at: null }] }
+    expect(await slugFor({ ...owner("gold"), roles })).toBe("gold")
   })
 })
 

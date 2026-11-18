@@ -19,7 +19,8 @@ import {
 import { resolveShopCode, fetchShopNetworks, getCanonicalShopName } from "@/lib/shop-commerce/shop-code"
 import { getShopPref, setShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 import type { WaShopSession } from "./shop-types"
-import { fetchShopBundles, verifyBundlePrice, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
+import { fetchShopBundles, verifyBundlePrice, shopOwnerAirtimeSlug } from "@/lib/shop-commerce/pricing"
+import { RoleReadError } from "@/lib/roles/repo"
 import { createShopBundleOrder, createShopAirtimeOrder, createShopRcOrder, createShopCheckResultsRequest } from "@/lib/shop-commerce/orders"
 import { submitOtp } from "@/lib/paystack"
 import { claimShopCharge, releaseShopCharge } from "./shop-charge-claim"
@@ -35,7 +36,7 @@ import { getNoticeMode, botPrompt } from "@/lib/blocked-numbers/notice"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import {
   detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits,
-  airtimeBaseFeeRate, splitInclusive, airtimeNetworkKey,
+  airtimeFeeRateFor, splitInclusive, airtimeNetworkKey,
 } from "@/lib/airtime-pricing"
 import {
   isExamBoardEnabled, getAvailableCount, getMaxQuantity, calculateRCPrice, getRCBulkHint,
@@ -141,17 +142,16 @@ async function markOrderOtpRequired(table: ShopOrderTable, orderId: string): Pro
 }
 
 // Mirrors lib/ussd-shop/handlers/airtime.ts's private (unexported)
-// shopAirtimeFeeRate — the platform's per-tier base fee (lib/airtime-pricing.ts's
-// airtimeBaseFeeRate) plus this shop's own airtime_markup_{network} column,
+// shopAirtimeFeeRate — the platform's per-role base fee (lib/airtime-pricing.ts's
+// airtimeFeeRateFor) plus this shop's own airtime_markup_{network} column,
 // capped so base+markup never exceeds 10% (mirrors the storefront rule). Reuses
-// the shared shopOwnerIsDealer (lib/shop-commerce/pricing.ts) for the dealer-tier
-// check instead of duplicating its public.users-vs-auth.users lookup pitfall.
+// the shared shopOwnerAirtimeSlug (lib/shop-commerce/pricing.ts: owner dealer or admin => dealer,
+// a custom-role owner => its own slug) instead of duplicating its public.users-vs-auth.users lookup pitfall.
 async function shopAirtimeFeeRate(
   shopId: string,
   network: string
 ): Promise<{ totalFeeRate: number; merchantCommissionRate: number }> {
-  const isDealer = await shopOwnerIsDealer(shopId)
-  const baseRate = await airtimeBaseFeeRate(network, isDealer)
+  const baseRate = await airtimeFeeRateFor(network, await shopOwnerAirtimeSlug(shopId))
 
   const { data: shop } = await supabase
     .from("user_shops")
@@ -162,6 +162,18 @@ async function shopAirtimeFeeRate(
   const rawMarkup = parseFloat((shop as any)?.[`airtime_markup_${airtimeNetworkKey(network)}`] ?? 0) || 0
   const cappedMarkup = Math.max(0, Math.min(rawMarkup, 10 - baseRate))
   return { totalFeeRate: baseRate + cappedMarkup, merchantCommissionRate: cappedMarkup }
+}
+
+const MSG_AIRTIME_RATE_UNAVAILABLE = "Airtime is temporarily unavailable. Please try again shortly."
+
+/** The shop's rates, or null when a custom-role owner's rate cannot be read (the caller refuses before any order or charge). */
+async function shopRatesOrNull(shopId: string, network: string) {
+  try {
+    return await shopAirtimeFeeRate(shopId, network)
+  } catch (e) {
+    if (e instanceof RoleReadError) return null
+    throw e
+  }
 }
 
 // Commission cashback airtime (storefront split: shop: true, rail paystack). Behind the WhatsApp `cashbackAirtime`
@@ -1090,7 +1102,12 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
         }
 
         // Not applied: today's shop markup pricing, unchanged.
-        const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
+        const rates = await shopRatesOrNull(session.shopId!, network)
+        if (rates === null) {
+          reply = MSG_AIRTIME_RATE_UNAVAILABLE
+          break
+        }
+        const { totalFeeRate, merchantCommissionRate } = rates
         const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
         const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
 
@@ -1237,7 +1254,13 @@ async function routeShopMessage(from: string, text: string, inboundMsgId: string
             },
           })
         } else {
-          const { totalFeeRate, merchantCommissionRate } = await shopAirtimeFeeRate(session.shopId!, network)
+          const rates = await shopRatesOrNull(session.shopId!, network)
+          if (rates === null) {
+            deleteAfter = true
+            reply = MSG_AIRTIME_RATE_UNAVAILABLE
+            break
+          }
+          const { totalFeeRate, merchantCommissionRate } = rates
           const { fee, toDeliver } = splitInclusive(amount, totalFeeRate)
           const commission = parseFloat((toDeliver * merchantCommissionRate / 100).toFixed(2))
 

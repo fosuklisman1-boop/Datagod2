@@ -98,6 +98,14 @@ describe("shop airtime: amount and price", () => {
     expect(r.Message).toBe("Ama Data Hub\nMTN to 0244123456\nYou pay GHS 10.00\nThey get GHS 9.35\nfrom 0200585542\n1. Pay now\n2. Cancel")
     expect(store.get("S1")).toMatchObject({ step: "SHOP_AIRTIME_CONFIRM", airtimeAmount: 10, airtimeFee: 0.65, airtimeToDeliver: 9.35 })
   })
+  it("an unreadable custom-role owner rate ends the session: no confirm screen, no order", async () => {
+    const { RoleReadError } = await import("@/lib/roles/repo")
+    const { deps, store } = shopDeps({ shop: fakeShop({ airtimeFeeRate: async () => { throw new RoleReadError() } }) })
+    const r = await toConfirm(deps)
+    expect(r.Message).toContain("temporarily unavailable")
+    expect(r.Type).toBe("release")
+    expect(store.get("S1")?.step).not.toBe("SHOP_AIRTIME_CONFIRM")
+  })
   it("a NaN shop fee rate fails closed on the amount screen", async () => {
     const { deps, store } = shopDeps({ shop: fakeShop({ airtimeFeeRate: async () => ({ totalFeeRate: NaN, merchantCommissionRate: NaN }) }) })
     const r = await toConfirm(deps)

@@ -6,7 +6,7 @@ const h = vi.hoisted(() => ({
   map: { MTN: ["24"], TELECEL: ["20"], AT: ["27"] } as Record<string, string[]>,
   enabled: vi.fn(async (_n: string) => true),
   limits: vi.fn(async () => ({ min: 1, max: 500 })),
-  rate: vi.fn(async (_n: string, _dealer: boolean) => 5),
+  rate: vi.fn(async (_n: string, _slug: string) => 5),
   dialer: vi.fn(async (_p: string) => ({}) as Record<string, unknown>),
   blocked: vi.fn(async (_n: string, _p: string) => false),
   visibility: vi.fn(async () => ({})),
@@ -21,7 +21,7 @@ vi.mock("@/lib/airtime-pricing", () => ({
   },
   isAirtimeEnabled: h.enabled,
   getAirtimeLimits: h.limits,
-  airtimeBaseFeeRate: h.rate,
+  airtimeFeeRateFor: h.rate,
 }))
 vi.mock("@/lib/ussd/resolve-dialer", () => ({ resolveDialer: h.dialer }))
 vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: vi.fn(async () => ({ enabled: true, map: h.map })) }))
@@ -180,17 +180,45 @@ describe("resolve: switches, limits and the preview", () => {
   it("customer rate 5: pay 10, they get 9.52", async () => {
     const o = await offerOf(read())
     expect(o).toMatchObject({ previewGhs: 10, previewDeliversGhs: 9.52 })
-    expect(h.rate).toHaveBeenCalledWith("Telecel", false)
+    expect(h.rate).toHaveBeenCalledWith("Telecel", "user")
   })
 
   it("a dealer sender gets the dealer rate", async () => {
     h.dialer.mockResolvedValue({ role: "dealer", rateTier: "dealer" })
-    h.rate.mockImplementation(async (_n, dealer) => (dealer ? 2 : 5))
+    h.rate.mockImplementation(async (_n, slug) => (slug === "dealer" ? 2 : 5))
     const o = await offerOf(read())
-    expect(h.rate).toHaveBeenCalledWith("Telecel", true)
+    expect(h.rate).toHaveBeenCalledWith("Telecel", "dealer")
     expect(o.previewDeliversGhs).toBe(9.8)
     // the dialer is the sender in international form
     expect(h.dialer).toHaveBeenCalledWith("+233200000101")
+  })
+
+  it("admin and sub-agents (rates off) keep the customer slug; sub-agents with rates on the dealer slug", async () => {
+    const slug = async (d: Record<string, unknown>) => {
+      h.rate.mockClear()
+      h.dialer.mockResolvedValue(d)
+      await offerOf(read())
+      return h.rate.mock.calls[0][1]
+    }
+    expect(await slug({ role: "admin", rateTier: "customer" })).toBe("user")
+    expect(await slug({ role: "sub_agent", rateTier: "customer" })).toBe("user")
+    expect(await slug({ role: "sub_agent", rateTier: "dealer" })).toBe("dealer")
+  })
+
+  it("a custom-role sender is priced under its own slug", async () => {
+    h.dialer.mockResolvedValue({ role: "gold", rateTier: "customer", rateRole: "gold" })
+    h.rate.mockImplementation(async (_n, slug) => (slug === "gold" ? 1 : 5))
+    const o = await offerOf(read())
+    expect(h.rate).toHaveBeenCalledWith("Telecel", "gold")
+    expect(o.previewDeliversGhs).toBe(9.9)
+  })
+
+  it("an unreadable custom-role rate refuses with the fixed unavailable reply (nothing is placed)", async () => {
+    const { RoleReadError } = await import("@/lib/roles/repo")
+    h.dialer.mockResolvedValue({ role: "gold", rateTier: "customer", rateRole: "gold" })
+    h.rate.mockRejectedValue(new RoleReadError())
+    const res = await resolve(read())
+    expect(res).toMatchObject({ ok: false, refusal: { outcome: "unavailable", reply: "Airtime is not available now." } })
   })
 
   it("the live service-visibility switch is never read here (the confirm handler owns it)", async () => {

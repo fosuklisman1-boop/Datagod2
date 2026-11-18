@@ -6,9 +6,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { BundleOption } from "@/lib/ussd/types"
 import type { ExamBoard } from "@/lib/results-check-validation"
-import { airtimeBaseFeeRate, airtimeNetworkKey, splitInclusive } from "@/lib/airtime-pricing"
+import { airtimeFeeRateFor, airtimeNetworkKey, splitInclusive } from "@/lib/airtime-pricing"
 import { calculateRCPrice } from "@/lib/results-checker-service"
-import { fetchShopBundles, shopOwnerIsDealer, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
+import { fetchShopBundles, shopOwnerAirtimeSlug, verifyBundlePrice } from "@/lib/shop-commerce/pricing"
 import { fetchShopNetworks, getCanonicalShopName, resolveShopCode, type ResolvedShopCode } from "@/lib/shop-commerce/shop-code"
 import { resolveEmail } from "@/lib/ussd/resolve-email"
 import {
@@ -60,8 +60,8 @@ export function shopAirtimeQuote(amount: number, rates: ShopAirtimeRates): { fee
 }
 
 export async function shopAirtimeFeeRate(supabase: SupabaseClient, shopId: string, network: string): Promise<ShopAirtimeRates> {
-  const isDealer = await shopOwnerIsDealer(shopId) // dealer/admin owner => dealer base rate
-  const baseRate = await airtimeBaseFeeRate(network, isDealer)
+  // dealer/admin owner => dealer base rate; a custom-role owner => its own role's rate (RoleReadError if unreadable)
+  const baseRate = await airtimeFeeRateFor(network, await shopOwnerAirtimeSlug(shopId))
   const column = `airtime_markup_${airtimeNetworkKey(network)}`
   const { data: shop } = await supabase.from("user_shops").select(column).eq("id", shopId).single()
   const raw = (shop as Record<string, unknown> | null)?.[column]

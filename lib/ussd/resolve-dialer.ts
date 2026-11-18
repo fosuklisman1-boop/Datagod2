@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { getDealerRateTier } from "@/lib/sub-agents/dealer-rates"
+import { rateSlugFor } from "@/lib/roles/service-rates"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,6 +13,7 @@ export interface DialerInfo {
   balance?: number   // wallet balance (only set for registered dialers)
   email?: string     // real account email (NOT the synthetic Paystack fallback)
   rateTier?: "customer" | "dealer" // dealer-rate decision (sub-agents can have dealer rates turned off per shop)
+  rateRole?: string // airtime fee rate slug: "dealer"/"user" by rateTier, or a custom role's own slug
 }
 
 function toLocal(phone: string): string {
@@ -53,5 +55,6 @@ export async function resolveDialer(dialingPhone: string): Promise<DialerInfo> {
     balance: w ? Number(w.balance) : 0,
     email: u.email ?? undefined,
     rateTier,
+    rateRole: await rateSlugFor(supabase, rateTier === "dealer", u.role),
   }
 }

@@ -60,6 +60,7 @@ vi.mock("@/lib/airtime-pricing", async (orig) => ({
   isAirtimeEnabled: vi.fn(async () => true),
   getAirtimeLimits: vi.fn(async () => ({ min: 1, max: 500 })),
   airtimeBaseFeeRate: vi.fn(async () => 5),
+  airtimeFeeRateFor: vi.fn(async () => 5),
 }))
 vi.mock("@/lib/results-checker-service", () => ({
   isExamBoardEnabled: vi.fn(async () => true), getAvailableCount: vi.fn(async () => 10), getMaxQuantity: vi.fn(async () => 10),

@@ -11,7 +11,8 @@ import { setWaSession } from "../../whatsapp-bot/session"
 import { networkNickname } from "../network-labels"
 import { resolveEmail } from "../resolve-email"
 import { resolveDialer } from "../resolve-dialer"
-import { dialerGetsDealerRate } from "../../sub-agents/dealer-rates"
+import { dialerRateRole } from "../../sub-agents/dealer-rates"
+import { RoleReadError } from "../../roles/repo"
 import { liveWalletBalance } from "../wallet-balance"
 import {
   guardedReprice, isUssdHubtelPayer, pendingOrderAmountFor, startUssdCharge, ussdChargeSurface, ussdOrderAmount, type UssdPrice,
@@ -22,7 +23,7 @@ import { sendSMS, SMSTemplates } from "../../sms-service"
 import { sendWhatsAppText } from "../../whatsapp-bot/send"
 import {
   detectAirtimeNetwork, isAirtimeEnabled, getAirtimeLimits,
-  airtimeBaseFeeRate, splitInclusive,
+  airtimeFeeRateFor, splitInclusive,
 } from "../../airtime-pricing"
 import { getUssdServiceVisibility } from "../../ussd-service-visibility"
 import type { StorefrontQuote } from "../../cashback/quote"
@@ -84,9 +85,20 @@ function toLocal(phone: string): string {
   return phone
 }
 
-async function dialerFeeRate(network: string, dialer: { role?: string; rateTier?: "customer" | "dealer" }): Promise<number> {
-  return airtimeBaseFeeRate(network, dialerGetsDealerRate(dialer))
+/** The dialer's fee rate, or null when a custom role's rate cannot be read (the caller refuses; nothing is charged). */
+async function dialerFeeRate(
+  network: string,
+  dialer: { role?: string; rateTier?: "customer" | "dealer"; rateRole?: string }
+): Promise<number | null> {
+  try {
+    return await airtimeFeeRateFor(network, dialerRateRole(dialer))
+  } catch (e) {
+    if (e instanceof RoleReadError) return null
+    throw e
+  }
 }
+
+const MSG_RATE_UNAVAILABLE = "Airtime is temporarily unavailable. Please try again shortly."
 
 // ── AIRTIME_ENTER_RECIPIENT ───────────────────────────────────────────────────
 export async function handleAirtimeEnterRecipient(
@@ -203,6 +215,10 @@ export async function handleAirtimeEnterAmount(
 
   // Not applied: today's fee pricing, unchanged.
   const rate = await dialerFeeRate(network, dialer)
+  if (rate === null) {
+    await setSession(sessionId, { step: "MAIN", dialingPhone: session.dialingPhone })
+    return end(MSG_RATE_UNAVAILABLE)
+  }
   const { fee, toDeliver } = splitInclusive(amount, rate)
 
   await setSession(sessionId, {
@@ -318,6 +334,10 @@ async function confirmAirtime(
     toDeliver = amount
   } else {
     const rate = await dialerFeeRate(network, dialer)
+    if (rate === null) {
+      await saveSession({ step: "MAIN", dialingPhone })
+      return end(MSG_RATE_UNAVAILABLE)
+    }
     ;({ fee, toDeliver } = splitInclusive(amount, rate))
   }
   // MoMo charge = the row's total_paid as inserted. With cashback the wallet pays the quote's base

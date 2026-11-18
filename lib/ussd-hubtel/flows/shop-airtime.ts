@@ -15,6 +15,7 @@ import { finish, goto, replaySubmittedOrder, say, submitOrder, type FlowCtx, typ
 import { backToProduct } from "./shop"
 import type { HubtelReply } from "../types"
 import { samePrice } from "@/lib/cashback/quote"
+import { RoleReadError } from "@/lib/roles/repo"
 import {
   airtimeAmountText, cashbackAirtimeColumns, cashbackAirtimeConfirmText, cashbackPromptApplies, usableCashbackQuote,
 } from "./airtime-cashback"
@@ -47,6 +48,17 @@ export function shopAirtimeConfirmText(shopName: string, label: string, recipien
 
 const nameOf = (ctx: FlowCtx) => ctx.session.shopName ?? "Shop"
 
+const MSG_RATE_UNAVAILABLE = "Airtime is temporarily unavailable. Please try again shortly."
+
+/** The shop's fee rates, or null when a custom-role owner's rate cannot be read (the caller refuses; nothing is charged). */
+async function shopRatesOrNull(deps: FlowCtx["deps"], shopId: string, network: string) {
+  try {
+    return await deps.shop.airtimeFeeRate(shopId, network)
+  } catch (e) {
+    if (e instanceof RoleReadError) return null
+    throw e
+  }
+}
 /** A quote is usable only when every part is a finite number and something is delivered (fail closed). */
 function usableQuote(q: { fee: number; toDeliver: number; commission: number }): boolean {
   return Number.isFinite(q.fee) && q.fee >= 0
@@ -123,7 +135,9 @@ async function enterAmount(ctx: FlowCtx): Promise<HubtelReply> {
   }
 
   // Not applied: today's shop fee pricing, unchanged.
-  const q = shopAirtimeQuote(amount, await deps.shop.airtimeFeeRate(session.shopId, network))
+  const rates = await shopRatesOrNull(deps, session.shopId, network)
+  if (rates === null) return finish(ctx, MSG_RATE_UNAVAILABLE)
+  const q = shopAirtimeQuote(amount, rates)
   if (!usableQuote(q)) return invalid()
 
   return goto(ctx, { step: "SHOP_AIRTIME_CONFIRM", airtimeAmount: amount, airtimeFee: q.fee, airtimeToDeliver: q.toDeliver,
@@ -192,7 +206,9 @@ async function confirm(ctx: FlowCtx): Promise<HubtelReply> {
   }
 
   // Not applied: today's shop fee pricing, unchanged.
-  const q = shopAirtimeQuote(amount, await deps.shop.airtimeFeeRate(session.shopId, network))
+  const rates = await shopRatesOrNull(deps, session.shopId, network)
+  if (rates === null) return finish(ctx, MSG_RATE_UNAVAILABLE)
+  const q = shopAirtimeQuote(amount, rates)
   // Fail closed: a NaN/undefined on either side must never pass the drift check.
   if (!usableQuote(q) || !Number.isFinite(shown) || !(Math.abs(q.toDeliver - (shown as number)) <= 0.001)) {
     return finish(ctx, "Airtime rates changed. Please restart your order.")

@@ -9,6 +9,7 @@ import {
 } from "@/lib/pricing/package-price"
 import { priceWith, pricingSlug, roleBasePrices } from "@/lib/roles/pricing"
 import { RoleReadError } from "@/lib/roles/repo"
+import { rateSlugFor } from "@/lib/roles/service-rates"
 
 // Channel-agnostic shop bundle pricing. Extracted verbatim from
 // lib/ussd-shop/handlers/bundles.ts so both the USSD shop and the WhatsApp
@@ -61,6 +62,23 @@ export async function shopOwnerIsDealer(
     .eq("id", shop.user_id)
     .single()
   return user?.role === 'dealer' || user?.role === 'admin'
+}
+
+/**
+ * The slug a shop's airtime base fee rate resolves under. Rule: owner dealer OR admin => "dealer", anyone else (incl.
+ * sub_agent, no shop) => "user" (exactly shopOwnerIsDealer), except a live custom-role owner keeps its own slug.
+ * System roles cause no roles read; a failed lookup of the owner row is "user", as shopOwnerIsDealer treats it.
+ * Throws RoleReadError only for a custom-role owner whose rate cannot be read (via airtimeFeeRateFor).
+ */
+export async function shopOwnerAirtimeSlug(
+  shopId: string,
+  client: SupabaseClientLike = supabase
+): Promise<string> {
+  const { data: shop } = await client.from("user_shops").select("user_id").eq("id", shopId).single()
+  if (!shop?.user_id) return "user"
+  const { data: user } = await client.from("users").select("role").eq("id", shop.user_id).single()
+  const role: string | undefined = user?.role
+  return rateSlugFor(client, role === "dealer" || role === "admin", role)
 }
 
 /**

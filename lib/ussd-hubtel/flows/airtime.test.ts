@@ -102,20 +102,53 @@ describe("airtime: amount (review focus #3)", () => {
     const feeRate = vi.fn(async () => 5)
     const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => ({ userId: "u1", role: "sub_agent", rateTier: "dealer" }) })
     await toConfirm(deps)
-    expect(feeRate).toHaveBeenCalledWith("MTN", true)
+    expect(feeRate).toHaveBeenCalledWith("MTN", "dealer")
+  })
+  it("dealer, admin and user dialers keep today's rate slug", async () => {
+    const slugOf = async (d: any) => {
+      const feeRate = vi.fn(async () => 5)
+      const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => d })
+      await toConfirm(deps)
+      return (feeRate.mock.calls as any[][])[0][1]
+    }
+    expect(await slugOf({ userId: "u1", role: "dealer", rateTier: "dealer" })).toBe("dealer")
+    expect(await slugOf({ userId: "u1", role: "admin", rateTier: "customer" })).toBe("user")
+    expect(await slugOf({ userId: "u1", role: "user", rateTier: "customer" })).toBe("user")
+    expect(await slugOf({})).toBe("user")
+  })
+  it("a custom-role dialer is priced under its own slug", async () => {
+    const feeRate = vi.fn(async () => 3)
+    const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => ({ userId: "u1", role: "gold", rateTier: "customer", rateRole: "gold" }) })
+    await toConfirm(deps)
+    expect(feeRate).toHaveBeenCalledWith("MTN", "gold")
+  })
+  it("an unreadable custom-role rate ends the session at the amount and at confirm: no order, no payment", async () => {
+    const { RoleReadError } = await import("@/lib/roles/repo")
+    const feeRate = vi.fn(async () => { throw new RoleReadError() })
+    const dialer = { userId: "u1", role: "gold", rateTier: "customer", rateRole: "gold" } as any
+    const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => dialer })
+    const r = await toConfirm(deps)
+    expect(r.Message).toContain("temporarily unavailable")
+    expect(r.Type).toBe("release")
+    // prepareAirtime (confirm / PAY_CHOICE re-run) refuses the same way
+    const { prepareAirtime } = await import("./airtime")
+    const ctxDeps = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => dialer }).deps
+    const p = await prepareAirtime({ deps: ctxDeps, session: { step: "AIRTIME_CONFIRM", dialingPhone: "+233200585542", airtimeNetwork: "MTN", airtimeRecipient: "0244123456", airtimeAmount: 10, airtimeToDeliver: 9.52 }, req: req({}), input: "1" } as any)
+    expect((p as any).table).toBeUndefined()
+    expect((p as any).Message).toContain("temporarily unavailable")
   })
   it("a sub-agent with dealer rates off gets the customer fee rate", async () => {
     const feeRate = vi.fn(async () => 5)
     const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => ({ userId: "u1", role: "sub_agent", rateTier: "customer" }) })
     await toConfirm(deps)
-    expect(feeRate).toHaveBeenCalledWith("MTN", false)
-    expect(feeRate).not.toHaveBeenCalledWith("MTN", true)
+    expect(feeRate).toHaveBeenCalledWith("MTN", "user")
+    expect(feeRate).not.toHaveBeenCalledWith("MTN", "dealer")
   })
   it("a sub-agent with no resolved rate tier fails closed to the customer fee rate", async () => {
     const feeRate = vi.fn(async () => 5)
     const { deps } = makeDeps({ airtime: fakeAirtime({ feeRate }), resolveDialer: async () => ({ userId: "u1", role: "sub_agent" }) })
     await toConfirm(deps)
-    expect(feeRate).toHaveBeenCalledWith("MTN", false)
+    expect(feeRate).toHaveBeenCalledWith("MTN", "user")
   })
 })
 

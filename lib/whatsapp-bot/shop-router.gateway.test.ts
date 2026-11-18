@@ -75,6 +75,7 @@ vi.mock("@/lib/shop-commerce/pricing", () => ({
   fetchShopBundles: vi.fn(),
   verifyBundlePrice: vi.fn(async () => ({ verifiedPrice: 10, profitAmount: 1, parentProfitAmount: 0 })),
   shopOwnerIsDealer: vi.fn(async () => false),
+  shopOwnerAirtimeSlug: vi.fn(async () => "user"),
 }))
 // The order writers insert into the fake tables with the columns the charge and the re-price read.
 vi.mock("@/lib/shop-commerce/orders", async () => {
@@ -116,6 +117,7 @@ vi.mock("@/lib/airtime-pricing", async (orig) => ({
   isAirtimeEnabled: vi.fn(async () => true),
   getAirtimeLimits: vi.fn(async () => ({ min: 1, max: 500 })),
   airtimeBaseFeeRate: vi.fn(async () => 5),
+  airtimeFeeRateFor: vi.fn(async () => 5),
 }))
 vi.mock("@/lib/storefront-otp", async (orig) => ({ ...(await orig<object>()), isPhoneOtpVerified: h.verified }))
 

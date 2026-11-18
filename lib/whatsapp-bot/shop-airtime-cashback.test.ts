@@ -67,7 +67,7 @@ vi.mock("@/lib/whatsapp-bot/shop-prefs", () => ({ getShopPref: async () => null,
 vi.mock("@/lib/shop-commerce/shop-code", () => ({
   resolveShopCode: h.resolveShopCode, fetchShopNetworks: async () => ["MTN"], getCanonicalShopName: async () => "Kofi Data",
 }))
-vi.mock("@/lib/shop-commerce/pricing", () => ({ fetchShopBundles: vi.fn(), verifyBundlePrice: vi.fn(), shopOwnerIsDealer: vi.fn(async () => false) }))
+vi.mock("@/lib/shop-commerce/pricing", () => ({ fetchShopBundles: vi.fn(), verifyBundlePrice: vi.fn(), shopOwnerIsDealer: vi.fn(async () => false), shopOwnerAirtimeSlug: vi.fn(async () => "user") }))
 vi.mock("@/lib/shop-commerce/orders", () => ({
   createShopBundleOrder: vi.fn(), createShopAirtimeOrder: h.createShopAirtimeOrder, createShopRcOrder: vi.fn(), createShopCheckResultsRequest: vi.fn(),
 }))
@@ -96,6 +96,7 @@ vi.mock("@/lib/airtime-pricing", async (orig) => ({
   isAirtimeEnabled: vi.fn(async () => true),
   getAirtimeLimits: vi.fn(async () => ({ min: 1, max: 500 })),
   airtimeBaseFeeRate: vi.fn(async () => 5),
+  airtimeFeeRateFor: vi.fn(async () => 5),
 }))
 
 import { shopWaRouter } from "./shop-router"

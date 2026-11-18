@@ -11,7 +11,8 @@ import { backToMain, finish, goto, replaySubmittedOrder, say, type FlowCtx, type
 import { checkoutOrChoose, type Prepare, type PreparedOrder } from "./pay-choice"
 import type { HubtelReply, PayKind } from "../types"
 import { samePrice } from "@/lib/cashback/quote"
-import { dialerGetsDealerRate } from "@/lib/sub-agents/dealer-rates"
+import { dialerRateRole } from "@/lib/sub-agents/dealer-rates"
+import { RoleReadError } from "@/lib/roles/repo"
 import {
   airtimeAmountText, cashbackAirtimeColumns, cashbackAirtimeConfirmText, cashbackPromptApplies, usableCashbackQuote,
 } from "./airtime-cashback"
@@ -42,7 +43,17 @@ export function airtimeConfirmText(label: string, recipient: string, pay: number
   )
 }
 
-const isDealerRole = dialerGetsDealerRate
+const MSG_RATE_UNAVAILABLE = "Airtime is temporarily unavailable. Please try again shortly."
+
+/** The dialer's fee rate under its role slug, or null when a custom role's rate cannot be read (the caller refuses). */
+async function feeRateOrNull(deps: FlowCtx["deps"], network: AirtimeNetworkKey, dialer: Parameters<typeof dialerRateRole>[0]): Promise<number | null> {
+  try {
+    return await deps.airtime.feeRate(network, dialerRateRole(dialer))
+  } catch (e) {
+    if (e instanceof RoleReadError) return null
+    throw e
+  }
+}
 
 export async function startAirtime(ctx: FlowCtx): Promise<HubtelReply> {
   return goto(ctx, { step: "AIRTIME_ENTER_RECIPIENT" }, airtimeRecipientPromptText(), RECIPIENT)
@@ -113,7 +124,8 @@ async function enterAmount(ctx: FlowCtx): Promise<HubtelReply> {
   }
 
   // Not applied: today's fee pricing, unchanged.
-  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer))
+  const rate = await feeRateOrNull(deps, network, dialer)
+  if (rate === null) return finish(ctx, MSG_RATE_UNAVAILABLE)
   const { fee, toDeliver } = splitInclusive(amount, rate)
   if (!(toDeliver > 0)) return invalid()
 
@@ -189,7 +201,8 @@ export async function prepareAirtime(ctx: FlowCtx): Promise<PreparedOrder | Hubt
   }
 
   // Not applied: today's fee pricing, unchanged.
-  const rate = await deps.airtime.feeRate(network, isDealerRole(dialer))
+  const rate = await feeRateOrNull(deps, network, dialer)
+  if (rate === null) return finish(ctx, MSG_RATE_UNAVAILABLE)
   const { fee, toDeliver } = splitInclusive(amount, rate)
   // Fail closed: a NaN/undefined on either side must never pass the drift check.
   const shown = session.airtimeToDeliver

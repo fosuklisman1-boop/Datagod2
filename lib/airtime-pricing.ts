@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { airtimeSettingsSuffix } from "./airtime-fee"
+import { serviceRatesFor } from "./roles/service-rates"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,13 +43,29 @@ export async function getAirtimeLimits(): Promise<{ min: number; max: number }> 
   return { min: minS?.amount ?? 1, max: maxS?.amount ?? 500 }
 }
 
+/**
+ * Platform base fee rate (%) for a network, by role slug.
+ *  - "dealer" / "user": today's `airtime_fee_<net>_dealer|_customer` admin setting (default 5), no roles read at all.
+ *  - any other slug (a custom role): its role_service_rates row, else the next lower role, else those same two legacy
+ *    values. Throws RoleReadError when roles / rates cannot be read: charge callers refuse before taking any money.
+ */
+export async function airtimeFeeRateFor(network: string, slug: string): Promise<number> {
+  const net = airtimeNetworkKey(network)
+  const dealerKey = `airtime_fee_${net}_dealer`
+  const customerKey = `airtime_fee_${net}_customer`
+  if (slug === "dealer") return (await getAdminSetting(dealerKey))?.rate ?? 5
+  if (slug === "user") return (await getAdminSetting(customerKey))?.rate ?? 5
+
+  const [dealerS, customerS] = await Promise.all([getAdminSetting(dealerKey), getAdminSetting(customerKey)])
+  const legacy = { dealer: dealerS?.rate ?? 5, customer: customerS?.rate ?? 5 }
+  const serviceKey = `airtime_fee:${net}`
+  const rates = await serviceRatesFor(supabase, slug, [serviceKey], () => legacy)
+  return rates.get(serviceKey) as number
+}
+
 /** Platform base fee rate (%) for a network, by buyer tier. */
 export async function airtimeBaseFeeRate(network: string, isDealer: boolean): Promise<number> {
-  const key = isDealer
-    ? `airtime_fee_${airtimeNetworkKey(network)}_dealer`
-    : `airtime_fee_${airtimeNetworkKey(network)}_customer`
-  const s = await getAdminSetting(key)
-  return s?.rate ?? 5
+  return airtimeFeeRateFor(network, isDealer ? "dealer" : "user")
 }
 
 /**

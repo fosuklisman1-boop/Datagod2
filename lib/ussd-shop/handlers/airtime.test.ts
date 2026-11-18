@@ -12,6 +12,11 @@ const h = vi.hoisted(() => {
     afterFns: [] as Array<() => Promise<void>>,
     markup: 3,
     ownerRole: "agent",
+    roles: [
+      { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+      { id: "r-gold", slug: "gold", rank: 20, is_system: false, archived_at: null },
+    ] as any[],
+    rateReadFails: false,
     seq: 0,
     quote: null as any, // what quoteBotAirtime returns (null = cashback not applied)
     quoteCalls: [] as any[],
@@ -36,7 +41,10 @@ const h = vi.hoisted(() => {
         select() {
           const data = table === "user_shops" ? { user_id: "owner-1", airtime_markup_mtn: state.markup }
             : table === "users" ? { role: state.ownerRole } : null
-          return { eq: () => ({ single: async () => ({ data, error: null }), maybeSingle: async () => ({ data, error: null }) }) }
+          return {
+            eq: () => ({ single: async () => ({ data, error: null }), maybeSingle: async () => ({ data, error: null }) }),
+            limit: async () => ({ data: table === "roles" ? state.roles : null, error: null }),
+          }
         },
       }
     },
@@ -76,6 +84,13 @@ vi.mock("@/lib/airtime-pricing", async (orig) => ({
   isAirtimeEnabled: vi.fn(async () => true),
   getAirtimeLimits: vi.fn(async () => ({ min: 1, max: 500 })),
   airtimeBaseFeeRate: vi.fn(async (_n: string, isDealer: boolean) => (isDealer ? 2 : 5)),
+  airtimeFeeRateFor: vi.fn(async (_n: string, slug: string) => {
+    if (h.state.rateReadFails && slug === "gold") {
+      const { RoleReadError } = await import("@/lib/roles/repo")
+      throw new RoleReadError()
+    }
+    return slug === "dealer" ? 2 : slug === "gold" ? 1 : 5
+  }),
 }))
 
 // Bot menus gate (Network Plans / Pay Bills on the product menu): hidden unless a test opens it.
@@ -130,7 +145,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   h.state.inserts = []; h.state.updates = []; h.state.sessions = []; h.state.charges = []; h.state.afterFns = []
   h.state.markup = 3; h.state.ownerRole = "agent"; h.state.seq = 0
-  h.state.quote = null; h.state.quoteCalls = []; h.state.cashbackAirtime = true
+  h.state.quote = null; h.state.quoteCalls = []; h.state.cashbackAirtime = true; h.state.rateReadFails = false
 })
 afterEach(() => { vi.useRealTimers() })
 
@@ -153,6 +168,38 @@ describe("shop USSD airtime: legacy (no cashback) is byte-identical", () => {
       step: "SHOP_AIRTIME_CONFIRM", ...base, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN",
       airtimeAmount: 10.8, airtimeFee: 0.8, airtimeToDeliver: 10, airtimeMerchantCommission: 0.3,
     })
+  })
+
+  it("owner rate by role: dealer and admin owners get the dealer base; user, sub_agent, legacy roles the customer base", async () => {
+    const s = { step: "SHOP_AIRTIME_ENTER_AMOUNT", ...base, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any
+    const fee = async (role: string) => { h.state.ownerRole = role; await handleShopAirtimeEnterAmount("10.80", "s1", s); return lastSession().airtimeFee }
+    expect(await fee("agent")).toBe(0.8) // 5% base + 3% markup
+    expect(await fee("user")).toBe(0.8)
+    expect(await fee("sub_agent")).toBe(0.8)
+    const dealerFee = await fee("dealer")
+    expect(dealerFee).toBeLessThan(0.8) // 2% base + 3% markup
+    expect(await fee("admin")).toBe(dealerFee)
+  })
+
+  it("a custom-role owner is priced under its own role's base rate", async () => {
+    h.state.ownerRole = "gold"
+    await handleShopAirtimeEnterAmount("10.80", "s1", { step: "SHOP_AIRTIME_ENTER_AMOUNT", ...base, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any)
+    expect(lastSession().airtimeFee).toBeLessThan(0.8) // 1% base + 3% markup
+  })
+
+  it("an unreadable custom-role owner rate refuses at amount entry and at confirm: no order, no charge", async () => {
+    h.state.ownerRole = "gold"; h.state.rateReadFails = true
+    const r = await handleShopAirtimeEnterAmount("10.80", "s1", { step: "SHOP_AIRTIME_ENTER_AMOUNT", ...base, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN" } as any)
+    expect(r.message).toContain("temporarily unavailable")
+    expect(h.state.sessions).toEqual([])
+    const c = await handleShopAirtimeConfirm("1", "s1", {
+      step: "SHOP_AIRTIME_CONFIRM", ...base, airtimeRecipient: RECIPIENT, airtimeNetwork: "MTN",
+      airtimeAmount: 10.8, airtimeFee: 0.8, airtimeToDeliver: 10, airtimeMerchantCommission: 0.3,
+    } as any)
+    expect(c.message).toContain("temporarily unavailable")
+    expect(airtimeInserts()).toEqual([])
+    await flushAfter()
+    expect(h.state.charges).toHaveLength(0)
   })
 
   it("invalid amount re-prompts", async () => {
