@@ -3,7 +3,8 @@
  * lookup and the public order shape. No I/O. Money-adjacent: every parser is
  * strict and fails closed.
  */
-import { effectivePrice, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
+import { NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
+import { priceWith } from "@/lib/roles/pricing"
 
 export type ApiNetwork = "MTN" | "Telecel" | "AT-iShare" | "AT-BigTime"
 
@@ -163,13 +164,13 @@ export function parseBulkBody(
   return { ok: true, items }
 }
 
-/** v1 rule (dealers pay dealer_price when positive), plus the user's custom price when one applies. */
+/** The user's custom price when one applies, else the role's base price (loaded once per request via roleBasePrices). */
 export function priceForRole(
-  role: string,
+  base: ReadonlyMap<string, number>,
   pkg: { id?: string; price: number; dealer_price: number | null },
   custom: CustomPrices = NO_CUSTOM_PRICES
 ): number {
-  return effectivePrice({ ...pkg, id: pkg.id ?? "" }, role === "dealer", custom)
+  return priceWith(base, { id: pkg.id ?? "" }, custom)
 }
 
 export type ApiOrderStatus = "pending" | "processing" | "completed" | "failed" | "refunded" | "queued"

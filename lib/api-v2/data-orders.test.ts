@@ -142,14 +142,35 @@ describe("parseBulkBody", () => {
   })
 })
 
+/**
+ * The base map the 0184 mirror + repo yield: a dealer row exists only when dealer_price is a finite number > 0
+ * (DB numerics accept "8"; NaN/"abc" give no row); every other role (and a dealer with no row) sees the public price.
+ */
+const PKG_ID = "p-1"
+function baseFor(role: string, pkg: { price: number; dealer_price: number | null }): Map<string, number> {
+  const dealer = Number(pkg.dealer_price)
+  const onLadder = role === "dealer" && Number.isFinite(dealer) && dealer > 0
+  return new Map([[PKG_ID, onLadder ? dealer : pkg.price]])
+}
+const priced = (role: string, pkg: { price: number; dealer_price: number | null }) =>
+  priceForRole(baseFor(role, pkg), { id: PKG_ID, ...pkg })
+
 describe("priceForRole", () => {
   it("dealer gets the dealer price when positive", () => {
-    expect(priceForRole("dealer", { price: 10, dealer_price: 8 })).toBe(8)
-    expect(priceForRole("dealer", { price: 10, dealer_price: 0 })).toBe(10)
-    expect(priceForRole("dealer", { price: 10, dealer_price: null })).toBe(10)
+    expect(priced("dealer", { price: 10, dealer_price: 8 })).toBe(8)
+    expect(priced("dealer", { price: 10, dealer_price: 0 })).toBe(10)
+    expect(priced("dealer", { price: 10, dealer_price: null })).toBe(10)
   })
   it("other roles pay the standard price", () => {
-    for (const r of ["user", "sub_agent", "admin"]) expect(priceForRole(r, { price: 10, dealer_price: 8 })).toBe(10)
+    for (const r of ["user", "sub_agent", "admin"]) expect(priced(r, { price: 10, dealer_price: 8 })).toBe(10)
+  })
+  it("a custom price wins over the base; a resolver row is charged as is", () => {
+    const pkg = { id: PKG_ID, price: 10, dealer_price: 8 }
+    expect(priceForRole(new Map([[PKG_ID, 5.5]]), pkg)).toBe(5.5)
+    expect(priceForRole(new Map([[PKG_ID, 5.5]]), pkg, new Map([[PKG_ID, 3.25]]))).toBe(3.25)
+  })
+  it("throws when the base has no row (never 0)", () => {
+    expect(() => priceForRole(new Map(), { id: PKG_ID, price: 10, dealer_price: 8 })).toThrow()
   })
 })
 
@@ -252,9 +273,9 @@ describe("hardening", () => {
     expect(parseVolume("0x10").ok).toBe(false)
   })
   it("priceForRole treats string, NaN and non-numeric dealer_price safely", () => {
-    expect(priceForRole("dealer", { price: 10, dealer_price: "8" as any })).toBe(8)
-    expect(priceForRole("dealer", { price: 10, dealer_price: NaN })).toBe(10)
-    expect(priceForRole("dealer", { price: 10, dealer_price: "abc" as any })).toBe(10)
+    expect(priced("dealer", { price: 10, dealer_price: "8" as any })).toBe(8)
+    expect(priced("dealer", { price: 10, dealer_price: NaN })).toBe(10)
+    expect(priced("dealer", { price: 10, dealer_price: "abc" as any })).toBe(10)
   })
   it("bulk: whitespace-only differences are duplicates, case differences are distinct", () => {
     const mk = (ref: string) => ({ ...body, reference: ref })

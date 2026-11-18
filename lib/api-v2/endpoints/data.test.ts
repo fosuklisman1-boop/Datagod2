@@ -4,6 +4,7 @@ import type { PackageRow } from "../data-orders"
 import type { OrderRow, PlaceParams, PlaceResult } from "../order-store"
 import type { V2Context } from "../handler"
 import { CustomPriceReadError } from "@/lib/pricing/package-price"
+import { RoleReadError } from "@/lib/roles/repo"
 import {
   purchaseHandler,
   bulkHandler,
@@ -78,6 +79,12 @@ function makeDeps(over: { prefixEnabled?: boolean } = {}) {
     phoneGate: vi.fn(async (_u: string) => ({ allowed: true })),
     mtnBlocking: vi.fn(async () => true),
     customPrices: vi.fn(async (_u: string) => new Map<string, number>() as ReadonlyMap<string, number>),
+    // Default parity with the old rule: dealers get a positive dealer_price, everyone else the public price.
+    basePrices: vi.fn(async (role: string, pkgs: readonly { id: string | number; price: number; dealer_price: number | null }[]) =>
+      new Map<string, number>(
+        pkgs.map((p) => [String(p.id), role === "dealer" && Number(p.dealer_price) > 0 ? Number(p.dealer_price) : Number(p.price)])
+      )
+    ),
     schedule: vi.fn(),
     scheduleBatch: vi.fn(),
     clock: { ms: 0 },
@@ -97,6 +104,7 @@ function allFns(d: Deps) {
     d.phoneGate,
     d.mtnBlocking,
     d.customPrices,
+    d.basePrices,
     d.schedule,
     d.scheduleBatch,
   ] as Array<ReturnType<typeof vi.fn>>
@@ -1365,6 +1373,117 @@ describe("custom prices", () => {
   it("GET packages answers 503 when custom prices cannot be read", async () => {
     const d = makeDeps()
     d.customPrices.mockRejectedValue(new CustomPriceReadError())
+    const r = await listPackagesHandler(d)({}, LIVE)
+    expect(r.error?.status).toBe(503)
+  })
+})
+
+describe("role base prices", () => {
+  const baseOf = (entries: Array<[string, number]>) => new Map(entries)
+
+  it("single: dealer parity, base loaded once for that package with the caller's role", async () => {
+    const d = makeDeps()
+    const r = await purchaseHandler(d)(body({ recipient: "0249990601", reference: "REF-RB1" }), LIVE)
+    expect(r.status).toBe(201)
+    expect(d.store.placeV2Order.mock.calls[0][0]).toMatchObject({ price: 8 })
+    expect(d.basePrices).toHaveBeenCalledTimes(1)
+    expect(d.basePrices.mock.calls[0][0]).toBe("dealer")
+    expect(d.basePrices.mock.calls[0][1].map((p: { id: string | number }) => String(p.id))).toEqual(["p-mtn-1"])
+  })
+
+  it("single: admin pays the public price (same as user)", async () => {
+    const d = makeDeps()
+    const r = await purchaseHandler(d)(body({ recipient: "0249990602", reference: "REF-RB2" }), ctxOf("live", "admin"))
+    expect(r.status).toBe(201)
+    expect(d.store.placeV2Order.mock.calls[0][0]).toMatchObject({ price: 10 })
+  })
+
+  it("single: a resolver row for user (5.5) is charged", async () => {
+    const d = makeDeps()
+    d.basePrices.mockResolvedValue(baseOf([["p-mtn-1", 5.5]]))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990603", reference: "REF-RB3" }), LIVE_USER)
+    expect(r.status).toBe(201)
+    expect(d.store.placeV2Order.mock.calls[0][0]).toMatchObject({ price: 5.5 })
+  })
+
+  it("single: custom price wins over the role base", async () => {
+    const d = makeDeps()
+    d.basePrices.mockResolvedValue(baseOf([["p-mtn-1", 5.5]]))
+    d.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990604", reference: "REF-RB4" }), LIVE_USER)
+    expect(d.store.placeV2Order.mock.calls[0][0]).toMatchObject({ price: 3.25 })
+    expect(r.status).toBe(201)
+  })
+
+  it("single (live and sandbox): base read failure answers 503 and places nothing", async () => {
+    for (const ctx of [LIVE, TEST]) {
+      const d = makeDeps()
+      d.basePrices.mockRejectedValue(new RoleReadError())
+      const r = await purchaseHandler(d)(body({ recipient: "0249990605", reference: "REF-RB5" }), ctx)
+      expect(r.error?.status).toBe(503)
+      expectNoMoney(d)
+    }
+  })
+
+  it("bulk: loads base once for the distinct packages and prices each order", async () => {
+    const d = makeDeps()
+    d.basePrices.mockImplementation(async (_r: string, pkgs: readonly { id: string | number }[]) =>
+      new Map(pkgs.map((p) => [String(p.id), String(p.id) === "p-mtn-1" ? 6 : 17]))
+    )
+    const r = await bulkHandler(d)(
+      {
+        orders: [
+          body({ recipient: "0249990606", reference: "REF-RB6A" }),
+          body({ recipient: "0249990607", reference: "REF-RB6B" }),
+          body({ recipient: "0249990608", reference: "REF-RB6C", volume_gb: 2 }),
+        ],
+      },
+      LIVE
+    )
+    expect(r.status).toBe(200)
+    expect(d.basePrices).toHaveBeenCalledTimes(1)
+    expect(d.basePrices.mock.calls[0][1].map((p: { id: string | number }) => String(p.id)).sort()).toEqual(["p-mtn-1", "p-mtn-2"])
+    expect(d.store.placeV2Order.mock.calls.map((c: any) => c[0].price)).toEqual([6, 6, 17])
+  })
+
+  it("bulk: base read failure answers 503 and places nothing", async () => {
+    const d = makeDeps()
+    d.basePrices.mockRejectedValue(new RoleReadError())
+    const r = await bulkHandler(d)({ orders: [body({ recipient: "0249990609", reference: "REF-RB7" })] }, LIVE)
+    expect(r.error?.status).toBe(503)
+    expectNoMoney(d)
+  })
+
+  it("bulk: an all-replayed batch needs no base prices", async () => {
+    const d = makeDeps()
+    d.basePrices.mockRejectedValue(new RoleReadError())
+    d.store.getOrdersByReferences.mockResolvedValue(
+      new Map([["REF-RB8", row({ api_reference: "REF-RB8", recipient_phone: "0249990610" })]])
+    )
+    const r = await bulkHandler(d)({ orders: [body({ recipient: "0249990610", reference: "REF-RB8" })] }, LIVE)
+    expect(r.status).toBe(200)
+    expect(d.basePrices).not.toHaveBeenCalled()
+  })
+
+  it("price list: dealer parity, role base for the listed rows, custom wins", async () => {
+    const d = makeDeps()
+    const r = await listPackagesHandler(d)({}, LIVE)
+    expect(d.basePrices).toHaveBeenCalledTimes(1)
+    expect((r.data as any).packages.find((p: any) => p.network === "MTN" && p.size_gb === 1).price).toBe(8)
+    const d2 = makeDeps()
+    d2.basePrices.mockImplementation(async (_r: string, pkgs: readonly { id: string | number }[]) =>
+      new Map(pkgs.map((p) => [String(p.id), 5.5]))
+    )
+    d2.customPrices.mockResolvedValue(new Map([["p-mtn-1", 3.25]]))
+    const r2 = await listPackagesHandler(d2)({}, LIVE_USER)
+    const list = (r2.data as any).packages
+    expect(list.find((p: any) => p.network === "MTN" && p.size_gb === 1).price).toBe(3.25)
+    expect(list.find((p: any) => p.network === "MTN" && p.size_gb === 2).price).toBe(5.5)
+  })
+
+  it("price list: base read failure answers 503", async () => {
+    const d = makeDeps()
+    d.basePrices.mockRejectedValue(new RoleReadError())
     const r = await listPackagesHandler(d)({}, LIVE)
     expect(r.error?.status).toBe(503)
   })

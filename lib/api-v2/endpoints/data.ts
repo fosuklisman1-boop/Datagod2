@@ -21,7 +21,7 @@
  */
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import type { PrefixValidationConfig } from "@/lib/network-prefix-config"
-import { NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
+import { NO_CUSTOM_PRICES, type CustomPrices, type PricedPackage } from "@/lib/pricing/package-price"
 import type { V2Context, V2HandlerResult } from "../handler"
 import type { V2ErrorStatus } from "../envelope"
 import {
@@ -106,6 +106,8 @@ export interface DataDeps {
   blockedNotice?(): Promise<string | null>
   /** The caller's custom prices (empty unless they are on custom pricing). Throws CustomPriceReadError on a read failure. */
   customPrices(userId: string): Promise<CustomPrices>
+  /** package id -> the role's base price for every pkg (admin priced as a user). Throws RoleReadError on a read failure. */
+  basePrices(role: string, pkgs: readonly PricedPackage[]): Promise<Map<string, number>>
   /**
    * Account-holder phone gate (lib/phone-verify-guard checkPhoneVerified,
    * fail closed). Live purchase/bulk only, after replay classification and
@@ -353,6 +355,19 @@ async function loadCustom(deps: DataDeps, ctx: V2Context): Promise<CustomPrices 
   }
 }
 
+/** null = the read failed; the caller answers 503 and places nothing. */
+async function loadBase(
+  deps: DataDeps,
+  ctx: V2Context,
+  pkgs: readonly PricedPackage[]
+): Promise<ReadonlyMap<string, number> | null> {
+  try {
+    return await deps.basePrices(ctx.role, pkgs)
+  } catch {
+    return null
+  }
+}
+
 /** Package + effective (custom or role) price + prefix, shared by live and sandbox. */
 async function priceAndValidate(
   deps: DataDeps,
@@ -365,7 +380,9 @@ async function priceAndValidate(
   if (!pkg) return { ok: false, result: fail(404, MSG_PACKAGE_NOT_FOUND) }
   const custom = await loadCustom(deps, ctx)
   if (!custom) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
-  const price = priceForRole(ctx.role, pkg, custom)
+  const base = await loadBase(deps, ctx, [pkg])
+  if (!base) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
+  const price = priceForRole(base, pkg, custom)
   if (!prefixOk(await deps.prefixConfig(), input)) return { ok: false, result: fail(400, MSG_NETWORK_MISMATCH) }
   return { ok: true, priced: { input, pkg, price } }
 }
@@ -481,6 +498,7 @@ async function priceNewItems(
   let packages: PackageRow[] = []
   let cfg: PrefixValidationConfig | null = null
   let custom: CustomPrices = NO_CUSTOM_PRICES
+  let base: ReadonlyMap<string, number> = new Map()
   if (hasNew) {
     const rows = await deps.store.listAvailablePackages()
     if (!rows) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
@@ -489,6 +507,15 @@ async function priceNewItems(
     const c = await loadCustom(deps, ctx)
     if (!c) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
     custom = c
+    const wanted = new Map<string, PackageRow>()
+    for (const it of classified) {
+      if (it.kind !== "new") continue
+      const pkg = findPackage(packages, it.input.dbNetwork, it.input.gb)
+      if (pkg) wanted.set(String(pkg.id), pkg)
+    }
+    const b = await loadBase(deps, ctx, [...wanted.values()])
+    if (!b) return { ok: false, result: fail(503, MSG_UNAVAILABLE) }
+    base = b
   }
   const slots: Slot[] = []
   for (const c of classified) {
@@ -499,7 +526,7 @@ async function priceNewItems(
     const pkg = findPackage(packages, c.input.dbNetwork, c.input.gb)
     if (!pkg) return { ok: false, result: fail(400, `orders[${c.index}]: ${MSG_PACKAGE_NOT_FOUND}`) }
     if (!prefixOk(cfg!, c.input)) return { ok: false, result: fail(400, `orders[${c.index}]: ${MSG_NETWORK_MISMATCH}`) }
-    slots.push({ kind: "new", p: { input: c.input, pkg, price: priceForRole(ctx.role, pkg, custom) } })
+    slots.push({ kind: "new", p: { input: c.input, pkg, price: priceForRole(base, pkg, custom) } })
   }
   return { ok: true, slots }
 }
@@ -763,14 +790,17 @@ export function listPackagesHandler(deps: DataDeps) {
     if (!rows) return fail(503, MSG_UNAVAILABLE)
     const custom = await loadCustom(deps, ctx)
     if (!custom) return fail(503, MSG_UNAVAILABLE)
+    const usableRows = usable(rows)
+    const base = await loadBase(deps, ctx, usableRows)
+    if (!base) return fail(503, MSG_UNAVAILABLE)
     const packages: Array<{ network: string; size_gb: number; price: number }> = []
-    for (const r of usable(rows)) {
+    for (const r of usableRows) {
       const net = parseNetwork(r.network)
       if (!net.ok) continue
       if (typeof r.size !== "string" || !/^[0-9]+(\.[0-9]+)?$/.test(r.size)) continue
       const size = Number(r.size)
       if (gb !== undefined && size !== gb) continue
-      packages.push({ network: net.network, size_gb: size, price: cents(priceForRole(ctx.role, r, custom)) / 100 })
+      packages.push({ network: net.network, size_gb: size, price: cents(priceForRole(base, r, custom)) / 100 })
     }
     packages.sort((a, b) => (a.network !== b.network ? (a.network < b.network ? -1 : 1) : a.size_gb - b.size_gb))
     return ok(200, { packages })
