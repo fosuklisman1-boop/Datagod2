@@ -10,6 +10,7 @@ import { sendEmail, EmailTemplates } from "@/lib/email-service"
 import { writeAudit } from "./route-utils"
 import { SUSPEND_REASON_MAX } from "./bulk-params"
 import { loadRoles, rolePricesFor, RoleReadError } from "@/lib/roles/repo"
+import { CUSTOM_ROLE_ASSIGNMENT_ENABLED } from "@/lib/roles/flags"
 import { marginStrategy, recomputeMargin } from "@/lib/roles/margin-strategy"
 
 export const SYSTEM_ROLES = ["user", "admin", "sub_agent", "dealer"] as const
@@ -70,6 +71,12 @@ export async function changeUserRole(
   opts: { userId: string; role: string; adminId?: string | null },
 ): Promise<RoleChangeResult> {
   const { userId, role, adminId } = opts
+
+  // Gate: no live reader prices a custom role yet (see lib/roles/flags.ts). Refused before any DB access.
+  // Moving OFF a custom role to a system role stays allowed (the only way back).
+  if (isCustomRole(role) && !CUSTOM_ROLE_ASSIGNMENT_ENABLED) {
+    return { ok: false, status: 409, error: "Custom roles can't be assigned yet." }
+  }
 
   const { data: current, error: readError } = await db.from("users").select("role").eq("id", userId).maybeSingle()
   if (readError) {

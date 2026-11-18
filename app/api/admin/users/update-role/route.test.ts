@@ -18,6 +18,11 @@ const h = vi.hoisted(() => ({
   rolesError: false,
   packagesError: false,
   rolePrices: [] as Array<{ role_id: string; package_id: string; price: number }>,
+  /** Value of CUSTOM_ROLE_ASSIGNMENT_ENABLED for this test (the real flag ships false). */
+  customEnabled: true,
+}))
+vi.mock("@/lib/roles/flags", () => ({
+  get CUSTOM_ROLE_ASSIGNMENT_ENABLED() { return h.customEnabled },
 }))
 vi.mock("@/lib/admin-auth", () => ({
   verifyAdminAccess: vi.fn(async () => (await import("@/lib/admin-users/test-fake-db")).fakeVerify(h.gate)),
@@ -66,6 +71,7 @@ beforeEach(() => {
   h.clock = 0
   h.rolesError = false
   h.packagesError = false
+  h.customEnabled = true
   h.rolePrices = [{ role_id: "r-super", package_id: "p1", price: 9.5 }, { role_id: "r-super", package_id: "p2", price: 4 }]
   vi.mocked(sendPushToUser).mockClear()
   h.fake = createFakeDb({
@@ -217,6 +223,28 @@ describe("POST /api/admin/users/update-role (shared changeUserRole)", () => {
     h.shopError = true
     expect((await POST({ userId: USER_ID, role: "user" })).status).toBe(500)
     expect(h.role).toBe("dealer")
+  })
+
+  describe("custom role assignment gate (flag off)", () => {
+    it("custom target -> 409 before any users / user_shops / roles read or write", async () => {
+      h.customEnabled = false
+      const res = await POST({ userId: USER_ID, role: "super" })
+      expect(res.status).toBe(409)
+      expect((await res.json()).error).toBe("Custom roles can't be assigned yet.")
+      expect(h.fake.ofTable("users")).toHaveLength(0)
+      expect(h.fake.ofTable("user_shops")).toHaveLength(0)
+      expect(h.fake.ofTable("roles")).toHaveLength(0)
+      expect(h.role).toBe("user")
+      expect(h.audit).toHaveLength(0)
+    })
+
+    it("system targets are untouched by the gate, and custom -> system still works", async () => {
+      h.customEnabled = false
+      expect((await POST({ userId: USER_ID, role: "dealer" })).status).toBe(200)
+      h.role = "super"
+      expect((await POST({ userId: USER_ID, role: "user" })).status).toBe(200)
+      expect(h.role).toBe("user")
+    })
   })
 
   describe("custom roles", () => {
