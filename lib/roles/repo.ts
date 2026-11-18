@@ -14,6 +14,9 @@ export class RoleReadError extends Error {
 /** Max ids per `.in()` list (PostgREST URL length / row limits). */
 export const ROLE_ID_CHUNK = 500
 
+/** PostgREST page cap we assume (default max-rows). A response with >= ROW_CAP rows may be truncated, so it is rejected. */
+export const ROW_CAP = 1000
+
 type ClientLike = { from(table: string): any }
 
 async function run(build: () => PromiseLike<{ data: unknown; error: unknown }>): Promise<unknown[]> {
@@ -40,16 +43,20 @@ export async function loadRolePrices(
   const out = new Map<string, Map<string, number>>()
   if (roleIds.length === 0 || packageIds.length === 0) return out
   const roles = roleIds.map(String)
-  for (let i = 0; i < packageIds.length; i += ROLE_ID_CHUNK) {
-    const chunk = packageIds.slice(i, i + ROLE_ID_CHUNK).map(String)
+  // roles x chunk must stay strictly below ROW_CAP so a legitimate response is never a full page.
+  const size = Math.max(1, Math.min(ROLE_ID_CHUNK, Math.floor((ROW_CAP - 1) / roles.length)))
+  for (let i = 0; i < packageIds.length; i += size) {
+    const chunk = packageIds.slice(i, i + size).map(String)
     const rows = (await run(() =>
       client
         .from("role_package_prices")
         .select("role_id, package_id, price")
         .in("role_id", roles)
         .in("package_id", chunk)
-        .limit(roles.length * chunk.length)
+        .limit(ROW_CAP)
     )) as Array<{ role_id: unknown; package_id: unknown; price: unknown }>
+    // A full page cannot be proven complete: fail closed rather than price from truncated data.
+    if (rows.length >= ROW_CAP) throw new RoleReadError()
     for (const row of rows) {
       const price = Number(row.price)
       if (row.role_id == null || row.package_id == null || !Number.isFinite(price) || price <= 0) continue

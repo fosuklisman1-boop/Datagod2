@@ -1,23 +1,28 @@
 import { describe, expect, it } from "vitest"
-import { loadRolePrices, loadRoles, rolePricesFor, RoleReadError, ROLE_ID_CHUNK } from "./repo"
+import { loadRolePrices, loadRoles, rolePricesFor, RoleReadError, ROLE_ID_CHUNK, ROW_CAP } from "./repo"
 
 type Call = { table: string; filters: Array<[string, unknown[]]> }
 type Result = { data: unknown; error: unknown }
 
 /** Minimal fake: from(table).select().in()...limit() is awaitable; `respond` decides each result. */
-function fakeClient(respond: (call: Call, n: number) => Result) {
+function fakeClient(respond: (call: Call, n: number) => Result, fakeCap = Infinity) {
   const calls: Call[] = []
   const client = {
     from(table: string) {
       const call: Call = { table, filters: [] }
+      let lim = Infinity
+      const cap = (r: Result): Result => {
+        const eff = Math.min(lim, fakeCap)
+        return Array.isArray(r.data) && r.data.length > eff ? { ...r, data: r.data.slice(0, eff) } : r
+      }
       const b: any = {
         select: () => b,
-        limit: () => b,
+        limit: (n: number) => ((lim = n), b),
         in: (col: string, vals: unknown[]) => (call.filters.push([col, vals]), b),
         then: (res: (v: Result) => unknown, rej: (e: unknown) => unknown) => {
           calls.push(call)
           try {
-            return Promise.resolve(respond(call, calls.length)).then(res, rej)
+            return Promise.resolve(cap(respond(call, calls.length))).then(res, rej)
           } catch (e) {
             return Promise.reject(e).then(res, rej)
           }
@@ -89,6 +94,26 @@ describe("loadRolePrices", () => {
     }))
     const map = await loadRolePrices(client, ["7"], ["1", "2", "3", "4"])
     expect([...map.get("7")!.entries()]).toEqual([["1", 3]])
+  })
+  it("sizes chunks so roles x chunk stays under ROW_CAP: 3 roles x 1201 packages, capped server", async () => {
+    const roles = ["r1", "r2", "r3"]
+    const { client, calls } = fakeClient((call) => {
+      const pk = call.filters.find(([c]) => c === "package_id")![1] as string[]
+      return { data: pk.flatMap((p) => roles.map((r) => ({ role_id: r, package_id: p, price: 2 }))), error: null }
+    }, ROW_CAP)
+    const map = await loadRolePrices(client, roles, ids)
+    for (const r of roles) expect(map.get(r)!.size).toBe(1201)
+    for (const c of calls) {
+      const pk = c.filters.find(([col]) => col === "package_id")![1] as unknown[]
+      expect(pk.length * roles.length).toBeLessThan(ROW_CAP)
+    }
+  })
+  it("rejects RoleReadError when a response comes back full (cannot know it is complete)", async () => {
+    const { client } = fakeClient(() => ({
+      data: Array.from({ length: ROW_CAP }, (_, i) => ({ role_id: "r1", package_id: `p${i}`, price: 1 })),
+      error: null,
+    }))
+    await expect(loadRolePrices(client, ["r1"], ["p0", "p1"])).rejects.toBeInstanceOf(RoleReadError)
   })
   it("makes no query for empty inputs", async () => {
     const { client, calls } = fakeClient(() => ({ data: [], error: null }))
