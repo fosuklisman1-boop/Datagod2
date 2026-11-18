@@ -96,6 +96,20 @@ describe("priceForTier", () => {
   })
 })
 
+describe("priceForTier with a role base map", () => {
+  const pkg = { id: "p1", price: 10, dealer_price: 8 }
+  it("non-sub-agent prices from the base map", () => {
+    expect(priceForTier(pkg, "regular", null, undefined, new Map([["p1", 7]]))).toEqual({ price: 7, parentProfit: null })
+    expect(priceForTier(pkg, "dealer", null, undefined, new Map([["p1", 7]]))!.price).toBe(7)
+  })
+  it("a custom price still wins over the base", () => {
+    expect(priceForTier(pkg, "regular", null, new Map([["p1", 6]]), new Map([["p1", 7]]))!.price).toBe(6)
+  })
+  it("sub_agent ignores the base map", () => {
+    expect(priceForTier(pkg, "sub_agent", { cost: 10, parentProfit: 2 }, undefined, new Map([["p1", 1]]))).toEqual({ price: 10, parentProfit: 2 })
+  })
+})
+
 describe("priceForTier with custom prices", () => {
   const pkg = { id: "p1", price: 10, dealer_price: 8 }
   it("custom price wins on the dealer and regular tiers", () => {

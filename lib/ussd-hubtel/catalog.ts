@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { effectivePrice, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
 import type { SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
+import { priceWith } from "@/lib/roles/pricing"
 import { buyerPriceRole } from "@/lib/ussd/price-role"
 import { toLocalPhone } from "./protocol"
 
@@ -11,7 +12,7 @@ export { fetchBundles, PAGE_SIZE } from "@/lib/ussd/handlers/bundles"
 
 export interface CallerContext {
   effectivePriceTier: string
-  /** Role-ladder slug that prices this caller (see lib/ussd/price-role.ts). Not used for pricing yet. */
+  /** Role-ladder slug that prices this caller (see lib/ussd/price-role.ts). */
   priceRole: string
   subAgentParentShopId?: string
   userId?: string
@@ -39,11 +40,14 @@ export function priceForTier(
   pkg: { id?: string; price: number | string; dealer_price?: number | string | null },
   tier: string,
   offer?: Pick<SubAgentOffer, "cost" | "parentProfit"> | null,
-  custom: CustomPrices = NO_CUSTOM_PRICES
+  custom: CustomPrices = NO_CUSTOM_PRICES,
+  /** The caller's role base prices (roleBasePrices). Absent = legacy dealer/regular pricing. */
+  base?: ReadonlyMap<string, number>
 ): { price: number; parentProfit: number | null } | null {
   if (tier === "sub_agent") {
     return offer ? { price: offer.cost, parentProfit: offer.parentProfit } : null
   }
+  if (base) return { price: priceWith(base, { id: pkg.id ?? "" }, custom), parentProfit: null }
   return { price: effectivePrice({ ...pkg, id: pkg.id ?? "" }, tier === "dealer", custom), parentProfit: null }
 }
 

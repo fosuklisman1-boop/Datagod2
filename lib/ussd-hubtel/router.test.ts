@@ -171,6 +171,84 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     expect(r.Message).toMatch(/prices are temporarily unavailable/i)
     expect(sup.inserts["ussd_orders"]).toBeUndefined()
   })
+  describe("role-resolver pricing", () => {
+    const roleRows = {
+      roles: [
+        { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+        { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+        { id: "r-reseller", slug: "reseller", rank: 5, is_system: false, archived_at: null },
+      ],
+      role_package_prices: [{ role_id: "r-reseller", package_id: "pkg-1", price: 7 }],
+    }
+    const resellerCaller = { effectivePriceTier: "regular", priceRole: "reseller", userId: "u1" }
+    it("passes the caller's price role to fetchBundles at the network step and stores it in the session", async () => {
+      const seen: unknown[] = []
+      const { deps, store } = makeDeps({
+        resolveCaller: async () => resellerCaller,
+        fetchBundles: async (...a: unknown[]) => { seen.push(a[5]); return { bundles: [{ id: "pkg-1", size: "5", price: 7 }], total: 1 } },
+      })
+      await walkTo("SELECT_BUNDLE", deps)
+      expect(seen[0]).toBe("reseller")
+      expect(store.get("S1")?.priceRole).toBe("reseller")
+    })
+    it("re-fetches with the session's price role when paging back from the recipient step", async () => {
+      const seen: unknown[] = []
+      const { deps } = makeDeps({
+        resolveCaller: async () => resellerCaller,
+        fetchBundles: async (...a: unknown[]) => { seen.push(a[5]); return { bundles: [{ id: "pkg-1", size: "5", price: 7 }], total: 1 } },
+      })
+      await walkTo("ENTER_RECIPIENT", deps)
+      seen.length = 0
+      await hubtelRouter(req({ Message: "0" }), deps) // typing a number -> who is this for
+      await hubtelRouter(req({ Message: "0" }), deps) // who is this for -> bundle menu
+      expect(seen).toEqual(["reseller"])
+    })
+    it("a legacy session without priceRole falls back to the tier slug", async () => {
+      const seen: unknown[] = []
+      const { deps, store } = makeDeps({
+        fetchBundles: async (...a: unknown[]) => { seen.push(a[5]); return { bundles: [{ id: "pkg-1", size: "5", price: 8 }], total: 1 } },
+      })
+      store.set("S1", { step: "SELECT_BUNDLE", dialingPhone: "+233200585542", platform: "USSD", network: "MTN", bundlePage: 0, effectivePriceTier: "dealer" })
+      await hubtelRouter(req({ Message: "9" }), deps)
+      expect(seen[0]).toBe("dealer")
+    })
+    it("confirms at the role price (custom role, 7 not the public 10)", async () => {
+      const sup = fakeSupabase({ pkg: { id: "pkg-1", price: 10, dealer_price: null, is_available: true }, rows: roleRows })
+      const { deps } = makeDeps({
+        resolveCaller: async () => resellerCaller,
+        fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 7 }], total: 1 }),
+      }, sup)
+      await walkTo("CONFIRM", deps)
+      const r = await hubtelRouter(req({ Message: "1" }), deps)
+      expect(r.Type).toBe("AddToCart")
+      expect(sup.inserts["ussd_orders"][0]).toMatchObject({ amount: 7, package_id: "pkg-1" })
+    })
+    it("refuses with 'Price changed' when the role price moved since the menu", async () => {
+      const sup = fakeSupabase({ pkg: { id: "pkg-1", price: 10, dealer_price: null, is_available: true }, rows: roleRows })
+      const { deps } = makeDeps({
+        resolveCaller: async () => resellerCaller,
+        fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 10 }], total: 1 }),
+      }, sup)
+      await walkTo("CONFIRM", deps)
+      const r = await hubtelRouter(req({ Message: "1" }), deps)
+      expect(r.Type).toBe("release")
+      expect(r.Message).toMatch(/price changed/i)
+      expect(sup.inserts["ussd_orders"]).toBeUndefined()
+    })
+    it("refuses and creates nothing when roles cannot be read", async () => {
+      const sup = fakeSupabase({ pkg: { id: "pkg-1", price: 10, dealer_price: null, is_available: true }, rows: roleRows, readError: ["roles"] })
+      const { deps } = makeDeps({
+        resolveCaller: async () => resellerCaller,
+        fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 10 }], total: 1 }),
+      }, sup)
+      await walkTo("CONFIRM", deps)
+      const r = await hubtelRouter(req({ Message: "1" }), deps)
+      expect(r.Type).toBe("release")
+      expect(r.Type).not.toBe("AddToCart")
+      expect(r.Message).toMatch(/prices are temporarily unavailable/i)
+      expect(sup.inserts["ussd_orders"]).toBeUndefined()
+    })
+  })
   const subAgentCaller = {
     resolveCaller: async () => ({ effectivePriceTier: "sub_agent", priceRole: tierToSlug("sub_agent"), subAgentParentShopId: "shop-1", userId: "u1" }),
     fetchBundles: async () => ({ bundles: [{ id: "pkg-1", size: "5", price: 9 }], total: 1 }),

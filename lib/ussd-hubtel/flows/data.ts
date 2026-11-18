@@ -3,6 +3,8 @@
 import { paystackProviderFromPhone } from "@/lib/ussd/paystack-provider"
 import { getCustomPrices, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
 import { subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
+import { roleBasePrices } from "@/lib/roles/pricing"
+import { sessionPriceRole } from "@/lib/ussd/price-role"
 import { priceForTier } from "../catalog"
 import { HUBTEL_NETWORKS, networkMenuText, bundleMenuText, confirmMenuText } from "../menus"
 import { blockedRecipientScreen, enterRecipientStep, recipientStep, whoForScreen } from "../recipient-step"
@@ -32,11 +34,11 @@ async function selectNetwork(ctx: FlowCtx): Promise<HubtelReply> {
   if (!net) return say(ctx, networkMenuText(), "SELECT_NETWORK", NETWORK)
 
   const caller = await deps.resolveCaller(session.dialingPhone)
-  const { bundles, total } = await deps.fetchBundles(net.dbName, 0, caller.effectivePriceTier, caller.subAgentParentShopId, caller.userId)
+  const { bundles, total } = await deps.fetchBundles(net.dbName, 0, caller.effectivePriceTier, caller.subAgentParentShopId, caller.userId, caller.priceRole)
   if (bundles.length === 0) return say(ctx, `No ${net.label} packages available.\n` + networkMenuText(), "SELECT_NETWORK", NETWORK)
   return goto(ctx, {
     step: "SELECT_BUNDLE", network: net.dbName, bundlePage: 0,
-    effectivePriceTier: caller.effectivePriceTier, subAgentParentShopId: caller.subAgentParentShopId, userId: caller.userId,
+    effectivePriceTier: caller.effectivePriceTier, priceRole: caller.priceRole, subAgentParentShopId: caller.subAgentParentShopId, userId: caller.userId,
   }, bundleMenuText(bundles, 0, total, deps.pageSize), PACKAGE)
 }
 
@@ -46,13 +48,14 @@ async function selectBundle(ctx: FlowCtx): Promise<HubtelReply> {
   const page = session.bundlePage ?? 0
   const offset = page * deps.pageSize
   const tier = session.effectivePriceTier ?? "regular"
+  const priceRole = sessionPriceRole(session)
   // Re-fetch the current page: trusting a cached page goes stale when pages advance.
-  const { bundles, total } = await deps.fetchBundles(session.network!, page, tier, session.subAgentParentShopId, session.userId)
+  const { bundles, total } = await deps.fetchBundles(session.network!, page, tier, session.subAgentParentShopId, session.userId, priceRole)
   const chosen = parseInt(input, 10)
 
   if (chosen === offset + bundles.length + 1 && offset + bundles.length < total) {
     const next = page + 1
-    const nextPage = await deps.fetchBundles(session.network!, next, tier, session.subAgentParentShopId, session.userId)
+    const nextPage = await deps.fetchBundles(session.network!, next, tier, session.subAgentParentShopId, session.userId, priceRole)
     return goto(ctx, { step: "SELECT_BUNDLE", bundlePage: next }, bundleMenuText(nextPage.bundles, next, nextPage.total, deps.pageSize), PACKAGE)
   }
 
@@ -69,7 +72,7 @@ async function enterRecipient(ctx: FlowCtx): Promise<HubtelReply> {
     step: "ENTER_RECIPIENT",
     back: async () => {
       const page = session.bundlePage ?? 0
-      const { bundles, total } = await deps.fetchBundles(session.network!, page, session.effectivePriceTier ?? "regular", session.subAgentParentShopId, session.userId)
+      const { bundles, total } = await deps.fetchBundles(session.network!, page, session.effectivePriceTier ?? "regular", session.subAgentParentShopId, session.userId, sessionPriceRole(session))
       return goto(ctx, { step: "SELECT_BUNDLE" }, bundleMenuText(bundles, page, total, deps.pageSize), PACKAGE)
     },
     confirm: async local => {
@@ -121,7 +124,16 @@ export async function prepareData(ctx: FlowCtx): Promise<PreparedOrder | HubtelR
   } catch {
     return finish(ctx, MSG_PRICES_UNAVAILABLE)
   }
-  const priced = priceForTier(pkg, tier, offer, custom)
+  // Role base price (admin priced as a user on Hubtel). Unreadable = refuse, like custom prices. Always passed:
+  // the confirm price must come from the same resolver as the menu.
+  let base: Map<string, number>
+  const pkgRow = { ...pkg, id: pkg.id ?? session.bundleId! }
+  try {
+    base = await roleBasePrices(deps.supabase, sessionPriceRole(session), [pkgRow], { admin: "as_user" })
+  } catch {
+    return finish(ctx, MSG_PRICES_UNAVAILABLE)
+  }
+  const priced = priceForTier(pkgRow, tier, offer, custom, base)
   if (!priced) return finish(ctx, "Package no longer available. Please try again.")
   const { price, parentProfit } = priced
   if (Math.abs(price - session.bundlePrice!) > 0.01) {
