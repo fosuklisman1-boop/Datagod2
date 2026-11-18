@@ -29,7 +29,8 @@ export async function GET(req: NextRequest) {
     custom = await customPricesForUser(db, { id: userId, pricing_mode: user.pricing_mode ?? null })
     // Same role resolver and admin rule as /api/orders/purchase, the route this page buys through.
     base = await roleBasePrices(db, user.role, pkgs ?? [], { admin: "as_user" })
-  } catch {
+  } catch (e) {
+    console.error("[package-prices] role prices unavailable:", e instanceof Error ? e.name : typeof e)
     return NextResponse.json({ error: "Failed to load prices" }, { status: 503 })
   }
   const prices = Object.fromEntries((pkgs ?? []).map((p: any) => [p.id, priceWith(base, p, custom)]))

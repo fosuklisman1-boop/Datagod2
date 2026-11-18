@@ -54,9 +54,10 @@ import { POST } from "./route"
 import { MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
 
 const ROLES = [
-  { id: "r-user", slug: "user", rank: 10, is_system: true, archived_at: null },
-  { id: "r-dealer", slug: "dealer", rank: 20, is_system: true, archived_at: null },
-  { id: "r-admin", slug: "admin", rank: 100, is_system: true, archived_at: null },
+  { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+  { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+  { id: "r-sub", slug: "sub_agent", rank: null, is_system: true, archived_at: null },
+  { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
 ]
 
 function setup(opts: { role: string; mode?: string; custom?: Array<{ package_id: string; price: number }>; rolePrices?: any[] }) {
@@ -116,6 +117,23 @@ describe("POST /api/orders/purchase: role pricing", () => {
     expect(r.body.error).toBe(MSG_PRICES_UNAVAILABLE)
     expect(db.state.rpcs).toEqual([])
     expect(db.state.ops).toEqual([])
+  })
+
+  it("(g) a sub_agent (off-ladder) pays the public price even when dealer rows exist", async () => {
+    setup({ role: "sub_agent" })
+    const r = await buy()
+    expect(r.body.required).toBe(10)
+  })
+
+  it("(h) a role-price 503 logs the error class name only", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    setup({ role: "dealer" })
+    db.state.failTable = "roles"
+    const r = await buy()
+    expect(r.status).toBe(503)
+    expect(spy).toHaveBeenCalledWith("[purchase] role prices unavailable:", "RoleReadError")
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("boom")
+    spy.mockRestore()
   })
 
   it("(f) a role price row for the user role makes a user pay it (the route reads the resolver)", async () => {

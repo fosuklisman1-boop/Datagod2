@@ -16,9 +16,10 @@ const h = vi.hoisted(() => ({
 }))
 
 const ROLES = [
-  { id: "r-user", slug: "user", rank: 10, is_system: true, archived_at: null },
-  { id: "r-dealer", slug: "dealer", rank: 20, is_system: true, archived_at: null },
-  { id: "r-admin", slug: "admin", rank: 100, is_system: true, archived_at: null },
+  { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+  { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+  { id: "r-sub", slug: "sub_agent", rank: null, is_system: true, archived_at: null },
+  { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
 ]
 
 vi.mock("@supabase/supabase-js", () => ({

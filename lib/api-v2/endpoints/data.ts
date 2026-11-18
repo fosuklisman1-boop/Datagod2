@@ -350,7 +350,8 @@ export function purchaseHandler(deps: DataDeps) {
 async function loadCustom(deps: DataDeps, ctx: V2Context): Promise<CustomPrices | null> {
   try {
     return await deps.customPrices(ctx.userId)
-  } catch {
+  } catch (e) {
+    console.error("[v2/data] custom prices unavailable:", e instanceof Error ? e.name : typeof e)
     return null
   }
 }
@@ -363,7 +364,8 @@ async function loadBase(
 ): Promise<ReadonlyMap<string, number> | null> {
   try {
     return await deps.basePrices(ctx.role, pkgs)
-  } catch {
+  } catch (e) {
+    console.error("[v2/data] role prices unavailable:", e instanceof Error ? e.name : typeof e)
     return null
   }
 }

@@ -1425,6 +1425,17 @@ describe("role base prices", () => {
     }
   })
 
+  it("single: a base read failure logs the error class name only", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const d = makeDeps()
+    d.basePrices.mockRejectedValue(new RoleReadError("could not read roles for 0249990605"))
+    const r = await purchaseHandler(d)(body({ recipient: "0249990605", reference: "REF-RB5L" }), LIVE)
+    expect(r.error?.status).toBe(503)
+    expect(spy).toHaveBeenCalledWith("[v2/data] role prices unavailable:", "RoleReadError")
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("9990605")
+    spy.mockRestore()
+  })
+
   it("bulk: loads base once for the distinct packages and prices each order", async () => {
     const d = makeDeps()
     d.basePrices.mockImplementation(async (_r: string, pkgs: readonly { id: string | number }[]) =>

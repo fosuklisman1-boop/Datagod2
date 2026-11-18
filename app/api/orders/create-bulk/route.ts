@@ -161,6 +161,7 @@ export async function POST(request: NextRequest) {
       custom = await getCustomPrices(supabase, userId)
     } catch (e) {
       if (e instanceof CustomPriceReadError) {
+        console.error("[create-bulk] custom prices unavailable:", e instanceof Error ? e.name : typeof e)
         return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
       }
       throw e
@@ -179,6 +180,7 @@ export async function POST(request: NextRequest) {
       roleBase = await roleBasePrices(supabase, userRole, packages ?? [], { admin: "as_user" })
     } catch (e) {
       if (e instanceof RoleReadError) {
+        console.error("[create-bulk] role prices unavailable:", e instanceof Error ? e.name : typeof e)
         return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
       }
       throw e

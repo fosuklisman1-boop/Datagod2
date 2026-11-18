@@ -209,6 +209,7 @@ export async function POST(request: NextRequest) {
       validatedPrice = priceWith(base, packageData, custom)
     } catch (e) {
       if (e instanceof CustomPriceReadError || e instanceof RoleReadError) {
+        console.error("[purchase] role prices unavailable:", e instanceof Error ? e.name : typeof e)
         return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
       }
       throw e

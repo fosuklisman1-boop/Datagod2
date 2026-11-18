@@ -186,6 +186,7 @@ async function v1POST(request: NextRequest) {
     orderPrice = priceWith(base, pkg, custom)
   } catch (e) {
     if (e instanceof CustomPriceReadError || e instanceof RoleReadError) {
+      console.error("[v1/orders] role prices unavailable:", e instanceof Error ? e.name : typeof e)
       return NextResponse.json({ success: false, error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
     }
     throw e
