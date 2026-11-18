@@ -99,7 +99,17 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }))
 
+// Role ladder stand-in (Phase 2c): dealer -> dealer_price, "user" -> price - 0.5 (a user row below public), else public.
+const roleMock = vi.hoisted(() => ({ rolePricesFor: vi.fn() }))
+vi.mock("@/lib/roles/repo", async (orig) => ({
+  ...(await orig<typeof import("@/lib/roles/repo")>()),
+  rolePricesFor: roleMock.rolePricesFor,
+}))
+const roleLadder = async (_c: unknown, slug: string, pkgs: any[]) =>
+  new Map(pkgs.map((p) => [String(p.id), slug === "dealer" ? Number(p.dealer_price) : slug === "user" ? Number(p.price) - 0.5 : Number(p.price)]))
+
 import { resolveShopCode, fetchShopNetworks } from "@/lib/shop-commerce/shop-code"
+import { RoleReadError } from "@/lib/roles/repo"
 import { setShopPref, getShopPref } from "@/lib/whatsapp-bot/shop-prefs"
 import { fetchShopBundles, shopOwnerIsDealer } from "@/lib/shop-commerce/pricing"
 import { getSession, setSession } from "@/lib/whatsapp-bot/shop-session"
@@ -114,6 +124,7 @@ import { getWaSession, setWaSession } from "@/lib/whatsapp-bot/session"
 // A single top-level beforeEach covers every describe block in this file.
 beforeEach(() => {
   vi.resetAllMocks()
+  roleMock.rolePricesFor.mockImplementation(roleLadder)
   fakeSupabase.shopCode = "AB12CD"
   fakeSupabase.airtimeMarkup = "0"
   fakeSupabase.tables = {}
@@ -680,6 +691,81 @@ describe("custom prices in AI tools", () => {
     }
     const r = await executeToolCall("get_available_packages", {}, { baseUrl: "x", userId: "u1", userRole: "sub_agent" }) as any[]
     expect(r.find(p => p.id === "p1").price).toBe(10)
+  })
+
+  describe("get_available_packages prices through the role resolver", () => {
+    const tables = () => { fakeSupabase.tables = { packages: { list: PKGS }, users: { one: null }, user_package_prices: { list: [] } } }
+    it("dealer gets the dealer ladder price", async () => {
+      tables()
+      const r = await executeToolCall("get_available_packages", {}, { baseUrl: "x", userId: "u1", userRole: "dealer" }) as any[]
+      expect(r.map((p) => p.price)).toEqual([8, 16])
+    })
+    it("user gets the user row (5.5 style, below public)", async () => {
+      tables()
+      const r = await executeToolCall("get_available_packages", {}, { baseUrl: "x", userId: "u1", userRole: "user" }) as any[]
+      expect(r.map((p) => p.price)).toEqual([9.5, 19.5])
+      expect(roleMock.rolePricesFor.mock.calls[0][1]).toBe("user")
+    })
+    it("a non-admin role read failure lists public prices", async () => {
+      tables()
+      roleMock.rolePricesFor.mockRejectedValue(new RoleReadError())
+      const r = await executeToolCall("get_available_packages", {}, { baseUrl: "x", userId: "u1", userRole: "dealer" }) as any[]
+      expect(r.map((p) => p.price)).toEqual([10, 20])
+    })
+    it("admin keeps the raw customer/dealer listing without a role read", async () => {
+      tables()
+      const r = await executeToolCall("get_available_packages", {}, { baseUrl: "x", userId: "u1", userRole: "admin" }) as any[]
+      expect(r[0]).toMatchObject({ customer_price: 10, dealer_price: 8 })
+      expect(roleMock.rolePricesFor).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("place_whatsapp_order role pricing", () => {
+    const input = { network: "MTN", size: "1", recipient_phone: "0244123456" }
+    const ctx = { baseUrl: "x", phone: "233559919037", userId: "u1" }
+    const seedRole = (user: Record<string, unknown> | null, defaultTier = "regular") => {
+      vi.mocked(getPrefixValidationConfig).mockResolvedValue({ enabled: false, map: DEFAULT_NETWORK_PREFIXES })
+      fakeSupabase.tables = {
+        app_settings: { one: { ussd_price_tier: defaultTier } },
+        packages: { list: [PKGS[0]] },
+        ussd_orders: { list: [] },
+        wallets: { one: { balance: 100 } },
+        users: { one: user },
+        user_package_prices: { list: [] },
+      }
+    }
+    it("dealer is quoted the dealer price; tier label stays dealer and the price role is stored", async () => {
+      seedRole({ role: "dealer" })
+      const r = await executeToolCall("place_whatsapp_order", input, ctx) as any
+      expect(r.price).toBe(8)
+      expect(vi.mocked(setWaSession)).toHaveBeenCalledWith("233559919037", expect.objectContaining({ effectivePriceTier: "dealer", priceRole: "dealer", bundlePrice: 8 }))
+    })
+    it("user is quoted the user row; tier label stays regular", async () => {
+      seedRole({ role: "user" })
+      const r = await executeToolCall("place_whatsapp_order", input, ctx) as any
+      expect(r.price).toBe(9.5)
+      expect(vi.mocked(setWaSession)).toHaveBeenCalledWith("233559919037", expect.objectContaining({ effectivePriceTier: "regular", priceRole: "user" }))
+    })
+    it("admin is priced as a user (tier regular), never as a dealer", async () => {
+      seedRole({ role: "admin" })
+      const r = await executeToolCall("place_whatsapp_order", input, ctx) as any
+      expect(r.price).toBe(9.5)
+      expect(roleMock.rolePricesFor.mock.calls[0][1]).toBe("user")
+      expect(vi.mocked(setWaSession)).toHaveBeenCalledWith("233559919037", expect.objectContaining({ effectivePriceTier: "regular", priceRole: "user" }))
+    })
+    it("unknown caller with default tier dealer gets dealer pricing and label", async () => {
+      seedRole(null, "dealer")
+      const r = await executeToolCall("place_whatsapp_order", { ...input }, { baseUrl: "x", phone: "233559919037" }) as any
+      expect(r.price).toBe(8)
+      expect(vi.mocked(setWaSession)).toHaveBeenCalledWith("233559919037", expect.objectContaining({ effectivePriceTier: "dealer", priceRole: "dealer" }))
+    })
+    it("a role read failure returns prices_unavailable and seeds nothing", async () => {
+      seedRole({ role: "dealer" })
+      roleMock.rolePricesFor.mockRejectedValue(new RoleReadError())
+      const r = await executeToolCall("place_whatsapp_order", input, ctx) as any
+      expect(r.error).toBe("prices_unavailable")
+      expect(vi.mocked(setWaSession)).not.toHaveBeenCalled()
+    })
   })
 
   describe("place_whatsapp_order airtime fee tier", () => {

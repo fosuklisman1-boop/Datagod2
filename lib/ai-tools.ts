@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { effectivePrice, getCustomPrices, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
+import { priceWith, pricingSlug, roleBasePrices, roleBasePricesOrPublic } from "@/lib/roles/pricing"
+import { buyerPriceRole } from "@/lib/ussd/price-role"
 import type { WaShopSession } from "@/lib/whatsapp-bot/shop-types"
 import { dialerGetsDealerRate } from "@/lib/sub-agents/dealer-rates"
 
@@ -1281,7 +1283,6 @@ export async function executeToolCall(
 
         // Dashboard / admin: base packages table
         const isAdmin = ctx.userRole === "admin"
-        const isDealer = ctx.userRole === "dealer"
         let query = supabaseAdmin
           .from("packages")
           .select("id, network, size, price, dealer_price")
@@ -1311,11 +1312,13 @@ export async function executeToolCall(
         const custom = ctx.userRole === "sub_agent"
           ? NO_CUSTOM_PRICES
           : await getCustomPrices(supabaseAdmin, ctx.userId).catch(() => NO_CUSTOM_PRICES)
+        // The role's base price (admin returned above); a failed role read lists public prices.
+        const base = await roleBasePricesOrPublic(supabaseAdmin, pricingSlug(ctx.userRole, "as_user"), rows as any[], { admin: "as_user" })
         return sanitize(rows.map((p: Record<string, unknown>) => ({
           id: p.id,
           network: p.network,
           size: p.size,
-          price: effectivePrice(p as any, isDealer, custom),
+          price: priceWith(base, p as any, custom),
         })))
       }
 
@@ -1971,9 +1974,14 @@ export async function executeToolCall(
         if (!pkg) {
           return { error: "package_not_found", message: `No active ${canonicalNetwork} bundle matches that size. Call get_available_packages and offer the customer one of the sizes it lists.` }
         }
+        // Price role (admin priced as a user here; unknown caller -> the default tier's role). The tier label above is
+        // unchanged and still what is recorded. A custom-price or role read failure refuses and seeds nothing.
+        const priceRole = buyerPriceRole(role, orderSettings?.ussd_price_tier)
         let tierPrice: number
         try {
-          tierPrice = effectivePrice(pkg, effectivePriceTier === "dealer", await getCustomPrices(supabaseAdmin, resolvedUserId))
+          const custom = await getCustomPrices(supabaseAdmin, resolvedUserId)
+          const base = await roleBasePrices(supabaseAdmin, priceRole, [pkg], { admin: "as_user" })
+          tierPrice = priceWith(base, pkg, custom)
         } catch {
           return { error: "prices_unavailable", message: "Prices are temporarily unavailable. Ask the customer to try again shortly." }
         }
@@ -2016,6 +2024,7 @@ export async function executeToolCall(
           recipientPhone: localRecipient,
           dialingPhone: localSender,
           effectivePriceTier,
+          priceRole,
           userId: resolvedUserId,
           walletBalance,
         })
