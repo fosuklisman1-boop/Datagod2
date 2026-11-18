@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { airtimeFeeRateForDisplay } from "@/lib/airtime-pricing"
+import { rateSlugFor } from "@/lib/roles/service-rates"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-async function getAdminSetting(key: string): Promise<any> {
-  const { data } = await supabase
-    .from("admin_settings")
-    .select("value")
-    .eq("key", key)
-    .single()
-  return data?.value ?? null
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,15 +30,17 @@ export async function GET(request: NextRequest) {
       .single()
     
     const role = profile?.role || "customer"
-    const suffix = (role === "dealer" || role === "admin") ? "dealer" : "customer"
+    // Rule E (dealer OR admin; sub_agent is a customer), resolved per role. Display: a roles read failure
+    // shows the legacy tier rate.
+    const tierIsDealer = role === "dealer" || role === "admin"
+    const slug = await rateSlugFor(supabase, tierIsDealer, profile?.role)
 
     // 3. Fetch fees for each network
     const networks = ["mtn", "telecel", "at"]
     const constraints: Record<string, number> = {}
 
     for (const net of networks) {
-      const feeSetting = await getAdminSetting(`airtime_fee_${net}_${suffix}`)
-      const baseRate = feeSetting?.rate ?? 5 // Default 5%
+      const baseRate = await airtimeFeeRateForDisplay(net, slug, tierIsDealer)
       constraints[net] = Math.max(0, 10 - baseRate)
     }
 

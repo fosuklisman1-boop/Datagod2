@@ -3,11 +3,14 @@ import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwa
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { type AirtimeOrderMinimal, fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
 import { getAirtimeProvider, airtimeNetId, type AirtimeProvider } from "@/lib/airtime-provider"
-import { airtimeAmountGate, airtimeFeeKey, airtimeNetworkGate, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
+import { airtimeAmountGate, airtimeNetworkGate, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
 import { airtimeCashbackTarget, type AirtimeProviderDeps } from "@/lib/cashback/storefront-airtime"
 import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
 import { getDealerRateTier } from "@/lib/sub-agents/dealer-rates"
+import { airtimeFeeRateFor } from "@/lib/airtime-pricing"
+import { rateSlugFor } from "@/lib/roles/service-rates"
+import { RoleReadError } from "@/lib/roles/repo"
 import { secureReference } from "@/lib/secure-random"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
@@ -298,6 +301,18 @@ export interface PurchaseAirtimeResult {
   newBalance: number
 }
 
+/** The platform fee rate for the slug, or a RATES_UNAVAILABLE refusal (thrown before any debit) when roles cannot be read. */
+async function feeRateOrRefuse(network: string, slug: () => Promise<string>): Promise<number> {
+  try {
+    return await airtimeFeeRateFor(network, await slug())
+  } catch (e) {
+    if (!(e instanceof RoleReadError)) throw e
+    const err: any = new Error("Airtime pricing is temporarily unavailable. Please try again shortly.")
+    err.code = "RATES_UNAVAILABLE"
+    throw err
+  }
+}
+
 /**
  * Buy airtime for a beneficiary phone, deducting the buyer's wallet.
  * Shared by the dashboard route and the v1 API route. Settings keys use the short network id
@@ -345,15 +360,21 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
         customMarkupRate = parseFloat(shop[`airtime_markup_${networkKey}` as keyof typeof shop] as string) || 0
       }
       const { data: merchantProfile } = await supabase.from("users").select("role").eq("id", merchantUserId).single()
-      const isMerchantDealer = merchantProfile?.role === "dealer"
-      const merchantFeeSetting = await getAdminSetting(airtimeFeeKey(network, isMerchantDealer ? "dealer" : "customer"))
-      merchantRoleFeeRate = merchantFeeSetting?.rate ?? 5
+      // Rule D (shop owner dealer ONLY; an admin owner is a customer here), resolved per role.
+      merchantRoleFeeRate = await feeRateOrRefuse(
+        network,
+        () => rateSlugFor(supabase, merchantProfile?.role === "dealer", merchantProfile?.role)
+      )
     }
   } else {
+    // Rule A (getDealerRateTier), resolved per role. The cashback `buyer` below stays on the tier.
     const isUserDealer = (await getDealerRateTier(supabase, userId)) === "dealer"
     isBuyerDealer = isUserDealer
-    const feeSetting = await getAdminSetting(airtimeFeeKey(network, isUserDealer ? "dealer" : "customer"))
-    merchantRoleFeeRate = feeSetting?.rate ?? 5
+    merchantRoleFeeRate = await feeRateOrRefuse(network, async () => {
+      const { data: me, error: meError } = await supabase.from("users").select("role").eq("id", userId).maybeSingle()
+      if (meError) throw new RoleReadError()
+      return rateSlugFor(supabase, isUserDealer, (me as { role?: string } | null)?.role)
+    })
   }
 
   const totalFeeRate = merchantRoleFeeRate + customMarkupRate

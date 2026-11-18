@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
 import { airtimeProviderDeps } from "@/lib/airtime-service"
 import { getCashbackConfig } from "@/lib/cashback/config"
+import { airtimeFeeRateForDisplay } from "@/lib/airtime-pricing"
+import { rateSlugFor } from "@/lib/roles/service-rates"
 import { storefrontAirtimeOn, storefrontAirtimeTerms, type StorefrontAirtimeTerms } from "@/lib/cashback/storefront-airtime"
 
 const supabase = createClient(
@@ -49,13 +51,16 @@ export async function GET(request: NextRequest) {
       .eq("id", shop.user_id)
       .single()
     
+    // Rule D (owner dealer ONLY), resolved per role. Display: a roles read failure shows the legacy tier rate.
     const isDealer = merchantProfile?.role === "dealer"
     const networkKey = network.toLowerCase()
-    const feeKey = `airtime_fee_${networkKey}_${isDealer ? 'dealer' : 'customer'}`
-    
+
     // 3. Fetch Base Fee Rate
-    const feeSetting = await getAdminSetting(feeKey)
-    const baseFeePercent = feeSetting?.rate ?? 5
+    const baseFeePercent = await airtimeFeeRateForDisplay(
+      network,
+      await rateSlugFor(supabase, isDealer, merchantProfile?.role),
+      isDealer
+    )
 
     // 4. Get Actual Markup
     let markupPercent = parseFloat(shop[`airtime_markup_${networkKey}` as keyof typeof shop] as string) || 0

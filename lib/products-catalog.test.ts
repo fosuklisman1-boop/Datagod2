@@ -20,6 +20,7 @@ const h = vi.hoisted(() => {
     { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
     { id: "r-sub", slug: "sub_agent", rank: null, is_system: true, archived_at: null },
     { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
+    { id: "r-gold", slug: "gold", rank: 20, is_system: false, archived_at: null },
   ]
   const fake = {
     from: (table: string) => {
@@ -68,7 +69,8 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
 vi.mock("@/lib/airtime-pricing", () => ({
   isAirtimeEnabled: vi.fn(async (network: string) => network !== "Telecel"),
   getAirtimeLimits: vi.fn(async () => ({ min: 1, max: 500 })),
-  airtimeBaseFeeRate: vi.fn(async (_network: string, isDealer: boolean) => (isDealer ? 3 : 5)),
+  // dealer 3, user 5, the custom "gold" role 1
+  airtimeFeeRateForDisplay: vi.fn(async (_network: string, slug: string) => (slug === "dealer" ? 3 : slug === "gold" ? 1 : 5)),
 }))
 
 vi.mock("@/lib/results-checker-service", () => ({
@@ -161,6 +163,22 @@ describe("buildProductsCatalog", () => {
     const catalog = await buildProductsCatalog("user")
     expect(catalog.airtime.find((a) => a.network === "Telecel")).toBeUndefined()
     expect(catalog.airtime.find((a) => a.network === "MTN")).toBeDefined()
+  })
+
+  it("airtime fee rate per role: dealer 3, user/admin/sub_agent 5 (rule F: dealer only), custom role its own", async () => {
+    const fee = async (role: string) => (await buildProductsCatalog(role)).airtime.find((a) => a.network === "MTN")!.fee_rate_percent
+    expect(await fee("dealer")).toBe(3)
+    expect(await fee("user")).toBe(5)
+    expect(await fee("admin")).toBe(5)
+    expect(await fee("sub_agent")).toBe(5)
+    expect(await fee("gold")).toBe(1)
+  })
+
+  it("airtime fee display falls back to the legacy tier on a roles read failure (custom role shows the customer tier)", async () => {
+    const { airtimeFeeRateForDisplay } = await import("@/lib/airtime-pricing")
+    h.state.rolesFail = true
+    await buildProductsCatalog("gold")
+    expect(vi.mocked(airtimeFeeRateForDisplay)).toHaveBeenCalledWith("MTN", "gold", false)
   })
 
   it("excludes a disabled results-checker board", async () => {

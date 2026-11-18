@@ -61,9 +61,9 @@ export async function POST(request: NextRequest) {
       newBalance: result.newBalance,
     })
   } catch (error: any) {
-    const knownCodes = ["NETWORK_DISABLED", "NETWORK_MISMATCH", "INVALID_AMOUNT", "DUPLICATE_REQUEST", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED", "PRICE_CHANGED"]
+    const knownCodes = ["NETWORK_DISABLED", "NETWORK_MISMATCH", "INVALID_AMOUNT", "DUPLICATE_REQUEST", "INSUFFICIENT_BALANCE", "PAYMENT_FAILED", "ORDER_CREATE_FAILED", "PRICE_CHANGED", "RATES_UNAVAILABLE"]
     const status =
-      error?.code === "NETWORK_DISABLED" ? 503 :
+      error?.code === "NETWORK_DISABLED" || error?.code === "RATES_UNAVAILABLE" ? 503 :
       error?.code === "NETWORK_MISMATCH" ? 400 :
       error?.code === "INVALID_AMOUNT" ? 400 :
       error?.code === "DUPLICATE_REQUEST" ? 409 :

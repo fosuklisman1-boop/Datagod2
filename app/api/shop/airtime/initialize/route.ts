@@ -13,6 +13,9 @@ import { airtimeAmountGate, airtimeNetworkGate } from "@/lib/airtime-fee"
 import { getCashbackConfig } from "@/lib/cashback/config"
 import { samePrice } from "@/lib/cashback/quote"
 import { quoteStorefrontAirtime } from "@/lib/cashback/storefront-airtime"
+import { airtimeFeeRateFor } from "@/lib/airtime-pricing"
+import { rateSlugFor } from "@/lib/roles/service-rates"
+import { RoleReadError } from "@/lib/roles/repo"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -201,10 +204,17 @@ export async function POST(request: NextRequest) {
       .eq("id", shop.user_id)
       .single()
     
-    const isMerchantDealer = merchantProfile?.role === "dealer"
-    const merchantFeeKey = isMerchantDealer ? `airtime_fee_${networkKey}_dealer` : `airtime_fee_${networkKey}_customer`
-    const merchantFeeSetting = await getAdminSetting(merchantFeeKey)
-    const merchantBaseRate = merchantFeeSetting?.rate ?? 5
+    // Rule D (owner dealer ONLY; an admin owner is a customer here), resolved per role. A roles read failure
+    // refuses before any order row / payment is created.
+    let merchantBaseRate: number
+    try {
+      const slug = await rateSlugFor(supabase, merchantProfile?.role === "dealer", merchantProfile?.role)
+      merchantBaseRate = await airtimeFeeRateFor(network, slug)
+    } catch (e) {
+      if (!(e instanceof RoleReadError)) throw e
+      console.error(`[SHOP-AIRTIME] ❌ Fee rate unavailable for shop ${shopId}: roles could not be read`)
+      return NextResponse.json({ error: "Airtime pricing is temporarily unavailable. Please try again shortly." }, { status: 503 })
+    }
 
     // Get Merchant's Custom Markup
     let customMarkupRate = parseFloat(shop[`airtime_markup_${networkKey}` as keyof typeof shop] as string) || 0

@@ -22,10 +22,28 @@ const h = vi.hoisted(() => {
     txInserts: [] as any[],
     deductCalls: [] as any[],
     keysRead: [] as string[],
+    roles: [] as any[],
+    roleRates: [] as any[],
+    rolesError: false,
+    shop: null as any,
+    tablesRead: [] as string[],
   }
 
   const fake = {
     from: (table: string) => {
+      state.tablesRead.push(table)
+      if (table === "roles" || table === "role_service_rates") {
+        const b: any = {
+          select: () => b, in: () => b, limit: () => b,
+          then: (res: any, rej: any) =>
+            Promise.resolve(
+              state.rolesError
+                ? { data: null, error: { message: "boom" } }
+                : { data: table === "roles" ? state.roles : state.roleRates, error: null }
+            ).then(res, rej),
+        }
+        return b
+      }
       if (table === "admin_settings") {
         return {
           select: () => ({
@@ -102,7 +120,7 @@ const h = vi.hoisted(() => {
           update: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
           select: () => ({
             eq: () => ({
-              single: () => Promise.resolve({ data: null, error: null }),
+              single: () => Promise.resolve({ data: table === "user_shops" ? state.shop : null, error: null }),
               // getDealerRateTier: the sub-agent's own shop row
               limit: () => ({ maybeSingle: () => Promise.resolve({ data: { dealer_rates_enabled: state.dealerRatesEnabled }, error: null }) }),
             }),
@@ -205,6 +223,11 @@ beforeEach(() => {
   h.state.txInserts = []
   h.state.deductCalls = []
   h.state.keysRead = []
+  h.state.roles = []
+  h.state.roleRates = []
+  h.state.rolesError = false
+  h.state.shop = null
+  h.state.tablesRead = []
   vi.mocked(isDigiWapyConfigured).mockReturnValue(true)
   h.state.settings = {
     airtime_enabled_mtn: { enabled: true },
@@ -568,5 +591,68 @@ describe("purchaseAirtime — instant cashback", () => {
     h.state.settings.commission_cashback_config = CASHBACK_CFG
     h.state.deductResult = []
     await expect(buy()).rejects.toMatchObject({ code: "INSUFFICIENT_BALANCE", required: 9.91 })
+  })
+})
+
+describe("purchaseAirtime — airtime fee resolves per role", () => {
+  const ROLES = [
+    { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+    { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+    { id: "r-gold", slug: "gold", rank: 20, is_system: false, archived_at: null },
+  ]
+  const GOLD_ROW = { role_id: "r-gold", service_key: "airtime_fee:mtn", value: 1 }
+  // paySeparately => total = 10 + 10 * rate%
+  const paid = () => h.state.deductCalls[0].p_amount
+  const customRoleOn = () => { h.state.roles = ROLES; h.state.roleRates = [GOLD_ROW] }
+
+  it("buyer: user 5%, dealer 3%, admin 5% (customer), sub_agent follows dealer_rates_enabled, with no roles read", async () => {
+    await buy({ paySeparately: true }); expect(paid()).toBe(10.5)
+    h.state.deductCalls = []; h.state.userRole = "dealer"
+    await buy({ paySeparately: true, beneficiaryPhone: "0551234567" }); expect(paid()).toBe(10.3)
+    h.state.deductCalls = []; h.state.userRole = "admin"
+    await buy({ paySeparately: true, beneficiaryPhone: "0241234567" }); expect(paid()).toBe(10.5)
+    h.state.deductCalls = []; h.state.userRole = "sub_agent"; h.state.dealerRatesEnabled = true
+    await buy({ paySeparately: true, beneficiaryPhone: "0591234567" }); expect(paid()).toBe(10.3)
+    h.state.deductCalls = []; h.state.dealerRatesEnabled = false
+    await buy({ paySeparately: true, beneficiaryPhone: "0531234567" }); expect(paid()).toBe(10.5)
+    expect(h.state.tablesRead).not.toContain("roles")
+    expect(h.state.tablesRead).not.toContain("role_service_rates")
+  })
+
+  it("buyer with a custom role uses its role_service_rates row", async () => {
+    customRoleOn(); h.state.userRole = "gold"
+    await buy({ paySeparately: true })
+    expect(paid()).toBe(10.1)
+    expect(h.state.orderInserts[0]).toMatchObject({ fee_amount: 0.1 })
+  })
+
+  it("buyer with a custom role and a roles read failure is refused before any debit", async () => {
+    customRoleOn(); h.state.userRole = "gold"; h.state.rolesError = true
+    await expect(buy({ paySeparately: true })).rejects.toMatchObject({ code: "RATES_UNAVAILABLE" })
+    expect(h.state.deductCalls).toEqual([])
+    expect(h.state.orderInserts).toEqual([])
+  })
+
+  const SHOP = { user_id: "owner-1", airtime_markup_mtn: "0", airtime_markup_telecel: "0", airtime_markup_at: "0" }
+
+  it("shop owner: dealer 3%, admin owner is a customer (5%), user 5%, with no roles read", async () => {
+    h.state.shop = SHOP
+    h.state.userRole = "dealer"
+    await buy({ paySeparately: true, shopId: "shop-1" }); expect(paid()).toBe(10.3)
+    h.state.deductCalls = []; h.state.userRole = "admin"
+    await buy({ paySeparately: true, shopId: "shop-1", beneficiaryPhone: "0551234567" }); expect(paid()).toBe(10.5)
+    h.state.deductCalls = []; h.state.userRole = "user"
+    await buy({ paySeparately: true, shopId: "shop-1", beneficiaryPhone: "0241234567" }); expect(paid()).toBe(10.5)
+    expect(h.state.tablesRead).not.toContain("roles")
+  })
+
+  it("shop owner with a custom role uses its row; a read failure refuses before any debit", async () => {
+    h.state.shop = SHOP; customRoleOn(); h.state.userRole = "gold"
+    await buy({ paySeparately: true, shopId: "shop-1" })
+    expect(paid()).toBe(10.1)
+    h.state.deductCalls = []; h.state.rolesError = true
+    await expect(buy({ paySeparately: true, shopId: "shop-1", beneficiaryPhone: "0551234567" }))
+      .rejects.toMatchObject({ code: "RATES_UNAVAILABLE" })
+    expect(h.state.deductCalls).toEqual([])
   })
 })

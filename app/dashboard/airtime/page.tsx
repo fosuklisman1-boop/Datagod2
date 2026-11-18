@@ -10,7 +10,7 @@ import { PurchaseSheet, type PurchaseSheetModal } from "@/components/dashboard/P
 import { useCashbackRates } from "@/components/cashback/use-cashback-rates"
 import { PriceSummary } from "@/components/cashback/PriceSummary"
 import { airtimePagePrice, airtimeReceiveLabel, airtimeServiceKey, parsePriceChange, type RatesResponse } from "@/lib/cashback/display"
-import { airtimeEnabledKey, airtimeFeeKey, legacyAirtimePrice } from "@/lib/airtime-fee"
+import { airtimeEnabledKey, airtimeFeeKey, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
 
 const NETWORKS = ["MTN", "Telecel", "AT"]
 // AT/AirtelTigo gets a literal orange here (its own real brand color, and
@@ -68,6 +68,8 @@ export default function AirtimePage() {
 
   // Derived / settings
   const [feeRate, setFeeRate]           = useState(5)
+  // The caller's own per-network rates from /api/airtime/my-rates (one fetch per visit; resolves null when unavailable).
+  const myRatesRef = useRef<Promise<Record<string, number> | null> | null>(null)
   const [minAmount, setMinAmount]       = useState(1)
   const [maxAmount, setMaxAmount]       = useState(500)
   const [userRole, setUserRole]         = useState("user")
@@ -172,9 +174,31 @@ export default function AirtimePage() {
       setNetwork(enabledNets[0])
     }
 
-    // Same key purchaseAirtime reads (AT -> airtime_fee_at_*).
+    // The server's own per-role rate for this account (the purchase route charges from the same resolver).
+    // If it cannot be fetched, keep today's computation above from the public config: same key purchaseAirtime
+    // reads (AT -> airtime_fee_at_*), so the page never shows less than it does today.
+    // Fetched once per page visit (a failure is retried on the next reload, not on every network switch).
+    if (!myRatesRef.current) {
+      myRatesRef.current = (async () => {
+        try {
+          const rateRes = await fetch("/api/airtime/my-rates", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            cache: "no-store",
+          })
+          if (!rateRes.ok) return null
+          const body = await rateRes.json()
+          return body?.rates && typeof body.rates === "object" ? (body.rates as Record<string, number>) : null
+        } catch (e) {
+          console.warn("Could not load airtime rates:", e)
+          return null
+        }
+      })()
+    }
+    const myRates = await myRatesRef.current
+    const r = Number(myRates?.[airtimeSettingsSuffix(network)])
+    const serverRate = Number.isFinite(r) && r >= 0 ? r : null
     const feeSetting = airtimeSettings[airtimeFeeKey(network, isDealer ? "dealer" : "customer")]
-    setFeeRate(feeSetting?.rate ?? 5)
+    setFeeRate(serverRate ?? feeSetting?.rate ?? 5)
     setMinAmount(airtimeSettings["airtime_min_amount"]?.amount ?? 1)
     setMaxAmount(airtimeSettings["airtime_max_amount"]?.amount ?? 500)
   }, [network, router])

@@ -32,7 +32,7 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }))
 
-import { airtimeBaseFeeRate, airtimeFeeRateFor } from "./airtime-pricing"
+import { airtimeBaseFeeRate, airtimeFeeRateFor, airtimeFeeRateForDisplay } from "./airtime-pricing"
 import { RoleReadError } from "./roles/repo"
 
 const ROLES = [
@@ -92,6 +92,20 @@ describe("airtimeFeeRateFor", () => {
     h.failRoles = false
     h.failRates = true
     await expect(airtimeFeeRateFor("MTN", "gold")).rejects.toBeInstanceOf(RoleReadError)
+  })
+})
+
+describe("airtimeFeeRateForDisplay", () => {
+  it("is the role's rate when roles are readable", async () => {
+    h.rates = [{ role_id: "r-gold", service_key: "airtime_fee:mtn", value: 1.5 }]
+    expect(await airtimeFeeRateForDisplay("MTN", "gold", true)).toBe(1.5)
+    expect(await airtimeFeeRateForDisplay("MTN", "dealer", true)).toBe(2)
+  })
+
+  it("falls back to the legacy tier rate on a roles read failure, never a lower tier's", async () => {
+    h.failRoles = true
+    expect(await airtimeFeeRateForDisplay("MTN", "gold", true)).toBe(2)
+    expect(await airtimeFeeRateForDisplay("MTN", "gold", false)).toBe(4)
   })
 })
 

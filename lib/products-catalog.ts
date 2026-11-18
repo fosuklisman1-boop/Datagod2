@@ -1,6 +1,7 @@
 // lib/products-catalog.ts
 import { createClient } from "@supabase/supabase-js"
-import { isAirtimeEnabled, getAirtimeLimits, airtimeBaseFeeRate } from "@/lib/airtime-pricing"
+import { isAirtimeEnabled, getAirtimeLimits, airtimeFeeRateForDisplay } from "@/lib/airtime-pricing"
+import { rateSlugFor } from "@/lib/roles/service-rates"
 import { getCustomPrices, NO_CUSTOM_PRICES, type CustomPrices } from "@/lib/pricing/package-price"
 import { roleBasePricesOrPublic, priceWith } from "@/lib/roles/pricing"
 import { isExamBoardEnabled, calculateRCPrice, type ExamBoard } from "@/lib/results-checker-service"
@@ -37,7 +38,7 @@ export async function buildProductsCatalog(role: string, userId?: string): Promi
 
   const [dataBundles, airtime, resultsChecker, afa] = await Promise.all([
     buildDataBundles(role, custom),
-    buildAirtime(isDealer),
+    buildAirtime(isDealer, role),
     buildResultsChecker(),
     buildAfa(),
   ])
@@ -66,14 +67,16 @@ async function buildDataBundles(role: string, custom: CustomPrices): Promise<Pro
   }))
 }
 
-async function buildAirtime(isDealer: boolean): Promise<ProductsCatalogResponse["airtime"]> {
+async function buildAirtime(isDealer: boolean, role: string): Promise<ProductsCatalogResponse["airtime"]> {
   const results: ProductsCatalogResponse["airtime"] = []
+  // Rule F (role === "dealer"), resolved per role. Display: a roles read failure shows the legacy tier rate.
+  const slug = await rateSlugFor(supabase, isDealer, role)
   for (const network of AIRTIME_NETWORKS) {
     const enabled = await isAirtimeEnabled(network)
     if (!enabled) continue
     const [{ min, max }, feeRate] = await Promise.all([
       getAirtimeLimits(),
-      airtimeBaseFeeRate(network, isDealer),
+      airtimeFeeRateForDisplay(network, slug, isDealer),
     ])
     results.push({ network, min_amount: min, max_amount: max, fee_rate_percent: feeRate })
   }

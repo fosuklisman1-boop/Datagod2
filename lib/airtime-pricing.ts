@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { airtimeSettingsSuffix } from "./airtime-fee"
 import { serviceRatesFor } from "./roles/service-rates"
+import { RoleReadError } from "./roles/repo"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -61,6 +62,19 @@ export async function airtimeFeeRateFor(network: string, slug: string): Promise<
   const serviceKey = `airtime_fee:${net}`
   const rates = await serviceRatesFor(supabase, slug, [serviceKey], () => legacy)
   return rates.get(serviceKey) as number
+}
+
+/**
+ * airtimeFeeRateFor for DISPLAY paths only: when roles / rates cannot be read, show the rule's legacy tier rate
+ * (dealer or customer, whichever the caller's own tier rule decided) instead of failing. Never use on a charge path.
+ */
+export async function airtimeFeeRateForDisplay(network: string, slug: string, tierIsDealer: boolean): Promise<number> {
+  try {
+    return await airtimeFeeRateFor(network, slug)
+  } catch (e) {
+    if (!(e instanceof RoleReadError)) throw e
+    return airtimeFeeRateFor(network, tierIsDealer ? "dealer" : "user")
+  }
 }
 
 /** Platform base fee rate (%) for a network, by buyer tier. */

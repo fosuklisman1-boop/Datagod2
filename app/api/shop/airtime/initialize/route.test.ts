@@ -10,6 +10,10 @@ const h = vi.hoisted(() => {
     digiwapyConfigured: true,
     inserts: [] as any[],
     rateLimitKeys: [] as string[],
+    roles: [] as any[],
+    roleRates: [] as any[],
+    rolesError: false,
+    tablesRead: [] as string[],
   }
   // Generic chainable query: every filter returns the chain; awaiting it yields a count (flood guards).
   const chain = (table: string) => {
@@ -32,10 +36,19 @@ const h = vi.hoisted(() => {
       return { data: v === undefined ? null : { value: v }, error: null }
     }
     c.insert = (rows: any[]) => (state.inserts.push(rows[0]), c)
-    c.then = (res: any, rej: any) => Promise.resolve({ count: 0, data: null, error: null }).then(res, rej)
+    c.in = () => c
+    c.limit = () => c
+    c.then = (res: any, rej: any) =>
+      Promise.resolve(
+        table === "roles" || table === "role_service_rates"
+          ? state.rolesError
+            ? { data: null, error: { message: "boom" } }
+            : { data: table === "roles" ? state.roles : state.roleRates, error: null }
+          : { count: 0, data: null, error: null }
+      ).then(res, rej)
     return c
   }
-  return { state, fake: { from: chain } }
+  return { state, fake: { from: (t: string) => (state.tablesRead.push(t), chain(t)) } }
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
@@ -125,6 +138,40 @@ beforeEach(() => {
   h.state.digiwapyConfigured = true
   h.state.inserts = []
   h.state.rateLimitKeys = []
+  h.state.roles = []
+  h.state.roleRates = []
+  h.state.rolesError = false
+  h.state.tablesRead = []
+})
+
+describe("shop airtime initialize — base fee resolves per owner role", () => {
+  const ROLES = [
+    { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+    { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+    { id: "r-gold", slug: "gold", rank: 20, is_system: false, archived_at: null },
+  ]
+  // markup 2% on the MTN shop; base + 2% => 10 airtime pays 10 + 10 * (base + 2) / 100
+  const total = async () => (await (await post({ airtimeAmount: 10, network: "MTN" })).json()).totalPrice
+
+  it("dealer 3%, user 5%, admin owner is a customer (5%); no roles read", async () => {
+    h.state.merchantRole = "dealer"; expect(await total()).toBe(10.5)
+    h.state.merchantRole = "user"; expect(await total()).toBe(10.7)
+    h.state.merchantRole = "admin"; expect(await total()).toBe(10.7)
+    expect(h.state.tablesRead).not.toContain("roles")
+  })
+
+  it("custom-role owner uses its row", async () => {
+    h.state.merchantRole = "gold"; h.state.roles = ROLES
+    h.state.roleRates = [{ role_id: "r-gold", service_key: "airtime_fee:mtn", value: 1 }]
+    expect(await total()).toBe(10.3)
+  })
+
+  it("custom-role owner with a roles read failure is refused 503 before any insert", async () => {
+    h.state.merchantRole = "gold"; h.state.roles = ROLES; h.state.rolesError = true
+    const res = await post({ airtimeAmount: 10, network: "MTN" })
+    expect(res.status).toBe(503)
+    expect(h.state.inserts).toEqual([])
+  })
 })
 
 describe("shop airtime initialize — legacy path is byte-identical", () => {
