@@ -433,7 +433,11 @@ export async function POST(request: NextRequest) {
       }
 
       verifiedPackageId = String(shopPkg.package_id)
-      const pkg = (shopPkg.packages as any) ?? { id: "", price: 0 }
+      if (!shopPkg.packages) {
+        console.error(`[SHOP-ORDER] ❌ Shop package ${shop_package_id} has no joined package`)
+        return NextResponse.json({ error: "Invalid package" }, { status: 400 })
+      }
+      const pkg = shopPkg.packages as any
       verifiedSize = pkg.size || ""
       const shopMargin = Number(shopPkg.profit_margin || 0)
       // Negative margins are refused on every channel (a negative profit may only come from a custom price).

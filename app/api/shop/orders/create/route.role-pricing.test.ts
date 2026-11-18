@@ -8,13 +8,15 @@ const db = vi.hoisted(() => {
     tables: {} as Record<string, any[]>,
     failTable: null as string | null,
     ops: [] as string[],
+    inserts: [] as Array<{ table: string; payload: any }>,
   }
   function builder(table: string): any {
     const rows = () => state.tables[table] ?? []
     const failed = () => state.failTable === table
     const b: any = new Proxy(function () {}, {
       get: (_t, p: string) => {
-        if (["insert", "update", "upsert", "delete"].includes(p)) return () => (state.ops.push(`${table}.${p}`), b)
+        if (p === "insert") return (payload: any) => (state.ops.push(`${table}.${p}`), state.inserts.push({ table, payload }), b)
+        if (["update", "upsert", "delete"].includes(p)) return () => (state.ops.push(`${table}.${p}`), b)
         if (p === "single" || p === "maybeSingle")
           return () => Promise.resolve(failed() ? { data: null, error: { message: "boom" } } : { data: rows()[0] ?? null, error: null })
         if (p === "then")
@@ -88,8 +90,13 @@ const verifiedTotal = () => (db.gate.mock.calls[0][2] as { amount: number }).amo
 beforeEach(() => {
   db.state.failTable = null
   db.state.ops = []
+  db.state.inserts = []
   db.gate.mockClear()
 })
+
+// Let the MTN gate pass so the route reaches the shop_orders insert; the fake returns no row back, so the
+// route then errors after the insert, which is fine: only the insert payload is asserted.
+const shopOrderInsert = () => db.state.inserts.find((i) => i.table === "shop_orders")?.payload?.[0]
 
 describe("POST /api/shop/orders/create: direct shop role pricing", () => {
   it("an admin-owned shop charges dealer price + margin", async () => {
@@ -137,6 +144,38 @@ describe("POST /api/shop/orders/create: direct shop role pricing", () => {
     setup({ role: "user", mode: "custom", custom: [{ package_id: "p1", price: 6.25 }] })
     await order(12)
     expect(verifiedTotal()).toBe(12)
+  })
+
+  it("writes the expected base/profit/total into the order insert for a dealer owner", async () => {
+    setup({ role: "dealer" })
+    db.gate.mockResolvedValueOnce(false)
+    await order(10)
+    const row = shopOrderInsert()
+    expect(row).toBeDefined()
+    expect(row.base_price).toBe(8)
+    expect(row.profit_amount).toBe(2)
+    expect(row.total_price).toBe(10)
+  })
+
+  it("a custom-mode owner's insert carries profit = margin + (base - custom)", async () => {
+    setup({ role: "user", mode: "custom", custom: [{ package_id: "p1", price: 6.25 }] })
+    db.gate.mockResolvedValueOnce(false)
+    await order(12)
+    const row = shopOrderInsert()
+    expect(row).toBeDefined()
+    expect(row.base_price).toBe(10)
+    expect(row.profit_amount).toBe(5.75)
+    expect(row.total_price).toBe(12)
+  })
+
+  it("a shop_package row with no joined package is a 400 Invalid package, not a pricing 503", async () => {
+    setup({ role: "dealer" })
+    db.state.tables.shop_packages = [{ profit_margin: 2, package_id: "p1", packages: null }]
+    const r = await order(10)
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe("Invalid package")
+    expect(db.gate).not.toHaveBeenCalled()
+    expect(db.state.inserts).toEqual([])
   })
 
   it("a failed roles read refuses with 503 before anything is inserted or debited", async () => {
