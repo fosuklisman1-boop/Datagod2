@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, rolePrice } from "@/lib/pricing/package-price"
-import { catalogSubAgentMargin, marginsValid, subAgentCosts } from "./pricing"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
+import { priceWith, pricingSlug } from "@/lib/roles/pricing"
+import { catalogSubAgentMargin, marginsValid, ownerBasePrices, subAgentCosts } from "./pricing"
 
 // Server-only: the package list (and selling prices) a public storefront shows.
 // Moved out of app/api/shop/public-packages/route.ts so the storefront API and
@@ -17,11 +18,11 @@ import { catalogSubAgentMargin, marginsValid, subAgentCosts } from "./pricing"
 //    or catalogSubAgentMargin for catalog rows), refuse negative margins and
 //    packages the parent no longer offers, and round the sum to 2 dp. Rows that
 //    would be refused are not listed at all, so every listed sub-agent row is exact.
-//  - regular shops (shop_packages): the order route charges rolePrice(owner role) +
-//    Number(profit_margin || 0) and refuses a negative margin; a row is exact only
-//    when that recomputation equals the listed selling_price, the margin is valid,
-//    and the owner's role was actually read (a failed read lists retail prices,
-//    while the order route would charge the dealer price or refuse).
+//  - regular shops (shop_packages): the order route charges the owner's role base price
+//    (ownerBasePrices, the role resolver) + Number(profit_margin || 0) and refuses a
+//    negative margin; a row is exact only when the margin is valid and the owner's role
+//    and role prices were actually read (a failed read lists retail prices, while the
+//    order route would charge the role price or refuse with 503).
 
 export interface PublicShopRef {
   id: string
@@ -47,7 +48,6 @@ export async function loadPublicShopPackages(
     .select("role")
     .eq("id", shop.user_id)
     .single()
-  const isDealer = userData?.role === 'dealer' || userData?.role === 'admin'
   // No row (PGRST116) prices at retail on both sides; any other read failure is unknown.
   const roleKnown = !userError || userError.code === 'PGRST116'
 
@@ -190,18 +190,36 @@ export async function loadPublicShopPackages(
     }
 
     // Filter out disabled admin packages
-    packages = (shopPackages || [])
-      .filter((item: any) => item.packages?.is_available !== false)
+    const listed = (shopPackages || []).filter((item: any) => item.packages?.is_available !== false)
+
+    // The owner's base price per package, from the same resolver the order route reads (ownerBasePrices,
+    // selling price = base + margin; custom prices never apply to what a customer pays). Display degrades like
+    // before when the owner's role or the role prices cannot be read: retail prices, nothing marked exact
+    // (the order route would refuse with 503 rather than charge a different price).
+    let base: Map<string, number> | null = null
+    if (roleKnown && listed.length > 0) {
+      try {
+        base = await ownerBasePrices(
+          supabase as Parameters<typeof ownerBasePrices>[0],
+          { slug: pricingSlug(userData?.role, "as_dealer"), custom: NO_CUSTOM_PRICES },
+          listed.map((item: any) => item.packages).filter(Boolean)
+        )
+      } catch (e) {
+        if (!(e instanceof CustomPriceReadError)) throw e
+        console.error("[PUBLIC-API] Could not read the shop owner's role prices")
+      }
+    }
+
+    packages = listed
       .map((item: any) => {
-        const basePrice = (isDealer && item.packages.dealer_price > 0)
-          ? item.packages.dealer_price
-          : item.packages.price;
+        const basePrice = base && item.packages ? priceWith(base, item.packages, NO_CUSTOM_PRICES) : item.packages.price
         const sellingPrice = basePrice + item.profit_margin
 
-        // What the order route charges for this row: rolePrice + margin (negative margins refused).
+        // What the order route charges for this row: base + margin (negative margins refused). Both sides
+        // read the same base, so a row is exact whenever the base was read and the margin is valid.
         const margin = Number(item.profit_margin || 0)
-        if (roleKnown && item.packages && marginsValid(margin)) {
-          const charged = rolePrice(item.packages, isDealer) + margin
+        if (base && item.packages && marginsValid(margin)) {
+          const charged = priceWith(base, item.packages, NO_CUSTOM_PRICES) + margin
           if (Math.abs(Number(sellingPrice) - charged) < 0.005) exactPriceIds.add(String(item.id))
         }
 

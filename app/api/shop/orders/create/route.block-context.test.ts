@@ -29,6 +29,7 @@ vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: async
 vi.mock("@/lib/shop-commerce/pricing", async (orig) => ({
   ...(await orig<typeof import("@/lib/shop-commerce/pricing")>()),
   shopOwnerPricing: async () => ({ slug: "user", custom: new Map() }),
+  ownerBasePrices: async () => new Map([["p1", 10]]),
 }))
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({
   isRecipientBlocked: gate, NOT_VERIFIED_MESSAGE: "not verified", NOT_VERIFIED_CODE: "RECIPIENT_NOT_VERIFIED",

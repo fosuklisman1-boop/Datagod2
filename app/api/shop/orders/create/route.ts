@@ -15,8 +15,9 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { getNoticeMode, webCustomerNotice } from "@/lib/blocked-numbers/notice"
-import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, ownerSaving, rolePrice } from "@/lib/pricing/package-price"
-import { catalogSubAgentMargin, directShopPricing, marginsValid, shopOwnerPricing, subAgentCost, type OwnerPricing, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
+import { priceWith } from "@/lib/roles/pricing"
+import { catalogSubAgentMargin, directShopPricing, marginsValid, ownerBasePrices, ownerSavingFrom, shopOwnerPricing, subAgentCost, type OwnerPricing, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -441,12 +442,23 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid package" }, { status: 400 })
       }
 
+      // The owner's role prices for this package (one resolver read), loaded before anything is charged or
+      // inserted. A role / role-price read failure refuses with 503, like a custom-price read failure.
+      let base: Map<string, number>
+      try {
+        base = await ownerBasePrices(supabase, owner, [pkg])
+      } catch (e) {
+        if (!(e instanceof CustomPriceReadError)) throw e
+        console.error("[SHOP-ORDER] ❌ Could not read the shop owner's role prices")
+        return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
+      }
+
       // Selling price stays role price + margin; the owner's custom price only raises their profit.
       // An owner buying from their own storefront pays as a customer and is credited margin + saving.
       const direct = directShopPricing({
-        rolePrice: rolePrice(pkg, owner.slug === "dealer"),
+        rolePrice: priceWith(base, pkg, NO_CUSTOM_PRICES),
         margin: shopMargin,
-        saving: ownerSaving(pkg, owner.slug === "dealer", owner.custom),
+        saving: ownerSavingFrom(base, pkg, owner.custom),
       })
       verifiedBasePrice = direct.basePrice
       verifiedProfitMargin = direct.profit

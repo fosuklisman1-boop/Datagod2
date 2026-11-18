@@ -177,10 +177,13 @@ describe("loadPublicShopPackages: old-model own-shop sub_agent_catalog rows", ()
 })
 
 describe("loadPublicShopPackages: regular shops (shop_packages)", () => {
-  const world = (role: string, rows: unknown[], usersError?: unknown) =>
+  const world = (role: string, rows: unknown[], usersError?: unknown, rolePrices?: unknown[], rolesError?: unknown) =>
     fakeClient((table) => {
       if (table === "users") return usersError ? { data: null, error: usersError } : { data: { role } }
       if (table === "shop_packages") return { data: rows }
+      if (table === "roles") return rolesError ? { data: null, error: rolesError } : { data: [...ROLES, { id: "r-gold", slug: "gold", rank: 5, is_system: false, archived_at: null }] }
+      if (table === "role_package_prices")
+        return { data: rolePrices ?? [{ role_id: "r-dealer", package_id: "p1", price: 8 }] }
       return { data: null }
     })
   const row = (id: string, margin: unknown, pkg = PKG("p1")) => ({ id, package_id: pkg.id, profit_margin: margin, is_available: true, custom_name: null, packages: pkg })
@@ -192,6 +195,40 @@ describe("loadPublicShopPackages: regular shops (shop_packages)", () => {
       expect(r.packages[0]).toMatchObject({ id: "a", profit_margin: 2, custom_name: null, selling_price: expected, packages: { price: expected - 2 } })
       expect([...r.exactPriceIds]).toEqual(["a"])
     }
+  })
+
+  it("a user role price row of 5.5 makes a user-owned shop sell 5.5 + margin, exact", async () => {
+    const r = await loadPublicShopPackages(world("user", [row("a", 2)], undefined, [{ role_id: "r-user", package_id: "p1", price: 5.5 }]), REGULAR)
+    if (!r.ok) throw new Error("expected ok")
+    expect(r.packages[0]).toMatchObject({ selling_price: 7.5, packages: { price: 5.5 } })
+    expect([...r.exactPriceIds]).toEqual(["a"])
+  })
+
+  it("a custom-role owner sells at their ladder price + margin (not public)", async () => {
+    const prices = [{ role_id: "r-dealer", package_id: "p1", price: 8 }, { role_id: "r-gold", package_id: "p1", price: 7 }]
+    const r = await loadPublicShopPackages(world("gold", [row("a", 2)], undefined, prices), REGULAR)
+    if (!r.ok) throw new Error("expected ok")
+    expect(r.packages[0].selling_price).toBe(9)
+    expect([...r.exactPriceIds]).toEqual(["a"])
+  })
+
+  it("a sub_agent-role owner sells at the public price + margin", async () => {
+    const r = await loadPublicShopPackages(world("sub_agent", [row("a", 2)]), REGULAR)
+    if (!r.ok) throw new Error("expected ok")
+    expect(r.packages[0].selling_price).toBe(12)
+  })
+
+  it("a dealer package with no dealer price row sells at public price, never 0", async () => {
+    const r = await loadPublicShopPackages(world("dealer", [row("a", 2, PKG("p9", { dealer_price: 0 }))]), REGULAR)
+    if (!r.ok) throw new Error("expected ok")
+    expect(r.packages[0].selling_price).toBe(12)
+  })
+
+  it("a failed roles read lists retail prices and marks nothing exact (the order route would 503)", async () => {
+    const r = await loadPublicShopPackages(world("dealer", [row("a", 2)], undefined, undefined, { message: "boom" }), REGULAR)
+    if (!r.ok) throw new Error("expected ok")
+    expect(r.packages[0].selling_price).toBe(12)
+    expect(r.exactPriceIds.size).toBe(0)
   })
 
   it("drops admin-disabled packages", async () => {
