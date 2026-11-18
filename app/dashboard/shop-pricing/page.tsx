@@ -9,7 +9,7 @@ import { shopService, shopPackageService } from "@/lib/shop-service"
 import { packageService } from "@/lib/database"
 import { supabase } from "@/lib/supabase"
 import { roleFromMetadata } from "@/lib/metadata-role"
-import { ownerDisplayBase } from "@/lib/shop-commerce/owner-base-price"
+import { canPriceAgainstBase, ownerDisplayBase } from "@/lib/shop-commerce/owner-base-price"
 import { shopOrigin } from "@/lib/shop-url"
 import { PillToggle } from "@/components/shop/pill-toggle"
 import { Tag, Send, AlertCircle, Loader2, Phone, GraduationCap, IdCard, Save, PartyPopper, Copy, MessageCircle, ExternalLink } from "lucide-react"
@@ -299,6 +299,24 @@ export default function ShopPricingPage() {
   // public price.
   const getBasePrice = (pkg: any): number => ownerDisplayBase(pkg, ownerBase)
 
+  const COST_PRICES_MSG = "Cost prices didn't load — retry before saving"
+
+  const retryOwnerBase = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      const res = token ? await fetch("/api/shop/owner-base-prices", { headers: { Authorization: `Bearer ${token}` } }) : null
+      const json = res?.ok ? await res.json().catch(() => null) : null
+      if (json?.base) {
+        setOwnerBase(json.base)
+      } else {
+        toast.error("Couldn't load your cost prices")
+      }
+    } catch {
+      toast.error("Couldn't load your cost prices")
+    }
+  }
+
   const packagesForNetwork = useMemo(
     () => allPackages.filter((p) => p.network === selectedNetwork && p.is_available !== false),
     [allPackages, selectedNetwork]
@@ -322,6 +340,10 @@ export default function ShopPricingPage() {
   }
 
   const handleSavePackagePrice = async (pkg: any) => {
+    if (!canPriceAgainstBase(pkg, ownerBase)) {
+      toast.error(COST_PRICES_MSG)
+      return
+    }
     const base = getBasePrice(pkg)
     const sellingPrice = parseFloat(priceValueFor(pkg))
     if (!isFinite(sellingPrice) || sellingPrice < base) {
@@ -385,7 +407,13 @@ export default function ShopPricingPage() {
       })
   }, [bulkRate, bulkMode, bulkNetwork, allPackages, shopPackages, ownerBase])
 
+  const bulkBlocked = bulkPreview.some((r) => !canPriceAgainstBase(r.pkg, ownerBase))
+
   const handleApplyBulk = async () => {
+    if (bulkBlocked) {
+      toast.error(COST_PRICES_MSG)
+      return
+    }
     const rows = bulkPreview.filter((r) => bulkSelected[r.pkg.id] !== false && r.willUpdate)
     if (rows.length === 0) {
       toast.error("Nothing to update")
@@ -657,6 +685,14 @@ export default function ShopPricingPage() {
 
         {category === "data" && (
           <div className="space-y-4">
+            {ownerBase === null && (
+              <div className="flex items-center justify-between gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-foreground">
+                <span>Cost prices didn&apos;t load, so saving is paused.</span>
+                <button onClick={retryOwnerBase} className="shrink-0 rounded-full bg-[#1b388b] px-3 py-1.5 font-bold text-white">
+                  Retry loading cost prices
+                </button>
+              </div>
+            )}
             <div className="inline-flex w-full gap-1 rounded-2xl bg-muted p-1">
               {(["manual", "bulk"] as DataSubTab[]).map((t) => (
                 <button
@@ -722,7 +758,7 @@ export default function ShopPricingPage() {
                         </div>
                         <button
                           onClick={() => handleSavePackagePrice(pkg)}
-                          disabled={savingPackageId === pkg.id}
+                          disabled={savingPackageId === pkg.id || !canPriceAgainstBase(pkg, ownerBase)}
                           className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-success py-2 text-sm font-bold text-white hover:bg-success/90 disabled:opacity-50"
                         >
                           {savingPackageId === pkg.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
@@ -800,7 +836,7 @@ export default function ShopPricingPage() {
                   </div>
                 )}
 
-                <Button onClick={handleApplyBulk} disabled={applyingBulk || bulkPreview.length === 0} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+                <Button onClick={handleApplyBulk} disabled={applyingBulk || bulkPreview.length === 0 || bulkBlocked}className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
                   {applyingBulk ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null} Apply Bulk Pricing
                 </Button>
               </div>

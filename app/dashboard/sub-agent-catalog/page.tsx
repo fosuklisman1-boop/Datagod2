@@ -8,7 +8,7 @@ import { DashboardHeroBanner } from "@/components/shared/dashboard-hero-banner"
 import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabase"
 import { shopService } from "@/lib/shop-service"
-import { ownerDisplayBase } from "@/lib/shop-commerce/owner-base-price"
+import { canPriceAgainstBase, ownerDisplayBase } from "@/lib/shop-commerce/owner-base-price"
 import { Package, Users, DollarSign, Loader2, Save, Trash2, Check } from "lucide-react"
 import { toast } from "sonner"
 
@@ -116,6 +116,24 @@ export default function SubAgentCatalogPage() {
   // parent-markup layer here, unlike shop-pricing's version.)
   const getBasePrice = (pkg: AdminPackage): number => ownerDisplayBase(pkg, ownerBase)
 
+  const COST_PRICES_MSG = "Cost prices didn't load — retry before saving"
+
+  const retryOwnerBase = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      const res = token ? await fetch("/api/shop/owner-base-prices", { headers: { Authorization: `Bearer ${token}` } }) : null
+      const json = res?.ok ? await res.json().catch(() => null) : null
+      if (json?.base) {
+        setOwnerBase(json.base)
+      } else {
+        toast.error("Couldn't load your cost prices")
+      }
+    } catch {
+      toast.error("Couldn't load your cost prices")
+    }
+  }
+
   const catalogFor = (packageId: string) => catalog.find((c) => c.package_id === packageId)
 
   const packagesForNetwork = useMemo(
@@ -140,6 +158,10 @@ export default function SubAgentCatalogPage() {
   }
 
   const handleSaveManual = async (pkg: AdminPackage) => {
+    if (!canPriceAgainstBase(pkg, ownerBase)) {
+      toast.error(COST_PRICES_MSG)
+      return
+    }
     const base = getBasePrice(pkg)
     const sellingPrice = parseFloat(priceValueFor(pkg))
     if (!isFinite(sellingPrice) || sellingPrice < base) {
@@ -210,7 +232,13 @@ export default function SubAgentCatalogPage() {
       })
   }, [bulkRate, bulkMode, bulkNetwork, allPackages, catalog, ownerBase])
 
+  const bulkBlocked = bulkPreview.some((r) => !canPriceAgainstBase(r.pkg, ownerBase))
+
   const handleApplyBulk = async () => {
+    if (bulkBlocked) {
+      toast.error(COST_PRICES_MSG)
+      return
+    }
     const rows = bulkPreview.filter((r) => bulkSelected[r.pkg.id] !== false && r.willUpdate)
     if (rows.length === 0) {
       toast.error("Nothing to update")
@@ -303,6 +331,15 @@ export default function SubAgentCatalogPage() {
           ))}
         </div>
 
+        {ownerBase === null && (
+          <div className="flex items-center justify-between gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-foreground">
+            <span>Cost prices didn&apos;t load, so saving is paused.</span>
+            <button onClick={retryOwnerBase} className="shrink-0 rounded-full bg-[#1b388b] px-3 py-1.5 font-bold text-white">
+              Retry loading cost prices
+            </button>
+          </div>
+        )}
+
         {subTab === "manual" ? (
           <>
             <div className="rounded-2xl border border-success/30 bg-success/10 p-4 text-sm text-foreground">
@@ -358,7 +395,7 @@ export default function SubAgentCatalogPage() {
                     <div className="mt-2 flex gap-2">
                       <button
                         onClick={() => handleSaveManual(pkg)}
-                        disabled={savingPackageId === pkg.id}
+                        disabled={savingPackageId === pkg.id || !canPriceAgainstBase(pkg, ownerBase)}
                         className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-success py-2 text-sm font-bold text-white hover:bg-success/90 disabled:opacity-50"
                       >
                         {savingPackageId === pkg.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
@@ -446,7 +483,7 @@ export default function SubAgentCatalogPage() {
               </div>
             )}
 
-            <Button onClick={handleApplyBulk} disabled={applyingBulk || bulkPreview.length === 0} className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
+            <Button onClick={handleApplyBulk} disabled={applyingBulk || bulkPreview.length === 0 || bulkBlocked}className="w-full rounded-2xl bg-[#1b388b] text-white hover:bg-[#1b388b]/90">
               {applyingBulk ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null} Apply Bulk Pricing
             </Button>
           </div>
