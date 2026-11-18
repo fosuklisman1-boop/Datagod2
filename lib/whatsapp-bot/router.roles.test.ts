@@ -99,7 +99,7 @@ describe("WhatsApp bundle menu prices through the role resolver", () => {
     expect(menu).toContain("2. 2GB - GHS 9.00")
   })
 
-  it("a role read failure shows public prices (display path); confirm re-prices and refuses", async () => {
+  it("a role read failure shows public prices on the display path", async () => {
     h.rolePricesFor.mockRejectedValue(new RoleReadError())
     seed({ effectivePriceTier: "dealer", priceRole: "dealer" })
     const menu = await waRouter(FROM, "9")

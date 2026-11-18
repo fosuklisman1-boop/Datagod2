@@ -130,7 +130,8 @@ export async function prepareData(ctx: FlowCtx): Promise<PreparedOrder | HubtelR
   const pkgRow = { ...pkg, id: pkg.id ?? session.bundleId! }
   try {
     base = await roleBasePrices(deps.supabase, sessionPriceRole(session), [pkgRow], { admin: "as_user" })
-  } catch {
+  } catch (e) {
+    console.error("[hubtel-ussd] role price read failed:", e instanceof Error ? e.name : typeof e)
     return finish(ctx, MSG_PRICES_UNAVAILABLE)
   }
   const priced = priceForTier(pkgRow, tier, offer, custom, base)

@@ -65,7 +65,7 @@ export async function resolveBuyerTier(
     }
   }
 
-  const priceRole = buyerPriceRole(userRow?.role, settingsRow?.ussd_price_tier ?? 'regular')
+  const priceRole = buyerPriceRole(userRow ? (userRow.role || 'user') : undefined, settingsRow?.ussd_price_tier ?? 'regular')
 
   return { effectivePriceTier, priceRole, subAgentParentShopId, userId: userRow?.id, walletBalance, mtnWhitelistActive }
 }

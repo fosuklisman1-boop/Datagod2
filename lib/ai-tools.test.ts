@@ -759,6 +759,19 @@ describe("custom prices in AI tools", () => {
       expect(r.price).toBe(8)
       expect(vi.mocked(setWaSession)).toHaveBeenCalledWith("233559919037", expect.objectContaining({ effectivePriceTier: "dealer", priceRole: "dealer" }))
     })
+    it("a known user id whose role lookup returns nothing is priced as a user, never the default dealer tier", async () => {
+      seedRole(null, "dealer")
+      const r = await executeToolCall("place_whatsapp_order", input, ctx) as any
+      expect(r.price).toBe(9.5)
+      expect(roleMock.rolePricesFor.mock.calls[0][1]).toBe("user")
+      expect(vi.mocked(setWaSession)).toHaveBeenCalledWith("233559919037", expect.objectContaining({ effectivePriceTier: "regular", priceRole: "user" }))
+    })
+    it("a registered user with a NULL role is priced as a user under a dealer default", async () => {
+      seedRole({ id: "u1", role: null }, "dealer")
+      const r = await executeToolCall("place_whatsapp_order", { ...input }, { baseUrl: "x", phone: "233559919037" }) as any
+      expect(r.price).toBe(9.5)
+      expect(roleMock.rolePricesFor.mock.calls[0][1]).toBe("user")
+    })
     it("a role read failure returns prices_unavailable and seeds nothing", async () => {
       seedRole({ role: "dealer" })
       roleMock.rolePricesFor.mockRejectedValue(new RoleReadError())

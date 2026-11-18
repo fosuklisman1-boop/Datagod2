@@ -1976,7 +1976,7 @@ export async function executeToolCall(
         }
         // Price role (admin priced as a user here; unknown caller -> the default tier's role). The tier label above is
         // unchanged and still what is recorded. A custom-price or role read failure refuses and seeds nothing.
-        const priceRole = buyerPriceRole(role, orderSettings?.ussd_price_tier)
+        const priceRole = buyerPriceRole(resolvedUserId ? (role || "user") : undefined, orderSettings?.ussd_price_tier)
         let tierPrice: number
         try {
           const custom = await getCustomPrices(supabaseAdmin, resolvedUserId)

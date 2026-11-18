@@ -46,6 +46,12 @@ describe("resolveBuyerTier", () => {
     expect([rg.effectivePriceTier, rg.priceRole]).toEqual(["regular", "gold"])
   })
 
+  it("a registered user with a NULL role is priced as a user under a dealer default; label stays regular", async () => {
+    const { client } = fakeSupabase({ users: { id: "u7", role: null }, app_settings: { ussd_price_tier: "dealer" }, wallets: null })
+    const r = await resolveBuyerTier(client, "+233200000101", "Telecel")
+    expect([r.effectivePriceTier, r.priceRole]).toEqual(["regular", "user"])
+  })
+
   it("no account and no settings row: regular", async () => {
     const { client } = fakeSupabase({ users: null, app_settings: null })
     expect((await resolveBuyerTier(client, "+233200000101", "Telecel")).effectivePriceTier).toBe("regular")

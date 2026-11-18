@@ -67,7 +67,7 @@ export async function resolveCaller(supabase: SupabaseClient, dialingPhone: stri
   const { tier, parentShopId: parent } = decideTier(defaultTier, userRow?.role, parentShopId)
   return {
     effectivePriceTier: tier,
-    priceRole: buyerPriceRole(userRow?.role, defaultTier),
+    priceRole: buyerPriceRole(userRow ? (userRow.role || "user") : undefined, defaultTier),
     subAgentParentShopId: parent,
     userId: userRow?.id,
   }

@@ -58,6 +58,7 @@ describe("resolveCaller price role", () => {
   it("sub_agent with parent", async () => expect(await run({ users: { id: "u1", role: "sub_agent" }, user_shops: { parent_shop_id: "s1" }, app_settings: {} })).toEqual(["sub_agent", "sub_agent", "s1"]))
   it("sub_agent without parent", async () => expect(await run({ users: { id: "u1", role: "sub_agent" }, app_settings: {} })).toEqual(["regular", "sub_agent", undefined]))
   it("custom role", async () => expect(await run({ users: { id: "u1", role: "gold" }, app_settings: {} })).toEqual(["regular", "gold", undefined]))
+  it("registered user with NULL role, default dealer", async () => expect(await run({ users: { id: "u1", role: null }, app_settings: { ussd_price_tier: "dealer" } })).toEqual(["regular", "user", undefined]))
   it("unknown caller, default regular", async () => expect(await run({ app_settings: { ussd_price_tier: "regular" } })).toEqual(["regular", "user", undefined]))
   it("unknown caller, default dealer", async () => expect(await run({ app_settings: { ussd_price_tier: "dealer" } })).toEqual(["dealer", "dealer", undefined]))
 })
