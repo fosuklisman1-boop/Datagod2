@@ -15,8 +15,8 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { getNoticeMode, webCustomerNotice } from "@/lib/blocked-numbers/notice"
-import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, ownerSaving, rolePrice, type CustomPrices } from "@/lib/pricing/package-price"
-import { catalogSubAgentMargin, directShopPricing, marginsValid, shopOwnerPricing, subAgentCost, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, ownerSaving, rolePrice } from "@/lib/pricing/package-price"
+import { catalogSubAgentMargin, directShopPricing, marginsValid, shopOwnerPricing, subAgentCost, type OwnerPricing, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -404,7 +404,7 @@ export async function POST(request: NextRequest) {
       // Regular shop: verify from shop_packages
 
       // Shop owner's pricing: dealer flag (dealer/admin) and custom prices
-      let owner: { isDealer: boolean; custom: CustomPrices }
+      let owner: OwnerPricing
       try {
         owner = await shopOwnerPricing(shop_id, supabase)
       } catch (e) {
@@ -444,9 +444,9 @@ export async function POST(request: NextRequest) {
       // Selling price stays role price + margin; the owner's custom price only raises their profit.
       // An owner buying from their own storefront pays as a customer and is credited margin + saving.
       const direct = directShopPricing({
-        rolePrice: rolePrice(pkg, owner.isDealer),
+        rolePrice: rolePrice(pkg, owner.slug === "dealer"),
         margin: shopMargin,
-        saving: ownerSaving(pkg, owner.isDealer, owner.custom),
+        saving: ownerSaving(pkg, owner.slug === "dealer", owner.custom),
       })
       verifiedBasePrice = direct.basePrice
       verifiedProfitMargin = direct.profit

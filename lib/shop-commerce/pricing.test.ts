@@ -1,17 +1,132 @@
 import { describe, it, expect } from "vitest"
 import { CustomPriceReadError } from "@/lib/pricing/package-price"
-import { basePrice, catalogWholesaleMargin, catalogSubAgentMargin, subAgentBundles, subAgentCosts, directShopPricing, fetchShopBundles, marginsValid, parentProfitFromCatalog, sizeToMb, verifyBundlePrice } from "./pricing"
+import { catalogWholesaleMargin, catalogSubAgentMargin, subAgentBundles, subAgentCosts, directShopPricing, fetchShopBundles, marginsValid, ownerBasePrices, ownerSavingFrom, parentProfitFromCatalog, shopOwnerPricing, sizeToMb, verifyBundlePrice } from "./pricing"
 
-describe("basePrice", () => {
-  it("uses dealer_price for dealers when set", () => {
-    expect(basePrice({ price: 10, dealer_price: 8 }, true)).toBe(8)
+// 0184 seed: user rank 0, dealer rank 10, sub_agent / admin off the ladder. Production mirrors dealer_price
+// into role_package_prices (rows only where dealer_price > 0): p1 = 8, p2 = 4 across this file's fixtures.
+const ROLES = [
+  { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+  { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+  { id: "r-sub", slug: "sub_agent", rank: null, is_system: true, archived_at: null },
+  { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
+]
+const DEALER_ROWS = [
+  { role_id: "r-dealer", package_id: "p1", price: 8 },
+  { role_id: "r-dealer", package_id: "p2", price: 4 },
+]
+
+describe("ownerBasePrices / ownerSavingFrom", () => {
+  const PK = [{ id: "p1", price: 10, dealer_price: 8 }, { id: "p3", price: 5, dealer_price: 0 }]
+  it("dealer slug reads the dealer ladder; a package without a dealer row falls to the public price", async () => {
+    const client = fakeClient({})
+    const base = await ownerBasePrices(client, { slug: "dealer", custom: new Map() }, PK)
+    expect(base.get("p1")).toBe(8)
+    expect(base.get("p3")).toBe(5) // no dealer row -> public, never 0
   })
-  it("uses price for dealers when dealer_price is 0/absent", () => {
-    expect(basePrice({ price: 10, dealer_price: 0 }, true)).toBe(10)
-    expect(basePrice({ price: 10 }, true)).toBe(10)
+  it("a role_package_prices row for role user (5.5) makes a user's base 5.5", async () => {
+    const client = fakeClient({ role_package_prices: { data: [...DEALER_ROWS, { role_id: "r-user", package_id: "p1", price: 5.5 }] } })
+    expect((await ownerBasePrices(client, { slug: "user", custom: new Map() }, PK)).get("p1")).toBe(5.5)
   })
-  it("uses price for non-dealers regardless of dealer_price", () => {
-    expect(basePrice({ price: 10, dealer_price: 8 }, false)).toBe(10)
+  it("a roles read failure rejects with CustomPriceReadError('Could not read role prices')", async () => {
+    const client = fakeClient({ roles: { data: null, error: { message: "boom" } } })
+    const p = ownerBasePrices(client, { slug: "dealer", custom: new Map() }, PK)
+    await expect(p).rejects.toBeInstanceOf(CustomPriceReadError)
+    await expect(p).rejects.toThrow("Could not read role prices")
+  })
+  it("ownerSavingFrom = round2(base - custom ?? base) || 0", () => {
+    const base = new Map([["p1", 8]])
+    expect(ownerSavingFrom(base, { id: "p1" }, new Map([["p1", 6]]))).toBe(2)
+    expect(ownerSavingFrom(base, { id: "p1" }, new Map())).toBe(0)
+    expect(ownerSavingFrom(base, { id: "p1" }, new Map([["p1", 9]]))).toBe(-1)
+    expect(Object.is(ownerSavingFrom(base, { id: "p1" }, new Map()), 0)).toBe(true)
+  })
+})
+
+describe("shopOwnerPricing slug", () => {
+  const slugFor = async (tables: Record<string, any>) => (await shopOwnerPricing("s1", fakeClient(tables))).slug
+  it("dealer and admin owners price as dealer; user, unknown and missing rows as themselves / user", async () => {
+    expect(await slugFor({ user_shops: { data: { user_id: "u" } }, users: { data: { role: "dealer" } } })).toBe("dealer")
+    expect(await slugFor({ user_shops: { data: { user_id: "u" } }, users: { data: { role: "admin" } } })).toBe("dealer")
+    expect(await slugFor({ user_shops: { data: { user_id: "u" } }, users: { data: { role: "user" } } })).toBe("user")
+    expect(await slugFor({ user_shops: { data: { user_id: "u" } }, users: { data: { role: "sub_agent" } } })).toBe("sub_agent")
+    expect(await slugFor({ user_shops: { data: null } })).toBe("user")
+    expect(await slugFor({ user_shops: { data: { user_id: "u" } }, users: { data: null } })).toBe("user")
+  })
+})
+
+describe("role resolver in shop pricing", () => {
+  const SHOP_PKG = { data: { profit_margin: 1, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } } }
+  const owned = (role: string, extra: Record<string, any> = {}) => fakeClient({
+    user_shops: { data: { user_id: "u1" } }, users: { data: { role } }, shop_packages: SHOP_PKG, ...extra,
+  })
+  it("verifyBundlePrice: dealer, admin = dealer + margin; user = public + margin; profit = margin", async () => {
+    expect(await verifyBundlePrice("s1", "p1", undefined, owned("dealer"))).toEqual({ verifiedPrice: 9, profitAmount: 1, parentProfitAmount: 0 })
+    expect(await verifyBundlePrice("s1", "p1", undefined, owned("admin"))).toEqual({ verifiedPrice: 9, profitAmount: 1, parentProfitAmount: 0 })
+    expect(await verifyBundlePrice("s1", "p1", undefined, owned("user"))).toEqual({ verifiedPrice: 11, profitAmount: 1, parentProfitAmount: 0 })
+  })
+  it("custom mode: dealer, custom 4.2 on a dealer-5 package, margin 1 -> sells 6, profit 1 + 0.8", async () => {
+    const client = owned("dealer", {
+      users: { data: { role: "dealer", pricing_mode: "custom" } },
+      user_package_prices: { data: [{ package_id: "p1", price: 4.2 }] },
+      shop_packages: { data: { profit_margin: 1, packages: { id: "p1", price: 9, dealer_price: 5, is_available: true } } },
+      role_package_prices: { data: [{ role_id: "r-dealer", package_id: "p1", price: 5 }] },
+    })
+    expect(await verifyBundlePrice("s1", "p1", undefined, client)).toEqual({ verifiedPrice: 6, profitAmount: 1.8, parentProfitAmount: 0 })
+  })
+  it("dealer_price 0 (no dealer row) in a dealer shop prices at the public price", async () => {
+    const client = owned("dealer", {
+      shop_packages: { data: { profit_margin: 1, packages: { id: "p9", price: 10, dealer_price: 0, is_available: true } } },
+    })
+    expect((await verifyBundlePrice("s1", "p9", undefined, client))!.verifiedPrice).toBe(11)
+  })
+  it("a role_package_prices row for role user makes a user-owned shop's base 5.5", async () => {
+    const client = owned("user", { role_package_prices: { data: [...DEALER_ROWS, { role_id: "r-user", package_id: "p1", price: 5.5 }] } })
+    expect((await verifyBundlePrice("s1", "p1", undefined, client))!.verifiedPrice).toBe(6.5)
+    const list = fakeClient({
+      user_shops: { data: { user_id: "u1" } }, users: { data: { role: "user" } },
+      shop_packages: { data: [{ package_id: "p1", profit_margin: 1 }] },
+      packages: { data: [{ id: "p1", size: "1GB", price: 10, dealer_price: 8 }] },
+      role_package_prices: { data: [{ role_id: "r-user", package_id: "p1", price: 5.5 }] },
+    })
+    expect((await fetchShopBundles("s1", "MTN", undefined, list))[0].price).toBe(6.5)
+  })
+  it("subAgentCosts: dealer and admin parents = dealer + wholesale; user parent = public + wholesale; parentProfit = wholesale + saving", async () => {
+    const PKG = { id: "p1", size: "1GB", network: "MTN", price: 10, dealer_price: 8, is_available: true }
+    const catalog = { data: [{ package_id: "p1", wholesale_margin: 2, packages: PKG }] }
+    for (const [role, cost] of [["dealer", 10], ["admin", 10], ["user", 12]] as const) {
+      const client = fakeClient({ user_shops: { data: { user_id: "parent" } }, users: { data: { role } }, sub_agent_catalog: catalog })
+      const { costs, parent } = await subAgentCosts("parentShop", ["p1"], client)
+      expect(costs.get("p1")).toMatchObject({ cost, wholesale: 2, parentProfit: 2 })
+      expect(parent.slug).toBe(role === "user" ? "user" : "dealer")
+    }
+    const custom = fakeClient({
+      user_shops: { data: { user_id: "parent" } },
+      users: { data: { role: "dealer", pricing_mode: "custom" } },
+      user_package_prices: { data: [{ package_id: "p1", price: 6 }] },
+      sub_agent_catalog: catalog,
+    })
+    expect((await subAgentCosts("parentShop", ["p1"], custom)).costs.get("p1")).toMatchObject({ cost: 10, parentProfit: 4 })
+  })
+  it("roles read fails: fetchShopBundles lists nothing; verifyBundlePrice refuses; subAgentCosts rejects", async () => {
+    const bad = { roles: { data: null, error: { message: "boom" } } }
+    const list = fakeClient({
+      user_shops: { data: { user_id: "u1" } }, users: { data: { role: "dealer" } },
+      shop_packages: { data: [{ package_id: "p1", profit_margin: 1 }] },
+      packages: { data: [{ id: "p1", size: "1GB", price: 10, dealer_price: 8 }] }, ...bad,
+    })
+    expect(await fetchShopBundles("s1", "MTN", undefined, list)).toEqual([])
+    expect(await verifyBundlePrice("s1", "p1", undefined, owned("dealer", bad))).toBeNull()
+    const PKG = { id: "p1", size: "1GB", network: "MTN", price: 10, dealer_price: 8, is_available: true }
+    const sub = fakeClient({
+      user_shops: { data: { user_id: "parent" } }, users: { data: { role: "dealer" } },
+      sub_agent_catalog: { data: [{ package_id: "p1", wholesale_margin: 2, packages: PKG }] }, ...bad,
+    })
+    await expect(subAgentCosts("parentShop", ["p1"], sub)).rejects.toBeInstanceOf(CustomPriceReadError)
+    expect(await fetchShopBundles("sub1", "MTN", "parent1", fakeClient({
+      user_shops: { data: { user_id: "u1" } }, users: { data: { role: "dealer" } },
+      sub_agent_shop_packages: { data: [{ package_id: "p1", sub_agent_profit_margin: 1 }] },
+      sub_agent_catalog: { data: [{ package_id: "p1", wholesale_margin: 2, packages: PKG }] }, ...bad,
+    }))).toEqual([])
   })
 })
 
@@ -61,8 +176,9 @@ function makeChain(result: { data: unknown; error?: unknown }) {
 }
 
 function fakeClient(tables: Record<string, { data: unknown; error?: unknown }>) {
+  const all = { roles: { data: ROLES }, role_package_prices: { data: DEALER_ROWS }, ...tables }
   return {
-    from: (table: string) => makeChain(tables[table] ?? { data: null, error: null }),
+    from: (table: string) => makeChain((all as any)[table] ?? { data: null, error: null }),
   } as any
 }
 
@@ -172,7 +288,7 @@ describe("verifyBundlePrice", () => {
       limit: (n: number) => { calls.push(["limit", n]); return dupChain },
       maybeSingle: () => Promise.resolve(
         calls.some(c => c[0] === "limit" && c[1] === 1)
-          ? { data: { profit_margin: 3, packages: { price: 10, dealer_price: 8, is_available: true } }, error: null }
+          ? { data: { profit_margin: 3, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } }, error: null }
           : { data: null, error: { code: "PGRST116", message: "multiple rows" } }
       ),
     }
@@ -190,7 +306,7 @@ describe("verifyBundlePrice", () => {
       user_shops: { data: { user_id: "u1" } },
       users: { data: { role: "dealer" } },
       shop_packages: {
-        data: { profit_margin: 2, packages: { price: 10, dealer_price: 8, is_available: true } },
+        data: { profit_margin: 2, packages: { id: "p1", price: 10, dealer_price: 8, is_available: true } },
       },
     })
 
@@ -522,7 +638,7 @@ describe("subAgentCosts", () => {
   it("prices a stale snapshot live: role 10 (non-dealer) + margin 2 = 12, parent credited 2", async () => {
     const client = fakeClient({ ...parentTables(), sub_agent_catalog: { data: [row()] } })
     const { costs, parent } = await subAgentCosts("parentShop", ["p1"], client)
-    expect(parent.isDealer).toBe(false)
+    expect(parent.slug).toBe("agent")
     expect(costs.get("p1")).toMatchObject({ cost: 12, wholesale: 2, parentProfit: 2 })
   })
 

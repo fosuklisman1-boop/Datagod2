@@ -104,6 +104,13 @@ describe("USSD custom prices", () => {
     h.state.tables.user_shops = { one: { user_id: "parent-1" } }
     h.state.tables.users = { one: user }
     h.state.tables.sub_agent_catalog = { list: rows }
+    // 0184 seed + the mirrored dealer price (a role_package_prices row where dealer_price > 0).
+    h.state.tables.roles = { list: [
+      { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+      { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+      { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
+    ] }
+    h.state.tables.role_package_prices = { list: [{ role_id: "r-dealer", package_id: "p1", price: 8 }] }
   }
   const subAgent = (price: number) => session({ effectivePriceTier: "sub_agent", subAgentParentShopId: "shop-1", bundlePrice: price })
 

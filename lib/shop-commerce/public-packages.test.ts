@@ -32,6 +32,14 @@ const PKG = (id: string, over: Record<string, unknown> = {}) => ({
   id, network: "MTN", size: "1GB", price: 10, dealer_price: 8, description: "d", is_available: true, ...over,
 })
 
+// 0184 seed + production's mirrored dealer prices (role_package_prices rows only where dealer_price > 0).
+const ROLES = [
+  { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+  { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+  { id: "r-sub", slug: "sub_agent", rank: null, is_system: true, archived_at: null },
+  { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
+]
+
 const SUB = { id: "sub", user_id: "subUser", parent_shop_id: "parent" }
 const REGULAR = { id: "shop", user_id: "owner", parent_shop_id: null }
 
@@ -47,6 +55,8 @@ function subAgentWorld(opts: {
       if (f.id === "parentUser") return opts.parentUsersError ? { data: null, error: { message: "boom" } } : { data: { role: opts.parentRole ?? "agent", pricing_mode: null } }
       return { data: { role: "agent" } }
     }
+    if (table === "roles") return { data: ROLES }
+    if (table === "role_package_prices") return { data: ["p1", "p2", "p3"].map((package_id) => ({ role_id: "r-dealer", package_id, price: 8 })) }
     if (table === "user_shops") return { data: { user_id: f.id === "parent" ? "parentUser" : "subUser" } }
     if (table === "sub_agent_shop_packages") return opts.sapRows ?? { data: [] }
     if (table === "sub_agent_catalog") {

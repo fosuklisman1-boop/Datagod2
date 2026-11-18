@@ -28,7 +28,7 @@ vi.mock("@/lib/storefront-otp", () => ({ isStorefrontOtpRequired: async () => fa
 vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: async () => ({ enabled: false, map: {} }) }))
 vi.mock("@/lib/shop-commerce/pricing", async (orig) => ({
   ...(await orig<typeof import("@/lib/shop-commerce/pricing")>()),
-  shopOwnerPricing: async () => ({ isDealer: false, custom: new Map() }),
+  shopOwnerPricing: async () => ({ slug: "user", custom: new Map() }),
 }))
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({
   isRecipientBlocked: gate, NOT_VERIFIED_MESSAGE: "not verified", NOT_VERIFIED_CODE: "RECIPIENT_NOT_VERIFIED",

@@ -161,11 +161,11 @@ export async function GET(request: NextRequest) {
             selling_price: Math.round((offer.cost + subAgentMargin) * 100) / 100,
             // profit_margin: the sub-agent's own margin
             profit_margin: subAgentMargin,
-            is_dealer: offers.parent.isDealer,
+            is_dealer: offers.parent.slug === "dealer",
           }
         })
 
-      return NextResponse.json({ catalog: subAgentCatalog, is_dealer: offers.parent.isDealer })
+      return NextResponse.json({ catalog: subAgentCatalog, is_dealer: offers.parent.slug === "dealer" })
     }
 
     // Parent (no parent_shop_id): their own catalog, shown at their role price + their wholesale margin.

@@ -185,6 +185,13 @@ describe("hubtelRouter: confirm â†’ AddToCart", () => {
     user_shops: { user_id: "parent-1" },
     users: { role: "dealer", pricing_mode: "custom" },
     user_package_prices: [{ package_id: "pkg-1", price: 6 }],
+    // 0184 seed + the mirrored dealer price (a role_package_prices row where dealer_price > 0).
+    roles: [
+      { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+      { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+      { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
+    ],
+    role_package_prices: [{ role_id: "r-dealer", package_id: "pkg-1", price: 8 }],
     ...over,
   })
   const subAgentPkg = { id: "pkg-1", price: 10, dealer_price: 8, is_available: true }

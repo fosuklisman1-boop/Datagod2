@@ -4,10 +4,11 @@ import {
   CustomPriceReadError,
   customPricesForUser,
   NO_CUSTOM_PRICES,
-  ownerSaving,
-  rolePrice,
   type CustomPrices,
+  type PricedPackage,
 } from "@/lib/pricing/package-price"
+import { priceWith, pricingSlug, roleBasePrices } from "@/lib/roles/pricing"
+import { RoleReadError } from "@/lib/roles/repo"
 
 // Channel-agnostic shop bundle pricing. Extracted verbatim from
 // lib/ussd-shop/handlers/bundles.ts so both the USSD shop and the WhatsApp
@@ -62,14 +63,17 @@ export async function shopOwnerIsDealer(
   return user?.role === 'dealer' || user?.role === 'admin'
 }
 
+/** The owner's price-ladder slug (admin prices as dealer, as shopOwnerIsDealer did) and custom prices. */
+export type OwnerPricing = { slug: string; custom: CustomPrices }
+
 /**
- * The shop owner's pricing: dealer flag (dealer/admin, exactly as shopOwnerIsDealer) and custom prices.
+ * The shop owner's pricing: ladder slug (admin as dealer; "user" when the shop or user is missing) and custom prices.
  * Throws CustomPriceReadError when the owner's pricing mode or custom prices cannot be read.
  */
 export async function shopOwnerPricing(
   shopId: string,
   client: SupabaseClientLike = supabase
-): Promise<{ isDealer: boolean; custom: CustomPrices }> {
+): Promise<OwnerPricing> {
   // public.users by id, not a user_shops embed: see shopOwnerIsDealer.
   // maybeSingle: a missing row is not an error (default pricing, as before); a failed read is,
   // because then we cannot know whether a custom price applies, so refuse rather than drop the saving.
@@ -79,7 +83,7 @@ export async function shopOwnerPricing(
     .eq("id", shopId)
     .maybeSingle()
   if (shopError) throw new CustomPriceReadError()
-  if (!shop?.user_id) return { isDealer: false, custom: NO_CUSTOM_PRICES }
+  if (!shop?.user_id) return { slug: "user", custom: NO_CUSTOM_PRICES }
 
   const { data: user, error } = await client
     .from("users")
@@ -87,16 +91,45 @@ export async function shopOwnerPricing(
     .eq("id", shop.user_id)
     .maybeSingle()
   if (error) throw new CustomPriceReadError()
-  const isDealer = user?.role === 'dealer' || user?.role === 'admin'
+  const slug = pricingSlug(user?.role, "as_dealer")
   // pricing_mode was selected, so a missing value means role mode (null), never "not loaded".
   const custom = await customPricesForUser(
     client,
     user ? { id: shop.user_id, pricing_mode: user.pricing_mode ?? null } : null
   )
-  return { isDealer, custom }
+  return { slug, custom }
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * Base prices for an owner over `pkgs`, one role read per call. A roles / role-price read failure is rethrown
+ * as CustomPriceReadError so callers' existing handling (list nothing / refuse / 503) applies.
+ */
+export async function ownerBasePrices(
+  client: SupabaseClientLike,
+  owner: OwnerPricing,
+  pkgs: readonly PricedPackage[]
+): Promise<Map<string, number>> {
+  try {
+    return await roleBasePrices(client, owner.slug, pkgs, { admin: "as_dealer" })
+  } catch (e) {
+    if (e instanceof RoleReadError) throw new CustomPriceReadError("Could not read role prices")
+    throw e
+  }
+}
+
+/** How much less the owner pays than their base price (negative when the custom price is higher). */
+export function ownerSavingFrom(
+  base: ReadonlyMap<string, number>,
+  pkg: { id: string | number },
+  custom: CustomPrices
+): number {
+  const id = String(pkg.id)
+  const b = base.get(id)
+  if (b === undefined) throw new Error(`no base price for package ${id}`)
+  return round2(b - priceWith(base, pkg, custom)) || 0
+}
 
 /**
  * Direct shop arithmetic (shared by verifyBundlePrice and the web storefront route).
@@ -153,8 +186,6 @@ export function catalogWholesaleMargin(
   return Number(row.wholesale_margin ?? 0)
 }
 
-export type OwnerPricing = { isDealer: boolean; custom: CustomPrices }
-
 /** A package a parent offers their sub-agents, priced live. */
 export type SubAgentOffer = {
   /** What the sub-agent pays: the parent's role price + the parent's ACTIVE wholesale margin. */
@@ -204,7 +235,8 @@ export async function subAgentCosts(
 
   const [parent, rows] = await Promise.all([shopOwnerPricing(parentShopId, client), readCatalog()])
 
-  const costs = new Map<string, SubAgentOffer | null>()
+  // Normalise the offered rows first, then read the parent's base prices ONCE over exactly those packages.
+  const offered: Array<{ id: string; pkg: any; wholesale: number; priced: PricedPackage }> = []
   for (const row of rows) {
     const id = String(row.package_id)
     const pkg = Array.isArray(row.packages) ? row.packages[0] : row.packages
@@ -213,11 +245,16 @@ export async function subAgentCosts(
     if (opts.network && pkg.network !== opts.network) continue
     const wholesale = Number(row.wholesale_margin ?? 0)
     if (!marginsValid(wholesale)) continue
-    const priced = { ...pkg, id }
+    offered.push({ id, pkg, wholesale, priced: { ...pkg, id } })
+  }
+  const base = offered.length ? await ownerBasePrices(client, parent, offered.map(o => o.priced)) : new Map<string, number>()
+
+  const costs = new Map<string, SubAgentOffer | null>()
+  for (const { id, pkg, wholesale, priced } of offered) {
     costs.set(id, {
-      cost: round2(rolePrice(priced, parent.isDealer) + wholesale),
+      cost: round2((base.get(id) as number) + wholesale),
       wholesale,
-      parentProfit: parentProfitFromCatalog(wholesale, ownerSaving(priced, parent.isDealer, parent.custom)),
+      parentProfit: parentProfitFromCatalog(wholesale, ownerSavingFrom(base, priced, parent.custom)),
       pkg: { id, size: pkg.size, network: pkg.network, price: pkg.price, dealer_price: pkg.dealer_price ?? null },
     })
   }
@@ -255,17 +292,13 @@ export async function subAgentBundles(
 async function shopOwnerPricingOrNull(
   shopId: string,
   client: SupabaseClientLike
-): Promise<{ isDealer: boolean; custom: CustomPrices } | null> {
+): Promise<OwnerPricing | null> {
   try {
     return await shopOwnerPricing(shopId, client)
   } catch (e) {
     if (e instanceof CustomPriceReadError) return null
     throw e
   }
-}
-
-export function basePrice(pkg: { price: number; dealer_price?: number | null }, isDealer: boolean): number {
-  return rolePrice({ id: "", ...pkg }, isDealer)
 }
 
 export async function fetchShopBundles(
@@ -321,7 +354,7 @@ export async function fetchShopBundles(
     return listed(catalogRows)
   }
 
-  const [spRows, isDealer] = await Promise.all([
+  const [spRows, owner] = await Promise.all([
     client
       .from("shop_packages")
       .select("package_id, profit_margin")
@@ -331,10 +364,11 @@ export async function fetchShopBundles(
       // matching verifyBundlePrice's pick.
       .order("updated_at", { ascending: true })
       .then(r => r.data),
-    shopOwnerIsDealer(shopId, client),
+    // Display path: an unreadable owner or role price lists nothing (confirm refuses anyway).
+    shopOwnerPricingOrNull(shopId, client),
   ])
 
-  if (!spRows?.length) return []
+  if (!owner || !spRows?.length) return []
 
   const { data: pkgRows } = await client
     .from("packages")
@@ -345,12 +379,19 @@ export async function fetchShopBundles(
 
   if (!pkgRows?.length) return []
 
+  let base: Map<string, number>
+  try {
+    base = await ownerBasePrices(client, owner, pkgRows)
+  } catch (e) {
+    if (e instanceof CustomPriceReadError) return []
+    throw e
+  }
   const profitMap = Object.fromEntries(spRows.map(r => [r.package_id, r.profit_margin]))
   return pkgRows
     .map(pkg => ({
       id: pkg.id,
       size: pkg.size,
-      price: basePrice(pkg, isDealer) + Number(profitMap[pkg.id] ?? 0),
+      price: (base.get(String(pkg.id)) as number) + Number(profitMap[pkg.id] ?? 0),
     }))
     .sort((a, b) => sizeToMb(a.size) - sizeToMb(b.size))
 }
@@ -437,10 +478,17 @@ export async function verifyBundlePrice(
     const pkg = (shopPkg as any).packages
     const margin = Number(shopPkg.profit_margin)
     if (!marginsValid(margin)) return null
+    let base: Map<string, number>
+    try {
+      base = await ownerBasePrices(client, owner, [pkg])
+    } catch (e) {
+      if (e instanceof CustomPriceReadError) return null
+      throw e
+    }
     const direct = directShopPricing({
-      rolePrice: basePrice(pkg, owner.isDealer),
+      rolePrice: base.get(String(pkg.id)) as number,
       margin,
-      saving: ownerSaving(pkg, owner.isDealer, owner.custom),
+      saving: ownerSavingFrom(base, pkg, owner.custom),
     })
     profitAmount = direct.profit
     verifiedPrice = direct.totalPrice

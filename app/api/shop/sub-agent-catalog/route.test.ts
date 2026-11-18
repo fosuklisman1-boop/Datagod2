@@ -45,6 +45,13 @@ beforeEach(() => {
     // Read twice: the sub-agent's own shop (has a parent), then the parent's shop owner lookup (user_id).
     user_shops: { data: { id: "sub-shop", parent_shop_id: "parent-shop", user_id: "parent-user" } },
     users: { data: { role: "dealer" } },
+    // 0184 seed + the mirrored dealer price (a role_package_prices row where dealer_price > 0).
+    roles: { data: [
+      { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+      { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+      { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
+    ] },
+    role_package_prices: { data: [{ role_id: "r-dealer", package_id: "p1", price: 8 }, { role_id: "r-dealer", package_id: "p2", price: 8 }] },
     sub_agent_shop_packages: {
       data: [
         { id: "r1", package_id: "p1", parent_price: 9, sub_agent_profit_margin: 1, is_active: true, package: PKG("p1") },
