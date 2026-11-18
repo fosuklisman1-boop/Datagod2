@@ -20,6 +20,7 @@ vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: async
 vi.mock("@/lib/pricing/package-price", () => ({
   CustomPriceReadError: class extends Error {}, MSG_PRICES_UNAVAILABLE: "x", effectivePrice: () => 8, getCustomPrices: async () => ({}),
 }))
+vi.mock("@/lib/roles/pricing", () => ({ roleBasePrices: async () => new Map([["p1", 8]]), priceWith: () => 8 }))
 vi.mock("@/lib/sandbox", () => ({ placeSandboxOrder: vi.fn(), getSandboxOrder: vi.fn() }))
 vi.mock("@/lib/mtn-providers/customer-verification", () => ({
   verifyRecipientsForOrder: verify, NOT_VERIFIED_MESSAGE: "not verified", NOT_VERIFIED_CODE: "RECIPIENT_NOT_VERIFIED",

@@ -13,7 +13,9 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { verifyRecipientsForOrder, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { getNoticeMode } from "@/lib/blocked-numbers/notice"
-import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, getCustomPrices } from "@/lib/pricing/package-price"
+import { roleBasePrices, priceWith } from "@/lib/roles/pricing"
+import { RoleReadError } from "@/lib/roles/repo"
 import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 import { supabaseAdmin } from "@/lib/supabase" // Need admin client for checking settings if not already available, but usage below checks 'supabase' which is user client?
 // create-bulk uses `supabase` created with serviceRoleKey which IS admin privileges.
@@ -171,6 +173,17 @@ export async function POST(request: NextRequest) {
       .eq("is_available", true)
       .eq("network", network)
 
+    // One role-price load for every package in the request (nothing debited or inserted yet).
+    let roleBase: Awaited<ReturnType<typeof roleBasePrices>>
+    try {
+      roleBase = await roleBasePrices(supabase, userRole, packages ?? [], { admin: "as_user" })
+    } catch (e) {
+      if (e instanceof RoleReadError) {
+        return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
+      }
+      throw e
+    }
+
     // Helper to normalize size string (e.g. "1GB" -> 1)
     const normalizeSize = (s: string) => parseFloat(s.replace(/[^\d.]/g, ''))
 
@@ -192,7 +205,7 @@ export async function POST(request: NextRequest) {
 
       let verifiedPrice = order.price
       if (pkg) {
-        verifiedPrice = effectivePrice(pkg, userRole === "dealer", custom)
+        verifiedPrice = priceWith(roleBase, pkg, custom)
       } else {
         console.warn(`[BULK-ORDERS] SECURITY ALERT: Could not find package for ${network} ${order.volume_gb}GB`)
         throw new Error(`Invalid package size: ${order.volume_gb}GB for ${network}`)

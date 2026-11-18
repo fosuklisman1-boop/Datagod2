@@ -6,7 +6,9 @@ import { applyRateLimit } from "@/lib/rate-limiter"
 import { createMTNOrder, saveMTNTracking, normalizePhoneNumber, isAutoFulfillmentEnabled as isMTNAutoEnabled } from "@/lib/mtn-fulfillment"
 import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
-import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, getCustomPrices } from "@/lib/pricing/package-price"
+import { roleBasePrices, priceWith } from "@/lib/roles/pricing"
+import { RoleReadError } from "@/lib/roles/repo"
 import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
 import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 
@@ -179,9 +181,11 @@ async function v1POST(request: NextRequest) {
 
   let orderPrice: number
   try {
-    orderPrice = effectivePrice(pkg, user.role === "dealer", await getCustomPrices(supabase, user.id))
+    const custom = await getCustomPrices(supabase, user.id)
+    const base = await roleBasePrices(supabase, user.role, [pkg], { admin: "as_user" })
+    orderPrice = priceWith(base, pkg, custom)
   } catch (e) {
-    if (e instanceof CustomPriceReadError) {
+    if (e instanceof CustomPriceReadError || e instanceof RoleReadError) {
       return NextResponse.json({ success: false, error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
     }
     throw e

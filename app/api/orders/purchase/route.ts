@@ -16,7 +16,9 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { getNoticeMode, dealerNotice } from "@/lib/blocked-numbers/notice"
-import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, effectivePrice, getCustomPrices } from "@/lib/pricing/package-price"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, getCustomPrices } from "@/lib/pricing/package-price"
+import { roleBasePrices, priceWith } from "@/lib/roles/pricing"
+import { RoleReadError } from "@/lib/roles/repo"
 import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -203,9 +205,10 @@ export async function POST(request: NextRequest) {
     let validatedPrice: number
     try {
       const custom = await getCustomPrices(supabaseAdmin, userId)
-      validatedPrice = effectivePrice(packageData, userRole === "dealer", custom)
+      const base = await roleBasePrices(supabaseAdmin, userRole, [packageData], { admin: "as_user" })
+      validatedPrice = priceWith(base, packageData, custom)
     } catch (e) {
-      if (e instanceof CustomPriceReadError) {
+      if (e instanceof CustomPriceReadError || e instanceof RoleReadError) {
         return NextResponse.json({ error: MSG_PRICES_UNAVAILABLE }, { status: 503 })
       }
       throw e
