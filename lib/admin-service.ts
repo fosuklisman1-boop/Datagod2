@@ -66,7 +66,8 @@ export const adminPackageService = {
         throw new Error(data.error || "Failed to create package")
       }
 
-      return data.data
+      // data.warning is set when the package saved but its admin-only cost did not
+      return { ...data.data, warning: data.warning as string | undefined }
     } catch (error: any) {
       console.error("Error creating package:", error)
       throw error
@@ -97,7 +98,7 @@ export const adminPackageService = {
         throw new Error(data.error || "Failed to update package")
       }
 
-      return data.data
+      return { ...data.data, warning: data.warning as string | undefined }
     } catch (error: any) {
       console.error("Error updating package:", error)
       throw error

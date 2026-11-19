@@ -10,6 +10,7 @@ const PATTERN = /package_costs|cost_price/
 // Files allowed to mention the cost, as root-relative posix paths. Keep this list short and admin-only.
 const ALLOW = new Set<string>([
   "lib/admin-service.ts", // client helper used only by admin pages (calls /api/admin/packages)
+  "lib/package-cost-form.ts", // pure helper for the admin packages form
   "lib/roles/package-costs.guard.test.ts",
   "lib/roles/migration-0187.test.ts",
   "lib/roles/migration-0187-run.ts",

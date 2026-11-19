@@ -10,6 +10,8 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const ALLOWED_PACKAGE_FIELDS = ["name", "network", "size", "price", "dealer_price", "active", "description", "category"]
 
 const COST_ROW_CAP = 1000
+const MAX_COST = 99999999.99 // numeric(10,2)
+const COST_WARNING = "Package saved, but the cost could not be saved. Edit the package to try again."
 
 function serviceClient() {
   return createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
@@ -64,10 +66,14 @@ export async function POST(req: NextRequest) {
     if (rawCost !== undefined) {
       if (rawCost === null || rawCost === "") {
         cost = null
-      } else if (typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0) {
-        cost = round2(rawCost)
       } else {
-        return NextResponse.json({ error: "cost_price must be a non-negative number" }, { status: 400 })
+        // A number, or a plain decimal string (^\d+(\.\d+)?$); anything else ("4,5", "1e3", " ") is refused.
+        const n =
+          typeof rawCost === "number" ? rawCost : typeof rawCost === "string" && /^\d+(\.\d+)?$/.test(rawCost) ? Number(rawCost) : Number.NaN
+        if (!Number.isFinite(n) || n < 0 || n > MAX_COST) {
+          return NextResponse.json({ error: "cost_price must be a number from 0 to 99999999.99" }, { status: 400 })
+        }
+        cost = round2(n)
       }
     }
 
@@ -126,7 +132,8 @@ export async function POST(req: NextRequest) {
       }
       return true
     }
-    const costFailure = () => NextResponse.json({ error: "Package saved, but the cost could not be saved" }, { status: 500 })
+
+    let costOk = true
 
     if (isUpdate && packageId) {
       // Update package
@@ -152,11 +159,17 @@ export async function POST(req: NextRequest) {
 
       if (cost !== undefined) {
         if (!rows?.length) return NextResponse.json({ error: "Package not found" }, { status: 404 })
-        if (!(await writeCost(String(packageId)))) return costFailure()
+        costOk = await writeCost(String(packageId))
       }
 
+      // The package part is saved: never 500 here (a retry/reload must see it), just flag the cost.
       revalidateTag("seo-live-facts")
-      return NextResponse.json({ success: true, data: rows?.[0], message: "Package updated successfully" })
+      return NextResponse.json({
+        success: true,
+        data: rows?.[0],
+        message: "Package updated successfully",
+        ...(costOk ? {} : { cost_saved: false, warning: COST_WARNING }),
+      })
     } else {
       // Create package
       const { data, error } = await adminClient
@@ -171,11 +184,16 @@ export async function POST(req: NextRequest) {
 
       if (cost !== undefined && cost !== null) {
         const newId = data?.[0]?.id
-        if (!newId || !(await writeCost(String(newId)))) return costFailure()
+        costOk = newId ? await writeCost(String(newId)) : false
       }
 
       revalidateTag("seo-live-facts")
-      return NextResponse.json({ success: true, data: data?.[0], message: "Package created successfully" })
+      return NextResponse.json({
+        success: true,
+        data: data?.[0],
+        message: "Package created successfully",
+        ...(costOk ? {} : { cost_saved: false, warning: COST_WARNING }),
+      })
     }
   } catch (error: any) {
     console.error("API error:", error)

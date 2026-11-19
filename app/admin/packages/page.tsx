@@ -17,6 +17,7 @@ import { BulkPriceUpdateDialog } from "@/components/admin/bulk-price-update-dial
 import { NetworkStockCard } from "@/components/admin/network-stock-card"
 import { DeliveryChannelsCard } from "@/components/admin/delivery-channels-card"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
+import { costPayload, costFieldText } from "@/lib/package-cost-form"
 
 // Format large numbers with K/M suffix
 const formatCount = (num: number): string => {
@@ -59,6 +60,7 @@ export default function AdminPackagesPage() {
     cost_price: "",
     description: "",
   })
+  const [costsFailed, setCostsFailed] = useState(false)
   const [networkFilter, setNetworkFilter] = useState<string>("all")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showBulkDialog, setShowBulkDialog] = useState(false)
@@ -70,15 +72,16 @@ export default function AdminPackagesPage() {
   const loadPackages = async () => {
     try {
       const data = await adminPackageService.getAllPackages()
-      // Costs are admin-only and come from a separate endpoint; a failure leaves the column empty rather than blocking the page.
-      let costs: Record<string, number> = {}
+      // Costs are admin-only and come from a separate endpoint. On failure cost_price stays undefined ("?" in the
+      // column), the cost field is disabled and the form never sends a cost, so a real cost can never be wiped.
+      let costs: Record<string, number> | null = null
       try {
         costs = await adminPackageService.getPackageCosts()
-      } catch (costError) {
+      } catch {
         console.error("Error loading package costs")
-        toast.error("Could not load our cost column")
       }
-      setPackages((data || []).map((p: Package) => ({ ...p, cost_price: costs[p.id] ?? null })))
+      setCostsFailed(costs === null)
+      setPackages((data || []).map((p: Package) => ({ ...p, cost_price: costs ? (costs[p.id] ?? null) : undefined })))
       setSelectedIds((prev) => {
         const validIds = new Set((data || []).map((p) => p.id))
         const next = new Set([...prev].filter((id) => validIds.has(id)))
@@ -124,34 +127,38 @@ export default function AdminPackagesPage() {
       // Clean size by removing "GB" suffix if present
       const cleanSize = formData.size.toString().toUpperCase().replace(/\s*GB\s*$/, "")
 
-      // Blank clears the cost (null); a number is sent as is and rounded by the API.
-      const costValue = formData.cost_price.trim() === "" ? null : Number(formData.cost_price)
-      if (costValue !== null && (!Number.isFinite(costValue) || costValue < 0)) {
-        toast.error("Our cost must be a non-negative number")
+      // The cost key is sent only when the admin changed the field (and costs loaded); null deletes the stored cost.
+      const loadedCost = editingId ? packages.find((p) => p.id === editingId)?.cost_price : null
+      const cost = costPayload(loadedCost, formData.cost_price, costsFailed)
+      if (cost.kind === "error") {
+        toast.error(cost.message)
         setIsSubmitting(false)
         return
       }
+      const costFields = cost.kind === "set" ? { cost_price: cost.value } : {}
 
       if (editingId) {
-        await adminPackageService.updatePackage(editingId, {
+        const saved = await adminPackageService.updatePackage(editingId, {
           network: formData.network,
           size: cleanSize,
           price: parseFloat(formData.price),
           dealer_price: formData.dealer_price ? parseFloat(formData.dealer_price) : null,
-          cost_price: costValue,
+          ...costFields,
           description: formData.description,
         })
         toast.success("Package updated successfully")
+        if (saved?.warning) toast.warning(saved.warning)
       } else {
-        await adminPackageService.createPackage({
+        const saved = await adminPackageService.createPackage({
           network: formData.network,
           size: cleanSize,
           price: parseFloat(formData.price),
           dealer_price: formData.dealer_price ? parseFloat(formData.dealer_price) : null,
-          cost_price: costValue,
+          ...costFields,
           description: formData.description,
         })
         toast.success("Package created successfully")
+        if (saved?.warning) toast.warning(saved.warning)
       }
 
       resetForm()
@@ -170,7 +177,7 @@ export default function AdminPackagesPage() {
       size: pkg.size,
       price: pkg.price.toString(),
       dealer_price: pkg.dealer_price?.toString() || "",
-      cost_price: pkg.cost_price != null ? pkg.cost_price.toString() : "",
+      cost_price: costFieldText(pkg.cost_price),
       description: pkg.description || "",
     })
     setEditingId(pkg.id)
@@ -300,6 +307,12 @@ export default function AdminPackagesPage() {
           </div>
         )}
 
+        {costsFailed && (
+          <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Couldn&apos;t load package costs — cost edits are disabled until you reload.
+          </div>
+        )}
+
         {/* Add/Edit Form */}
         {showForm && (
           <Card className="border-2 border-border bg-card backdrop-blur-xl">
@@ -370,6 +383,7 @@ export default function AdminPackagesPage() {
                     min="0"
                     placeholder="Optional. Admin only, never shown to customers"
                     value={formData.cost_price}
+                    disabled={costsFailed}
                     onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })}
                     className="mt-1"
                     step="0.01"
@@ -452,7 +466,7 @@ export default function AdminPackagesPage() {
                       <td className="px-6 py-4 text-foreground">{pkg.size}</td>
                       <td className="px-6 py-4 font-semibold text-primary">GHS {(pkg.price || 0).toFixed(2)}</td>
                       <td className="px-6 py-4 font-semibold text-primary">{pkg.dealer_price ? `GHS ${pkg.dealer_price.toFixed(2)}` : "-"}</td>
-                      <td className="px-6 py-4 text-foreground">{pkg.cost_price != null ? `GHS ${pkg.cost_price.toFixed(2)}` : "—"}</td>
+                      <td className="px-6 py-4 text-foreground">{pkg.cost_price === undefined ? "?" : pkg.cost_price !== null ? `GHS ${pkg.cost_price.toFixed(2)}` : "—"}</td>
                       <td className="px-6 py-4 text-sm text-muted-foreground">{pkg.description || "-"}</td>
                       <td className="px-6 py-4">
                         <Button

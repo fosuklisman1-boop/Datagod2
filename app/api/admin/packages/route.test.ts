@@ -64,7 +64,7 @@ describe("POST /api/admin/packages cost_price", () => {
   })
 
   it("rejects non-finite and non-numeric costs with 400", async () => {
-    for (const bad of ["abc", "5", {}, [], true]) {
+    for (const bad of ["abc", "4,5", " ", "1e3", "-1", "5.", ".5", {}, [], true, 100000000, 99999999.995]) {
       const res = await post({ packageData: { ...base, cost_price: bad }, isUpdate: false })
       expect(res.status, JSON.stringify(bad)).toBe(400)
     }
@@ -86,6 +86,42 @@ describe("POST /api/admin/packages cost_price", () => {
     expect(c[0].op).toBe("upsert")
     expect(c[0].payload).toMatchObject({ package_id: PKG, cost_price: 4.56, updated_by: ADMIN })
     expect(c[0].opts).toEqual({ onConflict: "package_id" })
+  })
+
+  it("accepts plain numeric strings and the numeric(10,2) maximum", async () => {
+    await post({ packageData: { ...base, cost_price: "4.555" }, isUpdate: false })
+    expect(costCalls()[0].payload).toMatchObject({ cost_price: 4.56 })
+    h.calls.length = 0
+    const res = await post({ packageData: { ...base, cost_price: 99999999.99 }, isUpdate: false })
+    expect(res.status).toBe(200)
+    expect(costCalls()[0].payload).toMatchObject({ cost_price: 99999999.99 })
+  })
+
+  it("create: a failed cost write after the insert returns success with cost_saved false (no duplicate-inducing 500)", async () => {
+    h.results["package_costs:upsert"] = { error: { message: "db detail" } }
+    const res = await post({ packageData: { ...base, cost_price: 3 }, isUpdate: false })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      success: true,
+      cost_saved: false,
+      warning: "Package saved, but the cost could not be saved. Edit the package to try again.",
+      data: { id: PKG },
+    })
+    expect(JSON.stringify(body)).not.toContain("db detail")
+  })
+
+  it("update: a failed cost write after the update returns success with cost_saved false", async () => {
+    h.results["package_costs:upsert"] = { error: { message: "db detail" } }
+    const res = await post({ packageData: { ...base, cost_price: 3 }, packageId: PKG, isUpdate: true })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ success: true, cost_saved: false, warning: expect.stringContaining("Package saved") })
+  })
+
+  it("a successful cost write reports no warning", async () => {
+    const body = await (await post({ packageData: { ...base, cost_price: 3 }, isUpdate: false })).json()
+    expect(body.cost_saved).not.toBe(false)
+    expect(body.warning).toBeUndefined()
   })
 
   it("never puts cost_price into the packages write", async () => {
@@ -130,13 +166,6 @@ describe("POST /api/admin/packages cost_price", () => {
     const res = await post({ packageData: { ...base, cost_price: 3 }, packageId: PKG, isUpdate: true })
     expect(res.status).toBe(400)
     expect(costCalls()).toEqual([])
-  })
-
-  it("500 and no success when the cost write fails", async () => {
-    h.results["package_costs:upsert"] = { error: { message: "db detail" } }
-    const res = await post({ packageData: { ...base, cost_price: 3 }, isUpdate: false })
-    expect(res.status).toBe(500)
-    expect(JSON.stringify(await res.json())).not.toContain("db detail")
   })
 
   it("401 for a non-admin", async () => {
