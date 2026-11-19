@@ -1,6 +1,7 @@
 "use client"
 
-import { ShoppingCart, User, LogOut, Headphones, Mail, Phone, MessageCircle, Crown, Wallet } from "lucide-react"
+import Link from "next/link"
+import { ShoppingCart, User, LogOut, Headphones, Mail, Phone, MessageCircle, Crown, Wallet, KeyRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { NotificationCenter } from "@/components/notification-center"
@@ -173,12 +174,17 @@ export function Header() {
               <p className="text-xs text-muted-foreground">Account</p>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-xs sm:text-sm">
-              <User className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
-              <span>Profile Settings</span>
+            <DropdownMenuItem asChild className="text-xs sm:text-sm cursor-pointer">
+              <Link href="/dashboard/profile">
+                <User className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
+                <span>Profile Settings</span>
+              </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-xs sm:text-sm">
-              <span>API Keys</span>
+            <DropdownMenuItem asChild className="text-xs sm:text-sm cursor-pointer">
+              <Link href="/dashboard/developer">
+                <KeyRound className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
+                <span>API Keys</span>
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
