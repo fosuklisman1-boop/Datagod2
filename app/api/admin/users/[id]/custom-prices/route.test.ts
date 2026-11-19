@@ -9,6 +9,13 @@ const h = vi.hoisted(() => {
     packages: [{ id: "p1", network: "MTN", size: "1", price: 10, dealer_price: 8, is_available: true }],
     prices: [{ package_id: "p1", price: 6 }],
     stalePackages: [{ id: "p2", network: "AT", size: "2", price: 20, dealer_price: null, is_available: false }] as any[],
+    roles: [
+      { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+      { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+      { id: "r-sub", slug: "sub_agent", rank: null, is_system: true, archived_at: null },
+      { id: "r-admin", slug: "admin", rank: null, is_system: true, archived_at: null },
+    ] as any[],
+    rolePrices: [{ role_id: "r-dealer", package_id: "p1", price: 8 }] as any[],
     errors: {} as Record<string, any>,
     rateLimited: false,
     calls: [] as any[],
@@ -26,6 +33,7 @@ const h = vi.hoisted(() => {
         return c
       },
       order: () => c,
+      limit: () => c,
       maybeSingle: () => Promise.resolve(res),
       then: (r: any, j: any) => Promise.resolve(res).then(r, j),
     }
@@ -35,6 +43,8 @@ const h = vi.hoisted(() => {
     from: (t: string) =>
       t === "users" ? chain(t, state.errors.users ? { data: null, error: state.errors.users } : { data: state.user, error: null })
       : t === "packages" ? chain(t, state.errors.packages ? { data: null, error: state.errors.packages } : { data: state.packages, error: null })
+      : t === "roles" ? chain(t, state.errors.roles ? { data: null, error: state.errors.roles } : { data: state.roles, error: null })
+      : t === "role_package_prices" ? chain(t, { data: state.rolePrices, error: null })
       : t === "user_package_prices" ? chain(t, state.errors.prices ? { data: null, error: state.errors.prices } : { data: state.prices, error: null })
       : (() => { throw new Error(`unexpected table ${t}`) })(),
     rpc: (name: string, args: any) => {
@@ -71,6 +81,9 @@ beforeEach(() => {
   h.state.rateLimited = false
   h.state.calls = []
   h.state.prices = [{ package_id: "p1", price: 6 }]
+  h.state.rolePrices = [{ role_id: "r-dealer", package_id: "p1", price: 8 }]
+  h.state.packages = [{ id: "p1", network: "MTN", size: "1", price: 10, dealer_price: 8, is_available: true }]
+  h.state.stalePackages = [{ id: "p2", network: "AT", size: "2", price: 20, dealer_price: null, is_available: false }]
 })
 
 describe("GET custom-prices", () => {
@@ -103,7 +116,7 @@ describe("GET custom-prices", () => {
   it("skips the stale-package query when the user has no custom prices", async () => {
     h.state.prices = []
     const body = await (await GET(new NextRequest("http://x"), ctx)).json()
-    expect(h.state.calls.some((x: any) => x.op === "in")).toBe(false)
+    expect(h.state.calls.some((x: any) => x.table === "packages" && x.op === "in")).toBe(false)
     expect(body.packages).toHaveLength(1)
     expect(body.packages[0].custom_price).toBeNull()
   })
@@ -112,6 +125,25 @@ describe("GET custom-prices", () => {
     h.state.packages = []
     const body = await (await GET(new NextRequest("http://x"), ctx)).json()
     expect(body.packages).toEqual([{ id: "p1", network: "MTN", size: "1", price: 10, dealer_price: 8, role_price: 8, custom_price: 6, is_available: false }])
+  })
+  it.each(["dealer", "admin", "user", "sub_agent"])("role_price for a %s equals today's rolePrice rule", async (role) => {
+    h.state.user = { id: U1, role, pricing_mode: "role" }
+    const body = await (await GET(new NextRequest("http://x"), ctx)).json()
+    expect(body.packages.map((p: any) => p.role_price)).toEqual([role === "dealer" ? 8 : 10, 20])
+  })
+  it("shows a custom role's price", async () => {
+    h.state.roles = h.state.roles.filter((r: any) => r.slug !== "gold").concat({ id: "r-gold", slug: "gold", rank: 5, is_system: false, archived_at: null })
+    h.state.rolePrices = [{ role_id: "r-gold", package_id: "p1", price: 5.5 }]
+    h.state.user = { id: U1, role: "gold", pricing_mode: "role" }
+    const body = await (await GET(new NextRequest("http://x"), ctx)).json()
+    expect(body.packages[0].role_price).toBe(5.5)
+    expect(body.packages[0].dealer_price).toBe(8)
+  })
+  it("500 when the roles read fails", async () => {
+    h.state.errors = { roles: { message: "boom" } }
+    const res = await GET(new NextRequest("http://x"), ctx)
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: "Failed to load prices" })
   })
   it.each(["users", "prices", "packages", "stale"])("500 when the %s query fails", async (k) => {
     h.state.errors = { [k]: { message: "boom" } }

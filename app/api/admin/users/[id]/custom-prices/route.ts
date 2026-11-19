@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminAccess } from "@/lib/admin-auth"
-import { rolePrice } from "@/lib/pricing/package-price"
+import { NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
+import { roleBasePrices, priceWith } from "@/lib/roles/pricing"
+import { RoleReadError } from "@/lib/roles/repo"
 import { parseCustomPricesBody, isUuid } from "@/lib/pricing/custom-prices-input"
 
 export const dynamic = "force-dynamic"
@@ -36,17 +38,25 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   ])
   if (avail.error || stale.error) return NextResponse.json({ error: "Failed to load prices" }, { status: 500 })
 
-  // role_price follows the direct charge-point rule (role === "dealer"). Shop code counts admins as dealers too.
-  const isDealer = user.role === "dealer"
+  // role_price is the user's role price under the direct charge-point rule (admin priced as a user; shop code
+  // counts admins as dealers). One base load for all rows; a roles read failure refuses like the other reads.
+  const rows = [...(avail.data ?? []), ...(stale.data ?? [])]
+  let base: Map<string, number>
+  try {
+    base = await roleBasePrices(db, user.role, rows, { admin: "as_user" })
+  } catch (e) {
+    if (e instanceof RoleReadError) return NextResponse.json({ error: "Failed to load prices" }, { status: 500 })
+    throw e
+  }
   return NextResponse.json({
     user: { id: user.id, role: user.role, pricing_mode: user.pricing_mode ?? "role" },
-    packages: [...(avail.data ?? []), ...(stale.data ?? [])].map((p: any) => ({
+    packages: rows.map((p: any) => ({
       id: p.id,
       network: p.network,
       size: p.size,
       price: Number(p.price),
       dealer_price: p.dealer_price == null ? null : Number(p.dealer_price),
-      role_price: rolePrice(p, isDealer),
+      role_price: priceWith(base, p, NO_CUSTOM_PRICES),
       custom_price: custom.get(String(p.id)) ?? null,
       is_available: p.is_available !== false,
     })),
