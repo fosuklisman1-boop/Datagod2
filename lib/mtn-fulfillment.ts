@@ -926,7 +926,13 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
     // retry: mirroring failed -> pending here would skip the review step and let the
     // order be re-sent (e.g. a Kuntanii refund found by admin "sync status").
     if (tracking.status === "completed" && statusResult.status === "failed") {
-      const { flagReversal } = await import("@/lib/mtn-reversal")
+      const { flagReversal, looksProviderCompleted } = await import("@/lib/mtn-reversal")
+      // Only a completion the provider itself confirmed can be reversed. A row an admin
+      // completed by hand (manual delivery) keeps its status: the provider's "failed" is
+      // the same failure that was always there, not news.
+      if (!looksProviderCompleted(tracking.external_status)) {
+        return { success: true, newStatus: "completed", message: "Provider reports failed, but this order was completed outside the provider — left as completed" }
+      }
       const flagged = await flagReversal(supabase, tracking, {
         status: statusResult.order?.status ?? "failed",
         message: statusResult.message,

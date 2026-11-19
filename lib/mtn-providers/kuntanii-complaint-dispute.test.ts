@@ -105,6 +105,71 @@ describe("disputeForSupportThread", () => {
   })
 })
 
+describe("review fixes", () => {
+  const hours = (h: number) => new Date(Date.now() - h * 3600e3).toISOString()
+
+  it("WhatsApp: files nothing when the number's newest order is not a completed Kuntanii one (I1)", async () => {
+    const db = fakeDb({
+      mtn_fulfillment_tracking: [
+        trk({ id: "old-kt", order_type: "ussd", order_id: "a", created_at: hours(72) }),
+        trk({ id: "today-agp", provider: "agentportalgh", status: "failed", order_type: "ussd", order_id: "b", created_at: hours(1) }),
+      ],
+    })
+    const file = okFile()
+    const r = await disputeForWhatsAppComplaint({ senderPhone: "233241112222", beneficiaryNumber: "0241112222", category: "data" }, { db, file })
+    expect(r).toEqual({ filed: false, reason: "no_match" })
+    expect(file).not.toHaveBeenCalled()
+  })
+
+  it("WhatsApp: ignores abandoned attempts when picking the newest order", async () => {
+    const db = fakeDb({
+      mtn_fulfillment_tracking: [
+        trk({ id: "kt", order_type: "ussd", order_id: "a", created_at: hours(3) }),
+        trk({ id: "gone", provider: "apexprime", status: "abandoned", order_type: "ussd", order_id: "a", created_at: hours(2) }),
+      ],
+    })
+    const file = okFile()
+    const r = await disputeForWhatsAppComplaint({ senderPhone: "233241112222", beneficiaryNumber: "0241112222", category: "data" }, { db, file })
+    expect(r.filed).toBe(true)
+  })
+
+  it("WhatsApp: matches a recipient stored in 233 format (M3)", async () => {
+    const db = fakeDb({ mtn_fulfillment_tracking: [trk({ id: "intl", recipient_phone: "233241112222", order_type: "ussd", order_id: "a" })] })
+    const file = okFile()
+    const r = await disputeForWhatsAppComplaint({ senderPhone: "233241112222", beneficiaryNumber: "0241112222", category: "data" }, { db, file })
+    expect(r.filed).toBe(true)
+  })
+
+  it("never auto-files twice on the same order, even after a closed report (M2)", async () => {
+    const db = fakeDb({
+      mtn_fulfillment_tracking: [trk({ id: "trk-r", order_id: "ord-1" })],
+      kuntanii_not_received_reports: [{ id: "rep", tracking_id: "trk-r", dispute_status: "rejected" }],
+    })
+    const file = okFile()
+    const r = await disputeForSupportThread({ category: "order", orderId: "ord-1", userId: "u" }, { db, file })
+    expect(r).toEqual({ filed: false, reason: "already_reported" })
+    expect(file).not.toHaveBeenCalled()
+  })
+
+  it("website: an order_id only matches bulk tracking rows, never a USSD row with the same id (M1)", async () => {
+    const db = fakeDb({ mtn_fulfillment_tracking: [trk({ order_type: "ussd_shop", order_id: "ord-1" })] })
+    const file = okFile()
+    const r = await disputeForSupportThread({ category: "order", orderId: "ord-1", userId: "u" }, { db, file })
+    expect(r).toEqual({ filed: false, reason: "not_kuntanii" })
+  })
+
+  it("WhatsApp: the account owner matches on phone_number, and API orders on api_order_id", async () => {
+    const db = fakeDb({
+      mtn_fulfillment_tracking: [trk({ order_type: "api", api_order_id: "api-1", order_id: null })],
+      api_orders: [{ id: "api-1", user_id: "dealer" }],
+      users: [{ id: "dealer", phone: null, phone_number: "233209998888" }],
+    })
+    const file = okFile()
+    const r = await disputeForWhatsAppComplaint({ senderPhone: "233209998888", beneficiaryNumber: "0241112222", category: "data" }, { db, file })
+    expect(r.filed).toBe(true)
+  })
+})
+
 describe("forwardWhatsAppComplaint", () => {
   it("maps the stored complaint fields onto the filer", async () => {
     const db = fakeDb({ mtn_fulfillment_tracking: [trk({ id: "trk-f", order_type: "ussd", order_id: "a" })] })
