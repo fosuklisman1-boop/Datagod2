@@ -399,6 +399,16 @@ describe.skipIf(!PGliteCtor)("0187 in PGlite", () => {
     await db.exec(`UPDATE users SET pricing_mode = 'role' WHERE id = '${ACTOR}'`)
   }, 60_000)
 
+  it("the archived-role trigger locks the role row by slug alone (no archived_at filter) and is SECURITY DEFINER", async () => {
+    const db = await fresh87()
+    const def: string = (await rows(db, `SELECT pg_get_functiondef('public.users_role_not_archived()'::regprocedure) AS d`))[0].d
+    expect(def).toMatch(/SECURITY DEFINER/)
+    const lock = def.match(/SELECT archived_at INTO[\s\S]*?FOR SHARE/)
+    expect(lock).not.toBeNull()
+    expect(lock![0]).not.toMatch(/archived_at\s+IS/i)
+    expect(lock![0]).toMatch(/WHERE slug = NEW\.role FOR SHARE/)
+  }, 60_000)
+
   it("role_audit_log rejects UPDATE, DELETE and TRUNCATE", async () => {
     const db = await fresh87()
     await mkRole(db, "gold", 20)

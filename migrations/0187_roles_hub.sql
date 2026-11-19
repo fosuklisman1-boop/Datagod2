@@ -527,11 +527,15 @@ GRANT EXECUTE ON FUNCTION public.admin_role_stats() TO service_role;
 -- FOR SHARE blocks behind an in-flight admin_role_archive (which holds FOR UPDATE on the role row), then sees archived_at,
 -- so an assignment racing an archive either lands before the archive's member check or is refused here.
 CREATE OR REPLACE FUNCTION public.users_role_not_archived() RETURNS trigger
-LANGUAGE plpgsql SET search_path = public, pg_temp AS $fn_ua$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn_ua$
+DECLARE
+  v_archived timestamptz;
 BEGIN
   IF NEW.role IS NULL THEN RETURN NEW; END IF;
-  PERFORM 1 FROM public.roles WHERE slug = NEW.role AND archived_at IS NOT NULL FOR SHARE;
-  IF FOUND THEN RAISE EXCEPTION 'role is archived'; END IF;
+  -- The lock query must NOT filter on archived_at: while an archive is in flight (uncommitted) the committed row still has
+  -- archived_at NULL, so a filtered query would match nothing, lock nothing and not wait. Lock by slug alone, then inspect.
+  SELECT archived_at INTO v_archived FROM public.roles WHERE slug = NEW.role FOR SHARE;
+  IF FOUND AND v_archived IS NOT NULL THEN RAISE EXCEPTION 'role is archived'; END IF;
   RETURN NEW;
 END $fn_ua$;
 
