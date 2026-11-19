@@ -290,6 +290,41 @@ describe.skipIf(!PGliteCtor)("0187 in PGlite", () => {
     await fails(db, `SELECT admin_role_create('${ACTOR}', 'test reason', 'x2', 'N', 41, '${await roleId(db, "sub_agent")}')`, /cannot be cloned/)
   }, 60_000)
 
+  it("a change entry without a price/value key is refused; only an explicit null deletes", async () => {
+    const db = await fresh87()
+    await db.exec(seedPackages)
+    const gold = await mkRole(db, "gold", 20)
+    await setPrices(db, gold, [{ package_id: PKG_A, price: 9 }])
+    await fails(db, `SELECT admin_role_set_prices('${ACTOR}', 'test reason', '${gold}', '[{"package_id":"${PKG_A}","prise":9}]'::jsonb, false)`, /price key required/)
+    await fails(db, `SELECT admin_role_set_prices('${ACTOR}', 'test reason', '${gold}', '[{"package_id":"${PKG_A}"}]'::jsonb, false)`, /price key required/)
+    expect(await rows(db, `SELECT 1 FROM role_package_prices WHERE role_id = '${gold}'`)).toHaveLength(1)
+    expect(await setPrices(db, gold, [{ package_id: PKG_A, price: null }])).toBe(1)
+    await db.exec(`SELECT admin_role_set_rates('${ACTOR}', 'test reason', '${gold}', '[{"service_key":"airtime_fee:mtn","value":2}]'::jsonb)`)
+    await fails(db, `SELECT admin_role_set_rates('${ACTOR}', 'test reason', '${gold}', '[{"service_key":"airtime_fee:mtn","valeu":3}]'::jsonb)`, /value key required/)
+    expect(await rows(db, `SELECT 1 FROM role_service_rates WHERE role_id = '${gold}'`)).toHaveLength(1)
+  }, 60_000)
+
+  it("clone refuses an archived source and records below-cost copied packages in the audit row", async () => {
+    const db = await fresh87()
+    await db.exec(seedPackages)
+    await db.exec(`UPDATE packages SET cost_price = 9.5 WHERE id = '${PKG_A}'`)
+    const gold = await mkRole(db, "gold", 20)
+    await setPrices(db, gold, [{ package_id: PKG_A, price: 9.5 }, { package_id: PKG_B, price: 18 }])
+    await db.exec(`UPDATE packages SET cost_price = 12 WHERE id = '${PKG_A}'`) // cost rose after pricing
+    const copy = await mkRole(db, "gold2", 21, gold)
+    const after = (await rows(db, `SELECT after FROM role_audit_log WHERE role_id = '${copy}' AND action = 'clone'`))[0].after
+    expect(after.below_cost).toEqual([PKG_A])
+    await db.exec(`UPDATE packages SET cost_price = NULL`)
+    const copy2 = await mkRole(db, "gold3", 22, gold)
+    expect((await rows(db, `SELECT after FROM role_audit_log WHERE role_id = '${copy2}' AND action = 'clone'`))[0].after.below_cost).toEqual([])
+    // a create without a source has no below_cost key problem and still audits
+    const plain = await mkRole(db, "plain", 23)
+    expect((await rows(db, `SELECT action FROM role_audit_log WHERE role_id = '${plain}' AND action = 'create'`))).toHaveLength(1)
+    // archived source refused
+    await db.exec(`SELECT admin_role_archive('${ACTOR}', 'test reason', '${copy2}')`)
+    await fails(db, `SELECT admin_role_create('${ACTOR}', 'test reason', 'gold4', 'N', 24, '${copy2}')`, /archived/)
+  }, 60_000)
+
   it("update patches only allowed keys and refuses admin", async () => {
     const db = await fresh87()
     const gold = await mkRole(db, "gold", 20)

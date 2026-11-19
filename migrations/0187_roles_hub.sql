@@ -176,6 +176,7 @@ DECLARE
   v_perm   uuid;
   v_new    uuid;
   v_theme  jsonb := '{"skin":"default"}'::jsonb;
+  v_below  jsonb := '[]'::jsonb;
 BEGIN
   PERFORM public.roles_hub_guard(p_actor, p_reason);
   IF p_slug IS NULL OR p_slug IN ('user', 'dealer', 'sub_agent', 'admin')
@@ -190,6 +191,7 @@ BEGIN
     SELECT * INTO v_src FROM public.roles WHERE id = p_clone_from FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'clone source not found'; END IF;
     IF v_src.slug IN ('admin', 'sub_agent') THEN RAISE EXCEPTION 'role % cannot be cloned', v_src.slug; END IF;
+    IF v_src.archived_at IS NOT NULL THEN RAISE EXCEPTION 'clone source is archived'; END IF;
     v_perm := v_src.id;
     v_theme := v_src.theme;
   ELSE
@@ -217,11 +219,17 @@ BEGIN
     PERFORM set_config('app.role_audit', '', true);
     INSERT INTO public.role_service_rates (role_id, service_key, value)
     SELECT v_new, service_key, value FROM public.role_service_rates WHERE role_id = p_clone_from;
+    -- Copied prices are not cost-checked (the source was); record any that now sit below cost.
+    SELECT coalesce(jsonb_agg(r.package_id ORDER BY r.package_id), '[]'::jsonb) INTO v_below
+      FROM public.role_package_prices r JOIN public.packages p ON p.id = r.package_id
+     WHERE r.role_id = v_new AND p.cost_price IS NOT NULL AND r.price < p.cost_price;
   END IF;
 
   INSERT INTO public.role_audit_log (actor_id, role_id, action, before, after, reason)
   VALUES (p_actor, v_new, CASE WHEN p_clone_from IS NULL THEN 'create' ELSE 'clone' END, NULL,
-          jsonb_build_object('slug', p_slug, 'name', trim(p_name), 'rank', p_rank, 'clone_from', p_clone_from), p_reason);
+          jsonb_build_object('slug', p_slug, 'name', trim(p_name), 'rank', p_rank, 'clone_from', p_clone_from)
+            || CASE WHEN p_clone_from IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('below_cost', v_below) END,
+          p_reason);
   RETURN v_new;
 END $fn_create$;
 
@@ -350,7 +358,9 @@ BEGIN
     v_seen := v_seen || v_pkg;
     SELECT cost_price INTO v_cost FROM public.packages WHERE id = v_pkg;
     IF NOT FOUND THEN RAISE EXCEPTION 'package % not found', v_pkg; END IF;
-    IF v_item -> 'price' IS NOT NULL AND jsonb_typeof(v_item -> 'price') <> 'null' THEN
+    -- Only an explicit JSON null deletes; a missing key (a typo) is refused.
+    IF NOT (v_item ? 'price') THEN RAISE EXCEPTION 'price key required (use null to delete) for package %', v_pkg; END IF;
+    IF jsonb_typeof(v_item -> 'price') <> 'null' THEN
       IF jsonb_typeof(v_item -> 'price') <> 'number' THEN RAISE EXCEPTION 'price must be a number or null'; END IF;
       v_price := round((v_item ->> 'price')::numeric, 2);
       IF v_price <= 0 THEN RAISE EXCEPTION 'price must be greater than 0'; END IF;
@@ -409,7 +419,8 @@ BEGIN
     IF v_key IS NULL OR v_key !~ '^[a-z_]+:[a-z0-9_]+$' THEN RAISE EXCEPTION 'bad service_key'; END IF;
     IF v_key = ANY (v_seen) THEN RAISE EXCEPTION 'duplicate service_key %', v_key; END IF;
     v_seen := v_seen || v_key;
-    IF v_item -> 'value' IS NOT NULL AND jsonb_typeof(v_item -> 'value') <> 'null' THEN
+    IF NOT (v_item ? 'value') THEN RAISE EXCEPTION 'value key required (use null to delete) for %', v_key; END IF;
+    IF jsonb_typeof(v_item -> 'value') <> 'null' THEN
       IF jsonb_typeof(v_item -> 'value') <> 'number' THEN RAISE EXCEPTION 'value must be a number or null'; END IF;
       v_val := (v_item ->> 'value')::numeric;
       IF v_val < 0 OR v_val > 100 THEN RAISE EXCEPTION 'value must be between 0 and 100'; END IF;
