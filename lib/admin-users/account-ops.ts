@@ -20,7 +20,7 @@ export type AssignableRole = (typeof SYSTEM_ROLES)[number]
 
 const ADMIN_PROTECTED = "Admin accounts can't be moved here."
 
-const isSystemRole =(slug: string) => (SYSTEM_ROLES as readonly string[]).includes(slug)
+const isSystemRole = (slug: string) => (SYSTEM_ROLES as readonly string[]).includes(slug)
 const isCustomRole = (slug: string) => !isSystemRole(slug)
 
 export type OpFailure = { ok: false; status: number; error: string }
@@ -150,14 +150,14 @@ export async function changeUserRole(
   }
 
   // Conditional write: only if the stored role is still different (NULL counts as different).
-  let write = db
+  // protectAdmin: also never overwrite an admin, even one promoted after the read above. One or() so NULL-role
+  // users still match (a separate neq("role","admin") would exclude them: NULL <> 'admin' is NULL in SQL).
+  const { data: updated, error: updateError } = await db
     .from("users")
     .update({ role })
     .eq("id", userId)
-    .or(`role.is.null,role.neq.${role}`)
-  // protectAdmin: never overwrite an admin, even one promoted after the read above.
-  if (opts.protectAdmin) write = write.neq("role", "admin")
-  const { data: updated, error: updateError } = await write.select("id")
+    .or(opts.protectAdmin ? `role.is.null,role.not.in.(admin,${role})` : `role.is.null,role.neq.${role}`)
+    .select("id")
   if (updateError) {
     // 0187 trigger: the role was archived after our read.
     if (String(updateError.message ?? "").includes("role is archived")) return { ok: false, status: 400, error: "Unknown role" }
@@ -169,7 +169,8 @@ export async function changeUserRole(
       // 0 rows may mean the user became admin since our read: look again before calling it a no-op.
       const { data: again, error: againError } = await db.from("users").select("role").eq("id", userId).maybeSingle()
       if (againError) return { ok: false, status: 500, error: "Failed to update user role" }
-      if ((again as { role: string | null } | null)?.role === "admin") return { ok: false, status: 403, error: ADMIN_PROTECTED }
+      if (!again) return { ok: false, status: 404, error: "User not found" }
+      if ((again as { role: string | null }).role === "admin") return { ok: false, status: 403, error: ADMIN_PROTECTED }
     }
     // Someone else set this role between our read and our write; they did the margin work.
     return { ok: true, changed: false, oldRole, newRole: role, audited: false }

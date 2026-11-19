@@ -9,6 +9,8 @@ const h = vi.hoisted(() => ({
   role: "user" as string | null,
   /** Role another request writes between our read and our update (the race). */
   raceTo: null as string | null,
+  /** The user row is deleted between our read and our write. */
+  gone: false,
   shop: { id: "shop-1", parent_shop_id: null as string | null } as { id: string; parent_shop_id: string | null } | null,
   shopError: false,
   margins: {} as Record<string, number>,
@@ -54,6 +56,8 @@ const ROLES = [
 function orMatches(q: FakeQuery, role: string | null) {
   const or = q.op("or")?.[1] as string | undefined
   if (!or) return true
+  const notIn = /^role\.is\.null,role\.not\.in\.\(([^)]*)\)$/.exec(or)
+  if (notIn) return role === null || !notIn[1].split(",").includes(role)
   return or.split(",").some((cond) => {
     const [, op, val] = cond.split(".")
     return op === "is" ? role === null : op === "neq" ? role !== null && role !== val : false
@@ -64,6 +68,7 @@ beforeEach(() => {
   h.gate = "admin"
   h.role = "user"
   h.raceTo = null
+  h.gone = false
   h.shop = { id: "shop-1", parent_shop_id: null }
   h.shopError = false
   h.margins = { sp1: 1, sp2: 1, sp3: 1 }
@@ -79,13 +84,16 @@ beforeEach(() => {
     tables: {
       users: (q: FakeQuery) => {
         if (q.kind === "update") {
+          if (h.raceTo === "__gone__") { h.gone = true; h.raceTo = null }
+          if (h.gone) return { data: [], error: null }
           if (h.raceTo !== null) { h.role = h.raceTo; h.raceTo = null }
           if (!orMatches(q, h.role)) return { data: [], error: null }
-          if (q.op("neq")?.[1] === "role" && q.op("neq")?.[2] === h.role) return { data: [], error: null }
+          // SQL NULL semantics: `role <> 'admin'` is NULL (row excluded) when role is NULL.
+          if (q.op("neq")?.[1] === "role" && (h.role === null || h.role === q.op("neq")?.[2])) return { data: [], error: null }
           h.role = (q.payload as any).role
           return { data: [{ id: USER_ID }], error: null }
         }
-        return { data: { role: h.role }, error: null }
+        return { data: h.gone ? null : { role: h.role }, error: null }
       },
       user_shops: () => (h.shopError ? { data: null, error: { message: "timeout" } } : { data: h.shop, error: null }),
       shop_packages: (q: FakeQuery) => {
@@ -185,7 +193,21 @@ describe("POST /api/admin/users/update-role (shared changeUserRole)", () => {
     expect(r).toEqual({ ok: false, status: 403, error: "Admin accounts can't be moved here." })
     expect(h.role).toBe("admin")
     expect(h.audit).toHaveLength(0)
-    expect(h.fake.ofTable("users").find((q) => q.kind === "update")!.op("neq")).toEqual(["neq", "role", "admin"])
+    expect(h.fake.ofTable("users").find((q) => q.kind === "update")!.op("or")).toEqual(["or", "role.is.null,role.not.in.(admin,dealer)"])
+  })
+
+  it("protectAdmin: a NULL-role user (counts as user) is actually updated, not silently skipped", async () => {
+    h.role = null
+    const r = await changeUserRole(h.fake.db as any, { userId: USER_ID, role: "dealer", adminId: ADMIN_ID, protectAdmin: true })
+    expect(r).toMatchObject({ ok: true, changed: true, oldRole: "user", newRole: "dealer" })
+    expect(h.role).toBe("dealer")
+  })
+
+  it("protectAdmin: the row vanishes between read and write -> 404 User not found", async () => {
+    h.raceTo = "__gone__"
+    const r = await changeUserRole(h.fake.db as any, { userId: USER_ID, role: "dealer", adminId: ADMIN_ID, protectAdmin: true })
+    expect(r).toEqual({ ok: false, status: 404, error: "User not found" })
+    expect(h.audit).toHaveLength(0)
   })
 
   it("protectAdmin off (default): an admin can still be changed by existing callers", async () => {
