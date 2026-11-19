@@ -34,12 +34,15 @@ function isMissingColumn(error: { code?: string } | null): boolean {
  *  - everyone else: customer.
  * Throws on any other read error; callers decide how to treat a failure.
  */
-export async function getDealerRateTier(db: SupabaseClient, userId: string): Promise<DealerRateTier> {
+export async function getDealerRateTierAndRole(
+  db: SupabaseClient,
+  userId: string
+): Promise<{ tier: DealerRateTier; role: string | null }> {
   const { data, error } = await db.from("users").select("role").eq("id", userId).maybeSingle()
   if (error) throw error
-  const role = (data as { role?: string } | null)?.role
-  if (role === "dealer") return "dealer"
-  if (role !== "sub_agent") return "customer"
+  const role = (data as { role?: string } | null)?.role ?? null
+  if (role === "dealer") return { tier: "dealer", role }
+  if (role !== "sub_agent") return { tier: "customer", role }
 
   const { data: shop, error: shopError } = await db
     .from("user_shops")
@@ -48,9 +51,13 @@ export async function getDealerRateTier(db: SupabaseClient, userId: string): Pro
     .limit(1)
     .maybeSingle()
   if (shopError) {
-    if (isMissingColumn(shopError)) return "dealer"
+    if (isMissingColumn(shopError)) return { tier: "dealer", role }
     throw shopError
   }
-  if (!shop) return "customer"
-  return (shop as { dealer_rates_enabled?: boolean }).dealer_rates_enabled === false ? "customer" : "dealer"
+  if (!shop) return { tier: "customer", role }
+  return { tier: (shop as { dealer_rates_enabled?: boolean }).dealer_rates_enabled === false ? "customer" : "dealer", role }
+}
+
+export async function getDealerRateTier(db: SupabaseClient, userId: string): Promise<DealerRateTier> {
+  return (await getDealerRateTierAndRole(db, userId)).tier
 }

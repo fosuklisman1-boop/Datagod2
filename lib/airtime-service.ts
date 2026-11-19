@@ -7,7 +7,7 @@ import { airtimeAmountGate, airtimeNetworkGate, airtimeSettingsSuffix, legacyAir
 import { airtimeCashbackTarget, type AirtimeProviderDeps } from "@/lib/cashback/storefront-airtime"
 import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
-import { getDealerRateTier } from "@/lib/sub-agents/dealer-rates"
+import { getDealerRateTierAndRole } from "@/lib/sub-agents/dealer-rates"
 import { airtimeFeeRateFor } from "@/lib/airtime-pricing"
 import { rateSlugFor } from "@/lib/roles/service-rates"
 import { RoleReadError } from "@/lib/roles/repo"
@@ -368,13 +368,11 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     }
   } else {
     // Rule A (getDealerRateTier), resolved per role. The cashback `buyer` below stays on the tier.
-    const isUserDealer = (await getDealerRateTier(supabase, userId)) === "dealer"
+    // One users read: the role comes from the same read that decides the tier.
+    const { tier, role: buyerRole } = await getDealerRateTierAndRole(supabase, userId)
+    const isUserDealer = tier === "dealer"
     isBuyerDealer = isUserDealer
-    merchantRoleFeeRate = await feeRateOrRefuse(network, async () => {
-      const { data: me, error: meError } = await supabase.from("users").select("role").eq("id", userId).maybeSingle()
-      if (meError) throw new RoleReadError()
-      return rateSlugFor(supabase, isUserDealer, (me as { role?: string } | null)?.role)
-    })
+    merchantRoleFeeRate = await feeRateOrRefuse(network, () => rateSlugFor(supabase, isUserDealer, buyerRole))
   }
 
   const totalFeeRate = merchantRoleFeeRate + customMarkupRate

@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { airtimeFeeRateForDisplay } from "@/lib/airtime-pricing"
-import { getDealerRateTier } from "@/lib/sub-agents/dealer-rates"
+import { getDealerRateTierAndRole } from "@/lib/sub-agents/dealer-rates"
 import { rateSlugFor } from "@/lib/roles/service-rates"
 
 export const dynamic = "force-dynamic"
@@ -23,10 +23,9 @@ export async function GET(req: NextRequest) {
   const userId = authData.user.id
 
   try {
-    const tierIsDealer = (await getDealerRateTier(db, userId)) === "dealer"
-    const { data: me, error: meErr } = await db.from("users").select("role").eq("id", userId).maybeSingle()
-    if (meErr) throw meErr
-    const slug = await rateSlugFor(db, tierIsDealer, (me as { role?: string } | null)?.role)
+    const { tier, role } = await getDealerRateTierAndRole(db, userId)
+    const tierIsDealer = tier === "dealer"
+    const slug = await rateSlugFor(db, tierIsDealer, role)
     const [mtn, telecel, at] = await Promise.all(
       ["mtn", "telecel", "at"].map((net) => airtimeFeeRateForDisplay(net, slug, tierIsDealer))
     )

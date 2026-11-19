@@ -27,6 +27,8 @@ const h = vi.hoisted(() => {
     rolesError: false,
     shop: null as any,
     tablesRead: [] as string[],
+    usersReads: 0,
+    usersFailAfterFirst: false,
   }
 
   const fake = {
@@ -65,6 +67,14 @@ const h = vi.hoisted(() => {
         }
       }
       if (table === "users") {
+        state.usersReads += 1
+        // A read beyond the first (getDealerRateTier's own) fails when usersFailAfterFirst is set.
+        if (state.usersFailAfterFirst && state.usersReads > 1) {
+          return { select: () => ({ eq: () => ({
+            single: () => Promise.resolve({ data: null, error: { message: "boom" } }),
+            maybeSingle: () => Promise.resolve({ data: null, error: { message: "boom" } }),
+          }) }) }
+        }
         return {
           select: () => ({
             eq: () => ({
@@ -228,6 +238,8 @@ beforeEach(() => {
   h.state.rolesError = false
   h.state.shop = null
   h.state.tablesRead = []
+  h.state.usersReads = 0
+  h.state.usersFailAfterFirst = false
   vi.mocked(isDigiWapyConfigured).mockReturnValue(true)
   h.state.settings = {
     airtime_enabled_mtn: { enabled: true },
@@ -617,6 +629,19 @@ describe("purchaseAirtime — airtime fee resolves per role", () => {
     await buy({ paySeparately: true, beneficiaryPhone: "0531234567" }); expect(paid()).toBe(10.5)
     expect(h.state.tablesRead).not.toContain("roles")
     expect(h.state.tablesRead).not.toContain("role_service_rates")
+  })
+
+  it("wallet buyer reads users exactly once (no second role read): a system-role purchase is never refused by one", async () => {
+    h.state.usersFailAfterFirst = true
+    for (const role of ["user", "dealer", "admin"]) {
+      h.state.userRole = role; h.state.usersReads = 0; h.state.deductCalls = []
+      await buy({ paySeparately: true, beneficiaryPhone: "0541234567" })
+      expect(h.state.usersReads).toBe(1)
+      expect(paid()).toBe(role === "dealer" ? 10.3 : 10.5)
+    }
+    h.state.userRole = "sub_agent"; h.state.usersReads = 0; h.state.deductCalls = []
+    await buy({ paySeparately: true, beneficiaryPhone: "0551234567" })
+    expect(h.state.usersReads).toBe(1)
   })
 
   it("buyer with a custom role uses its role_service_rates row", async () => {

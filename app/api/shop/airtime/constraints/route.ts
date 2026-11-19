@@ -8,7 +8,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-
 export async function GET(request: NextRequest) {
   try {
     // 1. Auth
