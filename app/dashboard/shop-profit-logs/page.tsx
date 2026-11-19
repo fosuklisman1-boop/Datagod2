@@ -8,6 +8,7 @@ import { shopService, shopProfitService } from "@/lib/shop-service"
 import { supabase } from "@/lib/supabase"
 import { Activity, RefreshCw, Wallet, TrendingUp, TrendingDown, Scale, MessageSquare, BarChart3 } from "lucide-react"
 import { toast } from "sonner"
+import { describeShopProfit, formatSignedGhs } from "@/lib/shop-profit-label"
 
 type DateRange = "today" | "7d" | "30d" | "all"
 type Category = "all" | "earnings" | "withdrawals" | "expenses"
@@ -87,7 +88,7 @@ export default function ShopProfitLogsPage() {
         id: `earning-${p.id}`,
         type: "earning",
         amount: Number(p.profit_amount ?? p.amount ?? 0),
-        description: p.shop_orders ? `${p.shop_orders.network} ${p.shop_orders.volume_gb}GB — ${p.shop_orders.customer_name || "Customer"}` : (p.profit_type || "Order profit"),
+        description: describeShopProfit(p),
         created_at: p.created_at,
       }))
 
@@ -140,7 +141,7 @@ export default function ShopProfitLogsPage() {
     return { earned, withdrawn, net: earned - expenses, expenses }
   }, [entries, dateRange])
 
-  const typeMeta: Record<LedgerType, { icon: any; className: string; sign: string }> = {
+  const typeMeta: Record<LedgerType, { icon: any; className: string; sign: "+" | "-" }> = {
     earning: { icon: TrendingUp, className: "bg-success/10 text-success", sign: "+" },
     withdrawal: { icon: TrendingDown, className: "bg-[#1b388b]/10 text-[#1b388b]", sign: "-" },
     expense: { icon: MessageSquare, className: "bg-destructive/10 text-destructive", sign: "-" },
@@ -262,8 +263,8 @@ export default function ShopProfitLogsPage() {
                       <p className="text-xs text-muted-foreground">{new Date(entry.created_at).toLocaleDateString()}</p>
                     </div>
                   </div>
-                  <p className={`whitespace-nowrap font-semibold tabular-nums ${entry.type === "earning" ? "text-success" : "text-foreground"}`}>
-                    {meta.sign}GH₵{entry.amount.toFixed(2)}
+                  <p className={`whitespace-nowrap font-semibold tabular-nums ${entry.type === "earning" && entry.amount >= 0 ? "text-success" : "text-foreground"}`}>
+                    {formatSignedGhs(entry.amount, meta.sign)}
                   </p>
                 </div>
               )

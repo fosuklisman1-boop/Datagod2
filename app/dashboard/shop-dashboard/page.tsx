@@ -19,6 +19,7 @@ import { toast } from "sonner"
 import { ReportProblemDialog } from "@/components/support/report-problem-dialog"
 import { complaintEligibility } from "@/lib/support-eligibility"
 import { chunk } from "@/lib/support-client"
+import { describeShopProfit } from "@/lib/shop-profit-label"
 
 export default function ShopDashboardPage() {
   const { user } = useAuth()
@@ -989,7 +990,7 @@ export default function ShopDashboardPage() {
                       >
                         <div className="flex-1">
                           <p className="font-semibold">GHS {(profitAmount || 0).toFixed(2)}</p>
-                          <p className="text-sm text-muted-foreground">{profit.profit_type || "Order Profit"}</p>
+                          <p className="text-sm text-muted-foreground">{describeShopProfit(profit)}</p>
                           <p className="text-xs text-muted-foreground">{new Date(profit.created_at).toLocaleDateString()}</p>
                         </div>
                         <div className="text-right">
