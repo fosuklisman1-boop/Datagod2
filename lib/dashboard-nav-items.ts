@@ -4,7 +4,7 @@ import {
   GraduationCap, Send, ShieldAlert, Code2, Tag, Banknote, Lightbulb, Wifi, Trophy, MessageSquareText,
   Lock, Download, ArrowRightLeft, RotateCcw, CreditCard, BadgeCheck, Crown,
   Signal, ClipboardCheck, Percent, Phone, PhoneOff, SmartphoneNfc, MessageCircle,
-  Hash, MessageSquare, BookOpen, Shield, Gauge, Clock, Globe, HandCoins, Ban, Receipt,
+  Hash, MessageSquare, BookOpen, Shield, Gauge, Clock, Globe, HandCoins, Ban, Receipt, ShieldCheck,
   type LucideIcon,
 } from "lucide-react"
 import { isPathAllowedForService, isPageHidden, type DomainService } from "./custom-domains"
@@ -155,6 +155,7 @@ export const adminNavItems: readonly AdminNavItem[] = [
   { href: "/admin/payment-attempts", label: "Payment Attempts", icon: Receipt, group: "admin-money" },
   { href: "/admin/payment-reverify", label: "Payment Reverify", icon: BadgeCheck, group: "admin-money" },
   { href: "/admin/momo-claims", label: "MoMo Claims", icon: HandCoins, group: "admin-money" },
+  { href: "/admin/roles", label: "Roles & Tiers", icon: ShieldCheck, group: "admin-money" },
   { href: "/admin/subscriptions", label: "Dealer Plans", icon: Crown, group: "admin-money" },
   { href: "/admin/subscribers", label: "Subscribers", icon: Users, group: "admin-money" },
 

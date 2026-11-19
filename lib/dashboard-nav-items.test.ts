@@ -194,6 +194,7 @@ describe("sidebar groups", () => {
       "/admin/sms-centre", "/admin/sms-health", "/admin/subscribers", "/admin/subscriptions",
       "/admin/text-to-buy", "/admin/transactions", "/admin/user-phone-audit", "/admin/ussd-hubtel",
       "/admin/ussd-shops", "/admin/utility-bills", "/admin/whatsapp", "/admin/withdrawal-history",
+      "/admin/roles", // added 2026-11-19 (roles hub)
     ]
     const hrefs = adminNavItems.map(i => i.href)
     expect(new Set(hrefs).size).toBe(hrefs.length)
