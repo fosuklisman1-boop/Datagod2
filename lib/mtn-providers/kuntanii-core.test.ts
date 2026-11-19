@@ -122,6 +122,34 @@ describe("attemptId", () => {
   })
 })
 
+// Kuntanii refunds a processed order WITHOUT changing its status: the only signal is
+// the recipient moving to failedEntries (2026-11-18: 48 orders, all fe=1 se=0).
+const refunded = { status: "processed", entries: 1, successfulEntries: 0, failedEntries: 1, notReceivedStatus: "resolved" }
+
+describe("refunded orders (processed but the recipient failed)", () => {
+  it("aggregates a refunded order as failed", () => {
+    expect(aggregateOrdersStatus([refunded])).toBe("failed")
+  })
+  it("treats a refunded 'not received' order as failed too", () => {
+    expect(aggregateOrdersStatus([{ ...refunded, status: "not received" }])).toBe("failed")
+  })
+  it("keeps a processed order with a resolved dispute but no failed recipient completed", () => {
+    expect(aggregateOrdersStatus([{ ...refunded, successfulEntries: 1, failedEntries: 0 }])).toBe("completed")
+  })
+  it("keeps a partially delivered order completed (some recipient got data)", () => {
+    expect(aggregateOrdersStatus([{ status: "processed", entries: 2, successfulEntries: 1, failedEntries: 1 }])).toBe("completed")
+  })
+  it("keeps a processed order without entry counts completed", () => {
+    expect(aggregateOrdersStatus([{ status: "processed" }])).toBe("completed")
+  })
+  it("does not fail an order still processing just because an entry failed", () => {
+    expect(aggregateOrdersStatus([{ status: "processing", failedEntries: 1, successfulEntries: 0 }])).toBe("processing")
+  })
+  it("moves to the next attempt instead of resuming a refunded one", () => {
+    expect(existingAttemptAction([refunded])).toBe("next")
+  })
+})
+
 describe("existingAttemptAction", () => {
   it("decides next vs resume", () => {
     expect(existingAttemptAction([{ status: "cancelled" }, { status: "cancelled" }])).toBe("next")

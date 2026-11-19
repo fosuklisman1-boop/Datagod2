@@ -8,6 +8,7 @@ import { fetchReversalCandidates, isReversal, flagReversal } from "@/lib/mtn-rev
 import { checkUnknownAttempts } from "@/lib/mtn-providers/kuntanii-unknown-attempts"
 import { refreshStaleDisputes, sweepOrphanClaims } from "@/lib/mtn-providers/kuntanii-disputes"
 import { applyKuntaniiStatusChange, type KuntaniiSyncRow } from "@/lib/mtn-providers/kuntanii-sync"
+import { KUNTANII_REFUND_WINDOW_MS } from "@/lib/mtn-providers/kuntanii-core"
 
 // Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
 export const GET = backgroundCron("sync-kuntanii", (request) => runKuntaniiSync(request))
@@ -112,11 +113,16 @@ async function syncStatuses() {
     }
 
     let reversed = 0
-    const reversalCandidates = await fetchReversalCandidates(supabase, "kuntanii", BATCH_SIZE)
+    // Kuntanii refunds arrive via disputes, days later and with the status still "processed"
+    // (see isRefundedEntry): rotate through a 7-day window rather than re-reading the newest rows.
+    const reversalCandidates = await fetchReversalCandidates(supabase, "kuntanii", BATCH_SIZE, {
+        windowMs: KUNTANII_REFUND_WINDOW_MS,
+        rotateAt: new Date(),
+    })
     for (const cand of reversalCandidates) {
         const chk = await checkMTNOrderStatus((cand as any).mtn_order_id, "kuntanii")
         if (!chk.success || !chk.status) { await sleep(DELAY_BETWEEN_REQUESTS_MS); continue }
-        if (isReversal({ trackingStatus: "completed", completedAt: (cand as any).updated_at, providerStatus: chk.status })) {
+        if (isReversal({ trackingStatus: "completed", completedAt: (cand as any).updated_at, providerStatus: chk.status, windowMs: KUNTANII_REFUND_WINDOW_MS })) {
             await flagReversal(supabase, cand, { status: chk.order?.status ?? "failed", message: chk.message })
             reversed++
         }

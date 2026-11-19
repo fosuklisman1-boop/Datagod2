@@ -47,12 +47,14 @@ export function isReversal(args: {
   completedAt: string | Date
   providerStatus: string
   now?: Date
+  /** Provider-specific window; defaults to REVERSAL_WINDOW_MS (72h). */
+  windowMs?: number
 }): boolean {
   if (args.trackingStatus !== "completed") return false
   if (args.providerStatus !== "failed") return false
   const now = args.now ?? new Date()
   const completed = new Date(args.completedAt).getTime()
-  return now.getTime() - completed <= REVERSAL_WINDOW_MS
+  return now.getTime() - completed <= (args.windowMs ?? REVERSAL_WINDOW_MS)
 }
 
 function orderTarget(row: ReversalRow): { table: string; col: "status" | "order_status"; id: string } | null {
@@ -163,8 +165,22 @@ export async function flagReversal(
  * response for it isn't a reversal — it's the same failure that was always
  * there.
  */
-export async function fetchReversalCandidates(supabase: SupabaseClient, provider: string, limit = 200): Promise<ReversalRow[]> {
-  const since = new Date(Date.now() - REVERSAL_WINDOW_MS).toISOString()
+export async function fetchReversalCandidates(
+  supabase: SupabaseClient,
+  provider: string,
+  limit = 200,
+  opts: {
+    windowMs?: number
+    /**
+     * Rotate through the WHOLE window instead of re-reading the newest `limit` rows
+     * every run: candidates are split into ceil(n / limit) stable hash shards and
+     * the shard for this minute is returned, so every row is re-checked once per
+     * rotation. Without it a busy provider only ever re-checks its last few hours.
+     */
+    rotateAt?: Date
+  } = {},
+): Promise<ReversalRow[]> {
+  const since = new Date(Date.now() - (opts.windowMs ?? REVERSAL_WINDOW_MS)).toISOString()
   const { data } = await supabase
     .from("mtn_fulfillment_tracking")
     .select("id, mtn_order_id, order_type, order_id, shop_order_id, api_order_id, provider, status, external_status, updated_at")
@@ -173,6 +189,24 @@ export async function fetchReversalCandidates(supabase: SupabaseClient, provider
     .gte("updated_at", since)
     .not("mtn_order_id", "is", null)
     .order("updated_at", { ascending: false })
-    .limit(limit)
-  return ((data as any[]) ?? []).filter((row) => looksProviderCompleted(row.external_status))
+    .limit(opts.rotateAt ? ROTATION_SCAN_CAP : limit)
+  const rows = ((data as any[]) ?? []).filter((row) => looksProviderCompleted(row.external_status))
+  if (!opts.rotateAt || rows.length <= limit) return rows
+
+  const shards = Math.ceil(rows.length / limit)
+  const shard = Math.floor(opts.rotateAt.getTime() / 60_000) % shards
+  return rows.filter((row) => stableHash(String(row.id)) % shards === shard)
+}
+
+/** Upper bound on rows read per rotating sweep (light columns only). */
+const ROTATION_SCAN_CAP = 5000
+
+/** FNV-1a: a row keeps its shard for as long as the shard count holds. */
+function stableHash(s: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return h >>> 0
 }

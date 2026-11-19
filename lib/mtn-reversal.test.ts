@@ -98,6 +98,87 @@ describe("fetchReversalCandidates", () => {
   })
 })
 
+describe("isReversal with a provider-specific window", () => {
+  const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString()
+  it("flags a 5-day-old completion when the window is 7 days", () => {
+    expect(isReversal({ trackingStatus: "completed", completedAt: fiveDaysAgo, providerStatus: "failed", now, windowMs: 7 * 24 * 60 * 60 * 1000 })).toBe(true)
+  })
+  it("still ignores it under the default 72h window", () => {
+    expect(isReversal({ trackingStatus: "completed", completedAt: fiveDaysAgo, providerStatus: "failed", now })).toBe(false)
+  })
+})
+
+describe("fetchReversalCandidates rotation", () => {
+  // Kuntanii's sweep used to read only the 50 most recently updated completed rows,
+  // so a refund on anything older than ~8h of traffic was never seen.
+  function makeRecordingFake(rows: any[]) {
+    const calls: { gte?: [string, string]; limit?: number; order?: [string, any] } = {}
+    const fake: any = {
+      from() {
+        return {
+          select() {
+            const q: any = {
+              eq() { return q },
+              gte(col: string, v: string) { calls.gte = [col, v]; return q },
+              not() { return q },
+              order(col: string, o: any) { calls.order = [col, o]; return q },
+              limit: (n: number) => { calls.limit = n; return Promise.resolve({ data: rows }) },
+            }
+            return q
+          },
+        }
+      },
+    }
+    return { fake, calls }
+  }
+  const rows = Array.from({ length: 120 }, (_, i) => ({
+    id: `trk-${i}`, mtn_order_id: `m-${i}`, provider: "kuntanii", status: "completed", external_status: "processed", updated_at: now.toISOString(),
+  }))
+  const minute = (n: number) => new Date(Date.UTC(2026, 10, 19, 0, n))
+
+  it("covers every candidate exactly once across consecutive minutes", async () => {
+    const { fake } = makeRecordingFake(rows)
+    const seen = new Map<string, number>()
+    // 120 rows / 50 per run -> 3 shards; minutes 0..2 cover one full rotation.
+    for (let m = 0; m < 3; m++) {
+      const picked = await fetchReversalCandidates(fake, "kuntanii", 50, { rotateAt: minute(m) })
+      for (const r of picked) seen.set(r.id, (seen.get(r.id) ?? 0) + 1)
+    }
+    expect(seen.size).toBe(120)
+    expect([...seen.values()].every((n) => n === 1)).toBe(true)
+  })
+
+  it("returns a stable shard for the same minute", async () => {
+    const { fake } = makeRecordingFake(rows)
+    const a = await fetchReversalCandidates(fake, "kuntanii", 50, { rotateAt: minute(7) })
+    const b = await fetchReversalCandidates(fake, "kuntanii", 50, { rotateAt: minute(7) })
+    expect(a.map((r) => r.id)).toEqual(b.map((r) => r.id))
+    expect(a.length).toBeGreaterThan(0)
+    expect(a.length).toBeLessThan(120)
+  })
+
+  it("reads the whole window (not just `limit` rows) and honours windowMs", async () => {
+    const { fake, calls } = makeRecordingFake(rows)
+    const windowMs = 7 * 24 * 60 * 60 * 1000
+    await fetchReversalCandidates(fake, "kuntanii", 50, { rotateAt: minute(0), windowMs })
+    expect(calls.limit).toBeGreaterThan(50)
+    const since = new Date(calls.gte![1]).getTime()
+    expect(Math.abs(Date.now() - windowMs - since)).toBeLessThan(5000)
+  })
+
+  it("returns everything when candidates fit in one run", async () => {
+    const { fake } = makeRecordingFake(rows.slice(0, 30))
+    const picked = await fetchReversalCandidates(fake, "kuntanii", 50, { rotateAt: minute(4) })
+    expect(picked).toHaveLength(30)
+  })
+
+  it("still drops rows the provider never confirmed completed", async () => {
+    const { fake } = makeRecordingFake([{ ...rows[0], external_status: "refunded" }, rows[1]])
+    const picked = await fetchReversalCandidates(fake, "kuntanii", 50, { rotateAt: minute(0) })
+    expect(picked.map((r) => r.id)).toEqual(["trk-1"])
+  })
+})
+
 describe("flagReversal", () => {
   // siblingRows: rows returned by the "any other tracking row for this order
   // already completed?" lookup — [] means no sibling (normal reversal path).

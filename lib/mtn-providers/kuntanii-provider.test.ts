@@ -666,6 +666,35 @@ describe("createOrder placement", () => {
   })
 })
 
+describe("refunded attempts", () => {
+  const refundedBody = (id: string) => ({
+    ok: true,
+    status: 200,
+    data: {
+      externalOrderId: id,
+      orders: [{ status: "processed", entries: 1, successfulEntries: 0, failedEntries: 1, notReceivedStatus: "resolved" }],
+    },
+  })
+
+  it("checkOrderStatus reports a refunded order as failed with raw status 'refunded'", async () => {
+    const client = fakeClient({ getOrder: vi.fn(async () => refundedBody("ord1")) })
+    const { provider } = setup({ client })
+    const r = await provider.checkOrderStatus("ord1")
+    expect(r.status).toBe("failed")
+    expect(r.order.status).toBe("refunded")
+  })
+
+  it("re-send places a fresh -r2 attempt rather than resuming the refunded one", async () => {
+    const client = fakeClient({
+      getOrder: vi.fn(async (id: string) => (id === "ord1" ? refundedBody("ord1") : notFound())),
+    })
+    const { provider } = setup({ client })
+    const r = await provider.createOrder(req())
+    expect(client.placeOrder).toHaveBeenCalledWith(expect.objectContaining({ externalOrderId: "ord1-r2" }))
+    expect(r).toMatchObject({ success: true, order_id: "ord1-r2" })
+  })
+})
+
 describe("checkOrderStatus", () => {
   it("checkOrderStatus maps processed → completed and passes body through", async () => {
     const body = { externalOrderId: "ord1", orders: [{ status: "processed", notReceivedStatus: null }] }
