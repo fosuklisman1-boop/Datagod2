@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { resolveCashbackConfig } from "./config"
 import { quoteCashback } from "./quote"
-import { cashbackShareKeys, resolveBuyerShare } from "./buyer-share"
+import { cashbackShareKeys, resolveBuyerShare, resolveBuyerShares } from "./buyer-share"
 import { RoleReadError } from "../roles/repo"
 
 const ROLES = [
   { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
   { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
   { id: "r-gold", slug: "gold", rank: 20, is_system: false, archived_at: null },
+  { id: "r-mid", slug: "mid", rank: 5, is_system: false, archived_at: null },
 ]
 
 const cfg = resolveCashbackConfig({
@@ -54,11 +55,27 @@ describe("resolveBuyerShare", () => {
     expect(await resolveBuyerShare(db, "user", "data_mtn", cfg, false)).toBeUndefined()
     expect(tables).toEqual([])
   })
-  it("custom role, no rows: legacy effective share by tier (incl. per-service override)", async () => {
+  it("custom role ranked above dealer, no rows: dealer share along the ladder (incl. per-service override)", async () => {
     const { db } = fakeDb([])
-    expect(await resolveBuyerShare(db, "gold", "data_mtn", cfg, true)).toBe(55)
-    expect(await resolveBuyerShare(db, "gold", "data_mtn", cfg, false)).toBe(10)
-    expect(await resolveBuyerShare(db, "gold", "bill_ecg", cfg, true)).toBe(40)
+    expect(await resolveBuyerShare(db, "gold", "data_mtn", cfg, false)).toBe(55)
+    expect(await resolveBuyerShare(db, "gold", "bill_ecg", cfg, false)).toBe(40)
+  })
+  it("custom role between user and dealer (rank 5), no rows: customer share", async () => {
+    const { db } = fakeDb([])
+    expect(await resolveBuyerShare(db, "mid", "data_mtn", cfg, true)).toBe(10)
+    expect(await resolveBuyerShare(db, "mid", "bill_ecg", cfg, true)).toBe(10)
+  })
+  it("a group row on the dealer role is found along the ladder before legacy", async () => {
+    const { db } = fakeDb([{ role_id: "r-dealer", service_key: "cashback_share:bundles", value: 22 }])
+    expect(await resolveBuyerShare(db, "gold", "data_mtn", cfg, false)).toBe(22)
+  })
+  it("batch: one roles read and one rates read, per-service legacy kept", async () => {
+    const { db, tables } = fakeDb([])
+    const m = await resolveBuyerShares(db, "gold", ["data_mtn", "bill_ecg", "nope"], cfg)
+    expect(m.get("data_mtn")).toBe(55)
+    expect(m.get("bill_ecg")).toBe(40)
+    expect(m.get("nope")).toBeUndefined()
+    expect(tables).toEqual(["roles", "role_service_rates"])
   })
   it("group row beats legacy; service row beats group row", async () => {
     const g = fakeDb([{ role_id: "r-gold", service_key: "cashback_share:bundles", value: 25 }])

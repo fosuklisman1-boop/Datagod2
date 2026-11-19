@@ -77,11 +77,6 @@ export async function airtimeFeeRateForDisplay(network: string, slug: string, ti
   }
 }
 
-/** Platform base fee rate (%) for a network, by buyer tier. */
-export async function airtimeBaseFeeRate(network: string, isDealer: boolean): Promise<number> {
-  return airtimeFeeRateFor(network, isDealer ? "dealer" : "user")
-}
-
 /**
  * Fee-inclusive split (pay_separately = false): the caller's `amount` is the
  * total they pay; the recipient receives `amount − fee`.

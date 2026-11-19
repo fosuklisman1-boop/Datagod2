@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { authenticate } from "@/lib/bills/route-auth"
 import { getBuyerRateRole } from "@/lib/bills/runtime"
-import { resolveBuyerShare } from "@/lib/cashback/buyer-share"
+import { resolveBuyerShares } from "@/lib/cashback/buyer-share"
 import { getCashbackConfig } from "@/lib/cashback/config"
 import { buildCashbackRates, NO_CASHBACK_RATES } from "@/lib/cashback/rates"
 import { getAirtimeProvider } from "@/lib/airtime-provider"
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
       cfg, buyer,
       network => getAirtimeProvider(db, network, isDigiWapyEnabledForNetwork),
       isDigiWapyConfigured(),
-      serviceKey => resolveBuyerShare(db, slug, serviceKey, cfg, buyer === "dealer"),
+      serviceKeys => resolveBuyerShares(db, slug, serviceKeys, cfg),
     )
     return NextResponse.json(rates)
   } catch (e) {

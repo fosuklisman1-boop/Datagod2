@@ -718,6 +718,6 @@ describe("purchaseAirtime — cashback share resolves per role", () => {
     expect(h.state.orderInserts[1]).toMatchObject({ cashback_share: 60 })
     h.state.roleRates = []
     await buy({ paySeparately: true, beneficiaryPhone: "0241234567" })
-    expect(h.state.orderInserts[2]).toMatchObject({ cashback_share: 25 }) // no rows: legacy share by rule-A tier (gold has no shop => customer)
+    expect(h.state.orderInserts[2]).toMatchObject({ cashback_share: 50 }) // no rows: gold is ranked above dealer, so the ladder reaches dealer => dealer share
   })
 })

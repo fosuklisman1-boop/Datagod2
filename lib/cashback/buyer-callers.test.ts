@@ -69,7 +69,7 @@ describe("getBuyerQuoteInput (bills / standard bundles runtime)", () => {
     ]
     expect(await getBuyerQuoteInput(fakeDb({ role: "gold", rows }).db, "u1", "data_mtn", cfg)).toEqual({ buyer: "customer", buyerShare: 33 })
     expect(await getBuyerQuoteInput(fakeDb({ role: "gold", rows }).db, "u1", "bill_ecg", cfg)).toEqual({ buyer: "customer", buyerShare: 22 })
-    expect(await getBuyerQuoteInput(fakeDb({ role: "gold", rows: [] }).db, "u1", "data_mtn", cfg)).toEqual({ buyer: "customer", buyerShare: 10 })
+    expect(await getBuyerQuoteInput(fakeDb({ role: "gold", rows: [] }).db, "u1", "data_mtn", cfg)).toEqual({ buyer: "customer", buyerShare: 55 }) // gold ranks above dealer: ladder legacy = dealer share
   })
   it("custom role roles-read failure throws (not applied)", async () => {
     await expect(getBuyerQuoteInput(fakeDb({ role: "gold", rolesError: true }).db, "u1", "data_mtn", cfg)).rejects.toBeTruthy()
@@ -115,9 +115,14 @@ describe("buildCashbackRates (display)", () => {
     expect(r.services.bill_ecg?.share).toBe(40)
   })
   it("resolver share is displayed and used; undefined falls back to the tier share", async () => {
-    const r = await buildCashbackRates(cfg, "customer", prov, false, async (k) => (k === "data_mtn" ? 70 : undefined))
+    const r = await buildCashbackRates(cfg, "customer", prov, false, async (keys) => new Map(keys.map((k) => [k, k === "data_mtn" ? 70 : undefined] as [string, number | undefined])))
     expect(r.services.data_mtn?.share).toBe(70)
     expect(r.services.bill_ecg?.share).toBe(10)
+  })
+  it("resolver is called once for all service keys", async () => {
+    let calls = 0
+    await buildCashbackRates(cfg, "customer", prov, false, async (keys) => { calls++; return new Map(keys.map((k) => [k, undefined])) })
+    expect(calls).toBe(1)
   })
   it("resolver failure propagates (route shows no rates)", async () => {
     await expect(buildCashbackRates(cfg, "customer", prov, false, async () => { throw new Error("x") })).rejects.toBeTruthy()

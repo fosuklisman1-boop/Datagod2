@@ -17,11 +17,15 @@ export async function buildCashbackRates(
   buyer: "customer" | "dealer",
   resolveAirtimeProvider: (network: string) => Promise<AirtimeProvider>,
   digiwapyConfigured: boolean,
-  /** A custom role's share per service key (undefined = today's tier share). A throw fails the whole display (not applied). */
-  buyerShareFor?: (serviceKey: string) => Promise<number | undefined>,
+  /** A custom role's shares for all needed service keys in one batch (undefined = today's tier share). A throw fails the whole display (not applied). */
+  buyerSharesFor?: (serviceKeys: string[]) => Promise<Map<string, number | undefined>>,
 ): Promise<RatesResponse> {
   if (!cfg.enabled || !cfg.surfaces.dashboard) return NO_CASHBACK_RATES
   const services: Record<string, RateEntry> = {}
+  const neededKeys = [...new Set(
+    Object.keys(cfg.rates).map((rk) => rk.split(":")[0]).filter((k) => k && groupOf(k) !== null),
+  )]
+  const shares = buyerSharesFor && neededKeys.length > 0 ? await buyerSharesFor(neededKeys) : undefined
   const airtimeProviders: Record<string, AirtimeProvider> = {}
   for (const rateKey of Object.keys(cfg.rates)) {
     const [serviceKey, ratedProvider] = rateKey.split(":")
@@ -36,7 +40,7 @@ export async function buildCashbackRates(
       continue
     }
     if (provider !== ratedProvider) continue
-    const buyerShare = await buyerShareFor?.(serviceKey)
+    const buyerShare = shares?.get(serviceKey)
     const q = quoteCashback({ serviceKey, provider: provider as "hubtel" | "digiwapy", faceAmount: 100, buyer, buyerShare, channel: "dashboard" }, cfg)
     if (!q.applied) continue
     const entry: RateEntry = { provider, rate: q.rate, share: buyerShare ?? effectiveShares(cfg, serviceKey)[buyer] }

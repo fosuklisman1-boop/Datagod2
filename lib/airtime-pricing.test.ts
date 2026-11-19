@@ -32,7 +32,7 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }))
 
-import { airtimeBaseFeeRate, airtimeFeeRateFor, airtimeFeeRateForDisplay } from "./airtime-pricing"
+import { airtimeFeeRateFor, airtimeFeeRateForDisplay } from "./airtime-pricing"
 import { RoleReadError } from "./roles/repo"
 
 const ROLES = [
@@ -109,9 +109,9 @@ describe("airtimeFeeRateForDisplay", () => {
   })
 })
 
-describe("airtimeBaseFeeRate wrapper", () => {
-  it("is the dealer/user slug rate", async () => {
-    expect(await airtimeBaseFeeRate("MTN", true)).toBe(2)
-    expect(await airtimeBaseFeeRate("MTN", false)).toBe(4)
+describe("airtimeFeeRateFor system slugs", () => {
+  it("dealer/user slugs give the legacy tier rate", async () => {
+    expect(await airtimeFeeRateFor("MTN", "dealer")).toBe(2)
+    expect(await airtimeFeeRateFor("MTN", "user")).toBe(4)
   })
 })
