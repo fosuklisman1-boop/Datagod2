@@ -56,6 +56,20 @@ const BAD_REQUEST_PATTERNS = [
   "both roles must be ranked",
   "the user role cannot be re-ranked",
   "two different roles required",
+  // prices / rates / permissions (0187)
+  "has no price tier",
+  "changes must be an array",
+  "each change must be an object",
+  "package_id required",
+  "duplicate package_id",
+  "price key required",
+  "price must be",
+  "bad service_key",
+  "duplicate service_key",
+  "value key required",
+  "value must be",
+  "capabilities required",
+  "invalid capability key",
 ]
 
 /** Translate a function error into a response. Never echoes DB details for unknown errors. */
@@ -66,6 +80,8 @@ export function mapRpcError(error: unknown, memberCount?: number): NextResponse 
   }
   if (msg.includes("ranks changed, reload")) return conflict("The ladder changed. Reload and try again.")
   if (msg.includes("role is archived")) return badRequest("Unknown role")
+  if (msg.includes("is below cost")) return conflict("Some prices are below cost.")
+  if (/^package \S+ not found/.test(msg)) return badRequest("unknown package")
   if (msg.includes("is already in use")) return conflict("That rank is already in use.")
   if (msg.includes("slug already in use")) return conflict("That slug is already in use.")
   if (BAD_REQUEST_PATTERNS.some((p) => msg.includes(p)) && !CONFLICT_PATTERNS.some((p) => msg.includes(p))) {
