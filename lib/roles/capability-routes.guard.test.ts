@@ -4,7 +4,10 @@ import fs from "node:fs"
 import path from "node:path"
 import { GATED_ROUTES, UNGATED_SESSION_ROUTES } from "./capability-routes"
 
-const API = path.join(process.cwd(), "app", "api")
+const HELPER_GATES: Record<string, { cap: string; file: string }> = {
+  "@/lib/sms/tenant-auth": { cap: "shop.sms", file: "lib/sms/tenant-auth.ts" },
+}
+const API =path.join(process.cwd(), "app", "api")
 const EXCLUDED = ["admin", "v1", "v2", "cron", "webhook", "webhooks", "public"]
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -21,7 +24,14 @@ const routes = walk(API).filter((f) => !EXCLUDED.includes(rel(f).split("/")[0]))
 describe("capability route guard", () => {
   const session = routes.filter((f) => {
     const s = fs.readFileSync(f, "utf8")
-    return s.includes("auth.getUser(") || s.includes("authenticate(request")
+    // Any session-auth entry point: direct getUser, and the shared helpers routes authenticate through.
+    return /\.getUser\(|\bauthenticate\(|\bresolveAccount\(|\bauthUserId\(|\bgetSessionUser\(/.test(s)
+  })
+
+  it("detects helper-authenticated routes (tenant SMS, text-orders)", () => {
+    const keys = session.map(rel)
+    expect(keys).toContain("sms/contacts")
+    expect(keys).toContain("user/text-orders")
   })
 
   it("finds session routes", () => expect(session.length).toBeGreaterThan(20))
@@ -42,7 +52,11 @@ describe("capability route guard", () => {
       const f = path.join(API, k, "route.ts")
       if (!fs.existsSync(f)) { bad.push(`${k} missing`); continue }
       const s = fs.readFileSync(f, "utf8")
-      if (!s.includes("requireCapability(") || !s.includes(`"${cap}"`)) bad.push(k)
+      // A route may gate through a shared helper that itself calls requireCapability with the same capability.
+      const helper = Object.entries(HELPER_GATES).find(([imp]) => s.includes(`"${imp}"`) && s.includes("resolveAccount("))
+      const helperOk = !!helper && helper[1].cap === cap &&
+        (() => { const h = fs.readFileSync(path.join(process.cwd(), helper[1].file), "utf8"); return h.includes("requireCapability(") && h.includes(`"${cap}"`) })()
+      if (!((s.includes("requireCapability(") && s.includes(`"${cap}"`)) || helperOk)) bad.push(k)
     }
     expect(bad).toEqual([])
   })

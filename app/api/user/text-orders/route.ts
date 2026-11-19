@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { authUserId } from "@/lib/blocked-numbers/user-auth"
 import { buildOwnerView, loadOwnerRaw } from "@/lib/text-to-buy/owner-view"
 
@@ -12,6 +13,10 @@ export const dynamic = "force-dynamic"
 export async function GET(request: NextRequest) {
   const userId = await authUserId(request)
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  // Dashboard-only view; inbound text-to-buy orders never pass through this route and are never gated.
+  const denied = await requireCapability(supabaseAdmin, userId, "shop.text_orders")
+  if (denied) return denied
 
   try {
     const raw = await loadOwnerRaw(supabaseAdmin, userId)

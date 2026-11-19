@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 let authUser: { id: string } | null = { id: "user-1" }
 const loadOwnerRaw = vi.fn()
+const cap = vi.hoisted(() => ({ requireCapability: vi.fn(async (..._a: unknown[]): Promise<unknown> => null) }))
+vi.mock("@/lib/roles/require-capability", () => cap)
+const denied403 = () => new Response(JSON.stringify({ error: "This feature isn't available for your account." }), { status: 403 })
 
 vi.mock("@/lib/supabase", () => ({
   supabaseAdmin: {
@@ -34,6 +37,14 @@ beforeEach(() => {
 })
 
 describe("GET /api/user/text-orders", () => {
+  it("403 when the role lacks shop.text_orders, before any read", async () => {
+    cap.requireCapability.mockResolvedValueOnce(denied403())
+    const res = await GET(req(true))
+    expect(res.status).toBe(403)
+    expect(cap.requireCapability).toHaveBeenCalledWith(expect.anything(), "user-1", "shop.text_orders")
+    expect(loadOwnerRaw).not.toHaveBeenCalled()
+  })
+
   it("401 without a Bearer token and reads nothing", async () => {
     const res = await GET(req(false))
     expect(res.status).toBe(401)

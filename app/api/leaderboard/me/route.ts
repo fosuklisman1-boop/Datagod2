@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { BOARDS, parsePeriodQuery, type Board } from "@/lib/leaderboard/periods"
 import { getMyRank } from "@/lib/leaderboard/service"
 import { getLeaderboardConfig, myRankFromResults, notRankedReason, NOT_RANKED_MESSAGE, PAUSED_MESSAGE } from "@/lib/leaderboard/public"
@@ -31,6 +32,9 @@ export async function GET(request: NextRequest) {
   if (authError || !user) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
+
+  const denied = await requireCapability(db, user.id, "account.leaderboard")
+  if (denied) return denied
 
   const rate = await applyRateLimit(request, "leaderboard_me", 30, 60 * 1000, user.id)
   if (!rate.allowed) {

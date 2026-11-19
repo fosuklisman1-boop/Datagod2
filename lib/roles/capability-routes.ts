@@ -48,6 +48,28 @@ export const GATED_ROUTES: Readonly<Record<string, Capability>> = {
   "wallet/momo-sessions": "account.wallet",
   "user/keys": "account.api",
   "user/v2-keys": "account.api",
+  // Tenant SMS routes: gated once in lib/sms/tenant-auth.ts resolveAccount (shop.sms).
+  "sms/business/documents": "shop.sms",
+  "sms/business": "shop.sms",
+  "sms/business/submit": "shop.sms",
+  "sms/compose/preview": "shop.sms",
+  "sms/contacts": "shop.sms",
+  "sms/contacts/verify": "shop.sms",
+  "sms/contacts/[id]": "shop.sms",
+  "sms/groups": "shop.sms",
+  "sms/groups/[id]/preview": "shop.sms",
+  "sms/groups/[id]": "shop.sms",
+  "sms/home": "shop.sms",
+  "sms/ledger": "shop.sms",
+  "sms/logs": "shop.sms",
+  "sms/logs/[id]/cancel": "shop.sms",
+  "sms/logs/[id]": "shop.sms",
+  "sms/order-confirmations": "shop.sms",
+  "user/text-orders": "shop.text_orders",
+  "leaderboard": "account.leaderboard",
+  "leaderboard/me": "account.leaderboard",
+  // account.upgrade: sidebar-only; no dedicated server route (the upgrade payment goes through the shared
+  // payments/initialize and its callbacks, which stay ungated so a dealer upgrade can always complete).
 }
 
 export const UNGATED_SESSION_ROUTES: Readonly<Record<string, string>> = {
@@ -78,8 +100,8 @@ export const UNGATED_SESSION_ROUTES: Readonly<Record<string, string>> = {
   "ai/chat": "support chat, always available",
   "debug/shop": "read-only diagnostic for the member's own shop",
   "verify-phone-live": "non-blocking MTN number preview at checkout, no write",
-  "leaderboard": "read-only public ranking",
-  "leaderboard/me": "read-only own ranking",
+  "user/blocked-numbers": "read-only list of the member's own blocked numbers (no capability governs it)",
+  "user/blocked-numbers/export": "read-only export of the member's own blocked numbers",
   "subscriptions/current": "read-only subscription status",
   // Read-only lists and stats (the pages that show them are hidden by the role-driven sidebar).
   "airtime/my-rates": "read-only",
