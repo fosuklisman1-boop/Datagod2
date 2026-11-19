@@ -68,7 +68,7 @@ export const MARGINS_NOT_REVERSED_NOTE =
  */
 export async function changeUserRole(
   db: SupabaseClient,
-  opts: { userId: string; role: string; adminId?: string | null },
+  opts: { userId: string; role: string; adminId?: string | null; reason?: string },
 ): Promise<RoleChangeResult> {
   const { userId, role, adminId } = opts
 
@@ -181,10 +181,12 @@ export async function changeUserRole(
     ? await writeAudit(db, {
         admin_id: adminId, action: "user_role_change", target_user_id: userId,
         old_value: { role: oldRole },
-        new_value:
-          strategy === "recompute"
+        new_value: {
+          ...(strategy === "recompute"
             ? { role, margin_mode: "recompute", margin_adjustments: margin_adjustments ?? [] }
-            : margin_adjustments ? { role, margin_adjustments } : notReversed ? { role, margins_not_reversed: true } : { role },
+            : margin_adjustments ? { role, margin_adjustments } : notReversed ? { role, margins_not_reversed: true } : { role }),
+          ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+        },
       })
     : false
 

@@ -32,6 +32,7 @@ vi.mock("@/lib/push-service", () => ({ sendPushToUser: vi.fn(async () => ({ sent
 
 import { sendPushToUser } from "@/lib/push-service"
 import { POST as RAW_POST } from "./route"
+import { changeUserRole } from "@/lib/admin-users/account-ops"
 
 const POST = async (body: unknown) =>
   (await RAW_POST(new NextRequest("http://x/api/admin/users/update-role", { method: "POST", body: JSON.stringify(body) })))!
@@ -156,6 +157,16 @@ describe("POST /api/admin/users/update-role (shared changeUserRole)", () => {
       admin_id: ADMIN_ID, action: "user_role_change", target_user_id: USER_ID, old_value: { role: "user" },
       new_value: { role: "dealer", margin_adjustments: [{ shop_package_id: "sp1", delta: 2 }, { shop_package_id: "sp2", delta: 0.5 }] },
     })])
+  })
+
+  it("changeUserRole writes opts.reason into new_value.reason, and only when given", async () => {
+    const r1 = await changeUserRole(h.fake.db as any, { userId: USER_ID, role: "dealer", adminId: ADMIN_ID, reason: "promo" })
+    expect(r1).toMatchObject({ ok: true, changed: true })
+    expect(h.audit[0].new_value).toMatchObject({ role: "dealer", reason: "promo" })
+    h.audit = []
+    h.role = "user"
+    await changeUserRole(h.fake.db as any, { userId: USER_ID, role: "dealer", adminId: ADMIN_ID })
+    expect(h.audit[0].new_value).not.toHaveProperty("reason")
   })
 
   it("setting the current role again changes nothing (no second margin bump)", async () => {
