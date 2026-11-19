@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation"
 import { Home, Package, Wallet, ShoppingBag, Store, User, Users, CreditCard, Bot, Signal, Smartphone } from "lucide-react"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useUserRole } from "@/hooks/use-user-role"
+import { useRoleRights } from "@/hooks/use-role-rights"
 import { cn } from "@/lib/utils"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { getServicePrimaryPath, isPageHidden, type DomainService } from "@/lib/custom-domains"
@@ -33,7 +34,8 @@ const ADMIN_NAV = [
 export function BottomNav() {
   const pathname = usePathname()
   const isMobile = useIsMobile()
-  const { isDealer, isAdmin, isSubAgent } = useUserRole()
+  const { isAdmin, isSubAgent } = useUserRole()
+  const { info: roleInfo } = useRoleRights()
   const domainBranding = useDomainBranding()
   const [navVisible, setNavVisible] = useState(true)
   const stateRef = useRef({ visible: true, anchorY: 0 })
@@ -152,7 +154,7 @@ export function BottomNav() {
   // dark panel skin while browsing /admin pages, dealer's amber "Bold Telco"
   // accent (matching e.g. the Wallet balance hero's isDealer ? bg-warning),
   // navy for everyone else.
-  const skin: BottomNavSkin = isAdmin && onAdminPage ? "admin" : isDealer ? "dealer" : "default"
+  const skin: BottomNavSkin = isAdmin && onAdminPage ? "admin" : (roleInfo?.skin ?? "default")
   const c = bottomNavSkinClasses(skin)
 
   return (

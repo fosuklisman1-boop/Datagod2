@@ -1,11 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useUserRole } from "./use-user-role"
+import { useRoleRights } from "./use-role-rights"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { supabase } from "@/lib/supabase"
 import { pickFirstVisiblePath } from "@/lib/dashboard-nav-items"
-import { interimRightsFor } from "@/lib/roles/capabilities"
 
 export interface FirstVisiblePathResult {
   path: string | null
@@ -21,7 +20,9 @@ export interface FirstVisiblePathResult {
  * that never mounts the sidebar.
  */
 export function useFirstVisiblePath(): FirstVisiblePathResult {
-  const { role, loading: roleLoading } = useUserRole()
+  // Rights come from /api/user/role; while loading or on a 503 they are the empty set (always-on items only).
+  const { slug: role, rights, status } = useRoleRights()
+  const roleLoading = status === "loading"
   const domainBranding = useDomainBranding()
   const [dealerHasSubscription, setDealerHasSubscription] = useState(false)
   const [subLoading, setSubLoading] = useState(true)
@@ -57,7 +58,7 @@ export function useFirstVisiblePath(): FirstVisiblePathResult {
   const loading = roleLoading || subLoading
   const path = loading
     ? null
-    : pickFirstVisiblePath(role, interimRightsFor(role), domainBranding.services, domainBranding.hiddenPages, dealerHasSubscription)
+    : pickFirstVisiblePath(role, rights, domainBranding.services, domainBranding.hiddenPages, dealerHasSubscription)
 
   return { path, loading }
 }

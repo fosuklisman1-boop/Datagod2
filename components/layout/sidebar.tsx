@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
@@ -25,8 +25,9 @@ import {
   type GroupState,
   type NavGroupDef,
 } from "@/lib/nav-groups"
-import { roleFromMetadata } from "@/lib/metadata-role"
-import { interimRightsFor, navVisible } from "@/lib/roles/capabilities"
+import { navVisible } from "@/lib/roles/capabilities"
+import { shouldRedirectUnavailable, skinFor } from "@/lib/roles/client-rights"
+import { useRoleRights } from "@/hooks/use-role-rights"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
 import { useAuth } from "@/hooks/use-auth"
@@ -106,18 +107,17 @@ export function Sidebar() {
   const [adminPendingOrderCount, setAdminPendingOrderCount] = useState(0)
   const [waUnreadCount, setWaUnreadCount] = useState(0)
   const [waUnreadCapped, setWaUnreadCapped] = useState(false)
-  const [userRole, setUserRole] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('userRole')
-    }
-    return null
-  })
+  // Role slug, skin and rights come from /api/user/role (cached slug is first paint only).
+  const rightsState = useRoleRights()
+  const userRole = rightsState.slug
+  const rights = rightsState.rights
+  const roleLoading = rightsState.status === "loading"
+  const router = useRouter()
   const [dealerHasSubscription, setDealerHasSubscription] = useState(false)
-  const [roleLoading, setRoleLoading] = useState(true)
   // Starts empty (= every group at its default) so SSR and first paint match;
   // the saved per-device choices load right after mount.
   const [groupState, setGroupState] = useState<GroupState>({})
-  const skin: SidebarSkin = userRole === 'dealer' ? 'dealer' : (isAdmin || userRole === 'admin') ? 'admin' : 'default'
+  const skin: SidebarSkin = skinFor(isAdmin, rightsState.info?.skin ?? null)
   const c = sidebarSkinClasses(skin)
   // Sidebar NEW tags: registry in lib/nav-new.ts, click counts on the user's account.
   const { isNew, markClicked } = useNavNew(user?.id)
@@ -129,60 +129,31 @@ export function Sidebar() {
     await logout()
   }
 
-  // Fetch user role
+  // Dealer-subscription check (drives the "Upgrade" special case); the role itself comes from /api/user/role.
+  const confirmedSlug = rightsState.status === "ok" ? rightsState.slug : null
   useEffect(() => {
-    if (!user) {
-      setRoleLoading(false)
+    if (!user || confirmedSlug !== 'dealer') {
+      setDealerHasSubscription(false)
       return
     }
+    let cancelled = false
+    supabase
+      .from("user_subscriptions")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .maybeSingle()
+      .then(({ data: sub }) => { if (!cancelled) setDealerHasSubscription(!!sub) })
+    return () => { cancelled = true }
+  }, [user, confirmedSlug])
 
-    const fetchRole = async () => {
-      try {
-        setRoleLoading(true)
-        const { data: userData } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", user.id)
-          .single()
-
-        if (userData?.role) {
-          setUserRole(userData.role)
-          localStorage.setItem('userRole', userData.role)
-          console.log("[SIDEBAR] User role from users table:", userData.role)
-
-          if (userData.role === 'dealer') {
-            const { data: sub } = await supabase
-              .from("user_subscriptions")
-              .select("id")
-              .eq("user_id", user.id)
-              .eq("status", "active")
-              .maybeSingle()
-            setDealerHasSubscription(!!sub)
-          }
-        } else {
-          // Fallback: check user_metadata
-          const { data: { user: authUser } } = await supabase.auth.getUser()
-          // user_metadata is user-writable: roleFromMetadata never returns "admin".
-          const metadataRole = roleFromMetadata(authUser?.user_metadata)
-          if (metadataRole) {
-            setUserRole(metadataRole)
-            localStorage.setItem('userRole', metadataRole)
-            console.log("[SIDEBAR] User role from metadata:", metadataRole)
-          } else {
-            setUserRole("user")
-            localStorage.setItem('userRole', "user")
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching user role:", error)
-        setUserRole("user")
-      } finally {
-        setRoleLoading(false)
-      }
+  // A /dashboard page whose nav item this role cannot see goes to /dashboard/unavailable. Only once rights
+  // loaded successfully (never while loading or after a 503) and never for admins.
+  useEffect(() => {
+    if (shouldRedirectUnavailable(pathname ?? "", rightsState, isAdmin)) {
+      router.replace("/dashboard/unavailable")
     }
-
-    fetchRole()
-  }, [user])
+  }, [pathname, rightsState, isAdmin, router])
 
   // Fetch pending orders count from localStorage
   useEffect(() => {
@@ -298,9 +269,6 @@ export function Sidebar() {
       setLoadingPath(href)
     }
   }
-
-  // Interim until the per-role rights fetch lands: user/dealer all capabilities, admin all, sub_agent fixed set.
-  const rights = interimRightsFor(userRole)
 
   const visibleMenuItems = menuItems.filter(item => {
     if (!userRole || !navVisible(item, userRole, rights)) return false

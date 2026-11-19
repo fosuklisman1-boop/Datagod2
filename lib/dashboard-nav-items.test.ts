@@ -88,6 +88,14 @@ describe("nav visibility by capability", () => {
 // except the explicit "main site" test would silently make the hiddenPages
 // argument a no-op and prove nothing.
 
+describe("pickFirstVisiblePath with a custom role", () => {
+  it("a custom role holding only buy.airtime lands on /dashboard/airtime", () => {
+    const rights: RoleRights = { kind: "set", caps: new Set(["buy.airtime"]) }
+    // /dashboard (no cap) is hidden here, as on a domain that hides dashboard_home.
+    expect(pickRaw("custom", rights, null, ["dashboard_home"], false)).toBe("/dashboard/airtime")
+  })
+})
+
 describe("pickFirstVisiblePath", () => {
   it("returns the first menuItem for the main site (services null, nothing hidden)", () => {
     expect(pickFirstVisiblePath("user", null, [], false)).toBe("/dashboard")

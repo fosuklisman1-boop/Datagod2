@@ -76,14 +76,3 @@ export function navVisible(item: NavItem, slug: string, rights: RoleRights): boo
   if (!item.cap) return true
   return rights.kind === "set" && rights.caps.has(item.cap)
 }
-
-/**
- * Interim rights until the real per-role fetch lands: user and dealer hold every capability, admin all,
- * sub_agent its fixed set, anything else nothing.
- */
-export function interimRightsFor(slug: string | null): RoleRights {
-  if (slug === "admin") return { kind: "all" }
-  if (slug === "sub_agent") return { kind: "sub_agent" }
-  if (slug === "user" || slug === "dealer") return { kind: "set", caps: new Set(ALL_CAPABILITIES) }
-  return { kind: "set", caps: EMPTY }
-}
