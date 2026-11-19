@@ -77,6 +77,18 @@ describe("priceBulkFormPackages (adjustment only on the plain price)", () => {
     expect((await priceBulkFormPackages(pkgs, server({ a: 6, b: 5, c: 3 }, ["a"]), false, markup)).packages.map((p) => p.price)).toEqual([6, 10, 6])
     expect((await priceBulkFormPackages(pkgs, server({ a: 8, b: 4, c: 3 }, ["b"]), true, markup)).packages.map((p) => p.price)).toEqual([8, 4, 6])
   })
+  it("dealer with dealer_price == price stays unadjusted", async () => {
+    const same = [{ id: "d", network: "MTN", price: 8, dealer_price: 8 }]
+    expect((await priceBulkFormPackages(same, server({ d: 8 }), true, markup)).packages.map((p) => p.price)).toEqual([8])
+  })
+  it("a resolved role price different from the plain price is never adjusted (custom role, non-dealer)", async () => {
+    const r = await priceBulkFormPackages(pkgs, server({ a: 7, b: 5, c: 2 }), false, markup)
+    expect(r.packages.map((p) => p.price)).toEqual([7, 10, 2])
+  })
+  it("a resolved role price equal to the plain price is still adjusted", async () => {
+    const r = await priceBulkFormPackages(pkgs, server({ a: 10, b: 5, c: 3 }), false, markup)
+    expect(r.packages.map((p) => p.price)).toEqual([20, 10, 6])
+  })
   it("fallback path: same rules", async () => {
     const dealer = await priceBulkFormPackages(pkgs, null, true, markup)
     expect(dealer.packages.map((p) => p.price)).toEqual([8, 10, 6])
