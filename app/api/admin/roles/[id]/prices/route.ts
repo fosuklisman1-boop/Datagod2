@@ -5,6 +5,20 @@ import { requireHubAdmin, badRequest, mapRpcError, readJson, serverError, UUID_R
 
 type Ctx = { params: Promise<{ id: string }> }
 
+/** package_id -> cost for the given ids (chunked, <= ROLE_ID_CHUNK per read). Returns null on any read error (fail closed). */
+async function loadCosts(db: { from: (t: string) => any }, ids: string[]): Promise<Map<string, number> | null> {
+  const out = new Map<string, number>()
+  for (let i = 0; i < ids.length; i += ROLE_ID_CHUNK) {
+    const { data, error } = await db.from("package_costs").select("package_id, cost_price").in("package_id", ids.slice(i, i + ROLE_ID_CHUNK))
+    if (error || !Array.isArray(data)) return null
+    for (const row of data as Array<{ package_id: unknown; cost_price: unknown }>) {
+      const c = Number(row.cost_price)
+      if (row.cost_price != null && Number.isFinite(c)) out.set(String(row.package_id), c)
+    }
+  }
+  return out
+}
+
 // admin and sub_agent have no price tier (the 0187 function refuses them too).
 const NO_PRICE_TIER = new Set(["admin", "sub_agent"])
 
@@ -21,7 +35,7 @@ export async function GET(request: NextRequest, { params }: Ctx) {
 
     const { data, error } = await db
       .from("packages")
-      .select("id, network, name, price, dealer_price, cost_price, is_available")
+      .select("id, network, name, price, dealer_price, is_available")
       .order("network")
       .order("name")
       .limit(ROW_CAP)
@@ -29,8 +43,12 @@ export async function GET(request: NextRequest, { params }: Ctx) {
     if (error || !Array.isArray(data) || data.length >= ROW_CAP) return serverError()
     const pkgs = data as Array<{
       id: string; network: string; name: string; price: number | string; dealer_price: number | string | null
-      cost_price: number | string | null; is_available: boolean | null
+      is_available: boolean | null
     }>
+
+    // Admin-only costs come from package_costs (service client); any read error fails the whole response.
+    const costMap = await loadCosts(db, pkgs.map((p) => String(p.id)))
+    if (!costMap) return serverError()
 
     const own = await loadRolePrices(db, [id], pkgs.map((p) => String(p.id)))
     const effective = await rolePricesFor(db, target.slug, pkgs)
@@ -43,7 +61,7 @@ export async function GET(request: NextRequest, { params }: Ctx) {
         network: p.network,
         name: p.name,
         price: Number(p.price),
-        cost_price: p.cost_price == null ? null : Number(p.cost_price),
+        cost_price: costMap.get(String(p.id)) ?? null,
         role_price: ownMap?.get(String(p.id)) ?? null,
         effective_price: effective.get(String(p.id)) ?? Number(p.price),
         is_available: p.is_available === true,
@@ -82,14 +100,15 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
             .filter((x): x is string => typeof x === "string" && UUID_RE.test(x)),
         ),
       ]
+      // Existence comes from packages (unknown ids stay out of the map); costs come from package_costs.
       for (let i = 0; i < ids.length; i += ROLE_ID_CHUNK) {
-        const { data, error } = await db.from("packages").select("id, cost_price").in("id", ids.slice(i, i + ROLE_ID_CHUNK))
+        const { data, error } = await db.from("packages").select("id").in("id", ids.slice(i, i + ROLE_ID_CHUNK))
         if (error || !Array.isArray(data)) return serverError()
-        for (const row of data as Array<{ id: unknown; cost_price: unknown }>) {
-          const c = row.cost_price == null ? null : Number(row.cost_price)
-          costs.set(String(row.id), c !== null && Number.isFinite(c) ? c : null)
-        }
+        for (const row of data as Array<{ id: unknown }>) costs.set(String(row.id), null)
       }
+      const found = await loadCosts(db, [...costs.keys()])
+      if (!found) return serverError()
+      for (const [pid, c] of found) costs.set(pid, c)
     }
 
     const checked = validatePriceChanges(input.changes, costs)

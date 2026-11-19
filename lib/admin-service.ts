@@ -23,12 +23,25 @@ export const adminPackageService = {
     return data
   },
 
+  // Admin-only supplier costs { [packageId]: cost } (served by GET /api/admin/packages from package_costs)
+  async getPackageCosts(): Promise<Record<string, number>> {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) throw new Error("No authentication token available")
+    const response = await fetch("/api/admin/packages", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body?.error || "Failed to load package costs")
+    return (body?.costs ?? {}) as Record<string, number>
+  },
+
   // Create new package
   async createPackage(packageData: {
     network: string
     size: string
     price: number
     dealer_price?: number | null
+    cost_price?: number | null
     description?: string
   }) {
     try {

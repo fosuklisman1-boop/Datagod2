@@ -6,7 +6,10 @@
 --   role_permissions(role_id -> roles ON DELETE CASCADE, capability, PK (role_id, capability))
 --   role_audit_log(id bigserial, actor_id, role_id -> roles, action, before, after, reason, loss_override, created_at)
 --       append-only: a BEFORE UPDATE OR DELETE trigger (and BEFORE TRUNCATE) raises; service_role holds SELECT + INSERT only.
---   packages.cost_price numeric(10,2) NULL CHECK (>= 0): supplier cost, used only to refuse below-cost role prices.
+--   package_costs(package_id -> packages ON DELETE CASCADE PK, cost_price numeric(10,2) >= 0, updated_at, updated_by): supplier
+--       cost, used only to refuse below-cost role prices. NOT a column on packages: packages is publicly readable (anon holds
+--       SELECT on every column), so the cost lives in its own service-role-only table (RLS on, no policies, all client
+--       privileges revoked). "No cost set" means no row.
 --   Seeds: user and dealer receive all 14 capability keys; theme '{"skin":"dealer"}' / '{"skin":"default"}' where theme = '{}'.
 --
 -- Audit of prices: three statement-level AFTER triggers (INSERT / UPDATE / DELETE, transition tables) on role_package_prices
@@ -30,9 +33,16 @@
 --   SELECT slug, rank, is_system, archived_at FROM public.roles ORDER BY rank NULLS LAST;   -- record the census (0184 seeds + any custom)
 --   SELECT count(*) FROM public.role_package_prices;                                        -- record N; unchanged after applying
 --   SELECT to_regclass('public.role_permissions'), to_regclass('public.role_audit_log');    -- NULL, NULL
---   SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='packages' AND column_name='cost_price';  -- no rows
+--   SELECT to_regclass('public.package_costs');                                             -- NULL
+--   SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='packages' AND column_name='cost_price';  -- no rows (must never exist)
 --   SELECT to_regclass('public.role_service_rates');                                        -- NOT NULL (0186 applied)
---   -- Apply in a quiet window: ALTER TABLE packages and CREATE TRIGGER on role_package_prices take short exclusive locks.
+--   -- Apply in a quiet window: CREATE TRIGGER on role_package_prices takes a short exclusive lock.
+--
+-- VERIFY after applying (package_costs must be invisible to client roles):
+--   SELECT has_table_privilege('anon','public.package_costs','SELECT'), has_table_privilege('authenticated','public.package_costs','SELECT');  -- false, false
+--   SELECT relrowsecurity FROM pg_class WHERE oid = 'public.package_costs'::regclass;       -- true
+--   SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='package_costs';  -- 0
+--   SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='packages' AND column_name='cost_price';  -- 0
 --   -- Do NOT insert any non-system roles row until Phase 2 is complete (lib/roles/flags.ts).
 --
 -- Dry run: migrations/0187_roles_hub.selftest.sql (build the run string by code, as lib/roles/migration-0187.test.ts does).
@@ -41,9 +51,17 @@ BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
--- ============ packages.cost_price ============
-ALTER TABLE public.packages
-  ADD COLUMN IF NOT EXISTS cost_price numeric(10,2) NULL CHECK (cost_price IS NULL OR cost_price >= 0);
+-- ============ package_costs (admin-only; never a packages column) ============
+CREATE TABLE IF NOT EXISTS public.package_costs (
+  package_id uuid PRIMARY KEY REFERENCES public.packages(id) ON DELETE CASCADE,
+  cost_price numeric(10,2) NOT NULL CHECK (cost_price >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_by uuid NULL
+);
+ALTER TABLE public.package_costs ENABLE ROW LEVEL SECURITY;
+-- No policies on purpose. Migration 0060 granted authenticated CRUD on all tables, so the explicit revoke matters.
+REVOKE ALL ON public.package_costs FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.package_costs TO service_role;
 
 -- ============ role_permissions ============
 CREATE TABLE IF NOT EXISTS public.role_permissions (
@@ -226,8 +244,8 @@ BEGIN
     SELECT v_new, service_key, value FROM public.role_service_rates WHERE role_id = p_clone_from;
     -- Copied prices are not cost-checked (the source was); record any that now sit below cost.
     SELECT coalesce(jsonb_agg(r.package_id ORDER BY r.package_id), '[]'::jsonb) INTO v_below
-      FROM public.role_package_prices r JOIN public.packages p ON p.id = r.package_id
-     WHERE r.role_id = v_new AND p.cost_price IS NOT NULL AND r.price < p.cost_price;
+      FROM public.role_package_prices r JOIN public.package_costs pc ON pc.package_id = r.package_id
+     WHERE r.role_id = v_new AND r.price < pc.cost_price;
   END IF;
 
   INSERT INTO public.role_audit_log (actor_id, role_id, action, before, after, reason)
@@ -372,8 +390,9 @@ BEGIN
     IF v_pkg IS NULL THEN RAISE EXCEPTION 'package_id required'; END IF;
     IF v_pkg = ANY (v_seen) THEN RAISE EXCEPTION 'duplicate package_id %', v_pkg; END IF;
     v_seen := v_seen || v_pkg;
-    SELECT cost_price INTO v_cost FROM public.packages WHERE id = v_pkg;
-    IF NOT FOUND THEN RAISE EXCEPTION 'package % not found', v_pkg; END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.packages WHERE id = v_pkg) THEN RAISE EXCEPTION 'package % not found', v_pkg; END IF;
+    SELECT cost_price INTO v_cost FROM public.package_costs WHERE package_id = v_pkg;  -- no row: v_cost stays NULL
+    IF NOT FOUND THEN v_cost := NULL; END IF;
     -- Only an explicit JSON null deletes; a missing key (a typo) is refused.
     IF NOT (v_item ? 'price') THEN RAISE EXCEPTION 'price key required (use null to delete) for package %', v_pkg; END IF;
     IF jsonb_typeof(v_item -> 'price') <> 'null' THEN

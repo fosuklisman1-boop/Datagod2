@@ -31,8 +31,14 @@ beforeEach(() => {
   }
   h.fake.tables.packages = ({ filters }) => {
     const idList = filters.find((f) => f[0] === "in" && f[1] === "id")?.[2] as string[] | undefined
-    const all = [pkgRow(P1, 10, 8), pkgRow(P2, 20, null)]
-    return { data: idList ? all.filter((p) => idList.includes(p.id)).map((p) => ({ id: p.id, cost_price: p.cost_price })) : all }
+    const all = [pkgRow(P1, 10, null), pkgRow(P2, 20, null)]
+    return { data: idList ? all.filter((p) => idList.includes(p.id)).map((p) => ({ id: p.id })) : all }
+  }
+  // costs live in the admin-only package_costs table, never on packages
+  h.fake.tables.package_costs = ({ filters }) => {
+    const idList = filters.find((f) => f[0] === "in" && f[1] === "package_id")?.[2] as string[] | undefined
+    const all = [{ package_id: P1, cost_price: 8 }]
+    return { data: idList ? all.filter((c) => idList.includes(c.package_id)) : all }
   }
   h.fake.tables.role_package_prices = { data: [{ role_id: ID, package_id: P1, price: 9 }] }
 })
@@ -61,6 +67,13 @@ describe("GET /api/admin/roles/[id]/prices", () => {
     const b = body.packages.find((p: { id: string }) => p.id === P2)
     expect(b).toMatchObject({ price: 20, cost_price: null, role_price: null })
     expect(b.effective_price).toBe(20)
+    // the packages select never asks for a cost column
+    const sel = h.fake.calls.chains.packages.flat().find((f) => f[0] === "select")
+    expect(String(sel?.[1])).not.toContain("cost_price")
+  })
+  it("500 when the cost read fails (fail closed)", async () => {
+    h.fake.tables.package_costs = { error: { message: "x" } }
+    expect((await GET(reqOf("GET"), ctx())).status).toBe(500)
   })
   it("editable is false for sub_agent", async () => {
     const body = await (await GET(reqOf("GET"), ctx(SYS))).json()
@@ -115,9 +128,11 @@ describe("PUT /api/admin/roles/[id]/prices", () => {
         args: { p_actor: ADMIN, p_reason: "tune", p_role_id: ID, p_changes: [{ package_id: P1, price: 9.5 }], p_loss_override: false },
       },
     ])
-    // cost read only for the requested ids
+    // existence and cost are read only for the requested ids
     const inFilter = h.fake.calls.chains.packages.flat().find((f) => f[0] === "in")
     expect(inFilter).toEqual(["in", "id", [P1]])
+    const costFilter = h.fake.calls.chains.package_costs.flat().find((f) => f[0] === "in")
+    expect(costFilter).toEqual(["in", "package_id", [P1]])
   })
   it("null deletes the role row", async () => {
     await put({ changes: [{ package_id: P2, price: null }], reason: "tune" })
@@ -144,14 +159,19 @@ describe("PUT /api/admin/roles/[id]/prices", () => {
     h.fake.tables.packages = { error: { message: "boom" } }
     expect((await put({ changes: [{ package_id: P1, price: 9 }], reason: "tune" })).status).toBe(500)
     expect(h.fake.calls.rpc).toEqual([])
-    h.fake.tables.packages = { data: [{ id: P1, cost_price: 8 }] }
+    h.fake.tables.packages = { data: [{ id: P1 }] }
+    h.fake.tables.package_costs = { error: { message: "boom" } }
+    expect((await put({ changes: [{ package_id: P1, price: 9 }], reason: "tune" })).status).toBe(500)
+    expect(h.fake.calls.rpc).toEqual([])
+    h.fake.tables.package_costs = { data: [{ package_id: P1, cost_price: 8 }] }
     h.fake.rpc.admin_role_set_prices = { error: { message: "weird db detail" } }
     const res = await put({ changes: [{ package_id: P1, price: 9 }], reason: "tune" })
     expect(res.status).toBe(500)
     expect(JSON.stringify(await res.json())).not.toContain("weird")
   })
   it("maps a racing below-cost error to 409", async () => {
-    h.fake.tables.packages = { data: [{ id: P1, cost_price: 5 }] }
+    h.fake.tables.packages = { data: [{ id: P1 }] }
+    h.fake.tables.package_costs = { data: [{ package_id: P1, cost_price: 5 }] }
     h.fake.rpc.admin_role_set_prices = { error: { message: "price 7 is below cost 8 for package x (loss override required)" } }
     expect((await put({ changes: [{ package_id: P1, price: 7 }], reason: "tune" })).status).toBe(409)
   })

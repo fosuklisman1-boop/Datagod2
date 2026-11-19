@@ -32,7 +32,7 @@ DECLARE
   v_old    numeric;
   v_rank   int;
 BEGIN
-  FOREACH v_t IN ARRAY ARRAY['role_permissions', 'role_audit_log'] LOOP
+  FOREACH v_t IN ARRAY ARRAY['role_permissions', 'role_audit_log', 'package_costs'] LOOP
     IF to_regclass('public.' || v_t) IS NULL THEN RAISE EXCEPTION 'FAIL table_missing %', v_t; END IF;
     IF NOT coalesce((SELECT relrowsecurity FROM pg_class WHERE oid = ('public.' || v_t)::regclass), false) THEN
       RAISE EXCEPTION 'FAIL rls_not_enabled %', v_t;
@@ -52,9 +52,15 @@ BEGIN
      OR NOT has_table_privilege('service_role', 'public.role_permissions', 'DELETE') THEN
     RAISE EXCEPTION 'FAIL service_role_lacks_privilege';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                  WHERE table_schema = 'public' AND table_name = 'packages' AND column_name = 'cost_price') THEN
-    RAISE EXCEPTION 'FAIL cost_price_missing';
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'packages' AND column_name = 'cost_price') THEN
+    RAISE EXCEPTION 'FAIL cost_price_on_public_packages';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'package_costs') THEN
+    RAISE EXCEPTION 'FAIL package_costs_has_policy';
+  END IF;
+  IF NOT has_table_privilege('service_role', 'public.package_costs', 'INSERT') THEN
+    RAISE EXCEPTION 'FAIL service_role_lacks_package_costs';
   END IF;
 
   -- seeds
@@ -104,7 +110,8 @@ BEGIN
       RAISE EXCEPTION 'FAIL prices_not_audited';
     END IF;
 
-    UPDATE public.packages SET cost_price = 8 WHERE id = v_pkg;
+    INSERT INTO public.package_costs (package_id, cost_price) VALUES (v_pkg, 8)
+      ON CONFLICT (package_id) DO UPDATE SET cost_price = 8;
     <<b_cost>>
     BEGIN
       PERFORM public.admin_role_set_prices(v_actor, 'selftest prices', v_role,

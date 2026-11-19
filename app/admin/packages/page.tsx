@@ -35,6 +35,7 @@ interface Package {
   size: string
   price: number
   dealer_price?: number
+  cost_price?: number | null // admin-only; merged in from GET /api/admin/packages, never from the packages table
   description?: string
   is_available?: boolean
   created_at?: string
@@ -55,6 +56,7 @@ export default function AdminPackagesPage() {
     size: "",
     price: "",
     dealer_price: "",
+    cost_price: "",
     description: "",
   })
   const [networkFilter, setNetworkFilter] = useState<string>("all")
@@ -68,7 +70,15 @@ export default function AdminPackagesPage() {
   const loadPackages = async () => {
     try {
       const data = await adminPackageService.getAllPackages()
-      setPackages(data || [])
+      // Costs are admin-only and come from a separate endpoint; a failure leaves the column empty rather than blocking the page.
+      let costs: Record<string, number> = {}
+      try {
+        costs = await adminPackageService.getPackageCosts()
+      } catch (costError) {
+        console.error("Error loading package costs")
+        toast.error("Could not load our cost column")
+      }
+      setPackages((data || []).map((p: Package) => ({ ...p, cost_price: costs[p.id] ?? null })))
       setSelectedIds((prev) => {
         const validIds = new Set((data || []).map((p) => p.id))
         const next = new Set([...prev].filter((id) => validIds.has(id)))
@@ -114,12 +124,21 @@ export default function AdminPackagesPage() {
       // Clean size by removing "GB" suffix if present
       const cleanSize = formData.size.toString().toUpperCase().replace(/\s*GB\s*$/, "")
 
+      // Blank clears the cost (null); a number is sent as is and rounded by the API.
+      const costValue = formData.cost_price.trim() === "" ? null : Number(formData.cost_price)
+      if (costValue !== null && (!Number.isFinite(costValue) || costValue < 0)) {
+        toast.error("Our cost must be a non-negative number")
+        setIsSubmitting(false)
+        return
+      }
+
       if (editingId) {
         await adminPackageService.updatePackage(editingId, {
           network: formData.network,
           size: cleanSize,
           price: parseFloat(formData.price),
           dealer_price: formData.dealer_price ? parseFloat(formData.dealer_price) : null,
+          cost_price: costValue,
           description: formData.description,
         })
         toast.success("Package updated successfully")
@@ -129,6 +148,7 @@ export default function AdminPackagesPage() {
           size: cleanSize,
           price: parseFloat(formData.price),
           dealer_price: formData.dealer_price ? parseFloat(formData.dealer_price) : null,
+          cost_price: costValue,
           description: formData.description,
         })
         toast.success("Package created successfully")
@@ -150,6 +170,7 @@ export default function AdminPackagesPage() {
       size: pkg.size,
       price: pkg.price.toString(),
       dealer_price: pkg.dealer_price?.toString() || "",
+      cost_price: pkg.cost_price != null ? pkg.cost_price.toString() : "",
       description: pkg.description || "",
     })
     setEditingId(pkg.id)
@@ -205,7 +226,7 @@ export default function AdminPackagesPage() {
   }
 
   const resetForm = () => {
-    setFormData({ network: "", size: "", price: "", dealer_price: "", description: "" })
+    setFormData({ network: "", size: "", price: "", dealer_price: "", cost_price: "", description: "" })
     setEditingId(null)
     setShowForm(false)
   }
@@ -341,6 +362,19 @@ export default function AdminPackagesPage() {
                     step="0.01"
                   />
                 </div>
+                <div>
+                  <Label htmlFor="cost_price">Our cost (GHS)</Label>
+                  <Input
+                    id="cost_price"
+                    type="number"
+                    min="0"
+                    placeholder="Optional. Admin only, never shown to customers"
+                    value={formData.cost_price}
+                    onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })}
+                    className="mt-1"
+                    step="0.01"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -399,6 +433,7 @@ export default function AdminPackagesPage() {
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Size</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Price</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Dealer Price</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Our cost</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Description</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Available</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-foreground">Actions</th>
@@ -417,6 +452,7 @@ export default function AdminPackagesPage() {
                       <td className="px-6 py-4 text-foreground">{pkg.size}</td>
                       <td className="px-6 py-4 font-semibold text-primary">GHS {(pkg.price || 0).toFixed(2)}</td>
                       <td className="px-6 py-4 font-semibold text-primary">{pkg.dealer_price ? `GHS ${pkg.dealer_price.toFixed(2)}` : "-"}</td>
+                      <td className="px-6 py-4 text-foreground">{pkg.cost_price != null ? `GHS ${pkg.cost_price.toFixed(2)}` : "—"}</td>
                       <td className="px-6 py-4 text-sm text-muted-foreground">{pkg.description || "-"}</td>
                       <td className="px-6 py-4">
                         <Button

@@ -198,7 +198,7 @@ describe.skipIf(!PGliteCtor)("0187 in PGlite", () => {
   it("set_prices refuses 0, refuses below cost without override, accepts with override and records loss_override", async () => {
     const db = await fresh87()
     await db.exec(seedPackages)
-    await db.exec(`UPDATE packages SET cost_price = 9 WHERE id = '${PKG_A}'`)
+    await db.exec(`INSERT INTO package_costs(package_id, cost_price) VALUES ('${PKG_A}', 9)`)
     const gold = await mkRole(db, "gold", 20)
     const call = (price: unknown, loss: boolean) =>
       `SELECT admin_role_set_prices('${ACTOR}', 'test reason', '${gold}', '[{"package_id":"${PKG_A}","price":${price}}]'::jsonb, ${loss})`
@@ -220,6 +220,31 @@ describe.skipIf(!PGliteCtor)("0187 in PGlite", () => {
     const arch = await mkRole(db, "old", 30)
     await db.exec(`SELECT admin_role_archive('${ACTOR}', 'test reason', '${arch}')`)
     await fails(db, `SELECT admin_role_set_prices('${ACTOR}', 'test reason', '${arch}', '[]'::jsonb, false)`, /archived/)
+  }, 60_000)
+
+  it("package_costs is invisible to anon/authenticated, has RLS and no policies, and packages has no cost_price", async () => {
+    const db = await fresh87()
+    for (const who of ["anon", "authenticated"]) {
+      for (const priv of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
+        expect((await rows(db, `SELECT has_table_privilege('${who}', 'public.package_costs', '${priv}') AS p`))[0].p).toBe(false)
+      }
+    }
+    expect((await rows(db, `SELECT has_table_privilege('service_role', 'public.package_costs', 'INSERT') AS p`))[0].p).toBe(true)
+    expect((await rows(db, `SELECT relrowsecurity AS r FROM pg_class WHERE oid = 'public.package_costs'::regclass`))[0].r).toBe(true)
+    expect(await rows(db, `SELECT 1 FROM pg_policies WHERE tablename = 'package_costs'`)).toHaveLength(0)
+    expect(await rows(db, `SELECT 1 FROM information_schema.columns WHERE table_name = 'packages' AND column_name = 'cost_price'`)).toHaveLength(0)
+    // an actual query as the client roles is refused
+    for (const who of ["anon", "authenticated"]) {
+      await db.exec(`SET ROLE ${who}`)
+      await fails(db, `SELECT * FROM public.package_costs`, /permission denied/)
+      await db.exec(`RESET ROLE`)
+    }
+    // the cost row goes with its package
+    await db.exec(seedPackages)
+    await db.exec(`INSERT INTO package_costs(package_id, cost_price) VALUES ('${PKG_A}', 5)`)
+    await db.exec(`DELETE FROM packages WHERE id = '${PKG_A}'`)
+    expect(await rows(db, `SELECT 1 FROM package_costs`)).toHaveLength(0)
+    await fails(db, `INSERT INTO package_costs(package_id, cost_price) VALUES ('${PKG_B}', -1)`)
   }, 60_000)
 
   it("set_prices only touches listed packages", async () => {
@@ -307,14 +332,14 @@ describe.skipIf(!PGliteCtor)("0187 in PGlite", () => {
   it("clone refuses an archived source and records below-cost copied packages in the audit row", async () => {
     const db = await fresh87()
     await db.exec(seedPackages)
-    await db.exec(`UPDATE packages SET cost_price = 9.5 WHERE id = '${PKG_A}'`)
+    await db.exec(`INSERT INTO package_costs(package_id, cost_price) VALUES ('${PKG_A}', 9.5)`)
     const gold = await mkRole(db, "gold", 20)
     await setPrices(db, gold, [{ package_id: PKG_A, price: 9.5 }, { package_id: PKG_B, price: 18 }])
-    await db.exec(`UPDATE packages SET cost_price = 12 WHERE id = '${PKG_A}'`) // cost rose after pricing
+    await db.exec(`UPDATE package_costs SET cost_price = 12 WHERE package_id = '${PKG_A}'`) // cost rose after pricing
     const copy = await mkRole(db, "gold2", 21, gold)
     const after = (await rows(db, `SELECT after FROM role_audit_log WHERE role_id = '${copy}' AND action = 'clone'`))[0].after
     expect(after.below_cost).toEqual([PKG_A])
-    await db.exec(`UPDATE packages SET cost_price = NULL`)
+    await db.exec(`DELETE FROM package_costs`)
     const copy2 = await mkRole(db, "gold3", 22, gold)
     expect((await rows(db, `SELECT after FROM role_audit_log WHERE role_id = '${copy2}' AND action = 'clone'`))[0].after.below_cost).toEqual([])
     // a create without a source has no below_cost key problem and still audits
