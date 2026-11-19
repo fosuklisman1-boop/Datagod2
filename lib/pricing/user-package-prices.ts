@@ -79,16 +79,12 @@ export async function priceBulkFormPackages<T extends PricedPackage>(
 ): Promise<{ packages: Array<T & { price: number }>; fallback: boolean }> {
   const { packages: priced, customIds, fallback } = resolveDisplayPrices(packages, resolved, isDealer)
   const custom = new Set(customIds.map(String))
+  // On the resolved path, a shown value that differs from the plain one is a role-specific figure (for example a
+  // custom role's): never adjusted either. The fallback path needs no extra rule.
+  const roleShown = new Set(packages.filter((p, i) => !fallback && priced[i].price !== Number(p.price)).map((p) => String(p.id)))
   const unadjusted = packages
     // The role price is dealer_price exactly when the user is a dealer and dealer_price > 0 (see rolePrice).
-    // On the resolved path, any shown price that differs from the plain price is a role price (e.g. a custom
-    // role's): never adjusted either. The fallback path shows only plain/dealer prices, so it needs no extra rule.
-    .filter(
-      (p, i) =>
-        custom.has(String(p.id)) ||
-        (isDealer && Number(p.dealer_price) > 0) ||
-        (!fallback && priced[i].price !== Number(p.price))
-    )
+    .filter((p) => custom.has(String(p.id)) || roleShown.has(String(p.id)) || (isDealer && Number(p.dealer_price) > 0))
     .map((p) => String(p.id))
   return { packages: await applyAdjustmentsExceptCustom(priced, unadjusted, adjust), fallback }
 }
