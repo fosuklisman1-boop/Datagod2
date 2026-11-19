@@ -11,9 +11,11 @@ export interface CreateRoleFormValues {
 
 export type CreateRoleBody = { slug: string; name: string; rank: number; clone_from: string | null; reason: string }
 
-/** Default rank for a new role: the highest live rank + 10. */
+/** Default rank for a new role: the highest live rank + 10, ignoring admin and sub_agent (new roles sit below admin). */
 export function defaultNewRank(roles: readonly HubRole[]): number {
-  const ranks = roles.filter((r) => !r.archived_at && r.rank != null).map((r) => r.rank as number)
+  const ranks = roles
+    .filter((r) => !r.archived_at && r.rank != null && r.slug !== "admin" && r.slug !== "sub_agent")
+    .map((r) => r.rank as number)
   return (ranks.length ? Math.max(...ranks) : 0) + 10
 }
 

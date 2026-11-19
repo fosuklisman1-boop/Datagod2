@@ -98,8 +98,11 @@ describe("create dialog validation", () => {
       value: { slug: "platinum", name: "Platinum", rank: 40, clone_from: "gold", reason: "new tier" },
     })
   })
-  it("defaults the rank to the highest live rank + 10", () => {
-    expect(defaultNewRank(ROLES)).toBe(110)
+  it("defaults the rank to the highest live rank + 10, ignoring admin and sub_agent even when ranked", () => {
+    // Fixture: admin has rank 100 and sub_agent a rank too; neither counts. Dealer (50) is the highest.
+    const withSub = ROLES.map((r) => (r.slug === "sub_agent" ? { ...r, rank: 200 } : r))
+    expect(defaultNewRank(withSub)).toBe(60)
+    expect(defaultNewRank(ROLES.filter((r) => ["admin", "sub_agent"].includes(r.slug)))).toBe(10)
   })
 })
 
