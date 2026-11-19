@@ -24,6 +24,9 @@ const h = vi.hoisted(() => {
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.client }))
+const cap = vi.hoisted(() => ({ requireCapability: vi.fn(async (..._a: unknown[]): Promise<unknown> => null) }))
+vi.mock("@/lib/roles/require-capability", () => cap)
+const denied403 = () => new Response(JSON.stringify({ error: "This feature isn't available for your account." }), { status: 403 })
 vi.mock("@/lib/sms-service", () => ({
   sendSMS: async () => ({ success: true }),
   SMSTemplates: { subAgentInvitation: () => "msg" },
@@ -59,6 +62,15 @@ beforeEach(() => {
 })
 
 describe("PATCH /api/shop/sub-agent-requests/[id]", () => {
+  it("403 when the role lacks shop.subagents, before any write", async () => {
+    cap.requireCapability.mockResolvedValueOnce(denied403())
+    const { status } = await patch("approve")
+    expect(status).toBe(403)
+    expect(cap.requireCapability).toHaveBeenCalledWith(expect.anything(), "owner-1", "shop.subagents")
+    expect(h.state.inserts).toEqual([])
+    expect(h.state.updates).toEqual([])
+  })
+
   it("approves a pending request for a top-level owner", async () => {
     const { status, body } = await patch("approve")
     expect(status).toBe(200)

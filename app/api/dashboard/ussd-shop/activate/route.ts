@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { provisionShopCode } from "@/lib/ussd-shop/provision-code"
 
 const supabase = createClient(
@@ -14,6 +15,9 @@ export async function POST(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser(token)
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const denied = await requireCapability(supabase, user.id, "shop.bots")
+  if (denied) return denied
 
   const { data: shop } = await supabase
     .from("user_shops").select("id").eq("user_id", user.id).single()

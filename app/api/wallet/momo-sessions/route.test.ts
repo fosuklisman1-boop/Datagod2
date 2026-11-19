@@ -32,6 +32,9 @@ vi.mock("@/lib/momo-claim/settings", () => ({
 }))
 const limitMock = vi.fn()
 vi.mock("@/lib/rate-limiter", () => ({ applyRateLimit: (...a: unknown[]) => limitMock(...a) }))
+const cap = vi.hoisted(() => ({ requireCapability: vi.fn(async (..._a: unknown[]): Promise<unknown> => null) }))
+vi.mock("@/lib/roles/require-capability", () => cap)
+const denied403 = () => new Response(JSON.stringify({ error: "This feature isn't available for your account." }), { status: 403 })
 const codeMock = vi.fn()
 vi.mock("@/lib/momo-claim/codes", () => ({ generateClaimCode: (...a: unknown[]) => codeMock(...a) }))
 
@@ -179,6 +182,14 @@ describe("GET", () => {
 })
 
 describe("POST", () => {
+  it("403 when the role lacks account.wallet, before any session is created", async () => {
+    cap.requireCapability.mockResolvedValueOnce(denied403())
+    const res = await POST(req("POST", { amount: 10 }))
+    expect(res.status).toBe(403)
+    expect(cap.requireCapability).toHaveBeenCalledWith(expect.anything(), "u1", "account.wallet")
+    expect(sessionInserts()).toHaveLength(0)
+  })
+
   const post = (amount: unknown) => POST(req("POST", { amount }))
 
   it("403 feature_off before anything else", async () => {

@@ -9,6 +9,7 @@ import {
 } from "@/lib/results-checker-service"
 import { deliverVouchers } from "@/lib/results-checker-notification-service"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,6 +28,9 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "buy.results")
+    if (denied) return denied
 
     // Phone gate — voucher purchase spends the user's money.
     const phoneGuard = await checkPhoneVerified(supabase, user.id)

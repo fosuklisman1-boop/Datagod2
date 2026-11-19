@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { CustomPriceReadError, NO_CUSTOM_PRICES } from "@/lib/pricing/package-price"
 import { priceWith } from "@/lib/roles/pricing"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { ownerBasePrices, shopOwnerSlug, subAgentCosts, type SubAgentOffer } from "@/lib/shop-commerce/pricing"
 import { notifyWaitingSubAgents } from "@/lib/sub-agents/notify-owner"
 import { openClosedJoinerAfterSave } from "@/lib/sub-agents/open-after-save"
@@ -247,6 +248,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const denied = await requireCapability(supabase, user.id, "shop.subagents")
+    if (denied) return denied
+
     const body = await request.json()
     const { package_id, wholesale_margin, parent_price, sub_agent_profit_margin } = body
 
@@ -368,6 +372,9 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const denied = await requireCapability(supabase, user.id, "shop.subagents")
+    if (denied) return denied
+
     const body = await request.json()
     const { catalog_id, wholesale_margin, sub_agent_profit_margin, parent_price, is_active } = body
 
@@ -457,6 +464,9 @@ export async function DELETE(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "shop.subagents")
+    if (denied) return denied
 
     const url = new URL(request.url)
     const catalogId = url.searchParams.get("id")

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import crypto from "crypto"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -76,6 +77,9 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "shop.subagents")
+    if (denied) return denied
 
     // Check user role from the DB (source of truth) — NOT user_metadata, which a
     // user can freely self-set via auth.updateUser({ data: { role: ... } }). A
@@ -221,6 +225,9 @@ export async function DELETE(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "shop.subagents")
+    if (denied) return denied
 
     const { searchParams } = new URL(request.url)
     const inviteId = searchParams.get("id")

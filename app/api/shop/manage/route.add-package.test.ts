@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
 import { NextRequest } from "next/server"
 
 // shop_packages rows already stored for (shop-1, pkg-1); user_shops ownership always passes.

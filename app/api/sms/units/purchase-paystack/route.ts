@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { bundleVisibleTo, type OwnerType } from "@/lib/sms/foundation-rules"
@@ -18,6 +19,8 @@ export async function POST(request: NextRequest) {
   if (!authHeader?.startsWith("Bearer ")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(authHeader.slice(7))
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const denied = await requireCapability(supabaseAdmin, user.id, "shop.sms")
+  if (denied) return denied
   if (!(await isSmsEnabled())) return NextResponse.json({ error: SMS_DISABLED_MESSAGE, code: "SMS_DISABLED" }, { status: 503 })
   if (!user.email) return NextResponse.json({ error: "Account email required" }, { status: 400 })
   const { bundleId } = await request.json()

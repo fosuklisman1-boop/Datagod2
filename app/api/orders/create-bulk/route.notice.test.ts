@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
+
 const mode = vi.hoisted(() => ({ m: "off" as "off" | "saved" | "saved_sms" }))
 vi.mock("@/lib/blocked-numbers/notice", () => ({ getNoticeMode: async () => mode.m }))
 

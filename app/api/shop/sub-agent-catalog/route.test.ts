@@ -3,6 +3,8 @@
 // parent's active wholesale margin); the stored parent_price is never used. The parent's own view is unchanged.
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
+
 const h = vi.hoisted(() => {
   type T = { data: unknown; error?: unknown }
   const state = { tables: {} as Record<string, T>, userId: "sub-user" }

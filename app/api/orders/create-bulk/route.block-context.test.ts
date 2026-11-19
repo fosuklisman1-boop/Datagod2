@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
+
 const gate = vi.hoisted(() => vi.fn(async (phones: string[]) => ({ verdicts: new Map(), blocking: true, blocked: phones })))
 
 const chain: any = new Proxy(function () {}, {

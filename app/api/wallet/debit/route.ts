@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/sms-service"
 import { sendPushToUser } from "@/lib/push-service"
@@ -60,6 +61,9 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    const denied = await requireCapability(supabase, user.id, "account.wallet")
+    if (denied) return denied
 
     // Phone gate — a debit moves the user's wallet money to buy data.
     const phoneGuard = await checkPhoneVerified(supabase, user.id)

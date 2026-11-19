@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { purchaseAirtime } from "@/lib/airtime-service"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "buy.airtime")
+    if (denied) return denied
 
     const phoneGuard = await checkPhoneVerified(supabase, user.id)
     if (!phoneGuard.allowed) {

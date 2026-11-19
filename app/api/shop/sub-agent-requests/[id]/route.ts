@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 import crypto from "crypto"
 import { sendSMS, SMSTemplates } from "@/lib/sms-service"
 
@@ -29,6 +30,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "shop.subagents")
+    if (denied) return denied
 
     const body = await request.json()
     const action = body?.action

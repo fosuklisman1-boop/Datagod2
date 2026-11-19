@@ -4,6 +4,9 @@ import { NextRequest } from "next/server"
 const { getUser, uploadShopLogo } = vi.hoisted(() => ({ getUser: vi.fn(), uploadShopLogo: vi.fn() }))
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ auth: { getUser } }) }))
 vi.mock("@/lib/shop-logo", () => ({ uploadShopLogo }))
+const cap = vi.hoisted(() => ({ requireCapability: vi.fn(async (..._a: unknown[]): Promise<unknown> => null) }))
+vi.mock("@/lib/roles/require-capability", () => cap)
+const denied403 = () => new Response(JSON.stringify({ error: "This feature isn't available for your account." }), { status: 403 })
 
 import { POST } from "./route"
 
@@ -18,6 +21,14 @@ function req(opts: { token?: string; file?: File | null } = {}) {
 beforeEach(() => vi.clearAllMocks())
 
 describe("POST /api/shop/logo", () => {
+  it("403 when the role lacks shop.storefront, before any write", async () => {
+    getUser.mockResolvedValue({ data: { user: { id: "u1" } }, error: null })
+    cap.requireCapability.mockResolvedValueOnce(denied403())
+    const res = await POST(req({ token: "t" }))
+    expect(res.status).toBe(403)
+    expect(cap.requireCapability).toHaveBeenCalledWith(expect.anything(), "u1", "shop.storefront")
+    expect(uploadShopLogo).not.toHaveBeenCalled()
+  })
   it("401 without a bearer token; nothing uploaded", async () => {
     const res = await POST(req())
     expect(res.status).toBe(401)

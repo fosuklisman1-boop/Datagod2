@@ -16,6 +16,7 @@ import { getNoticeMode } from "@/lib/blocked-numbers/notice"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, getCustomPrices } from "@/lib/pricing/package-price"
 import { roleBasePrices, priceWith } from "@/lib/roles/pricing"
 import { RoleReadError } from "@/lib/roles/repo"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 import { supabaseAdmin } from "@/lib/supabase" // Need admin client for checking settings if not already available, but usage below checks 'supabase' which is user client?
 // create-bulk uses `supabase` created with serviceRoleKey which IS admin privileges.
@@ -118,6 +119,9 @@ export async function POST(request: NextRequest) {
 
     const userId = user.id
     console.log(`[BULK-ORDERS] User ID: ${userId}`)
+
+    const denied = await requireCapability(supabase, userId, "buy.data")
+    if (denied) return denied
 
     const phoneGuard = await checkPhoneVerified(supabase, userId)
     if (!phoneGuard.allowed) {

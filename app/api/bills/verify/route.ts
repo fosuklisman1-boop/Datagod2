@@ -4,11 +4,14 @@ import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { getBillsRuntime } from "@/lib/bills/runtime"
 import { verifyBill } from "@/lib/bills/service"
 import { authenticate, readJson } from "@/lib/bills/route-auth"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 export async function POST(request: NextRequest) {
   try {
     const auth = await authenticate(request)
     if ("response" in auth) return auth.response
+    const denied = await requireCapability(getBillsRuntime().db, auth.userId, "buy.bills")
+    if (denied) return denied
     const rl = await applyRateLimit(request, "bills_verify", 20, 60_000, auth.userId)
     if (!rl.allowed) return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 })
     const body = await readJson(request)

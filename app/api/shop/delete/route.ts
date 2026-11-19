@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 // Self-service shop deletion. Every FK referencing user_shops(id) is either
 // ON DELETE CASCADE (shop_orders, shop_profits, shop_available_balance,
@@ -26,6 +27,9 @@ export async function POST(request: NextRequest) {
   if (userError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const denied = await requireCapability(supabaseAdmin, user.id, "shop.storefront")
+  if (denied) return denied
 
   let body: any
   try {

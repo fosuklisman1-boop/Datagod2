@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { supabaseAdmin } from "@/lib/supabase"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { generateClaimCode } from "@/lib/momo-claim/codes"
 import { computeFee, checkSessionAmount } from "@/lib/momo-claim/money"
@@ -120,6 +121,8 @@ export async function POST(request: NextRequest) {
   const ctx = await authenticate(request)
   if (isFailure(ctx)) return ctx
   const { db, userId } = ctx
+  const denied = await requireCapability(db, userId, "account.wallet")
+  if (denied) return denied
 
   try {
     const s = await loadMomoClaimSettings(db)

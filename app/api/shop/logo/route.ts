@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { uploadShopLogo } from "@/lib/shop-logo"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 // POST /api/shop/logo — multipart form with `file`. The dealer's own shop logo is uploaded with the
 // service key because storage RLS on `admin-uploads` only lets admins insert (see lib/shop-logo.ts).
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest) {
   if (userError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const denied = await requireCapability(supabaseAdmin, user.id, "shop.storefront")
+  if (denied) return denied
 
   let file: FormDataEntryValue | null
   try {

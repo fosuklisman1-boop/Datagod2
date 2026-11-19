@@ -7,6 +7,7 @@ import { buySpecial } from "@/lib/standard-bundles/special-service"
 import { buildSpecialDeps } from "@/lib/standard-bundles/special-runtime"
 import { isSpecialTokenSigned } from "@/lib/standard-bundles/token"
 import { authenticate, readJson } from "@/lib/bills/route-auth"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 // 300s: room for the Special dispatch loop, which stops itself after a 240s budget (special-service.ts). A normal
 // buy only gains headroom.
@@ -20,6 +21,8 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await authenticate(request)
     if ("response" in auth) return auth.response
+    const denied = await requireCapability(getBundlesRuntime().db, auth.userId, "buy.data")
+    if (denied) return denied
     const rl = await applyRateLimit(request, "bundles_buy", 10, 60_000, auth.userId)
     if (!rl.allowed) return NextResponse.json({ success: false, error: "Too many requests. Please slow down." }, { status: 429 })
     const body = await readJson(request)

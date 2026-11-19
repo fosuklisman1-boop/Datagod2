@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { submitAfaOrder } from "@/lib/afa-fulfillment"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest) {
     if (userError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "buy.afa")
+    if (denied) return denied
 
     const phoneGuard = await checkPhoneVerified(supabase, user.id)
     if (!phoneGuard.allowed) {

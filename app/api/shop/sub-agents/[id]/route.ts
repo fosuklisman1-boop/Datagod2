@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { subAgentRemovalUpdate } from "@/lib/sub-agents/open-shop"
 import { canSetDealerRates } from "@/lib/sub-agents/rate-switch"
 
@@ -22,6 +23,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "shop.subagents")
+    if (denied) return denied
 
     const body = await request.json().catch(() => null)
     if (!body || typeof body.dealer_rates_enabled !== "boolean") {
@@ -106,6 +110,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (shopError || !shop) {
       return NextResponse.json({ error: "Shop not found" }, { status: 404 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "shop.subagents")
+    if (denied) return denied
 
     const { data: subAgent, error: subAgentError } = await supabase
       .from("user_shops")

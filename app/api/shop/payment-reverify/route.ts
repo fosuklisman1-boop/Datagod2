@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { alertClosedOrderPayment, isClosedUnpaidShopOrder } from "@/lib/payments/closed-order"
 import { confirmAndReadHubtelPayment, findHubtelPayments, hubtelReportStatus, isHubtelWalletPayment, isLiveHubtelStatus } from "@/lib/hubtel-pay/lookup"
 
@@ -74,6 +75,9 @@ async function resolveShop(request: NextRequest): Promise<{
   if (userError || !userData?.user?.id) {
     return { shopId: null, errorResponse: NextResponse.json({ error: "Invalid token" }, { status: 401 }) }
   }
+
+  const denied = await requireCapability(supabase, userData.user.id, "shop.storefront")
+  if (denied) return { shopId: null, errorResponse: denied }
 
   const { data: shop } = await supabase
     .from("user_shops")

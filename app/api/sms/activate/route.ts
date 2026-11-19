@@ -1,5 +1,6 @@
 // app/api/sms/activate/route.ts
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { activateViaWallet, initActivationPaystack, initActivationDirectCharge } from "@/lib/sms/activation-service"
@@ -23,6 +24,9 @@ export async function POST(request: NextRequest) {
   if (!authHeader?.startsWith("Bearer ")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(authHeader.slice(7))
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const denied = await requireCapability(supabaseAdmin, user.id, "shop.sms")
+  if (denied) return denied
 
   const account = await getOrCreateAccountForUser(user.id)
   if (!account) return NextResponse.json({ error: "No SMS account" }, { status: 403 })

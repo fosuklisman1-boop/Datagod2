@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
+
 // A tiny table-serving fake. Writes are recorded; the wallet RPC returns no rows so the route stops with a
 // 402 after computing the total, which is read from the RPC arguments.
 const db = vi.hoisted(() => {

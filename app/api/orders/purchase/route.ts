@@ -19,6 +19,7 @@ import { getNoticeMode, dealerNotice } from "@/lib/blocked-numbers/notice"
 import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, getCustomPrices } from "@/lib/pricing/package-price"
 import { roleBasePrices, priceWith } from "@/lib/roles/pricing"
 import { RoleReadError } from "@/lib/roles/repo"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -130,6 +131,10 @@ export async function POST(request: NextRequest) {
 
       userId = user.id
       userEmail = user.email
+
+      // Role rights apply to the member's own session only (cron-initiated orders above are not gated).
+      const denied = await requireCapability(supabaseAdmin, userId, "buy.data")
+      if (denied) return denied
 
       const phoneGuard = await checkPhoneVerified(supabaseAdmin, userId)
       if (!phoneGuard.allowed) {

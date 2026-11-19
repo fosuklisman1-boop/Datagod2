@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { alertAdminsOfRequest } from "@/lib/admin-actions"
 import { checkLogoInput, storeEmbeddedLogo } from "@/lib/shop-logo-intake"
 import { checkPhoneVerified } from "@/lib/phone-verify-guard"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 // Server-side shop creation. Migration 0077 revoked INSERT on every public table
 // from `authenticated`/`anon`, so the old browser-client insert in
@@ -30,6 +31,9 @@ export async function POST(request: NextRequest) {
   if (userError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const denied = await requireCapability(supabaseAdmin, user.id, "shop.storefront")
+  if (denied) return denied
 
   // 1b) Same phone gate as orders/withdrawals (fails closed). The dashboard modal is only a UI
   //     layer: on 2026-11-14 an account that had failed OTP called this route directly and got a

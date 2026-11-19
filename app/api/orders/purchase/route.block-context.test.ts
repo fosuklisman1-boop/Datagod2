@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
+
 const gate = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => true))
 
 // Any chained query resolves to an empty result; auth resolves to a fixed user.

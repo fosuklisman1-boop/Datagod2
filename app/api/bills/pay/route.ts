@@ -4,6 +4,7 @@ import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 import { getBillsRuntime } from "@/lib/bills/runtime"
 import { payBill } from "@/lib/bills/service"
 import { authenticate, readJson } from "@/lib/bills/route-auth"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 // A request must always die well before the 5-minute stuck-claim threshold.
 export const maxDuration = 60
@@ -12,6 +13,8 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await authenticate(request)
     if ("response" in auth) return auth.response
+    const denied = await requireCapability(getBillsRuntime().db, auth.userId, "buy.bills")
+    if (denied) return denied
     const rl = await applyRateLimit(request, "bills_pay", 10, 60_000, auth.userId)
     if (!rl.allowed) return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 })
     const body = await readJson(request)

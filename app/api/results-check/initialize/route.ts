@@ -17,6 +17,7 @@ import {
 } from "@/lib/results-checker-service"
 import { secureReference } from "@/lib/secure-random"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,6 +43,9 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "buy.results")
+    if (denied) return denied
 
     const body = await request.json()
     const {

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
+
 // A tiny table-serving fake. Writes are recorded; the wallet RPC returns no rows so the route stops with a
 // 402 that echoes the price it would have charged (`required`), which is what these tests assert on.
 const db = vi.hoisted(() => {

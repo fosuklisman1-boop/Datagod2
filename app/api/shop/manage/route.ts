@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { checkLogoInput, storeEmbeddedLogo } from "@/lib/shop-logo-intake"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 // Server-side shop management (owner-only writes). Migration 0077 revoked
 // INSERT/UPDATE/DELETE on user_shops + shop_packages from the browser
@@ -80,6 +81,9 @@ export async function POST(request: NextRequest) {
   if (userError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const denied = await requireCapability(supabaseAdmin, user.id, "shop.storefront")
+  if (denied) return denied
 
   // 2) Parse input.
   let body: any

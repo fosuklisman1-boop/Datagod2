@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { listTenantTemplates, createTenantTemplate } from "@/lib/sms/tenant-templates-service"
@@ -15,6 +16,8 @@ async function resolveAccount(request: NextRequest) {
   }
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(authHeader.slice(7))
   if (error || !user) return { error: NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 }) }
+  const denied = await requireCapability(supabaseAdmin, user.id, "shop.sms")
+  if (denied) return { error: denied }
   const account = await getOrCreateAccountForUser(user.id)
   if (!account) return { error: NextResponse.json({ success: false, error: "No SMS account for this user" }, { status: 403 }) }
   return { account }

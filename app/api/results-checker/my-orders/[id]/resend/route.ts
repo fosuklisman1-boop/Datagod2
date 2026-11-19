@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { resendVouchers } from "@/lib/results-checker-notification-service"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +21,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "buy.results")
+    if (denied) return denied
 
     const { method } = await request.json()
     if (method !== "sms" && method !== "email") {

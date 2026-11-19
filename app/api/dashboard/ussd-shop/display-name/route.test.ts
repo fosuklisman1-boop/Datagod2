@@ -2,6 +2,10 @@ import { POST } from "./route"
 import { NextRequest } from "next/server"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
+const cap = vi.hoisted(() => ({ requireCapability: vi.fn(async (..._a: unknown[]): Promise<unknown> => null) }))
+vi.mock("@/lib/roles/require-capability", () => cap)
+const denied403 = () => new Response(JSON.stringify({ error: "This feature isn't available for your account." }), { status: 403 })
+
 const h = vi.hoisted(() => {
   const state = {
     authUser: { id: "user-1" } as { id: string } | null,
@@ -54,6 +58,14 @@ beforeEach(() => {
 })
 
 describe("POST /api/dashboard/ussd-shop/display-name", () => {
+  it("403 when the role lacks shop.bots, before any write", async () => {
+    cap.requireCapability.mockResolvedValueOnce(denied403())
+    const res = await POST(postRequest({ name: "Kwame Shop" }))
+    expect(res.status).toBe(403)
+    expect(cap.requireCapability).toHaveBeenCalledWith(expect.anything(), "user-1", "shop.bots")
+    expect(h.state.updateCalls).toEqual([])
+  })
+
   it("rejects a request with no Authorization header", async () => {
     const res = await POST(postRequest({ name: "Kwame Shop" }, false))
     expect(res.status).toBe(401)

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
 import { NextRequest } from "next/server"
 
 // The SMS payment starts with the REAL wrappers (lib/payment-gateway/start.ts) and, for the confirm pins, the REAL

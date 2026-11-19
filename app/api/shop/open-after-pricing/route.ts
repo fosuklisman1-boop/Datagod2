@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { openPricedShop, ShopNotFoundError } from "@/lib/sub-agents/open-shop"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { CustomPriceReadError } from "@/lib/pricing/package-price"
 
 const supabase = createClient(
@@ -20,6 +21,9 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "shop.storefront")
+    if (denied) return denied
 
     const result = await openPricedShop(supabase, user.id)
     switch (result.status) {

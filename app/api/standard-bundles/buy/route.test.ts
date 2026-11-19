@@ -12,6 +12,9 @@ vi.mock("next/server", async importOriginal => ({
   ...(await importOriginal<typeof import("next/server")>()),
   after: (fn: () => unknown) => { h.afterTasks.push(fn) },
 }))
+const cap = vi.hoisted(() => ({ requireCapability: vi.fn(async (..._a: unknown[]): Promise<unknown> => null) }))
+vi.mock("@/lib/roles/require-capability", () => cap)
+const denied403 = () => new Response(JSON.stringify({ error: "This feature isn't available for your account." }), { status: 403 })
 vi.mock("@/lib/rate-limiter", () => ({ applyRateLimit: async () => ({ allowed: true }) }))
 vi.mock("@/lib/phone-verify-guard", () => ({ checkPhoneVerified: async () => h.guard }))
 vi.mock("@/lib/bills/route-auth", async importOriginal => ({
@@ -61,6 +64,14 @@ beforeEach(() => {
 })
 
 describe("POST /api/standard-bundles/buy — normal path unchanged", () => {
+  it("403 when the role lacks buy.data, before any purchase", async () => {
+    cap.requireCapability.mockResolvedValueOnce(denied403())
+    const res = await post({ token: unit, phone: "0244123456", idempotencyKey: KEY })
+    expect(res.status).toBe(403)
+    expect(cap.requireCapability).toHaveBeenCalledWith({ kind: "db" }, "u1", "buy.data")
+    expect(h.buyBundle).not.toHaveBeenCalled()
+    expect(h.buySpecial).not.toHaveBeenCalled()
+  })
   it("a normal token goes to buyBundle with the same arguments and response shape as before; buySpecial never runs", async () => {
     const res = await post({ token: unit, phone: "0244123456", idempotencyKey: KEY, expectedPay: "3.00" })
     expect(h.buySpecial).not.toHaveBeenCalled()

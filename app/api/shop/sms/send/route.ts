@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { NextRequest, NextResponse } from "next/server"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
 import { enqueueSendBatched, SMS_MAX_TOTAL } from "@/lib/sms/send-service"
@@ -31,6 +32,9 @@ export async function POST(request: NextRequest) {
   if (authError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const denied = await requireCapability(supabaseAdmin, user.id, "shop.sms")
+  if (denied) return denied
 
   // Account
   const account = await getOrCreateAccountForUser(user.id)

@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextRequest, NextResponse } from "next/server"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { normalizeWhatsAppLink } from "@/lib/whatsapp-link"
 import { canUseOwnSenderForConfirmations } from "@/lib/sms/order-confirmation"
 
@@ -103,6 +104,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         { status: 401 }
       )
     }
+
+    const denied = await requireCapability(supabase, user.id, "shop.storefront")
+    if (denied) return denied
 
     console.log(`[SHOP-SETTINGS] User ${user.id} updating shop ${shopId}`)
 

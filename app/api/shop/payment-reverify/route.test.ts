@@ -1,6 +1,8 @@
 // Shop-owner re-verify: Hubtel payments go through confirmHubtelPayment, never Paystack's verify (whose 404 would mark
 // the order abandoned). Paystack rows behave as before.
 import { beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
 import { NextRequest } from "next/server"
 
 const h = vi.hoisted(() => {

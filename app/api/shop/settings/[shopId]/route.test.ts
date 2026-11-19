@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
+vi.mock("@/lib/roles/require-capability", () => ({ requireCapability: vi.fn().mockResolvedValue(null) }))
+
 const state = vi.hoisted(() => ({
   settingsRow: null as any,
   writes: [] as { op: string; payload: any }[],

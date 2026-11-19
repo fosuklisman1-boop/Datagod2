@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { NextRequest, NextResponse } from "next/server"
 
 const supabase = createClient(
@@ -26,6 +27,9 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    const denied = await requireCapability(supabase, user.id, "account.wallet")
+    if (denied) return denied
 
     // Create wallet for user
     const { data: newWallet, error: createError } = await supabase

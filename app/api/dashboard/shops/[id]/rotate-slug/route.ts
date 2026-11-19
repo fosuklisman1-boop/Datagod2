@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { requireCapability } from "@/lib/roles/require-capability"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,6 +45,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!user) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 })
     }
+
+    const denied = await requireCapability(supabase, user.id, "shop.storefront")
+    if (denied) return denied
 
     const { data: shop, error: shopErr } = await supabase
       .from("user_shops")

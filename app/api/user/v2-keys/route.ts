@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { accessSummary, canIssue, isIssuableType, type AccessSummary } from "@/lib/api-v2/key-issue"
 import type { Environment } from "@/lib/api-v2/keys"
 import { getOrCreateAccountForUser } from "@/lib/sms/account-service"
@@ -80,6 +81,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const sessionUser = await getSessionUser(request)
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const denied = await requireCapability(client, sessionUser.id, "account.api")
+  if (denied) return denied
 
   const rateLimit = await applyRateLimit(request, "api_v2_key_generate", 10, 60 * 60 * 1000, sessionUser.id)
   if (!rateLimit.allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 })

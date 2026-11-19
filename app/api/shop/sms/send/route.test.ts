@@ -8,6 +8,10 @@ const h = vi.hoisted(() => ({
   settings: vi.fn(),
 }))
 
+const cap = vi.hoisted(() => ({ requireCapability: vi.fn(async (..._a: unknown[]): Promise<unknown> => null) }))
+vi.mock("@/lib/roles/require-capability", () => cap)
+const denied403 = () => new Response(JSON.stringify({ error: "This feature isn't available for your account." }), { status: 403 })
+
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     auth: { getUser: () => Promise.resolve({ data: { user: { id: "u1" } }, error: null }) },
@@ -49,6 +53,15 @@ beforeEach(() => {
 })
 
 describe("POST /api/shop/sms/send scheduledAt", () => {
+  it("403 when the role lacks shop.sms, before any account read or send", async () => {
+    cap.requireCapability.mockResolvedValueOnce(denied403())
+    const res = await call({ message: "Hello world", recipients: ["0241234567"] })
+    expect(res.status).toBe(403)
+    expect(cap.requireCapability).toHaveBeenCalledWith(expect.anything(), "u1", "shop.sms")
+    expect(h.batched).not.toHaveBeenCalled()
+    expect(h.dbCalls).toEqual([])
+  })
+
   it("omitted → unchanged call (no opts arg), scheduled:false in data", async () => {
     const res = await call({ message: "Hello world", recipients: ["0241234567"] })
     expect(res.status).toBe(200)

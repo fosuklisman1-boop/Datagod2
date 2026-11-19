@@ -33,6 +33,9 @@ const h = vi.hoisted(() => {
 })
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => h.fake }))
+const cap = vi.hoisted(() => ({ requireCapability: vi.fn(async (..._a: unknown[]): Promise<unknown> => null) }))
+vi.mock("@/lib/roles/require-capability", () => cap)
+const denied403 = () => new Response(JSON.stringify({ error: "This feature isn't available for your account." }), { status: 403 })
 vi.mock("@/lib/rate-limiter", () => ({ applyRateLimit: async () => ({ allowed: true }) }))
 vi.mock("@/lib/api-v1/retirement", async (orig) => ({
   ...(await orig<typeof import("@/lib/api-v1/retirement")>()),
@@ -54,6 +57,15 @@ beforeEach(() => {
 })
 
 describe("POST /api/user/keys", () => {
+  it("403 when the role lacks account.api, before any revoke or insert", async () => {
+    cap.requireCapability.mockResolvedValueOnce(denied403())
+    const res = await POST(req("POST", { environment: "live" }))
+    expect(res.status).toBe(403)
+    expect(cap.requireCapability).toHaveBeenCalledWith(h.fake, "user-1", "account.api")
+    expect(h.state.updates).toBe(0)
+    expect(h.state.inserts).toBe(0)
+  })
+
   it("returns 410 and neither revokes nor inserts when a sunset is set", async () => {
     h.state.cfg = { sunsetAt: new Date("2026-11-26T00:00:00Z"), exemptUserIds: [] }
     const res = await POST(req("POST", { environment: "live" }))

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { generateApiKey } from "@/lib/api-auth"
 import { applyRateLimit } from "@/lib/rate-limiter"
+import { requireCapability } from "@/lib/roles/require-capability"
 import { getV1RetirementConfig, formatGhanaDate } from "@/lib/api-v1/retirement"
 
 const supabase = createClient(
@@ -65,6 +66,9 @@ export async function POST(request: NextRequest) {
   if (!sessionUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const denied = await requireCapability(supabase, sessionUser.id, "account.api")
+  if (denied) return denied
 
   // Per-user rate limit (anti-burst on a single account)
   const rateLimit = await applyRateLimit(request, "api_key_generate", 10, 60 * 60 * 1000, sessionUser.id)
