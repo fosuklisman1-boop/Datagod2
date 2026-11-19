@@ -26,6 +26,7 @@ import {
   type NavGroupDef,
 } from "@/lib/nav-groups"
 import { roleFromMetadata } from "@/lib/metadata-role"
+import { interimRightsFor, navVisible } from "@/lib/roles/capabilities"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
 import { useAuth } from "@/hooks/use-auth"
@@ -298,8 +299,11 @@ export function Sidebar() {
     }
   }
 
+  // Interim until the per-role rights fetch lands: user/dealer all capabilities, admin all, sub_agent fixed set.
+  const rights = interimRightsFor(userRole)
+
   const visibleMenuItems = menuItems.filter(item => {
-    if (!userRole || !item.roles.includes(userRole)) return false
+    if (!userRole || !navVisible(item, userRole, rights)) return false
     if (item.feature === "standard-bundles") {
       if (!bundlesAvailability?.enabled) return false
     } else if (item.feature && !featureAvailable(billsAvailability, item.feature)) return false
@@ -312,7 +316,7 @@ export function Sidebar() {
   })
 
   const visibleShopItems = shopItems.filter(item =>
-    userRole && item.roles.includes(userRole) &&
+    userRole && navVisible(item, userRole, rights) &&
     isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)
   )
 

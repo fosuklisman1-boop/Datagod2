@@ -5,6 +5,7 @@ import { useUserRole } from "./use-user-role"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
 import { supabase } from "@/lib/supabase"
 import { pickFirstVisiblePath } from "@/lib/dashboard-nav-items"
+import { interimRightsFor } from "@/lib/roles/capabilities"
 
 export interface FirstVisiblePathResult {
   path: string | null
@@ -56,7 +57,7 @@ export function useFirstVisiblePath(): FirstVisiblePathResult {
   const loading = roleLoading || subLoading
   const path = loading
     ? null
-    : pickFirstVisiblePath(role, domainBranding.services, domainBranding.hiddenPages, dealerHasSubscription)
+    : pickFirstVisiblePath(role, interimRightsFor(role), domainBranding.services, domainBranding.hiddenPages, dealerHasSubscription)
 
   return { path, loading }
 }

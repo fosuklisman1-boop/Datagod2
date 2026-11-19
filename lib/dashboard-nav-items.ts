@@ -9,12 +9,18 @@ import {
 } from "lucide-react"
 import { isPathAllowedForService, isPageHidden, type DomainService } from "./custom-domains"
 import type { NavGroupDef } from "./nav-groups"
+import { navVisible, type Capability, type RoleRights } from "./roles/capabilities"
 
 export interface NavItem {
   href: string
   label: string
   icon: LucideIcon
-  roles: string[]
+  /** Capability a role must hold to see this item. Omitted = every non-sub_agent role sees it. */
+  cap?: Capability
+  /** Also shown to sub_agent (their fixed set; sub_agent never uses capabilities). */
+  subAgent?: boolean
+  /** Shown to sub_agent only, whatever capabilities or admin rights anyone holds. */
+  subAgentOnly?: boolean
   /** Hidden unless /api/bills/availability reports this feature enabled (filtered where the sidebar renders). */
   feature?: "bills" | "broadband" | "standard-bundles"
   /** Never picked as a landing page by pickFirstVisiblePath. */
@@ -40,44 +46,44 @@ export function isNavActive(pathname: string, href: string): boolean {
 // pickFirstVisiblePath() walks it to choose a landing page. Feature-gated and
 // notLanding items are never landing pages, so they can sit anywhere.
 export const menuItems: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: Layers, roles: ["user", "admin", "dealer"] },
+  { href: "/dashboard", label: "Dashboard", icon: Layers },
   // Buy
-  { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, roles: ["user", "admin", "dealer"], group: "buy" },
-  { href: "/dashboard/standard-bundles", label: "Standard Bundles", icon: Package, roles: ["user", "admin", "dealer", "sub_agent"], feature: "standard-bundles", group: "buy" },
-  { href: "/dashboard/airtime", label: "Buy Airtime", icon: Smartphone, roles: ["user", "admin", "dealer"], group: "buy" },
-  { href: "/dashboard/bills", label: "Utility Bills", icon: Lightbulb, roles: ["user", "admin", "dealer", "sub_agent"], feature: "bills", group: "buy" },
-  { href: "/dashboard/broadband", label: "Telecel Broadband", icon: Wifi, roles: ["user", "admin", "dealer", "sub_agent"], feature: "broadband", group: "buy" },
-  { href: "/dashboard/results-checker", label: "Results Checker", icon: GraduationCap, roles: ["user", "admin", "dealer", "sub_agent"], group: "buy" },
-  { href: "/dashboard/results-check", label: "Check Results", icon: GraduationCap, roles: ["user", "admin", "dealer", "sub_agent"], group: "buy" },
+  { href: "/dashboard/data-packages", label: "Data Packages", icon: Package, cap: "buy.data", group: "buy" },
+  { href: "/dashboard/standard-bundles", label: "Standard Bundles", icon: Package, cap: "buy.data", subAgent: true, feature: "standard-bundles", group: "buy" },
+  { href: "/dashboard/airtime", label: "Buy Airtime", icon: Smartphone, cap: "buy.airtime", group: "buy" },
+  { href: "/dashboard/bills", label: "Utility Bills", icon: Lightbulb, cap: "buy.bills", subAgent: true, feature: "bills", group: "buy" },
+  { href: "/dashboard/broadband", label: "Telecel Broadband", icon: Wifi, cap: "buy.bills", subAgent: true, feature: "broadband", group: "buy" },
+  { href: "/dashboard/results-checker", label: "Results Checker", icon: GraduationCap, cap: "buy.results", subAgent: true, group: "buy" },
+  { href: "/dashboard/results-check", label: "Check Results", icon: GraduationCap, cap: "buy.results", subAgent: true, group: "buy" },
   // Orders & Money
-  { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, roles: ["user", "admin", "dealer"], group: "orders" },
-  { href: "/dashboard/afa-orders", label: "AFA Orders", icon: IdCard, roles: ["user", "admin", "dealer"], group: "orders" },
-  { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, roles: ["user", "admin", "sub_agent", "dealer"], group: "orders" },
-  { href: "/dashboard/transactions", label: "Transactions", icon: History, roles: ["user", "admin", "dealer"], group: "orders" },
+  { href: "/dashboard/my-orders", label: "My Orders", icon: ShoppingCart, cap: "account.wallet", group: "orders" },
+  { href: "/dashboard/afa-orders", label: "AFA Orders", icon: IdCard, cap: "buy.afa", group: "orders" },
+  { href: "/dashboard/wallet", label: "Wallet", icon: Wallet, cap: "account.wallet", subAgent: true, group: "orders" },
+  { href: "/dashboard/transactions", label: "Transactions", icon: History, cap: "account.wallet", group: "orders" },
   // Account
-  { href: "/dashboard/top-performers", label: "Top Performers", icon: Trophy, roles: ["user", "admin", "sub_agent", "dealer"], notLanding: true, group: "account" },
-  { href: "/dashboard/profile", label: "Profile", icon: User, roles: ["user", "admin", "sub_agent", "dealer"], group: "account" },
-  { href: "/dashboard/developer", label: "Developer / API", icon: Code2, roles: ["user", "admin", "sub_agent", "dealer"], group: "account" },
-  { href: "/dashboard/complaints", label: "Support & Complaints", icon: AlertCircle, roles: ["user", "admin", "dealer"], group: "account" },
-  { href: "/dashboard/upgrade", label: "Upgrade to Dealer", icon: Sparkles, roles: ["user", "admin", "dealer"], group: "account" },
+  { href: "/dashboard/top-performers", label: "Top Performers", icon: Trophy, cap: "account.leaderboard", subAgent: true, notLanding: true, group: "account" },
+  { href: "/dashboard/profile", label: "Profile", icon: User, subAgent: true, group: "account" },
+  { href: "/dashboard/developer", label: "Developer / API", icon: Code2, cap: "account.api", subAgent: true, group: "account" },
+  { href: "/dashboard/complaints", label: "Support & Complaints", icon: AlertCircle, group: "account" },
+  { href: "/dashboard/upgrade", label: "Upgrade to Dealer", icon: Sparkles, cap: "account.upgrade", group: "account" },
 ]
 
 export const shopItems: NavItem[] = [
-  { href: "/dashboard/my-shop", label: "Overview", icon: Store, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-orders", label: "Orders", icon: ShoppingCart, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/customers", label: "Customers", icon: Users, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/text-orders", label: "Text Orders", icon: MessageSquareText, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/blocked-numbers", label: "Blocked Numbers", icon: ShieldAlert, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-profit-logs", label: "Profit Logs", icon: Activity, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-pricing", label: "Pricing", icon: Tag, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/sms", label: "SMS", icon: Send, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-withdraw", label: "Withdraw", icon: Banknote, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/shop-profile", label: "Shop Profile", icon: Settings, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/ussd-shop", label: "USSD/WhatsApp Bot", icon: Smartphone, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/payment-reverify", label: "Payment Reverify", icon: Zap, roles: ["user", "admin", "sub_agent", "dealer"] },
-  { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/sub-agent-catalog", label: "Sub-Agent Catalog", icon: Package, roles: ["user", "admin", "dealer"] },
-  { href: "/dashboard/buy-stock", label: "Buy Data", icon: ShoppingBag, roles: ["sub_agent"] },
+  { href: "/dashboard/my-shop", label: "Overview", icon: Store, cap: "shop.storefront", subAgent: true },
+  { href: "/dashboard/shop-orders", label: "Orders", icon: ShoppingCart, cap: "shop.storefront", subAgent: true },
+  { href: "/dashboard/customers", label: "Customers", icon: Users, cap: "shop.storefront", subAgent: true },
+  { href: "/dashboard/text-orders", label: "Text Orders", icon: MessageSquareText, cap: "shop.text_orders", subAgent: true },
+  { href: "/dashboard/blocked-numbers", label: "Blocked Numbers", icon: ShieldAlert, cap: "shop.storefront", subAgent: true },
+  { href: "/dashboard/shop-profit-logs", label: "Profit Logs", icon: Activity, cap: "shop.storefront", subAgent: true },
+  { href: "/dashboard/shop-pricing", label: "Pricing", icon: Tag, cap: "shop.storefront", subAgent: true },
+  { href: "/dashboard/sms", label: "SMS", icon: Send, cap: "shop.sms", subAgent: true },
+  { href: "/dashboard/shop-withdraw", label: "Withdraw", icon: Banknote, cap: "shop.storefront", subAgent: true },
+  { href: "/dashboard/shop-profile", label: "Shop Profile", icon: Settings, cap: "shop.storefront", subAgent: true },
+  { href: "/dashboard/ussd-shop", label: "USSD/WhatsApp Bot", icon: Smartphone, cap: "shop.bots", subAgent: true },
+  { href: "/dashboard/payment-reverify", label: "Payment Reverify", icon: Zap, cap: "shop.storefront", subAgent: true },
+  { href: "/dashboard/sub-agents", label: "Sub-Agents", icon: Users, cap: "shop.subagents" },
+  { href: "/dashboard/sub-agent-catalog", label: "Sub-Agent Catalog", icon: Package, cap: "shop.subagents" },
+  { href: "/dashboard/buy-stock", label: "Buy Data", icon: ShoppingBag, subAgentOnly: true },
 ]
 
 /**
@@ -91,6 +97,7 @@ export const shopItems: NavItem[] = [
  */
 export function pickFirstVisiblePath(
   role: string | null,
+  rights: RoleRights,
   services: DomainService[] | null,
   hiddenPages: string[],
   dealerHasSubscription: boolean
@@ -98,7 +105,7 @@ export function pickFirstVisiblePath(
   if (!role) return null
   const allItems = [...menuItems, ...shopItems]
   for (const item of allItems) {
-    if (!item.roles.includes(role)) continue
+    if (!navVisible(item, role, rights)) continue
     if (item.feature) continue // availability is client-side; never a landing page
     if (item.notLanding) continue
     if (item.href === "/dashboard" && isPageHidden("dashboard_home", hiddenPages)) continue

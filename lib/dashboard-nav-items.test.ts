@@ -1,8 +1,82 @@
 import { describe, it, expect } from "vitest"
 import {
-  pickFirstVisiblePath, isNavActive, menuItems, menuGroups, adminNavItems, adminNavGroups,
+  pickFirstVisiblePath as pickRaw, isNavActive, menuItems, shopItems, menuGroups, adminNavItems, adminNavGroups,
 } from "./dashboard-nav-items"
 import type { DomainService } from "./custom-domains"
+import { ALL_CAPABILITIES, navVisible, type RoleRights } from "./roles/capabilities"
+
+const ALL_SET: RoleRights = { kind: "set", caps: new Set(ALL_CAPABILITIES) }
+const rightsOf = (slug: string): RoleRights =>
+  slug === "admin" ? { kind: "all" } : slug === "sub_agent" ? { kind: "sub_agent" } : ALL_SET
+// Same arguments as before the capability change: user/dealer hold every capability.
+const pickFirstVisiblePath = (
+  role: string | null, services: DomainService[] | null, hidden: string[], sub: boolean,
+) => pickRaw(role, role ? rightsOf(role) : { kind: "set", caps: new Set() }, services, hidden, sub)
+
+// Frozen copy of the hard-coded `roles` arrays before nav moved onto capabilities (2026-11-19).
+const U = "user", A = "admin", D = "dealer", S = "sub_agent"
+const LEGACY_NAV_ROLES: Record<string, string[]> = {
+  "/dashboard": [U, A, D],
+  "/dashboard/data-packages": [U, A, D],
+  "/dashboard/standard-bundles": [U, A, D, S],
+  "/dashboard/airtime": [U, A, D],
+  "/dashboard/bills": [U, A, D, S],
+  "/dashboard/broadband": [U, A, D, S],
+  "/dashboard/results-checker": [U, A, D, S],
+  "/dashboard/results-check": [U, A, D, S],
+  "/dashboard/my-orders": [U, A, D],
+  "/dashboard/afa-orders": [U, A, D],
+  "/dashboard/wallet": [U, A, S, D],
+  "/dashboard/transactions": [U, A, D],
+  "/dashboard/top-performers": [U, A, S, D],
+  "/dashboard/profile": [U, A, S, D],
+  "/dashboard/developer": [U, A, S, D],
+  "/dashboard/complaints": [U, A, D],
+  "/dashboard/upgrade": [U, A, D],
+  "/dashboard/my-shop": [U, A, S, D],
+  "/dashboard/shop-orders": [U, A, S, D],
+  "/dashboard/customers": [U, A, S, D],
+  "/dashboard/text-orders": [U, A, S, D],
+  "/dashboard/blocked-numbers": [U, A, S, D],
+  "/dashboard/shop-profit-logs": [U, A, S, D],
+  "/dashboard/shop-pricing": [U, A, S, D],
+  "/dashboard/sms": [U, A, S, D],
+  "/dashboard/shop-withdraw": [U, A, S, D],
+  "/dashboard/shop-profile": [U, A, S, D],
+  "/dashboard/ussd-shop": [U, A, S, D],
+  "/dashboard/payment-reverify": [U, A, S, D],
+  "/dashboard/sub-agents": [U, A, D],
+  "/dashboard/sub-agent-catalog": [U, A, D],
+  "/dashboard/buy-stock": [S],
+}
+
+describe("nav visibility by capability", () => {
+  const items = [...menuItems, ...shopItems]
+  const visible = (slug: string, rights: RoleRights) =>
+    items.filter((i) => navVisible(i, slug, rights)).map((i) => i.href).sort()
+
+  it("nav parity: for user, dealer, sub_agent and admin the visible hrefs equal the pre-change roles arrays", () => {
+    expect(items.map((i) => i.href).sort()).toEqual(Object.keys(LEGACY_NAV_ROLES).sort())
+    for (const slug of [U, D, S, A]) {
+      const expected = Object.entries(LEGACY_NAV_ROLES).filter(([, r]) => r.includes(slug)).map(([h]) => h).sort()
+      expect(visible(slug, rightsOf(slug)), slug).toEqual(expected)
+    }
+  })
+
+  it("a custom role with all capabilities sees exactly what dealer sees", () => {
+    expect(visible("custom", ALL_SET)).toEqual(visible("dealer", ALL_SET))
+  })
+
+  it("a custom role with none sees only /dashboard, /dashboard/profile, /dashboard/complaints", () => {
+    expect(visible("custom", { kind: "set", caps: new Set() })).toEqual(
+      ["/dashboard", "/dashboard/complaints", "/dashboard/profile"],
+    )
+  })
+
+  it("a custom role never sees buy-stock, even with every capability", () => {
+    expect(visible("custom", ALL_SET)).not.toContain("/dashboard/buy-stock")
+  })
+})
 
 // NOTE on `services`: lib/custom-domains.ts's isPathAllowedForService/
 // getServiceRedirect treat `services === null` OR `services === []` as
@@ -79,7 +153,7 @@ describe("pickFirstVisiblePath", () => {
     const hidden = [
       "wallet", "profile", "developer", "my_shop", "ussd_shop", "payment_reverify", "buy_stock",
     ]
-    expect(menuItems.some((i) => i.href === "/dashboard/top-performers" && i.roles.includes("sub_agent"))).toBe(true)
+    expect(menuItems.some((i) => i.href === "/dashboard/top-performers" && i.subAgent === true)).toBe(true)
     expect(pickFirstVisiblePath("sub_agent", ["data_bundles"], hidden, false)).not.toBe("/dashboard/top-performers")
   })
 
