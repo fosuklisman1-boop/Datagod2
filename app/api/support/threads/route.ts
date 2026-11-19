@@ -6,6 +6,7 @@ import { ownedOrderTiming, ownedShopOrderTiming } from "@/lib/support-ownership"
 import { complaintEligibility, type OrderTiming } from "@/lib/support-eligibility"
 import { removeAttachments, storeThreadAttachment } from "@/lib/support-attachment"
 import { alertAdminsNewThread, notifyUserSupportEvent, runAfterResponse } from "@/lib/support-notify"
+import { disputeForSupportThread } from "@/lib/mtn-providers/kuntanii-complaint-dispute"
 
 export const dynamic = "force-dynamic"
 
@@ -123,6 +124,19 @@ export async function POST(request: NextRequest) {
         await notifyUserSupportEvent(db, userId, "received", threadId)
       } catch {
         console.error("[SUPPORT] user notification threw", { threadId })
+      }
+      // An order complaint on a Kuntanii-delivered order goes straight to Kuntanii as a
+      // "not received" report (no-op for other providers / categories / unlinked threads).
+      try {
+        const r = await disputeForSupportThread({
+          category: input.category,
+          orderId: input.order_id ?? null,
+          shopOrderId: input.shop_order_id ?? null,
+          userId,
+        })
+        if (r.filed) console.log("[SUPPORT] Kuntanii not-received report filed", { threadId })
+      } catch {
+        console.error("[SUPPORT] Kuntanii not-received filing threw", { threadId })
       }
     })
 

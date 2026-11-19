@@ -9,6 +9,11 @@ const h = vi.hoisted(() => ({
   remove: vi.fn(),
   alert: vi.fn(),
   notify: vi.fn(),
+  dispute: vi.fn(),
+}))
+
+vi.mock("@/lib/mtn-providers/kuntanii-complaint-dispute", () => ({
+  disputeForSupportThread: (...a: any[]) => h.dispute(...a),
 }))
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => new Proxy({}, { get: (_t, k) => h.client[k] }) }))
@@ -344,6 +349,23 @@ describe("POST /api/support/threads", () => {
     await Promise.resolve()
     expect(h.alert).toHaveBeenCalledWith({ threadId: THREAD, subject: valid.subject, summary: valid.message })
     expect(h.notify).toHaveBeenCalledWith(expect.anything(), CALLER, "received", THREAD)
+  })
+
+  it("sends a linked order complaint to the Kuntanii not-received filer", async () => {
+    install((c) => (c.table === "orders" ? { data: { id: ORDER, status: "completed", created_at: OLD, updated_at: OLD } } : undefined))
+    const res = await POST(req({ ...valid, order_id: ORDER }))
+    expect(res.status).toBe(201)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(h.dispute).toHaveBeenCalledWith({ category: "order", orderId: ORDER, shopOrderId: null, userId: CALLER })
+  })
+
+  it("a throwing Kuntanii filer still yields 201 and still notifies", async () => {
+    h.dispute.mockRejectedValue(new Error("kuntanii down"))
+    install((c) => (c.table === "orders" ? { data: { id: ORDER, status: "completed", created_at: OLD, updated_at: OLD } } : undefined))
+    const res = await POST(req({ ...valid, order_id: ORDER }))
+    expect(res.status).toBe(201)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(h.notify).toHaveBeenCalled()
   })
 
   it("a throwing notification still yields 201", async () => {
