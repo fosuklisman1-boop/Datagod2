@@ -10,7 +10,7 @@ import { buyBundle, isValidIdempotencyKey } from "@/lib/standard-bundles/service
 import { placeSandboxOrder, getSandboxOrder } from "@/lib/sandbox"
 import { readApiSurface } from "@/lib/api-v1/surface"
 import {
-  NOT_AVAILABLE_BODY, buyResultResponse, findSandboxBundle, parseNetwork, parsePostBody,
+  NOT_AVAILABLE_BODY, buyResultResponse, catalogBuyer, findSandboxBundle, parseNetwork, parsePostBody,
   priceCatalog, sandboxCatalog, sandboxOrderFields, sandboxReference,
 } from "@/lib/api-v1/bundles"
 
@@ -55,11 +55,10 @@ async function v1GET(request: NextRequest) {
     if (!result.ok) {
       return respond(result.status, result.status === 403 ? NOT_AVAILABLE_BODY : { success: false, error: result.error })
     }
-    let buyer: "customer" | "dealer" = "customer"
-    try { buyer = await deps.getBuyerTier(user.id) } catch { /* standard price */ }
+    const { buyer, buyerShare } = await catalogBuyer(deps, user.id, network, surface.cfg)
     const categories = priceCatalog(network, result.categories.map(c => ({
       name: c.name, bundles: c.bundles.map(b => ({ token: b.token, display: b.display, amount: b.amount })),
-    })), surface.cfg, buyer)
+    })), surface.cfg, buyer, buyerShare)
 
     return respond(200, { success: true, network, categories })
   } catch (e) {

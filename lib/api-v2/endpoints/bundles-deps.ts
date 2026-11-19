@@ -15,7 +15,7 @@ import { getBundlesRuntime } from "@/lib/standard-bundles/runtime"
 import { getCatalog } from "@/lib/standard-bundles/catalog"
 import type { BundleNetwork } from "@/lib/standard-bundles/categories"
 import { readApiSurface } from "@/lib/api-v1/surface"
-import { priceCatalog } from "@/lib/api-v1/bundles"
+import { catalogBuyer, priceCatalog } from "@/lib/api-v1/bundles"
 import { getAdminClient, type SupabaseLike } from "../store"
 import {
   claimRequest,
@@ -100,12 +100,7 @@ export async function realBundleCatalog(userId: string, network: BundleNetwork):
   if (!surface.open) return { kind: "closed" }
   const result = await getCatalog(deps, network)
   if (!result.ok) return result.status === 403 ? { kind: "closed" } : { kind: "unavailable" }
-  let buyer: "customer" | "dealer" = "customer"
-  try {
-    buyer = await deps.getBuyerTier(userId)
-  } catch {
-    // standard price
-  }
+  const { buyer, buyerShare } = await catalogBuyer(deps, userId, network, surface.cfg)
   const categories = priceCatalog(
     network,
     result.categories.map((c) => ({
@@ -113,7 +108,8 @@ export async function realBundleCatalog(userId: string, network: BundleNetwork):
       bundles: c.bundles.map((b) => ({ token: b.token, display: b.display, amount: b.amount })),
     })),
     surface.cfg,
-    buyer
+    buyer,
+    buyerShare
   )
   return { kind: "ok", categories }
 }

@@ -4,6 +4,7 @@
 import { createHash } from "crypto"
 import { quoteCashback } from "@/lib/cashback/quote"
 import type { CashbackConfig } from "@/lib/cashback/config"
+import { buyerQuoteInputFor, type BuyerQuoteInput } from "@/lib/cashback/buyer-share"
 import { NETWORK_SERVICE, BUNDLE_NETWORKS, type BundleNetwork } from "@/lib/standard-bundles/categories"
 import type { BuyResult, DataOrderRow, PriceQuote } from "@/lib/standard-bundles/service"
 
@@ -45,6 +46,24 @@ export interface PricedBundle { bundle_token: string; display: string; face_amou
 export interface PricedCategory { name: string; bundles: PricedBundle[] }
 
 /**
+ * Buyer tier (+ a custom role's cashback share) for the catalog price. A read failure => the customer tier and no
+ * custom share: the same "standard price" fallback as before (the purchase itself quotes again and never over-pays).
+ */
+export async function catalogBuyer(
+  d: Parameters<typeof buyerQuoteInputFor>[0],
+  userId: string,
+  network: BundleNetwork,
+  cfg: CashbackConfig | null,
+): Promise<BuyerQuoteInput> {
+  try {
+    if (!cfg) return { buyer: await d.getBuyerTier(userId) }
+    return await buyerQuoteInputFor(d, userId, NETWORK_SERVICE[network], cfg)
+  } catch {
+    return { buyer: "customer" }
+  }
+}
+
+/**
  * Adds the key owner's price to each catalog bundle (api channel). Any quote failure, or no config (`null`: it could
  * not be read) => standard (face) price.
  */
@@ -53,6 +72,7 @@ export function priceCatalog(
   categories: { name: string; bundles: { token: string; display: string; amount: number }[] }[],
   cfg: CashbackConfig | null,
   buyer: "customer" | "dealer",
+  buyerShare?: number,
 ): PricedCategory[] {
   const serviceKey = NETWORK_SERVICE[network]
   return categories.map(c => ({
@@ -61,7 +81,7 @@ export function priceCatalog(
       let pay = b.amount, cb = 0
       if (cfg) {
         try {
-          const q = quoteCashback({ serviceKey, provider: "hubtel", faceAmount: b.amount, buyer, channel: "api" }, cfg)
+          const q = quoteCashback({ serviceKey, provider: "hubtel", faceAmount: b.amount, buyer, buyerShare, channel: "api" }, cfg)
           pay = q.payAmount; cb = q.customerCashback
         } catch { /* standard price */ }
       }

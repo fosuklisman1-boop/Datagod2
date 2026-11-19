@@ -9,6 +9,7 @@ import { verifyBundleToken, type VerifiedBundle } from "./token"
 import type { HubtelCsServiceKey } from "@/lib/hubtel-cs/services"
 import type { CashbackConfig } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
+import { buyerQuoteInputFor, type BuyerQuoteInput } from "@/lib/cashback/buyer-share"
 
 /** Wallet-paid channels this engine records: the dashboard and the public API (user_id = the API key owner). */
 export type WalletChannel = "dashboard" | "api"
@@ -30,6 +31,8 @@ export type NewDataOrder = Omit<DataOrderRow, "id" | "created_at" | "updated_at"
 export interface BundlesDeps extends CatalogDeps {
   getCashbackConfig(): Promise<CashbackConfig>
   getBuyerTier(userId: string): Promise<"customer" | "dealer">
+  /** Tier + a custom role's resolved cashback share in one call (production runtime); absent => getBuyerTier. */
+  getBuyerQuoteInput?(userId: string, serviceKey: string, cfg: CashbackConfig): Promise<BuyerQuoteInput>
   purchase(input: PurchaseInput): Promise<HubtelCsTx>
   /** Admin-editable network prefix map + its on/off toggle (lib/network-prefix-config.ts). */
   getPrefixConfig(): Promise<{ enabled: boolean; map: NetworkPrefixMap }>
@@ -205,8 +208,8 @@ export async function quoteBundle(d: BundlesDeps, userId: string, serviceKey: st
   try {
     const cfg = await d.getCashbackConfig()
     if (!cfg.enabled || !cfg.surfaces[channel]) return none
-    const buyer = await d.getBuyerTier(userId)
-    return quoteCashback({ serviceKey, provider: "hubtel", faceAmount: face, buyer, channel }, cfg)
+    const bi = await buyerQuoteInputFor(d, userId, serviceKey, cfg)
+    return quoteCashback({ serviceKey, provider: "hubtel", faceAmount: face, ...bi, channel }, cfg)
   } catch (e) {
     console.warn("[bundles] cashback quote unavailable, using standard pricing:", msg(e))
     return none

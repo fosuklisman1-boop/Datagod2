@@ -6,7 +6,7 @@ import type { DataOrderRow, BundlesDeps } from "./service"
 import { BUNDLE_NETWORKS, NETWORK_SERVICE, type BundleNetwork } from "./categories"
 import { getBundlesConfig } from "./config"
 import { getCashbackConfig } from "@/lib/cashback/config"
-import { getBuyerTier } from "@/lib/bills/runtime"
+import { getBuyerTier, getBuyerQuoteInput } from "@/lib/bills/runtime"
 
 const TABLE = "hubtel_data_orders"
 
@@ -27,6 +27,7 @@ export function buildBundlesDeps(
   return {
     getCashbackConfig: () => getCashbackConfig(db),
     getBuyerTier: userId => getBuyerTier(db, userId),
+    getBuyerQuoteInput: (userId, serviceKey, cfg) => getBuyerQuoteInput(db, userId, serviceKey, cfg),
     getBundlesConfig: () => getBundlesConfig(db),
     getHubtelConfig: () => rt.getConfig(),
     query: (serviceKey, destination, params) => rt.client.query(serviceKey, destination, params),

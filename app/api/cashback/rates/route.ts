@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { authenticate } from "@/lib/bills/route-auth"
-import { getBuyerTier } from "@/lib/bills/runtime"
+import { getBuyerRateRole } from "@/lib/bills/runtime"
+import { resolveBuyerShare } from "@/lib/cashback/buyer-share"
 import { getCashbackConfig } from "@/lib/cashback/config"
 import { buildCashbackRates, NO_CASHBACK_RATES } from "@/lib/cashback/rates"
 import { getAirtimeProvider } from "@/lib/airtime-provider"
@@ -22,11 +23,13 @@ export async function GET(request: NextRequest) {
     })
     const cfg = await getCashbackConfig(db)
     if (!cfg.enabled || !cfg.surfaces.dashboard) return NextResponse.json(NO_CASHBACK_RATES)
-    const buyer = await getBuyerTier(db, auth.userId)
+    // One users read (system roles: no roles read). A read failure falls to the catch: no rates shown (not applied).
+    const { tier: buyer, slug } = await getBuyerRateRole(db, auth.userId)
     const rates = await buildCashbackRates(
       cfg, buyer,
       network => getAirtimeProvider(db, network, isDigiWapyEnabledForNetwork),
       isDigiWapyConfigured(),
+      serviceKey => resolveBuyerShare(db, slug, serviceKey, cfg, buyer === "dealer"),
     )
     return NextResponse.json(rates)
   } catch (e) {

@@ -681,3 +681,43 @@ describe("purchaseAirtime — airtime fee resolves per role", () => {
     expect(h.state.deductCalls).toEqual([])
   })
 })
+
+describe("purchaseAirtime — cashback share resolves per role", () => {
+  const ROLES = [
+    { id: "r-user", slug: "user", rank: 0, is_system: true, archived_at: null },
+    { id: "r-dealer", slug: "dealer", rank: 10, is_system: true, archived_at: null },
+    { id: "r-gold", slug: "gold", rank: 20, is_system: false, archived_at: null },
+  ]
+  const withCashback = () => {
+    h.state.settings.commission_cashback_config = CASHBACK_CFG
+    h.state.settings.airtime_provider_mtn = { provider: "hubtel" }
+  }
+
+  it("system roles keep today's shares (customer 25, dealer 50, admin customer) with no roles read", async () => {
+    withCashback()
+    await buy({ paySeparately: true }); expect(h.state.orderInserts[0]).toMatchObject({ cashback_share: 25, cashback_amount: 0.09 })
+    h.state.userRole = "dealer"
+    await buy({ paySeparately: true, beneficiaryPhone: "0551234567" }); expect(h.state.orderInserts[1]).toMatchObject({ cashback_share: 50, cashback_amount: 0.19 })
+    h.state.userRole = "admin"
+    await buy({ paySeparately: true, beneficiaryPhone: "0241234567" }); expect(h.state.orderInserts[2]).toMatchObject({ cashback_share: 25 })
+    expect(h.state.tablesRead).not.toContain("roles")
+    expect(h.state.tablesRead).not.toContain("role_service_rates")
+  })
+
+  it("custom role: service row beats group row beats legacy", async () => {
+    withCashback()
+    h.state.userRole = "gold"; h.state.roles = ROLES
+    h.state.roleRates = [{ role_id: "r-gold", service_key: "cashback_share:airtime", value: 80 }]
+    await buy({ paySeparately: true })
+    expect(h.state.orderInserts[0]).toMatchObject({ cashback_share: 80 })
+    h.state.roleRates = [
+      { role_id: "r-gold", service_key: "cashback_share:airtime", value: 80 },
+      { role_id: "r-gold", service_key: "cashback_share:airtime_mtn", value: 60 },
+    ]
+    await buy({ paySeparately: true, beneficiaryPhone: "0551234567" })
+    expect(h.state.orderInserts[1]).toMatchObject({ cashback_share: 60 })
+    h.state.roleRates = []
+    await buy({ paySeparately: true, beneficiaryPhone: "0241234567" })
+    expect(h.state.orderInserts[2]).toMatchObject({ cashback_share: 25 }) // no rows: legacy share by rule-A tier (gold has no shop => customer)
+  })
+})

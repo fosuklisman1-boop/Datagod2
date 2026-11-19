@@ -4,14 +4,34 @@ import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
 import type { BillOrderRow, BillsDeps } from "./service"
 import { BILLER_KEYS, BILLERS, isBillerKey, type BillerKey } from "./billers"
 import { getBillsConfig } from "./config"
-import { getCashbackConfig } from "@/lib/cashback/config"
-import { getDealerRateTier } from "@/lib/sub-agents/dealer-rates"
+import { getCashbackConfig, type CashbackConfig } from "@/lib/cashback/config"
+import { resolveBuyerShare } from "@/lib/cashback/buyer-share"
+import { rateSlugFor } from "@/lib/roles/service-rates"
+import { getDealerRateTier, getDealerRateTierAndRole } from "@/lib/sub-agents/dealer-rates"
 
 const TABLE = "hubtel_bill_orders"
 
 /** Cashback tier: dealers and sub-agents (unless their shop turned dealer rates off) get the dealer share. Throws on a read error (caller treats as not applied). */
 export async function getBuyerTier(db: SupabaseClient, userId: string): Promise<"customer" | "dealer"> {
   return getDealerRateTier(db, userId)
+}
+
+/** Rule-A tier plus the rate slug, from ONE users read (no roles read for system roles). Throws like getBuyerTier. */
+export async function getBuyerRateRole(db: SupabaseClient, userId: string): Promise<{ tier: "customer" | "dealer"; slug: string }> {
+  const { tier, role } = await getDealerRateTierAndRole(db, userId)
+  return { tier, slug: await rateSlugFor(db, tier === "dealer", role) }
+}
+
+/**
+ * What quoteCashback needs for a wallet buyer: the tier, plus a custom role's resolved share (undefined for system
+ * roles, which use today's shares untouched). Throws on any read failure: callers treat that as cashback not applied.
+ */
+export async function getBuyerQuoteInput(
+  db: SupabaseClient, userId: string, serviceKey: string, cfg: CashbackConfig,
+): Promise<{ buyer: "customer" | "dealer"; buyerShare?: number }> {
+  const { tier, slug } = await getBuyerRateRole(db, userId)
+  const buyerShare = await resolveBuyerShare(db, slug, serviceKey, cfg, tier === "dealer")
+  return buyerShare === undefined ? { buyer: tier } : { buyer: tier, buyerShare }
 }
 const ORDER_STATUSES = ["pending", "processing", "completed", "failed", "refunded"] as const
 
@@ -27,6 +47,7 @@ export function buildBillsDeps(rt: RuntimeParts, secret: string, alert: (m: stri
   return {
     getCashbackConfig: () => getCashbackConfig(db),
     getBuyerTier: userId => getBuyerTier(db, userId),
+    getBuyerQuoteInput: (userId, serviceKey, cfg) => getBuyerQuoteInput(db, userId, serviceKey, cfg),
     getBillsConfig: () => getBillsConfig(db),
     getHubtelConfig: () => rt.getConfig(),
     query: (serviceKey, destination, params) => rt.client.query(serviceKey, destination, params),

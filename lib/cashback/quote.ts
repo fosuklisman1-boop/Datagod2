@@ -7,6 +7,8 @@ export interface QuoteInput {
   provider: CashbackProvider | "manual"
   faceAmount: number
   buyer: "customer" | "dealer"
+  /** A custom role's resolved buyer share (percent); replaces shares[buyer]. Never used on the storefront path. */
+  buyerShare?: number
   channel: CashbackChannel
   /** Order is placed through a shop (storefront split applies). Also implied by channel "storefront". */
   shop?: boolean
@@ -98,7 +100,7 @@ export function quoteCashback(i: QuoteInput, cfg: CashbackConfig): CashbackQuote
 
   const shares = effectiveShares(cfg, i.serviceKey)
   const storefront = i.channel === "storefront" || i.shop === true
-  const share = storefront ? shares.storefrontCustomer : shares[i.buyer]
+  const share = storefront ? shares.storefrontCustomer : i.buyerShare ?? shares[i.buyer]
   // Storefront: a shop-only split (customer 0, shop > 0) is still applied.
   if (!(share > 0) && !(storefront && shares.storefrontShop > 0)) return notApplied(i)
 

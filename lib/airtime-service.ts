@@ -7,6 +7,7 @@ import { airtimeAmountGate, airtimeNetworkGate, airtimeSettingsSuffix, legacyAir
 import { airtimeCashbackTarget, type AirtimeProviderDeps } from "@/lib/cashback/storefront-airtime"
 import { getCashbackConfig, type CashbackChannel } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
+import { resolveBuyerShare } from "@/lib/cashback/buyer-share"
 import { getDealerRateTierAndRole } from "@/lib/sub-agents/dealer-rates"
 import { airtimeFeeRateFor } from "@/lib/airtime-pricing"
 import { rateSlugFor } from "@/lib/roles/service-rates"
@@ -270,6 +271,7 @@ async function quoteAirtimeCashback(
   faceAmount: number,
   buyer: "customer" | "dealer",
   channel: CashbackChannel,
+  buyerSlug = "user",
 ): Promise<(CashbackQuote & { airtimeProvider: AirtimeProvider }) | null> {
   try {
     if (!airtimeNetId(network)) return null
@@ -279,7 +281,9 @@ async function quoteAirtimeCashback(
     // cap after the debit: no commission would be earned, so no cashback. Legacy path, exactly as today.
     const target = await airtimeCashbackTarget(network, faceAmount, airtimeProviderDeps)
     if (!target) return null
-    const q = quoteCashback({ serviceKey: target.serviceKey, provider: target.provider, faceAmount, buyer, channel }, cfg)
+    // A custom role's share (system slugs: undefined, today's shares). A read failure lands in the catch: not applied.
+    const buyerShare = await resolveBuyerShare(supabase, buyerSlug, target.serviceKey, cfg, buyer === "dealer")
+    const q = quoteCashback({ serviceKey: target.serviceKey, provider: target.provider, faceAmount, buyer, buyerShare, channel }, cfg)
     return q.applied ? { ...q, airtimeProvider: target.provider } : null
   } catch (e: any) {
     console.warn("[AIRTIME-SVC] cashback quote unavailable, using standard pricing:", e?.message ?? e)
@@ -346,6 +350,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
   let merchantRoleFeeRate = 5
   let customMarkupRate = 0
   let isBuyerDealer = false
+  let buyerSlug = "user"
 
   if (shopId) {
     const { data: shop } = await supabase
@@ -372,7 +377,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
     const { tier, role: buyerRole } = await getDealerRateTierAndRole(supabase, userId)
     const isUserDealer = tier === "dealer"
     isBuyerDealer = isUserDealer
-    merchantRoleFeeRate = await feeRateOrRefuse(network, () => rateSlugFor(supabase, isUserDealer, buyerRole))
+    merchantRoleFeeRate = await feeRateOrRefuse(network, async () => (buyerSlug = await rateSlugFor(supabase, isUserDealer, buyerRole)))
   }
 
   const totalFeeRate = merchantRoleFeeRate + customMarkupRate
@@ -392,7 +397,7 @@ export async function purchaseAirtime(params: PurchaseAirtimeParams): Promise<Pu
   // Instant cashback: non-shop purchases only. Not applied => the legacy fee path below, unchanged.
   const cashback = shopId
     ? null
-    : await quoteAirtimeCashback(network, params.airtimeAmount, isBuyerDealer ? "dealer" : "customer", channel)
+    : await quoteAirtimeCashback(network, params.airtimeAmount, isBuyerDealer ? "dealer" : "customer", channel, buyerSlug)
 
   if (cashback) {
     airtimeToRecipient = params.airtimeAmount

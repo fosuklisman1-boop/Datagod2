@@ -11,6 +11,7 @@ import { checkBillAmount, type BillsConfig } from "./config"
 import { signBillToken, verifyBillToken, type VerifiedBill } from "./token"
 import type { CashbackConfig } from "@/lib/cashback/config"
 import { quoteCashback, samePrice, type CashbackQuote } from "@/lib/cashback/quote"
+import { buyerQuoteInputFor, type BuyerQuoteInput } from "@/lib/cashback/buyer-share"
 
 /** Wallet-paid channels this engine records: the dashboard and the public API (user_id = the API key owner). */
 export type BillWalletChannel = "dashboard" | "api"
@@ -38,6 +39,8 @@ export interface BillOrderRow {
 export interface BillsDeps {
   getCashbackConfig(): Promise<CashbackConfig>
   getBuyerTier(userId: string): Promise<"customer" | "dealer">
+  /** Tier + a custom role's resolved cashback share in one call (production runtime); absent => getBuyerTier. */
+  getBuyerQuoteInput?(userId: string, serviceKey: string, cfg: CashbackConfig): Promise<BuyerQuoteInput>
   getBillsConfig(): Promise<BillsConfig>
   getHubtelConfig(): Promise<{ enabled: boolean; paused: boolean; services: Record<string, boolean> }>
   query(serviceKey: HubtelCsServiceKey, destination: string, params?: { mobile?: string }):
@@ -170,8 +173,9 @@ async function quoteBill(d: BillsDeps, userId: string, biller: BillerKey, face: 
   try {
     const cfg = await d.getCashbackConfig()
     if (!cfg.enabled || !cfg.surfaces[channel]) return none
-    const buyer = await d.getBuyerTier(userId)
-    return quoteCashback({ serviceKey: BILLERS[biller].serviceKey, provider: "hubtel", faceAmount: face, buyer, channel }, cfg)
+    const serviceKey = BILLERS[biller].serviceKey
+    const bi = await buyerQuoteInputFor(d, userId, serviceKey, cfg)
+    return quoteCashback({ serviceKey, provider: "hubtel", faceAmount: face, ...bi, channel }, cfg)
   } catch (e) {
     console.warn("[bills] cashback quote unavailable, using standard pricing:", msg(e))
     return none

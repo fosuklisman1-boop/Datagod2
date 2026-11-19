@@ -17,6 +17,8 @@ export async function buildCashbackRates(
   buyer: "customer" | "dealer",
   resolveAirtimeProvider: (network: string) => Promise<AirtimeProvider>,
   digiwapyConfigured: boolean,
+  /** A custom role's share per service key (undefined = today's tier share). A throw fails the whole display (not applied). */
+  buyerShareFor?: (serviceKey: string) => Promise<number | undefined>,
 ): Promise<RatesResponse> {
   if (!cfg.enabled || !cfg.surfaces.dashboard) return NO_CASHBACK_RATES
   const services: Record<string, RateEntry> = {}
@@ -34,9 +36,10 @@ export async function buildCashbackRates(
       continue
     }
     if (provider !== ratedProvider) continue
-    const q = quoteCashback({ serviceKey, provider: provider as "hubtel" | "digiwapy", faceAmount: 100, buyer, channel: "dashboard" }, cfg)
+    const buyerShare = await buyerShareFor?.(serviceKey)
+    const q = quoteCashback({ serviceKey, provider: provider as "hubtel" | "digiwapy", faceAmount: 100, buyer, buyerShare, channel: "dashboard" }, cfg)
     if (!q.applied) continue
-    const entry: RateEntry = { provider, rate: q.rate, share: effectiveShares(cfg, serviceKey)[buyer] }
+    const entry: RateEntry = { provider, rate: q.rate, share: buyerShare ?? effectiveShares(cfg, serviceKey)[buyer] }
     if (network && provider === "hubtel") {
       const max = (HUBTEL_CS_SERVICES as Record<string, { maxAmount?: number }>)[serviceKey]?.maxAmount
       if (max !== undefined) entry.maxFace = max
