@@ -15,21 +15,21 @@ import { ApiError, fetchRoles } from "../_lib/api"
 import type { HubRole } from "../_lib/ladder-view"
 import { AuditTab } from "../_components/AuditTab"
 import { BasicsTab } from "../_components/BasicsTab"
+import { MembersTab } from "../_components/MembersTab"
+import { PricesTab } from "../_components/PricesTab"
+import { RightsTab } from "../_components/RightsTab"
+import { ServicesTab } from "../_components/ServicesTab"
 import { RoleBadge } from "../_components/RoleBadge"
 import { ThemeTab } from "../_components/ThemeTab"
-
-const PLACEHOLDER_TABS = [
-  { value: "prices", label: "Prices" },
-  { value: "services", label: "Services" },
-  { value: "rights", label: "Rights" },
-  { value: "members", label: "Members" },
-] as const
 
 export default function AdminRoleEditorPage() {
   const { isAdmin, loading: adminLoading } = useAdminProtected()
   const params = useParams<{ id: string }>()
   const id = params?.id
   const [role, setRole] = useState<HubRole | null>(null)
+  const [roles, setRoles] = useState<HubRole[]>([])
+  const [tab, setTab] = useState("basics")
+  const [dirty, setDirty] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -42,6 +42,7 @@ export default function AdminRoleEditorPage() {
       const found = data.roles.find((r) => r.id === id) ?? null
       if (!found) throw new Error("Role not found")
       setRole(found)
+      setRoles(data.roles)
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to load role"
       setLoadError(msg)
@@ -54,6 +55,26 @@ export default function AdminRoleEditorPage() {
   useEffect(() => {
     if (isAdmin) load()
   }, [isAdmin, load])
+
+  // Unsaved edits in Prices/Services/Rights/Members: warn before leaving the tab or the page.
+  useEffect(() => {
+    if (!dirty) return
+    const h = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ""
+    }
+    window.addEventListener("beforeunload", h)
+    return () => window.removeEventListener("beforeunload", h)
+  }, [dirty])
+
+  const switchTab = (next: string) => {
+    if (next === tab) return
+    if (dirty && !window.confirm("You have unsaved changes on this tab. Leave and discard them?")) return
+    setDirty(false)
+    setTab(next)
+  }
+
+  const onDirtyChange = useCallback((d: boolean) => setDirty(d), [])
 
   const onError = async (e: unknown) => {
     toast.error(e instanceof Error ? e.message : "Request failed")
@@ -102,7 +123,7 @@ export default function AdminRoleEditorPage() {
                 <RoleBadge name={role.name} color={role.badge_color} icon={role.icon} />
                 {role.archived_at ? <span className="text-xs text-muted-foreground">Archived</span> : null}
               </div>
-              <Tabs defaultValue="basics">
+              <Tabs value={tab} onValueChange={switchTab}>
                 <div className="overflow-x-auto">
                   <TabsList>
                     <TabsTrigger value="basics">Basics</TabsTrigger>
@@ -117,15 +138,18 @@ export default function AdminRoleEditorPage() {
                 <TabsContent value="basics" className="mt-4">
                   <BasicsTab role={role} onChanged={load} busy={busy} setBusy={setBusy} onError={onError} />
                 </TabsContent>
-                {PLACEHOLDER_TABS.map((t) => (
-                  <TabsContent key={t.value} value={t.value} className="mt-4">
-                    <Card>
-                      <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                        Coming in the next step
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-                ))}
+                <TabsContent value="prices" className="mt-4">
+                  <PricesTab role={role} roles={roles} busy={busy} setBusy={setBusy} onError={onError} onDirtyChange={onDirtyChange} onChanged={load} />
+                </TabsContent>
+                <TabsContent value="services" className="mt-4">
+                  <ServicesTab role={role} roles={roles} busy={busy} setBusy={setBusy} onError={onError} onDirtyChange={onDirtyChange} onChanged={load} />
+                </TabsContent>
+                <TabsContent value="rights" className="mt-4">
+                  <RightsTab role={role} roles={roles} busy={busy} setBusy={setBusy} onError={onError} onDirtyChange={onDirtyChange} onChanged={load} />
+                </TabsContent>
+                <TabsContent value="members" className="mt-4">
+                  <MembersTab role={role} roles={roles} busy={busy} setBusy={setBusy} onError={onError} onDirtyChange={onDirtyChange} onChanged={load} />
+                </TabsContent>
                 <TabsContent value="theme" className="mt-4">
                   <ThemeTab role={role} onChanged={load} busy={busy} setBusy={setBusy} onError={onError} />
                 </TabsContent>

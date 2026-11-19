@@ -14,9 +14,12 @@ async function authHeaders(json = false): Promise<Record<string, string>> {
 /** Error from a non-2xx response; carries the status so callers can react to a 409. */
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  /** The parsed JSON body of the failed response (for example `below_cost` on a 409). */
+  data: Record<string, unknown>
+  constructor(message: string, status: number, data: Record<string, unknown> = {}) {
     super(message)
     this.status = status
+    this.data = data
   }
 }
 
@@ -32,7 +35,13 @@ export async function adminFetch<T = Record<string, unknown>>(
     body: hasBody ? JSON.stringify(init!.body) : undefined,
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new ApiError((data as { error?: string }).error || `Request failed (${res.status})`, res.status)
+  if (!res.ok) {
+    throw new ApiError(
+      (data as { error?: string }).error || `Request failed (${res.status})`,
+      res.status,
+      data && typeof data === "object" ? (data as Record<string, unknown>) : {},
+    )
+  }
   return data as T
 }
 

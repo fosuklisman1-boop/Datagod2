@@ -17,18 +17,21 @@ interface Props {
   busy: boolean
   onCancel: () => void
   onConfirm: (reason: string) => void
+  /** Prefill for the reason box (for example a reason already typed in a save bar). */
+  initialReason?: string
 }
 
 /** Every hub write asks for a reason (3-300 chars). The confirm button is disabled while a request is in flight. */
-export function ReasonDialog({ open, title, description, confirmLabel, destructive, busy, onCancel, onConfirm }: Props) {
+export function ReasonDialog({ open, title, description, confirmLabel, destructive, busy, onCancel, onConfirm, initialReason }: Props) {
   const [reason, setReason] = useState("")
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (open) {
-      setReason("")
+      setReason(initialReason ?? "")
       setError(null)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const submit = () => {
