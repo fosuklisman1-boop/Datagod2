@@ -922,6 +922,20 @@ export async function syncMTNOrderStatus(trackingId: string): Promise<{
       }
     }
 
+    // A provider failing an order we already recorded as delivered is a reversal, not a
+    // retry: mirroring failed -> pending here would skip the review step and let the
+    // order be re-sent (e.g. a Kuntanii refund found by admin "sync status").
+    if (tracking.status === "completed" && statusResult.status === "failed") {
+      const { flagReversal } = await import("@/lib/mtn-reversal")
+      const flagged = await flagReversal(supabase, tracking, {
+        status: statusResult.order?.status ?? "failed",
+        message: statusResult.message,
+      })
+      return flagged.flagged
+        ? { success: true, newStatus: "reversed", message: "Provider failed a completed order — flagged as reversed for review" }
+        : { success: false, message: "Provider failed a completed order but flagging the reversal failed" }
+    }
+
     // If status changed, update tracking and shop order
     if (statusResult.status !== tracking.status) {
       const newStatus = statusResult.status
