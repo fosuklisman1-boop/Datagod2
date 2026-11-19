@@ -64,6 +64,8 @@ export function mapRpcError(error: unknown, memberCount?: number): NextResponse 
   if (msg.includes("role has members")) {
     return conflict(memberCount !== undefined ? `Move its ${memberCount} members first.` : "Move its members first.")
   }
+  if (msg.includes("ranks changed, reload")) return conflict("The ladder changed. Reload and try again.")
+  if (msg.includes("role is archived")) return badRequest("Unknown role")
   if (msg.includes("is already in use")) return conflict("That rank is already in use.")
   if (msg.includes("slug already in use")) return conflict("That slug is already in use.")
   if (BAD_REQUEST_PATTERNS.some((p) => msg.includes(p)) && !CONFLICT_PATTERNS.some((p) => msg.includes(p))) {

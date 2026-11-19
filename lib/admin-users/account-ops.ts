@@ -154,6 +154,8 @@ export async function changeUserRole(
     .or(`role.is.null,role.neq.${role}`)
     .select("id")
   if (updateError) {
+    // 0187 trigger: the role was archived after our read.
+    if (String(updateError.message ?? "").includes("role is archived")) return { ok: false, status: 400, error: "Unknown role" }
     console.error("[UPDATE-ROLE] Error updating user role:", updateError)
     return { ok: false, status: 500, error: "Failed to update user role" }
   }

@@ -363,14 +363,40 @@ describe.skipIf(!PGliteCtor)("0187 in PGlite", () => {
     const db = await fresh87()
     const a = await mkRole(db, "gold", 20)
     const b = await mkRole(db, "silver", 30)
-    await db.exec(`SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${b}')`)
+    await db.exec(`SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${b}', 20, 30)`)
     expect(await rows(db, `SELECT slug, rank FROM roles WHERE slug IN ('gold','silver') ORDER BY slug`)).toEqual([
       { slug: "gold", rank: 30 }, { slug: "silver", rank: 20 },
     ])
     expect(await rows(db, `SELECT 1 FROM role_audit_log WHERE action = 'rank'`)).toHaveLength(2)
-    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${await roleId(db, "user")}')`, /user role/)
-    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${await roleId(db, "admin")}')`, /ranked/)
-    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${a}')`)
+    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${await roleId(db, "user")}', 20, 0)`, /user role/)
+    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${await roleId(db, "admin")}', 20, 100)`, /ranked/)
+    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${a}', 20, 20)`)
+  }, 60_000)
+
+  it("swap_rank refuses stale expected ranks and a live role in the gap", async () => {
+    const db = await fresh87()
+    const a = await mkRole(db, "gold", 20)
+    const b = await mkRole(db, "silver", 30)
+    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${b}', 30, 20)`, /ranks changed, reload/)
+    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${b}', 20, 31)`, /ranks changed, reload/)
+    const mid = await mkRole(db, "mid", 25)
+    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${b}', 20, 30)`, /ranks changed, reload/)
+    await db.exec(`SELECT admin_role_archive('${ACTOR}', 'test reason', '${mid}')`)
+    await db.exec(`SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${a}', '${b}', 20, 30)`)
+    expect(await rows(db, `SELECT rank FROM roles WHERE slug = 'gold'`)).toEqual([{ rank: 30 }])
+  }, 60_000)
+
+  it("users cannot be assigned to an archived role; unrelated updates skip the check", async () => {
+    const db = await fresh87()
+    const gold = await mkRole(db, "gold", 20)
+    await db.exec(`SELECT admin_role_archive('${ACTOR}', 'test reason', '${gold}')`)
+    await fails(db, `INSERT INTO users(id, role) VALUES ('${ACTOR}', 'gold')`, /role is archived/)
+    await db.exec(`INSERT INTO users(id, role) VALUES ('${ACTOR}', 'dealer')`)
+    await fails(db, `UPDATE users SET role = 'gold' WHERE id = '${ACTOR}'`, /role is archived/)
+    await db.exec(`UPDATE users SET role = NULL WHERE id = '${ACTOR}'`)
+    // a legacy member of an archived slug can still have other columns updated (trigger is role-column only)
+    await db.exec(`ALTER TABLE users DISABLE TRIGGER USER; UPDATE users SET role = 'gold' WHERE id = '${ACTOR}'; ALTER TABLE users ENABLE TRIGGER USER`)
+    await db.exec(`UPDATE users SET pricing_mode = 'role' WHERE id = '${ACTOR}'`)
   }, 60_000)
 
   it("role_audit_log rejects UPDATE, DELETE and TRUNCATE", async () => {
@@ -388,7 +414,7 @@ describe.skipIf(!PGliteCtor)("0187 in PGlite", () => {
     const calls = (actor: string, reason: string) => [
       `SELECT admin_role_create(${actor}, ${reason}, 'zz', 'N', 99, NULL)`,
       `SELECT admin_role_update(${actor}, ${reason}, '${gold}', '{"name":"x"}'::jsonb)`,
-      `SELECT admin_role_swap_rank(${actor}, ${reason}, '${gold}', '${silver}')`,
+      `SELECT admin_role_swap_rank(${actor}, ${reason}, '${gold}', '${silver}', 20, 30)`,
       `SELECT admin_role_archive(${actor}, ${reason}, '${gold}')`,
       `SELECT admin_role_set_prices(${actor}, ${reason}, '${gold}', '[]'::jsonb, false)`,
       `SELECT admin_role_set_rates(${actor}, ${reason}, '${gold}', '[]'::jsonb)`,

@@ -41,9 +41,15 @@ describe("POST /api/admin/roles/[id]/move", () => {
   it("swaps with the nearest live neighbour, skipping archived roles", async () => {
     const up = await POST(reqOf("POST", body("up")), ctx(B))
     expect(up.status).toBe(200)
-    expect(h.fake.calls.rpc[0]).toEqual({ name: "admin_role_swap_rank", args: { p_actor: ADMIN, p_reason: "reorder", p_a: B, p_b: C } })
+    expect(h.fake.calls.rpc[0]).toEqual({ name: "admin_role_swap_rank", args: { p_actor: ADMIN, p_reason: "reorder", p_a: B, p_b: C, p_expected_a: 20, p_expected_b: 30 } })
     await POST(reqOf("POST", body("down")), ctx(B))
     expect(h.fake.calls.rpc[1].args).toMatchObject({ p_a: B, p_b: A })
+  })
+  it("maps a stale ladder from the rpc to 409", async () => {
+    h.fake.rpc.admin_role_swap_rank = { error: { message: "ranks changed, reload" } }
+    const res = await POST(reqOf("POST", body("up")), ctx(B))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "The ladder changed. Reload and try again." })
   })
   it("409 at the end of the ladder; never swaps with user or admin", async () => {
     const down = await POST(reqOf("POST", body("down")), ctx(A))

@@ -36,7 +36,11 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     const neighbour = candidates[0]
     if (!neighbour) return conflict("Already at the end of the ladder.")
 
-    const { error } = await db.rpc("admin_role_swap_rank", { p_actor: adminId, p_reason: reason.value, p_a: id, p_b: neighbour.id })
+    const { error } = await db.rpc("admin_role_swap_rank", { p_actor: adminId, p_reason: reason.value, p_a: id,
+      p_b: neighbour.id,
+      p_expected_a: rank,
+      p_expected_b: neighbour.rank,
+    })
     if (error) return mapRpcError(error)
     return NextResponse.json({ ok: true })
   } catch {

@@ -21,6 +21,11 @@
 --   admin_role_create, admin_role_update, admin_role_swap_rank, admin_role_archive, admin_role_set_prices,
 --   admin_role_set_rates, admin_role_set_permissions, plus the read-only admin_role_stats().
 --
+-- Race guards: admin_role_swap_rank takes the expected ranks (p_expected_a/b), serializes on an advisory lock and raises
+-- 'ranks changed, reload' on a stale pick or a live role in the gap. Triggers users_role_not_archived_ins/_upd (BEFORE INSERT /
+-- BEFORE UPDATE OF role on public.users, the update only when role changes) raise 'role is archived' for an archived slug.
+-- Manual undo (if ever needed): DROP TRIGGER users_role_not_archived_ins/_upd ON public.users; DROP FUNCTION users_role_not_archived().
+--
 -- PRE-CHECKS (each must return the stated value before applying):
 --   SELECT slug, rank, is_system, archived_at FROM public.roles ORDER BY rank NULLS LAST;   -- record the census (0184 seeds + any custom)
 --   SELECT count(*) FROM public.role_package_prices;                                        -- record N; unchanged after applying
@@ -281,7 +286,7 @@ BEGIN
 END $fn_update$;
 
 CREATE OR REPLACE FUNCTION public.admin_role_swap_rank(
-  p_actor uuid, p_reason text, p_a uuid, p_b uuid
+  p_actor uuid, p_reason text, p_a uuid, p_b uuid, p_expected_a integer, p_expected_b integer
 ) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn_swap$
 DECLARE
@@ -290,6 +295,8 @@ DECLARE
 BEGIN
   PERFORM public.roles_hub_guard(p_actor, p_reason);
   IF p_a IS NULL OR p_b IS NULL OR p_a = p_b THEN RAISE EXCEPTION 'two different roles required'; END IF;
+  -- Serialize all rank swaps so a stale pick (double-click, concurrent admins) is re-verified against current ranks.
+  PERFORM pg_advisory_xact_lock(hashtext('roles_rank'));
   -- Lock in a fixed order so two concurrent swaps cannot deadlock.
   PERFORM 1 FROM public.roles WHERE id IN (p_a, p_b) ORDER BY id FOR UPDATE;
   SELECT * INTO v_a FROM public.roles WHERE id = p_a;
@@ -299,6 +306,15 @@ BEGIN
   IF v_a.archived_at IS NOT NULL OR v_b.archived_at IS NOT NULL THEN RAISE EXCEPTION 'archived roles cannot be re-ranked'; END IF;
   IF v_a.rank IS NULL OR v_b.rank IS NULL THEN RAISE EXCEPTION 'both roles must be ranked'; END IF;
   IF v_a.slug = 'user' OR v_b.slug = 'user' THEN RAISE EXCEPTION 'the user role cannot be re-ranked'; END IF;
+  IF p_expected_a IS DISTINCT FROM v_a.rank OR p_expected_b IS DISTINCT FROM v_b.rank THEN
+    RAISE EXCEPTION 'ranks changed, reload';
+  END IF;
+  -- The two must still be neighbours: no live ranked role (other than user) strictly between them.
+  IF EXISTS (SELECT 1 FROM public.roles r
+              WHERE r.archived_at IS NULL AND r.rank IS NOT NULL AND r.slug <> 'user'
+                AND r.rank > least(v_a.rank, v_b.rank) AND r.rank < greatest(v_a.rank, v_b.rank)) THEN
+    RAISE EXCEPTION 'ranks changed, reload';
+  END IF;
 
   UPDATE public.roles SET rank = -1, updated_at = now() WHERE id = p_a;
   UPDATE public.roles SET rank = v_a.rank, updated_at = now() WHERE id = p_b;
@@ -492,7 +508,7 @@ $fn_stats$;
 REVOKE ALL ON FUNCTION public.roles_hub_guard(uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.admin_role_create(uuid, text, text, text, int, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.admin_role_update(uuid, text, uuid, jsonb) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.admin_role_swap_rank(uuid, text, uuid, uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_role_swap_rank(uuid, text, uuid, uuid, integer, integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.admin_role_archive(uuid, text, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.admin_role_set_prices(uuid, text, uuid, jsonb, boolean) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.admin_role_set_rates(uuid, text, uuid, jsonb) FROM PUBLIC, anon, authenticated;
@@ -500,11 +516,30 @@ REVOKE ALL ON FUNCTION public.admin_role_set_permissions(uuid, text, uuid, text[
 REVOKE ALL ON FUNCTION public.admin_role_stats() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_role_create(uuid, text, text, text, int, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.admin_role_update(uuid, text, uuid, jsonb) TO service_role;
-GRANT EXECUTE ON FUNCTION public.admin_role_swap_rank(uuid, text, uuid, uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_role_swap_rank(uuid, text, uuid, uuid, integer, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.admin_role_archive(uuid, text, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.admin_role_set_prices(uuid, text, uuid, jsonb, boolean) TO service_role;
 GRANT EXECUTE ON FUNCTION public.admin_role_set_rates(uuid, text, uuid, jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.admin_role_set_permissions(uuid, text, uuid, text[]) TO service_role;
 GRANT EXECUTE ON FUNCTION public.admin_role_stats() TO service_role;
+
+-- ============ no assignment to an archived role ============
+-- FOR SHARE blocks behind an in-flight admin_role_archive (which holds FOR UPDATE on the role row), then sees archived_at,
+-- so an assignment racing an archive either lands before the archive's member check or is refused here.
+CREATE OR REPLACE FUNCTION public.users_role_not_archived() RETURNS trigger
+LANGUAGE plpgsql SET search_path = public, pg_temp AS $fn_ua$
+BEGIN
+  IF NEW.role IS NULL THEN RETURN NEW; END IF;
+  PERFORM 1 FROM public.roles WHERE slug = NEW.role AND archived_at IS NOT NULL FOR SHARE;
+  IF FOUND THEN RAISE EXCEPTION 'role is archived'; END IF;
+  RETURN NEW;
+END $fn_ua$;
+
+DROP TRIGGER IF EXISTS users_role_not_archived_ins ON public.users;
+CREATE TRIGGER users_role_not_archived_ins BEFORE INSERT ON public.users
+  FOR EACH ROW EXECUTE FUNCTION public.users_role_not_archived();
+DROP TRIGGER IF EXISTS users_role_not_archived_upd ON public.users;
+CREATE TRIGGER users_role_not_archived_upd BEFORE UPDATE OF role ON public.users
+  FOR EACH ROW WHEN (NEW.role IS DISTINCT FROM OLD.role) EXECUTE FUNCTION public.users_role_not_archived();
 
 COMMIT;
