@@ -35,7 +35,7 @@ export function BottomNav() {
   const pathname = usePathname()
   const isMobile = useIsMobile()
   const { isAdmin, isSubAgent } = useUserRole()
-  const { info: roleInfo } = useRoleRights()
+  const { skin: roleSkin } = useRoleRights()
   const domainBranding = useDomainBranding()
   const [navVisible, setNavVisible] = useState(true)
   const stateRef = useRef({ visible: true, anchorY: 0 })
@@ -154,7 +154,7 @@ export function BottomNav() {
   // dark panel skin while browsing /admin pages, dealer's amber "Bold Telco"
   // accent (matching e.g. the Wallet balance hero's isDealer ? bg-warning),
   // navy for everyone else.
-  const skin: BottomNavSkin = isAdmin && onAdminPage ? "admin" : (roleInfo?.skin ?? "default")
+  const skin: BottomNavSkin = isAdmin && onAdminPage ? "admin" : roleSkin
   const c = bottomNavSkinClasses(skin)
 
   return (

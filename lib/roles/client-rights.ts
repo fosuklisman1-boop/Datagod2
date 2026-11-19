@@ -42,6 +42,18 @@ export function parseRoleResponse(body: unknown): RoleInfo | null {
   }
 }
 
+/** Slug used only for nav visibility: with no slug at all, evaluate as "user" so always-on items still show. */
+export function navSlug(slug: string | null): string {
+  return slug ?? "user"
+}
+
+/** Skin to paint: the fetched skin wins; before it arrives use the cached skin, then a cached dealer slug. */
+export function resolveSkin(fetched: RoleSkin | null, cachedSkin: string | null, cachedSlug: string | null): RoleSkin {
+  if (fetched) return fetched
+  if (cachedSkin === "dealer" || cachedSkin === "default") return cachedSkin
+  return cachedSlug === "dealer" ? "dealer" : "default"
+}
+
 /** Admin skin is decided by isAdmin; otherwise the role's own skin. */
 export function skinFor(isAdmin: boolean, skin: RoleSkin | null): "admin" | RoleSkin {
   return isAdmin ? "admin" : (skin ?? "default")

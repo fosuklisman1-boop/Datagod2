@@ -26,7 +26,7 @@ import {
   type NavGroupDef,
 } from "@/lib/nav-groups"
 import { navVisible } from "@/lib/roles/capabilities"
-import { shouldRedirectUnavailable, skinFor } from "@/lib/roles/client-rights"
+import { shouldRedirectUnavailable, skinFor, navSlug } from "@/lib/roles/client-rights"
 import { useRoleRights } from "@/hooks/use-role-rights"
 import { useIsAdmin } from "@/hooks/use-admin"
 import { useAppSettings } from "@/hooks/use-app-settings"
@@ -117,7 +117,7 @@ export function Sidebar() {
   // Starts empty (= every group at its default) so SSR and first paint match;
   // the saved per-device choices load right after mount.
   const [groupState, setGroupState] = useState<GroupState>({})
-  const skin: SidebarSkin = skinFor(isAdmin, rightsState.info?.skin ?? null)
+  const skin: SidebarSkin = skinFor(isAdmin, rightsState.skin)
   const c = sidebarSkinClasses(skin)
   // Sidebar NEW tags: registry in lib/nav-new.ts, click counts on the user's account.
   const { isNew, markClicked } = useNavNew(user?.id)
@@ -271,7 +271,7 @@ export function Sidebar() {
   }
 
   const visibleMenuItems = menuItems.filter(item => {
-    if (!userRole || !navVisible(item, userRole, rights)) return false
+    if (!navVisible(item, navSlug(userRole), rights)) return false
     if (item.feature === "standard-bundles") {
       if (!bundlesAvailability?.enabled) return false
     } else if (item.feature && !featureAvailable(billsAvailability, item.feature)) return false
@@ -284,7 +284,7 @@ export function Sidebar() {
   })
 
   const visibleShopItems = shopItems.filter(item =>
-    userRole && navVisible(item, userRole, rights) &&
+    navVisible(item, navSlug(userRole), rights) &&
     isPathAllowedForService(item.href, domainBranding.services, domainBranding.hiddenPages)
   )
 

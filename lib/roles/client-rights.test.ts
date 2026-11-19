@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { parseRoleResponse, EMPTY_RIGHTS, shouldRedirectUnavailable, skinFor } from "./client-rights"
+import { parseRoleResponse, EMPTY_RIGHTS, shouldRedirectUnavailable, skinFor, navSlug, resolveSkin } from "./client-rights"
+import { navVisible } from "./capabilities"
 import { menuItems } from "../dashboard-nav-items"
 
 const loaded = (slug: string, rights: any) => ({ status: "ok" as const, slug, rights: parseRoleResponse({ slug, rights, theme: { skin: "default" } })!.rights })
@@ -24,6 +25,30 @@ describe("skinFor", () => {
     expect(skinFor(true, "dealer")).toBe("admin")
     expect(skinFor(false, "dealer")).toBe("dealer")
     expect(skinFor(false, null)).toBe("default")
+  })
+})
+
+describe("navSlug", () => {
+  it("a null slug (rights failed, nothing cached) evaluates as user so always-on items still show", () => {
+    expect(navSlug(null)).toBe("user")
+    expect(navSlug("dealer")).toBe("dealer")
+    const always = menuItems.filter((i) => navVisible(i, navSlug(null), EMPTY_RIGHTS))
+    expect(always.length).toBeGreaterThan(0)
+    expect(always.every((i) => !i.cap)).toBe(true)
+  })
+})
+
+describe("resolveSkin", () => {
+  it("fetched skin always wins", () => {
+    expect(resolveSkin("default", "dealer", "dealer")).toBe("default")
+    expect(resolveSkin("dealer", null, null)).toBe("dealer")
+  })
+  it("before info: cached skin, else cached dealer slug, else default", () => {
+    expect(resolveSkin(null, "dealer", null)).toBe("dealer")
+    expect(resolveSkin(null, "default", "dealer")).toBe("default")
+    expect(resolveSkin(null, null, "dealer")).toBe("dealer")
+    expect(resolveSkin(null, "garbage", "user")).toBe("default")
+    expect(resolveSkin(null, null, null)).toBe("default")
   })
 })
 
