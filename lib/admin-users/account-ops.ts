@@ -18,7 +18,9 @@ export const SYSTEM_ROLES = ["user", "admin", "sub_agent", "dealer"] as const
 export const ASSIGNABLE_ROLES = SYSTEM_ROLES
 export type AssignableRole = (typeof SYSTEM_ROLES)[number]
 
-const isSystemRole = (slug: string) => (SYSTEM_ROLES as readonly string[]).includes(slug)
+const ADMIN_PROTECTED = "Admin accounts can't be moved here."
+
+const isSystemRole =(slug: string) => (SYSTEM_ROLES as readonly string[]).includes(slug)
 const isCustomRole = (slug: string) => !isSystemRole(slug)
 
 export type OpFailure = { ok: false; status: number; error: string }
@@ -68,7 +70,7 @@ export const MARGINS_NOT_REVERSED_NOTE =
  */
 export async function changeUserRole(
   db: SupabaseClient,
-  opts: { userId: string; role: string; adminId?: string | null; reason?: string },
+  opts: { userId: string; role: string; adminId?: string | null; reason?: string; protectAdmin?: boolean },
 ): Promise<RoleChangeResult> {
   const { userId, role, adminId } = opts
 
@@ -85,6 +87,7 @@ export async function changeUserRole(
   }
   if (!current) return { ok: false, status: 404, error: "User not found" }
   const oldRole = ((current as { role: string | null }).role || "user") as string
+  if (opts.protectAdmin && oldRole === "admin") return { ok: false, status: 403, error: ADMIN_PROTECTED }
   if (oldRole === role) return { ok: true, changed: false, oldRole, newRole: role, audited: false }
 
   // Custom roles: validate the target (exists, not archived). System -> system changes never read roles.
@@ -147,12 +150,14 @@ export async function changeUserRole(
   }
 
   // Conditional write: only if the stored role is still different (NULL counts as different).
-  const { data: updated, error: updateError } = await db
+  let write = db
     .from("users")
     .update({ role })
     .eq("id", userId)
     .or(`role.is.null,role.neq.${role}`)
-    .select("id")
+  // protectAdmin: never overwrite an admin, even one promoted after the read above.
+  if (opts.protectAdmin) write = write.neq("role", "admin")
+  const { data: updated, error: updateError } = await write.select("id")
   if (updateError) {
     // 0187 trigger: the role was archived after our read.
     if (String(updateError.message ?? "").includes("role is archived")) return { ok: false, status: 400, error: "Unknown role" }
@@ -160,6 +165,12 @@ export async function changeUserRole(
     return { ok: false, status: 500, error: "Failed to update user role" }
   }
   if (!Array.isArray(updated) || updated.length === 0) {
+    if (opts.protectAdmin) {
+      // 0 rows may mean the user became admin since our read: look again before calling it a no-op.
+      const { data: again, error: againError } = await db.from("users").select("role").eq("id", userId).maybeSingle()
+      if (againError) return { ok: false, status: 500, error: "Failed to update user role" }
+      if ((again as { role: string | null } | null)?.role === "admin") return { ok: false, status: 403, error: ADMIN_PROTECTED }
+    }
     // Someone else set this role between our read and our write; they did the margin work.
     return { ok: true, changed: false, oldRole, newRole: role, audited: false }
   }

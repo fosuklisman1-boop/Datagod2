@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
         continue
       }
       try {
-        const r = await changeUserRole(db, { userId, role: toRole, adminId, reason })
+        const r = await changeUserRole(db, { userId, role: toRole, adminId, reason, protectAdmin: true })
         if (!r.ok) results.push({ user_id: userId, status: "skipped", reason: r.error })
         else if (!r.changed) results.push({ user_id: userId, status: "skipped", reason: "already in role" })
         else results.push(r.note ? { user_id: userId, status: "moved", note: r.note } : { user_id: userId, status: "moved" })

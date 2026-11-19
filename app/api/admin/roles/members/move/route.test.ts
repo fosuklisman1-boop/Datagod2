@@ -75,10 +75,19 @@ describe("POST /api/admin/roles/members/move", () => {
       { user_id: uid(99), status: "skipped", reason: "User not found" },
     ])
     expect(h.change.mock.calls.map((c) => c[1])).toEqual([
-      { userId: U1, role: "gold", adminId: ADMIN, reason: "promo" },
-      { userId: U2, role: "gold", adminId: ADMIN, reason: "promo" },
-      { userId: U4, role: "gold", adminId: ADMIN, reason: "promo" },
+      { userId: U1, role: "gold", adminId: ADMIN, reason: "promo", protectAdmin: true },
+      { userId: U2, role: "gold", adminId: ADMIN, reason: "promo", protectAdmin: true },
+      { userId: U4, role: "gold", adminId: ADMIN, reason: "promo", protectAdmin: true },
     ])
+  })
+  it("passes protectAdmin, and a user promoted to admin after the up-front read is skipped with the admin reason", async () => {
+    h.change.mockResolvedValueOnce({ ok: false, status: 403, error: "Admin accounts can't be moved here." })
+    const res = await post(body({ user_ids: [U1, U2] }))
+    expect((await res.json()).results).toEqual([
+      { user_id: U1, status: "skipped", reason: "Admin accounts can't be moved here." },
+      { user_id: U2, status: "moved" },
+    ])
+    expect(h.change.mock.calls.every((c) => c[1].protectAdmin === true)).toBe(true)
   })
   it("dedups ids and processes sequentially", async () => {
     let running = 0

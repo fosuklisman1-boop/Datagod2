@@ -81,6 +81,7 @@ beforeEach(() => {
         if (q.kind === "update") {
           if (h.raceTo !== null) { h.role = h.raceTo; h.raceTo = null }
           if (!orMatches(q, h.role)) return { data: [], error: null }
+          if (q.op("neq")?.[1] === "role" && q.op("neq")?.[2] === h.role) return { data: [], error: null }
           h.role = (q.payload as any).role
           return { data: [{ id: USER_ID }], error: null }
         }
@@ -167,6 +168,29 @@ describe("POST /api/admin/users/update-role (shared changeUserRole)", () => {
     h.role = "user"
     await changeUserRole(h.fake.db as any, { userId: USER_ID, role: "dealer", adminId: ADMIN_ID })
     expect(h.audit[0].new_value).not.toHaveProperty("reason")
+  })
+
+  it("protectAdmin: an admin is refused with 403 and nothing is written", async () => {
+    h.role = "admin"
+    const r = await changeUserRole(h.fake.db as any, { userId: USER_ID, role: "dealer", adminId: ADMIN_ID, protectAdmin: true })
+    expect(r).toEqual({ ok: false, status: 403, error: "Admin accounts can't be moved here." })
+    expect(h.role).toBe("admin")
+    expect(h.fake.ofTable("users").filter((q) => q.kind === "update")).toHaveLength(0)
+    expect(h.audit).toHaveLength(0)
+  })
+
+  it("protectAdmin: user promoted to admin between read and write -> conditional update matches 0 rows -> 403", async () => {
+    h.raceTo = "admin"
+    const r = await changeUserRole(h.fake.db as any, { userId: USER_ID, role: "dealer", adminId: ADMIN_ID, protectAdmin: true })
+    expect(r).toEqual({ ok: false, status: 403, error: "Admin accounts can't be moved here." })
+    expect(h.role).toBe("admin")
+    expect(h.audit).toHaveLength(0)
+    expect(h.fake.ofTable("users").find((q) => q.kind === "update")!.op("neq")).toEqual(["neq", "role", "admin"])
+  })
+
+  it("protectAdmin off (default): an admin can still be changed by existing callers", async () => {
+    h.role = "admin"
+    expect(await changeUserRole(h.fake.db as any, { userId: USER_ID, role: "user", adminId: ADMIN_ID })).toMatchObject({ ok: true, changed: true })
   })
 
   it("setting the current role again changes nothing (no second margin bump)", async () => {
