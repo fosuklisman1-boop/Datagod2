@@ -111,8 +111,11 @@ describe("isReversal with a provider-specific window", () => {
 describe("fetchReversalCandidates rotation", () => {
   // Kuntanii's sweep used to read only the 50 most recently updated completed rows,
   // so a refund on anything older than ~8h of traffic was never seen.
+  // Mirrors PostgREST: every response is cut to max-rows (1000 on this project), so
+  // `.limit(5000)` alone still returns 1000. Pages come from `.range(from, to)`.
+  const MAX_ROWS = 1000
   function makeRecordingFake(rows: any[]) {
-    const calls: { gte?: [string, string]; limit?: number; order?: [string, any] } = {}
+    const calls: { gte?: [string, string]; limit?: number; order?: [string, any]; ranges: [number, number][] } = { ranges: [] }
     const fake: any = {
       from() {
         return {
@@ -121,8 +124,12 @@ describe("fetchReversalCandidates rotation", () => {
               eq() { return q },
               gte(col: string, v: string) { calls.gte = [col, v]; return q },
               not() { return q },
-              order(col: string, o: any) { calls.order = [col, o]; return q },
-              limit: (n: number) => { calls.limit = n; return Promise.resolve({ data: rows }) },
+              order(col: string, o: any) { calls.order ??= [col, o]; return q },
+              limit: (n: number) => { calls.limit = n; return Promise.resolve({ data: rows.slice(0, Math.min(n, MAX_ROWS)) }) },
+              range: (from: number, to: number) => {
+                calls.ranges.push([from, to])
+                return Promise.resolve({ data: rows.slice(from, Math.min(to + 1, from + MAX_ROWS)) })
+              },
             }
             return q
           },
@@ -157,13 +164,26 @@ describe("fetchReversalCandidates rotation", () => {
     expect(a.length).toBeLessThan(120)
   })
 
-  it("reads the whole window (not just `limit` rows) and honours windowMs", async () => {
+  it("honours windowMs", async () => {
     const { fake, calls } = makeRecordingFake(rows)
     const windowMs = 7 * 24 * 60 * 60 * 1000
     await fetchReversalCandidates(fake, "kuntanii", 50, { rotateAt: minute(0), windowMs })
-    expect(calls.limit).toBeGreaterThan(50)
     const since = new Date(calls.gte![1]).getTime()
     expect(Math.abs(Date.now() - windowMs - since)).toBeLessThan(5000)
+  })
+
+  it("pages past the 1000-row response cap so the oldest rows in the window are still swept", async () => {
+    // ~7 days of Kuntanii traffic: more than one PostgREST page.
+    const many = Array.from({ length: 2300 }, (_, i) => ({ ...rows[0], id: `trk-big-${i}`, mtn_order_id: `mb-${i}` }))
+    const { fake, calls } = makeRecordingFake(many)
+    const seen = new Set<string>()
+    const shards = Math.ceil(2300 / 50)
+    for (let m = 0; m < shards; m++) {
+      for (const r of await fetchReversalCandidates(fake, "kuntanii", 50, { rotateAt: minute(m) })) seen.add(r.id)
+    }
+    expect(seen.size).toBe(2300)
+    expect(seen.has("trk-big-2299")).toBe(true) // oldest row: beyond the first page
+    expect(calls.ranges.every(([f, t]) => t - f + 1 <= MAX_ROWS)).toBe(true)
   })
 
   it("returns everything when candidates fit in one run", async () => {

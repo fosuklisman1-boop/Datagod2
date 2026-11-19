@@ -181,17 +181,32 @@ export async function fetchReversalCandidates(
   } = {},
 ): Promise<ReversalRow[]> {
   const since = new Date(Date.now() - (opts.windowMs ?? REVERSAL_WINDOW_MS)).toISOString()
-  const { data } = await supabase
-    .from("mtn_fulfillment_tracking")
-    .select("id, mtn_order_id, order_type, order_id, shop_order_id, api_order_id, provider, status, external_status, updated_at")
-    .eq("provider", provider)
-    .eq("status", "completed")
-    .gte("updated_at", since)
-    .not("mtn_order_id", "is", null)
-    .order("updated_at", { ascending: false })
-    .limit(opts.rotateAt ? ROTATION_SCAN_CAP : limit)
-  const rows = ((data as any[]) ?? []).filter((row) => looksProviderCompleted(row.external_status))
-  if (!opts.rotateAt || rows.length <= limit) return rows
+  const base = () =>
+    supabase
+      .from("mtn_fulfillment_tracking")
+      .select("id, mtn_order_id, order_type, order_id, shop_order_id, api_order_id, provider, status, external_status, updated_at")
+      .eq("provider", provider)
+      .eq("status", "completed")
+      .gte("updated_at", since)
+      .not("mtn_order_id", "is", null)
+      .order("updated_at", { ascending: false })
+
+  if (!opts.rotateAt) {
+    const { data } = await base().limit(limit)
+    return ((data as any[]) ?? []).filter((row) => looksProviderCompleted(row.external_status))
+  }
+
+  // PostgREST cuts every response to max-rows (1000 here), so read the window in pages.
+  // The id tie-break keeps page boundaries stable when rows share an updated_at.
+  const all: any[] = []
+  for (let from = 0; from < ROTATION_SCAN_CAP; from += ROTATION_PAGE_SIZE) {
+    const { data } = await base().order("id", { ascending: true }).range(from, from + ROTATION_PAGE_SIZE - 1)
+    const page = (data as any[]) ?? []
+    all.push(...page)
+    if (page.length < ROTATION_PAGE_SIZE) break
+  }
+  const rows = all.filter((row) => looksProviderCompleted(row.external_status))
+  if (rows.length <= limit) return rows
 
   const shards = Math.ceil(rows.length / limit)
   const shard = Math.floor(opts.rotateAt.getTime() / 60_000) % shards
@@ -200,6 +215,10 @@ export async function fetchReversalCandidates(
 
 /** Upper bound on rows read per rotating sweep (light columns only). */
 const ROTATION_SCAN_CAP = 5000
+/** Must not exceed the project's PostgREST max-rows (1000). */
+const ROTATION_PAGE_SIZE = 1000
+// Rotation assumes the caller runs once a minute (sync-kuntanii is "* * * * *"). On an
+// every-k-minutes schedule with gcd(k, shards) > 1 some shards would never be swept.
 
 /** FNV-1a: a row keeps its shard for as long as the shard count holds. */
 function stableHash(s: string): number {
