@@ -108,6 +108,14 @@ describe("validatePriceChanges", () => {
     expect(validatePriceChanges(arr, big).ok).toBe(false)
     expect(validatePriceChanges(arr.slice(0, 1000), big).ok).toBe(true)
   })
+  it("rejects overflow and numeric(10,2) overflow; allows the max", () => {
+    for (const price of [1e307, 1e8, 100000000, 99999999.995]) {
+      const r = validatePriceChanges([{ package_id: "p2", price }], costs)
+      expect(r).toEqual({ ok: false, error: expect.stringContaining("price too large") })
+    }
+    const ok = validatePriceChanges([{ package_id: "p2", price: 99999999.99 }], costs)
+    expect(ok.ok && ok.value.changes[0].price).toBe(99999999.99)
+  })
   it("0.005 edge rounds to 0.01 and is allowed", () => {
     const r = validatePriceChanges([{ package_id: "p2", price: 0.005 }], costs)
     expect(r.ok && r.value.changes[0].price).toBe(0.01)
@@ -130,6 +138,9 @@ describe("validateRateChanges", () => {
       expect(validateRateChanges([{ service_key: "airtime_fee:mtn", value }], allowed).ok).toBe(false)
     expect(validateRateChanges([{ service_key: "airtime_fee:mtn", value: 100 }, { service_key: "airtime_fee:mtn", value: 0 }], allowed).ok).toBe(false)
     expect(validateRateChanges({}, allowed).ok).toBe(false)
+  })
+  it("rejects values that overflow on rounding", () => {
+    expect(validateRateChanges([{ service_key: "airtime_fee:mtn", value: 1e307 }], allowed).ok).toBe(false)
   })
   it("has six hub keys", () => expect(HUB_SERVICE_KEYS).toHaveLength(6))
 })

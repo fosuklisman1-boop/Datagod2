@@ -17,6 +17,8 @@ export const HUB_SERVICE_KEYS: readonly { key: string; label: string }[] = [
   { key: "cashback_share:bills", label: "Bills cashback share" },
 ]
 
+/** numeric(10,2) maximum */
+const MAX_PRICE = 99999999.99
 const SLUG_RE = /^[a-z][a-z0-9_]{1,19}$/
 const SYSTEM_SLUGS = new Set(["user", "dealer", "sub_agent", "admin"])
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -123,6 +125,7 @@ export function validatePriceChanges(
     }
     if (typeof p !== "number" || !Number.isFinite(p) || p < 0) return err(`invalid price for ${id}`)
     const price = round2(p)
+    if (!Number.isFinite(price) || price > MAX_PRICE) return err(`price too large: ${id}`)
     if (price <= 0) return err(`price must be above 0 after rounding: ${id}`)
     const cost = costs.get(id)
     if (cost !== null && cost !== undefined && price < cost) belowCost.push(id)
@@ -153,6 +156,7 @@ export function validateRateChanges(
     }
     if (typeof v !== "number" || !Number.isFinite(v)) return err(`invalid value for ${key}`)
     const value = round2(v)
+    if (!Number.isFinite(value)) return err(`invalid value for ${key}`)
     if (value < 0 || value > 100) return err(`value for ${key} must be 0-100`)
     out.push({ service_key: key, value })
   }
