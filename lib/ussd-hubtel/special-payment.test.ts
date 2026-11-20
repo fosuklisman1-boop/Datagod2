@@ -761,11 +761,12 @@ describe("dispatchSpecialGroup", () => {
     expect(r.dispatchAlerts).toEqual([expect.stringContaining("unit 3/5")])
   })
 
-  it("past the budget from startedAt it stops and alerts k of the group's size", async () => {
+  it("past the budget from startedAt it stops, leaving the units pending for the continue cron (no alert)", async () => {
     const r = setup([paid(4), paid(5)], NOW + 240_001)
     await dispatchSpecialGroup(r.bundles, GROUP, ["c4", "c5"], 5, NOW)
     expect(r.posts).toEqual([])
-    expect(r.dispatchAlerts).toEqual([expect.stringMatching(new RegExp(`Special group ${GROUP}: 2 of 5 units not sent \\(time budget\\)`))])
+    // continueSpecialGroups (cron expire-stale-bot-orders) sends them; the stuck watch alerts if it cannot.
+    expect(r.dispatchAlerts).toEqual([])
   })
 })
 

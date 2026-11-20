@@ -91,6 +91,50 @@ describe("hubtel_data_orders adapter", () => {
     expect(calls).toEqual(["credit", "update"])
     expect(notify).toHaveBeenCalledWith("u1", "Standard bundle refunded", expect.any(String), "o1")
   })
+  it("refund on an admin Special replacement (SBR-): refunded:false, no credit (it was never charged)", async () => {
+    const creditWallet = vi.fn(async () => {})
+    const r = await createDataOrdersAdapter({
+      ...base(), creditWallet, get: async () => ({ ...order(), reference_code: "SBR-18D49F714B0E41B2B85446CEB88A0453" }),
+    }).refundToWallet!(makeTx({ order_id: "o1" }), "admin")
+    expect(r.refunded).toBe(false)
+    expect(r.message).toMatch(/replacement/i)
+    expect(creditWallet).not.toHaveBeenCalled()
+  })
+  it("refund on a unit that was already resent (an SBR- replacement exists): refunded:false, no credit", async () => {
+    const creditWallet = vi.fn(async () => {})
+    const hasReplacement = vi.fn(async () => true)
+    const r = await createDataOrdersAdapter({ ...base(), creditWallet, hasReplacement, get: async () => order() })
+      .refundToWallet!(makeTx({ order_id: "o1" }), "admin")
+    expect(r.refunded).toBe(false)
+    expect(r.message).toMatch(/resent/i)
+    expect(hasReplacement).toHaveBeenCalledWith("o1")
+    expect(creditWallet).not.toHaveBeenCalled()
+  })
+  it("refund: the replacement lookup failing refuses the refund (fail closed)", async () => {
+    const creditWallet = vi.fn(async () => {})
+    const r = await createDataOrdersAdapter({ ...base(), creditWallet, hasReplacement: async () => { throw new Error("db") }, get: async () => order() })
+      .refundToWallet!(makeTx({ order_id: "o1" }), "admin")
+    expect(r.refunded).toBe(false)
+    expect(creditWallet).not.toHaveBeenCalled()
+  })
+  it("a failed replacement tells the customer it will be retried (never 'a refund follows')", async () => {
+    const notify = vi.fn(async () => {})
+    await createDataOrdersAdapter({ ...base(), notify, get: async () => ({ ...order(), reference_code: "SBR-18D49F714B0E41B2B85446CEB88A0453" }) })
+      .onFailed(makeTx({ order_id: "o1" }))
+    const text = (notify.mock.calls[0] as any[])[2] as string
+    expect(text).not.toMatch(/refund/i)
+    expect(text).toMatch(/retry/i)
+  })
+  it("a failed BOT replacement alerts admins to Retry it, not to refund it", async () => {
+    const alertAdmin = vi.fn(async () => {})
+    await createDataOrdersAdapter({
+      ...base(), alertAdmin,
+      get: async () => ({ ...order(), user_id: null, channel: "bots", reference_code: "SBR-18D49F714B0E41B2B85446CEB88A0453" }) as any,
+    }).onFailed(makeTx({ order_id: "o1" }))
+    const msg = (alertAdmin.mock.calls[0] as any[])[0] as string
+    expect(msg).toMatch(/Retry/)
+    expect(msg).not.toMatch(/refund it/i)
+  })
   it("refund on completed order: refunded:false, no credit", async () => {
     const creditWallet = vi.fn(async () => {})
     const r = await createDataOrdersAdapter({ ...base(), creditWallet, get: async () => order({ status: "completed" }) })

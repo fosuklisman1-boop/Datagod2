@@ -1,5 +1,6 @@
 import { refundDecision, UNSENT_GRACE_MS } from "@/lib/bills/admin"
 import { HUBTEL_WALLET_UNSETTLED_REASON } from "./hubtel-wallet"
+import { REPLACEMENT_NOT_REFUNDABLE, RESENT_NOT_REFUNDABLE } from "@/lib/standard-bundles/special-resend"
 import { isBeforeStorefrontRefunds, isCommissionTable, STOREFRONT_REFUNDS_FROM, type CommissionEvidence, type CommissionTable, type DispatchOutcome, type OrderTable, type RefundableOrder } from "./types"
 
 export interface EligibilityInput {
@@ -28,7 +29,7 @@ export interface EligibilityInput {
 export type EligibilityCode =
   | "NOT_PENDING" | "ALREADY_REFUNDED" | "DISPATCH_IN_PROGRESS" | "DISPATCH_UNKNOWN"
   | "PROVIDER_IN_PROGRESS" | "SENT_TO_PROVIDER" | "NOT_STOREFRONT" | "HUBTEL_BLOCKED" | "BEFORE_LAUNCH" | "HUBTEL_COLLECTION"
-  | "WALLET_UNSETTLED"
+  | "WALLET_UNSETTLED" | "ADMIN_REPLACEMENT"
 
 /**
  * releaseStuck: a stuck Hubtel dispatch claim (processing, never reached Hubtel, >= 5 min) must be released first.
@@ -108,6 +109,8 @@ function billOrBundleEligibility(c: CommissionEvidence, now: number): Eligibilit
 function commissionEligibility(table: CommissionTable, i: EligibilityInput): Eligibility {
   const c = i.commission
   if (!c) return no("NOT_PENDING", "Order details could not be loaded")
+  if (c.adminReplacement) return no("ADMIN_REPLACEMENT", REPLACEMENT_NOT_REFUNDABLE)
+  if (c.resent) return no("ADMIN_REPLACEMENT", RESENT_NOT_REFUNDABLE)
   if (!c.storefront) return no("NOT_STOREFRONT", "Not a storefront or bot order — refund it through its own refund path")
   if (i.hasActiveRefund) return no("ALREADY_REFUNDED", "A refund already exists for this order")
   const now = i.now ?? Date.now()

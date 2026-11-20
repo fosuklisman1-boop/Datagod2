@@ -71,6 +71,11 @@ describe("order store wiring", () => {
     expect(typeof d.now()).toBe("number")
     expect(d.getPrefixConfig).toBe(prefix)
   })
+  it("sleep is wired (Special Bundles pacing depends on it; absent = no pacing)", async () => {
+    const d = deps(fakeDb({}).db)
+    expect(typeof d.sleep).toBe("function")
+    await expect(d.sleep!(1)).resolves.toBeUndefined()
+  })
 })
 
 describe("getBundlesAvailability", () => {

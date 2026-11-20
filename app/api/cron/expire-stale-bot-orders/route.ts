@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from "next/server"
+import { after, NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { verifyCronAuth } from "@/lib/cron-auth"
 import { expireStaleBotOrders } from "@/lib/bot-commission/stale-sweep"
 import { watchStuckSpecialGroups, type SpecialWatchResult } from "@/lib/standard-bundles/special-watch"
+
+// The Special Bundles continuation runs in after() (paced sends, up to the 240s budget); cron-job.org gets its answer at once.
+export const maxDuration = 300
 
 // Fails commission-cashback bot orders from the Uzo main + shop USSD and the WhatsApp main + shop bots (never Hubtel
 // USSD or storefront) that stayed pending + unpaid for 30 minutes (bounded per run), and their in-flight
@@ -31,6 +34,21 @@ export async function GET(request: NextRequest) {
     console.error("[SPECIAL-WATCH] failed:", e instanceof Error ? e.message : String(e))
     specialWatch = { error: true }
   }
+
+  // Special Bundles continuation: send never-attempted units the paced loop left when its time budget ran out.
+  const startedAt = Date.now()
+  after(async () => {
+    try {
+      const { getBundlesRuntime } = await import("@/lib/standard-bundles/runtime")
+      const { buildSpecialContinueDeps, continueSpecialGroups } = await import("@/lib/standard-bundles/special-continue")
+      const { deps, db } = getBundlesRuntime()
+      const r = await continueSpecialGroups(buildSpecialContinueDeps(db, deps), startedAt)
+      if (r.units > 0 || r.skippedLedger > 0) console.log("[SPECIAL-CONTINUE] run:", JSON.stringify(r))
+    } catch (e) {
+      // Not alerted here: the stuck watch reports any unit still unsent after SPECIAL_CONTINUE_GRACE_MS.
+      console.error("[SPECIAL-CONTINUE] failed:", e instanceof Error ? e.message : String(e))
+    }
+  })
 
   return NextResponse.json({ ok: result.errors === 0, ...result, specialWatch }, { status: result.errors === 0 ? 200 : 500 })
 }

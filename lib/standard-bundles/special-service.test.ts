@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest"
-import { buySpecial, SPECIAL_PRICE_CHANGED, type SpecialDeps, type SpecialChildRow, type SpecialRpcArgs } from "./special-service"
+import {
+  buySpecial, DISPATCH_BUDGET_MS, SPECIAL_POLL_MS, SPECIAL_PRICE_CHANGED, SPECIAL_UNIT_WAIT_MS,
+  type SpecialDeps, type SpecialChildRow, type SpecialRpcArgs,
+} from "./special-service"
 import { buyBundle, INSUFFICIENT, NOT_AVAILABLE_FOR_NUMBER, PRICES_REFRESHED, type DataOrderRow } from "./service"
 import { signBundleToken, signSpecialToken, BUNDLE_TOKEN_TTL_MS, type VerifiedBundle } from "./token"
 import type { BundlesConfig } from "./config"
@@ -456,7 +459,7 @@ describe("buySpecial — dispatch isolation", () => {
     expect(i).toBeGreaterThanOrEqual(0)
     expect(m.calls.urgent[i]).toBe(true)
   })
-  it("time budget: past 240s since the loop started, the rest are not sent and ONE urgent alert names k of n", async () => {
+  it("time budget: past 240s since the loop started, the rest stay pending for the continue cron (no admin alert)", async () => {
     const m = make()
     const purchase = m.d.purchase
     let clock = T0
@@ -468,8 +471,8 @@ describe("buySpecial — dispatch isolation", () => {
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2"])
     expect(m.orders.map(o => o.status)).toEqual(["processing", "processing", "pending", "pending", "pending"])
-    expect(m.calls.alerts).toEqual(["Special group g1: 3 of 5 units not sent (time budget); send them from Admin > Hubtel Commission > Standard Bundles tab"])
-    expect(m.calls.urgent).toEqual([true])
+    // /api/cron/expire-stale-bot-orders sends the rest (continueSpecialGroups); the stuck watch alerts if that fails.
+    expect(m.calls.alerts).toEqual([])
   })
   it("time budget is measured from the request start, not the after() task start", async () => {
     const m = make()
@@ -484,8 +487,8 @@ describe("buySpecial — dispatch isolation", () => {
     expect(r.ok).toBe(true)
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2"])
-    expect(m.calls.alerts).toEqual(["Special group g1: 1 of 3 units not sent (time budget); send them from Admin > Hubtel Commission > Standard Bundles tab"])
-    expect(m.calls.urgent).toEqual([true])
+    expect(m.orders.map(o => o.status)).toEqual(["processing", "processing", "pending"])
+    expect(m.calls.alerts).toEqual([])
   })
   it("time budget: exactly 240s elapsed still dispatches (strictly more than 240s stops)", async () => {
     const m = make()
@@ -496,6 +499,77 @@ describe("buySpecial — dispatch isolation", () => {
     await buy(m)
     await m.runTasks()
     expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2", "o3"])
+    expect(m.calls.alerts).toEqual([])
+  })
+  it("pacing: the next unit is sent only after Hubtel settled the previous one (polled through d.sleep)", async () => {
+    const m = make()
+    let clock = T0
+    m.d.now = () => clock
+    const events: string[] = []
+    const purchase = m.d.purchase
+    m.d.purchase = async (i) => { events.push(`buy ${i.orderId}`); return purchase(i) }
+    const sleeps: number[] = []
+    m.d.sleep = async (ms) => {
+      sleeps.push(ms); clock += ms
+      // Hubtel's callback settles the unit in flight after ~2 polls.
+      const inFlight = m.orders.find(o => o.status === "processing")
+      if (inFlight && sleeps.length % 2 === 0) { inFlight.status = "completed"; events.push(`settled ${inFlight.id}`) }
+    }
+    await buy(m)
+    await m.runTasks()
+    expect(events).toEqual(["buy o1", "settled o1", "buy o2", "settled o2", "buy o3"])
+    expect(sleeps.every(s => s === SPECIAL_POLL_MS)).toBe(true)
+    expect(m.calls.alerts).toEqual([])
+  })
+  it("pacing: a unit Hubtel never settles holds the next one back at most SPECIAL_UNIT_WAIT_MS", async () => {
+    const m = make()
+    let clock = T0
+    m.d.now = () => clock
+    const buyAt: number[] = []
+    const purchase = m.d.purchase
+    m.d.purchase = async (i) => { buyAt.push(clock - T0); return purchase(i) }
+    m.d.sleep = async (ms) => { clock += ms }
+    await buy(m)
+    await m.runTasks()
+    expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2", "o3"])
+    expect(buyAt[1] - buyAt[0]).toBeGreaterThanOrEqual(SPECIAL_UNIT_WAIT_MS)
+    expect(buyAt[1] - buyAt[0]).toBeLessThan(SPECIAL_UNIT_WAIT_MS + SPECIAL_POLL_MS)
+  })
+  it("pacing: no wait after the last unit, nor after a unit that did not reach Hubtel", async () => {
+    const m = make()
+    let clock = T0
+    m.d.now = () => clock
+    const purchase = m.d.purchase
+    m.d.purchase = async (i) => {
+      if (i.orderId === "o1") { m.calls.purchase.push(i); throw new Error("not sent") } // o1 back to pending
+      return purchase(i)
+    }
+    const sleeps: number[] = []
+    m.d.sleep = async (ms) => {
+      sleeps.push(ms); clock += ms
+      const inFlight = m.orders.find(o => o.status === "processing")
+      if (inFlight) inFlight.status = "completed"
+    }
+    await buy(m)
+    await m.runTasks()
+    expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2", "o3"])
+    // One poll for o2 only: none for o1 (not sent) and none after o3 (last).
+    expect(sleeps).toEqual([SPECIAL_POLL_MS])
+  })
+  it("pacing: the wait never runs past the time budget; the rest stay pending for the cron", async () => {
+    const m = make()
+    let clock = T0
+    m.d.now = () => clock
+    m.d.sleep = async (ms) => { clock += ms }
+    const purchase = m.d.purchase
+    m.d.purchase = async (i) => { clock += 100_000; return purchase(i) }
+    await buy(m, { token: specialTok(5), expectedPay: 15 }, 5)
+    await m.runTasks()
+    // o1 bought by 100s, waits to 145s; o2 starts at 145s (within budget) and is bought by 245s; the wait after o2 is
+    // capped at the budget end (240s, already past) so there is none, and the budget check stops the loop before o3.
+    expect(m.calls.purchase.map(p => p.orderId)).toEqual(["o1", "o2"])
+    expect(clock - T0).toBeLessThanOrEqual(DISPATCH_BUDGET_MS + 100_000)
+    expect(m.orders.slice(2).map(o => o.status)).toEqual(["pending", "pending", "pending"])
     expect(m.calls.alerts).toEqual([])
   })
   it("after() unavailable => success still returned (paid) and an urgent alert", async () => {

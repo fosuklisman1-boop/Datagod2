@@ -120,6 +120,14 @@ describe("fetchSpecialGroupSizes", () => {
 })
 
 describe("bundleRefundDecision", () => {
+  it("blocks an admin Special replacement (SBR-) in every state: it was never charged", () => {
+    for (const status of ["pending", "failed"]) {
+      const d = bundleRefundDecision({ ...facts({ status }), reference_code: "SBR-18D49F714B0E41B2B85446CEB88A0453" }, 0, NOW)
+      expect(d.action).toBe("blocked")
+      expect(d.action === "blocked" && d.reason).toMatch(/replacement/i)
+    }
+    expect(bundleRefundDecision({ ...facts(), reference_code: "SB-ABC123" }, 0, NOW).action).toBe("direct")
+  })
   it("allows an old pending+paid order with no ledger row", () => {
     expect(bundleRefundDecision(facts(), 0, NOW)).toEqual({ action: "direct", releaseStuck: false })
   })

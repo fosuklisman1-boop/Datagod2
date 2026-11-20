@@ -19,6 +19,11 @@ import { DATA_ORDERS_TABLE } from "./admin"
 export const SPECIAL_WATCH_AGE_MS = 5 * 60_000
 export const SPECIAL_WATCH_REALERT_MS = 6 * 3_600_000
 export const SPECIAL_WATCH_KEY = "last_special_stuck_alerts"
+/**
+ * A pending unit never attempted (notes NULL) is sent by continueSpecialGroups (./special-continue, same cron, every
+ * 10 min). It is only reported once it has waited this long, i.e. the continuation is not getting it through.
+ */
+export const SPECIAL_CONTINUE_GRACE_MS = 30 * 60_000
 /** Rows read per run (a group is at most 50 children). */
 export const SPECIAL_WATCH_LIMIT = 1000
 
@@ -41,7 +46,7 @@ export interface SpecialWatchResult { skipped: boolean; groups: number; alerted:
 export async function watchStuckSpecialGroups(db: SupabaseClient, deps: SpecialWatchDeps): Promise<SpecialWatchResult> {
   const now = (deps.now ?? Date.now)()
   const { data, error } = await db.from(DATA_ORDERS_TABLE)
-    .select("special_group_id, status")
+    .select("special_group_id, status, notes, updated_at")
     .not("special_group_id", "is", null)
     .eq("payment_status", "paid")
     // A live claim is never older than the age rule (see SPECIAL_WATCH_AGE_MS), so this does not report an in-flight send.
@@ -57,8 +62,10 @@ export async function watchStuckSpecialGroups(db: SupabaseClient, deps: SpecialW
   }
 
   const counts = new Map<string, { pending: number; claimed: number }>()
-  for (const r of (data ?? []) as { special_group_id: string | null; status?: string | null }[]) {
+  for (const r of (data ?? []) as { special_group_id: string | null; status?: string | null; notes?: string | null; updated_at?: string }[]) {
     if (!r.special_group_id) continue
+    // Never attempted and younger than the grace: the continue cron owns it (strict null: a missing column is not skipped).
+    if (r.status === "pending" && r.notes === null && now - Date.parse(r.updated_at ?? "") < SPECIAL_CONTINUE_GRACE_MS) continue
     const c = counts.get(r.special_group_id) ?? { pending: 0, claimed: 0 }
     if (r.status === "processing") c.claimed++
     else c.pending++

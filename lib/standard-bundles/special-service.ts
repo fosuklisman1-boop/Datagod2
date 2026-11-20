@@ -51,6 +51,13 @@ export const SPECIAL_UNAVAILABLE = "Special Bundles are not available right now"
 const ADMIN_PLACE = "Admin > Hubtel Commission > Standard Bundles tab"
 /** The sequential dispatch loop stops starting new children after this long (the route allows 300s). */
 export const DISPATCH_BUDGET_MS = 240_000
+/**
+ * Pacing: after a unit reaches Hubtel, the next is held back until Hubtel settles it (callback ~20s), at most this long.
+ * Repeat buys of the same MTN unit seconds apart were reported as not all arriving on the handset (2026-11-20).
+ */
+export const SPECIAL_UNIT_WAIT_MS = 45_000
+/** How often the pacing wait re-reads the unit in flight. */
+export const SPECIAL_POLL_MS = 3_000
 const KEY_USED ="This request was already used for another purchase. Please try again."
 
 const fail = (status: number, error: string): { ok: false; status: number; error: string } => ({ ok: false, status, error })
@@ -196,15 +203,16 @@ async function replayGroup(d: SpecialDeps, userId: string, groupId: string, firs
  * for, used in alerts even when `ids` is only part of the group (a resumed group). Every child failure in the loop
  * (missing row, exception, or a child left failed / unsent) is an URGENT alert naming the group and unit i/N: a Special
  * purchase is one customer payment.
+ * Pacing (when `d.sleep` is wired): a unit that reached Hubtel (processing) holds the next back until Hubtel settles it,
+ * at most SPECIAL_UNIT_WAIT_MS and never past the budget. Units left when the budget runs out stay pending + paid and
+ * are sent by continueSpecialGroups (cron /api/cron/expire-stale-bot-orders); the stuck watch alerts if that fails.
  */
 export async function dispatchSpecialGroup(d: BundlesDeps, groupId: string, ids: string[], n: number, startedAt: number): Promise<void> {
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i]
-    // Time budget (route maxDuration 300s): past 240s, stop and hand the rest to an admin, never a silent cut-off.
+    // Time budget (route maxDuration 300s): past 240s, stop; the continue cron sends the rest (pending + paid).
     if (d.now() - startedAt > DISPATCH_BUDGET_MS) {
-      const k = ids.length - i
-      console.error("[bundles] special dispatch time budget exceeded:", groupId, `${k}/${n} not sent`)
-      await safeAlert(d, `Special group ${groupId}: ${k} of ${n} units not sent (time budget); send them from ${ADMIN_PLACE}`, true)
+      console.warn("[bundles] special dispatch time budget reached; the rest is left to the continue cron:", groupId, `${ids.length - i}/${n} pending`)
       return
     }
     let unit = `${i + 1}/${n}`
@@ -221,10 +229,23 @@ export async function dispatchSpecialGroup(d: BundlesDeps, groupId: string, ids:
       if (status === "failed" || status === "pending") {
         await safeAlert(d, `Special group ${groupId}: unit ${unit} (${row.reference_code}) ${status === "failed" ? "failed" : "paid but not sent"}; retry, send or refund it in ${ADMIN_PLACE}`, true)
       }
+      if (status === "processing" && i < ids.length - 1) await waitForSettle(d, id, startedAt)
     } catch (e) {
       console.error("[bundles] special child dispatch error:", id, msg(e))
       await safeAlert(d, `Special group ${groupId}: unit ${unit} (order ${id}) dispatch error (${msg(e)}). It is paid; check it in ${ADMIN_PLACE}`, true)
     }
+  }
+}
+
+/** Poll the unit in flight until it leaves 'processing' (Hubtel callback), SPECIAL_UNIT_WAIT_MS at most, never past the budget. */
+async function waitForSettle(d: BundlesDeps, id: string, startedAt: number): Promise<void> {
+  if (!d.sleep) return
+  const deadline = Math.min(d.now() + SPECIAL_UNIT_WAIT_MS, startedAt + DISPATCH_BUDGET_MS)
+  while (d.now() < deadline) {
+    await d.sleep(Math.min(SPECIAL_POLL_MS, deadline - d.now()))
+    let row: DataOrderRow | null
+    try { row = await d.getOrder(id) } catch { return } // cannot tell: stop waiting rather than stall the group
+    if (!row || row.status !== "processing") return
   }
 }
 

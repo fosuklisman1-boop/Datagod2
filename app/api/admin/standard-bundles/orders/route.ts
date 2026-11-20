@@ -7,6 +7,7 @@ import type { LedgerFact } from "@/lib/bills/admin"
 import { clampPage, errorJson, requireAdmin, searchAlternate } from "@/lib/hubtel-cs/admin-route"
 import { botChannelLabel } from "@/lib/cashback/bot-labels"
 import { getHubtelCsRuntime } from "@/lib/hubtel-cs/runtime"
+import { canResend, isSpecialReplacement, replacementRef } from "@/lib/standard-bundles/special-resend"
 
 export const dynamic = "force-dynamic"
 
@@ -77,6 +78,16 @@ export async function GET(request: NextRequest) {
     // Special Bundles: N per group for the "Special i/N" badge (fail-soft: badge shows "Special i").
     const groupSizes = await fetchSpecialGroupSizes(db, orders.map(o => o.special_group_id))
 
+    // Resend (completed Special units): offered only when no replacement exists yet; fail closed (none offered) on error.
+    const resendCandidates = orders.filter(o => canResend(o))
+    let resent = new Set<string>()
+    let resendOk = true
+    if (resendCandidates.length) {
+      const { data, error } = await db.from(DATA_ORDERS_TABLE).select("reference_code").in("reference_code", resendCandidates.map(o => replacementRef(o.id)))
+      if (error) resendOk = false
+      else resent = new Set((data ?? []).map((r: any) => r.reference_code as string))
+    }
+
     const now = Date.now()
     const rows = orders.map(o => {
       const isCandidate = candidates.includes(o)
@@ -91,7 +102,11 @@ export async function GET(request: NextRequest) {
           : ([u?.first_name, u?.last_name].filter(Boolean).join(" ").trim() || u?.email || "Unknown"),
         channel_label: o.channel === "bots" ? botChannelLabel(o.bot_surface) : null,
         shop_name: o.shop_id ? (shops.get(o.shop_id) ?? "Unknown shop") : null,
-        special_label: specialBadgeLabel(o, o.special_group_id ? groupSizes.get(o.special_group_id) : undefined),
+        special_label: isSpecialReplacement(o.reference_code)
+          ? "Special resend"
+          : specialBadgeLabel(o, o.special_group_id ? groupSizes.get(o.special_group_id) : undefined),
+        can_resend: resendOk && resendCandidates.includes(o) && !resent.has(replacementRef(o.id)),
+        resent_ref: resendCandidates.includes(o) && resent.has(replacementRef(o.id)) ? replacementRef(o.id) : null,
         stuck_claim: ledgerOk && isCandidate && !ledger.has(o.id) && isStuckClaim(o, now),
         has_ledger: ledgerOk && isCandidate ? ledger.has(o.id) : null,
         refund: decision,

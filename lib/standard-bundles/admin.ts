@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { retryDecision, type LedgerFact } from "@/lib/bills/admin"
 import { BUNDLE_NETWORKS } from "./categories"
+import { isSpecialReplacement, REPLACEMENT_NOT_REFUNDABLE } from "./special-resend"
 
 export const DATA_ORDERS_TABLE = "hubtel_data_orders"
 export const ORDER_STATUSES = ["pending", "processing", "completed", "failed", "refunded"] as const
@@ -97,7 +98,11 @@ export function applyOrderFilters<T>(query: T, f: OrderFilters, qAlt?: string): 
   return q as T
 }
 
-export interface RefundFacts { status: string; payment_status: string; hubtel_client_reference: string | null; notes: string | null; updated_at: string }
+export interface RefundFacts {
+  status: string; payment_status: string; hubtel_client_reference: string | null; notes: string | null; updated_at: string
+  /** SBR- = an admin Special replacement (never charged, never refundable). Absent = not checked (legacy callers). */
+  reference_code?: string | null
+}
 export type BundleRefundDecision =
   | { action: "blocked"; reason: string; reviewQueue?: boolean }
   | { action: "direct"; releaseStuck: boolean }
@@ -114,6 +119,7 @@ export function isStuckClaim(o: RefundFacts, now: number = Date.now()): boolean 
  */
 export function bundleRefundDecision(o: RefundFacts, ledgerRows: number, now: number = Date.now()): BundleRefundDecision {
   const blocked = (reason: string, reviewQueue = false): BundleRefundDecision => ({ action: "blocked", reason, ...(reviewQueue ? { reviewQueue } : {}) })
+  if (isSpecialReplacement(o.reference_code)) return blocked(REPLACEMENT_NOT_REFUNDABLE)
   if (o.status === "refunded" || o.payment_status === "refunded") return blocked("Already refunded")
   if (o.status === "completed") return blocked("Completed orders cannot be refunded")
   if (o.payment_status !== "paid") return blocked("This order was never paid")
