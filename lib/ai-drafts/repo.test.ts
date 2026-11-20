@@ -252,14 +252,45 @@ describe("getOwnDraft / finishDraft / expireIfDue / terminalDraftsSince", () => 
 
   it("terminalDraftsSince returns finished drafts for the conversation after the cutoff", async () => {
     const t0 = new Date(Date.now() - 60_000).toISOString()
+    const old = new Date(Date.now() - 3_600_000).toISOString()
     const rows = [
-      pendingRow({ id: "a1", status: "succeeded", executed_at: new Date().toISOString() }),
+      pendingRow({ id: "a1", status: "succeeded" }),
       pendingRow({ id: "a2", status: "pending" }),
-      pendingRow({ id: "a3", status: "failed", executed_at: new Date(Date.now() - 3_600_000).toISOString() }),
-      pendingRow({ id: "a4", status: "succeeded", conversation_key: "conv-2", executed_at: new Date().toISOString() }),
-      pendingRow({ id: "a5", status: "succeeded", user_id: OTHER, executed_at: new Date().toISOString() }),
+      pendingRow({ id: "a3", status: "failed", updated_at: old }),
+      pendingRow({ id: "a4", status: "succeeded", conversation_key: "conv-2" }),
+      pendingRow({ id: "a5", status: "succeeded", user_id: OTHER }),
     ]
     const out = await terminalDraftsSince(fakeDb(rows), USER, "conv-1", t0)
     expect(out.map((d) => d.id)).toEqual(["a1"])
+  })
+
+  it("terminal_since_includes_cancelled_and_expired", async () => {
+    const rows = ["succeeded", "partial", "failed", "unknown", "expired", "cancelled"].map((s) =>
+      pendingRow({ id: `s-${s}`, status: s }),
+    )
+    const out = await terminalDraftsSince(fakeDb(rows), USER, "conv-1", new Date(Date.now() - 60_000).toISOString())
+    expect(out.map((d) => d.status).sort()).toEqual(["cancelled", "expired", "failed", "partial", "succeeded", "unknown"])
+  })
+
+  it("terminal_since_excludes_superseded_and_pending", async () => {
+    const rows = [
+      pendingRow({ id: "p", status: "pending" }),
+      pendingRow({ id: "x", status: "superseded" }),
+      pendingRow({ id: "e", status: "executing" }),
+    ]
+    const out = await terminalDraftsSince(fakeDb(rows), USER, "conv-1", new Date(Date.now() - 60_000).toISOString())
+    expect(out).toEqual([])
+  })
+
+  it("terminal_since_uses_updated_at", async () => {
+    const t = (ms: number) => new Date(Date.now() + ms).toISOString()
+    const rows = [
+      // expired/cancelled never get executed_at; only updated_at places them
+      pendingRow({ id: "late-cancel", status: "cancelled", executed_at: null, updated_at: t(-1000) }),
+      pendingRow({ id: "old-expired", status: "expired", executed_at: null, updated_at: t(-3_600_000) }),
+      pendingRow({ id: "early-done", status: "succeeded", executed_at: t(-1000), updated_at: t(-500) }),
+    ]
+    const out = await terminalDraftsSince(fakeDb(rows), USER, "conv-1", t(-5000))
+    expect(out.map((d) => d.id)).toEqual(["late-cancel", "early-done"])
   })
 })

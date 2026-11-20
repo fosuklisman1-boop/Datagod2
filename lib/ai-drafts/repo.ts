@@ -126,7 +126,10 @@ export async function cancelDraft(db: SupabaseClient, id: string, userId: string
   return (data as AiDraft | null) ?? null
 }
 
-/** Drafts in this conversation that finished with an outcome at or after sinceIso, oldest first. */
+/** Every terminal outcome the model must know about (not superseded): outcome statuses plus expired and cancelled. */
+const TERMINAL_SINCE_STATUSES = [...OUTCOME_STATUSES, "expired", "cancelled"] as const
+
+/** Drafts in this conversation that reached a terminal state (excl. superseded) with updated_at >= sinceIso, oldest first. */
 export async function terminalDraftsSince(
   db: SupabaseClient,
   userId: string,
@@ -137,10 +140,10 @@ export async function terminalDraftsSince(
     .from("ai_drafts")
     .select("*")
     .eq("user_id", userId)
-    .in("status", [...OUTCOME_STATUSES])
-    .gte("executed_at", sinceIso)
+    .in("status", [...TERMINAL_SINCE_STATUSES])
+    .gte("updated_at", sinceIso)
   q = conversationKey == null ? q.is("conversation_key", null) : q.eq("conversation_key", conversationKey)
-  const { data, error } = await q.order("executed_at", { ascending: true })
+  const { data, error } = await q.order("updated_at", { ascending: true })
   if (error) fail("terminalSince", error)
   return (data as AiDraft[] | null) ?? []
 }
