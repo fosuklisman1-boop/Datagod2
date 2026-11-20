@@ -342,11 +342,14 @@ export async function POST(request: NextRequest) {
         p_user_id: userId,
         p_amount: validatedPrice,
       })
+      const revertFailed = Boolean(revertError)
       if (revertError) {
-        console.error("[PURCHASE] Wallet revert RPC failed after order insert error:", revertError.message)
+        // Fixed marker for ops alerting; message only, no phone/email/userId.
+        console.error("[PURCHASE] REVERT_FAILED", revertError.message)
       }
       // A racing request with the same key won the unique index: this call must not charge, so it was reverted above.
-      if (idempotencyKey && (orderError as { code?: string }).code === "23505") {
+      // If the revert failed the user is still debited: never answer alreadyPlaced/409, fall through to the 500.
+      if (!revertFailed && idempotencyKey && (orderError as { code?: string }).code === "23505") {
         const raced = await replayResponse()
         if (raced) return raced
         return NextResponse.json({ error: "Duplicate request" }, { status: 409 })

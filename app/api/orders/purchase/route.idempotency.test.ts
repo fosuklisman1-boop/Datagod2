@@ -15,6 +15,7 @@ const db = vi.hoisted(() => {
     insertError: null as any,
     orderLookups: 0,
     revertError: null as any,
+    nullLookups: 0, // the next N orders selects return null (simulates a race: pre-check misses, insert collides)
   }
   function builder(table: string): any {
     const filters: Record<string, any> = {}
@@ -38,6 +39,10 @@ const db = vi.hoisted(() => {
       }
       if (table === "orders") {
         state.orderLookups++
+        if (state.nullLookups > 0) {
+          state.nullLookups--
+          return { data: null, error: null }
+        }
         const rows = state.orders.filter((o) => Object.entries(filters).every(([k, v]) => o[k] === v))
         return { data: rows[0] ?? null, error: null }
       }
@@ -129,6 +134,7 @@ beforeEach(() => {
   db.state.insertError = null
   db.state.orderLookups = 0
   db.state.revertError = null
+  db.state.nullLookups = 0
 })
 
 const deducts = () => db.state.rpcs.filter((r) => r.name === "deduct_wallet")
@@ -197,5 +203,42 @@ describe("POST /api/orders/purchase: idempotency key", () => {
     expect(reverts()).toEqual([{ name: "revert_wallet_deduction", args: { p_user_id: "user-1", p_amount: 10 } }])
     expect(JSON.stringify(r.body)).not.toContain("ORD-1")
     expect(db.state.orders).toHaveLength(1)
+  })
+
+  it("same_user_race_returns_already_placed_one_revert", async () => {
+    // Pre-check misses (null once), then the insert collides with this user's own row.
+    db.state.orders = [{ id: "o-x", user_id: "user-1", idempotency_key: KEY, order_code: "ORD-1" }]
+    db.state.nullLookups = 1
+    const r = await buy({ idempotencyKey: KEY })
+    expect(r.status).toBe(200)
+    expect(r.body.alreadyPlaced).toBe(true)
+    expect(r.body.order.order_code).toBe("ORD-1")
+    expect(reverts()).toHaveLength(1)
+    expect(db.state.orders).toHaveLength(1)
+  })
+
+  it("revert_failure_in_race_returns_500_not_already_placed", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    db.state.orders = [{ id: "o-x", user_id: "user-1", idempotency_key: KEY, order_code: "ORD-1" }]
+    db.state.nullLookups = 1
+    db.state.revertError = { message: "rpc down" }
+    const r = await buy({ idempotencyKey: KEY })
+    expect(r.status).toBe(500)
+    expect(r.body.error).toBe("Failed to create order")
+    expect(r.body.alreadyPlaced).toBeUndefined()
+    expect(spy).toHaveBeenCalledWith("[PURCHASE] REVERT_FAILED", "rpc down")
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("user-1")
+    spy.mockRestore()
+  })
+
+  it("revert_failure_cross_user_returns_500", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+    db.state.orders = [{ id: "o-x", user_id: "someone-else", idempotency_key: KEY, order_code: "ORD-1" }]
+    db.state.revertError = { message: "rpc down" }
+    const r = await buy({ idempotencyKey: KEY })
+    expect(r.status).toBe(500)
+    expect(r.body.error).toBe("Failed to create order")
+    expect(r.body.alreadyPlaced).toBeUndefined()
+    spy.mockRestore()
   })
 })
