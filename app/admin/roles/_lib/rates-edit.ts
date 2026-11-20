@@ -35,6 +35,12 @@ export function rateChanges(
   return { ok: true, changes }
 }
 
+/** Confirm text when any airtime fee is set above 10%; cashback shares get no extra guard. */
+export function airtimeFeeWarning(changes: readonly { service_key: string; value: number | null }[]): string | null {
+  const high = changes.some((c) => c.service_key.startsWith("airtime_fee:") && c.value != null && c.value > 10)
+  return high ? "Airtime fee above 10% is unusual — save anyway?" : null
+}
+
 export const rateDirtyCount = (rates: readonly RateRow[], edits: Record<string, string>) =>
   rates.filter((r) => {
     const c = cell(r, edits[r.service_key])

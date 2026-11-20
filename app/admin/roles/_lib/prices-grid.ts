@@ -89,6 +89,13 @@ export function buildPricesPut(rows: readonly PriceRow[], edits: Edits, lossOk: 
   return { changes, loss_override: lossOk && (serverFlagged || belowCostIds(rows, edits).length > 0), reason: reason.trim() }
 }
 
+/** The loss box survives only while the set of dirty below-cost ids is unchanged. */
+export function nextLossOk(prevIds: readonly string[], nextIds: readonly string[], lossOk: boolean): boolean {
+  if (!lossOk) return false
+  const a = new Set(prevIds)
+  return a.size === nextIds.length && nextIds.every((x) => a.has(x))
+}
+
 type Preview = { ok: true; edits: Edits; skipped: number } | { ok: false; error: string }
 
 const parseNum = (text: string): number | null => {

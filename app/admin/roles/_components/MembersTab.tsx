@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { adminFetch } from "../_lib/api"
 import type { HubRole } from "../_lib/ladder-view"
 import {
-  MAX_SELECT, MOVE_CHUNK, addTally, chunk, collectAllIds, emptyTally, moveTargets, tallyText,
+  MAX_SELECT, addTally, collectAllIds, emptyTally, extraCounts, moveTargets, runMoveChunks, tallyText,
   type MoveResult, type Tally,
 } from "../_lib/members-move"
 import type { EditTabProps } from "../_lib/tab-props"
@@ -54,6 +54,9 @@ export interface MembersViewProps {
   error: string | null
   /** Names seen on any page so far, so result rows can show a name instead of an id. */
   names?: ReadonlyMap<string, string>
+  /** Set when the move loop stopped early (401/403/429/5xx/network). */
+  stopBanner?: string | null
+  onReload?: () => void
 }
 
 export function MembersView(p: MembersViewProps) {
@@ -181,8 +184,21 @@ export function MembersView(p: MembersViewProps) {
               <CardTitle className="text-base">Result</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
+              {p.stopBanner ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm" data-stop-banner>
+                  <span>{p.stopBanner}</span>
+                  {p.onReload ? (
+                    <Button type="button" size="sm" variant="outline" disabled={p.busy || p.loading} onClick={p.onReload}>
+                      Reload members
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
               <p className="text-sm font-medium" data-tally>
                 {tallyText(p.tally)}
+                {extraCounts(p.results).unknown + extraCounts(p.results).notAttempted > 0
+                  ? `, unknown ${extraCounts(p.results).unknown}, not attempted ${extraCounts(p.results).notAttempted}`
+                  : ""}
               </p>
               <div className="max-h-72 overflow-auto rounded-md border">
                 <table className="w-full text-xs">
@@ -231,6 +247,7 @@ export function MembersTab({ role, roles, busy, setBusy, onError, onDirtyChange,
   const [tally, setTally] = useState<Tally | null>(null)
   const [results, setResults] = useState<MoveResult[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [stopBanner, setStopBanner] = useState<string | null>(null)
   const names = useRef(new Map<string, string>())
 
   const load = useCallback(
@@ -299,27 +316,27 @@ export function MembersTab({ role, roles, busy, setBusy, onError, onDirtyChange,
     setBusy(true)
     setError(null)
     let t = emptyTally()
-    let all: MoveResult[] = []
     setTally(t)
     setResults([])
+    setStopBanner(null)
     try {
-      for (const ids of chunk([...selected], MOVE_CHUNK)) {
-        try {
+      const run = await runMoveChunks(
+        [...selected],
+        async (ids) => {
           const r = await adminFetch<{ results: MoveResult[] }>("/api/admin/roles/members/move", {
             method: "POST",
             body: { user_ids: ids, to_role: target, reason: v.value },
           })
-          all = all.concat(r.results)
-          t = addTally(t, r.results)
-        } catch (e) {
-          // A failed chunk becomes per-user error rows; later chunks still run.
-          const msg = e instanceof Error ? e.message : "Request failed"
-          const rows: MoveResult[] = ids.map((user_id) => ({ user_id, status: "error", reason: msg }))
-          all = all.concat(rows)
-          t = addTally(t, rows)
-        }
-        setTally(t)
-        setResults(all)
+          return r.results
+        },
+        (all) => {
+          t = addTally(emptyTally(), all)
+          setTally(t)
+          setResults(all)
+        },
+      )
+      if (run.stop) {
+        setStopBanner(`Stopped${run.stop.status ? ` (HTTP ${run.stop.status})` : ""}: ${run.stop.message}. Reload the members list to see who moved.`)
       }
       if (t.moved > 0) toast.success(`Moved ${t.moved} member${t.moved === 1 ? "" : "s"}`)
       else toast.error("No members were moved. See the results for the reasons.")
@@ -372,6 +389,8 @@ export function MembersTab({ role, roles, busy, setBusy, onError, onDirtyChange,
       onMove={move}
       error={error}
       names={names.current}
+      stopBanner={stopBanner}
+      onReload={() => load(1, appliedQ)}
     />
   )
 }

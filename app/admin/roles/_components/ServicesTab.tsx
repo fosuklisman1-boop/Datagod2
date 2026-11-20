@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { adminFetch } from "../_lib/api"
-import { canSaveRates, rateChanges, rateDirtyCount, type RateRow } from "../_lib/rates-edit"
+import { airtimeFeeWarning, canSaveRates, rateChanges, rateDirtyCount, type RateRow } from "../_lib/rates-edit"
 import type { EditTabProps } from "../_lib/tab-props"
 import { SaveBar } from "./SaveBar"
 
@@ -145,6 +145,8 @@ export function ServicesTab({ role, busy, setBusy, onError, onDirtyChange }: Edi
     if (busy) return
     const r = rateChanges(rates, edits)
     if (!r.ok || r.changes.length === 0 || !canSaveRates(rates, edits, reason).ok) return
+    const warning = airtimeFeeWarning(r.changes)
+    if (warning && !window.confirm(warning)) return
     setBusy(true)
     try {
       await adminFetch(`/api/admin/roles/${role.id}/rates`, { method: "PUT", body: { changes: r.changes, reason: reason.trim() } })

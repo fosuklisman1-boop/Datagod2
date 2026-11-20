@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { ApiError, fetchRoles } from "../_lib/api"
+import { shouldBlockTabSwitch } from "../_lib/guards"
 import type { HubRole } from "../_lib/ladder-view"
 import { AuditTab } from "../_components/AuditTab"
 import { BasicsTab } from "../_components/BasicsTab"
@@ -68,8 +69,8 @@ export default function AdminRoleEditorPage() {
   }, [dirty])
 
   const switchTab = (next: string) => {
+    if (shouldBlockTabSwitch(dirty, tab, next, () => window.confirm("You have unsaved changes on this tab. Leave and discard them?"))) return
     if (next === tab) return
-    if (dirty && !window.confirm("You have unsaved changes on this tab. Leave and discard them?")) return
     setDirty(false)
     setTab(next)
   }

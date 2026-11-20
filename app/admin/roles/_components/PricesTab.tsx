@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Loader2, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, adminFetch } from "../_lib/api"
 import {
-  belowCostIds, bulkPublicPreview, bulkRolePreview, buildPricesPut, canSavePrices, cellState, dirtyChanges, marginOf, sourceMapFrom,
+  belowCostIds, bulkPublicPreview, bulkRolePreview, buildPricesPut, canSavePrices, cellState, dirtyChanges, marginOf, nextLossOk, sourceMapFrom,
   type Edits, type PriceRow,
 } from "../_lib/prices-grid"
 import { copySources, type EditTabProps } from "../_lib/tab-props"
@@ -301,10 +301,20 @@ export function PricesTab({ role, roles, busy, setBusy, onError, onDirtyChange }
     return () => onDirtyChange(false)
   }, [changes, onDirtyChange])
 
+  // The loss box only covers the below-cost rows that were on screen when it was ticked: any change to that set clears it.
+  const belowKey = belowCostIds(rows, edits).sort().join(",")
+  const prevBelow = useRef<string[]>([])
+  useEffect(() => {
+    const next = belowKey === "" ? [] : belowKey.split(",")
+    setLossOk((cur) => nextLossOk(prevBelow.current, next, cur))
+    prevBelow.current = next
+  }, [belowKey])
+
   const visible = useMemo(() => (network === "all" ? rows : rows.filter((r) => r.network === network)), [rows, network])
 
   const mergeEdits = (next: Edits, skipped: number, what: string) => {
     setEdits((cur) => ({ ...cur, ...next }))
+    setLossOk(false)
     setBulkMessage(skipped > 0 ? `${skipped} package${skipped === 1 ? "" : "s"} skipped (price would be zero or less) for ${what}.` : null)
   }
 
