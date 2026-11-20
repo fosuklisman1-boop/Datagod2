@@ -16,8 +16,9 @@ import { validateNetworkPrefix } from "@/lib/phone-format"
 import { getPrefixValidationConfig } from "@/lib/network-prefix-config"
 import { isRecipientBlocked, NOT_VERIFIED_CODE } from "@/lib/mtn-providers/customer-verification"
 import { getNoticeMode, dealerNotice } from "@/lib/blocked-numbers/notice"
-import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE, getCustomPrices } from "@/lib/pricing/package-price"
-import { roleBasePrices, priceWith } from "@/lib/roles/pricing"
+import { z } from "zod"
+import { CustomPriceReadError, MSG_PRICES_UNAVAILABLE } from "@/lib/pricing/package-price"
+import { walletOrderPrice } from "@/lib/pricing/wallet-order-price"
 import { RoleReadError } from "@/lib/roles/repo"
 import { requireCapability } from "@/lib/roles/require-capability"
 import { holdOutcomeUnknown, isOutcomeUnknown } from "@/lib/mtn-providers/outcome-hold"
@@ -85,6 +86,16 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     if (!phoneNumber) {
       return NextResponse.json({ error: "Phone number is required" }, { status: 400 })
+    }
+
+    // Optional idempotency key (AI confirm cards pass the draft id). Absent → the original path, untouched.
+    let idempotencyKey: string | undefined
+    if (body.idempotencyKey !== undefined && body.idempotencyKey !== null) {
+      const parsedKey = z.string().uuid().safeParse(body.idempotencyKey)
+      if (!parsedKey.success) {
+        return NextResponse.json({ error: "Invalid idempotencyKey" }, { status: 400 })
+      }
+      idempotencyKey = parsedKey.data
     }
 
     // Order-time network↔prefix validation (hard block; admin-toggleable).
@@ -165,6 +176,29 @@ export async function POST(request: NextRequest) {
 
     console.log(`[PURCHASE] User ID: ${userId}`)
 
+    // Replay of an already-placed keyed order: return it, with no debit, notifications or transaction row.
+    // Owner-scoped: a key belonging to another user is never revealed here (the unique index catches it at insert).
+    const replayResponse = async (): Promise<NextResponse | null> => {
+      if (!idempotencyKey) return null
+      const { data: existing } = await supabaseAdmin
+        .from("orders")
+        .select("*")
+        .eq("idempotency_key", idempotencyKey)
+        .eq("user_id", userId)
+        .maybeSingle()
+      if (!existing) return null
+      const { data: w } = await supabaseAdmin.from("wallets").select("balance").eq("user_id", userId).maybeSingle()
+      return NextResponse.json({
+        success: true,
+        message: "Purchase successful",
+        order: existing,
+        newBalance: (w as { balance?: number } | null)?.balance,
+        alreadyPlaced: true,
+      })
+    }
+    const replayed = await replayResponse()
+    if (replayed) return replayed
+
     // Get user's wallet
     const { data: walletData, error: walletError } = await supabaseAdmin
       .from("wallets")
@@ -209,9 +243,7 @@ export async function POST(request: NextRequest) {
     // A failed custom-price read refuses the purchase (nothing debited): never charge a possibly wrong price.
     let validatedPrice: number
     try {
-      const custom = await getCustomPrices(supabaseAdmin, userId)
-      const base = await roleBasePrices(supabaseAdmin, userRole, [packageData], { admin: "as_user" })
-      validatedPrice = priceWith(base, packageData, custom)
+      validatedPrice = await walletOrderPrice(supabaseAdmin, userId, userRole, packageData)
     } catch (e) {
       if (e instanceof CustomPriceReadError || e instanceof RoleReadError) {
         console.error("[purchase] role prices unavailable:", e instanceof Error ? e.name : typeof e)
@@ -298,21 +330,27 @@ export async function POST(request: NextRequest) {
           queue: phoneQueue,
           order_code: `ORD-${Date.now()}`,
           created_at: new Date().toISOString(),
+          ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
         },
       ])
       .select()
 
     if (orderError) {
-      // Refund: wallet was already deducted, so we need to reverse
+      // Refund: wallet was already deducted, so we need to reverse. Atomic relative revert (never an absolute write).
       console.error("[PURCHASE] Order creation failed, refunding wallet:", orderError)
-      await supabaseAdmin
-        .from("wallets")
-        .update({
-          balance: balanceBefore,
-          total_spent: deductResult[0].new_total_spent - validatedPrice,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("user_id", userId)
+      const { error: revertError } = await supabaseAdmin.rpc("revert_wallet_deduction", {
+        p_user_id: userId,
+        p_amount: validatedPrice,
+      })
+      if (revertError) {
+        console.error("[PURCHASE] Wallet revert RPC failed after order insert error:", revertError.message)
+      }
+      // A racing request with the same key won the unique index: this call must not charge, so it was reverted above.
+      if (idempotencyKey && (orderError as { code?: string }).code === "23505") {
+        const raced = await replayResponse()
+        if (raced) return raced
+        return NextResponse.json({ error: "Duplicate request" }, { status: 409 })
+      }
       return NextResponse.json(
         { error: "Failed to create order", details: orderError.message },
         { status: 500 }
