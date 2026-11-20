@@ -56,9 +56,12 @@ const STUBS = `
   CREATE TABLE public.users(id uuid PRIMARY KEY);
   CREATE TABLE public.wallets(user_id uuid PRIMARY KEY, balance numeric, total_spent numeric, updated_at timestamptz);
   CREATE TABLE public.orders(id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-  CREATE TABLE public.ai_scheduled_tasks(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text);
+  CREATE TABLE public.ai_scheduled_tasks(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, name text, prompt text,
+    context text, schedule_type text, next_run_at timestamptz);
 `
 const U1 = "00000000-0000-0000-0000-0000000000a1"
+const ACTOR_MISSING = "00000000-0000-0000-0000-0000000000ee"
+const T1 = "00000000-0000-0000-0000-0000000000d1"
 async function fresh(): Promise<any> {
   const db = new PGliteCtor()
   await db.exec(ROLES)
@@ -87,6 +90,7 @@ const seed = `
   INSERT INTO users(id) VALUES ('${U1}');
   INSERT INTO wallets(user_id, balance, total_spent) VALUES ('${U1}', 100, 50);
   INSERT INTO orders DEFAULT VALUES; INSERT INTO orders DEFAULT VALUES;
+  INSERT INTO ai_scheduled_tasks(id, name) VALUES ('${T1}', 'seeded');
 `
 
 describe.skipIf(!PGliteCtor)("0188 in PGlite", () => {
@@ -176,6 +180,50 @@ describe.skipIf(!PGliteCtor)("0188 in PGlite", () => {
     expect(r).toEqual({ standing_order: null, approved_draft_id: null, consecutive_skips: 0 })
     await fails(db, `UPDATE ai_scheduled_tasks SET approved_draft_id = gen_random_uuid()`, /foreign key/i)
   }, 60_000)
-})
 
-const ACTOR_MISSING = "00000000-0000-0000-0000-0000000000ee"
+  it("authenticated and anon cannot set the server-only standing-order columns (insert and update)", async () => {
+    const db = await fresh88()
+    await db.exec(`INSERT INTO ai_scheduled_tasks(id, name) VALUES ('${T1}', 't')`)
+    for (const who of ["authenticated", "anon"]) {
+      await db.exec(`SET ROLE ${who}`)
+      await fails(db, `INSERT INTO ai_scheduled_tasks(name, standing_order) VALUES ('x', '{"a":1}')`, /STANDING_ORDER_SERVER_ONLY/)
+      await fails(db, `INSERT INTO ai_scheduled_tasks(name, approved_draft_id) VALUES ('x', gen_random_uuid())`, /STANDING_ORDER_SERVER_ONLY/)
+      await fails(db, `INSERT INTO ai_scheduled_tasks(name, consecutive_skips) VALUES ('x', 3)`, /STANDING_ORDER_SERVER_ONLY/)
+      await fails(db, `UPDATE ai_scheduled_tasks SET standing_order = '{"a":1}' WHERE id = '${T1}'`, /STANDING_ORDER_SERVER_ONLY/)
+      await fails(db, `UPDATE ai_scheduled_tasks SET approved_draft_id = gen_random_uuid() WHERE id = '${T1}'`, /STANDING_ORDER_SERVER_ONLY/)
+      await fails(db, `UPDATE ai_scheduled_tasks SET consecutive_skips = 9 WHERE id = '${T1}'`, /STANDING_ORDER_SERVER_ONLY/)
+      await db.exec("RESET ROLE")
+    }
+    expect(await rows(db, `SELECT 1 FROM ai_scheduled_tasks WHERE standing_order IS NOT NULL OR consecutive_skips <> 0`)).toHaveLength(0)
+  }, 60_000)
+
+  it("service_role can set the standing-order columns", async () => {
+    const db = await fresh88()
+    await db.exec(`INSERT INTO ai_scheduled_tasks(id, name) VALUES ('${T1}', 't')`)
+    await db.exec("SET ROLE service_role")
+    await db.exec(`UPDATE ai_scheduled_tasks SET standing_order = '{"a":1}', consecutive_skips = 2 WHERE id = '${T1}'`)
+    await db.exec(`INSERT INTO ai_scheduled_tasks(name, standing_order) VALUES ('y', '{"b":2}')`)
+    await db.exec("RESET ROLE")
+    expect(await rows(db, `SELECT 1 FROM ai_scheduled_tasks WHERE standing_order IS NOT NULL`)).toHaveLength(2)
+    // the postgres owner is unaffected too
+    await db.exec(`UPDATE ai_scheduled_tasks SET consecutive_skips = 0 WHERE id = '${T1}'`)
+  }, 60_000)
+
+  it("authenticated can still update other columns, and inserts with default server-only values", async () => {
+    const db = await fresh88()
+    await db.exec(`INSERT INTO ai_scheduled_tasks(id, name) VALUES ('${T1}', 't')`)
+    await db.exec("SET ROLE authenticated")
+    await db.exec(`UPDATE ai_scheduled_tasks SET name = 'renamed' WHERE id = '${T1}'`)
+    await db.exec(`INSERT INTO ai_scheduled_tasks(name) VALUES ('plain')`)
+    await db.exec("RESET ROLE")
+    expect(await rows(db, `SELECT name FROM ai_scheduled_tasks ORDER BY name`)).toEqual([{ name: "plain" }, { name: "renamed" }])
+  }, 60_000)
+
+  it("the guard function is SECURITY INVOKER and closed to client roles", async () => {
+    const db = await fresh88()
+    expect((await rows(db, `SELECT prosecdef AS d FROM pg_proc WHERE proname = 'ai_scheduled_tasks_guard_standing_order'`))[0].d).toBe(false)
+    for (const who of ["anon", "authenticated"]) {
+      expect((await rows(db, `SELECT has_function_privilege('${who}', 'public.ai_scheduled_tasks_guard_standing_order()', 'EXECUTE') AS p`))[0].p).toBe(false)
+    }
+  }, 60_000)
+})

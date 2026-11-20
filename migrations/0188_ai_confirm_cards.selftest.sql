@@ -18,7 +18,9 @@
 -- orders.idempotency_key is unique when set and free when NULL (uses two EXISTING orders rows, skipped if fewer than two,
 -- so nothing is inserted into orders); revert_wallet_deduction adds back exactly the amount after an interleaved sequence
 -- (uses one EXISTING wallets row, skipped if none) and refuses a bad amount / missing wallet; anon / authenticated cannot
--- EXECUTE it; the ai_scheduled_tasks columns exist.
+-- EXECUTE it; the ai_scheduled_tasks columns exist; the standing-order guard trigger exists and, as authenticated, refuses
+-- an INSERT / UPDATE of a server-only column with STANDING_ORDER_SERVER_ONLY while not blocking an unrelated UPDATE
+-- (UPDATE checks use one EXISTING ai_scheduled_tasks row, skipped if none; RLS hiding the row counts as not changed).
 
 DO $selftest$
 DECLARE
@@ -27,6 +29,7 @@ DECLARE
   v_c1    tid;
   v_c2    tid;
   v_uid   uuid;
+  v_task  uuid;
   v_key   uuid := gen_random_uuid();
   v_bal   numeric;
   v_state boolean;
@@ -97,6 +100,56 @@ BEGIN
    WHERE table_schema = 'public' AND table_name = 'ai_scheduled_tasks'
      AND column_name IN ('standing_order', 'approved_draft_id', 'consecutive_skips');
   IF v_n <> 3 THEN RAISE EXCEPTION 'FAIL ai_scheduled_tasks_columns %', v_n; END IF;
+
+  -- standing-order guard trigger: server-only columns
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.ai_scheduled_tasks'::regclass
+                  AND tgname = 'ai_scheduled_tasks_guard_standing_order' AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'FAIL guard_trigger_missing';
+  END IF;
+  FOREACH v_who IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    IF has_function_privilege(v_who, 'public.ai_scheduled_tasks_guard_standing_order()', 'EXECUTE') THEN
+      RAISE EXCEPTION 'FAIL client_can_execute_guard %', v_who;
+    END IF;
+  END LOOP;
+  SELECT id INTO v_task FROM public.ai_scheduled_tasks ORDER BY id LIMIT 1;
+  -- a client INSERT that sets a server-only column is refused by the guard (the BEFORE trigger runs before the RLS check)
+  <<b_guard_ins>>
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    INSERT INTO public.ai_scheduled_tasks (name, prompt, context, schedule_type, next_run_at, standing_order)
+      VALUES ('selftest', 'selftest', 'dashboard', 'once', now(), '{"x":1}');
+    RESET ROLE;
+    RAISE EXCEPTION 'FAIL client_insert_standing_order_accepted';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+    IF SQLERRM NOT LIKE 'STANDING_ORDER_SERVER_ONLY%' THEN RAISE EXCEPTION 'FAIL insert_refused_by_other_than_guard: %', SQLERRM; END IF;
+  END b_guard_ins;
+  IF v_task IS NOT NULL THEN
+    -- a client UPDATE of a server-only column: refused by the guard, or the row is hidden by RLS (0 rows, nothing changed)
+    <<b_guard_upd>>
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      UPDATE public.ai_scheduled_tasks SET standing_order = '{"x":1}' WHERE id = v_task;
+      GET DIAGNOSTICS v_n = ROW_COUNT;
+      RESET ROLE;
+      IF v_n > 0 THEN RAISE EXCEPTION 'FAIL client_update_standing_order_accepted'; END IF;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RESET ROLE;
+      IF SQLERRM NOT LIKE 'STANDING_ORDER_SERVER_ONLY%' THEN RAISE EXCEPTION 'FAIL update_refused_by_other_than_guard: %', SQLERRM; END IF;
+    END b_guard_upd;
+    -- a client UPDATE of an unrelated column is never blocked by the guard (RLS or grants may still refuse it)
+    <<b_guard_other>>
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      UPDATE public.ai_scheduled_tasks SET name = name WHERE id = v_task;
+      RESET ROLE;
+    EXCEPTION WHEN OTHERS THEN
+      RESET ROLE;
+      IF SQLERRM LIKE 'STANDING_ORDER_SERVER_ONLY%' THEN RAISE EXCEPTION 'FAIL guard_blocks_unrelated_update'; END IF;
+    END b_guard_other;
+    -- the server (this session's role) can set it
+    UPDATE public.ai_scheduled_tasks SET standing_order = '{"x":1}', consecutive_skips = 2 WHERE id = v_task;
+  END IF;
 
   -- revert_wallet_deduction: closed to clients
   IF to_regprocedure('public.revert_wallet_deduction(uuid,numeric)') IS NULL THEN RAISE EXCEPTION 'FAIL function_missing'; END IF;

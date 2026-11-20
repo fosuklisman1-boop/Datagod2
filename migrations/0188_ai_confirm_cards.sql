@@ -8,6 +8,9 @@
 --   orders.idempotency_key uuid + UNIQUE partial index orders_idempotency_key_uniq (WHERE idempotency_key IS NOT NULL):
 --       the second wall behind the draft claim.
 --   ai_scheduled_tasks: standing_order jsonb, approved_draft_id uuid -> ai_drafts(id), consecutive_skips int not null default 0.
+--       Client-writable by default (0060 + owner RLS), so a BEFORE INSERT OR UPDATE guard trigger raises STANDING_ORDER_SERVER_ONLY
+--       (42501) when current_user is anon / authenticated and any of the three is set or changed. Undo: DROP TRIGGER
+--       ai_scheduled_tasks_guard_standing_order ON public.ai_scheduled_tasks; DROP FUNCTION public.ai_scheduled_tasks_guard_standing_order();
 --   revert_wallet_deduction(p_user_id uuid, p_amount numeric) RETURNS numeric (new balance): adds back exactly p_amount in one
 --       UPDATE (safe after interleaved wallet writes); raises on p_amount <= 0 / NULL or no wallet row. SECURITY DEFINER,
 --       search_path = public; EXECUTE revoked from PUBLIC / anon / authenticated, granted to service_role.
@@ -65,6 +68,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS orders_idempotency_key_uniq ON public.orders (
 ALTER TABLE public.ai_scheduled_tasks ADD COLUMN IF NOT EXISTS standing_order jsonb;
 ALTER TABLE public.ai_scheduled_tasks ADD COLUMN IF NOT EXISTS approved_draft_id uuid REFERENCES public.ai_drafts(id);
 ALTER TABLE public.ai_scheduled_tasks ADD COLUMN IF NOT EXISTS consecutive_skips int NOT NULL DEFAULT 0;
+
+-- ============ ai_scheduled_tasks: the three new columns are server-only ============
+-- 0060 grants authenticated CRUD on every table and the 20260524 RLS policies let owners INSERT / UPDATE their own rows, so a
+-- column-level REVOKE would be a no-op (the table-level grant still covers the column). A trigger refuses a client role
+-- (current_user anon / authenticated) that sets or changes standing_order, approved_draft_id or consecutive_skips.
+-- service_role and postgres (server routes, migrations, the SQL editor) pass. SECURITY INVOKER so current_user is the caller.
+CREATE OR REPLACE FUNCTION public.ai_scheduled_tasks_guard_standing_order()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $fn$
+BEGIN
+  IF current_user IN ('anon', 'authenticated') THEN
+    IF TG_OP = 'INSERT' THEN
+      IF NEW.standing_order IS NOT NULL OR NEW.approved_draft_id IS NOT NULL OR NEW.consecutive_skips <> 0 THEN
+        RAISE EXCEPTION 'STANDING_ORDER_SERVER_ONLY: standing order columns are server-managed' USING ERRCODE = '42501';
+      END IF;
+    ELSIF NEW.standing_order IS DISTINCT FROM OLD.standing_order
+       OR NEW.approved_draft_id IS DISTINCT FROM OLD.approved_draft_id
+       OR NEW.consecutive_skips IS DISTINCT FROM OLD.consecutive_skips THEN
+      RAISE EXCEPTION 'STANDING_ORDER_SERVER_ONLY: standing order columns are server-managed' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.ai_scheduled_tasks_guard_standing_order() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS ai_scheduled_tasks_guard_standing_order ON public.ai_scheduled_tasks;
+CREATE TRIGGER ai_scheduled_tasks_guard_standing_order
+  BEFORE INSERT OR UPDATE ON public.ai_scheduled_tasks
+  FOR EACH ROW EXECUTE FUNCTION public.ai_scheduled_tasks_guard_standing_order();
 
 -- ============ revert_wallet_deduction ============
 CREATE OR REPLACE FUNCTION public.revert_wallet_deduction(p_user_id uuid, p_amount numeric)
