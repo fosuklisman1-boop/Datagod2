@@ -47,12 +47,14 @@ export function isReversal(args: {
   completedAt: string | Date
   providerStatus: string
   now?: Date
+  /** Provider-specific window; defaults to REVERSAL_WINDOW_MS (72h). */
+  windowMs?: number
 }): boolean {
   if (args.trackingStatus !== "completed") return false
   if (args.providerStatus !== "failed") return false
   const now = args.now ?? new Date()
   const completed = new Date(args.completedAt).getTime()
-  return now.getTime() - completed <= REVERSAL_WINDOW_MS
+  return now.getTime() - completed <= (args.windowMs ?? REVERSAL_WINDOW_MS)
 }
 
 function orderTarget(row: ReversalRow): { table: string; col: "status" | "order_status"; id: string } | null {
@@ -163,16 +165,67 @@ export async function flagReversal(
  * response for it isn't a reversal — it's the same failure that was always
  * there.
  */
-export async function fetchReversalCandidates(supabase: SupabaseClient, provider: string, limit = 200): Promise<ReversalRow[]> {
-  const since = new Date(Date.now() - REVERSAL_WINDOW_MS).toISOString()
-  const { data } = await supabase
-    .from("mtn_fulfillment_tracking")
-    .select("id, mtn_order_id, order_type, order_id, shop_order_id, api_order_id, provider, status, external_status, updated_at")
-    .eq("provider", provider)
-    .eq("status", "completed")
-    .gte("updated_at", since)
-    .not("mtn_order_id", "is", null)
-    .order("updated_at", { ascending: false })
-    .limit(limit)
-  return ((data as any[]) ?? []).filter((row) => looksProviderCompleted(row.external_status))
+export async function fetchReversalCandidates(
+  supabase: SupabaseClient,
+  provider: string,
+  limit = 200,
+  opts: {
+    windowMs?: number
+    /**
+     * Rotate through the WHOLE window instead of re-reading the newest `limit` rows
+     * every run: candidates are split into ceil(n / limit) stable hash shards and
+     * the shard for this minute is returned, so every row is re-checked once per
+     * rotation. Without it a busy provider only ever re-checks its last few hours.
+     */
+    rotateAt?: Date
+  } = {},
+): Promise<ReversalRow[]> {
+  const since = new Date(Date.now() - (opts.windowMs ?? REVERSAL_WINDOW_MS)).toISOString()
+  const base = () =>
+    supabase
+      .from("mtn_fulfillment_tracking")
+      .select("id, mtn_order_id, order_type, order_id, shop_order_id, api_order_id, provider, status, external_status, updated_at")
+      .eq("provider", provider)
+      .eq("status", "completed")
+      .gte("updated_at", since)
+      .not("mtn_order_id", "is", null)
+      .order("updated_at", { ascending: false })
+
+  if (!opts.rotateAt) {
+    const { data } = await base().limit(limit)
+    return ((data as any[]) ?? []).filter((row) => looksProviderCompleted(row.external_status))
+  }
+
+  // PostgREST cuts every response to max-rows (1000 here), so read the window in pages.
+  // The id tie-break keeps page boundaries stable when rows share an updated_at.
+  const all: any[] = []
+  for (let from = 0; from < ROTATION_SCAN_CAP; from += ROTATION_PAGE_SIZE) {
+    const { data } = await base().order("id", { ascending: true }).range(from, from + ROTATION_PAGE_SIZE - 1)
+    const page = (data as any[]) ?? []
+    all.push(...page)
+    if (page.length < ROTATION_PAGE_SIZE) break
+  }
+  const rows = all.filter((row) => looksProviderCompleted(row.external_status))
+  if (rows.length <= limit) return rows
+
+  const shards = Math.ceil(rows.length / limit)
+  const shard = Math.floor(opts.rotateAt.getTime() / 60_000) % shards
+  return rows.filter((row) => stableHash(String(row.id)) % shards === shard)
+}
+
+/** Upper bound on rows read per rotating sweep (light columns only). */
+const ROTATION_SCAN_CAP = 5000
+/** Must not exceed the project's PostgREST max-rows (1000). */
+const ROTATION_PAGE_SIZE = 1000
+// Rotation assumes the caller runs once a minute (sync-kuntanii is "* * * * *"). On an
+// every-k-minutes schedule with gcd(k, shards) > 1 some shards would never be swept.
+
+/** FNV-1a: a row keeps its shard for as long as the shard count holds. */
+function stableHash(s: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return h >>> 0
 }

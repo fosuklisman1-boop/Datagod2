@@ -121,6 +121,11 @@ export function entriesOf(body: OrderBody | undefined): KuntaniiOrderEntry[] {
 export function representativeRawStatus(entries: KuntaniiOrderEntry[]): string | undefined {
   const raws = entries.map((e) => (typeof e.status === "string" ? e.status : undefined))
   if (raws.length === 0) return undefined
+  // A refund leaves the raw status "processed"; label it so external_status is not
+  // a completion keyword (which would also make it look provider-confirmed again).
+  if (aggregateOrdersStatus(entries) === "failed" && !entries.some((e) => mapKuntaniiStatus(e.status) === "failed")) {
+    return "refunded"
+  }
   const norm = (r: string | undefined) => (r ?? "").trim().toLowerCase()
   if (raws.every((r) => norm(r) === norm(raws[0]))) return raws[0]
   const agg = aggregateOrdersStatus(entries)

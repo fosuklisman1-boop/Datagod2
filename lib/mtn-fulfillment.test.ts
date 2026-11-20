@@ -21,10 +21,20 @@ function fakeSupabase(settingsByKey: Record<string, any>) {
         upsert() {
           return Promise.resolve({ data: null, error: null })
         },
+        // Order-table mirror writes (syncMTNOrderStatus): awaitable chain, always ok.
+        update() {
+          const chain: any = { eq: () => chain, then: (ok: any, bad: any) => Promise.resolve({ error: null }).then(ok, bad) }
+          return chain
+        },
       }
     },
   } as any
 }
+
+vi.mock("@/lib/mtn-reversal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/mtn-reversal")>()
+  return { ...actual, flagReversal: vi.fn().mockResolvedValue({ flagged: true, superseded: false }) }
+})
 
 vi.mock("@/lib/refunds/dispatch-guard", () => ({
   withDispatchGuard: async (_id: unknown, run: () => Promise<unknown>) => run(),
@@ -96,6 +106,7 @@ import {
 } from "@/lib/mtn-fulfillment"
 import { getProviderByName, getMTNProvider, getRetrySequence } from "@/lib/mtn-providers/factory"
 import { checkWhitelistForOrder } from "@/lib/mtn-providers/provider-whitelist"
+import { flagReversal } from "@/lib/mtn-reversal"
 import type { MTNProvider } from "@/lib/mtn-providers/types"
 
 function fakeMtnProvider(name: string, result: any): MTNProvider {
@@ -337,6 +348,56 @@ describe("MTN Fulfillment Service", () => {
       vi.mocked(getProviderByName).mockReturnValue(next)
       const result = await createMTNOrder({ recipient_phone: "0551234567", network: "MTN", size_gb: 1 })
       expect(result.success).toBe(true)
+    })
+  })
+
+  describe("syncMTNOrderStatus — completed rows the provider now reports failed", () => {
+    // Admin "sync status" (and the Kuntanii webhook) must not turn a delivered-looking
+    // order straight back into a pending one: that skips the reversal review and the
+    // order could be re-sent. It goes through flagReversal like the provider crons.
+    beforeEach(() => vi.mocked(flagReversal).mockClear())
+
+    it("flags a reversal instead of mirroring failed -> pending", async () => {
+      trackingRow.current = { id: "t9", mtn_order_id: "ext-9", provider: "kuntanii", status: "completed", external_status: "processed", order_type: "bulk", order_id: "o9" }
+      const provider = { checkOrderStatus: vi.fn().mockResolvedValue({ success: true, status: "failed", message: "refunded", order: { status: "refunded" } }) }
+      vi.mocked(getProviderByName).mockReturnValue(provider as any)
+      const { syncMTNOrderStatus } = await import("@/lib/mtn-fulfillment")
+      const r = await syncMTNOrderStatus("t9")
+      expect(flagReversal).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(flagReversal).mock.calls[0][1]).toMatchObject({ id: "t9", provider: "kuntanii" })
+      expect(vi.mocked(flagReversal).mock.calls[0][2]).toMatchObject({ status: "refunded" })
+      expect(r).toMatchObject({ success: true, newStatus: "reversed" })
+    })
+
+    it("leaves an admin-completed row alone (provider never confirmed it): no reversal, no pending", async () => {
+      trackingRow.current = { id: "t11", mtn_order_id: "ext-11", provider: "kuntanii", status: "completed", external_status: null, order_type: "bulk", order_id: "o11" }
+      const provider = { checkOrderStatus: vi.fn().mockResolvedValue({ success: true, status: "failed", message: "x", order: { status: "refunded" } }) }
+      vi.mocked(getProviderByName).mockReturnValue(provider as any)
+      const { syncMTNOrderStatus } = await import("@/lib/mtn-fulfillment")
+      const r = await syncMTNOrderStatus("t11")
+      expect(flagReversal).not.toHaveBeenCalled()
+      expect(r).toMatchObject({ success: true, newStatus: "completed" })
+    })
+
+    it("reports failure and changes nothing when flagging the reversal fails", async () => {
+      vi.mocked(flagReversal).mockResolvedValueOnce({ flagged: false, superseded: false })
+      trackingRow.current = { id: "t12", mtn_order_id: "ext-12", provider: "kuntanii", status: "completed", external_status: "processed", order_type: "bulk", order_id: "o12" }
+      const provider = { checkOrderStatus: vi.fn().mockResolvedValue({ success: true, status: "failed", message: "x", order: { status: "refunded" } }) }
+      vi.mocked(getProviderByName).mockReturnValue(provider as any)
+      const { syncMTNOrderStatus } = await import("@/lib/mtn-fulfillment")
+      const r = await syncMTNOrderStatus("t12")
+      expect(r.success).toBe(false)
+      expect(r.newStatus).toBeUndefined()
+    })
+
+    it("still applies failed normally for a row that was not completed", async () => {
+      trackingRow.current = { id: "t10", mtn_order_id: "ext-10", provider: "kuntanii", status: "processing", order_type: "bulk", order_id: "o10" }
+      const provider = { checkOrderStatus: vi.fn().mockResolvedValue({ success: true, status: "failed", message: "x", order: { status: "cancelled" } }) }
+      vi.mocked(getProviderByName).mockReturnValue(provider as any)
+      const { syncMTNOrderStatus } = await import("@/lib/mtn-fulfillment")
+      const r = await syncMTNOrderStatus("t10")
+      expect(flagReversal).not.toHaveBeenCalled()
+      expect(r.newStatus).toBe("failed")
     })
   })
 

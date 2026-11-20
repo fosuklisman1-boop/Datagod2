@@ -39,7 +39,15 @@ export type FileResult =
   | { ok: false; status: 400 | 404 | 409 | 502; error: string; code?: string }
 
 export async function fileNotReceived(
-  input: { trackingId: string; adminUserId: string; description?: string; reasonCode?: string },
+  input: {
+    trackingId: string
+    /** Admin filing from /admin/mtn-logs. */
+    adminUserId?: string
+    /** Automatic filing from a customer complaint: the complaining user, or null (WhatsApp). */
+    raisedBy?: string | null
+    description?: string
+    reasonCode?: string
+  },
   deps: DisputeDeps = {}
 ): Promise<FileResult> {
   const db = deps.db ?? (supabaseAdmin as SupabaseLike)
@@ -80,7 +88,7 @@ export async function fileNotReceived(
       reason_code: input.reasonCode ?? null,
       description: input.description ?? null,
       dispute_status: "open",
-      raised_by: input.adminUserId,
+      raised_by: input.adminUserId ?? input.raisedBy ?? null,
     })
     .select("id")
     .single()

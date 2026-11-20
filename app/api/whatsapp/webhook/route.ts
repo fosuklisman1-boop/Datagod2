@@ -237,6 +237,12 @@ async function processInbound(body: unknown): Promise<void> {
             if (res.isNew) await notifyAdminsNewComplaint(res.complaint)
             await clearPendingComplaint(from)
             await sendWhatsAppText(from, `✅ Complaint submitted with your screenshot (ref: ${res.complaint.id.slice(0, 8).toUpperCase()}). Our team will get back to you here shortly.`)
+            // A data complaint about a Kuntanii-delivered order goes straight to Kuntanii as
+            // a "not received" report (only when the sender is linked to that order; never throws).
+            if (res.isNew) {
+              const { forwardWhatsAppComplaint } = await import("@/lib/mtn-providers/kuntanii-complaint-dispute")
+              await forwardWhatsAppComplaint(res.complaint)
+            }
           } else if (res && "rateLimited" in res) {
             await clearPendingComplaint(from)
             await sendWhatsAppText(from, "Thanks — we've received your screenshot, but you've reached today's complaint limit. Our team can still see this conversation.")

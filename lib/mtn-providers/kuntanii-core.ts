@@ -8,6 +8,9 @@ export type KuntaniiOrderEntry = {
   deliveryMode?: string
   totalAmountGhs?: number
   notReceivedStatus?: string | null
+  entries?: number
+  successfulEntries?: number
+  failedEntries?: number
 }
 export type OurStatus = "processing" | "completed" | "failed"
 export type KuntaniiErrorClass =
@@ -29,9 +32,30 @@ export function mapKuntaniiStatus(raw: string | undefined | null): OurStatus {
   return "processing"
 }
 
+/**
+ * Kuntanii refunds a processed order without changing its status: the recipient
+ * moves to failedEntries instead (usually after a not-received dispute). Only a
+ * delivered-looking order where NO recipient succeeded counts; a partial delivery
+ * stays completed because re-sending it would double-deliver the rest.
+ */
+export function isRefundedEntry(o: KuntaniiOrderEntry): boolean {
+  if (mapKuntaniiStatus(o.status) !== "completed") return false
+  const failed = typeof o.failedEntries === "number" ? o.failedEntries : 0
+  const ok = typeof o.successfulEntries === "number" ? o.successfulEntries : 0
+  return failed > 0 && ok === 0
+}
+
+/** Per-order status including refunds; use this rather than mapKuntaniiStatus on an order entry. */
+export function entryStatus(o: KuntaniiOrderEntry): OurStatus {
+  return isRefundedEntry(o) ? "failed" : mapKuntaniiStatus(o.status)
+}
+
+/** How long after completion the reversal sweep keeps re-checking Kuntanii orders (refunds follow disputes). */
+export const KUNTANII_REFUND_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
 export function aggregateOrdersStatus(orders: KuntaniiOrderEntry[]): OurStatus {
   if (!orders || orders.length === 0) return "processing"
-  const statuses = orders.map((o) => mapKuntaniiStatus(o.status))
+  const statuses = orders.map(entryStatus)
   if (statuses.includes("processing")) return "processing"
   if (statuses.includes("failed")) return "failed"
   return "completed"
@@ -97,7 +121,7 @@ export function attemptId(orderId: string, n: number): string {
 // never re-place blind when we cannot see what exists.
 export function existingAttemptAction(orders: KuntaniiOrderEntry[]): "next" | "resume" {
   if (!orders || orders.length === 0) return "resume"
-  return orders.every((o) => mapKuntaniiStatus(o.status) === "failed") ? "next" : "resume"
+  return orders.every((o) => entryStatus(o) === "failed") ? "next" : "resume"
 }
 
 export function redactPhone(phone: string | null | undefined): string {
