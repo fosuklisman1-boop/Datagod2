@@ -2,22 +2,36 @@
 // Fail-closed reads of role capabilities. Any read error rejects with RoleReadError; callers refuse (503).
 import { isCapability, rightsFor, type Capability, type RoleRights } from "./capabilities"
 import type { RoleRow } from "./ladder"
-import { loadRoles, RoleReadError, ROW_CAP } from "./repo"
+import { loadRoles, RoleReadError } from "./repo"
 
 type ClientLike = { from(table: string): any }
 
+// Below PostgREST's usual max_rows (1000) so a short page really means "last page".
+const PAGE_SIZE = 500
+const MAX_PAGES = 200
+
+/** Reads every role_permissions row in stable-ordered pages. Any read error rejects; row count alone never does. */
 export async function loadRolePermissions(client: ClientLike): Promise<Map<string, Set<Capability>>> {
-  let res: { data: unknown; error: unknown }
-  try {
-    res = await client.from("role_permissions").select("role_id, capability").limit(ROW_CAP)
-  } catch {
-    throw new RoleReadError()
+  const all: Array<{ role_id: unknown; capability: unknown }> = []
+  for (let page = 0; ; page++) {
+    if (page >= MAX_PAGES) throw new RoleReadError() // runaway loop guard, not a size limit in practice
+    let res: { data: unknown; error: unknown }
+    try {
+      res = await client
+        .from("role_permissions")
+        .select("role_id, capability")
+        .order("role_id", { ascending: true })
+        .order("capability", { ascending: true })
+        .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+    } catch {
+      throw new RoleReadError()
+    }
+    if (!res || res.error || !Array.isArray(res.data)) throw new RoleReadError()
+    all.push(...(res.data as Array<{ role_id: unknown; capability: unknown }>))
+    if (res.data.length < PAGE_SIZE) break
   }
-  if (!res || res.error || !Array.isArray(res.data)) throw new RoleReadError()
-  // A full page cannot be proven complete: refuse rather than grant/deny from truncated data.
-  if (res.data.length >= ROW_CAP) throw new RoleReadError()
   const out = new Map<string, Set<Capability>>()
-  for (const row of res.data as Array<{ role_id: unknown; capability: unknown }>) {
+  for (const row of all) {
     if (row.role_id == null || !isCapability(row.capability)) continue
     const id = String(row.role_id)
     let set = out.get(id)

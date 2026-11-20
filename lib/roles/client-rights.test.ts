@@ -67,6 +67,17 @@ describe("shouldRedirectUnavailable", () => {
     expect(shouldRedirectUnavailable("/dashboard/data-packages", { status: "error", slug: null, rights: EMPTY_RIGHTS }, false)).toBe(false)
     expect(shouldRedirectUnavailable("/dashboard/data-packages", airtimeOnly, true)).toBe(false)
   })
+  it("never redirects sub_agent or admin-style rights (only capability sets)", () => {
+    const sub = loaded("sub_agent", "sub_agent")
+    expect(shouldRedirectUnavailable("/dashboard/my-orders", sub, false)).toBe(false)
+    expect(shouldRedirectUnavailable("/dashboard/data-packages", sub, false)).toBe(false)
+    const all = loaded("admin", "all")
+    expect(shouldRedirectUnavailable("/dashboard/buy-stock", all, false)).toBe(false)
+  })
+  it("never redirects while isAdmin is still loading", () => {
+    expect(shouldRedirectUnavailable("/dashboard/data-packages", airtimeOnly, false, true)).toBe(false)
+    expect(shouldRedirectUnavailable("/dashboard/data-packages", airtimeOnly, false, false)).toBe(true)
+  })
   it("matches sub-paths of a nav item", () => {
     expect(shouldRedirectUnavailable("/dashboard/data-packages/x", airtimeOnly, false)).toBe(true)
   })

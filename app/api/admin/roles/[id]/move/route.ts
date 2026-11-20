@@ -26,11 +26,20 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     const target = roles.find((r) => r.id === id)
     if (!target) return NextResponse.json({ error: "Role not found" }, { status: 404 })
     if (FIXED.has(target.slug)) return badRequest("That role cannot be moved")
+    if (target.slug === "dealer") return badRequest("Dealer cannot be moved")
     if (target.archived_at || target.rank == null) return badRequest("Only live ranked roles can be moved")
     const rank = target.rank
+    // Custom roles must stay strictly above dealer (fail closed if dealer is unreadable).
+    const dealer = roles.find((r) => r.slug === "dealer")
+    if (!dealer || dealer.rank == null) return serverError()
+    const dealerRank = dealer.rank
 
+    // Dealer is never a swap partner, and neither partner may end up at or below dealer's rank.
     const candidates = roles.filter(
-      (r) => r.id !== id && !r.archived_at && r.rank != null && !FIXED.has(r.slug) && (body.direction === "up" ? r.rank > rank : r.rank < rank),
+      (r) =>
+        r.id !== id && !r.archived_at && r.rank != null && !FIXED.has(r.slug) && r.slug !== "dealer" &&
+        r.rank > dealerRank && rank > dealerRank &&
+        (body.direction === "up" ? r.rank > rank : r.rank < rank),
     )
     candidates.sort((a, b) => (body.direction === "up" ? (a.rank as number) - (b.rank as number) : (b.rank as number) - (a.rank as number)))
     const neighbour = candidates[0]

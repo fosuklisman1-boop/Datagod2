@@ -41,6 +41,7 @@ describe("0187 migration text", () => {
     expect(m).toContain("to_regclass('public.role_permissions')")
     expect(m).toContain("SELECT count(*) FROM public.role_package_prices;")
     expect(m).toMatch(/quiet window/)
+    expect(m).toMatch(/CREATE TRIGGER on\n--   -- public\.users[\s\S]*SHARE ROW EXCLUSIVE/)
   })
 })
 
@@ -195,6 +196,46 @@ describe.skipIf(!PGliteCtor)("0187 in PGlite", () => {
     expect(last).toEqual({ action: "price_external", actor_id: null })
   }, 60_000)
 
+  it("set_prices on the dealer role updates role_package_prices and the 0184 mirror updates packages.dealer_price", async () => {
+    const db = await fresh87()
+    await db.exec(seedPackages)
+    const dealer = await roleId(db, "dealer")
+    expect(await setPrices(db, dealer, [{ package_id: PKG_A, price: 7.5 }, { package_id: PKG_B, price: 15 }])).toBe(2)
+    expect(await rows(db, `SELECT package_id, price::text AS p FROM role_package_prices WHERE role_id = '${dealer}' ORDER BY package_id`)).toEqual([
+      { package_id: PKG_A, p: "7.50" }, { package_id: PKG_B, p: "15.00" },
+    ])
+    expect(await rows(db, `SELECT id, dealer_price::text AS p FROM packages ORDER BY id`)).toEqual([
+      { id: PKG_A, p: "7.50" }, { id: PKG_B, p: "15.00" }, { id: PKG_C, p: null },
+    ])
+    // the back-mirror is a no-op (already equal): one 'prices' audit row per statement, no price_external duplicate
+    expect(await rows(db, `SELECT action FROM role_audit_log WHERE role_id = '${dealer}' ORDER BY id`)).toEqual([{ action: "prices" }])
+    // deleting a dealer price nulls the mirrored column
+    expect(await setPrices(db, dealer, [{ package_id: PKG_A, price: null }])).toBe(1)
+    expect((await rows(db, `SELECT dealer_price FROM packages WHERE id = '${PKG_A}'`))[0].dealer_price).toBeNull()
+  }, 60_000)
+
+  it("custom roles must rank above dealer: create refuses rank <= dealer; swap_rank refuses dealer", async () => {
+    const db = await fresh87()
+    for (const rank of [1, 5, 10]) {
+      await fails(db, `SELECT admin_role_create('${ACTOR}', 'test reason', 'low${rank}', 'Low', ${rank}, NULL)`, /rank above dealer/)
+    }
+    const gold = await mkRole(db, "gold", 11)
+    expect(await rows(db, `SELECT rank FROM roles WHERE slug = 'gold'`)).toEqual([{ rank: 11 }])
+    const dealer = await roleId(db, "dealer")
+    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${gold}', '${dealer}', 11, 10)`, /dealer role cannot be re-ranked/)
+    await fails(db, `SELECT admin_role_swap_rank('${ACTOR}', 'test reason', '${dealer}', '${gold}', 10, 11)`, /dealer role cannot be re-ranked/)
+    expect(await rows(db, `SELECT slug, rank FROM roles WHERE slug IN ('gold','dealer') ORDER BY slug`)).toEqual([
+      { slug: "dealer", rank: 10 }, { slug: "gold", rank: 11 },
+    ])
+  }, 60_000)
+
+  it("hub functions lock roles rows FOR NO KEY UPDATE (no FOR UPDATE), clone sources FOR SHARE", async () => {
+    const m = code(migration())
+    expect(m).not.toMatch(/\bFOR UPDATE\b/)
+    expect(m).toMatch(/FOR NO KEY UPDATE/)
+    expect(m).toMatch(/WHERE id = p_clone_from FOR SHARE/)
+  })
+
   it("set_prices refuses 0, refuses below cost without override, accepts with override and records loss_override", async () => {
     const db = await fresh87()
     await db.exec(seedPackages)
@@ -286,8 +327,9 @@ describe.skipIf(!PGliteCtor)("0187 in PGlite", () => {
     await fails(db, mk("sub_agent", 50), /system role/)
     await fails(db, mk("zero", 0), /greater than 0/)
     await fails(db, mk("neg", -3), /greater than 0/)
-    await fails(db, mk("tenrank", 10), /already in use/)
+    await fails(db, mk("tenrank", 10), /rank above dealer/)
     const gold = await mkRole(db, "gold", 20)
+    await fails(db, mk("dup", 20), /already in use/)
     await fails(db, mk("gold", 21), /already in use/)
     // new role: default theme, permissions copied from dealer
     const t = (await rows(db, `SELECT theme, rank, is_system FROM roles WHERE id = '${gold}'`))[0]

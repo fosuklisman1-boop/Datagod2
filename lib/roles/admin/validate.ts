@@ -54,6 +54,11 @@ export function validateNewRole(
   const name = validateName(input.name)
   if (!name.ok) return name
   if (typeof rank !== "number" || !Number.isInteger(rank) || rank <= 0) return err("rank must be a positive integer")
+  // Phase 3 ruling: custom tiers rank strictly above Dealer, so a hub action can never reprice dealers
+  // through the ladder fallback. Fail closed when dealer is not in the list we were given.
+  const dealer = existing.find((r) => r.slug === "dealer")
+  if (!dealer || dealer.rank == null) return err("Custom tiers must rank above Dealer.")
+  if (rank <= dealer.rank) return err("Custom tiers must rank above Dealer.")
   if (existing.some((r) => !r.archived_at && r.rank === rank)) return err("rank already in use")
   let clone: string | null = null
   if (cloneFrom !== null && cloneFrom !== undefined) {

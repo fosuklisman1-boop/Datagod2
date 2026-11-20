@@ -20,7 +20,8 @@
 --
 -- Write functions (all SECURITY DEFINER, search_path = public, pg_temp; EXECUTE revoked from PUBLIC / anon / authenticated,
 -- granted to service_role). Each refuses a NULL actor or a reason shorter than 3 characters, locks the target roles row
--- FOR UPDATE and writes an audit row:
+-- FOR NO KEY UPDATE (no key column ever changes; clone / dealer-permission sources are read FOR SHARE) and writes an audit row.
+-- Phase 3 ladder rule: admin_role_create raises unless p_rank is above the dealer rank; admin_role_swap_rank refuses dealer:
 --   admin_role_create, admin_role_update, admin_role_swap_rank, admin_role_archive, admin_role_set_prices,
 --   admin_role_set_rates, admin_role_set_permissions, plus the read-only admin_role_stats().
 --
@@ -36,7 +37,10 @@
 --   SELECT to_regclass('public.package_costs');                                             -- NULL
 --   SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='packages' AND column_name='cost_price';  -- no rows (must never exist)
 --   SELECT to_regclass('public.role_service_rates');                                        -- NOT NULL (0186 applied)
---   -- Apply in a quiet window: CREATE TRIGGER on role_package_prices takes a short exclusive lock.
+--   -- Apply in a quiet window: CREATE TRIGGER on role_package_prices takes a short exclusive lock, and CREATE TRIGGER on
+--   -- public.users (the users_role_not_archived pair) takes SHARE ROW EXCLUSIVE on users, so every users write (signup, role
+--   -- change) queues behind it for up to the 5 s lock_timeout. A lock timeout just means retry; nothing is half-applied.
+--   -- Afterwards each hub write holds a brief FOR NO KEY UPDATE row lock on its roles row (no FK or signup stall).
 --
 -- VERIFY after applying (package_costs must be invisible to client roles):
 --   SELECT has_table_privilege('anon','public.package_costs','SELECT'), has_table_privilege('authenticated','public.package_costs','SELECT');  -- false, false
@@ -200,6 +204,7 @@ DECLARE
   v_new    uuid;
   v_theme  jsonb := '{"skin":"default"}'::jsonb;
   v_below  jsonb := '[]'::jsonb;
+  v_dealer_rank int;
 BEGIN
   PERFORM public.roles_hub_guard(p_actor, p_reason);
   IF p_slug IS NULL OR p_slug IN ('user', 'dealer', 'sub_agent', 'admin')
@@ -209,20 +214,25 @@ BEGIN
   IF p_name IS NULL OR length(trim(p_name)) = 0 THEN RAISE EXCEPTION 'name required'; END IF;
   IF p_rank IS NULL OR p_rank <= 0 THEN RAISE EXCEPTION 'rank must be greater than 0'; END IF;
   IF EXISTS (SELECT 1 FROM public.roles WHERE slug = p_slug) THEN RAISE EXCEPTION 'slug already in use'; END IF;
+  -- Phase 3 ruling: a custom tier ranks strictly above dealer (fail closed if dealer is missing or unranked).
+  SELECT rank INTO v_dealer_rank FROM public.roles WHERE slug = 'dealer';
+  IF NOT FOUND OR v_dealer_rank IS NULL OR p_rank <= v_dealer_rank THEN
+    RAISE EXCEPTION 'custom roles must rank above dealer';
+  END IF;
 
   IF p_clone_from IS NOT NULL THEN
-    SELECT * INTO v_src FROM public.roles WHERE id = p_clone_from FOR UPDATE;
+    SELECT * INTO v_src FROM public.roles WHERE id = p_clone_from FOR SHARE;  -- read-only source: no key-share conflict
     IF NOT FOUND THEN RAISE EXCEPTION 'clone source not found'; END IF;
     IF v_src.slug IN ('admin', 'sub_agent') THEN RAISE EXCEPTION 'role % cannot be cloned', v_src.slug; END IF;
     IF v_src.archived_at IS NOT NULL THEN RAISE EXCEPTION 'clone source is archived'; END IF;
     v_perm := v_src.id;
     v_theme := v_src.theme;
   ELSE
-    SELECT id INTO v_perm FROM public.roles WHERE slug = 'dealer' FOR UPDATE;
+    SELECT id INTO v_perm FROM public.roles WHERE slug = 'dealer' FOR SHARE;
   END IF;
 
   -- Re-check the rank under a row lock; the partial unique index is the final backstop for a concurrent claim.
-  PERFORM 1 FROM public.roles WHERE rank = p_rank AND archived_at IS NULL FOR UPDATE;
+  PERFORM 1 FROM public.roles WHERE rank = p_rank AND archived_at IS NULL FOR NO KEY UPDATE;
   IF EXISTS (SELECT 1 FROM public.roles WHERE rank = p_rank AND archived_at IS NULL) THEN
     RAISE EXCEPTION 'rank % is already in use', p_rank;
   END IF;
@@ -268,7 +278,7 @@ DECLARE
   v_after  jsonb;
 BEGIN
   PERFORM public.roles_hub_guard(p_actor, p_reason);
-  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR UPDATE;
+  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR NO KEY UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'role not found'; END IF;
   IF v_role.slug = 'admin' THEN RAISE EXCEPTION 'the admin role cannot be edited'; END IF;
   IF p_patch IS NULL OR jsonb_typeof(p_patch) <> 'object' OR p_patch = '{}'::jsonb THEN
@@ -316,7 +326,7 @@ BEGIN
   -- Serialize all rank swaps so a stale pick (double-click, concurrent admins) is re-verified against current ranks.
   PERFORM pg_advisory_xact_lock(hashtext('roles_rank'));
   -- Lock in a fixed order so two concurrent swaps cannot deadlock.
-  PERFORM 1 FROM public.roles WHERE id IN (p_a, p_b) ORDER BY id FOR UPDATE;
+  PERFORM 1 FROM public.roles WHERE id IN (p_a, p_b) ORDER BY id FOR NO KEY UPDATE;
   SELECT * INTO v_a FROM public.roles WHERE id = p_a;
   IF NOT FOUND THEN RAISE EXCEPTION 'role not found'; END IF;
   SELECT * INTO v_b FROM public.roles WHERE id = p_b;
@@ -324,6 +334,8 @@ BEGIN
   IF v_a.archived_at IS NOT NULL OR v_b.archived_at IS NOT NULL THEN RAISE EXCEPTION 'archived roles cannot be re-ranked'; END IF;
   IF v_a.rank IS NULL OR v_b.rank IS NULL THEN RAISE EXCEPTION 'both roles must be ranked'; END IF;
   IF v_a.slug = 'user' OR v_b.slug = 'user' THEN RAISE EXCEPTION 'the user role cannot be re-ranked'; END IF;
+  -- Phase 3 ruling: dealer is immovable and never a swap partner, so a hub action cannot reprice dealers via the ladder fallback.
+  IF v_a.slug = 'dealer' OR v_b.slug = 'dealer' THEN RAISE EXCEPTION 'the dealer role cannot be re-ranked'; END IF;
   IF p_expected_a IS DISTINCT FROM v_a.rank OR p_expected_b IS DISTINCT FROM v_b.rank THEN
     RAISE EXCEPTION 'ranks changed, reload';
   END IF;
@@ -351,7 +363,7 @@ DECLARE
   v_role public.roles%ROWTYPE;
 BEGIN
   PERFORM public.roles_hub_guard(p_actor, p_reason);
-  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR UPDATE;
+  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR NO KEY UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'role not found'; END IF;
   IF v_role.is_system THEN RAISE EXCEPTION 'system role % cannot be archived', v_role.slug; END IF;
   IF v_role.archived_at IS NOT NULL THEN RAISE EXCEPTION 'role already archived'; END IF;
@@ -377,7 +389,7 @@ DECLARE
   v_loss  boolean := coalesce(p_loss_override, false);
 BEGIN
   PERFORM public.roles_hub_guard(p_actor, p_reason);
-  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR UPDATE;
+  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR NO KEY UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'role not found'; END IF;
   IF v_role.slug IN ('admin', 'sub_agent') THEN RAISE EXCEPTION 'role % has no price tier', v_role.slug; END IF;
   IF v_role.archived_at IS NOT NULL THEN RAISE EXCEPTION 'role is archived'; END IF;
@@ -443,7 +455,7 @@ DECLARE
   v_rc     int;
 BEGIN
   PERFORM public.roles_hub_guard(p_actor, p_reason);
-  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR UPDATE;
+  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR NO KEY UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'role not found'; END IF;
   IF v_role.is_system THEN RAISE EXCEPTION 'system role % rates cannot be edited', v_role.slug; END IF;
   IF p_changes IS NULL OR jsonb_typeof(p_changes) <> 'array' THEN RAISE EXCEPTION 'changes must be an array'; END IF;
@@ -497,7 +509,7 @@ DECLARE
   v_before jsonb;
 BEGIN
   PERFORM public.roles_hub_guard(p_actor, p_reason);
-  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR UPDATE;
+  SELECT * INTO v_role FROM public.roles WHERE id = p_role_id FOR NO KEY UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'role not found'; END IF;
   IF v_role.slug IN ('admin', 'sub_agent') THEN RAISE EXCEPTION 'role % permissions cannot be edited', v_role.slug; END IF;
   IF p_caps IS NULL THEN RAISE EXCEPTION 'capabilities required'; END IF;
@@ -543,8 +555,11 @@ GRANT EXECUTE ON FUNCTION public.admin_role_set_permissions(uuid, text, uuid, te
 GRANT EXECUTE ON FUNCTION public.admin_role_stats() TO service_role;
 
 -- ============ no assignment to an archived role ============
--- FOR SHARE blocks behind an in-flight admin_role_archive (which holds FOR UPDATE on the role row), then sees archived_at,
--- so an assignment racing an archive either lands before the archive's member check or is refused here.
+-- FOR SHARE blocks behind an in-flight admin_role_archive (which holds FOR NO KEY UPDATE on the role row), then sees
+-- archived_at, so an assignment racing an archive either lands before the archive's member check or is refused here.
+-- Lock reasoning: FOR SHARE conflicts with FOR UPDATE and FOR NO KEY UPDATE (it only coexists with FOR SHARE and FOR KEY SHARE),
+-- so the archive still serializes against a concurrent assignment. FOR NO KEY UPDATE, unlike FOR UPDATE, does NOT conflict with
+-- the FOR KEY SHARE that every users-FK check takes, so hub saves no longer stall signups or role changes.
 CREATE OR REPLACE FUNCTION public.users_role_not_archived() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $fn_ua$
 DECLARE

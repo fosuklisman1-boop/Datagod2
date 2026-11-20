@@ -22,6 +22,8 @@ function client(opts: { role: string | null; perms?: unknown[]; fail?: "users" |
         select: () => b,
         eq: () => b,
         limit: () => b,
+        order: () => b,
+        range: () => b,
         maybeSingle: () => Promise.resolve(result()),
         then: (res: any, rej: any) => Promise.resolve(result()).then(res, rej),
       }

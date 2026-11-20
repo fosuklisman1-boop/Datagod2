@@ -24,7 +24,7 @@ const mk = (over: Partial<HubRole> & { slug: string }): HubRole => ({
 
 const ROLES: HubRole[] = [
   mk({ slug: "admin", name: "Admin", rank: 100, is_system: true }),
-  mk({ slug: "dealer", name: "Dealer", rank: 50, is_system: true }),
+  mk({ slug: "dealer", name: "Dealer", rank: 10, is_system: true }),
   mk({ slug: "gold", name: "Gold", rank: 30 }),
   mk({ slug: "silver", name: "Silver", rank: 20 }),
   mk({ slug: "user", name: "User", rank: 1, is_system: true }),
@@ -61,10 +61,16 @@ describe("RoleList", () => {
   })
   it("ends of the ladder are disabled", () => {
     const html = render()
-    // dealer is the top movable role, silver the bottom one.
-    expect(row(html, "dealer")).toMatch(/data-move="up"[^>]*disabled/)
+    // gold is the top movable role; silver sits directly above dealer so it cannot move down.
+    expect(row(html, "gold")).toMatch(/data-move="up"[^>]*disabled/)
     expect(row(html, "silver")).toMatch(/data-move="down"[^>]*disabled/)
-    expect(row(html, "gold")).not.toMatch(/data-move="up"[^>]*disabled/)
+    expect(row(html, "silver")).not.toMatch(/data-move="up"[^>]*disabled/)
+    expect(row(html, "gold")).not.toMatch(/data-move="down"[^>]*disabled/)
+  })
+  it("dealer's arrows are both disabled", () => {
+    const dealer = row(render(), "dealer")
+    expect(dealer).toMatch(/data-move="up"[^>]*disabled/)
+    expect(dealer).toMatch(/data-move="down"[^>]*disabled/)
   })
   it("admin cannot be cloned", () => {
     const html = render()
@@ -74,7 +80,7 @@ describe("RoleList", () => {
   it("archived roles are listed separately from the ladder", () => {
     expect(render()).toContain('data-role-row="old"')
     expect(ladderState(ROLES).archived.map((r) => r.slug)).toEqual(["old"])
-    expect(ladderState(ROLES).ladder.map((r) => r.slug)).toEqual(["admin", "dealer", "gold", "silver", "user"])
+    expect(ladderState(ROLES).ladder.map((r) => r.slug)).toEqual(["admin", "gold", "silver", "dealer", "user"])
     expect(ladderState(ROLES).offLadder.map((r) => r.slug)).toEqual(["sub_agent"])
   })
 })
@@ -99,10 +105,16 @@ describe("create dialog validation", () => {
     })
   })
   it("defaults the rank to the highest live rank + 10, ignoring admin and sub_agent even when ranked", () => {
-    // Fixture: admin has rank 100 and sub_agent a rank too; neither counts. Dealer (50) is the highest.
+    // Fixture: admin has rank 100 and sub_agent a rank too; neither counts. Gold (30) is the highest.
     const withSub = ROLES.map((r) => (r.slug === "sub_agent" ? { ...r, rank: 200 } : r))
-    expect(defaultNewRank(withSub)).toBe(60)
+    expect(defaultNewRank(withSub)).toBe(40)
     expect(defaultNewRank(ROLES.filter((r) => ["admin", "sub_agent"].includes(r.slug)))).toBe(10)
+  })
+  it("rejects a rank at or below dealer; the default always sits above dealer", () => {
+    for (const rank of ["10", "5"]) {
+      expect(validateCreateRoleForm(form({ rank }), ROLES)).toEqual({ ok: false, error: "Custom tiers must rank above Dealer." })
+    }
+    expect(defaultNewRank(ROLES)).toBeGreaterThan(10)
   })
 })
 

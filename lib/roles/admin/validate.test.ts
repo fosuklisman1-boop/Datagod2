@@ -52,6 +52,15 @@ describe("validateNewRole", () => {
     expect(validateNewRole({ ...goodRole, rank: 20 }, roles).ok).toBe(false)
     expect(validateNewRole({ ...goodRole, rank: 30 }, roles).ok).toBe(true)
   })
+  it("rank must be strictly above dealer; fails closed when dealer is missing", () => {
+    for (const rank of [1, 5, 10]) {
+      const r = validateNewRole({ ...goodRole, rank }, roles)
+      expect(r).toEqual({ ok: false, error: "Custom tiers must rank above Dealer." })
+    }
+    expect(validateNewRole({ ...goodRole, rank: 11 }, roles).ok).toBe(true)
+    const noDealer = roles.filter((r) => r.slug !== "dealer")
+    expect(validateNewRole(goodRole, noDealer)).toEqual({ ok: false, error: "Custom tiers must rank above Dealer." })
+  })
   it("cloneFrom: null or live non-admin existing", () => {
     expect(validateNewRole({ ...goodRole, cloneFrom: "gold" }, roles).ok).toBe(true)
     expect(validateNewRole({ ...goodRole, cloneFrom: "admin" }, roles).ok).toBe(false)

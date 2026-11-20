@@ -34,6 +34,11 @@ export function ladderState(roles: readonly HubRole[]): LadderState {
   const ladder = live.filter((r) => r.rank != null).sort((a, b) => (b.rank as number) - (a.rank as number))
   const offLadder = live.filter((r) => r.rank == null)
   const archived = roles.filter((r) => r.archived_at)
-  const movable = ladder.filter((r) => !FIXED_SLUGS.has(r.slug)).map((r) => r.slug)
+  // Dealer is immovable and custom roles stay strictly above it (mirrors the move route), so only
+  // ranked custom roles above dealer take part in swaps.
+  const dealerRank = ladder.find((r) => r.slug === "dealer")?.rank
+  const movable = ladder
+    .filter((r) => !FIXED_SLUGS.has(r.slug) && r.slug !== "dealer" && dealerRank != null && (r.rank as number) > dealerRank)
+    .map((r) => r.slug)
   return { ladder, offLadder, archived, movable }
 }

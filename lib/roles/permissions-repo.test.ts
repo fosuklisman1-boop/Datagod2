@@ -11,11 +11,14 @@ function fakeClient(opts: {
   perms?: unknown[]
   rolesError?: boolean
   permsError?: boolean
+  permsErrorOnPage?: number
 }) {
   const reads: string[] = []
+  const permsReads: Array<[number, number] | null> = []
   const client = {
     from(table: string) {
       reads.push(table)
+      let range: [number, number] | null = null
       const result = (): Result => {
         if (table === "users") {
           return opts.userError
@@ -25,19 +28,30 @@ function fakeClient(opts: {
         if (table === "roles") {
           return opts.rolesError ? { data: null, error: { message: "boom" } } : { data: opts.roles ?? [], error: null }
         }
-        return opts.permsError ? { data: null, error: { message: "boom" } } : { data: opts.perms ?? [], error: null }
+        permsReads.push(range)
+        if (opts.permsErrorOnPage !== undefined && permsReads.length - 1 === opts.permsErrorOnPage) {
+          return { data: null, error: { message: "boom" } }
+        }
+        if (opts.permsError) return { data: null, error: { message: "boom" } }
+        const all = opts.perms ?? []
+        return { data: range ? all.slice(range[0], range[1] + 1) : all, error: null }
       }
       const b: any = {
         select: () => b,
         eq: () => b,
         limit: () => b,
+        order: () => b,
+        range: (from: number, to: number) => {
+          range = [from, to]
+          return b
+        },
         maybeSingle: () => Promise.resolve(result()),
         then: (res: (v: Result) => unknown, rej: (e: unknown) => unknown) => Promise.resolve(result()).then(res, rej),
       }
       return b
     },
   }
-  return { client, reads }
+  return { client, reads, permsReads }
 }
 
 const ROLES = [
@@ -60,9 +74,30 @@ describe("loadRolePermissions", () => {
     expect([...(m.get("r-user") ?? [])]).toEqual(["buy.data"])
   })
 
-  it("rejects a full page", async () => {
-    const perms = Array.from({ length: ROW_CAP }, () => ({ role_id: "r-user", capability: "buy.data" }))
-    await expect(loadRolePermissions(fakeClient({ perms }).client)).rejects.toBeInstanceOf(RoleReadError)
+  it("pages past ROW_CAP rows with .range() until a short page, and loses nothing", async () => {
+    const caps = ["buy.data", "buy.airtime", "buy.afa", "buy.bills", "buy.results", "shop.storefront", "shop.subagents",
+      "shop.bots", "shop.sms", "shop.text_orders", "account.wallet", "account.api", "account.leaderboard", "account.upgrade"]
+    const roles = Math.ceil((ROW_CAP + 300) / caps.length)
+    const perms = Array.from({ length: roles * caps.length }, (_, i) => ({ role_id: `r-${Math.floor(i / caps.length)}`, capability: caps[i % caps.length] }))
+    expect(perms.length).toBeGreaterThan(ROW_CAP)
+    const { client, permsReads } = fakeClient({ perms })
+    const m = await loadRolePermissions(client)
+    expect(m.size).toBe(roles)
+    expect([...(m.get(`r-${roles - 1}`) ?? [])]).toHaveLength(caps.length)
+    expect(permsReads.length).toBeGreaterThan(1)
+    expect(permsReads[0]).toEqual([0, 499])
+  })
+
+  it("an exact multiple of the page size ends on an empty page, not a failure", async () => {
+    const perms = Array.from({ length: 500 }, (_, i) => ({ role_id: `r-${i}`, capability: "buy.data" }))
+    const { client, permsReads } = fakeClient({ perms })
+    expect((await loadRolePermissions(client)).size).toBe(500)
+    expect(permsReads).toHaveLength(2)
+  })
+
+  it("a read error on a later page fails closed (never a partial map)", async () => {
+    const perms = Array.from({ length: 700 }, (_, i) => ({ role_id: `r-${i}`, capability: "buy.data" }))
+    await expect(loadRolePermissions(fakeClient({ perms, permsErrorOnPage: 1 }).client)).rejects.toBeInstanceOf(RoleReadError)
   })
 
   it("a read error rejects", async () => {

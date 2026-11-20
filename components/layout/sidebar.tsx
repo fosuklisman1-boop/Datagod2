@@ -96,7 +96,7 @@ function writeGroupState(state: GroupState) {
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { isAdmin } = useIsAdmin()
+  const { isAdmin, loading: adminLoading } = useIsAdmin()
   const { joinCommunityLink } = useAppSettings()
   const { logout, user } = useAuth()
   const domainBranding = useDomainBranding()
@@ -150,10 +150,10 @@ export function Sidebar() {
   // A /dashboard page whose nav item this role cannot see goes to /dashboard/unavailable. Only once rights
   // loaded successfully (never while loading or after a 503) and never for admins.
   useEffect(() => {
-    if (shouldRedirectUnavailable(pathname ?? "", rightsState, isAdmin)) {
+    if (shouldRedirectUnavailable(pathname ?? "", rightsState, isAdmin, adminLoading)) {
       router.replace("/dashboard/unavailable")
     }
-  }, [pathname, rightsState, isAdmin, router])
+  }, [pathname, rightsState, isAdmin, adminLoading, router])
 
   // Fetch pending orders count from localStorage
   useEffect(() => {

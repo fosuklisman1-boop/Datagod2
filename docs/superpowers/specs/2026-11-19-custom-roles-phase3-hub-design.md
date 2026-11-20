@@ -109,11 +109,15 @@ the rights system, then switches custom roles on.
   before jsonb, after jsonb, reason text, loss_override bool default false,
   created_at)`; append-only (trigger rejects UPDATE/DELETE). Stores ids, no
   phone numbers.
-- `packages.cost_price numeric(10,2) NULL CHECK (cost_price IS NULL OR
-  cost_price >= 0)`.
+- `package_costs(package_id uuid PK -> packages ON DELETE CASCADE,
+  cost_price numeric(10,2) NOT NULL CHECK (cost_price >= 0), updated_at,
+  updated_by)`: a private, service-role-only table (RLS on, no policies, all
+  client privileges revoked). "No cost set" means no row. It is NOT a column
+  on `packages` (see "Changes during build").
 - Write functions (definer, `search_path` pinned, EXECUTE revoked from
   PUBLIC/anon/authenticated, granted to service_role):
-  `admin_role_upsert` (create/clone/basics/theme/rank),
+  `admin_role_create` (create/clone), `admin_role_update` (basics/theme),
+  `admin_role_swap_rank` (rank),
   `admin_role_set_prices` (batch of package prices, NULL = delete row),
   `admin_role_set_rates`, `admin_role_set_permissions`,
   `admin_role_archive` (refuses if any `users.role = slug`; refuses system
@@ -162,7 +166,7 @@ selling.**)
   `admin` the visible set before == after.
 - `pickFirstVisiblePath` uses the same rule.
 - Sidebar receives the role's capabilities and theme from one new
-  `GET /api/me/role` (role slug, name, badge, theme, capabilities). The
+  `GET /api/user/role` (role slug, name, badge, theme, capabilities). The
   existing localStorage role cache stays for first paint.
 - Theme (Claude's call): `theme = { skin: 'default' | 'dealer' }` plus
   `badge_color` from a fixed palette (navy, purple, emerald, amber, rose,
@@ -188,7 +192,7 @@ Desktop multi-column at `lg:`, navy accent, admin nav group + NEW tag
   our cost, role price (editable), effective price (after ladder), margin
   vs cost. Bulk: "public price − x%", "copy from role ± GHS" (preview
   before save). Rules: blank = delete row (falls down ladder); ≤ 0 hard
-  block; < cost_price → row flagged, save needs "I know this sells at a
+  block; < the package cost (`package_costs.cost_price`) → row flagged, save needs "I know this sells at a
   loss" tick, recorded `loss_override=true`; 2dp rounding. Dealer grid
   writes go through the same RPC; the mirror keeps `dealer_price` in sync.
   Our cost is edited on the existing `/admin/packages` page (new column)
@@ -263,7 +267,7 @@ The combined live-order check (deferred by the owner) runs after Phase 6.
    the role Prices grid warns; other price surfaces unchanged. Below-cost
    compares the role's own entered price (not the inherited one). Cost is
    admin-only (packages page + hub), never in any customer/API response.
-6. **Menu freshness:** the sidebar refetches `/api/me/role` on mount and
+6. **Menu freshness:** the sidebar refetches `/api/user/role` on mount and
    on route change; localStorage only paints the first frame. A blocked
    page is refused by the server regardless. Archived role / read failure
    → always-on pages only.
@@ -291,6 +295,30 @@ change protocol for 0187 (precheck → self-rolling-back dry run → owner OK
 check local main for other sessions' commits; Edit/Write only (no sed);
 chunk `.in()` lists; known pre-existing failures (12 tests, 2 tsc files)
 ignored.
+
+## Changes during build
+
+Decisions made while building that supersede the text above:
+
+- **`package_costs` table, not `packages.cost_price`.** `packages` is publicly
+  readable (anon holds SELECT on every column), so a cost column would expose
+  supplier cost to anyone. The cost lives in the private `public.package_costs`
+  table (RLS on, no policies, client privileges revoked, service-role only). A
+  guard test (`lib/roles/package-costs.guard.test.ts`) fails if any code outside
+  the admin routes mentions it.
+- **Custom ranks sit above dealer only.** In Phase 3 a custom role's rank must
+  be strictly greater than dealer's. Dealer itself cannot be moved and is never
+  a swap partner (validator, move route, `admin_role_create` and
+  `admin_role_swap_rank`, plus disabled arrows in the UI). This stops a hub
+  action repricing dealers through the ladder fallback before the flag flip.
+- **Swap expected-rank guard.** `admin_role_swap_rank` takes the ranks the admin
+  saw (`p_expected_a/b`), serializes on an advisory lock and raises
+  `ranks changed, reload` (409) on a stale pick or a live role in the gap.
+- **`users_role_not_archived` trigger.** BEFORE INSERT / BEFORE UPDATE OF role on
+  `public.users` refuses assignment to an archived role, closing the race with
+  `admin_role_archive`.
+- **`protectAdmin` in `changeUserRole`.** Moving a user between roles through
+  the hub (and the existing admin role change) refuses to touch admin accounts.
 
 ## 7. Left to the builder
 

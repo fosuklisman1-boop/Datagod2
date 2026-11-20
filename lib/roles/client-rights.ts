@@ -63,8 +63,16 @@ export function skinFor(isAdmin: boolean, skin: RoleSkin | null): "admin" | Role
  * True when a /dashboard/* path belongs to a nav item the caller cannot see. Only after rights loaded
  * successfully (never while loading or after an error), and never for admins.
  */
-export function shouldRedirectUnavailable(pathname: string, state: RightsState, isAdmin: boolean): boolean {
-  if (isAdmin || state.status !== "ok") return false
+export function shouldRedirectUnavailable(
+  pathname: string,
+  state: RightsState,
+  isAdmin: boolean,
+  adminLoading = false,
+): boolean {
+  // Never while the admin check is pending, never for admins, never before rights loaded.
+  if (adminLoading || isAdmin || state.status !== "ok") return false
+  // Only capability-set roles are redirected; sub_agent and admin ("sub_agent"/"all" rights) keep today's behaviour.
+  if (state.rights.kind !== "set") return false
   if (!pathname.startsWith("/dashboard/") || pathname === "/dashboard/unavailable") return false
   const match = [...menuItems, ...shopItems]
     .filter((i) => i.href !== "/dashboard" && (pathname === i.href || pathname.startsWith(i.href + "/")))

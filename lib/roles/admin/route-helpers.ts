@@ -55,6 +55,8 @@ const BAD_REQUEST_PATTERNS = [
   "archived roles cannot be re-ranked",
   "both roles must be ranked",
   "the user role cannot be re-ranked",
+  "the dealer role cannot be re-ranked",
+  "custom roles must rank above dealer",
   "two different roles required",
   // prices / rates / permissions (0187)
   "has no price tier",

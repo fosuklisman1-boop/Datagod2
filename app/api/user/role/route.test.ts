@@ -34,6 +34,8 @@ const h = vi.hoisted(() => {
         select: () => b,
         eq: (col: string, v: string) => ((if_slug(col, v)), b),
         limit: () => b,
+        order: () => b,
+        range: () => b,
         maybeSingle: () => Promise.resolve(result()),
         then: (res: any, rej: any) => Promise.resolve(result()).then(res, rej),
       }

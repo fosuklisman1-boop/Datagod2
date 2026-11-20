@@ -4,7 +4,7 @@
 
 **Goal:** An admin hub to create, clone, rank, price, rate, theme, staff and archive roles, plus a rights system (hide + block) that replaces the hard-coded nav role lists, ending with custom roles switched on.
 
-**Architecture:** One migration (0187) adds `role_permissions`, append-only `role_audit_log`, `packages.cost_price`, and definer write functions that lock the role, write and audit in one transaction (role price writes are audited by trigger, whoever writes). Pure validators and a capability registry live in `lib/roles/`; admin routes under `app/api/admin/roles/**` validate then call the functions; dashboard session routes call `requireCapability`; the sidebar reads rights and theme from `GET /api/user/role`.
+**Architecture:** One migration (0187) adds `role_permissions`, append-only `role_audit_log`, the private `package_costs` table (supplier cost; never a `packages` column), and definer write functions that lock the role, write and audit in one transaction (role price writes are audited by trigger, whoever writes). Pure validators and a capability registry live in `lib/roles/`; admin routes under `app/api/admin/roles/**` validate then call the functions; dashboard session routes call `requireCapability`; the sidebar reads rights and theme from `GET /api/user/role`.
 
 **Tech Stack:** Next.js 15 App Router, Supabase (PostgREST + Postgres functions), Vitest, PGlite for SQL tests, Tailwind + shadcn/ui, lucide-react.
 
@@ -18,7 +18,7 @@
 - Fail closed on every money/rights read: a read error refuses (5xx), never falls back to "allow" or partial data.
 - `admin` is never a target, never editable, never grantable from the hub. `sub_agent` rights/prices/rates are never editable.
 - Slug regex `^[a-z][a-z0-9_]{1,19}$`, immutable; system slugs `user`, `dealer`, `sub_agent`, `admin`.
-- Prices: 2dp; ≤ 0 after rounding is a hard block; below `cost_price` needs `loss_override=true`, recorded.
+- Prices: 2dp; ≤ 0 after rounding is a hard block; below the package cost (`package_costs.cost_price`) needs `loss_override=true`, recorded.
 - Rates: 0–100, 2dp; only custom roles editable.
 - Capability keys exactly: `buy.data`, `buy.airtime`, `buy.afa`, `buy.bills`, `buy.results`, `shop.storefront`, `shop.subagents`, `shop.bots`, `shop.sms`, `shop.text_orders`, `account.wallet`, `account.api`, `account.leaderboard`, `account.upgrade`.
 - Rights never block API-key (v1/v2), USSD, WhatsApp/SMS bots, webhooks, crons or public storefront routes (owner: "keep selling").
@@ -49,16 +49,16 @@
 
 **Interfaces:**
 - Produces (SQL, all `SECURITY DEFINER`, `SET search_path = public, pg_temp`, EXECUTE revoked from PUBLIC/anon/authenticated, granted to service_role; every write function raises if `p_actor IS NULL` or `length(trim(p_reason)) < 3`, and locks the target `roles` row `FOR UPDATE`):
-  - `admin_role_create(p_actor uuid, p_reason text, p_slug text, p_name text, p_rank int, p_clone_from uuid) RETURNS uuid` — refuses system slugs, `p_rank <= 0`, a rank in use by a live role; new role `theme = '{"skin":"default"}'`, permissions copied from `dealer`; with `p_clone_from`: copies description, badge_color, icon, theme, `role_package_prices`, `role_service_rates`, `role_permissions` from that role (refuses cloning `admin`/`sub_agent`). Audit action `create` or `clone`.
+  - `admin_role_create(p_actor uuid, p_reason text, p_slug text, p_name text, p_rank int, p_clone_from uuid) RETURNS uuid` — refuses system slugs, `p_rank <= 0`, `p_rank <= dealer's rank` (custom tiers rank above dealer), a rank in use by a live role; new role `theme = '{"skin":"default"}'`, permissions copied from `dealer`; with `p_clone_from`: copies description, badge_color, icon, theme, `role_package_prices`, `role_service_rates`, `role_permissions` from that role (refuses cloning `admin`/`sub_agent`). Audit action `create` or `clone`.
   - `admin_role_update(p_actor uuid, p_reason text, p_role_id uuid, p_patch jsonb) RETURNS void` — keys allowed: `name, description, badge_color, icon, theme`; other keys raise; refuses `admin`. Action `update`.
-  - `admin_role_swap_rank(p_actor uuid, p_reason text, p_a uuid, p_b uuid) RETURNS void` — both live, ranked, neither `user`; swaps via a temporary rank (`-1`) in one transaction. Action `rank`.
+  - `admin_role_swap_rank(p_actor uuid, p_reason text, p_a uuid, p_b uuid, p_expected_a int, p_expected_b int) RETURNS void` — both live, ranked, neither `user` nor `dealer`; raises `ranks changed, reload` on stale expected ranks; swaps via a temporary rank (`-1`) in one transaction. Action `rank`.
   - `admin_role_archive(p_actor uuid, p_reason text, p_role_id uuid) RETURNS void` — refuses system roles and any role with `users.role = slug` (message `role has members`). Action `archive`.
-  - `admin_role_set_prices(p_actor uuid, p_reason text, p_role_id uuid, p_changes jsonb, p_loss_override boolean) RETURNS int` — `p_changes` = `[{"package_id": uuid, "price": number|null}]`; null deletes the row; refuses price ≤ 0; refuses price < `packages.cost_price` unless `p_loss_override`; refuses `admin`/`sub_agent`/archived; sets `set_config('app.role_audit', json_build_object('actor',p_actor,'reason',p_reason,'loss_override',p_loss_override)::text, true)` before writing; returns rows changed. Touches only the listed packages.
+  - `admin_role_set_prices(p_actor uuid, p_reason text, p_role_id uuid, p_changes jsonb, p_loss_override boolean) RETURNS int` — `p_changes` = `[{"package_id": uuid, "price": number|null}]`; null deletes the row; refuses price ≤ 0; refuses price < `package_costs.cost_price` (no row = no check) unless `p_loss_override`; refuses `admin`/`sub_agent`/archived; sets `set_config('app.role_audit', json_build_object('actor',p_actor,'reason',p_reason,'loss_override',p_loss_override)::text, true)` before writing; returns rows changed. Touches only the listed packages.
   - `admin_role_set_rates(p_actor uuid, p_reason text, p_role_id uuid, p_changes jsonb) RETURNS int` — `[{"service_key": text, "value": number|null}]`; refuses system roles (`is_system`); null deletes. Action `rates`.
   - `admin_role_set_permissions(p_actor uuid, p_reason text, p_role_id uuid, p_caps text[]) RETURNS void` — replaces the set; refuses `admin`/`sub_agent`. Action `permissions`.
   - `admin_role_stats() RETURNS TABLE(role_id uuid, member_count bigint, priced_count bigint)` — `STABLE`, read-only.
 - Tables: `role_permissions(role_id uuid NOT NULL REFERENCES roles(id) ON DELETE CASCADE, capability text NOT NULL CHECK (capability ~ '^[a-z_]+(\.[a-z_]+)*$'), PRIMARY KEY (role_id, capability))`; `role_audit_log(id bigserial PK, actor_id uuid NULL, role_id uuid NOT NULL REFERENCES roles(id), action text NOT NULL, before jsonb, after jsonb, reason text, loss_override boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now())` + index `(role_id, created_at DESC)`; both RLS on, REVOKE ALL from PUBLIC/anon/authenticated, service_role CRUD on `role_permissions`, SELECT/INSERT only on `role_audit_log`.
-- `ALTER TABLE packages ADD COLUMN IF NOT EXISTS cost_price numeric(10,2) NULL CHECK (cost_price IS NULL OR cost_price >= 0)`.
+- `CREATE TABLE IF NOT EXISTS package_costs (package_id uuid PRIMARY KEY REFERENCES packages(id) ON DELETE CASCADE, cost_price numeric(10,2) NOT NULL CHECK (cost_price >= 0), updated_at timestamptz NOT NULL DEFAULT now(), updated_by uuid)`: RLS on, no policies, all client privileges revoked (service role only). Not a `packages` column: `packages` is publicly readable.
 - Seeds: `user` and `dealer` get all 14 capabilities; `UPDATE roles SET theme = '{"skin":"dealer"}'` for dealer, `'{"skin":"default"}'` for user (only where theme = '{}').
 - Triggers: `role_audit_log_append_only` BEFORE UPDATE OR DELETE raises; statement-level AFTER INSERT / UPDATE / DELETE triggers on `role_package_prices` with transition tables, one `role_audit_log` row per (statement, role_id) with `action = 'prices'` (context set) or `'price_external'` (context absent, `actor_id NULL`), `before`/`after` = `[{package_id, price}]`, `loss_override` from the context.
 
@@ -230,9 +230,9 @@
 
 ### Task 9: "Our cost" on the packages admin page
 
-**Files:** Modify `app/api/admin/packages/route.ts` (accept `cost_price` on create/update: number ≥ 0 rounded to 2dp, or null/"" → null), `app/admin/packages/page.tsx` (form field "Our cost (GHS)", table column); tests in `app/api/admin/packages/route.test.ts` (create if missing).
+**Files:** Modify `app/api/admin/packages/route.ts` (accept `cost_price` as an admin request field on create/update: number ≥ 0 rounded to 2dp, or null/"" → delete the row; stored in the `package_costs` table, never on `packages`), `app/admin/packages/page.tsx` (form field "Our cost (GHS)", table column); tests in `app/api/admin/packages/route.test.ts` (create if missing).
 
-- [ ] **Step 1: Failing tests:** `cost_price: -1` → 400; `""` → stored null; `4.555` → 4.56; `app/api/shop/public-packages` and `app/api/user/package-prices` select lists exclude `cost_price`.
+- [ ] **Step 1: Failing tests:** `cost_price: -1` → 400; `""` → no `package_costs` row; `4.555` → 4.56; `app/api/shop/public-packages` and `app/api/user/package-prices` select lists never mention `package_costs` / `cost_price` (enforced by `lib/roles/package-costs.guard.test.ts`).
 - [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** PASS.
 - [ ] **Step 5:** Commit `feat(packages): admin-only our cost field`.
 

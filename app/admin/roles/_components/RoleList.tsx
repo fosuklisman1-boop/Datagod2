@@ -49,6 +49,7 @@ export function RoleList({ roles, busy, onMove, onClone }: Props) {
                 size="icon"
                 aria-label={`Move ${role.name} up`}
                 disabled={busy || mi <= 0}
+                title={role.slug === "dealer" ? "Dealer cannot be moved" : undefined}
                 onClick={() => onMove(role, "up")}
               >
                 <ArrowUp className="h-4 w-4" />
@@ -59,7 +60,8 @@ export function RoleList({ roles, busy, onMove, onClone }: Props) {
                 variant="outline"
                 size="icon"
                 aria-label={`Move ${role.name} down`}
-                disabled={busy || mi === movable.length - 1}
+                disabled={busy || mi < 0 || mi === movable.length - 1}
+                title={role.slug === "dealer" ? "Dealer cannot be moved" : mi === movable.length - 1 ? "Custom roles must stay above Dealer" : undefined}
                 onClick={() => onMove(role, "down")}
               >
                 <ArrowDown className="h-4 w-4" />
