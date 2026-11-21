@@ -76,7 +76,7 @@ describe("processHubnetWebhook", () => {
     expect(await processHubnetWebhook(DA, s.deps)).toBe("ignored")
     expect(s.applyAirtime).not.toHaveBeenCalled()
   })
-  it("applies the re-fetched status, never the body (processing)", async () => {
+  it("uses the authenticated lookup status", async () => {
     const row = { id: "t1", mtn_order_id: DG, provider: "hubnet", status: "pending" }
     const s = setup({ tracking: [row], lookup: found("processing") })
     expect(await processHubnetWebhook(DG, s.deps)).toBe("applied")

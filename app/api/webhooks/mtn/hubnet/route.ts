@@ -47,14 +47,18 @@ export async function POST(request: NextRequest) {
   }
 
   after(async () => {
-    const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-    const result = await processHubnetWebhook(ref, {
-      db,
-      client: createHubnetClient(),
-      applyData: applyHubnetStatusChange,
-      applyAirtime: applyHubnetAirtimeStatus,
-    })
-    console.log(`[HUBNET-WEBHOOK] ${ref} => ${result}`)
+    try {
+      const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+      const result = await processHubnetWebhook(ref, {
+        db,
+        client: createHubnetClient(),
+        applyData: applyHubnetStatusChange,
+        applyAirtime: applyHubnetAirtimeStatus,
+      })
+      console.log(`[HUBNET-WEBHOOK] ${ref} => ${result}`)
+    } catch (e: any) {
+      console.error(`[WEBHOOK-HUBNET] processing failed: ${e?.message ?? e} ref=${ref}`)
+    }
   })
   return done()
 }
