@@ -9,6 +9,7 @@ import { DraftCard } from "@/components/ai/DraftCard"
 import { parseDraftParam } from "@/lib/ai-drafts/deep-link"
 import { ChatWelcome, ChatInput, SuggestionChips, TypingIndicator, useAssistantName } from "@/components/ai/chat"
 import { AssistantMarkdown } from "@/components/ai/chat/AssistantMarkdown"
+import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { historyKey, safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
 
@@ -208,7 +209,9 @@ export function AdminAIChatWidget() {
     const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
 
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 60_000)
+    // Idle timeout: abort only after 60 s with no bytes; every chunk resets it.
+    const idle = createIdleTimeout(60_000, () => ctrl.abort())
+    const cards: CardData[] = []
     try {
       const res = await fetch("/api/ai/chat", {
         signal: ctrl.signal,
@@ -227,10 +230,10 @@ export function AdminAIChatWidget() {
       let buffer = ""
       let assistantText = ""
       let streamError = false
-      const cards: CardData[] = []
 
       while (true) {
         const { done, value } = await reader.read()
+        idle.reset()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
 
@@ -264,9 +267,9 @@ export function AdminAIChatWidget() {
       const finalMessages = [...nextMessages, { role: "assistant" as const, content: finalText, timestamp: Date.now(), ...(streamError ? { isError: true } : {}), ...(cards.length > 0 ? { cards } : {}) }]
       setMessages(finalMessages)
     } catch {
-      setMessages([...nextMessages, { role: "assistant" as const, content: "Something went wrong.", timestamp: Date.now(), isError: true }])
+      setMessages([...nextMessages, { role: "assistant" as const, content: "Something went wrong.", timestamp: Date.now(), isError: true, ...(cards.length > 0 ? { cards } : {}) }])
     } finally {
-      clearTimeout(timer)
+      idle.clear()
       setIsStreaming(false)
       setStreamingContent("")
     }
@@ -307,13 +310,13 @@ export function AdminAIChatWidget() {
           <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0 border-b border-border">
             <div>
               <p className="font-semibold text-sm">{assistantName}</p>
-              <p className="text-primary-foreground/70 text-xs">Full platform access</p>
+              <p className="text-primary-foreground opacity-90 text-xs">Full platform access</p>
             </div>
             <div className="flex items-center gap-3">
               {messages.length > 0 && (
-                <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:text-primary-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
+                <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:text-primary-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
-              <button onClick={() => setIsOpen(false)} aria-label="Close chat" className="text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+              <button onClick={() => setIsOpen(false)} aria-label="Close chat" className="text-primary-foreground hover:opacity-80 transition-colors">
                 <X size={18} />
               </button>
             </div>

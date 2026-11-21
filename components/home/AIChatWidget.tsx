@@ -5,6 +5,7 @@ import { Sparkles, X, ChevronDown, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
 import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvider, SuggestionChips, TypingIndicator, useAssistantName } from "@/components/ai/chat"
+import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
 import { historyKey, safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
 
@@ -166,7 +167,8 @@ export function HomeAIChatWidget() {
     const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
 
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 60_000)
+    // Idle timeout: abort only after 60 s with no bytes; every chunk resets it.
+    const idle = createIdleTimeout(60_000, () => ctrl.abort())
     try {
       const res = await fetch("/api/ai/chat", {
         signal: ctrl.signal,
@@ -185,6 +187,7 @@ export function HomeAIChatWidget() {
 
       while (true) {
         const { done, value } = await reader.read()
+        idle.reset()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
         const parts = buffer.split("\n\n")
@@ -214,7 +217,7 @@ export function HomeAIChatWidget() {
     } catch {
       setMessages(prev => [...prev, { role: "assistant", content: "Something went wrong.", timestamp: Date.now(), isError: true }])
     } finally {
-      clearTimeout(timer)
+      idle.clear()
       setIsStreaming(false)
       setStreamingContent("")
     }
@@ -240,14 +243,14 @@ export function HomeAIChatWidget() {
           <div className="bg-primary text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div>
               <p className="font-semibold text-sm">{assistantName}</p>
-              <p className="text-primary-foreground/70 text-xs">Your AI receptionist</p>
+              <p className="text-primary-foreground opacity-90 text-xs">Your AI receptionist</p>
             </div>
             <div className="flex items-center gap-3">
-              <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
+              <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
               {messages.length > 0 && (
-                <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
+                <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
-              <button onClick={() => setIsOpen(false)} aria-label="Close chat" className="text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+              <button onClick={() => setIsOpen(false)} aria-label="Close chat" className="text-primary-foreground hover:opacity-80 transition-colors">
                 <X size={18} />
               </button>
             </div>
