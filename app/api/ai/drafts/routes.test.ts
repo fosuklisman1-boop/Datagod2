@@ -5,6 +5,8 @@ const h = vi.hoisted(() => ({
   user: { id: "user-1", user_metadata: {} as Record<string, unknown> } as { id: string; user_metadata: Record<string, unknown> } | null,
   role: "user" as string | null,
   roleError: null as unknown,
+  roleThrow: false,
+  getUserThrow: false,
   getUser: vi.fn(),
   allowed: true,
   confirmDraft: vi.fn(),
@@ -21,6 +23,7 @@ vi.mock("@supabase/supabase-js", () => ({
     auth: {
       getUser: async (jwt: string) => {
         h.getUser(jwt)
+        if (h.getUserThrow) throw new Error("network")
         return h.user ? { data: { user: h.user }, error: null } : { data: { user: null }, error: { message: "bad" } }
       },
     },
@@ -28,7 +31,12 @@ vi.mock("@supabase/supabase-js", () => ({
       if (table !== "users") throw new Error("unexpected table " + table)
       return {
         select: () => ({
-          eq: () => ({ maybeSingle: async () => ({ data: h.role ? { role: h.role } : null, error: h.roleError }) }),
+          eq: () => ({
+            maybeSingle: async () => {
+              if (h.roleThrow) throw new Error("network")
+              return { data: h.role ? { role: h.role } : null, error: h.roleError }
+            },
+          }),
         }),
       }
     },
@@ -73,6 +81,8 @@ beforeEach(() => {
   h.user = { id: "user-1", user_metadata: {} }
   h.role = "user"
   h.roleError = null
+  h.roleThrow = false
+  h.getUserThrow = false
   h.allowed = true
   h.expireIfDue.mockImplementation(async (_db, d) => d)
   h.recoverStaleExecuting.mockImplementation(async (_db, d) => d)
@@ -91,6 +101,18 @@ describe("auth", () => {
   it("invalid jwt is 401", async () => {
     h.user = null
     expect((await confirm(req("POST"), ctx())).status).toBe(401)
+  })
+
+  it("users_read_throw_returns_503", async () => {
+    h.roleThrow = true
+    expect((await confirm(req("POST"), ctx())).status).toBe(503)
+    expect(h.confirmDraft).not.toHaveBeenCalled()
+  })
+
+  it("get_user_throw_returns_401", async () => {
+    h.getUserThrow = true
+    expect((await confirm(req("POST"), ctx())).status).toBe(401)
+    expect(h.confirmDraft).not.toHaveBeenCalled()
   })
 
   it("users read error fails closed with 503", async () => {

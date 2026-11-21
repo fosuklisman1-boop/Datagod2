@@ -46,9 +46,16 @@ export async function authenticate(req: NextRequest): Promise<AuthResult> {
     return unauthorized
   }
 
-  const { data: row, error: roleError } = await db.from("users").select("role").eq("id", userId).maybeSingle()
-  if (roleError) return { ok: false, res: NextResponse.json({ error: "Service unavailable" }, { status: 503 }) }
-  const isAdmin = (row as { role?: string } | null)?.role === "admin"
+  const unavailable = { ok: false as const, res: NextResponse.json({ error: "Service unavailable" }, { status: 503 }) }
+  let isAdmin = false
+  try {
+    const { data: row, error: roleError } = await db.from("users").select("role").eq("id", userId).maybeSingle()
+    if (roleError) return unavailable
+    isAdmin = (row as { role?: string } | null)?.role === "admin"
+  } catch {
+    console.error("ai_drafts: role read threw")
+    return unavailable
+  }
 
   return { ok: true, db, caller: { userId, isAdmin, jwt, baseUrl: getBaseUrl() } }
 }
