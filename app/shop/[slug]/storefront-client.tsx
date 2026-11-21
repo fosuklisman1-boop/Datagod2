@@ -2242,6 +2242,7 @@ export default function ShopStorefront({ initialLogoUrl, initialShopName, server
         <AIChatWidget
           shop={{ shop_name: shop.shop_name }}
           shopSlug={shopSlug}
+          whatsappLink={normalizeWhatsAppLink(shopSettings?.whatsapp_link)}
           onCheckoutPrefill={(pkg) => {
             const match = packages.find(
               (p: any) => p.id === pkg.shop_package_id || p.package_id === pkg.shop_package_id

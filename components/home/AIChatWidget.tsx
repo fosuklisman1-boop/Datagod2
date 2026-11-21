@@ -4,11 +4,15 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Sparkles, X, Send, ChevronDown, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
+import { ChatWelcome, ChatInput, HandoffButton, MessageText, SuggestionChips, TypingIndicator, useAssistantName } from "@/components/ai/chat"
+import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
+import { historyKey, safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
 
 interface Message {
   role: "user" | "assistant"
   content: string
   timestamp: number
+  isError?: boolean
 }
 
 interface ActionButton {
@@ -34,13 +38,25 @@ const mdComponents = {
   code:   ({ children }: any) => <code className="bg-muted rounded px-1 text-xs font-mono">{children}</code>,
 }
 
-const GREETING = "Hi! I'm DATAGOD's AI receptionist. Ask me anything — packages, pricing, how to sign up, or how to become a dealer. I'm here to help!"
+const HISTORY_KEY = historyKey("home", {})
+const getStorage = () => { try { return window.localStorage } catch { return null } }
+
+/** Turns plain-string markdown children into copy-chip text; other nodes pass through. */
+function wrapChips(children: React.ReactNode): React.ReactNode {
+  return Array.isArray(children)
+    ? children.map((c, i) => (typeof c === "string" ? <MessageText key={i} text={c} /> : c))
+    : typeof children === "string" ? <MessageText text={children} /> : children
+}
+
+const chipMdComponents = {
+  ...mdComponents,
+  p:  ({ children }: any) => <p className="mb-1 last:mb-0">{wrapChips(children)}</p>,
+  li: ({ children }: any) => <li>{wrapChips(children)}</li>,
+}
 
 export function HomeAIChatWidget() {
   const [isOpen, setIsOpen]             = useState(false)
-  const [messages, setMessages]         = useState<Message[]>([
-    { role: "assistant", content: GREETING, timestamp: Date.now() },
-  ])
+  const [messages, setMessages]         = useState<Message[]>([])
   const [input, setInput]               = useState("")
   const [isStreaming, setIsStreaming]   = useState(false)
   const [streamingContent, setStreamingContent] = useState("")
@@ -48,6 +64,37 @@ export function HomeAIChatWidget() {
   const [hintIndex, setHintIndex]       = useState(0)
   const [hintVisible, setHintVisible]   = useState(true)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [whatsapp, setWhatsapp]         = useState<string | null>(null)
+  const [historyLoaded, setHistoryLoaded] = useState(false)
+  const assistantName = useAssistantName()
+
+  useEffect(() => {
+    const saved = safeLoad(getStorage(), HISTORY_KEY)
+    if (Array.isArray(saved)) {
+      setMessages(trimHistory(saved.filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && !m.isError) as Message[], 30))
+    }
+    setHistoryLoaded(true)
+    fetch("/api/support-config").then(r => (r.ok ? r.json() : null)).then(j => { if (j?.whatsapp) setWhatsapp(String(j.whatsapp)) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!historyLoaded || isStreaming) return
+    safeSave(getStorage(), HISTORY_KEY, trimHistory(messages.filter(m => !m.isError), 30))
+  }, [messages, historyLoaded, isStreaming])
+
+  function newChat() {
+    if (isStreaming) return
+    setMessages([])
+    setActionButtons(null)
+    safeClear(getStorage(), HISTORY_KEY)
+  }
+
+  function retryLast() {
+    if (isStreaming) return
+    const idx = messages.map(m => m.role).lastIndexOf("user")
+    if (idx < 0) return
+    sendMessage(messages[idx].content, messages.slice(0, idx))
+  }
 
   const messagesEndRef    = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -108,7 +155,7 @@ export function HomeAIChatWidget() {
     return "px-3 py-1.5 rounded-xl text-xs font-medium border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
   }
 
-  const sendMessage = useCallback(async (overrideText?: string) => {
+  const sendMessage = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
     const text = (overrideText !== undefined ? overrideText : input).trim()
     if (!text || isStreaming) return
 
@@ -116,12 +163,12 @@ export function HomeAIChatWidget() {
     setStreamingContent("")
 
     const userMsg: Message = { role: "user", content: text, timestamp: Date.now() }
-    const nextMessages = [...messages, userMsg]
+    const nextMessages = [...(baseMessages ?? messages), userMsg]
     setMessages(nextMessages)
     setInput("")
     setIsStreaming(true)
 
-    const history = nextMessages.slice(-10).map(m => ({ role: m.role, content: m.content }))
+    const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
 
     try {
       const res = await fetch("/api/ai/chat", {
@@ -165,7 +212,7 @@ export function HomeAIChatWidget() {
       const finalText = assistantText || "Sorry, I couldn't get a response. Please try again."
       setMessages(prev => [...prev, { role: "assistant", content: finalText, timestamp: Date.now() }])
     } catch {
-      setMessages(prev => [...prev, { role: "assistant", content: "Connection error. Please try again.", timestamp: Date.now() }])
+      setMessages(prev => [...prev, { role: "assistant", content: "Something went wrong.", timestamp: Date.now(), isError: true }])
     } finally {
       setIsStreaming(false)
       setStreamingContent("")
@@ -187,12 +234,18 @@ export function HomeAIChatWidget() {
           {/* Header */}
           <div className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground px-4 py-3 flex items-center justify-between flex-shrink-0">
             <div>
-              <p className="font-semibold text-sm">DATAGOD Assistant</p>
+              <p className="font-semibold text-sm">{assistantName}</p>
               <p className="text-primary-foreground/70 text-xs">Your AI receptionist</p>
             </div>
-            <button onClick={() => setIsOpen(false)} className="text-primary-foreground/70 hover:text-primary-foreground transition-colors">
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-3">
+              <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
+              {messages.length > 0 && (
+                <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
+              )}
+              <button onClick={() => setIsOpen(false)} aria-label="Close chat" className="text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           {/* Messages */}
@@ -200,6 +253,10 @@ export function HomeAIChatWidget() {
             ref={scrollContainerRef}
             className="flex-1 overflow-y-auto px-3 py-3 space-y-3 relative"
           >
+            {messages.length === 0 && !isStreaming && (
+              <ChatWelcome context="home" name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
+            )}
+
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
@@ -208,12 +265,22 @@ export function HomeAIChatWidget() {
                     : "bg-muted text-foreground rounded-bl-sm"
                 }`}>
                   {msg.role === "assistant"
-                    ? <ReactMarkdown components={mdComponents}>{msg.content}</ReactMarkdown>
+                    ? <ReactMarkdown components={chipMdComponents}>{msg.content}</ReactMarkdown>
                     : msg.content
                   }
+                  {msg.isError && (
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>
+                      <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} />
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
+
+            {!isStreaming && !actionButtons && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].isError && (
+              <SuggestionChips chips={followupsFor("home").filter(c => c !== "Talk to a person")} onPick={(t) => sendMessage(t)} label="Follow-up questions" />
+            )}
 
             {isStreaming && streamingContent && (
               <div className="flex justify-start">
@@ -223,17 +290,7 @@ export function HomeAIChatWidget() {
               </div>
             )}
 
-            {isStreaming && !streamingContent && (
-              <div className="flex justify-start">
-                <div className="bg-muted rounded-2xl rounded-bl-sm px-3 py-2">
-                  <span className="flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:0ms]" />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:150ms]" />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/40 rounded-full animate-bounce [animation-delay:300ms]" />
-                  </span>
-                </div>
-              </div>
-            )}
+            {isStreaming && !streamingContent && <TypingIndicator name={assistantName} />}
 
             {actionButtons && (
               <div className="flex flex-wrap gap-2 justify-end">
@@ -271,24 +328,7 @@ export function HomeAIChatWidget() {
           </div>
 
           {/* Input */}
-          <div className="border-t border-border bg-card px-3 py-3 flex items-center gap-2 flex-shrink-0">
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isStreaming}
-              placeholder="Ask me anything..."
-              className="flex-1 text-sm bg-muted/40 border border-border rounded-xl px-3 py-2 outline-none focus:border-primary/80 focus:bg-card disabled:opacity-50 transition-all placeholder:text-muted-foreground"
-            />
-            <button
-              onClick={() => sendMessage()}
-              disabled={isStreaming || !input.trim()}
-              className="bg-primary hover:bg-primary/90 disabled:opacity-40 text-primary-foreground rounded-xl p-2 transition-colors flex-shrink-0"
-            >
-              <Send size={16} />
-            </button>
-          </div>
+          <ChatInput name={assistantName} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
           </div>
         </div>
       )}

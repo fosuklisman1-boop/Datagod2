@@ -3,14 +3,17 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Sparkles, X, Send, Trash2, ChevronDown, RefreshCw, EyeOff } from "lucide-react"
 import ReactMarkdown from "react-markdown"
-import { ChatMessage } from "@/components/ui/chat-message"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
 import { useDomainBranding } from "@/components/providers/domain-branding-provider"
+import { ChatWelcome, ChatInput, HandoffButton, MessageText, SuggestionChips, TypingIndicator } from "@/components/ai/chat"
+import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
+import { safeLoad, safeSave, safeClear, trimHistory } from "@/lib/ai-chat-ui/history"
 
 interface Message {
   role: "user" | "assistant"
   content: string
   timestamp: number
+  isError?: boolean
 }
 
 interface ShopPackageData {
@@ -30,11 +33,14 @@ interface Props {
   shop: { shop_name: string }
   shopSlug: string
   onCheckoutPrefill?: (pkg: ShopPackageData) => void
+  /** The shop's own WhatsApp link, if it has one; otherwise the platform support WhatsApp is used. */
+  whatsappLink?: string | null
 }
 
 const STORAGE_KEY = (slug: string) => `storefront_chat_${slug}`
 const HIDDEN_KEY = "datagod_shop_ai_widget_hidden"
-const MAX_STORED = 20
+const MAX_STORED = 30
+const getStorage = () => { try { return window.localStorage } catch { return null } }
 
 // Universal: true of any purchase regardless of which services this
 // storefront offers.
@@ -64,7 +70,21 @@ const mdComponents = {
   code: ({ children }: any) => <code className="bg-muted rounded px-1 text-xs font-mono">{children}</code>,
 }
 
-export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
+function wrapChips(children: React.ReactNode): React.ReactNode {
+  return Array.isArray(children)
+    ? children.map((c, i) => (typeof c === "string" ? <MessageText key={i} text={c} /> : c))
+    : typeof children === "string" ? <MessageText text={children} /> : children
+}
+
+const chipMdComponents = {
+  ...mdComponents,
+  p: ({ children }: any) => <p className="mb-1 last:mb-0">{wrapChips(children)}</p>,
+  li: ({ children }: any) => <li>{wrapChips(children)}</li>,
+}
+
+export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }: Props) {
+  const [platformWhatsapp, setPlatformWhatsapp] = useState<string | null>(null)
+  const whatsapp = whatsappLink || platformWhatsapp
   const [isOpen, setIsOpen] = useState(false)
   const [hidden, setHidden] = useState(() => {
     try {
@@ -141,22 +161,15 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   }, [domainBranding.services])
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY(shopSlug))
-      if (stored) {
-        const parsed = JSON.parse(stored) as Message[]
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed)
-          return
-        }
-      }
-    } catch {}
-    setMessages([{
-      role: "assistant",
-      content: `Hi! I'm the ${shop.shop_name} assistant. I can help you ${greetingPhrases}. What do you need?`,
-      timestamp: Date.now(),
-    }])
-  }, [shopSlug, shop.shop_name, greetingPhrases])
+    const saved = safeLoad(getStorage(), STORAGE_KEY(shopSlug))
+    if (Array.isArray(saved)) {
+      setMessages(trimHistory(saved.filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && !m.isError) as Message[], MAX_STORED))
+    }
+  }, [shopSlug])
+
+  useEffect(() => {
+    fetch("/api/support-config").then(r => (r.ok ? r.json() : null)).then(j => { if (j?.whatsapp) setPlatformWhatsapp(String(j.whatsapp)) }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -191,12 +204,24 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
   }, [isOpen, hints])
 
   function persist(msgs: Message[]) {
-    try {
-      localStorage.setItem(STORAGE_KEY(shopSlug), JSON.stringify(msgs.slice(-MAX_STORED)))
-    } catch {}
+    safeSave(getStorage(), STORAGE_KEY(shopSlug), trimHistory(msgs.filter(m => !m.isError), MAX_STORED))
   }
 
-  const sendMessage = useCallback(async (overrideText?: string) => {
+  function newChat() {
+    if (isStreaming) return
+    setMessages([])
+    setActionButtons(null)
+    safeClear(getStorage(), STORAGE_KEY(shopSlug))
+  }
+
+  function retryLast() {
+    if (isStreaming) return
+    const idx = messages.map(m => m.role).lastIndexOf("user")
+    if (idx < 0) return
+    sendMessage(messages[idx].content, messages.slice(0, idx))
+  }
+
+  const sendMessage = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
     const text = (overrideText !== undefined ? overrideText : input).trim()
     if (!text || isStreaming) return
 
@@ -204,13 +229,13 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
     setStreamingContent("")
 
     const userMsg: Message = { role: "user", content: text, timestamp: Date.now() }
-    const nextMessages = [...messages, userMsg]
+    const nextMessages = [...(baseMessages ?? messages), userMsg]
     setMessages(nextMessages)
     persist(nextMessages)
     setInput("")
     setIsStreaming(true)
 
-    const history = nextMessages.slice(-10).map(m => ({ role: m.role, content: m.content }))
+    const history = nextMessages.filter(m => !m.isError).slice(-10).map(m => ({ role: m.role, content: m.content }))
 
     try {
       const res = await fetch("/api/ai/chat", {
@@ -261,7 +286,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
       setMessages(finalMessages)
       persist(finalMessages)
     } catch {
-      const errMessages = [...nextMessages, { role: "assistant" as const, content: "Sorry, something went wrong. Please try again.", timestamp: Date.now() }]
+      const errMessages = [...nextMessages, { role: "assistant" as const, content: "Something went wrong.", timestamp: Date.now(), isError: true }]
       setMessages(errMessages)
       persist(errMessages)
     } finally {
@@ -306,19 +331,11 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
               <p className="text-primary-foreground/70 text-xs">AI Assistant</p>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  const welcome = { role: "assistant" as const, content: `Hi! I can help you find the right data bundle or check on an existing order. What do you need?`, timestamp: Date.now() }
-                  setMessages([welcome])
-                  setActionButtons(null)
-                  try { localStorage.removeItem(STORAGE_KEY(shopSlug)) } catch {}
-                }}
-                className="text-primary-foreground/70 hover:text-primary-foreground transition-colors"
-                title="Clear chat"
-              >
-                <Trash2 size={15} />
-              </button>
-              <button onClick={() => setIsOpen(false)} className="text-primary-foreground/70 hover:text-primary-foreground transition-colors">
+              <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
+              {messages.length > 0 && (
+                <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground/90 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
+              )}
+              <button onClick={() => setIsOpen(false)} aria-label="Close chat" className="text-primary-foreground/70 hover:text-primary-foreground transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -326,24 +343,54 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
 
           <div className="flex-1 relative overflow-hidden">
             <div ref={scrollContainerRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4 space-y-3">
+              {messages.length === 0 && !isStreaming && (
+                <ChatWelcome
+                  context="storefront"
+                  name={shop.shop_name}
+                  services={{
+                    sellsData: (domainBranding.services ?? ["data_bundles"]).includes("data_bundles"),
+                    sellsAirtime: (domainBranding.services ?? ["airtime"]).includes("airtime"),
+                    sellsResultsChecker: (domainBranding.services ?? ["results_checker"]).includes("results_checker"),
+                  }}
+                  onSend={(t) => sendMessage(t)}
+                  disabled={isStreaming}
+                />
+              )}
+
               {messages.map((msg, i) => (
-                <ChatMessage key={i} role={msg.role} content={msg.content} />
+                <div key={i}>
+                  {msg.role === "assistant" && msg.isError ? (
+                    <div className="flex justify-start">
+                      <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-muted text-foreground">
+                        <p>{msg.content}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                          <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>
+                          <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-muted text-foreground rounded-bl-sm"}`}>
+                        {msg.role === "user" ? <span>{msg.content}</span> : <ReactMarkdown components={chipMdComponents}>{msg.content}</ReactMarkdown>}
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
 
-              {isStreaming && (
+              {!isStreaming && !actionButtons && messages.length > 0 && messages[messages.length - 1].role === "assistant" && !messages[messages.length - 1].isError && (
+                <SuggestionChips chips={followupsFor("storefront").filter(c => c !== "Contact the shop")} onPick={(t) => sendMessage(t)} label="Follow-up questions" />
+              )}
+
+              {isStreaming && !streamingContent && <TypingIndicator name={shop.shop_name} />}
+
+              {isStreaming && streamingContent && (
                 <div className="flex justify-start">
                   <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed bg-muted text-foreground">
-                    {streamingContent ? (
-                      <ReactMarkdown components={mdComponents}>
-                        {streamingContent + "▋"}
-                      </ReactMarkdown>
-                    ) : (
-                      <span className="flex gap-1.5 items-center h-4">
-                        <span className="w-2 h-2 bg-primary rounded-full animate-thinking" style={{ animationDelay: "0ms" }} />
-                        <span className="w-2 h-2 bg-primary rounded-full animate-thinking" style={{ animationDelay: "200ms" }} />
-                        <span className="w-2 h-2 bg-primary rounded-full animate-thinking" style={{ animationDelay: "400ms" }} />
-                      </span>
-                    )}
+                    <ReactMarkdown components={mdComponents}>
+                      {streamingContent + "▋"}
+                    </ReactMarkdown>
                   </div>
                 </div>
               )}
@@ -372,24 +419,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill }: Props) {
             )}
           </div>
 
-          <div className="border-t border-border bg-card/80 backdrop-blur-sm px-3 py-3 flex items-center gap-2 flex-shrink-0">
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isStreaming}
-              placeholder="Type a message..."
-              className="flex-1 text-sm bg-muted/40 border border-border rounded-xl px-3 py-2 outline-none focus:border-primary/80 focus:bg-card disabled:opacity-50 transition-all placeholder:text-muted-foreground text-foreground"
-            />
-            <button
-              onClick={() => sendMessage()}
-              disabled={isStreaming || !input.trim()}
-              className="bg-primary hover:bg-primary/90 disabled:opacity-40 text-primary-foreground rounded-xl p-2 transition-colors flex-shrink-0"
-            >
-              <Send size={16} />
-            </button>
-          </div>
+          <ChatInput name={shop.shop_name} onSend={(t) => sendMessage(t)} disabled={isStreaming} />
           </div>
         </div>
       )}
