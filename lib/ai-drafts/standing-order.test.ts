@@ -6,6 +6,15 @@ vi.mock("@/lib/pricing/wallet-order-price", () => ({
   walletOrderPrice: (...args: unknown[]) => priceMock(...args),
 }))
 
+const capMock = vi.fn()
+vi.mock("@/lib/roles/require-capability", () => ({
+  requireCapability: (...args: unknown[]) => capMock(...args),
+}))
+const phoneMock = vi.fn()
+vi.mock("@/lib/phone-verify-guard", () => ({
+  checkPhoneVerified: (...args: unknown[]) => phoneMock(...args),
+}))
+
 import { runStandingOrder, standingOrderKey, uuidV5, STANDING_ORDER_NS, createStandingOrderTask } from "./standing-order"
 
 type Row = Record<string, any>
@@ -87,6 +96,10 @@ const ctx = (fetchImpl: any) => ({ baseUrl: "https://app.test", cronSecret: "cro
 beforeEach(() => {
   priceMock.mockReset()
   priceMock.mockResolvedValue(20)
+  capMock.mockReset()
+  capMock.mockResolvedValue(null)
+  phoneMock.mockReset()
+  phoneMock.mockResolvedValue({ allowed: true })
 })
 
 describe("uuid v5", () => {
@@ -252,6 +265,45 @@ describe("runStandingOrder", () => {
     const timeout = vi.fn().mockRejectedValue(new Error("aborted"))
     expect(await runStandingOrder(db, task(), ctx(timeout))).toMatchObject({ result: "failed" })
     expect(await runStandingOrder(db, task(), ctx(vi.fn().mockResolvedValue(res(500, {}))))).toMatchObject({ result: "failed" })
+  })
+
+  it("standing_order_capability_revoked_pauses", async () => {
+    capMock.mockResolvedValue({ status: 403 })
+    const f = vi.fn()
+    const db = fakeDb(tables())
+    expect(await runStandingOrder(db, task(), ctx(f))).toMatchObject({ result: "paused", reason: "no_buy_right" })
+    expect(db.tables.ai_scheduled_tasks[0].is_active).toBe(false)
+    expect(f).not.toHaveBeenCalled()
+    expect(capMock.mock.calls[0].slice(1)).toEqual([USER, "buy.data"])
+  })
+
+  it("standing_order_phone_unverified_pauses", async () => {
+    phoneMock.mockResolvedValue({ allowed: false, error: "Please verify your phone number to continue. Visit your dashboard to complete verification." })
+    const f = vi.fn()
+    const db = fakeDb(tables())
+    expect(await runStandingOrder(db, task(), ctx(f))).toMatchObject({ result: "paused", reason: "phone_unverified" })
+    expect(db.tables.ai_scheduled_tasks[0].is_active).toBe(false)
+    expect(f).not.toHaveBeenCalled()
+    expect(phoneMock.mock.calls[0].slice(1)).toEqual([USER])
+  })
+
+  it("standing_order_capability_read_error_skips", async () => {
+    const f = vi.fn()
+    // 503 reply, a thrown error, and a phone-status read failure all fail closed as a skip, never a pause.
+    for (const arrange of [
+      () => capMock.mockResolvedValue({ status: 503 }),
+      () => capMock.mockRejectedValue(new Error("db")),
+      () => phoneMock.mockResolvedValue({ allowed: false, error: "Could not verify your phone status. Please try again in a moment." }),
+      () => phoneMock.mockRejectedValue(new Error("db")),
+    ]) {
+      capMock.mockResolvedValue(null)
+      phoneMock.mockResolvedValue({ allowed: true })
+      arrange()
+      const db = fakeDb(tables())
+      expect(await runStandingOrder(db, task(), ctx(f))).toMatchObject({ result: "skipped", reason: "check_unavailable" })
+      expect(db.tables.ai_scheduled_tasks[0].is_active).toBe(true)
+    }
+    expect(f).not.toHaveBeenCalled()
   })
 
   it("logs no PII when pausing", async () => {

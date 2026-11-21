@@ -162,7 +162,12 @@ async function processStandingOrder(
   }
 
   if (outcome.result === "paused") {
-    const text = "Your scheduled order was paused for a safety check"
+    const text =
+      outcome.reason === "no_buy_right"
+        ? "Your scheduled order was paused: your account can no longer buy data."
+        : outcome.reason === "phone_unverified"
+          ? "Your scheduled order was paused: please verify your phone number."
+          : "Your scheduled order was paused for a safety check"
     await supabase.from("ai_scheduled_tasks").update({ is_active: false, last_result: text, last_success: false }).eq("id", task.id)
     await notifyPushOnly(task.user_id, `${task.name}: ${text}.`)
     return

@@ -85,6 +85,35 @@ describe("scheduled-tasks PATCH on a standing order", () => {
     expect(h.tables.ai_scheduled_tasks[1].name).toBe("Renamed")
   })
 
+  it("resume_standing_task_recomputes_next_run", async () => {
+    const stale = "2026-01-01T08:00:00.000Z"
+    Object.assign(h.tables.ai_scheduled_tasks[0], { is_active: false, next_run_at: stale, consecutive_skips: 3 })
+    const res = await call({ is_active: true })
+    expect(res.status).toBe(200)
+    const t = h.tables.ai_scheduled_tasks[0]
+    expect(t.is_active).toBe(true)
+    expect(Date.parse(t.next_run_at)).toBeGreaterThan(Date.now())
+    expect(Date.parse(t.next_run_at)).toBeLessThanOrEqual(Date.now() + 24 * 3600 * 1000 + 1000)
+    expect(t.consecutive_skips).toBe(0)
+  })
+
+  it("resume only recomputes on a false-to-true change", async () => {
+    const slot = "2026-01-01T08:00:00.000Z"
+    Object.assign(h.tables.ai_scheduled_tasks[0], { is_active: true, next_run_at: slot, consecutive_skips: 1 })
+    await call({ is_active: true }) // already active: no change
+    expect(h.tables.ai_scheduled_tasks[0].next_run_at).toBe(slot)
+    await call({ is_active: false }) // pausing leaves the slot alone
+    expect(h.tables.ai_scheduled_tasks[0].next_run_at).toBe(slot)
+  })
+
+  it("resume_non_standing_task_unchanged", async () => {
+    const stale = "2026-01-01T08:00:00.000Z"
+    Object.assign(h.tables.ai_scheduled_tasks[1], { is_active: false, next_run_at: stale, consecutive_skips: 0 })
+    const res = await PATCH({ headers: new Headers({ authorization: "Bearer tok" }), json: async () => ({ is_active: true }) } as any, { params: Promise.resolve({ id: "t2" }) })
+    expect(res.status).toBe(200)
+    expect(h.tables.ai_scheduled_tasks[1]).toMatchObject({ is_active: true, next_run_at: stale })
+  })
+
   it("delete still works on a standing task", async () => {
     const res = await DELETE({ headers: new Headers({ authorization: "Bearer tok" }) } as any, { params: Promise.resolve({ id: "t1" }) })
     expect(res.status).toBe(200)

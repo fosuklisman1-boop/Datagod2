@@ -107,6 +107,21 @@ describe("run-ai-tasks standing orders", () => {
     expect(h.sms).not.toHaveBeenCalled()
   })
 
+  it("buy-right and phone pauses use their own push text and never SMS", async () => {
+    seed()
+    h.runStanding.mockResolvedValue({ result: "paused", reason: "no_buy_right" })
+    await GET(req())
+    expect(JSON.stringify(h.push.mock.calls[0])).toContain("paused: your account can no longer buy data")
+    expect(h.tables.ai_scheduled_tasks[0].is_active).toBe(false)
+
+    h.push.mockReset()
+    seed()
+    h.runStanding.mockResolvedValue({ result: "paused", reason: "phone_unverified" })
+    await GET(req())
+    expect(JSON.stringify(h.push.mock.calls[0])).toContain("paused: please verify your phone number")
+    expect(h.sms).not.toHaveBeenCalled()
+  })
+
   it("ordered resets skips and notifies with the order code", async () => {
     seed({ consecutive_skips: 2 })
     h.runStanding.mockResolvedValue({ result: "ordered", orderCode: "ORD-77" })

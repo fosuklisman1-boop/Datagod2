@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { AiDraft } from "./types"
 import { walletOrderPrice } from "@/lib/pricing/wallet-order-price"
 import { computeNextRun } from "@/lib/ai-scheduled/next-run"
+import { requireCapability } from "@/lib/roles/require-capability"
+import { checkPhoneVerified } from "@/lib/phone-verify-guard"
 
 // A standing order is a scheduled data order the user approved ONCE on a card. The cron runs it WITHOUT the AI model:
 // a background job charging a wallet with nobody present, so every run re-checks the approval, the user and the price
@@ -149,7 +151,7 @@ function sameSchedule(task: StandingOrderTask, approved: Record<string, any>): b
   return Number.isFinite(a) && a === b
 }
 
-async function pause(db: SupabaseClient, taskId: string, reason: "safety_check" | "suspended"): Promise<StandingOrderOutcome> {
+async function pause(db: SupabaseClient, taskId: string, reason: "safety_check" | "suspended" | "no_buy_right" | "phone_unverified"): Promise<StandingOrderOutcome> {
   // Fixed marker only: no ids, numbers or names.
   console.error(`[STANDING-ORDER] paused: ${reason}`)
   try {
@@ -211,6 +213,25 @@ export async function runStandingOrder(db: SupabaseClient, task: StandingOrderTa
   }
 
   if (!user || user.is_suspended) return pause(db, task.id, "suspended")
+
+  // The purchase route skips these two gates on the CRON_SECRET path, so they are enforced here, with the same helpers
+  // a member's own session goes through. A definite "no" pauses; any read error fails closed as a skip (no pause).
+  try {
+    const denied = await requireCapability(db, task.user_id, "buy.data")
+    if (denied) {
+      if ((denied as { status?: number }).status === 503) return { result: "skipped", reason: "check_unavailable" }
+      return pause(db, task.id, "no_buy_right")
+    }
+    const phone = await checkPhoneVerified(db, task.user_id)
+    if (!phone.allowed) {
+      // checkPhoneVerified signals an unreadable status with this fixed message (it fails closed); anything else is a real "not verified".
+      if (/^Could not verify/i.test(phone.error ?? "")) return { result: "skipped", reason: "check_unavailable" }
+      return pause(db, task.id, "phone_unverified")
+    }
+  } catch {
+    return { result: "skipped", reason: "check_unavailable" }
+  }
+
   if (!pkg || !pkg.is_available) return { result: "skipped", reason: "package_unavailable" }
 
   let price: number

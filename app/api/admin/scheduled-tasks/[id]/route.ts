@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { computeNextRun } from "@/lib/ai-scheduled/next-run"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -65,7 +66,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // Verify ownership for non-admins; also learn whether this is a standing order (locked below).
   const { data: existing } = await supabase
     .from("ai_scheduled_tasks")
-    .select("user_id, standing_order")
+    .select("user_id, standing_order, is_active, schedule_type, run_at_time, run_on_days, run_at_timestamp")
     .eq("id", id)
     .maybeSingle()
   if (!isAdmin && (!existing || existing.user_id !== userId)) {
@@ -88,6 +89,22 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (body.is_active !== undefined) updates.is_active = body.is_active
     if (body.prompt !== undefined) updates.prompt = body.prompt
     if (body.name !== undefined) updates.name = body.name
+
+    // Resuming a paused standing order: its old slot is stale (a safety pause or a long pause would otherwise fire
+    // immediately), so move to the next future slot and clear the skip streak. This route uses the service-role
+    // client, so the guarded consecutive_skips column is writable here.
+    if (existing?.standing_order != null && body.is_active === true && existing.is_active === false) {
+      updates.next_run_at = computeNextRun(
+        {
+          schedule_type: existing.schedule_type,
+          run_at_time: existing.run_at_time,
+          run_on_days: existing.run_on_days,
+          run_at_timestamp: existing.run_at_timestamp,
+        },
+        { includeToday: true },
+      ).toISOString()
+      updates.consecutive_skips = 0
+    }
 
     const { data, error: dbError } = await supabase
       .from("ai_scheduled_tasks")
