@@ -45,6 +45,17 @@ export function getProviderOptionsForNetwork(network: string): SupplierOption[] 
   ]
 }
 
+const KNOWN_NETWORKS = ["MTN", "Telecel", "AT - iShare", "AT - BigTime"]
+
+/** Every supplier that serves at least one network, once each (for the "Last supplier" filter). */
+export function allSuppliers(): SupplierOption[] {
+  const seen = new Map<string, SupplierOption>()
+  for (const n of KNOWN_NETWORKS) {
+    for (const o of getProviderOptionsForNetwork(n)) if (!seen.has(o.value)) seen.set(o.value, o)
+  }
+  return [...seen.values()]
+}
+
 /** Suppliers that can serve EVERY given network (intersection), in the first network's order. */
 export function suppliersForNetworks(networks: string[]): SupplierOption[] {
   if (networks.length === 0) return []

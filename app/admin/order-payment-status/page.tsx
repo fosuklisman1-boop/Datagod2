@@ -1,98 +1,111 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Input } from "@/components/ui/input"
-import { AlertCircle, Loader2, Search, Edit, Zap, Download, CheckCircle, Clock, ChevronDown, ShieldCheck, Send } from "lucide-react"
+import { AlertCircle, Loader2, Zap, CheckCircle, Clock, ChevronDown, ShieldCheck, Send, SlidersHorizontal } from "lucide-react"
 import { useAdminProtected } from "@/hooks/use-admin"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { QueueTabs } from "@/components/admin/order-queue/queue-tabs"
+import { FilterPanel } from "@/components/admin/order-queue/filter-panel"
+import { QueueTable } from "@/components/admin/order-queue/queue-table"
+import { ActionsMenu, BulkToolDialog } from "@/components/admin/order-queue/actions-menu"
+import { getProviderOptionsForNetwork } from "@/lib/order-queue/supplier-capability"
+import { emptySelection, selectionReducer, SELECTION_CAP } from "@/lib/order-queue/selection"
+import { EXPORT_COLUMNS, queueRowsToSheetRows } from "@/lib/order-queue/export"
+import { parseQueueParams, queueParamsToSearch } from "@/lib/order-queue/params"
+import type { QueueParams, QueueRow, QueueView } from "@/lib/order-queue/types"
 
-interface AllOrder {
-  id: string
-  type: string
-  phone_number: string
-  customer_email?: string
-  shop_owner_email?: string
-  store_name?: string
-  network: string
-  volume_gb: number
-  price: number
-  status: string
-  payment_status: string
-  payment_reference: string
-  created_at: string
+const PAGE_SIZE = 50
+
+function defaultParams(): QueueParams {
+  const r = parseQueueParams(new URLSearchParams())
+  if (!r.ok) throw new Error("default queue params must parse")
+  return r.value
 }
 
-function getNetworkColor(network: string): string {
-  const colorMap: { [key: string]: string } = {
-    "MTN": "bg-yellow-100 text-yellow-800",
-    "Telecel": "bg-primary/10 text-primary",
-    "AT - iShare": "bg-primary/10 text-primary",
-    "AT - BigTime": "bg-green-100 text-green-800",
-    "iShare": "bg-primary/10 text-primary",
-  }
-  return colorMap[network] || "bg-muted text-foreground"
+/** URL form of the filters: paging is local (Load more), so limit/offset never go in the URL. */
+const filterSearch = (p: QueueParams) => queueParamsToSearch({ ...p, limit: PAGE_SIZE, offset: 0 })
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession()
+  return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
 }
 
-// Mirrors lib/mtn-providers/factory.ts's provider-capability rules: MTN accepts all 9
-// providers; non-MTN (Telecel/AT-iShare/AT-BigTime) accepts only the non-MTN-capable
-// ones, with agentportalgh/apexprime further excluded from AT-BigTime specifically
-// (business decision — neither provider's API distinguishes AT-iShare from AT-BigTime,
-// so this exclusion is enforced here rather than by the provider itself), spfastit
-// offered only for AT-iShare (it's AirtelTigo-only — not capable for Telecel or MTN,
-// per NON_MTN_CAPABLE.at_ishare_provider_selection in factory.ts), spfastit_telecel
-// offered only for plain Telecel (a separate account/API from spfastit, Telecel-only —
-// per NON_MTN_CAPABLE.telecel_provider_selection in factory.ts), and bundleportal
-// offered on every branch, including AT-BigTime — it's a full member capable on all
-// networks (see NON_MTN_CAPABLE.at_bigtime_provider_selection in factory.ts).
-function getProviderOptionsForNetwork(network: string): { value: string; label: string }[] {
-  const upper = (network || "").toUpperCase()
-  const isMTN = upper === "MTN"
-  if (isMTN) {
-    return [
-      { value: "xpress", label: "Xpress" },
-      { value: "codecraft", label: "Codecraft" },
-      { value: "sykes", label: "Sykes" },
-      { value: "datakazina", label: "Datakazina" },
-      { value: "eazyghdata", label: "EazyGhData" },
-      { value: "bisdel", label: "Bisdel" },
-      { value: "agentportalgh", label: "AgentPortalGH" },
-      { value: "apexprime", label: "Apex Prime" },
-      { value: "bundleportal", label: "Bundle Portal" },
-      { value: "kuntanii", label: "Kuntanii" },
-      { value: "hubnet", label: "Hubnet" },
-    ]
+type QueueResponse = {
+  success?: boolean
+  data?: QueueRow[]
+  counts?: Record<QueueView, number>
+  total?: number
+  hasMore?: boolean
+  error?: string
+}
+
+async function fetchQueue(p: QueueParams): Promise<Required<Omit<QueueResponse, "error">>> {
+  const res = await fetch(`/api/admin/orders/queue?${queueParamsToSearch(p)}`, { headers: await authHeaders() })
+  const body: QueueResponse = await res.json().catch(() => ({}))
+  if (!res.ok || !body.success) throw new Error(body.error || "Failed to load the order queue")
+  return {
+    success: true,
+    data: body.data ?? [],
+    counts: body.counts as Record<QueueView, number>,
+    total: body.total ?? 0,
+    hasMore: Boolean(body.hasMore),
   }
-  const isBigTime = upper.includes("BIGTIME") || upper.includes("BIG TIME")
-  const isIshare = upper.includes("ISHARE")
-  return [
-    { value: "xpress", label: "Xpress" },
-    { value: "codecraft", label: "Codecraft" },
-    { value: "datakazina", label: "Datakazina" },
-    { value: "eazyghdata", label: "EazyGhData" },
-    ...(isBigTime ? [] : [{ value: "agentportalgh", label: "AgentPortalGH" }, { value: "apexprime", label: "Apex Prime" }]),
-    ...(isIshare ? [{ value: "spfastit", label: "SPFastIT" }] : []),
-    ...(isBigTime || isIshare ? [] : [{ value: "spfastit_telecel", label: "SPFastIT (Telecel)" }]),
-    { value: "bundleportal", label: "Bundle Portal" },
-    { value: "hubnet", label: "Hubnet" },
-  ]
 }
 
 export default function OrderPaymentStatusPage() {
+  // useSearchParams needs a Suspense boundary in the App Router.
+  return (
+    <Suspense fallback={null}>
+      <OrderPaymentStatusPageInner />
+    </Suspense>
+  )
+}
+
+function OrderPaymentStatusPageInner() {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { isAdmin, loading: adminLoading } = useAdminProtected()
 
-  const [allOrders, setAllOrders] = useState<AllOrder[]>([])
-  const [loadingAllOrders, setLoadingAllOrders] = useState(false)
+  // ── Filters live in the URL (shareable views) ──
+  const urlKey = searchParams.toString()
+  const params = useMemo(() => {
+    const r = parseQueueParams(new URLSearchParams(urlKey))
+    return r.ok ? { ...r.value, limit: PAGE_SIZE, offset: 0 } : defaultParams()
+  }, [urlKey])
+  const filterKey = filterSearch(params)
+  const setParams = useCallback(
+    (next: QueueParams) => {
+      const qs = filterSearch(next)
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    },
+    [router, pathname],
+  )
+  const [showFilters, setShowFilters] = useState(false)
+
+  // ── Queue data ──
+  const [rows, setRows] = useState<QueueRow[]>([])
+  const [counts, setCounts] = useState<Record<QueueView, number> | null>(null)
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingQueue, setLoadingQueue] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const nextOffset = useRef(0)
+  const requestSeq = useRef(0)
+
+  const [selection, dispatchSelection] = useReducer(selectionReducer, undefined, emptySelection)
+  const [exporting, setExporting] = useState(false)
+
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [fulfillingOrderId, setFulfillingOrderId] = useState<string | null>(null)
   const [autoFulfillmentEnabled, setAutoFulfillmentEnabled] = useState(false)
@@ -102,15 +115,6 @@ export default function OrderPaymentStatusPage() {
     open: boolean; orderId: string; orderType: string; phone: string; provider: string
     steps: ProgressStep[]; done: boolean
   }>({ open: false, orderId: "", orderType: "", phone: "", provider: "", steps: [], done: false })
-
-  const [searchQuery, setSearchQuery] = useState("")
-  const [searchType, setSearchType] = useState<"all" | "reference" | "phone">("all")
-
-  // Pagination state
-  const [offset, setOffset] = useState(0)
-  const [hasMore, setHasMore] = useState(false)
-  const [totalOrdersCount, setTotalOrdersCount] = useState(0)
-  const PAGE_SIZE = 50
 
   // MTN Fulfillment state
   const [pendingMTNOrders, setPendingMTNOrders] = useState<any[]>([])
@@ -125,7 +129,7 @@ export default function OrderPaymentStatusPage() {
     total: number; pending: number; processing: number; completed: number; failed: number
   } | null>(null)
 
-  // Bulk update state
+  // Bulk update state (the date-range tool, now under the Actions menu)
   const [showBulkUpdate, setShowBulkUpdate] = useState(false)
   const [bulkDate, setBulkDate] = useState("")
   const [bulkStartTime, setBulkStartTime] = useState("")
@@ -138,15 +142,53 @@ export default function OrderPaymentStatusPage() {
   const [globalBulkCount, setGlobalBulkCount] = useState<number | null>(null)
   const [loadingBulkCount, setLoadingBulkCount] = useState(false)
 
+  const loadQueue = useCallback(async (p: QueueParams, append: boolean) => {
+    const seq = ++requestSeq.current
+    const offset = append ? nextOffset.current : 0
+    setLoadingQueue(true)
+    if (!append) setLoadError(null)
+    try {
+      const r = await fetchQueue({ ...p, limit: PAGE_SIZE, offset })
+      if (seq !== requestSeq.current) return // a newer request superseded this one
+      nextOffset.current = offset + r.data.length
+      setRows((prev) => {
+        if (!append) return r.data
+        const seen = new Set(prev.map((x) => x.id))
+        return [...prev, ...r.data.filter((x) => !seen.has(x.id))]
+      })
+      setCounts(r.counts)
+      setTotal(r.total)
+      setHasMore(r.hasMore)
+    } catch (error) {
+      if (seq !== requestSeq.current) return
+      const msg = error instanceof Error ? error.message : "Failed to load the order queue"
+      if (!append) setLoadError(msg)
+      toast.error(msg)
+    } finally {
+      if (seq === requestSeq.current) setLoadingQueue(false)
+    }
+  }, [])
+
+  /** Reload from the top with the current filters (selection cleared: the row set changes). */
+  const reloadQueue = useCallback(() => {
+    dispatchSelection({ type: "clear" })
+    loadQueue(params, false)
+  }, [loadQueue, params])
+
   useEffect(() => {
     if (isAdmin && !adminLoading) {
       loadAutoFulfillmentSetting()
       loadPendingMTNOrders()
-      // Initial load or search reset
-      setOffset(0)
-      loadAllOrders(0, false)
     }
-  }, [searchQuery, searchType, isAdmin, adminLoading, bulkDate, bulkNetwork, bulkStartTime, bulkEndTime])
+  }, [isAdmin, adminLoading])
+
+  // Any filter or tab change: clear the selection and load page one.
+  useEffect(() => {
+    if (!isAdmin || adminLoading) return
+    dispatchSelection({ type: "clear" })
+    loadQueue(params, false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, isAdmin, adminLoading])
 
   // Poll fulfillment queue progress while a batch is active
   useEffect(() => {
@@ -164,6 +206,7 @@ export default function OrderPaymentStatusPage() {
         if (data.pending === 0 && data.processing === 0) {
           setActiveBatchId(null)
           loadPendingMTNOrders()
+          reloadQueue()
           if (data.failed > 0 && data.completed === 0) {
             toast.error(`All ${data.failed} orders failed`)
           } else if (data.failed > 0) {
@@ -177,6 +220,7 @@ export default function OrderPaymentStatusPage() {
     poll()
     const interval = setInterval(poll, 3000)
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBatchId])
 
   // Fetch global count for bulk operations when filters change
@@ -186,6 +230,7 @@ export default function OrderPaymentStatusPage() {
     } else {
       setGlobalBulkCount(null)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showBulkUpdate, bulkDate, bulkStartTime, bulkEndTime, bulkNetwork])
 
   const fetchGlobalBulkCount = async () => {
@@ -243,15 +288,11 @@ export default function OrderPaymentStatusPage() {
       })
       if (response.ok) {
         const data = await response.json()
-        console.log("[PAYMENT-STATUS] Auto-fulfillment setting response:", data)
         // The endpoint returns 'enabled' field, not 'setting'
         const isEnabled = data.enabled === true || data.enabled === "true"
-        console.log("[PAYMENT-STATUS] Setting autoFulfillmentEnabled to:", isEnabled)
         setAutoFulfillmentEnabled(isEnabled)
       } else {
         console.error("[PAYMENT-STATUS] Failed to load auto-fulfillment setting:", response.status)
-        const errorData = await response.json().catch(() => ({}))
-        console.error("[PAYMENT-STATUS] Error response:", errorData)
       }
     } catch (error) {
       console.error("[PAYMENT-STATUS] Error loading auto-fulfillment setting:", error)
@@ -322,73 +363,6 @@ export default function OrderPaymentStatusPage() {
     }
   }
 
-  const loadAllOrders = async (currentOffset: number = 0, isLoadMore: boolean = false) => {
-    try {
-      setLoadingAllOrders(true)
-      console.log(`[PAYMENT-STATUS] Fetching orders. Offset: ${currentOffset}, LoadMore: ${isLoadMore}`)
-
-      const params = new URLSearchParams()
-      if (searchQuery) {
-        params.append("search", searchQuery)
-        params.append("searchType", searchType)
-      }
-      params.append("limit", PAGE_SIZE.toString())
-      params.append("offset", currentOffset.toString())
-
-      // Apply bulk filters to main table if active
-      if (showBulkUpdate) {
-        if (bulkDate) params.append("date", bulkDate)
-        if (bulkNetwork && bulkNetwork !== "all") params.append("network", bulkNetwork)
-        if (bulkStartTime) params.append("startTime", bulkStartTime)
-        if (bulkEndTime) params.append("endTime", bulkEndTime)
-        // Note: For the main table, we might NOT want to restrict status to pending/processing 
-        // just yet, so the user can see everything. But if they ARE using the bulk tool,
-        // it's helpful to show what they're targeting.
-      }
-
-      const { data: { session } } = await supabase.auth.getSession()
-      const response = await fetch(`/api/admin/orders/all?${params.toString()}`, {
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to load all orders")
-      }
-
-      const result = await response.json()
-      console.log("[PAYMENT-STATUS] API Response Data Sample:", result.data?.[0])
-
-      // Map data to ensure consistency with different View versions
-      const mappedData = (result.data || []).map((order: any) => ({
-        ...order,
-        status: order.status || order.order_status || "pending",
-        payment_status: order.payment_status || "completed"
-      }))
-
-      if (isLoadMore) {
-        setAllOrders(prev => [...prev, ...mappedData])
-      } else {
-        setAllOrders(mappedData)
-      }
-
-      setTotalOrdersCount(result.count || 0)
-      setHasMore(result.pagination?.hasMore || false)
-    } catch (error) {
-      console.error("Error loading all orders:", error)
-      const errorMessage = error instanceof Error ? error.message : "Failed to load all orders"
-      toast.error(errorMessage)
-    } finally {
-      setLoadingAllOrders(false)
-    }
-  }
-
-  const handleLoadMore = () => {
-    const nextOffset = offset + PAGE_SIZE
-    setOffset(nextOffset)
-    loadAllOrders(nextOffset, true)
-  }
-
   const handleStatusUpdate = async (orderId: string, orderType: string, newStatus: string) => {
     if (!newStatus) return
 
@@ -422,7 +396,7 @@ export default function OrderPaymentStatusPage() {
       toast.success(`Order status updated to ${newStatus}`)
 
       // Update local state
-      setAllOrders(prev => prev.map(order =>
+      setRows(prev => prev.map(order =>
         order.id === orderId ? { ...order, status: newStatus } : order
       ))
     } catch (error) {
@@ -433,10 +407,11 @@ export default function OrderPaymentStatusPage() {
     }
   }
 
-  const startFulfillWithProgress = async (order: AllOrder, provider: string) => {
-    const phone = order.phone_number || ""
+  const startFulfillWithProgress = async (order: QueueRow, provider: string) => {
+    const phone = order.phoneNumber || ""
+    const orderType = order.type || ""
     setFulfillProgress({
-      open: true, orderId: order.id, orderType: order.type, phone, provider, done: false,
+      open: true, orderId: order.id, orderType, phone, provider, done: false,
       steps: [{ label: `Dispatching via ${provider}`, status: "running" }],
     })
     const { data: { session } } = await supabase.auth.getSession()
@@ -448,7 +423,7 @@ export default function OrderPaymentStatusPage() {
     try {
       const dRes = await fetch("/api/admin/fulfillment/manual-fulfill", {
         method: "POST", headers,
-        body: JSON.stringify({ shop_order_id: order.id, order_type: order.type, provider }),
+        body: JSON.stringify({ shop_order_id: order.id, order_type: orderType, provider }),
       })
       const dData = await dRes.json()
       setFulfillProgress(prev => ({
@@ -456,7 +431,7 @@ export default function OrderPaymentStatusPage() {
         steps: [{ label: `Dispatching via ${provider}`, status: dData.success ? "done" : "error", detail: dData.message || dData.error }],
       }))
       if (dData.success) {
-        setAllOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: "processing" } : o))
+        setRows(prev => prev.map(o => o.id === order.id ? { ...o, status: "processing" } : o))
         toast.success("Fulfillment triggered successfully")
       }
     } catch {
@@ -466,72 +441,6 @@ export default function OrderPaymentStatusPage() {
       }))
     }
     setFulfillingOrderId(null)
-  }
-
-  const handleManualFulfill = async (orderId: string, orderType: string) => {
-    if (!autoFulfillmentEnabled) {
-      toast.error("Auto-fulfillment is not enabled")
-      return
-    }
-
-    try {
-      setFulfillingOrderId(orderId)
-
-      // Find the actual order object to inspect its data
-      const orderObject = allOrders.find(o => o.id === orderId)
-      console.log("[PAYMENT-STATUS] Order object to fulfill:", {
-        id: orderObject?.id,
-        type: orderObject?.type,
-        network: orderObject?.network,
-        status: orderObject?.status,
-        payment_status: orderObject?.payment_status,
-        fullObject: orderObject
-      })
-      console.log("[PAYMENT-STATUS] Triggering manual fulfillment:", { orderId, orderType })
-
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) {
-        toast.error("Authentication required")
-        return
-      }
-
-      const payload = {
-        shop_order_id: orderId,
-        order_type: orderType,
-      }
-      console.log("[PAYMENT-STATUS] Sending payload:", JSON.stringify(payload, null, 2))
-
-      const response = await fetch("/api/admin/fulfillment/manual-fulfill", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(payload)
-      })
-
-      console.log("[PAYMENT-STATUS] Response status:", response.status)
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        console.error("[PAYMENT-STATUS] Error response:", errorData)
-        throw new Error(errorData.error || "Failed to trigger fulfillment")
-      }
-
-      const result = await response.json()
-      console.log("[PAYMENT-STATUS] Fulfillment successful:", result)
-      toast.success("Fulfillment triggered successfully")
-
-      // Update local state - change status to processing
-      setAllOrders(prev => prev.map(order =>
-        order.id === orderId ? { ...order, status: "processing" } : order
-      ))
-    } catch (error) {
-      console.error("[PAYMENT-STATUS] Error triggering fulfillment:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to trigger fulfillment")
-    } finally {
-      setFulfillingOrderId(null)
-    }
   }
 
   const handleBulkStatusUpdate = async () => {
@@ -553,8 +462,6 @@ export default function OrderPaymentStatusPage() {
         toast.error("You must be logged in to perform this action")
         return
       }
-
-      console.log(`[PAYMENT-STATUS] Triggering Global Bulk Update...`)
 
       const payload = {
         status: bulkStatus,
@@ -585,8 +492,7 @@ export default function OrderPaymentStatusPage() {
       toast.success(`Successfully updated ${result.count} orders to ${bulkStatus}`)
 
       // Refresh data
-      setOffset(0)
-      loadAllOrders(0, false)
+      reloadQueue()
       setShowBulkUpdate(false)
 
       // Reset form
@@ -613,8 +519,6 @@ export default function OrderPaymentStatusPage() {
         toast.error("You must be logged in to perform this action")
         return
       }
-
-      console.log(`[PAYMENT-STATUS] Triggering Global Bulk Download...`)
 
       const payload = {
         orderType: "all",
@@ -662,8 +566,7 @@ export default function OrderPaymentStatusPage() {
       toast.success("Download started successfully")
 
       // Refresh data
-      setOffset(0)
-      loadAllOrders(0, false)
+      reloadQueue()
     } catch (error) {
       console.error("[PAYMENT-STATUS] Bulk download error:", error)
       toast.error(error instanceof Error ? error.message : "Failed to download orders")
@@ -733,6 +636,84 @@ export default function OrderPaymentStatusPage() {
     }
   }
 
+  // Read-only export of the selected rows, built in the browser. It deliberately does NOT use
+  // /api/admin/orders/download, which claims orders and sends notifications.
+  const handleExportSelected = async () => {
+    try {
+      setExporting(true)
+      let chosen: QueueRow[]
+      if (selection.allMatching) {
+        chosen = (await fetchQueue({ ...params, limit: SELECTION_CAP, offset: 0 })).data
+      } else {
+        chosen = rows.filter((r) => selection.ids.has(r.id))
+      }
+      if (chosen.length === 0) {
+        toast.error("No orders selected")
+        return
+      }
+      const XLSX = await import("xlsx")
+      const sheet = XLSX.utils.json_to_sheet(queueRowsToSheetRows(chosen), { header: [...EXPORT_COLUMNS] })
+      const book = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(book, sheet, "Orders")
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+      XLSX.writeFile(book, `order-queue-${params.view}-${timestamp}.xlsx`)
+      toast.success(`Exported ${chosen.length} order${chosen.length === 1 ? "" : "s"}`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Export failed")
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const renderRowActions = (order: QueueRow) => (
+    <div className="flex min-w-[8.5rem] flex-col gap-2">
+      <select
+        className="px-2 py-1 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 border-white/60 dark:border-white/5 clay-inset"
+        onChange={(e) => handleStatusUpdate(order.id, order.type || "", e.target.value)}
+        disabled={updatingOrderId === order.id}
+        defaultValue=""
+        aria-label="Update order status"
+      >
+        <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
+        <option value="pending">Pending</option>
+        <option value="processing">Processing</option>
+        <option value="completed">Completed</option>
+        <option value="failed">Failed</option>
+      </select>
+      {order.status === "pending" && order.paymentStatus === "completed" && (
+        fulfillingOrderId === order.id ? (
+          <Button size="sm" variant="outline" className="text-xs h-7 gap-1" disabled>
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Fulfilling...
+          </Button>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" className="text-xs h-7 gap-1">
+                <Send className="w-3 h-3" />
+                Fulfill
+                <ChevronDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">Select Provider</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {getProviderOptionsForNetwork(order.network || "").map(p => (
+                <DropdownMenuItem
+                  key={p.value}
+                  className="cursor-pointer"
+                  onClick={() => startFulfillWithProgress(order, p.value)}
+                >
+                  {p.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )
+      )}
+    </div>
+  )
+
   if (adminLoading) {
     return (
       <DashboardLayout>
@@ -747,39 +728,45 @@ export default function OrderPaymentStatusPage() {
     return null
   }
 
+  const activeFilterCount =
+    params.statuses.length + params.networks.length + params.types.length +
+    (params.from ? 1 : 0) + (params.to ? 1 : 0) + (params.search ? 1 : 0) +
+    (params.lastProvider ? 1 : 0) + (params.failureReason ? 1 : 0)
+  const selectedCount = selection.allMatching ? total : selection.ids.size
+  const allLoadedSelected = rows.length > 0 && rows.every((r) => selection.ids.has(r.id))
+  const offerAllMatching = !selection.allMatching && allLoadedSelected && total > rows.length
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
         {/* Page Header */}
-        <div>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <PageHeaderBanner
-              className="flex-1"
-              title="Order Payment Status"
-              subtitle="View and search all orders by payment reference or phone number"
-            />
-            {autoFulfillmentEnabled && pendingMTNOrders.length > 0 && (
-              <Button
-                onClick={handleBulkManualFulfill}
-                disabled={loadingMTNOrders}
-                className="bg-destructive hover:bg-destructive/90 text-primary-foreground font-bold shadow-lg transform transition hover:scale-105"
-              >
-                {loadingMTNOrders ? (
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                ) : (
-                  <Zap className="h-5 w-5 mr-2" />
-                )}
-                {(() => {
-                  const eligible = pendingMTNOrders.filter(o => !skipIds.has(o.id))
-                  const batch = Math.min(eligible.length, 1000)
-                  const total = pendingMTNOrders.length
-                  const skipped = total - eligible.length
-                  if (eligible.length === 0) return `Fulfill Pending MTN (all ${total} tried this session)`
-                  return `Fulfill Pending MTN (${batch}${eligible.length > 1000 ? ` of ${eligible.length}` : ""}${skipped > 0 ? `, ${skipped} skipped` : ""})`
-                })()}
-              </Button>
-            )}
-          </div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <PageHeaderBanner
+            className="flex-1"
+            title="Order Work Queue"
+            subtitle="Find the orders that need you, see what the last supplier said, and act on them"
+          />
+          {autoFulfillmentEnabled && pendingMTNOrders.length > 0 && (
+            <Button
+              onClick={handleBulkManualFulfill}
+              disabled={loadingMTNOrders}
+              className="bg-destructive hover:bg-destructive/90 text-primary-foreground font-bold shadow-lg transform transition hover:scale-105"
+            >
+              {loadingMTNOrders ? (
+                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+              ) : (
+                <Zap className="h-5 w-5 mr-2" />
+              )}
+              {(() => {
+                const eligible = pendingMTNOrders.filter(o => !skipIds.has(o.id))
+                const batch = Math.min(eligible.length, 1000)
+                const total = pendingMTNOrders.length
+                const skipped = total - eligible.length
+                if (eligible.length === 0) return `Fulfill Pending MTN (all ${total} tried this session)`
+                return `Fulfill Pending MTN (${batch}${eligible.length > 1000 ? ` of ${eligible.length}` : ""}${skipped > 0 ? `, ${skipped} skipped` : ""})`
+              })()}
+            </Button>
+          )}
         </div>
 
         {/* Fulfillment queue progress */}
@@ -804,399 +791,167 @@ export default function OrderPaymentStatusPage() {
           </Card>
         )}
 
-        {/* Search Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Search Orders</CardTitle>
-            <CardDescription>Search by payment reference or phone number</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex gap-2 items-end flex-wrap">
-              <div className="flex-1 min-w-64">
-                <label className="text-sm font-medium mb-1 block">Search Query</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Enter payment reference or phone number..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              <div className="w-48">
-                <label className="text-sm font-medium mb-1 block">Search Type</label>
-                <select
-                  value={searchType}
-                  onChange={(e) => setSearchType(e.target.value as "all" | "reference" | "phone")}
-                  className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="all">All Fields</option>
-                  <option value="reference">Payment Reference</option>
-                  <option value="phone">Phone Number</option>
-                </select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <QueueTabs view={params.view} counts={counts} onChange={(view) => setParams({ ...params, view })} />
 
-        {/* Bulk Status Update */}
-        <Card className="border-primary/20 bg-primary/5">
-          <CardHeader className="pb-3 cursor-pointer" onClick={() => setShowBulkUpdate(!showBulkUpdate)}>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Edit className="w-5 h-5" />
-                  Bulk Status Update
-                </CardTitle>
-                <CardDescription>Update multiple orders at once by date, time, and network</CardDescription>
-              </div>
-              <Button variant="ghost" size="sm">
-                {showBulkUpdate ? "Hide" : "Show"}
-              </Button>
-            </div>
-          </CardHeader>
-
-          {showBulkUpdate && (
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Date */}
-                <div>
-                  <label className="text-sm font-medium mb-1 block">Date *</label>
-                  <Input
-                    type="date"
-                    value={bulkDate}
-                    onChange={(e) => setBulkDate(e.target.value)}
-                    required
-                  />
-                </div>
-
-                {/* Start Time */}
-                <div>
-                  <label className="text-sm font-medium mb-1 block">Start Time (Optional)</label>
-                  <Input
-                    type="time"
-                    value={bulkStartTime}
-                    onChange={(e) => setBulkStartTime(e.target.value)}
-                  />
-                </div>
-
-                {/* End Time */}
-                <div>
-                  <label className="text-sm font-medium mb-1 block">End Time (Optional)</label>
-                  <Input
-                    type="time"
-                    value={bulkEndTime}
-                    onChange={(e) => setBulkEndTime(e.target.value)}
-                  />
-                </div>
-
-                {/* Network */}
-                <div>
-                  <label className="text-sm font-medium mb-1 block">Network (Optional)</label>
-                  <select
-                    value={bulkNetwork}
-                    onChange={(e) => setBulkNetwork(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    <option value="">All Networks</option>
-                    <option value="MTN">MTN</option>
-                    <option value="Telecel">Telecel</option>
-                    <option value="AT - iShare">AT - iShare</option>
-                    <option value="AT - BigTime">AT - BigTime</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-                <div className="flex-1">
-                  <label className="text-sm font-medium mb-1 block">New Status *</label>
-                  <select
-                    value={bulkStatus}
-                    onChange={(e) => setBulkStatus(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                    required
-                  >
-                    <option value="">Select status...</option>
-                    <option value="pending">Pending</option>
-                    <option value="processing">Processing</option>
-                    <option value="completed">Completed</option>
-                    <option value="failed">Failed</option>
-                  </select>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={handleBulkStatusUpdate}
-                    disabled={bulkUpdating || !bulkDate || !bulkStatus}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground min-w-[140px]"
-                  >
-                    {bulkUpdating ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Updating...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-4 h-4 mr-2" />
-                        Update {globalBulkCount !== null ? `${globalBulkCount} ` : ""}Orders
-                      </>
-                    )}
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    onClick={handleBulkDownload}
-                    disabled={bulkDownloading || !bulkDate}
-                    className="border-border hover:bg-success/10 text-success font-semibold"
-                  >
-                    {bulkDownloading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Preparing...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4 mr-2" />
-                        Download {globalBulkCount !== null ? `${globalBulkCount} ` : ""}Orders
-                      </>
-                    )}
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    onClick={handleBulkDownloadFailed}
-                    disabled={bulkDownloadingFailed || !bulkDate}
-                    className="border-border hover:bg-destructive/10 text-destructive font-semibold"
-                  >
-                    {bulkDownloadingFailed ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Preparing...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4 mr-2" />
-                        Download Failed Orders
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-
-              {globalBulkCount !== null && (
-                <p className="text-xs text-primary font-medium pt-1">
-                  💡 Found {globalBulkCount} pending/processing orders matching filters in the entire database.
-                </p>
-              )}
-
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription className="text-xs">
-                  This will update/download ALL orders matching the criteria in the entire database. Date is required.
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          )}
-        </Card>
-
-        {/* Orders Results */}
-        {
-          loadingAllOrders ? (
-            <Card>
-              <CardContent className="pt-6 flex justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
+          {/* Filters: left column on desktop, collapsible above the table on mobile */}
+          <aside className="space-y-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-between lg:hidden"
+              aria-expanded={showFilters}
+              onClick={() => setShowFilters((s) => !s)}
+            >
+              <span className="flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4" />
+                Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+              </span>
+              <ChevronDown className={cn("h-4 w-4 transition-transform", showFilters && "rotate-180")} />
+            </Button>
+            <Card className={cn(showFilters ? "block" : "hidden", "lg:sticky lg:top-4 lg:block")}>
+              <CardContent className="pt-6">
+                <FilterPanel
+                  params={params}
+                  onChange={setParams}
+                  onReset={() => setParams({ ...defaultParams(), view: params.view })}
+                />
               </CardContent>
             </Card>
-          ) : allOrders.length === 0 ? (
-            <Card>
-              <CardContent className="pt-6">
+          </aside>
+
+          <Card className="min-w-0">
+            <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+              <div>
+                <CardTitle>Orders</CardTitle>
+                <CardDescription>
+                  {loadingQueue && rows.length === 0
+                    ? "Loading…"
+                    : `Showing ${rows.length} of ${total} order${total !== 1 ? "s" : ""}`}
+                  {selectedCount > 0 && (
+                    <span className="ml-2 font-medium text-primary">· {selectedCount} selected</span>
+                  )}
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedCount > 0 && (
+                  <Button variant="ghost" size="sm" onClick={() => dispatchSelection({ type: "clear" })}>
+                    Clear selection
+                  </Button>
+                )}
+                <ActionsMenu
+                  selectedCount={selectedCount}
+                  exporting={exporting}
+                  onExportSelected={handleExportSelected}
+                  onOpenBulkTool={() => setShowBulkUpdate(true)}
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {(offerAllMatching || selection.allMatching || selection.error === "cap") && (
+                <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+                  {selection.allMatching ? (
+                    <>All {total} matching orders are selected.</>
+                  ) : selection.error === "cap" ? (
+                    <span className="text-destructive">
+                      That is {total} orders — narrow the filters to {SELECTION_CAP} or fewer to select them all.
+                    </span>
+                  ) : (
+                    <>
+                      All {rows.length} loaded orders are selected.{" "}
+                      <button
+                        type="button"
+                        className="font-semibold text-primary underline-offset-2 hover:underline"
+                        onClick={() => dispatchSelection({ type: "selectAllMatching", total })}
+                      >
+                        Select all {total} matching
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {loadingQueue && rows.length === 0 ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : loadError && rows.length === 0 ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="flex flex-wrap items-center gap-2">
+                    {loadError}
+                    <Button size="sm" variant="outline" onClick={reloadQueue}>Try again</Button>
+                  </AlertDescription>
+                </Alert>
+              ) : rows.length === 0 ? (
                 <Alert>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    {searchQuery ? "No orders found matching your search criteria" : "No orders available"}
+                    {activeFilterCount > 0 ? "No orders match these filters" : "Nothing in this view"}
                   </AlertDescription>
                 </Alert>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle>Order Results</CardTitle>
-                <CardDescription>
-                  Showing {allOrders.length} of {totalOrdersCount} order{totalOrdersCount !== 1 ? "s" : ""}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/40 border-b">
-                      <tr>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Type</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Store</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Shop Owner Email</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Reference</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Phone</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Customer Email</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Network</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">Volume</th>
-                        <th className="px-4 py-2 text-right font-semibold text-foreground">Price (GHS)</th>
-                        <th className="px-4 py-2 text-center font-semibold text-foreground">Payment Status</th>
-                        <th className="px-4 py-2 text-center font-semibold text-foreground">Order Status</th>
-                        <th className="px-4 py-2 text-center font-semibold text-foreground">Date</th>
-                        <th className="px-4 py-2 text-center font-semibold text-foreground">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {allOrders.map((order) => (
-                        <tr key={order.id} className="hover:bg-accent">
-                          <td className="px-4 py-3">
-                            <Badge variant="outline" className="text-xs">
-                              {order.type === "bulk" ? "Bulk" : order.type === "shop" ? "Shop" : order.type === "ussd" ? "USSD" : order.type === "ussd_shop" ? "USSD Shop" : "Wallet"}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-xs max-w-[120px] truncate" title={order.store_name || "-"}>
-                            {(order.type === "shop" || order.type === "ussd_shop") ? (order.store_name || "-") : "-"}
-                          </td>
-                          <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.shop_owner_email || "-"}>
-                            {(order.type === "shop" || order.type === "ussd_shop" || order.type === "ussd") ? (order.shop_owner_email || "-") : "-"}
-                          </td>
-                          <td className="px-4 py-3 font-mono text-xs max-w-xs truncate" title={order.payment_reference}>
-                            {order.payment_reference}
-                          </td>
-                          <td className="px-4 py-3 font-mono text-xs">{order.phone_number}</td>
-                          <td className="px-4 py-3 text-xs max-w-[150px] truncate" title={order.customer_email || "-"}>
-                            {(order.type === "shop" || order.type === "ussd_shop") ? (order.customer_email || "-") : "-"}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge className={`${getNetworkColor(order.network)} border`}>
-                              {order.network}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3">{order.volume_gb}GB</td>
-                          <td className="px-4 py-3 text-right font-semibold">₵ {(order.price || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-center">
-                            <Badge
-                              className={`text-xs border ${order.payment_status === "completed"
-                                ? "bg-success/15 text-success border-border"
-                                : order.payment_status === "pending"
-                                  ? "bg-warning/15 text-warning border-border"
-                                  : order.payment_status === "failed"
-                                    ? "bg-destructive/15 text-destructive border-border"
-                                    : "bg-muted text-foreground border-border"
-                                }`}
-                            >
-                              {order.payment_status?.charAt(0).toUpperCase() + order.payment_status?.slice(1) || "Unknown"}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <Badge
-                              className={`text-xs border ${order.status === "completed"
-                                ? "bg-success/15 text-success border-border"
-                                : order.status === "pending"
-                                  ? "bg-warning/15 text-warning border-border"
-                                  : order.status === "processing"
-                                    ? "bg-primary/10 text-primary border-primary/20"
-                                    : order.status === "failed"
-                                      ? "bg-destructive/15 text-destructive border-border"
-                                      : "bg-muted text-foreground border-border"
-                                }`}
-                            >
-                              {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || "Unknown"}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-center text-xs text-muted-foreground">
-                            <div>{new Date(order.created_at).toLocaleDateString()}</div>
-                            <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleTimeString()}</div>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <div className="flex flex-col gap-2">
-                              <select
-                                className="px-2 py-1 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 border-white/60 dark:border-white/5 clay-inset"
-                                onChange={(e) => handleStatusUpdate(order.id, order.type, e.target.value)}
-                                disabled={updatingOrderId === order.id}
-                                defaultValue=""
-                                aria-label="Update order status"
-                              >
-                                <option value="">{updatingOrderId === order.id ? "Updating..." : "Update Status"}</option>
-                                <option value="pending">Pending</option>
-                                <option value="processing">Processing</option>
-                                <option value="completed">Completed</option>
-                                <option value="failed">Failed</option>
-                              </select>
-                              {order.status === "pending" && order.payment_status === "completed" && (
-                                fulfillingOrderId === order.id ? (
-                                  <Button size="sm" variant="outline" className="text-xs h-7 gap-1" disabled>
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                    Fulfilling...
-                                  </Button>
-                                ) : (
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button size="sm" variant="outline" className="text-xs h-7 gap-1">
-                                        <Send className="w-3 h-3" />
-                                        Fulfill
-                                        <ChevronDown className="w-3 h-3" />
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-44">
-                                      <DropdownMenuLabel className="text-xs text-muted-foreground">Select Provider</DropdownMenuLabel>
-                                      <DropdownMenuSeparator />
-                                      {getProviderOptionsForNetwork(order.network).map(p => (
-                                        <DropdownMenuItem
-                                          key={p.value}
-                                          className="cursor-pointer"
-                                          onClick={() => startFulfillWithProgress(order, p.value)}
-                                        >
-                                          {p.label}
-                                        </DropdownMenuItem>
-                                      ))}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                )
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              ) : (
+                <QueueTable
+                  rows={rows}
+                  selectedIds={selection.ids}
+                  allMatching={selection.allMatching}
+                  onToggle={(id) => dispatchSelection({ type: "toggle", id })}
+                  onTogglePage={(select) =>
+                    dispatchSelection(select ? { type: "selectPage", ids: rows.map((r) => r.id) } : { type: "clear" })
+                  }
+                  renderActions={renderRowActions}
+                />
+              )}
+
+              {hasMore && rows.length > 0 && (
+                <div className="flex justify-center pb-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => loadQueue(params, true)}
+                    disabled={loadingQueue}
+                    className="w-full max-w-xs border-primary/20 hover:bg-primary/5 text-primary font-semibold"
+                  >
+                    {loadingQueue ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Loading more...
+                      </>
+                    ) : (
+                      "Load more orders"
+                    )}
+                  </Button>
                 </div>
+              )}
 
-                {/* Load More Button */}
-                {hasMore && (
-                  <div className="mt-6 flex justify-center pb-8">
-                    <Button
-                      variant="outline"
-                      onClick={handleLoadMore}
-                      disabled={loadingAllOrders}
-                      className="w-full max-w-xs border-primary/20 hover:bg-primary/5 text-primary font-semibold"
-                    >
-                      {loadingAllOrders ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Loading more...
-                        </>
-                      ) : (
-                        <>
-                          <Zap className="w-4 h-4 mr-2" />
-                          Load More Orders
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                )}
+              {!hasMore && rows.length > 0 && (
+                <p className="text-center text-muted-foreground text-xs pb-4">No more orders to display</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
-                {!hasMore && allOrders.length > 0 && (
-                  <p className="text-center text-muted-foreground text-xs mt-6 pb-8">
-                    No more orders to display
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )
-        }
-      </div >
+      <BulkToolDialog
+        open={showBulkUpdate}
+        onOpenChange={setShowBulkUpdate}
+        bulkDate={bulkDate}
+        setBulkDate={setBulkDate}
+        bulkStartTime={bulkStartTime}
+        setBulkStartTime={setBulkStartTime}
+        bulkEndTime={bulkEndTime}
+        setBulkEndTime={setBulkEndTime}
+        bulkNetwork={bulkNetwork}
+        setBulkNetwork={setBulkNetwork}
+        bulkStatus={bulkStatus}
+        setBulkStatus={setBulkStatus}
+        bulkUpdating={bulkUpdating}
+        bulkDownloading={bulkDownloading}
+        bulkDownloadingFailed={bulkDownloadingFailed}
+        globalBulkCount={loadingBulkCount ? null : globalBulkCount}
+        onBulkStatusUpdate={handleBulkStatusUpdate}
+        onBulkDownload={handleBulkDownload}
+        onBulkDownloadFailed={handleBulkDownloadFailed}
+      />
 
       {/* Fulfill progress dialog */}
       <Dialog open={fulfillProgress.open} onOpenChange={open => !open && setFulfillProgress(prev => ({ ...prev, open: false }))}>
@@ -1240,6 +995,6 @@ export default function OrderPaymentStatusPage() {
           )}
         </DialogContent>
       </Dialog>
-    </DashboardLayout >
+    </DashboardLayout>
   )
 }

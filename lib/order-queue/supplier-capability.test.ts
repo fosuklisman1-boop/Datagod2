@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { getProviderOptionsForNetwork, suppliersForNetworks } from "./supplier-capability"
+import { getProviderOptionsForNetwork, suppliersForNetworks, allSuppliers } from "./supplier-capability"
 
 const values = (opts: { value: string }[]) => opts.map((o) => o.value)
 
@@ -39,6 +39,12 @@ describe("suppliersForNetworks", () => {
   })
   it("no networks ⇒ no suppliers", () => {
     expect(suppliersForNetworks([])).toEqual([])
+  })
+  it("allSuppliers is every supplier on any network, once (13 incl. both spfastit accounts)", () => {
+    const v = values(allSuppliers())
+    expect(new Set(v).size).toBe(v.length)
+    expect(v).toHaveLength(13)
+    for (const s of ["sykes", "bisdel", "kuntanii", "spfastit", "spfastit_telecel", "hubnet"]) expect(v).toContain(s)
   })
   it("duplicate networks behave like one", () => {
     expect(suppliersForNetworks(["MTN", "MTN"])).toEqual(getProviderOptionsForNetwork("MTN"))
