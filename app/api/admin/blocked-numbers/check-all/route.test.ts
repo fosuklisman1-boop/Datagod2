@@ -12,6 +12,8 @@ const recheck = vi.fn(async (_o: unknown) => ({
   checked: 1, allowed: 1, stillBlocked: 0, unchecked: 0, expired: 0, deferred: 0, newlyAllowedIds: [ID1],
 }))
 const checkAll = vi.fn()
+const markAllowed = vi.fn(async (_r: unknown) => ({ updatedIds: [] as string[], failed: false }))
+vi.mock("@/lib/blocked-numbers/admin-allow", () => ({ markAllowedByAdminCheck: (r: unknown) => markAllowed(r) }))
 
 vi.mock("@/lib/admin-auth", () => ({
   verifyAdminAccess: vi.fn(async () =>
@@ -45,6 +47,8 @@ beforeEach(() => {
   handler = () => ({ data: [{ id: ID1, phone: "0241234567" }, { id: ID2, phone: "0551234567" }] })
   recheck.mockClear()
   checkAll.mockReset()
+  markAllowed.mockReset()
+  markAllowed.mockResolvedValue({ updatedIds: [], failed: false })
 })
 
 describe("check-all route", () => {
@@ -86,15 +90,57 @@ describe("check-all route", () => {
     expect(j.checkoutProviders).toEqual(["a"])
   })
 
-  it("approvals outside the checkout list never call recheck", async () => {
+  it("outside-only approvals are flipped directly with the first allowing provider, never via recheck", async () => {
     checkAll.mockResolvedValue(result([
       { phone: "0241234567", byCheckout: false, outside: ["b"] },
       { phone: "0551234567", byCheckout: false, outside: ["b"] },
     ]))
+    markAllowed.mockResolvedValueOnce({ updatedIds: [ID1, ID2], failed: false })
     const res = await POST(req({ ids: [ID1, ID2] }))
     expect(res.status).toBe(200)
     expect(recheck).not.toHaveBeenCalled()
-    expect((await res.json()).flipped).toBe(0)
+    expect(markAllowed).toHaveBeenCalledWith([
+      { id: ID1, phone: "0241234567", allowedBy: "b" },
+      { id: ID2, phone: "0551234567", allowedBy: "b" },
+    ])
+    const j = await res.json()
+    expect(j).toMatchObject({ flipped: 2, flippedOutside: 2 })
+    expect(j.flipFailed).toBeUndefined()
+  })
+
+  it("flipped counts checkout and direct flips together", async () => {
+    checkAll.mockResolvedValue(result([
+      { phone: "0241234567", byCheckout: true, outside: [] },
+      { phone: "0551234567", byCheckout: false, outside: ["b"] },
+    ]))
+    markAllowed.mockResolvedValueOnce({ updatedIds: [ID2], failed: false })
+    const j = await (await POST(req({ ids: [ID1, ID2] }))).json()
+    expect(j).toMatchObject({ flipped: 2, flippedOutside: 1 })
+  })
+
+  it("refused or errored rows never reach the direct flip", async () => {
+    checkAll.mockResolvedValue(result([{ phone: "0241234567", byCheckout: false, outside: [] }]))
+    handler = () => ({ data: [{ id: ID1, phone: "0241234567" }] })
+    const j = await (await POST(req({ ids: [ID1] }))).json()
+    expect(markAllowed).not.toHaveBeenCalled()
+    expect(recheck).not.toHaveBeenCalled()
+    expect(j).toMatchObject({ flipped: 0, flippedOutside: 0 })
+  })
+
+  it("a direct-flip failure still returns the rows with flipFailed", async () => {
+    checkAll.mockResolvedValue(result([{ phone: "0241234567", byCheckout: false, outside: ["b"] }]))
+    handler = () => ({ data: [{ id: ID1, phone: "0241234567" }] })
+    markAllowed.mockRejectedValueOnce(new Error("db"))
+    const res = await POST(req({ ids: [ID1] }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ success: true, flipped: 0, flippedOutside: 0, flipFailed: true })
+  })
+
+  it("a partial direct-flip error is reported as flipFailed with the rows that did update counted", async () => {
+    checkAll.mockResolvedValue(result([{ phone: "0241234567", byCheckout: false, outside: ["b"] }]))
+    handler = () => ({ data: [{ id: ID1, phone: "0241234567" }] })
+    markAllowed.mockResolvedValueOnce({ updatedIds: [], failed: true })
+    expect(await (await POST(req({ ids: [ID1] }))).json()).toMatchObject({ flippedOutside: 0, flipFailed: true })
   })
 
   it("404 when none of the ids exist", async () => {

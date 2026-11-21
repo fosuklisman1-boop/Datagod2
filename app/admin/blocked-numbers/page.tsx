@@ -53,6 +53,8 @@ type AllResult = {
   flipped: number
   failedProviders?: string[]
   recheckFailed?: boolean
+  flipFailed?: boolean
+  flippedOutside?: number
   rows: Array<{
     id: string
     phone: string
@@ -573,6 +575,9 @@ export default function BlockedNumbersPage() {
               {allResult.recheckFailed && (
                 <p className="text-sm text-destructive">Some numbers are allowed by a checkout provider but could not be moved to Ready. Use Re-check on them.</p>
               )}
+              {allResult.flipFailed && (
+                <p className="text-sm text-destructive">Some numbers allowed by a provider could not be marked Ready. Run the check again.</p>
+              )}
               {allResult.flipped > 0 && (
                 <p className="text-sm font-medium text-success">{allResult.flipped} became Ready</p>
               )}
@@ -582,8 +587,7 @@ export default function BlockedNumbersPage() {
                 const names = [...new Set(outside.flatMap((r) => r.allowedOutsideCheckout))].join(", ")
                 return (
                   <p className="text-sm">
-                    {outside.length} number(s) allowed by {names}, not in your checkout list. Add the provider under{" "}
-                    <Link href="/admin/settings/mtn" className="text-primary underline">Settings → MTN</Link> to let these through checkout.
+                    Allowed by {names} — these numbers can now be purchased. Orders still go to your usual MTN fulfilment provider.
                   </p>
                 )
               })()}
