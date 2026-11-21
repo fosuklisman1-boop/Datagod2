@@ -61,6 +61,17 @@ export const WalletOrderParams = z
         runAtTimestamp: z.string().min(1).optional(),
       })
       .strict()
+      .superRefine((s, ctx) => {
+        const bad = (message: string) => ctx.addIssue({ code: "custom", message })
+        if (s.type === "once") {
+          if (!s.runAtTimestamp || !Number.isFinite(Date.parse(s.runAtTimestamp))) bad("once schedule needs a valid runAtTimestamp")
+          return
+        }
+        if (!s.runAtTime || !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.runAtTime)) bad("runAtTime must be HH:MM (24h)")
+        if (s.type === "weekly" && (!s.runOnDays || s.runOnDays.length === 0 || new Set(s.runOnDays).size !== s.runOnDays.length)) {
+          bad("weekly schedule needs unique runOnDays")
+        }
+      })
       .optional(),
   })
   .strict()

@@ -41,7 +41,52 @@ function maskPhone(local: string): string {
   return `${local.slice(0, 3)} *** ${local.slice(-4)}`
 }
 
-function describeSchedule(s: NonNullable<PrepareWalletOrderInput["schedule"]>, price: number): string {
+/** Escape ILIKE wildcards so the model's network string matches literally (case-insensitively). */
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`)
+}
+
+interface ValidSchedule {
+  type: "once" | "daily" | "weekly"
+  runAtTime?: string
+  runOnDays?: number[]
+  runAtTimestamp?: string
+}
+
+type Refusal = { refused: true; code: string; message: string }
+const invalidSchedule = (message: string): Refusal => ({ refused: true, code: "invalid_schedule", message })
+
+/** Validates and whitelists the schedule. Times are HH:MM UTC and days are 0=Sunday..6=Saturday, as in manage_scheduled_task. */
+function validateSchedule(s: NonNullable<PrepareWalletOrderInput["schedule"]>): { schedule: ValidSchedule } | Refusal {
+  if (s.type === "hourly") {
+    return { refused: true, code: "hourly_not_allowed", message: "Hourly schedules are not allowed. Offer a once, daily or weekly schedule instead." }
+  }
+  if (s.type !== "once" && s.type !== "daily" && s.type !== "weekly") {
+    return invalidSchedule("The schedule type must be once, daily or weekly.")
+  }
+  if (s.type === "once") {
+    const t = typeof s.runAtTimestamp === "string" ? Date.parse(s.runAtTimestamp) : NaN
+    if (!Number.isFinite(t)) return invalidSchedule("A one-off schedule needs a valid date and time.")
+    if (t <= Date.now()) return invalidSchedule("A one-off schedule must be in the future.")
+    return { schedule: { type: "once", runAtTimestamp: s.runAtTimestamp } }
+  }
+  if (typeof s.runAtTime !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.runAtTime)) {
+    return invalidSchedule("The run time must be HH:MM in 24-hour format (UTC), e.g. 08:00.")
+  }
+  if (s.type === "daily") return { schedule: { type: "daily", runAtTime: s.runAtTime } }
+  const days = s.runOnDays
+  if (
+    !Array.isArray(days) ||
+    days.length === 0 ||
+    !days.every((d) => Number.isInteger(d) && d >= 0 && d <= 6) ||
+    new Set(days).size !== days.length
+  ) {
+    return invalidSchedule("A weekly schedule needs at least one day, as unique numbers 0 (Sunday) to 6 (Saturday).")
+  }
+  return { schedule: { type: "weekly", runAtTime: s.runAtTime, runOnDays: [...days].sort((a, b) => a - b) } }
+}
+
+function describeSchedule(s: ValidSchedule, price: number): string {
   const cap = `up to GHS ${price.toFixed(2)} each time`
   const time = s.runAtTime ? ` ${s.runAtTime}` : ""
   if (s.type === "once") return `Once${s.runAtTimestamp ? ` at ${s.runAtTimestamp}` : ""} — ${cap}`
@@ -59,9 +104,11 @@ export async function prepareWalletOrder(
   ctx: PrepareWalletOrderCtx,
   input: PrepareWalletOrderInput,
 ): Promise<DraftToolResult> {
-  const schedule = input.schedule
-  if (schedule && !["once", "daily", "weekly"].includes(schedule.type)) {
-    return refuse("hourly_not_allowed", "Hourly or other repeating schedules are not allowed. Offer a once, daily or weekly schedule instead.")
+  let schedule: ValidSchedule | undefined
+  if (input.schedule) {
+    const v = validateSchedule(input.schedule)
+    if ("refused" in v) return v
+    schedule = v.schedule
   }
 
   const phone = normalisePhone(input.phone_number)
@@ -71,8 +118,8 @@ export async function prepareWalletOrder(
 
   const { data: pkg, error: pkgErr } = await db
     .from("packages")
-    .select("id, size, price, dealer_price, is_available")
-    .ilike("network", String(input.network))
+    .select("id, network, size, price, dealer_price, is_available")
+    .ilike("network", escapeLike(String(input.network)))
     .eq("size", String(input.size))
     .eq("is_available", true)
     .maybeSingle()
@@ -136,7 +183,7 @@ export async function prepareWalletOrder(
   const recipientMasked = maskPhone(phone)
   const scheduleText = schedule ? describeSchedule(schedule, price) : undefined
   const lines: { label: string; value: string }[] = [
-    { label: "Package", value: `${(pkg as any).network ?? input.network} ${input.size}` },
+    { label: "Package", value: `${(pkg as any).network} ${(pkg as any).size}` },
     { label: "Recipient", value: recipientMasked },
     { label: "Price", value: `GHS ${price.toFixed(2)}` },
     { label: "Balance now", value: `GHS ${before.toFixed(2)}` },
@@ -163,8 +210,8 @@ export async function prepareWalletOrder(
     action: "wallet_order",
     params: {
       packageId: (pkg as any).id,
-      network: String(input.network),
-      size: String(input.size),
+      network: String((pkg as any).network),
+      size: String((pkg as any).size),
       recipient: phone,
       price,
       balanceBefore: before,

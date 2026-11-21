@@ -43,8 +43,21 @@ function fakeDb(tables: Record<string, Row[]>) {
         insert(r: Row) { op = "insert"; inserted = r; return b },
         update(p: Row) { op = "update"; patch = p; return b },
         select() { return b },
-        eq(c: string, v: unknown) { filters.push((r) => r[c] === v); return b },
-        ilike(c: string, v: string) { filters.push((r) => String(r[c]).toLowerCase() === v.toLowerCase()); return b },
+        eq(c: string, v: unknown) { filters.push((r) => r[c] === v || (c === "size" && String(r[c]) === String(v))); return b },
+        ilike(c: string, v: string) {
+          // Postgres ILIKE: unescaped % and _ are wildcards, backslash escapes
+          let re = ""
+          for (let i = 0; i < v.length; i++) {
+            const ch = v[i]
+            if (ch === "\\" && i + 1 < v.length) re += v[++i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            else if (ch === "%") re += ".*"
+            else if (ch === "_") re += "."
+            else re += ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+          }
+          const rx = new RegExp(`^${re}$`, "i")
+          filters.push((r) => rx.test(String(r[c])))
+          return b
+        },
         not(c: string, _o: string, v: string) {
           const list = v.replace(/[()]/g, "").split(",")
           filters.push((r) => !list.includes(r[c]))
@@ -170,6 +183,70 @@ describe("prepareWalletOrder", () => {
     const r: any = await prepareWalletOrder(setup(), { ...CTX, userRole: "dealer" }, input({ phone_number: "0241110012" }))
     expect(r.display.priceGhs).toBe(4)
     expect(vi.mocked(walletOrderPrice).mock.calls[0][2]).toBe("dealer")
+  })
+
+  const sched = (phone: string, schedule: unknown) => prepareWalletOrder(setup(), CTX, input({ phone_number: phone, schedule })) as Promise<any>
+  const future = () => new Date(Date.now() + 86_400_000).toISOString()
+
+  it("weekly_without_days_refused", async () => {
+    expect((await sched("0241120001", { type: "weekly", runAtTime: "08:00" })).code).toBe("invalid_schedule")
+    expect((await sched("0241120002", { type: "weekly", runAtTime: "08:00", runOnDays: [] })).code).toBe("invalid_schedule")
+  })
+
+  it("run_on_days_out_of_range_refused", async () => {
+    expect((await sched("0241120003", { type: "weekly", runAtTime: "08:00", runOnDays: [1, 7] })).code).toBe("invalid_schedule")
+    expect((await sched("0241120004", { type: "weekly", runAtTime: "08:00", runOnDays: [1.5] })).code).toBe("invalid_schedule")
+    expect((await sched("0241120005", { type: "weekly", runAtTime: "08:00", runOnDays: [1, 1] })).code).toBe("invalid_schedule")
+  })
+
+  it("bad_run_at_time_refused", async () => {
+    expect((await sched("0241120006", { type: "daily", runAtTime: "25:00" })).code).toBe("invalid_schedule")
+    expect((await sched("0241120007", { type: "daily", runAtTime: "8:00" })).code).toBe("invalid_schedule")
+    expect((await sched("0241120008", { type: "daily" })).code).toBe("invalid_schedule")
+  })
+
+  it("once_in_past_refused", async () => {
+    expect((await sched("0241120009", { type: "once", runAtTimestamp: new Date(Date.now() - 60_000).toISOString() })).code).toBe("invalid_schedule")
+    expect((await sched("0241120010", { type: "once", runAtTimestamp: "not a date" })).code).toBe("invalid_schedule")
+    expect((await sched("0241120011", { type: "once" })).code).toBe("invalid_schedule")
+  })
+
+  it("unknown schedule type is invalid_schedule, hourly stays hourly_not_allowed", async () => {
+    expect((await sched("0241120012", { type: "monthly", runAtTime: "08:00" })).code).toBe("invalid_schedule")
+    expect((await sched("0241120013", { type: "hourly" })).code).toBe("hourly_not_allowed")
+  })
+
+  it("schedule_extra_keys_dropped", async () => {
+    const db = setup()
+    const ts = future()
+    const r: any = await prepareWalletOrder(db, CTX, input({
+      phone_number: "0241120014",
+      schedule: { type: "once", runAtTimestamp: ts, runAtTime: "09:00", runOnDays: [3], evil: "x" },
+    }))
+    expect(r.draft_id).toBeTruthy()
+    expect(db.tables.ai_drafts[0].params.schedule).toEqual({ type: "once", runAtTimestamp: ts })
+    const w: any = await prepareWalletOrder(db, CTX, input({
+      phone_number: "0241120015",
+      schedule: { type: "weekly", runAtTime: "08:00", runOnDays: [5, 1], extra: 1 },
+    }))
+    expect(w.draft_id).toBeTruthy()
+    expect(db.tables.ai_drafts[1].params.schedule).toEqual({ type: "weekly", runAtTime: "08:00", runOnDays: [1, 5] })
+  })
+
+  it("params_use_resolved_package_values", async () => {
+    const db = setup({ pkgs: [{ id: PKG, network: "MTN", size: 1, price: 5, dealer_price: 4, is_available: true }] })
+    const r: any = await prepareWalletOrder(db, CTX, input({ network: "mtn", size: "1", phone_number: "0241120016" }))
+    expect(r.draft_id).toBeTruthy()
+    expect(db.tables.ai_drafts[0].params.network).toBe("MTN")
+    expect(db.tables.ai_drafts[0].params.size).toBe("1")
+    expect(JSON.stringify(r.display.lines)).toContain("MTN 1")
+  })
+
+  it("network_wildcards_escaped", async () => {
+    for (const [i, n] of ["%", "M%", "_TN", "M\\TN"].entries()) {
+      const r: any = await prepareWalletOrder(setup(), CTX, input({ network: n, phone_number: `024112002${i}` }))
+      expect(r.code).toBe("unknown_package")
+    }
   })
 
   it("schedule_text_includes_cap", async () => {
