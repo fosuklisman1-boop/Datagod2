@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { selectPromptOrderTasks, maskPrompt, chunk, planNotifications, runPause, type PauseTask } from "./pause-prompt-orders"
+import { selectPromptOrderTasks, maskPrompt, chunk, planNotifications, runPause, PauseChunkError, type PauseTask } from "./pause-prompt-orders"
 
 const t = (o: Partial<PauseTask>): PauseTask => ({
   id: "t1", user_id: "u1", schedule_type: "daily", prompt: "Buy 1GB data daily",
@@ -86,5 +86,28 @@ describe("runPause", () => {
     const deps = { deactivate: vi.fn().mockRejectedValue(new Error("db")), push: vi.fn() }
     await expect(runPause(rows, true, deps)).rejects.toThrow("db")
     expect(deps.push).not.toHaveBeenCalled()
+  })
+})
+
+describe("runPause chunk failure", () => {
+  it("chunk_failure_notifies_already_paused_owners", async () => {
+    const rows = Array.from({ length: 250 }, (_, i) => t({ id: `id${i}`, user_id: `u${i % 3}` }))
+    const deactivate = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("db"))
+    const push = vi.fn().mockResolvedValue({ sent: 1 })
+    const err = await runPause(rows, true, { deactivate, push }).catch(e => e)
+    expect(err).toBeInstanceOf(PauseChunkError)
+    expect(err.pausedIds).toHaveLength(100)
+    expect(err.failedIds).toHaveLength(100)
+    expect(err.failedIds[0]).toBe("id100")
+    // first chunk's three owners were notified before the failure, once each
+    expect(push.mock.calls.map(c => c[0]).sort()).toEqual(["u0", "u1", "u2"])
+    expect(err.result.notified).toBe(3)
+  })
+
+  it("does not notify an owner again in a later chunk", async () => {
+    const rows = Array.from({ length: 250 }, (_, i) => t({ id: `id${i}`, user_id: `u${i % 3}` }))
+    const push = vi.fn().mockResolvedValue({ sent: 1 })
+    await runPause(rows, true, { deactivate: vi.fn().mockResolvedValue(undefined), push })
+    expect(push).toHaveBeenCalledTimes(3)
   })
 })

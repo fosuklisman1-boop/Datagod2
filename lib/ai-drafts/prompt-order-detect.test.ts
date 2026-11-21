@@ -31,3 +31,19 @@ describe("looksLikeOrderPrompt", () => {
     expect(looksLikeOrderPrompt("my data usage")).toBe(false)
   })
 })
+
+describe("order verb coverage", () => {
+  it("detects_top_hyphen_up", () => {
+    expect(looksLikeOrderPrompt("Top-up 2GB for my sister weekly")).toBe(true)
+    expect(looksLikeOrderPrompt("I topped up 1gb last week, do it again")).toBe(true)
+  })
+  it("detects_recharge_data", () => {
+    expect(looksLikeOrderPrompt("Recharge 5GB data every month")).toBe(true)
+  })
+  it("detects_gift_1gb", () => {
+    expect(looksLikeOrderPrompt("Gift 1GB to 0241234567 on Fridays")).toBe(true)
+  })
+  it("ignores_get_my_balance", () => {
+    expect(looksLikeOrderPrompt("Get my balance and data usage")).toBe(false)
+  })
+})

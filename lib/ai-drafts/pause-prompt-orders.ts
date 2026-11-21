@@ -55,21 +55,48 @@ export function planNotifications(tasks: PauseTask[]): { userId: string; url: st
   return [...seen].map(([userId, url]) => ({ userId, url }))
 }
 
-/** Dry run (apply=false) touches nothing. Apply pauses in chunks, then pushes each owner once. */
+/** A chunk update failed mid-run. Carries ids only (no prompts/phones) so the operator can recover. */
+export class PauseChunkError extends Error {
+  constructor(
+    cause: unknown,
+    public pausedIds: string[],
+    public failedIds: string[],
+    public result: PauseResult,
+  ) {
+    super(`Pause failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    this.name = "PauseChunkError"
+  }
+}
+
+/**
+ * Dry run (apply=false) touches nothing. Apply pauses chunk by chunk and pushes the owners of each
+ * chunk right after its update succeeds (an owner already notified in an earlier chunk is skipped),
+ * so a later failure never leaves paused tasks un-notified.
+ */
 export async function runPause(tasks: PauseTask[], apply: boolean, deps: PauseDeps): Promise<PauseResult> {
   const result: PauseResult = { matched: tasks.length, paused: 0, notified: 0, pushFailures: 0 }
   if (!apply) return result
-  for (const ids of chunk(tasks.map(t => t.id), CHUNK_SIZE)) {
-    await deps.deactivate(ids)
-    result.paused += ids.length
-  }
-  for (const { userId, url } of planNotifications(tasks)) {
+  const pausedIds: string[] = []
+  const notifiedOwners = new Set<string>()
+  for (const group of chunk(tasks, CHUNK_SIZE)) {
+    const ids = group.map(t => t.id)
     try {
-      const r = await deps.push(userId, { title: PUSH_TITLE, body: PUSH_BODY, data: { url } })
-      if (r.sent > 0) result.notified++
-      else result.pushFailures++
-    } catch {
-      result.pushFailures++
+      await deps.deactivate(ids)
+    } catch (err) {
+      throw new PauseChunkError(err, pausedIds, ids, result)
+    }
+    pausedIds.push(...ids)
+    result.paused += ids.length
+    for (const { userId, url } of planNotifications(group)) {
+      if (notifiedOwners.has(userId)) continue
+      notifiedOwners.add(userId)
+      try {
+        const r = await deps.push(userId, { title: PUSH_TITLE, body: PUSH_BODY, data: { url } })
+        if (r.sent > 0) result.notified++
+        else result.pushFailures++
+      } catch {
+        result.pushFailures++
+      }
     }
   }
   return result

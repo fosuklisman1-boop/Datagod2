@@ -8,7 +8,7 @@
 // Idempotent: paused tasks are inactive, so a re-run finds nothing new.
 // Tasks that already have a standing_order are new-style and never touched.
 import { createClient } from "@supabase/supabase-js"
-import { maskPrompt, runPause, selectPromptOrderTasks, type PauseTask } from "../lib/ai-drafts/pause-prompt-orders"
+import { maskPrompt, PauseChunkError, runPause, selectPromptOrderTasks, type PauseTask } from "../lib/ai-drafts/pause-prompt-orders"
 
 const PAGE = 1000
 
@@ -45,15 +45,27 @@ async function main() {
   console.log("task_id\tuser_id\tschedule_type\tprompt")
   for (const t of tasks) console.log(`${t.id}\t${t.user_id}\t${t.schedule_type}\t${maskPrompt(t.prompt)}`)
 
-  // Imported lazily: lib/push-service builds its Supabase client at import time.
-  const { sendPushToUser } = await import("../lib/push-service")
-  const result = await runPause(tasks, apply, {
-    async deactivate(ids) {
-      const { error } = await supabase.from("ai_scheduled_tasks").update({ is_active: false }).in("id", ids)
-      if (error) throw new Error(`Pause failed: ${error.message}`)
-    },
-    push: (userId, payload) => sendPushToUser(userId, payload),
-  })
+  // Imported lazily and only for --apply: lib/push-service builds its Supabase client at import time.
+  const sendPushToUser = apply ? (await import("../lib/push-service")).sendPushToUser : null
+  let result
+  try {
+    result = await runPause(tasks, apply, {
+      async deactivate(ids) {
+        const { error } = await supabase.from("ai_scheduled_tasks").update({ is_active: false }).in("id", ids)
+        if (error) throw new Error(error.message)
+      },
+      push: (userId, payload) => sendPushToUser!(userId, payload),
+    })
+  } catch (err) {
+    if (err instanceof PauseChunkError) {
+      console.error(err.message)
+      console.error(`Paused so far (${err.pausedIds.length}): ${err.pausedIds.join(",")}`)
+      console.error(`Failing chunk, state unknown (${err.failedIds.length}): ${err.failedIds.join(",")}`)
+      console.error(`Notified: ${err.result.notified}, push failures: ${err.result.pushFailures}`)
+      process.exit(1)
+    }
+    throw err
+  }
 
   console.log(`Total matched: ${result.matched}`)
   if (apply) console.log(`Paused: ${result.paused}, notified: ${result.notified}, push failures: ${result.pushFailures}`)
