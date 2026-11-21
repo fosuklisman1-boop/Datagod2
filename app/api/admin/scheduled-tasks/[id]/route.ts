@@ -62,20 +62,28 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id } = await params
 
-  // Verify ownership for non-admins
-  if (!isAdmin) {
-    const { data: existing } = await supabase
-      .from("ai_scheduled_tasks")
-      .select("user_id")
-      .eq("id", id)
-      .maybeSingle()
-    if (!existing || existing.user_id !== userId) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 })
-    }
+  // Verify ownership for non-admins; also learn whether this is a standing order (locked below).
+  const { data: existing } = await supabase
+    .from("ai_scheduled_tasks")
+    .select("user_id, standing_order")
+    .eq("id", id)
+    .maybeSingle()
+  if (!isAdmin && (!existing || existing.user_id !== userId)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
 
   try {
     const body = await request.json()
+
+    // A standing order buys with no one present, so what it does and when must stay exactly what the user approved on
+    // the card. Only pausing/resuming (is_active) and deleting are allowed; anything else needs a new card.
+    if (existing?.standing_order != null) {
+      const LOCKED = ["schedule_type", "run_at_time", "run_on_days", "run_at_timestamp", "prompt", "context", "name"]
+      if (body && typeof body === "object" && LOCKED.some((k) => (body as Record<string, unknown>)[k] !== undefined)) {
+        return NextResponse.json({ error: "Scheduled orders can't be edited. Pause or delete it and confirm a new card." }, { status: 400 })
+      }
+    }
+
     const updates: Record<string, unknown> = {}
     if (body.is_active !== undefined) updates.is_active = body.is_active
     if (body.prompt !== undefined) updates.prompt = body.prompt

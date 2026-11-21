@@ -135,7 +135,7 @@ async function processStandingOrder(
     outcome = { result: "failed", reason: "error" }
   }
 
-  const advance: Record<string, unknown> = { next_run_at: computeNextRun(task).toISOString() }
+  const advance: Record<string, unknown> = { next_run_at: computeNextRun(task, { includeToday: false }).toISOString() }
   if (task.schedule_type === "once") advance.is_active = false
 
   if (outcome.result === "ordered") {
@@ -318,7 +318,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Compute next run time
-      const nextRunAt = computeNextRun(task)
+      const nextRunAt = computeNextRun(task, { includeToday: false })
 
       // Update task record
       const updatePayload: Record<string, unknown> = {

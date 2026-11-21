@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
       run_on_days: run_on_days ?? null,
       run_at_timestamp: run_at_timestamp ?? null,
       notify_channels: notify_channels ?? ["push"],
-      next_run_at: computeNextRun({ schedule_type, run_at_time, run_on_days, run_at_timestamp }).toISOString(),
+      next_run_at: computeNextRun({ schedule_type, run_at_time, run_on_days, run_at_timestamp }, { includeToday: true }).toISOString(),
       created_by: userId,
     }
 

@@ -73,6 +73,10 @@ const task = (over: Row = {}) => ({
   next_run_at: SLOT,
   approved_draft_id: DRAFT,
   consecutive_skips: 0,
+  schedule_type: "daily",
+  run_at_time: "08:00",
+  run_on_days: null,
+  run_at_timestamp: null,
   standing_order: { package_id: PKG, network: "MTN", size: "5GB", recipient: "0241234567", max_price_ghs: 20 },
   ...over,
 })
@@ -205,6 +209,49 @@ describe("runStandingOrder", () => {
     expect(await runStandingOrder(db, task(), ctx(f))).toMatchObject({ result: "paused", reason: "suspended" })
     expect(db.tables.ai_scheduled_tasks[0].is_active).toBe(false)
     expect(f).not.toHaveBeenCalled()
+  })
+
+  it("standing_order_schedule_tampered_pauses", async () => {
+    const f = vi.fn()
+    const weekly = { type: "weekly", runAtTime: "08:00", runOnDays: [1, 3] }
+    const once = { type: "once", runAtTimestamp: "2026-12-01T08:00:00.000Z" }
+    const withSchedule = (schedule: unknown) =>
+      tables({ ai_drafts: [{ id: DRAFT, user_id: USER, action: "wallet_order", status: "succeeded", params: { ...params, schedule } }] })
+    const cases: Array<[Row, any]> = [
+      [{ run_at_time: "09:00" }, undefined], // time changed
+      [{ schedule_type: "weekly", run_on_days: [1, 3, 5] }, undefined], // type + days changed
+      [{ run_at_timestamp: "2026-12-01T08:00:00.000Z" }, undefined], // timestamp added
+      [{ schedule_type: "weekly", run_at_time: "08:00", run_on_days: [1, 3, 4] }, weekly], // days differ from a weekly draft
+      [{ schedule_type: "once", run_at_time: null, run_at_timestamp: "2026-12-02T08:00:00.000Z" }, once], // timestamp differs
+    ]
+    for (const [over, sched] of cases) {
+      const db = fakeDb(sched ? withSchedule(sched) : tables())
+      expect(await runStandingOrder(db, task(over), ctx(f)), JSON.stringify(over)).toMatchObject({ result: "paused", reason: "safety_check" })
+      expect(db.tables.ai_scheduled_tasks[0].is_active).toBe(false)
+    }
+    expect(f).not.toHaveBeenCalled()
+    // Matching schedules still run: day order is irrelevant and a postgres-style timestamp equals the ISO one.
+    const g = vi.fn().mockResolvedValue(res(200, { order: { order_code: "O" } }))
+    expect((await runStandingOrder(fakeDb(withSchedule(weekly)), task({ schedule_type: "weekly", run_on_days: [3, 1] }), ctx(g))).result).toBe("ordered")
+    expect((await runStandingOrder(fakeDb(withSchedule(once)), task({ schedule_type: "once", run_at_time: null, run_at_timestamp: "2026-12-01T08:00:00+00:00" }), ctx(g))).result).toBe("ordered")
+  })
+
+  it("timeout_but_order_exists_is_success", async () => {
+    const key = standingOrderKey(TASK, SLOT)
+    const db = fakeDb(tables({ orders: [{ id: "o1", user_id: USER, idempotency_key: key, order_code: "ORD-55" }] }))
+    const timeout = vi.fn().mockRejectedValue(new Error("aborted"))
+    expect(await runStandingOrder(db, task(), ctx(timeout))).toMatchObject({ result: "ordered", orderCode: "ORD-55" })
+    const fiveHundred = vi.fn().mockResolvedValue(res(500, { error: "boom" }))
+    expect(await runStandingOrder(db, task(), ctx(fiveHundred))).toMatchObject({ result: "ordered", orderCode: "ORD-55" })
+    expect(timeout).toHaveBeenCalledTimes(1)
+  })
+
+  it("timeout_and_no_order_is_failure", async () => {
+    const other = { id: "o2", user_id: "99999999-9999-4999-8999-999999999999", idempotency_key: standingOrderKey(TASK, SLOT), order_code: "ORD-X" }
+    const db = fakeDb(tables({ orders: [other, { id: "o3", user_id: USER, idempotency_key: "00000000-0000-5000-8000-000000000000" }] }))
+    const timeout = vi.fn().mockRejectedValue(new Error("aborted"))
+    expect(await runStandingOrder(db, task(), ctx(timeout))).toMatchObject({ result: "failed" })
+    expect(await runStandingOrder(db, task(), ctx(vi.fn().mockResolvedValue(res(500, {}))))).toMatchObject({ result: "failed" })
   })
 
   it("logs no PII when pausing", async () => {

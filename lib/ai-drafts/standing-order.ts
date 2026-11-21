@@ -50,6 +50,10 @@ export interface StandingOrderTask {
   next_run_at: string
   standing_order: Partial<StandingOrderFields> | null
   approved_draft_id: string | null
+  schedule_type: string
+  run_at_time?: string | null
+  run_on_days?: number[] | null
+  run_at_timestamp?: string | null
 }
 
 export type StandingOrderOutcome =
@@ -86,12 +90,15 @@ export async function createStandingOrderTask(db: SupabaseClient, draft: Pick<Ai
   if (existing) return { ok: true, taskId: String((existing as any).id), nextRunAt: String((existing as any).next_run_at) }
 
   const { data: userRow } = await db.from("users").select("role").eq("id", draft.user_id).maybeSingle()
-  const nextRunAt = computeNextRun({
-    schedule_type: s.type,
-    run_at_time: s.runAtTime ?? null,
-    run_on_days: s.runOnDays ?? null,
-    run_at_timestamp: s.runAtTimestamp ?? null,
-  }).toISOString()
+  const nextRunAt = computeNextRun(
+    {
+      schedule_type: s.type,
+      run_at_time: s.runAtTime ?? null,
+      run_on_days: s.runOnDays ?? null,
+      run_at_timestamp: s.runAtTimestamp ?? null,
+    },
+    { includeToday: true },
+  ).toISOString()
 
   const { data, error } = await db
     .from("ai_scheduled_tasks")
@@ -128,6 +135,19 @@ export async function createStandingOrderTask(db: SupabaseClient, draft: Pick<Ai
 // ---------------------------------------------------------------------------------------------------------------------
 // Run (cron, no model)
 // ---------------------------------------------------------------------------------------------------------------------
+
+/** The task's schedule columns must equal what the user approved on the card (days order-insensitive, timestamps by instant). */
+function sameSchedule(task: StandingOrderTask, approved: Record<string, any>): boolean {
+  if (task.schedule_type !== approved.type) return false
+  if ((task.run_at_time ?? null) !== (approved.runAtTime ?? null)) return false
+  const days = (v: unknown) => (Array.isArray(v) && v.length ? [...v].map(Number).sort((a, b) => a - b).join(",") : "")
+  if (days(task.run_on_days) !== days(approved.runOnDays)) return false
+  const ts = (v: unknown) => (v == null || v === "" ? null : Date.parse(String(v)))
+  const a = ts(task.run_at_timestamp)
+  const b = ts(approved.runAtTimestamp)
+  if (a === null || b === null) return a === b
+  return Number.isFinite(a) && a === b
+}
 
 async function pause(db: SupabaseClient, taskId: string, reason: "safety_check" | "suspended"): Promise<StandingOrderOutcome> {
   // Fixed marker only: no ids, numbers or names.
@@ -169,7 +189,8 @@ export async function runStandingOrder(db: SupabaseClient, task: StandingOrderTa
     !!dp?.schedule &&
     dp.packageId === so.package_id &&
     dp.recipient === so.recipient &&
-    sameMoney(Number(dp.price), Number(so.max_price_ghs))
+    sameMoney(Number(dp.price), Number(so.max_price_ghs)) &&
+    sameSchedule(task, dp.schedule)
   if (!approved) return pause(db, task.id, "safety_check")
 
   let user: Record<string, any> | null = null
@@ -202,6 +223,7 @@ export async function runStandingOrder(db: SupabaseClient, task: StandingOrderTa
   if (price > Number(so.max_price_ghs) + 0.004) return { result: "skipped", reason: "above_cap" }
   if (!Number.isFinite(balance) || balance < price) return { result: "skipped", reason: "insufficient_balance" }
 
+  const key = standingOrderKey(task.id, task.next_run_at)
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), ctx.timeoutMs ?? 15_000)
   try {
@@ -213,7 +235,7 @@ export async function runStandingOrder(db: SupabaseClient, task: StandingOrderTa
         phoneNumber: so.recipient,
         network: String(pkg.network),
         userId: task.user_id,
-        idempotencyKey: standingOrderKey(task.id, task.next_run_at),
+        idempotencyKey: key,
       }),
       signal: ctrl.signal,
     })
@@ -230,10 +252,23 @@ export async function runStandingOrder(db: SupabaseClient, task: StandingOrderTa
       return { result: "ordered", ...(typeof code === "string" ? { orderCode: code } : {}) }
     }
     if (r.status === 402) return { result: "skipped", reason: "insufficient_balance" }
-    return { result: "failed", reason: `http_${r.status}` }
+    return (await reconcile(db, task, key)) ?? { result: "failed", reason: `http_${r.status}` }
   } catch {
-    return { result: "failed", reason: "no_response" }
+    // A timeout or dropped connection does not mean the order was not placed: look it up by the slot key.
+    return (await reconcile(db, task, key)) ?? { result: "failed", reason: "no_response" }
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/** After an unclear purchase answer: is there already an order for this exact slot? Owner-scoped, read only. */
+async function reconcile(db: SupabaseClient, task: StandingOrderTask, key: string): Promise<StandingOrderOutcome | null> {
+  try {
+    const { data, error } = await db.from("orders").select("order_code").eq("idempotency_key", key).eq("user_id", task.user_id).maybeSingle()
+    if (error || !data) return null
+    const code = (data as any).order_code
+    return { result: "ordered", ...(typeof code === "string" ? { orderCode: code } : {}) }
+  } catch {
+    return null
   }
 }

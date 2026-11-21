@@ -1,6 +1,8 @@
 // The single copy of the scheduled-task "when next?" rule, shared by the scheduled-tasks POST route, the run-ai-tasks
-// cron and standing-order creation. This is the cron's version moved verbatim: the admin route used to carry a second,
-// slightly different copy (weekly scanned offsets 0..7 and allowed "later today"); weekly now always starts tomorrow.
+// cron and standing-order creation. The admin route and the cron used to carry two slightly different copies; they differ
+// only for weekly tasks, and each caller keeps its old behaviour through `includeToday`:
+//   includeToday: true  = the admin POST route's rule: weekly scans today first (offset 0) and may run later today.
+//   includeToday: false = the cron's advance rule: weekly always starts tomorrow (offset 1).
 
 export interface NextRunInput {
   schedule_type: string
@@ -9,7 +11,7 @@ export interface NextRunInput {
   run_at_timestamp?: string | null
 }
 
-export function computeNextRun(task: NextRunInput): Date {
+export function computeNextRun(task: NextRunInput, opts: { includeToday: boolean }): Date {
   const now = new Date()
 
   if (task.schedule_type === "once") {
@@ -33,11 +35,13 @@ export function computeNextRun(task: NextRunInput): Date {
 
   if (task.schedule_type === "weekly" && task.run_at_time && task.run_on_days?.length) {
     const [hh, mm] = task.run_at_time.split(":").map(Number)
-    for (let offset = 1; offset <= 7; offset++) {
+    for (let offset = opts.includeToday ? 0 : 1; offset <= 7; offset++) {
       const candidate = new Date(now)
       candidate.setUTCDate(candidate.getUTCDate() + offset)
       candidate.setUTCHours(hh, mm, 0, 0)
-      if (task.run_on_days.includes(candidate.getUTCDay())) return candidate
+      if (!task.run_on_days.includes(candidate.getUTCDay())) continue
+      // Admin rule also required the slot to be in the future; the cron rule never looked at today so never needed to.
+      if (opts.includeToday ? candidate > now : true) return candidate
     }
   }
 
