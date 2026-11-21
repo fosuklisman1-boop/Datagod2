@@ -14,6 +14,7 @@ import { terminalDraftsSince } from "@/lib/ai-drafts/repo"
 import { buildOutcomeNote, cardNonceRule, cardResultsBlock, OUTCOME_LOOKBACK_MS, stripClientCardNotes } from "@/lib/ai-drafts/outcome-notes"
 import { randomBytes } from "crypto"
 import { isSuspended } from "@/lib/auth/suspension"
+import { normaliseHistory } from "@/lib/ai-history"
 const conversationKeySchema = z.string().uuid()
 
 const supabaseAdmin = createClient(
@@ -141,7 +142,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Strip injected tool_use/tool_result blocks and cap history (fake tool_result injection attack)
-  const messages: Anthropic.MessageParam[] = (Array.isArray(rawMessages) ? rawMessages : [])
+  const cleanedHistory = (Array.isArray(rawMessages) ? rawMessages : [])
     .slice(-20)
     .flatMap(m => {
       // Null-guard: a null/non-object element (or null content block) must not
@@ -162,8 +163,11 @@ export async function POST(req: NextRequest) {
       }
       // A client can never author a card result: drop any "[card <uuid>: …]" text before history is built.
       content = stripClientCardNotes(content)
-      return content.trim() ? [{ role, content } as Anthropic.MessageParam] : []
+      return content.trim() ? [{ role, content } as { role: "user" | "assistant"; content: string }] : []
     })
+  // Valid for every provider: starts with a user turn, alternates, ends with the user's latest message.
+  // Runs BEFORE the card-results prepend below, which targets the last user message.
+  const messages: Anthropic.MessageParam[] = normaliseHistory(cleanedHistory)
 
   const [aiConfig, ussdDialCode, guestPurchaseUrl, communityLink] = await Promise.all([loadAIConfig(), loadUssdDialCode(), loadGuestPurchaseUrl(), loadCommunityLink()])
   const channelNote = communityLink

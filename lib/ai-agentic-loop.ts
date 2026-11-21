@@ -99,7 +99,7 @@ export async function runAgenticLoop({
         // A filtered run never executes a tool it was not offered (a model can name one anyway).
         const result = toolFilter && !allowedNames.has(tc.name)
           ? { error: "This tool is not available in this run." }
-          : await executeToolCall(tc.name, tc.input, { ...toolCtx, context })
+          : await executeToolCall(tc.name, tc.input, { ...toolCtx, context, storefrontServices })
 
         if (tc.name === "prepare_checkout") {
           emit({ type: "checkout_prefill", data: result })
@@ -118,7 +118,9 @@ export async function runAgenticLoop({
           }
         }
 
-        const resultStr = JSON.stringify(result)
+        // Fence hardening: neutralise any <data ...> / </data> tag in the tool output BEFORE truncating, so a
+        // result can neither close the fence early nor leave a half-formed tag at the cut.
+        const resultStr = (JSON.stringify(result) ?? "null").replace(/<\s*(\/?)\s*data\b[^>]*(?:>|$)/gi, (_m, slash: string) => (slash ? "[/data]" : "[data]"))
         const truncated = resultStr.length > 3000 ? resultStr.slice(0, 3000) + "…[truncated]" : resultStr
         toolResults.push({
           type: "tool_result",
