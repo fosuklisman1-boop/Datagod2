@@ -99,3 +99,29 @@ describe("executeToolCall is scoped to the request context", () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
+
+describe("storefront service flags gate execution too (R2)", () => {
+  it("storefront_results_only_refuses_data_tool", async () => {
+    const flags = { sellsData: false, sellsAirtime: false, sellsResultsChecker: true }
+    expect(isToolAllowed("get_available_packages", "storefront", flags)).toBe(false)
+    expect(isToolAllowed("get_results_checker_availability", "storefront", flags)).toBe(true)
+    // Unflagged callers and other contexts are unaffected.
+    expect(isToolAllowed("get_available_packages", "storefront")).toBe(true)
+    expect(isToolAllowed("get_available_packages", "dashboard", flags)).toBe(true)
+    // End to end through executeToolCall.
+    const fetchSpy = vi.fn()
+    vi.stubGlobal("fetch", fetchSpy)
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    const r = await executeToolCall("get_available_packages", {}, { baseUrl: "http://x", userRole: "guest", context: "storefront", storefrontServices: flags })
+    expect(r).toEqual({ error: "tool_not_available" })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it("visible_equals_callable under flags", () => {
+    const flags = { sellsData: false, sellsAirtime: true, sellsResultsChecker: false }
+    const visible = names(toolsFor("storefront", flags)).sort()
+    const callable = TOOL_REGISTRY.filter((e) => isToolAllowed(e.tool.name, "storefront", flags)).map((e) => e.tool.name).sort()
+    expect(visible).toEqual(callable)
+  })
+})

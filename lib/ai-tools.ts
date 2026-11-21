@@ -1135,17 +1135,22 @@ const REGISTRY_BY_NAME = new Map<string, ToolEntry>(TOOL_REGISTRY.map((e) => [e.
  * whose `storefrontNeeds` services are all off, so a results-checker-only shop never sees data-only tools.
  */
 function toolsFor(context: AIChatContext, storefrontServices?: StorefrontServiceFlags): Anthropic.Tool[] {
-  const { sellsData = true, sellsAirtime = true, sellsResultsChecker = true } = storefrontServices ?? {}
-  const sells = { data: sellsData, airtime: sellsAirtime, results: sellsResultsChecker }
-  return TOOL_REGISTRY
-    .filter((e) => e.contexts.includes(context))
-    .filter((e) => context !== "storefront" || !e.storefrontNeeds || e.storefrontNeeds.some((s) => sells[s]))
-    .map((e) => e.tool)
+  return TOOL_REGISTRY.filter((e) => entryAllowed(e, context, storefrontServices)).map((e) => e.tool)
 }
 
-/** True when `name` is registered for `context`. Storefront service flags only narrow the offered list further. */
-function isToolAllowed(name: string, context: AIChatContext): boolean {
-  return REGISTRY_BY_NAME.get(name)?.contexts.includes(context) ?? false
+/** Context membership plus (storefront only) the shop's service flags; absent flags mean every service is sold. */
+function entryAllowed(e: ToolEntry, context: AIChatContext, storefrontServices?: StorefrontServiceFlags): boolean {
+  if (!e.contexts.includes(context)) return false
+  if (context !== "storefront" || !e.storefrontNeeds) return true
+  const { sellsData = true, sellsAirtime = true, sellsResultsChecker = true } = storefrontServices ?? {}
+  const sells = { data: sellsData, airtime: sellsAirtime, results: sellsResultsChecker }
+  return e.storefrontNeeds.some((s) => sells[s])
+}
+
+/** True when `name` may run in `context`: registered for it and, on a storefront, its needed services are sold. Same rule as toolsFor, so visible == callable. */
+function isToolAllowed(name: string, context: AIChatContext, storefrontServices?: StorefrontServiceFlags): boolean {
+  const e = REGISTRY_BY_NAME.get(name)
+  return e ? entryAllowed(e, context, storefrontServices) : false
 }
 
 export { TOOL_REGISTRY, toolsFor, isToolAllowed }
@@ -1193,6 +1198,8 @@ export interface ToolContext {
   background?: boolean
   // The AI context this request runs in. REQUIRED: executeToolCall refuses any tool not registered for it.
   context: AIChatContext
+  // Storefront only: the services this shop/domain sells (same flags that narrow the offered list). Absent = all.
+  storefrontServices?: StorefrontServiceFlags
 }
 
 // Admin-only tool names. These either mutate platform state or read data via the
@@ -1236,7 +1243,7 @@ export async function executeToolCall(
   try {
     // Context scope: a tool not registered for this request's context never runs, whatever the model asked for.
     // Fixed, PII-free log marker (tool name + context only).
-    if (!isToolAllowed(name, ctx.context)) {
+    if (!isToolAllowed(name, ctx.context, ctx.storefrontServices)) {
       console.warn(`[AI-TOOLS] tool_not_available tool=${name.slice(0, 64).replace(/[^\w.-]/g, "_")} context=${String(ctx.context)}`)
       return { error: "tool_not_available" }
     }
