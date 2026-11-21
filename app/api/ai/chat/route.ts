@@ -144,6 +144,8 @@ function normaliseAndRestrip(history: Array<{ role: "user" | "assistant"; conten
     .filter((m) => m.content.trim())
 }
 
+const WEB_CHAT_CONTEXTS: ReadonlySet<string> = new Set(["home", "storefront", "dashboard", "admin"])
+
 export async function POST(req: NextRequest) {
   // Parse defensively: malformed / non-JSON bodies (fuzzers send form-encoded or
   // garbage payloads) must return a clean 400, not crash the handler with an
@@ -173,6 +175,14 @@ export async function POST(req: NextRequest) {
   if (context === "whatsapp" || context === "whatsapp_shop") {
     return new Response(
       JSON.stringify({ error: "WhatsApp AI context is only available through the WhatsApp webhook." }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    )
+  }
+
+  // Allowlist: anything else must not reach auth, knowledge, provider or tools (it used to fall into the admin prompt).
+  if (typeof context !== "string" || !WEB_CHAT_CONTEXTS.has(context)) {
+    return new Response(
+      JSON.stringify({ error: "Invalid context" }),
       { status: 400, headers: { "Content-Type": "application/json" } }
     )
   }
@@ -390,36 +400,50 @@ export async function POST(req: NextRequest) {
   // ── System prompt ─────────────────────────────────────────────────────────
   // Split into a byte-stable prefix (cached on Anthropic) and a small per-request tail; see lib/ai-prompts/.
   const today = new Date().toISOString().split("T")[0]   // e.g. 2026-05-22 — recomputed every request
-  // Whole knowledge base for this context's label goes into the stable prefix (all-or-nothing under a char budget).
-  const knowledge = renderKnowledge(
-    await loadKnowledge(supabaseAdmin, knowledgeLabelFor(context === "home" || context === "storefront" || context === "dashboard" ? context : "admin")),
-  )
-  const systemPrompt =
-    context === "home"
-      ? buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote, knowledge })
-      : context === "storefront"
-        ? buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode, knowledge })
-        : context === "dashboard"
-          ? buildDashboardPrompt({
-              knowledge,
-              ussdDialCode,
-              channelNote,
-              firstName: userContext.firstName,
-              lastName: userContext.lastName,
-              role: userContext.role,
-              phone: userContext.phone,
-              balance: userContext.balance,
-              today,
-              cardNonce,
-            })
-          : buildAdminPrompt({
-              knowledge,
-              ussdDialCode,
-              firstName: userContext.firstName,
-              lastName: userContext.lastName,
-              today,
-              cardNonce,
-            })
+  // Whole knowledge base for the VERIFIED identity's label goes into the stable prefix (all-or-nothing under a char
+  // budget). Mirrors get_knowledge_base: 'admin' only after the admin gate above passed, 'dashboard' only with a
+  // verified user id, everything else (guests, home, storefront) 'storefront'.
+  const knowledgeContext: "home" | "dashboard" | "admin" =
+    context === "admin" ? "admin" : context === "dashboard" && userId ? "dashboard" : "home"
+  const knowledge = renderKnowledge(await loadKnowledge(supabaseAdmin, knowledgeLabelFor(knowledgeContext)))
+  let systemPrompt: ReturnType<typeof buildHomePrompt>
+  switch (context) {
+    case "home":
+      systemPrompt = buildHomePrompt({ ussdDialCode, guestPurchaseUrl, channelNote, knowledge })
+      break
+    case "storefront":
+      systemPrompt = buildStorefrontPrompt({ shopName, storefrontServices, ussdDialCode, shopUssdCode, knowledge })
+      break
+    case "dashboard":
+      systemPrompt = buildDashboardPrompt({
+        knowledge,
+        ussdDialCode,
+        channelNote,
+        firstName: userContext.firstName,
+        lastName: userContext.lastName,
+        role: userContext.role,
+        phone: userContext.phone,
+        balance: userContext.balance,
+        today,
+        cardNonce,
+      })
+      break
+    case "admin":
+      systemPrompt = buildAdminPrompt({
+        knowledge,
+        ussdDialCode,
+        firstName: userContext.firstName,
+        lastName: userContext.lastName,
+        today,
+        cardNonce,
+      })
+      break
+    default:
+      return new Response(
+        JSON.stringify({ error: "Invalid context" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      )
+  }
 
   // ── Streaming SSE response ────────────────────────────────────────────────
   const encoder = new TextEncoder()
