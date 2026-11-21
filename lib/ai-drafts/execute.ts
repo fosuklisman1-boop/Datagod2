@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { AiDraft } from "./types"
+import { recordProgress } from "./repo"
 import { resolveBulkStatusIds, type BulkStatusFilters, type BulkStatusIds } from "./bulk-status-ids"
 import { walletOrderPrice } from "@/lib/pricing/wallet-order-price"
 
@@ -23,6 +24,8 @@ export interface ExecCall {
   fetchImpl?: typeof fetch
   /** Per-request timeout, default 15 s. */
   timeoutMs?: number
+  /** Ids/orders dropped at revalidation; any skipped item makes a clean multi-id run `partial`. */
+  skipped?: number
 }
 
 export const FETCH_TIMEOUT_MS = 15_000
@@ -191,7 +194,7 @@ export async function executeDraft(draft: AiDraft, call: ExecCall): Promise<Exec
     case "wallet_adjustment":
       return executeWalletAdjustment(p, call)
     case "withdrawal_action":
-      return executeWithdrawals(p, call)
+      return executeWithdrawals(draft, p, call)
     case "user_suspension": {
       const r = await post(call, "/api/admin/users/suspend", { userId: p.targetUserId, action: p.suspend ? "suspend" : "unsuspend" })
       if (!r.reached) return unknownResult()
@@ -203,7 +206,7 @@ export async function executeDraft(draft: AiDraft, call: ExecCall): Promise<Exec
       return is2xx(r.status) ? { status: "succeeded", outcome: {} } : failedFrom(r)
     }
     case "bulk_status_update":
-      return executeBulk(p, call)
+      return executeBulk(draft, p, call)
     default:
       return { status: "failed", outcome: { code: "unsupported_action" } }
   }
@@ -287,29 +290,68 @@ function tally(results: Array<{ ok: boolean; unknown?: boolean }>): ExecStatus {
   return okCount > 0 ? "partial" : "failed"
 }
 
-async function executeWithdrawals(p: Record<string, any>, call: ExecCall): Promise<ExecResult> {
+/**
+ * Progress write that doubles as the heartbeat (bumps updated_at). False means the row is no longer `executing`
+ * (recovered or stolen) or the write failed: the run must stop sending.
+ */
+async function progress(call: ExecCall, draftId: string, outcome: Record<string, unknown>): Promise<boolean> {
+  if (!call.db) return true
+  try {
+    return await recordProgress(call.db, draftId, outcome)
+  } catch {
+    return false
+  }
+}
+
+/** The run lost its claim: stop, report what was done so far as unknown. The recheck resolves the rest. */
+function lostClaim(outcome: Record<string, unknown>): ExecResult {
+  console.error("ai_drafts: progress write lost, run stopped")
+  return { status: "unknown", outcome: { ...outcome, code: "interrupted", message: "We couldn't confirm the result." } }
+}
+
+/** Skipped ids (no longer eligible at confirm) make an otherwise clean run partial (R14). */
+const settle = (status: ExecStatus, skipped: number): ExecStatus => (status === "succeeded" && skipped > 0 ? "partial" : status)
+
+async function executeWithdrawals(draft: AiDraft, p: Record<string, any>, call: ExecCall): Promise<ExecResult> {
   const action = p.action as WithdrawalAction
+  const ids = p.ids as string[]
+  const skipped = call.skipped ?? 0
+  const base = { sentIds: ids, ...(skipped > 0 ? { skipped } : {}) }
   const results: PerId[] = []
-  for (const id of p.ids as string[]) {
+  const snapshot = () => ({ ...base, results: [...results], applied: results.filter((x) => x.ok).length, total: ids.length })
+
+  // Persist the narrowed list before the first call so a lost finish can be rechecked against exactly what was sent.
+  if (!(await progress(call, draft.id, { ...base, results: [] }))) return lostClaim(snapshot())
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i]
     const body: Record<string, unknown> = { withdrawalId: id }
     if (action === "reject" && p.reason) body.reason = p.reason
     const r = await post(call, `/api/admin/withdrawals/${action}`, body)
     if (!r.reached) results.push({ id, ok: false, error: "no_response", unknown: true })
     else if (is2xx(r.status)) results.push({ id, ok: true })
     else results.push({ id, ok: false, error: errText(r.body) ?? `http_${r.status}` })
+    if (i < ids.length - 1 && !(await progress(call, draft.id, snapshot()))) return lostClaim(snapshot())
   }
-  const status = tally(results)
-  return { status, outcome: { results, applied: results.filter((x) => x.ok).length, total: results.length } }
+  return { status: settle(tally(results), skipped), outcome: snapshot() }
 }
 
-async function executeBulk(p: Record<string, any>, call: ExecCall): Promise<ExecResult> {
+async function executeBulk(draft: AiDraft, p: Record<string, any>, call: ExecCall): Promise<ExecResult> {
   const results: Array<{ table: string; count: number; ok: boolean; error?: string; unknown?: boolean }> = []
   const sentIds: Record<string, string[]> = {}
-  let applied = 0
   for (const table of BULK_TABLES) {
     const ids: string[] = (p.idsByTable?.[table] ?? []) as string[]
-    if (ids.length === 0) continue
-    sentIds[table] = ids
+    if (ids.length > 0) sentIds[table] = ids
+  }
+  const tables = Object.keys(sentIds) as BulkTable[]
+  const skipped = call.skipped ?? 0
+  const base = { sentIds, ...(skipped > 0 ? { skipped } : {}) }
+  let applied = 0
+  const snapshot = () => ({ ...base, results: [...results], applied })
+
+  if (!(await progress(call, draft.id, { ...base, results: [] }))) return lostClaim(snapshot())
+  for (let i = 0; i < tables.length; i++) {
+    const table = tables[i]
+    const ids = sentIds[table]
     const r = await post(call, "/api/admin/orders/bulk-update-status", { orderIds: ids, status: p.status, orderType: table })
     if (!r.reached) {
       results.push({ table, count: ids.length, ok: false, error: "no_response", unknown: true })
@@ -321,7 +363,7 @@ async function executeBulk(p: Record<string, any>, call: ExecCall): Promise<Exec
     } else {
       results.push({ table, count: ids.length, ok: false, error: errText(r.body) ?? `http_${r.status}` })
     }
+    if (i < tables.length - 1 && !(await progress(call, draft.id, snapshot()))) return lostClaim(snapshot())
   }
-  const status = tally(results)
-  return { status, outcome: { results, applied, sentIds } }
+  return { status: settle(tally(results), skipped), outcome: snapshot() }
 }

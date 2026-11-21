@@ -249,7 +249,8 @@ describe("confirmDraft", () => {
       )
     const fetchFn = vi.fn().mockResolvedValue(res(200, { success: true }))
     const out = await confirmDraft(mk(["pending", "completed"]), DRAFT, caller(fetchFn, { isAdmin: true }))
-    expect(out!.status).toBe("succeeded")
+    // skipped_with_all_ok_is_partial (R14)
+    expect(out!.status).toBe("partial")
     expect(fetchFn).toHaveBeenCalledTimes(1)
     expect(JSON.parse(fetchFn.mock.calls[0][1].body).withdrawalId).toBe(W1)
     expect(out!.outcome).toMatchObject({ skipped: 1 })
@@ -284,8 +285,81 @@ describe("confirmDraft", () => {
     const [url, init] = fetchFn.mock.calls[0]
     expect(url).toBe("https://app.test/api/admin/orders/bulk-update-status")
     expect(JSON.parse(init.body)).toEqual({ orderIds: [O1, O3], status: "failed", orderType: "orders" })
-    expect(out!.status).toBe("succeeded")
+    expect(out!.status).toBe("partial")
     expect(out!.outcome).toMatchObject({ applied: 2, skipped: 1 })
+  })
+
+  describe("multi-id progress and heartbeat", () => {
+    const wdDraft = () =>
+      draftRow({ context: "admin", action: "withdrawal_action", params: { action: "approve", ids: [W1, W2, W3], totalGhs: 30 } })
+    const wdTables = () => ({
+      ai_drafts: [wdDraft()],
+      withdrawal_requests: [
+        { id: W1, status: "pending" },
+        { id: W2, status: "pending" },
+        { id: W3, status: "pending" },
+      ],
+    })
+
+    it("multi_id_run_heartbeats_updated_at", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] })
+      try {
+        const db = fakeDb(baseTables(wdTables()))
+        const seen: Array<{ updated: string; status: string; sent: unknown; results: number }> = []
+        const fetchFn = vi.fn(async () => {
+          vi.setSystemTime(Date.now() + 40_000)
+          const row = db.tables.ai_drafts[0]
+          seen.push({ updated: row.updated_at, status: row.status, sent: row.outcome?.sentIds, results: row.outcome?.results?.length ?? -1 })
+          return res(200, { success: true })
+        })
+        await confirmDraft(db, DRAFT, caller(fetchFn, { isAdmin: true }))
+        expect(fetchFn).toHaveBeenCalledTimes(3)
+        // Before call 1 the narrowed list is already persisted with empty results; before each later call one more result.
+        expect(seen.map((s) => s.results)).toEqual([0, 1, 2])
+        expect(seen.every((s) => s.status === "executing")).toBe(true)
+        expect(seen[0].sent).toEqual([W1, W2, W3])
+        const stamps = seen.map((s) => Date.parse(s.updated))
+        expect(stamps[1]).toBeGreaterThan(stamps[0])
+        expect(stamps[2]).toBeGreaterThan(stamps[1])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("stale_recovery_not_triggered_during_heartbeating_run", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] })
+      try {
+        const db = fakeDb(baseTables(wdTables()))
+        let tap: any = null
+        let calls = 0
+        const fetchFn = vi.fn(async () => {
+          calls++
+          vi.setSystemTime(Date.now() + 40_000) // 80 s since the claim by call 2, but only 40 s since the last heartbeat
+          if (calls === 2) tap = await confirmDraft(db, DRAFT, caller(vi.fn(), { isAdmin: true }))
+          return res(200, { success: true })
+        })
+        const out = await confirmDraft(db, DRAFT, caller(fetchFn, { isAdmin: true }))
+        expect(tap.status).toBe("executing")
+        expect(out!.status).toBe("succeeded")
+        expect(db.tables.ai_drafts[0].status).toBe("succeeded")
+        expect(db.tables.ai_drafts[0].outcome.results).toHaveLength(3)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("progress_write_lost_stops_further_sends", async () => {
+      const db = fakeDb(baseTables(wdTables()))
+      const fetchFn = vi.fn(async () => {
+        // The run is recovered/stolen while call 1 is in flight.
+        db.tables.ai_drafts[0].status = "unknown"
+        return res(200, { success: true })
+      })
+      const out = await confirmDraft(db, DRAFT, caller(fetchFn, { isAdmin: true }))
+      expect(fetchFn).toHaveBeenCalledTimes(1)
+      expect(out!.status).toBe("unknown")
+      expect((out!.outcome!.results as unknown[]).length).toBe(1)
+    })
   })
 
   it("wallet_adjust_sends_expectedBalance_and_reason", async () => {
@@ -528,6 +602,43 @@ describe("recheckDraft", () => {
     expect((await recheckDraft(dbOld, DRAFT, caller(vi.fn())))!.status).toBe("failed")
   })
 
+  const wdUnknown = (outcome: Record<string, unknown>) =>
+    draftRow({
+      status: "unknown",
+      context: "admin",
+      action: "withdrawal_action",
+      params: { action: "approve", ids: [W1, W2, W3], totalGhs: 30 },
+      outcome,
+    })
+
+  it("recheck_uses_sent_ids_after_lost_finish", async () => {
+    const db = fakeDb(
+      baseTables({
+        ai_drafts: [wdUnknown({ code: "interrupted", sentIds: [W1], skipped: 2, results: [] })],
+        withdrawal_requests: [{ id: W1, status: "approved" }, { id: W2, status: "pending" }, { id: W3, status: "pending" }],
+      }),
+    )
+    const out = await recheckDraft(db, DRAFT, caller(vi.fn(), { isAdmin: true }))
+    const results = out!.outcome!.results as Array<{ id: string; ok: boolean }>
+    expect(results.map((r) => r.id)).toEqual([W1])
+    // The one sent id applied, but ids were skipped at confirm: partial, not succeeded and not a false failure.
+    expect(out!.status).toBe("partial")
+  })
+
+  it("recheck_keeps_recorded_results", async () => {
+    const db = fakeDb(
+      baseTables({
+        ai_drafts: [wdUnknown({ code: "interrupted", sentIds: [W1, W2], results: [{ id: W1, ok: true }] })],
+        // W1 reads back as pending, but its ok result was recorded and is not re-read.
+        withdrawal_requests: [{ id: W1, status: "pending" }, { id: W2, status: "approved" }],
+      }),
+    )
+    const out = await recheckDraft(db, DRAFT, caller(vi.fn(), { isAdmin: true }))
+    const results = out!.outcome!.results as Array<{ id: string; ok: boolean }>
+    expect(results.map((r) => [r.id, r.ok])).toEqual([[W1, true], [W2, true]])
+    expect(out!.status).toBe("succeeded")
+  })
+
   it("recheck_resolves_interrupted_purchase", async () => {
     const db = fakeDb(
       baseTables({
@@ -618,7 +729,7 @@ describe("recheckDraft", () => {
             context: "admin",
             action: "withdrawal_action",
             params: { action: "reject", ids: [W1, W2], totalGhs: 20, reason: "bad details" },
-            outcome: { results: [{ id: W1, ok: false, error: "no_response" }, { id: W2, ok: true }] },
+            outcome: { results: [{ id: W1, ok: false, error: "no_response" }, { id: W2, ok: false, error: "http_400" }] },
           }),
         ],
         withdrawal_requests: [{ id: W1, status: "rejected" }, { id: W2, status: "pending" }],

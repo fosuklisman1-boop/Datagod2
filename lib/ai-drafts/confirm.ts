@@ -101,6 +101,7 @@ export async function confirmDraft(db: SupabaseClient, id: string, caller: Confi
       db,
       fetchImpl: caller.fetchImpl,
       timeoutMs: caller.timeoutMs,
+      skipped: typeof rev.extra?.skipped === "number" ? rev.extra.skipped : 0,
     })
   } catch {
     result = { status: "unknown", outcome: { code: "no_response", message: "We couldn't confirm the result." } }
@@ -136,8 +137,8 @@ async function inChunks<T>(ids: string[], read: (chunk: string[]) => PromiseLike
   return out
 }
 
-function countStatus(applied: number, total: number): ExecStatus {
-  if (total > 0 && applied === total) return "succeeded"
+function countStatus(applied: number, total: number, skipped = 0): ExecStatus {
+  if (total > 0 && applied === total) return skipped > 0 ? "partial" : "succeeded"
   return applied > 0 ? "partial" : "failed"
 }
 
@@ -194,36 +195,61 @@ async function recheckResult(db: SupabaseClient, draft: AiDraft): Promise<ExecRe
     }
 
     case "withdrawal_action": {
-      const stored = (draft.outcome?.results as Array<{ id: string }> | undefined)?.map((r) => r.id)
-      const ids = stored && stored.length > 0 ? stored : (p.ids as string[])
-      const rows = await inChunks<{ id: string; status: string }>(ids, (c) =>
-        db.from("withdrawal_requests").select("id, status").in("id", c),
+      const o = (draft.outcome ?? {}) as Record<string, any>
+      const skipped = Number(o.skipped) > 0 ? Number(o.skipped) : 0
+      const recorded = new Set(
+        (Array.isArray(o.results) ? (o.results as Array<{ id: string; ok?: boolean }>) : []).filter((r) => r?.ok === true).map((r) => r.id),
+      )
+      // Only the ids actually sent (narrowed at claim time); params is the fallback when no progress was recorded.
+      const sentIds: string[] | null = Array.isArray(o.sentIds) && o.sentIds.length > 0 ? o.sentIds : null
+      const ids = sentIds ?? (p.ids as string[])
+      const rows = await inChunks<{ id: string; status: string }>(
+        ids.filter((id) => !recorded.has(id)),
+        (c) => db.from("withdrawal_requests").select("id, status").in("id", c),
       )
       const status = new Map(rows.map((r) => [r.id, r.status]))
       const results = ids.map((id) => {
-        const ok = withdrawalApplied(p.action, status.get(id) ?? "")
+        const ok = recorded.has(id) || withdrawalApplied(p.action, status.get(id) ?? "")
         return ok ? { id, ok } : { id, ok, error: "not_applied" }
       })
       const applied = results.filter((r) => r.ok).length
-      return { status: countStatus(applied, results.length), outcome: { results, applied, total: results.length, rechecked: true } }
+      return {
+        status: countStatus(applied, results.length, skipped),
+        outcome: { sentIds: ids, ...(skipped ? { skipped } : {}), results, applied, total: results.length, rechecked: true },
+      }
     }
 
     case "bulk_status_update": {
-      const sent = (draft.outcome?.sentIds as Record<string, string[]> | undefined) ?? (p.idsByTable as Record<string, string[]>)
+      const o = (draft.outcome ?? {}) as Record<string, any>
+      const skipped = Number(o.skipped) > 0 ? Number(o.skipped) : 0
+      const sent = (o.sentIds as Record<string, string[]> | undefined) ?? (p.idsByTable as Record<string, string[]>)
+      const recorded = new Map(
+        (Array.isArray(o.results) ? (o.results as Array<{ table: string; count: number; ok?: boolean }>) : [])
+          .filter((r) => r?.ok === true)
+          .map((r) => [r.table, r.count] as const),
+      )
       let applied = 0
       let total = 0
       const results: Array<{ table: string; count: number; total: number }> = []
       for (const table of BULK_TABLES) {
         const ids = sent?.[table] ?? []
         if (ids.length === 0) continue
-        const col = table === "orders" || table === "api_orders" ? "status" : "order_status"
-        const rows = await inChunks<Record<string, string>>(ids, (c) => db.from(table).select(`id, ${col}`).in("id", c))
-        const hit = rows.filter((r) => r[col] === p.status).length
+        let hit: number
+        if (recorded.has(table)) {
+          hit = Math.min(recorded.get(table) as number, ids.length)
+        } else {
+          const col = table === "orders" || table === "api_orders" ? "status" : "order_status"
+          const rows = await inChunks<Record<string, string>>(ids, (c) => db.from(table).select(`id, ${col}`).in("id", c))
+          hit = rows.filter((r) => r[col] === p.status).length
+        }
         applied += hit
         total += ids.length
         results.push({ table, count: hit, total: ids.length })
       }
-      return { status: countStatus(applied, total), outcome: { results, applied, total, rechecked: true } }
+      return {
+        status: countStatus(applied, total, skipped),
+        outcome: { sentIds: sent, ...(skipped ? { skipped } : {}), results, applied, total, rechecked: true },
+      }
     }
 
     default:

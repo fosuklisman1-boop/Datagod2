@@ -119,6 +119,21 @@ export async function expireIfDue(db: SupabaseClient, draft: AiDraft): Promise<A
   return (await getOwnDraft(db, draft.id, draft.user_id)) ?? draft
 }
 
+/**
+ * Progress write + heartbeat for a multi-id run: sets outcome and bumps updated_at, but only while the row is still
+ * `executing`. False means 0 rows (the run was recovered or finished elsewhere): the caller must stop sending.
+ */
+export async function recordProgress(db: SupabaseClient, id: string, outcome: Record<string, unknown>): Promise<boolean> {
+  const { data, error } = await db
+    .from("ai_drafts")
+    .update({ outcome, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "executing")
+    .select("id")
+  if (error) fail("progress", error)
+  return !!data && (data as unknown[]).length > 0
+}
+
 /** An `executing` draft untouched for this long was interrupted (crash, killed function). */
 export const STALE_EXECUTING_MS = 60_000
 
@@ -136,7 +151,8 @@ export async function recoverStaleExecuting(db: SupabaseClient, draft: AiDraft):
     .from("ai_drafts")
     .update({
       status: "unknown",
-      outcome: { code: "interrupted", message: "We couldn't confirm the result.", claimed_at: draft.updated_at },
+      // Keep any progress recorded by the run (sentIds, per-id results) so the recheck can build on it.
+      outcome: { ...(draft.outcome ?? {}), code: "interrupted", message: "We couldn't confirm the result.", claimed_at: draft.updated_at },
       updated_at: new Date(now).toISOString(),
     })
     .eq("id", draft.id)

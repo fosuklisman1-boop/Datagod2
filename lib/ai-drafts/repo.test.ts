@@ -9,6 +9,7 @@ import {
   cancelDraft,
   terminalDraftsSince,
   recoverStaleExecuting,
+  recordProgress,
 } from "./repo"
 import { paramsSchemaFor } from "./types"
 
@@ -213,6 +214,23 @@ describe("recoverStaleExecuting", () => {
     expect(out.status).toBe("executing")
     expect(row.status).toBe("executing")
     expect(row.outcome).toBeNull()
+  })
+
+  it("stale recovery keeps recorded progress in the outcome", async () => {
+    const row = pendingRow({ status: "executing", updated_at: new Date(Date.now() - 90_000).toISOString(), outcome: { sentIds: ["a"], results: [] } })
+    const out = await recoverStaleExecuting(fakeDb([row]), row as any)
+    expect(out.outcome).toMatchObject({ code: "interrupted", sentIds: ["a"], results: [] })
+  })
+
+  it("recordProgress only writes while executing and heartbeats updated_at", async () => {
+    const old = new Date(Date.now() - 30_000).toISOString()
+    const row = pendingRow({ status: "executing", updated_at: old })
+    expect(await recordProgress(fakeDb([row]), row.id, { results: [1] })).toBe(true)
+    expect(row.outcome).toEqual({ results: [1] })
+    expect(row.updated_at > old).toBe(true)
+    const gone = pendingRow({ status: "unknown", outcome: { keep: 1 } })
+    expect(await recordProgress(fakeDb([gone]), gone.id, { results: [2] })).toBe(false)
+    expect(gone.outcome).toEqual({ keep: 1 })
   })
 
   it("non-executing drafts are returned as is", async () => {
