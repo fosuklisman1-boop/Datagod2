@@ -95,11 +95,26 @@ describe("chat route knowledge wiring", () => {
     expect(text).toContain("WhatsApp AI context")
   })
 
-  it("unauth_dashboard_gets_storefront_knowledge_label", async () => {
-    const { call } = await post("dashboard", false)
-    expect(h.kbLabels).toEqual(["storefront"])
-    expect(stableOf(call)).toContain("PUBLIC-FAQ")
-    expect(stableOf(call)).not.toContain("DASH-ONLY")
+  // Replaces unauth_dashboard_gets_storefront_knowledge_label: unauthenticated dashboard is now refused outright (R7).
+  it("unauth_dashboard_401_no_provider_call", async () => {
+    for (const auth of [false]) {
+      const { res, text } = await post("dashboard", auth)
+      expect(res.status).toBe(401)
+      expect(JSON.parse(text)).toEqual({ error: "Unauthorized" })
+    }
+    h.authed = false
+    const bad = await post("dashboard", true) // bearer present but invalid
+    expect(bad.res.status).toBe(401)
+    expect(h.runAgenticLoop).not.toHaveBeenCalled()
+    expect(h.providerCalls).toBe(0)
+    expect(h.kbLabels).toEqual([])
+  })
+
+  it("authed_dashboard_still_works", async () => {
+    const { res, call } = await post("dashboard", true)
+    expect(res.status).toBe(200)
+    expect(h.runAgenticLoop).toHaveBeenCalledTimes(1)
+    expect(stableOf(call)).toContain("DASH-ONLY")
   })
 
   it("verified dashboard user gets the dashboard label", async () => {

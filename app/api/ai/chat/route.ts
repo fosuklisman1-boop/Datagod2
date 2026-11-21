@@ -260,6 +260,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Dashboard requires a verified sign-in ─────────────────────────────────
+  // Only home/storefront are guest contexts. No/invalid bearer token must not reach the dashboard prompt or tools.
+  if (context === "dashboard" && !userId) {
+    return new Response(
+      JSON.stringify({ error: "Unauthorized" }),
+      { status: 401, headers: { "Content-Type": "application/json" } }
+    )
+  }
+
   // ── Admin context gate (unconditional) ────────────────────────────────────
   // The role check above lives INSIDE the `if (authHeader)` block, so a request
   // with no/invalid Authorization header would otherwise fall straight through
