@@ -1,7 +1,11 @@
 // Pure state -> view mapping for the AI confirm card. The card never decides an outcome: this only translates what the
 // server said (status + outcome codes) into text and which buttons to show. No React, no network, no clock reads.
 
+export type LoadError = "not_found" | "unauthorized" | "rate_limited" | "unavailable" | "network"
+
 export interface CardViewState {
+  /** Set when the first GET failed and no server state is known. */
+  loadError?: LoadError
   /** `already_done` is the server's replay of a used draft; `finalStatus` then says succeeded or partial. */
   status: string
   finalStatus?: string
@@ -11,7 +15,7 @@ export interface CardViewState {
   warnings?: string[]
 }
 
-export type CardVariant = "pending" | "executing" | "succeeded" | "partial" | "failed" | "unknown" | "expired" | "superseded" | "cancelled"
+export type CardVariant = "load_error" | "pending" | "executing" | "succeeded" | "partial" | "failed" | "unknown" | "expired" | "superseded" | "cancelled"
 
 export interface CardView {
   variant: CardVariant
@@ -20,6 +24,8 @@ export interface CardView {
   showConfirm: boolean
   showCancel: boolean
   showCheckAgain: boolean
+  /** Re-run the GET (load errors only). */
+  showRetry: boolean
   showPrepareAgain: boolean
   greyed: boolean
   message: string | null
@@ -55,13 +61,24 @@ const humanizeTimes = (s: string) => s.replace(ISO_RE, (m) => (/(Z|[+-]\d{2}:?\d
 
 const ghs = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? `GHS ${n.toFixed(2)}` : null)
 
+const BALANCE_LABEL = /^balance( before| after)?$/i
+
 function readDisplay(display: unknown): { title: string; lines: Array<{ label: string; value: string }> } {
   const d = (display && typeof display === "object" ? display : {}) as Record<string, unknown>
-  const lines = Array.isArray(d.lines)
+  let lines = Array.isArray(d.lines)
     ? (d.lines as unknown[])
         .filter((l): l is { label: unknown; value: unknown } => !!l && typeof l === "object")
         .map((l) => ({ label: String(l.label ?? ""), value: humanizeTimes(String(l.value ?? "")) }))
     : []
+  // One "Balance before -> after" line replaces any server balance lines.
+  const before = ghs(d.balanceBefore)
+  const after = ghs(d.balanceAfter)
+  if (before && after) {
+    const merged = { label: "Balance", value: `${before} → ${after}` }
+    const at = lines.findIndex((l) => BALANCE_LABEL.test(l.label.trim()))
+    const rest = lines.filter((l) => !BALANCE_LABEL.test(l.label.trim()))
+    lines = at >= 0 ? [...rest.slice(0, at), merged, ...rest.slice(at)] : [...rest, merged]
+  }
   return { title: typeof d.title === "string" && d.title ? d.title : "Confirm action", lines }
 }
 
@@ -134,6 +151,7 @@ export function draftCardView(state: CardViewState, nowMs: number): CardView {
     showConfirm: false,
     showCancel: false,
     showCheckAgain: false,
+    showRetry: false,
     showPrepareAgain: false,
     greyed: false,
     message: null,
@@ -143,8 +161,16 @@ export function draftCardView(state: CardViewState, nowMs: number): CardView {
     warnings: [],
   }
 
+  if (state.loadError) {
+    const e = state.loadError
+    const message =
+      e === "not_found" ? "This card is no longer available." : e === "unauthorized" ? "Please sign in again." : "We couldn't load this card. Please try again."
+    return { ...view, variant: "load_error", greyed: e === "not_found", message, showRetry: e !== "not_found" && e !== "unauthorized" }
+  }
+
   const replay = state.status === "already_done"
-  const status = replay ? (state.finalStatus ?? "succeeded") : state.status
+  // A replay without proof of how it ended is never shown as success.
+  const status = replay ? (state.finalStatus ?? "unknown") : state.status
 
   switch (status) {
     case "pending": {

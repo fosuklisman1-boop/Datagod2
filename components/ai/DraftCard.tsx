@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { draftCardView, UNKNOWN_MESSAGE, type CardViewState } from "./draft-card-view"
+import { draftCardView, UNKNOWN_MESSAGE, type CardViewState, type LoadError } from "./draft-card-view"
 
 // Confirm card for an AI-prepared action. It renders server state only: every status below comes from
 // GET/POST /api/ai/drafts/[id]. The one local fabrication is the "stopped waiting" unknown after 90 s of executing.
@@ -45,7 +45,10 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
     expires_at: initial.expires_at,
     warnings: initial.warnings ?? [],
   })
+  // loaded = a GET has returned a server status. Until then (or after a failed first load) no action is live.
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState<LoadError | null>(null)
+  const [loadTry, setLoadTry] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
@@ -68,18 +71,22 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
   // On mount: the stored server state. Until it answers, no button is live.
   useEffect(() => {
     let cancelled = false
+    setLoadError(null)
     call(draftId, getToken, "GET")
       .then((r) => {
         if (cancelled) return
-        if (r.ok) apply(r.state)
-        else setError(HTTP_MESSAGES[r.status] ?? "Could not load this card.")
+        if (r.ok) {
+          apply(r.state)
+          setLoaded(true)
+        } else {
+          setLoadError(r.status === 404 ? "not_found" : r.status === 401 ? "unauthorized" : r.status === 429 ? "rate_limited" : r.status === 503 ? "unavailable" : "network")
+        }
       })
-      .catch(() => !cancelled && setError("Could not load this card."))
-      .finally(() => !cancelled && setLoaded(true))
+      .catch(() => !cancelled && setLoadError("network"))
     return () => {
       cancelled = true
     }
-  }, [draftId, getToken, apply])
+  }, [draftId, getToken, apply, loadTry])
 
   // Countdown ticks only while pending.
   useEffect(() => {
@@ -141,7 +148,8 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
     [draftId, getToken, apply],
   )
 
-  const view = draftCardView(state, now)
+  const view = draftCardView(loaded ? state : { ...state, loadError: loadError ?? undefined }, now)
+  const loading = !loaded && !loadError
   const disabled = busy || !loaded
   const tone =
     view.variant === "succeeded"
@@ -191,6 +199,8 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
         {error && <p className="mt-1 text-destructive">{error}</p>}
       </div>
 
+      {loading && <p className="mt-2 text-xs text-muted-foreground">Checking this card...</p>}
+
       {view.items.length > 0 && (
         <div className="mt-1">
           <button type="button" onClick={() => setShowItems((v) => !v)} aria-expanded={showItems} className="text-xs font-medium text-primary underline">
@@ -210,6 +220,18 @@ export function DraftCard({ draftId, initial, getToken, onPrepareAgain }: DraftC
         <p className="mt-2 text-xs text-muted-foreground" aria-live="off">
           {view.countdownText}
         </p>
+      )}
+
+      {view.showRetry && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setLoadTry((n) => n + 1)}
+            className="rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Try again
+          </button>
+        </div>
       )}
 
       {(view.showConfirm || view.showCancel || view.showCheckAgain || view.showPrepareAgain || view.topUpHref) && (

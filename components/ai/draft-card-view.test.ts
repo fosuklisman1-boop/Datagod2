@@ -202,3 +202,54 @@ describe("draftCardView", () => {
     expect(v.showConfirm).toBe(true)
   })
 })
+
+describe("load errors, balance line, replay proof", () => {
+  it("load_error_disables_actions", () => {
+    for (const loadError of ["unauthorized", "rate_limited", "unavailable", "network", "not_found"] as const) {
+      const v = view({ loadError })
+      expect(v.showConfirm).toBe(false)
+      expect(v.showCancel).toBe(false)
+      expect(v.countdownText).toBeNull()
+      expect(v.message).toBeTruthy()
+    }
+    expect(view({ loadError: "unauthorized" }).message).toBe("Please sign in again.")
+  })
+
+  it("not_found_has_no_retry", () => {
+    const v = view({ loadError: "not_found" })
+    expect(v.showRetry).toBe(false)
+    expect(v.message).toBe("This card is no longer available.")
+    expect(v.greyed).toBe(true)
+  })
+
+  it("retry_shown_for_network_error", () => {
+    expect(view({ loadError: "network" }).showRetry).toBe(true)
+    expect(view({ loadError: "rate_limited" }).showRetry).toBe(true)
+    expect(view({ loadError: "unavailable" }).showRetry).toBe(true)
+    expect(view().showRetry).toBe(false)
+  })
+
+  it("balance_before_after_line", () => {
+    const v = view({ display: { title: "t", lines: [{ label: "Price", value: "GHS 23.50" }], balanceBefore: 120, balanceAfter: 96.5 } })
+    expect(v.lines).toContainEqual({ label: "Balance", value: "GHS 120.00 → GHS 96.50" })
+  })
+
+  it("no_duplicate_balance_line", () => {
+    const v = view({
+      display: {
+        title: "t",
+        lines: [{ label: "Price", value: "GHS 23.50" }, { label: "Balance after", value: "GHS 96.50" }, { label: "Balance", value: "x" }],
+        balanceBefore: 120,
+        balanceAfter: 96.5,
+      },
+    })
+    expect(v.lines.filter((l) => /^balance/i.test(l.label))).toEqual([{ label: "Balance", value: "GHS 120.00 → GHS 96.50" }])
+  })
+
+  it("already_done_without_final_status_is_unknown", () => {
+    const v = view({ status: "already_done", outcome: { order_code: "ORD-1" } })
+    expect(v.variant).toBe("unknown")
+    expect(v.showCheckAgain).toBe(true)
+    expect(v.message).toBe("We couldn't confirm the result.")
+  })
+})
