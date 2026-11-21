@@ -14,6 +14,7 @@ const supabaseAdmin = createClient(
 )
 
 export type AIChatContext = "storefront" | "dashboard" | "admin" | "home" | "whatsapp" | "whatsapp_shop"
+import type { ToolEntry } from "@/lib/ai-tool-registry"
 
 // ─── Tool schemas ────────────────────────────────────────────────────────────
 
@@ -1044,125 +1045,113 @@ export interface StorefrontServiceFlags {
 
 // ─── Tool list by context ────────────────────────────────────────────────────
 
+// ─── Tool registry ───────────────────────────────────────────────────────────
+// ONE declaration per tool: which contexts offer it, whether it is admin-only, what calling it does (`acts`) and
+// whether cron background runs may use it. aiTools(), the executeToolCall allow-check, ADMIN_ONLY_TOOLS and the
+// background filters all derive from this list. It lives here (next to the definitions) and is re-exported from
+// lib/ai-tool-registry.ts; that file only holds types (erased at build), so there is no import cycle.
+// ARRAY ORDER IS THE MODEL-VISIBLE ORDER: for every context the offered list is this array filtered, so keep one
+// order that satisfies all contexts (lib/ai-tool-registry.snapshot.test.ts pins each context's exact list).
+const TOOL_REGISTRY: readonly ToolEntry[] = [
+  { tool: getAvailablePackagesTool, contexts: ["home", "storefront", "dashboard", "admin", "whatsapp"], acts: "none", storefrontNeeds: ["data"] },
+  { tool: prepareCheckoutTool, contexts: ["storefront"], acts: "draft", storefrontNeeds: ["data"] },
+  { tool: searchOrderStatusTool, contexts: ["home", "storefront", "dashboard", "whatsapp"], acts: "none", storefrontNeeds: ["data", "airtime"] },
+  { tool: getWalletBalanceTool, contexts: ["dashboard", "whatsapp"], acts: "none" },
+  { tool: getWalletTransactionsTool, contexts: ["dashboard"], acts: "none" },
+  { tool: getOrderHistoryTool, contexts: ["dashboard", "whatsapp"], acts: "none" },
+  { tool: getMySalesTool, contexts: ["dashboard"], acts: "none" },
+  { tool: prepareWalletOrderTool, contexts: ["dashboard"], acts: "draft", background: "deny" },
+  { tool: getSubscriptionTool, contexts: ["dashboard"], acts: "none" },
+  { tool: getSubscriptionPlansTool, contexts: ["home", "dashboard"], acts: "none" },
+  { tool: getMyShopTool, contexts: ["dashboard"], acts: "none" },
+  { tool: manageMyUssdShopTool, contexts: ["dashboard"], acts: "account" },
+  { tool: scheduleTaskTool, contexts: ["dashboard"], acts: "ops" },
+  { tool: notifySelfTool, contexts: ["dashboard"], acts: "ops" },
+  { tool: getAirtimeAvailabilityTool, contexts: ["storefront"], acts: "none", storefrontNeeds: ["airtime"] },
+  { tool: getResultsCheckerAvailabilityTool, contexts: ["storefront"], acts: "none", storefrontNeeds: ["results"] },
+  // Admin: platform management. Orders
+  { tool: getAllOrdersTool, contexts: ["admin"], adminOnly: true, acts: "none" },
+  { tool: updateOrderStatusTool, contexts: ["admin"], adminOnly: true, acts: "money" },        // bulk-update-status route credits profits
+  { tool: prepareBulkStatusUpdateTool, contexts: ["admin"], adminOnly: true, acts: "draft" },
+  { tool: retryFailedOrderTool, contexts: ["admin"], adminOnly: true, acts: "money" },         // re-dispatches to a provider
+  // Users
+  { tool: listUsersTool, contexts: ["admin"], adminOnly: true, acts: "none" },
+  { tool: getUserInfoTool, contexts: ["admin"], adminOnly: true, acts: "none" },
+  { tool: prepareUserSuspensionTool, contexts: ["admin"], adminOnly: true, acts: "draft" },
+  { tool: prepareRoleChangeTool, contexts: ["admin"], adminOnly: true, acts: "draft" },
+  { tool: prepareWalletAdjustmentTool, contexts: ["admin"], adminOnly: true, acts: "draft" },
+  // Shops
+  { tool: listShopsTool, contexts: ["admin"], adminOnly: true, acts: "none" },
+  { tool: manageShopTool, contexts: ["admin"], adminOnly: true, acts: "account" },
+  // Withdrawals
+  { tool: listWithdrawalsTool, contexts: ["admin"], adminOnly: true, acts: "none" },
+  { tool: prepareWithdrawalActionTool, contexts: ["admin"], adminOnly: true, acts: "draft" },
+  // USSD shops, packages, blacklist
+  { tool: manageUssdShopTool, contexts: ["admin"], adminOnly: true, acts: "account" },
+  { tool: managePackagesTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  { tool: manageBlacklistTool, contexts: ["admin"], adminOnly: true, acts: "account" },
+  { tool: bulkBlacklistTool, contexts: ["admin"], adminOnly: true, acts: "account" },
+  // Fulfillment
+  { tool: listPendingFulfillmentTool, contexts: ["admin"], adminOnly: true, acts: "none" },
+  { tool: manualFulfillOrderTool, contexts: ["admin"], adminOnly: true, acts: "money" },       // buys data from a provider
+  { tool: bulkManualFulfillTool, contexts: ["admin"], adminOnly: true, acts: "money" },
+  { tool: syncFulfillmentStatusTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  { tool: retryBlacklistedOrderTool, contexts: ["admin"], adminOnly: true, acts: "money" },
+  // Settings & toggles
+  { tool: toggleOrderingTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  { tool: toggleAutoFulfillmentTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  { tool: toggleMtnAutoFulfillmentTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  { tool: toggleAfaAutoFulfillmentTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  { tool: setMtnProviderTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  { tool: getMtnBalanceTool, contexts: ["admin"], adminOnly: true, acts: "none" },
+  { tool: manageRateLimitsTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  // Stats & plans
+  { tool: getAdminStatsTool, contexts: ["admin"], adminOnly: true, acts: "none" },
+  { tool: manageSubscriptionPlansTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  // Scheduled tasks & notifications
+  { tool: manageScheduledTaskTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  { tool: sendNotificationTool, contexts: ["admin"], adminOnly: true, acts: "ops" },
+  // Knowledge & UI
+  { tool: getKnowledgeBaseTool, contexts: ["home", "storefront", "dashboard", "admin", "whatsapp"], acts: "none" },
+  { tool: showActionButtonsTool, contexts: ["home", "storefront", "dashboard", "admin"], acts: "none" },
+  // WhatsApp: conversational support: only tools that work without a dashboard session.
+  { tool: startOrderingBotTool, contexts: ["whatsapp"], acts: "none" },
+  { tool: placeWhatsappOrderTool, contexts: ["whatsapp"], acts: "draft" },                      // stages a confirm menu
+  { tool: requestHumanHandoffTool, contexts: ["whatsapp"], acts: "ops" },
+  { tool: fileComplaintTool, contexts: ["whatsapp"], acts: "ops" },                             // stages a complaint
+  { tool: reverifyPaymentTool, contexts: ["whatsapp"], acts: "money" },                         // credits a stuck top-up
+  { tool: startAccountVerificationTool, contexts: ["whatsapp"], acts: "account" },
+  { tool: verifyAccountCodeTool, contexts: ["whatsapp"], acts: "account" },
+  // WhatsApp shop bot: sub-agent storefront number, narrow tool set.
+  { tool: resolveShopCodeTool, contexts: ["whatsapp_shop"], acts: "none" },
+  { tool: getShopPackagesTool, contexts: ["whatsapp_shop"], acts: "none" },
+  { tool: placeShopOrderTool, contexts: ["whatsapp_shop"], acts: "draft" },
+]
+
+const REGISTRY_BY_NAME = new Map<string, ToolEntry>(TOOL_REGISTRY.map((e) => [e.tool.name, e]))
+
+/**
+ * The tools a context offers the model, in registry order. Storefront service flags (default: all on) drop tools
+ * whose `storefrontNeeds` services are all off, so a results-checker-only shop never sees data-only tools.
+ */
+function toolsFor(context: AIChatContext, storefrontServices?: StorefrontServiceFlags): Anthropic.Tool[] {
+  const { sellsData = true, sellsAirtime = true, sellsResultsChecker = true } = storefrontServices ?? {}
+  const sells = { data: sellsData, airtime: sellsAirtime, results: sellsResultsChecker }
+  return TOOL_REGISTRY
+    .filter((e) => e.contexts.includes(context))
+    .filter((e) => context !== "storefront" || !e.storefrontNeeds || e.storefrontNeeds.some((s) => sells[s]))
+    .map((e) => e.tool)
+}
+
+/** True when `name` is registered for `context`. Storefront service flags only narrow the offered list further. */
+function isToolAllowed(name: string, context: AIChatContext): boolean {
+  return REGISTRY_BY_NAME.get(name)?.contexts.includes(context) ?? false
+}
+
+export { TOOL_REGISTRY, toolsFor, isToolAllowed }
+
 export function aiTools(context: AIChatContext, storefrontServices?: StorefrontServiceFlags): Anthropic.Tool[] {
-  // Home: public receptionist — no auth required, visitors may be guests
-  if (context === "home") return [
-    getAvailablePackagesTool,
-    searchOrderStatusTool,      // lookup by order_id or reference_code — no login needed
-    getSubscriptionPlansTool,   // "how much does dealer cost?" — public endpoint
-    getKnowledgeBaseTool,
-    showActionButtonsTool,
-  ]
-
-  // Storefront: guest-facing, Paystack checkout flow. Defaults (no flags
-  // passed) keep every tool, for any caller that hasn't been updated to
-  // resolve the domain's service restriction yet.
-  if (context === "storefront") {
-    const { sellsData = true, sellsAirtime = true, sellsResultsChecker = true } = storefrontServices ?? {}
-    return [
-      ...(sellsData ? [getAvailablePackagesTool, prepareCheckoutTool] : []),
-      ...(sellsData || sellsAirtime ? [searchOrderStatusTool] : []),
-      ...(sellsAirtime ? [getAirtimeAvailabilityTool] : []),
-      ...(sellsResultsChecker ? [getResultsCheckerAvailabilityTool] : []),
-      getKnowledgeBaseTool,
-      showActionButtonsTool,
-    ]
-  }
-
-  // Dashboard: authenticated dealer/user, wallet-based ordering
-  if (context === "dashboard") return [
-    getAvailablePackagesTool,
-    searchOrderStatusTool,
-    getWalletBalanceTool,
-    getWalletTransactionsTool,
-    getOrderHistoryTool,
-    getMySalesTool,
-    prepareWalletOrderTool,
-    getSubscriptionTool,
-    getSubscriptionPlansTool,
-    getMyShopTool,
-    manageMyUssdShopTool,
-    scheduleTaskTool,
-    notifySelfTool,
-    getKnowledgeBaseTool,
-    showActionButtonsTool,
-  ]
-
-  // WhatsApp: conversational support — only tools that work without a dashboard session.
-  if (context === "whatsapp") return [
-    getAvailablePackagesTool,
-    searchOrderStatusTool,
-    getWalletBalanceTool,
-    getOrderHistoryTool,
-    getKnowledgeBaseTool,
-    startOrderingBotTool,
-    placeWhatsappOrderTool,
-    requestHumanHandoffTool,
-    fileComplaintTool,
-    reverifyPaymentTool,
-    startAccountVerificationTool,
-    verifyAccountCodeTool,
-  ]
-
-  // WhatsApp shop bot: sub-agent storefront number — narrow tool set, no wallet/complaint tools.
-  if (context === "whatsapp_shop") return [
-    resolveShopCodeTool,
-    getShopPackagesTool,
-    placeShopOrderTool,
-  ]
-
-  // Admin: platform management — full suite
-  return [
-    // Orders
-    getAvailablePackagesTool,
-    getAllOrdersTool,
-    updateOrderStatusTool,
-    prepareBulkStatusUpdateTool,
-    retryFailedOrderTool,
-    // Users
-    listUsersTool,
-    getUserInfoTool,
-    prepareUserSuspensionTool,
-    prepareRoleChangeTool,
-    prepareWalletAdjustmentTool,
-    // Shops
-    listShopsTool,
-    manageShopTool,
-    // Withdrawals
-    listWithdrawalsTool,
-    prepareWithdrawalActionTool,
-    // USSD shops
-    manageUssdShopTool,
-    // Packages
-    managePackagesTool,
-    // Blacklist
-    manageBlacklistTool,
-    bulkBlacklistTool,
-    // Fulfillment
-    listPendingFulfillmentTool,
-    manualFulfillOrderTool,
-    bulkManualFulfillTool,
-    syncFulfillmentStatusTool,
-    retryBlacklistedOrderTool,
-    // Settings & toggles
-    toggleOrderingTool,
-    toggleAutoFulfillmentTool,
-    toggleMtnAutoFulfillmentTool,
-    toggleAfaAutoFulfillmentTool,
-    setMtnProviderTool,
-    getMtnBalanceTool,
-    // Rate limits
-    manageRateLimitsTool,
-    // Stats & plans
-    getAdminStatsTool,
-    manageSubscriptionPlansTool,
-    // Scheduled tasks & notifications
-    manageScheduledTaskTool,
-    sendNotificationTool,
-    // Knowledge & UI
-    getKnowledgeBaseTool,
-    showActionButtonsTool,
-  ]
+  return toolsFor(context, storefrontServices)
 }
 
 // ─── Sanitize tool results ───────────────────────────────────────────────────
@@ -1202,6 +1191,8 @@ export interface ToolContext {
   conversationKey?: string
   // Background (cron) runs: admin drafts live 12 h instead of 5 min.
   background?: boolean
+  // The AI context this request runs in. REQUIRED: executeToolCall refuses any tool not registered for it.
+  context: AIChatContext
 }
 
 // Admin-only tool names. These either mutate platform state or read data via the
@@ -1209,18 +1200,9 @@ export interface ToolContext {
 // auth are NOT sufficient on their own: a context-confusion bug can surface the
 // admin toolset to a non-admin, and the direct service-role read tools never hit
 // an HTTP auth check. Every one of these is gated on ctx.userRole === "admin" below.
-const ADMIN_ONLY_TOOLS = new Set<string>([
-  "get_all_orders", "update_order_status", "prepare_bulk_status_update", "retry_failed_order",
-  "list_users", "get_user_info", "prepare_user_suspension", "prepare_role_change", "prepare_wallet_adjustment",
-  "list_shops", "manage_shop", "list_withdrawals", "prepare_withdrawal_action",
-  "manage_ussd_shop", "manage_packages", "manage_blacklist", "bulk_blacklist",
-  "list_pending_fulfillment", "manual_fulfill_order", "bulk_manual_fulfill",
-  "sync_fulfillment_status", "retry_blacklisted_order",
-  "toggle_ordering", "toggle_auto_fulfillment", "toggle_mtn_auto_fulfillment",
-  "toggle_afa_auto_fulfillment", "set_mtn_provider", "get_mtn_balance",
-  "manage_rate_limits", "get_platform_stats", "get_admin_stats", "manage_subscription_plans",
-  "get_fulfillment_logs", "get_mtn_logs", "manage_scheduled_task", "send_notification",
-])
+// Derived from the registry's `adminOnly` flag. (Unregistered legacy names such as get_platform_stats are refused
+// by the context check below before they get here.)
+const ADMIN_ONLY_TOOLS = new Set<string>(TOOL_REGISTRY.filter((e) => e.adminOnly).map((e) => e.tool.name))
 
 // Re-derives which shop a WhatsApp-shop-bot conversation belongs to, purely from
 // ctx.phone — the shop AI tools never trust a shop identity passed through ctx,
@@ -1252,6 +1234,13 @@ export async function executeToolCall(
   ctx: ToolContext
 ): Promise<unknown> {
   try {
+    // Context scope: a tool not registered for this request's context never runs, whatever the model asked for.
+    // Fixed, PII-free log marker (tool name + context only).
+    if (!isToolAllowed(name, ctx.context)) {
+      console.warn(`[AI-TOOLS] tool_not_available tool=${name.slice(0, 64).replace(/[^\w.-]/g, "_")} context=${String(ctx.context)}`)
+      return { error: "tool_not_available" }
+    }
+
     // Defense in depth: never execute an admin-only tool for a non-admin caller,
     // regardless of which tool list was offered or how the context was resolved.
     if (ADMIN_ONLY_TOOLS.has(name) && ctx.userRole !== "admin") {

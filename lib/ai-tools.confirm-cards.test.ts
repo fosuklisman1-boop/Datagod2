@@ -78,8 +78,8 @@ describe("scheduled task descriptions", () => {
 })
 
 describe("prepare_* dispatch", () => {
-  const dashCtx = { baseUrl: "http://x", jwtToken: "t", userId: "u1", userRole: "dealer", conversationKey: CK } as any
-  const adminCtx = { baseUrl: "http://x", jwtToken: "t", userId: "a1", userRole: "admin", conversationKey: CK } as any
+  const dashCtx = { baseUrl: "http://x", jwtToken: "t", userId: "u1", userRole: "dealer", conversationKey: CK, context: "dashboard" } as any
+  const adminCtx = { baseUrl: "http://x", jwtToken: "t", userId: "a1", userRole: "admin", conversationKey: CK, context: "admin" } as any
 
   it("prepare_wallet_order uses the server-side user, DB role and conversation key, and maps schedule to camelCase", async () => {
     const r = await executeToolCall("prepare_wallet_order", {
@@ -96,7 +96,7 @@ describe("prepare_* dispatch", () => {
   })
 
   it("prepare_wallet_order without a signed-in user is refused and prepares nothing", async () => {
-    const r = await executeToolCall("prepare_wallet_order", { network: "MTN", size: "1", phone_number: "0241234567" }, { baseUrl: "http://x" } as any)
+    const r = await executeToolCall("prepare_wallet_order", { network: "MTN", size: "1", phone_number: "0241234567" }, { baseUrl: "http://x", context: "dashboard" } as any)
     expect(r).toMatchObject({ refused: true })
     expect(prep.prepareWalletOrder).not.toHaveBeenCalled()
   })
@@ -126,8 +126,10 @@ describe("prepare_* dispatch", () => {
 
   it("admin prepare tools refuse a non-admin caller and never reach the builder", async () => {
     for (const n of ["prepare_wallet_adjustment", "prepare_withdrawal_action", "prepare_user_suspension", "prepare_role_change", "prepare_bulk_status_update"]) {
-      const r = await executeToolCall(n, {}, { ...dashCtx })
+      // admin context + non-admin role: the role gate. (From a dashboard context the tool is not even available.)
+      const r = await executeToolCall(n, {}, { ...dashCtx, context: "admin" })
       expect(r).toEqual({ error: "Not authorized" })
+      expect(await executeToolCall(n, {}, { ...dashCtx })).toEqual({ error: "tool_not_available" })
     }
     expect(prep.prepareWalletAdjustment).not.toHaveBeenCalled()
     expect(prep.prepareBulkStatusUpdate).not.toHaveBeenCalled()

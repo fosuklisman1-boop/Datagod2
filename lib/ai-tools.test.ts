@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { aiTools, executeToolCall } from "@/lib/ai-tools"
+import { aiTools, executeToolCall as executeToolCallScoped, TOOL_REGISTRY, type AIChatContext, type ToolContext } from "@/lib/ai-tools"
 import { isRecipientBlocked } from "@/lib/mtn-providers/customer-verification"
+
+// These tests exercise tool HANDLERS, not context scoping (lib/ai-tool-registry.test.ts covers that): default each
+// call to the first context the tool is registered for unless the test names one.
+const executeToolCall = (name: string, input: Record<string, unknown>, ctx: Omit<ToolContext, "context"> & { context?: AIChatContext }) =>
+  executeToolCallScoped(name, input, { context: TOOL_REGISTRY.find((e) => e.tool.name === name)?.contexts[0] ?? "dashboard", ...ctx })
 
 vi.mock("@/lib/shop-commerce/shop-code", () => ({
   resolveShopCode: vi.fn(),

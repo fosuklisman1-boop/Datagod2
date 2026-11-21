@@ -99,7 +99,7 @@ export async function runAgenticLoop({
         // A filtered run never executes a tool it was not offered (a model can name one anyway).
         const result = toolFilter && !allowedNames.has(tc.name)
           ? { error: "This tool is not available in this run." }
-          : await executeToolCall(tc.name, tc.input, toolCtx)
+          : await executeToolCall(tc.name, tc.input, { ...toolCtx, context })
 
         if (tc.name === "prepare_checkout") {
           emit({ type: "checkout_prefill", data: result })
