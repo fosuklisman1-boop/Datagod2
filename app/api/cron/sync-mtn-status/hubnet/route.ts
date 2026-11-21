@@ -13,6 +13,8 @@ import { syncHubnetAirtime } from "@/lib/airtime-hubnet"
 import { sweepHubnetRefunds } from "@/lib/hubnet/refund-sweep"
 import { notifyAdminsThrottled } from "@/lib/sms/notify"
 import type { HubnetStatus } from "@/lib/hubnet/core"
+import { defaultHubnetCooldown } from "@/lib/hubnet/cooldown"
+import { budgetedClient, lookupBudget, rotatingSlice, type LookupBudget } from "@/lib/hubnet/run-budget"
 
 // Answer the scheduler at once (cron-job.org times out at 30s); the sync runs after the response.
 export const GET = backgroundCron("sync-hubnet", (request) => runHubnetSync(request))
@@ -22,7 +24,15 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const supabase = createClient(supabaseUrl, serviceRoleKey)
 
 const BATCH_SIZE = 50
-const DELAY_BETWEEN_REQUESTS_MS = 1000
+const DELAY_BETWEEN_REQUESTS_MS = 1500
+/** The job runs every 5 minutes; successive runs look at successive slices of a backlog. */
+const RUN_PERIOD_MS = 5 * 60_000
+
+/** True when this run may make one more Hubnet status call (budget left and no shared 429 cooldown). */
+async function mayCall(budget: LookupBudget): Promise<boolean> {
+    if ((await defaultHubnetCooldown().remainingSec()) > 0) return false
+    return budget.take()
+}
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms))
@@ -53,6 +63,9 @@ async function runHubnetSync(request: NextRequest) {
     const sweepDue = isRefundSweepDue(new Date())
     const configured = isHubnetConfigured()
     const notConfigured = { skipped: "not configured" }
+    // One small lookup allowance for the whole run, so new orders keep Hubnet's rate limit to themselves.
+    const budget = lookupBudget()
+    const runIndex = Math.floor(Date.now() / RUN_PERIOD_MS)
 
     console.log("[CRON-HUBNET] Starting status sync...")
     // On due runs the refund sweep goes FIRST, ahead of the slow phases.
@@ -61,14 +74,15 @@ async function runHubnetSync(request: NextRequest) {
         : sweepDue
             ? await phase("refund-sweep", () => sweepHubnetRefunds(supabase, createHubnetClient(), notifyAdminsThrottled))
             : { skipped: "not this minute" }
-    const statusSync = await phase("status-sync", syncStatuses)
-    const reversals = await phase("reversals", syncReversals)
+    const statusSync = await phase("status-sync", () => syncStatuses(budget, runIndex))
+    const reversals = await phase("reversals", () => syncReversals(budget))
     const unknownAttempts = !configured
         ? notConfigured
-        : await phase("unknown-attempts", () => checkHubnetUnknownAttempts(supabase, createHubnetClient()))
+        : await phase("unknown-attempts", () => checkHubnetUnknownAttempts(supabase, budgetedClient(createHubnetClient(), budget)))
     const airtimeSync = !configured
         ? notConfigured
-        : await phase("airtime-sync", () => syncHubnetAirtime(supabase, createHubnetClient()))
+        : await phase("airtime-sync", () => syncHubnetAirtime(supabase, budgetedClient(createHubnetClient(), budget)))
+    console.log(`[CRON-HUBNET] lookups left ${budget.left}${budget.stopped ? " (stopped: Hubnet rate limit)" : ""}`)
 
     const failed = [statusSync, reversals, unknownAttempts, airtimeSync, refundSweep].some(
         (r) => typeof r === "object" && r !== null && "error" in r
@@ -76,7 +90,7 @@ async function runHubnetSync(request: NextRequest) {
     return NextResponse.json({ success: !failed, statusSync, reversals, unknownAttempts, airtimeSync, refundSweep })
 }
 
-async function syncStatuses() {
+async function syncStatuses(budget: LookupBudget, runIndex: number) {
     const { data: pendingOrders, error: fetchError } = await supabase
         .from("mtn_fulfillment_tracking")
         .select("id, mtn_order_id, status, shop_order_id, order_id, api_order_id, order_type, recipient_phone, size_gb")
@@ -94,11 +108,18 @@ async function syncStatuses() {
 
     let synced = 0
     let failed = 0
-    const orders = pendingOrders ?? []
-    console.log(`[CRON-HUBNET] Found ${orders.length} orders to sync`)
+    let skipped = 0
+    const all = pendingOrders ?? []
+    // Only as many rows as this run can afford, rotating so the whole backlog gets covered.
+    const orders = rotatingSlice(all, budget.left, runIndex)
+    console.log(`[CRON-HUBNET] Found ${all.length} orders to sync, checking ${orders.length} this run`)
 
     for (let i = 0; i < orders.length; i++) {
         const order = orders[i]
+        if (!(await mayCall(budget))) {
+            skipped = orders.length - i
+            break
+        }
 
         try {
             const result = await checkMTNOrderStatus(order.mtn_order_id, "hubnet")
@@ -132,16 +153,17 @@ async function syncStatuses() {
         }
     }
 
-    return { synced, failed, total: orders.length }
+    return { synced, failed, skipped, checked: orders.length - skipped, total: all.length }
 }
 
-async function syncReversals() {
+async function syncReversals(budget: LookupBudget) {
     let reversed = 0
     const candidates = await fetchReversalCandidates(supabase, "hubnet", BATCH_SIZE, {
         windowMs: REVERSAL_WINDOW_MS,
         rotateAt: new Date(),
     })
     for (const cand of candidates) {
+        if (!(await mayCall(budget))) break
         const chk = await checkMTNOrderStatus((cand as any).mtn_order_id, "hubnet")
         if (!chk.success || !chk.status) { await sleep(DELAY_BETWEEN_REQUESTS_MS); continue }
         if (isReversal({ trackingStatus: "completed", completedAt: (cand as any).updated_at, providerStatus: chk.status, windowMs: REVERSAL_WINDOW_MS })) {

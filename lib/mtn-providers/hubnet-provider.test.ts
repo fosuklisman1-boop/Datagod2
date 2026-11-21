@@ -242,14 +242,54 @@ describe("HubnetProvider.createOrder", () => {
     expect(alert.mock.calls[0].join(" ")).not.toContain("0241234567")
   })
 
-  it("rate limited / rejected => plain API_ERROR failure, no alert", async () => {
-    for (const [status, body] of [[429, {}], [403, { message: "no" }]] as const) {
-      const f = fakeClient({ place: () => reply(status, body) })
-      const { provider, alert } = make(f.client)
-      const r = await provider.createOrder(mtnReq)
-      expect(r).toMatchObject({ success: false, error_type: "API_ERROR" })
-      expect(alert).not.toHaveBeenCalled()
-    }
+  it("rejected => plain API_ERROR failure, no alert", async () => {
+    const f = fakeClient({ place: () => reply(403, { message: "no" }) })
+    const { provider, alert } = make(f.client)
+    const r = await provider.createOrder(mtnReq)
+    expect(r).toMatchObject({ success: false, error_type: "API_ERROR" })
+    expect(alert).not.toHaveBeenCalled()
+  })
+
+  it("order POST 429 => RATE_LIMIT ordinary failure (not sent), never OUTCOME_UNKNOWN, no alert", async () => {
+    const f = fakeClient({ place: () => reply(429, {}) })
+    const { provider, alert } = make(f.client)
+    const r = await provider.createOrder(mtnReq)
+    expect(r).toMatchObject({ success: false, error_type: "RATE_LIMIT" })
+    expect(alert).not.toHaveBeenCalled()
+  })
+
+  // Incident 2026-11-21 18:56: ~56 orders held OUTCOME_UNKNOWN because pre-place lookups got 429.
+  it("pre-place lookup rate_limited => RATE_LIMIT failure; never places, never holds", async () => {
+    const f = fakeClient({ status: () => ({ kind: "rate_limited", retryAfterSec: 60 }) })
+    const r = await make(f.client).provider.createOrder(mtnReq)
+    expect(r).toMatchObject({ success: false, error_type: "RATE_LIMIT" })
+    expect(r.error_type).not.toBe("OUTCOME_UNKNOWN")
+    expect(r.message).toContain("60s")
+    expect(f.placeData).not.toHaveBeenCalled()
+  })
+
+  it("rate_limited on a later attempt's lookup also stops without placing", async () => {
+    const f = fakeClient({ status: (r) => (r === ref(1) ? found("failed") : { kind: "rate_limited", retryAfterSec: 30 }) })
+    const r = await make(f.client).provider.createOrder(mtnReq)
+    expect(r).toMatchObject({ success: false, error_type: "RATE_LIMIT" })
+    expect(f.placeData).not.toHaveBeenCalled()
+  })
+
+  it("a lookup kind it does not know never places (holds instead)", async () => {
+    const f = fakeClient({ status: () => ({ kind: "something_new" }) as unknown as StatusLookup })
+    const r = await make(f.client).provider.createOrder(mtnReq)
+    expect(r.error_type).toBe("OUTCOME_UNKNOWN")
+    expect(f.placeData).not.toHaveBeenCalled()
+  })
+
+  it("after an unknown place reply, a rate_limited reconcile lookup still holds (may have been placed)", async () => {
+    let calls = 0
+    const f = fakeClient({
+      status: () => (calls++ === 0 ? missing : { kind: "rate_limited", retryAfterSec: 60 }),
+      place: () => reply(503, {}),
+    })
+    const r = await make(f.client).provider.createOrder(mtnReq)
+    expect(r.error_type).toBe("OUTCOME_UNKNOWN")
   })
 
   it("a throwing alert never changes the outcome", async () => {

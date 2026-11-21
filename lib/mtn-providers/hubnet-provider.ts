@@ -109,6 +109,11 @@ export class HubnetProvider implements MTNProvider {
     for (let n = 1; n <= HUBNET_MAX_ATTEMPTS; n++) {
       const ref = hubnetRef("data", uuid as string, n)
       const lk = await this.lookup(ref)
+      // Hubnet refused to answer: nothing has been placed in this call, so an ordinary failure
+      // (the retry sequence may try another provider; a re-send later is safe). Never place blind.
+      if (lk.kind === "rate_limited") {
+        return fail("RATE_LIMIT", `Hubnet is rate-limiting requests - not sent, try again in ${lk.retryAfterSec}s`, traceId)
+      }
       if (lk.kind === "unknown") return outcomeUnknownResponse("Hubnet", null, traceId)
       if (lk.kind === "found") {
         if ((lk.status === "processing" || lk.status === "completed") && !lk.refunded) {
@@ -116,6 +121,7 @@ export class HubnetProvider implements MTNProvider {
         }
         continue // failed or refunded: next attempt
       }
+      if (lk.kind !== "missing") return outcomeUnknownResponse("Hubnet", null, traceId) // only a proven "not found" may place
       return this.place(net, phone, volumeMb, ref, traceId)
     }
     return fail("API_ERROR", `Hubnet: all ${HUBNET_MAX_ATTEMPTS} attempts used`, traceId)
@@ -176,7 +182,7 @@ export class HubnetProvider implements MTNProvider {
         )
         return fail("API_ERROR", "Hubnet: authentication failed", traceId)
       case "rate_limited":
-        return fail("API_ERROR", "Hubnet: rate limited", traceId)
+        return fail("RATE_LIMIT", "Hubnet is rate-limiting requests - not sent, try again shortly", traceId)
       case "rejected":
       default:
         return fail("API_ERROR", "Hubnet: order rejected", traceId)

@@ -71,6 +71,22 @@ describe("fulfillAirtimeViaHubnet", () => {
     }
   })
 
+  it("pre-place lookup rate_limited => not sent (manual), never placed, never processing", async () => {
+    const r = mk({ statuses: { [REF1]: [{ kind: "rate_limited", retryAfterSec: 60 } as any] } })
+    expect(await fulfillAirtimeViaHubnet(order, r.deps)).toBe(false)
+    expect(r.client.placeAirtime).not.toHaveBeenCalled()
+    expect(r.marks.every(m => m.patch.status === undefined)).toBe(true)
+    expect(r.alerts[0].kind).toBe("manual")
+    expect(r.alerts[0].message).toContain("rate limited")
+  })
+
+  it("a lookup kind it does not know never places (holds for review)", async () => {
+    const r = mk({ statuses: { [REF1]: [{ kind: "something_new" } as any] } })
+    expect(await fulfillAirtimeViaHubnet(order, r.deps)).toBe(true)
+    expect(r.client.placeAirtime).not.toHaveBeenCalled()
+    expect(r.alerts.some(a => a.kind === "review")).toBe(true)
+  })
+
   it("invalid phone => not sent without calling Hubnet", async () => {
     const r = mk()
     expect(await fulfillAirtimeViaHubnet({ ...order, beneficiary_phone: "123" }, r.deps)).toBe(false)

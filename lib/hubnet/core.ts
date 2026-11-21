@@ -41,7 +41,8 @@ export type HubnetStatus = "processing" | "completed" | "failed"
 
 export function mapHubnetStatus(raw: string | null | undefined): HubnetStatus {
   const w = String(raw ?? "").trim().toLowerCase()
-  if (["success", "completed", "delivered"].includes(w)) return "completed"
+  // Live 2026-11-21: a delivered order reads data.status "Delivered", data.delivery_status "Successful".
+  if (["success", "successful", "completed", "delivered"].includes(w)) return "completed"
   if (["failed", "refunded", "reversed", "cancelled"].includes(w)) return "failed"
   return "processing"
 }
@@ -94,8 +95,28 @@ export type StatusLookup =
   | { kind: "found"; status: HubnetStatus; refunded: boolean; raw: unknown; costGhs?: number }
   | { kind: "missing" }
   | { kind: "unknown" }
+  // Hubnet refused to answer (429). Says nothing about the order: never place on it, never hold on it.
+  | { kind: "rate_limited"; retryAfterSec: number }
 
-export function classifyStatusReply(httpStatus: number, body: unknown): StatusLookup {
+export const HUBNET_DEFAULT_COOLDOWN_SEC = 60
+const MIN_COOLDOWN_SEC = 5
+const MAX_COOLDOWN_SEC = 300
+
+/**
+ * Seconds to back off after a 429. Live 2026-11-21: header `Retry-After: 25` with body
+ * {error:{code:429, retry_after_seconds:60}}; the longer of the two wins, clamped to 5..300.
+ */
+export function hubnetRetryAfterSec(header: string | null | undefined, body: unknown): number {
+  const fromHeader = Number(header)
+  const err = isObj(body) && isObj(body.error) ? body.error : null
+  const fromBody = err ? Number(err.retry_after_seconds) : NaN
+  const candidates = [fromHeader, fromBody].filter((n) => Number.isFinite(n) && n > 0)
+  const sec = candidates.length ? Math.max(...candidates) : HUBNET_DEFAULT_COOLDOWN_SEC
+  return Math.min(MAX_COOLDOWN_SEC, Math.max(MIN_COOLDOWN_SEC, Math.ceil(sec)))
+}
+
+export function classifyStatusReply(httpStatus: number, body: unknown, retryAfterHeader?: string | null): StatusLookup {
+  if (httpStatus === 429) return { kind: "rate_limited", retryAfterSec: hubnetRetryAfterSec(retryAfterHeader, body) }
   if (!isObj(body)) return { kind: "unknown" }
   if (httpStatus === 404) {
     const msg = typeof body.message === "string" ? body.message : ""

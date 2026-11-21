@@ -68,6 +68,8 @@ export async function fulfillAirtimeViaHubnet(order: AirtimeOrderMinimal, deps: 
     for (let n = 1; n <= HUBNET_MAX_ATTEMPTS; n++) {
       const ref = hubnetRef("airtime", order.id, n)
       const lk = await lookup(ref)
+      // Hubnet refused to answer (429): nothing was placed in this call, so "not sent" (safe to send again).
+      if (lk.kind === "rate_limited") return await notSent(`Hubnet rate limited, try again in ${lk.retryAfterSec}s`)
       if (lk.kind === "unknown") {
         await hold(`Hubnet: outcome unknown [hubnetRef:${ref}]. Do not resend.`, ref)
         await review(`Airtime ${tag}: Hubnet status unknown (ref ${ref}) - check Hubnet, do not resend`)
@@ -79,6 +81,12 @@ export async function fulfillAirtimeViaHubnet(order: AirtimeOrderMinimal, deps: 
           return true
         }
         continue // failed or refunded: next attempt
+      }
+      if (lk.kind !== "missing") {
+        // Only a proven "not found" may place. Anything else is treated as unknown.
+        await hold(`Hubnet: outcome unknown [hubnetRef:${ref}]. Do not resend.`, ref)
+        await review(`Airtime ${tag}: Hubnet status unknown (ref ${ref}) - check Hubnet, do not resend`)
+        return true
       }
       return await place(ref)
     }
