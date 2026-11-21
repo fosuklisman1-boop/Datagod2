@@ -244,6 +244,8 @@ function friendlyError(err: unknown): string {
   return stripped.slice(0, 200) || "Unexpected error. Check logs for details."
 }
 
+const ACCOUNT_SKIP = "account_gate"
+
 // ─── GET: process due tasks ───────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
@@ -299,6 +301,7 @@ export async function GET(request: NextRequest) {
 
       let resultText = ""
       let success = false
+      let skippedForAccount = false
 
       try {
         // Re-verify the user's actual role from the DB — never trust the stored user_role.
@@ -307,12 +310,17 @@ export async function GET(request: NextRequest) {
         let effectiveContext: AIChatContext = "dashboard"
 
         if (task.user_id) {
-          const { data: userRow } = await supabase
+          const { data: userRow, error: userErr } = await supabase
             .from("users")
-            .select("role")
+            .select("role, is_suspended")
             .eq("id", task.user_id)
             .maybeSingle()
-          effectiveRole = userRow?.role ?? "user"
+          // Fail closed: a suspended account, a missing row or a failed read never reaches the model.
+          if (userErr || !userRow || userRow.is_suspended === true) {
+            skippedForAccount = true
+            throw new Error(ACCOUNT_SKIP)
+          }
+          effectiveRole = userRow.role ?? "user"
         }
 
         // Only allow admin context if the user actually has the admin role in the DB
@@ -355,9 +363,14 @@ export async function GET(request: NextRequest) {
           if (cards > 0) resultText = `${resultText} ${cards} card(s) waiting for your confirmation.`
         }
       } catch (err) {
-        resultText = `Task failed: ${friendlyError(err)}`
+        if (skippedForAccount) {
+          resultText = "Task skipped: account suspended"
+          console.error("[CRON-AI-TASKS] task skipped: account gate")
+        } else {
+          resultText = `Task failed: ${friendlyError(err)}`
+          console.error(`[CRON-AI-TASKS] Task ${task.id} (${task.name}) failed:`, err)
+        }
         success = false
-        console.error(`[CRON-AI-TASKS] Task ${task.id} (${task.name}) failed:`, err)
       }
 
       // Compute next run time
@@ -378,8 +391,8 @@ export async function GET(request: NextRequest) {
         .update(updatePayload)
         .eq("id", task.id)
 
-      // Notify task owner
-      if (task.user_id) {
+      // Notify task owner (a skipped suspended account gets nothing beyond the recorded result)
+      if (task.user_id && !skippedForAccount) {
         await notifyTaskResult(task, resultText, success)
       }
 

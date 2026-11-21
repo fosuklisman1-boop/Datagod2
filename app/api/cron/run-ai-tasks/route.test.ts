@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   runLoop: vi.fn(),
   push: vi.fn(),
   sms: vi.fn(),
+  usersReadFails: false,
 }))
 
 function makeDb() {
@@ -28,7 +29,11 @@ function makeDb() {
         select() { return b },
         eq(c: string, v: unknown) { filters.push((r) => r[c] === v); return b },
         lte(c: string, v: string) { filters.push((r) => r[c] <= v); return b },
-        maybeSingle() { const x = run(); return Promise.resolve({ data: x.data[0] ?? null, error: null }) },
+        maybeSingle() {
+          if (table === "users" && h.usersReadFails) return Promise.resolve({ data: null, error: { message: "boom" } })
+          const x = run()
+          return Promise.resolve({ data: x.data[0] ?? null, error: null })
+        },
         then(res: any, rej: any) { return Promise.resolve(run()).then(res, rej) },
       }
       return b
@@ -77,6 +82,7 @@ beforeEach(() => {
   h.runLoop.mockReset()
   h.push.mockReset()
   h.sms.mockReset()
+  h.usersReadFails = false
   h.runLoop.mockResolvedValue({ text: "done", toolsUsed: [] })
   process.env.CRON_SECRET = "cron-secret"
 })
@@ -170,5 +176,46 @@ describe("run-ai-tasks standing orders", () => {
     expect(names.some((n: string) => n.startsWith("prepare_"))).toBe(false)
     expect(names).not.toContain("prepare_wallet_order")
     expect(names).toContain("notify_self")
+  })
+})
+
+describe("run-ai-tasks account gate", () => {
+  const plainTask = { standing_order: null, approved_draft_id: null, prompt: "Summarise my week" }
+
+  function expectSkipped() {
+    expect(h.runLoop).not.toHaveBeenCalled()
+    expect(h.push).not.toHaveBeenCalled()
+    expect(h.sms).not.toHaveBeenCalled()
+    const t = h.tables.ai_scheduled_tasks[0]
+    expect(t.last_result).toBe("Task skipped: account suspended")
+    expect(t.last_success).toBe(false)
+    expect(new Date(t.next_run_at).getTime()).toBeGreaterThan(Date.now()) // advanced, no spin
+  }
+
+  it("cron_skips_task_for_suspended_user", async () => {
+    seed(plainTask)
+    h.tables.users[0].is_suspended = true
+    await GET(req())
+    expectSkipped()
+  })
+
+  it("cron_skips_task_for_missing_user_row", async () => {
+    seed(plainTask)
+    h.tables.users = []
+    await GET(req())
+    expectSkipped()
+  })
+
+  it("cron_skips_task_when_user_read_fails", async () => {
+    seed(plainTask)
+    h.usersReadFails = true
+    await GET(req())
+    expectSkipped()
+  })
+
+  it("an active user's task still runs", async () => {
+    seed(plainTask)
+    await GET(req())
+    expect(h.runLoop).toHaveBeenCalledTimes(1)
   })
 })

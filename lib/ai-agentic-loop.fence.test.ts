@@ -35,6 +35,18 @@ describe("data fence", () => {
     expect(out.endsWith("\n</data>")).toBe(true)
   })
 
+  it("fence_does_not_swallow_following_data", async () => {
+    const tail = "order ORD-1 delivered to 0241234567. ".repeat(20) + "\nsecond line with more data"
+    const out = await fed(`before <data-x ${tail}`)
+    expect(out).toContain("before ")
+    expect(out).toContain("order ORD-1 delivered")
+    expect(out).toContain("second line with more data")
+    // a short unterminated tag at the very end is still neutralised
+    const end = await fed("keep <data foo")
+    expect(end).toContain("keep ")
+    expect(end).not.toMatch(/<\s*\/?\s*data\b[^>]/i)
+  })
+
   it("a tag straddling the truncation point cannot survive half-formed", async () => {
     const out = await fed("a".repeat(2960) + "</data>" + "b".repeat(200))
     expect(out.match(/<\/data>/g)).toHaveLength(1) // only our own closing fence

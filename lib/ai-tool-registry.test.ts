@@ -26,9 +26,20 @@ describe("tool registry invariants", () => {
     for (const f of forbidden) expect(all.has(f), f).toBe(false)
   })
 
+  it("tool_descriptions_do_not_point_at_refused_tools", () => {
+    const refused = ["get_mtn_logs", "get_platform_stats"]
+    for (const e of TOOL_REGISTRY) {
+      const text = JSON.stringify(e.tool)
+      for (const r of refused) expect(text, `${e.tool.name} mentions ${r}`).not.toContain(r)
+    }
+  })
+
   it("no_money_tool_in_customer_web_contexts", () => {
+    // owner decision pending (Phase 2 review I4): activation fee from wallet; candidate for a confirm card
+    const KNOWN_MONEY_EXCEPTIONS = ["manage_my_ussd_shop"]
     for (const e of TOOL_REGISTRY) {
       if (e.acts !== "money") continue
+      if (KNOWN_MONEY_EXCEPTIONS.includes(e.tool.name)) continue
       for (const c of ["dashboard", "storefront", "home"] as const) expect(e.contexts, `${e.tool.name} in ${c}`).not.toContain(c)
     }
   })

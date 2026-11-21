@@ -117,6 +117,16 @@ describe("auth", () => {
     expect(h.confirmDraft).not.toHaveBeenCalled()
   })
 
+  it("missing_users_row_is_suspended_403 on confirm and recheck (Phase 2 review M3)", async () => {
+    h.role = "" // fake returns no row at all
+    for (const call of [() => confirm(req("POST"), ctx()), () => recheck(req("POST"), ctx())]) {
+      const res = await call()
+      expect(res.status).toBe(403)
+      expect(await res.json()).toEqual({ error: "Account suspended" })
+    }
+    expect(h.confirmDraft).not.toHaveBeenCalled()
+  })
+
   it("users read error fails closed with 503", async () => {
     h.roleError = { message: "boom" }
     expect((await confirm(req("POST"), ctx())).status).toBe(503)

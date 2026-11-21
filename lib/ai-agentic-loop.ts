@@ -119,8 +119,10 @@ export async function runAgenticLoop({
         }
 
         // Fence hardening: neutralise any <data ...> / </data> tag in the tool output BEFORE truncating, so a
-        // result can neither close the fence early nor leave a half-formed tag at the cut.
-        const resultStr = (JSON.stringify(result) ?? "null").replace(/<\s*(\/?)\s*data\b[^>]*(?:>|$)/gi, (_m, slash: string) => (slash ? "[/data]" : "[data]"))
+        // result can neither close the fence early nor leave a half-formed tag at the cut. Bounded: attributes are
+        // at most 200 non-newline chars, and end-of-string only terminates a SHORT unterminated tag, so a stray
+        // "<data-x" can never swallow real data up to the end. A tag with no bounded end is replaced on its own.
+        const resultStr = (JSON.stringify(result) ?? "null").replace(/<\s*(\/?)\s*data\b(?:[^>\n]{0,200}>|[^>\n]{0,200}$)?/gi, (_m, slash: string) => (slash ? "[/data]" : "[data]"))
         const truncated = resultStr.length > 3000 ? resultStr.slice(0, 3000) + "…[truncated]" : resultStr
         toolResults.push({
           type: "tool_result",

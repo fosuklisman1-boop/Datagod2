@@ -1,20 +1,32 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+export type SuspensionStatus = "active" | "suspended" | "unknown"
+
 /**
- * True when the account is suspended. Fails CLOSED: a read error, a thrown error or a missing users row all
- * count as suspended, so a database hiccup can never let a suspended account through.
+ * Tri-state suspension read. 'suspended' = is_suspended true OR no users row at all (an orphaned account is never
+ * served); 'unknown' = the read errored or threw (callers fail closed but can say "try again" instead of
+ * "suspended"); 'active' = a row exists and is not suspended.
  * The log marker is fixed text; no user id, name, phone or email is ever logged.
  */
-export async function isSuspended(db: SupabaseClient, userId: string): Promise<boolean> {
+export async function suspensionStatus(db: SupabaseClient, userId: string): Promise<SuspensionStatus> {
   try {
     const { data, error } = await db.from("users").select("is_suspended").eq("id", userId).maybeSingle()
-    if (error || !data) {
+    if (error) {
       console.error("[AUTH] suspension_check_failed")
-      return true
+      return "unknown"
     }
-    return (data as { is_suspended?: boolean | null }).is_suspended === true
+    if (!data) {
+      console.error("[AUTH] suspension_check_failed")
+      return "suspended"
+    }
+    return (data as { is_suspended?: boolean | null }).is_suspended === true ? "suspended" : "active"
   } catch {
     console.error("[AUTH] suspension_check_failed")
-    return true
+    return "unknown"
   }
+}
+
+/** True unless the account is positively active. Fails CLOSED: unknown and suspended both count as suspended. */
+export async function isSuspended(db: SupabaseClient, userId: string): Promise<boolean> {
+  return (await suspensionStatus(db, userId)) !== "active"
 }

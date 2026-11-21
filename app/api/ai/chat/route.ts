@@ -13,7 +13,7 @@ import { z } from "zod"
 import { terminalDraftsSince } from "@/lib/ai-drafts/repo"
 import { buildOutcomeNote, cardNonceRule, cardResultsBlock, OUTCOME_LOOKBACK_MS, stripClientCardNotes } from "@/lib/ai-drafts/outcome-notes"
 import { randomBytes } from "crypto"
-import { isSuspended } from "@/lib/auth/suspension"
+import { suspensionStatus } from "@/lib/auth/suspension"
 import { normaliseHistory } from "@/lib/ai-history"
 const conversationKeySchema = z.string().uuid()
 
@@ -108,6 +108,40 @@ function getBaseUrl(): string {
   return "http://localhost:3000"
 }
 
+/** One fixed assistant line as a complete SSE stream (no model call, no tools). */
+function fixedTextStream(text: string): Response {
+  const body =
+    `data: ${JSON.stringify({ type: "text", content: text })}\n\n` +
+    `data: ${JSON.stringify({ type: "done" })}\n\n`
+  return new Response(new TextEncoder().encode(body), {
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+  })
+}
+
+/**
+ * normaliseHistory merges same-role turns with "\n\n", which can join two harmless fragments ("…[" + "card <id>: …]")
+ * into a forged card note the per-message strip never saw. Strip again AFTER the merge; a turn the strip empties is
+ * dropped and the history re-normalised (alternation), repeated until stable (max 3 passes, then one last strip).
+ */
+function normaliseAndRestrip(history: Array<{ role: "user" | "assistant"; content: string }>) {
+  let cur = normaliseHistory(history)
+  for (let i = 0; i < 3; i++) {
+    let changed = false
+    const next: Array<{ role: "user" | "assistant"; content: string }> = []
+    for (const m of cur) {
+      const content = stripClientCardNotes(m.content)
+      if (content !== m.content) changed = true
+      if (content.trim()) next.push({ role: m.role, content })
+    }
+    if (!changed) return cur
+    cur = normaliseHistory(next)
+  }
+  // Still changing after 3 passes: strip one final time and keep only what is clean and non-empty.
+  return normaliseHistory(cur.map((m) => ({ role: m.role, content: stripClientCardNotes(m.content) })))
+    .map((m) => ({ role: m.role, content: stripClientCardNotes(m.content) }))
+    .filter((m) => m.content.trim())
+}
+
 export async function POST(req: NextRequest) {
   // Parse defensively: malformed / non-JSON bodies (fuzzers send form-encoded or
   // garbage payloads) must return a clean 400, not crash the handler with an
@@ -167,7 +201,8 @@ export async function POST(req: NextRequest) {
     })
   // Valid for every provider: starts with a user turn, alternates, ends with the user's latest message.
   // Runs BEFORE the card-results prepend below, which targets the last user message.
-  const messages: Anthropic.MessageParam[] = normaliseHistory(cleanedHistory)
+  const messages: Anthropic.MessageParam[] = normaliseAndRestrip(cleanedHistory)
+  if (messages.length === 0) return fixedTextStream("Please send a message.")
 
   const [aiConfig, ussdDialCode, guestPurchaseUrl, communityLink] = await Promise.all([loadAIConfig(), loadUssdDialCode(), loadGuestPurchaseUrl(), loadCommunityLink()])
   const channelNote = communityLink
@@ -189,15 +224,10 @@ export async function POST(req: NextRequest) {
       userId = user.id
 
       // Suspended accounts get one fixed message: no provider call, no tools, no history load. Fails closed.
-      if (await isSuspended(supabaseAdmin, userId)) {
-        const enc = new TextEncoder()
-        const body =
-          `data: ${JSON.stringify({ type: "text", content: "Your account is suspended. Please contact support." })}\n\n` +
-          `data: ${JSON.stringify({ type: "done" })}\n\n`
-        return new Response(enc.encode(body), {
-          headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
-        })
-      }
+      // A failed read says "try again", not "suspended", but is just as final for this request.
+      const suspension = await suspensionStatus(supabaseAdmin, userId)
+      if (suspension === "suspended") return fixedTextStream("Your account is suspended. Please contact support.")
+      if (suspension === "unknown") return fixedTextStream("AI is temporarily unavailable. Please try again shortly.")
 
       if (context === "admin") {
         const { data: profile } = await supabaseAdmin
@@ -529,7 +559,7 @@ WHAT THIS SHOP SELLS:
 ${sellsSection}
 
 HOW BUYING WORKS:
-1. Customer picks what they want → you call prepare_checkout → a payment form opens on the page
+1. ${sellsData ? "Customer picks what they want → you call prepare_checkout → a payment form opens on the page" : "Customer picks what they want from the sections on the page and a payment form opens there"}
 2. Customer fills phone number and pays via Paystack (card or MoMo)
 3. Delivery happens automatically after payment confirmation
 4. No account or login required at any point

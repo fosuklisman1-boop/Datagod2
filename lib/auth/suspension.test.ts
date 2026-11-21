@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
-import { isSuspended } from "@/lib/auth/suspension"
+import { isSuspended, suspensionStatus } from "@/lib/auth/suspension"
 
 const fakeDb = (result: { data: unknown; error: unknown } | "throw") =>
   ({
@@ -35,5 +35,17 @@ describe("isSuspended", () => {
     expect(await isSuspended(fakeDb({ data: null, error: null }), "u1")).toBe(true)
     for (const c of err.mock.calls) expect(JSON.stringify(c)).not.toContain("u1")
     expect(err).toHaveBeenCalledWith("[AUTH] suspension_check_failed")
+  })
+})
+
+describe("suspensionStatus (tri-state)", () => {
+  it("active / suspended / unknown", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    expect(await suspensionStatus(fakeDb({ data: { is_suspended: false }, error: null }), "u1")).toBe("active")
+    expect(await suspensionStatus(fakeDb({ data: { is_suspended: null }, error: null }), "u1")).toBe("active")
+    expect(await suspensionStatus(fakeDb({ data: { is_suspended: true }, error: null }), "u1")).toBe("suspended")
+    expect(await suspensionStatus(fakeDb({ data: null, error: null }), "u1")).toBe("suspended") // missing row
+    expect(await suspensionStatus(fakeDb({ data: null, error: { message: "boom" } }), "u1")).toBe("unknown")
+    expect(await suspensionStatus(fakeDb("throw"), "u1")).toBe("unknown")
   })
 })

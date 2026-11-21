@@ -521,7 +521,7 @@ const manageRateLimitsTool: Anthropic.Tool = {
 
 const getAdminStatsTool: Anthropic.Tool = {
   name: "get_admin_stats",
-  description: "Admin only: get the full admin dashboard statistics — total orders, revenue, success rate, airtime stats, and more. Prefer this over get_platform_stats when the admin asks for a general overview.",
+  description: "Admin only: get the full admin dashboard statistics — total orders, revenue, success rate, airtime stats, and more. Use this when the admin asks for a general overview.",
   input_schema: {
     type: "object" as const,
     properties: {},
@@ -670,12 +670,12 @@ const getResultsCheckerAvailabilityTool: Anthropic.Tool = {
 
 const syncFulfillmentStatusTool: Anthropic.Tool = {
   name: "sync_fulfillment_status",
-  description: "Admin only: sync an MTN order's status from the external provider. Use get_mtn_logs first to find the tracking_id or mtn_order_id for a specific order. Set sync_all_pending=true to refresh all pending MTN orders at once without needing individual IDs.",
+  description: "Admin only: sync an MTN order's status from the external provider. Use get_all_orders to find the tracking_id or mtn_order_id for a specific order. Set sync_all_pending=true to refresh all pending MTN orders at once without needing individual IDs.",
   input_schema: {
     type: "object" as const,
     properties: {
-      tracking_id: { type: "string", description: "Provider tracking ID — get this from get_mtn_logs" },
-      mtn_order_id: { type: "string", description: "MTN order ID — get this from get_mtn_logs" },
+      tracking_id: { type: "string", description: "Provider tracking ID — get this from get_all_orders" },
+      mtn_order_id: { type: "string", description: "MTN order ID — get this from get_all_orders" },
       sync_all_pending: { type: "boolean", description: "true to sync all pending MTN orders at once (no tracking_id needed)" },
       provider: { type: "string", enum: ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime"], description: "Provider to sync from" },
     },
@@ -1064,7 +1064,9 @@ const TOOL_REGISTRY: readonly ToolEntry[] = [
   { tool: getSubscriptionTool, contexts: ["dashboard"], acts: "none" },
   { tool: getSubscriptionPlansTool, contexts: ["home", "dashboard"], acts: "none" },
   { tool: getMyShopTool, contexts: ["dashboard"], acts: "none" },
-  { tool: manageMyUssdShopTool, contexts: ["dashboard"], acts: "account" },
+  // acts:"money" because 'activate' may deduct an activation fee from the wallet. Still offered in the dashboard:
+  // a named exception in lib/ai-tool-registry.test.ts (owner decision pending, Phase 2 review I4).
+  { tool: manageMyUssdShopTool, contexts: ["dashboard"], acts: "money" },
   { tool: scheduleTaskTool, contexts: ["dashboard"], acts: "ops" },
   { tool: notifySelfTool, contexts: ["dashboard"], acts: "ops" },
   { tool: getAirtimeAvailabilityTool, contexts: ["storefront"], acts: "none", storefrontNeeds: ["airtime"] },

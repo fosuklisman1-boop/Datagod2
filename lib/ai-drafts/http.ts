@@ -56,7 +56,8 @@ export async function authenticate(req: NextRequest): Promise<AuthResult> {
     if (roleError) return unavailable
     const r = row as { role?: string; is_suspended?: boolean | null } | null
     isAdmin = r?.role === "admin"
-    suspended = r?.is_suspended === true
+    // A missing users row (read succeeded, no row) is treated as suspended: an orphaned account never confirms.
+    suspended = !r || r.is_suspended === true
   } catch {
     console.error("ai_drafts: role read threw")
     return unavailable
