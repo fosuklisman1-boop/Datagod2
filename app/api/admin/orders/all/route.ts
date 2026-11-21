@@ -30,10 +30,12 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const searchQuery = searchParams.get("search") || ""
     const searchType = searchParams.get("searchType") || "all" // "all", "reference", "phone"
-    const limit = parseInt(searchParams.get("limit") || "50")
-    const offset = parseInt(searchParams.get("offset") || "0")
+    const rawLimit = parseInt(searchParams.get("limit") || "50")
+    const limit = Math.min(200, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 50))
+    const rawOffset = parseInt(searchParams.get("offset") || "0")
+    const offset = Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0)
 
-    console.log(`[ALL-ORDERS] Fetching orders. Search: "${searchQuery}" (type: ${searchType}), Limit: ${limit}, Offset: ${offset}`)
+    console.log(`[ALL-ORDERS] Fetching orders. Search length: ${searchQuery.length} (type: ${searchType}), Limit: ${limit}, Offset: ${offset}`)
 
     // Use the unified view for high-performance pagination and search
     // Explicitly select columns to ensure consistency across view versions
@@ -96,7 +98,8 @@ export async function GET(request: NextRequest) {
 
     // Apply search filter to DB query if present
     if (searchQuery) {
-      const q = searchQuery.trim()
+      // Remove PostgREST filter-syntax chars (they would break out of the .or() string), then escape LIKE wildcards.
+      const q = searchQuery.trim().replace(/[,()]/g, "").replace(/[\\%_]/g, (c) => `\\${c}`)
       if (searchType === "phone") {
         query = query.ilike("phone_number", `%${q}%`)
       } else if (searchType === "reference") {
