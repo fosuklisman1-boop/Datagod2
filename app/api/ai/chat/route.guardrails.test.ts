@@ -174,7 +174,8 @@ describe("storefront prompt", () => {
       body: JSON.stringify({ context: "storefront", messages: [{ role: "user", content: "hi" }] }),
     })
     await (await POST(req)).text()
-    return (h.runAgenticLoop.mock.calls.at(-1)?.[0] as { system: string }).system
+    const system = (h.runAgenticLoop.mock.calls.at(-1)?.[0] as { system: string | { stable: string; volatile: string } }).system
+    return typeof system === "string" ? system : `${system.stable}\n\n${system.volatile}`
   }
 
   it("prepare_checkout_only_mentioned_when_data_is_sold", async () => {

@@ -22,11 +22,22 @@ export interface NormalizedResponse {
   anthropicContent: AnthropicContentLike[]
 }
 
+/**
+ * A plain string (cron, WhatsApp) or a stable/volatile split (web chat). Anthropic caches the stable block;
+ * OpenAI/Gemini get stable + "\n\n" + volatile so their automatic prefix caching still sees the stable part first.
+ */
+export type SystemPrompt = string | { stable: string; volatile: string }
+
+function flattenSystem(system: SystemPrompt): string {
+  if (typeof system === "string") return system
+  return system.volatile ? `${system.stable}\n\n${system.volatile}` : system.stable
+}
+
 export interface AIProvider {
   createMessage(params: {
     model: string
     maxTokens: number
-    system: string
+    system: SystemPrompt
     tools: Anthropic.Tool[]
     messages: Anthropic.MessageParam[]
   }): Promise<NormalizedResponse>
@@ -57,7 +68,13 @@ class AnthropicAdapter implements AIProvider {
     const response = await this.client.messages.create({
       model,
       max_tokens: maxTokens,
-      system,
+      // Render order is tools → system → messages: one breakpoint on the stable block caches tools + stable prefix.
+      system: typeof system === "string"
+        ? system
+        : [
+            { type: "text" as const, text: system.stable, cache_control: { type: "ephemeral" as const } },
+            ...(system.volatile ? [{ type: "text" as const, text: system.volatile }] : []),
+          ],
       tools,
       messages,
     })
@@ -173,7 +190,7 @@ class OpenAIAdapter implements AIProvider {
     }))
 
     const openaiMessages: OpenAI.ChatCompletionMessageParam[] = [
-      { role: "system", content: system },
+      { role: "system", content: flattenSystem(system) },
       ...toOpenAIMessages(messages),
     ]
 
@@ -307,7 +324,7 @@ class GeminiAdapter implements AIProvider {
   async createMessage({ model, maxTokens, system, tools, messages }: Parameters<AIProvider["createMessage"]>[0]): Promise<NormalizedResponse> {
     const genModel = this.client.getGenerativeModel({
       model,
-      systemInstruction: system,
+      systemInstruction: flattenSystem(system),
       generationConfig: { maxOutputTokens: maxTokens },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tools: tools.length > 0 ? [{ functionDeclarations: tools.map(t => ({ name: t.name, description: t.description ?? "", parameters: t.input_schema as any })) }] as any : undefined,
