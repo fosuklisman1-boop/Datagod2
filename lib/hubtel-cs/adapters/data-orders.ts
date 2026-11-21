@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { OrderAdapter } from "../adapters"
 import type { HubtelCsTx } from "../types"
 import { STOREFRONT_REFUND_MESSAGE } from "./bill-orders"
+import { isSpecialReplacement, replacementRef, REPLACEMENT_NOT_REFUNDABLE, RESENT_NOT_REFUNDABLE } from "@/lib/standard-bundles/special-resend"
 
 export const DATA_ORDERS_TABLE = "hubtel_data_orders"
 
@@ -44,6 +45,8 @@ export interface DataOrdersAdapterDeps {
   alertAdmin(message: string, urgent?: boolean): Promise<void>
   /** How many rows a Special group has. Throws on DB error (the alert then names the unit without a size). */
   groupSize?(groupId: string): Promise<number | null>
+  /** Whether this unit was resent (its SBR- replacement exists). Throws on DB error (the refund is then refused). */
+  hasReplacement?(orderId: string): Promise<boolean>
 }
 
 export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapter {
@@ -75,8 +78,12 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
       return
     }
     if (o?.channel !== "bots") return
-    const action = "It is paid and not delivered, and the buyer has not been told. See Admin > Refunds: refund it there, or deliver by hand."
     const ref = o.reference_code ?? id
+    if (isSpecialReplacement(o.reference_code)) {
+      await deps.alertAdmin(`URGENT: Special replacement ${ref} failed at Hubtel (code ${code}). It is not refundable: use Retry on it in Admin > Hubtel Commission > Standard Bundles.`, true)
+      return
+    }
+    const action = "It is paid and not delivered, and the buyer has not been told. See Admin > Refunds: refund it there, or deliver by hand."
     if (!o.special_group_id) {
       await deps.alertAdmin(`URGENT: Bot order ${ref} failed at Hubtel (code ${code}). ${action}`, true)
       return
@@ -115,7 +122,9 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
       const id = tx.order_id!
       const n = await deps.update(id, { status: "failed", failure_reason: tx.failure_reason ?? tx.response_code ?? "unknown reason", notes: `Failed via Hubtel [hcsRef:${tx.client_reference}]` }, LIVE_STATUSES)
       if (n > 0) {
-        await notifyCustomer(id, "Standard bundle failed", o => `Your ${summary(o)} failed — it's under review; a refund follows if nothing was delivered.`)
+        await notifyCustomer(id, "Standard bundle failed", o => isSpecialReplacement(o.reference_code)
+          ? `The resend of your ${summary(o)} did not go through yet — we will retry it.`
+          : `Your ${summary(o)} failed — it's under review; a refund follows if nothing was delivered.`)
         await quiet("bot failure alert", () => alertBotFailure(id, tx))
       }
     },
@@ -124,6 +133,14 @@ export function createDataOrdersAdapter(deps: DataOrdersAdapterDeps): OrderAdapt
       const id = tx.order_id!
       const o = await deps.get(id)
       if (!o) return { refunded: false, message: "Order not found" }
+      // An admin Special replacement was never charged: nothing to refund (refunded:false releases the ledger claim).
+      if (isSpecialReplacement(o.reference_code)) return { refunded: false, message: REPLACEMENT_NOT_REFUNDABLE }
+      // A Special unit already resent: the customer got the replacement, so no refund (a lookup error refuses too).
+      if (deps.hasReplacement) {
+        let resent = true
+        try { resent = await deps.hasReplacement(id) } catch { resent = true }
+        if (resent) return { refunded: false, message: RESENT_NOT_REFUNDABLE }
+      }
       // Never "refund" a storefront / bot order to a NULL wallet; refunded:false releases the ledger claim.
       if (o.channel === "storefront" || o.channel === "bots" || !o.user_id) return { refunded: false, message: STOREFRONT_REFUND_MESSAGE }
       // Already refunded by an earlier run: the credit exists, so the claim must NOT be released.
@@ -188,6 +205,11 @@ export function dataOrdersAdapterFor(db: SupabaseClient): OrderAdapter {
       const { count, error } = await db.from(DATA_ORDERS_TABLE).select("id", { count: "exact", head: true }).eq("special_group_id", groupId)
       if (error) throw error
       return count
+    },
+    async hasReplacement(orderId) {
+      const { data, error } = await db.from(DATA_ORDERS_TABLE).select("id").eq("reference_code", replacementRef(orderId)).maybeSingle()
+      if (error) throw error
+      return !!data
     },
   })
 }

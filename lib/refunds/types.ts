@@ -72,6 +72,10 @@ export interface CommissionEvidence {
   /** Order creation time (airtime: the STOREFRONT_REFUNDS_FROM cutoff). Absent = not checked (bills/bundles). */
   createdAt?: string
   ledger: CommissionLedgerFact[]
+  /** hubtel_data_orders: an admin Special replacement (SBR- reference). Never charged => never refundable. */
+  adminReplacement?: boolean
+  /** hubtel_data_orders: this unit was resent (its SBR- replacement exists), so the customer got the replacement. */
+  resent?: boolean
 }
 
 /** Dashboard/bulk (`orders`) and API (`api_orders`) orders: paid from the buyer's wallet, no shop owners, wallet refund only. */

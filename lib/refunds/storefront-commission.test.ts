@@ -115,6 +115,39 @@ describe("loadRefundableOrders: storefront commission tables", () => {
     expect(orderEligibility(o, NOW)).toMatchObject({ eligible: false, code: "NOT_STOREFRONT" })
   })
 
+  it("bundle: a failed bot Special replacement (SBR-) is loaded flagged adminReplacement and refused", async () => {
+    const calls: unknown[][] = []
+    const db = fakeDb({
+      hubtel_data_orders: [{
+        id: "d2", shop_id: null, user_id: null, channel: "bots", bot_surface: "hubtel_ussd", reference_code: "SBR-18D49F714B0E41B2B85446CEB88A0453",
+        network: "MTN", bundle_display: "406.89MB", beneficiary_phone: "233241112222", amount: 3, paid_amount: null,
+        status: "failed", payment_status: "paid", created_at: "2026-11-20T20:00:00Z", updated_at: "2026-11-20T20:00:00Z",
+      }],
+      order_refunds: [], hubtel_cs_transactions: [], wallet_payments: [], shop_profits: [], hubtel_transactions: [],
+    }, calls)
+    const [o] = await loadRefundableOrders(db, [{ table: "hubtel_data_orders", id: "d2" }])
+    expect(o.evidence.commission?.adminReplacement).toBe(true)
+    expect(orderEligibility(o, NOW)).toMatchObject({ eligible: false, code: "ADMIN_REPLACEMENT" })
+  })
+
+  it("bundle: an original unit whose SBR- replacement exists is loaded flagged resent", async () => {
+    const id = "18d49f71-4b0e-41b2-b854-46ceb88a0453"
+    const db = fakeDb({
+      hubtel_data_orders: [
+        {
+          id, shop_id: null, user_id: null, channel: "bots", bot_surface: "hubtel_ussd", reference_code: "SB-ABC", special_group_id: "g1",
+          network: "MTN", bundle_display: "406.89MB", beneficiary_phone: "233241112222", amount: 3, paid_amount: 3,
+          status: "failed", payment_status: "paid", created_at: "2026-11-20T20:00:00Z", updated_at: "2026-11-20T20:00:00Z",
+        },
+        { id: "rep", reference_code: "SBR-18D49F714B0E41B2B85446CEB88A0453" },
+      ],
+      order_refunds: [], hubtel_cs_transactions: [], wallet_payments: [], shop_profits: [], hubtel_transactions: [],
+    })
+    const [o] = await loadRefundableOrders(db, [{ table: "hubtel_data_orders", id }])
+    expect(o.evidence.commission?.resent).toBe(true)
+    expect(orderEligibility(o, NOW)).toMatchObject({ eligible: false, code: "ADMIN_REPLACEMENT" })
+  })
+
   it("isStorefrontRow: airtime = web storefront only (no account, no channel, no dialing phone)", () => {
     expect(isStorefrontRow("airtime_orders", { shop_id: "s", user_id: null, channel: null, dialing_phone: null })).toBe(true)
     expect(isStorefrontRow("airtime_orders", { shop_id: "s", user_id: "u", channel: null })).toBe(false) // wallet-paid
@@ -167,6 +200,14 @@ const elig = (table: CommissionTable, c: CommissionEvidence, hasActiveRefund = f
   evaluateEligibility({ table, orderStatus: c.status, paymentStatus: "completed", hasActiveRefund, dispatchOutcome: null, trackingStatuses: [], externalOrderId: null, commission: c, now: NOW })
 
 describe("storefront commission eligibility", () => {
+  it("an admin Special replacement (bot or storefront) is never refundable: it was never charged", () => {
+    const r = elig("hubtel_data_orders", ev({ status: "failed", adminReplacement: true }))
+    expect(r).toMatchObject({ eligible: false, code: "ADMIN_REPLACEMENT" })
+    expect(elig("hubtel_data_orders", ev({ status: "failed", adminReplacement: false })).eligible).toBe(true)
+  })
+  it("a unit that was resent (its SBR- replacement exists) is never refundable: the customer got the replacement", () => {
+    expect(elig("hubtel_data_orders", ev({ status: "failed", resent: true }))).toMatchObject({ eligible: false, code: "ADMIN_REPLACEMENT" })
+  })
   for (const table of ["hubtel_bill_orders", "hubtel_data_orders"] as const) {
     describe(table, () => {
       it("blocks while the Hubtel ledger row is created / pending / needs_review", () => {

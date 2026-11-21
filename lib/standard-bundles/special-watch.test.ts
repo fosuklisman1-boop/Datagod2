@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  SPECIAL_WATCH_AGE_MS, SPECIAL_WATCH_KEY, SPECIAL_WATCH_REALERT_MS, specialStuckMessage, watchStuckSpecialGroups,
+  SPECIAL_CONTINUE_GRACE_MS, SPECIAL_WATCH_AGE_MS, SPECIAL_WATCH_KEY, SPECIAL_WATCH_REALERT_MS, specialStuckMessage, watchStuckSpecialGroups,
 } from "./special-watch"
 
 const NOW = Date.parse("2026-10-30T12:00:00Z")
@@ -61,7 +61,7 @@ describe("watchStuckSpecialGroups", () => {
     const a = collect()
     await watchStuckSpecialGroups(db, { alert: a.alert, now: () => NOW })
     const q = calls.filter(c => c.table === "hubtel_data_orders")
-    expect(q.find(c => c.fn === "select")!.args[0]).toBe("special_group_id, status")
+    expect(q.find(c => c.fn === "select")!.args[0]).toBe("special_group_id, status, notes, updated_at")
     expect(q.find(c => c.fn === "not")!.args).toEqual(["special_group_id", "is", null])
     expect(q.filter(c => c.fn === "eq").map(c => c.args)).toEqual([["payment_status", "paid"]])
     expect(q.find(c => c.fn === "or")!.args).toEqual(["status.eq.pending,and(status.eq.processing,notes.like.Dispatching*)"])
@@ -83,6 +83,24 @@ describe("watchStuckSpecialGroups", () => {
     const up = writes.find(w => w.table === "admin_settings" && w.fn === "upsert")!
     expect(up.args[0].key).toBe(SPECIAL_WATCH_KEY)
     expect(up.args[0].value.groups).toEqual({ A: new Date(NOW).toISOString(), B: new Date(NOW).toISOString() })
+  })
+
+  it("never-attempted pending units (notes null) are left to the continue cron for 30 minutes before alerting", async () => {
+    const rows = [
+      // A: never attempted, 10 min old => the continue cron owns it, no alert yet.
+      { special_group_id: "A", status: "pending", notes: null, updated_at: iso(10 * 60_000) },
+      // B: never attempted but 31 min old => the continuation is not getting through: alert.
+      { special_group_id: "B", status: "pending", notes: null, updated_at: iso(SPECIAL_CONTINUE_GRACE_MS + 60_000) },
+      // C: a failed send attempt left a note => alerted at 5 minutes as before.
+      { special_group_id: "C", status: "pending", notes: "Not sent: Hubtel paused", updated_at: iso(10 * 60_000) },
+      // D: a stuck Dispatching claim => alerted as before.
+      { special_group_id: "D", status: "processing", notes: "Dispatching", updated_at: iso(10 * 60_000) },
+    ]
+    const { db } = fakeDb({ rows })
+    const a = collect()
+    const r = await watchStuckSpecialGroups(db, { alert: a.alert, now: () => NOW })
+    expect(a.sent.sort()).toEqual([specialStuckMessage("B", 1), specialStuckMessage("C", 1), specialStuckMessage("D", 0, 1)].sort())
+    expect(r.groups).toBe(3)
   })
 
   it("a group alerted less than 6 hours ago is not alerted again; after 6 hours it is", async () => {
@@ -187,7 +205,9 @@ describe("watchStuckSpecialGroups", () => {
     })
 
     it("a group with both kinds counts them apart: the pending ones can be sent, the claimed ones are checked first", async () => {
-      const { sent } = await run([unit("A", { status: "pending", notes: null }), unit("A", { status: "pending", notes: null }), unit("A")])
+      // Never-attempted pending units are reported only past the continue grace (30 min).
+      const old = { status: "pending", notes: null, updated_at: iso(SPECIAL_CONTINUE_GRACE_MS + 60_000) }
+      const { sent } = await run([unit("A", old), unit("A", old), unit("A")])
       expect(sent).toHaveLength(1)
       expect(sent[0]).toContain("2 paid units not sent")
       expect(sent[0]).toContain("1 unit")
@@ -195,7 +215,7 @@ describe("watchStuckSpecialGroups", () => {
     })
 
     it("a group with only pending units keeps the exact existing wording", async () => {
-      const { sent } = await run([unit("A", { status: "pending", notes: null })])
+      const { sent } = await run([unit("A", { status: "pending", notes: null, updated_at: iso(SPECIAL_CONTINUE_GRACE_MS + 60_000) })])
       expect(sent).toEqual([specialStuckMessage("A", 1)])
     })
   })

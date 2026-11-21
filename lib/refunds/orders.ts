@@ -7,6 +7,7 @@ import { normalizeGhanaPhone } from "@/lib/phone-format"
 import { findHubtelAttempts, isLiveHubtelStatus, isManuallyRefundedPayment, type HubtelAttemptRow } from "@/lib/hubtel-pay/lookup"
 import { isLatePaidShopOrder } from "@/lib/payments/closed-order"
 import { loadHubtelWalletPayments, type HubtelWalletPaymentFact } from "./hubtel-wallet"
+import { isSpecialReplacement, replacementRef } from "@/lib/standard-bundles/special-resend"
 
 /** A stored phone as 0XXXXXXXXX when it is a Ghana number (USSD rows store +233XXXXXXXXX), else as stored. */
 export function displayPhone(v: unknown): string | null {
@@ -83,7 +84,7 @@ const SELECT: Record<OrderTable, string> = {
   hubtel_bill_orders:
     "id, shop_id, user_id, channel, bot_surface, biller, account_number, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, created_at, updated_at",
   hubtel_data_orders:
-    "id, shop_id, user_id, channel, bot_surface, network, bundle_display, beneficiary_phone, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, special_group_id, created_at, updated_at",
+    "id, shop_id, user_id, channel, bot_surface, reference_code, network, bundle_display, beneficiary_phone, amount, paid_amount, status, payment_status, hubtel_client_reference, notes, buyer_phone, payment_reference, special_group_id, created_at, updated_at",
 }
 
 /** Bot commission row (bills/bundles channel 'bots', anonymous buyer). Airtime has no bot rows here yet. */
@@ -310,6 +311,10 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
     // Hubtel USSD checkout payments (bot rows only): paid = paid_at set + a Hubtel order id + a positive amount.
     loadPaidHubtelTx(db, table, hubtelBotIds),
   ])
+  // Special units already resent (an SBR- replacement exists): never refundable. A read error throws (fail closed).
+  const resentRefs = new Set(table === "hubtel_data_orders"
+    ? (await inRows<any>(db, table, "reference_code", "reference_code", ids.map(replacementRef))).map((x) => x.reference_code as string)
+    : [])
 
   const shopIds = [...new Set([
     ...profits.map((p) => p.shop_id as string),
@@ -393,6 +398,8 @@ async function enrichCommission(db: SupabaseClient, table: CommissionTable, rows
           status: r.status as string,
           paymentStatus: r.payment_status as string,
           hubtelClientReference: (r.hubtel_client_reference as string | null | undefined) ?? null,
+          adminReplacement: table === "hubtel_data_orders" && isSpecialReplacement(r.reference_code as string | null | undefined),
+          resent: table === "hubtel_data_orders" && resentRefs.has(replacementRef(id)),
           notes: (r.notes as string | null | undefined) ?? null,
           updatedAt: String(r.updated_at ?? r.created_at ?? ""),
           createdAt: String(r.created_at ?? ""),

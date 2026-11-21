@@ -212,6 +212,8 @@ type OrderRow = {
   purchaser: string; stuck_claim: boolean; has_ledger: boolean | null; refund: RefundInfo; can_retry?: boolean; can_dispatch?: boolean
   /** Special Bundles child: group id + "Special i/N" (null for normal orders / before migration 0141). */
   special_group_id?: string | null; special_label?: string | null
+  /** Completed Special unit with no replacement yet; resent_ref = its replacement when one exists. */
+  can_resend?: boolean; resent_ref?: string | null
 }
 
 export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; onReviewQueue: () => void }) {
@@ -275,6 +277,23 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
       if (j.ok) toast.success(j.message ?? "Retried"); else toast.error(j.message ?? "Not sent")
     } catch (e) {
       // Non-2xx (409 conflict, 500 could not restore) carries the server's message: show it persistently.
+      setBanner({ ok: false, text: `${r.reference_code}: ${errMsg(e)}` }); toast.error(errMsg(e))
+    } finally { inFlight.current = false; setBusy(null); await load(offset) }
+  }
+
+  async function resend(r: OrderRow) {
+    if (inFlight.current) return
+    if (!window.confirm(
+      `Resend ${r.special_label ?? "this unit"} to ${r.beneficiary_phone}?\n\n` +
+      "Hubtel reported it delivered. Only resend if the customer did not receive it: this buys the unit again " +
+      `from the Hubtel float (${money(r.amount)}); the customer is not charged. Each unit can be resent once, and the replacement cannot be refunded.`,
+    )) return
+    inFlight.current = true; setBusy(`resend-${r.id}`)
+    try {
+      const j = await authed("/api/admin/standard-bundles/resend", { method: "POST", body: JSON.stringify({ orderId: r.id }) })
+      setBanner({ ok: !!j.ok, text: `${r.reference_code}: ${j.message}` })
+      if (j.ok) toast.success(j.message ?? "Resent"); else toast.error(j.message ?? "Not sent")
+    } catch (e) {
       setBanner({ ok: false, text: `${r.reference_code}: ${errMsg(e)}` }); toast.error(errMsg(e))
     } finally { inFlight.current = false; setBusy(null); await load(offset) }
   }
@@ -405,6 +424,12 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
                     {r.special_label}
                   </button>
                 )}
+                {r.special_label && !r.special_group_id && (
+                  <span className="mt-1 inline-flex rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400"
+                    title="Admin replacement for a Special unit: not charged, not refundable">
+                    {r.special_label}
+                  </span>
+                )}
                 <div className="text-xs text-muted-foreground">{r.bundle_category} · {r.purchaser}</div>
                 <div className="text-xs text-muted-foreground">
                   {r.channel === "storefront" ? `Storefront · ${r.shop_name ?? "Unknown shop"}${r.buyer_phone ? ` · ${r.buyer_phone}` : ""}` : r.channel === "bots" ? (r.channel_label ?? "Bot") : r.channel === "api" ? "API" : "Dashboard"}
@@ -441,6 +466,13 @@ export function BundlesOrdersTab({ authed, onReviewQueue }: { authed: Authed; on
                     <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `retry-${r.id}` ? "Retrying..." : "Retry"}
                   </Button>
                 )}
+                {r.can_resend && (
+                  <Button size="sm" variant="outline" disabled={anyBusy} onClick={() => resend(r)}
+                    title="Hubtel reported it delivered; resend once if the customer did not receive it">
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{busy === `resend-${r.id}` ? "Resending..." : "Resend unit"}
+                  </Button>
+                )}
+                {r.resent_ref && <div className="text-xs text-muted-foreground">Resent once as {r.resent_ref}</div>}
                 {canRefund && <Button size="sm" disabled={anyBusy} onClick={() => { setNote(""); setRefunding(r) }}>Refund (never sent)</Button>}
                 {toReview && <Button size="sm" variant="outline" onClick={onReviewQueue}>Open Hubtel review queue</Button>}
                 {storefrontRefund && (

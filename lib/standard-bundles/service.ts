@@ -47,6 +47,11 @@ export interface BundlesDeps extends CatalogDeps {
   /** `urgent` alerts keep the email fallback when SMS cannot be sent. */
   alert(message: string, urgent?: boolean): Promise<void>
   newReference(): string
+  /**
+   * Pause (real timer in the runtime). Used by the Special Bundles send loop to wait for Hubtel to settle one unit
+   * before sending the next; absent => no waiting (unit tests that do not exercise pacing).
+   */
+  sleep?(ms: number): Promise<void>
 }
 
 /**

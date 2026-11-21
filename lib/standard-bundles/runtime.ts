@@ -66,6 +66,7 @@ export function buildBundlesDeps(
     newReference: () => "SB-" + randomBytes(6).toString("hex").toUpperCase(),
     secret,
     now: Date.now,
+    sleep: (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)),
   }
 }
 
