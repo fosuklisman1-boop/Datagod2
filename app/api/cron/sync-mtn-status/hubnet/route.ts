@@ -7,7 +7,8 @@ import { backgroundCron } from "@/lib/cron-background"
 import { fetchReversalCandidates, isReversal, flagReversal, REVERSAL_WINDOW_MS } from "@/lib/mtn-reversal"
 import { applyHubnetStatusChange, type HubnetSyncRow } from "@/lib/hubnet/sync"
 import { checkHubnetUnknownAttempts } from "@/lib/hubnet/unknown-attempts"
-import { createHubnetClient } from "@/lib/hubnet/client"
+import { createHubnetClient, isHubnetConfigured } from "@/lib/hubnet/client"
+import { isRefundSweepDue } from "@/lib/hubnet/sweep-schedule"
 import { syncHubnetAirtime } from "@/lib/airtime-hubnet"
 import { sweepHubnetRefunds } from "@/lib/hubnet/refund-sweep"
 import { notifyAdminsThrottled } from "@/lib/sms/notify"
@@ -48,17 +49,26 @@ async function runHubnetSync(request: NextRequest) {
     const { authorized, errorResponse } = verifyCronAuth(request)
     if (!authorized && errorResponse) return errorResponse
 
+    // Decided before any (possibly slow) phase so the sweep minute cannot slip past.
+    const sweepDue = isRefundSweepDue(new Date())
+    const configured = isHubnetConfigured()
+    const notConfigured = { skipped: "not configured" }
+
     console.log("[CRON-HUBNET] Starting status sync...")
+    // On due runs the refund sweep goes FIRST, ahead of the slow phases.
+    const refundSweep = !configured
+        ? notConfigured
+        : sweepDue
+            ? await phase("refund-sweep", () => sweepHubnetRefunds(supabase, createHubnetClient(), notifyAdminsThrottled))
+            : { skipped: "not this minute" }
     const statusSync = await phase("status-sync", syncStatuses)
     const reversals = await phase("reversals", syncReversals)
-    const unknownAttempts = await phase("unknown-attempts", () =>
-        checkHubnetUnknownAttempts(supabase, createHubnetClient()))
-    const airtimeSync = await phase("airtime-sync", () => syncHubnetAirtime(supabase, createHubnetClient()))
-    // Refund sweep runs only on every 10th minute.
-    const refundSweep = await phase("refund-sweep", async () =>
-        new Date().getUTCMinutes() % 10 === 0
-            ? sweepHubnetRefunds(supabase, createHubnetClient(), notifyAdminsThrottled)
-            : { skipped: "not this minute" })
+    const unknownAttempts = !configured
+        ? notConfigured
+        : await phase("unknown-attempts", () => checkHubnetUnknownAttempts(supabase, createHubnetClient()))
+    const airtimeSync = !configured
+        ? notConfigured
+        : await phase("airtime-sync", () => syncHubnetAirtime(supabase, createHubnetClient()))
 
     const failed = [statusSync, reversals, unknownAttempts, airtimeSync, refundSweep].some(
         (r) => typeof r === "object" && r !== null && "error" in r
