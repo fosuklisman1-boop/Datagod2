@@ -178,14 +178,14 @@ export default function AirtimeSettingsPage() {
                       <span className="ml-2 text-xs text-muted-foreground">{current ? "" : "Default (Digiwapy toggle)"}</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {(["digiwapy", "hubtel", "manual"] as const).map(p => (
+                      {(["digiwapy", "hubtel", "hubnet", "manual"] as const).map(p => (
                         <button
                           key={p}
                           onClick={() => handleUpdateSetting(key, { provider: p })}
                           aria-pressed={current === p}
                           className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${current === p ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"}`}
                         >
-                          {p === "digiwapy" ? "Digiwapy" : p === "hubtel" ? "Hubtel" : "Manual"}
+                          {p === "digiwapy" ? "Digiwapy" : p === "hubtel" ? "Hubtel" : p === "hubnet" ? "Hubnet" : "Manual"}
                         </button>
                       ))}
                     </div>

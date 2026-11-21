@@ -5,6 +5,7 @@ const h = vi.hoisted(() => ({
   configured: true,
   legacyEnabled: true,
   runtimeThrows: false,
+  hubnetConfigured: true,
 }))
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -21,6 +22,11 @@ vi.mock("@/lib/digiwapy-provider", () => ({
   sendAirtimeViaDigiwapy: vi.fn(async () => ({ success: true, digiwapyRef: "d1" })),
 }))
 vi.mock("@/lib/airtime-hubtel", () => ({ fulfillAirtimeViaHubtel: vi.fn(async () => true) }))
+vi.mock("@/lib/airtime-hubnet", () => ({ fulfillAirtimeViaHubnet: vi.fn(async () => true) }))
+vi.mock("@/lib/hubnet/client", () => ({
+  isHubnetConfigured: () => h.hubnetConfigured,
+  createHubnetClient: () => ({ placeAirtime: vi.fn(), getStatus: vi.fn() }),
+}))
 vi.mock("@/lib/hubtel-cs/runtime", () => ({
   getHubtelCsRuntime: () => { if (h.runtimeThrows) throw new Error("no creds"); return { client: { purchase: vi.fn() } } },
 }))
@@ -35,13 +41,32 @@ vi.mock("@/lib/network-prefix-config", () => ({ getPrefixValidationConfig: async
 import { triggerAirtimeFulfillment } from "./airtime-service"
 import { sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
+import { fulfillAirtimeViaHubnet } from "@/lib/airtime-hubnet"
 import { notifyAdmins } from "@/lib/sms-service"
 
 const order = { id: "o1", reference_code: "AT-1", network: "MTN", beneficiary_phone: "0241234567", airtime_amount: 5 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  Object.assign(h, { provider: "legacy", configured: true, legacyEnabled: true, runtimeThrows: false })
+  Object.assign(h, { provider: "legacy", configured: true, legacyEnabled: true, runtimeThrows: false, hubnetConfigured: true })
+})
+
+describe("hubnet routing", () => {
+  it("setting 'hubnet' -> only the Hubnet fulfiller", async () => {
+    h.provider = "hubnet"
+    expect(await triggerAirtimeFulfillment(order)).toBe(true)
+    expect(fulfillAirtimeViaHubnet).toHaveBeenCalledTimes(1)
+    expect(fulfillAirtimeViaHubtel).not.toHaveBeenCalled()
+    expect(sendAirtimeViaDigiwapy).not.toHaveBeenCalled()
+  })
+  it("Hubnet not configured -> manual alert, nothing sent, no fallback", async () => {
+    h.provider = "hubnet"; h.hubnetConfigured = false
+    expect(await triggerAirtimeFulfillment(order)).toBe(false)
+    expect(fulfillAirtimeViaHubnet).not.toHaveBeenCalled()
+    expect(fulfillAirtimeViaHubtel).not.toHaveBeenCalled()
+    expect(sendAirtimeViaDigiwapy).not.toHaveBeenCalled()
+    expect(notifyAdmins).toHaveBeenCalledWith("manual", "airtime_manual_needed", "o1", true)
+  })
 })
 
 describe("triggerAirtimeFulfillment routing", () => {

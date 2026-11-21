@@ -8,6 +8,7 @@ import { fetchReversalCandidates, isReversal, flagReversal, REVERSAL_WINDOW_MS }
 import { applyHubnetStatusChange, type HubnetSyncRow } from "@/lib/hubnet/sync"
 import { checkHubnetUnknownAttempts } from "@/lib/hubnet/unknown-attempts"
 import { createHubnetClient } from "@/lib/hubnet/client"
+import { syncHubnetAirtime } from "@/lib/airtime-hubnet"
 import { sweepHubnetRefunds } from "@/lib/hubnet/refund-sweep"
 import { notifyAdminsThrottled } from "@/lib/sms/notify"
 import type { HubnetStatus } from "@/lib/hubnet/core"
@@ -40,8 +41,8 @@ async function phase<T>(name: string, fn: () => Promise<T>): Promise<T | { error
  * GET /api/cron/sync-mtn-status/hubnet
  *
  * Safety net for Hubnet orders whose webhook was missed, then the unknown-attempt
- * watcher (possible double deliveries). airtime-sync (Task 8) and refund-sweep
- * is a placeholder until that task lands; the refund sweep runs every 10th minute.
+ * watcher (possible double deliveries), then airtime-sync (processing Hubnet airtime
+ * orders) and the refund sweep, which runs every 10th minute.
  */
 async function runHubnetSync(request: NextRequest) {
     const { authorized, errorResponse } = verifyCronAuth(request)
@@ -52,8 +53,7 @@ async function runHubnetSync(request: NextRequest) {
     const reversals = await phase("reversals", syncReversals)
     const unknownAttempts = await phase("unknown-attempts", () =>
         checkHubnetUnknownAttempts(supabase, createHubnetClient()))
-    // Placeholder: wired in Task 8.
-    const airtimeSync = await phase("airtime-sync", async () => ({ skipped: "not yet wired" }))
+    const airtimeSync = await phase("airtime-sync", () => syncHubnetAirtime(supabase, createHubnetClient()))
     // Refund sweep runs only on every 10th minute.
     const refundSweep = await phase("refund-sweep", async () =>
         new Date().getUTCMinutes() % 10 === 0
