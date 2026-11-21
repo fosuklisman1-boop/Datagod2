@@ -239,6 +239,12 @@ export async function syncHubnetAirtime(
     checked++
     try {
       const lk = await client.getStatus(ref)
+      // Not looked at (Hubnet 429 or run budget spent): stop here, leave the row's place in the queue,
+      // and do not raise a "stuck" alert for an order nobody checked.
+      if (lk.kind === "rate_limited") {
+        checked--
+        break
+      }
       if (await applyHubnetAirtimeStatus(db, row.id, lk)) {
         updated++
       } else {

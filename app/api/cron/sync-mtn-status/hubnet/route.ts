@@ -63,8 +63,13 @@ async function runHubnetSync(request: NextRequest) {
     const sweepDue = isRefundSweepDue(new Date())
     const configured = isHubnetConfigured()
     const notConfigured = { skipped: "not configured" }
-    // One small lookup allowance for the whole run, so new orders keep Hubnet's rate limit to themselves.
-    const budget = lookupBudget()
+    // A small lookup allowance per phase (8 per run in all), so new orders keep most of Hubnet's
+    // rate limit and no phase starves another. A 429 in any phase trips the shared cooldown,
+    // which stops every later phase too.
+    const statusBudget = lookupBudget(5)
+    const reversalBudget = lookupBudget(1)
+    const unknownBudget = lookupBudget(1)
+    const airtimeBudget = lookupBudget(1)
     const runIndex = Math.floor(Date.now() / RUN_PERIOD_MS)
 
     console.log("[CRON-HUBNET] Starting status sync...")
@@ -74,15 +79,16 @@ async function runHubnetSync(request: NextRequest) {
         : sweepDue
             ? await phase("refund-sweep", () => sweepHubnetRefunds(supabase, createHubnetClient(), notifyAdminsThrottled))
             : { skipped: "not this minute" }
-    const statusSync = await phase("status-sync", () => syncStatuses(budget, runIndex))
-    const reversals = await phase("reversals", () => syncReversals(budget))
+    const statusSync = await phase("status-sync", () => syncStatuses(statusBudget, runIndex))
+    const reversals = await phase("reversals", () => syncReversals(reversalBudget))
     const unknownAttempts = !configured
         ? notConfigured
-        : await phase("unknown-attempts", () => checkHubnetUnknownAttempts(supabase, budgetedClient(createHubnetClient(), budget)))
+        : await phase("unknown-attempts", () => checkHubnetUnknownAttempts(supabase, budgetedClient(createHubnetClient(), unknownBudget)))
     const airtimeSync = !configured
         ? notConfigured
-        : await phase("airtime-sync", () => syncHubnetAirtime(supabase, budgetedClient(createHubnetClient(), budget)))
-    console.log(`[CRON-HUBNET] lookups left ${budget.left}${budget.stopped ? " (stopped: Hubnet rate limit)" : ""}`)
+        : await phase("airtime-sync", () => syncHubnetAirtime(supabase, budgetedClient(createHubnetClient(), airtimeBudget)))
+    const stopped = [statusBudget, reversalBudget, unknownBudget, airtimeBudget].some((b) => b.stopped)
+    console.log(`[CRON-HUBNET] lookups done${stopped ? " (stopped early: Hubnet rate limit)" : ""}`)
 
     const failed = [statusSync, reversals, unknownAttempts, airtimeSync, refundSweep].some(
         (r) => typeof r === "object" && r !== null && "error" in r

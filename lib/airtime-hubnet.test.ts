@@ -326,6 +326,18 @@ describe("syncHubnetAirtime", () => {
     expect(type).toBe("airtime_hubnet_stuck:s1")
     expect(message).not.toContain(PHONE)
   })
+
+  it("rate_limited stops the loop: no bump, no stuck alert, not counted as checked", async () => {
+    const stale = proc({ id: "s1", created_at: new Date(Date.now() - 7 * 3600_000).toISOString() })
+    const other = proc({ id: "s2" })
+    const { db } = fakeDb([stale, other])
+    const client: any = { getStatus: vi.fn(async () => ({ kind: "rate_limited", retryAfterSec: 60 })) }
+    const alert = vi.fn(async () => {})
+    expect(await syncHubnetAirtime(db, client, 50, { alert })).toEqual({ checked: 0, updated: 0 })
+    expect(client.getStatus).toHaveBeenCalledTimes(1)
+    expect(stale.updated_at).toBe("2026-01-01T00:00:00.000Z")
+    expect(alert).not.toHaveBeenCalled()
+  })
 })
 
 describe("fulfillAirtimeViaHubnet notSent guard (Minor 3)", () => {
