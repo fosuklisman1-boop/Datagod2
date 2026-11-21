@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk"
-import { AIProvider } from "@/lib/ai-providers"
+import type { AIProvider, SystemPrompt } from "@/lib/ai-providers"
 import { aiTools, executeToolCall } from "@/lib/ai-tools"
 import type { AIChatContext, StorefrontServiceFlags } from "@/lib/ai-tools"
 
@@ -23,7 +23,7 @@ export interface AgenticToolCtx {
 export interface RunAgenticLoopParams {
   provider: AIProvider
   model: string
-  system: string
+  system: SystemPrompt
   context: AIChatContext
   messages: Anthropic.MessageParam[]
   toolCtx: AgenticToolCtx
