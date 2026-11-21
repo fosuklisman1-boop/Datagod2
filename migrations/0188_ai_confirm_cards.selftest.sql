@@ -101,6 +101,14 @@ BEGIN
      AND column_name IN ('standing_order', 'approved_draft_id', 'consecutive_skips');
   IF v_n <> 3 THEN RAISE EXCEPTION 'FAIL ai_scheduled_tasks_columns %', v_n; END IF;
 
+  -- delete actions (catalog only, no writes): removing a user cascades to their drafts; removing a draft nulls a task link
+  SELECT count(*) INTO v_n FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+   WHERE c.contype = 'f' AND c.conrelid = 'public.ai_drafts'::regclass AND a.attname = 'user_id' AND c.confdeltype = 'c';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL ai_drafts_user_fk_not_cascade'; END IF;
+  SELECT count(*) INTO v_n FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+   WHERE c.contype = 'f' AND c.conrelid = 'public.ai_scheduled_tasks'::regclass AND a.attname = 'approved_draft_id' AND c.confdeltype = 'n';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'FAIL approved_draft_fk_not_set_null'; END IF;
+
   -- standing-order guard trigger: server-only columns
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.ai_scheduled_tasks'::regclass
                   AND tgname = 'ai_scheduled_tasks_guard_standing_order' AND NOT tgisinternal) THEN

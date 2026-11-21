@@ -100,7 +100,7 @@ const prepareWalletOrderTool: Anthropic.Tool = {
         type: "object",
         description: "Optional: make this a scheduled order instead of an immediate one.",
         properties: {
-          type: { type: "string", enum: ["once", "hourly", "daily", "weekly"], description: "How often the order runs." },
+          type: { type: "string", enum: ["once", "daily", "weekly"], description: "How often the order runs." },
           run_at_time: { type: "string", description: "HH:MM in GMT+0, required for daily and weekly." },
           run_on_days: { type: "array", items: { type: "number" }, description: "Days to run, 0=Sun … 6=Sat. Required for weekly." },
           run_at_timestamp: { type: "string", description: "ISO datetime in GMT+0, required for once." },

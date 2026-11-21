@@ -6,6 +6,9 @@ import { amountError, balanceAfter, reasonError } from "@/lib/admin-users/drawer
 import { isUuid } from "@/lib/pricing/custom-prices-input"
 import { CUSTOM_ROLE_ASSIGNMENT_ENABLED } from "@/lib/roles/flags"
 import { loadRoles } from "@/lib/roles/repo"
+import { userLabel } from "./user-label"
+
+const USER_COLS = "first_name, last_name, phone_number, email"
 
 // Builders behind the admin AI's prepare_* tools. They re-derive everything from the DB, refuse what cannot be
 // drafted and store a pending draft. They execute nothing: the confirm route runs the real endpoint after the
@@ -68,7 +71,7 @@ export async function prepareWalletAdjustment(
   const rErr = reasonError(input.reason)
   if (rErr) return refuse("reason_required", rErr)
 
-  const { data: user, error: userErr } = await db.from("users").select("id").eq("id", input.user_id).maybeSingle()
+  const { data: user, error: userErr } = await db.from("users").select(`id, ${USER_COLS}`).eq("id", input.user_id).maybeSingle()
   if (userErr || !user) return refuse("user_not_found", "No user was found with that id.")
 
   const { data: wallet } = await db.from("wallets").select("balance").eq("user_id", input.user_id).maybeSingle()
@@ -84,6 +87,7 @@ export async function prepareWalletAdjustment(
   const display: Record<string, unknown> = {
     title: type === "credit" ? "Confirm wallet credit" : "Confirm wallet debit",
     lines: [
+      { label: "User", value: userLabel(input.user_id, user as any) },
       { label: "Type", value: type === "credit" ? "Credit" : "Debit" },
       { label: "Amount", value: ghs(input.amount) },
       { label: "Balance", value: `${ghs(balanceBefore)} → ${ghs(after)}` },
@@ -203,7 +207,7 @@ export async function prepareUserSuspension(
   if (typeof input.suspend !== "boolean") return refuse("no_change", "Say whether to suspend or unsuspend.")
 
   // The suspend route reads users.is_suspended.
-  const { data: user, error } = await db.from("users").select("id, is_suspended").eq("id", input.user_id).maybeSingle()
+  const { data: user, error } = await db.from("users").select(`id, is_suspended, ${USER_COLS}`).eq("id", input.user_id).maybeSingle()
   if (error || !user) return refuse("user_not_found", "No user was found with that id.")
   const wasSuspended = !!(user as any).is_suspended
   if (wasSuspended === input.suspend) {
@@ -213,6 +217,7 @@ export async function prepareUserSuspension(
   const display: Record<string, unknown> = {
     title: input.suspend ? "Confirm suspension" : "Confirm unsuspension",
     lines: [
+      { label: "User", value: userLabel(input.user_id, user as any) },
       { label: "Action", value: input.suspend ? "Suspend" : "Unsuspend" },
       { label: "Now", value: wasSuspended ? "Suspended" : "Active" },
       { label: "After", value: input.suspend ? "Suspended (cannot sign in)" : "Active" },
@@ -260,7 +265,7 @@ export async function prepareRoleChange(
     if (!known) return refuse("invalid_role", "Unknown role.")
   }
 
-  const { data: user, error } = await db.from("users").select("id, role").eq("id", input.user_id).maybeSingle()
+  const { data: user, error } = await db.from("users").select(`id, role, ${USER_COLS}`).eq("id", input.user_id).maybeSingle()
   if (error || !user) return refuse("user_not_found", "No user was found with that id.")
   const fromRole = String((user as any).role || "user")
   if (fromRole === role) return refuse("no_change", `This user already has the role '${role}'.`)
@@ -280,6 +285,7 @@ export async function prepareRoleChange(
   const display: Record<string, unknown> = {
     title: "Confirm role change",
     lines: [
+      { label: "User", value: userLabel(input.user_id, user as any) },
       { label: "Role", value: `${fromRole} → ${role}` },
       ...(role === "dealer" ? [{ label: "Note", value: "Shop margins are adjusted so selling prices stay the same." }] : []),
     ] as Line[],

@@ -278,3 +278,11 @@ describe("linked card initial state", () => {
     expect(cancelled.showConfirm).toBe(false)
   })
 })
+
+describe("state_changed_message", () => {
+  it("state_changed_message", () => {
+    const v = draftCardView(base({ status: "failed", outcome: { code: "state_changed" } }), NOW)
+    expect(v.message).toBe("This changed since the card was made — prepare it again.")
+    expect(v.showPrepareAgain).toBe(true)
+  })
+})

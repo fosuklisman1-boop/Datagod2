@@ -8,6 +8,7 @@ import {
   prepareBulkStatusUpdate,
 } from "./prepare-admin"
 import { EXPIRY_MS } from "./types"
+import { userLabel } from "./user-label"
 
 type Row = Record<string, any>
 
@@ -248,5 +249,39 @@ describe("prepareBulkStatusUpdate", () => {
   it("refuses an invalid status", async () => {
     const empty = fakeDb({})
     expect(refusedCode(await prepareBulkStatusUpdate(empty, ctx, { status: "bogus", filters: { filter_status: "pending" } }))).toBe("invalid_status")
+  })
+})
+
+describe("target user line on admin cards", () => {
+  const who = { first_name: "Ama", last_name: "Mensah", phone_number: "0241234567", email: "ama.mensah@example.com" }
+  const userLine = (r: any) => (r.display.lines as Array<{ label: string; value: string }>).find((l) => l.label === "User")?.value
+
+  it("wallet_adjustment_card_names_user", async () => {
+    const db = fakeDb({ users: [{ id: TARGET, ...who }], wallets: [{ user_id: TARGET, balance: 100 }] })
+    const r: any = await prepareWalletAdjustment(db, ctx, { user_id: TARGET, type: "credit", amount: 50, reason: REASON })
+    expect(userLine(r)).toBe("Ama Mensah · 024 *** 4567")
+    expect(drafts(db)[0].display.lines[0].label).toBe("User")
+  })
+
+  it("suspension_card_names_user", async () => {
+    const db = fakeDb({ users: [{ id: TARGET, is_suspended: false, ...who }] })
+    const r: any = await prepareUserSuspension(db, ctx, { user_id: TARGET, suspend: true })
+    expect(userLine(r)).toBe("Ama Mensah · 024 *** 4567")
+  })
+
+  it("role_change_card_names_user", async () => {
+    const db = fakeDb({ users: [{ id: TARGET, role: "user", ...who }], user_shops: [] })
+    const r: any = await prepareRoleChange(db, ctx, { user_id: TARGET, role: "dealer" })
+    expect(userLine(r)).toBe("Ama Mensah · 024 *** 4567")
+  })
+
+  it("user_line_masks_contact", () => {
+    expect(userLabel(TARGET, who)).toBe("Ama Mensah · 024 *** 4567")
+    expect(userLabel(TARGET, { first_name: "Ama", last_name: null, phone_number: null, email: "ama.mensah@example.com" })).toBe("Ama · a***@example.com")
+    expect(userLabel(TARGET, { first_name: null, last_name: null, phone_number: "0241234567" })).toBe("024 *** 4567")
+    expect(userLabel(TARGET, { email: "bob@x.org" })).toBe("b***@x.org")
+    expect(userLabel(TARGET, {})).toBe(TARGET.slice(0, 8))
+    expect(userLabel(TARGET, null)).toBe(TARGET.slice(0, 8))
+    expect(userLabel(TARGET, who)).not.toContain("ama.mensah")
   })
 })

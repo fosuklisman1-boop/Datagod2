@@ -140,3 +140,10 @@ describe("prepare_* dispatch", () => {
     }
   })
 })
+
+describe("prepare_wallet_order schedule enum", () => {
+  it("offers exactly once, daily, weekly", () => {
+    const t: any = aiTools("dashboard").find((x) => x.name === "prepare_wallet_order")
+    expect(t.input_schema.properties.schedule.properties.type.enum).toEqual(["once", "daily", "weekly"])
+  })
+})

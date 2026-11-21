@@ -105,6 +105,8 @@ function failureMessage(o: Record<string, unknown>): { message: string; prepareA
       return { message: "Scheduled orders can't be confirmed from chat yet. Please use the schedule page.", prepareAgain: false }
     case "not_placed":
       return { message: "The order was not placed and you were not charged. Prepare it again.", prepareAgain: true }
+    case "state_changed":
+      return { message: "This changed since the card was made — prepare it again.", prepareAgain: true }
     case "not_applied":
       return { message: "The change was not applied. It is safe to prepare it again.", prepareAgain: true }
     case "admin_required":

@@ -147,6 +147,25 @@ async function recheckResult(db: SupabaseClient, draft: AiDraft): Promise<ExecRe
 
   switch (draft.action) {
     case "wallet_order": {
+      // A scheduled draft never places an order: confirming created a standing-order task keyed by the draft id.
+      if (p.schedule) {
+        const { data: task, error: taskErr } = await db
+          .from("ai_scheduled_tasks")
+          .select("id, next_run_at")
+          .eq("approved_draft_id", draft.id)
+          .eq("user_id", draft.user_id)
+          .maybeSingle()
+        if (taskErr) throw new Error("recheck read failed")
+        if (task) {
+          return { status: "succeeded", outcome: { code: "scheduled", task_id: String((task as any).id), next_run_at: (task as any).next_run_at ?? null, rechecked: true } }
+        }
+        const claimed = (draft.outcome as any)?.claimed_at
+        const sentAtSched = Date.parse(draft.executed_at ?? (typeof claimed === "string" ? claimed : draft.updated_at))
+        if (!Number.isFinite(sentAtSched) || Date.now() - sentAtSched < PURCHASE_SETTLE_MS) {
+          return { status: "unknown", outcome: { code: "still_checking", message: "Still checking. Try again in a few minutes." } }
+        }
+        return { status: "failed", outcome: { code: "not_placed", message: "The order was not scheduled. Prepare it again." } }
+      }
       const { data, error } = await db
         .from("orders")
         .select("id, order_code")

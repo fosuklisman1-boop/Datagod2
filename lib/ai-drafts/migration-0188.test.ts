@@ -226,4 +226,41 @@ describe.skipIf(!PGliteCtor)("0188 in PGlite", () => {
       expect((await rows(db, `SELECT has_function_privilege('${who}', 'public.ai_scheduled_tasks_guard_standing_order()', 'EXECUTE') AS p`))[0].p).toBe(false)
     }
   }, 60_000)
+
+  const D1 = "00000000-0000-0000-0000-0000000000f1"
+  const draftFor = (id: string, user: string) =>
+    `INSERT INTO ai_drafts(id, user_id, context, action, params, display, expires_at) VALUES ('${id}', '${user}', 'dashboard', 'wallet_order', '{}', '{}', now() + interval '10 minutes')`
+
+  for (const who of ["owner", "service_role", "authenticated"]) {
+    it(`delete_user_cascades_drafts (${who}): removing a user removes their drafts and nulls the task link without tripping the guard`, async () => {
+      const db = await fresh88()
+      await db.exec(seed)
+      await db.exec(draftFor(D1, U1))
+      await db.exec(`UPDATE ai_scheduled_tasks SET approved_draft_id = '${D1}', standing_order = '{"a":1}' WHERE id = '${T1}'`)
+      if (who !== "owner") await db.exec(`SET ROLE ${who}`)
+      await db.exec(`DELETE FROM users WHERE id = '${U1}'`)
+      await db.exec("RESET ROLE")
+      expect(await rows(db, "SELECT 1 FROM ai_drafts")).toHaveLength(0)
+      expect(await rows(db, `SELECT approved_draft_id FROM ai_scheduled_tasks WHERE id = '${T1}'`)).toEqual([{ approved_draft_id: null }])
+    }, 60_000)
+  }
+
+  it("delete_draft_nulls_task_link", async () => {
+    const db = await fresh88()
+    await db.exec(seed)
+    await db.exec(draftFor(D1, U1))
+    await db.exec(`UPDATE ai_scheduled_tasks SET approved_draft_id = '${D1}' WHERE id = '${T1}'`)
+    await db.exec(`DELETE FROM ai_drafts WHERE id = '${D1}'`)
+    expect(await rows(db, `SELECT approved_draft_id, standing_order FROM ai_scheduled_tasks WHERE id = '${T1}'`)).toEqual([
+      { approved_draft_id: null, standing_order: null },
+    ])
+  }, 60_000)
+
+  it("the foreign keys carry the intended delete actions", async () => {
+    const db = await fresh88()
+    const act = async (t: string, col: string) =>
+      (await rows(db, `SELECT c.confdeltype AS a FROM pg_constraint c JOIN pg_attribute at ON at.attrelid = c.conrelid AND at.attnum = ANY(c.conkey) WHERE c.contype = 'f' AND c.conrelid = 'public.${t}'::regclass AND at.attname = '${col}'`))[0].a
+    expect(await act("ai_drafts", "user_id")).toBe("c")
+    expect(await act("ai_scheduled_tasks", "approved_draft_id")).toBe("n")
+  }, 60_000)
 })

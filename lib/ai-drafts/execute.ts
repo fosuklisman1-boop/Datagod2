@@ -114,6 +114,7 @@ export type RevalidateResult =
   | { ok: true; draft: AiDraft; extra?: Record<string, unknown> }
   | { ok: false; status: "failed"; outcome: Record<string, unknown> }
 
+const STATE_CHANGED = "This changed since the card was made. Prepare it again."
 const fail = (code: string, extra: Record<string, unknown> = {}): RevalidateResult => ({ ok: false, status: "failed", outcome: { code, ...extra } })
 
 /**
@@ -179,7 +180,22 @@ export async function revalidateDraft(db: SupabaseClient, draft: AiDraft): Promi
     return { ok: true, draft: { ...draft, params: { ...p, idsByTable: kept } }, extra: skipped > 0 ? { skipped } : undefined }
   }
 
-  // wallet_adjustment: the endpoint's expectedBalance is the guard. user_suspension / role_change are set-to-value.
+  // Set-to-value actions: refuse to run if the state the card was made from has moved (a 12 h background card could
+  // otherwise overwrite someone else's change).
+  if (draft.action === "role_change") {
+    const { data, error } = await db.from("users").select("role").eq("id", p.targetUserId).maybeSingle()
+    if (error) throw new Error("role read failed")
+    if (!data || String((data as any).role || "user") !== String(p.fromRole)) return fail("state_changed", { message: STATE_CHANGED })
+    return { ok: true, draft }
+  }
+  if (draft.action === "user_suspension") {
+    const { data, error } = await db.from("users").select("is_suspended").eq("id", p.targetUserId).maybeSingle()
+    if (error) throw new Error("suspension read failed")
+    if (!data || !!(data as any).is_suspended !== !p.suspend) return fail("state_changed", { message: STATE_CHANGED })
+    return { ok: true, draft }
+  }
+
+  // wallet_adjustment: the endpoint's expectedBalance is the guard.
   return { ok: true, draft }
 }
 
@@ -350,7 +366,19 @@ async function executeWithdrawals(draft: AiDraft, p: Record<string, any>, call: 
 }
 
 async function executeBulk(draft: AiDraft, p: Record<string, any>, call: ExecCall): Promise<ExecResult> {
-  const results: Array<{ table: string; count: number; ok: boolean; error?: string; unknown?: boolean }> = []
+  // Per table: `sent` ids went out, the endpoint reports `updated` rows and may skip some (unpaid / refunding). A table
+  // is ok only when every sent id was updated and nothing was skipped; anything less is a shortfall, never a success.
+  const results: Array<{
+    table: string
+    count: number
+    sent: number
+    updated: number
+    skippedPending: number
+    skippedRefunding: number
+    ok: boolean
+    error?: string
+    unknown?: boolean
+  }> = []
   const sentIds: Record<string, string[]> = {}
   for (const table of BULK_TABLES) {
     const ids: string[] = (p.idsByTable?.[table] ?? []) as string[]
@@ -360,24 +388,45 @@ async function executeBulk(draft: AiDraft, p: Record<string, any>, call: ExecCal
   const skipped = call.skipped ?? 0
   const base = { sentIds, ...(skipped > 0 ? { skipped } : {}) }
   let applied = 0
-  const snapshot = () => ({ ...base, results: [...results], applied })
+  let skippedPending = 0
+  let skippedRefunding = 0
+  const total = tables.reduce((n, t) => n + sentIds[t].length, 0)
+  const snapshot = () => ({
+    ...base,
+    results: [...results],
+    applied,
+    total,
+    ...(skippedPending > 0 ? { skippedPending } : {}),
+    ...(skippedRefunding > 0 ? { skippedRefunding } : {}),
+  })
 
   if (!(await progress(call, draft.id, { ...base, results: [] }))) return lostClaim(snapshot())
   for (let i = 0; i < tables.length; i++) {
     const table = tables[i]
     const ids = sentIds[table]
     const r = await post(call, "/api/admin/orders/bulk-update-status", { orderIds: ids, status: p.status, orderType: table })
+    const row = { table, sent: ids.length, updated: 0, skippedPending: 0, skippedRefunding: 0 }
     if (!r.reached) {
-      results.push({ table, count: ids.length, ok: false, error: "no_response", unknown: true })
+      results.push({ ...row, count: 0, ok: false, error: "no_response", unknown: true })
     } else if (is2xx(r.status)) {
       const reported = r.body[BULK_COUNT_FIELD[table]]
-      const count = typeof reported === "number" ? reported : ids.length
-      applied += count
-      results.push({ table, count, ok: true })
+      const updated = typeof reported === "number" && reported >= 0 ? Math.min(reported, ids.length) : ids.length
+      const sp = Number(r.body.skippedPending) > 0 ? Number(r.body.skippedPending) : 0
+      const sr = Number(r.body.skippedRefunding) > 0 ? Number(r.body.skippedRefunding) : 0
+      applied += updated
+      skippedPending += sp
+      skippedRefunding += sr
+      const ok = updated === ids.length && sp === 0 && sr === 0
+      results.push({ ...row, count: updated, updated, skippedPending: sp, skippedRefunding: sr, ok, ...(ok ? {} : { error: "not_all_updated" }) })
     } else {
-      results.push({ table, count: ids.length, ok: false, error: errText(r.body) ?? `http_${r.status}` })
+      results.push({ ...row, count: 0, ok: false, error: errText(r.body) ?? `http_${r.status}` })
     }
     if (i < tables.length - 1 && !(await progress(call, draft.id, snapshot()))) return lostClaim(snapshot())
   }
-  return { status: settle(tally(results), skipped), outcome: snapshot() }
+  // A table that updated some but not all of its ids is a shortfall: the run is partial when anything was updated.
+  let status: ExecStatus
+  if (results.some((x) => x.unknown)) status = "unknown"
+  else if (results.every((x) => x.ok)) status = "succeeded"
+  else status = applied > 0 ? "partial" : "failed"
+  return { status: settle(status, skipped), outcome: snapshot() }
 }

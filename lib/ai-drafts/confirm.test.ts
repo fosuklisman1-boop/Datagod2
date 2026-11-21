@@ -764,3 +764,95 @@ describe("recheckDraft", () => {
     expect(results.map((r) => [r.id, r.ok])).toEqual([[W1, true], [W2, false]])
   })
 })
+
+describe("final-review fixes", () => {
+  const emptyIds = { orders: [], shop_orders: [], ussd_orders: [], ussd_shop_orders: [], api_orders: [] }
+  const bulkDraft = (idsByTable: Record<string, string[]>) =>
+    draftRow({
+      context: "admin",
+      action: "bulk_status_update",
+      params: { status: "failed", idsByTable: { ...emptyIds, ...idsByTable }, filter: { filter_status: "pending" } },
+    })
+  const runBulk = async (idsByTable: Record<string, string[]>, body: Record<string, unknown>) => {
+    resolveMock.mockResolvedValue({ ...emptyIds, ...idsByTable })
+    const db = fakeDb(baseTables({ ai_drafts: [bulkDraft(idsByTable)] }))
+    const fetchFn = vi.fn().mockResolvedValue(res(200, { success: true, ...body }))
+    return confirmDraft(db, DRAFT, caller(fetchFn, { isAdmin: true }))
+  }
+
+  it("bulk_short_count_is_partial", async () => {
+    const out = await runBulk({ orders: [O1, O2, O3] }, { bulkCount: 2, skippedPending: 0, skippedRefunding: 0 })
+    expect(out!.status).toBe("partial")
+    expect(out!.outcome).toMatchObject({ applied: 2 })
+    expect((out!.outcome as any).results[0]).toMatchObject({ table: "orders", sent: 3, updated: 2, ok: false })
+  })
+
+  it("bulk_skipped_pending_reported", async () => {
+    const out = await runBulk({ orders: [O1, O2] }, { bulkCount: 2, skippedPending: 3, skippedRefunding: 1 })
+    expect(out!.status).toBe("partial")
+    expect((out!.outcome as any).results[0]).toMatchObject({ table: "orders", sent: 2, updated: 2, skippedPending: 3, skippedRefunding: 1, ok: false })
+    expect(out!.outcome).toMatchObject({ skippedPending: 3, skippedRefunding: 1 })
+  })
+
+  it("bulk_zero_updated_is_failed", async () => {
+    const out = await runBulk({ orders: [O1, O2] }, { bulkCount: 0, skippedPending: 2, skippedRefunding: 0 })
+    expect(out!.status).toBe("failed")
+    expect(out!.outcome).toMatchObject({ applied: 0 })
+  })
+
+  it("bulk clean run stays succeeded", async () => {
+    const out = await runBulk({ orders: [O1, O2] }, { bulkCount: 2, skippedPending: 0, skippedRefunding: 0 })
+    expect(out!.status).toBe("succeeded")
+    expect((out!.outcome as any).results[0]).toMatchObject({ ok: true, sent: 2, updated: 2 })
+  })
+
+  it("recheck_scheduled_draft_finds_task", async () => {
+    const sched = draftRow({
+      status: "unknown",
+      executed_at: ago(PURCHASE_SETTLE_MS + 60_000),
+      params: { ...orderParams, schedule: { type: "daily", run_at_time: "08:00" } },
+    })
+    const db = fakeDb(
+      baseTables({
+        ai_drafts: [sched],
+        ai_scheduled_tasks: [
+          { id: "t-other", approved_draft_id: DRAFT, user_id: TARGET, next_run_at: "2026-11-22T08:00:00Z" },
+          { id: "t-1", approved_draft_id: DRAFT, user_id: USER, next_run_at: "2026-11-22T08:00:00Z" },
+        ],
+      }),
+    )
+    const out = await recheckDraft(db, DRAFT, caller(vi.fn()))
+    expect(out!.status).toBe("succeeded")
+    expect(out!.outcome).toMatchObject({ code: "scheduled", task_id: "t-1", next_run_at: "2026-11-22T08:00:00Z" })
+  })
+
+  it("recheck of a scheduled draft with no task after settle is not_placed", async () => {
+    const sched = draftRow({
+      status: "unknown",
+      executed_at: ago(PURCHASE_SETTLE_MS + 60_000),
+      params: { ...orderParams, schedule: { type: "daily", run_at_time: "08:00" } },
+    })
+    const db = fakeDb(baseTables({ ai_drafts: [sched], ai_scheduled_tasks: [] }))
+    const out = await recheckDraft(db, DRAFT, caller(vi.fn()))
+    expect(out!.status).toBe("failed")
+    expect(out!.outcome).toMatchObject({ code: "not_placed" })
+  })
+
+  it("role_change_state_changed_fails", async () => {
+    const d = draftRow({ context: "admin", action: "role_change", params: { targetUserId: TARGET, fromRole: "user", toRole: "dealer" } }) as any
+    const db = fakeDb(baseTables({ users: [{ id: USER, role: "admin" }, { id: TARGET, role: "dealer" }] }))
+    const out = await revalidateDraft(db, d)
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.outcome).toMatchObject({ code: "state_changed" })
+    expect((await revalidateDraft(fakeDb(baseTables()), d)).ok).toBe(true)
+  })
+
+  it("suspension_state_changed_fails", async () => {
+    const d = draftRow({ context: "admin", action: "user_suspension", params: { targetUserId: TARGET, suspend: true } }) as any
+    const db = fakeDb(baseTables({ users: [{ id: USER, role: "admin" }, { id: TARGET, role: "user", is_suspended: true }] }))
+    const out = await revalidateDraft(db, d)
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.outcome).toMatchObject({ code: "state_changed" })
+    expect((await revalidateDraft(fakeDb(baseTables()), d)).ok).toBe(true)
+  })
+})

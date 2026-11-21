@@ -38,7 +38,7 @@ SET LOCAL statement_timeout = '60s';
 -- ============ ai_drafts ============
 CREATE TABLE IF NOT EXISTS public.ai_drafts (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id          uuid NOT NULL REFERENCES public.users(id),
+  user_id          uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   context          text NOT NULL CHECK (context IN ('dashboard', 'admin')),
   action           text NOT NULL CHECK (action IN ('wallet_order', 'wallet_adjustment', 'withdrawal_action', 'user_suspension', 'role_change', 'bulk_status_update')),
   params           jsonb NOT NULL,
@@ -66,7 +66,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS orders_idempotency_key_uniq ON public.orders (
 
 -- ============ ai_scheduled_tasks: standing orders ============
 ALTER TABLE public.ai_scheduled_tasks ADD COLUMN IF NOT EXISTS standing_order jsonb;
-ALTER TABLE public.ai_scheduled_tasks ADD COLUMN IF NOT EXISTS approved_draft_id uuid REFERENCES public.ai_drafts(id);
+ALTER TABLE public.ai_scheduled_tasks ADD COLUMN IF NOT EXISTS approved_draft_id uuid REFERENCES public.ai_drafts(id) ON DELETE SET NULL;
 ALTER TABLE public.ai_scheduled_tasks ADD COLUMN IF NOT EXISTS consecutive_skips int NOT NULL DEFAULT 0;
 
 -- ============ ai_scheduled_tasks: the three new columns are server-only ============
