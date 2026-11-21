@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Send } from "lucide-react"
 
 interface ChatInputProps {
@@ -8,10 +8,13 @@ interface ChatInputProps {
   onSend: (text: string) => void
   disabled?: boolean
   maxLength?: number
+  /** Fills the box (never sends) when it changes, e.g. a deep link that pre-writes a request. */
+  prefill?: string
 }
 
-export function ChatInput({ name, onSend, disabled, maxLength = 1000 }: ChatInputProps) {
+export function ChatInput({ name, onSend, disabled, maxLength = 1000, prefill }: ChatInputProps) {
   const [value, setValue] = useState("")
+  useEffect(() => { if (prefill) setValue(prefill) }, [prefill])
   const submit = () => {
     const text = value.trim()
     if (!text || disabled) return
