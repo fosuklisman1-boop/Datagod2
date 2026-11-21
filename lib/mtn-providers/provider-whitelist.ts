@@ -9,6 +9,8 @@
  * All checks fail-open — a network/API error never blocks an order.
  */
 
+import { isHubnetConfigured } from "../hubnet/client"
+
 const XPRESS_BASE = "https://labppmcqsdeuollwcgwu.supabase.co/functions/v1/agent-api"
 const CODECRAFT_BASE = process.env.CODECRAFT_API_URL ?? "https://api.codecraftnetwork.com/api"
 
@@ -250,6 +252,73 @@ async function checkKuntaniiBatch(
   return out
 }
 
+type HubnetVerdict = { allowed: boolean; reason?: string } | null
+
+/** Hubnet verify status → verdict. null = no answer (error/timeout) — caller decides open/strict. */
+function hubnetVerdict(status: "verified" | "unverified" | "queued" | "invalid" | null): HubnetVerdict {
+  switch (status) {
+    case "verified": return { allowed: true }
+    case "unverified": return { allowed: false, reason: "unverified" }
+    case "invalid": return { allowed: false, reason: "invalid_phone_number" }
+    case "queued": return { allowed: true, reason: "queued" }
+    default: return null
+  }
+}
+
+async function checkHubnet(msisdn: string): Promise<WhitelistResult> {
+  try {
+    const { toHubnetPhone } = await import("../hubnet/core")
+    const local = toHubnetPhone(msisdn)
+    if (!local) return { allowed: false, provider: "hubnet", reason: "invalid_phone_number" }
+    const { createHubnetClient } = await import("../hubnet/client")
+    const v = hubnetVerdict(await createHubnetClient().verifyMtn(local))
+    return { ...(v ?? { allowed: true }), provider: "hubnet" }
+  } catch {
+    return { allowed: true, provider: "hubnet" }
+  }
+}
+
+const HUBNET_BATCH_CONCURRENCY = 5
+
+async function checkHubnetBatch(
+  msisdns: string[],
+  strict = false
+): Promise<Array<{ msisdn: string; allowed: boolean; reason?: string }>> {
+  const { toHubnetPhone } = await import("../hubnet/core")
+  const { createHubnetClient } = await import("../hubnet/client")
+  const client = createHubnetClient()
+  const out: Array<{ msisdn: string; allowed: boolean; reason?: string }> = new Array(msisdns.length)
+  let next = 0
+  let failed = false
+  const worker = async () => {
+    while (!failed) {
+      const idx = next++
+      if (idx >= msisdns.length) return
+      const msisdn = msisdns[idx]
+      const local = toHubnetPhone(msisdn)
+      if (!local) {
+        out[idx] = { msisdn, allowed: false, reason: "invalid_phone_number" }
+        continue
+      }
+      let v: HubnetVerdict = null
+      try {
+        v = hubnetVerdict(await client.verifyMtn(local))
+      } catch {
+        v = null
+      }
+      if (!v) {
+        if (strict) { failed = true; return }
+        out[idx] = { msisdn, allowed: true }
+      } else {
+        out[idx] = { msisdn, ...v }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(HUBNET_BATCH_CONCURRENCY, msisdns.length) }, worker))
+  if (failed) throw new WhitelistCheckFailed("hubnet")
+  return out
+}
+
 // Apex Prime's own MTN Pre-Check & Approval Note (confirmed with them 2026-09-05):
 // first-time MTN numbers must clear MTN's own approval before they can receive
 // data — a number mid-approval isn't rejected, it's "awaiting_mtn_approval" and
@@ -353,6 +422,15 @@ export const WHITELIST_REGISTRY: WhitelistEntry[] = [
     check: checkKuntanii,
     checkBatch: (m) => checkKuntaniiBatch(m),
     checkBatchStrict: (m) => checkKuntaniiBatch(m, true),
+  },
+  {
+    name: "hubnet",
+    // Opt-in: Hubnet's number-check answers can switch/release real orders, so the
+    // key alone must never enrol it. Read lazily.
+    configured: () => isHubnetConfigured() && process.env.HUBNET_WHITELIST_ENABLED === "true",
+    check: checkHubnet,
+    checkBatch: (m) => checkHubnetBatch(m),
+    checkBatchStrict: (m) => checkHubnetBatch(m, true),
   },
   // Add future whitelist providers here ↓
 ]

@@ -72,7 +72,7 @@ export interface MTNProvider {
 /**
  * Supported provider names
  */
-export type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal" | "kuntanii"
+export type MTNProviderName = "sykes" | "datakazina" | "xpress" | "eazyghdata" | "bisdel" | "codecraft" | "agentportalgh" | "apexprime" | "bundleportal" | "kuntanii" | "hubnet"
 
 /**
  * Every MTNProviderName, plus providers capable of only a non-MTN network.

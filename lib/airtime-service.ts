@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { isDigiWapyConfigured, isDigiWapyEnabledForNetwork, sendAirtimeViaDigiwapy } from "@/lib/digiwapy-provider"
 import { notifyAdmins, SMSTemplates } from "@/lib/sms-service"
 import { type AirtimeOrderMinimal, fulfillAirtimeViaHubtel } from "@/lib/airtime-hubtel"
+import { fulfillAirtimeViaHubnet } from "@/lib/airtime-hubnet"
 import { getAirtimeProvider, airtimeNetId, type AirtimeProvider } from "@/lib/airtime-provider"
 import { airtimeAmountGate, airtimeNetworkGate, airtimeSettingsSuffix, legacyAirtimePrice } from "@/lib/airtime-fee"
 import { airtimeCashbackTarget, type AirtimeProviderDeps } from "@/lib/cashback/storefront-airtime"
@@ -129,6 +130,32 @@ export async function triggerAirtimeFulfillment(
         settle: async tx => { await rt.onTransition(tx) },
         alert: async (message, kind) => {
           await notifyAdmins(message, kind === "review" ? "airtime_hubtel_review" : "airtime_manual_needed", order.id, true)
+        },
+      })
+    }
+    if (provider === "hubnet") {
+      const { isHubnetConfigured, createHubnetClient } = await import("@/lib/hubnet/client")
+      // Nothing was sent: hand to a human, never to another provider.
+      if (!isHubnetConfigured()) return await alertManualAirtime(order)
+      return await fulfillAirtimeViaHubnet(order, {
+        client: createHubnetClient(),
+        markOrder: async (orderId, patch, onlyFromStatuses) => {
+          let q = supabase.from("airtime_orders")
+            .update({ ...patch, updated_at: new Date().toISOString() }).eq("id", orderId)
+          if (onlyFromStatuses) {
+            q = q.in("status", onlyFromStatuses)
+          } else {
+            q = q.neq("status", "completed")
+          }
+          const { data, error } = await q.select("id")
+          if (error) throw error
+          if (onlyFromStatuses && (data?.length ?? 0) === 0) {
+            console.warn(`[AIRTIME-SVC] guarded write (${patch.status ?? "notes"}) matched 0 rows for order ${orderId}`)
+          }
+          return data?.length ?? 0
+        },
+        alert: async (message, kind) => {
+          await notifyAdmins(message, kind === "review" ? "airtime_hubnet_review" : "airtime_manual_needed", order.id, true)
         },
       })
     }

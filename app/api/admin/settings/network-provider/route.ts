@@ -9,9 +9,9 @@ const NETWORK_KEYS: Record<string, string> = {
 }
 
 const VALID_PROVIDERS_BY_NETWORK: Record<string, string[]> = {
-  telecel: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "bundleportal", "spfastit_telecel"],
-  at_ishare: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "spfastit", "bundleportal"],
-  at_bigtime: ["datakazina", "xpress", "eazyghdata", "codecraft", "bundleportal"],
+  telecel: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "bundleportal", "spfastit_telecel", "hubnet"],
+  at_ishare: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "spfastit", "bundleportal", "hubnet"],
+  at_bigtime: ["datakazina", "xpress", "eazyghdata", "codecraft", "bundleportal", "hubnet"],
 }
 
 export async function GET(request: NextRequest) {

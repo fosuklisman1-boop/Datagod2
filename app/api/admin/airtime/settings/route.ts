@@ -90,7 +90,7 @@ export async function PUT(request: NextRequest) {
 
     for (const [key, value] of Object.entries(settings)) {
       if (AIRTIME_PROVIDER_KEYS.includes(key) && !parseAirtimeProvider(value)) {
-        return NextResponse.json({ error: `Invalid provider for ${key}. Use {"provider":"digiwapy"|"hubtel"|"manual"}` }, { status: 400 })
+        return NextResponse.json({ error: `Invalid provider for ${key}. Use {"provider":"digiwapy"|"hubtel"|"hubnet"|"manual"}` }, { status: 400 })
       }
     }
 

@@ -293,3 +293,127 @@ describe("kuntanii whitelist", () => {
     expect(validateProviderSelection(["kuntanii"])).toEqual({ valid: true, providers: ["kuntanii"] })
   })
 })
+
+const hubnetVerify = vi.fn()
+const hubnetConfigured = vi.fn(() => false)
+vi.mock("../hubnet/client", () => ({
+  createHubnetClient: () => ({ verifyMtn: hubnetVerify }),
+  isHubnetConfigured: () => hubnetConfigured(),
+}))
+
+function hubnetEntry() {
+  return WHITELIST_REGISTRY.find(e => e.name === "hubnet")!
+}
+
+describe("hubnet whitelist", () => {
+  afterEach(() => {
+    hubnetVerify.mockReset()
+    hubnetConfigured.mockReset()
+  })
+
+  it("maps verified → allowed", async () => {
+    hubnetVerify.mockResolvedValueOnce("verified")
+    expect(await hubnetEntry().check("0241234567")).toEqual({ allowed: true, provider: "hubnet" })
+  })
+
+  it("maps unverified → not allowed", async () => {
+    hubnetVerify.mockResolvedValueOnce("unverified")
+    expect(await hubnetEntry().check("0241234567")).toEqual({ allowed: false, provider: "hubnet", reason: "unverified" })
+  })
+
+  it("maps invalid → invalid_phone_number", async () => {
+    hubnetVerify.mockResolvedValueOnce("invalid")
+    expect(await hubnetEntry().check("0241234567")).toEqual({ allowed: false, provider: "hubnet", reason: "invalid_phone_number" })
+  })
+
+  it("unparseable phone is blocked without a network call", async () => {
+    expect(await hubnetEntry().check("12345")).toEqual({ allowed: false, provider: "hubnet", reason: "invalid_phone_number" })
+    expect(hubnetVerify).not.toHaveBeenCalled()
+  })
+
+  it("maps queued → allowed with reason queued", async () => {
+    hubnetVerify.mockResolvedValueOnce("queued")
+    expect(await hubnetEntry().check("0241234567")).toEqual({ allowed: true, provider: "hubnet", reason: "queued" })
+  })
+
+  it("fails open on null and on throw", async () => {
+    hubnetVerify.mockResolvedValueOnce(null)
+    expect(await hubnetEntry().check("0241234567")).toEqual({ allowed: true, provider: "hubnet" })
+    hubnetVerify.mockRejectedValueOnce(new Error("boom"))
+    expect(await hubnetEntry().check("0241234567")).toEqual({ allowed: true, provider: "hubnet" })
+  })
+
+  it("batch preserves input order with out-of-order resolution and original msisdn strings", async () => {
+    const inputs = ["0241111111", "bad", "+233242222222", "0243333333"]
+    hubnetVerify.mockImplementation(async (n: string) => {
+      await new Promise(r => setTimeout(r, n === "0241111111" ? 30 : 1))
+      return n === "0241111111" ? "verified" : n === "0242222222" ? "unverified" : "queued"
+    })
+    const out = await hubnetEntry().checkBatch(inputs)
+    expect(out).toEqual([
+      { msisdn: "0241111111", allowed: true },
+      { msisdn: "bad", allowed: false, reason: "invalid_phone_number" },
+      { msisdn: "+233242222222", allowed: false, reason: "unverified" },
+      { msisdn: "0243333333", allowed: true, reason: "queued" },
+    ])
+  })
+
+  it("batch caps concurrency at 5", async () => {
+    let inFlight = 0
+    let max = 0
+    hubnetVerify.mockImplementation(async () => {
+      inFlight++
+      max = Math.max(max, inFlight)
+      await new Promise(r => setTimeout(r, 5))
+      inFlight--
+      return "verified"
+    })
+    const phones = Array.from({ length: 12 }, (_, i) => `02411111${String(i).padStart(2, "0")}`)
+    const out = await hubnetEntry().checkBatch(phones)
+    expect(out).toHaveLength(12)
+    expect(hubnetVerify).toHaveBeenCalledTimes(12)
+    expect(max).toBeGreaterThan(1)
+    expect(max).toBeLessThanOrEqual(5)
+  })
+
+  it("non-strict batch fails open on null/throw", async () => {
+    hubnetVerify.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("x"))
+    const out = await hubnetEntry().checkBatch(["0241111111", "0242222222"])
+    expect(out.map(r => r.allowed)).toEqual([true, true])
+  })
+
+  it("strict batch throws WhitelistCheckFailed on null and on throw", async () => {
+    hubnetVerify.mockResolvedValueOnce("verified").mockResolvedValueOnce(null)
+    await expect(hubnetEntry().checkBatchStrict!(["0241111111", "0242222222"])).rejects.toThrow(/hubnet/)
+    hubnetVerify.mockReset()
+    hubnetVerify.mockRejectedValue(new Error("boom"))
+    await expect(hubnetEntry().checkBatchStrict!(["0241111111"])).rejects.toMatchObject({ name: "WhitelistCheckFailed" })
+  })
+
+  it("registry entry is off when the key is missing", () => {
+    hubnetConfigured.mockReturnValue(false)
+    expect(hubnetEntry().configured()).toBe(false)
+  })
+})
+
+describe("hubnet whitelist opt-in (C1)", () => {
+  afterEach(() => {
+    hubnetConfigured.mockReset()
+    delete process.env.HUBNET_WHITELIST_ENABLED
+  })
+  it("key set but flag unset is not configured", () => {
+    hubnetConfigured.mockReturnValue(true)
+    delete process.env.HUBNET_WHITELIST_ENABLED
+    expect(hubnetEntry().configured()).toBe(false)
+  })
+  it("key set and flag true is configured", () => {
+    hubnetConfigured.mockReturnValue(true)
+    process.env.HUBNET_WHITELIST_ENABLED = "true"
+    expect(hubnetEntry().configured()).toBe(true)
+  })
+  it("flag true but no key is not configured", () => {
+    hubnetConfigured.mockReturnValue(false)
+    process.env.HUBNET_WHITELIST_ENABLED = "true"
+    expect(hubnetEntry().configured()).toBe(false)
+  })
+})

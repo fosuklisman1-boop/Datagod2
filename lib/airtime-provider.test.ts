@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { AIRTIME_PROVIDER_KEYS, airtimeNetId, airtimeProviderKey, getAirtimeProvider, parseAirtimeProvider } from "./airtime-provider"
+import { AIRTIME_PROVIDER_KEYS, airtimeNetId, airtimeProviderKey, getAirtimeProvider, parseAirtimeProvider, providerEarnsCommission } from "./airtime-provider"
 
 const eqArgs: unknown[][] = []
 const dbWith = (value: unknown, error: unknown = null) => ({
@@ -18,7 +18,12 @@ describe("airtime provider setting", () => {
     expect(airtimeProviderKey("mtn")).toBe("airtime_provider_mtn")
     expect(AIRTIME_PROVIDER_KEYS).toEqual(["airtime_provider_mtn", "airtime_provider_telecel", "airtime_provider_at"])
   })
-  it("parses only the three providers", () => {
+  it("hubnet is a provider but earns no commission", () => {
+    expect(parseAirtimeProvider({ provider: "hubnet" })).toBe("hubnet")
+    expect(providerEarnsCommission("hubnet", true)).toBe(false)
+    expect(providerEarnsCommission("hubtel", false)).toBe(true)
+  })
+  it("parses only the known providers", () => {
     expect(parseAirtimeProvider({ provider: "hubtel" })).toBe("hubtel")
     expect(parseAirtimeProvider({ provider: "HUBTEL" })).toBeNull()
     expect(parseAirtimeProvider("hubtel")).toBeNull()

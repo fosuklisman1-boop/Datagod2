@@ -1,0 +1,168 @@
+Hubnet API docs — pasted by owner 2026-11-21 (verbatim). Authoritative until live/test probes say otherwise;
+probe results get appended at the bottom of this file.
+
+Build with Hubnet
+Buy data and airtime, check your wallet, and track transactions with a JSON API. Start with a Test key before sending live orders.
+
+HTTPS only
+JSON responses
+Base URL: https://hubnet.app
+Authentication
+Send your key in the token: Bearer YOUR_API_KEY header, not the Authorization header. Keep keys on your server. Use /test/ instead of /live/ with a Test key for supported simulation endpoints; live purchases charge your wallet.
+Airtime purchases
+Top up a Ghana phone number using your account wallet
+Purchase airtime
+POST
+/live/api/context/business/transaction/airtime-new-transaction
+Authenticate with token: Bearer YOUR_API_KEY and send Content-Type: application/json. Required: phone (10 digits, including the leading zero), volume (airtime value in GHS, not MB, as a positive decimal string such as "10.00"), and a unique reference (fewer than 30 characters). No network field is required. Optional: referrer (10-digit notification number) and webhook (public HTTPS callback URL).
+The wallet charge follows your account's airtime pricing and may differ from the face value. The example balance is illustrative. HTTP 200 with charge.success acknowledges processing, not independent carrier delivery confirmation. Check transaction status using your reference before retrying an interrupted purchase. Purchase failures return HTTP 400 with charge.failed; insufficient funds may include status_code: 402 in the body.
+For simulation, use the same fields with a Test key at /test/api/context/business/transaction/airtime-new-transaction. No wallet is charged and no airtime is delivered. Bulk airtime purchases are not supported.
+Request · cURL
+curl --request POST \
+  --url 'https://hubnet.app/live/api/context/business/transaction/airtime-new-transaction' \
+  --header 'token: Bearer YOUR_API_KEY' \
+  --header 'Content-Type: application/json' \
+  --data '{
+  "phone": "0241234567",
+  "volume": "10.00",
+  "reference": "airtime-order-001"
+}'
+Example request
+{
+  "phone": "0241234567",
+  "volume": "10.00",
+  "reference": "airtime-order-001"
+}
+Example success response
+{
+  "event": "charge.success",
+  "status": "success",
+  "batch_id": "airtime-order-001",
+  "amount": "10.00",
+  "balance": 90.50,
+  "message": "Your transaction has been processed and is now complete.",
+  "data": {
+    "status": true,
+    "code": "0000",
+    "current_balance": 90.50
+  }
+}
+Business transactions
+Wallet balance, order placement and tracking — purchases debit your wallet immediately
+Check wallet balance
+GET
+/live/api/context/business/transaction/check_balance
+Your available wallet balance, last top-up date, and today's / total sales counters.
+Request · cURL
+curl --request GET \
+  --url 'https://hubnet.app/live/api/context/business/transaction/check_balance' \
+  --header 'token: Bearer YOUR_API_KEY'
+Example response
+{
+  "event": "query.success",
+  "status": "success",
+  "request_id": "abc1234",
+  "data": { "wallet_balance": 120.50, "last_top_up_date": "October 20, 2026", "today's_sales": 15, "total_sales": 340 }
+}
+Check transaction status
+GET
+/live/api/context/business/transaction/check-transaction-status?reference=YOUR_REFERENCE
+Live status of any order by its reference — number, amount, volume, delivery status, date/time and tracking ID.
+Request · cURL
+curl --request GET \
+  --url 'https://hubnet.app/live/api/context/business/transaction/check-transaction-status?reference=YOUR_REFERENCE' \
+  --header 'token: Bearer YOUR_API_KEY'
+List refunds
+GET
+/live/api/context/business/transaction/refunds
+Your 200 most recent refunded top-ups — amount, details, status, volume and date.
+Request · cURL
+curl --request GET \
+  --url 'https://hubnet.app/live/api/context/business/transaction/refunds' \
+  --header 'token: Bearer YOUR_API_KEY'
+Place a data order
+POST
+/live/api/context/business/transaction/mtn-new-transaction
+Place a single data order. Also available: at-new-transaction, telecel-new-transaction, big-time-new-transaction. Volume is in MB (1000 MB = 1 GB). Your reference is the idempotency key — duplicates are rejected. Optional: referrer (10-digit number), webhook (HTTPS URL for delivery callbacks).
+Request · cURL
+curl --request POST \
+  --url 'https://hubnet.app/live/api/context/business/transaction/mtn-new-transaction' \
+  --header 'token: Bearer YOUR_API_KEY' \
+  --header 'Content-Type: application/json' \
+  --data '{
+  "phone": "0241234567",
+  "volume": "1000",
+  "reference": "my-unique-reference"
+}'
+Example request
+{
+  "phone": "0241234567",
+  "volume": "1000",
+  "reference": "my-unique-reference"
+}
+Place bulk data orders
+POST
+/live/api/context/business/transaction/bulk/mtn-new-transaction
+Place many orders in one call — same networks as single orders. Each item needs phone (10 digits) and volume; missing references are generated per item. The total price is checked against your wallet before anything is processed — insufficient balance rejects the entire batch.
+Request · cURL
+curl --request POST \
+  --url 'https://hubnet.app/live/api/context/business/transaction/bulk/mtn-new-transaction' \
+  --header 'token: Bearer YOUR_API_KEY' \
+  --header 'Content-Type: application/json' \
+  --data '{
+  "items": [
+    { "phone": "0241234567", "volume": "1000", "reference": "ref-1" },
+    { "phone": "0551112222", "volume": "2000" }
+  ]
+}'
+Example request
+{
+  "items": [
+    { "phone": "0241234567", "volume": "1000", "reference": "ref-1" },
+    { "phone": "0551112222", "volume": "2000" }
+  ]
+}
+MTN number verification
+Check whether MTN numbers are verified eTopup beneficiaries
+Verify an MTN number
+GET
+/live/api/context/business/transaction/mtn-verification?number=0241234567
+Accepts 024..., 9-digit 24..., and 233... formats. Status is one of verified · unverified · queued · invalid. Unknown numbers are queued and resolved automatically every 2 minutes — re-check later for the final status.
+Request · cURL
+curl --request GET \
+  --url 'https://hubnet.app/live/api/context/business/transaction/mtn-verification?number=0241234567' \
+  --header 'token: Bearer YOUR_API_KEY'
+Example response
+{
+  "status": true,
+  "request_id": "abc1234",
+  "data": { "number": "0241234567", "status": "verified" }
+}
+Storefront
+Public merchant store endpoints — no API key required; stores are identified by their merchant reference
+Get a store profile
+GET
+/agent-data?ref=MERCHANT_ID
+A store's public profile and live price list as JSON — business name, WhatsApp number, brand assets and per-network prices.
+Request · cURL
+curl --request GET \
+  --url 'https://hubnet.app/agent-data?ref=MERCHANT_ID'
+Track a store order
+GET
+/agent/track_order?ref=MERCHANT_ID&transactionId=0241234567
+Order history for a customer number on a given store — status, reference, volume, package and delivery details.
+Request · cURL
+curl --request GET \
+  --url 'https://hubnet.app/agent/track_order?ref=MERCHANT_ID&transactionId=0241234567'
+Create a store order
+POST
+/agent?ref=MERCHANT_ID
+Create a store order and receive a Paystack payment link. Body: volume, amount, number (10 digits), product — one of MTN Ghana Network, AirtelTigo Ghana Network, Telecel Ghana Network. The amount is verified against server-side pricing before the link is issued.
+Errors
+Every failure returns { "success": false, "message": "..." } with one of these status codes
+400 — validation failed: missing field, bad format, amount mismatch or insufficient balance · 401 — missing or invalid token/session · 403 — feature disabled or origin not allowed · 404 — store, transaction or path not found · 409 — duplicate reference or conflicting state · 429 — rate limited; wait and retry · 500/503 — temporary server/provider issue; for purchases, always re-check by reference before retrying.
+
+========================================================================
+PROBE RESULTS (append below — Test key, /test/ paths; record real bodies, redact phones)
+========================================================================
+(none yet)

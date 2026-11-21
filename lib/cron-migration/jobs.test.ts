@@ -10,14 +10,14 @@ const byPath = (p: string) => specs.find((s) => s.path === p)!
 
 describe("buildJobSpecs", () => {
   it("builds one spec per real vercel.json cron, none unclassified", () => {
-    expect(specs).toHaveLength(48)
-    expect(new Set(specs.map((s) => s.path)).size).toBe(48)
+    expect(specs).toHaveLength(49)
+    expect(new Set(specs.map((s) => s.path)).size).toBe(49)
     expect(specs.every((s) => ["A", "B", "C"].includes(s.batch))).toBe(true)
   })
 
-  it("batch sizes match the plan (14 / 11 / 23)", () => {
+  it("batch sizes match the plan (14 / 11 / 24)", () => {
     const n = (b: string) => specs.filter((s) => s.batch === b).length
-    expect([n("A"), n("B"), n("C")]).toEqual([14, 11, 23])
+    expect([n("A"), n("B"), n("C")]).toEqual([14, 11, 24])
   })
 
   it("schedules the sub-agent price reminders every 5 minutes as an overlap-safe, non-fulfillment job", () => {

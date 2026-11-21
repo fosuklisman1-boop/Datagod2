@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-export type AirtimeProvider = "digiwapy" | "hubtel" | "manual"
-export const AIRTIME_PROVIDERS: readonly AirtimeProvider[] = ["digiwapy", "hubtel", "manual"]
+export type AirtimeProvider = "digiwapy" | "hubtel" | "hubnet" | "manual"
+export const AIRTIME_PROVIDERS: readonly AirtimeProvider[] = ["digiwapy", "hubtel", "hubnet", "manual"]
 export type AirtimeNetId = "mtn" | "telecel" | "at"
 const NET_IDS: readonly AirtimeNetId[] = ["mtn", "telecel", "at"]
 

@@ -54,6 +54,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sync-mtn-status/hubnet",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/sync-afa-status/apexprime",
       "schedule": "* * * * *"
     },

@@ -8,7 +8,7 @@ describe("PROVIDER_DISPLAY", () => {
     // mtn_fulfillment_tracking.provider must resolve to a real label here.
     const allProviders = [
       "sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft",
-      "agentportalgh", "apexprime", "spfastit", "bundleportal",
+      "agentportalgh", "apexprime", "spfastit", "bundleportal", "hubnet",
     ]
     for (const p of allProviders) {
       expect(PROVIDER_DISPLAY[p], `missing PROVIDER_DISPLAY entry for "${p}"`).toBeDefined()

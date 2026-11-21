@@ -23,6 +23,7 @@ export const PROVIDER_DISPLAY: Record<string, { label: string; badgeClassName: s
   spfastit: { label: "SPFastIT", badgeClassName: "bg-fuchsia-100 text-fuchsia-800 border-border" },
   bundleportal: { label: "Bundle Portal", badgeClassName: "bg-sky-100 text-sky-800 border-border" },
   kuntanii: { label: "Kuntanii", badgeClassName: "bg-orange-100 text-orange-800 border-border" },
+  hubnet: { label: "Hubnet", badgeClassName: "bg-teal-100 text-teal-800 border-border" },
   spfastit_telecel: { label: "SPFastIT Telecel", badgeClassName: "bg-fuchsia-100 text-fuchsia-800 border-border" },
 }
 

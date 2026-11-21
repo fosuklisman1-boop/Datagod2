@@ -18,6 +18,7 @@ import { SPFastITProvider } from "./spfastit-provider"
 import { SPFastITTelecelProvider } from "./spfastit-telecel-provider"
 import { BundlePortalProvider } from "./bundleportal-provider"
 import { KuntaniiProvider } from "./kuntanii-provider"
+import { HubnetProvider } from "./hubnet-provider"
 
 /**
  * Get the currently selected provider from database settings
@@ -38,7 +39,7 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
         const provider = data?.value?.provider as MTNProviderName | undefined
 
         // Validate provider name
-        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata" || provider === "bisdel" || provider === "codecraft" || provider === "agentportalgh" || provider === "apexprime" || provider === "bundleportal" || provider === "kuntanii") {
+        if (provider === "sykes" || provider === "datakazina" || provider === "xpress" || provider === "eazyghdata" || provider === "bisdel" || provider === "codecraft" || provider === "agentportalgh" || provider === "apexprime" || provider === "bundleportal" || provider === "kuntanii" || provider === "hubnet") {
             return provider
         }
 
@@ -59,7 +60,7 @@ async function getSelectedProvider(): Promise<MTNProviderName> {
  * then Bundle Portal), each rejecting the new provider with no indication
  * why. Add a provider here once; every consumer picks it up automatically.
  */
-export const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime", "bundleportal", "kuntanii"]
+export const VALID_PROVIDERS: MTNProviderName[] = ["sykes", "datakazina", "xpress", "eazyghdata", "bisdel", "codecraft", "agentportalgh", "apexprime", "bundleportal", "kuntanii", "hubnet"]
 
 /** True only for a genuinely MTN-capable provider name (never "spfastit" or any other non-MTN-only provider). */
 export function isValidMtnProviderName(name: string): name is MTNProviderName {
@@ -112,6 +113,8 @@ export async function getMTNProvider(): Promise<MTNProvider> {
     console.log(`[MTN-Factory] Using provider: ${providerName}`)
 
     switch (providerName) {
+        case "hubnet":
+            return new HubnetProvider()
         case "agentportalgh":
             return new AgentPortalGHProvider()
         case "apexprime":
@@ -157,9 +160,9 @@ export const NETWORK_TO_REQUEST_NETWORK: Record<string, "Telecel" | "AirtelTigo"
 }
 
 export const NON_MTN_CAPABLE: Record<string, NonMTNProviderName[]> = {
-    telecel_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "bundleportal", "spfastit_telecel"],
-    at_ishare_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "spfastit", "bundleportal"],
-    at_bigtime_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "bundleportal"],
+    telecel_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "bundleportal", "spfastit_telecel", "hubnet"],
+    at_ishare_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "agentportalgh", "apexprime", "spfastit", "bundleportal", "hubnet"],
+    at_bigtime_provider_selection: ["datakazina", "xpress", "eazyghdata", "codecraft", "bundleportal", "hubnet"],
 }
 
 /** Is `provider` a valid, capability-checked choice for this non-MTN network? */
@@ -244,6 +247,8 @@ export async function getRetrySequence(): Promise<MTNProviderName[]> {
  */
 export function getProviderByName(name: NonMTNProviderName): MTNProvider {
     switch (name) {
+        case "hubnet":
+            return new HubnetProvider()
         case "agentportalgh":
             return new AgentPortalGHProvider()
         case "apexprime":

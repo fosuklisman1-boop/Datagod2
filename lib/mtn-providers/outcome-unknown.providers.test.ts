@@ -237,6 +237,7 @@ describe("Xpress", () => {
 import { AgentPortalGHProvider } from "./agentportalgh-provider"
 import { BundlePortalProvider } from "./bundleportal-provider"
 import { KuntaniiProvider } from "./kuntanii-provider"
+import { HubnetProvider } from "./hubnet-provider"
 import { SPFastITProvider } from "./spfastit-provider"
 import { SPFastITTelecelProvider } from "./spfastit-telecel-provider"
 
@@ -254,6 +255,7 @@ describe("checkOrderStatus short-circuits UNKNOWN_ ids (no lookup, no status cha
     ["spfastit", () => new SPFastITProvider()],
     ["spfastit-telecel", () => new SPFastITTelecelProvider()],
     ["kuntanii", () => new KuntaniiProvider()],
+    ["hubnet", () => new HubnetProvider({ client: {} as any, alert: async () => {}, configured: () => true })],
   ]
   for (const [name, make] of providers) {
     it(`${name}: no network call and no status for UNKNOWN_123`, async () => {

@@ -69,6 +69,7 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
       { value: "apexprime", label: "Apex Prime" },
       { value: "bundleportal", label: "Bundle Portal" },
       { value: "kuntanii", label: "Kuntanii" },
+      { value: "hubnet", label: "Hubnet" },
     ]
   }
   const isBigTime = upper.includes("BIGTIME") || upper.includes("BIG TIME")
@@ -82,6 +83,7 @@ function getProviderOptionsForNetwork(network: string): { value: string; label: 
     ...(isIshare ? [{ value: "spfastit", label: "SPFastIT" }] : []),
     ...(isBigTime || isIshare ? [] : [{ value: "spfastit_telecel", label: "SPFastIT (Telecel)" }]),
     { value: "bundleportal", label: "Bundle Portal" },
+    { value: "hubnet", label: "Hubnet" },
   ]
 }
 
