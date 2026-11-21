@@ -120,6 +120,27 @@ describe("classifyStatusReply", () => {
     expect(r).toMatchObject({ kind: "found", status: "failed", refunded: true })
     expect((r as { costGhs?: number }).costGhs).toBeUndefined()
   })
+  it("prefers the nested data status over an API-level top-level word", () => {
+    const body = { status: "success", data: { delivery_status: "pending" } }
+    expect(classifyStatusReply(200, body)).toMatchObject({ kind: "found", status: "processing", refunded: false })
+  })
+  it("refund signal anywhere wins", () => {
+    expect(classifyStatusReply(200, { status: "completed", data: { status: "refunded" } })).toMatchObject({
+      kind: "found", status: "failed", refunded: true,
+    })
+  })
+  it("ignores a boolean top-level status and reads data", () => {
+    expect(classifyStatusReply(200, { status: true, data: { transaction_status: "queued" } })).toMatchObject({
+      kind: "found", status: "processing",
+    })
+  })
+  it("treats other missing-transaction 404 wordings as missing", () => {
+    expect(classifyStatusReply(404, { message: "No transaction for reference" })).toEqual({ kind: "missing" })
+    expect(classifyStatusReply(404, { message: "Invalid reference" })).toEqual({ kind: "missing" })
+  })
+  it("treats 404 with non-object body as unknown", () => {
+    expect(classifyStatusReply(404, "Not Found")).toEqual({ kind: "unknown" })
+  })
   it("unknown when 200 has no status word", () => {
     expect(classifyStatusReply(200, { success: true })).toEqual({ kind: "unknown" })
   })

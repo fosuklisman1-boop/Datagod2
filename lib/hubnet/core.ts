@@ -66,6 +66,21 @@ function statusWords(body: unknown): string[] {
   return out
 }
 
+function primaryStatusWord(body: Record<string, unknown>): string | undefined {
+  const pick = (src: Record<string, unknown>, keys: readonly string[]) => {
+    for (const k of keys) {
+      const v = src[k]
+      if (typeof v === "string" && v.trim()) return v
+    }
+    return undefined
+  }
+  if (isObj(body.data)) {
+    const nested = pick(body.data, ["delivery_status", "transaction_status", "status"])
+    if (nested) return nested
+  }
+  return pick(body, ["delivery_status", "status"])
+}
+
 export function isHubnetRefunded(body: unknown): boolean {
   if (!isObj(body)) return false
   if (body.refunded === true) return true
@@ -90,12 +105,10 @@ export function classifyStatusReply(httpStatus: number, body: unknown): StatusLo
   const words = statusWords(body)
   if (words.length === 0) return { kind: "unknown" }
   const refunded = isHubnetRefunded(body)
-  // Prefer a refund signal, then the first word that maps to a terminal state.
-  let status: HubnetStatus = refunded ? "failed" : mapHubnetStatus(words[0])
-  if (!refunded && status === "processing") {
-    const terminal = words.map(mapHubnetStatus).find((s) => s !== "processing")
-    if (terminal) status = terminal
-  }
+  // Refund signal (anywhere) wins. Otherwise the nested data status is the
+  // delivery state; a top-level word is only an API-call status, so it is used
+  // only when data carries none. Never upgrade to completed from a lesser source.
+  const status: HubnetStatus = refunded ? "failed" : mapHubnetStatus(primaryStatusWord(body))
   const result: StatusLookup = { kind: "found", status, refunded, raw: body }
   const amt = isObj(body.data) && body.data.amount !== undefined ? body.data.amount : body.amount
   const n = typeof amt === "string" && amt.trim() !== "" ? Number(amt) : amt
