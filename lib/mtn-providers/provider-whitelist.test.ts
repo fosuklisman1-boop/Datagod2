@@ -285,6 +285,22 @@ describe("kuntanii whitelist", () => {
     await expect(kuntaniiEntry().checkBatchStrict!(["0241111111"])).rejects.toThrow(/kuntanii/)
   })
 
+  it("kuntanii strict batch throws on a short result array; non-strict still fails open for the missing rows", async () => {
+    const short = {
+      ok: true, status: 200,
+      data: { results: [{ phoneNumber: "0241111111", eligible: false, reason: "blocked_number" }] },
+    }
+    kuntaniiVerify.mockResolvedValueOnce(short)
+    await expect(kuntaniiEntry().checkBatchStrict!(["0241111111", "0242222222"])).rejects.toThrow(/kuntanii/)
+    kuntaniiVerify.mockResolvedValueOnce(short)
+    const out = await kuntaniiEntry().checkBatch(["0241111111", "0242222222"])
+    expect(out[1].allowed).toBe(true)
+  })
+
+  it("every registry entry defines checkBatchStrict (callers rely on it to avoid fail-open answers)", () => {
+    for (const e of WHITELIST_REGISTRY) expect(typeof e.checkBatchStrict, e.name).toBe("function")
+  })
+
   it("registry includes kuntanii configured by KUNTANII_API_KEY", () => {
     vi.stubEnv("KUNTANII_API_KEY", "")
     expect(kuntaniiEntry().configured()).toBe(false)
