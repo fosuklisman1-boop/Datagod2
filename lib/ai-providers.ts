@@ -79,6 +79,13 @@ class AnthropicAdapter implements AIProvider {
       messages,
     })
 
+    // Opt-in (AI_CACHE_DEBUG=1): numbers only, never prompt text or ids.
+    if (process.env.AI_CACHE_DEBUG === "1") {
+      const u = ((response as unknown as { usage?: Record<string, unknown> }).usage ?? {}) as Record<string, unknown>
+      const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0)
+      console.debug(`[AI-CACHE] model=${model} read=${n(u.cache_read_input_tokens)} write=${n(u.cache_creation_input_tokens)} input=${n(u.input_tokens)}`)
+    }
+
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map(b => b.text)

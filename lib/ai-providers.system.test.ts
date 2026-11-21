@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 const h = vi.hoisted(() => ({
   anthropicCreate: vi.fn(),
@@ -34,6 +34,40 @@ beforeEach(() => {
   vi.clearAllMocks()
   h.anthropicCreate.mockResolvedValue({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" })
   h.openaiCreate.mockResolvedValue({ choices: [{ message: { content: "ok", tool_calls: [] }, finish_reason: "stop" }] })
+})
+
+describe("cache usage debug log", () => {
+  const usage = { cache_read_input_tokens: 123, cache_creation_input_tokens: 45, input_tokens: 6 }
+  const run = () => getProvider("anthropic", "k").createMessage({ ...base, system: { stable: "SECRET STABLE", volatile: "SECRET VOL" } })
+  afterEach(() => { delete process.env.AI_CACHE_DEBUG; vi.restoreAllMocks() })
+
+  it("logs one numbers-only line when AI_CACHE_DEBUG=1", async () => {
+    process.env.AI_CACHE_DEBUG = "1"
+    const log = vi.spyOn(console, "debug").mockImplementation(() => {})
+    h.anthropicCreate.mockResolvedValue({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage })
+    await run()
+    expect(log).toHaveBeenCalledTimes(1)
+    expect(log.mock.calls[0]).toEqual(["[AI-CACHE] model=m read=123 write=45 input=6"])
+  })
+
+  it("is silent when disabled", async () => {
+    const log = vi.spyOn(console, "debug").mockImplementation(() => {})
+    h.anthropicCreate.mockResolvedValue({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage })
+    await run()
+    expect(log).not.toHaveBeenCalled()
+  })
+
+  it("treats missing usage fields as 0 and never logs prompt text", async () => {
+    process.env.AI_CACHE_DEBUG = "1"
+    const log = vi.spyOn(console, "debug").mockImplementation(() => {})
+    h.anthropicCreate.mockResolvedValue({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" })
+    await run()
+    expect(log.mock.calls[0]).toEqual(["[AI-CACHE] model=m read=0 write=0 input=0"])
+    h.anthropicCreate.mockResolvedValue({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { cache_read_input_tokens: null } })
+    await run()
+    expect(log.mock.calls[1]).toEqual(["[AI-CACHE] model=m read=0 write=0 input=0"])
+    expect(JSON.stringify(log.mock.calls)).not.toContain("SECRET")
+  })
 })
 
 describe("system prompt shapes", () => {
