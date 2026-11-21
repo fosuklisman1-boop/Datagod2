@@ -37,3 +37,26 @@ describe("handoff", () => {
     expect(createThreadSchema.safeParse(buildHandoffThreadBody([], contact)).success).toBe(true)
   })
 })
+
+import { handoffFailureMessage, handoffAvailable } from "./handoff"
+
+describe("handoff outcomes", () => {
+  it("handoff_409_message", () => {
+    expect(handoffFailureMessage(409)).toBe("You already have 3 open support chats — opening WhatsApp instead.")
+  })
+  it("handoff_failure_message", () => {
+    expect(handoffFailureMessage(500)).toBe("Couldn't open a support chat — opening WhatsApp instead.")
+    expect(handoffFailureMessage(undefined)).toBe("Couldn't open a support chat — opening WhatsApp instead.")
+  })
+  it("handoff_available", () => {
+    expect(handoffAvailable({ mode: "whatsapp", whatsapp: "233241234567" })).toBe(true)
+    expect(handoffAvailable({ mode: "whatsapp", whatsapp: "" })).toBe(false)
+    expect(handoffAvailable({ mode: "thread", hasToken: true, phone: "0241234567" })).toBe(true)
+    expect(handoffAvailable({ mode: "thread", hasToken: false, phone: "0241234567", whatsapp: "233241234567" })).toBe(true)
+    expect(handoffAvailable({ mode: "thread", hasToken: true, phone: null, whatsapp: null })).toBe(false)
+  })
+  it("handoff_strips_whole_card_results_block", () => {
+    const out = buildHandoffMessage([m("user", 'hi <card_results nonce="n">SECRET ORDER DATA</card_results> bye')])
+    expect(out).toBe("Me: hi bye")
+  })
+})

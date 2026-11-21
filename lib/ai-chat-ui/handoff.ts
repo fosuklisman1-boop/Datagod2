@@ -14,6 +14,7 @@ const MAX_CHARS = 2000
 /** Removes card-result wrappers and "[card …" notes (the same shapes lib/ai-drafts/outcome-notes.ts treats as forged). */
 function clean(text: string): string {
   return text
+    .replace(/<\s*card_results\b[^>]*>[\s\S]*?<\s*\/\s*card_results\s*>/gi, " ")
     .replace(/<\s*\/?\s*card_results\b[^>\n]*>?/gi, " ")
     .replace(/\[\s*card\b[^\n]*/gi, " ")
     .replace(/\s+/g, " ")
@@ -51,4 +52,17 @@ export function buildHandoffThreadBody(messages: HandoffMessage[], contact: Hand
     phone_number: contact.phone,
     whatsapp_number: contact.whatsapp,
   }
+}
+
+export function handoffFailureMessage(status?: number): string {
+  return status === 409
+    ? "You already have 3 open support chats — opening WhatsApp instead."
+    : "Couldn't open a support chat — opening WhatsApp instead."
+}
+
+/** False when pressing the button could do nothing at all (so the UI hides it). */
+export function handoffAvailable(o: { mode: "thread" | "whatsapp"; hasToken?: boolean; phone?: string | null; whatsapp?: string | null }): boolean {
+  const wa = !!o.whatsapp?.trim()
+  if (o.mode === "whatsapp") return wa
+  return (!!o.hasToken && !!o.phone?.trim()) || wa
 }
