@@ -185,7 +185,7 @@ describe("sidebar groups", () => {
 
   it("the admin list still has every link the hand-written sidebar had (2026-11-16), once each", () => {
     const before = [
-      "/admin", "/admin/ai-knowledge", "/admin/airtime", "/admin/airtime/settings", "/admin/ai-settings",
+      "/admin", "/admin/ai-assistant", "/admin/airtime", "/admin/airtime/settings", // ai-settings + ai-knowledge merged into ai-assistant 2026-11-21
       "/admin/api-keys", "/admin/blocked-numbers", "/admin/custom-domains", "/admin/gateway",
       "/admin/hubtel-commission", "/admin/leaderboard", "/admin/momo-claims", "/admin/mtn-registration",
       "/admin/orders", "/admin/payment-attempts", "/admin/payment-reverify", "/admin/phone-verification",

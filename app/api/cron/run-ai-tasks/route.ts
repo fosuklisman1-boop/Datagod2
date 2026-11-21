@@ -11,7 +11,7 @@ import { computeNextRun } from "@/lib/ai-scheduled/next-run"
 import { withoutPrepareTools, adminBackgroundTools } from "@/lib/ai-scheduled/tools"
 import { cardPushBody } from "@/lib/ai-drafts/deep-link"
 import { runStandingOrder } from "@/lib/ai-drafts/standing-order"
-import { loadAIConfig } from "@/lib/ai-console/load-config"
+import { loadAIConfig as loadCachedAIConfig } from "@/lib/ai-console/load-config"
 import { resolveAssistantSettings } from "@/lib/ai-console/settings"
 import { withAssistantName } from "@/lib/ai-console/surface-name"
 
@@ -22,7 +22,7 @@ const supabase = createClient(
 
 /** Configured assistant name (30s cached; defaults on any read error). */
 async function getAssistantName(): Promise<string> {
-  try { return resolveAssistantSettings(await loadAIConfig(supabase)).name } catch { return resolveAssistantSettings(null).name }
+  try { return resolveAssistantSettings(await loadCachedAIConfig(supabase)).name } catch { return resolveAssistantSettings(null).name }
 }
 
 function getBaseUrl(): string {

@@ -4,7 +4,7 @@ import {
   GraduationCap, Send, ShieldAlert, Code2, Tag, Banknote, Lightbulb, Wifi, Trophy, MessageSquareText,
   Lock, Download, ArrowRightLeft, RotateCcw, CreditCard, BadgeCheck, Crown,
   Signal, ClipboardCheck, Percent, Phone, PhoneOff, SmartphoneNfc, MessageCircle,
-  Hash, MessageSquare, BookOpen, Shield, Gauge, Clock, Globe, HandCoins, Ban, Receipt, ShieldCheck,
+  Hash, MessageSquare, Shield, Gauge, Clock, Globe, HandCoins, Ban, Receipt, ShieldCheck,
   type LucideIcon,
 } from "lucide-react"
 import { isPathAllowedForService, isPageHidden, type DomainService } from "./custom-domains"
@@ -180,8 +180,7 @@ export const adminNavItems: readonly AdminNavItem[] = [
   { href: "/admin/sms-centre", label: "SMS Centre", icon: Send, group: "admin-channels" },
   { href: "/admin/sms-health", label: "SMS Health", icon: Activity, group: "admin-channels" },
 
-  { href: "/admin/ai-settings", label: "AI Settings", icon: Sparkles, group: "admin-ai" },
-  { href: "/admin/ai-knowledge", label: "AI Knowledge", icon: BookOpen, group: "admin-ai" },
+  { href: "/admin/ai-assistant", label: "AI Assistant", icon: Sparkles, group: "admin-ai" },
 
   { href: "/admin/settings", label: "Settings", icon: Settings, group: "admin-system" },
   { href: "/admin/security", label: "Security", icon: Shield, group: "admin-system" },
