@@ -189,7 +189,12 @@ export function draftCardView(state: CardViewState, nowMs: number): CardView {
         ...view,
         variant: "succeeded",
         lines: [...lines, ...extra],
-        message: replay || o.alreadyPlaced === true || o.alreadyApplied === true ? "Already done. This was completed before." : "Done.",
+        message:
+          str(o.code) === "scheduled"
+            ? "Scheduled. It will run automatically; no order was placed yet."
+            : replay || o.alreadyPlaced === true || o.alreadyApplied === true
+              ? "Already done. This was completed before."
+              : "Done.",
       }
     }
     case "partial": {

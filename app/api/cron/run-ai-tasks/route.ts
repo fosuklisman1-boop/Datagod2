@@ -7,6 +7,9 @@ import { sendPushToUser } from "@/lib/push-service"
 import { sendSMS } from "@/lib/sms-service"
 import { sendEmail } from "@/lib/email-service"
 import type { AIChatContext } from "@/lib/ai-tools"
+import { computeNextRun } from "@/lib/ai-scheduled/next-run"
+import { withoutPrepareTools } from "@/lib/ai-scheduled/tools"
+import { runStandingOrder } from "@/lib/ai-drafts/standing-order"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,48 +20,6 @@ function getBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
   return "http://localhost:3000"
-}
-
-// ─── computeNextRun ───────────────────────────────────────────────────────────
-
-function computeNextRun(task: {
-  schedule_type: string
-  run_at_time?: string | null
-  run_on_days?: number[] | null
-  run_at_timestamp?: string | null
-}): Date {
-  const now = new Date()
-
-  if (task.schedule_type === "once") {
-    return task.run_at_timestamp ? new Date(task.run_at_timestamp) : now
-  }
-
-  if (task.schedule_type === "hourly") {
-    const next = new Date(now)
-    next.setUTCMinutes(0, 0, 0)
-    next.setUTCHours(next.getUTCHours() + 1)
-    return next
-  }
-
-  if (task.schedule_type === "daily" && task.run_at_time) {
-    const [hh, mm] = task.run_at_time.split(":").map(Number)
-    const candidate = new Date(now)
-    candidate.setUTCHours(hh, mm, 0, 0)
-    if (candidate <= now) candidate.setUTCDate(candidate.getUTCDate() + 1)
-    return candidate
-  }
-
-  if (task.schedule_type === "weekly" && task.run_at_time && task.run_on_days?.length) {
-    const [hh, mm] = task.run_at_time.split(":").map(Number)
-    for (let offset = 1; offset <= 7; offset++) {
-      const candidate = new Date(now)
-      candidate.setUTCDate(candidate.getUTCDate() + offset)
-      candidate.setUTCHours(hh, mm, 0, 0)
-      if (task.run_on_days.includes(candidate.getUTCDay())) return candidate
-    }
-  }
-
-  return new Date(now.getTime() + 60 * 60 * 1000)
 }
 
 // ─── System prompts for cron execution ───────────────────────────────────────
@@ -132,6 +93,87 @@ async function notifyTaskResult(
   }
 }
 
+// ─── Standing orders (no model) ───────────────────────────────────────────────
+
+const MAX_CONSECUTIVE_SKIPS = 3
+
+const SKIP_TEXT: Record<string, string> = {
+  above_cap: "the price is now above the limit you approved",
+  package_unavailable: "the package is not available right now",
+  insufficient_balance: "your wallet balance is too low",
+  prices_unavailable: "prices could not be loaded",
+  check_unavailable: "a safety check could not be completed",
+}
+
+async function notifyPushOnly(userId: string, body: string) {
+  try { await sendPushToUser(userId, { title: "DATAGOD AI", body: body.slice(0, 180) }) } catch {}
+}
+
+async function processStandingOrder(
+  task: {
+    id: string
+    name: string
+    user_id: string
+    schedule_type: string
+    run_at_time?: string | null
+    run_on_days?: number[] | null
+    run_at_timestamp?: string | null
+    notify_channels: string[]
+    next_run_at: string
+    approved_draft_id: string | null
+    standing_order: Record<string, unknown> | null
+    consecutive_skips?: number | null
+  },
+  cronSecret: string,
+  baseUrl: string
+) {
+  let outcome: Awaited<ReturnType<typeof runStandingOrder>>
+  try {
+    outcome = await runStandingOrder(supabase, task as Parameters<typeof runStandingOrder>[1], { baseUrl, cronSecret })
+  } catch {
+    // One attempt only: a thrown error is reported like a failed purchase and never retried in this run.
+    outcome = { result: "failed", reason: "error" }
+  }
+
+  const advance: Record<string, unknown> = { next_run_at: computeNextRun(task).toISOString() }
+  if (task.schedule_type === "once") advance.is_active = false
+
+  if (outcome.result === "ordered") {
+    const text = outcome.orderCode ? `Order placed. Code ${outcome.orderCode}.` : "Order placed."
+    await supabase.from("ai_scheduled_tasks").update({ ...advance, consecutive_skips: 0, last_result: text, last_success: true }).eq("id", task.id)
+    await notifyTaskResult(task, text, true)
+    return
+  }
+
+  if (outcome.result === "skipped") {
+    const skips = (task.consecutive_skips ?? 0) + 1
+    const pausing = skips >= MAX_CONSECUTIVE_SKIPS
+    const why = SKIP_TEXT[outcome.reason] ?? "it could not run"
+    const text = pausing
+      ? `Skipped (${why}). Paused after ${MAX_CONSECUTIVE_SKIPS} skipped runs in a row.`
+      : `Skipped this time: ${why}. No order was placed.`
+    await supabase
+      .from("ai_scheduled_tasks")
+      .update({ ...advance, consecutive_skips: skips, last_result: text, ...(pausing ? { is_active: false } : {}) })
+      .eq("id", task.id)
+    // Info push only: a skip is not a failure, so no SMS.
+    await notifyPushOnly(task.user_id, `${task.name}: ${text}`)
+    return
+  }
+
+  if (outcome.result === "paused") {
+    const text = "Your scheduled order was paused for a safety check"
+    await supabase.from("ai_scheduled_tasks").update({ is_active: false, last_result: text, last_success: false }).eq("id", task.id)
+    await notifyPushOnly(task.user_id, `${task.name}: ${text}.`)
+    return
+  }
+
+  // Purchase failed (non-2xx other than 402, or no answer): the existing failure path, which adds SMS.
+  const text = `Task failed: the order could not be placed (${outcome.reason}).`
+  await supabase.from("ai_scheduled_tasks").update({ ...advance, last_result: text, last_success: false }).eq("id", task.id)
+  await notifyTaskResult(task, text, false)
+}
+
 // ─── Load AI config from DB (same as chat route) ─────────────────────────────
 
 async function loadAIConfig(): Promise<AIProviderConfig> {
@@ -181,7 +223,7 @@ export async function GET(request: NextRequest) {
     // Fetch all due tasks in one query
     const { data: tasks, error: fetchError } = await supabase
       .from("ai_scheduled_tasks")
-      .select("id, name, prompt, context, user_id, user_role, schedule_type, run_at_time, run_on_days, run_at_timestamp, notify_channels")
+      .select("id, name, prompt, context, user_id, user_role, schedule_type, run_at_time, run_on_days, run_at_timestamp, notify_channels, next_run_at, standing_order, approved_draft_id, consecutive_skips")
       .lte("next_run_at", now)
       .eq("is_active", true)
 
@@ -210,6 +252,17 @@ export async function GET(request: NextRequest) {
         .from("ai_scheduled_tasks")
         .update({ last_run_at: runAt })
         .eq("id", task.id)
+
+      // A standing order runs WITHOUT the model: it can only ever do the one purchase the user approved.
+      if (task.standing_order) {
+        try {
+          await processStandingOrder(task as Parameters<typeof processStandingOrder>[0], cronSecret, baseUrl)
+        } catch {
+          console.error("[CRON-AI-TASKS] standing order run errored")
+        }
+        processed++
+        continue
+      }
 
       let resultText = ""
       let success = false
@@ -250,6 +303,9 @@ export async function GET(request: NextRequest) {
             baseUrl,
           },
           maxIterations: 8,
+          // Nobody is present to tap a confirm card, so a dashboard run never gets a prepare_* tool.
+          // (Admin runs are handled separately; the helper is reusable for them.)
+          ...(effectiveContext === "dashboard" ? { toolFilter: withoutPrepareTools } : {}),
           // No onEvent — silent execution
         })
 

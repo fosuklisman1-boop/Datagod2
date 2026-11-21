@@ -3,6 +3,7 @@ import type { AiDraft } from "./types"
 import { recordProgress } from "./repo"
 import { resolveBulkStatusIds, type BulkStatusFilters, type BulkStatusIds } from "./bulk-status-ids"
 import { walletOrderPrice } from "@/lib/pricing/wallet-order-price"
+import { createStandingOrderTask } from "./standing-order"
 
 // Runs a confirmed draft by calling the SAME endpoint the normal UI uses, with the caller's own JWT. This is the
 // money path: every branch maps the endpoint's answer to exactly one terminal status, and anything ambiguous
@@ -213,8 +214,21 @@ export async function executeDraft(draft: AiDraft, call: ExecCall): Promise<Exec
 }
 
 async function executeWalletOrder(draft: AiDraft, p: Record<string, any>, call: ExecCall): Promise<ExecResult> {
-  // Scheduled orders are not executable yet (a later task replaces this branch). No endpoint is called.
-  if (p.schedule) return { status: "failed", outcome: { code: "schedule_not_supported" } }
+  // A scheduled order is a standing order: confirming creates the task row and places NO order. This runs after
+  // revalidateDraft re-quoted the price, so the cap stored on the task is the freshly confirmed price. The cron then
+  // runs it without the model (see standing-order.ts). Needs the service-role client: the standing-order columns are
+  // refused for client roles by the 0188 guard trigger.
+  if (p.schedule) {
+    if (!call.db) return { status: "failed", outcome: { code: "schedule_unavailable", message: "This order could not be scheduled." } }
+    let made
+    try {
+      made = await createStandingOrderTask(call.db, draft)
+    } catch {
+      made = { ok: false as const }
+    }
+    if (!made.ok) return { status: "failed", outcome: { code: "schedule_failed", message: "This order could not be scheduled." } }
+    return { status: "succeeded", outcome: { code: "scheduled", task_id: made.taskId, next_run_at: made.nextRunAt } }
+  }
 
   const r = await post(call, "/api/orders/purchase", {
     packageId: p.packageId,

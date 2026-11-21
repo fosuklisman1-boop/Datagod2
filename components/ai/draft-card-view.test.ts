@@ -108,6 +108,12 @@ describe("draftCardView", () => {
     expect(v.showConfirm).toBe(false)
   })
 
+  it("scheduled success says it will run, not Done", () => {
+    const v = view({ status: "succeeded", outcome: { code: "scheduled", task_id: "t", next_run_at: "2026-11-22T08:00:00.000Z" } })
+    expect(v.variant).toBe("succeeded")
+    expect(v.message).toMatch(/Scheduled/)
+  })
+
   it("still_checking keeps Check again", () => {
     const v = view({ status: "unknown", outcome: { code: "still_checking" } })
     expect(v.message).toBe("Still checking. Try again in a few minutes.")

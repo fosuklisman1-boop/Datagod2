@@ -33,6 +33,8 @@ export interface RunAgenticLoopParams {
   maxTokens?: number
   /** Called for each SSE-style event (text, tool_call, action_buttons, etc.) — omit for silent/cron runs */
   onEvent?: (event: Record<string, unknown>) => void
+  /** Narrows the tool list the model sees (cron runs drop every prepare_* tool). A call to a dropped tool is refused. */
+  toolFilter?: (tools: Anthropic.Tool[]) => Anthropic.Tool[]
 }
 
 export interface AgenticLoopResult {
@@ -55,9 +57,12 @@ export async function runAgenticLoop({
   maxIterations = 10,
   maxTokens = 1500,
   onEvent,
+  toolFilter,
 }: RunAgenticLoopParams): Promise<AgenticLoopResult> {
   const emit = onEvent ?? (() => {})
-  const tools = aiTools(context, storefrontServices)
+  const allTools = aiTools(context, storefrontServices)
+  const tools = toolFilter ? toolFilter(allTools) : allTools
+  const allowedNames = new Set(tools.map((t) => t.name))
   const currentMessages: Anthropic.MessageParam[] = [...messages]
   const toolsUsed: string[] = []
   let finalText = ""
@@ -91,7 +96,10 @@ export async function runAgenticLoop({
         toolsUsed.push(tc.name)
         emit({ type: "tool_call", tool: tc.name })
 
-        const result = await executeToolCall(tc.name, tc.input, toolCtx)
+        // A filtered run never executes a tool it was not offered (a model can name one anyway).
+        const result = toolFilter && !allowedNames.has(tc.name)
+          ? { error: "This tool is not available in this run." }
+          : await executeToolCall(tc.name, tc.input, toolCtx)
 
         if (tc.name === "prepare_checkout") {
           emit({ type: "checkout_prefill", data: result })

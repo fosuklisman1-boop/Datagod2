@@ -26,15 +26,21 @@ function fakeDb(tables: Record<string, Row[]>) {
       if (!tables[table]) tables[table] = []
       const rows = tables[table]
       const filters: Array<(r: Row) => boolean> = []
-      let op: "select" | "update" = "select"
+      let op: "select" | "update" | "insert" = "select"
       let patch: Row = {}
+      let inserted: Row | null = null
       const run = () => {
+        if (op === "insert") {
+          rows.push(inserted!)
+          return { data: [{ ...inserted! }], error: null as any }
+        }
         let matched = rows.filter((r) => filters.every((f) => f(r)))
         if (op === "update") matched.forEach((r) => Object.assign(r, patch))
         return { data: matched.map((r) => ({ ...r })), error: null as any }
       }
       const b: any = {
         update(p: Row) { op = "update"; patch = p; return b },
+        insert(p: Row) { op = "insert"; inserted = { id: `task-${rows.length + 1}`, ...p }; return b },
         select() { return b },
         eq(c: string, v: unknown) { filters.push((r) => r[c] === v); return b },
         is(c: string, v: unknown) { filters.push((r) => r[c] === v); return b },
@@ -517,11 +523,28 @@ describe("executeDraft mapping", () => {
     expect(out.outcome).toMatchObject({ code: "endpoint_error" })
   })
 
-  it("schedule_not_supported calls no endpoint (R5)", async () => {
+  it("confirm_with_schedule_creates_task_not_order", async () => {
+    const f = vi.fn()
+    const db = fakeDb(baseTables({ ai_scheduled_tasks: [] }))
+    const d = draftRow({ status: "executing", params: { ...orderParams, schedule: { type: "daily", runAtTime: "08:00" } } }) as any
+    const out = await executeDraft(d, { baseUrl: "https://app.test", jwt: "j", fetchImpl: f, db })
+    expect(f).not.toHaveBeenCalled() // no order placed at confirm
+    expect(out.status).toBe("succeeded")
+    expect(out.outcome).toMatchObject({ code: "scheduled" })
+    expect(typeof out.outcome.task_id).toBe("string")
+    expect(Number.isFinite(Date.parse(String(out.outcome.next_run_at)))).toBe(true)
+    const row = db.tables.ai_scheduled_tasks[0]
+    expect(row).toMatchObject({
+      user_id: USER, approved_draft_id: DRAFT, is_active: true,
+      standing_order: { package_id: PKG, network: "mtn", size: "1GB", recipient: "0241234567", max_price_ghs: 5 },
+    })
+  })
+
+  it("a scheduled confirm without a db fails closed and places nothing", async () => {
     const f = vi.fn()
     const d = draftRow({ status: "executing", params: { ...orderParams, schedule: { type: "daily", runAtTime: "08:00" } } }) as any
     const out = await executeDraft(d, { baseUrl: "https://app.test", jwt: "j", fetchImpl: f })
-    expect(out).toEqual({ status: "failed", outcome: { code: "schedule_not_supported" } })
+    expect(out.status).toBe("failed")
     expect(f).not.toHaveBeenCalled()
   })
 })
