@@ -35,6 +35,7 @@ const BATCH_A = new Set(
     "leaderboard-refresh",
     "sub-agent-price-reminders", // overlap-safe: each reminder stage is claimed atomically before sending
     "delete-old-complaints", // daily 90-day retention sweep; re-running is harmless (selects only expired rows)
+    "ai-conversations-retention", // daily 30-day transcript sweep; re-running is harmless (selects only expired rows)
   ].map((n) => P + n),
 )
 

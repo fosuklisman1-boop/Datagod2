@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { createClient } from "@supabase/supabase-js"
 import { shopHandleOrFilter } from "@/lib/shop-handle"
-import { NextRequest } from "next/server"
+import { after, NextRequest } from "next/server"
+import { recordTurn, type FlagReason } from "@/lib/ai-console/transcripts"
 import { AIChatContext } from "@/lib/ai-tools"
 import { applyRateLimit } from "@/lib/rate-limiter"
 import { RATE_LIMITS } from "@/lib/rate-limit-config"
@@ -198,6 +199,9 @@ export async function POST(req: NextRequest) {
   // Runs BEFORE the card-results prepend below, which targets the last user message.
   const messages: Anthropic.MessageParam[] = normaliseAndRestrip(cleanedHistory)
   if (messages.length === 0) return fixedTextStream("Please send a message.")
+  // The user's own words for the transcript, taken BEFORE the server-built card-results note is prepended below.
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")
+  const transcriptUserText = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : ""
 
   const [aiConfig, ussdDialCode, guestPurchaseUrl, communityLink] = await Promise.all([loadAIConfig(supabaseAdmin), loadUssdDialCode(), loadGuestPurchaseUrl(), loadCommunityLink()])
   const channelNote = communityLink
@@ -452,6 +456,33 @@ export async function POST(req: NextRequest) {
       )
   }
 
+  // ── Transcript capture (redacted; after the response, never delays or breaks the chat) ──
+  // The final assistant text is only known when the stream ends, so the after() task awaits a promise the stream
+  // resolves in its finally. A missing conversationKey (guest widgets that predate keys) gets a fresh one per request.
+  let streamText = ""
+  let streamErrored = false
+  let markStreamDone: () => void = () => {}
+  const streamDone = new Promise<void>((resolve) => { markStreamDone = resolve })
+  const transcriptKey = conversationKey ?? crypto.randomUUID()
+  const captureTranscript = async () => {
+    await streamDone
+    const extraReasons: FlagReason[] = streamErrored ? ["error"] : []
+    await recordTurn(supabaseAdmin, {
+      conversationKey: transcriptKey,
+      context: context as "home" | "storefront" | "dashboard" | "admin",
+      userId: userId ?? null,
+      shopId: shopId ?? null,
+      userText: transcriptUserText,
+      assistantText: streamText,
+      extraReasons,
+    })
+  }
+  try {
+    after(captureTranscript)
+  } catch {
+    void captureTranscript() // outside a request scope (tests): a plain un-awaited promise; recordTurn never throws
+  }
+
   // ── Streaming SSE response ────────────────────────────────────────────────
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
@@ -483,7 +514,10 @@ export async function POST(req: NextRequest) {
             : undefined,
           maxTokens: context === "admin" ? 2048 : 1500,
           maxIterations: maxIterationsFor(context, assistantSettings),
-          onEvent: send,
+          onEvent: (e: Record<string, unknown>) => {
+            if (e.type === "text" && typeof e.content === "string") streamText += e.content
+            send(e)
+          },
         })
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -514,8 +548,11 @@ export async function POST(req: NextRequest) {
         } else if (status && status >= 500) {
           msg = "The AI service is temporarily unavailable. Please try again shortly."
         }
+        streamErrored = true
+        if (!streamText) streamText = msg
         send({ type: "error", content: msg })
       } finally {
+        markStreamDone()
         controller.close()
       }
     },

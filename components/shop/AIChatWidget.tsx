@@ -10,6 +10,7 @@ import { whatsappHref } from "@/lib/ai-chat-ui/handoff"
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
 import { widgetVisible, isAssistantOffResponse, ASSISTANT_OFF_MESSAGE } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
+import { newConversationKey, pingConversationEvent } from "@/lib/ai-chat-ui/conversation-events"
 import { safeLoad, safeSave, safeClear, trimHistory } from "@/lib/ai-chat-ui/history"
 
 interface Message {
@@ -210,6 +211,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
     setMessages([])
     setActionButtons(null)
     safeClear(getStorage(), STORAGE_KEY(shopSlug))
+    conversationKeyRef.current = newConversationKey()
   }
 
   function retryLast() {
@@ -220,6 +222,9 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
   }
 
   const sendingRef = useRef(false)
+  // One key per chat session; the server groups this chat's transcript turns under it.
+  const conversationKeyRef = useRef<string | null>(null)
+  if (conversationKeyRef.current === null) conversationKeyRef.current = newConversationKey()
 
   const sendMessageInner = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
     const text = (overrideText ?? "").trim()
@@ -244,7 +249,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
         signal: ctrl.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, context: "storefront", shopSlug }),
+        body: JSON.stringify({ messages: history, context: "storefront", shopSlug, ...(conversationKeyRef.current ? { conversationKey: conversationKeyRef.current } : {}) }),
       })
 
       if (!res.ok && (await isAssistantOffResponse(res))) {
@@ -296,6 +301,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
       setMessages(finalMessages)
       persist(finalMessages)
     } catch {
+      pingConversationEvent(conversationKeyRef.current, "error")
       const errMessages = [...nextMessages, { role: "assistant" as const, content: "Something went wrong.", timestamp: Date.now(), isError: true }]
       setMessages(errMessages)
       persist(errMessages)
@@ -346,7 +352,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
               <p className="text-primary-foreground opacity-90 text-xs">AI Assistant</p>
             </div>
             <div className="flex items-center gap-2">
-              <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
+              <HandoffButton mode="whatsapp" messages={messages} conversationKey={conversationKeyRef.current} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
@@ -380,7 +386,7 @@ export function AIChatWidget({ shop, shopSlug, onCheckoutPrefill, whatsappLink }
                         <p>{msg.content}</p>
                         <div className="mt-2 flex flex-wrap items-center gap-3">
                           <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>
-                          <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} />
+                          <HandoffButton mode="whatsapp" messages={messages} conversationKey={conversationKeyRef.current} whatsappNumber={whatsapp} />
                         </div>
                       </div>
                     </div>

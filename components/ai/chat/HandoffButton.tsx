@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { pingConversationEvent } from "@/lib/ai-chat-ui/conversation-events"
 import { buildHandoffThreadBody, handoffAvailable, handoffFailureMessage, normaliseHandoffPhone, whatsappHref, type HandoffMessage } from "@/lib/ai-chat-ui/handoff"
 
 interface HandoffButtonProps {
@@ -14,13 +15,15 @@ interface HandoffButtonProps {
   phone?: string | null
   /** Called with how the press ended. */
   onOutcome?: (kind: "thread" | "whatsapp" | "fallback") => void
+  /** The chat's conversation key: pressing the button flags that stored conversation as a handoff (fire-and-forget). */
+  conversationKey?: string | null
   className?: string
   /** Classes for the failure notice (e.g. readable colours inside a coloured header). */
   noticeClassName?: string
   children?: React.ReactNode
 }
 
-export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone, onOutcome, className, noticeClassName, children }: HandoffButtonProps) {
+export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone, onOutcome, conversationKey, className, noticeClassName, children }: HandoffButtonProps) {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState("")
 
@@ -32,6 +35,7 @@ export function HandoffButton({ mode, messages, whatsappNumber, getToken, phone,
   const hasToken = !!getToken
   const onClick = async () => {
     if (busy) return
+    pingConversationEvent(conversationKey, "handoff")
     if (mode === "whatsapp") {
       openWhatsApp()
       onOutcome?.("whatsapp")

@@ -8,6 +8,7 @@ import { ChatWelcome, ChatInput, HandoffButton, MessageText, CopyAnnounceProvide
 import { createIdleTimeout } from "@/lib/ai-chat-ui/idle-timeout"
 import { widgetVisible, isAssistantOffResponse, ASSISTANT_OFF_MESSAGE } from "@/lib/ai-chat-ui/widget-visibility"
 import { followupsFor } from "@/lib/ai-chat-ui/suggestions"
+import { newConversationKey, pingConversationEvent } from "@/lib/ai-chat-ui/conversation-events"
 import { historyKey, safeClear, safeLoad, safeSave, trimHistory } from "@/lib/ai-chat-ui/history"
 
 interface Message {
@@ -88,6 +89,7 @@ export function HomeAIChatWidget() {
     setMessages([])
     setActionButtons(null)
     safeClear(getStorage(), HISTORY_KEY)
+    conversationKeyRef.current = newConversationKey()
   }
 
   function retryLast() {
@@ -152,6 +154,9 @@ export function HomeAIChatWidget() {
   }
 
   const sendingRef = useRef(false)
+  // One key per chat session; the server groups this chat's transcript turns under it.
+  const conversationKeyRef = useRef<string | null>(null)
+  if (conversationKeyRef.current === null) conversationKeyRef.current = newConversationKey()
 
   const sendMessageInner = useCallback(async (overrideText?: string, baseMessages?: Message[]) => {
     const text = (overrideText ?? "").trim()
@@ -175,7 +180,7 @@ export function HomeAIChatWidget() {
         signal: ctrl.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, context: "home" }),
+        body: JSON.stringify({ messages: history, context: "home", ...(conversationKeyRef.current ? { conversationKey: conversationKeyRef.current } : {}) }),
       })
 
       if (!res.ok && (await isAssistantOffResponse(res))) {
@@ -220,6 +225,7 @@ export function HomeAIChatWidget() {
       const finalText = assistantText || "Sorry, I couldn't get a response. Please try again."
       setMessages(prev => [...prev, { role: "assistant", content: finalText, timestamp: Date.now(), ...(streamError ? { isError: true } : {}) }])
     } catch {
+      pingConversationEvent(conversationKeyRef.current, "error")
       setMessages(prev => [...prev, { role: "assistant", content: "Something went wrong.", timestamp: Date.now(), isError: true }])
     } finally {
       idle.clear()
@@ -253,7 +259,7 @@ export function HomeAIChatWidget() {
               <p className="text-primary-foreground opacity-90 text-xs">Your AI receptionist</p>
             </div>
             <div className="flex items-center gap-3">
-              <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
+              <HandoffButton mode="whatsapp" messages={messages} conversationKey={conversationKeyRef.current} whatsappNumber={whatsapp} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground" />
               {messages.length > 0 && (
                 <button onClick={newChat} disabled={isStreaming} className="text-xs font-medium text-primary-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground disabled:opacity-50">New chat</button>
               )}
@@ -286,7 +292,7 @@ export function HomeAIChatWidget() {
                   {msg.isError && (
                     <div className="mt-2 flex flex-wrap items-center gap-3">
                       <button onClick={retryLast} disabled={isStreaming} className="text-xs font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50">Try again</button>
-                      <HandoffButton mode="whatsapp" messages={messages} whatsappNumber={whatsapp} />
+                      <HandoffButton mode="whatsapp" messages={messages} conversationKey={conversationKeyRef.current} whatsappNumber={whatsapp} />
                     </div>
                   )}
                 </div>

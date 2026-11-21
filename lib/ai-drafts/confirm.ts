@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { flagCardFailure } from "@/lib/ai-console/transcripts"
 import { claimDraft, expireIfDue, finishDraft, getOwnDraft, recoverStaleExecuting } from "./repo"
 import type { AiDraft, DraftStatus } from "./types"
 import {
@@ -119,7 +120,9 @@ async function safeFinish(db: SupabaseClient, id: string, status: DraftStatus, o
     await finishDraft(db, id, status, outcome, from)
   } catch {
     console.error("ai_drafts: could not record outcome", { status })
+    return
   }
+  await flagCardFailure(db, id, status) // failed / unknown cards flag the chat for review; never throws
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -298,6 +301,7 @@ export async function recheckDraft(db: SupabaseClient, id: string, caller: Confi
 
   try {
     await finishDraft(db, id, result.status, result.outcome, "unknown")
+    await flagCardFailure(db, id, result.status)
   } catch {
     // A concurrent recheck already settled it: report the row as it is now.
     const now = await getOwnDraft(db, id, caller.userId)
