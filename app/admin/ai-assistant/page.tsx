@@ -8,13 +8,11 @@ import { PageHeaderBanner } from "@/components/shared/page-header-banner"
 import { parseTab, type ConsoleTab } from "@/lib/ai-console/engine"
 import { SettingsTab } from "./_components/settings-tab"
 import { KnowledgeTab } from "./_components/knowledge-tab"
+import { ConversationsTab } from "./_components/conversations-tab"
+import { FlagsTab } from "./_components/flags-tab"
 
 const TAB_LABELS: Record<ConsoleTab, string> = {
   settings: "Settings", knowledge: "Knowledge", conversations: "Conversations", flags: "Flags",
-}
-
-function Placeholder({ name }: { name: string }) {
-  return <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted-foreground">{name}: coming next.</div>
 }
 
 function Console() {
@@ -40,8 +38,8 @@ function Console() {
       </nav>
       {tab === "settings" && <SettingsTab />}
       {tab === "knowledge" && <KnowledgeTab />}
-      {tab === "conversations" && <Placeholder name="Conversations" />}
-      {tab === "flags" && <Placeholder name="Flags" />}
+      {tab === "conversations" && <ConversationsTab />}
+      {tab === "flags" && <FlagsTab />}
     </div>
   )
 }
