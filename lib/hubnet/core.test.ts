@@ -182,3 +182,21 @@ describe("normalizeRefunds", () => {
     expect(normalizeRefunds([1, null, "a"])).toEqual([])
   })
 })
+
+describe("classifyStatusReply envelope status (I3)", () => {
+  it("envelope success with unrecognised nested key is unknown", () => {
+    expect(classifyStatusReply(200, { status: "success", data: { deliveryStatus: "pending" } })).toEqual({ kind: "unknown" })
+  })
+  it("envelope success with null data is unknown", () => {
+    expect(classifyStatusReply(200, { status: "success", data: null })).toEqual({ kind: "unknown" })
+  })
+  it("envelope success alone is unknown", () => {
+    expect(classifyStatusReply(200, { status: "success" })).toEqual({ kind: "unknown" })
+  })
+  it("nested data.status success is completed", () => {
+    expect(classifyStatusReply(200, { data: { status: "success" } })).toMatchObject({ kind: "found", status: "completed" })
+  })
+  it("top-level delivery_status delivered is completed", () => {
+    expect(classifyStatusReply(200, { delivery_status: "delivered" })).toMatchObject({ kind: "found", status: "completed" })
+  })
+})

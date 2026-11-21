@@ -78,7 +78,9 @@ function primaryStatusWord(body: Record<string, unknown>): string | undefined {
     const nested = pick(body.data, ["delivery_status", "transaction_status", "status"])
     if (nested) return nested
   }
-  return pick(body, ["delivery_status", "status"])
+  // The top-level `status` is the API envelope ("success" = the call worked), never a
+  // delivery state, so it is deliberately not read here.
+  return pick(body, ["delivery_status"])
 }
 
 export function isHubnetRefunded(body: unknown): boolean {
@@ -108,7 +110,10 @@ export function classifyStatusReply(httpStatus: number, body: unknown): StatusLo
   // Refund signal (anywhere) wins. Otherwise the nested data status is the
   // delivery state; a top-level word is only an API-call status, so it is used
   // only when data carries none. Never upgrade to completed from a lesser source.
-  const status: HubnetStatus = refunded ? "failed" : mapHubnetStatus(primaryStatusWord(body))
+  const primary = primaryStatusWord(body)
+  // Envelope-only (no delivery word and no refund signal) proves nothing: never complete from it.
+  if (!refunded && primary === undefined) return { kind: "unknown" }
+  const status: HubnetStatus = refunded ? "failed" : mapHubnetStatus(primary)
   const result: StatusLookup = { kind: "found", status, refunded, raw: body }
   const amt = isObj(body.data) && body.data.amount !== undefined ? body.data.amount : body.amount
   const n = typeof amt === "string" && amt.trim() !== "" ? Number(amt) : amt
