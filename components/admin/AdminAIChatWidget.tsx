@@ -6,7 +6,9 @@ import ReactMarkdown from "react-markdown"
 import { supabase } from "@/lib/supabase"
 import { ChatMessage } from "@/components/ui/chat-message"
 import { useDraggableFloatingPosition } from "@/hooks/use-draggable-floating-position"
+import { usePathname, useRouter } from "next/navigation"
 import { DraftCard } from "@/components/ai/DraftCard"
+import { parseDraftParam } from "@/lib/ai-drafts/deep-link"
 
 interface CardData {
   draftId: string
@@ -56,6 +58,37 @@ const mdComponents = {
 
 export function AdminAIChatWidget() {
   const [isOpen, setIsOpen] = useState(false)
+  const router = useRouter()
+  const pathname = usePathname()
+  // A card opened from a push notification (?draft=<uuid>). The GET route is owner-scoped, so a non-owned id is "not found".
+  const [linkedCard, setLinkedCard] = useState<{ id: string; card: CardData | null; missing: boolean } | null>(null)
+
+  useEffect(() => {
+    const id = parseDraftParam(window.location.search)
+    if (!id) return
+    setIsOpen(true)
+    setLinkedCard({ id, card: null, missing: false })
+    // Drop the param so a refresh does not re-open the card.
+    const params = new URLSearchParams(window.location.search)
+    params.delete("draft")
+    const qs = params.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname)
+    let cancelled = false
+    ;(async () => {
+      try {
+        const token = await getAccessToken()
+        const res = await fetch(`/api/ai/drafts/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+        if (cancelled) return
+        if (!res.ok) return setLinkedCard({ id, card: null, missing: true })
+        const s = await res.json()
+        setLinkedCard({ id, card: { draftId: id, display: s.display, expires_at: s.expires_at }, missing: false })
+      } catch {
+        if (!cancelled) setLinkedCard({ id, card: null, missing: true })
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
@@ -295,6 +328,22 @@ export function AdminAIChatWidget() {
 
           <div className="flex-1 relative overflow-hidden">
             <div ref={scrollContainerRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4 space-y-3 bg-transparent">
+              {linkedCard && (
+                <div className="space-y-2">
+                  {linkedCard.card ? (
+                    <DraftCard
+                      key={linkedCard.id}
+                      draftId={linkedCard.id}
+                      initial={{ display: linkedCard.card.display, expires_at: linkedCard.card.expires_at }}
+                      getToken={getAccessToken}
+                    />
+                  ) : linkedCard.missing ? (
+                    <p className="text-sm text-muted-foreground">This card is no longer available.</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Loading card…</p>
+                  )}
+                </div>
+              )}
               {messages.map((msg, i) => (
                 <div key={i} className="space-y-2">
                   <ChatMessage role={msg.role} content={msg.content} variant="dark" />

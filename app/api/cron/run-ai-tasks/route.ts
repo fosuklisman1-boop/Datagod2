@@ -8,7 +8,8 @@ import { sendSMS } from "@/lib/sms-service"
 import { sendEmail } from "@/lib/email-service"
 import type { AIChatContext } from "@/lib/ai-tools"
 import { computeNextRun } from "@/lib/ai-scheduled/next-run"
-import { withoutPrepareTools } from "@/lib/ai-scheduled/tools"
+import { withoutPrepareTools, adminBackgroundTools } from "@/lib/ai-scheduled/tools"
+import { cardPushBody } from "@/lib/ai-drafts/deep-link"
 import { runStandingOrder } from "@/lib/ai-drafts/standing-order"
 
 const supabase = createClient(
@@ -32,7 +33,8 @@ function buildCronSystemPrompt(context: AIChatContext, today: string): string {
 Execute the task in the prompt directly and efficiently. Report what you did and the outcome in 1-3 sentences.
 ORDER TABLES: orders (dealer wallet), shop_orders (Paystack), ussd_orders, ussd_shop_orders, api_orders.
 You cannot change order statuses, wallets, withdrawals, roles or suspensions yourself; scheduled tasks can only report what needs doing.
-Do not ask for confirmation — this is automated execution. Act on exactly what the prompt says, using the read and report tools you have.
+You are running in the background with nobody watching. You cannot perform actions; use the prepare_* tools to prepare cards — the admin will confirm them later from a notification.
+Do not ask for confirmation — this is automated execution. Act on exactly what the prompt says, using the read and prepare tools you have.
 ${reminderRule}`
   }
   return `You are the Datagod AI running a scheduled task for a user. Today is ${today} (GMT+0).
@@ -90,6 +92,33 @@ async function notifyTaskResult(
         skipLogging: true,
       })
     } catch {}
+  }
+}
+
+// ─── Admin background runs: one push per prepared card ───────────────────────
+
+/** Pushes one "confirm me" notification per pending draft this run created. Never throws; returns the card count. */
+async function notifyPreparedCards(userId: string, conversationKey: string): Promise<number> {
+  try {
+    const { data } = await supabase
+      .from("ai_drafts")
+      .select("id, display")
+      .eq("user_id", userId)
+      .eq("conversation_key", conversationKey)
+      .eq("status", "pending")
+    const drafts = (data ?? []) as Array<{ id: string; display: Record<string, unknown> | null }>
+    for (const d of drafts) {
+      try {
+        await sendPushToUser(userId, {
+          title: "Action needs your confirmation",
+          body: cardPushBody(d.display),
+          data: { url: `/admin?draft=${d.id}` },
+        })
+      } catch {}
+    }
+    return drafts.length
+  } catch {
+    return 0
   }
 }
 
@@ -295,6 +324,10 @@ export async function GET(request: NextRequest) {
         const systemPrompt = buildCronSystemPrompt(effectiveContext, today)
         const { provider, model } = resolveProviderForContext(effectiveContext, aiConfig)
 
+        // Admin runs only PREPARE cards: a fresh key per run so a run's drafts supersede each other, never the admin's live chat.
+        const isAdminRun = effectiveContext === "admin"
+        const runKey = isAdminRun ? crypto.randomUUID() : undefined
+
         const result = await runAgenticLoop({
           provider,
           model,
@@ -306,16 +339,22 @@ export async function GET(request: NextRequest) {
             jwtToken: cronSecret,
             userRole: effectiveRole,
             baseUrl,
+            ...(isAdminRun ? { background: true, conversationKey: runKey } : {}),
           },
           maxIterations: 8,
-          // Nobody is present to tap a confirm card, so a dashboard run never gets a prepare_* tool.
-          // (Admin runs are handled separately; the helper is reusable for them.)
-          ...(effectiveContext === "dashboard" ? { toolFilter: withoutPrepareTools } : {}),
+          // Nobody is present to tap a confirm card on a dashboard run, so it never gets a prepare_* tool.
+          // Admin runs keep the admin prepare_* tools (the admin confirms later from a push) minus prepare_wallet_order.
+          toolFilter: isAdminRun ? adminBackgroundTools : withoutPrepareTools,
           // No onEvent — silent execution
         })
 
         resultText = result.text || "Task completed (no text output)."
         success = true
+
+        if (isAdminRun && runKey && task.user_id) {
+          const cards = await notifyPreparedCards(task.user_id, runKey)
+          if (cards > 0) resultText = `${resultText} ${cards} card(s) waiting for your confirmation.`
+        }
       } catch (err) {
         resultText = `Task failed: ${friendlyError(err)}`
         success = false

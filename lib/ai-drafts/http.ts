@@ -68,5 +68,6 @@ export async function limitOrNull(req: NextRequest, endpoint: string, userId: st
 
 /** The stored state of a draft as the card reads it on a plain GET (succeeded/partial keep their own status). */
 export function storedState(d: AiDraft) {
-  return { status: d.status, outcome: d.outcome, display: d.display }
+  // expires_at lets a card opened from a notification link (no prepare-time payload) show its real countdown.
+  return { status: d.status, outcome: d.outcome, display: d.display, expires_at: d.expires_at }
 }

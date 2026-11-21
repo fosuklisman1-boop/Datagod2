@@ -8,3 +8,8 @@ import type Anthropic from "@anthropic-ai/sdk"
 export function withoutPrepareTools(tools: Anthropic.Tool[]): Anthropic.Tool[] {
   return tools.filter((t) => !t.name.startsWith("prepare_"))
 }
+
+/** Admin background runs keep the read tools and the admin prepare_* tools, but not the admin's own wallet order. */
+export function adminBackgroundTools(tools: Anthropic.Tool[]): Anthropic.Tool[] {
+  return tools.filter((t) => t.name !== "prepare_wallet_order")
+}
